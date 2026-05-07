@@ -1,9 +1,24 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
+    --os-accent: #3b82f6;
+    --os-accent-rgb: 59, 130, 246;
+    --os-wallpaper: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+    --os-text-primary: #f8fafc;
+    --os-text-secondary: #94a3b8;
+    --os-text-muted: #64748b;
+    --os-surface: #1e293b;
+    --os-surface-elevated: #334155;
+    --os-border: rgba(255,255,255,0.08);
+    --os-danger: #ef4444;
+    --os-success: #10b981;
+    --os-warning: #f59e0b;
+
     --background: 0 0% 100%;
     --foreground: 240 10% 3.9%;
     --card: 0 0% 100%;
@@ -34,13 +49,11 @@
     --sidebar-ring: 217.2 91.2% 59.8%;
   }
 
-  .dark {
+  .dark, [data-theme="dark"] {
     --background: 240 10% 3.9%;
     --foreground: 0 0% 98%;
     --card: 240 10% 3.9%;
     --card-foreground: 0 0% 98%;
-    --popover: 240 10% 3.9%;
-    --popover-foreground: 0 0% 98%;
     --primary: 0 0% 98%;
     --primary-foreground: 240 5.9% 10%;
     --secondary: 240 3.7% 15.9%;
@@ -63,13 +76,93 @@
     --sidebar-border: 240 3.7% 15.9%;
     --sidebar-ring: 217.2 91.2% 59.8%;
   }
-}
 
-@layer base {
+  [data-theme="light"] {
+    --background: 0 0% 100%;
+    --foreground: 240 10% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 240 10% 3.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 240 10% 3.9%;
+    --primary: 240 5.9% 10%;
+    --primary-foreground: 0 0% 98%;
+    --secondary: 240 4.8% 95.9%;
+    --secondary-foreground: 240 5.9% 10%;
+    --muted: 240 4.8% 95.9%;
+    --muted-foreground: 240 3.8% 46.1%;
+    --accent: 240 4.8% 95.9%;
+    --accent-foreground: 240 5.9% 10%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+    --border: 240 5.9% 90%;
+    --input: 240 5.9% 90%;
+    --ring: 240 5.9% 10%;
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 240 5.9% 10%;
+    --sidebar-primary-foreground: 0 0% 98%;
+    --sidebar-accent: 240 4.8% 95.9%;
+    --sidebar-accent-foreground: 240 5.9% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+
+    --os-text-primary: #0f172a;
+    --os-text-secondary: #475569;
+    --os-text-muted: #64748b;
+    --os-surface: #f1f5f9;
+    --os-surface-elevated: #e2e8f0;
+  }
+
   * {
     @apply border-border;
   }
+
   body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
     @apply bg-background text-foreground;
+    overflow: hidden;
   }
+}
+
+@layer utilities {
+  .text-os-text-primary {
+    color: var(--os-text-primary);
+  }
+  .text-os-text-secondary {
+    color: var(--os-text-secondary);
+  }
+  .text-os-text-muted {
+    color: var(--os-text-muted);
+  }
+  .text-os-accent {
+    color: var(--os-accent);
+  }
+  .bg-os-accent {
+    background-color: var(--os-accent);
+  }
+  .border-os-accent {
+    border-color: var(--os-accent);
+  }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.15);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255,255,255,0.25);
+}
+
+/* Selection */
+::selection {
+  background: rgba(59, 130, 246, 0.3);
+  color: inherit;
 }
