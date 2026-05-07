@@ -15,5 +15,5 @@ export const manifest: AppManifest = {
   singleton: false,
   requiresAuth: false,
   permissions: [],
-  component: lazy(() => import('./index')),
+  component: lazy(() => import('./index')) as unknown as AppManifest['component'],
 };
