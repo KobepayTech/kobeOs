@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
-  Activity, Cpu, HardDrive, Network, X, ChevronUp, ChevronDown,
-  Terminal, Timer, Zap, Trash2, RefreshCw, Settings
+  Activity, Cpu, HardDrive, Network, ChevronUp, ChevronDown,
+  Terminal, Timer, Zap, Trash2, Settings
 } from 'lucide-react';
 
 interface Process {
@@ -63,7 +63,7 @@ function formatUptime(seconds: number): string {
   return `${m}m ${s}s`;
 }
 
-export default function TaskManagerApp({ windowId }: { windowId: string; data?: any }) {
+export default function TaskManagerApp(_props: { windowId: string; data?: any }) {
   const [processes, setProcesses] = useState<Process[]>(makeInitialProcesses);
   const [startup, setStartup] = useState<StartupItem[]>(INITIAL_STARTUP);
   const [cpuHistory, setCpuHistory] = useState<number[]>(Array(60).fill(0));

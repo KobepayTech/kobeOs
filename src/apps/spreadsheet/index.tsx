@@ -34,16 +34,7 @@ function parseCellRef(ref: string): { col: number; row: number } | null {
   return { col, row };
 }
 
-function getCellValue(cells: Map<string, CellData>, ref: string): number {
-  const parsed = parseCellRef(ref);
-  if (!parsed) return 0;
-  const key = `${parsed.col},${parsed.row}`;
-  const cell = cells.get(key);
-  if (!cell) return 0;
-  const val = cell.formula ? evaluateFormula(cells, cell.formula) : cell.value;
-  const num = parseFloat(val);
-  return isNaN(num) ? 0 : num;
-}
+
 
 function evaluateFormula(cells: Map<string, CellData>, formula: string): string {
   const expr = formula.slice(1).trim();
@@ -100,7 +91,7 @@ export default function SpreadsheetApp() {
   const [cells, setCells] = useState<Map<string, CellData>>(new Map());
   const [selected, setSelected] = useState<{ col: number; row: number } | null>(null);
   const [editValue, setEditValue] = useState('');
-  const [editing, setEditing] = useState(false);
+  const [_editing, setEditing] = useState(false);
   const [colWidths, setColWidths] = useState<number[]>(() => Array.from({ length: 26 }, () => 80));
   const [resizing, setResizing] = useState<number | null>(null);
   const [startX, setStartX] = useState(0);

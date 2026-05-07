@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  Hash, MessageSquare, Send, Smile, Users, Download, Bell,
+  Hash, MessageSquare, Send, Smile, Users, Download,
   ChevronRight, X, Search, User, UserPlus
 } from 'lucide-react';
 
@@ -90,7 +90,7 @@ function formatDate(ts: number): string {
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
-export default function ChatApp({ windowId }: { windowId: string; data?: any }) {
+export default function ChatApp(_props: { windowId: string; data?: any }) {
   const [messages, setMessages] = useState<ChatMessage[]>(loadMessages);
   const [activeChannel, setActiveChannel] = useState('general');
   const [input, setInput] = useState('');
@@ -98,7 +98,7 @@ export default function ChatApp({ windowId }: { windowId: string; data?: any }) 
   const [showUsers, setShowUsers] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [unreadMap, setUnreadMap] = useState<Record<string, number>>({});
-  const [lastRead, setLastRead] = useState<Record<string, number>>({});
+  const [, setLastRead] = useState<Record<string, number>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -269,7 +269,7 @@ export default function ChatApp({ windowId }: { windowId: string; data?: any }) 
               <p className="text-sm">No messages yet</p>
             </div>
           )}
-          {filteredMessages.map((msg, idx) => {
+          {filteredMessages.map((msg) => {
             const msgDate = formatDate(msg.timestamp);
             const showDateDivider = msgDate !== lastDate;
             lastDate = msgDate;

@@ -7,11 +7,8 @@ import {
   Star,
   X,
   Plus,
-  Home,
   Bookmark,
   Trash2,
-  ChevronLeft,
-  ChevronRight,
 } from 'lucide-react';
 
 interface Tab {
@@ -27,7 +24,6 @@ interface Bookmark {
 }
 
 const BOOKMARKS_KEY = 'kobe_browser_bookmarks';
-const TABS_KEY = 'kobe_browser_tabs';
 
 const HOME_HTML = `
 <!DOCTYPE html>

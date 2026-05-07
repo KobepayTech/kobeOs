@@ -50,7 +50,7 @@ export interface AppManifest {
   singleton: boolean;
   requiresAuth: boolean;
   permissions: string[];
-  component: LazyExoticComponent<ComponentType<unknown>>;
+  component: LazyExoticComponent<ComponentType<any>>;
 }
 
 /**

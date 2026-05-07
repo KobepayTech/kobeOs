@@ -3,7 +3,6 @@ import {
   Camera,
   FlipHorizontal,
   Timer,
-  Grid3X3,
   X,
   Aperture,
   Image,

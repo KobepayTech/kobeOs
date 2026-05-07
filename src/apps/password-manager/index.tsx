@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Key, Lock, Unlock, Eye, EyeOff, Copy, Check, Plus, Trash2, Search,
-  RefreshCw, Shield, Globe, X, Download, Upload, SlidersHorizontal
+  RefreshCw, Shield, Globe, X, SlidersHorizontal
 } from 'lucide-react';
 
 interface PasswordEntry {
@@ -108,7 +108,7 @@ function generatePassword(length: number, upper: boolean, lower: boolean, nums: 
   return pwd;
 }
 
-export default function PasswordManagerApp({ windowId }: { windowId: string; data?: any }) {
+export default function PasswordManagerApp(_props: { windowId: string; data?: any }) {
   const [master, setMaster] = useState('');
   const [masterInput, setMasterInput] = useState('');
   const [entries, setEntries] = useState<PasswordEntry[]>([]);
@@ -123,7 +123,7 @@ export default function PasswordManagerApp({ windowId }: { windowId: string; dat
   const [genLower, setGenLower] = useState(true);
   const [genNums, setGenNums] = useState(true);
   const [genSyms, setGenSyms] = useState(true);
-  const [genResult, setGenResult] = useState('');
+
 
   const [form, setForm] = useState<Partial<PasswordEntry>>({ category: 'Work' });
 
@@ -378,7 +378,7 @@ export default function PasswordManagerApp({ windowId }: { windowId: string; dat
                     onClick={() => {
                       const pwd = generatePassword(genLen, genUpper, genLower, genNums, genSyms);
                       setForm({ ...form, password: pwd });
-                      setGenResult(pwd);
+                      
                     }}
                     className="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm transition-colors"
                     title="Generate password"
