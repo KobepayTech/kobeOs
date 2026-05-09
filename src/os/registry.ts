@@ -49,6 +49,7 @@ import { manifest as erp_shipments } from '@/apps/erp-shipments/manifest';
 import { manifest as erp_loyalty } from '@/apps/erp-loyalty/manifest';
 import { manifest as erp_rider } from '@/apps/erp-rider/manifest';
 import { manifest as property } from '@/apps/property/manifest';
+import { manifest as cargo } from '@/apps/cargo/manifest';
 
 export const appRegistry = [
   file_manager,
@@ -102,4 +103,5 @@ export const appRegistry = [
   erp_loyalty,
   erp_rider,
   property,
+  cargo,
 ];
