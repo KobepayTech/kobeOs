@@ -85,7 +85,7 @@ const appShortcuts = [
   { id: 'files', label: 'Files', icon: FolderOpen, appId: 'file-manager' },
   { id: 'settings', label: 'Settings', icon: Settings, appId: 'settings' },
   { id: 'erp', label: 'ERP', icon: BarChart3, appId: 'erp-dashboard' },
-  { id: 'posys', label: 'Property', icon: Building2, appId: 'erp-posys' },
+  { id: 'posys', label: 'Property', icon: Building2, appId: 'property' },
   { id: 'photos', label: 'Photos', icon: Image, appId: 'image-viewer' },
   { id: 'notes', label: 'Notes', icon: StickyNote, appId: 'notepad' },
 ];
