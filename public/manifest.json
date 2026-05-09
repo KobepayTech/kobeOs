@@ -1,0 +1,31 @@
+{
+  "name": "KOBE OS",
+  "short_name": "KOBE OS",
+  "description": "Web-based Linux desktop environment with 50+ apps and KOBE ERP integration. Runs entirely in your browser — install on any flash drive.",
+  "start_url": "/",
+  "display": "fullscreen",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "categories": ["business", "productivity", "utilities"],
+  "screenshots": [
+    {
+      "src": "/screenshot-wide.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide"
+    }
+  ]
+}
