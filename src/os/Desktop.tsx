@@ -19,6 +19,7 @@ import {
   BarChart3,
   Building2,
   Zap,
+  Plane, Printer,
 } from 'lucide-react';
 import { useOSStore } from './store';
 import { ContextMenu } from './ContextMenu';
@@ -84,6 +85,8 @@ const appShortcuts = [
   { id: 'posys', label: 'Property', icon: Building2, appId: 'property' },
   { id: 'photos', label: 'Photos', icon: Image, appId: 'image-viewer' },
   { id: 'notes', label: 'Notes', icon: StickyNote, appId: 'notepad' },
+  { id: 'cargo', label: 'KOBECARGO', icon: Plane, appId: 'cargo' },
+  { id: 'kobe-print', label: 'KobePrint', icon: Printer, appId: 'kobe-print' },
 ];
 
 /* ------------------------------------------------------------------ */

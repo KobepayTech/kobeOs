@@ -50,6 +50,15 @@ import { manifest as erp_loyalty } from '@/apps/erp-loyalty/manifest';
 import { manifest as erp_rider } from '@/apps/erp-rider/manifest';
 import { manifest as property } from '@/apps/property/manifest';
 import { manifest as cargo } from '@/apps/cargo/manifest';
+import { manifest as cargo_welcome } from '@/apps/cargo-welcome/manifest';
+import { manifest as cargo_sender } from '@/apps/cargo-sender/manifest';
+import { manifest as cargo_owner } from '@/apps/cargo-owner/manifest';
+import { manifest as cargo_driver } from '@/apps/cargo-driver/manifest';
+import { manifest as cargo_receiver } from '@/apps/cargo-receiver/manifest';
+import { manifest as cargo_company } from '@/apps/cargo-company/manifest';
+import { manifest as kobe_print } from '@/apps/kobe-print/manifest';
+import { manifest as erp_shop } from '@/apps/erp-shop/manifest';
+import { manifest as erp_store_editor } from '@/apps/erp-store-editor/manifest';
 
 export const appRegistry = [
   file_manager,
@@ -104,4 +113,13 @@ export const appRegistry = [
   erp_rider,
   property,
   cargo,
+  cargo_welcome,
+  cargo_sender,
+  cargo_owner,
+  cargo_driver,
+  cargo_receiver,
+  cargo_company,
+  kobe_print,
+  erp_shop,
+  erp_store_editor,
 ];

@@ -1,300 +1,408 @@
 import { useState } from 'react';
 import {
   TrendingUp, TrendingDown, ShoppingCart, Users, Package, DollarSign,
-  Receipt, AlertTriangle, Truck, ArrowUpRight, ArrowDownRight,
+  Receipt, ShoppingBag, Palette, BarChart3, Store, Warehouse,
+  FileText, ShieldCheck, Truck, Heart, UserCircle,
+  ChevronRight, Boxes, CircleDollarSign,
+  Globe, LayoutDashboard,
 } from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { useOSStore } from '@/os/store';
 import {
-  AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis,
-  CartesianGrid, Tooltip, Legend, ResponsiveContainer,
+  AreaChart, Area, XAxis as ReXAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, BarChart, Bar,
 } from 'recharts';
+import { Card, CardContent } from '@/components/ui/card';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
-const tzs = (n: number) => `TZS ${n.toLocaleString()}`;
-
-const kpis = [
-  { label: 'Total Sales', value: 'TZS 4,230,000', change: '+12.5%', up: true, icon: DollarSign },
-  { label: 'Orders Today', value: '48', change: '+8.2%', up: true, icon: ShoppingCart },
-  { label: 'Customers', value: '1,245', change: '+3.1%', up: true, icon: Users },
-  { label: 'Products', value: '312', change: '-1.4%', up: false, icon: Package },
-  { label: 'Revenue', value: 'TZS 12.8M', change: '+15.3%', up: true, icon: TrendingUp },
-  { label: 'Expenses', value: 'TZS 3.4M', change: '-2.1%', up: true, icon: TrendingDown },
-];
-
-const revenueData = [
-  { day: 'Mon', revenue: 580000, expenses: 320000 },
-  { day: 'Tue', revenue: 720000, expenses: 410000 },
-  { day: 'Wed', revenue: 610000, expenses: 350000 },
-  { day: 'Thu', revenue: 890000, expenses: 420000 },
-  { day: 'Fri', revenue: 950000, expenses: 480000 },
-  { day: 'Sat', revenue: 740000, expenses: 390000 },
-  { day: 'Sun', revenue: 540000, expenses: 310000 },
+/* ─── DATA ─── */
+const salesData = [
+  { day: 'Mon', sales: 4200 },
+  { day: 'Tue', sales: 3800 },
+  { day: 'Wed', sales: 5100 },
+  { day: 'Thu', sales: 4600 },
+  { day: 'Fri', sales: 6200 },
+  { day: 'Sat', sales: 7800 },
+  { day: 'Sun', sales: 5400 },
 ];
 
 const categoryData = [
-  { name: 'Electronics', sales: 2100000 },
-  { name: 'Clothing', sales: 1450000 },
-  { name: 'Food', sales: 980000 },
-  { name: 'Household', sales: 760000 },
-  { name: 'Beauty', sales: 520000 },
-];
-
-const statusData = [
-  { name: 'Completed', value: 342, color: '#22c55e' },
-  { name: 'Pending', value: 56, color: '#eab308' },
-  { name: 'Processing', value: 28, color: '#3b82f6' },
-  { name: 'Cancelled', value: 12, color: '#ef4444' },
+  { name: 'Electronics', value: 35 },
+  { name: 'Clothing', value: 25 },
+  { name: 'Food', value: 20 },
+  { name: 'Household', value: 15 },
+  { name: 'Other', value: 5 },
 ];
 
 const recentOrders = [
-  { id: 'ORD-2026-1042', customer: 'Juma Bakari', amount: 125000, status: 'Completed', date: '2026-05-08' },
-  { id: 'ORD-2026-1041', customer: 'Asha Mwangi', amount: 45000, status: 'Processing', date: '2026-05-08' },
-  { id: 'ORD-2026-1040', customer: 'David Ochieng', amount: 230000, status: 'Pending', date: '2026-05-07' },
-  { id: 'ORD-2026-1039', customer: 'Fatuma Said', amount: 78000, status: 'Completed', date: '2026-05-07' },
-  { id: 'ORD-2026-1038', customer: 'Peter Njoroge', amount: 156000, status: 'Completed', date: '2026-05-07' },
-  { id: 'ORD-2026-1037', customer: 'Grace Wambui', amount: 34000, status: 'Cancelled', date: '2026-05-06' },
-  { id: 'ORD-2026-1036', customer: 'Omari Juma', amount: 210000, status: 'Completed', date: '2026-05-06' },
+  { id: 'ORD-2025-001', customer: 'Amina Hassan', items: 3, total: 125.50, status: 'completed' },
+  { id: 'ORD-2025-002', customer: 'John Mwakasege', items: 1, total: 45.00, status: 'pending' },
+  { id: 'ORD-2025-003', customer: 'Grace Wanjiru', items: 5, total: 289.75, status: 'processing' },
+  { id: 'ORD-2025-004', customer: 'Peter Omondi', items: 2, total: 78.00, status: 'completed' },
+  { id: 'ORD-2025-005', customer: 'Fatima Said', items: 4, total: 156.20, status: 'pending' },
 ];
 
-const lowStock = [
-  { sku: 'ELEC-042', name: 'Samsung Galaxy A14', qty: 3, threshold: 10 },
-  { sku: 'CLTH-018', name: "Men's Cotton T-Shirt L", qty: 5, threshold: 20 },
-  { sku: 'FOOD-033', name: 'Mama Ntilie Rice 5kg', qty: 4, threshold: 15 },
-  { sku: 'HSHD-009', name: 'Borehole Pump 1HP', qty: 2, threshold: 5 },
+const inventoryAlerts = [
+  { sku: 'ELEC-042', name: 'Samsung Galaxy A14', stock: 3, threshold: 5 },
+  { sku: 'ELEC-051', name: 'Tecno Spark 10', stock: 12, threshold: 10 },
+  { sku: 'CLTH-018', name: "Men's Cotton T-Shirt", stock: 5, threshold: 8 },
+  { sku: 'FOOD-033', name: 'Mama Ntilie Rice 5kg', stock: 4, threshold: 10 },
+  { sku: 'HSHD-009', name: 'Borehole Pump 1HP', stock: 2, threshold: 3 },
 ];
 
-const fulfillmentQueue = [
-  { id: 'FL-1021', items: 4, priority: 'High', status: 'Picking', assignee: 'John D.' },
-  { id: 'FL-1022', items: 12, priority: 'Normal', status: 'Pending', assignee: 'Unassigned' },
-  { id: 'FL-1023', items: 2, priority: 'High', status: 'Ready', assignee: 'Mary K.' },
-  { id: 'FL-1024', items: 7, priority: 'Normal', status: 'Picking', assignee: 'John D.' },
-  { id: 'FL-1025', items: 3, priority: 'Low', status: 'Shipped', assignee: 'Mary K.' },
+/* ─── MODULE TILE DATA ─── */
+interface ModuleTile {
+  id: string;
+  appId: string;
+  label: string;
+  desc: string;
+  icon: React.ComponentType<{ className?: string }>;
+  color: string;
+  bg: string;
+  border: string;
+}
+
+const moduleSections = [
+  {
+    title: 'Overview',
+    tiles: [
+      { id: 'overview', appId: '', label: 'Dashboard', desc: 'Real-time overview', icon: LayoutDashboard, color: 'text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/20' },
+    ] as ModuleTile[],
+  },
+  {
+    title: 'Sales & Commerce',
+    tiles: [
+      { id: 'pos', appId: 'erp-pos', label: 'POS System', desc: 'Point of sale & invoicing', icon: Receipt, color: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/20' },
+      { id: 'shop', appId: 'erp-shop', label: 'Online Shop', desc: 'Customer storefront', icon: ShoppingBag, color: 'text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/20' },
+      { id: 'store', appId: 'erp-store', label: 'Product Manager', desc: 'SKU, inventory & pricing', icon: Store, color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20' },
+      { id: 'store-editor', appId: 'erp-store-editor', label: 'Store Editor', desc: 'Customize your storefront', icon: Palette, color: 'text-violet-400', bg: 'bg-violet-500/10', border: 'border-violet-500/20' },
+    ] as ModuleTile[],
+  },
+  {
+    title: 'Warehouse & Logistics',
+    tiles: [
+      { id: 'warehouse', appId: 'erp-warehouse', label: 'Warehouse', desc: 'Stock & storage management', icon: Warehouse, color: 'text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/20' },
+      { id: 'shipments', appId: 'erp-shipments', label: 'Shipments', desc: 'Track deliveries & routes', icon: Truck, color: 'text-cyan-400', bg: 'bg-cyan-500/10', border: 'border-cyan-500/20' },
+      { id: 'sourcing', appId: 'erp-sourcing', label: 'Sourcing', desc: 'Supplier & procurement', icon: Globe, color: 'text-teal-400', bg: 'bg-teal-500/10', border: 'border-teal-500/20' },
+    ] as ModuleTile[],
+  },
+  {
+    title: 'Finance & Reports',
+    tiles: [
+      { id: 'accounting', appId: 'erp-accounting', label: 'Accounting', desc: 'Financial records & ledgers', icon: CircleDollarSign, color: 'text-green-400', bg: 'bg-green-500/10', border: 'border-green-500/20' },
+      { id: 'reports', appId: 'erp-reports', label: 'Reports', desc: 'Analytics & business insights', icon: FileText, color: 'text-indigo-400', bg: 'bg-indigo-500/10', border: 'border-indigo-500/20' },
+      { id: 'loyalty', appId: 'erp-loyalty', label: 'Loyalty Program', desc: 'Customer rewards & points', icon: Heart, color: 'text-rose-400', bg: 'bg-rose-500/10', border: 'border-rose-500/20' },
+    ] as ModuleTile[],
+  },
+  {
+    title: 'Administration',
+    tiles: [
+      { id: 'admin', appId: 'erp-admin', label: 'Admin Panel', desc: 'Users, roles & permissions', icon: ShieldCheck, color: 'text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/20' },
+      { id: 'rider', appId: 'erp-rider', label: 'Rider Manager', desc: 'Delivery personnel', icon: UserCircle, color: 'text-sky-400', bg: 'bg-sky-500/10', border: 'border-sky-500/20' },
+    ] as ModuleTile[],
+  },
 ];
 
-const statusBadge = (status: string) => {
-  const map: Record<string, string> = {
-    Completed: 'bg-green-500/10 text-green-400 border-green-500/20',
-    Processing: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-    Pending: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
-    Cancelled: 'bg-red-500/10 text-red-400 border-red-500/20',
-    Picking: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-    Ready: 'bg-green-500/10 text-green-400 border-green-500/20',
-    Shipped: 'bg-slate-500/10 text-slate-400 border-slate-500/20',
-    High: 'bg-red-500/10 text-red-400 border-red-500/20',
-    Normal: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-    Low: 'bg-slate-500/10 text-slate-400 border-slate-500/20',
-  };
-  return map[status] || 'bg-slate-500/10 text-slate-400';
-};
-
-export default function ERPDashboard() {
-  const [period, setPeriod] = useState('7d');
-
-  const periodBtn = (p: string, label: string) => (
-    <button
-      key={p}
-      onClick={() => setPeriod(p)}
-      className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-        period === p ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
-      }`}
-    >
-      {label}
-    </button>
-  );
-
+/* ─── SIDEBAR WITH TILE GRID ─── */
+function Sidebar({ activeModule, onModuleChange, launchApp }: {
+  activeModule: string;
+  onModuleChange: (id: string) => void;
+  launchApp: (appId: string) => void;
+}) {
   return (
-    <div className="h-full bg-slate-950 text-slate-100 overflow-auto">
-      <div className="p-4 space-y-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-lg font-semibold">ERP Dashboard</h1>
-            <p className="text-xs text-slate-400">KOBE Enterprises &middot; Real-time business overview</p>
+    <div className="w-72 h-full flex flex-col bg-[#0c0c1a] border-r border-white/[0.06]">
+      {/* Header */}
+      <div className="shrink-0 px-5 py-4 border-b border-white/[0.06]">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
+            <BarChart3 className="w-4 h-4 text-white" />
           </div>
-          <div className="flex gap-2">
-            {periodBtn('24h', '24h')}
-            {periodBtn('7d', '7 Days')}
-            {periodBtn('30d', '30 Days')}
-            {periodBtn('90d', 'Quarter')}
+          <div>
+            <h1 className="text-sm font-semibold text-white/90">KOBE ERP</h1>
+            <p className="text-[9px] text-white/30">Enterprise Suite v1.0</p>
           </div>
         </div>
+      </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
-          {kpis.map((kpi) => (
-            <Card key={kpi.label} className="bg-slate-900/60 border-slate-800">
-              <CardContent className="p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <kpi.icon className="w-4 h-4 text-blue-400" />
-                  <span className={`text-xs flex items-center gap-0.5 ${kpi.up ? 'text-green-400' : 'text-red-400'}`}>
-                    {kpi.up ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
-                    {kpi.change}
-                  </span>
-                </div>
-                <div className="text-base font-bold">{kpi.value}</div>
-                <div className="text-xs text-slate-400">{kpi.label}</div>
-              </CardContent>
-            </Card>
+      {/* Tile Grid Navigation */}
+      <ScrollArea className="flex-1 py-3">
+        <div className="px-4 space-y-5">
+          {moduleSections.map((section) => (
+            <div key={section.title}>
+              <div className="px-1 mb-2 text-[10px] font-semibold text-white/25 uppercase tracking-widest">
+                {section.title}
+              </div>
+              <div className="grid grid-cols-1 gap-1.5">
+                {section.tiles.map((tile) => {
+                  const isActive = activeModule === tile.id;
+                  return (
+                    <button
+                      key={tile.id}
+                      onClick={() => {
+                        onModuleChange(tile.id);
+                        if (tile.appId) launchApp(tile.appId);
+                      }}
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all group ${
+                        isActive
+                          ? `${tile.bg} border ${tile.border} shadow-sm`
+                          : 'bg-white/[0.02] border border-transparent hover:bg-white/[0.05] hover:border-white/[0.06]'
+                      }`}
+                    >
+                      <div className={`w-9 h-9 rounded-lg ${tile.bg} flex items-center justify-center shrink-0 transition-transform group-hover:scale-105`}>
+                        <tile.icon className={`w-[18px] h-[18px] ${tile.color}`} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className={`text-[12px] font-medium ${isActive ? 'text-white/90' : 'text-white/70 group-hover:text-white/90'}`}>
+                          {tile.label}
+                        </div>
+                        <div className="text-[10px] text-white/30 truncate">
+                          {tile.desc}
+                        </div>
+                      </div>
+                      <ChevronRight className={`w-3.5 h-3.5 shrink-0 transition-all ${isActive ? `${tile.color} opacity-100` : 'text-white/15 opacity-0 group-hover:opacity-100'}`} />
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           ))}
         </div>
+      </ScrollArea>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-          <Card className="lg:col-span-2 bg-slate-900/60 border-slate-800">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Revenue vs Expenses (7 Days)</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={220}>
-                <AreaChart data={revenueData}>
-                  <defs>
-                    <linearGradient id="colorRev" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
-                    </linearGradient>
-                    <linearGradient id="colorExp" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3} />
-                      <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis dataKey="day" stroke="#94a3b8" fontSize={12} />
-                  <YAxis stroke="#94a3b8" fontSize={12} tickFormatter={(v) => `${v / 1000}k`} />
-                  <Tooltip
-                    contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 8 }}
-                    formatter={(value: number) => tzs(value)}
-                  />
-                  <Legend />
-                  <Area type="monotone" dataKey="revenue" stroke="#3b82f6" fillOpacity={1} fill="url(#colorRev)" name="Revenue" />
-                  <Area type="monotone" dataKey="expenses" stroke="#ef4444" fillOpacity={1} fill="url(#colorExp)" name="Expenses" />
-                </AreaChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-slate-900/60 border-slate-800">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Order Status</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={220}>
-                <PieChart>
-                  <Pie data={statusData} cx="50%" cy="50%" innerRadius={50} outerRadius={80} paddingAngle={4} dataKey="value">
-                    {statusData.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={entry.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 8 }} />
-                  <Legend />
-                </PieChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
+      {/* Footer */}
+      <div className="shrink-0 px-5 py-3 border-t border-white/[0.06]">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-400 to-indigo-500 flex items-center justify-center">
+            <span className="text-[10px] font-bold text-white">A</span>
+          </div>
+          <div>
+            <div className="text-[11px] font-medium text-white/70">Admin User</div>
+            <div className="text-[9px] text-white/30">Super Admin</div>
+          </div>
         </div>
+      </div>
+    </div>
+  );
+}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-          <Card className="bg-slate-900/60 border-slate-800">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Sales by Category</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={categoryData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis dataKey="name" stroke="#94a3b8" fontSize={11} />
-                  <YAxis stroke="#94a3b8" fontSize={12} tickFormatter={(v) => `${v / 1000000}M`} />
-                  <Tooltip
-                    contentStyle={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: 8 }}
-                    formatter={(value: number) => tzs(value)}
-                  />
-                  <Bar dataKey="sales" fill="#3b82f6" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-slate-900/60 border-slate-800">
-            <CardHeader className="pb-2 flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-yellow-400" />
-              <CardTitle className="text-sm font-medium">Low Stock Alerts</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ScrollArea className="h-[200px]">
-                <div className="space-y-2">
-                  {lowStock.map((item) => (
-                    <div key={item.sku} className="flex items-center justify-between p-2 rounded-lg bg-slate-800/50 border border-slate-700/50">
-                      <div>
-                        <div className="text-xs font-medium">{item.name}</div>
-                        <div className="text-[10px] text-slate-400">{item.sku}</div>
-                      </div>
-                      <Badge variant="outline" className="text-red-400 border-red-400/20 bg-red-500/10">
-                        {item.qty} left
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
-              </ScrollArea>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-slate-900/60 border-slate-800">
-            <CardHeader className="pb-2 flex items-center gap-2">
-              <Truck className="w-4 h-4 text-blue-400" />
-              <CardTitle className="text-sm font-medium">Fulfillment Queue</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ScrollArea className="h-[200px]">
-                <div className="space-y-2">
-                  {fulfillmentQueue.map((q) => (
-                    <div key={q.id} className="flex items-center justify-between p-2 rounded-lg bg-slate-800/50 border border-slate-700/50">
-                      <div>
-                        <div className="text-xs font-medium">{q.id}</div>
-                        <div className="text-[10px] text-slate-400">{q.items} items &middot; {q.assignee}</div>
-                      </div>
-                      <Badge variant="outline" className={statusBadge(q.status)}>
-                        {q.status}
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
-              </ScrollArea>
-            </CardContent>
-          </Card>
+/* ─── MAIN CONTENT: DASHBOARD OVERVIEW ─── */
+function DashboardOverview({ launchApp }: { launchApp: (appId: string) => void }) {
+  return (
+    <div className="p-5 space-y-4 overflow-y-auto">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-white/90">Dashboard</h2>
+          <p className="text-xs text-slate-500">Real-time business overview</p>
         </div>
+        <div className="flex items-center gap-2">
+          {['7d', '30d', '90d'].map((p) => (
+            <button
+              key={p}
+              className="h-7 px-3 text-[11px] rounded-lg bg-slate-900/60 text-slate-400 border border-slate-800 hover:text-white transition-all"
+            >
+              {p === '7d' ? '7 Days' : p === '30d' ? '30 Days' : 'Quarter'}
+            </button>
+          ))}
+        </div>
+      </div>
 
-        <Card className="bg-slate-900/60 border-slate-800">
-          <CardHeader className="pb-2 flex items-center gap-2">
-            <Receipt className="w-4 h-4 text-slate-400" />
-            <CardTitle className="text-sm font-medium">Recent Orders</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow className="border-slate-800 hover:bg-transparent">
-                  <TableHead className="text-slate-400 text-xs">Order ID</TableHead>
-                  <TableHead className="text-slate-400 text-xs">Customer</TableHead>
-                  <TableHead className="text-slate-400 text-xs">Amount</TableHead>
-                  <TableHead className="text-slate-400 text-xs">Status</TableHead>
-                  <TableHead className="text-slate-400 text-xs">Date</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {recentOrders.map((order) => (
-                  <TableRow key={order.id} className="border-slate-800 hover:bg-slate-800/40">
-                    <TableCell className="text-xs font-mono text-slate-300">{order.id}</TableCell>
-                    <TableCell className="text-xs text-slate-300">{order.customer}</TableCell>
-                    <TableCell className="text-xs font-medium text-slate-200">{tzs(order.amount)}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className={statusBadge(order.status)}>
-                        {order.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-xs text-slate-400">{order.date}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+      {/* KPI Cards */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {[
+          { label: 'Total Sales', value: 'TZS 4.2M', change: '+12.5%', up: true, icon: DollarSign },
+          { label: 'Orders', value: '156', change: '+8.2%', up: true, icon: ShoppingCart },
+          { label: 'Customers', value: '1,243', change: '+5.1%', up: true, icon: Users },
+          { label: 'Products', value: '328', change: '-2.3%', up: false, icon: Package },
+        ].map((kpi) => (
+          <Card key={kpi.label} className="bg-[#13131f] border-white/[0.06] hover:border-white/[0.1] transition-colors">
+            <CardContent className="p-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[10px] text-slate-500 font-medium">{kpi.label}</span>
+                <kpi.icon className="w-4 h-4 text-slate-600" />
+              </div>
+              <div className="text-lg font-semibold text-white/90">{kpi.value}</div>
+              <div className={`flex items-center gap-1 mt-1 text-[10px] ${kpi.up ? 'text-emerald-400' : 'text-red-400'}`}>
+                {kpi.up ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                {kpi.change}
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Quick Launch Modules */}
+      <div>
+        <div className="flex items-center gap-2 mb-3">
+          <Boxes className="w-3.5 h-3.5 text-slate-400" />
+          <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Quick Launch Modules</span>
+        </div>
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2">
+          {[
+            { appId: 'erp-pos', label: 'POS System', desc: 'Point of sale', icon: Receipt, color: 'bg-amber-500/15 text-amber-400 hover:bg-amber-500/25', border: 'border-amber-500/20 hover:border-amber-500/40' },
+            { appId: 'erp-shop', label: 'Online Shop', desc: 'Customer storefront', icon: ShoppingBag, color: 'bg-blue-500/15 text-blue-400 hover:bg-blue-500/25', border: 'border-blue-500/20 hover:border-blue-500/40' },
+            { appId: 'erp-warehouse', label: 'Warehouse', desc: 'Stock management', icon: Warehouse, color: 'bg-orange-500/15 text-orange-400 hover:bg-orange-500/25', border: 'border-orange-500/20 hover:border-orange-500/40' },
+            { appId: 'erp-accounting', label: 'Accounting', desc: 'Financial records', icon: CircleDollarSign, color: 'bg-green-500/15 text-green-400 hover:bg-green-500/25', border: 'border-green-500/20 hover:border-green-500/40' },
+            { appId: 'erp-reports', label: 'Reports', desc: 'Analytics & insights', icon: FileText, color: 'bg-indigo-500/15 text-indigo-400 hover:bg-indigo-500/25', border: 'border-indigo-500/20 hover:border-indigo-500/40' },
+            { appId: 'erp-admin', label: 'Admin Panel', desc: 'System settings', icon: ShieldCheck, color: 'bg-red-500/15 text-red-400 hover:bg-red-500/25', border: 'border-red-500/20 hover:border-red-500/40' },
+            { appId: 'erp-store-editor', label: 'Store Editor', desc: 'Customize storefront', icon: Palette, color: 'bg-violet-500/15 text-violet-400 hover:bg-violet-500/25', border: 'border-violet-500/20 hover:border-violet-500/40' },
+            { appId: 'erp-shipments', label: 'Shipments', desc: 'Delivery tracking', icon: Truck, color: 'bg-cyan-500/15 text-cyan-400 hover:bg-cyan-500/25', border: 'border-cyan-500/20 hover:border-cyan-500/40' },
+          ].map((mod) => (
+            <button
+              key={mod.appId}
+              onClick={() => launchApp(mod.appId)}
+              className={`group flex items-center gap-3 p-3 rounded-xl bg-[#13131f] border ${mod.border} transition-all text-left hover:scale-[1.02] active:scale-[0.98]`}
+            >
+              <div className={`w-10 h-10 rounded-lg ${mod.color} flex items-center justify-center shrink-0 transition-colors`}>
+                <mod.icon className="w-5 h-5" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-xs font-medium text-white/90">{mod.label}</div>
+                <div className="text-[10px] text-white/30">{mod.desc}</div>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+        <Card className="lg:col-span-2 bg-[#13131f] border-white/[0.06]">
+          <CardContent className="p-3">
+            <h3 className="text-xs font-medium text-white/80 mb-3">Sales Trend</h3>
+            <ResponsiveContainer width="100%" height={180}>
+              <AreaChart data={salesData}>
+                <defs>
+                  <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                <ReXAxis dataKey="day" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px', fontSize: '11px' }}
+                  itemStyle={{ color: '#94a3b8' }}
+                />
+                <Area type="monotone" dataKey="sales" stroke="#3b82f6" fill="url(#salesGrad)" strokeWidth={2} />
+              </AreaChart>
+            </ResponsiveContainer>
           </CardContent>
         </Card>
+
+        <Card className="bg-[#13131f] border-white/[0.06]">
+          <CardContent className="p-3">
+            <h3 className="text-xs font-medium text-white/80 mb-3">By Category</h3>
+            <ResponsiveContainer width="100%" height={180}>
+              <BarChart data={categoryData} layout="vertical">
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" horizontal={false} />
+                <ReXAxis type="number" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} />
+                <YAxis dataKey="name" type="category" tick={{ fontSize: 10, fill: '#64748b' }} axisLine={false} width={70} />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px', fontSize: '11px' }}
+                  itemStyle={{ color: '#94a3b8' }}
+                />
+                <Bar dataKey="value" fill="#6366f1" radius={[0, 4, 4, 0]} barSize={16} />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Orders + Inventory */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <Card className="bg-[#13131f] border-white/[0.06]">
+          <CardContent className="p-3">
+            <h3 className="text-xs font-medium text-white/80 mb-3">Recent Orders</h3>
+            <div className="space-y-2">
+              {recentOrders.map((order) => (
+                <div key={order.id} className="flex items-center gap-3 p-2 rounded-lg bg-white/[0.03]">
+                  <div className="w-8 h-8 rounded-lg bg-blue-500/15 flex items-center justify-center shrink-0">
+                    <Receipt className="w-4 h-4 text-blue-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[11px] font-medium text-white/80 truncate">{order.id}</div>
+                    <div className="text-[10px] text-white/30">{order.customer} &middot; {order.items} items</div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="text-[11px] font-medium text-white/80">TZS {order.total.toFixed(2)}k</div>
+                    <div className={`text-[10px] ${order.status === 'completed' ? 'text-emerald-400' : order.status === 'processing' ? 'text-blue-400' : 'text-amber-400'}`}>
+                      {order.status}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-[#13131f] border-white/[0.06]">
+          <CardContent className="p-3">
+            <h3 className="text-xs font-medium text-white/80 mb-3">Inventory Alerts</h3>
+            <div className="space-y-2">
+              {inventoryAlerts.map((item) => {
+                const isLow = item.stock <= item.threshold;
+                return (
+                  <div key={item.sku} className="flex items-center gap-3 p-2 rounded-lg bg-white/[0.03]">
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isLow ? 'bg-red-500/15' : 'bg-emerald-500/15'}`}>
+                      <Package className={`w-4 h-4 ${isLow ? 'text-red-400' : 'text-emerald-400'}`} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[11px] font-medium text-white/80 truncate">{item.name}</div>
+                      <div className="text-[10px] text-white/30">{item.sku}</div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className={`text-[11px] font-medium ${isLow ? 'text-red-400' : 'text-emerald-400'}`}>
+                        {item.stock} units
+                      </div>
+                      <div className="text-[10px] text-white/20">min: {item.threshold}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="text-center text-[10px] text-white/10 pt-2 pb-4">
+        KOBE ERP v1.0 &middot; All modules accessible via sidebar
+      </div>
+    </div>
+  );
+}
+
+/* ─── MAIN ERP DASHBOARD WITH SIDEBAR ─── */
+export default function ERPDashboard() {
+  const [activeModule, setActiveModule] = useState('overview');
+  const launchApp = useOSStore((s) => s.launchApp);
+
+  return (
+    <div className="h-full flex bg-[#0a0a1a] text-white/90">
+      {/* Left Sidebar - Tile Grid */}
+      <Sidebar activeModule={activeModule} onModuleChange={setActiveModule} launchApp={launchApp} />
+
+      {/* Main Content Area */}
+      <div className="flex-1 min-w-0 overflow-hidden">
+        {activeModule === 'overview' ? (
+          <DashboardOverview launchApp={launchApp} />
+        ) : (
+          <div className="h-full flex flex-col items-center justify-center text-center p-8">
+            <div className="w-16 h-16 rounded-2xl bg-white/[0.03] flex items-center justify-center mb-4">
+              <Boxes className="w-8 h-8 text-white/20" />
+            </div>
+            <h3 className="text-sm font-medium text-white/50 mb-1">Module Launched</h3>
+            <p className="text-[11px] text-white/30 max-w-xs">
+              The module window has opened separately. Check your taskbar or desktop for the new window.
+            </p>
+            <button
+              onClick={() => setActiveModule('overview')}
+              className="mt-4 px-4 py-2 rounded-lg bg-white/[0.04] border border-white/[0.08] text-[11px] text-white/50 hover:text-white/80 hover:bg-white/[0.08] transition-all"
+            >
+              Back to Dashboard
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

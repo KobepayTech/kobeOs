@@ -69,8 +69,8 @@ const defaultDesktopIcons: DesktopIcon[] = [
   { id: 'di-6', appId: 'calendar', x: 20, y: 470, label: 'Calendar', icon: 'Calendar' },
   { id: 'di-7', appId: 'browser', x: 20, y: 560, label: 'Browser', icon: 'Globe' },
   { id: 'di-8', appId: 'erp-dashboard', x: 20, y: 650, label: 'ERP Dashboard', icon: 'BarChart3' },
-  { id: 'di-9', appId: 'erp-pos', x: 20, y: 740, label: 'POS', icon: 'ShoppingCart' },
-  { id: 'di-10', appId: 'erp-store', x: 20, y: 830, label: 'Store', icon: 'Store' },
+  { id: 'di-9', appId: 'cargo', x: 20, y: 740, label: 'KOBECARGO', icon: 'Plane' },
+  { id: 'di-10', appId: 'kobe-print', x: 20, y: 830, label: 'KobePrint', icon: 'Printer' },
 ];
 
 const defaultSettings: OSSettings = {
