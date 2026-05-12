@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -461,22 +462,26 @@ export default function KobeHotel() {
           </div>
           <span className="text-[8px] font-bold tracking-tight text-cyan-400">KOBE</span>
         </div>
-        {sidebarItems.map(item => {
-          const Icon = item.icon;
-          const isActive = activeTab === item.id;
-          return (
-            <button
-              key={item.id}
-              onClick={() => setActiveTab(item.id)}
-              className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-all duration-200 border ${isActive ? `${item.color} scale-105 shadow-lg` : darkMode ? 'border-transparent text-gray-500 hover:text-gray-300 hover:bg-white/5' : 'border-transparent text-gray-400 hover:text-gray-700 hover:bg-gray-100'}`}
-              title={item.label}
-            >
-              <Icon className="w-4 h-4" />
-              <span className="text-[7px] font-medium leading-tight">{item.label}</span>
-            </button>
-          );
-        })}
-        <div className="mt-auto">
+        <ScrollArea className="flex-1 w-full">
+          <div className="flex flex-col items-center gap-2 px-2 pb-2">
+            {sidebarItems.map(item => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id)}
+                  className={`w-12 h-12 rounded-xl flex flex-col items-center justify-center gap-0.5 transition-all duration-200 border ${isActive ? `${item.color} scale-105 shadow-lg` : darkMode ? 'border-transparent text-gray-500 hover:text-gray-300 hover:bg-white/5' : 'border-transparent text-gray-400 hover:text-gray-700 hover:bg-gray-100'}`}
+                  title={item.label}
+                >
+                  <Icon className="w-4 h-4" />
+                  <span className="text-[7px] font-medium leading-tight">{item.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </ScrollArea>
+        <div className="mt-auto pt-2">
           <button onClick={() => setDarkMode(!darkMode)} className={`w-10 h-10 rounded-lg flex items-center justify-center ${darkMode ? 'text-amber-400 hover:bg-white/5' : 'text-gray-600 hover:bg-gray-100'}`}>
             {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>
