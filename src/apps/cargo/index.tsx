@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { useOSStore } from '@/os/store';
 import {
   Plane, BarChart3, Package, ShieldCheck, Warehouse, PlaneTakeoff,
@@ -1203,9 +1203,21 @@ function FlightsTab({search}:{search:string}){
 
 /* ─── PAYMENTS ─── */
 /* KOBE Pay Wallet & Payments */
-import KobePay from './kobe_pay';
 function PaymentsTab() {
-  return <KobePay />;
+  const launchApp = useOSStore(s => s.launchApp);
+  useEffect(() => { launchApp('kobe-pay'); }, [launchApp]);
+  return (
+    <div className="h-full flex flex-col items-center justify-center text-center p-8">
+      <div className="w-16 h-16 rounded-2xl bg-yellow-500/15 flex items-center justify-center mb-4">
+        <Wallet className="w-8 h-8 text-yellow-400" />
+      </div>
+      <h3 className="text-sm font-medium text-white/50 mb-1">KobePay</h3>
+      <p className="text-[11px] text-white/30 max-w-xs mb-4">Payments now open in the standalone KobePay app with full wallet, cashier, and payout features.</p>
+      <Button onClick={() => launchApp('kobe-pay')} className="bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 border border-yellow-500/30 text-xs">
+        <Wallet className="w-4 h-4 mr-2" /> Open KobePay
+      </Button>
+    </div>
+  );
 }
 
 /* ─── TRACKING ─── */

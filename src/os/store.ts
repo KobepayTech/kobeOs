@@ -73,6 +73,9 @@ const defaultDesktopIcons: DesktopIcon[] = [
   { id: 'di-10', appId: 'kobe-print', x: 20, y: 830, label: 'KobePrint', icon: 'Printer' },
   { id: 'di-11', appId: 'creator', x: 120, y: 20, label: 'Creator', icon: 'Users' },
   { id: 'di-12', appId: 'kobe-hotel', x: 120, y: 110, label: 'KobeHotel', icon: 'Building2' },
+  { id: 'di-13', appId: 'kobe-pay', x: 120, y: 200, label: 'KobePay', icon: 'Wallet' },
+  { id: 'di-14', appId: 'kobetech-admin', x: 120, y: 290, label: 'Kobetech', icon: 'Shield' },
+  { id: 'di-15', appId: 'kobetech-devops', x: 120, y: 380, label: 'DevOps', icon: 'Code2' },
 ];
 
 const defaultSettings: OSSettings = {

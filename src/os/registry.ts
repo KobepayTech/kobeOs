@@ -59,6 +59,9 @@ import { manifest as cargo_company } from '@/apps/cargo-company/manifest';
 import { manifest as kobe_print } from '@/apps/kobe-print/manifest';
 import { manifest as creator } from '@/apps/creator/manifest';
 import { manifest as kobe_hotel } from '@/apps/kobe-hotel/manifest';
+import { manifest as kobe_pay } from '@/apps/kobe-pay/manifest';
+import { manifest as kobetech_admin } from '@/apps/kobetech-admin/manifest';
+import { manifest as kobetech_devops } from '@/apps/kobetech-devops/manifest';
 import { manifest as erp_credit } from '@/apps/erp-credit/manifest';
 import { manifest as erp_discounts } from '@/apps/erp-discounts/manifest';
 import { manifest as erp_shop } from '@/apps/erp-shop/manifest';
@@ -126,6 +129,9 @@ export const appRegistry = [
   kobe_print,
   creator,
   kobe_hotel,
+  kobe_pay,
+  kobetech_admin,
+  kobetech_devops,
   erp_credit,
   erp_discounts,
   erp_shop,
