@@ -279,7 +279,7 @@ export default function Creator() {
   ];
 
   return (
-    <div className="flex h-screen w-full bg-[#0a0a1a] text-white overflow-hidden">
+    <div className="flex h-full w-full bg-[#0a0a1a] text-white overflow-hidden">
       {/* Sidebar */}
       <aside className="w-60 bg-[#0c0c1a] border-r border-white/[0.06] flex flex-col shrink-0">
         <div className="px-4 pt-5 pb-3 flex items-center gap-2.5">
