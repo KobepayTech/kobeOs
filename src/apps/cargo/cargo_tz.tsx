@@ -10,7 +10,6 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Card, CardContent } from '@/components/ui/card';
 import { QRCodeSVG } from 'qrcode.react';
@@ -221,7 +220,7 @@ function OverviewTab() {
   }, []);
 
   return (
-    <ScrollArea className="h-[calc(100vh-80px)]">
+    <div className="h-[calc(100vh-80px)] overflow-y-auto">
       <div className="space-y-6 p-1">
         {/* KPI Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
@@ -343,7 +342,7 @@ function OverviewTab() {
           </CardContent>
         </Card>
       </div>
-    </ScrollArea>
+    </div>
   );
 }
 
@@ -375,7 +374,7 @@ function ParcelsTab() {
   };
 
   return (
-    <ScrollArea className="h-[calc(100vh-80px)]">
+    <div className="h-[calc(100vh-80px)] overflow-y-auto">
       <div className="space-y-4 p-1">
         {/* Search & Filter */}
         <div className="flex flex-col md:flex-row gap-3">
@@ -538,7 +537,7 @@ function ParcelsTab() {
           </div>
         </DialogContent>
       </Dialog>
-    </ScrollArea>
+    </div>
   );
 }
 
@@ -571,7 +570,7 @@ function QRHubTab() {
   ];
 
   return (
-    <ScrollArea className="h-[calc(100vh-80px)]">
+    <div className="h-[calc(100vh-80px)] overflow-y-auto">
       <div className="space-y-6 p-1">
         {/* QR Lifecycle Diagram */}
         <Card className="bg-white/[0.03] border-white/[0.06]">
@@ -685,7 +684,7 @@ function QRHubTab() {
           )}
         </DialogContent>
       </Dialog>
-    </ScrollArea>
+    </div>
   );
 }
 
@@ -712,7 +711,7 @@ function LoadingTab() {
   };
 
   return (
-    <ScrollArea className="h-[calc(100vh-80px)]">
+    <div className="h-[calc(100vh-80px)] overflow-y-auto">
       <div className="space-y-4 p-1">
         {/* Active Trips Selector */}
         <div className="flex flex-wrap gap-2">
@@ -813,7 +812,7 @@ function LoadingTab() {
           </>
         )}
       </div>
-    </ScrollArea>
+    </div>
   );
 }
 
@@ -829,7 +828,7 @@ function TripsTab() {
   };
 
   return (
-    <ScrollArea className="h-[calc(100vh-80px)]">
+    <div className="h-[calc(100vh-80px)] overflow-y-auto">
       <div className="space-y-3 p-1">
         {trips.map(trip => (
           <Card key={trip.id} className="bg-white/[0.03] border-white/[0.06]">
@@ -951,7 +950,7 @@ function TripsTab() {
           </Card>
         ))}
       </div>
-    </ScrollArea>
+    </div>
   );
 }
 
@@ -964,7 +963,7 @@ function TrackingTab() {
   const allCheckpoints = ['Dar es Salaam', 'Morogoro', 'Dodoma', 'Singida', 'Shinyanga', 'Mwanza'];
 
   return (
-    <ScrollArea className="h-[calc(100vh-80px)]">
+    <div className="h-[calc(100vh-80px)] overflow-y-auto">
       <div className="space-y-6 p-1">
         {/* Map-like Checkpoint Flow */}
         <Card className="bg-white/[0.03] border-white/[0.06]">
@@ -1076,7 +1075,7 @@ function TrackingTab() {
           ))}
         </div>
       </div>
-    </ScrollArea>
+    </div>
   );
 }
 
@@ -1105,7 +1104,7 @@ function PaymentsTab() {
   const redParcels = parcels.filter(p => p.qrStatus === 'RED');
 
   return (
-    <ScrollArea className="h-[calc(100vh-80px)]">
+    <div className="h-[calc(100vh-80px)] overflow-y-auto">
       <div className="space-y-6 p-1">
         {/* Summary Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -1289,7 +1288,7 @@ function PaymentsTab() {
           </CardContent>
         </Card>
       </div>
-    </ScrollArea>
+    </div>
   );
 }
 
@@ -1339,7 +1338,7 @@ function DriversTab() {
   };
 
   return (
-    <ScrollArea className="h-[calc(100vh-80px)]">
+    <div className="h-[calc(100vh-80px)] overflow-y-auto">
       <div className="space-y-4 p-1">
         {/* Leaderboard Sort */}
         <div className="flex items-center gap-2">
@@ -1492,7 +1491,7 @@ function DriversTab() {
           )}
         </DialogContent>
       </Dialog>
-    </ScrollArea>
+    </div>
   );
 }
 
@@ -1552,7 +1551,7 @@ function IncidentsTab() {
   };
 
   return (
-    <ScrollArea className="h-[calc(100vh-80px)]">
+    <div className="h-[calc(100vh-80px)] overflow-y-auto">
       <div className="space-y-4 p-1">
         {/* Report Button */}
         <div className="flex flex-col md:flex-row md:items-center gap-3 justify-between">
@@ -1725,7 +1724,7 @@ function IncidentsTab() {
           </div>
         </DialogContent>
       </Dialog>
-    </ScrollArea>
+    </div>
   );
 }
 
@@ -1796,7 +1795,7 @@ function AuditTab() {
   };
 
   return (
-    <ScrollArea className="h-[calc(100vh-80px)]">
+    <div className="h-[calc(100vh-80px)] overflow-y-auto">
       <div className="space-y-4 p-1">
         {/* Security Summary */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -1890,7 +1889,7 @@ function AuditTab() {
           </CardContent>
         </Card>
       </div>
-    </ScrollArea>
+    </div>
   );
 }
 
@@ -1935,7 +1934,7 @@ export default function CargoTZ() {
         </div>
 
         {/* Tile Navigation */}
-        <ScrollArea className="flex-1 px-3 py-3">
+        <div className="flex-1 overflow-y-auto px-3 py-3">
           <div className="space-y-1.5">
             {sidebarItems.map(item => {
               const Icon = item.icon;
@@ -1961,7 +1960,7 @@ export default function CargoTZ() {
               );
             })}
           </div>
-        </ScrollArea>
+        </div>
 
         {/* Sidebar Footer */}
         <div className="shrink-0 px-4 py-3 border-t border-white/[0.06]">

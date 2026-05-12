@@ -10,7 +10,6 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -455,15 +454,15 @@ export default function KobeHotel() {
     <div className={`flex h-full w-full overflow-hidden ${darkMode ? 'bg-[#0a0a1a] text-white' : 'bg-gray-50 text-gray-900'}`}>
 
       {/* ─── SIDEBAR ──────────────────────────────────────────────── */}
-      <aside className={`w-20 flex-shrink-0 flex flex-col items-center py-4 gap-2 ${darkMode ? 'bg-[#0c0c1a] border-r border-white/[0.06]' : 'bg-white border-r border-gray-200'}`}>
-        <div className="mb-4 flex flex-col items-center gap-1">
+      <aside className={`w-20 flex-shrink-0 flex flex-col items-center py-4 ${darkMode ? 'bg-[#0c0c1a] border-r border-white/[0.06]' : 'bg-white border-r border-gray-200'}`}>
+        <div className="mb-3 flex flex-col items-center gap-1">
           <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-cyan-500 to-blue-600 flex items-center justify-center">
             <Building2 className="w-5 h-5 text-white" />
           </div>
           <span className="text-[8px] font-bold tracking-tight text-cyan-400">KOBE</span>
         </div>
-        <ScrollArea className="flex-1 w-full">
-          <div className="flex flex-col items-center gap-2 px-2 pb-2">
+        <div className="flex-1 overflow-y-auto w-full px-2">
+          <div className="flex flex-col items-center gap-2 pb-2">
             {sidebarItems.map(item => {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
@@ -480,8 +479,8 @@ export default function KobeHotel() {
               );
             })}
           </div>
-        </ScrollArea>
-        <div className="mt-auto pt-2">
+        </div>
+        <div className="pt-2">
           <button onClick={() => setDarkMode(!darkMode)} className={`w-10 h-10 rounded-lg flex items-center justify-center ${darkMode ? 'text-amber-400 hover:bg-white/5' : 'text-gray-600 hover:bg-gray-100'}`}>
             {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           </button>

@@ -12,7 +12,6 @@ import {
   ResponsiveContainer, BarChart, Bar,
 } from 'recharts';
 import { Card, CardContent } from '@/components/ui/card';
-import { ScrollArea } from '@/components/ui/scroll-area';
 
 /* ─── DATA ─── */
 const salesData = [
@@ -126,7 +125,7 @@ function Sidebar({ activeModule, onModuleChange, launchApp }: {
       </div>
 
       {/* Tile Grid Navigation */}
-      <ScrollArea className="flex-1 py-3">
+      <div className="flex-1 overflow-y-auto py-3">
         <div className="px-4 space-y-5">
           {moduleSections.map((section) => (
             <div key={section.title}>
@@ -168,7 +167,7 @@ function Sidebar({ activeModule, onModuleChange, launchApp }: {
             </div>
           ))}
         </div>
-      </ScrollArea>
+      </div>
 
       {/* Footer */}
       <div className="shrink-0 px-5 py-3 border-t border-white/[0.06]">

@@ -20,7 +20,6 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Slider } from '@/components/ui/slider';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Switch } from '@/components/ui/switch';
@@ -522,7 +521,7 @@ function DesignerStudioModule() {
               <button key={tab} onClick={() => setActiveTab(tab)} className={`flex-1 py-2 text-[10px] font-medium capitalize transition-all ${activeTab === tab ? 'text-cyan-400 border-b-2 border-cyan-400' : 'text-white/30 hover:text-white/50'}`}>{tab}</button>
             ))}
           </div>
-          <ScrollArea className="flex-1 p-3">
+          <div className="flex-1 overflow-y-auto p-3">
             {activeTab === 'templates' && <div className="space-y-2">
               {DESIGN_TEMPLATES.map((t) => (
                 <div key={t.id} className="p-2.5 rounded-lg bg-white/[0.02] hover:bg-white/[0.06] border border-white/[0.04] cursor-pointer group transition-all">
@@ -556,7 +555,7 @@ function DesignerStudioModule() {
                 <div key={f} className="p-2 rounded-lg bg-white/[0.02] flex items-center gap-2"><Image className="w-4 h-4 text-white/30" /><span className="text-[10px] text-white/50 truncate">{f}</span></div>
               ))}
             </div>}
-          </ScrollArea>
+          </div>
         </div>
         <div className="flex-1 bg-[#080810] overflow-auto flex items-center justify-center p-8">
           <div className="relative shadow-2xl" style={{ width: canvasSize.w, height: canvasSize.h, transform: `scale(${zoom / 100})`, transformOrigin: 'center center' }}>
@@ -649,7 +648,7 @@ function JerseyDesignerModule() {
         </div>
       </div>
       <div className="flex-1 flex overflow-hidden">
-        <ScrollArea className="w-72 border-r border-white/[0.06] bg-[#0c0c1a] p-4">
+        <div className="w-72 border-r border-white/[0.06] bg-[#0c0c1a] p-4 overflow-y-auto">
           <div className="mb-4">
             <label className="text-[10px] text-white/40 uppercase tracking-wider font-semibold">Template</label>
             <div className="grid grid-cols-3 gap-2 mt-2">
@@ -731,7 +730,7 @@ function JerseyDesignerModule() {
               ))}
             </div>
           </div>
-        </ScrollArea>
+        </div>
         <div className="flex-1 flex flex-col items-center justify-center bg-[#080810] overflow-auto">
           <div className="flex items-center gap-1 mb-4 p-1 rounded-lg bg-white/[0.04]">
             <button onClick={() => setView('front')} className={`px-3 py-1.5 rounded-md text-xs transition-all ${view === 'front' ? 'bg-cyan-500/20 text-cyan-400' : 'text-white/30 hover:text-white/50'}`}>Front View</button>
@@ -1734,7 +1733,7 @@ export default function KobePrint() {
             <p className="text-[10px] text-white/30 leading-tight">Print Shop Manager</p>
           </div>
         </div>
-        <ScrollArea className="flex-1 py-2">
+        <div className="flex-1 overflow-y-auto py-2">
           {SECTIONS.map((section) => {
             const sectionModules = MODULES.filter(m => m.section === section.id);
             const isExpanded = expandedSections.has(section.id);
@@ -1762,7 +1761,7 @@ export default function KobePrint() {
               </div>
             );
           })}
-        </ScrollArea>
+        </div>
         <div className="p-3 border-t border-white/[0.06]">
           <div className="flex items-center gap-2 p-2 rounded-lg bg-white/[0.02]">
             <div className="w-7 h-7 rounded-full bg-cyan-500/10 flex items-center justify-center"><Users className="w-3.5 h-3.5 text-cyan-400" /></div>

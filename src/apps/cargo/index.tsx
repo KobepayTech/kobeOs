@@ -17,7 +17,6 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Card, CardContent } from '@/components/ui/card';
 import { QRCodeSVG } from 'qrcode.react';
@@ -427,7 +426,7 @@ function CommandDashboard() {
   const volumeSpark = monthlyShipments.map(m => m.volume);
   const onTimeSpark = monthlyShipments.map(m => (m.onTime / m.volume) * 100);
 
-  return <ScrollArea className="h-full"><div className="p-4 space-y-4">
+  return <div className="h-full overflow-y-auto"><div className="p-4 space-y-4">
     {/* Top Bar: Health Score + AI Insights Summary */}
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
       {/* Health Score Gauge */}
@@ -602,7 +601,7 @@ function CommandDashboard() {
         </div>
       </CardContent></Card>
     </div>
-  </div></ScrollArea>;
+  </div></div>;
 }
 
 
@@ -614,7 +613,7 @@ function AIInsightsTab() {
   const typeColors: Record<string, string> = { PREDICTION: 'text-blue-400 bg-blue-500/10 border-blue-500/20', RISK: 'text-red-400 bg-red-500/10 border-red-500/20', RECOMMENDATION: 'text-amber-400 bg-amber-500/10 border-amber-500/20', ANOMALY: 'text-orange-400 bg-orange-500/10 border-orange-500/20', OPTIMIZATION: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' };
   const typeIcons: Record<string, any> = { PREDICTION: Target, RISK: AlertTriangle, RECOMMENDATION: Zap, ANOMALY: AlertCircle, OPTIMIZATION: TrendingUp };
 
-  return <ScrollArea className="h-full"><div className="p-4 space-y-4">
+  return <div className="h-full overflow-y-auto"><div className="p-4 space-y-4">
     <Card className="bg-gradient-to-br from-indigo-500/[0.1] via-violet-500/[0.05] to-transparent border-indigo-500/20"><CardContent className="p-4">
       <div className="flex items-center gap-3">
         <div className="w-10 h-10 rounded-xl bg-indigo-500/15 flex items-center justify-center"><BrainCircuit className="w-5 h-5 text-indigo-400"/></div>
@@ -653,14 +652,14 @@ function AIInsightsTab() {
     </div>
 
     {filtered.length === 0 && <div className="text-center text-[11px] text-white/30 py-8">No insights in this category</div>}
-  </div></ScrollArea>;
+  </div></div>;
 }
 
 /* ─── ADVANCED ANALYTICS ─── */
 function AnalyticsTab() {
   const [chartType, setChartType] = useState<'cost' | 'carrier' | 'route'>('cost');
 
-  return <ScrollArea className="h-full"><div className="p-4 space-y-4">
+  return <div className="h-full overflow-y-auto"><div className="p-4 space-y-4">
     <div className="flex gap-1">
       {[{k:'cost' as const,l:'Cost Breakdown',i:DollarSign},{k:'carrier' as const,l:'Carrier Performance',i:Plane},{k:'route' as const,l:'Route Efficiency',i:Route}].map(t=>
         <button key={t.k} onClick={()=>setChartType(t.k)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all border ${chartType===t.k?'bg-indigo-500/15 text-indigo-400 border-indigo-500/20':'text-white/40 hover:text-white/60 border-transparent'}`}><t.i className="w-3.5 h-3.5"/>{t.l}</button>
@@ -746,7 +745,7 @@ function AnalyticsTab() {
         </CardContent></Card>)}
       </div>
     </>}
-  </div></ScrollArea>;
+  </div></div>;
 }
 
 
@@ -755,7 +754,7 @@ function TimelineTab() {
   const pipeline = ['ORIGIN','EXPORT_CUSTOMS','IN_TRANSIT','ARRIVED','IMPORT_CUSTOMS','DESTINATION','OUT_FOR_DELIVERY','DELIVERED'];
   const [selectedShipment, setSelectedShipment] = useState<string | null>(null);
 
-  return <ScrollArea className="h-full"><div className="p-4 space-y-3">
+  return <div className="h-full overflow-y-auto"><div className="p-4 space-y-3">
     <Card className="bg-white/[0.03] border-white/[0.06]"><CardContent className="p-4">
       <h3 className="text-xs font-medium text-white/70 mb-3 flex items-center gap-2"><Clock className="w-3.5 h-3.5 text-blue-400"/>Operations Timeline</h3>
       <div className="overflow-x-auto">
@@ -845,7 +844,7 @@ function TimelineTab() {
         </CardContent></Card>;
       })}
     </div>
-  </div></ScrollArea>;
+  </div></div>;
 }
 
 /* ─── SMART RATE CALCULATOR ─── */
@@ -880,7 +879,7 @@ function RateCalculatorTab() {
     setQuote({carrier,total,breakdown:{Freight:freight,'Fuel Surcharge':fuel,Security:security,Handling:handling,'Documentation':docFee},transitDays});
   }, [origin,destination,weight,cargoType,priority]);
 
-  return <ScrollArea className="h-full"><div className="p-4 space-y-4">
+  return <div className="h-full overflow-y-auto"><div className="p-4 space-y-4">
     <Card className="bg-gradient-to-br from-blue-500/[0.08] to-indigo-500/[0.05] border-blue-500/15"><CardContent className="p-4">
       <div className="flex items-center gap-2"><Calculator className="w-5 h-5 text-blue-400"/><h2 className="text-sm font-semibold text-white/90">Smart Rate Calculator</h2></div>
       <p className="text-[10px] text-white/40 mt-1">Instant freight quotes with AI-powered cost optimization</p>
@@ -918,7 +917,7 @@ function RateCalculatorTab() {
         <Button variant="outline" className="flex-1 h-8 text-[10px] border-white/[0.1] text-white/60 hover:text-white hover:bg-white/[0.05] rounded-lg"><Download className="w-3 h-3 mr-1"/>Download</Button>
       </div>
     </CardContent></Card>}
-  </div></ScrollArea>;
+  </div></div>;
 }
 
 /* ─── DOCUMENT INTELLIGENCE HUB ─── */
@@ -931,7 +930,7 @@ function DocumentsTab() {
 
   const generateDoc = () => setGenerated(true);
 
-  return <ScrollArea className="h-full"><div className="p-4 space-y-4">
+  return <div className="h-full overflow-y-auto"><div className="p-4 space-y-4">
     <Card className="bg-gradient-to-br from-amber-500/[0.08] to-transparent border-amber-500/15"><CardContent className="p-4">
       <div className="flex items-center gap-2"><FileText className="w-5 h-5 text-amber-400"/><h2 className="text-sm font-semibold text-white/90">Document Intelligence Hub</h2></div>
       <p className="text-[10px] text-white/40 mt-1">Generate, preview, and export shipping documents</p>
@@ -989,7 +988,7 @@ function DocumentsTab() {
         <Button variant="outline" className="flex-1 h-8 text-[10px] border-white/[0.1] text-white/60 hover:text-white hover:bg-white/[0.05] rounded-lg"><Copy className="w-3 h-3 mr-1"/>Copy</Button>
       </div>
     </CardContent></Card>}
-  </div></ScrollArea>;
+  </div></div>;
 }
 
 
@@ -1057,7 +1056,7 @@ function ShipmentsTab({search}:{search:string}){
   };
   const filtered=useMemo(()=>shipments.filter(s=>{const ms=!search||s.number.toLowerCase().includes(search.toLowerCase())||s.customer.toLowerCase().includes(search.toLowerCase());const mf=f==='ALL'||s.status===f;return ms&&mf;}),[search,f]);
   const filters=['ALL','ORIGIN','EXPORT_CUSTOMS','IN_TRANSIT','IMPORT_CUSTOMS','DESTINATION','DELIVERED'];
-  return<ScrollArea className="h-full"><div className="p-4 space-y-3">
+  return<div className="h-full overflow-y-auto"><div className="p-4 space-y-3">
     {/* Shipment Flowchart Overview */}
     <Card className="bg-gradient-to-br from-blue-500/[0.05] to-indigo-500/[0.05] border-blue-500/15"><CardContent className="p-3">
       <div className="flex items-center gap-2 mb-2"><Ship className="w-4 h-4 text-blue-400"/><span className="text-xs font-semibold text-white/80">Shipment Pipeline</span><span className="text-[10px] text-white/30 ml-auto">{shipments.length} active shipments</span></div>
@@ -1132,14 +1131,14 @@ function ShipmentsTab({search}:{search:string}){
         </div>
       </>})()}
     </DialogContent></Dialog>
-  </div></ScrollArea>;
+  </div></div>;
 }
 
 /* ─── CUSTOMS ─── */
 function CustomsTab({search}:{search:string}){
   const[j,setJ]=useState<'EXPORT'|'IMPORT'>('EXPORT');
   const filtered=useMemo(()=>shipments.filter(s=>!search||s.number.toLowerCase().includes(search.toLowerCase())||s.customer.toLowerCase().includes(search.toLowerCase())),[search]);
-  return<ScrollArea className="h-full"><div className="p-4 space-y-4">
+  return<div className="h-full overflow-y-auto"><div className="p-4 space-y-4">
     <div className="flex gap-1"><button onClick={()=>setJ('EXPORT')} className={`flex-1 py-2 rounded-lg text-[11px] font-medium transition-all ${j==='EXPORT'?'bg-blue-500/15 text-blue-400 border border-blue-500/20':'text-white/40 border border-transparent'}`}>China Export</button><button onClick={()=>setJ('IMPORT')} className={`flex-1 py-2 rounded-lg text-[11px] font-medium transition-all ${j==='IMPORT'?'bg-amber-500/15 text-amber-400 border border-amber-500/20':'text-white/40 border border-transparent'}`}>Tanzania Import</button></div>
     {filtered.map(s=>{const cc=customsData[s.id];if(!cc)return null;const c=j==='EXPORT'?cc.export:cc.import;const pred=predictETA(s);return<Card key={s.id} className="bg-white/[0.03] border-white/[0.06]"><CardContent className="p-3 space-y-2">
       <div className="flex items-center justify-between"><div><div className="text-xs font-medium text-white/80">{s.number}</div><div className="text-[10px] text-white/30">{s.customer}&middot;Port:{c.portCode}</div></div><SB s={c.lane}/></div>
@@ -1148,7 +1147,7 @@ function CustomsTab({search}:{search:string}){
       <div className="grid grid-cols-2 gap-2 text-[10px]"><div className="bg-white/[0.03] rounded-lg p-2"><div className="text-white/30">Duties Est.</div><div className="text-white/60">{usd(c.dutiesEstimated)}</div></div><div className="bg-white/[0.03] rounded-lg p-2"><div className="text-white/30">Duties Paid</div><div className={c.dutiesPaid>=c.dutiesEstimated?'text-emerald-400':'text-amber-400'}>{usd(c.dutiesPaid)}</div></div></div>
       {pred.delayDays>0 && <div className="flex items-center gap-1.5 bg-indigo-500/[0.05] rounded-lg p-2 border border-indigo-500/10"><BrainCircuit className="w-3 h-3 text-indigo-400"/><span className="text-[10px] text-indigo-300">AI: +{pred.delayDays}d predicted delay due to customs risk</span></div>}
     </CardContent></Card>})}
-  </div></ScrollArea>;
+  </div></div>;
 }
 
 /* ─── WAREHOUSE ─── */
@@ -1156,7 +1155,7 @@ function WarehouseTab({search:_s}:{search:string}){
   const[scan,setScan]=useState('');
   const[found,setFound]=useState<Pkg|null>(null);
   const handleScan=()=>{const p=packages.find(p=>p.qrCode===scan);setFound(p||null);};
-  return<ScrollArea className="h-full"><div className="p-4 space-y-4">
+  return<div className="h-full overflow-y-auto"><div className="p-4 space-y-4">
     <Card className="bg-white/[0.03] border-white/[0.06]"><CardContent className="p-3 space-y-3">
       <h3 className="text-xs font-medium text-white/70 flex items-center gap-2"><ScanLine className="w-4 h-4"/>Package Scan</h3>
       <div className="flex gap-2"><Input value={scan} onChange={e=>setScan(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleScan()} placeholder="Scan QR code" className="h-9 text-xs bg-white/[0.04] border-white/[0.06] text-white/80 placeholder:text-white/20 rounded-xl flex-1"/><Button onClick={handleScan} className="h-9 px-3 text-xs bg-blue-500 hover:bg-blue-600 rounded-xl"><ScanLine className="w-3.5 h-3.5"/></Button></div>
@@ -1174,14 +1173,14 @@ function WarehouseTab({search:_s}:{search:string}){
         <div className="mt-1"><div className="flex items-center justify-between text-[10px] text-white/40 mb-1"><span>{u.weight}kg/{u.capacity}kg</span><span>{Math.round((u.weight/u.capacity)*100)}%</span></div><div className="h-1.5 rounded-full bg-white/[0.06] overflow-hidden"><div className="h-full rounded-full bg-blue-500" style={{width:`${(u.weight/u.capacity)*100}%`}}/></div></div>
       </div>)}</div>
     </CardContent></Card>
-  </div></ScrollArea>;
+  </div></div>;
 }
 
 /* ─── FLIGHTS ─── */
 function FlightsTab({search}:{search:string}){
   const[view,setView]=useState<Flight|null>(null);
   const filtered=useMemo(()=>flights.filter(f=>!search||f.number.toLowerCase().includes(search.toLowerCase())||f.airline.toLowerCase().includes(search.toLowerCase())),[search]);
-  return<ScrollArea className="h-full"><div className="p-4 space-y-3">
+  return<div className="h-full overflow-y-auto"><div className="p-4 space-y-3">
     {filtered.map(f=><Card key={f.id} className="bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.05] transition-all cursor-pointer" onClick={()=>setView(f)}><CardContent className="p-3">
       <div className="flex items-start justify-between mb-2"><div className="flex items-center gap-2"><Plane className="w-4 h-4 text-blue-400"/><div><div className="text-xs font-medium text-white/80">{f.number}&middot;{f.airline}</div><div className="text-[10px] text-white/30">{f.ulds} ULDs &middot; ${f.costPerKg}/kg</div></div></div><SB s={f.status}/></div>
       <div className="flex items-center gap-2 mb-2"><span className="text-[11px] text-white/60 font-medium">{f.origin}</span>{f.transit&&<><ArrowRight className="w-3 h-3 text-white/20"/><span className="text-[10px] text-white/30">{f.transit}</span></>}<ArrowRight className="w-3 h-3 text-white/20"/><span className="text-[11px] text-white/60 font-medium">{f.destination}</span></div>
@@ -1199,7 +1198,7 @@ function FlightsTab({search}:{search:string}){
         {ulds.filter(u=>u.flight===view.number).length===0&&<div className="text-center text-white/30 py-2">No ULDs</div>}
       </div></>}
     </DialogContent></Dialog>
-  </div></ScrollArea>;
+  </div></div>;
 }
 
 /* ─── PAYMENTS ─── */
@@ -1216,7 +1215,7 @@ function TrackingTab({search}:{search:string}){
   const events=found?trackingEvents.filter(e=>e.shipmentId===found.id):[];
   const evIcon=(type:string)=>{if(type.includes('CREATED'))return<CircleDot className="w-4 h-4 text-blue-400"/>;if(type.includes('CUSTOMS'))return<ShieldCheck className="w-4 h-4 text-amber-400"/>;if(type.includes('FLIGHT')||type.includes('TRANSIT'))return<Plane className="w-4 h-4 text-indigo-400"/>;if(type.includes('DELIVER')||type.includes('COMPLETED'))return<CheckCircle2 className="w-4 h-4 text-emerald-400"/>;return<Circle className="w-4 h-4 text-white/40"/>;};
   const pred = found ? predictETA(found) : null;
-  return <ScrollArea className="h-full"><div className="p-4 space-y-4">
+  return <div className="h-full overflow-y-auto"><div className="p-4 space-y-4">
     <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30"/><Input value={awb} onChange={e=>setAwb(e.target.value)} placeholder="Enter AWB or Shipment Number" className="h-10 pl-10 text-sm bg-white/[0.04] border-white/[0.06] text-white/80 placeholder:text-white/25 rounded-xl"/></div>
     {found&&<>
       <Card className="bg-blue-500/[0.05] border-blue-500/15"><CardContent className="p-3">
@@ -1239,14 +1238,14 @@ function TrackingTab({search}:{search:string}){
     </>}
     {!found&&awb&&<div className="text-center text-[11px] text-red-400 py-4">No shipment found &quot;{awb}&quot;</div>}
     {!awb&&<div className="text-center text-[11px] text-white/30 py-8">Enter AWB to track</div>}
-  </div></ScrollArea>;
+  </div></div>;
 }
 
 /* ─── DELIVERY ─── */
 function DeliveryTab({search}:{search:string}){
   const filtered=useMemo(()=>deliveries.filter(d=>!search||d.driver.toLowerCase().includes(search.toLowerCase())),[search]);
   const steps=['ASSIGNED','PICKED_UP','IN_TRANSIT','OUT_FOR_DELIVERY','DELIVERED'];
-  return<ScrollArea className="h-full"><div className="p-4 space-y-3">
+  return<div className="h-full overflow-y-auto"><div className="p-4 space-y-3">
     {filtered.map(d=>{const s=shipments.find(sh=>sh.id===d.shipmentId);const idx=steps.indexOf(d.status);return<Card key={d.id} className="bg-white/[0.03] border-white/[0.06]"><CardContent className="p-3 space-y-3">
       <div className="flex items-start justify-between"><div className="flex items-center gap-2"><Truck className="w-5 h-5 text-blue-400"/><div><div className="text-xs font-medium text-white/80">{s?.number||d.shipmentId}</div><div className="text-[10px] text-white/30">{d.driver}&middot;{d.vehicle}</div></div></div><SB s={d.status}/></div>
       <div className="text-[11px] text-white/50">{d.address}</div>
@@ -1255,7 +1254,7 @@ function DeliveryTab({search}:{search:string}){
       <div className="flex items-center gap-3 text-[10px] text-white/30"><span className="flex items-center gap-1"><Phone className="w-3 h-3"/>{d.phone}</span><span className="flex items-center gap-1"><Calendar className="w-3 h-3"/>{d.started}</span>{d.delivered&&<span className="flex items-center gap-1 text-emerald-400"><CheckCircle2 className="w-3 h-3"/>{d.delivered}</span>}</div>
       {d.status==='FAILED'&&<div className="bg-red-500/10 rounded-lg p-2 text-[10px] text-red-400">Delivery failed — Recipient unavailable. AI suggests retry at 9:00 AM tomorrow.</div>}
     </CardContent></Card>})}
-  </div></ScrollArea>;
+  </div></div>;
 }
 
 /* ─── NETWORK MAP ─── */
@@ -1273,7 +1272,7 @@ function NetworkMapTab() {
     return {flight:f,segments};
   });
   const getStatusColor = (status:string)=>status==='IN_FLIGHT'?'#6366f1':status==='SCHEDULED'?'#3b82f6':'#f59e0b';
-  return <ScrollArea className="h-full"><div className="p-4 space-y-4">
+  return <div className="h-full overflow-y-auto"><div className="p-4 space-y-4">
     <Card className="bg-white/[0.03] border-white/[0.06]"><CardContent className="p-4">
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-xs font-medium text-white/70 flex items-center gap-2"><Globe className="w-3.5 h-3.5 text-indigo-400"/>Route Network</h3>
@@ -1310,7 +1309,7 @@ function NetworkMapTab() {
         {selectedFlight?.id===f.id&&<div className="mt-3 pt-3 border-t border-white/[0.06] grid grid-cols-3 gap-2 text-[10px]"><div className="bg-white/[0.03] rounded-lg p-2"><div className="text-white/30">ETD</div><div className="text-white/60">{f.etd}</div></div><div className="bg-white/[0.03] rounded-lg p-2"><div className="text-white/30">ETA</div><div className="text-white/60">{f.eta}</div></div><div className="bg-white/[0.03] rounded-lg p-2"><div className="text-white/30">ULDs</div><div className="text-white/60">{f.ulds} loaded</div></div></div>}
       </CardContent></Card>})}
     </div>
-  </div></ScrollArea>;
+  </div></div>;
 }
 
 
@@ -1345,7 +1344,7 @@ function AlertsPanel({ onClose }: { onClose: () => void }) {
           <button key={f} onClick={()=>setFilter(f)} className={`flex-1 py-1 rounded-lg text-[10px] font-medium transition-all ${filter===f?'bg-indigo-500/15 text-indigo-400 border border-indigo-500/20':'text-white/35 hover:text-white/50 border border-transparent'}`}>{f==='ALL'?'All':f.charAt(0).toUpperCase()+f.slice(1)}</button>
         ))}
       </div>
-      <ScrollArea className="max-h-[360px]">
+      <div className="overflow-y-auto" style={{maxHeight:360}}>
         <div className="p-2 space-y-1">
           {filtered.length===0&&<div className="text-center text-[11px] text-white/30 py-8">No alerts</div>}
           {filtered.map(a=>(
@@ -1370,7 +1369,7 @@ function AlertsPanel({ onClose }: { onClose: () => void }) {
             </div>
           ))}
         </div>
-      </ScrollArea>
+      </div>
     </div>
   );
 }
@@ -1380,7 +1379,7 @@ function AdCampaignsTab() {
   const [filter, setFilter] = useState('ALL');
   const filtered = campaigns.filter(c => filter === 'ALL' || c.status === filter);
   const statusColors: Record<string, string> = { active: 'text-emerald-400 bg-emerald-500/10', draft: 'text-blue-400 bg-blue-500/10', paused: 'text-amber-400 bg-amber-500/10', ended: 'text-gray-400 bg-gray-500/10' };
-  return <ScrollArea className="h-full"><div className="p-4 space-y-4">
+  return <div className="h-full overflow-y-auto"><div className="p-4 space-y-4">
     <Card className="bg-gradient-to-br from-pink-500/[0.08] to-purple-500/[0.05] border-pink-500/15"><CardContent className="p-4">
       <div className="flex items-center gap-2"><Megaphone className="w-5 h-5 text-pink-400"/><h2 className="text-sm font-semibold text-white/90">Ad Campaigns</h2></div>
       <p className="text-[10px] text-white/40 mt-1">{campaigns.length} campaigns &middot; {campaigns.filter(c=>c.status==='active').length} active</p>
@@ -1413,7 +1412,7 @@ function AdCampaignsTab() {
         </CardContent></Card>;
       })}
     </div>
-  </div></ScrollArea>;
+  </div></div>;
 }
 
 /* ─── AD LIBRARY TAB ─── */
@@ -1423,7 +1422,7 @@ function AdLibraryTab() {
   const filtered = ads.filter(a => filter === 'ALL' || a.status === filter);
   const statusColors: Record<string, string> = { running: 'text-emerald-400 bg-emerald-500/10', approved: 'text-blue-400 bg-blue-500/10', pending: 'text-amber-400 bg-amber-500/10', rejected: 'text-red-400 bg-red-500/10', paused: 'text-orange-400 bg-orange-500/10', expired: 'text-gray-400 bg-gray-500/10' };
   const typeIcons: Record<string, string> = { image: 'Image', video: 'Video', text: 'Text', carousel: 'Carousel' };
-  return <ScrollArea className="h-full"><div className="p-4 space-y-4">
+  return <div className="h-full overflow-y-auto"><div className="p-4 space-y-4">
     <div className="flex gap-1 overflow-x-auto scrollbar-hide">
       {['ALL','running','approved','pending','rejected','paused','expired'].map(f => <button key={f} onClick={()=>setFilter(f)} className={`px-2.5 py-1 rounded-lg text-[10px] font-medium whitespace-nowrap transition-all border ${filter===f?'bg-pink-500/15 text-pink-400 border-pink-500/20':'text-white/35 hover:text-white/50 border-transparent'}`}>{f==='ALL'?'All':f[0].toUpperCase()+f.slice(1)}</button>)}
     </div>
@@ -1472,14 +1471,14 @@ function AdLibraryTab() {
         </div>
       </>}
     </DialogContent></Dialog>
-  </div></ScrollArea>;
+  </div></div>;
 }
 
 /* ─── ADVERTISERS TAB ─── */
 function AdvertisersTab() {
   const [filter, setFilter] = useState('ALL');
   const filtered = advertisers.filter(a => filter === 'ALL' || a.status === filter);
-  return <ScrollArea className="h-full"><div className="p-4 space-y-4">
+  return <div className="h-full overflow-y-auto"><div className="p-4 space-y-4">
     <Card className="bg-gradient-to-br from-cyan-500/[0.08] to-blue-500/[0.05] border-cyan-500/15"><CardContent className="p-4">
       <div className="flex items-center gap-2"><Users className="w-5 h-5 text-cyan-400"/><h2 className="text-sm font-semibold text-white/90">Advertiser Directory</h2></div>
       <p className="text-[10px] text-white/40 mt-1">{advertisers.length} advertisers &middot; {advertisers.filter(a=>a.status==='active').length} active</p>
@@ -1505,7 +1504,7 @@ function AdvertisersTab() {
         </CardContent></Card>
       ))}
     </div>
-  </div></ScrollArea>;
+  </div></div>;
 }
 
 /* ─── AD ANALYTICS TAB ─── */
@@ -1514,7 +1513,7 @@ function AdAnalyticsTab() {
   const totalClicks = ads.reduce((s,a)=>s+a.clicks,0);
   const totalRevenue = ads.reduce((s,a)=>s+a.spend,0);
   const avgCTR = totalImpressions>0?(totalClicks/totalImpressions)*100:0;
-  return <ScrollArea className="h-full"><div className="p-4 space-y-4">
+  return <div className="h-full overflow-y-auto"><div className="p-4 space-y-4">
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
       <KC t="Total Impressions" v={totalImpressions.toLocaleString()} i={Eye} c="pink"/><KC t="Total Clicks" v={totalClicks.toLocaleString()} i={MousePointerClick} c="pink"/>
       <KC t="Ad Revenue" v={tzs(totalRevenue)} i={DollarSign} c="emerald"/><KC t="Avg CTR" v={`${avgCTR.toFixed(2)}%`} i={Target} c="amber"/>
@@ -1558,12 +1557,12 @@ function AdAnalyticsTab() {
         </div>;
       })}</div>
     </CardContent></Card>
-  </div></ScrollArea>;
+  </div></div>;
 }
 
 /* ─── AD SETTINGS / MONETIZATION TAB ─── */
 function AdSettingsTab() {
-  return <ScrollArea className="h-full"><div className="p-4 space-y-4">
+  return <div className="h-full overflow-y-auto"><div className="p-4 space-y-4">
     <Card className="bg-gradient-to-br from-violet-500/[0.08] to-purple-500/[0.05] border-violet-500/15"><CardContent className="p-4">
       <div className="flex items-center gap-2"><DollarSign className="w-5 h-5 text-violet-400"/><h2 className="text-sm font-semibold text-white/90">Monetization Settings</h2></div>
       <p className="text-[10px] text-white/40 mt-1">Configure pricing tiers and ad serving rules</p>
@@ -1597,7 +1596,7 @@ function AdSettingsTab() {
         <div className="bg-amber-500/[0.05] rounded-lg p-3 text-center"><div className="text-[10px] text-amber-400/50">Pending Review</div><div className="text-lg font-semibold text-amber-400">{ads.filter(a=>a.status==='pending').length}</div></div>
       </div>
     </CardContent></Card>
-  </div></ScrollArea>;
+  </div></div>;
 }
 
 /* ─── PUBLIC PORTALS ─── */
@@ -1611,7 +1610,7 @@ function PortalsTab() {
     { id: 'cargo-receiver', label: 'Cargo Receiver', desc: 'Manage deliveries', icon: Inbox, color: 'from-pink-500 to-rose-600', iconColor: 'text-pink-400', bgColor: 'bg-pink-500/10 hover:bg-pink-500/20', borderColor: 'border-pink-500/20 hover:border-pink-500/40' },
     { id: 'cargo-company', label: 'Cargo Admin', desc: 'Company management', icon: Shield, color: 'from-rose-500 to-red-600', iconColor: 'text-rose-400', bgColor: 'bg-rose-500/10 hover:bg-rose-500/20', borderColor: 'border-rose-500/20 hover:border-rose-500/40' },
   ];
-  return <ScrollArea className="h-full"><div className="p-4 space-y-4">
+  return <div className="h-full overflow-y-auto"><div className="p-4 space-y-4">
     <Card className="bg-gradient-to-br from-emerald-500/[0.08] to-teal-500/[0.05] border-emerald-500/15"><CardContent className="p-4">
       <div className="flex items-center gap-2"><Globe className="w-5 h-5 text-emerald-400"/><h2 className="text-sm font-semibold text-white/90">Public Portals</h2></div>
       <p className="text-[10px] text-white/40 mt-1">Launch external-facing cargo apps — accessible to senders, owners, drivers, and receivers</p>
@@ -1644,7 +1643,7 @@ function PortalsTab() {
         </div>
       ))}
     </CardContent></Card>
-  </div></ScrollArea>;
+  </div></div>;
 }
 
 /* ─── TILE DATA FOR SIDEBAR ─── */
@@ -1730,7 +1729,7 @@ function CargoSidebar({ activeTab, onTabChange }: { activeTab: Tab; onTabChange:
       </div>
 
       {/* Tile Navigation */}
-      <ScrollArea className="flex-1 py-2">
+      <div className="flex-1 overflow-y-auto py-2">
         <div className="px-3 space-y-4">
           {cargoSections.map((section) => (
             <div key={section.title}>
@@ -1768,7 +1767,7 @@ function CargoSidebar({ activeTab, onTabChange }: { activeTab: Tab; onTabChange:
             </div>
           ))}
         </div>
-      </ScrollArea>
+      </div>
     </div>
   );
 }

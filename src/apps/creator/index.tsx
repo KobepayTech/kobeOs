@@ -11,7 +11,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -288,7 +287,7 @@ export default function Creator() {
           </div>
           <span className="text-sm font-bold tracking-wide text-white">CREATOR</span>
         </div>
-        <ScrollArea className="flex-1 px-3 py-2">
+        <div className="flex-1 overflow-y-auto px-3 py-2">
           <div className="space-y-1.5">
             {sidebarItems.map((item) => (
               <SidebarTile
@@ -302,7 +301,7 @@ export default function Creator() {
               />
             ))}
           </div>
-        </ScrollArea>
+        </div>
       </aside>
 
       {/* Main Content */}
@@ -323,7 +322,7 @@ export default function Creator() {
 // ── Module 1: Overview ─────────────────────────────────
 function OverviewModule({ setActiveModule }: { setActiveModule: (m: ModuleId) => void }) {
   return (
-    <ScrollArea className="h-full">
+    <div className="h-full overflow-y-auto">
       <div className="p-6 space-y-6">
         <div className="flex items-center justify-between">
           <div>
@@ -439,7 +438,7 @@ function OverviewModule({ setActiveModule }: { setActiveModule: (m: ModuleId) =>
           </Card>
         </div>
       </div>
-    </ScrollArea>
+    </div>
   );
 }
 
@@ -459,7 +458,7 @@ function CampaignsModule() {
   };
 
   return (
-    <ScrollArea className="h-full">
+    <div className="h-full overflow-y-auto">
       <div className="p-6 space-y-5">
         <div className="flex items-center justify-between">
           <div>
@@ -596,7 +595,7 @@ function CampaignsModule() {
           </div>
         </DialogContent>
       </Dialog>
-    </ScrollArea>
+    </div>
   );
 }
 
@@ -627,7 +626,7 @@ function MarketplaceModule() {
   const engagementColor = (e: number) => e > 5 ? '#10b981' : e >= 3 ? '#f59e0b' : '#ef4444';
 
   return (
-    <ScrollArea className="h-full">
+    <div className="h-full overflow-y-auto">
       <div className="p-6 space-y-5">
         <div className="flex items-center justify-between">
           <div>
@@ -758,14 +757,14 @@ function MarketplaceModule() {
           )}
         </DialogContent>
       </Dialog>
-    </ScrollArea>
+    </div>
   );
 }
 
 // ── Module 4: My Deals ─────────────────────────────────
 function DealsModule() {
   return (
-    <ScrollArea className="h-full">
+    <div className="h-full overflow-y-auto">
       <div className="p-6 space-y-5">
         <div>
           <h1 className="text-xl font-bold text-white">My Deals</h1>
@@ -840,7 +839,7 @@ function DealsModule() {
           })}
         </div>
       </div>
-    </ScrollArea>
+    </div>
   );
 }
 
@@ -850,7 +849,7 @@ function EscrowModule() {
   const [withdrawMethod, setWithdrawMethod] = useState('mpesa');
 
   return (
-    <ScrollArea className="h-full">
+    <div className="h-full overflow-y-auto">
       <div className="p-6 space-y-5">
         <div>
           <h1 className="text-xl font-bold text-white">Escrow Wallet</h1>
@@ -1005,7 +1004,7 @@ function EscrowModule() {
           </CardContent>
         </Card>
       </div>
-    </ScrollArea>
+    </div>
   );
 }
 
@@ -1028,7 +1027,7 @@ function PerformanceModule() {
   }, [roiBudget, roiViews, roiConv, roiPrice]);
 
   return (
-    <ScrollArea className="h-full">
+    <div className="h-full overflow-y-auto">
       <div className="p-6 space-y-5">
         <div>
           <h1 className="text-xl font-bold text-white">Performance</h1>
@@ -1157,7 +1156,7 @@ function PerformanceModule() {
           </Card>
         </div>
       </div>
-    </ScrollArea>
+    </div>
   );
 }
 
@@ -1166,7 +1165,7 @@ function AffiliateModule() {
   const [createLinkOpen, setCreateLinkOpen] = useState(false);
 
   return (
-    <ScrollArea className="h-full">
+    <div className="h-full overflow-y-auto">
       <div className="p-6 space-y-5">
         <div className="flex items-center justify-between">
           <div>
@@ -1280,7 +1279,7 @@ function AffiliateModule() {
           </div>
         </DialogContent>
       </Dialog>
-    </ScrollArea>
+    </div>
   );
 }
 
@@ -1308,7 +1307,7 @@ function MessagesModule() {
         <div className="p-4 border-b border-white/[0.06]">
           <h2 className="text-sm font-bold text-white">Messages</h2>
         </div>
-        <ScrollArea className="flex-1">
+        <div className="flex-1 overflow-y-auto">
           {messages.map((msg) => (
             <button
               key={msg.id}
@@ -1328,7 +1327,7 @@ function MessagesModule() {
               {msg.unread && <div className="w-2 h-2 rounded-full bg-cyan-400 shrink-0" />}
             </button>
           ))}
-        </ScrollArea>
+        </div>
       </div>
 
       {/* Chat Area */}
@@ -1345,7 +1344,7 @@ function MessagesModule() {
         </div>
 
         {/* Messages */}
-        <ScrollArea className="flex-1 p-4">
+        <div className="flex-1 overflow-y-auto p-4">
           <div className="space-y-3">
             {chatMessages.map((m, i) => {
               const isMe = m.from === 'You';
@@ -1361,7 +1360,7 @@ function MessagesModule() {
               );
             })}
           </div>
-        </ScrollArea>
+        </div>
 
         {/* Input */}
         <div className="h-16 border-t border-white/[0.06] flex items-center px-4 gap-3">
