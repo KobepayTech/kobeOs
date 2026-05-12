@@ -71,6 +71,8 @@ const defaultDesktopIcons: DesktopIcon[] = [
   { id: 'di-8', appId: 'erp-dashboard', x: 20, y: 650, label: 'ERP Dashboard', icon: 'BarChart3' },
   { id: 'di-9', appId: 'cargo', x: 20, y: 740, label: 'KOBECARGO', icon: 'Plane' },
   { id: 'di-10', appId: 'kobe-print', x: 20, y: 830, label: 'KobePrint', icon: 'Printer' },
+  { id: 'di-11', appId: 'creator', x: 120, y: 20, label: 'Creator', icon: 'Users' },
+  { id: 'di-12', appId: 'kobe-hotel', x: 120, y: 110, label: 'KobeHotel', icon: 'Building2' },
 ];
 
 const defaultSettings: OSSettings = {

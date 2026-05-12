@@ -4,7 +4,7 @@ import {
   Receipt, ShoppingBag, Palette, BarChart3, Store, Warehouse,
   FileText, ShieldCheck, Truck, Heart, UserCircle,
   ChevronRight, Boxes, CircleDollarSign,
-  Globe, LayoutDashboard,
+  Globe, LayoutDashboard, CreditCard, Percent,
 } from 'lucide-react';
 import { useOSStore } from '@/os/store';
 import {
@@ -75,6 +75,8 @@ const moduleSections = [
       { id: 'shop', appId: 'erp-shop', label: 'Online Shop', desc: 'Customer storefront', icon: ShoppingBag, color: 'text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/20' },
       { id: 'store', appId: 'erp-store', label: 'Product Manager', desc: 'SKU, inventory & pricing', icon: Store, color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20' },
       { id: 'store-editor', appId: 'erp-store-editor', label: 'Store Editor', desc: 'Customize your storefront', icon: Palette, color: 'text-violet-400', bg: 'bg-violet-500/10', border: 'border-violet-500/20' },
+      { id: 'credit', appId: 'erp-credit', label: 'Credit & Collections', desc: 'Customer credit & balances', icon: CreditCard, color: 'text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/20' },
+      { id: 'discounts', appId: 'erp-discounts', label: 'Discounts & Promos', desc: 'Rules, campaigns & coupons', icon: Percent, color: 'text-pink-400', bg: 'bg-pink-500/10', border: 'border-pink-500/20' },
     ] as ModuleTile[],
   },
   {
@@ -246,6 +248,8 @@ function DashboardOverview({ launchApp }: { launchApp: (appId: string) => void }
             { appId: 'erp-admin', label: 'Admin Panel', desc: 'System settings', icon: ShieldCheck, color: 'bg-red-500/15 text-red-400 hover:bg-red-500/25', border: 'border-red-500/20 hover:border-red-500/40' },
             { appId: 'erp-store-editor', label: 'Store Editor', desc: 'Customize storefront', icon: Palette, color: 'bg-violet-500/15 text-violet-400 hover:bg-violet-500/25', border: 'border-violet-500/20 hover:border-violet-500/40' },
             { appId: 'erp-shipments', label: 'Shipments', desc: 'Delivery tracking', icon: Truck, color: 'bg-cyan-500/15 text-cyan-400 hover:bg-cyan-500/25', border: 'border-cyan-500/20 hover:border-cyan-500/40' },
+            { appId: 'erp-credit', label: 'Credit & Collections', desc: 'Customer balances', icon: CreditCard, color: 'bg-red-500/15 text-red-400 hover:bg-red-500/25', border: 'border-red-500/20 hover:border-red-500/40' },
+            { appId: 'erp-discounts', label: 'Discounts & Promos', desc: 'Rules & coupons', icon: Percent, color: 'bg-pink-500/15 text-pink-400 hover:bg-pink-500/25', border: 'border-pink-500/20 hover:border-pink-500/40' },
           ].map((mod) => (
             <button
               key={mod.appId}

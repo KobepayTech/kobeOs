@@ -57,6 +57,10 @@ import { manifest as cargo_driver } from '@/apps/cargo-driver/manifest';
 import { manifest as cargo_receiver } from '@/apps/cargo-receiver/manifest';
 import { manifest as cargo_company } from '@/apps/cargo-company/manifest';
 import { manifest as kobe_print } from '@/apps/kobe-print/manifest';
+import { manifest as creator } from '@/apps/creator/manifest';
+import { manifest as kobe_hotel } from '@/apps/kobe-hotel/manifest';
+import { manifest as erp_credit } from '@/apps/erp-credit/manifest';
+import { manifest as erp_discounts } from '@/apps/erp-discounts/manifest';
 import { manifest as erp_shop } from '@/apps/erp-shop/manifest';
 import { manifest as erp_store_editor } from '@/apps/erp-store-editor/manifest';
 
@@ -120,6 +124,10 @@ export const appRegistry = [
   cargo_receiver,
   cargo_company,
   kobe_print,
+  creator,
+  kobe_hotel,
+  erp_credit,
+  erp_discounts,
   erp_shop,
   erp_store_editor,
 ];

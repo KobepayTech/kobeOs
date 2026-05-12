@@ -152,17 +152,17 @@ const auditLogs: TZAuditLog[] = [
 /*  HELPERS                                                             */
 /* ------------------------------------------------------------------ */
 
-const subTabs = [
-  { key: 'overview', label: 'Overview', icon: LayoutDashboard },
-  { key: 'parcels', label: 'Parcels', icon: Package },
-  { key: 'qr_hub', label: 'QR Hub', icon: QrCode },
-  { key: 'loading', label: 'Loading', icon: Container },
-  { key: 'trips', label: 'Trips', icon: Truck },
-  { key: 'tracking', label: 'Tracking', icon: MapPin },
-  { key: 'payments', label: 'Payments', icon: CreditCard },
-  { key: 'drivers', label: 'Drivers', icon: UserCircle },
-  { key: 'incidents', label: 'Incidents', icon: ShieldAlert },
-  { key: 'audit', label: 'Audit', icon: ClipboardList },
+const sidebarItems = [
+  { key: 'overview', label: 'Overview', desc: 'Dashboard & analytics', icon: LayoutDashboard },
+  { key: 'parcels', label: 'Parcels', desc: 'Manage shipments', icon: Package },
+  { key: 'qr_hub', label: 'QR Hub', desc: 'Scan & verify codes', icon: QrCode },
+  { key: 'loading', label: 'Loading', desc: 'Load parcels into trips', icon: Container },
+  { key: 'trips', label: 'Trips', desc: 'Trip management', icon: Truck },
+  { key: 'tracking', label: 'Tracking', desc: 'Live route tracking', icon: MapPin },
+  { key: 'payments', label: 'Payments', desc: 'Fees & collections', icon: CreditCard },
+  { key: 'drivers', label: 'Drivers', desc: 'Driver leaderboard', icon: UserCircle },
+  { key: 'incidents', label: 'Incidents', desc: 'Safety & reports', icon: ShieldAlert },
+  { key: 'audit', label: 'Audit', desc: 'Activity logs', icon: ClipboardList },
 ];
 
 const qrSc: Record<string, string> = {
@@ -221,7 +221,7 @@ function OverviewTab() {
   }, []);
 
   return (
-    <ScrollArea className="h-[calc(100vh-140px)]">
+    <ScrollArea className="h-[calc(100vh-80px)]">
       <div className="space-y-6 p-1">
         {/* KPI Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
@@ -375,7 +375,7 @@ function ParcelsTab() {
   };
 
   return (
-    <ScrollArea className="h-[calc(100vh-140px)]">
+    <ScrollArea className="h-[calc(100vh-80px)]">
       <div className="space-y-4 p-1">
         {/* Search & Filter */}
         <div className="flex flex-col md:flex-row gap-3">
@@ -571,7 +571,7 @@ function QRHubTab() {
   ];
 
   return (
-    <ScrollArea className="h-[calc(100vh-140px)]">
+    <ScrollArea className="h-[calc(100vh-80px)]">
       <div className="space-y-6 p-1">
         {/* QR Lifecycle Diagram */}
         <Card className="bg-white/[0.03] border-white/[0.06]">
@@ -712,7 +712,7 @@ function LoadingTab() {
   };
 
   return (
-    <ScrollArea className="h-[calc(100vh-140px)]">
+    <ScrollArea className="h-[calc(100vh-80px)]">
       <div className="space-y-4 p-1">
         {/* Active Trips Selector */}
         <div className="flex flex-wrap gap-2">
@@ -829,7 +829,7 @@ function TripsTab() {
   };
 
   return (
-    <ScrollArea className="h-[calc(100vh-140px)]">
+    <ScrollArea className="h-[calc(100vh-80px)]">
       <div className="space-y-3 p-1">
         {trips.map(trip => (
           <Card key={trip.id} className="bg-white/[0.03] border-white/[0.06]">
@@ -964,7 +964,7 @@ function TrackingTab() {
   const allCheckpoints = ['Dar es Salaam', 'Morogoro', 'Dodoma', 'Singida', 'Shinyanga', 'Mwanza'];
 
   return (
-    <ScrollArea className="h-[calc(100vh-140px)]">
+    <ScrollArea className="h-[calc(100vh-80px)]">
       <div className="space-y-6 p-1">
         {/* Map-like Checkpoint Flow */}
         <Card className="bg-white/[0.03] border-white/[0.06]">
@@ -1105,7 +1105,7 @@ function PaymentsTab() {
   const redParcels = parcels.filter(p => p.qrStatus === 'RED');
 
   return (
-    <ScrollArea className="h-[calc(100vh-140px)]">
+    <ScrollArea className="h-[calc(100vh-80px)]">
       <div className="space-y-6 p-1">
         {/* Summary Cards */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -1339,7 +1339,7 @@ function DriversTab() {
   };
 
   return (
-    <ScrollArea className="h-[calc(100vh-140px)]">
+    <ScrollArea className="h-[calc(100vh-80px)]">
       <div className="space-y-4 p-1">
         {/* Leaderboard Sort */}
         <div className="flex items-center gap-2">
@@ -1545,14 +1545,14 @@ function IncidentsTab() {
     critical: 'text-red-400',
   };
 
-  const statusColors: Record<string, string> = {
+  const incidentStatusColors: Record<string, string> = {
     reported: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30',
     resolved: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
     escalated: 'bg-red-500/15 text-red-400 border-red-500/30',
   };
 
   return (
-    <ScrollArea className="h-[calc(100vh-140px)]">
+    <ScrollArea className="h-[calc(100vh-80px)]">
       <div className="space-y-4 p-1">
         {/* Report Button */}
         <div className="flex flex-col md:flex-row md:items-center gap-3 justify-between">
@@ -1604,7 +1604,7 @@ function IncidentsTab() {
                     </div>
                   </div>
                 </div>
-                <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${statusColors[incident.status]}`}>
+                <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${incidentStatusColors[incident.status]}`}>
                   {incident.status}
                 </span>
               </div>
@@ -1640,7 +1640,7 @@ function IncidentsTab() {
                   <span className={`text-xs font-bold ${severityColors[selectedIncident.severity]}`}>
                     {selectedIncident.severity.toUpperCase()} SEVERITY
                   </span>
-                  <span className={`px-3 py-1 rounded-full text-xs font-medium border ${statusColors[selectedIncident.status]}`}>
+                  <span className={`px-3 py-1 rounded-full text-xs font-medium border ${incidentStatusColors[selectedIncident.status]}`}>
                     {selectedIncident.status}
                   </span>
                 </div>
@@ -1796,7 +1796,7 @@ function AuditTab() {
   };
 
   return (
-    <ScrollArea className="h-[calc(100vh-140px)]">
+    <ScrollArea className="h-[calc(100vh-80px)]">
       <div className="space-y-4 p-1">
         {/* Security Summary */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -1918,56 +1918,69 @@ export default function CargoTZ() {
   };
 
   return (
-    <div className="h-full flex flex-col bg-[#0a0a1a] text-white/90">
-      {/* Header */}
-      <div className="shrink-0 px-6 py-4 border-b border-white/[0.06] flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-amber-500/15 flex items-center justify-center">
-            <Truck className="w-5 h-5 text-amber-400" />
-          </div>
-          <div>
-            <h1 className="text-lg font-bold text-white/90">Cargo TZ</h1>
-            <p className="text-xs text-white/40">Tanzania Domestic Cargo Transport System</p>
+    <div className="h-full flex bg-[#0a0a1a] text-white/90">
+      {/* LEFT SIDEBAR — Tile Navigation */}
+      <div className="w-60 h-full flex flex-col bg-[#0c0c1a] border-r border-white/[0.06] shrink-0">
+        {/* Header */}
+        <div className="shrink-0 px-4 py-4 border-b border-white/[0.06]">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-amber-500/15 flex items-center justify-center">
+              <Navigation className="w-4 h-4 text-amber-400" />
+            </div>
+            <div>
+              <div className="text-sm font-bold text-white/90">Cargo TZ</div>
+              <div className="text-[10px] text-white/30">Tanzania Cargo System</div>
+            </div>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-500/10 rounded-full border border-emerald-500/20">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-xs text-emerald-400">System Online</span>
+
+        {/* Tile Navigation */}
+        <ScrollArea className="flex-1 px-3 py-3">
+          <div className="space-y-1.5">
+            {sidebarItems.map(item => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.key;
+              return (
+                <button
+                  key={item.key}
+                  onClick={() => setActiveTab(item.key)}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border transition-all text-left ${
+                    isActive
+                      ? 'bg-amber-500/10 border-amber-500/20'
+                      : 'bg-white/[0.02] border-transparent hover:bg-white/[0.05]'
+                  }`}
+                >
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isActive ? 'bg-amber-500/15' : 'bg-white/[0.04]'}`}>
+                    <Icon className="w-4 h-4 text-amber-400" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className={`text-[11px] font-medium ${isActive ? 'text-amber-400' : 'text-white/70'}`}>{item.label}</div>
+                    <div className="text-[9px] text-white/25 truncate">{item.desc}</div>
+                  </div>
+                </button>
+              );
+            })}
           </div>
-          <div className="text-xs text-white/30">
+        </ScrollArea>
+
+        {/* Sidebar Footer */}
+        <div className="shrink-0 px-4 py-3 border-t border-white/[0.06]">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <span className="text-[10px] text-emerald-400">System Online</span>
+          </div>
+          <div className="text-[9px] text-white/30 mt-1">
             {parcels.length} parcels • {trips.length} trips • {drivers.length} drivers
           </div>
         </div>
       </div>
 
-      {/* Sub-tab Navigation */}
-      <div className="shrink-0 px-6 py-2 border-b border-white/[0.06] overflow-x-auto">
-        <div className="flex gap-1 min-w-max">
-          {subTabs.map(tab => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.key;
-            return (
-              <button
-                key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
-                className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-medium border transition-all ${
-                  isActive
-                    ? 'bg-amber-500/15 text-amber-400 border-amber-500/20'
-                    : 'bg-transparent text-white/50 border-transparent hover:text-white/80 hover:bg-white/[0.03]'
-                }`}
-              >
-                <Icon className="w-4 h-4" />
-                {tab.label}
-              </button>
-            );
-          })}
+      {/* MAIN CONTENT AREA */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Tab Content */}
+        <div className="flex-1 overflow-hidden p-6">
+          {renderTab()}
         </div>
-      </div>
-
-      {/* Tab Content */}
-      <div className="flex-1 overflow-hidden px-6 py-4">
-        {renderTab()}
       </div>
     </div>
   );

@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback } from 'react';
 import { useOSStore } from '@/os/store';
 import {
   Plane, BarChart3, Package, ShieldCheck, Warehouse, PlaneTakeoff,
-  Wallet, MapPin, Truck, Search, CheckCircle2, ArrowRight,
+  Wallet, MapPin, Truck, Search, CheckCircle2, ArrowRight, ClipboardCheck, Ship, Anchor,
   CircleDot, Circle, DollarSign, Phone, Calendar,
   Container, ScanLine, Weight, Ruler,
   Box, AlertTriangle, Bell,
@@ -994,12 +994,99 @@ function DocumentsTab() {
 
 
 /* ─── SHIPMENTS ─── */
+/* ─── Shipment Flowchart Data ─── */
+const SHIPMENT_STAGES = [
+  { id: 1, name: 'Booked', icon: ClipboardCheck },
+  { id: 2, name: 'Picked Up', icon: Package },
+  { id: 3, name: 'Origin W/H', icon: Warehouse },
+  { id: 4, name: 'In Customs', icon: ClipboardCheck },
+  { id: 5, name: 'Cleared', icon: CheckCircle2 },
+  { id: 6, name: 'In Transit', icon: Ship },
+  { id: 7, name: 'Arrived', icon: Anchor },
+  { id: 8, name: 'Dest. Customs', icon: ClipboardCheck },
+  { id: 9, name: 'Out for Delivery', icon: Truck },
+  { id: 10, name: 'Delivered', icon: CheckCircle2 },
+];
+function ShipmentFlowchart({ currentStage, compact }: { currentStage: number; compact?: boolean }) {
+  return (
+    <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide pb-1">
+      {SHIPMENT_STAGES.map((stage, i) => {
+        const completed = i + 1 < currentStage;
+        const current = i + 1 === currentStage;
+        return (
+          <div key={stage.id} className="flex items-center gap-1 shrink-0">
+            <div className={`flex flex-col items-center gap-1 px-2 py-1.5 rounded-lg min-w-[${compact ? '52px' : '68px'}] transition-all ${
+              completed ? 'bg-emerald-500/10 border border-emerald-500/20' :
+              current ? 'bg-amber-500/15 border border-amber-500/30 animate-pulse' :
+              'bg-white/[0.02] border border-white/[0.04]'
+            }`}>
+              <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold ${
+                completed ? 'bg-emerald-500/20 text-emerald-400' :
+                current ? 'bg-amber-500/20 text-amber-400' :
+                'bg-white/[0.05] text-white/20'
+              }`}>
+                {completed ? <CheckCircle2 className="w-3 h-3" /> : stage.id}
+              </div>
+              <span className={`text-[9px] font-medium whitespace-nowrap ${
+                completed ? 'text-emerald-400' : current ? 'text-amber-400' : 'text-white/25'
+              }`}>{stage.name}</span>
+            </div>
+            {i < SHIPMENT_STAGES.length - 1 && (
+              <div className={`w-3 h-[2px] shrink-0 ${
+                i + 1 < currentStage ? 'bg-emerald-500/40' : 'bg-white/[0.06]'
+              }`} />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function ShipmentsTab({search}:{search:string}){
   const[f,setF]=useState('ALL');
   const[view,setView]=useState<Shipment|null>(null);
+  const[flowView,setFlowView]=useState<string|null>(null);
+  const[shipmentStages,setShipmentStages]=useState<Record<string,number>>(()=>{
+    const map:Record<string,number>={};
+    shipments.forEach((s,i)=>{map[s.id]=[3,5,6,4,8][i%5]});
+    return map;
+  });
+  const advanceStage=(sid:string)=>{
+    setShipmentStages(prev=>{const cur=prev[sid]||1;const next=Math.min(cur+1,10);return{...prev,[sid]:next};});
+  };
   const filtered=useMemo(()=>shipments.filter(s=>{const ms=!search||s.number.toLowerCase().includes(search.toLowerCase())||s.customer.toLowerCase().includes(search.toLowerCase());const mf=f==='ALL'||s.status===f;return ms&&mf;}),[search,f]);
   const filters=['ALL','ORIGIN','EXPORT_CUSTOMS','IN_TRANSIT','IMPORT_CUSTOMS','DESTINATION','DELIVERED'];
   return<ScrollArea className="h-full"><div className="p-4 space-y-3">
+    {/* Shipment Flowchart Overview */}
+    <Card className="bg-gradient-to-br from-blue-500/[0.05] to-indigo-500/[0.05] border-blue-500/15"><CardContent className="p-3">
+      <div className="flex items-center gap-2 mb-2"><Ship className="w-4 h-4 text-blue-400"/><span className="text-xs font-semibold text-white/80">Shipment Pipeline</span><span className="text-[10px] text-white/30 ml-auto">{shipments.length} active shipments</span></div>
+      {flowView ? (
+        <div className="space-y-2">
+          {(()=>{const s=shipments.find(x=>x.id===flowView);if(!s)return null;return<>
+            <div className="flex items-center justify-between"><span className="text-[11px] font-medium text-white/70">{s.number} — {s.customer}</span>
+              <button onClick={()=>setFlowView(null)} className="text-[10px] text-white/30 hover:text-white/60">Hide</button>
+            </div>
+            <ShipmentFlowchart currentStage={shipmentStages[s.id]||1} />
+            <div className="flex items-center gap-2">
+              <Button onClick={()=>advanceStage(s.id)} size="sm" className="h-6 text-[10px] bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/30">Advance Stage</Button>
+              <span className="text-[10px] text-white/30">Stage {shipmentStages[s.id]||1} of 10</span>
+            </div>
+          </>;})()}
+        </div>
+      ) : (
+        <div className="grid grid-cols-5 gap-2">
+          {shipments.slice(0,5).map(s=>(
+            <button key={s.id} onClick={()=>setFlowView(s.id)} className="text-left p-2 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.04] hover:border-white/[0.08] transition-all">
+              <div className="text-[10px] font-medium text-white/70 truncate">{s.number}</div>
+              <div className="text-[9px] text-white/30">Stage {shipmentStages[s.id]||1}/10</div>
+              <div className="mt-1 h-1 rounded-full bg-white/[0.06]"><div className="h-full rounded-full bg-blue-500/50 transition-all" style={{width:`${(shipmentStages[s.id]||1)*10}%`}} /></div>
+            </button>
+          ))}
+        </div>
+      )}
+    </CardContent></Card>
+    {/* Filter */}
     <div className="flex gap-1 overflow-x-auto scrollbar-hide">{filters.map(fi=><button key={fi} onClick={()=>setF(fi)} className={`px-2.5 py-1 rounded-lg text-[10px] font-medium whitespace-nowrap transition-all ${f===fi?'bg-blue-500/15 text-blue-400 border border-blue-500/20':'text-white/35 hover:text-white/50 border border-transparent'}`}>{fi.replace(/_/g,' ')}</button>)}</div>
     {filtered.map(s=>{const cc=customsData[s.id];const pred=predictETA(s);return<Card key={s.id} className="bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.05] transition-all cursor-pointer" onClick={()=>setView(s)}><CardContent className="p-3">
       <div className="flex items-start justify-between mb-2"><div><div className="flex items-center gap-2"><span className="text-xs font-medium text-white/80">{s.number}</span><SB s={s.priority}/></div><div className="text-[10px] text-white/30 mt-0.5">{s.customer}</div></div><SB s={s.status}/></div>
@@ -1116,35 +1203,10 @@ function FlightsTab({search}:{search:string}){
 }
 
 /* ─── PAYMENTS ─── */
-function PaymentsTab({search}:{search:string}){
-  const[txF,setTxF]=useState('ALL');
-  const[qrW,setQrW]=useState<Wallet|null>(null);
-  const filtered=useMemo(()=>transactions.filter(tx=>{const ms=!search||tx.description.toLowerCase().includes(search.toLowerCase());const mf=txF==='ALL'||tx.type===txF;return ms&&mf;}),[search,txF]);
-  const totalCollected=transactions.filter(t=>t.status==='Paid').reduce((s,t)=>s+t.amount,0);
-  const totalPending=transactions.filter(t=>t.status==='Pending').reduce((s,t)=>s+t.amount,0);
-  const totalOverdue=transactions.filter(t=>t.status==='Overdue').reduce((s,t)=>s+t.amount,0);
-  return<ScrollArea className="h-full"><div className="p-4 space-y-4">
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">{wallets.map(w=><Card key={w.id} className="bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.05] transition-all cursor-pointer" onClick={()=>setQrW(w)}><CardContent className="p-3">
-      <div className="flex items-center gap-2 mb-2"><div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center"><Wallet className="w-4 h-4 text-white"/></div><span className="text-xs font-medium text-white/80">{w.customer}</span></div>
-      <div className="grid grid-cols-2 gap-2"><div className="bg-emerald-500/[0.05] rounded-lg p-2"><div className="text-[10px] text-emerald-400/50">TZS</div><div className="text-sm font-semibold text-emerald-400">{tzs(w.balanceTZS)}</div></div><div className="bg-blue-500/[0.05] rounded-lg p-2"><div className="text-[10px] text-blue-400/50">USD</div><div className="text-sm font-semibold text-blue-400">{usd(w.balanceUSD)}</div></div></div>
-      {w.held>0&&<div className="mt-2 text-[10px] text-amber-400/60">Held:{tzs(w.held)} &middot; Limit:{tzs(w.creditLimit)}</div>}
-    </CardContent></Card>)}</div>
-    <div className="grid grid-cols-3 gap-2">
-      <div className="bg-emerald-500/[0.05] rounded-xl p-3 text-center"><div className="text-[10px] text-emerald-400/50">Collected</div><div className="text-sm font-semibold text-emerald-400">{tzs(totalCollected)}</div></div>
-      <div className="bg-amber-500/[0.05] rounded-xl p-3 text-center"><div className="text-[10px] text-amber-400/50">Pending</div><div className="text-sm font-semibold text-amber-400">{tzs(totalPending)}</div></div>
-      <div className="bg-red-500/[0.05] rounded-xl p-3 text-center"><div className="text-[10px] text-red-400/50">Overdue</div><div className="text-sm font-semibold text-red-400">{tzs(totalOverdue)}</div></div>
-    </div>
-    <div className="flex gap-1 overflow-x-auto scrollbar-hide">{['ALL','CREDIT','DEBIT'].map(f=><button key={f} onClick={()=>setTxF(f)} className={`px-2.5 py-1 rounded-lg text-[10px] font-medium whitespace-nowrap transition-all ${txF===f?'bg-blue-500/15 text-blue-400 border border-blue-500/20':'text-white/35 hover:text-white/50 border border-transparent'}`}>{f}</button>)}</div>
-    <div className="space-y-2">{filtered.map(tx=><div key={tx.id} className="flex items-center gap-3 p-2.5 rounded-xl bg-white/[0.03] border border-white/[0.06]">
-      <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${tx.type==='CREDIT'?'bg-emerald-500/15':'bg-red-500/15'}`}>{tx.type==='CREDIT'?<ArrowRight className="w-4 h-4 text-emerald-400 rotate-[-45deg]"/>:<ArrowRight className="w-4 h-4 text-red-400 rotate-[135deg]"/>}</div>
-      <div className="flex-1 min-w-0"><div className="text-[11px] text-white/70 truncate">{tx.description}</div><div className="text-[10px] text-white/30">{tx.date}&middot;{tx.method}</div></div>
-      <div className="text-right shrink-0"><div className={`text-[11px] font-medium ${tx.type==='CREDIT'?'text-emerald-400':'text-red-400'}`}>{tx.type==='CREDIT'?'+':'-'}{tzs(tx.amount)}</div><SB s={tx.status}/></div>
-    </div>)}</div>
-    <Dialog open={!!qrW} onOpenChange={()=>setQrW(null)}><DialogContent className="bg-[#0f0f1a] border-white/[0.08] text-white max-w-xs">
-      {qrW&&<><DialogHeader><DialogTitle className="text-sm">Payment QR</DialogTitle></DialogHeader>
-      <div className="flex flex-col items-center gap-3"><div className="bg-white p-3 rounded-xl"><QRCodeSVG value={`KOBECARGO:PAY:${qrW.id}:${Date.now()}`} size={160}/></div><div className="text-center"><div className="text-sm font-medium text-white/80">{qrW.customer}</div><div className="text-[10px] text-white/40">Scan to pay</div></div></div></>}
-    </DialogContent></Dialog>
-  </div></ScrollArea>;
+/* KOBE Pay Wallet & Payments */
+import KobePay from './kobe_pay';
+function PaymentsTab() {
+  return <KobePay />;
 }
 
 /* ─── TRACKING ─── */
@@ -1731,7 +1793,7 @@ export default function KOBECARGO() {
       case 'customs': return <CustomsTab search={search} />;
       case 'warehouse': return <WarehouseTab search={search} />;
       case 'flights': return <FlightsTab search={search} />;
-      case 'payments': return <PaymentsTab search={search} />;
+      case 'payments': return <PaymentsTab />;
       case 'tracking': return <TrackingTab search={search} />;
       case 'delivery': return <DeliveryTab search={search} />;
       case 'network': return <NetworkMapTab />;
