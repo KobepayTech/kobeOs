@@ -41,6 +41,12 @@ export class KanbanCard extends OwnedEntity {
   @Column({ type: 'simple-array', default: '' })
   labels!: string[];
 
+  @Column({ default: 'medium' })
+  priority!: 'low' | 'medium' | 'high';
+
+  @Column({ nullable: true, type: 'varchar' })
+  colorTag?: string | null;
+
   @Column({ type: 'timestamptz', nullable: true })
   dueAt?: Date | null;
 }

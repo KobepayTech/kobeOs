@@ -79,9 +79,38 @@ server/
   .env.example
 ```
 
+## Realtime
+
+`ChatModule` exposes a Socket.IO gateway on the `/chat` namespace. Clients pass the
+JWT either as `auth.token` in the handshake or as a `Bearer ...` header; the
+gateway verifies it on connection. Once connected, emit `chat:join` /
+`chat:leave` with `{ channelId }` to subscribe to a channel room.
+Every successful `POST /api/chat/messages` triggers a `chat:message` broadcast
+to that channel's room.
+
+## Migrations
+
+Schema changes are tracked under `src/migrations`. Dev mode uses
+`DB_SYNCHRONIZE=true` (entity-driven sync) and ignores migrations. Production
+should use `DB_SYNCHRONIZE=false` + `DB_MIGRATIONS_RUN=true` and rely on
+migrations.
+
+```bash
+# Generate a new migration from current entity changes:
+npm run migration:generate -- src/migrations/AddSomething
+
+# Apply pending migrations against the configured DB:
+npm run migration:run
+
+# Roll back the most recent migration:
+npm run migration:revert
+```
+
+The CLI reads the same `.env` and connects via `src/config/data-source.ts`.
+
 ## Production notes
 
-- Set `DB_SYNCHRONIZE=false` and use TypeORM migrations.
+- Set `DB_SYNCHRONIZE=false` + `DB_MIGRATIONS_RUN=true`.
 - Rotate `JWT_SECRET` to a strong random string.
 - Set `CORS_ORIGIN` to your frontend URL(s), comma-separated.
 - Front the API with a reverse proxy that terminates TLS.

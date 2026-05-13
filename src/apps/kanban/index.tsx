@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Plus,
   X,
@@ -9,10 +9,26 @@ import {
   Flag,
   GripVertical,
 } from 'lucide-react';
+import { api } from '@/lib/api';
+import { ensureSession } from '@/lib/auth';
 
 type Priority = 'low' | 'medium' | 'high';
 
-interface Card {
+interface ApiBoard { id: string; name: string }
+interface ApiColumn { id: string; boardId: string; title: string; position: number; color: string }
+interface ApiCard {
+  id: string;
+  columnId: string;
+  title: string;
+  description: string;
+  position: number;
+  labels: string[];
+  priority: Priority;
+  colorTag?: string | null;
+  dueAt?: string | null;
+}
+
+interface UICard {
   id: string;
   title: string;
   description: string;
@@ -21,11 +37,10 @@ interface Card {
   colorTag: string;
 }
 
-interface Column {
+interface UIColumn {
   id: string;
   name: string;
-  cards: Card[];
-  limit?: number;
+  cards: UICard[];
 }
 
 const PRIORITY_COLORS: Record<Priority, string> = {
@@ -38,44 +53,85 @@ const TAG_COLORS = [
   '#3b82f6', '#22c55e', '#ef4444', '#a855f7', '#eab308', '#f97316', '#06b6d4',
 ];
 
-const STORAGE_KEY = 'kobe_kanban_board';
+const DEFAULT_COLUMNS: Array<{ title: string }> = [
+  { title: 'To Do' },
+  { title: 'In Progress' },
+  { title: 'Done' },
+];
 
-function loadBoard(): Column[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch { /* ignore */ }
-  return [
-    { id: 'todo', name: 'To Do', cards: [] },
-    { id: 'inprogress', name: 'In Progress', cards: [] },
-    { id: 'done', name: 'Done', cards: [] },
-  ];
-}
-
-function saveBoard(columns: Column[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(columns));
-}
-
-function makeId() {
-  return `k_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+function fromApiCard(c: ApiCard): UICard {
+  return {
+    id: c.id,
+    title: c.title,
+    description: c.description ?? '',
+    priority: c.priority ?? 'medium',
+    dueDate: c.dueAt ? c.dueAt.slice(0, 10) : '',
+    colorTag: c.colorTag ?? TAG_COLORS[0],
+  };
 }
 
 export default function KanbanApp() {
-  const [columns, setColumns] = useState<Column[]>(loadBoard);
+  const [board, setBoard] = useState<ApiBoard | null>(null);
+  const [columns, setColumns] = useState<UIColumn[]>([]);
   const [search, setSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
-  const [editingCard, setEditingCard] = useState<Card | null>(null);
+  const [editingCard, setEditingCard] = useState<UICard | null>(null);
   const [editingColumnId, setEditingColumnId] = useState<string | null>(null);
   const [draggingCard, setDraggingCard] = useState<{ cardId: string; fromColId: string } | null>(null);
   const [dragGhost, setDragGhost] = useState<{ x: number; y: number; title: string } | null>(null);
   const [newColName, setNewColName] = useState('');
   const [addingCol, setAddingCol] = useState(false);
+  const [status, setStatus] = useState<'connecting' | 'ready' | 'error'>('connecting');
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const dragRef = useRef<{ cardId: string; fromColId: string; startX: number; startY: number } | null>(null);
+  const dragRef = useRef<{ cardId: string; fromColId: string } | null>(null);
 
   useEffect(() => {
-    saveBoard(columns);
-  }, [columns]);
+    let cancelled = false;
+    (async () => {
+      try {
+        await ensureSession();
+        if (cancelled) return;
+        const boards = await api<ApiBoard[]>('/kanban/boards');
+        let b = boards[0];
+        if (!b) {
+          b = await api<ApiBoard>('/kanban/boards', {
+            method: 'POST', body: JSON.stringify({ name: 'My Board' }),
+          });
+        }
+        if (cancelled) return;
+        setBoard(b);
+
+        let cols = await api<ApiColumn[]>(`/kanban/columns?boardId=${b.id}`);
+        if (cols.length === 0) {
+          for (const [idx, c] of DEFAULT_COLUMNS.entries()) {
+            await api('/kanban/columns', {
+              method: 'POST',
+              body: JSON.stringify({ boardId: b.id, title: c.title, position: idx }),
+            });
+          }
+          cols = await api<ApiColumn[]>(`/kanban/columns?boardId=${b.id}`);
+        }
+        const cards = await Promise.all(
+          cols.map((c) => api<ApiCard[]>(`/kanban/cards?columnId=${c.id}`)),
+        );
+        const ui: UIColumn[] = cols.map((c, i) => ({
+          id: c.id,
+          name: c.title,
+          cards: cards[i].map(fromApiCard),
+        }));
+        if (cancelled) return;
+        setColumns(ui);
+        setStatus('ready');
+      } catch (err) {
+        if (!cancelled) {
+          setErrorMsg(err instanceof Error ? err.message : 'Failed to connect');
+          setStatus('error');
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const openAddCard = (colId: string) => {
     setEditingCard(null);
@@ -83,51 +139,87 @@ export default function KanbanApp() {
     setModalOpen(true);
   };
 
-  const openEditCard = (colId: string, card: Card) => {
+  const openEditCard = (colId: string, card: UICard) => {
     setEditingCard({ ...card });
     setEditingColumnId(colId);
     setModalOpen(true);
   };
 
-  const saveCard = (card: Card) => {
-    setColumns((prev) =>
-      prev.map((col) => {
-        if (col.id !== editingColumnId) return col;
-        const exists = col.cards.find((c) => c.id === card.id);
-        if (exists) {
-          return { ...col, cards: col.cards.map((c) => (c.id === card.id ? card : c)) };
-        }
-        return { ...col, cards: [...col.cards, card] };
-      })
-    );
-    setModalOpen(false);
-  };
+  const saveCard = useCallback(async (card: UICard) => {
+    if (!editingColumnId) return;
+    const payload = {
+      title: card.title,
+      description: card.description,
+      priority: card.priority,
+      colorTag: card.colorTag,
+      dueAt: card.dueDate ? new Date(card.dueDate + 'T00:00:00').toISOString() : undefined,
+    };
+    try {
+      if (editingCard) {
+        const updated = await api<ApiCard>(`/kanban/cards/${card.id}`, {
+          method: 'PATCH', body: JSON.stringify(payload),
+        });
+        setColumns((prev) => prev.map((col) =>
+          col.id === editingColumnId
+            ? { ...col, cards: col.cards.map((c) => (c.id === card.id ? fromApiCard(updated) : c)) }
+            : col,
+        ));
+      } else {
+        const created = await api<ApiCard>('/kanban/cards', {
+          method: 'POST',
+          body: JSON.stringify({ columnId: editingColumnId, ...payload }),
+        });
+        setColumns((prev) => prev.map((col) =>
+          col.id === editingColumnId ? { ...col, cards: [...col.cards, fromApiCard(created)] } : col,
+        ));
+      }
+      setModalOpen(false);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Save failed');
+    }
+  }, [editingCard, editingColumnId]);
 
-  const deleteCard = (colId: string, cardId: string) => {
-    setColumns((prev) =>
-      prev.map((col) =>
-        col.id === colId ? { ...col, cards: col.cards.filter((c) => c.id !== cardId) } : col
-      )
-    );
-  };
+  const deleteCard = useCallback(async (colId: string, cardId: string) => {
+    try {
+      await api(`/kanban/cards/${cardId}`, { method: 'DELETE' });
+      setColumns((prev) => prev.map((col) =>
+        col.id === colId ? { ...col, cards: col.cards.filter((c) => c.id !== cardId) } : col,
+      ));
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Delete failed');
+    }
+  }, []);
 
-  const deleteColumn = (colId: string) => {
-    setColumns((prev) => prev.filter((c) => c.id !== colId));
-  };
+  const deleteColumn = useCallback(async (colId: string) => {
+    try {
+      await api(`/kanban/columns/${colId}`, { method: 'DELETE' });
+      setColumns((prev) => prev.filter((c) => c.id !== colId));
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Delete failed');
+    }
+  }, []);
 
-  const addColumn = () => {
-    if (!newColName.trim()) return;
-    setColumns((prev) => [...prev, { id: makeId(), name: newColName.trim(), cards: [] }]);
-    setNewColName('');
-    setAddingCol(false);
-  };
+  const addColumn = useCallback(async () => {
+    if (!newColName.trim() || !board) return;
+    try {
+      const created = await api<ApiColumn>('/kanban/columns', {
+        method: 'POST',
+        body: JSON.stringify({ boardId: board.id, title: newColName.trim(), position: columns.length }),
+      });
+      setColumns((prev) => [...prev, { id: created.id, name: created.title, cards: [] }]);
+      setNewColName('');
+      setAddingCol(false);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Add failed');
+    }
+  }, [newColName, board, columns.length]);
 
   const filteredColumns = columns.map((col) => ({
     ...col,
     cards: col.cards.filter(
       (c) =>
         c.title.toLowerCase().includes(search.toLowerCase()) ||
-        c.description.toLowerCase().includes(search.toLowerCase())
+        c.description.toLowerCase().includes(search.toLowerCase()),
     ),
   }));
 
@@ -135,24 +227,42 @@ export default function KanbanApp() {
     e.preventDefault();
     const card = columns.find((c) => c.id === fromColId)?.cards.find((c) => c.id === cardId);
     if (!card) return;
-    dragRef.current = { cardId, fromColId, startX: e.clientX, startY: e.clientY };
+    dragRef.current = { cardId, fromColId };
     setDraggingCard({ cardId, fromColId });
     setDragGhost({ x: e.clientX, y: e.clientY, title: card.title });
   };
 
-  const handleMouseMove = (e: MouseEvent) => {
+  const handleMouseMove = useCallback((e: MouseEvent) => {
     if (!dragRef.current) return;
     setDragGhost((prev) => (prev ? { ...prev, x: e.clientX, y: e.clientY } : null));
-  };
+  }, []);
 
-  const handleMouseUp = (e: MouseEvent) => {
+  const moveCard = useCallback(async (cardId: string, fromColId: string, toColId: string) => {
+    setColumns((prev) => {
+      const card = prev.find((c) => c.id === fromColId)?.cards.find((c) => c.id === cardId);
+      if (!card) return prev;
+      return prev.map((col) => {
+        if (col.id === fromColId) return { ...col, cards: col.cards.filter((c) => c.id !== cardId) };
+        if (col.id === toColId) return { ...col, cards: [...col.cards, card] };
+        return col;
+      });
+    });
+    try {
+      await api(`/kanban/cards/${cardId}`, {
+        method: 'PATCH', body: JSON.stringify({ columnId: toColId }),
+      });
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Move failed');
+    }
+  }, []);
+
+  const handleMouseUp = useCallback((e: MouseEvent) => {
     if (!dragRef.current) return;
     const { cardId, fromColId } = dragRef.current;
     dragRef.current = null;
     setDraggingCard(null);
     setDragGhost(null);
 
-    // Find drop target column
     const cols = document.querySelectorAll('[data-col-id]');
     let bestCol: string | null = null;
     let bestDist = Infinity;
@@ -168,17 +278,9 @@ export default function KanbanApp() {
     });
 
     if (bestCol && bestCol !== fromColId) {
-      setColumns((prev) => {
-        const card = prev.find((c) => c.id === fromColId)?.cards.find((c) => c.id === cardId);
-        if (!card) return prev;
-        return prev.map((col) => {
-          if (col.id === fromColId) return { ...col, cards: col.cards.filter((c) => c.id !== cardId) };
-          if (col.id === bestCol) return { ...col, cards: [...col.cards, card] };
-          return col;
-        });
-      });
+      moveCard(cardId, fromColId, bestCol);
     }
-  };
+  }, [moveCard]);
 
   useEffect(() => {
     if (!draggingCard) return;
@@ -188,11 +290,18 @@ export default function KanbanApp() {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [draggingCard]);
+  }, [draggingCard, handleMouseMove, handleMouseUp]);
+
+  if (status !== 'ready') {
+    return (
+      <div className="flex h-full items-center justify-center bg-slate-900 text-sm text-slate-400">
+        {status === 'connecting' ? 'Connecting…' : (errorMsg ?? 'Failed to connect')}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full w-full bg-slate-900 text-slate-200">
-      {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-700 bg-slate-800 shrink-0">
         <div className="flex items-center gap-2 bg-slate-900 rounded px-3 py-1.5 flex-1 max-w-xs">
           <Search className="w-4 h-4 text-slate-400" />
@@ -228,7 +337,6 @@ export default function KanbanApp() {
         )}
       </div>
 
-      {/* Board */}
       <div className="flex-1 overflow-x-auto p-4">
         <div className="flex gap-4 min-w-max">
           {filteredColumns.map((col) => (
@@ -241,7 +349,7 @@ export default function KanbanApp() {
                 <div className="flex items-center gap-2">
                   <h3 className="font-semibold text-sm">{col.name}</h3>
                   <span className="text-xs text-slate-400 bg-slate-700 px-1.5 py-0.5 rounded-full">
-                    {col.cards.length}{col.limit ? `/${col.limit}` : ''}
+                    {col.cards.length}
                   </span>
                 </div>
                 <div className="flex items-center gap-1">
@@ -302,7 +410,6 @@ export default function KanbanApp() {
         </div>
       </div>
 
-      {/* Modal */}
       {modalOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
           <div className="bg-slate-800 rounded-lg border border-slate-700 w-96 max-w-full p-4 shadow-xl">
@@ -317,13 +424,18 @@ export default function KanbanApp() {
         </div>
       )}
 
-      {/* Drag ghost */}
       {dragGhost && (
         <div
           className="fixed pointer-events-none bg-slate-700 text-white text-xs px-3 py-2 rounded shadow-lg z-50 border border-blue-500"
           style={{ left: dragGhost.x + 10, top: dragGhost.y + 10 }}
         >
           {dragGhost.title}
+        </div>
+      )}
+
+      {errorMsg && (
+        <div className="absolute bottom-3 right-3 bg-red-900/80 text-red-100 text-xs px-3 py-1.5 rounded shadow-lg">
+          {errorMsg}
         </div>
       )}
     </div>
@@ -335,8 +447,8 @@ function CardForm({
   onSave,
   onCancel,
 }: {
-  card: Card | null;
-  onSave: (c: Card) => void;
+  card: UICard | null;
+  onSave: (c: UICard) => void;
   onCancel: () => void;
 }) {
   const [title, setTitle] = useState(card?.title ?? '');
@@ -349,7 +461,7 @@ function CardForm({
     e.preventDefault();
     if (!title.trim()) return;
     onSave({
-      id: card?.id ?? makeId(),
+      id: card?.id ?? '',
       title: title.trim(),
       description,
       priority,

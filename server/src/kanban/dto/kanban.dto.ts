@@ -1,4 +1,4 @@
-import { IsArray, IsDateString, IsHexColor, IsInt, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { IsArray, IsDateString, IsEnum, IsHexColor, IsInt, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 
 export class CreateBoardDto { @IsString() @MaxLength(120) name!: string; }
 export class UpdateBoardDto { @IsOptional() @IsString() @MaxLength(120) name?: string; }
@@ -21,6 +21,8 @@ export class CreateCardDto {
   @IsOptional() @IsString() description?: string;
   @IsOptional() @IsInt() position?: number;
   @IsOptional() @IsArray() labels?: string[];
+  @IsOptional() @IsEnum(['low', 'medium', 'high']) priority?: 'low' | 'medium' | 'high';
+  @IsOptional() @IsHexColor() colorTag?: string;
   @IsOptional() @IsDateString() dueAt?: string;
 }
 export class UpdateCardDto {
@@ -29,5 +31,7 @@ export class UpdateCardDto {
   @IsOptional() @IsString() description?: string;
   @IsOptional() @IsInt() position?: number;
   @IsOptional() @IsArray() labels?: string[];
+  @IsOptional() @IsEnum(['low', 'medium', 'high']) priority?: 'low' | 'medium' | 'high';
+  @IsOptional() @IsHexColor() colorTag?: string;
   @IsOptional() @IsDateString() dueAt?: string;
 }

@@ -5,11 +5,11 @@ import {
   Timer,
   X,
   Aperture,
-  Image,
+  Image as ImageIcon,
   Trash2,
 } from 'lucide-react';
-import { fs } from '@/os/fs';
-import type { FSNode } from '@/os/types';
+import { api } from '@/lib/api';
+import { ensureSession } from '@/lib/auth';
 
 type Filter = 'normal' | 'grayscale' | 'sepia' | 'invert';
 
@@ -20,7 +20,15 @@ const FILTER_CSS: Record<Filter, string> = {
   invert: 'invert(100%)',
 };
 
-const GALLERY_DIR = '/home/user/Pictures';
+interface ApiPhoto {
+  id: string;
+  kind: 'photo';
+  name: string;
+  mimeType?: string | null;
+  src: string;
+  size: number;
+  createdAt: string;
+}
 
 export default function CameraApp() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -32,15 +40,33 @@ export default function CameraApp() {
   const [mirror, setMirror] = useState(true);
   const [countdown, setCountdown] = useState(0);
   const [countdownValue, setCountdownValue] = useState(0);
-  const [photos, setPhotos] = useState<FSNode[]>(() =>
-    fs.readdir(GALLERY_DIR).filter((f) => f.type === 'file' && /\.(png|jpg|jpeg)$/i.test(f.name))
-  );
-  const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
+  const [photos, setPhotos] = useState<ApiPhoto[]>([]);
+  const [selectedPhotoId, setSelectedPhotoId] = useState<string | null>(null);
+  const [bootReady, setBootReady] = useState(false);
 
-  const refreshPhotos = useCallback(() => {
-    const dir = fs.readdir(GALLERY_DIR);
-    setPhotos(dir.filter((f) => f.type === 'file' && /\.(png|jpg|jpeg)$/i.test(f.name)));
+  const refreshPhotos = useCallback(async () => {
+    try {
+      const list = await api<ApiPhoto[]>('/media/assets?kind=photo');
+      setPhotos(list);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load photos');
+    }
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await ensureSession();
+        if (cancelled) return;
+        await refreshPhotos();
+        if (!cancelled) setBootReady(true);
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to connect');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [refreshPhotos]);
 
   const startCamera = useCallback(async () => {
     try {
@@ -68,12 +94,12 @@ export default function CameraApp() {
   }, []);
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (!bootReady) return;
     startCamera();
     return () => stopCamera();
-  }, [startCamera, stopCamera]);
+  }, [bootReady, startCamera, stopCamera]);
 
-  const capture = () => {
+  const capture = useCallback(() => {
     if (!videoRef.current || !canvasRef.current) return;
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -87,24 +113,35 @@ export default function CameraApp() {
       ctx.scale(-1, 1);
     }
 
-    // Apply filter via CSS on temp canvas isn't straightforward; we'll apply the filter during draw
     ctx.filter = FILTER_CSS[filter];
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     ctx.filter = 'none';
     ctx.setTransform(1, 0, 0, 1, 0, 0);
 
-    canvas.toBlob((blob) => {
+    canvas.toBlob(async (blob) => {
       if (!blob) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        const arrayBuffer = reader.result as ArrayBuffer;
-        const name = `photo_${Date.now()}.png`;
-        fs.writeFile(`${GALLERY_DIR}/${name}`, arrayBuffer, 'image/png');
-        refreshPhotos();
-      };
-      reader.readAsArrayBuffer(blob);
+      const dataUrl: string = await new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.readAsDataURL(blob);
+      });
+      try {
+        const created = await api<ApiPhoto>('/media/assets', {
+          method: 'POST',
+          body: JSON.stringify({
+            kind: 'photo',
+            name: `photo_${Date.now()}.png`,
+            mimeType: 'image/png',
+            src: dataUrl,
+            size: blob.size,
+          }),
+        });
+        setPhotos((prev) => [created, ...prev]);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Upload failed');
+      }
     }, 'image/png');
-  };
+  }, [filter, mirror]);
 
   const triggerCapture = () => {
     if (countdownValue > 0) {
@@ -123,25 +160,18 @@ export default function CameraApp() {
     }
   };
 
-  const deletePhoto = (id: string) => {
-    const path = fs.getPathById(id);
-    fs.delete(path);
-    refreshPhotos();
-    if (selectedPhoto === id) setSelectedPhoto(null);
-  };
-
-  const getPhotoUrl = (node: FSNode): string | null => {
-    const content = fs.readFile(fs.getPathById(node.id));
-    if (content instanceof ArrayBuffer) {
-      const blob = new Blob([content], { type: node.mimeType ?? 'image/png' });
-      return URL.createObjectURL(blob);
+  const deletePhoto = async (id: string) => {
+    try {
+      await api(`/media/assets/${id}`, { method: 'DELETE' });
+      setPhotos((prev) => prev.filter((p) => p.id !== id));
+      if (selectedPhotoId === id) setSelectedPhotoId(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Delete failed');
     }
-    return null;
   };
 
   return (
     <div className="flex flex-col h-full w-full bg-slate-900 text-slate-200">
-      {/* Toolbar */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-700 bg-slate-800 shrink-0 flex-wrap">
         <button
           onClick={triggerCapture}
@@ -192,9 +222,7 @@ export default function CameraApp() {
         </button>
       </div>
 
-      {/* Main area */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Video preview */}
         <div className="flex-1 relative bg-black flex items-center justify-center overflow-hidden">
           {error ? (
             <div className="text-center p-6">
@@ -220,7 +248,6 @@ export default function CameraApp() {
             />
           )}
 
-          {/* Countdown overlay */}
           {countdown > 0 && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <span className="text-8xl font-bold text-white drop-shadow-lg animate-pulse">
@@ -232,56 +259,48 @@ export default function CameraApp() {
           <canvas ref={canvasRef} className="hidden" />
         </div>
 
-        {/* Gallery sidebar */}
         <div className="w-32 shrink-0 bg-slate-800 border-l border-slate-700 flex flex-col">
           <div className="px-2 py-2 border-b border-slate-700 text-xs font-semibold flex items-center gap-1">
-            <Image className="w-3 h-3" /> Gallery
+            <ImageIcon className="w-3 h-3" /> Gallery
           </div>
           <div className="flex-1 overflow-y-auto p-1.5 space-y-1.5">
             {photos.length === 0 && (
               <p className="text-[10px] text-slate-500 px-1">No photos yet.</p>
             )}
-            {photos.map((p) => {
-              const url = getPhotoUrl(p);
-              return (
-                <div
-                  key={p.id}
-                  className={`relative group rounded overflow-hidden border ${selectedPhoto === p.id ? 'border-blue-500' : 'border-slate-700'}`}
-                  onClick={() => setSelectedPhoto(p.id)}
+            {photos.map((p) => (
+              <div
+                key={p.id}
+                className={`relative group rounded overflow-hidden border ${selectedPhotoId === p.id ? 'border-blue-500' : 'border-slate-700'}`}
+                onClick={() => setSelectedPhotoId(p.id)}
+              >
+                <img src={p.src} alt={p.name} className="w-full h-16 object-cover" />
+                <button
+                  onClick={(e) => { e.stopPropagation(); deletePhoto(p.id); }}
+                  className="absolute top-0.5 right-0.5 p-0.5 bg-black/50 rounded opacity-0 group-hover:opacity-100"
                 >
-                  {url && (
-                    <img src={url} alt={p.name} className="w-full h-16 object-cover" />
-                  )}
-                  <button
-                    onClick={(e) => { e.stopPropagation(); deletePhoto(p.id); }}
-                    className="absolute top-0.5 right-0.5 p-0.5 bg-black/50 rounded opacity-0 group-hover:opacity-100"
-                  >
-                    <Trash2 className="w-3 h-3 text-red-400" />
-                  </button>
-                </div>
-              );
-            })}
+                  <Trash2 className="w-3 h-3 text-red-400" />
+                </button>
+              </div>
+            ))}
           </div>
         </div>
       </div>
 
-      {/* Selected photo modal */}
-      {selectedPhoto && (
+      {selectedPhotoId && (
         <div
           className="fixed inset-0 bg-black/70 flex items-center justify-center z-50"
-          onClick={() => setSelectedPhoto(null)}
+          onClick={() => setSelectedPhotoId(null)}
         >
           <div className="relative max-w-[80vw] max-h-[80vh]">
             <button
-              onClick={() => setSelectedPhoto(null)}
+              onClick={() => setSelectedPhotoId(null)}
               className="absolute -top-8 right-0 p-1 hover:bg-slate-700 rounded"
             >
               <X className="w-5 h-5 text-white" />
             </button>
             {(() => {
-              const node = photos.find((p) => p.id === selectedPhoto);
-              const url = node ? getPhotoUrl(node) : null;
-              return url ? <img src={url} alt="" className="max-w-full max-h-[80vh] rounded" /> : null;
+              const p = photos.find((x) => x.id === selectedPhotoId);
+              return p ? <img src={p.src} alt="" className="max-w-full max-h-[80vh] rounded" /> : null;
             })()}
           </div>
         </div>

@@ -1,8 +1,22 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Key, Lock, Unlock, Eye, EyeOff, Copy, Check, Plus, Trash2, Search,
   RefreshCw, Shield, Globe, X, SlidersHorizontal
 } from 'lucide-react';
+import { api } from '@/lib/api';
+import { ensureSession } from '@/lib/auth';
+
+interface ApiPasswordEntry {
+  id: string;
+  title: string;
+  url?: string | null;
+  username?: string | null;
+  cipher: string;
+  category: string;
+  favorite: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
 
 interface PasswordEntry {
   id: string;
@@ -14,19 +28,15 @@ interface PasswordEntry {
   category: string;
 }
 
-const STORAGE_KEY = 'kobe_passwords';
-const MASTER_KEY = 'kobe_password_master';
+interface CipherPayload {
+  username: string;
+  password: string;
+  notes: string;
+}
+
+const MASTER_HASH_KEY = 'kobe_password_master';
 
 const CATEGORIES = ['Work', 'Personal', 'Finance', 'Social', 'Other'];
-
-const DEMO_ENTRIES: PasswordEntry[] = [
-  { id: 'p1', site: 'GitHub', url: 'https://github.com', username: 'dev_kobe', password: 'Gh$9xK2mP@qL', notes: 'Personal dev account', category: 'Work' },
-  { id: 'p2', site: 'Gmail', url: 'https://gmail.com', username: 'user@gmail.com', password: 'Gm#7vN4wR!tY', notes: 'Main email', category: 'Personal' },
-  { id: 'p3', site: 'Bank of America', url: 'https://bankofamerica.com', username: 'john_doe_42', password: 'Bk$3fH8jK#mN', notes: 'Checking account', category: 'Finance' },
-  { id: 'p4', site: 'Twitter / X', url: 'https://x.com', username: '@kobe_dev', password: 'Tw&5pL9nB^xZ', notes: 'Dev updates account', category: 'Social' },
-  { id: 'p5', site: 'AWS Console', url: 'https://aws.amazon.com', username: 'admin@company.com', password: 'Aw#1qW6eR$tU', notes: 'Production access', category: 'Work' },
-  { id: 'p6', site: 'Netflix', url: 'https://netflix.com', username: 'family@home.net', password: 'Nf*8sD2gH@jK', notes: 'Family plan', category: 'Personal' },
-];
 
 function xorEncrypt(text: string, key: string): string {
   let result = '';
@@ -49,44 +59,12 @@ function xorDecrypt(encoded: string, key: string): string {
   }
 }
 
-function loadEntries(master: string): PasswordEntry[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return DEMO_ENTRIES;
-    const encrypted = JSON.parse(raw);
-    if (!Array.isArray(encrypted)) return DEMO_ENTRIES;
-    return encrypted.map((e: PasswordEntry) => ({
-      ...e,
-      username: xorDecrypt(e.username, master),
-      password: xorDecrypt(e.password, master),
-    }));
-  } catch {
-    return DEMO_ENTRIES;
-  }
-}
-
-function saveEntries(entries: PasswordEntry[], master: string) {
-  const encrypted = entries.map(e => ({
-    ...e,
-    username: xorEncrypt(e.username, master),
-    password: xorEncrypt(e.password, master),
-  }));
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(encrypted));
-}
-
-function loadMasterHash(): string | null {
-  return localStorage.getItem(MASTER_KEY);
-}
-
-function saveMasterHash(hash: string) {
-  localStorage.setItem(MASTER_KEY, hash);
-}
+function loadMasterHash(): string | null { try { return localStorage.getItem(MASTER_HASH_KEY); } catch { return null; } }
+function saveMasterHash(hash: string) { try { localStorage.setItem(MASTER_HASH_KEY, hash); } catch { /* ignore */ } }
 
 function simpleHash(text: string): string {
   let h = 0;
-  for (let i = 0; i < text.length; i++) {
-    h = ((h << 5) - h + text.charCodeAt(i)) | 0;
-  }
+  for (let i = 0; i < text.length; i++) h = ((h << 5) - h + text.charCodeAt(i)) | 0;
   return h.toString(36);
 }
 
@@ -102,21 +80,47 @@ function generatePassword(length: number, upper: boolean, lower: boolean, nums: 
   if (syms) chars += S;
   if (!chars) chars = L + N;
   let pwd = '';
-  for (let i = 0; i < length; i++) {
-    pwd += chars[Math.floor(Math.random() * chars.length)];
-  }
+  for (let i = 0; i < length; i++) pwd += chars[Math.floor(Math.random() * chars.length)];
   return pwd;
+}
+
+function decryptEntry(api: ApiPasswordEntry, master: string): PasswordEntry {
+  const plain = xorDecrypt(api.cipher, master);
+  let payload: CipherPayload = { username: '', password: '', notes: '' };
+  try { payload = JSON.parse(plain) as CipherPayload; } catch { /* corrupt or wrong master */ }
+  return {
+    id: api.id,
+    site: api.title,
+    url: api.url ?? '',
+    username: payload.username,
+    password: payload.password,
+    notes: payload.notes,
+    category: api.category || 'Other',
+  };
+}
+
+function encryptPayload(entry: Omit<PasswordEntry, 'id'>, master: string) {
+  const payload: CipherPayload = {
+    username: entry.username,
+    password: entry.password,
+    notes: entry.notes,
+  };
+  return xorEncrypt(JSON.stringify(payload), master);
 }
 
 export default function PasswordManagerApp() {
   const [master, setMaster] = useState('');
   const [masterInput, setMasterInput] = useState('');
-  const [entries, setEntries] = useState<PasswordEntry[]>([]);
+  const [masterHash, setMasterHash] = useState<string | null>(loadMasterHash());
+  const [ready, setReady] = useState(false);
+  const [bootError, setBootError] = useState<string | null>(null);
+  const [rawEntries, setRawEntries] = useState<ApiPasswordEntry[]>([]);
   const [search, setSearch] = useState('');
   const [filterCat, setFilterCat] = useState('All');
   const [showAdd, setShowAdd] = useState(false);
   const [visiblePwds, setVisiblePwds] = useState<Record<string, boolean>>({});
   const [copied, setCopied] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const [genLen, setGenLen] = useState(16);
   const [genUpper, setGenUpper] = useState(true);
@@ -124,32 +128,45 @@ export default function PasswordManagerApp() {
   const [genNums, setGenNums] = useState(true);
   const [genSyms, setGenSyms] = useState(true);
 
-
   const [form, setForm] = useState<Partial<PasswordEntry>>({ category: 'Work' });
 
-  const masterHash = loadMasterHash();
   const isUnlocked = !!master;
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { if (master) setEntries(loadEntries(master)); }, [master]);
-
   useEffect(() => {
-    if (master) {
-      saveEntries(entries, master);
-    }
-  }, [entries, master]);
+    let cancelled = false;
+    (async () => {
+      try {
+        await ensureSession();
+        const list = await api<ApiPasswordEntry[]>('/passwords');
+        if (!cancelled) {
+          setRawEntries(list);
+          setReady(true);
+        }
+      } catch (err) {
+        if (!cancelled) setBootError(err instanceof Error ? err.message : 'Failed to load');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const reload = useCallback(async () => {
+    try { setRawEntries(await api<ApiPasswordEntry[]>('/passwords')); }
+    catch (err) { setErrorMsg(err instanceof Error ? err.message : 'Reload failed'); }
+  }, []);
+
+  const entries: PasswordEntry[] = isUnlocked
+    ? rawEntries.map((e) => decryptEntry(e, master))
+    : [];
 
   const unlock = () => {
     if (!masterInput.trim()) return;
     const hash = simpleHash(masterInput);
     if (masterHash) {
-      if (hash === masterHash) {
-        setMaster(masterInput);
-      } else {
-        alert('Incorrect master password');
-      }
+      if (hash === masterHash) setMaster(masterInput);
+      else { alert('Incorrect master password'); return; }
     } else {
       saveMasterHash(hash);
+      setMasterHash(hash);
       setMaster(masterInput);
     }
     setMasterInput('');
@@ -157,28 +174,45 @@ export default function PasswordManagerApp() {
 
   const lock = () => {
     setMaster('');
-    setEntries([]);
     setVisiblePwds({});
   };
 
-  const addEntry = () => {
+  const addEntry = async () => {
     if (!form.site?.trim() || !form.username?.trim() || !form.password?.trim()) return;
-    const entry: PasswordEntry = {
-      id: `p_${Date.now()}`,
-      site: form.site || '',
-      url: form.url || '',
-      username: form.username || '',
-      password: form.password || '',
-      notes: form.notes || '',
+    const plain: Omit<PasswordEntry, 'id'> = {
+      site: form.site,
+      url: form.url ?? '',
+      username: form.username,
+      password: form.password,
+      notes: form.notes ?? '',
       category: form.category || 'Other',
     };
-    setEntries(prev => [...prev, entry]);
-    setShowAdd(false);
-    setForm({ category: 'Work' });
+    const payload = {
+      title: plain.site,
+      url: plain.url || undefined,
+      username: plain.username,
+      cipher: encryptPayload(plain, master),
+      category: plain.category,
+    };
+    try {
+      const created = await api<ApiPasswordEntry>('/passwords', {
+        method: 'POST', body: JSON.stringify(payload),
+      });
+      setRawEntries((prev) => [created, ...prev]);
+      setShowAdd(false);
+      setForm({ category: 'Work' });
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Save failed');
+    }
   };
 
-  const deleteEntry = (id: string) => {
-    setEntries(prev => prev.filter(e => e.id !== id));
+  const deleteEntry = async (id: string) => {
+    try {
+      await api(`/passwords/${id}`, { method: 'DELETE' });
+      setRawEntries((prev) => prev.filter((e) => e.id !== id));
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Delete failed');
+    }
   };
 
   const copyText = (text: string, label: string) => {
@@ -187,12 +221,20 @@ export default function PasswordManagerApp() {
     setTimeout(() => setCopied(null), 1500);
   };
 
-  const filtered = entries.filter(e => {
+  const filtered = entries.filter((e) => {
     const q = search.toLowerCase();
     const matchesSearch = !q || e.site.toLowerCase().includes(q) || e.username.toLowerCase().includes(q);
     const matchesCat = filterCat === 'All' || e.category === filterCat;
     return matchesSearch && matchesCat;
   });
+
+  if (!ready) {
+    return (
+      <div className="flex h-full items-center justify-center bg-slate-900 text-sm text-slate-400">
+        {bootError ?? 'Connecting…'}
+      </div>
+    );
+  }
 
   if (!isUnlocked) {
     return (
@@ -206,8 +248,8 @@ export default function PasswordManagerApp() {
           <input
             type="password"
             value={masterInput}
-            onChange={e => setMasterInput(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') unlock(); }}
+            onChange={(e) => setMasterInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') unlock(); }}
             placeholder={masterHash ? 'Master password' : 'Create master password'}
             className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 mb-3"
           />
@@ -218,6 +260,7 @@ export default function PasswordManagerApp() {
             <Unlock className="w-4 h-4" />
             {masterHash ? 'Unlock Vault' : 'Create Vault'}
           </button>
+          <button onClick={reload} className="w-full mt-2 text-[11px] text-slate-500 hover:text-slate-300">Reload from server</button>
         </div>
       </div>
     );
@@ -225,7 +268,6 @@ export default function PasswordManagerApp() {
 
   return (
     <div className="flex h-full bg-slate-900 text-slate-100 overflow-hidden">
-      {/* Sidebar */}
       <div className="w-56 bg-slate-800 border-r border-slate-700 flex flex-col shrink-0">
         <div className="p-3 border-b border-slate-700 flex items-center gap-2">
           <Key className="w-5 h-5 text-blue-400" />
@@ -258,7 +300,6 @@ export default function PasswordManagerApp() {
         </div>
       </div>
 
-      {/* Main */}
       <div className="flex-1 flex flex-col min-w-0">
         <div className="h-12 border-b border-slate-700 flex items-center justify-between px-4 shrink-0 bg-slate-800/50">
           <div className="relative w-64">
@@ -335,9 +376,9 @@ export default function PasswordManagerApp() {
             })}
           </div>
         </div>
+        {errorMsg && <div className="text-[11px] text-red-400 px-3 py-1 border-t border-slate-700">{errorMsg}</div>}
       </div>
 
-      {/* Add Entry Modal */}
       {showAdd && (
         <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-slate-800 border border-slate-700 rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
@@ -372,11 +413,7 @@ export default function PasswordManagerApp() {
                     className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 font-mono focus:outline-none focus:border-blue-500"
                   />
                   <button
-                    onClick={() => {
-                      const pwd = generatePassword(genLen, genUpper, genLower, genNums, genSyms);
-                      setForm({ ...form, password: pwd });
-                      
-                    }}
+                    onClick={() => setForm({ ...form, password: generatePassword(genLen, genUpper, genLower, genNums, genSyms) })}
                     className="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg text-sm transition-colors"
                     title="Generate password"
                   >
