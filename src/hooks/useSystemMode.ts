@@ -5,9 +5,9 @@ export function useSystemMode(): SystemMode {
   useEffect(() => {
     const isElectron = window.navigator.userAgent.toLowerCase().includes('electron');
     if (!isElectron) { setMode('development'); return; }
-    fetch('file:///proc/mounts').then(r => r.text()).then(mounts => {
-      if (mounts.includes('/dev/sr0') || mounts.includes('/dev/cdrom') || mounts.includes('overlay') || mounts.includes('aufs')) setMode('live-usb');
-      else if (mounts.includes('/dev/sda') || mounts.includes('/dev/nvme') || mounts.includes('/dev/mmc')) setMode('installed');
+    fetch('file:///proc/mounts').then(r => r.text()).then(m => {
+      if (m.includes('/dev/sr0') || m.includes('/dev/cdrom') || m.includes('overlay') || m.includes('aufs')) setMode('live-usb');
+      else if (m.includes('/dev/sda') || m.includes('/dev/nvme') || m.includes('/dev/mmc')) setMode('installed');
       else setMode('installed');
     }).catch(() => setMode('installed'));
   }, []);
