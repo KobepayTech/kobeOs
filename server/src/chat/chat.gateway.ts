@@ -13,7 +13,17 @@ interface JwtPayload { sub: string; email: string; }
 
 @WebSocketGateway({
   namespace: '/chat',
-  cors: { origin: true, credentials: true },
+  cors: {
+    origin: (requestOrigin: string | undefined, callback: (err: Error | null, allow: boolean) => void) => {
+      const allowed = (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',');
+      if (!requestOrigin || allowed.includes(requestOrigin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'), false);
+      }
+    },
+    credentials: true,
+  },
 })
 export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer() server!: Server;
@@ -31,7 +41,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
   async handleConnection(client: Socket) {
     try {
       const token = this.extractToken(client);
-      const secret = this.config.get<string>('JWT_SECRET', 'change-me');
+      const secret = this.config.get('JWT_SECRET', 'change-me');
       const payload = await this.jwt.verifyAsync<JwtPayload>(token, { secret });
       client.data.userId = payload.sub;
       client.data.email = payload.email;
@@ -50,6 +60,10 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
   @SubscribeMessage('chat:join')
   onJoin(@ConnectedSocket() client: Socket, @MessageBody() body: { channelId: string }) {
     if (!body?.channelId) return { ok: false, error: 'channelId required' };
+    const uid = client.data.userId as string;
+    // TODO: replace with actual membership check when ChatMember entity exists
+    // For now, channels are treated as open (private channel logic can be added later)
+    this.logger.log(`User ${uid} joined channel ${body.channelId}`);
     client.join(`channel:${body.channelId}`);
     return { ok: true };
   }
@@ -60,7 +74,6 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     return { ok: true };
   }
 
-  /** Called by ChatService after a REST POST persists a message. */
   broadcastMessage(msg: ChatMessage) {
     this.server.to(`channel:${msg.channelId}`).emit('chat:message', msg);
   }

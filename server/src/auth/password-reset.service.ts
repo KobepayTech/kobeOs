@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { randomBytes } from 'crypto';
 import * as bcrypt from 'bcryptjs';
+import { ConfigService } from '@nestjs/config';
 import { UsersService } from '../users/users.service';
 import { PasswordReset } from './password-reset.entity';
 import { AuthService, sha256 } from './auth.service';
@@ -15,20 +16,15 @@ export class PasswordResetService {
     @InjectRepository(PasswordReset) private readonly repo: Repository<PasswordReset>,
     private readonly users: UsersService,
     private readonly auth: AuthService,
+    private readonly config: ConfigService,
   ) {}
 
-  /**
-   * Issue a one-time reset token. The raw token is returned so dev/integration
-   * tests can use it directly; in production it should be delivered via email
-   * and the response should always return `{ ok: true }` regardless of whether
-   * the email exists, to avoid account enumeration.
-   */
   async createToken(email: string): Promise<{ ok: true; resetToken?: string }> {
     const user = await this.users.findByEmail(email);
     if (!user) return { ok: true };
 
     const raw = randomBytes(32).toString('base64url');
-    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
     await this.repo.save(
       this.repo.create({
         userId: user.id,
@@ -38,7 +34,9 @@ export class PasswordResetService {
       }),
     );
     this.logger.log(`Password reset issued for ${email}`);
-    return { ok: true, resetToken: raw };
+
+    const isDev = this.config.get('NODE_ENV', 'development') === 'development';
+    return { ok: true, ...(isDev ? { resetToken: raw } : {}) };
   }
 
   async reset(token: string, newPassword: string): Promise<{ ok: true }> {
@@ -58,8 +56,6 @@ export class PasswordResetService {
 
     record.used = true;
     await this.repo.save(record);
-
-    // Force re-auth on every device: revoke all refresh tokens.
     await this.auth.revokeAllForUser(record.userId);
     return { ok: true };
   }

@@ -8,7 +8,9 @@ import { OwnedCrudService } from '../common/owned.service';
 @Injectable()
 export class WalletsService {
   constructor(@InjectRepository(Wallet) private readonly repo: Repository<Wallet>) {}
-  list(uid: string) { return this.repo.find({ where: { ownerId: uid } }); }
+  list(uid: string, page = 1, limit = 50) {
+    return this.repo.find({ where: { ownerId: uid }, skip: (page - 1) * limit, take: limit });
+  }
   async get(uid: string, id: string) {
     const w = await this.repo.findOne({ where: { id, ownerId: uid } });
     if (!w) throw new NotFoundException();
@@ -27,15 +29,19 @@ export class TransactionsService {
     private readonly ds: DataSource,
   ) {}
 
-  list(uid: string) {
-    return this.txns.find({ where: { ownerId: uid }, order: { createdAt: 'DESC' } });
+  list(uid: string, page = 1, limit = 50) {
+    return this.txns.find({ where: { ownerId: uid }, order: { createdAt: 'DESC' }, skip: (page - 1) * limit, take: limit });
   }
 
-  byWallet(uid: string, walletId: string) {
-    return this.txns.find({ where: { ownerId: uid, walletId }, order: { createdAt: 'DESC' } });
+  byWallet(uid: string, walletId: string, page = 1, limit = 50) {
+    return this.txns.find({ where: { ownerId: uid, walletId }, order: { createdAt: 'DESC' }, skip: (page - 1) * limit, take: limit });
   }
 
   async post(uid: string, dto: TransactionDto) {
+    if (dto.idempotencyKey) {
+      const existing = await this.txns.findOne({ where: { idempotencyKey: dto.idempotencyKey } });
+      if (existing) return existing;
+    }
     return this.ds.transaction(async (tx) => {
       const wRepo = tx.getRepository(Wallet);
       const tRepo = tx.getRepository(PaymentTransaction);
@@ -56,11 +62,16 @@ export class TransactionsService {
         counterparty: dto.counterparty ?? null,
         reference: dto.reference ?? null,
         description: dto.description ?? '',
+        idempotencyKey: dto.idempotencyKey ?? null,
       }));
     });
   }
 
   async transfer(uid: string, dto: TransferDto) {
+    if (dto.idempotencyKey) {
+      const existing = await this.txns.findOne({ where: { idempotencyKey: dto.idempotencyKey } });
+      if (existing) return existing;
+    }
     return this.ds.transaction(async (tx) => {
       const wRepo = tx.getRepository(Wallet);
       const tRepo = tx.getRepository(PaymentTransaction);
@@ -79,11 +90,13 @@ export class TransactionsService {
         ownerId: uid, walletId: from.id, type: 'TRANSFER', amount: dto.amount,
         currency: from.currency, status: 'COMPLETED', counterparty: to.id,
         description: dto.description ?? 'Outgoing transfer',
+        idempotencyKey: dto.idempotencyKey ?? null,
       });
       const incoming = tRepo.create({
         ownerId: to.ownerId, walletId: to.id, type: 'TRANSFER', amount: dto.amount,
         currency: to.currency, status: 'COMPLETED', counterparty: from.id,
         description: dto.description ?? 'Incoming transfer',
+        idempotencyKey: dto.idempotencyKey ?? null,
       });
       return tRepo.save([outgoing, incoming]);
     });

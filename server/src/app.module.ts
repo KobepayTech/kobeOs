@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { APP_GUARD } from '@nestjs/core';
@@ -25,13 +25,13 @@ import { DiscountsModule } from './discounts/discount.module';
 import { PaymentsModule } from './payments/payments.module';
 import { HotelModule } from './hotel/hotel.module';
 import { CreatorsModule } from './creators/creators.module';
+import { RolesGuard } from './common/roles.guard';
+import { LoggerMiddleware } from './common/logger.middleware';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' }),
     TypeOrmModule.forRootAsync(databaseConfig),
-    // Two buckets: a generous default for general API traffic and a tight
-    // 'auth' bucket scoped to /api/auth/* (applied via @Throttle in AuthController).
     ThrottlerModule.forRoot([
       { name: 'default', ttl: 60_000, limit: 120 },
       { name: 'auth', ttl: 60_000, limit: 10 },
@@ -58,6 +58,13 @@ import { CreatorsModule } from './creators/creators.module';
     CreatorsModule,
   ],
   controllers: [AppController],
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
+  providers: [
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: RolesGuard },
+  ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(LoggerMiddleware).forRoutes('*');
+  }
+}

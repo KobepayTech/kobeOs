@@ -16,6 +16,10 @@ export class UsersService {
     return this.repo.findOne({ where: { id } });
   }
 
+  findAll() {
+    return this.repo.find({ select: ['id', 'email', 'displayName', 'avatarUrl', 'role', 'createdAt'] });
+  }
+
   async getProfile(id: string) {
     const user = await this.findById(id);
     if (!user) throw new NotFoundException('User not found');
@@ -34,5 +38,12 @@ export class UsersService {
 
   async setPasswordHash(id: string, passwordHash: string) {
     await this.repo.update(id, { passwordHash });
+  }
+
+  async remove(id: string) {
+    const user = await this.findById(id);
+    if (!user) throw new NotFoundException();
+    await this.repo.remove(user);
+    return { id };
   }
 }

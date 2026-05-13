@@ -8,22 +8,26 @@ import { CreateOrderDto, CreateProductDto, UpdateOrderDto, UpdateProductDto } fr
 export class ProductsService {
   constructor(@InjectRepository(PosProduct) private readonly repo: Repository<PosProduct>) {}
 
-  list(uid: string) {
-    return this.repo.find({ where: { ownerId: uid }, order: { name: 'ASC' } });
+  list(uid: string, page = 1, limit = 50) {
+    return this.repo.find({ where: { ownerId: uid }, order: { name: 'ASC' }, skip: (page - 1) * limit, take: limit });
   }
+
   async get(uid: string, id: string) {
     const item = await this.repo.findOne({ where: { id, ownerId: uid } });
     if (!item) throw new NotFoundException();
     return item;
   }
+
   create(uid: string, dto: CreateProductDto) {
     return this.repo.save(this.repo.create({ ...dto, ownerId: uid }));
   }
+
   async update(uid: string, id: string, dto: UpdateProductDto) {
     const item = await this.get(uid, id);
     Object.assign(item, dto);
     return this.repo.save(item);
   }
+
   async remove(uid: string, id: string) {
     const item = await this.get(uid, id);
     await this.repo.remove(item);
@@ -40,8 +44,8 @@ export class OrdersService {
     private readonly ds: DataSource,
   ) {}
 
-  list(uid: string) {
-    return this.orders.find({ where: { ownerId: uid }, order: { createdAt: 'DESC' } });
+  list(uid: string, page = 1, limit = 50) {
+    return this.orders.find({ where: { ownerId: uid }, order: { createdAt: 'DESC' }, skip: (page - 1) * limit, take: limit });
   }
 
   async get(uid: string, id: string) {
@@ -110,6 +114,22 @@ export class OrdersService {
   async update(uid: string, id: string, dto: UpdateOrderDto) {
     const order = await this.orders.findOne({ where: { id, ownerId: uid } });
     if (!order) throw new NotFoundException();
+
+    if (dto.status === 'CANCELLED' && order.status !== 'CANCELLED') {
+      await this.ds.transaction(async (tx) => {
+        const productRepo = tx.getRepository(PosProduct);
+        const itemRepo = tx.getRepository(PosOrderItem);
+        const orderItems = await itemRepo.find({ where: { orderId: id, ownerId: uid } });
+        for (const item of orderItems) {
+          const product = await productRepo.findOne({ where: { id: item.productId, ownerId: uid } });
+          if (product) {
+            product.stock += item.quantity;
+            await productRepo.save(product);
+          }
+        }
+      });
+    }
+
     Object.assign(order, dto);
     return this.orders.save(order);
   }

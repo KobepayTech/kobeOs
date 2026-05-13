@@ -2,6 +2,12 @@ import { NotFoundException } from '@nestjs/common';
 import { DeepPartial, FindOptionsOrder, FindOptionsWhere, Repository } from 'typeorm';
 import { OwnedEntity } from './owned.entity';
 
+export interface ListOptions<T> {
+  page?: number;
+  limit?: number;
+  where?: FindOptionsWhere<T>;
+}
+
 export abstract class OwnedCrudService<T extends OwnedEntity> {
   protected constructor(protected readonly repo: Repository<T>) {}
 
@@ -9,11 +15,19 @@ export abstract class OwnedCrudService<T extends OwnedEntity> {
     return { createdAt: 'DESC' } as FindOptionsOrder<T>;
   }
 
-  list(ownerId: string, where?: FindOptionsWhere<T>) {
+  list(ownerId: string, options: ListOptions<T> = {}) {
+    const page = Math.max(1, options.page ?? 1);
+    const limit = Math.min(100, Math.max(1, options.limit ?? 50));
     return this.repo.find({
-      where: { ...(where ?? {}), ownerId } as FindOptionsWhere<T>,
+      where: { ...(options.where ?? {}), ownerId } as FindOptionsWhere<T>,
       order: this.defaultOrder(),
+      skip: (page - 1) * limit,
+      take: limit,
     });
+  }
+
+  count(ownerId: string, where?: FindOptionsWhere<T>) {
+    return this.repo.count({ where: { ...(where ?? {}), ownerId } as FindOptionsWhere<T> });
   }
 
   async get(ownerId: string, id: string) {

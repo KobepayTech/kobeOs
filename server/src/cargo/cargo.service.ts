@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { CargoDriver, CargoFlight, Parcel, Shipment } from './cargo.entity';
+nimport { CargoDriver, CargoFlight, Parcel, Shipment } from './cargo.entity';
 import { OwnedCrudService } from '../common/owned.service';
 
 @Injectable()
