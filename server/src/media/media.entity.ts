@@ -12,9 +12,15 @@ export class MediaAsset extends OwnedEntity {
   @Column({ nullable: true, type: 'varchar' })
   mimeType?: string | null;
 
-  /** Pointer to /api/files virtual path or external URL */
+  /**
+   * Either a data URL, an external URL, or `/api/media/blob/:id` when the
+   * bytes are stored inline in `contentBinary` via the multipart upload route.
+   */
   @Column()
   src!: string;
+
+  @Column({ type: 'bytea', nullable: true })
+  contentBinary?: Buffer | null;
 
   @Column({ default: 0 })
   duration!: number;

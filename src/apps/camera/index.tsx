@@ -8,7 +8,7 @@ import {
   Image as ImageIcon,
   Trash2,
 } from 'lucide-react';
-import { api } from '@/lib/api';
+import { api, fetchObjectUrl, uploadFile } from '@/lib/api';
 import { ensureSession } from '@/lib/auth';
 
 type Filter = 'normal' | 'grayscale' | 'sepia' | 'invert';
@@ -41,16 +41,32 @@ export default function CameraApp() {
   const [countdown, setCountdown] = useState(0);
   const [countdownValue, setCountdownValue] = useState(0);
   const [photos, setPhotos] = useState<ApiPhoto[]>([]);
+  const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
   const [selectedPhotoId, setSelectedPhotoId] = useState<string | null>(null);
   const [bootReady, setBootReady] = useState(false);
+
+  // Resolve each asset's authenticated /api/media/blob/:id into a blob: URL
+  // the browser can render directly.
+  const resolveUrl = useCallback(async (p: ApiPhoto): Promise<string> => {
+    if (p.src.startsWith('data:') || p.src.startsWith('blob:')) return p.src;
+    return fetchObjectUrl(p.src.replace(/^\/api/, ''));
+  }, []);
 
   const refreshPhotos = useCallback(async () => {
     try {
       const list = await api<ApiPhoto[]>('/media/assets?kind=photo');
       setPhotos(list);
+      const entries = await Promise.all(list.map(async (p) => [p.id, await resolveUrl(p)] as const));
+      setPhotoUrls(Object.fromEntries(entries));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load photos');
     }
+  }, [resolveUrl]);
+
+  useEffect(() => () => {
+    // Revoke any object URLs when the component unmounts.
+    Object.values(photoUrls).forEach((u) => { if (u.startsWith('blob:')) URL.revokeObjectURL(u); });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -120,23 +136,16 @@ export default function CameraApp() {
 
     canvas.toBlob(async (blob) => {
       if (!blob) return;
-      const dataUrl: string = await new Promise((resolve) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result as string);
-        reader.readAsDataURL(blob);
-      });
       try {
-        const created = await api<ApiPhoto>('/media/assets', {
-          method: 'POST',
-          body: JSON.stringify({
-            kind: 'photo',
-            name: `photo_${Date.now()}.png`,
-            mimeType: 'image/png',
-            src: dataUrl,
-            size: blob.size,
-          }),
-        });
+        const filename = `photo_${Date.now()}.png`;
+        const created = await uploadFile<ApiPhoto>(
+          '/media/upload?kind=photo',
+          blob,
+          { filename },
+        );
+        const url = URL.createObjectURL(blob);
         setPhotos((prev) => [created, ...prev]);
+        setPhotoUrls((prev) => ({ ...prev, [created.id]: url }));
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Upload failed');
       }
@@ -273,7 +282,7 @@ export default function CameraApp() {
                 className={`relative group rounded overflow-hidden border ${selectedPhotoId === p.id ? 'border-blue-500' : 'border-slate-700'}`}
                 onClick={() => setSelectedPhotoId(p.id)}
               >
-                <img src={p.src} alt={p.name} className="w-full h-16 object-cover" />
+                <img src={photoUrls[p.id] ?? p.src} alt={p.name} className="w-full h-16 object-cover" />
                 <button
                   onClick={(e) => { e.stopPropagation(); deletePhoto(p.id); }}
                   className="absolute top-0.5 right-0.5 p-0.5 bg-black/50 rounded opacity-0 group-hover:opacity-100"
@@ -300,7 +309,7 @@ export default function CameraApp() {
             </button>
             {(() => {
               const p = photos.find((x) => x.id === selectedPhotoId);
-              return p ? <img src={p.src} alt="" className="max-w-full max-h-[80vh] rounded" /> : null;
+              return p ? <img src={photoUrls[p.id] ?? p.src} alt="" className="max-w-full max-h-[80vh] rounded" /> : null;
             })()}
           </div>
         </div>

@@ -16,7 +16,7 @@ import {
   Disc,
   X,
 } from 'lucide-react';
-import { api } from '@/lib/api';
+import { api, fetchObjectUrl, uploadFile } from '@/lib/api';
 import { ensureSession } from '@/lib/auth';
 
 interface ApiAsset {
@@ -151,23 +151,8 @@ export default function MediaPlayerApp() {
   }, [isPlaying]);
 
   const uploadTrack = async (file: File) => {
-    const dataUrl: string = await new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = () => reject(reader.error);
-      reader.readAsDataURL(file);
-    });
     try {
-      const created = await api<ApiAsset>('/media/assets', {
-        method: 'POST',
-        body: JSON.stringify({
-          kind: 'audio',
-          name: file.name,
-          mimeType: file.type || 'audio/mpeg',
-          src: dataUrl,
-          size: file.size,
-        }),
-      });
+      const created = await uploadFile<ApiAsset>('/media/upload?kind=audio', file);
       setTracks((prev) => [...prev, created]);
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : 'Upload failed');
@@ -200,8 +185,23 @@ export default function MediaPlayerApp() {
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio || !currentTrack) return;
-    audio.src = currentTrack.src;
-    if (isPlaying) audio.play().catch(() => setIsPlaying(false));
+    let revokeUrl: string | null = null;
+    let cancelled = false;
+    (async () => {
+      const raw = currentTrack.src;
+      // /api/media/blob/:id requires the JWT — fetch it via the api client
+      // and hand the audio element a blob: URL it can stream from.
+      const playable = raw.startsWith('data:') || raw.startsWith('blob:')
+        ? raw
+        : await fetchObjectUrl(raw.replace(/^\/api/, '')).then((u) => { revokeUrl = u; return u; });
+      if (cancelled) { if (revokeUrl) URL.revokeObjectURL(revokeUrl); return; }
+      audio.src = playable;
+      if (isPlaying) audio.play().catch(() => setIsPlaying(false));
+    })();
+    return () => {
+      cancelled = true;
+      if (revokeUrl) URL.revokeObjectURL(revokeUrl);
+    };
   }, [currentTrack]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!ready) {

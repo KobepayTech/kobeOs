@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { databaseConfig } from './config/database.config';
 import { AppController } from './app.controller';
 import { AuthModule } from './auth/auth.module';
@@ -28,6 +30,12 @@ import { CreatorsModule } from './creators/creators.module';
   imports: [
     ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' }),
     TypeOrmModule.forRootAsync(databaseConfig),
+    // Two buckets: a generous default for general API traffic and a tight
+    // 'auth' bucket scoped to /api/auth/* (applied via @Throttle in AuthController).
+    ThrottlerModule.forRoot([
+      { name: 'default', ttl: 60_000, limit: 120 },
+      { name: 'auth', ttl: 60_000, limit: 10 },
+    ]),
     AuthModule,
     UsersModule,
     NotesModule,
@@ -50,5 +58,6 @@ import { CreatorsModule } from './creators/creators.module';
     CreatorsModule,
   ],
   controllers: [AppController],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}

@@ -1,4 +1,7 @@
-import { api, getToken, setToken, ApiError } from './api';
+import {
+  api, getToken, setToken, getRefreshToken, setRefreshToken,
+  clearTokens, ApiError,
+} from './api';
 
 export interface AuthUser {
   id: string;
@@ -8,31 +11,63 @@ export interface AuthUser {
 
 interface AuthResponse {
   accessToken: string;
+  refreshToken: string;
   user: AuthUser;
 }
 
+function persist(res: AuthResponse) {
+  setToken(res.accessToken);
+  setRefreshToken(res.refreshToken);
+}
+
 export async function login(email: string, password: string): Promise<AuthUser> {
-  const { accessToken, user } = await api<AuthResponse>('/auth/login', {
+  const res = await api<AuthResponse>('/auth/login', {
     method: 'POST',
     auth: false,
     body: JSON.stringify({ email, password }),
   });
-  setToken(accessToken);
-  return user;
+  persist(res);
+  return res.user;
 }
 
 export async function register(email: string, password: string, displayName?: string): Promise<AuthUser> {
-  const { accessToken, user } = await api<AuthResponse>('/auth/register', {
+  const res = await api<AuthResponse>('/auth/register', {
     method: 'POST',
     auth: false,
     body: JSON.stringify({ email, password, displayName }),
   });
-  setToken(accessToken);
-  return user;
+  persist(res);
+  return res.user;
 }
 
-export function logout() {
-  setToken(null);
+export async function logout(): Promise<void> {
+  const refreshToken = getRefreshToken();
+  if (refreshToken) {
+    try {
+      await api('/auth/logout', {
+        method: 'POST',
+        auth: false,
+        body: JSON.stringify({ refreshToken }),
+      });
+    } catch { /* server may already have revoked the token */ }
+  }
+  clearTokens();
+}
+
+export async function requestPasswordReset(email: string): Promise<{ ok: true; resetToken?: string }> {
+  return api('/auth/forgot-password', {
+    method: 'POST',
+    auth: false,
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function resetPassword(token: string, newPassword: string): Promise<{ ok: true }> {
+  return api('/auth/reset-password', {
+    method: 'POST',
+    auth: false,
+    body: JSON.stringify({ token, newPassword }),
+  });
 }
 
 export function isLoggedIn(): boolean {
@@ -40,15 +75,16 @@ export function isLoggedIn(): boolean {
 }
 
 /**
- * Convenience: ensure a session exists. Reuses stored token, or
- * registers/logs in a demo account so apps can talk to the API immediately.
+ * Ensure a session exists. Reuses stored tokens (the api client auto-refreshes
+ * on 401), or registers/logs in a demo account so apps can talk to the API
+ * immediately.
  */
 export async function ensureSession(): Promise<AuthUser> {
-  if (isLoggedIn()) {
+  if (isLoggedIn() || getRefreshToken()) {
     try {
       return await api<AuthUser>('/users/me');
     } catch {
-      setToken(null);
+      clearTokens();
     }
   }
   const email = 'demo@kobeos.local';

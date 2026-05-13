@@ -31,4 +31,8 @@ export class UsersService {
     await this.repo.update(id, dto);
     return this.getProfile(id);
   }
+
+  async setPasswordHash(id: string, passwordHash: string) {
+    await this.repo.update(id, { passwordHash });
+  }
 }

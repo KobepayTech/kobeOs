@@ -39,6 +39,31 @@ export class FilesService {
     return node;
   }
 
+  /** Create `path` (and any missing ancestors) as directories, idempotently. */
+  async ensureDir(ownerId: string, path: string): Promise<void> {
+    const resolved = normalize(path);
+    if (resolved === '/') return;
+    const segments = resolved.slice(1).split('/');
+    let acc = '';
+    for (const seg of segments) {
+      acc += '/' + seg;
+      const existing = await this.repo.findOne({ where: { ownerId, path: acc } });
+      if (existing) {
+        if (existing.type !== 'directory') throw new BadRequestException(`${acc} is not a directory`);
+        continue;
+      }
+      await this.repo.save(
+        this.repo.create({
+          ownerId,
+          path: acc,
+          parentPath: parentOf(acc),
+          name: basename(acc),
+          type: 'directory',
+        }),
+      );
+    }
+  }
+
   async create(ownerId: string, dto: CreateNodeDto) {
     const path = normalize(dto.path);
     const existing = await this.repo.findOne({ where: { ownerId, path } });
@@ -96,6 +121,53 @@ export class FilesService {
       await this.repo.remove(node);
     }
     return { path: node.path };
+  }
+
+  /**
+   * Upload (or overwrite) a file at `path` using the bytes from a multipart
+   * upload. Auto-creates the parent if it doesn't exist yet.
+   */
+  async upload(
+    ownerId: string,
+    path: string,
+    file: { originalname: string; mimetype: string; buffer: Buffer; size: number },
+  ) {
+    const resolved = normalize(path);
+    const parentPath = parentOf(resolved);
+    if (parentPath && parentPath !== '/') {
+      // Auto-create the parent chain so uploads can drop files into a path
+      // without forcing the caller to mkdir every intermediate folder first.
+      await this.ensureDir(ownerId, parentPath);
+    }
+    const existing = await this.repo.findOne({ where: { ownerId, path: resolved } });
+    if (existing) {
+      if (existing.type !== 'file') {
+        throw new BadRequestException('Path is a directory');
+      }
+      existing.mimeType = file.mimetype;
+      existing.contentBinary = file.buffer;
+      existing.content = null;
+      existing.size = file.size;
+      return this.repo.save(existing);
+    }
+    return this.repo.save(
+      this.repo.create({
+        ownerId,
+        path: resolved,
+        parentPath,
+        name: basename(resolved),
+        type: 'file',
+        mimeType: file.mimetype,
+        contentBinary: file.buffer,
+        size: file.size,
+      }),
+    );
+  }
+
+  async readBlob(ownerId: string, path: string): Promise<FsNode> {
+    const node = await this.get(ownerId, path);
+    if (node.type !== 'file') throw new BadRequestException('Not a file');
+    return node;
   }
 
   async move(ownerId: string, path: string, dto: MoveNodeDto) {
