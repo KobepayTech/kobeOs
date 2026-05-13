@@ -1,37 +1,69 @@
-import { useState, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import * as icons from 'lucide-react';
+import { useApiResource } from '@/lib/useApiResource';
+
+interface ApiEvent {
+  id: string;
+  title: string;
+  description: string;
+  startAt: string;
+  endAt: string;
+  allDay: boolean;
+  color: string;
+  location?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
 
 interface CalendarEvent {
   id: string;
   title: string;
   date: string; // YYYY-MM-DD
-  time: string;
+  time: string; // HH:MM
   description: string;
   color: string;
 }
 
-function loadEvents(): CalendarEvent[] {
-  const raw = localStorage.getItem('kobe_calendar');
-  return raw ? JSON.parse(raw) : [];
+function pad(n: number): string { return String(n).padStart(2, '0'); }
+
+function fromApi(ev: ApiEvent): CalendarEvent {
+  const d = new Date(ev.startAt);
+  const date = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  return {
+    id: ev.id,
+    title: ev.title,
+    date,
+    time,
+    description: ev.description ?? '',
+    color: ev.color,
+  };
 }
 
-function saveEvents(events: CalendarEvent[]) {
-  localStorage.setItem('kobe_calendar', JSON.stringify(events));
+function toApi(date: string, form: { title: string; time: string; description: string; color: string }) {
+  const start = new Date(`${date}T${form.time || '09:00'}:00`);
+  const end = new Date(start.getTime() + 60 * 60 * 1000);
+  return {
+    title: form.title,
+    description: form.description,
+    color: form.color,
+    startAt: start.toISOString(),
+    endAt: end.toISOString(),
+  };
 }
 
 export default function Calendar() {
+  const { items, ready, error, create, remove } = useApiResource<ApiEvent>('/calendar');
+
   const [today] = useState(new Date());
   const [viewDate, setViewDate] = useState(new Date());
-  const [events, setEvents] = useState<CalendarEvent[]>(loadEvents);
   const [view, setView] = useState<'month' | 'week' | 'day'>('month');
   const [modalOpen, setModalOpen] = useState(false);
   const [modalDate, setModalDate] = useState('');
   const [form, setForm] = useState({ title: '', time: '09:00', description: '', color: '#3b82f6' });
 
-  useEffect(() => {
-    saveEvents(events);
-  }, [events]);
+  const events = useMemo<CalendarEvent[]>(() => items.map(fromApi), [items]);
 
   const year = viewDate.getFullYear();
   const month = viewDate.getMonth();
@@ -45,7 +77,7 @@ export default function Calendar() {
   const firstDay = new Date(year, month, 1).getDay();
 
   const getEventsForDate = (d: number) => {
-    const ds = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    const ds = `${year}-${pad(month + 1)}-${pad(d)}`;
     return events.filter((e) => e.date === ds);
   };
 
@@ -55,24 +87,28 @@ export default function Calendar() {
     setModalOpen(true);
   };
 
-  const addEvent = () => {
-    if (!form.title) return;
-    const ev: CalendarEvent = {
-      id: `ev_${Date.now()}`,
-      ...form,
-      date: modalDate,
-    };
-    setEvents((prev) => [...prev, ev]);
-    setModalOpen(false);
+  const addEvent = async () => {
+    if (!form.title.trim()) return;
+    try {
+      await create(toApi(modalDate, form) as unknown as Partial<ApiEvent>);
+      setModalOpen(false);
+    } catch { /* surfaced via hook */ }
   };
 
-  const deleteEvent = (id: string) => {
-    setEvents((prev) => prev.filter((e) => e.id !== id));
+  const deleteEvent = async (id: string) => {
+    await remove(id);
   };
+
+  if (!ready) {
+    return (
+      <div className="flex flex-col h-full bg-[#0f172a] text-sm text-os-text-muted items-center justify-center">
+        {error ?? 'Connecting…'}
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full bg-[#0f172a] text-sm text-os-text-primary">
-      {/* Header */}
       <div className="h-10 flex items-center justify-between px-3 border-b border-white/[0.08]">
         <div className="flex items-center gap-2">
           <button className="w-7 h-7 rounded-md hover:bg-white/10" onClick={() => setViewDate(new Date(year, month - 1, 1))}>
@@ -96,7 +132,6 @@ export default function Calendar() {
         </div>
       </div>
 
-      {/* Month View */}
       {view === 'month' && (
         <div className="flex-1 p-3">
           <div className="grid grid-cols-7 gap-1 text-center mb-1">
@@ -109,7 +144,7 @@ export default function Calendar() {
             {Array.from({ length: daysInMonth }, (_, i) => {
               const d = i + 1;
               const isToday = d === today.getDate() && month === today.getMonth() && year === today.getFullYear();
-              const ds = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+              const ds = `${year}-${pad(month + 1)}-${pad(d)}`;
               const dayEvents = getEventsForDate(d);
               return (
                 <button
@@ -146,7 +181,6 @@ export default function Calendar() {
         </div>
       )}
 
-      {/* Event list */}
       <div className="h-40 border-t border-white/[0.08] overflow-auto">
         <div className="px-3 py-2 text-xs font-semibold text-os-text-muted uppercase">Events</div>
         <div className="px-3 space-y-1">
@@ -166,9 +200,9 @@ export default function Calendar() {
             </div>
           ))}
         </div>
+        {error && <div className="text-[11px] text-red-400 px-3 py-1">{error}</div>}
       </div>
 
-      {/* Modal */}
       {modalOpen && (
         <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setModalOpen(false)}>
           <motion.div

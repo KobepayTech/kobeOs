@@ -31,7 +31,9 @@ export abstract class OwnedCrudService<T extends OwnedEntity> {
 
   async update(ownerId: string, id: string, data: DeepPartial<T>) {
     const existing = await this.get(ownerId, id);
-    Object.assign(existing, data);
+    for (const [k, v] of Object.entries(data as Record<string, unknown>)) {
+      if (v !== undefined) (existing as Record<string, unknown>)[k] = v;
+    }
     return this.repo.save(existing);
   }
 

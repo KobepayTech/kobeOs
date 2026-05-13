@@ -1,89 +1,61 @@
-import { useState, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Users, Search, Plus, Trash2, Edit2, Check, X, Download, Upload,
   Mail, Phone, Building2, Briefcase, MapPin, StickyNote, Tag, ChevronRight
 } from 'lucide-react';
+import { useApiResource } from '@/lib/useApiResource';
 
 interface Contact {
   id: string;
   name: string;
-  email: string;
-  phone: string;
-  company: string;
-  jobTitle: string;
-  address: string;
+  email?: string | null;
+  phone?: string | null;
+  company?: string | null;
+  jobTitle?: string | null;
+  address?: string | null;
   notes: string;
   groups: string[];
+  favorite: boolean;
   color: string;
+  createdAt: string;
+  updatedAt: string;
 }
-
-const STORAGE_KEY = 'kobe_contacts';
-const GROUPS_KEY = 'kobe_contact_groups';
 
 const COLORS = ['#ef4444', '#f59e0b', '#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
 
-const DEMO_CONTACTS: Contact[] = [
-  { id: 'c1', name: 'Alex Chen', email: 'alex@company.com', phone: '+1 (555) 123-4567', company: 'TechCorp', jobTitle: 'Product Manager', address: '123 Innovation Dr, San Francisco, CA', notes: 'Met at DevCon 2024. Interested in partnership.', groups: ['Work'], color: '#ef4444' },
-  { id: 'c2', name: 'Jordan Lee', email: 'jordan@design.io', phone: '+1 (555) 234-5678', company: 'Design Studio', jobTitle: 'Lead Designer', address: '456 Creative Ave, New York, NY', notes: 'Great UI/UX insights. Follow up on Q3 project.', groups: ['Work', 'Design'], color: '#f59e0b' },
-  { id: 'c3', name: 'Taylor Kim', email: 'taylor@startup.co', phone: '+1 (555) 345-6789', company: 'StartupCo', jobTitle: 'CTO', address: '789 Startup Way, Austin, TX', notes: 'Looking for engineering talent. Referral possible.', groups: ['Work'], color: '#10b981' },
-  { id: 'c4', name: 'Morgan Wu', email: 'morgan@freelance.dev', phone: '+1 (555) 456-7890', company: 'Freelance', jobTitle: 'Full Stack Developer', address: '321 Code St, Seattle, WA', notes: 'Available for contract work. Rate: $120/hr.', groups: ['Freelancers'], color: '#8b5cf6' },
-  { id: 'c5', name: 'Riley Park', email: 'riley@marketing.pro', phone: '+1 (555) 567-8901', company: 'Marketing Pro', jobTitle: 'Marketing Director', address: '654 Brand Blvd, Los Angeles, CA', notes: 'Campaign launch next month. Budget $50K.', groups: ['Work', 'Marketing'], color: '#ec4899' },
-  { id: 'c6', name: 'Casey Brown', email: 'casey@finance.io', phone: '+1 (555) 678-9012', company: 'Finance IO', jobTitle: 'CFO', address: '987 Wall St, New York, NY', notes: 'Reviewing our Q2 financials. Meeting scheduled.', groups: ['Work', 'Finance'], color: '#06b6d4' },
-  { id: 'c7', name: 'Jamie Smith', email: 'jamie@family.net', phone: '+1 (555) 789-0123', company: '', jobTitle: '', address: '111 Home Lane, Portland, OR', notes: 'Family friend. Birthday in November.', groups: ['Personal'], color: '#f97316' },
-  { id: 'c8', name: 'Drew Johnson', email: 'drew@gym.fit', phone: '+1 (555) 890-1234', company: 'FitLife Gym', jobTitle: 'Personal Trainer', address: '222 Health Ave, Denver, CO', notes: 'Personal trainer. Sessions on Tue/Thu.', groups: ['Personal'], color: '#3b82f6' },
-];
-
-const DEMO_GROUPS = ['Work', 'Personal', 'Design', 'Marketing', 'Finance', 'Freelancers'];
-
-function loadContacts(): Contact[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch { /* ignore */ }
-  return DEMO_CONTACTS;
-}
-
-function loadGroups(): string[] {
-  try {
-    const raw = localStorage.getItem(GROUPS_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch { /* ignore */ }
-  return DEMO_GROUPS;
-}
-
-function saveContacts(contacts: Contact[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(contacts));
-}
-
-function saveGroups(groups: string[]) {
-  localStorage.setItem(GROUPS_KEY, JSON.stringify(groups));
-}
+const DEFAULT_GROUPS = ['Work', 'Personal', 'Design', 'Marketing', 'Finance', 'Freelancers'];
 
 function getInitials(name: string): string {
   return name.split(' ').map(n => n.charAt(0)).join('').toUpperCase().slice(0, 2);
 }
 
 export default function ContactsApp() {
-  const [contacts, setContacts] = useState<Contact[]>(loadContacts);
-  const [groups, setGroups] = useState<string[]>(loadGroups);
+  const { items: contacts, ready, error, create, update, remove } =
+    useApiResource<Contact>('/contacts');
+
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [filterGroup, setFilterGroup] = useState<string>('All');
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [extraGroups, setExtraGroups] = useState<string[]>([]);
   const [newGroup, setNewGroup] = useState('');
   const [showNewGroup, setShowNewGroup] = useState(false);
 
   const [form, setForm] = useState<Partial<Contact>>({});
 
-  useEffect(() => { saveContacts(contacts); }, [contacts]);
-  useEffect(() => { saveGroups(groups); }, [groups]);
+  const groups = useMemo(() => {
+    const seen = new Set<string>([...DEFAULT_GROUPS, ...extraGroups]);
+    for (const c of contacts) for (const g of c.groups || []) seen.add(g);
+    return [...seen];
+  }, [contacts, extraGroups]);
 
   const selected = contacts.find(c => c.id === selectedId) || null;
 
   const filtered = contacts.filter(c => {
-    const matchesSearch = !search || c.name.toLowerCase().includes(search.toLowerCase()) || c.email.toLowerCase().includes(search.toLowerCase()) || c.company.toLowerCase().includes(search.toLowerCase());
-    const matchesGroup = filterGroup === 'All' || c.groups.includes(filterGroup);
+    const haystack = `${c.name} ${c.email ?? ''} ${c.company ?? ''}`.toLowerCase();
+    const matchesSearch = !search || haystack.includes(search.toLowerCase());
+    const matchesGroup = filterGroup === 'All' || (c.groups || []).includes(filterGroup);
     return matchesSearch && matchesGroup;
   }).sort((a, b) => a.name.localeCompare(b.name));
 
@@ -91,7 +63,11 @@ export default function ContactsApp() {
     setAdding(true);
     setEditing(false);
     setSelectedId(null);
-    setForm({ name: '', email: '', phone: '', company: '', jobTitle: '', address: '', notes: '', groups: [], color: COLORS[Math.floor(Math.random() * COLORS.length)] });
+    setForm({
+      name: '', email: '', phone: '', company: '', jobTitle: '',
+      address: '', notes: '', groups: [],
+      color: COLORS[Math.floor(Math.random() * COLORS.length)],
+    });
   };
 
   const startEdit = () => {
@@ -101,32 +77,33 @@ export default function ContactsApp() {
     setForm({ ...selected });
   };
 
-  const saveForm = () => {
+  const saveForm = async () => {
     if (!form.name?.trim()) return;
-    if (adding) {
-      const newContact: Contact = {
-        id: `c_${Date.now()}`,
-        name: form.name || '',
-        email: form.email || '',
-        phone: form.phone || '',
-        company: form.company || '',
-        jobTitle: form.jobTitle || '',
-        address: form.address || '',
-        notes: form.notes || '',
-        groups: form.groups || [],
-        color: form.color || COLORS[0],
-      };
-      setContacts(prev => [...prev, newContact]);
-      setSelectedId(newContact.id);
-    } else if (editing && selected) {
-      setContacts(prev => prev.map(c => c.id === selected.id ? { ...c, ...form } as Contact : c));
-    }
-    setAdding(false);
-    setEditing(false);
+    const payload: Partial<Contact> = {
+      name: form.name,
+      email: form.email || undefined,
+      phone: form.phone || undefined,
+      company: form.company || undefined,
+      jobTitle: form.jobTitle || undefined,
+      address: form.address || undefined,
+      notes: form.notes ?? '',
+      groups: form.groups ?? [],
+      color: form.color || COLORS[0],
+    };
+    try {
+      if (adding) {
+        const created = await create(payload);
+        setSelectedId(created.id);
+      } else if (editing && selected) {
+        await update(selected.id, payload);
+      }
+      setAdding(false);
+      setEditing(false);
+    } catch { /* error is surfaced via hook state */ }
   };
 
-  const deleteContact = (id: string) => {
-    setContacts(prev => prev.filter(c => c.id !== id));
+  const deleteContact = async (id: string) => {
+    await remove(id);
     if (selectedId === id) setSelectedId(null);
   };
 
@@ -149,12 +126,20 @@ export default function ContactsApp() {
       const file = (e.target as HTMLInputElement).files?.[0];
       if (!file) return;
       const reader = new FileReader();
-      reader.onload = (ev) => {
+      reader.onload = async (ev) => {
         try {
-          const data = JSON.parse(ev.target?.result as string);
-          if (data.contacts) setContacts(data.contacts);
-          if (data.groups) setGroups(data.groups);
-        } catch { /* ignore */ }
+          const data = JSON.parse(ev.target?.result as string) as { contacts?: Contact[] };
+          if (Array.isArray(data.contacts)) {
+            for (const c of data.contacts) {
+              await create({
+                name: c.name, email: c.email ?? undefined, phone: c.phone ?? undefined,
+                company: c.company ?? undefined, jobTitle: c.jobTitle ?? undefined,
+                address: c.address ?? undefined, notes: c.notes ?? '',
+                groups: c.groups ?? [], color: c.color ?? COLORS[0],
+              });
+            }
+          }
+        } catch { /* ignore malformed file */ }
       };
       reader.readAsText(file);
     };
@@ -162,11 +147,11 @@ export default function ContactsApp() {
   };
 
   const addGroup = () => {
-    if (newGroup.trim() && !groups.includes(newGroup.trim())) {
-      setGroups(prev => [...prev, newGroup.trim()]);
-      setNewGroup('');
-      setShowNewGroup(false);
-    }
+    const g = newGroup.trim();
+    if (!g || groups.includes(g)) return;
+    setExtraGroups((prev) => [...prev, g]);
+    setNewGroup('');
+    setShowNewGroup(false);
   };
 
   const toggleGroup = (group: string) => {
@@ -180,9 +165,16 @@ export default function ContactsApp() {
 
   const isFormMode = adding || editing;
 
+  if (!ready) {
+    return (
+      <div className="flex h-full items-center justify-center bg-white text-slate-500 text-sm">
+        {error ?? 'Connecting…'}
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full bg-white text-slate-900 overflow-hidden">
-      {/* Left: Contact List */}
       <div className="w-72 bg-slate-50 border-r border-slate-200 flex flex-col shrink-0">
         <div className="p-3 border-b border-slate-200">
           <div className="flex items-center justify-between mb-3">
@@ -260,9 +252,9 @@ export default function ContactsApp() {
             Import
           </button>
         </div>
+        {error && <div className="text-[10px] text-red-500 px-2 py-1 border-t border-slate-200">{error}</div>}
       </div>
 
-      {/* Right: Detail / Form */}
       <div className="flex-1 flex flex-col bg-white min-w-0">
         {!selected && !isFormMode && (
           <div className="flex-1 flex flex-col items-center justify-center text-slate-400">
@@ -485,7 +477,7 @@ export default function ContactsApp() {
                   </div>
                 </div>
               )}
-              {selected.groups.length > 0 && (
+              {selected.groups && selected.groups.length > 0 && (
                 <div className="flex items-start gap-3">
                   <div className="w-8 h-8 rounded-lg bg-pink-50 flex items-center justify-center shrink-0">
                     <Tag className="w-4 h-4 text-pink-600" />

@@ -1,9 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { forwardRef, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ChatChannel, ChatMessage } from './chat.entity';
 import { CreateChannelDto, SendMessageDto } from './dto/chat.dto';
 import { UsersService } from '../users/users.service';
+import { ChatGateway } from './chat.gateway';
 
 @Injectable()
 export class ChatService {
@@ -11,6 +12,7 @@ export class ChatService {
     @InjectRepository(ChatChannel) private readonly channels: Repository<ChatChannel>,
     @InjectRepository(ChatMessage) private readonly messages: Repository<ChatMessage>,
     private readonly users: UsersService,
+    @Inject(forwardRef(() => ChatGateway)) private readonly gateway: ChatGateway,
   ) {}
 
   listChannels() {
@@ -36,7 +38,7 @@ export class ChatService {
     await this.assertChannel(dto.channelId);
     const sender = await this.users.findById(senderId);
     if (!sender) throw new NotFoundException('Sender not found');
-    return this.messages.save(
+    const saved = await this.messages.save(
       this.messages.create({
         channelId: dto.channelId,
         senderId,
@@ -45,6 +47,8 @@ export class ChatService {
         type: 'message',
       }),
     );
+    this.gateway.broadcastMessage(saved);
+    return saved;
   }
 
   private async assertChannel(channelId: string) {

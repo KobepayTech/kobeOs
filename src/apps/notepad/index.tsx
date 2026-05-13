@@ -1,69 +1,95 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import * as icons from 'lucide-react';
+import { useApiResource } from '@/lib/useApiResource';
 
-interface Note {
+interface ApiNote {
   id: string;
   title: string;
-  content: string;
-  updatedAt: number;
+  body: string;
+  tags: string[];
+  pinned: boolean;
+  color: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
-function loadNotes(): Note[] {
-  const raw = localStorage.getItem('kobe_notepad');
-  if (!raw) return [{ id: 'n1', title: 'Welcome', content: 'Welcome to Notepad!\n\nThis is a simple note-taking app.', updatedAt: Date.now() }];
-  return JSON.parse(raw);
-}
-
-function saveNotes(notes: Note[]) {
-  localStorage.setItem('kobe_notepad', JSON.stringify(notes));
+function deriveTitle(body: string): string {
+  return body.split('\n')[0].slice(0, 40) || 'Untitled';
 }
 
 export default function Notepad() {
-  const [notes, setNotes] = useState<Note[]>(loadNotes);
-  const [activeId, setActiveId] = useState<string>(notes[0]?.id ?? '');
-  const [query, setQuery] = useState('');
+  const { items, loading, error, ready, create, update, remove } =
+    useApiResource<ApiNote>('/notes');
 
-  const active = notes.find((n) => n.id === activeId) ?? notes[0];
+  const [activeId, setActiveId] = useState<string>('');
+  const [query, setQuery] = useState('');
+  const [draft, setDraft] = useState<string>('');
+  const [dirty, setDirty] = useState(false);
+
+  const notes = useMemo(
+    () => [...items].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+    [items],
+  );
 
   useEffect(() => {
-    saveNotes(notes);
+    if (!activeId && notes.length) {
+      setActiveId(notes[0].id);
+      setDraft(notes[0].body);
+      setDirty(false);
+    }
+  }, [notes, activeId]);
+
+  const active = notes.find((n) => n.id === activeId);
+
+  const selectNote = useCallback((id: string) => {
+    const n = notes.find((x) => x.id === id);
+    setActiveId(id);
+    setDraft(n?.body ?? '');
+    setDirty(false);
   }, [notes]);
 
-  const updateNote = useCallback(
-    (content: string) => {
-      setNotes((prev) =>
-        prev.map((n) =>
-          n.id === activeId ? { ...n, content, title: content.split('\n')[0].slice(0, 40) || 'Untitled', updatedAt: Date.now() } : n
-        )
-      );
-    },
-    [activeId]
-  );
+  useEffect(() => {
+    if (!dirty || !active) return;
+    const handle = setTimeout(() => {
+      update(active.id, { body: draft, title: deriveTitle(draft) })
+        .then(() => setDirty(false))
+        .catch(() => { /* keep dirty so we retry on next keystroke */ });
+    }, 600);
+    return () => clearTimeout(handle);
+  }, [draft, dirty, active, update]);
 
-  const createNote = useCallback(() => {
-    const id = `note_${Date.now()}`;
-    const newNote: Note = { id, title: 'New Note', content: '', updatedAt: Date.now() };
-    setNotes((prev) => [newNote, ...prev]);
-    setActiveId(id);
-  }, []);
+  const createNote = useCallback(async () => {
+    const created = await create({ title: 'New Note', body: '' });
+    setActiveId(created.id);
+    setDraft('');
+    setDirty(false);
+  }, [create]);
 
-  const deleteNote = useCallback(
-    (id: string) => {
-      if (!confirm('Delete this note?')) return;
-      setNotes((prev) => prev.filter((n) => n.id !== id));
-      if (activeId === id) {
-        const remaining = notes.filter((n) => n.id !== id);
-        setActiveId(remaining[0]?.id ?? '');
-      }
-    },
-    [activeId, notes]
-  );
+  const deleteNote = useCallback(async (id: string) => {
+    if (!confirm('Delete this note?')) return;
+    await remove(id);
+    if (activeId === id) {
+      const remaining = notes.filter((n) => n.id !== id);
+      setActiveId(remaining[0]?.id ?? '');
+      setDraft(remaining[0]?.body ?? '');
+      setDirty(false);
+    }
+  }, [activeId, notes, remove]);
 
-  const filtered = query ? notes.filter((n) => n.title.toLowerCase().includes(query.toLowerCase())) : notes;
+  const filtered = query
+    ? notes.filter((n) => n.title.toLowerCase().includes(query.toLowerCase()))
+    : notes;
+
+  if (!ready) {
+    return (
+      <div className="flex items-center justify-center h-full text-sm text-os-text-muted bg-[#0f172a]">
+        {loading ? 'Connecting…' : (error ?? 'Connecting…')}
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full bg-[#0f172a] text-sm text-os-text-primary">
-      {/* Sidebar */}
       <div className="w-52 border-r border-white/[0.08] flex flex-col bg-[#0f172a]">
         <div className="p-2 flex items-center gap-1">
           <button className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-white/10" onClick={createNote}>
@@ -80,16 +106,19 @@ export default function Notepad() {
           </div>
         </div>
         <div className="flex-1 overflow-auto">
+          {filtered.length === 0 && (
+            <div className="text-center text-xs text-os-text-muted py-6">No notes yet</div>
+          )}
           {filtered.map((n) => (
             <button
               key={n.id}
               className={`w-full text-left px-3 py-2 transition-colors flex items-center justify-between group ${
                 n.id === activeId ? 'bg-os-accent/15 border-l-2 border-os-accent' : 'hover:bg-white/5'
               }`}
-              onClick={() => setActiveId(n.id)}
+              onClick={() => selectNote(n.id)}
             >
               <div className="truncate flex-1">
-                <div className="text-sm truncate">{n.title}</div>
+                <div className="text-sm truncate">{n.title || 'Untitled'}</div>
                 <div className="text-[10px] text-os-text-muted">{new Date(n.updatedAt).toLocaleDateString()}</div>
               </div>
               <button
@@ -104,9 +133,9 @@ export default function Notepad() {
             </button>
           ))}
         </div>
+        {error && <div className="text-[10px] text-red-400 px-2 py-1 border-t border-white/[0.08]">{error}</div>}
       </div>
 
-      {/* Editor */}
       <div className="flex-1 flex flex-col">
         <div className="h-9 flex items-center gap-1 px-2 border-b border-white/[0.08]">
           <button className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/10" title="Bold" onClick={() => document.execCommand('bold')}>
@@ -124,14 +153,27 @@ export default function Notepad() {
           <button className="w-7 h-7 flex items-center justify-center rounded hover:bg-white/10" title="Numbered list" onClick={() => document.execCommand('insertOrderedList')}>
             <icons.ListOrdered className="w-4 h-4" />
           </button>
+          <div className="ml-auto text-[10px] text-os-text-muted pr-2">
+            {dirty ? 'Saving…' : active ? 'Synced' : ''}
+          </div>
         </div>
-        <div
-          className="flex-1 p-4 outline-none overflow-auto"
-          contentEditable
-          suppressContentEditableWarning
-          onInput={(e) => updateNote(e.currentTarget.innerText)}
-          dangerouslySetInnerHTML={{ __html: active?.content.replace(/\n/g, '<br>') ?? '' }}
-        />
+        {active ? (
+          <div
+            key={active.id}
+            className="flex-1 p-4 outline-none overflow-auto"
+            contentEditable
+            suppressContentEditableWarning
+            onInput={(e) => {
+              setDraft(e.currentTarget.innerText);
+              setDirty(true);
+            }}
+            dangerouslySetInnerHTML={{ __html: active.body.replace(/\n/g, '<br>') }}
+          />
+        ) : (
+          <div className="flex-1 flex items-center justify-center text-os-text-muted text-sm">
+            <button onClick={createNote} className="px-3 py-1.5 rounded-md bg-white/5 hover:bg-white/10">Create your first note</button>
+          </div>
+        )}
       </div>
     </div>
   );

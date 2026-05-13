@@ -3,7 +3,8 @@ import {
   Hash, MessageSquare, Send, Smile, Users, Download,
   Search, User, UserPlus
 } from 'lucide-react';
-import { api } from '@/lib/api';
+import { io, type Socket } from 'socket.io-client';
+import { api, API_BASE, getToken } from '@/lib/api';
 import { ensureSession, type AuthUser } from '@/lib/auth';
 
 interface ApiChannel {
@@ -78,6 +79,7 @@ export default function ChatApp() {
   const [unreadMap, setUnreadMap] = useState<Record<string, number>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -101,14 +103,37 @@ export default function ChatApp() {
         setChannels(existing);
         setActiveChannelId(existing[0]?.id ?? null);
         setStatus('ready');
+
+        const wsBase = API_BASE.replace(/\/api\/?$/, '');
+        const socket = io(`${wsBase}/chat`, {
+          transports: ['websocket', 'polling'],
+          auth: { token: getToken() ?? '' },
+        });
+        socket.on('chat:message', (msg: ApiMessage) => {
+          setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
+        });
+        socket.on('connect_error', (err) => setErrorMsg(`socket: ${err.message}`));
+        socketRef.current = socket;
       } catch (err) {
         if (cancelled) return;
         setErrorMsg(err instanceof Error ? err.message : 'Failed to connect');
         setStatus('error');
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      socketRef.current?.disconnect();
+      socketRef.current = null;
+    };
   }, []);
+
+  // Join/leave the room when the active channel changes
+  useEffect(() => {
+    const socket = socketRef.current;
+    if (!socket || !activeChannelId) return;
+    socket.emit('chat:join', { channelId: activeChannelId });
+    return () => { socket.emit('chat:leave', { channelId: activeChannelId }); };
+  }, [activeChannelId]);
 
   const refreshMessages = useCallback(async (channelId: string) => {
     const list = await api<ApiMessage[]>(`/chat/channels/${channelId}/messages`);

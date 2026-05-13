@@ -16,14 +16,20 @@ export class Contact extends OwnedEntity {
   company?: string | null;
 
   @Column({ nullable: true, type: 'varchar' })
-  title?: string | null;
+  jobTitle?: string | null;
 
-  @Column({ default: 'Friends' })
-  group!: string;
+  @Column({ nullable: true, type: 'varchar' })
+  address?: string | null;
+
+  @Column({ type: 'simple-array', default: '' })
+  groups!: string[];
 
   @Column({ default: false })
   favorite!: boolean;
 
   @Column({ type: 'text', default: '' })
   notes!: string;
+
+  @Column({ default: '#3b82f6' })
+  color!: string;
 }
