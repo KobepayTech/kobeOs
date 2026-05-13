@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { ensureSession } from '@/lib/auth';
 import {
   Inbox, Package, Clock, CheckCircle2, Truck, Calendar,
   MapPin, Phone, User, Lock, Star, Bell, Search,
@@ -108,6 +109,8 @@ export default function CargoReceiver() {
   const [loginForm, setLoginForm] = useState({ username: '', password: '' });
   const [activeTab, setActiveTab] = useState('incoming');
   const [searchQuery, setSearchQuery] = useState('');
+
+  useEffect(() => { void ensureSession().catch(() => undefined); }, []);
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
 
   /* schedule */

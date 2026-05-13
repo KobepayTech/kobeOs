@@ -360,13 +360,11 @@ function ParcelsTab() {
 
   const statuses = ['ALL','REGISTERED','VERIFIED','PAID','TRANSIT_PENDING','IN_TRANSIT','ARRIVED','PAYMENT_REQUIRED','DELIVERED'];
 
-  const filtered = useMemo(() => {
-    return parcels.filter(p => {
-      const matchesSearch = !search || p.parcelId.toLowerCase().includes(search.toLowerCase()) || p.senderName.toLowerCase().includes(search.toLowerCase()) || p.ownerName.toLowerCase().includes(search.toLowerCase()) || p.senderPhone.includes(search) || p.ownerPhone.includes(search);
-      const matchesStatus = filterStatus === 'ALL' || p.status === filterStatus;
-      return matchesSearch && matchesStatus;
-    });
-  }, [search, filterStatus]);
+  const filtered = parcels.filter(p => {
+    const matchesSearch = !search || p.parcelId.toLowerCase().includes(search.toLowerCase()) || p.senderName.toLowerCase().includes(search.toLowerCase()) || p.ownerName.toLowerCase().includes(search.toLowerCase()) || p.senderPhone.includes(search) || p.ownerPhone.includes(search);
+    const matchesStatus = filterStatus === 'ALL' || p.status === filterStatus;
+    return matchesSearch && matchesStatus;
+  });
 
   const handleRegister = () => {
     setRegisterOpen(false);

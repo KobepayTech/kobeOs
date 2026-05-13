@@ -1,4 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { api } from '@/lib/api';
+import { ensureSession } from '@/lib/auth';
 import {
   PackageSearch, Search, MapPin, Phone, User, Weight,
   Clock, CheckCircle2, Truck, Box,
@@ -395,6 +397,33 @@ export default function CargoOwner() {
   const [searchQuery, setSearchQuery] = useState('');
   const [phoneQuery, setPhoneQuery] = useState('');
   const [selectedParcel, setSelectedParcel] = useState<Parcel | null>(null);
+
+  // Seed /api/cargo/parcels on first mount if empty.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await ensureSession();
+        const existing = await api<Array<{ id: string }>>('/cargo/parcels');
+        if (cancelled || existing.length > 0) return;
+        await Promise.all(PARCELS.map((p) =>
+          api('/cargo/parcels', {
+            method: 'POST',
+            body: JSON.stringify({
+              parcelId: p.id,
+              senderName: p.senderName, senderPhone: p.senderPhone,
+              ownerName: p.receiverName, ownerPhone: p.receiverPhone,
+              destination: p.destination,
+              weight: p.weight,
+              description: p.description,
+              paymentMode: 'PAY_NOW',
+            }),
+          }).catch(() => undefined),
+        ));
+      } catch { /* leave demo */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
   const [notifications, setNotifications] = useState<Notification[]>(INITIAL_NOTIFICATIONS);
   const [myParcelsFilter, setMyParcelsFilter] = useState<'ALL' | ParcelStatus>('ALL');
 

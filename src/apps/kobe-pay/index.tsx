@@ -1,4 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { api } from '@/lib/api';
+import { ensureSession } from '@/lib/auth';
 import {
   Wallet, LayoutDashboard, Users, ArrowDownLeft, Send, Building2, Share2, Receipt, Settings,
   Plus, Search, CheckCircle2, Clock, XCircle, Phone, User, Mail, CreditCard, Banknote,
@@ -242,6 +244,39 @@ export default function KobePay() {
   const [payouts, setPayouts] = useState<Payout[]>(MOCK_PAYOUTS);
   const [suppliers] = useState<Supplier[]>(MOCK_SUPPLIERS);
   const [allocations, setAllocations] = useState<Allocation[]>(MOCK_ALLOCATIONS);
+  const [walletId, setWalletId] = useState<string | null>(null);
+
+  // Provision a USD wallet for the operator on first mount.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await ensureSession();
+        const wallets = await api<Array<{ id: string; currency: string }>>('/payments/wallets');
+        if (cancelled) return;
+        const usd = wallets.find((w) => w.currency === 'USD');
+        if (usd) { setWalletId(usd.id); return; }
+        const created = await api<{ id: string }>('/payments/wallets', {
+          method: 'POST', body: JSON.stringify({ currency: 'USD' }),
+        });
+        if (!cancelled) setWalletId(created.id);
+      } catch { /* keep local-only state on failure */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Mirror new deposits to /api/payments/transactions when a wallet exists.
+  const recordDeposit = async (amount: number, ref: string, description: string) => {
+    if (!walletId) return;
+    try {
+      await api('/payments/transactions', {
+        method: 'POST',
+        body: JSON.stringify({ walletId, type: 'CREDIT', amount, reference: ref, description }),
+      });
+    } catch { /* ignore */ }
+  };
+  // Exposed for future use; deposits state continues to drive the UI in v1.
+  void recordDeposit;
 
   // Customer search state
   const [phoneSearch, setPhoneSearch] = useState('');

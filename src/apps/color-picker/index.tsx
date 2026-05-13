@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
   Copy,
   Check,
@@ -106,9 +106,28 @@ function harmonies(base: HSLA): { complementary: HSLA; triadic: HSLA[]; analogou
   return { complementary: comp, triadic: [base, tri1, tri2], analogous: [ana2, base, ana1] };
 }
 
+function ColorSwatch({ c, label, onPick }: { c: HSLA; label?: string; onPick: (c: HSLA) => void }) {
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <div
+        className="w-12 h-12 rounded-lg border border-white/10 cursor-pointer shadow-sm"
+        style={{ background: hslaToString(c) }}
+        onClick={() => onPick(c)}
+        title={hslaToHex(c)}
+      />
+      {label && <span className="text-[10px] text-os-text-muted">{label}</span>}
+    </div>
+  );
+}
+
 export default function ColorPicker() {
   const [color, setColor] = useState<HSLA>({ h: 210, s: 80, l: 50, a: 1 });
-  const [palette, setPalette] = useState<string[]>([]);
+  const [palette, setPalette] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('color-picker-palette');
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
   const hex = hslaToHex(color);
@@ -120,11 +139,6 @@ export default function ColorPicker() {
   const wcag = contrast >= 7 ? 'AAA' : contrast >= 4.5 ? 'AA' : contrast >= 3 ? 'AA Large' : 'Fail';
 
   const { complementary, triadic, analogous } = harmonies(color);
-
-  useEffect(() => {
-    const saved = localStorage.getItem('color-picker-palette');
-    if (saved) setPalette(JSON.parse(saved));
-  }, []);
 
   const savePalette = (p: string[]) => {
     setPalette(p);
@@ -153,10 +167,10 @@ export default function ColorPicker() {
   };
 
   const setFromRgb = (r: number, g: number, b: number) => {
-    // Convert RGB to HSL
     const rf = r / 255, gf = g / 255, bf = b / 255;
     const max = Math.max(rf, gf, bf), min = Math.min(rf, gf, bf);
-    let h = 0, s = 0, l = (max + min) / 2;
+    const l = (max + min) / 2;
+    let h = 0, s = 0;
     if (max !== min) {
       const d = max - min;
       s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
@@ -168,18 +182,6 @@ export default function ColorPicker() {
     }
     setColor({ h: Math.round(h), s: Math.round(s * 100), l: Math.round(l * 100), a: color.a });
   };
-
-  const ColorSwatch = ({ c, label }: { c: HSLA; label?: string }) => (
-    <div className="flex flex-col items-center gap-1">
-      <div
-        className="w-12 h-12 rounded-lg border border-white/10 cursor-pointer shadow-sm"
-        style={{ background: hslaToString(c) }}
-        onClick={() => setColor(c)}
-        title={hslaToHex(c)}
-      />
-      {label && <span className="text-[10px] text-os-text-muted">{label}</span>}
-    </div>
-  );
 
   return (
     <div className="flex h-full bg-[#0f172a] text-os-text-primary overflow-hidden">
@@ -313,7 +315,7 @@ export default function ColorPicker() {
           <div className="flex gap-2">
             <div className="flex flex-col items-center gap-1">
               <span className="text-[10px] text-os-text-muted">Comp</span>
-              <ColorSwatch c={complementary} />
+              <ColorSwatch c={complementary} onPick={setColor} />
             </div>
             <div className="flex flex-col items-center gap-1">
               <span className="text-[10px] text-os-text-muted">Triadic</span>

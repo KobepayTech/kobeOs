@@ -1,11 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Play, Pause, RotateCcw, Trophy } from 'lucide-react';
 
-interface SnakeGameProps {
-  windowId: string;
-  data?: any;
-}
-
 const CELL = 20;
 const GRID_W = 20;
 const GRID_H = 20;
@@ -52,14 +47,14 @@ function useHighScore() {
       const next = Math.max(prev, score);
       try {
         localStorage.setItem(key, String(next));
-      } catch {}
+      } catch { /* ignore */ }
       return next;
     });
   }, []);
   return [high, update] as const;
 }
 
-export default function SnakeGame({ windowId: _windowId }: SnakeGameProps) {
+export default function SnakeGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [snake, setSnake] = useState(getInitialSnake);
   const [food, setFood] = useState(() => randomFood(getInitialSnake()));
@@ -224,6 +219,21 @@ export default function SnakeGame({ windowId: _windowId }: SnakeGameProps) {
     draw();
   }, [draw, gameState]);
 
+  const resetGame = useCallback(() => {
+    const s = getInitialSnake();
+    setSnake(s);
+    setFood(randomFood(s));
+    setDir(DIR.RIGHT);
+    setNextDir(DIR.RIGHT);
+    dirRef.current = DIR.RIGHT;
+    setScore(0);
+    setFoodEaten(0);
+    setGameState('playing');
+    scoreRef.current = 0;
+    foodEatenRef.current = 0;
+    lastTimeRef.current = 0;
+  }, []);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const key = e.key;
@@ -258,22 +268,7 @@ export default function SnakeGame({ windowId: _windowId }: SnakeGameProps) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [gameState, nextDir]);
-
-  const resetGame = () => {
-    const s = getInitialSnake();
-    setSnake(s);
-    setFood(randomFood(s));
-    setDir(DIR.RIGHT);
-    setNextDir(DIR.RIGHT);
-    dirRef.current = DIR.RIGHT;
-    setScore(0);
-    setFoodEaten(0);
-    setGameState('playing');
-    scoreRef.current = 0;
-    foodEatenRef.current = 0;
-    lastTimeRef.current = 0;
-  };
+  }, [gameState, nextDir, resetGame]);
 
   return (
     <div className="flex flex-col items-center h-full bg-[#0f172a] text-os-text-primary select-none">

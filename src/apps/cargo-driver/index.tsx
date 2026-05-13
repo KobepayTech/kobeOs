@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { api } from '@/lib/api';
+import { ensureSession } from '@/lib/auth';
 import {
   Truck, MapPin, Navigation, Star, DollarSign, Trophy,
   Clock, CheckCircle2, CircleDot, AlertTriangle, Phone,
@@ -931,6 +933,31 @@ export default function CargoDriver() {
   const [driver, setDriver] = useState<Driver>(driverData);
   const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null);
   const [activeTab, setActiveTab] = useState('trips');
+
+  // Provision a driver record on first mount if none exists.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await ensureSession();
+        const existing = await api<Array<{ id: string; name: string; rating: number }>>('/cargo/drivers');
+        if (cancelled) return;
+        if (existing.length === 0) {
+          await api('/cargo/drivers', {
+            method: 'POST',
+            body: JSON.stringify({
+              name: driverData.name, phone: driverData.phone,
+              vehicle: 'Heavy Truck', plateNumber: 'T123 ABC',
+              status: 'AVAILABLE',
+            }),
+          });
+        } else if (typeof existing[0].rating === 'number') {
+          setDriver((d) => ({ ...d, rating: existing[0].rating }));
+        }
+      } catch { /* keep local default */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const toggleStatus = () => {
     setDriver(prev => ({

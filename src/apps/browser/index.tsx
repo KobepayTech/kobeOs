@@ -96,10 +96,11 @@ export default function BrowserApp() {
   }, [bookmarks]);
 
   const activeTab = tabs.find((t) => t.id === activeTabId) ?? tabs[0];
+  const activeUrl = activeTab?.url ?? HOME_BLOB;
 
   useEffect(() => {
-    setAddress(activeTab?.url ?? HOME_BLOB);
-  }, [activeTabId, tabs]);
+    setAddress(activeUrl);
+  }, [activeUrl]);
 
   const navigate = (url: string) => {
     const normalized = normalizeUrl(url);
@@ -120,14 +121,12 @@ export default function BrowserApp() {
   };
 
   const closeTab = (id: string) => {
-    setTabs((prev) => {
-      if (prev.length <= 1) return prev;
-      const filtered = prev.filter((t) => t.id !== id);
-      if (activeTabId === id) {
-        setActiveTabId(filtered[filtered.length - 1].id);
-      }
-      return filtered;
-    });
+    if (tabs.length <= 1) return;
+    const filtered = tabs.filter((t) => t.id !== id);
+    if (activeTabId === id) {
+      setActiveTabId(filtered[filtered.length - 1].id);
+    }
+    setTabs(filtered);
   };
 
   const addBookmark = () => {
@@ -157,9 +156,11 @@ export default function BrowserApp() {
   };
 
   const refresh = () => {
-    if (iframeRef.current) {
-      iframeRef.current.src = iframeRef.current.src;
-    }
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    const url = iframe.src;
+    iframe.src = 'about:blank';
+    requestAnimationFrame(() => { iframe.src = url; });
   };
 
   const isBookmarked = bookmarks.some((b) => b.url === activeTab?.url);

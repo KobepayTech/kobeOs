@@ -1,4 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
+import { api } from '@/lib/api';
+import { ensureSession } from '@/lib/auth';
 import {
   Plus, Minus, Trash2, ShoppingCart, CreditCard, Smartphone, Banknote,
   Receipt, Tag, Percent, Search, Barcode, Shirt, Backpack, Coffee,
@@ -113,6 +115,28 @@ export default function POSSystem() {
   const [category, setCategory] = useState<string>('All');
   const [requests, setRequests] = useState<DiscountRequest[]>([]);
   const [activeTab, setActiveTab] = useState('pos');
+
+  // Seed /api/pos/products on first mount if the catalog is empty.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await ensureSession();
+        const existing = await api<Array<{ id: string }>>('/pos/products');
+        if (cancelled || existing.length > 0) return;
+        await Promise.all(PRODUCTS.map((p) =>
+          api('/pos/products', {
+            method: 'POST',
+            body: JSON.stringify({
+              sku: p.id, name: p.name, category: p.category,
+              price: p.price, stock: p.stock,
+            }),
+          }),
+        ));
+      } catch { /* leave demo catalog */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // Discount dialog state
   const [showDialog, setShowDialog] = useState(false);
@@ -337,9 +361,14 @@ export default function POSSystem() {
     setShowCheckout(false);
   };
 
-  // ── Countdown helper ──
+  const [tickNow, setTickNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setTickNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
   const getRemaining = (expiry: number) => {
-    const diff = expiry - Date.now();
+    const diff = expiry - tickNow;
     if (diff <= 0) return '00:00';
     const mins = Math.floor(diff / 60000);
     const secs = Math.floor((diff % 60000) / 1000);

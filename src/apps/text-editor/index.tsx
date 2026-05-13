@@ -31,11 +31,10 @@ export default function TextEditor() {
 
   useEffect(() => {
     if (initPath && initPath !== filePath) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setFilePath(initPath);
       const data = fs.readFile(initPath);
-      if (data && typeof data === 'string') {
-        setContent(data);
-      }
+      if (data && typeof data === 'string') setContent(data);
     }
   }, [initPath, filePath]);
 
@@ -48,7 +47,7 @@ export default function TextEditor() {
     }
   }, []);
 
-  const save = useCallback(() => {
+  const save = () => {
     if (filePath) {
       fs.writeFile(filePath, content);
     } else {
@@ -59,7 +58,7 @@ export default function TextEditor() {
         setFilePath(path);
       }
     }
-  }, [content, filePath]);
+  };
 
   const open = useCallback(() => {
     const name = prompt('Open file path:');

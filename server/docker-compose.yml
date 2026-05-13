@@ -1,0 +1,17 @@
+version: '3.9'
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: kobeos-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kobe
+      POSTGRES_PASSWORD: kobe
+      POSTGRES_DB: kobeos
+    ports:
+      - '5432:5432'
+    volumes:
+      - kobeos-pgdata:/var/lib/postgresql/data
+
+volumes:
+  kobeos-pgdata:

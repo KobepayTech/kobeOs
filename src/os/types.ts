@@ -50,6 +50,7 @@ export interface AppManifest {
   singleton: boolean;
   requiresAuth: boolean;
   permissions: string[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   component: LazyExoticComponent<ComponentType<any>>;
 }
 

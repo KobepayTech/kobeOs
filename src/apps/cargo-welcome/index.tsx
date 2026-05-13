@@ -75,19 +75,16 @@ const steps = [
 
 export default function CargoWelcome() {
   const [toast, setToast] = useState<string | null>(null);
-  const [particles, setParticles] = useState<Array<{ id: number; x: number; y: number; size: number; delay: number; duration: number }>>([]);
-
-  useEffect(() => {
-    const p = Array.from({ length: 30 }, (_, i) => ({
+  const [particles] = useState(() =>
+    Array.from({ length: 30 }, (_, i) => ({
       id: i,
       x: Math.random() * 100,
       y: Math.random() * 100,
       size: Math.random() * 4 + 1,
       delay: Math.random() * 10,
       duration: Math.random() * 15 + 10,
-    }));
-    setParticles(p);
-  }, []);
+    }))
+  );
 
   useEffect(() => {
     if (toast) {

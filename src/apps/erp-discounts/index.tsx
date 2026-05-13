@@ -1,4 +1,6 @@
-import { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { api } from '@/lib/api';
+import { ensureSession } from '@/lib/auth';
 import {
   Percent, Tag, ShoppingBag, Ticket, Plus, Search, Copy, CheckCircle2,
   Clock, Trash2, Edit, ArrowRight, Gift, TrendingUp, X, Zap
@@ -75,7 +77,7 @@ function StatusBadge({ status }: { status: Status }) {
   );
 }
 
-function KPICard({ icon: Icon, label, value, sub }: { icon: any; label: string; value: string; sub?: string }) {
+function KPICard({ icon: Icon, label, value, sub }: { icon: React.ComponentType<{ className?: string }>; label: string; value: string; sub?: string }) {
   return (
     <Card className="bg-[#13131f] border-white/[0.06]">
       <CardContent className="p-4">
@@ -97,12 +99,93 @@ function KPICard({ icon: Icon, label, value, sub }: { icon: any; label: string; 
 const ruleHeaders = ['Rule Name', 'Type', 'Value', 'Products', 'Start Date', 'End Date', 'Status', 'Usage', 'Actions'];
 const couponHeaders = ['Code', 'Type', 'Discount', 'Usage / Limit', 'Expiry', 'Status', ''];
 
+function TableCard({ children, height = 'h-[500px]' }: { children: React.ReactNode; height?: string }) {
+  return (
+    <Card className="bg-[#13131f] border-white/[0.06]">
+      <CardContent className="p-0">
+        <ScrollArea className={height}>
+          <table className="w-full text-sm">{children}</table>
+        </ScrollArea>
+      </CardContent>
+    </Card>
+  );
+}
+
+function Thead({ headers }: { headers: string[] }) {
+  return (
+    <thead className="sticky top-0 z-10">
+      <tr className="border-b border-white/[0.06] bg-[#1a1a2e]">
+        {headers.map(h => <th key={h} className="text-left py-3 px-4 text-slate-400 font-medium text-xs uppercase tracking-wider">{h}</th>)}
+      </tr>
+    </thead>
+  );
+}
+
+function Row({ children, i }: { children: React.ReactNode; i: number }) {
+  return (
+    <tr className={`border-b border-white/[0.04] ${i % 2 === 0 ? 'bg-[#13131f]' : 'bg-[#161625]'} hover:bg-white/[0.02] transition-colors`}>
+      {children}
+    </tr>
+  );
+}
+
 export default function DiscountsPromotions() {
   const [activeTab, setActiveTab] = useState('rules');
   const [showAddRule, setShowAddRule] = useState(false);
   const [showCreateCampaign, setShowCreateCampaign] = useState(false);
   const [couponSearch, setCouponSearch] = useState('');
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+
+  // Seed /api/discounts on first mount so the backend mirrors the demo catalog.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await ensureSession();
+        const existing = await api<Array<{ id: string }>>('/discounts/rules');
+        if (cancelled || existing.length > 0) return;
+        const numericValue = (v: string) => Number(v.replace(/[^\d.]/g, '')) || 0;
+        await Promise.all([
+          ...discountRules.map((r) =>
+            api('/discounts/rules', {
+              method: 'POST',
+              body: JSON.stringify({
+                name: r.name,
+                type: r.type === 'Fixed' ? 'Fixed' : r.type === 'BuyXGetY' ? 'BOGO' : 'Percentage',
+                value: numericValue(r.value),
+                productScope: r.products,
+              }),
+            }),
+          ),
+          ...campaigns.map((c) =>
+            api('/discounts/campaigns', {
+              method: 'POST',
+              body: JSON.stringify({
+                name: c.name, description: c.description,
+                startDate: c.startDate + 'T00:00:00Z',
+                endDate: c.endDate + 'T23:59:59Z',
+                status: c.status,
+              }),
+            }),
+          ),
+          ...coupons.map((c) =>
+            api('/discounts/coupons', {
+              method: 'POST',
+              body: JSON.stringify({
+                code: c.code,
+                type: c.type === 'Fixed' ? 'Fixed' : 'Percentage',
+                value: numericValue(c.discount),
+                usageLimit: c.limit,
+                expiresAt: c.expiry + 'T23:59:59Z',
+                active: c.status === 'Active',
+              }),
+            }),
+          ),
+        ]);
+      } catch { /* leave demo data alone */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // Form states
   const [discountName, setDiscountName] = useState('');
@@ -135,9 +218,10 @@ export default function DiscountsPromotions() {
     setTimeout(() => setCopiedCode(null), 2000);
   };
 
+  const [now] = useState(() => Date.now());
   const campaignProgress = (c: Campaign) => {
     if (c.status === 'Scheduled') return 0;
-    const p = Math.min(100, Math.max(0, ((Date.now() - new Date(c.startDate).getTime()) / (new Date(c.endDate).getTime() - new Date(c.startDate).getTime())) * 100));
+    const p = Math.min(100, Math.max(0, ((now - new Date(c.startDate).getTime()) / (new Date(c.endDate).getTime() - new Date(c.startDate).getTime())) * 100));
     return Math.round(p);
   };
 
@@ -148,29 +232,6 @@ export default function DiscountsPromotions() {
     return `TSh ${(isNaN(val) ? 0 : val).toLocaleString()}`;
   };
 
-  const TableCard = ({ children, height = 'h-[500px]' }: { children: React.ReactNode; height?: string }) => (
-    <Card className="bg-[#13131f] border-white/[0.06]">
-      <CardContent className="p-0">
-        <ScrollArea className={height}>
-          <table className="w-full text-sm">{children}</table>
-        </ScrollArea>
-      </CardContent>
-    </Card>
-  );
-
-  const Thead = ({ headers }: { headers: string[] }) => (
-    <thead className="sticky top-0 z-10">
-      <tr className="border-b border-white/[0.06] bg-[#1a1a2e]">
-        {headers.map(h => <th key={h} className="text-left py-3 px-4 text-slate-400 font-medium text-xs uppercase tracking-wider">{h}</th>)}
-      </tr>
-    </thead>
-  );
-
-  const Row = ({ children, i }: { children: React.ReactNode; i: number }) => (
-    <tr className={`border-b border-white/[0.04] ${i % 2 === 0 ? 'bg-[#13131f]' : 'bg-[#161625]'} hover:bg-white/[0.02] transition-colors`}>
-      {children}
-    </tr>
-  );
 
   return (
     <div className="min-h-screen bg-[#0a0a1a] text-white p-6">
@@ -319,14 +380,14 @@ export default function DiscountsPromotions() {
             <CardContent className="p-4">
               <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2"><Plus className="w-4 h-4 text-violet-400" /> Generate New Coupons</h3>
               <div className="grid grid-cols-5 gap-3 items-end">
-                {[
+                {([
                   { label: 'Prefix', value: couponPrefix, onChange: setCouponPrefix, placeholder: 'e.g. SALE' },
                   { label: 'Count', value: couponCount, onChange: setCouponCount, type: 'number' },
                   { label: 'Value', value: couponValue, onChange: setCouponValue, placeholder: 'e.g. 15' },
-                ].map(f => (
+                ] as Array<{ label: string; value: string; onChange: (v: string) => void; placeholder?: string; type?: string }>).map(f => (
                   <div key={f.label}>
                     <label className="text-xs text-slate-400 block mb-1">{f.label}</label>
-                    <Input value={f.value} onChange={e => f.onChange(e.target.value)} type={(f as any).type || 'text'} placeholder={f.placeholder}
+                    <Input value={f.value} onChange={e => f.onChange(e.target.value)} type={f.type || 'text'} placeholder={f.placeholder}
                       className="bg-[#0a0a1a] border-white/[0.06] text-white" />
                   </div>
                 ))}

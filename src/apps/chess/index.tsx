@@ -1,11 +1,6 @@
 import { useState, useCallback } from 'react';
 import { ArrowLeftRight, Trash2 } from 'lucide-react';
 
-interface ChessProps {
-  windowId: string;
-  data?: any;
-}
-
 type PieceType = 'p' | 'r' | 'n' | 'b' | 'q' | 'k';
 type Color = 'w' | 'b';
 interface Piece {
@@ -194,7 +189,7 @@ function isStalemate(board: (Piece | null)[][], color: Color): boolean {
   return true;
 }
 
-function moveNotation(piece: Piece, from: Square, to: Square, captured: boolean, _board: (Piece | null)[][]): string {
+function moveNotation(piece: Piece, from: Square, to: Square, captured: boolean): string {
   let notation = '';
   if (piece.type !== 'p') notation += piece.type.toUpperCase();
   else if (captured) notation += FILES[from.col];
@@ -204,7 +199,7 @@ function moveNotation(piece: Piece, from: Square, to: Square, captured: boolean,
   return notation;
 }
 
-export default function ChessGame({ windowId: _windowId }: ChessProps) {
+export default function ChessGame() {
   const [board, setBoard] = useState(createInitialBoard);
   const [turn, setTurn] = useState<Color>('w');
   const [selected, setSelected] = useState<Square | null>(null);
@@ -260,7 +255,7 @@ export default function ChessGame({ windowId: _windowId }: ChessProps) {
       if (isValid) {
         const movingPiece = board[selected.row][selected.col]!;
         const captured = board[row][col];
-        const notation = moveNotation(movingPiece, selected, { row, col }, !!captured, board);
+        const notation = moveNotation(movingPiece, selected, { row, col }, !!captured);
         const newBoard = cloneBoard(board);
         newBoard[row][col] = movingPiece;
         newBoard[selected.row][selected.col] = null;

@@ -15,11 +15,9 @@ export function StartMenu({ open, onClose }: StartMenuProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (open) {
-      setTimeout(() => inputRef.current?.focus(), 50);
-    } else {
-      setQuery('');
-    }
+    if (open) setTimeout(() => inputRef.current?.focus(), 50);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    else setQuery('');
   }, [open]);
 
   const filtered = useMemo(() => {

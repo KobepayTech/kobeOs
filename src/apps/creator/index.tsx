@@ -1,4 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, createContext, useContext } from 'react';
+import { api } from '@/lib/api';
+import { ensureSession } from '@/lib/auth';
 import {
   Users, LayoutDashboard, Megaphone, Globe, Handshake, Wallet,
   BarChart3, Link2, MessageCircle, Plus, Search, CheckCircle2,
@@ -7,6 +9,24 @@ import {
   Smartphone, Copy, AlertCircle, Lock, Unlock, DollarSign, Target, Zap,
   Youtube, Twitter, Facebook
 } from 'lucide-react';
+function idHash(id: string): number {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return h;
+}
+
+interface ApiCreator {
+  id: string;
+  name: string;
+  handle: string;
+  niche: string;
+  followers: number;
+  engagement: number;
+  avatarUrl?: string | null;
+  contactEmail?: string | null;
+  platforms: string[];
+  verified: boolean;
+}
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -25,7 +45,7 @@ interface Campaign {
 }
 
 interface CreatorProfile {
-  id: number; name: string; handle: string; niche: string;
+  id: string; name: string; handle: string; niche: string;
   followers: number; engagement: number; rate: number; score: number;
   platforms: string[];
 }
@@ -69,20 +89,28 @@ const campaigns: Campaign[] = [
   { id: 10, name: 'Loyalty Program Push', budget: 3500, creators: 3, status: 'SCHEDULED', views: 0, engagement: 0, conversions: 0, startDate: '2024-10-01', endDate: '2024-11-30' },
 ];
 
-const creators: CreatorProfile[] = [
-  { id: 1, name: 'Zara Hassan', handle: '@zarafashion', niche: 'Fashion', followers: 145000, engagement: 6.2, rate: 150, score: 9, platforms: ['Instagram', 'TikTok', 'YouTube'] },
-  { id: 2, name: 'Mike Tech', handle: '@miketechtz', niche: 'Tech', followers: 89000, engagement: 4.8, rate: 120, score: 8, platforms: ['YouTube', 'X', 'Instagram'] },
-  { id: 3, name: 'Chef Juma', handle: '@chefjumatz', niche: 'Food', followers: 234000, engagement: 7.1, rate: 200, score: 9, platforms: ['Instagram', 'TikTok', 'YouTube', 'Facebook'] },
-  { id: 4, name: 'Fit Sarah', handle: '@fitsara', niche: 'Fitness', followers: 67000, engagement: 5.5, rate: 100, score: 7, platforms: ['Instagram', 'YouTube', 'TikTok'] },
-  { id: 5, name: 'Beauty Amina', handle: '@beautyaminta', niche: 'Beauty', followers: 178000, engagement: 8.3, rate: 180, score: 10, platforms: ['Instagram', 'TikTok', 'YouTube'] },
-  { id: 6, name: 'Travel Tom', handle: '@traveltomtz', niche: 'Travel', followers: 56000, engagement: 3.2, rate: 80, score: 6, platforms: ['Instagram', 'YouTube', 'Facebook'] },
-  { id: 7, name: 'Comedy Rajab', handle: '@comedyrajab', niche: 'Comedy', followers: 312000, engagement: 9.1, rate: 250, score: 9, platforms: ['TikTok', 'Instagram', 'X'] },
-  { id: 8, name: 'Edu Grace', handle: '@edugrace', niche: 'Education', followers: 45000, engagement: 4.1, rate: 70, score: 7, platforms: ['YouTube', 'Instagram'] },
-  { id: 9, name: 'Style Peter', handle: '@stylepeter', niche: 'Fashion', followers: 98000, engagement: 5.9, rate: 130, score: 8, platforms: ['Instagram', 'TikTok', 'X'] },
-  { id: 10, name: 'Gaming Joe', handle: '@gamingjoe', niche: 'Gaming', followers: 156000, engagement: 6.8, rate: 160, score: 8, platforms: ['YouTube', 'TikTok', 'X'] },
-  { id: 11, name: 'Health Mama', handle: '@healthmama', niche: 'Health', followers: 78000, engagement: 7.4, rate: 110, score: 9, platforms: ['Instagram', 'YouTube', 'Facebook'] },
-  { id: 12, name: 'Dance Lisa', handle: '@dancelisa', niche: 'Dance', followers: 189000, engagement: 8.7, rate: 190, score: 10, platforms: ['TikTok', 'Instagram', 'YouTube'] },
+// Seed data for first-load when the /api/creators table is empty.
+const seedCreators: Array<Omit<CreatorProfile, 'id'> & { platforms: string[] }> = [
+  { name: 'Zara Hassan', handle: '@zarafashion', niche: 'Fashion', followers: 145000, engagement: 6.2, rate: 150, score: 9, platforms: ['Instagram', 'TikTok', 'YouTube'] },
+  { name: 'Mike Tech', handle: '@miketechtz', niche: 'Tech', followers: 89000, engagement: 4.8, rate: 120, score: 8, platforms: ['YouTube', 'X', 'Instagram'] },
+  { name: 'Chef Juma', handle: '@chefjumatz', niche: 'Food', followers: 234000, engagement: 7.1, rate: 200, score: 9, platforms: ['Instagram', 'TikTok', 'YouTube', 'Facebook'] },
+  { name: 'Fit Sarah', handle: '@fitsara', niche: 'Fitness', followers: 67000, engagement: 5.5, rate: 100, score: 7, platforms: ['Instagram', 'YouTube', 'TikTok'] },
+  { name: 'Beauty Amina', handle: '@beautyaminta', niche: 'Beauty', followers: 178000, engagement: 8.3, rate: 180, score: 10, platforms: ['Instagram', 'TikTok', 'YouTube'] },
 ];
+
+function apiToProfile(c: ApiCreator): CreatorProfile {
+  return {
+    id: c.id,
+    name: c.name,
+    handle: c.handle,
+    niche: c.niche || 'Other',
+    followers: c.followers,
+    engagement: c.engagement,
+    rate: 0,
+    score: c.verified ? 10 : 7,
+    platforms: c.platforms,
+  };
+}
 
 const deals: Deal[] = [
   { id: 1, campaign: 'Summer Collection', brand: 'Kobe Shop', total: 1000, upfront: 400, upfrontWithdrawn: true, locked: 600, released: 0, kpiPercent: 85, status: 'ACTIVE' },
@@ -239,6 +267,10 @@ function PlatformIcon({ platform }: { platform: string }) {
   }
 }
 
+// ── Creators Context (API-backed) ──────────────────────
+const CreatorsContext = createContext<CreatorProfile[]>([]);
+const useCreators = () => useContext(CreatorsContext);
+
 // ── Sidebar Tile Component ─────────────────────────────
 function SidebarTile({ icon: Icon, label, desc, active, onClick, color }: {
   icon: React.ElementType; label: string; desc: string; active: boolean; onClick: () => void; color: string;
@@ -265,6 +297,34 @@ function SidebarTile({ icon: Icon, label, desc, active, onClick, color }: {
 // ── Main Export ────────────────────────────────────────
 export default function Creator() {
   const [activeModule, setActiveModule] = useState<ModuleId>('overview');
+  const [creators, setCreators] = useState<CreatorProfile[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await ensureSession();
+        let list = await api<ApiCreator[]>('/creators');
+        if (list.length === 0) {
+          await Promise.all(seedCreators.map((s) =>
+            api<ApiCreator>('/creators', {
+              method: 'POST',
+              body: JSON.stringify({
+                name: s.name, handle: s.handle, niche: s.niche,
+                followers: s.followers, engagement: s.engagement,
+                platforms: s.platforms,
+              }),
+            }),
+          ));
+          list = await api<ApiCreator[]>('/creators');
+        }
+        if (!cancelled) setCreators(list.map(apiToProfile));
+      } catch {
+        // soft-fail: app remains usable with empty creators
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const sidebarItems: { id: ModuleId; icon: React.ElementType; label: string; desc: string; color: string }[] = [
     { id: 'overview', icon: LayoutDashboard, label: 'Overview', desc: 'Dashboard & analytics', color: '#06b6d4' },
@@ -278,6 +338,7 @@ export default function Creator() {
   ];
 
   return (
+    <CreatorsContext.Provider value={creators}>
     <div className="flex h-full w-full bg-[#0a0a1a] text-white overflow-hidden">
       {/* Sidebar */}
       <aside className="w-60 bg-[#0c0c1a] border-r border-white/[0.06] flex flex-col shrink-0">
@@ -316,6 +377,7 @@ export default function Creator() {
         {activeModule === 'messages' && <MessagesModule />}
       </main>
     </div>
+    </CreatorsContext.Provider>
   );
 }
 
@@ -444,9 +506,10 @@ function OverviewModule({ setActiveModule }: { setActiveModule: (m: ModuleId) =>
 
 // ── Module 2: Campaigns ────────────────────────────────
 function CampaignsModule() {
+  const creators = useCreators();
   const [filter, setFilter] = useState('ALL');
   const [createOpen, setCreateOpen] = useState(false);
-  const [newCampaign, setNewCampaign] = useState({ name: '', description: '', budget: '', creators: [] as number[], upfrontPercent: 40, perfPercent: 60 });
+  const [newCampaign, setNewCampaign] = useState({ name: '', description: '', budget: '', creators: [] as string[], upfrontPercent: 40, perfPercent: 60 });
 
   const filtered = filter === 'ALL' ? campaigns : campaigns.filter(c => c.status === filter);
 
@@ -571,7 +634,7 @@ function CampaignsModule() {
                     <input type="checkbox" className="rounded border-white/20 bg-white/5"
                       checked={newCampaign.creators.includes(c.id)}
                       onChange={() => setNewCampaign({ ...newCampaign, creators: newCampaign.creators.includes(c.id) ? newCampaign.creators.filter(x => x !== c.id) : [...newCampaign.creators, c.id] })} />
-                    <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" style={{ backgroundColor: chartColors[c.id % chartColors.length] + '30', color: chartColors[c.id % chartColors.length] }}>
+                    <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" style={{ backgroundColor: chartColors[idHash(c.id) % chartColors.length] + '30', color: chartColors[idHash(c.id) % chartColors.length] }}>
                       {c.name.split(' ').map(n => n[0]).join('')}
                     </div>
                     {c.name} <span className="text-slate-500">{c.handle}</span>
@@ -601,6 +664,7 @@ function CampaignsModule() {
 
 // ── Module 3: Marketplace ──────────────────────────────
 function MarketplaceModule() {
+  const creators = useCreators();
   const [search, setSearch] = useState('');
   const [nicheFilter, setNicheFilter] = useState('ALL');
   const [sortBy, setSortBy] = useState('engagement');
@@ -610,7 +674,7 @@ function MarketplaceModule() {
   const niches = ['ALL', ...Array.from(new Set(creators.map(c => c.niche)))];
 
   const filtered = useMemo(() => {
-    let list = creators.filter(c => {
+    const list = creators.filter(c => {
       const matchSearch = c.name.toLowerCase().includes(search.toLowerCase()) || c.handle.toLowerCase().includes(search.toLowerCase());
       const matchNiche = nicheFilter === 'ALL' || c.niche === nicheFilter;
       return matchSearch && matchNiche;
@@ -663,7 +727,7 @@ function MarketplaceModule() {
             <Card key={c.id} className="bg-[#13131f] border-white/[0.06] hover:border-white/[0.12] transition-all">
               <CardContent className="p-4">
                 <div className="flex items-center gap-3 mb-3">
-                  <div className="w-11 h-11 rounded-full flex items-center justify-center text-sm font-bold" style={{ backgroundColor: chartColors[c.id % chartColors.length] + '30', color: chartColors[c.id % chartColors.length] }}>
+                  <div className="w-11 h-11 rounded-full flex items-center justify-center text-sm font-bold" style={{ backgroundColor: chartColors[idHash(c.id) % chartColors.length] + '30', color: chartColors[idHash(c.id) % chartColors.length] }}>
                     {c.name.split(' ').map(n => n[0]).join('')}
                   </div>
                   <div className="min-w-0 flex-1">
@@ -719,7 +783,7 @@ function MarketplaceModule() {
           {selectedCreator && (
             <div className="space-y-4 mt-2">
               <div className="flex items-center gap-3">
-                <div className="w-14 h-14 rounded-full flex items-center justify-center text-lg font-bold" style={{ backgroundColor: chartColors[selectedCreator.id % chartColors.length] + '30', color: chartColors[selectedCreator.id % chartColors.length] }}>
+                <div className="w-14 h-14 rounded-full flex items-center justify-center text-lg font-bold" style={{ backgroundColor: chartColors[idHash(selectedCreator.id) % chartColors.length] + '30', color: chartColors[idHash(selectedCreator.id) % chartColors.length] }}>
                   {selectedCreator.name.split(' ').map(n => n[0]).join('')}
                 </div>
                 <div>
@@ -1162,6 +1226,7 @@ function PerformanceModule() {
 
 // ── Module 7: Affiliate ────────────────────────────────
 function AffiliateModule() {
+  const creators = useCreators();
   const [createLinkOpen, setCreateLinkOpen] = useState(false);
 
   return (

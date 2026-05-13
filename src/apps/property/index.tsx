@@ -1,4 +1,6 @@
-import { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import { api } from '@/lib/api';
+import { ensureSession } from '@/lib/auth';
 import {
   Building2, Users, BarChart3, Search,
   Phone, Mail, MapPin, Bed, Bath, Square,
@@ -60,7 +62,7 @@ interface Payment {
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const CURRENT_YEAR = 2025;
 
-const properties: Property[] = [
+let properties: Property[] = [
   { id: 'p1', name: 'Mbezi Beach Apartments', address: 'Mbezi Beach, Dar es Salaam', type: 'Residential', units: 24, occupied: 20, status: 'Active', monthlyIncome: 48000000, annualIncome: 576000000, gradient: 'from-blue-600 to-indigo-700' },
   { id: 'p2', name: 'Masaki Office Complex', address: 'Masaki, Dar es Salaam', type: 'Commercial', units: 12, occupied: 10, status: 'Active', monthlyIncome: 72000000, annualIncome: 864000000, gradient: 'from-emerald-600 to-teal-700' },
   { id: 'p3', name: 'Mikocheni Villas', address: 'Mikocheni, Dar es Salaam', type: 'Residential', units: 8, occupied: 8, status: 'Active', monthlyIncome: 32000000, annualIncome: 384000000, gradient: 'from-amber-600 to-orange-700' },
@@ -68,7 +70,7 @@ const properties: Property[] = [
   { id: 'p5', name: 'Upanga Heights', address: 'Upanga, Dar es Salaam', type: 'Mixed-Use', units: 32, occupied: 28, status: 'Active', monthlyIncome: 64000000, annualIncome: 768000000, gradient: 'from-violet-600 to-purple-700' },
 ];
 
-const tenants: Tenant[] = [
+let tenants: Tenant[] = [
   { id: 't1', name: 'James Mwakasege', phone: '+255 712 345 678', email: 'james.m@email.com', propertyId: 'p1', unit: 'A-12', leaseStart: '2024-01-15', leaseEnd: '2025-01-14', monthlyRent: 2500000, annualRent: 30000000, status: 'Active', avatar: 'JM', shortCode: 'KBE0001', amountPaid: 27500000, balance: 2500000, paidMonths: ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov'], unpaidMonths: ['Dec'] },
   { id: 't2', name: 'Grace Mwangala', phone: '+255 713 456 789', email: 'grace.m@email.com', propertyId: 'p1', unit: 'B-05', leaseStart: '2024-03-01', leaseEnd: '2025-02-28', monthlyRent: 1800000, annualRent: 21600000, status: 'Active', avatar: 'GM', shortCode: 'KBE0002', amountPaid: 19800000, balance: 1800000, paidMonths: ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov'], unpaidMonths: ['Dec'] },
   { id: 't3', name: 'KOBEPay Technologies', phone: '+255 714 567 890', email: 'admin@kobepay.co.tz', propertyId: 'p2', unit: 'Suite-301', leaseStart: '2024-06-01', leaseEnd: '2026-05-31', monthlyRent: 6000000, annualRent: 72000000, status: 'Active', avatar: 'KT', shortCode: 'KBE0003', amountPaid: 66000000, balance: 6000000, paidMonths: ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov'], unpaidMonths: ['Dec'] },
@@ -81,7 +83,7 @@ const tenants: Tenant[] = [
   { id: 't10', name: 'Nuru Enterprises', phone: '+255 721 234 567', email: 'accounts@nuru.co.tz', propertyId: 'p4', unit: 'Shop-12', leaseStart: '2024-09-01', leaseEnd: '2025-08-31', monthlyRent: 2500000, annualRent: 30000000, status: 'Late', avatar: 'NE', shortCode: 'KBE0010', amountPaid: 22500000, balance: 7500000, paidMonths: ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep'], unpaidMonths: ['Oct','Nov','Dec'] },
 ];
 
-const units: Unit[] = [
+let units: Unit[] = [
   { id: 'u1', propertyId: 'p1', number: 'A-12', type: '2 Bedroom', beds: 2, baths: 1, sqft: 850, rent: 2500000, status: 'Occupied', tenantName: 'James Mwakasege', tenantId: 't1', amenities: ['Parking','Gated','Water'] },
   { id: 'u2', propertyId: 'p1', number: 'B-05', type: '1 Bedroom', beds: 1, baths: 1, sqft: 550, rent: 1800000, status: 'Occupied', tenantName: 'Grace Mwangala', tenantId: 't2', amenities: ['Parking','Water'] },
   { id: 'u3', propertyId: 'p1', number: 'C-08', type: 'Studio', beds: 0, baths: 1, sqft: 400, rent: 1200000, status: 'Occupied', tenantName: 'Mary Kisare', tenantId: 't8', amenities: ['Water'] },
@@ -97,7 +99,7 @@ const units: Unit[] = [
   { id: 'u13', propertyId: 'p5', number: '2B-04', type: '2 Bedroom', beds: 2, baths: 1, sqft: 900, rent: 2800000, status: 'Vacant', amenities: ['Parking','Water'] },
 ];
 
-const payments: Payment[] = [
+let payments: Payment[] = [
   { id: 'pay1', tenantId: 't1', tenantName: 'James Mwakasege', propertyId: 'p1', unit: 'A-12', amount: 2500000, date: '2025-11-01', month: 'Nov', year: 2025, method: 'Bank Transfer', status: 'Paid', type: 'Rent', receiptNo: 'RCP-2025-001' },
   { id: 'pay2', tenantId: 't2', tenantName: 'Grace Mwangala', propertyId: 'p1', unit: 'B-05', amount: 1800000, date: '2025-11-02', month: 'Nov', year: 2025, method: 'Mobile Money', status: 'Paid', type: 'Rent', receiptNo: 'RCP-2025-002' },
   { id: 'pay3', tenantId: 't3', tenantName: 'KOBEPay Technologies', propertyId: 'p2', unit: 'Suite-301', amount: 6000000, date: '2025-11-01', month: 'Nov', year: 2025, method: 'Bank Transfer', status: 'Paid', type: 'Rent', receiptNo: 'RCP-2025-003' },
@@ -165,7 +167,7 @@ function MonthIndicator({ month, paidMonths, unpaidMonths }: { month: string; pa
 /* ─────────────────── KPI CARD ─────────────────── */
 
 const KPICard = ({ title, value, sub, icon: Icon, color = 'blue' }: {
-  title: string; value: string; sub?: string; icon: any; color?: string;
+  title: string; value: string; sub?: string; icon: React.ComponentType<{ className?: string }>; color?: string;
 }) => {
   const colorMap: Record<string, string> = {
     blue: 'text-blue-400', emerald: 'text-emerald-400', amber: 'text-amber-400',
@@ -189,9 +191,104 @@ const KPICard = ({ title, value, sub, icon: Icon, color = 'blue' }: {
 
 type Tab = 'dashboard' | 'properties' | 'tenants' | 'units' | 'payments' | 'cashier';
 
+interface ApiProperty { id: string; name: string; address: string; type: 'residential' | 'commercial' | 'mixed'; totalUnits: number }
+interface ApiUnit { id: string; propertyId: string; unitNumber: string; rentAmount: number; status: 'vacant' | 'occupied' | 'maintenance' }
+interface ApiTenant { id: string; unitId?: string | null; name: string; phone: string; email?: string | null; leaseStart?: string | null; leaseEnd?: string | null; status: 'active' | 'past' | 'pending' }
+interface ApiPayment { id: string; tenantId: string; unitId: string; amount: number; forMonth: string; paidAt: string; method: string }
+
+function gradientFor(seed: string): string {
+  const palette = [
+    'from-blue-600 to-indigo-700', 'from-emerald-600 to-teal-700',
+    'from-amber-600 to-orange-700', 'from-rose-600 to-pink-700',
+    'from-violet-600 to-purple-700', 'from-cyan-600 to-sky-700',
+  ];
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  return palette[h % palette.length];
+}
+
+async function hydratePropertyFromApi(): Promise<{
+  properties: Property[]; units: Unit[]; tenants: Tenant[]; payments: Payment[];
+}> {
+  const [aProps, aUnits, aTenants, aPayments] = await Promise.all([
+    api<ApiProperty[]>('/property/properties'),
+    api<ApiUnit[]>('/property/units'),
+    api<ApiTenant[]>('/property/tenants'),
+    api<ApiPayment[]>('/property/payments'),
+  ]);
+
+  if (aProps.length === 0) {
+    await Promise.all(properties.map((p) =>
+      api('/property/properties', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: p.name,
+          address: p.address,
+          type: p.type === 'Commercial' ? 'commercial' : p.type === 'Mixed-Use' ? 'mixed' : 'residential',
+          totalUnits: p.units,
+        }),
+      }),
+    ));
+    return { properties, units, tenants, payments };
+  }
+
+  const props: Property[] = aProps.map((p) => ({
+    id: p.id, name: p.name, address: p.address,
+    type: p.type === 'commercial' ? 'Commercial' : p.type === 'mixed' ? 'Mixed-Use' : 'Residential',
+    units: p.totalUnits, occupied: 0, status: 'Active',
+    monthlyIncome: 0, annualIncome: 0, gradient: gradientFor(p.id),
+  }));
+  const us: Unit[] = aUnits.map((u) => ({
+    id: u.id, propertyId: u.propertyId, number: u.unitNumber, type: 'Unit',
+    beds: 0, baths: 0, sqft: 0, rent: u.rentAmount,
+    status: u.status === 'occupied' ? 'Occupied' : u.status === 'maintenance' ? 'Maintenance' : 'Vacant',
+    amenities: [],
+  }));
+  const ts: Tenant[] = aTenants.map((t) => ({
+    id: t.id, name: t.name, phone: t.phone, email: t.email ?? '',
+    propertyId: '', unit: aUnits.find((u) => u.id === t.unitId)?.unitNumber ?? '',
+    leaseStart: t.leaseStart ?? '', leaseEnd: t.leaseEnd ?? '',
+    monthlyRent: 0, annualRent: 0,
+    status: t.status === 'active' ? 'Active' : t.status === 'pending' ? 'Pending' : 'Moving Out',
+    avatar: t.name.split(' ').map((s) => s[0]).join('').slice(0, 2).toUpperCase(),
+    shortCode: 'KBE' + t.id.slice(0, 6).toUpperCase(),
+    amountPaid: 0, balance: 0, paidMonths: [], unpaidMonths: [],
+  }));
+  const ps: Payment[] = aPayments.map((p) => ({
+    id: p.id, tenantId: p.tenantId,
+    tenantName: aTenants.find((t) => t.id === p.tenantId)?.name ?? '',
+    propertyId: '', unit: aUnits.find((u) => u.id === p.unitId)?.unitNumber ?? '',
+    amount: p.amount, date: p.paidAt.slice(0, 10),
+    month: MONTHS[new Date(p.forMonth).getMonth()],
+    year: new Date(p.forMonth).getFullYear(),
+    method: 'Bank Transfer', status: 'Paid', type: 'Rent',
+    receiptNo: 'RCP-' + p.id.slice(0, 8).toUpperCase(),
+  }));
+
+  return { properties: props, units: us, tenants: ts, payments: ps };
+}
+
 export default function PropertyManager() {
   const [tab, setTab] = useState<Tab>('dashboard');
   const [search, setSearch] = useState('');
+  const [, bump] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await ensureSession();
+        const data = await hydratePropertyFromApi();
+        if (cancelled) return;
+        properties = data.properties;
+        units = data.units;
+        tenants = data.tenants;
+        payments = data.payments;
+        bump((x) => x + 1);
+      } catch { /* keep demo data on failure */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const tabs = [
     { key: 'dashboard' as Tab, label: 'Dashboard', icon: BarChart3 },
@@ -248,12 +345,12 @@ export default function PropertyManager() {
 
       {/* Content */}
       <div className="flex-1 min-h-0 overflow-hidden">
-        {tab === 'dashboard' && <DashboardTab search={search} />}
+        {tab === 'dashboard' && <DashboardTab />}
         {tab === 'properties' && <PropertiesTab search={search} />}
         {tab === 'tenants' && <TenantsTab search={search} />}
         {tab === 'units' && <UnitsTab search={search} />}
         {tab === 'payments' && <PaymentsTab search={search} />}
-        {tab === 'cashier' && <CashierTab search={search} />}
+        {tab === 'cashier' && <CashierTab />}
       </div>
     </div>
   );
@@ -263,7 +360,7 @@ export default function PropertyManager() {
    DASHBOARD TAB
    ═══════════════════════════════════════════════════ */
 
-function DashboardTab({ search: _search }: { search: string }) {
+function DashboardTab() {
   const [selectedProperty, setSelectedProperty] = useState<string>('all');
   const [viewTenant, setViewTenant] = useState<Tenant | null>(null);
 
@@ -883,7 +980,7 @@ function PaymentsTab({ search }: { search: string }) {
    CASHIER TAB
    ═══════════════════════════════════════════════════ */
 
-function CashierTab({ search: _search }: { search: string }) {
+function CashierTab() {
   const [receiptNo, setReceiptNo] = useState('');
   const [amount, setAmount] = useState('');
   const [shortCode, setShortCode] = useState('');

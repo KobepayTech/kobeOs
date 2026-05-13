@@ -27,6 +27,8 @@ interface FilterSettings {
   contrast: number;
 }
 
+const SUPPORTED = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/svg+xml'];
+
 export default function ImageViewerApp({ data }: ImageViewerProps) {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [isSvg, setIsSvg] = useState(false);
@@ -45,8 +47,6 @@ export default function ImageViewerApp({ data }: ImageViewerProps) {
   const [currentPath, setCurrentPath] = useState('/home/user');
   const [files, setFiles] = useState<FSNode[]>([]);
   const imgRef = useRef<HTMLImageElement>(null);
-
-  const SUPPORTED = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp', 'image/svg+xml'];
 
   const loadImage = useCallback((path: string) => {
     const content = fs.readFile(path);
@@ -70,19 +70,19 @@ export default function ImageViewerApp({ data }: ImageViewerProps) {
   }, []);
 
   useEffect(() => {
-    if (data?.filePath) {
-      loadImage(data.filePath);
-    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (data?.filePath) loadImage(data.filePath);
   }, [data, loadImage]);
 
-  useEffect(() => {
-    refreshFiles();
-  }, [currentPath]);
-
-  const refreshFiles = () => {
+  const refreshFiles = useCallback(() => {
     const dir = fs.readdir(currentPath);
     setFiles(dir.filter((f) => f.type === 'file' && (SUPPORTED.includes(f.mimeType ?? '') || f.name.endsWith('.svg'))));
-  };
+  }, [currentPath]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    refreshFiles();
+  }, [refreshFiles]);
 
   const zoomIn = () => setZoom((z) => Math.min(z + 0.25, 5));
   const zoomOut = () => setZoom((z) => Math.max(z - 0.25, 0.25));

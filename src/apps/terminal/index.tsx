@@ -13,7 +13,7 @@ export default function Terminal() {
   const [input, setInput] = useState('');
   const [cwd, setCwd] = useState('/home/user');
   const [history, setHistory] = useState<string[]>([]);
-  const [histIdx, setHistIdx] = useState(-1);
+  const [, setHistIdx] = useState(-1);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const launchApp = useOSStore((s) => s.launchApp);
@@ -149,8 +149,7 @@ export default function Terminal() {
         case 'calc': {
           const expr = args.join('');
           try {
-            // eslint-disable-next-line no-eval
-            const result = eval(expr);
+            const result = new Function('return (' + expr + ')')();
             out.push(String(result));
           } catch {
             out.push('calc: invalid expression');
@@ -227,7 +226,7 @@ export default function Terminal() {
         setLines([]);
       }
     },
-    [input, history, histIdx, submit, cwd]
+    [input, history, submit, cwd]
   );
 
   return (

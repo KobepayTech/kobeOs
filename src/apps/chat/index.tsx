@@ -1,25 +1,28 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Hash, MessageSquare, Send, Smile, Users, Download,
-  ChevronRight, X, Search, User, UserPlus
+  Search, User, UserPlus
 } from 'lucide-react';
+import { io, type Socket } from 'socket.io-client';
+import { api, API_BASE, getToken } from '@/lib/api';
+import { ensureSession, type AuthUser } from '@/lib/auth';
 
-interface ChatMessage {
+interface ApiChannel {
   id: string;
-  channelId: string;
-  userId: string;
-  userName: string;
-  avatarColor: string;
-  text: string;
-  timestamp: number;
-  type: 'message' | 'system';
-}
-
-interface Channel {
-  id: string;
+  slug: string;
   name: string;
   type: 'channel' | 'dm';
-  unread: number;
+  description: string;
+}
+
+interface ApiMessage {
+  id: string;
+  channelId: string;
+  senderId: string;
+  senderName: string;
+  type: 'message' | 'system';
+  text: string;
+  createdAt: string;
 }
 
 interface OnlineUser {
@@ -28,8 +31,6 @@ interface OnlineUser {
   status: 'online' | 'offline' | 'away';
   avatarColor: string;
 }
-
-const STORAGE_KEY = 'kobe_chat_messages';
 
 const DEMO_USERS: OnlineUser[] = [
   { id: 'u1', name: 'Alex Chen', status: 'online', avatarColor: '#ef4444' },
@@ -40,105 +41,140 @@ const DEMO_USERS: OnlineUser[] = [
   { id: 'u6', name: 'Casey Brown', status: 'online', avatarColor: '#06b6d4' },
 ];
 
-const CHANNELS: Channel[] = [
-  { id: 'general', name: 'general', type: 'channel', unread: 0 },
-  { id: 'dev', name: 'dev', type: 'channel', unread: 0 },
-  { id: 'random', name: 'random', type: 'channel', unread: 0 },
-  { id: 'support', name: 'support', type: 'channel', unread: 0 },
-];
-
-const DM_CHANNELS: Channel[] = [
-  { id: 'dm_alex', name: 'Alex Chen', type: 'dm', unread: 0 },
-  { id: 'dm_jordan', name: 'Jordan Lee', type: 'dm', unread: 0 },
-  { id: 'dm_taylor', name: 'Taylor Kim', type: 'dm', unread: 0 },
-];
-
-const DEMO_MESSAGES: ChatMessage[] = [
-  { id: 'm1', channelId: 'general', userId: 'u1', userName: 'Alex Chen', avatarColor: '#ef4444', text: 'Hey team, welcome to the new workspace!', timestamp: Date.now() - 3600000 * 5, type: 'message' },
-  { id: 'm2', channelId: 'general', userId: 'u2', userName: 'Jordan Lee', avatarColor: '#f59e0b', text: 'Thanks Alex! Looking forward to collaborating here.', timestamp: Date.now() - 3600000 * 4.5, type: 'message' },
-  { id: 'm3', channelId: 'general', userId: 'system', userName: 'System', avatarColor: '#64748b', text: 'Taylor Kim joined the channel', timestamp: Date.now() - 3600000 * 4, type: 'system' },
-  { id: 'm4', channelId: 'general', userId: 'u3', userName: 'Taylor Kim', avatarColor: '#10b981', text: 'Hello everyone! Excited to be here.', timestamp: Date.now() - 3600000 * 3.8, type: 'message' },
-  { id: 'm5', channelId: 'dev', userId: 'u2', userName: 'Jordan Lee', avatarColor: '#f59e0b', text: 'Anyone reviewed the latest PR?', timestamp: Date.now() - 3600000 * 2, type: 'message' },
-  { id: 'm6', channelId: 'dev', userId: 'u6', userName: 'Casey Brown', avatarColor: '#06b6d4', text: 'I left some comments on the auth module.', timestamp: Date.now() - 3600000 * 1.5, type: 'message' },
-  { id: 'm7', channelId: 'random', userId: 'u5', userName: 'Riley Park', avatarColor: '#ec4899', text: 'Check out this new AI tool I found today!', timestamp: Date.now() - 3600000 * 6, type: 'message' },
-  { id: 'm8', channelId: 'support', userId: 'u1', userName: 'Alex Chen', avatarColor: '#ef4444', text: 'Ticket #1024 resolved. Deployed the hotfix.', timestamp: Date.now() - 3600000 * 1, type: 'message' },
-  { id: 'm9', channelId: 'dm_alex', userId: 'u1', userName: 'Alex Chen', avatarColor: '#ef4444', text: 'Can we sync up later today?', timestamp: Date.now() - 3600000 * 3, type: 'message' },
-  { id: 'm10', channelId: 'dm_jordan', userId: 'u2', userName: 'Jordan Lee', avatarColor: '#f59e0b', text: 'Sent you the design mockups.', timestamp: Date.now() - 3600000 * 7, type: 'message' },
+const DEFAULT_CHANNELS: Array<{ slug: string; name: string; type: 'channel' | 'dm' }> = [
+  { slug: 'general', name: 'general', type: 'channel' },
+  { slug: 'dev', name: 'dev', type: 'channel' },
+  { slug: 'random', name: 'random', type: 'channel' },
+  { slug: 'support', name: 'support', type: 'channel' },
 ];
 
 const EMOJIS = ['😀','😂','😍','🤔','👍','❤️','🔥','🎉','👀','🙏','💯','✅','🚀','⚡','💡','🐛','🎨','📦','🔒','📝'];
 
-function loadMessages(): ChatMessage[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
-  } catch { /* ignore */ }
-  return DEMO_MESSAGES;
+function formatTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-function saveMessages(msgs: ChatMessage[]) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(msgs));
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
-function formatTime(ts: number): string {
-  const d = new Date(ts);
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+function colorForId(id: string): string {
+  const palette = ['#ef4444','#f59e0b','#10b981','#8b5cf6','#ec4899','#06b6d4','#3b82f6','#84cc16'];
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+  return palette[hash % palette.length];
 }
 
-function formatDate(ts: number): string {
-  const d = new Date(ts);
-  return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
-}
-
-export default function ChatApp(_props: { windowId: string; data?: any }) {
-  const [messages, setMessages] = useState<ChatMessage[]>(loadMessages);
-  const [activeChannel, setActiveChannel] = useState('general');
+export default function ChatApp() {
+  const [me, setMe] = useState<AuthUser | null>(null);
+  const [channels, setChannels] = useState<ApiChannel[]>([]);
+  const [activeChannelId, setActiveChannelId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ApiMessage[]>([]);
   const [input, setInput] = useState('');
   const [showEmoji, setShowEmoji] = useState(false);
   const [showUsers, setShowUsers] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [status, setStatus] = useState<'connecting' | 'ready' | 'error'>('connecting');
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [unreadMap, setUnreadMap] = useState<Record<string, number>>({});
-  const [, setLastRead] = useState<Record<string, number>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
-    saveMessages(messages);
-  }, [messages]);
+    let cancelled = false;
+    (async () => {
+      try {
+        const user = await ensureSession();
+        if (cancelled) return;
+        setMe(user);
+        let existing = await api<ApiChannel[]>('/chat/channels');
+        const have = new Set(existing.map((c) => c.slug));
+        const missing = DEFAULT_CHANNELS.filter((c) => !have.has(c.slug));
+        if (missing.length) {
+          await Promise.all(
+            missing.map((c) =>
+              api('/chat/channels', { method: 'POST', body: JSON.stringify(c) }),
+            ),
+          );
+          existing = await api<ApiChannel[]>('/chat/channels');
+        }
+        if (cancelled) return;
+        setChannels(existing);
+        setActiveChannelId(existing[0]?.id ?? null);
+        setStatus('ready');
+
+        const wsBase = API_BASE.replace(/\/api\/?$/, '');
+        const socket = io(`${wsBase}/chat`, {
+          transports: ['websocket', 'polling'],
+          auth: { token: getToken() ?? '' },
+        });
+        socket.on('chat:message', (msg: ApiMessage) => {
+          setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
+        });
+        socket.on('connect_error', (err) => setErrorMsg(`socket: ${err.message}`));
+        socketRef.current = socket;
+      } catch (err) {
+        if (cancelled) return;
+        setErrorMsg(err instanceof Error ? err.message : 'Failed to connect');
+        setStatus('error');
+      }
+    })();
+    return () => {
+      cancelled = true;
+      socketRef.current?.disconnect();
+      socketRef.current = null;
+    };
+  }, []);
+
+  // Join/leave the room when the active channel changes
+  useEffect(() => {
+    const socket = socketRef.current;
+    if (!socket || !activeChannelId) return;
+    socket.emit('chat:join', { channelId: activeChannelId });
+    return () => { socket.emit('chat:leave', { channelId: activeChannelId }); };
+  }, [activeChannelId]);
+
+  const refreshMessages = useCallback(async (channelId: string) => {
+    const list = await api<ApiMessage[]>(`/chat/channels/${channelId}/messages`);
+    setMessages(list);
+  }, []);
+
+  useEffect(() => {
+    if (!activeChannelId) return;
+    refreshMessages(activeChannelId).catch((err) => setErrorMsg(err.message));
+  }, [activeChannelId, refreshMessages]);
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, activeChannel]);
+  }, [messages, activeChannelId]);
 
-  const channelMessages = messages.filter(m => m.channelId === activeChannel);
-
-  const sendMessage = useCallback(() => {
-    if (!input.trim()) return;
-    const msg: ChatMessage = {
-      id: `m_${Date.now()}`,
-      channelId: activeChannel,
-      userId: 'me',
-      userName: 'You',
-      avatarColor: '#3b82f6',
-      text: input.trim(),
-      timestamp: Date.now(),
-      type: 'message',
-    };
-    setMessages(prev => [...prev, msg]);
+  const sendMessage = useCallback(async () => {
+    if (!input.trim() || !activeChannelId) return;
+    const text = input.trim();
     setInput('');
     setShowEmoji(false);
-  }, [input, activeChannel]);
+    try {
+      const msg = await api<ApiMessage>('/chat/messages', {
+        method: 'POST',
+        body: JSON.stringify({ channelId: activeChannelId, text }),
+      });
+      setMessages((prev) => [...prev, msg]);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Failed to send');
+      setInput(text);
+    }
+  }, [input, activeChannelId]);
 
   const handleChannelSwitch = (id: string) => {
-    setActiveChannel(id);
-    setUnreadMap(prev => ({ ...prev, [id]: 0 }));
-    setLastRead(prev => ({ ...prev, [id]: Date.now() }));
+    setActiveChannelId(id);
+    setUnreadMap((prev) => ({ ...prev, [id]: 0 }));
   };
 
   const addEmoji = (emoji: string) => {
-    setInput(prev => prev + emoji);
+    setInput((prev) => prev + emoji);
     inputRef.current?.focus();
   };
 
@@ -153,17 +189,44 @@ export default function ChatApp(_props: { windowId: string; data?: any }) {
     URL.revokeObjectURL(url);
   };
 
-  const allChannels = [...CHANNELS, ...DM_CHANNELS];
+  const activeChannel = channels.find((c) => c.id === activeChannelId) ?? null;
 
   const filteredMessages = searchQuery
-    ? channelMessages.filter(m => m.text.toLowerCase().includes(searchQuery.toLowerCase()) || m.userName.toLowerCase().includes(searchQuery.toLowerCase()))
-    : channelMessages;
+    ? messages.filter(
+        (m) =>
+          m.text.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          m.senderName.toLowerCase().includes(searchQuery.toLowerCase()),
+      )
+    : messages;
 
-  let lastDate = '';
+  const dateDividers = filteredMessages.map((m, i) => {
+    const d = formatDate(m.createdAt);
+    const prev = i > 0 ? formatDate(filteredMessages[i - 1].createdAt) : '';
+    return d !== prev ? d : null;
+  });
+
+  if (status !== 'ready') {
+    return (
+      <div className="flex items-center justify-center h-full bg-slate-900 text-slate-200">
+        <div className="text-center px-6">
+          <MessageSquare className="w-10 h-10 mx-auto mb-3 text-slate-500" />
+          {status === 'connecting' && <p className="text-sm text-slate-400">Connecting to chat…</p>}
+          {status === 'error' && (
+            <>
+              <p className="text-sm text-red-400">Backend unreachable</p>
+              <p className="text-xs text-slate-500 mt-1">{errorMsg}</p>
+              <p className="text-xs text-slate-500 mt-2">
+                Start the server with <code className="text-slate-300">cd server &amp;&amp; npm run start:dev</code>
+              </p>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full bg-slate-900 text-slate-100 overflow-hidden">
-      {/* Left Sidebar */}
       <div className="w-56 bg-slate-800 border-r border-slate-700 flex flex-col shrink-0">
         <div className="p-3 border-b border-slate-700 flex items-center gap-2">
           <MessageSquare className="w-5 h-5 text-blue-400" />
@@ -172,9 +235,9 @@ export default function ChatApp(_props: { windowId: string; data?: any }) {
         <div className="flex-1 overflow-y-auto p-2 space-y-4">
           <div>
             <div className="text-xs font-bold text-slate-400 uppercase tracking-wider px-2 mb-1">Channels</div>
-            {CHANNELS.map(ch => {
+            {channels.filter((c) => c.type === 'channel').map((ch) => {
               const unread = unreadMap[ch.id] || 0;
-              const isActive = activeChannel === ch.id;
+              const isActive = activeChannelId === ch.id;
               return (
                 <button
                   key={ch.id}
@@ -183,70 +246,40 @@ export default function ChatApp(_props: { windowId: string; data?: any }) {
                     isActive ? 'bg-blue-600/20 text-blue-300' : 'hover:bg-slate-700 text-slate-300'
                   }`}
                 >
-                  <Hash className="w-4 h-4 shrink-0" />
-                  <span className="truncate flex-1 text-left">{ch.name}</span>
-                  {unread > 0 && (
-                    <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{unread}</span>
-                  )}
-                  {isActive && <ChevronRight className="w-3 h-3 shrink-0" />}
-                </button>
-              );
-            })}
-          </div>
-          <div>
-            <div className="text-xs font-bold text-slate-400 uppercase tracking-wider px-2 mb-1">Direct Messages</div>
-            {DM_CHANNELS.map(ch => {
-              const unread = unreadMap[ch.id] || 0;
-              const isActive = activeChannel === ch.id;
-              return (
-                <button
-                  key={ch.id}
-                  onClick={() => handleChannelSwitch(ch.id)}
-                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded text-sm transition-colors ${
-                    isActive ? 'bg-blue-600/20 text-blue-300' : 'hover:bg-slate-700 text-slate-300'
-                  }`}
-                >
-                  <User className="w-4 h-4 shrink-0" />
-                  <span className="truncate flex-1 text-left">{ch.name}</span>
-                  {unread > 0 && (
-                    <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">{unread}</span>
-                  )}
+                  <Hash className="w-3.5 h-3.5 shrink-0" />
+                  <span className="flex-1 text-left truncate">{ch.name}</span>
+                  {unread > 0 && <span className="text-[10px] bg-red-500 text-white rounded-full px-1.5 py-0.5">{unread}</span>}
                 </button>
               );
             })}
           </div>
         </div>
-        <div className="p-2 border-t border-slate-700">
-          <button
-            onClick={exportHistory}
-            className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors"
-          >
-            <Download className="w-3.5 h-3.5" />
-            Export History
+        <div className="p-2 border-t border-slate-700 flex items-center gap-2">
+          <div className="w-7 h-7 rounded-full bg-blue-500 flex items-center justify-center text-xs font-bold">
+            {me?.displayName?.[0]?.toUpperCase() ?? 'Y'}
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-xs font-medium truncate">{me?.displayName ?? me?.email}</div>
+            <div className="text-[10px] text-emerald-400">online</div>
+          </div>
+          <button onClick={exportHistory} className="p-1.5 rounded hover:bg-slate-700" title="Export history">
+            <Download className="w-3.5 h-3.5 text-slate-400" />
           </button>
         </div>
       </div>
 
-      {/* Main Chat Area */}
       <div className="flex-1 flex flex-col min-w-0">
-        {/* Header */}
         <div className="h-12 border-b border-slate-700 flex items-center justify-between px-4 shrink-0 bg-slate-800/50">
           <div className="flex items-center gap-2">
-            {allChannels.find(c => c.id === activeChannel)?.type === 'channel' ? (
-              <Hash className="w-4 h-4 text-slate-400" />
-            ) : (
-              <User className="w-4 h-4 text-slate-400" />
-            )}
-            <span className="font-semibold text-sm">
-              {allChannels.find(c => c.id === activeChannel)?.name}
-            </span>
+            <Hash className="w-4 h-4 text-slate-400" />
+            <span className="font-semibold text-sm">{activeChannel?.name ?? '...'}</span>
           </div>
           <div className="flex items-center gap-2">
             <div className="relative">
               <Search className="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-slate-400" />
               <input
                 value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
+                onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search..."
                 className="bg-slate-900 border border-slate-700 rounded pl-7 pr-2 py-1 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500 w-40"
               />
@@ -261,7 +294,6 @@ export default function ChatApp(_props: { windowId: string; data?: any }) {
           </div>
         </div>
 
-        {/* Messages */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-1">
           {filteredMessages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-slate-500">
@@ -269,11 +301,11 @@ export default function ChatApp(_props: { windowId: string; data?: any }) {
               <p className="text-sm">No messages yet</p>
             </div>
           )}
-          {filteredMessages.map((msg) => {
-            const msgDate = formatDate(msg.timestamp);
-            const showDateDivider = msgDate !== lastDate;
-            lastDate = msgDate;
-            const isMe = msg.userId === 'me';
+          {filteredMessages.map((msg, idx) => {
+            const msgDate = dateDividers[idx];
+            const showDateDivider = msgDate !== null;
+            const isMe = me?.id === msg.senderId;
+            const color = colorForId(msg.senderId);
 
             if (msg.type === 'system') {
               return (
@@ -307,18 +339,16 @@ export default function ChatApp(_props: { windowId: string; data?: any }) {
                 <div className={`flex gap-3 py-1 px-2 rounded-lg hover:bg-slate-800/50 transition-colors group ${isMe ? 'flex-row-reverse' : ''}`}>
                   <div
                     className="w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-xs font-bold text-white"
-                    style={{ backgroundColor: msg.avatarColor }}
+                    style={{ background: color }}
                   >
-                    {msg.userName.charAt(0)}
+                    {msg.senderName[0]?.toUpperCase() ?? '?'}
                   </div>
                   <div className={`flex-1 min-w-0 ${isMe ? 'text-right' : ''}`}>
-                    <div className={`flex items-baseline gap-2 mb-0.5 ${isMe ? 'justify-end' : ''}`}>
-                      <span className="text-sm font-semibold text-slate-200">{msg.userName}</span>
-                      <span className="text-[10px] text-slate-500">{formatTime(msg.timestamp)}</span>
+                    <div className={`flex items-baseline gap-2 ${isMe ? 'justify-end' : ''}`}>
+                      <span className="text-sm font-medium" style={{ color }}>{msg.senderName}</span>
+                      <span className="text-[10px] text-slate-500">{formatTime(msg.createdAt)}</span>
                     </div>
-                    <div className={`text-sm text-slate-300 leading-relaxed whitespace-pre-wrap ${isMe ? 'bg-blue-600/20 px-3 py-1.5 rounded-lg inline-block text-left' : ''}`}>
-                      {msg.text}
-                    </div>
+                    <div className="text-sm text-slate-200 whitespace-pre-wrap break-words">{msg.text}</div>
                   </div>
                 </div>
               </div>
@@ -326,75 +356,69 @@ export default function ChatApp(_props: { windowId: string; data?: any }) {
           })}
         </div>
 
-        {/* Input Bar */}
-        <div className="p-3 border-t border-slate-700 bg-slate-800/50 shrink-0">
-          <div className="flex items-end gap-2">
-            <div className="relative flex-1">
-              <input
-                ref={inputRef}
-                value={input}
-                onChange={e => setInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
-                placeholder={`Message #${allChannels.find(c => c.id === activeChannel)?.name || ''}`}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-3 pr-10 py-2.5 text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-blue-500"
-              />
-              <button
-                onClick={() => setShowEmoji(!showEmoji)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-200 transition-colors"
-              >
-                <Smile className="w-4 h-4" />
-              </button>
-              {showEmoji && (
-                <div className="absolute bottom-full right-0 mb-2 bg-slate-800 border border-slate-700 rounded-lg p-2 shadow-xl grid grid-cols-5 gap-1 w-48 z-50">
-                  <button onClick={() => setShowEmoji(false)} className="absolute top-1 right-1 text-slate-400 hover:text-slate-200">
-                    <X className="w-3 h-3" />
-                  </button>
-                  <div className="col-span-5 h-4" />
-                  {EMOJIS.map(emoji => (
-                    <button
-                      key={emoji}
-                      onClick={() => addEmoji(emoji)}
-                      className="p-1 hover:bg-slate-700 rounded text-lg transition-colors"
-                    >
-                      {emoji}
-                    </button>
-                  ))}
-                </div>
-              )}
+        <div className="border-t border-slate-700 p-3 shrink-0 relative">
+          {showEmoji && (
+            <div className="absolute bottom-full left-3 mb-2 bg-slate-800 border border-slate-700 rounded-lg p-2 grid grid-cols-10 gap-1 shadow-xl">
+              {EMOJIS.map((e) => (
+                <button key={e} onClick={() => addEmoji(e)} className="text-lg hover:bg-slate-700 rounded p-1 transition-colors">{e}</button>
+              ))}
             </div>
+          )}
+          <div className="flex items-end gap-2 bg-slate-800 rounded-lg border border-slate-700 p-2">
+            <button
+              onClick={() => setShowEmoji(!showEmoji)}
+              className="p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
+            >
+              <Smile className="w-4 h-4" />
+            </button>
+            <input
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+              placeholder={`Message #${activeChannel?.name ?? ''}`}
+              className="flex-1 bg-transparent border-none outline-none text-sm text-slate-200 placeholder-slate-500 px-1"
+            />
             <button
               onClick={sendMessage}
               disabled={!input.trim()}
-              className="p-2.5 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg transition-colors"
+              className="p-1.5 rounded bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 text-white transition-colors"
             >
               <Send className="w-4 h-4" />
             </button>
           </div>
+          {errorMsg && <div className="text-xs text-red-400 mt-2">{errorMsg}</div>}
         </div>
       </div>
 
-      {/* User List Sidebar */}
       {showUsers && (
-        <div className="w-48 bg-slate-800 border-l border-slate-700 flex flex-col shrink-0">
+        <div className="w-56 border-l border-slate-700 bg-slate-800 flex flex-col shrink-0">
           <div className="p-3 border-b border-slate-700 flex items-center gap-2">
             <Users className="w-4 h-4 text-slate-400" />
-            <span className="text-xs font-semibold text-slate-300">Members</span>
+            <span className="font-semibold text-sm">Members</span>
           </div>
           <div className="flex-1 overflow-y-auto p-2 space-y-1">
-            {DEMO_USERS.map(user => (
-              <div key={user.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-slate-700 transition-colors">
+            {DEMO_USERS.map((u) => (
+              <div key={u.id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-slate-700">
                 <div className="relative">
                   <div
-                    className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white"
-                    style={{ backgroundColor: user.avatarColor }}
+                    className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                    style={{ background: u.avatarColor }}
                   >
-                    {user.name.charAt(0)}
+                    <User className="w-3.5 h-3.5" />
                   </div>
-                  <div className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-slate-800 ${
-                    user.status === 'online' ? 'bg-green-500' : user.status === 'away' ? 'bg-yellow-500' : 'bg-slate-500'
-                  }`} />
+                  <div
+                    className={`absolute bottom-0 right-0 w-2 h-2 rounded-full border border-slate-800 ${
+                      u.status === 'online' ? 'bg-emerald-400' :
+                      u.status === 'away' ? 'bg-amber-400' :
+                      'bg-slate-500'
+                    }`}
+                  />
                 </div>
-                <span className="text-xs text-slate-300 truncate">{user.name}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-medium truncate">{u.name}</div>
+                  <div className="text-[10px] text-slate-500 capitalize">{u.status}</div>
+                </div>
               </div>
             ))}
           </div>
