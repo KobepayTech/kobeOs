@@ -5,6 +5,7 @@ import { randomBytes } from 'crypto';
 import * as bcrypt from 'bcryptjs';
 import { ConfigService } from '@nestjs/config';
 import { UsersService } from '../users/users.service';
+import { MailerService } from '../mailer/mailer.service';
 import { PasswordReset } from './password-reset.entity';
 import { AuthService, sha256 } from './auth.service';
 
@@ -17,6 +18,7 @@ export class PasswordResetService {
     private readonly users: UsersService,
     private readonly auth: AuthService,
     private readonly config: ConfigService,
+    private readonly mailer: MailerService,
   ) {}
 
   async createToken(email: string): Promise<{ ok: true; resetToken?: string }> {
@@ -36,6 +38,10 @@ export class PasswordResetService {
     this.logger.log(`Password reset issued for ${email}`);
 
     const isDev = this.config.get('NODE_ENV', 'development') === 'development';
+    if (!isDev) {
+      await this.mailer.sendPasswordReset(email, raw);
+    }
+
     return { ok: true, ...(isDev ? { resetToken: raw } : {}) };
   }
 

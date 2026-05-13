@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { databaseConfig } from './config/database.config';
+import { validateEnv } from './config/env.validation';
 import { AppController } from './app.controller';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
@@ -25,17 +26,29 @@ import { DiscountsModule } from './discounts/discount.module';
 import { PaymentsModule } from './payments/payments.module';
 import { HotelModule } from './hotel/hotel.module';
 import { CreatorsModule } from './creators/creators.module';
+import { VideoGenerationModule } from './video-generation/video-generation.module';
 import { RolesGuard } from './common/roles.guard';
 import { LoggerMiddleware } from './common/logger.middleware';
+import { RedisCacheModule } from './cache/redis-cache.module';
+import { AuditModule } from './audit/audit.module';
+import { WebhooksModule } from './webhooks/webhooks.module';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true, envFilePath: '.env' }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      envFilePath: '.env',
+      validate: validateEnv,
+    }),
     TypeOrmModule.forRootAsync(databaseConfig),
     ThrottlerModule.forRoot([
       { name: 'default', ttl: 60_000, limit: 120 },
       { name: 'auth', ttl: 60_000, limit: 10 },
     ]),
+    RedisCacheModule,
+    AuditModule,
+    WebhooksModule,
+    VideoGenerationModule,
     AuthModule,
     UsersModule,
     NotesModule,
