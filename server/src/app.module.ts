@@ -27,6 +27,7 @@ import { PaymentsModule } from './payments/payments.module';
 import { HotelModule } from './hotel/hotel.module';
 import { CreatorsModule } from './creators/creators.module';
 import { VideoGenerationModule } from './video-generation/video-generation.module';
+import { AiModule } from './ai/ai.module';
 import { RolesGuard } from './common/roles.guard';
 import { LoggerMiddleware } from './common/logger.middleware';
 import { RedisCacheModule } from './cache/redis-cache.module';
@@ -48,7 +49,7 @@ import { WebhooksModule } from './webhooks/webhooks.module';
     RedisCacheModule,
     AuditModule,
     WebhooksModule,
-    VideoGenerationModule,
+    VideoGenerationModule,\n    AiModule,
     AuthModule,
     UsersModule,
     NotesModule,
