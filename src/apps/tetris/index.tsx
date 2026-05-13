@@ -1,11 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { Play, Pause, RotateCcw, Trophy } from 'lucide-react';
 
-interface TetrisProps {
-  windowId: string;
-  data?: any;
-}
-
 const COLS = 10;
 const ROWS = 20;
 const CELL = 24;
@@ -82,7 +77,7 @@ function useHighScore() {
   const update = useCallback((score: number) => {
     setHigh((prev) => {
       const next = Math.max(prev, score);
-      try { localStorage.setItem(key, String(next)); } catch {}
+      try { localStorage.setItem(key, String(next)); } catch { /* ignore */ }
       return next;
     });
   }, []);
@@ -138,7 +133,7 @@ function getGhostY(board: (string | null)[][], piece: string, rot: number, px: n
   return y;
 }
 
-export default function TetrisGame({ windowId: _windowId }: TetrisProps) {
+export default function TetrisGame() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [board, setBoard] = useState(createEmptyBoard);
   const [piece, setPiece] = useState(randomPiece);

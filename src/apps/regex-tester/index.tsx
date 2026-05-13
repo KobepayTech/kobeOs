@@ -33,7 +33,7 @@ export default function RegexTester() {
     setReplaceResult('');
 
     const flagStr = Object.entries(flags)
-      .filter(([_, v]) => v)
+      .filter(([, v]) => v)
       .map(([k]) => k)
       .join('');
 
@@ -65,9 +65,8 @@ export default function RegexTester() {
     }
   }, [pattern, flags, testString, mode, replaceString]);
 
-  useEffect(() => {
-    runRegex();
-  }, [runRegex]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { runRegex(); }, [runRegex]);
 
   const loadPattern = (p: string, f: string) => {
     setPattern(p);
@@ -110,7 +109,7 @@ export default function RegexTester() {
 
   const copyPattern = () => {
     const flagStr = Object.entries(flags)
-      .filter(([_, v]) => v)
+      .filter(([, v]) => v)
       .map(([k]) => k)
       .join('');
     navigator.clipboard.writeText(`/${pattern}/${flagStr}`);

@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { useOSStore } from '@/os/store';
 import {
   Plane, BarChart3, Package, ShieldCheck, Warehouse, PlaneTakeoff,
@@ -206,7 +206,7 @@ const sc: Record<string, string> = {
   RECEIVED:'bg-blue-500/15 text-blue-400',WEIGHED:'bg-amber-500/15 text-amber-400',IN_BIN:'bg-indigo-500/15 text-indigo-400',IN_ULD:'bg-violet-500/15 text-violet-400',ON_FLIGHT:'bg-pink-500/15 text-pink-400',AT_DESTINATION:'bg-cyan-500/15 text-cyan-400',
 };
 const SB = ({ s }: { s: string }) => <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border border-white/[0.06] ${sc[s] || 'bg-gray-500/15 text-gray-400'}`}>{s.replace(/_/g, ' ')}</span>;
-const KC = ({ t, v, su, i: I, c = 'blue' }: { t: string; v: string; su?: string; i: any; c?: string }) => {
+const KC = ({ t, v, su, i: I, c = 'blue' }: { t: string; v: string; su?: string; i: React.ComponentType<{ className?: string }>; c?: string }) => {
   const m: Record<string, string> = { blue: 'text-blue-400', emerald: 'text-emerald-400', amber: 'text-amber-400', red: 'text-red-400', indigo: 'text-indigo-400', violet: 'text-violet-400', cyan: 'text-cyan-400', pink: 'text-pink-400' };
   return <Card className="bg-white/[0.03] border-white/[0.06]"><CardContent className="p-3"><div className="flex items-start justify-between mb-2"><span className="text-[10px] text-white/40 font-medium">{t}</span><I className={`w-4 h-4 ${m[c] || 'text-white/40'}`} /></div><div className="text-sm font-semibold text-white/90">{v}</div>{su && <div className="text-[10px] text-white/30 mt-0.5">{su}</div>}</CardContent></Card>;
 };
@@ -235,12 +235,13 @@ function Sparkline({ data, color = '#10b981', height = 24 }: { data: number[]; c
 }
 
 /* ─── CHART TOOLTIP ─── */
-function CTooltip({ active, payload, label }: any) {
+interface TooltipPayload { color?: string; name?: string; value?: number | string }
+function CTooltip({ active, payload, label }: { active?: boolean; payload?: TooltipPayload[]; label?: string }) {
   if (!active || !payload?.length) return null;
   return (
     <div className="bg-[#1a1a2e] border border-white/[0.1] rounded-lg px-3 py-2 shadow-xl">
       <p className="text-[10px] text-white/50 mb-1">{label}</p>
-      {payload.map((p: any, i: number) => (
+      {payload.map((p, i: number) => (
         <p key={i} className="text-[11px] font-medium" style={{ color: p.color }}>
           {p.name}: {typeof p.value === 'number' && p.value > 1000 ? p.value.toLocaleString() : p.value}
         </p>
@@ -611,7 +612,7 @@ function AIInsightsTab() {
   const insights = generateAIInsights();
   const filtered = filter === 'ALL' ? insights : insights.filter(i => i.type === filter);
   const typeColors: Record<string, string> = { PREDICTION: 'text-blue-400 bg-blue-500/10 border-blue-500/20', RISK: 'text-red-400 bg-red-500/10 border-red-500/20', RECOMMENDATION: 'text-amber-400 bg-amber-500/10 border-amber-500/20', ANOMALY: 'text-orange-400 bg-orange-500/10 border-orange-500/20', OPTIMIZATION: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' };
-  const typeIcons: Record<string, any> = { PREDICTION: Target, RISK: AlertTriangle, RECOMMENDATION: Zap, ANOMALY: AlertCircle, OPTIMIZATION: TrendingUp };
+  const typeIcons: Record<string, React.ComponentType<{ className?: string }>> = { PREDICTION: Target, RISK: AlertTriangle, RECOMMENDATION: Zap, ANOMALY: AlertCircle, OPTIMIZATION: TrendingUp };
 
   return <div className="h-full overflow-y-auto"><div className="p-4 space-y-4">
     <Card className="bg-gradient-to-br from-indigo-500/[0.1] via-violet-500/[0.05] to-transparent border-indigo-500/20"><CardContent className="p-4">
@@ -848,6 +849,12 @@ function TimelineTab() {
 }
 
 /* ─── SMART RATE CALCULATOR ─── */
+const RATE_ORIGINS = ['CAN','HKG','SZX'];
+const RATE_DESTINATIONS = ['DAR','ZNZ'];
+const RATE_CARGO_TYPES = ['General','Electronics','Pharma','Textiles','Machinery','Dangerous Goods'];
+const RATE_TYPE_MULTIPLIERS: Record<string,number> = { General:1,Electronics:1.2,Pharma:1.8,Textiles:0.9,Machinery:1.5,'Dangerous Goods':2.2 };
+const RATE_PRIORITY_MULTIPLIERS: Record<string,number> = { STANDARD:1,EXPRESS:1.4,URGENT:1.9 };
+
 function RateCalculatorTab() {
   const [origin, setOrigin] = useState('CAN');
   const [destination, setDestination] = useState('DAR');
@@ -856,18 +863,16 @@ function RateCalculatorTab() {
   const [priority, setPriority] = useState<SP>('STANDARD');
   const [quote, setQuote] = useState<{carrier:string;total:number;breakdown:Record<string,number>;transitDays:number}|null>(null);
 
-  const origins = ['CAN','HKG','SZX'];
-  const destinations = ['DAR','ZNZ'];
-  const cargoTypes = ['General','Electronics','Pharma','Textiles','Machinery','Dangerous Goods'];
-  const typeMultipliers: Record<string,number> = { General:1,Electronics:1.2,Pharma:1.8,Textiles:0.9,Machinery:1.5,'Dangerous Goods':2.2 };
-  const priorityMultipliers: Record<string,number> = { STANDARD:1,EXPRESS:1.4,URGENT:1.9 };
+  const origins = RATE_ORIGINS;
+  const destinations = RATE_DESTINATIONS;
+  const cargoTypes = RATE_CARGO_TYPES;
 
   const calculateQuote = useCallback(() => {
     const w = parseFloat(weight) || 0;
     if(w<=0) return;
     const baseRate = origin==='HKG'?8.2:origin==='SZX'?9.5:8.5;
-    const typeMult = typeMultipliers[cargoType]||1;
-    const priMult = priorityMultipliers[priority]||1;
+    const typeMult = RATE_TYPE_MULTIPLIERS[cargoType]||1;
+    const priMult = RATE_PRIORITY_MULTIPLIERS[priority]||1;
     const freight = Math.round(w*baseRate*typeMult*priMult);
     const fuel = Math.round(freight*0.18);
     const security = Math.round(freight*0.05);
@@ -877,7 +882,7 @@ function RateCalculatorTab() {
     const transitDays = priority==='URGENT'?3:priority==='EXPRESS'?5:8;
     const carrier = origin==='HKG'?'Ethiopian Airlines':Math.random()>0.5?'Ethiopian Airlines':'Qatar Airways';
     setQuote({carrier,total,breakdown:{Freight:freight,'Fuel Surcharge':fuel,Security:security,Handling:handling,'Documentation':docFee},transitDays});
-  }, [origin,destination,weight,cargoType,priority]);
+  }, [origin,weight,cargoType,priority]);
 
   return <div className="h-full overflow-y-auto"><div className="p-4 space-y-4">
     <Card className="bg-gradient-to-br from-blue-500/[0.08] to-indigo-500/[0.05] border-blue-500/15"><CardContent className="p-4">
@@ -1151,7 +1156,7 @@ function CustomsTab({search}:{search:string}){
 }
 
 /* ─── WAREHOUSE ─── */
-function WarehouseTab({search:_s}:{search:string}){
+function WarehouseTab(){
   const[scan,setScan]=useState('');
   const[found,setFound]=useState<Pkg|null>(null);
   const handleScan=()=>{const p=packages.find(p=>p.qrCode===scan);setFound(p||null);};
@@ -1802,7 +1807,7 @@ export default function KOBECARGO() {
       case 'timeline': return <TimelineTab />;
       case 'shipments': return <ShipmentsTab search={search} />;
       case 'customs': return <CustomsTab search={search} />;
-      case 'warehouse': return <WarehouseTab search={search} />;
+      case 'warehouse': return <WarehouseTab />;
       case 'flights': return <FlightsTab search={search} />;
       case 'payments': return <PaymentsTab />;
       case 'tracking': return <TrackingTab search={search} />;

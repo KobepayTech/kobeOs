@@ -91,7 +91,6 @@ export default function SpreadsheetApp() {
   const [cells, setCells] = useState<Map<string, CellData>>(new Map());
   const [selected, setSelected] = useState<{ col: number; row: number } | null>(null);
   const [editValue, setEditValue] = useState('');
-  const [_editing, setEditing] = useState(false);
   const [colWidths, setColWidths] = useState<number[]>(() => Array.from({ length: 26 }, () => 80));
   const [resizing, setResizing] = useState<number | null>(null);
   const [startX, setStartX] = useState(0);
@@ -125,7 +124,6 @@ export default function SpreadsheetApp() {
     const key = cellKey(col, row);
     const cell = cells.get(key);
     setEditValue(cell?.formula ?? cell?.value ?? '');
-    setEditing(true);
     setTimeout(() => inputRef.current?.focus(), 0);
   };
 
@@ -138,7 +136,6 @@ export default function SpreadsheetApp() {
     } else {
       setCell(col, row, { value: val, formula: undefined });
     }
-    setEditing(false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -150,11 +147,8 @@ export default function SpreadsheetApp() {
         const key = cellKey(next.col, next.row);
         const cell = cells.get(key);
         setEditValue(cell?.formula ?? cell?.value ?? '');
-        setEditing(true);
-        setTimeout(() => inputRef.current?.focus(), 0);
+            setTimeout(() => inputRef.current?.focus(), 0);
       }
-    } else if (e.key === 'Escape') {
-      setEditing(false);
     } else if (e.key === 'Tab') {
       e.preventDefault();
       commitEdit();
@@ -164,8 +158,7 @@ export default function SpreadsheetApp() {
         const key = cellKey(next.col, next.row);
         const cell = cells.get(key);
         setEditValue(cell?.formula ?? cell?.value ?? '');
-        setEditing(true);
-        setTimeout(() => inputRef.current?.focus(), 0);
+            setTimeout(() => inputRef.current?.focus(), 0);
       }
     }
   };

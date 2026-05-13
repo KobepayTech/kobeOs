@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import {
   Building2, Users, BarChart3, Search,
   Phone, Mail, MapPin, Bed, Bath, Square,
@@ -165,7 +165,7 @@ function MonthIndicator({ month, paidMonths, unpaidMonths }: { month: string; pa
 /* ─────────────────── KPI CARD ─────────────────── */
 
 const KPICard = ({ title, value, sub, icon: Icon, color = 'blue' }: {
-  title: string; value: string; sub?: string; icon: any; color?: string;
+  title: string; value: string; sub?: string; icon: React.ComponentType<{ className?: string }>; color?: string;
 }) => {
   const colorMap: Record<string, string> = {
     blue: 'text-blue-400', emerald: 'text-emerald-400', amber: 'text-amber-400',
@@ -248,12 +248,12 @@ export default function PropertyManager() {
 
       {/* Content */}
       <div className="flex-1 min-h-0 overflow-hidden">
-        {tab === 'dashboard' && <DashboardTab search={search} />}
+        {tab === 'dashboard' && <DashboardTab />}
         {tab === 'properties' && <PropertiesTab search={search} />}
         {tab === 'tenants' && <TenantsTab search={search} />}
         {tab === 'units' && <UnitsTab search={search} />}
         {tab === 'payments' && <PaymentsTab search={search} />}
-        {tab === 'cashier' && <CashierTab search={search} />}
+        {tab === 'cashier' && <CashierTab />}
       </div>
     </div>
   );
@@ -263,7 +263,7 @@ export default function PropertyManager() {
    DASHBOARD TAB
    ═══════════════════════════════════════════════════ */
 
-function DashboardTab({ search: _search }: { search: string }) {
+function DashboardTab() {
   const [selectedProperty, setSelectedProperty] = useState<string>('all');
   const [viewTenant, setViewTenant] = useState<Tenant | null>(null);
 
@@ -883,7 +883,7 @@ function PaymentsTab({ search }: { search: string }) {
    CASHIER TAB
    ═══════════════════════════════════════════════════ */
 
-function CashierTab({ search: _search }: { search: string }) {
+function CashierTab() {
   const [receiptNo, setReceiptNo] = useState('');
   const [amount, setAmount] = useState('');
   const [shortCode, setShortCode] = useState('');

@@ -32,19 +32,17 @@ export default function CameraApp() {
   const [mirror, setMirror] = useState(true);
   const [countdown, setCountdown] = useState(0);
   const [countdownValue, setCountdownValue] = useState(0);
-  const [photos, setPhotos] = useState<FSNode[]>([]);
+  const [photos, setPhotos] = useState<FSNode[]>(() =>
+    fs.readdir(GALLERY_DIR).filter((f) => f.type === 'file' && /\.(png|jpg|jpeg)$/i.test(f.name))
+  );
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
 
   const refreshPhotos = useCallback(() => {
     const dir = fs.readdir(GALLERY_DIR);
-    setPhotos(dir.filter((f) => f.type === 'file' && f.name.match(/\.(png|jpg|jpeg)$/i)));
+    setPhotos(dir.filter((f) => f.type === 'file' && /\.(png|jpg|jpeg)$/i.test(f.name)));
   }, []);
 
-  useEffect(() => {
-    refreshPhotos();
-  }, [refreshPhotos]);
-
-  const startCamera = async () => {
+  const startCamera = useCallback(async () => {
     try {
       setError(null);
       const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
@@ -54,25 +52,26 @@ export default function CameraApp() {
         videoRef.current.play();
       }
       setStreamActive(true);
-    } catch (err) {
+    } catch {
       setError('Camera access denied or not available.');
       setStreamActive(false);
     }
-  };
+  }, []);
 
-  const stopCamera = () => {
+  const stopCamera = useCallback(() => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
     streamRef.current = null;
     if (videoRef.current) {
       videoRef.current.srcObject = null;
     }
     setStreamActive(false);
-  };
+  }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     startCamera();
     return () => stopCamera();
-  }, []);
+  }, [startCamera, stopCamera]);
 
   const capture = () => {
     if (!videoRef.current || !canvasRef.current) return;

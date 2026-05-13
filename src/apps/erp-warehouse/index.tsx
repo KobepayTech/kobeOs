@@ -69,6 +69,7 @@ export default function ERPWarehouse() {
 
   const assignTask = (id: string) => {
     const names = ['John D.', 'Mary K.', 'Peter O.', 'Grace W.'];
+    // eslint-disable-next-line react-hooks/purity
     const random = names[Math.floor(Math.random() * names.length)];
     setQueue((prev) => prev.map((q) => (q.id === id ? { ...q, assignee: random, status: 'Picking' as const } : q)));
   };

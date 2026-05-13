@@ -1,11 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { RotateCcw, Timer, Undo2 } from 'lucide-react';
 
-interface SolitaireProps {
-  windowId: string;
-  data?: any;
-}
-
 type Suit = 'hearts' | 'diamonds' | 'spades' | 'clubs';
 type Rank = 'A' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '10' | 'J' | 'Q' | 'K';
 
@@ -94,7 +89,7 @@ function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-export default function SolitaireGame({ windowId: _windowId }: SolitaireProps) {
+export default function SolitaireGame() {
   const [game, setGame] = useState<GameState>(createInitialState);
   const [selected, setSelected] = useState<{ type: PileType; pileIndex: number; cardIndex: number } | null>(null);
   const [history, setHistory] = useState<GameState[]>([]);
@@ -219,7 +214,7 @@ export default function SolitaireGame({ windowId: _windowId }: SolitaireProps) {
     saveState(current);
     const newFoundations = [...current.foundations];
     newFoundations[foundationIndex] = [...newFoundations[foundationIndex], { ...card, faceUp: true }];
-    let newScore = current.score + 10;
+    const newScore = current.score + 10;
 
     let newGame: GameState;
     if (selected.type === 'waste') {

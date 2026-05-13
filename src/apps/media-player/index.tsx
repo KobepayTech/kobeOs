@@ -65,14 +65,14 @@ export default function MediaPlayerApp() {
 
   const currentTrack = playlist[currentIndex];
 
-  useEffect(() => {
-    refreshFiles();
+  const refreshFiles = useCallback(() => {
+    const dir = fs.readdir(currentPath);
+    setFiles(dir.filter((f) => f.type === 'file' && (SUPPORTED.includes(f.mimeType ?? '') || /\.(mp3|wav|ogg)$/i.test(f.name))));
   }, [currentPath]);
 
-  const refreshFiles = () => {
-    const dir = fs.readdir(currentPath);
-    setFiles(dir.filter((f) => f.type === 'file' && (SUPPORTED.includes(f.mimeType ?? '') || f.name.match(/\.(mp3|wav|ogg)$/i))));
-  };
+  useEffect(() => {
+    refreshFiles();
+  }, [refreshFiles]);
 
   const playTrack = useCallback((index: number) => {
     setCurrentIndex(index);
@@ -238,6 +238,7 @@ export default function MediaPlayerApp() {
       }
       return () => URL.revokeObjectURL(url);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTrack]);
 
   return (

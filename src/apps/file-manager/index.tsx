@@ -7,7 +7,7 @@ import type { FSNode } from '@/os/types';
 
 export default function FileManager() {
   const [path, setPath] = useState('/home/user');
-  const [items, setItems] = useState<FSNode[]>([]);
+  const [items, setItems] = useState<FSNode[]>(() => fs.readdir('/home/user'));
   const [history, setHistory] = useState<string[]>(['/home/user']);
   const [historyIdx, setHistoryIdx] = useState(0);
   const [selected, setSelected] = useState<string | null>(null);
@@ -19,8 +19,8 @@ export default function FileManager() {
   }, [path]);
 
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    setItems(fs.readdir(path));
+  }, [path]);
 
   const navigate = useCallback(
     (newPath: string) => {

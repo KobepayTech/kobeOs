@@ -90,7 +90,7 @@ function formatDate(ts: number): string {
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
-export default function ChatApp(_props: { windowId: string; data?: any }) {
+export default function ChatApp() {
   const [messages, setMessages] = useState<ChatMessage[]>(loadMessages);
   const [activeChannel, setActiveChannel] = useState('general');
   const [input, setInput] = useState('');
@@ -159,7 +159,11 @@ export default function ChatApp(_props: { windowId: string; data?: any }) {
     ? channelMessages.filter(m => m.text.toLowerCase().includes(searchQuery.toLowerCase()) || m.userName.toLowerCase().includes(searchQuery.toLowerCase()))
     : channelMessages;
 
-  let lastDate = '';
+  const dateDividers = filteredMessages.map((m, i) => {
+    const d = formatDate(m.timestamp);
+    const prev = i > 0 ? formatDate(filteredMessages[i - 1].timestamp) : '';
+    return d !== prev ? d : null;
+  });
 
   return (
     <div className="flex h-full bg-slate-900 text-slate-100 overflow-hidden">
@@ -269,10 +273,9 @@ export default function ChatApp(_props: { windowId: string; data?: any }) {
               <p className="text-sm">No messages yet</p>
             </div>
           )}
-          {filteredMessages.map((msg) => {
-            const msgDate = formatDate(msg.timestamp);
-            const showDateDivider = msgDate !== lastDate;
-            lastDate = msgDate;
+          {filteredMessages.map((msg, idx) => {
+            const msgDate = dateDividers[idx];
+            const showDateDivider = msgDate !== null;
             const isMe = msg.userId === 'me';
 
             if (msg.type === 'system') {

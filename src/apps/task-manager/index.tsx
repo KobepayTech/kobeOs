@@ -63,7 +63,12 @@ function formatUptime(seconds: number): string {
   return `${m}m ${s}s`;
 }
 
-export default function TaskManagerApp(_props: { windowId: string; data?: any }) {
+function SortIcon({ col, sortCol, sortDir }: { col: keyof Process; sortCol: keyof Process; sortDir: 'asc' | 'desc' }) {
+  if (sortCol !== col) return <ChevronUp className="w-3 h-3 text-slate-600 opacity-0 group-hover:opacity-50" />;
+  return sortDir === 'asc' ? <ChevronUp className="w-3 h-3 text-emerald-400" /> : <ChevronDown className="w-3 h-3 text-emerald-400" />;
+}
+
+export default function TaskManagerApp() {
   const [processes, setProcesses] = useState<Process[]>(makeInitialProcesses);
   const [startup, setStartup] = useState<StartupItem[]>(INITIAL_STARTUP);
   const [cpuHistory, setCpuHistory] = useState<number[]>(Array(60).fill(0));
@@ -78,7 +83,8 @@ export default function TaskManagerApp(_props: { windowId: string; data?: any })
   const [notif, setNotif] = useState<string | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // Simulation tick every 2 seconds
+  const cpuRef = useRef(15);
+  const memRef = useRef(42);
   useEffect(() => {
     const interval = setInterval(() => {
       setProcesses(prev => prev.map(p => {
@@ -91,25 +97,19 @@ export default function TaskManagerApp(_props: { windowId: string; data?: any })
           uptime: p.uptime + 2,
         };
       }));
-      setCpuPercent(prev => Math.max(10, Math.min(40, prev + (Math.random() - 0.5) * 8)));
-      setMemPercent(prev => Math.max(30, Math.min(70, prev + (Math.random() - 0.5) * 4)));
+      const nextCpu = Math.max(10, Math.min(40, cpuRef.current + (Math.random() - 0.5) * 8));
+      const nextMem = Math.max(30, Math.min(70, memRef.current + (Math.random() - 0.5) * 4));
+      cpuRef.current = nextCpu;
+      memRef.current = nextMem;
+      setCpuPercent(nextCpu);
+      setMemPercent(nextMem);
+      setCpuHistory(h => [...h.slice(1), nextCpu]);
+      setMemHistory(h => [...h.slice(1), nextMem]);
       setDiskActive(prev => Math.max(0, Math.min(50, prev + (Math.random() - 0.5) * 10)));
       setNetActive(prev => Math.max(0, Math.min(80, prev + (Math.random() - 0.5) * 15)));
     }, 2000);
     return () => clearInterval(interval);
   }, []);
-
-  // Update history
-  useEffect(() => {
-    setCpuHistory(prev => {
-      const next = [...prev.slice(1), cpuPercent];
-      return next;
-    });
-    setMemHistory(prev => {
-      const next = [...prev.slice(1), memPercent];
-      return next;
-    });
-  }, [cpuPercent, memPercent]);
 
   // Canvas chart drawing
   useEffect(() => {
@@ -211,11 +211,6 @@ export default function TaskManagerApp(_props: { windowId: string; data?: any })
     setStartup(prev => prev.map(s => s.id === id ? { ...s, enabled: !s.enabled } : s));
   };
 
-  const SortIcon = ({ col }: { col: keyof Process }) => {
-    if (sortCol !== col) return <ChevronUp className="w-3 h-3 text-slate-600 opacity-0 group-hover:opacity-50" />;
-    return sortDir === 'asc' ? <ChevronUp className="w-3 h-3 text-emerald-400" /> : <ChevronDown className="w-3 h-3 text-emerald-400" />;
-  };
-
   const statusColor = (s: string) => {
     if (s === 'running') return 'text-emerald-400';
     if (s === 'sleeping') return 'text-blue-400';
@@ -309,25 +304,25 @@ export default function TaskManagerApp(_props: { windowId: string; data?: any })
             {/* Table header */}
             <div className="flex items-center px-4 py-2 border-b border-slate-800 bg-slate-900/30 text-[10px] font-bold uppercase tracking-wider text-slate-400">
               <button onClick={() => handleSort('pid')} className="group flex items-center gap-1 w-16 text-left hover:text-slate-200 transition-colors">
-                PID <SortIcon col="pid" />
+                PID <SortIcon col="pid" sortCol={sortCol} sortDir={sortDir} />
               </button>
               <button onClick={() => handleSort('name')} className="group flex items-center gap-1 flex-1 text-left hover:text-slate-200 transition-colors">
-                Name <SortIcon col="name" />
+                Name <SortIcon col="name" sortCol={sortCol} sortDir={sortDir} />
               </button>
               <button onClick={() => handleSort('user')} className="group flex items-center gap-1 w-20 text-left hover:text-slate-200 transition-colors">
-                User <SortIcon col="user" />
+                User <SortIcon col="user" sortCol={sortCol} sortDir={sortDir} />
               </button>
               <button onClick={() => handleSort('cpu')} className="group flex items-center gap-1 w-16 text-right hover:text-slate-200 transition-colors">
-                CPU% <SortIcon col="cpu" />
+                CPU% <SortIcon col="cpu" sortCol={sortCol} sortDir={sortDir} />
               </button>
               <button onClick={() => handleSort('memory')} className="group flex items-center gap-1 w-20 text-right hover:text-slate-200 transition-colors">
-                Memory <SortIcon col="memory" />
+                Memory <SortIcon col="memory" sortCol={sortCol} sortDir={sortDir} />
               </button>
               <button onClick={() => handleSort('status')} className="group flex items-center gap-1 w-20 text-left hover:text-slate-200 transition-colors">
-                Status <SortIcon col="status" />
+                Status <SortIcon col="status" sortCol={sortCol} sortDir={sortDir} />
               </button>
               <button onClick={() => handleSort('uptime')} className="group flex items-center gap-1 w-24 text-left hover:text-slate-200 transition-colors">
-                Uptime <SortIcon col="uptime" />
+                Uptime <SortIcon col="uptime" sortCol={sortCol} sortDir={sortDir} />
               </button>
               <div className="w-16 text-right">Action</div>
             </div>

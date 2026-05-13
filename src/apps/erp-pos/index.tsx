@@ -337,9 +337,14 @@ export default function POSSystem() {
     setShowCheckout(false);
   };
 
-  // ── Countdown helper ──
+  const [tickNow, setTickNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setTickNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
   const getRemaining = (expiry: number) => {
-    const diff = expiry - Date.now();
+    const diff = expiry - tickNow;
     if (diff <= 0) return '00:00';
     const mins = Math.floor(diff / 60000);
     const secs = Math.floor((diff % 60000) / 1000);

@@ -53,7 +53,7 @@ function markdownToHTML(md: string): string {
   html = html.replace(/^---$/gim, '<hr style="border:none;border-top:1px solid #334155;margin:16px 0" />');
 
   // Tables
-  html = html.replace(/\|(.+)\|\n\|([-:\|\s]+)\|\n((?:\|.+\|\n?)+)/g, (_match, header, _sep, rows) => {
+  html = html.replace(/\|(.+)\|\n\|([-:|\s]+)\|\n((?:\|.+\|\n?)+)/g, (_match, header, _sep, rows) => {
     const headers = header.split('|').map((h: string) => h.trim()).filter(Boolean);
     const rowLines = rows.trim().split('\n');
     let table = '<table style="width:100%;border-collapse:collapse;margin:12px 0;font-size:13px">';

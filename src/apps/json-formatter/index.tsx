@@ -125,9 +125,8 @@ export default function JSONFormatter() {
     }
   }, []);
 
-  useEffect(() => {
-    validate(input);
-  }, [input, validate]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { validate(input); }, [input, validate]);
 
   const format = useCallback(() => {
     if (!validate(input)) return;

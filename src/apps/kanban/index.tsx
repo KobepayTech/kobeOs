@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   Plus,
   X,
@@ -140,12 +140,12 @@ export default function KanbanApp() {
     setDragGhost({ x: e.clientX, y: e.clientY, title: card.title });
   };
 
-  const handleMouseMove = useCallback((e: MouseEvent) => {
+  const handleMouseMove = (e: MouseEvent) => {
     if (!dragRef.current) return;
     setDragGhost((prev) => (prev ? { ...prev, x: e.clientX, y: e.clientY } : null));
-  }, []);
+  };
 
-  const handleMouseUp = useCallback((e: MouseEvent) => {
+  const handleMouseUp = (e: MouseEvent) => {
     if (!dragRef.current) return;
     const { cardId, fromColId } = dragRef.current;
     dragRef.current = null;
@@ -178,18 +178,17 @@ export default function KanbanApp() {
         });
       });
     }
-  }, []);
+  };
 
   useEffect(() => {
-    if (draggingCard) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
-      return () => {
-        window.removeEventListener('mousemove', handleMouseMove);
-        window.removeEventListener('mouseup', handleMouseUp);
-      };
-    }
-  }, [draggingCard, handleMouseMove, handleMouseUp]);
+    if (!draggingCard) return;
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [draggingCard]);
 
   return (
     <div className="flex flex-col h-full w-full bg-slate-900 text-slate-200">

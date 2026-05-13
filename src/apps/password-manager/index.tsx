@@ -108,7 +108,7 @@ function generatePassword(length: number, upper: boolean, lower: boolean, nums: 
   return pwd;
 }
 
-export default function PasswordManagerApp(_props: { windowId: string; data?: any }) {
+export default function PasswordManagerApp() {
   const [master, setMaster] = useState('');
   const [masterInput, setMasterInput] = useState('');
   const [entries, setEntries] = useState<PasswordEntry[]>([]);
@@ -130,11 +130,8 @@ export default function PasswordManagerApp(_props: { windowId: string; data?: an
   const masterHash = loadMasterHash();
   const isUnlocked = !!master;
 
-  useEffect(() => {
-    if (master) {
-      setEntries(loadEntries(master));
-    }
-  }, [master]);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { if (master) setEntries(loadEntries(master)); }, [master]);
 
   useEffect(() => {
     if (master) {

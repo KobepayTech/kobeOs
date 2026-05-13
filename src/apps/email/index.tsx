@@ -89,7 +89,7 @@ function formatFullDate(ts: number): string {
   return d.toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
-export default function EmailApp(_props: { windowId: string; data?: any }) {
+export default function EmailApp() {
   const [emails, setEmails] = useState<EmailMessage[]>(loadEmails);
   const [activeFolder, setActiveFolder] = useState('inbox');
   const [selectedEmailId, setSelectedEmailId] = useState<string | null>(null);

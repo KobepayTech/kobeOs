@@ -610,7 +610,7 @@ function MarketplaceModule() {
   const niches = ['ALL', ...Array.from(new Set(creators.map(c => c.niche)))];
 
   const filtered = useMemo(() => {
-    let list = creators.filter(c => {
+    const list = creators.filter(c => {
       const matchSearch = c.name.toLowerCase().includes(search.toLowerCase()) || c.handle.toLowerCase().includes(search.toLowerCase());
       const matchNiche = nicheFilter === 'ALL' || c.niche === nicheFilter;
       return matchSearch && matchNiche;
