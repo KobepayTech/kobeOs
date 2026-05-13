@@ -1,4 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { api } from '@/lib/api';
+import { ensureSession } from '@/lib/auth';
 import {
   Building2, LayoutDashboard, ConciergeBell, Bed, Wine, UtensilsCrossed,
   Package, Users, Calculator, QrCode, Plus, Minus, Search, Trash2,
@@ -302,6 +304,40 @@ export default function KobeHotel() {
   const [staff, setStaff] = useState<StaffMember[]>(STAFF);
   const [inventory] = useState<InventoryItem[]>(INVENTORY);
   const [darkMode, setDarkMode] = useState(true);
+
+  // Sync rooms + guests to /api/hotel on first mount; seed if backend is empty.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await ensureSession();
+        const existingRooms = await api<Array<{ id: string }>>('/hotel/rooms');
+        if (cancelled || existingRooms.length > 0) return;
+        await Promise.all(ROOMS.map((r) =>
+          api('/hotel/rooms', {
+            method: 'POST',
+            body: JSON.stringify({
+              roomNumber: r.number, type: r.type, rate: r.price,
+              capacity: r.beds || 2,
+              status: r.status === 'available' ? 'available'
+                : r.status === 'maintenance' ? 'maintenance'
+                : r.status === 'occupied' ? 'occupied' : 'available',
+            }),
+          }),
+        ));
+        await Promise.all(GUESTS.map((g) =>
+          api('/hotel/guests', {
+            method: 'POST',
+            body: JSON.stringify({
+              name: g.name, phone: g.phone, email: g.email,
+              nationality: g.nationality, idNumber: g.idNumber,
+            }),
+          }),
+        ));
+      } catch { /* leave demo data alone on failure */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // Bar POS state
   const [barCategory, setBarCategory] = useState('Beer');

@@ -1,4 +1,6 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
+import { api } from '@/lib/api';
+import { ensureSession } from '@/lib/auth';
 import { useOSStore } from '@/os/store';
 import {
   Plane, BarChart3, Package, ShieldCheck, Warehouse, PlaneTakeoff,
@@ -1795,6 +1797,54 @@ export default function KOBECARGO() {
   const [tab, setTab] = useState<Tab>('dashboard');
   const [search, setSearch] = useState('');
   const [showAlerts, setShowAlerts] = useState(false);
+
+  // Seed /api/cargo/{shipments,flights} on first mount so the backend reflects demo cargo.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await ensureSession();
+        const [exShips, exFlights] = await Promise.all([
+          api<Array<{ id: string }>>('/cargo/shipments'),
+          api<Array<{ id: string }>>('/cargo/flights'),
+        ]);
+        if (cancelled) return;
+        const work: Promise<unknown>[] = [];
+        if (exShips.length === 0) {
+          for (const s of shipments) {
+            work.push(api('/cargo/shipments', {
+              method: 'POST',
+              body: JSON.stringify({
+                shipmentId: s.number,
+                origin: s.origin,
+                destination: s.destination,
+                weight: s.actualWeight,
+                status: s.status,
+                etd: s.etd, eta: s.eta,
+              }),
+            }).catch(() => undefined));
+          }
+        }
+        if (exFlights.length === 0) {
+          for (const f of flights) {
+            work.push(api('/cargo/flights', {
+              method: 'POST',
+              body: JSON.stringify({
+                flightNumber: f.number,
+                origin: f.origin, destination: f.destination,
+                departureAt: new Date().toISOString(),
+                arrivalAt: new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString(),
+                carrier: f.airline,
+                capacityKg: f.capacity ?? 0,
+              }),
+            }).catch(() => undefined));
+          }
+        }
+        await Promise.all(work);
+      } catch { /* leave demo data alone */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
   const alerts = useMemo(() => generateAlerts(), []);
   const criticalCount = alerts.filter(a => a.severity === 'critical').length;
   const aiCount = generateAIInsights().length;

@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { api } from '@/lib/api';
+import { ensureSession } from '@/lib/auth';
 import {
   Warehouse, Package, ScanLine, QrCode, Printer, CheckSquare, Square,
   Clock, User, AlertCircle, Play, Box,
@@ -49,6 +51,28 @@ export default function ERPWarehouse() {
   const [scanned, setScanned] = useState<string[]>([]);
   const [qrResult, setQrResult] = useState<string | null>(null);
   const [printerStatus, setPrinterStatus] = useState('Online');
+
+  // Seed /api/warehouse/items from the picking list on first mount.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await ensureSession();
+        const existing = await api<Array<{ id: string }>>('/warehouse/items');
+        if (cancelled || existing.length > 0) return;
+        await Promise.all(pickingItems.map((p) =>
+          api('/warehouse/items', {
+            method: 'POST',
+            body: JSON.stringify({
+              sku: p.sku, name: p.name, quantity: 50,
+              reorderLevel: 10, location: p.location,
+            }),
+          }),
+        ));
+      } catch { /* leave demo */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const togglePick = (id: number) => {
     setItems((prev) => prev.map((i) => (i.id === id ? { ...i, picked: !i.picked } : i)));

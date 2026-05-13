@@ -1,4 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { api } from '@/lib/api';
+import { ensureSession } from '@/lib/auth';
 import {
   Send, Package, MapPin, User, Weight,
   Ruler, CreditCard, Banknote, Smartphone, Receipt,
@@ -194,7 +196,11 @@ export default function CargoSender() {
   /* Wizard handlers */
   const nextStep = () => setStep(s => Math.min(s + 1, 6));
   const prevStep = () => { if (step > 1) setStep(s => s - 1); };
-  const handleSubmit = () => {
+  useEffect(() => {
+    void ensureSession().catch(() => undefined);
+  }, []);
+
+  const handleSubmit = async () => {
     const id = genParcelId(sender.name);
     setParcelId(id);
     setSubmitted(true);
@@ -213,6 +219,21 @@ export default function CargoSender() {
       ],
     };
     setShipments(prev => [newShipment, ...prev]);
+    // Persist to /api/cargo/parcels — fire and forget; UI stays optimistic.
+    try {
+      await api('/cargo/parcels', {
+        method: 'POST',
+        body: JSON.stringify({
+          parcelId: id,
+          senderName: sender.name, senderPhone: sender.phone,
+          ownerName: receiver.name, ownerPhone: receiver.phone,
+          destination: receiver.country,
+          weight: pkg.weight,
+          description: pkg.description,
+          paymentMode: payment.mode === 'PAY_NOW' ? 'PAY_NOW' : 'PAY_ON_ARRIVAL',
+        }),
+      });
+    } catch { /* leave optimistic local state in place */ }
   };
   const resetWizard = () => {
     setStep(1); setSubmitted(false); setParcelId(''); setAgreed(false);

@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { ensureSession } from '@/lib/auth';
 import {
   Shield, Users, Send, Bell, MessageSquare, Settings,
   Plus, Search, Edit2, Trash2, CheckCircle2, XCircle,
@@ -116,6 +117,8 @@ function StatusBadge({ status }: { status: 'Active' | 'Inactive' | 'Delivered' |
    ═══════════════════════════════════════════════════════════ */
 export default function CargoCompany() {
   const [activeTab, setActiveTab] = useState('dashboard');
+
+  useEffect(() => { void ensureSession().catch(() => undefined); }, []);
 
   /* ─── Receiver State ─── */
   const [receivers, setReceivers] = useState<Receiver[]>(RECEIVERS);

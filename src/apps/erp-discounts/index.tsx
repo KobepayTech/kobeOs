@@ -1,4 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { api } from '@/lib/api';
+import { ensureSession } from '@/lib/auth';
 import {
   Percent, Tag, ShoppingBag, Ticket, Plus, Search, Copy, CheckCircle2,
   Clock, Trash2, Edit, ArrowRight, Gift, TrendingUp, X, Zap
@@ -133,6 +135,57 @@ export default function DiscountsPromotions() {
   const [showCreateCampaign, setShowCreateCampaign] = useState(false);
   const [couponSearch, setCouponSearch] = useState('');
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+
+  // Seed /api/discounts on first mount so the backend mirrors the demo catalog.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await ensureSession();
+        const existing = await api<Array<{ id: string }>>('/discounts/rules');
+        if (cancelled || existing.length > 0) return;
+        const numericValue = (v: string) => Number(v.replace(/[^\d.]/g, '')) || 0;
+        await Promise.all([
+          ...discountRules.map((r) =>
+            api('/discounts/rules', {
+              method: 'POST',
+              body: JSON.stringify({
+                name: r.name,
+                type: r.type === 'Fixed' ? 'Fixed' : r.type === 'BuyXGetY' ? 'BOGO' : 'Percentage',
+                value: numericValue(r.value),
+                productScope: r.products,
+              }),
+            }),
+          ),
+          ...campaigns.map((c) =>
+            api('/discounts/campaigns', {
+              method: 'POST',
+              body: JSON.stringify({
+                name: c.name, description: c.description,
+                startDate: c.startDate + 'T00:00:00Z',
+                endDate: c.endDate + 'T23:59:59Z',
+                status: c.status,
+              }),
+            }),
+          ),
+          ...coupons.map((c) =>
+            api('/discounts/coupons', {
+              method: 'POST',
+              body: JSON.stringify({
+                code: c.code,
+                type: c.type === 'Fixed' ? 'Fixed' : 'Percentage',
+                value: numericValue(c.discount),
+                usageLimit: c.limit,
+                expiresAt: c.expiry + 'T23:59:59Z',
+                active: c.status === 'Active',
+              }),
+            }),
+          ),
+        ]);
+      } catch { /* leave demo data alone */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // Form states
   const [discountName, setDiscountName] = useState('');

@@ -1,4 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
+import { api } from '@/lib/api';
+import { ensureSession } from '@/lib/auth';
 import {
   Plus, Minus, Trash2, ShoppingCart, CreditCard, Smartphone, Banknote,
   Receipt, Tag, Percent, Search, Barcode, Shirt, Backpack, Coffee,
@@ -113,6 +115,28 @@ export default function POSSystem() {
   const [category, setCategory] = useState<string>('All');
   const [requests, setRequests] = useState<DiscountRequest[]>([]);
   const [activeTab, setActiveTab] = useState('pos');
+
+  // Seed /api/pos/products on first mount if the catalog is empty.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        await ensureSession();
+        const existing = await api<Array<{ id: string }>>('/pos/products');
+        if (cancelled || existing.length > 0) return;
+        await Promise.all(PRODUCTS.map((p) =>
+          api('/pos/products', {
+            method: 'POST',
+            body: JSON.stringify({
+              sku: p.id, name: p.name, category: p.category,
+              price: p.price, stock: p.stock,
+            }),
+          }),
+        ));
+      } catch { /* leave demo catalog */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // Discount dialog state
   const [showDialog, setShowDialog] = useState(false);
