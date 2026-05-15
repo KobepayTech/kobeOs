@@ -9,8 +9,10 @@ function createWindow() {
     width: 1920, height: 1080, fullscreen: true, kiosk: true,
     autoHideMenuBar: true, frame: false,
     webPreferences: {
-      nodeIntegration: true, contextIsolation: false,
-      enableRemoteModule: true, webSecurity: false
+      nodeIntegration: false,
+      contextIsolation: true,   // required for contextBridge in preload.js to work
+      preload: path.join(__dirname, 'preload.js'),
+      webSecurity: false        // kept false for local file:// resource loading
     }
   });
 
@@ -40,26 +42,54 @@ ipcMain.handle('system-reboot', () => {
   exec(process.platform === 'win32' ? 'shutdown /r /t 0' : 'reboot');
 });
 
+// Allowlist: only canonical block device paths are accepted.
+const DISK_PATH_RE = /^\/dev\/(sd[a-z]|hd[a-z]|vd[a-z]|nvme\d+n\d+|mmcblk\d+)$/;
+
 ipcMain.handle('install-to-disk', async (event, diskPath) => {
+  if (typeof diskPath !== 'string' || !DISK_PATH_RE.test(diskPath)) {
+    return { success: false, error: `Invalid disk path: ${diskPath}` };
+  }
+  // Use execFile with an explicit argument array to avoid shell interpolation.
+  const { execFile } = require('child_process');
+  const script = [
+    `echo "Installing KobeOS to ${diskPath}..."`,
+    `parted ${diskPath} mklabel gpt`,
+    `parted ${diskPath} mkpart primary ext4 1MiB 512MiB`,
+    `parted ${diskPath} mkpart primary ext4 512MiB 100%`,
+    `mkfs.ext4 ${diskPath}1 && mkfs.ext4 ${diskPath}2`,
+    `mkdir -p /mnt/kobeos && mount ${diskPath}2 /mnt/kobeos`,
+    `cp -a /opt/kobeos/* /mnt/kobeos/`,
+    `mkdir -p /mnt/kobeos/boot/efi && mount ${diskPath}1 /mnt/kobeos/boot/efi`,
+    `grub-install --target=x86_64-efi --efi-directory=/mnt/kobeos/boot/efi --bootloader-id=KobeOS --removable`,
+    `grub-mkconfig -o /mnt/kobeos/boot/grub/grub.cfg`,
+    `umount -R /mnt/kobeos`,
+    `echo "INSTALL_COMPLETE"`,
+  ].join('\n');
   return new Promise((resolve) => {
-    const script = `
-      echo "Installing KobeOS to ${diskPath}..."
-      parted ${diskPath} mklabel gpt
-      parted ${diskPath} mkpart primary ext4 1MiB 512MiB
-      parted ${diskPath} mkpart primary ext4 512MiB 100%
-      mkfs.ext4 ${diskPath}1 && mkfs.ext4 ${diskPath}2
-      mkdir -p /mnt/kobeos && mount ${diskPath}2 /mnt/kobeos
-      cp -a /opt/kobeos/* /mnt/kobeos/
-      mkdir -p /mnt/kobeos/boot/efi && mount ${diskPath}1 /mnt/kobeos/boot/efi
-      grub-install --target=x86_64-efi --efi-directory=/mnt/kobeos/boot/efi --bootloader-id=KobeOS --removable
-      grub-mkconfig -o /mnt/kobeos/boot/grub/grub.cfg
-      umount -R /mnt/kobeos
-      echo "INSTALL_COMPLETE"
-    `;
-    exec(script, { timeout: 300000 }, (error, stdout, stderr) => {
+    execFile('/bin/bash', ['-c', script], { timeout: 300000 }, (error, stdout, stderr) => {
       resolve({ success: !error, output: stdout, error: stderr });
     });
   });
+});
+
+// Reads /proc/mounts to determine whether we're running from a live USB or an installed system.
+ipcMain.handle('get-system-mode', () => {
+  const fs = require('fs');
+  try {
+    const mounts = fs.readFileSync('/proc/mounts', 'utf8');
+    if (
+      mounts.includes('/dev/sr0') ||
+      mounts.includes('/dev/cdrom') ||
+      mounts.includes('overlay') ||
+      mounts.includes('aufs')
+    ) {
+      return 'live-usb';
+    }
+    return 'installed';
+  } catch {
+    // /proc/mounts unavailable (Windows, macOS dev builds)
+    return 'installed';
+  }
 });
 
 ipcMain.handle('scan-disks', async () => {
