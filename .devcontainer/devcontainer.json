@@ -1,0 +1,24 @@
+// The Dev Container format allows you to configure your environment. At the heart of it
+// is a Docker image or Dockerfile which controls the tools available in your environment.
+//
+// See https://aka.ms/devcontainer.json for more information.
+{
+	"name": "KobeOS Dev",
+	"image": "mcr.microsoft.com/devcontainers/universal:4.0.1-noble",
+
+	// Install ISO build tools and project dependencies after the container starts.
+	// grub-pc-bin + grub-efi-amd64-bin + xorriso + mtools are required by
+	// scripts/build-iso.js (npm run iso:build).
+	"postCreateCommand": "sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends grub-pc-bin grub-efi-amd64-bin xorriso mtools && [ -f server/.env ] || cp server/.env.example server/.env && npm install && cd server && npm install",
+
+	"customizations": {
+		"vscode": {
+			"extensions": [
+				"dbaeumer.vscode-eslint",
+				"esbenp.prettier-vscode",
+				"bradlc.vscode-tailwindcss",
+				"ms-vscode.vscode-typescript-next"
+			]
+		}
+	}
+}
