@@ -28,6 +28,9 @@ import { HotelModule } from './hotel/hotel.module';
 import { CreatorsModule } from './creators/creators.module';
 import { VideoGenerationModule } from './video-generation/video-generation.module';
 import { AiModule } from './ai/ai.module';
+import { CompaniesModule } from './companies/companies.module';
+import { SubscriptionsModule } from './subscriptions/subscriptions.module';
+import { StoreSettingsModule } from './store-settings/store-settings.module';
 import { RolesGuard } from './common/roles.guard';
 import { LoggerMiddleware } from './common/logger.middleware';
 import { RedisCacheModule } from './cache/redis-cache.module';
@@ -70,6 +73,9 @@ import { WebhooksModule } from './webhooks/webhooks.module';
     PaymentsModule,
     HotelModule,
     CreatorsModule,
+    CompaniesModule,
+    SubscriptionsModule,
+    StoreSettingsModule,
   ],
   controllers: [AppController],
   providers: [

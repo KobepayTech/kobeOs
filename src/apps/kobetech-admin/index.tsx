@@ -1,10 +1,11 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   Shield, LayoutDashboard, Building2, CreditCard, Receipt, Package, Users, Wrench, Settings,
   Plus, Search, CheckCircle2, Clock, XCircle, AlertTriangle, TrendingUp, DollarSign,
   Eye, Edit, Trash2, ChevronRight, X, Download, Filter, BadgeCheck, Smartphone, Globe,
-  Lock, Unlock, RefreshCw, Cpu, HardDrive, Wifi, Activity
+  Lock, Unlock, RefreshCw, Cpu, HardDrive, Wifi, Activity, Loader2
 } from 'lucide-react';
+import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -18,28 +19,33 @@ import {
 } from 'recharts';
 
 /* ───────── Types ───────── */
+
+/** Shape returned by GET /api/companies */
 interface Company {
   id: string;
   name: string;
   email: string;
-  country: string;
-  plan: 'Basic' | 'Pro' | 'Enterprise';
-  users: number;
-  modules: number;
-  status: 'Active' | 'Trial' | 'Expired' | 'Suspended';
-  revenue: number;
-  joined: string;
+  country?: string;
+  phone?: string;
+  status: 'Active' | 'Trial' | 'Suspended' | 'Cancelled';
+  ownerId: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
+/** Shape returned by GET /api/subscriptions */
 interface Subscription {
   id: string;
-  company: string;
+  companyId: string;
+  company?: Company;
   plan: 'Basic' | 'Pro' | 'Enterprise';
   price: number;
   startDate: string;
   endDate: string;
-  status: 'Active' | 'Trial' | 'Expired' | 'Cancelled';
+  status: 'Trial' | 'Active' | 'Expired' | 'Cancelled';
   autoRenew: boolean;
+  enabledModules: string[];
+  createdAt: string;
 }
 
 interface Invoice {
@@ -408,20 +414,74 @@ function DashboardModule() {
 
 /* ───────── Module 2: Companies ───────── */
 function CompaniesModule() {
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState('All');
   const [showAddDialog, setShowAddDialog] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ name: '', email: '', country: 'Tanzania', phone: '' });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await api<Company[]>('/companies');
+      setCompanies(data);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
 
   const filtered = useMemo(() => {
-    return COMPANIES.filter((c) => {
-      const matchesSearch = c.name.toLowerCase().includes(search.toLowerCase()) ||
-        c.country.toLowerCase().includes(search.toLowerCase());
+    return companies.filter((c) => {
+      const matchesSearch =
+        c.name.toLowerCase().includes(search.toLowerCase()) ||
+        (c.country ?? '').toLowerCase().includes(search.toLowerCase());
       const matchesFilter = filter === 'All' || c.status === filter;
       return matchesSearch && matchesFilter;
     });
-  }, [search, filter]);
+  }, [companies, search, filter]);
 
-  const addForm = { name: '', email: '', country: '', plan: 'Basic' as const };
+  const handleCreate = async () => {
+    if (!form.name || !form.email) return;
+    setSaving(true);
+    try {
+      await api('/companies', { method: 'POST', body: JSON.stringify(form) });
+      setShowAddDialog(false);
+      setForm({ name: '', email: '', country: 'Tanzania', phone: '' });
+      load();
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSuspend = async (id: string, current: string) => {
+    const next = current === 'Suspended' ? 'Active' : 'Suspended';
+    try {
+      await api(`/companies/${id}`, { method: 'PATCH', body: JSON.stringify({ status: next }) });
+      setCompanies((prev) => prev.map((c) => c.id === id ? { ...c, status: next as Company['status'] } : c));
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Delete this company? This cannot be undone.')) return;
+    try {
+      await api(`/companies/${id}`, { method: 'DELETE' });
+      setCompanies((prev) => prev.filter((c) => c.id !== id));
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -442,66 +502,84 @@ function CompaniesModule() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {['All', 'Active', 'Trial', 'Expired', 'Suspended'].map((f) => (
+              {['All', 'Active', 'Trial', 'Suspended', 'Cancelled'].map((f) => (
                 <SelectItem key={f} value={f}>{f}</SelectItem>
               ))}
             </SelectContent>
           </Select>
         </div>
-        <Button onClick={() => setShowAddDialog(true)} className="bg-cyan-600 hover:bg-cyan-700 text-white">
-          <Plus className="w-4 h-4 mr-1" /> Add Company
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={load} className="border-white/[0.06] text-slate-400 hover:text-slate-200">
+            <RefreshCw className="w-4 h-4" />
+          </Button>
+          <Button onClick={() => setShowAddDialog(true)} className="bg-cyan-600 hover:bg-cyan-700 text-white">
+            <Plus className="w-4 h-4 mr-1" /> Add Company
+          </Button>
+        </div>
       </div>
+
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-sm text-red-400 flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 shrink-0" /> {error}
+        </div>
+      )}
 
       <Card className="bg-[#13131f] border-white/[0.06]">
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-white/[0.06]">
-                  {['Name', 'Country', 'Plan', 'Users', 'Modules', 'Status', 'Revenue', 'Joined', 'Actions'].map((h) => (
-                    <th key={h} className="text-left py-3 px-4 text-slate-400 font-medium">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((company) => (
-                  <tr key={company.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
-                    <td className="py-3 px-4 text-slate-200 font-medium">{company.name}</td>
-                    <td className="py-3 px-4 text-slate-400">{company.country}</td>
-                    <td className="py-3 px-4">
-                      <Badge variant="outline" className={
-                        company.plan === 'Enterprise' ? 'bg-violet-500/10 text-violet-400 border-violet-500/20' :
-                        company.plan === 'Pro' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
-                        'bg-slate-500/10 text-slate-400 border-slate-500/20'
-                      }>{company.plan}</Badge>
-                    </td>
-                    <td className="py-3 px-4 text-slate-400">{company.users}</td>
-                    <td className="py-3 px-4 text-slate-400">{company.modules}</td>
-                    <td className="py-3 px-4"><StatusBadge status={company.status} /></td>
-                    <td className="py-3 px-4 text-slate-400">${company.revenue.toLocaleString()}</td>
-                    <td className="py-3 px-4 text-slate-500">{company.joined}</td>
-                    <td className="py-3 px-4">
-                      <div className="flex gap-1">
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-slate-400 hover:text-blue-400">
-                          <Eye className="w-3.5 h-3.5" />
-                        </Button>
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-slate-400 hover:text-emerald-400">
-                          <Edit className="w-3.5 h-3.5" />
-                        </Button>
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-slate-400 hover:text-red-400">
-                          <Lock className="w-3.5 h-3.5" />
-                        </Button>
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-slate-400 hover:text-red-400">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
-                      </div>
-                    </td>
+          {loading ? (
+            <div className="flex items-center justify-center py-16 text-slate-500">
+              <Loader2 className="w-6 h-6 animate-spin mr-2" /> Loading companies…
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-slate-500">
+              <Building2 className="w-10 h-10 mb-3 opacity-30" />
+              <p className="text-sm">No companies found</p>
+              <p className="text-xs mt-1 text-slate-600">Add your first company to get started</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-white/[0.06]">
+                    {['Name', 'Email', 'Country', 'Status', 'Created', 'Actions'].map((h) => (
+                      <th key={h} className="text-left py-3 px-4 text-slate-400 font-medium">{h}</th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {filtered.map((company) => (
+                    <tr key={company.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
+                      <td className="py-3 px-4 text-slate-200 font-medium">{company.name}</td>
+                      <td className="py-3 px-4 text-slate-400">{company.email}</td>
+                      <td className="py-3 px-4 text-slate-400">{company.country ?? '—'}</td>
+                      <td className="py-3 px-4"><StatusBadge status={company.status} /></td>
+                      <td className="py-3 px-4 text-slate-500">{new Date(company.createdAt).toLocaleDateString()}</td>
+                      <td className="py-3 px-4">
+                        <div className="flex gap-1">
+                          <Button
+                            variant="ghost" size="sm"
+                            className={`h-7 w-7 p-0 ${company.status === 'Suspended' ? 'text-emerald-400 hover:text-emerald-300' : 'text-slate-400 hover:text-amber-400'}`}
+                            title={company.status === 'Suspended' ? 'Unsuspend' : 'Suspend'}
+                            onClick={() => handleSuspend(company.id, company.status)}
+                          >
+                            {company.status === 'Suspended' ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+                          </Button>
+                          <Button
+                            variant="ghost" size="sm"
+                            className="h-7 w-7 p-0 text-slate-400 hover:text-red-400"
+                            title="Delete"
+                            onClick={() => handleDelete(company.id)}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -513,55 +591,54 @@ function CompaniesModule() {
           </DialogHeader>
           <div className="space-y-4 pt-2">
             <div>
-              <label className="text-xs text-slate-400 mb-1 block">Company Name</label>
-              <Input placeholder="e.g. New Company Ltd" className="bg-[#0a0a1a] border-white/[0.06] text-slate-200" />
+              <label className="text-xs text-slate-400 mb-1 block">Company Name *</label>
+              <Input
+                placeholder="e.g. New Company Ltd"
+                value={form.name}
+                onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+                className="bg-[#0a0a1a] border-white/[0.06] text-slate-200"
+              />
             </div>
             <div>
-              <label className="text-xs text-slate-400 mb-1 block">Email</label>
-              <Input placeholder="admin@company.com" className="bg-[#0a0a1a] border-white/[0.06] text-slate-200" />
+              <label className="text-xs text-slate-400 mb-1 block">Email *</label>
+              <Input
+                placeholder="admin@company.com"
+                value={form.email}
+                onChange={(e) => setForm((p) => ({ ...p, email: e.target.value }))}
+                className="bg-[#0a0a1a] border-white/[0.06] text-slate-200"
+              />
             </div>
             <div>
               <label className="text-xs text-slate-400 mb-1 block">Country</label>
-              <Select defaultValue="Tanzania">
+              <Select value={form.country} onValueChange={(v) => setForm((p) => ({ ...p, country: v }))}>
                 <SelectTrigger className="bg-[#0a0a1a] border-white/[0.06] text-slate-200">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Tanzania">Tanzania</SelectItem>
-                  <SelectItem value="Kenya">Kenya</SelectItem>
-                  <SelectItem value="Uganda">Uganda</SelectItem>
-                  <SelectItem value="Rwanda">Rwanda</SelectItem>
-                  <SelectItem value="South Africa">South Africa</SelectItem>
-                  <SelectItem value="Nigeria">Nigeria</SelectItem>
+                  {['Tanzania', 'Kenya', 'Uganda', 'Rwanda', 'South Africa', 'Nigeria'].map((c) => (
+                    <SelectItem key={c} value={c}>{c}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
             <div>
-              <label className="text-xs text-slate-400 mb-1 block">Plan</label>
-              <Select defaultValue={addForm.plan}>
-                <SelectTrigger className="bg-[#0a0a1a] border-white/[0.06] text-slate-200">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Basic">Basic - $49/mo</SelectItem>
-                  <SelectItem value="Pro">Pro - $149/mo</SelectItem>
-                  <SelectItem value="Enterprise">Enterprise - $499/mo</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <label className="text-xs text-slate-400 mb-1 block">Modules to Enable</label>
-              <div className="space-y-2">
-                {MODULES.slice(0, 6).map((mod) => (
-                  <label key={mod.id} className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-                    <input type="checkbox" className="rounded border-slate-600" />
-                    {mod.name}
-                  </label>
-                ))}
-              </div>
+              <label className="text-xs text-slate-400 mb-1 block">Phone</label>
+              <Input
+                placeholder="+255 7XX XXX XXX"
+                value={form.phone}
+                onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))}
+                className="bg-[#0a0a1a] border-white/[0.06] text-slate-200"
+              />
             </div>
             <div className="flex gap-2 pt-2">
-              <Button className="bg-cyan-600 hover:bg-cyan-700 text-white flex-1">Create Company</Button>
+              <Button
+                onClick={handleCreate}
+                disabled={saving || !form.name || !form.email}
+                className="bg-cyan-600 hover:bg-cyan-700 text-white flex-1 disabled:opacity-50"
+              >
+                {saving ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Plus className="w-4 h-4 mr-1" />}
+                Create Company
+              </Button>
               <Button variant="outline" onClick={() => setShowAddDialog(false)} className="border-white/[0.06] text-slate-300 hover:bg-white/5">Cancel</Button>
             </div>
           </div>
@@ -573,16 +650,95 @@ function CompaniesModule() {
 
 /* ───────── Module 3: Subscriptions ───────── */
 function SubscriptionsModule() {
+  const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+  const [companies, setCompanies] = useState<Company[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [subFilter, setSubFilter] = useState('All');
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    companyId: '',
+    plan: 'Basic' as 'Basic' | 'Pro' | 'Enterprise',
+    startDate: new Date().toISOString().slice(0, 10),
+    endDate: new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+    autoRenew: false,
+  });
 
-  const filtered = useMemo(() => {
-    return SUBSCRIPTIONS.filter((s) => subFilter === 'All' || s.status === subFilter);
-  }, [subFilter]);
+  const PLAN_PRICES: Record<string, number> = { Basic: 49, Pro: 149, Enterprise: 499 };
 
   const planColors: Record<string, string> = {
     Enterprise: 'bg-violet-500/10 text-violet-400 border-violet-500/20',
     Pro: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
     Basic: 'bg-slate-500/10 text-slate-400 border-slate-500/20',
+  };
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [subs, comps] = await Promise.all([
+        api<Subscription[]>('/subscriptions'),
+        api<Company[]>('/companies'),
+      ]);
+      setSubscriptions(subs);
+      setCompanies(comps);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const filtered = useMemo(() =>
+    subscriptions.filter((s) => subFilter === 'All' || s.status === subFilter),
+    [subscriptions, subFilter]
+  );
+
+  const companyName = (sub: Subscription) =>
+    sub.company?.name ?? companies.find((c) => c.id === sub.companyId)?.name ?? sub.companyId;
+
+  const handleCreate = async () => {
+    if (!form.companyId) return;
+    setSaving(true);
+    try {
+      await api('/subscriptions', {
+        method: 'POST',
+        body: JSON.stringify({ ...form, price: PLAN_PRICES[form.plan] }),
+      });
+      setShowAddDialog(false);
+      load();
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCancel = async (id: string) => {
+    if (!confirm('Cancel this subscription?')) return;
+    try {
+      await api(`/subscriptions/${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'Cancelled', autoRenew: false }) });
+      setSubscriptions((prev) => prev.map((s) => s.id === id ? { ...s, status: 'Cancelled', autoRenew: false } : s));
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  };
+
+  const handleRenew = async (sub: Subscription) => {
+    const newEnd = new Date(sub.endDate);
+    newEnd.setFullYear(newEnd.getFullYear() + 1);
+    try {
+      const updated = await api<Subscription>(`/subscriptions/${sub.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'Active', endDate: newEnd.toISOString() }),
+      });
+      setSubscriptions((prev) => prev.map((s) => s.id === sub.id ? updated : s));
+    } catch (e) {
+      alert((e as Error).message);
+    }
   };
 
   return (
@@ -600,66 +756,151 @@ function SubscriptionsModule() {
           </SelectContent>
         </Select>
         <div className="flex gap-2">
-          <Button variant="outline" className="border-white/[0.06] text-slate-300 hover:bg-white/5">
-            <BadgeCheck className="w-4 h-4 mr-1" /> Plans
+          <Button variant="outline" size="sm" onClick={load} className="border-white/[0.06] text-slate-400 hover:text-slate-200">
+            <RefreshCw className="w-4 h-4" />
+          </Button>
+          <Button onClick={() => setShowAddDialog(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+            <Plus className="w-4 h-4 mr-1" /> New Subscription
           </Button>
         </div>
       </div>
 
-      {/* Plan Cards */}
+      {/* Plan summary cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {[
           { name: 'Basic', price: '$49', desc: 'Up to 20 users, 3 modules', color: 'border-slate-500/20' },
           { name: 'Pro', price: '$149', desc: 'Up to 100 users, 6 modules', color: 'border-blue-500/20' },
           { name: 'Enterprise', price: '$499', desc: 'Unlimited users, all modules', color: 'border-violet-500/20' },
-        ].map((plan) => (
-          <Card key={plan.name} className={`bg-[#13131f] border ${plan.color}`}>
-            <CardContent className="p-4">
-              <h3 className="text-slate-200 font-semibold">{plan.name}</h3>
-              <p className="text-2xl font-bold text-slate-100 mt-1">{plan.price}<span className="text-sm font-normal text-slate-500">/mo</span></p>
-              <p className="text-xs text-slate-400 mt-1">{plan.desc}</p>
-            </CardContent>
-          </Card>
-        ))}
+        ].map((plan) => {
+          const count = subscriptions.filter((s) => s.plan === plan.name && s.status === 'Active').length;
+          return (
+            <Card key={plan.name} className={`bg-[#13131f] border ${plan.color}`}>
+              <CardContent className="p-4">
+                <h3 className="text-slate-200 font-semibold">{plan.name}</h3>
+                <p className="text-2xl font-bold text-slate-100 mt-1">{plan.price}<span className="text-sm font-normal text-slate-500">/mo</span></p>
+                <p className="text-xs text-slate-400 mt-1">{plan.desc}</p>
+                <p className="text-xs text-slate-500 mt-2">{count} active</p>
+              </CardContent>
+            </Card>
+          );
+        })}
       </div>
+
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 text-sm text-red-400 flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 shrink-0" /> {error}
+        </div>
+      )}
 
       <Card className="bg-[#13131f] border-white/[0.06]">
         <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-white/[0.06]">
-                  {['Company', 'Plan', 'Price', 'Start Date', 'End Date', 'Status', 'Auto-Renew', 'Actions'].map((h) => (
-                    <th key={h} className="text-left py-3 px-4 text-slate-400 font-medium">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((sub) => (
-                  <tr key={sub.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
-                    <td className="py-3 px-4 text-slate-200 font-medium">{sub.company}</td>
-                    <td className="py-3 px-4"><Badge variant="outline" className={planColors[sub.plan]}>{sub.plan}</Badge></td>
-                    <td className="py-3 px-4 text-slate-400">${sub.price}/mo</td>
-                    <td className="py-3 px-4 text-slate-400">{sub.startDate}</td>
-                    <td className="py-3 px-4 text-slate-400">{sub.endDate}</td>
-                    <td className="py-3 px-4"><StatusBadge status={sub.status} /></td>
-                    <td className="py-3 px-4">
-                      {sub.autoRenew ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <XCircle className="w-4 h-4 text-red-400" />}
-                    </td>
-                    <td className="py-3 px-4">
-                      <div className="flex gap-1">
-                        <Button variant="ghost" size="sm" className="h-7 text-xs text-slate-400 hover:text-emerald-400">Renew</Button>
-                        <Button variant="ghost" size="sm" className="h-7 text-xs text-slate-400 hover:text-blue-400">Upgrade</Button>
-                        <Button variant="ghost" size="sm" className="h-7 text-xs text-slate-400 hover:text-red-400">Cancel</Button>
-                      </div>
-                    </td>
+          {loading ? (
+            <div className="flex items-center justify-center py-16 text-slate-500">
+              <Loader2 className="w-6 h-6 animate-spin mr-2" /> Loading subscriptions…
+            </div>
+          ) : filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-slate-500">
+              <BadgeCheck className="w-10 h-10 mb-3 opacity-30" />
+              <p className="text-sm">No subscriptions found</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-white/[0.06]">
+                    {['Company', 'Plan', 'Price', 'Start', 'End', 'Status', 'Auto-Renew', 'Actions'].map((h) => (
+                      <th key={h} className="text-left py-3 px-4 text-slate-400 font-medium">{h}</th>
+                    ))}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {filtered.map((sub) => (
+                    <tr key={sub.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
+                      <td className="py-3 px-4 text-slate-200 font-medium">{companyName(sub)}</td>
+                      <td className="py-3 px-4"><Badge variant="outline" className={planColors[sub.plan]}>{sub.plan}</Badge></td>
+                      <td className="py-3 px-4 text-slate-400">${sub.price}/mo</td>
+                      <td className="py-3 px-4 text-slate-400">{new Date(sub.startDate).toLocaleDateString()}</td>
+                      <td className="py-3 px-4 text-slate-400">{new Date(sub.endDate).toLocaleDateString()}</td>
+                      <td className="py-3 px-4"><StatusBadge status={sub.status} /></td>
+                      <td className="py-3 px-4">
+                        {sub.autoRenew ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <XCircle className="w-4 h-4 text-red-400" />}
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="flex gap-1">
+                          {sub.status !== 'Cancelled' && (
+                            <Button variant="ghost" size="sm" className="h-7 text-xs text-slate-400 hover:text-emerald-400" onClick={() => handleRenew(sub)}>Renew</Button>
+                          )}
+                          {sub.status !== 'Cancelled' && (
+                            <Button variant="ghost" size="sm" className="h-7 text-xs text-slate-400 hover:text-red-400" onClick={() => handleCancel(sub.id)}>Cancel</Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </CardContent>
       </Card>
+
+      {/* New Subscription Dialog */}
+      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
+        <DialogContent className="bg-[#13131f] border-white/[0.06] text-slate-200 max-w-md">
+          <DialogHeader>
+            <DialogTitle>New Subscription</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Company *</label>
+              <Select value={form.companyId} onValueChange={(v) => setForm((p) => ({ ...p, companyId: v }))}>
+                <SelectTrigger className="bg-[#0a0a1a] border-white/[0.06] text-slate-200">
+                  <SelectValue placeholder="Select company…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {companies.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Plan</label>
+              <Select value={form.plan} onValueChange={(v) => setForm((p) => ({ ...p, plan: v as typeof form.plan }))}>
+                <SelectTrigger className="bg-[#0a0a1a] border-white/[0.06] text-slate-200">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Basic">Basic — $49/mo</SelectItem>
+                  <SelectItem value="Pro">Pro — $149/mo</SelectItem>
+                  <SelectItem value="Enterprise">Enterprise — $499/mo</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Start Date</label>
+                <Input type="date" value={form.startDate} onChange={(e) => setForm((p) => ({ ...p, startDate: e.target.value }))} className="bg-[#0a0a1a] border-white/[0.06] text-slate-200" />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">End Date</label>
+                <Input type="date" value={form.endDate} onChange={(e) => setForm((p) => ({ ...p, endDate: e.target.value }))} className="bg-[#0a0a1a] border-white/[0.06] text-slate-200" />
+              </div>
+            </div>
+            <label className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
+              <input type="checkbox" checked={form.autoRenew} onChange={(e) => setForm((p) => ({ ...p, autoRenew: e.target.checked }))} className="rounded border-slate-600" />
+              Auto-renew
+            </label>
+            <div className="flex gap-2 pt-2">
+              <Button onClick={handleCreate} disabled={saving || !form.companyId} className="bg-emerald-600 hover:bg-emerald-700 text-white flex-1 disabled:opacity-50">
+                {saving ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Plus className="w-4 h-4 mr-1" />}
+                Create Subscription
+              </Button>
+              <Button variant="outline" onClick={() => setShowAddDialog(false)} className="border-white/[0.06] text-slate-300 hover:bg-white/5">Cancel</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

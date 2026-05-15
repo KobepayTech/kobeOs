@@ -1,9 +1,10 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   Palette, Image, RotateCcw, Save, Download,
   ShoppingBag, Search, ChevronDown, ChevronRight, Check, Upload, Eye, X,
-  Store, Type as TypeIcon, Grid3X3, PanelLeft, Tag, Plus
+  Store, Type as TypeIcon, Grid3X3, PanelLeft, Tag, Plus, Globe, Loader2, AlertTriangle
 } from 'lucide-react';
+import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -20,6 +21,11 @@ interface StoreSettings {
   tagline: string;
   logoUrl: string;
   faviconUrl: string;
+  // Domain
+  /** Custom domain entered by the user, e.g. shop.mycompany.com */
+  customDomain: string;
+  /** Read-only slug derived from storeName by the backend, e.g. "my-store" */
+  domainSlug: string;
   // Hero Banner
   bannerHeadline: string;
   bannerSubtext: string;
@@ -69,6 +75,8 @@ const defaultSettings: StoreSettings = {
   tagline: 'Your One-Stop Shop',
   logoUrl: '',
   faviconUrl: '',
+  customDomain: '',
+  domainSlug: '',
   bannerHeadline: 'Summer Collection',
   bannerSubtext: 'Up to 50% off on selected items',
   bannerCta: 'Shop Now',
@@ -632,20 +640,48 @@ function LivePreview({ settings }: { settings: StoreSettings }) {
 export default function StoreEditor() {
   const [settings, setSettings] = useState<StoreSettings>(defaultSettings);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Load persisted settings on mount
+  useEffect(() => {
+    api<StoreSettings>('/store-settings')
+      .then((data) => setSettings({ ...defaultSettings, ...data }))
+      .catch((e) => setLoadError((e as Error).message))
+      .finally(() => setLoading(false));
+  }, []);
 
   const update = useCallback(<K extends keyof StoreSettings>(key: K, value: StoreSettings[K]) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
     setSaved(false);
+    setSaveError(null);
   }, []);
 
-  const handleSave = useCallback(() => {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  }, []);
+  const handleSave = useCallback(async () => {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const updated = await api<StoreSettings>('/store-settings', {
+        method: 'PUT',
+        body: JSON.stringify(settings),
+      });
+      // Sync domainSlug returned by backend
+      setSettings((prev) => ({ ...prev, domainSlug: updated.domainSlug ?? prev.domainSlug }));
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (e) {
+      setSaveError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }, [settings]);
 
   const handleReset = useCallback(() => {
     setSettings(defaultSettings);
     setSaved(false);
+    setSaveError(null);
   }, []);
 
   const handleExport = useCallback(() => {
@@ -733,6 +769,44 @@ export default function StoreEditor() {
                   />
                 </div>
               </div>
+            </div>
+          </Section>
+
+          {/* ─── Domain ─── */}
+          <Section title="Domain" icon={Globe} defaultOpen>
+            <div className="space-y-3">
+              {/* Default subdomain (read-only) */}
+              <div>
+                <label className="text-xs font-medium text-white/50 mb-1.5 block">Default URL</label>
+                <div className="flex items-center gap-1.5 h-8 px-3 rounded-md bg-white/[0.02] border border-white/[0.06] text-xs text-white/40 font-mono select-all">
+                  {settings.domainSlug
+                    ? `${settings.domainSlug}.kobestore.app`
+                    : <span className="italic">save to generate…</span>}
+                </div>
+                <p className="text-[10px] text-white/30 mt-1">Auto-generated from your store name</p>
+              </div>
+              {/* Custom domain */}
+              <div>
+                <label className="text-xs font-medium text-white/50 mb-1.5 block">Custom Domain</label>
+                <Input
+                  value={settings.customDomain}
+                  onChange={(e) => update('customDomain', e.target.value)}
+                  className="h-8 bg-white/[0.04] border-white/[0.08] text-sm text-white/90 placeholder:text-white/30 font-mono"
+                  placeholder="shop.mycompany.com"
+                />
+                <p className="text-[10px] text-white/30 mt-1">
+                  Point a CNAME record to <span className="text-white/50 font-mono">stores.kobestore.app</span>
+                </p>
+              </div>
+              {/* Active URL indicator */}
+              {(settings.customDomain || settings.domainSlug) && (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/5 border border-emerald-500/10">
+                  <Globe className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  <span className="text-[11px] text-emerald-300 font-mono truncate">
+                    {settings.customDomain || `${settings.domainSlug}.kobestore.app`}
+                  </span>
+                </div>
+              )}
             </div>
           </Section>
 
@@ -1035,29 +1109,59 @@ export default function StoreEditor() {
       {/* RIGHT PANEL — Live Preview */}
       <div className="flex-1 flex flex-col bg-[#0a0a1a] overflow-hidden">
         {/* Toolbar */}
-        <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/[0.06] bg-[#111118]">
-          <div className="flex items-center gap-2">
-            <Eye className="w-4 h-4 text-white/50" />
-            <span className="text-xs font-medium text-white/70">Live Preview</span>
-            <span className="text-[10px] text-white/30 px-1.5 py-0.5 rounded-full bg-white/[0.04] border border-white/[0.06]">
-              375px
-            </span>
-          </div>
-          <div className="flex items-center gap-2">
-            {saved && (
-              <span className="text-[10px] text-emerald-400 font-medium px-2 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-1">
-                <Check className="w-3 h-3" /> Saved
+        <div className="flex flex-col border-b border-white/[0.06] bg-[#111118]">
+          <div className="flex items-center justify-between px-4 py-2.5">
+            <div className="flex items-center gap-2">
+              <Eye className="w-4 h-4 text-white/50" />
+              <span className="text-xs font-medium text-white/70">Live Preview</span>
+              <span className="text-[10px] text-white/30 px-1.5 py-0.5 rounded-full bg-white/[0.04] border border-white/[0.06]">
+                375px
               </span>
-            )}
-            <Button
-              size="sm"
-              onClick={handleSave}
-              className="h-7 px-3 bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium"
-            >
-              <Save className="w-3 h-3 mr-1.5" />
-              Save Theme
-            </Button>
+              {/* Active domain pill */}
+              {(settings.customDomain || settings.domainSlug) && (
+                <span className="hidden sm:flex items-center gap-1 text-[10px] text-white/40 px-2 py-0.5 rounded-full bg-white/[0.03] border border-white/[0.06] font-mono">
+                  <Globe className="w-2.5 h-2.5" />
+                  {settings.customDomain || `${settings.domainSlug}.kobestore.app`}
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {loading && (
+                <span className="text-[10px] text-white/40 flex items-center gap-1">
+                  <Loader2 className="w-3 h-3 animate-spin" /> Loading…
+                </span>
+              )}
+              {saved && (
+                <span className="text-[10px] text-emerald-400 font-medium px-2 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-1">
+                  <Check className="w-3 h-3" /> Saved
+                </span>
+              )}
+              <Button
+                size="sm"
+                onClick={handleSave}
+                disabled={saving || loading}
+                className="h-7 px-3 bg-blue-500 hover:bg-blue-600 disabled:opacity-50 text-white text-xs font-medium"
+              >
+                {saving
+                  ? <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> Saving…</>
+                  : <><Save className="w-3 h-3 mr-1.5" /> Save Theme</>
+                }
+              </Button>
+            </div>
           </div>
+          {/* Error banners */}
+          {loadError && (
+            <div className="mx-4 mb-2 flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+              Could not load saved settings: {loadError}. Showing defaults.
+            </div>
+          )}
+          {saveError && (
+            <div className="mx-4 mb-2 flex items-center gap-2 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-[11px] text-red-300">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+              Save failed: {saveError}
+            </div>
+          )}
         </div>
 
         {/* Preview Content */}
