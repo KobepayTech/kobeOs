@@ -47,8 +47,8 @@ export class PasswordResetService {
 
   async reset(token: string, newPassword: string): Promise<{ ok: true }> {
     if (!token) throw new BadRequestException('Missing token');
-    if (!newPassword || newPassword.length < 6) {
-      throw new BadRequestException('Password must be at least 6 characters');
+    if (!newPassword || newPassword.length < 8) {
+      throw new BadRequestException('Password must be at least 8 characters');
     }
     const record = await this.repo.findOne({ where: { tokenHash: sha256(token) } });
     if (!record) throw new NotFoundException('Reset token not found');

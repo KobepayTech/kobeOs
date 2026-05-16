@@ -10,6 +10,16 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   const config = app.get(ConfigService);
 
+  // Prevent accidental schema sync in production — use migrations instead.
+  if (
+    config.get('DB_SYNCHRONIZE') === 'true' &&
+    config.get('NODE_ENV') === 'production'
+  ) {
+    throw new Error(
+      'DB_SYNCHRONIZE must not be enabled in production. Run migrations instead.',
+    );
+  }
+
   // Allow base64-encoded uploads (camera captures, small file blobs) up to 25 MB.
   app.use(json({ limit: '25mb' }));
   app.use(urlencoded({ extended: true, limit: '25mb' }));
