@@ -6,7 +6,9 @@ import { CargoController } from './cargo.controller';
 
 @Module({
   imports: [TypeOrmModule.forFeature([Parcel, Shipment, CargoDriver, CargoFlight])],
+  // ShipmentsService needs CargoDriver + CargoFlight repos for assignment validation.
   providers: [ParcelsService, ShipmentsService, DriversService, FlightsService],
   controllers: [CargoController],
+  exports: [ParcelsService, ShipmentsService, DriversService, FlightsService],
 })
 export class CargoModule {}

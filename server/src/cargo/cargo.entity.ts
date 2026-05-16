@@ -67,6 +67,10 @@ export class Shipment extends OwnedEntity {
 
   @Column({ nullable: true, type: 'varchar' })
   flightNumber?: string | null;
+
+  @Index()
+  @Column({ nullable: true, type: 'uuid' })
+  driverId?: string | null;
 }
 
 @Entity('cargo_drivers')
