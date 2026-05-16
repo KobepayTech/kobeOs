@@ -1,7 +1,7 @@
 {
-  "name": "KOBE OS",
-  "short_name": "KOBE OS",
-  "description": "Web-based Linux desktop environment with 50+ apps and KOBE ERP integration. Runs entirely in your browser — install on any flash drive.",
+  "name": "Kobe Studio",
+  "short_name": "Kobe Studio",
+  "description": "Kobe Studio — AI-powered desktop platform with 70+ apps covering ERP, cargo, hotel, payments, sports analytics, and local AI inference. Runs offline on any device.",
   "start_url": "/",
   "display": "fullscreen",
   "background_color": "#0f172a",
