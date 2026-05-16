@@ -25,7 +25,7 @@ export class PropertyUnit extends OwnedEntity {
   @Column()
   unitNumber!: string;
 
-  @Column({ type: 'float', default: 0 })
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
   rentAmount!: number;
 
   @Column({ default: 'TZS' })
@@ -70,7 +70,7 @@ export class RentPayment extends OwnedEntity {
   @Column('uuid')
   unitId!: string;
 
-  @Column({ type: 'float' })
+  @Column({ type: 'decimal', precision: 18, scale: 4 })
   amount!: number;
 
   @Column({ default: 'TZS' })

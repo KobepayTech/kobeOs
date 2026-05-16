@@ -6,7 +6,7 @@ export class Wallet extends OwnedEntity {
   @Column({ default: 'TZS' })
   currency!: string;
 
-  @Column({ type: 'float', default: 0 })
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
   balance!: number;
 
   @Column({ default: true })
@@ -22,7 +22,7 @@ export class PaymentTransaction extends OwnedEntity {
   @Column()
   type!: 'CREDIT' | 'DEBIT' | 'TRANSFER';
 
-  @Column({ type: 'float' })
+  @Column({ type: 'decimal', precision: 18, scale: 4 })
   amount!: number;
 
   @Column({ default: 'TZS' })
@@ -47,19 +47,19 @@ export class PaymentTransaction extends OwnedEntity {
 
 @Entity('credit_loans')
 export class CreditLoan extends OwnedEntity {
-  @Column({ type: 'float' })
+  @Column({ type: 'decimal', precision: 18, scale: 4 })
   principal!: number;
 
   @Column({ default: 'TZS' })
   currency!: string;
 
-  @Column({ type: 'float', default: 0 })
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
   interestRate!: number;
 
   @Column({ default: 12 })
   termMonths!: number;
 
-  @Column({ type: 'float', default: 0 })
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
   outstanding!: number;
 
   @Column({ default: 'ACTIVE' })

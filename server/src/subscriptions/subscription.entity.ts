@@ -19,7 +19,7 @@ export class Subscription extends BaseEntity {
   plan!: SubscriptionPlan;
 
   /** Monthly price in USD */
-  @Column({ type: 'float', default: 49 })
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 49 })
   price!: number;
 
   @Column({ type: 'timestamptz' })

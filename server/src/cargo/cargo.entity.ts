@@ -2,8 +2,8 @@ import { Column, Entity, Index } from 'typeorm';
 import { OwnedEntity } from '../common/owned.entity';
 
 @Entity('parcels')
+@Index(['ownerId', 'parcelId'], { unique: true })
 export class Parcel extends OwnedEntity {
-  @Index({ unique: true })
   @Column()
   parcelId!: string;
 
