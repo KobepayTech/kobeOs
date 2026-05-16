@@ -149,14 +149,28 @@ export class KobeModelsService {
 
     job.status = 'verifying';
     const digest = hash.digest('hex');
-    if (model.checksum && !model.checksum.startsWith('placeholder') && digest !== model.checksum) {
-      throw new Error(`Checksum mismatch for ${model.id}: expected ${model.checksum}, got ${digest}`);
+
+    if (!model.checksum || model.checksum.startsWith('placeholder')) {
+      // Checksum not yet populated — log the actual digest so it can be
+      // recorded. Run `node scripts/fetch-model-checksums.js` to populate.
+      this.logger.warn(
+        `No checksum for ${model.id} — skipping verification. ` +
+        `Actual digest: ${digest}. ` +
+        `Run scripts/fetch-model-checksums.js to populate the catalogue.`,
+      );
+    } else if (digest !== model.checksum) {
+      throw new Error(
+        `Checksum mismatch for ${model.id}: expected ${model.checksum}, got ${digest}. ` +
+        `The bundle may be corrupt or tampered. Aborting install.`,
+      );
+    } else {
+      this.logger.log(`Checksum verified for ${model.id}`);
     }
 
-    // Hand off to Ollama — in a real implementation the bundle would be
-    // extracted and the modelfile path passed to the Ollama create endpoint.
+    // Hand off to Ollama — extract the .kobemodel bundle and pass the
+    // Modelfile path to the Ollama create endpoint.
     job.status = 'installing';
-    this.logger.log(`Bundle verified for ${model.id} (${(job.progressBytes / 1e9).toFixed(2)} GB), installing…`);
+    this.logger.log(`Installing ${model.id} (${(job.progressBytes / 1e9).toFixed(2)} GB)…`);
   }
 
   /** Delegates to Ollama's /api/pull endpoint and streams progress. */

@@ -178,19 +178,25 @@ export const EMBEDDED_CATALOGUE: KobeCatalogue = {
     {
       id: 'kobe-football-vision:1b',
       name: 'Kobe Football Vision',
-      description: 'YOLO-based player tracking and event detection fine-tuned on football footage.',
+      description: 'YOLOv8n fine-tuned for football: player/ball/goalpost detection, home/away/referee classification, ByteTrack integration for player tracking.',
       category: 'sports',
-      sizeBytes: 600_000_000,
-      sizeLabel: '600 MB',
-      minVramGb: 2,
+      // Size will be updated after training + bundling.
+      // Run: python scripts/build-football-vision.py --mode train
+      //      python scripts/build-football-vision.py --mode export --weights runs/detect/kobe-football-vision/weights/best.pt
+      //      npm run models:bundle -- --model kobe-football-vision:1b --weights runs/detect/kobe-football-vision/weights/best.pt
+      sizeBytes: 12_000_000,   // ~12 MB for YOLOv8n — update after bundling
+      sizeLabel: '~12 MB',
+      minVramGb: 0,            // runs on CPU; GPU recommended for real-time
       kobeOptimised: true,
+      // Set after running: npm run models:bundle && npm run models:upload
       downloadUrl: 'https://models.kobe/sports/kobe-football-vision-1b.kobemodel',
-      checksum: 'placeholder-sha256-kobe-football-vision',
+      // Set after bundling — printed by build-football-vision.py --mode export
+      checksum: 'pending-run-build-football-vision-py',
       license: 'apache-2.0',
       upstreamUrl: 'https://github.com/ultralytics/ultralytics',
       version: '1.0',
       recommended: true,
-      tags: ['sports', 'football', 'tracking', 'yolo'],
+      tags: ['sports', 'football', 'tracking', 'yolo', 'bytetrack'],
     },
     // ── Embedding ─────────────────────────────────────────────────────────────
     {
