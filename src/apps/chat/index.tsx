@@ -142,6 +142,8 @@ export default function ChatApp() {
 
   useEffect(() => {
     if (!activeChannelId) return;
+    // setState is called inside the async callback, not synchronously in the effect body.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     refreshMessages(activeChannelId).catch((err) => setErrorMsg(err.message));
   }, [activeChannelId, refreshMessages]);
 

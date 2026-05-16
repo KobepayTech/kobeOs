@@ -114,7 +114,7 @@ export class AiService {
       const data = await res.json();
       return {
         running: true,
-        models: data.models?.map((m: any) => m.name) || [],
+        models: data.models?.map((m: { name: string }) => m.name) || [],
         defaultModel: this.defaultModel,
       };
     } catch {

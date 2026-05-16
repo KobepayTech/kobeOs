@@ -13,7 +13,7 @@ export class WebhookEvent {
   eventType!: string;
 
   @Column({ type: 'jsonb' })
-  payload!: Record<string, any>;
+  payload!: Record<string, unknown>;
 
   @Column({ default: false })
   processed!: boolean;

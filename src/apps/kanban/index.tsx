@@ -232,11 +232,6 @@ export default function KanbanApp() {
     setDragGhost({ x: e.clientX, y: e.clientY, title: card.title });
   };
 
-  const handleMouseMove = useCallback((e: MouseEvent) => {
-    if (!dragRef.current) return;
-    setDragGhost((prev) => (prev ? { ...prev, x: e.clientX, y: e.clientY } : null));
-  }, []);
-
   const moveCard = useCallback(async (cardId: string, fromColId: string, toColId: string) => {
     setColumns((prev) => {
       const card = prev.find((c) => c.id === fromColId)?.cards.find((c) => c.id === cardId);
@@ -256,41 +251,47 @@ export default function KanbanApp() {
     }
   }, []);
 
-  const handleMouseUp = useCallback((e: MouseEvent) => {
-    if (!dragRef.current) return;
-    const { cardId, fromColId } = dragRef.current;
-    dragRef.current = null;
-    setDraggingCard(null);
-    setDragGhost(null);
-
-    const cols = document.querySelectorAll('[data-col-id]');
-    let bestCol: string | null = null;
-    let bestDist = Infinity;
-    cols.forEach((el) => {
-      const rect = el.getBoundingClientRect();
-      if (e.clientX >= rect.left && e.clientX <= rect.right) {
-        const dist = Math.abs(e.clientX - (rect.left + rect.width / 2));
-        if (dist < bestDist) {
-          bestDist = dist;
-          bestCol = el.getAttribute('data-col-id');
-        }
-      }
-    });
-
-    if (bestCol && bestCol !== fromColId) {
-      moveCard(cardId, fromColId, bestCol);
-    }
-  }, [moveCard]);
-
   useEffect(() => {
     if (!draggingCard) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!dragRef.current) return;
+      setDragGhost((prev) => (prev ? { ...prev, x: e.clientX, y: e.clientY } : null));
+    };
+
+    const handleMouseUp = (e: MouseEvent) => {
+      if (!dragRef.current) return;
+      const { cardId, fromColId } = dragRef.current;
+      dragRef.current = null;
+      setDraggingCard(null);
+      setDragGhost(null);
+
+      const cols = document.querySelectorAll('[data-col-id]');
+      let bestCol: string | null = null;
+      let bestDist = Infinity;
+      cols.forEach((el) => {
+        const rect = el.getBoundingClientRect();
+        if (e.clientX >= rect.left && e.clientX <= rect.right) {
+          const dist = Math.abs(e.clientX - (rect.left + rect.width / 2));
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestCol = el.getAttribute('data-col-id');
+          }
+        }
+      });
+
+      if (bestCol && bestCol !== fromColId) {
+        moveCard(cardId, fromColId, bestCol);
+      }
+    };
+
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [draggingCard, handleMouseMove, handleMouseUp]);
+  }, [draggingCard, moveCard]);
 
   if (status !== 'ready') {
     return (

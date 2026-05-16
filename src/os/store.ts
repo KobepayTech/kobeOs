@@ -60,6 +60,9 @@ function makeWindowId(): string {
   return `win_${Date.now()}_${idCounter++}`;
 }
 
+// Tracks auto-dismiss timers so they can be cancelled on manual removal.
+const notifTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
 const defaultDesktopIcons: DesktopIcon[] = [
   { id: 'di-1', appId: 'file-manager', x: 20, y: 20, label: 'File Manager', icon: 'FolderOpen' },
   { id: 'di-2', appId: 'terminal', x: 20, y: 110, label: 'Terminal', icon: 'Terminal' },
@@ -104,7 +107,8 @@ export const useOSStore = create<OSStore>()(
       openWindow: (appId, title, data) => {
         const app = get().getApp(appId);
         if (!app) return null;
-        if (app.singleton && get().isAppOpen(appId)) {
+        if (app.singleton) {
+          // Find any existing window (including minimized) to avoid duplicate instances.
           const existing = get().windows.find((w) => w.appId === appId);
           if (existing) {
             get().focusWindow(existing.id);
@@ -202,7 +206,7 @@ export const useOSStore = create<OSStore>()(
         if (!app) return null;
         return get().openWindow(appId, app.name, data);
       },
-      isAppOpen: (appId) => get().windows.some((w) => w.appId === appId && !w.isMinimized),
+      isAppOpen: (appId) => get().windows.some((w) => w.appId === appId),
 
       selectIcon: (id) => set({ selectedIconId: id }),
       deselectIcon: () => set({ selectedIconId: null }),
@@ -228,15 +232,23 @@ export const useOSStore = create<OSStore>()(
           read: false,
         };
         set((state) => ({ notifications: [notif, ...state.notifications] }));
-        setTimeout(() => {
+        const timer = setTimeout(() => {
+          notifTimers.delete(id);
           get().removeNotification(id);
         }, 5000);
+        notifTimers.set(id, timer);
         return id;
       },
-      removeNotification: (id) =>
+      removeNotification: (id) => {
+        const timer = notifTimers.get(id);
+        if (timer !== undefined) {
+          clearTimeout(timer);
+          notifTimers.delete(id);
+        }
         set((state) => ({
           notifications: state.notifications.filter((n) => n.id !== id),
-        })),
+        }));
+      },
       markRead: (id) =>
         set((state) => ({
           notifications: state.notifications.map((n) =>
@@ -247,7 +259,11 @@ export const useOSStore = create<OSStore>()(
         set((state) => ({
           notifications: state.notifications.map((n) => ({ ...n, read: true })),
         })),
-      clearAll: () => set({ notifications: [] }),
+      clearAll: () => {
+        notifTimers.forEach((timer) => clearTimeout(timer));
+        notifTimers.clear();
+        set({ notifications: [] });
+      },
       get unreadCount() {
         return get().notifications.filter((n) => !n.read).length;
       },

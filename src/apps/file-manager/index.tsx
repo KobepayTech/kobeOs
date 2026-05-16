@@ -59,6 +59,8 @@ export default function FileManager() {
   }, []);
 
   useEffect(() => {
+    // setState is called inside async callbacks, not synchronously in the effect body.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (mode === 'local') refreshLocal(path);
     else void refreshCloud(cloudPath);
   }, [mode, path, cloudPath, refreshLocal, refreshCloud]);

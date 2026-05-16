@@ -13,6 +13,7 @@ export function Taskbar() {
     focusWindow,
     launchApp,
   } = useOSStore();
+  const unreadCount = useOSStore((s) => s.unreadCount);
 
   const [startOpen, setStartOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
@@ -155,9 +156,9 @@ export function Taskbar() {
               }}
             >
               <icons.Bell className="w-4 h-4 text-os-text-secondary" />
-              {useOSStore.getState().unreadCount > 0 && (
+              {unreadCount > 0 && (
                 <span className="absolute top-1 right-1 w-4 h-4 flex items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white">
-                  {useOSStore.getState().unreadCount}
+                  {unreadCount}
                 </span>
               )}
             </button>

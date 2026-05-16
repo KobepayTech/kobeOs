@@ -23,13 +23,13 @@ export class AuditLog {
   userEmail?: string | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  oldValue?: Record<string, any> | null;
+  oldValue?: Record<string, unknown> | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  newValue?: Record<string, any> | null;
+  newValue?: Record<string, unknown> | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  metadata?: Record<string, any> | null;
+  metadata?: Record<string, unknown> | null;
 
   @Column({ default: () => 'NOW()' })
   createdAt!: Date;

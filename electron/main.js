@@ -5,6 +5,8 @@ const { exec } = require('child_process');
 let mainWindow;
 
 function createWindow() {
+  const isDev = !app.isPackaged;
+
   mainWindow = new BrowserWindow({
     width: 1920, height: 1080, fullscreen: true, kiosk: true,
     autoHideMenuBar: true, frame: false,
@@ -12,11 +14,10 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,   // required for contextBridge in preload.js to work
       preload: path.join(__dirname, 'preload.js'),
-      webSecurity: false        // kept false for local file:// resource loading
+      webSecurity: !isDev,      // disable only in dev for local file:// resource loading
     }
   });
 
-  const isDev = !app.isPackaged;
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
   } else {
