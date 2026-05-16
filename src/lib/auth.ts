@@ -76,8 +76,8 @@ export function isLoggedIn(): boolean {
 
 /**
  * Ensure a session exists. Reuses stored tokens (the api client auto-refreshes
- * on 401), or registers/logs in a demo account so apps can talk to the API
- * immediately.
+ * on 401). In development only, falls back to a demo account so apps can be
+ * previewed without a real login. In production, throws if no session exists.
  */
 export async function ensureSession(): Promise<AuthUser> {
   if (isLoggedIn() || getRefreshToken()) {
@@ -87,6 +87,13 @@ export async function ensureSession(): Promise<AuthUser> {
       clearTokens();
     }
   }
+
+  const isDev = import.meta.env.DEV;
+  if (!isDev) {
+    throw new Error('No active session. Please log in.');
+  }
+
+  // Dev-only: auto-provision a demo account for local development.
   const email = 'demo@kobeos.local';
   const password = 'kobeos-demo-1234';
   try {

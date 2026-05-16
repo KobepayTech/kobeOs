@@ -12,7 +12,7 @@ export class PosProduct extends OwnedEntity {
   @Column({ default: '' })
   category!: string;
 
-  @Column({ type: 'float' })
+  @Column({ type: 'decimal', precision: 18, scale: 4 })
   price!: number;
 
   @Column({ default: 'TZS' })
@@ -34,16 +34,16 @@ export class PosOrder extends OwnedEntity {
   @Column()
   orderNumber!: string;
 
-  @Column({ type: 'float', default: 0 })
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
   subtotal!: number;
 
-  @Column({ type: 'float', default: 0 })
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
   taxAmount!: number;
 
-  @Column({ type: 'float', default: 0 })
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
   discountAmount!: number;
 
-  @Column({ type: 'float', default: 0 })
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
   total!: number;
 
   @Column({ default: 'TZS' })
@@ -75,12 +75,12 @@ export class PosOrderItem extends OwnedEntity {
   @Column()
   productName!: string;
 
-  @Column({ type: 'float' })
+  @Column({ type: 'decimal', precision: 18, scale: 4 })
   unitPrice!: number;
 
   @Column({ default: 1 })
   quantity!: number;
 
-  @Column({ type: 'float', default: 0 })
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
   lineTotal!: number;
 }

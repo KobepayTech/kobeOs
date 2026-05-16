@@ -9,7 +9,7 @@ export class DiscountRule extends OwnedEntity {
   @Column()
   type!: 'Percentage' | 'Fixed' | 'BOGO';
 
-  @Column({ type: 'float' })
+  @Column({ type: 'decimal', precision: 18, scale: 4 })
   value!: number;
 
   @Column({ default: 'All' })
@@ -37,7 +37,7 @@ export class Coupon extends OwnedEntity {
   @Column()
   type!: 'Percentage' | 'Fixed';
 
-  @Column({ type: 'float' })
+  @Column({ type: 'decimal', precision: 18, scale: 4 })
   value!: number;
 
   @Column({ default: 0 })
@@ -70,6 +70,6 @@ export class Campaign extends OwnedEntity {
   @Column({ default: 'Scheduled' })
   status!: 'Scheduled' | 'Active' | 'Expired';
 
-  @Column({ type: 'float', default: 0 })
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
   budget!: number;
 }

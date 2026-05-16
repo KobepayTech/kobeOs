@@ -10,7 +10,7 @@ export class HotelRoom extends OwnedEntity {
   @Column()
   type!: string;
 
-  @Column({ type: 'float', default: 0 })
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
   rate!: number;
 
   @Column({ default: 'TZS' })
@@ -66,7 +66,7 @@ export class HotelBooking extends OwnedEntity {
   @Column({ default: 'CONFIRMED' })
   status!: 'PENDING' | 'CONFIRMED' | 'CHECKED_IN' | 'CHECKED_OUT' | 'CANCELLED';
 
-  @Column({ type: 'float', default: 0 })
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
   totalAmount!: number;
 
   @Column({ default: 'TZS' })

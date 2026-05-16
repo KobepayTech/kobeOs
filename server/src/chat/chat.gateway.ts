@@ -11,6 +11,10 @@ import { ChatMessage } from './chat.entity';
 
 interface JwtPayload { sub: string; email: string; }
 
+// Per-socket rate limit: max messages per window.
+const RATE_LIMIT_MAX = 20;
+const RATE_LIMIT_WINDOW_MS = 10_000; // 10 seconds
+
 @WebSocketGateway({
   namespace: '/chat',
   cors: {
@@ -29,6 +33,9 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
   @WebSocketServer() server!: Server;
   private readonly logger = new Logger('ChatGateway');
 
+  // socketId → { count, resetAt }
+  private readonly rateLimits = new Map<string, { count: number; resetAt: number }>();
+
   constructor(
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
@@ -41,7 +48,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
   async handleConnection(client: Socket) {
     try {
       const token = this.extractToken(client);
-      const secret = this.config.get('JWT_SECRET', 'change-me');
+      const secret = this.config.getOrThrow<string>('JWT_SECRET');
       const payload = await this.jwt.verifyAsync<JwtPayload>(token, { secret });
       client.data.userId = payload.sub;
       client.data.email = payload.email;
@@ -55,6 +62,7 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
 
   handleDisconnect(client: Socket) {
     if (client.data?.email) this.logger.log(`- ${client.data.email}`);
+    this.rateLimits.delete(client.id);
   }
 
   @SubscribeMessage('chat:join')
@@ -62,7 +70,6 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     if (!body?.channelId) return { ok: false, error: 'channelId required' };
     const uid = client.data.userId as string;
     // TODO: replace with actual membership check when ChatMember entity exists
-    // For now, channels are treated as open (private channel logic can be added later)
     this.logger.log(`User ${uid} joined channel ${body.channelId}`);
     client.join(`channel:${body.channelId}`);
     return { ok: true };
@@ -74,8 +81,37 @@ export class ChatGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     return { ok: true };
   }
 
+  @SubscribeMessage('chat:message')
+  onMessage(@ConnectedSocket() client: Socket) {
+    if (!this.checkRateLimit(client)) {
+      client.emit('chat:error', { message: 'Rate limit exceeded. Slow down.' });
+      return { ok: false, error: 'rate_limited' };
+    }
+    // Message persistence is handled by ChatService via the HTTP endpoint.
+    // The gateway only handles real-time broadcast.
+    return { ok: true };
+  }
+
   broadcastMessage(msg: ChatMessage) {
     this.server.to(`channel:${msg.channelId}`).emit('chat:message', msg);
+  }
+
+  /** Returns false if the socket has exceeded the rate limit window. */
+  private checkRateLimit(client: Socket): boolean {
+    const now = Date.now();
+    const entry = this.rateLimits.get(client.id);
+
+    if (!entry || now >= entry.resetAt) {
+      this.rateLimits.set(client.id, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+      return true;
+    }
+
+    entry.count += 1;
+    if (entry.count > RATE_LIMIT_MAX) {
+      this.logger.warn(`Rate limit hit: ${client.data?.email ?? client.id}`);
+      return false;
+    }
+    return true;
   }
 
   private extractToken(client: Socket): string {

@@ -16,7 +16,7 @@ export const databaseConfig: TypeOrmModuleAsyncOptions = {
       username: config.get('DB_USERNAME', 'kobe'),
       password: config.get('DB_PASSWORD', 'kobe'),
       database: config.get('DB_DATABASE', 'kobeos'),
-      autoLoadEntities: isDev,
+      autoLoadEntities: true,
       synchronize,
       migrations: [join(__dirname, '..', 'migrations', '*.{ts,js}')],
       migrationsTableName: 'kobeos_migrations',
