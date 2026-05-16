@@ -58,6 +58,7 @@ import { manifest as cargo_receiver } from '@/apps/cargo-receiver/manifest';
 import { manifest as cargo_company } from '@/apps/cargo-company/manifest';
 import { manifest as kobe_print } from '@/apps/kobe-print/manifest';
 import { manifest as creator } from '@/apps/creator/manifest';
+import { manifest as kobe_models } from '@/apps/kobe-models/manifest';
 import { manifest as kobe_sports } from '@/apps/kobe-sports/manifest';
 import { manifest as kobe_hotel } from '@/apps/kobe-hotel/manifest';
 import { manifest as kobe_pay } from '@/apps/kobe-pay/manifest';
@@ -129,6 +130,7 @@ export const appRegistry = [
   cargo_company,
   kobe_print,
   creator,
+  kobe_models,
   kobe_sports,
   kobe_hotel,
   kobe_pay,

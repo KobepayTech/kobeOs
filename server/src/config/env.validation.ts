@@ -19,6 +19,8 @@ class EnvVars {
   @IsOptional() @IsString() WEBHOOK_SECRET?: string;
   @IsOptional() @IsString() OLLAMA_URL?: string;
   @IsOptional() @IsString() OLLAMA_MODEL?: string;
+  @IsOptional() @IsString() FOOTBALL_DATA_API_KEY?: string;
+  @IsOptional() @IsString() API_FOOTBALL_KEY?: string;
   /** Base URL of the Kobe Model CDN, e.g. https://models.kobe or a self-hosted MinIO endpoint */
   @IsOptional() @IsString() KOBE_MODELS_CDN_URL?: string;
 }

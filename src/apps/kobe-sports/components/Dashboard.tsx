@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { matchesApi, type Match } from '../api';
+import { useLiveMatches } from '../useLiveMatches';
 
 function StatCard({ label, value, sub, color }: { label: string; value: string | number; sub?: string; color: string }) {
   return (
@@ -45,6 +46,7 @@ function MatchCard({ match }: { match: Match }) {
 export default function Dashboard() {
   const [matches, setMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState(true);
+  const { liveMatches, connected } = useLiveMatches();
 
   useEffect(() => {
     matchesApi.list(1, 10)
@@ -53,13 +55,18 @@ export default function Dashboard() {
       .finally(() => setLoading(false));
   }, []);
 
-  const live = matches.filter((m) => m.status === 'LIVE').length;
-  const today = matches.filter((m) => {
+  // Merge live WebSocket matches on top of DB matches
+  const allMatches = liveMatches.length > 0
+    ? [...liveMatches, ...matches.filter((m) => !liveMatches.find((l) => l.homeTeam === m.homeTeam && l.awayTeam === m.awayTeam))]
+    : matches;
+
+  const live = allMatches.filter((m) => m.status === 'LIVE').length;
+  const today = allMatches.filter((m) => {
     const d = new Date(m.kickoff);
     const now = new Date();
     return d.toDateString() === now.toDateString();
   }).length;
-  const ft = matches.filter((m) => m.status === 'FT').length;
+  const ft = allMatches.filter((m) => m.status === 'FT').length;
 
   return (
     <div className="p-4 space-y-6">
@@ -68,12 +75,20 @@ export default function Dashboard() {
         <StatCard label="Live Now" value={live} sub="matches in progress" color="text-green-400" />
         <StatCard label="Today" value={today} sub="scheduled today" color="text-blue-400" />
         <StatCard label="Completed" value={ft} sub="full time" color="text-gray-300" />
-        <StatCard label="Total" value={matches.length} sub="in database" color="text-purple-400" />
+        <StatCard label="Total" value={allMatches.length} sub="in database" color="text-purple-400" />
       </div>
 
       {/* Recent matches */}
       <div>
-        <h2 className="text-sm font-semibold text-gray-300 mb-3 uppercase tracking-wider">Recent Matches</h2>
+        <div className="flex items-center gap-2 mb-3">
+          <h2 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">Recent Matches</h2>
+          {connected && (
+            <span className="flex items-center gap-1 text-xs text-green-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+              Live feed
+            </span>
+          )}
+        </div>
         {loading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {[...Array(4)].map((_, i) => (
@@ -82,7 +97,7 @@ export default function Dashboard() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {matches.slice(0, 6).map((m) => <MatchCard key={m.id} match={m} />)}
+            {allMatches.slice(0, 6).map((m) => <MatchCard key={m.id} match={m} />)}
           </div>
         )}
       </div>
