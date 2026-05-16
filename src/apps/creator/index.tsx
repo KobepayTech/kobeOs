@@ -685,7 +685,7 @@ function MarketplaceModule() {
       if (sortBy === 'price') return a.rate - b.rate;
       return 0;
     });
-  }, [search, nicheFilter, sortBy]);
+  }, [creators, search, nicheFilter, sortBy]);
 
   const engagementColor = (e: number) => e > 5 ? '#10b981' : e >= 3 ? '#f59e0b' : '#ef4444';
 

@@ -19,7 +19,7 @@ export class VideoGenerationService {
     this.pixellePath = join(process.cwd(), '..', 'pixelle-video');
   }
 
-  async createJob(ownerId: string, data: any): Promise<VideoJob> {
+  async createJob(ownerId: string, data: Record<string, unknown>): Promise<VideoJob> {
     const job = await this.repo.save(
       this.repo.create({
         ownerId,
@@ -59,7 +59,7 @@ export class VideoGenerationService {
     await this.repo.remove(job);
   }
 
-  private async runGeneration(jobId: string, ownerId: string, data: any): Promise<void> {
+  private async runGeneration(jobId: string, ownerId: string, data: Record<string, unknown>): Promise<void> {
     const job = await this.repo.findOne({ where: { id: jobId } });
     if (!job) return;
 

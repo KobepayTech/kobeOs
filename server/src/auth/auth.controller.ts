@@ -6,7 +6,9 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { LogoutDto, RefreshDto } from './dto/refresh.dto';
 import { ForgotPasswordDto, ResetPasswordDto } from './dto/password-reset.dto';
+import { Public } from '../common/public.decorator';
 
+@Public()
 @Controller('auth')
 @Throttle({ auth: { limit: 10, ttl: 60_000 } })
 export class AuthController {

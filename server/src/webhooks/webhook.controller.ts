@@ -12,7 +12,7 @@ export class WebhookController {
   @ApiOperation({ summary: 'Receive webhook from external provider' })
   async receive(
     @Param('provider') provider: string,
-    @Body() payload: Record<string, any>,
+    @Body() payload: Record<string, unknown>,
     @Headers('x-event-type') eventType: string,
   ) {
     this.logger.log(`Received ${provider} webhook: ${eventType}`);

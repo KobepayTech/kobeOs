@@ -115,7 +115,8 @@ const COMPANIES: Company[] = [
   { id: '20', name: 'Manyara Safaris', email: 'tours@manyarasafaris.com', country: 'Tanzania', plan: 'Enterprise', users: 65, modules: 7, status: 'Active', revenue: 5988, joined: '2024-05-25' },
 ];
 
-const SUBSCRIPTIONS: Subscription[] = [
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _SUBSCRIPTIONS: Subscription[] = [
   { id: 's1', company: 'KOBECARGO TZ', plan: 'Enterprise', price: 499, startDate: '2024-01-15', endDate: '2025-01-15', status: 'Active', autoRenew: true },
   { id: 's2', company: 'KobePrint Studio', plan: 'Pro', price: 149, startDate: '2024-02-20', endDate: '2025-02-20', status: 'Active', autoRenew: true },
   { id: 's3', company: 'KobeHotel Arusha', plan: 'Pro', price: 149, startDate: '2024-03-10', endDate: '2025-03-10', status: 'Active', autoRenew: true },

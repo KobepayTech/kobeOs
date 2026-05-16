@@ -39,6 +39,10 @@ export class PaymentTransaction extends OwnedEntity {
 
   @Column({ default: '' })
   description!: string;
+
+  @Index({ unique: true, where: '"idempotencyKey" IS NOT NULL' })
+  @Column({ nullable: true, type: 'varchar' })
+  idempotencyKey?: string | null;
 }
 
 @Entity('credit_loans')

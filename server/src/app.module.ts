@@ -32,6 +32,7 @@ import { CompaniesModule } from './companies/companies.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { StoreSettingsModule } from './store-settings/store-settings.module';
 import { RolesGuard } from './common/roles.guard';
+import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { LoggerMiddleware } from './common/logger.middleware';
 import { RedisCacheModule } from './cache/redis-cache.module';
 import { AuditModule } from './audit/audit.module';
@@ -81,6 +82,7 @@ import { WebhooksModule } from './webhooks/webhooks.module';
   controllers: [AppController],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
   ],
 })

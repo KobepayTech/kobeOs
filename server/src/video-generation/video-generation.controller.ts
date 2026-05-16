@@ -13,7 +13,7 @@ export class VideoGenerationController {
 
   @Post('generate')
   @ApiOperation({ summary: 'Create a new AI video generation job' })
-  async generate(@CurrentUser('id') ownerId: string, @Body() data: any) {
+  async generate(@CurrentUser('id') ownerId: string, @Body() data: Record<string, unknown>) {
     return this.videoService.createJob(ownerId, data);
   }
 

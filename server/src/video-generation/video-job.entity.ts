@@ -31,10 +31,10 @@ export class VideoJob {
   outputUrl?: string | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  config?: Record<string, any> | null;
+  config?: Record<string, unknown> | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  progress?: Record<string, any> | null;
+  progress?: Record<string, unknown> | null;
 
   @Column({ type: 'int', default: 0 })
   progressPercent!: number;

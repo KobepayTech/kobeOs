@@ -21,7 +21,7 @@ class EnvVars {
 
 export function validateEnv(config: Record<string, unknown>) {
   const validated = plainToInstance(EnvVars, config, { enableImplicitConversion: true });
-  const errors = validateSync(validated, { skipMissingProperties: true });
+  const errors = validateSync(validated, { skipMissingProperties: false });
   if (errors.length) {
     const messages = errors.map((e) => `${e.property}: ${Object.values(e.constraints ?? {}).join(', ')}`);
     throw new Error(`Environment validation failed:\n${messages.join('\n')}`);
