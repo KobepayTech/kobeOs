@@ -101,8 +101,8 @@
     "wait-on": "^8.0.0"
   },
   "build": {
-    "appId": "com.kobepay.kobeos",
-    "productName": "KobeOS",
+    "appId": "com.kobepay.kobestudio",
+    "productName": "Kobe Studio",
     "copyright": "© 2026 KobepayTech",
     "directories": {
       "output": "release",

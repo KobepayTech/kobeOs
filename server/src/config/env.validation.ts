@@ -17,6 +17,10 @@ class EnvVars {
   @IsOptional() @IsString() SMTP_PASS?: string;
   @IsOptional() @IsString() REDIS_URL?: string;
   @IsOptional() @IsString() WEBHOOK_SECRET?: string;
+  @IsOptional() @IsString() OLLAMA_URL?: string;
+  @IsOptional() @IsString() OLLAMA_MODEL?: string;
+  /** Base URL of the Kobe Model CDN, e.g. https://models.kobe or a self-hosted MinIO endpoint */
+  @IsOptional() @IsString() KOBE_MODELS_CDN_URL?: string;
 }
 
 export function validateEnv(config: Record<string, unknown>) {

@@ -38,6 +38,8 @@ import { LoggerMiddleware } from './common/logger.middleware';
 import { RedisCacheModule } from './cache/redis-cache.module';
 import { AuditModule } from './audit/audit.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
+import { SportsModule } from './sports/sports.module';
+import { KobeModelsModule } from './kobe-models/kobe-models.module';
 
 @Module({
   imports: [
@@ -77,6 +79,8 @@ import { WebhooksModule } from './webhooks/webhooks.module';
     PaymentsModule,
     HotelModule,
     CreatorsModule,
+    SportsModule,
+    KobeModelsModule,
     CompaniesModule,
     SubscriptionsModule,
     StoreSettingsModule,
