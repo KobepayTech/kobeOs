@@ -11,6 +11,7 @@ export class TransactionDto {
   @IsOptional() @IsString() counterparty?: string;
   @IsOptional() @IsString() reference?: string;
   @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsString() idempotencyKey?: string;
 }
 
 export class TransferDto {
@@ -18,6 +19,7 @@ export class TransferDto {
   @IsUUID() toWalletId!: string;
   @IsNumber() @Min(0.01) amount!: number;
   @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsString() idempotencyKey?: string;
 }
 
 export class CreateLoanDto {

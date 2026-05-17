@@ -4,7 +4,7 @@ import { LiveDataService, type LiveMatch } from './live-data.service';
 
 @WebSocketGateway({ namespace: '/sports', cors: { origin: '*' } })
 export class SportsGateway implements OnGatewayInit {
-  @WebSocketServer() server: Server;
+  @WebSocketServer() server!: Server;
 
   constructor(private readonly liveData: LiveDataService) {}
 
