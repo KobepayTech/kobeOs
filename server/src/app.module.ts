@@ -43,6 +43,7 @@ import { AuditModule } from './audit/audit.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { SportsModule } from './sports/sports.module';
 import { KobeModelsModule } from './kobe-models/kobe-models.module';
+import { LicenseModule } from './license/license.module';
 
 @Module({
   imports: [
@@ -82,6 +83,7 @@ import { KobeModelsModule } from './kobe-models/kobe-models.module';
     PaymentsModule,
     HotelModule,
     CreatorsModule,
+    LicenseModule,
     SportsModule,
     KobeModelsModule,
     CompaniesModule,

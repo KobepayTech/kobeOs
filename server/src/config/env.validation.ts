@@ -39,6 +39,8 @@ class EnvVars {
   @IsOptional() @IsNumber() PALMPESA_USER_ID?: number;
   /** Public base URL of this server — used as PalmPesa callback base */
   @IsOptional() @IsString() APP_PUBLIC_URL?: string;
+  /** HMAC-SHA256 secret for signing OS license tokens. Must match VITE_LICENSE_HMAC_SECRET in the frontend build. */
+  @IsOptional() @IsString() LICENSE_HMAC_SECRET?: string;
 }
 
 export function validateEnv(config: Record<string, unknown>) {

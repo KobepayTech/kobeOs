@@ -35,6 +35,15 @@ export type AppCategory =
   | 'sports';
 
 /**
+ * Subscription tier required to open an app.
+ *
+ * - `free`  — always accessible, no payment needed
+ * - `trial` — requires an active trial or paid subscription (2 000 TZS/month)
+ * - `pro`   — requires an active paid subscription (ERP, cargo, hotel, payments, etc.)
+ */
+export type SubscriptionTier = 'free' | 'trial' | 'pro';
+
+/**
  * Metadata for a registered application.
  */
 export interface AppManifest {
@@ -51,6 +60,11 @@ export interface AppManifest {
   singleton: boolean;
   requiresAuth: boolean;
   permissions: string[];
+  /**
+   * Minimum subscription tier required to launch this app.
+   * Defaults to `'free'` when omitted.
+   */
+  subscriptionTier?: SubscriptionTier;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   component: LazyExoticComponent<ComponentType<any>>;
 }

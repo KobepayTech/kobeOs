@@ -19,8 +19,7 @@ export class WebhooksModule implements OnModuleInit {
   ) {}
 
   async onModuleInit() {
-    // Wire CreatorSubscriptionService after all modules are initialised
-    // to avoid a circular import between WebhooksModule ↔ CreatorsModule
+    // Wire services after all modules are initialised to avoid circular imports.
     try {
       const { CreatorSubscriptionService } = await import(
         '../creators/creator-subscription.service'
@@ -29,6 +28,14 @@ export class WebhooksModule implements OnModuleInit {
       if (svc) this.webhookService.setCreatorSubscriptionService(svc);
     } catch {
       // CreatorsModule not loaded — skip
+    }
+
+    try {
+      const { LicenseService } = await import('../license/license.service');
+      const svc = this.moduleRef.get(LicenseService, { strict: false });
+      if (svc) this.webhookService.setLicenseService(svc);
+    } catch {
+      // LicenseModule not loaded — skip
     }
   }
 }

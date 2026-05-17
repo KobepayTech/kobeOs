@@ -36,6 +36,7 @@ import { CreatorSubscriptionService } from './creator-subscription.service';
   exports: [
     CreatorsService, CampaignService, EscrowService,
     MetricsEngineService, CreatorSubscriptionService,
+    PalmPesaService,
   ],
 })
 export class CreatorsModule {}

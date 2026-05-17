@@ -9,13 +9,18 @@ export class WebhookService {
   private readonly logger = new Logger(WebhookService.name);
 
   // Injected lazily to avoid circular module dependency
-  // Set by WebhooksModule after CreatorsModule is loaded
+  // Set by WebhooksModule after CreatorsModule / LicenseModule are loaded
   private creatorSubSvc?: import('../creators/creator-subscription.service').CreatorSubscriptionService;
+  private licenseSvc?: import('../license/license.service').LicenseService;
 
   setCreatorSubscriptionService(
     svc: import('../creators/creator-subscription.service').CreatorSubscriptionService,
   ) {
     this.creatorSubSvc = svc;
+  }
+
+  setLicenseService(svc: import('../license/license.service').LicenseService) {
+    this.licenseSvc = svc;
   }
 
   constructor(
@@ -77,7 +82,14 @@ export class WebhookService {
       `PalmPesa callback: order=${payload.order_id ?? '—'} status=${paymentStatus ?? event.eventType}`,
     );
 
-    // Route to creator subscription handler if this is a subscription payment
+    // Route OS license payments (reference starts with "lic_") to LicenseService
+    const ref = payload.reference ?? '';
+    if (ref.startsWith('lic_') && this.licenseSvc) {
+      await this.licenseSvc.handleCallback(payload);
+      return;
+    }
+
+    // Route creator subscription payments to CreatorSubscriptionService
     if (payload.order_id && this.creatorSubSvc) {
       await this.creatorSubSvc.handleCallback(payload);
       return;

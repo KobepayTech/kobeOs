@@ -20,8 +20,13 @@ export default defineConfig({
   // Bake production defaults into every build so end-user machines need
   // zero configuration. Override via env vars for white-label deployments.
   define: {
-    __REGISTRY_URL__:    JSON.stringify('https://kobeos-registry.onrender.com'),
-    __REGISTRY_DOMAIN__: JSON.stringify('kobeapptz.com'),
+    __REGISTRY_URL__:        JSON.stringify('https://kobeos-registry.onrender.com'),
+    __REGISTRY_DOMAIN__:     JSON.stringify('kobeapptz.com'),
+    // Fallback HMAC secret used when VITE_LICENSE_HMAC_SECRET is not set.
+    // Override in production via the env var to rotate without a rebuild.
+    __LICENSE_HMAC_SECRET__: JSON.stringify(
+      process.env.VITE_LICENSE_HMAC_SECRET ?? 'kobe-license-secret-change-in-prod',
+    ),
   },
   build: { outDir: 'dist', assetsDir: 'assets', emptyOutDir: true, rollupOptions: { output: { manualChunks: undefined } } },
   test: {
