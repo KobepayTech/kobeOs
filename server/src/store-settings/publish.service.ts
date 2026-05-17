@@ -137,6 +137,32 @@ export class PublishService {
   }
 
   /**
+   * Forward a heartbeat from the frontend to the central registry.
+   * Called by POST /api/store-settings/heartbeat every 5 minutes.
+   */
+  async heartbeat(ownerId: string, registryJwt: string): Promise<{ ok: boolean }> {
+    const settings = await this.repo.findOne({ where: { ownerId, isPublished: true } });
+    if (!settings?.domainSlug || !this.registryUrl) return { ok: false };
+
+    let ip: string;
+    try { ip = await this.detectPublicIp(); } catch { return { ok: false }; }
+
+    try {
+      const res = await fetch(`${this.registryUrl}/api/store-registry/heartbeat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${registryJwt}`,
+        },
+        body: JSON.stringify({ slug: settings.domainSlug, serverIp: ip }),
+      });
+      return { ok: res.ok };
+    } catch {
+      return { ok: false };
+    }
+  }
+
+  /**
    * Check availability of a slug against the central registry.
    * Returns { available, reason } without requiring auth.
    */

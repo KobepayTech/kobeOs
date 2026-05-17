@@ -5,6 +5,7 @@ import {
   Store, Type as TypeIcon, Grid3X3, PanelLeft, Tag, Plus, Globe, Loader2, AlertTriangle
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useStoreHeartbeat } from '@/hooks/useStoreHeartbeat';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -650,6 +651,9 @@ export default function StoreEditor() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
+
+  // Keep the registry DNS record alive while this store is published
+  useStoreHeartbeat(settings.domainSlug || undefined, !!settings.isPublished);
 
   // Load persisted settings on mount
   useEffect(() => {

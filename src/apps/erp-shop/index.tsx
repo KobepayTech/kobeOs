@@ -139,8 +139,31 @@ function SlugPicker({ onSelect }: { onSelect: (slug: string) => void }) {
 /*  MAIN COMPONENT                                                      */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Detect the store slug from the current hostname.
+ * When accessed via kelvinfashion.kobeapptz.com the first label is the slug.
+ * Returns empty string when running inside the OS shell (localhost / Electron).
+ */
+function detectSubdomainSlug(): string {
+  try {
+    const host = window.location.hostname; // e.g. "kelvinfashion.kobeapptz.com"
+    const parts = host.split('.');
+    // Must have at least 3 parts (slug.domain.tld) and not be localhost/IP
+    if (parts.length >= 3 && !/^\d+$/.test(parts[0]) && parts[0] !== 'www') {
+      return parts[0]; // "kelvinfashion"
+    }
+  } catch {
+    // window not available (SSR / test env)
+  }
+  return '';
+}
+
 export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
-  const initialSlug = (data?.slug as string | undefined) ?? '';
+  // Priority: prop > subdomain auto-detect > empty (shows SlugPicker)
+  const initialSlug =
+    (data?.slug as string | undefined) ||
+    detectSubdomainSlug() ||
+    '';
 
   const [slug, setSlug] = useState(initialSlug);
   const [settings, setSettings] = useState<StoreSettings | null>(null);
