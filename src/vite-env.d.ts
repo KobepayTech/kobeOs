@@ -10,7 +10,6 @@ interface ImportMeta {
 }
 
 // Baked-in constants injected by vite.config.ts define block.
-// These are replaced at build time — no runtime env vars needed.
+// Replaced at build time — no runtime env vars needed on user machines.
 declare const __REGISTRY_URL__:    string;
 declare const __REGISTRY_DOMAIN__: string;
-declare const __HEARTBEAT_TOKEN__: string;

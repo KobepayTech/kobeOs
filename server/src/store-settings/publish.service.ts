@@ -37,23 +37,19 @@ export class PublishService {
     private readonly config: ConfigService,
   ) {}
 
-  // ── Baked-in defaults — users never need to configure these ──────────────
-  // Override via env vars only for self-hosted / white-label deployments.
-  private static readonly DEFAULT_REGISTRY = 'https://kobeos-registry.onrender.com';
-  private static readonly DEFAULT_DOMAIN   = 'kobeapptz.com';
-  private static readonly DEFAULT_HEARTBEAT_TOKEN = '7d5f0a36dac2843f58d704ee1f397d2d0b8f4c9b253d3f69ec590726f3d4d9d4';
-  // ─────────────────────────────────────────────────────────────────────────
-
+  // Registry URL defaults to the hosted KobePay registry — safe to ship in source.
+  // REGISTRY_HEARTBEAT_TOKEN must be set as an env var on the registry server;
+  // it is intentionally NOT hardcoded here.
   private get registryUrl(): string {
-    return this.config.get<string>('REGISTRY_API_URL', PublishService.DEFAULT_REGISTRY);
+    return this.config.get<string>('REGISTRY_API_URL', 'https://kobeos-registry.onrender.com');
   }
 
   private get domain(): string {
-    return this.config.get<string>('CF_DOMAIN', PublishService.DEFAULT_DOMAIN);
+    return this.config.get<string>('CF_DOMAIN', 'kobeapptz.com');
   }
 
   private get heartbeatToken(): string {
-    return this.config.get<string>('REGISTRY_HEARTBEAT_TOKEN', PublishService.DEFAULT_HEARTBEAT_TOKEN);
+    return this.config.get<string>('REGISTRY_HEARTBEAT_TOKEN', '');
   }
 
   /** Detect this server's public IP via ipify (lightweight, no auth needed). */
