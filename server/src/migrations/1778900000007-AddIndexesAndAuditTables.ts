@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddIndexesAndAuditTables1747160000000 implements MigrationInterface {
-  name = 'AddIndexesAndAuditTables1747160000000';
+export class AddIndexesAndAuditTables1778900000007 implements MigrationInterface {
+  name = 'AddIndexesAndAuditTables1778900000007';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`CREATE INDEX IF NOT EXISTS "idx_users_email" ON "users" ("email")`);
