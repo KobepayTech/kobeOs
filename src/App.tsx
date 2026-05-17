@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 
@@ -8,6 +8,7 @@ import SystemSettings from '@/components/SystemSettings';
 import FileManager from '@/components/FileManager';
 import AppStore from '@/components/AppStore';
 import KobeOSInstaller from '@/components/KobeOSInstaller';
+
 
 function Desktop({ user, onOpenApp }: { user: string; onOpenApp: (app: string) => void }) {
   const apps = [

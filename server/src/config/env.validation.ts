@@ -17,11 +17,25 @@ class EnvVars {
   @IsOptional() @IsString() SMTP_PASS?: string;
   @IsOptional() @IsString() REDIS_URL?: string;
   @IsOptional() @IsString() WEBHOOK_SECRET?: string;
+  @IsOptional() @IsString() OLLAMA_URL?: string;
+  @IsOptional() @IsString() OLLAMA_MODEL?: string;
+  @IsOptional() @IsString() FOOTBALL_DATA_API_KEY?: string;
+  @IsOptional() @IsString() API_FOOTBALL_KEY?: string;
+  /** Base URL of the Kobe Model CDN, e.g. https://models.kobe or a self-hosted MinIO endpoint */
+  @IsOptional() @IsString() KOBE_MODELS_CDN_URL?: string;
+  /** Cloudflare API token with Zone:DNS:Edit permission (required for store publishing) */
+  @IsOptional() @IsString() CF_API_TOKEN?: string;
+  /** Cloudflare Zone ID for kobeapptz.com */
+  @IsOptional() @IsString() CF_ZONE_ID?: string;
+  /** Base domain for store subdomains, defaults to kobeapptz.com */
+  @IsOptional() @IsString() CF_DOMAIN?: string;
+  /** URL of the central KobePay registry API (used by KobeOS instances to publish stores) */
+  @IsOptional() @IsString() REGISTRY_API_URL?: string;
 }
 
 export function validateEnv(config: Record<string, unknown>) {
   const validated = plainToInstance(EnvVars, config, { enableImplicitConversion: true });
-  const errors = validateSync(validated, { skipMissingProperties: true });
+  const errors = validateSync(validated, { skipMissingProperties: false });
   if (errors.length) {
     const messages = errors.map((e) => `${e.property}: ${Object.values(e.constraints ?? {}).join(', ')}`);
     throw new Error(`Environment validation failed:\n${messages.join('\n')}`);

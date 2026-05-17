@@ -25,7 +25,7 @@ export class WarehouseItem extends OwnedEntity {
   @Column({ nullable: true, type: 'varchar' })
   location?: string | null;
 
-  @Column({ type: 'float', default: 0 })
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
   unitCost!: number;
 }
 

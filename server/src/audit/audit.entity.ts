@@ -13,23 +13,23 @@ export class AuditLog {
   @Column()
   entityType!: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   entityId?: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   userId?: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   userEmail?: string | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  oldValue?: Record<string, any> | null;
+  oldValue?: Record<string, unknown> | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  newValue?: Record<string, any> | null;
+  newValue?: Record<string, unknown> | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  metadata?: Record<string, any> | null;
+  metadata?: Record<string, unknown> | null;
 
   @Column({ default: () => 'NOW()' })
   createdAt!: Date;

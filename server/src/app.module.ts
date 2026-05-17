@@ -1,5 +1,6 @@
 import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
@@ -31,14 +32,20 @@ import { AiModule } from './ai/ai.module';
 import { CompaniesModule } from './companies/companies.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { StoreSettingsModule } from './store-settings/store-settings.module';
+import { StoreModule } from './store/store.module';
+import { StoreRegistryModule } from './store-registry/store-registry.module';
 import { RolesGuard } from './common/roles.guard';
+import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { LoggerMiddleware } from './common/logger.middleware';
 import { RedisCacheModule } from './cache/redis-cache.module';
 import { AuditModule } from './audit/audit.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
+import { SportsModule } from './sports/sports.module';
+import { KobeModelsModule } from './kobe-models/kobe-models.module';
 
 @Module({
   imports: [
+    ScheduleModule.forRoot(),
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
@@ -74,13 +81,18 @@ import { WebhooksModule } from './webhooks/webhooks.module';
     PaymentsModule,
     HotelModule,
     CreatorsModule,
+    SportsModule,
+    KobeModelsModule,
     CompaniesModule,
     SubscriptionsModule,
     StoreSettingsModule,
+    StoreModule,
+    StoreRegistryModule,
   ],
   controllers: [AppController],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
   ],
 })

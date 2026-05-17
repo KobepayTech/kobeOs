@@ -1,10 +1,11 @@
-import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThan, Repository } from 'typeorm';
 import { randomBytes, createHash } from 'crypto';
 import * as bcrypt from 'bcryptjs';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { UsersService } from '../users/users.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -107,11 +108,24 @@ export class AuthService {
       }),
     );
 
-    // Best-effort housekeeping: drop ancient rows so the table doesn't grow forever.
-    void this.refreshTokens
-      .delete({ expiresAt: LessThan(new Date(Date.now() - 60 * 24 * 60 * 60 * 1000)) })
-      .catch(() => undefined);
-
     return { accessToken, refreshToken, user: { id: sub, email } };
+  }
+
+  /** Nightly job: remove expired and revoked refresh tokens older than 7 days. */
+  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  async pruneRefreshTokens(): Promise<void> {
+    const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+    const result = await this.refreshTokens.delete({
+      expiresAt: LessThan(cutoff),
+    });
+    const revokedResult = await this.refreshTokens
+      .createQueryBuilder()
+      .delete()
+      .where('revoked = true AND "revokedAt" < :cutoff', { cutoff })
+      .execute();
+    const total = (result.affected ?? 0) + (revokedResult.affected ?? 0);
+    if (total > 0) {
+      new Logger('AuthService').log(`Pruned ${total} stale refresh tokens`);
+    }
   }
 }

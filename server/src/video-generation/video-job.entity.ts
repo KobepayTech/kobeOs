@@ -12,7 +12,7 @@ export class VideoJob {
   @Column()
   title!: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   topic?: string;
 
   @Column({ type: 'text', nullable: true })
@@ -21,20 +21,20 @@ export class VideoJob {
   @Column({ default: 'pending' })
   status!: 'pending' | 'scripting' | 'generating_images' | 'synthesizing_voice' | 'compositing' | 'completed' | 'failed';
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   errorMessage?: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   outputPath?: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   outputUrl?: string | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  config?: Record<string, any> | null;
+  config?: Record<string, unknown> | null;
 
   @Column({ type: 'jsonb', nullable: true })
-  progress?: Record<string, any> | null;
+  progress?: Record<string, unknown> | null;
 
   @Column({ type: 'int', default: 0 })
   progressPercent!: number;
@@ -42,6 +42,6 @@ export class VideoJob {
   @Column({ default: () => 'NOW()' })
   createdAt!: Date;
 
-  @Column({ nullable: true })
+  @Column({ type: 'timestamptz', nullable: true })
   completedAt?: Date | null;
 }

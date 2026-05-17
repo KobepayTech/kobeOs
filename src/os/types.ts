@@ -31,7 +31,8 @@ export type AppCategory =
   | 'development'
   | 'erp'
   | 'games'
-  | 'communication';
+  | 'communication'
+  | 'sports';
 
 /**
  * Metadata for a registered application.

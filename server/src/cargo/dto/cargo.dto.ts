@@ -1,4 +1,7 @@
-import { IsDateString, IsEnum, IsInt, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import {
+  IsDateString, IsEnum, IsInt, IsNumber, IsOptional,
+  IsString, IsUUID, MaxLength, Min,
+} from 'class-validator';
 
 export class CreateParcelDto {
   @IsString() @MaxLength(40) parcelId!: string;
@@ -12,10 +15,15 @@ export class CreateParcelDto {
   @IsOptional() @IsString() description?: string;
   @IsOptional() @IsEnum(['PAY_NOW', 'PAY_ON_ARRIVAL']) paymentMode?: 'PAY_NOW' | 'PAY_ON_ARRIVAL';
 }
+
 export class UpdateParcelDto {
   @IsOptional() @IsString() destination?: string;
   @IsOptional() @IsString() description?: string;
-  @IsOptional() @IsString() status?: string;
+}
+
+export class UpdateParcelStatusDto {
+  @IsEnum(['REGISTERED', 'IN_TRANSIT', 'ARRIVED', 'DELIVERED', 'CANCELLED'])
+  status!: string;
 }
 
 export class CreateShipmentDto {
@@ -27,12 +35,29 @@ export class CreateShipmentDto {
   @IsOptional() @IsDateString() eta?: string;
   @IsOptional() @IsString() carrier?: string;
   @IsOptional() @IsString() flightNumber?: string;
-  @IsOptional() @IsString() status?: string;
 }
-export class UpdateShipmentDto extends CreateShipmentDto {
-  @IsOptional() @IsString() declare shipmentId: string;
-  @IsOptional() @IsString() declare origin: string;
-  @IsOptional() @IsString() declare destination: string;
+
+export class UpdateShipmentDto {
+  @IsOptional() @IsString() origin?: string;
+  @IsOptional() @IsString() destination?: string;
+  @IsOptional() @IsNumber() weight?: number;
+  @IsOptional() @IsDateString() etd?: string;
+  @IsOptional() @IsDateString() eta?: string;
+  @IsOptional() @IsString() carrier?: string;
+  @IsOptional() @IsString() flightNumber?: string;
+}
+
+export class UpdateShipmentStatusDto {
+  @IsEnum(['PENDING', 'LOADING', 'IN_TRANSIT', 'ARRIVED', 'DELIVERED', 'CANCELLED'])
+  status!: string;
+}
+
+export class AssignDriverDto {
+  @IsUUID() driverId!: string;
+}
+
+export class AssignFlightDto {
+  @IsUUID() flightId!: string;
 }
 
 export class CreateDriverDto {
@@ -42,6 +67,7 @@ export class CreateDriverDto {
   @IsOptional() @IsString() plateNumber?: string;
   @IsOptional() @IsEnum(['AVAILABLE', 'ON_TRIP', 'OFF_DUTY']) status?: 'AVAILABLE' | 'ON_TRIP' | 'OFF_DUTY';
 }
+
 export class UpdateDriverDto {
   @IsOptional() @IsString() name?: string;
   @IsOptional() @IsString() phone?: string;
@@ -61,6 +87,7 @@ export class CreateFlightDto {
   @IsOptional() @IsNumber() capacityKg?: number;
   @IsOptional() @IsString() status?: string;
 }
+
 export class UpdateFlightDto {
   @IsOptional() @IsDateString() departureAt?: string;
   @IsOptional() @IsDateString() arrivalAt?: string;

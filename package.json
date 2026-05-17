@@ -7,6 +7,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "lint": "eslint .",
     "preview": "vite preview",
     "electron": "electron .",
@@ -14,7 +16,13 @@
     "electron:build": "npm run build && electron-builder",
     "electron:build:linux": "npm run build && electron-builder --linux",
     "electron:build:win": "npm run build && electron-builder --win",
-    "iso:build": "npm run electron:build:linux && node scripts/build-iso.js"
+    "iso:build": "npm run electron:build:linux && node scripts/build-iso.js",
+    "models:checksums": "node scripts/fetch-model-checksums.js",
+    "models:bundle": "node scripts/bundle-kobemodel.js",
+    "models:upload": "node scripts/upload-models.js",
+    "models:football:train": "python3 scripts/build-football-vision.py --mode train",
+    "models:football:export": "python3 scripts/build-football-vision.py --mode export",
+    "models:football:bundle": "python3 scripts/build-football-vision.py --mode bundle"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -49,6 +57,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "date-fns": "^4.1.0",
+    "electron-updater": "^6.8.3",
     "embla-carousel-react": "^8.6.0",
     "framer-motion": "^12.38.0",
     "input-otp": "^1.4.2",
@@ -72,10 +81,13 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
+    "@vitest/ui": "^4.1.6",
     "autoprefixer": "^10.4.23",
     "concurrently": "^9.1.2",
     "electron": "^35.0.0",
@@ -84,6 +96,7 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
+    "jsdom": "^29.1.1",
     "plugin-inspect-react-code": "^1.0.3",
     "postcss": "^8.5.6",
     "tailwindcss": "^3.4.19",
@@ -93,11 +106,12 @@
     "typescript-eslint": "^8.46.4",
     "vite": "^7.2.4",
     "vite-plugin-pwa": "^1.3.0",
+    "vitest": "^4.1.6",
     "wait-on": "^8.0.0"
   },
   "build": {
-    "appId": "com.kobepay.kobeos",
-    "productName": "KobeOS",
+    "appId": "com.kobepay.kobestudio",
+    "productName": "Kobe Studio",
     "copyright": "© 2026 KobepayTech",
     "directories": {
       "output": "release",
@@ -142,8 +156,8 @@
       "category": "System",
       "maintainer": "KobepayTech",
       "vendor": "KobepayTech",
-      "synopsis": "KobeOS - Web-based Business Operating System",
-      "description": "KobeOS is a web-based operating system with business modules."
+      "synopsis": "Kobe Studio — AI-powered business and sports analytics platform",
+      "description": "Kobe Studio is an AI-powered desktop platform with 70+ apps covering ERP, cargo, hotel, payments, sports analytics, and local AI inference."
     },
     "win": {
       "target": [
@@ -171,7 +185,8 @@
       "installerHeaderIcon": "public/kobeos-icon.ico",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "KobeOS"
+      "shortcutName": "Kobe Studio",
+      "include": "build/installer-migration.nsh"
     },
     "mac": {
       "target": [
@@ -179,6 +194,13 @@
         "zip"
       ],
       "category": "public.app-category.utilities"
-    }
+    },
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://updates.kobe/releases/",
+        "channel": "latest"
+      }
+    ]
   }
 }

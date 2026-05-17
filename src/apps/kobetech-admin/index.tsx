@@ -27,39 +27,31 @@ interface Company {
   email: string;
   country?: string;
   phone?: string;
-  status: 'Active' | 'Trial' | 'Suspended' | 'Cancelled';
-  ownerId: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-/** Extended mock shape used by the Dashboard overview table (static data only) */
-interface CompanyOverview {
-  id: string;
-  name: string;
-  email: string;
-  country: string;
-  plan: 'Basic' | 'Pro' | 'Enterprise';
-  users: number;
-  modules: number;
-  status: 'Active' | 'Trial' | 'Expired' | 'Suspended';
-  revenue: number;
-  joined: string;
+  status: 'Active' | 'Trial' | 'Suspended' | 'Cancelled' | 'Expired';
+  ownerId?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  // Local demo / admin fields
+  plan?: 'Basic' | 'Pro' | 'Enterprise';
+  users?: number;
+  modules?: number;
+  revenue?: number;
+  joined?: string;
 }
 
 /** Shape returned by GET /api/subscriptions */
 interface Subscription {
   id: string;
-  companyId: string;
-  company?: Company;
+  companyId?: string;
+  company?: Company | string;
   plan: 'Basic' | 'Pro' | 'Enterprise';
   price: number;
   startDate: string;
   endDate: string;
   status: 'Trial' | 'Active' | 'Expired' | 'Cancelled';
-  autoRenew: boolean;
-  enabledModules: string[];
-  createdAt: string;
+  autoRenew?: boolean;
+  enabledModules?: string[];
+  createdAt?: string;
 }
 
 interface Invoice {
@@ -106,7 +98,7 @@ interface ErrorLog {
 }
 
 /* ───────── Mock Data: 20 Companies ───────── */
-const COMPANIES: CompanyOverview[] = [
+const COMPANIES: Company[] = [
   { id: '1', name: 'KOBECARGO TZ', email: 'admin@kobecargo.co.tz', country: 'Tanzania', plan: 'Enterprise', users: 85, modules: 8, status: 'Active', revenue: 5988, joined: '2023-01-15' },
   { id: '2', name: 'KobePrint Studio', email: 'hello@kobeprint.studio', country: 'Kenya', plan: 'Pro', users: 32, modules: 5, status: 'Active', revenue: 5364, joined: '2023-02-20' },
   { id: '3', name: 'KobeHotel Arusha', email: 'info@kobehotel.com', country: 'Tanzania', plan: 'Pro', users: 45, modules: 6, status: 'Active', revenue: 5364, joined: '2023-03-10' },
@@ -129,7 +121,29 @@ const COMPANIES: CompanyOverview[] = [
   { id: '20', name: 'Manyara Safaris', email: 'tours@manyarasafaris.com', country: 'Tanzania', plan: 'Enterprise', users: 65, modules: 7, status: 'Active', revenue: 5988, joined: '2024-05-25' },
 ];
 
-// SUBSCRIPTIONS mock removed — SubscriptionsModule now fetches live data from the API.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _SUBSCRIPTIONS: Subscription[] = [
+  { id: 's1', company: 'KOBECARGO TZ', plan: 'Enterprise', price: 499, startDate: '2024-01-15', endDate: '2025-01-15', status: 'Active', autoRenew: true },
+  { id: 's2', company: 'KobePrint Studio', plan: 'Pro', price: 149, startDate: '2024-02-20', endDate: '2025-02-20', status: 'Active', autoRenew: true },
+  { id: 's3', company: 'KobeHotel Arusha', plan: 'Pro', price: 149, startDate: '2024-03-10', endDate: '2025-03-10', status: 'Active', autoRenew: true },
+  { id: 's4', company: 'CreatorHub', plan: 'Enterprise', price: 499, startDate: '2024-04-05', endDate: '2025-04-05', status: 'Active', autoRenew: true },
+  { id: 's5', company: 'KobePay Finance', plan: 'Enterprise', price: 499, startDate: '2024-05-12', endDate: '2025-05-12', status: 'Active', autoRenew: true },
+  { id: 's6', company: 'Nyerere Logistics', plan: 'Basic', price: 49, startDate: '2024-11-01', endDate: '2024-11-15', status: 'Trial', autoRenew: false },
+  { id: 's7', company: 'Mwanza Cargo Co', plan: 'Basic', price: 49, startDate: '2024-06-18', endDate: '2025-06-18', status: 'Active', autoRenew: true },
+  { id: 's8', company: 'Zanzibar Resort', plan: 'Pro', price: 149, startDate: '2024-07-22', endDate: '2025-07-22', status: 'Active', autoRenew: true },
+  { id: 's9', company: 'Kilimanjaro Lodge', plan: 'Basic', price: 49, startDate: '2024-08-30', endDate: '2025-08-30', status: 'Active', autoRenew: true },
+  { id: 's10', company: 'Dar Express', plan: 'Pro', price: 149, startDate: '2024-09-14', endDate: '2025-09-14', status: 'Active', autoRenew: true },
+  { id: 's11', company: 'Safari Adventures', plan: 'Basic', price: 49, startDate: '2024-10-01', endDate: '2024-10-01', status: 'Expired', autoRenew: false },
+  { id: 's12', company: 'Swahili Creators', plan: 'Pro', price: 149, startDate: '2024-11-15', endDate: '2025-11-15', status: 'Active', autoRenew: true },
+  { id: 's13', company: 'Tanga Foods', plan: 'Basic', price: 49, startDate: '2024-12-01', endDate: '2024-12-15', status: 'Trial', autoRenew: false },
+  { id: 's14', company: 'Mbeya Transport', plan: 'Basic', price: 49, startDate: '2024-12-10', endDate: '2024-12-10', status: 'Expired', autoRenew: false },
+  { id: 's15', company: 'Morogoro Shop', plan: 'Basic', price: 49, startDate: '2024-01-20', endDate: '2025-01-20', status: 'Active', autoRenew: true },
+  { id: 's16', company: 'Dodoma Hotel', plan: 'Pro', price: 149, startDate: '2024-02-14', endDate: '2025-02-14', status: 'Active', autoRenew: true },
+  { id: 's17', company: 'Iringa Print', plan: 'Basic', price: 49, startDate: '2024-12-10', endDate: '2024-12-24', status: 'Trial', autoRenew: false },
+  { id: 's18', company: 'Musoma Lodge', plan: 'Basic', price: 49, startDate: '2024-03-05', endDate: '2025-03-05', status: 'Active', autoRenew: true },
+  { id: 's19', company: 'Kigoma Shipping', plan: 'Pro', price: 149, startDate: '2024-04-18', endDate: '2025-04-18', status: 'Active', autoRenew: true },
+  { id: 's20', company: 'Manyara Safaris', plan: 'Enterprise', price: 499, startDate: '2024-05-25', endDate: '2025-05-25', status: 'Active', autoRenew: true },
+];
 
 const INVOICES: Invoice[] = [
   { id: 'i1', company: 'KOBECARGO TZ', amount: 499, date: '2024-12-01', dueDate: '2024-12-05', status: 'Paid' },
@@ -546,7 +560,7 @@ function CompaniesModule() {
                       <td className="py-3 px-4 text-slate-400">{company.email}</td>
                       <td className="py-3 px-4 text-slate-400">{company.country ?? '—'}</td>
                       <td className="py-3 px-4"><StatusBadge status={company.status} /></td>
-                      <td className="py-3 px-4 text-slate-500">{new Date(company.createdAt).toLocaleDateString()}</td>
+                      <td className="py-3 px-4 text-slate-500">{company.createdAt ? new Date(company.createdAt).toLocaleDateString() : '—'}</td>
                       <td className="py-3 px-4">
                         <div className="flex gap-1">
                           <Button
@@ -691,7 +705,7 @@ function SubscriptionsModule() {
   );
 
   const companyName = (sub: Subscription) =>
-    sub.company?.name ?? companies.find((c) => c.id === sub.companyId)?.name ?? sub.companyId;
+    (typeof sub.company === 'object' ? sub.company?.name : sub.company) ?? companies.find((c) => c.id === sub.companyId)?.name ?? sub.companyId;
 
   const handleCreate = async () => {
     if (!form.companyId) return;
@@ -1076,8 +1090,8 @@ function ModulesModule() {
                 {COMPANIES.slice(0, 8).map((company) => (
                   <tr key={company.id} className="border-b border-white/[0.04]">
                     <td className="py-2 px-3 text-slate-200">{company.name}</td>
-                    {['KOBECARGO', 'KobePrint', 'KobeHotel', 'KobePay', 'ERP Suite'].map((modName, mi) => {
-                      const hasMod = company.modules > mi + 1;
+                    {['KOBECARGO', 'KobePrint', 'KobeHotel', 'KobePay', 'ERP Suite'].map((modName) => {
+                      const hasMod = (company.modules ?? 0) > Math.floor(Math.random() * 5) + 1;
                       return (
                         <td key={modName} className="py-2 px-3 text-center">
                           {hasMod ? <CheckCircle2 className="w-4 h-4 text-emerald-400 mx-auto" /> : <XCircle className="w-4 h-4 text-slate-600 mx-auto" />}

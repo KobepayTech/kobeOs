@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { Wifi, Volume2, Monitor, User, Shield, Power, Moon, Sun } from 'lucide-react';
 
 export default function SystemSettings() {

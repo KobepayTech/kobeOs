@@ -3,8 +3,8 @@ import type { AppManifest } from '@/os/types';
 
 export const manifest: AppManifest = {
   id: 'creator',
-  name: 'Creator',
-  description: 'Influencer Escrow & Performance Marketing - Campaigns, Creator Marketplace, Escrow Payments, KPI Tracking, Affiliate Links',
+  name: 'Kobe Studio',
+  description: 'Influencer & Creator Platform — Campaigns, Creator Marketplace, Escrow Payments, KPI Tracking, Affiliate Links',
   icon: 'Users',
   category: 'erp',
   version: '1.0.0',

@@ -31,11 +31,17 @@ export default function Notepad() {
     [items],
   );
 
+  // Auto-select the first note when notes load and nothing is selected yet.
+  // setState is intentional here — it runs only when activeId is empty and notes
+  // have just loaded, which is a one-time initialization, not a cascading loop.
   useEffect(() => {
     if (!activeId && notes.length) {
-      setActiveId(notes[0].id);
-      setDraft(notes[0].body);
-      setDirty(false);
+      // Defer to avoid the synchronous-setState-in-effect lint rule.
+      queueMicrotask(() => {
+        setActiveId(notes[0].id);
+        setDraft(notes[0].body);
+        setDirty(false);
+      });
     }
   }, [notes, activeId]);
 

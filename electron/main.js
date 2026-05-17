@@ -1,10 +1,13 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const { exec } = require('child_process');
+const { autoUpdater } = require('electron-updater');
 
 let mainWindow;
 
 function createWindow() {
+  const isDev = !app.isPackaged;
+
   mainWindow = new BrowserWindow({
     width: 1920, height: 1080, fullscreen: true, kiosk: true,
     autoHideMenuBar: true, frame: false,
@@ -12,11 +15,10 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,   // required for contextBridge in preload.js to work
       preload: path.join(__dirname, 'preload.js'),
-      webSecurity: false        // kept false for local file:// resource loading
+      webSecurity: !isDev,      // disable only in dev for local file:// resource loading
     }
   });
 
-  const isDev = !app.isPackaged;
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
   } else {
@@ -31,7 +33,62 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(createWindow);
+// ── Auto-updater ──────────────────────────────────────────────────────────────
+
+function setupAutoUpdater(win) {
+  // Only run in packaged builds — skip in dev
+  if (!app.isPackaged) return;
+
+  autoUpdater.autoDownload = false;       // ask user before downloading
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  // Forward updater events to the renderer via IPC
+  autoUpdater.on('checking-for-update', () => {
+    win.webContents.send('updater', { event: 'checking' });
+  });
+
+  autoUpdater.on('update-available', (info) => {
+    win.webContents.send('updater', { event: 'available', version: info.version, releaseNotes: info.releaseNotes });
+  });
+
+  autoUpdater.on('update-not-available', () => {
+    win.webContents.send('updater', { event: 'not-available' });
+  });
+
+  autoUpdater.on('download-progress', (progress) => {
+    win.webContents.send('updater', {
+      event: 'progress',
+      percent: Math.round(progress.percent),
+      transferred: progress.transferred,
+      total: progress.total,
+      bytesPerSecond: progress.bytesPerSecond,
+    });
+  });
+
+  autoUpdater.on('update-downloaded', (info) => {
+    win.webContents.send('updater', { event: 'downloaded', version: info.version });
+  });
+
+  autoUpdater.on('error', (err) => {
+    win.webContents.send('updater', { event: 'error', message: err.message });
+  });
+
+  // Check for updates 5s after launch, then every 4 hours
+  setTimeout(() => autoUpdater.checkForUpdates(), 5_000);
+  setInterval(() => autoUpdater.checkForUpdates(), 4 * 60 * 60 * 1_000);
+}
+
+// Renderer-initiated updater actions
+ipcMain.handle('updater-download', () => autoUpdater.downloadUpdate());
+ipcMain.handle('updater-install', () => {
+  autoUpdater.quitAndInstall(false, true); // isSilent=false, isForceRunAfter=true
+});
+ipcMain.handle('updater-check', () => autoUpdater.checkForUpdates());
+
+app.whenReady().then(() => {
+  createWindow();
+  setupAutoUpdater(mainWindow);
+});
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 
 ipcMain.handle('system-shutdown', () => {

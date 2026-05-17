@@ -19,24 +19,23 @@ export class VideoGenerationService {
     this.pixellePath = join(process.cwd(), '..', 'pixelle-video');
   }
 
-  async createJob(ownerId: string, data: any): Promise<VideoJob> {
-    const job = await this.repo.save(
-      this.repo.create({
-        ownerId,
-        title: data.title,
-        topic: data.topic,
-        script: data.script,
-        status: 'pending',
-        config: data,
-        progress: { step: 'queued', detail: 'Waiting to start...' },
-      }),
-    );
+  async createJob(ownerId: string, data: Record<string, unknown>): Promise<VideoJob> {
+    const job = this.repo.create({
+      ownerId,
+      title: data.title as string | undefined,
+      topic: data.topic as string | undefined,
+      script: data.script as string | undefined,
+      status: 'pending' as const,
+      config: data,
+      progress: { step: 'queued', detail: 'Waiting to start...' },
+    });
+    const saved = await this.repo.save(job);
 
-    this.runGeneration(job.id, ownerId, data).catch((err) => {
-      this.logger.error(`Job ${job.id} failed: ${err.message}`);
+    this.runGeneration(saved.id, ownerId, data).catch((err) => {
+      this.logger.error(`Job ${saved.id} failed: ${(err as Error).message}`);
     });
 
-    return job;
+    return saved;
   }
 
   async getJob(ownerId: string, id: string): Promise<VideoJob> {
@@ -59,7 +58,7 @@ export class VideoGenerationService {
     await this.repo.remove(job);
   }
 
-  private async runGeneration(jobId: string, ownerId: string, data: any): Promise<void> {
+  private async runGeneration(jobId: string, ownerId: string, data: Record<string, unknown>): Promise<void> {
     const job = await this.repo.findOne({ where: { id: jobId } });
     if (!job) return;
 
@@ -77,9 +76,9 @@ export class VideoGenerationService {
       if (fs.existsSync(scriptPath)) {
         cmdArgs = [
           scriptPath,
-          '--topic', data.topic || '',
-          '--template', data.template || 'default',
-          '--voice', data.voice || 'edge-tts',
+          '--topic', (data.topic as string) || '',
+          '--template', (data.template as string) || 'default',
+          '--voice', (data.voice as string) || 'edge-tts',
           '--output-id', jobId,
         ];
       } else {
@@ -106,12 +105,13 @@ export class VideoGenerationService {
       });
 
       const outputDir = join(this.pixellePath, 'output');
-      let latest = null;
+      let latest: string | null = null;
       if (fs.existsSync(outputDir)) {
         const files = fs.readdirSync(outputDir).filter((f) => f.endsWith('.mp4'));
-        latest = files.sort((a, b) => {
-          return fs.statSync(join(outputDir, b)).mtime.getTime() - fs.statSync(join(outputDir, a)).mtime.getTime();
-        })[0];
+        const sorted = files.sort((a, b) =>
+          fs.statSync(join(outputDir, b)).mtime.getTime() - fs.statSync(join(outputDir, a)).mtime.getTime(),
+        );
+        latest = sorted[0] ?? null;
       }
 
       job.status = 'completed';

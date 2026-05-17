@@ -4,6 +4,7 @@ import * as icons from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useOSStore } from './store';
 import { StartMenu } from './StartMenu';
+import { useAutoUpdater } from '@/hooks/useAutoUpdater';
 
 export function Taskbar() {
   const {
@@ -13,6 +14,8 @@ export function Taskbar() {
     focusWindow,
     launchApp,
   } = useOSStore();
+  const unreadCount = useOSStore((s) => s.unreadCount);
+  const { state: updaterState, download, install } = useAutoUpdater();
 
   const [startOpen, setStartOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
@@ -155,9 +158,9 @@ export function Taskbar() {
               }}
             >
               <icons.Bell className="w-4 h-4 text-os-text-secondary" />
-              {useOSStore.getState().unreadCount > 0 && (
+              {unreadCount > 0 && (
                 <span className="absolute top-1 right-1 w-4 h-4 flex items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white">
-                  {useOSStore.getState().unreadCount}
+                  {unreadCount}
                 </span>
               )}
             </button>
@@ -195,6 +198,58 @@ export function Taskbar() {
       </div>
 
       <StartMenu open={startOpen} onClose={() => setStartOpen(false)} />
+
+      {/* Auto-updater notification banner */}
+      <AnimatePresence>
+        {(updaterState.status === 'available' || updaterState.status === 'ready' || updaterState.status === 'downloading') && (
+          <motion.div
+            initial={{ opacity: 0, y: 60 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 60 }}
+            className={`fixed ${settings.taskbarPosition === 'top' ? 'top-14' : 'bottom-14'} right-4 z-[9999] flex items-center gap-3 px-4 py-3 rounded-xl bg-[#1e293b] border border-white/10 shadow-2xl text-sm text-white max-w-sm`}
+          >
+            <icons.RefreshCw className="w-4 h-4 text-blue-400 shrink-0" />
+            <div className="flex-1 min-w-0">
+              {updaterState.status === 'available' && (
+                <>
+                  <p className="font-semibold text-white">Update available — v{updaterState.version}</p>
+                  <p className="text-xs text-gray-400">Kobe Studio update ready to download</p>
+                </>
+              )}
+              {updaterState.status === 'downloading' && (
+                <>
+                  <p className="font-semibold text-white">Downloading update… {updaterState.percent}%</p>
+                  <div className="mt-1 h-1 bg-gray-700 rounded-full overflow-hidden">
+                    <div className="h-full bg-blue-500 transition-all" style={{ width: `${updaterState.percent}%` }} />
+                  </div>
+                </>
+              )}
+              {updaterState.status === 'ready' && (
+                <>
+                  <p className="font-semibold text-white">Update ready — v{updaterState.version}</p>
+                  <p className="text-xs text-gray-400">Restart to apply</p>
+                </>
+              )}
+            </div>
+            {updaterState.status === 'available' && (
+              <button
+                onClick={download}
+                className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shrink-0 transition-colors"
+              >
+                Download
+              </button>
+            )}
+            {updaterState.status === 'ready' && (
+              <button
+                onClick={install}
+                className="px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-500 text-white text-xs font-semibold shrink-0 transition-colors"
+              >
+                Restart
+              </button>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </>
   );
 }

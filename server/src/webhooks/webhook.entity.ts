@@ -13,7 +13,7 @@ export class WebhookEvent {
   eventType!: string;
 
   @Column({ type: 'jsonb' })
-  payload!: Record<string, any>;
+  payload!: Record<string, unknown>;
 
   @Column({ default: false })
   processed!: boolean;
@@ -21,7 +21,7 @@ export class WebhookEvent {
   @Column({ type: 'timestamptz', nullable: true })
   processedAt?: Date | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   errorMessage?: string | null;
 
   @Column({ default: () => 'NOW()' })
