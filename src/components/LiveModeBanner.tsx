@@ -1,4 +1,4 @@
-import React from 'react';
+
 import { Usb, HardDrive, AlertTriangle } from 'lucide-react';
 import { useSystemMode } from '@/hooks/useSystemMode';
 import { Button } from '@/components/ui/button';

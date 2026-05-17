@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Monitor, HardDrive, Download, CheckCircle, AlertCircle, ChevronRight, ChevronLeft, Power, RefreshCw, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -13,16 +13,18 @@ export default function KobeOSInstaller() {
   const [installProgress, setInstallProgress] = useState(0);
   const [installComplete, setInstallComplete] = useState(false);
 
-  useEffect(() => { if (step === 3 && window.kobeOS) window.kobeOS.system.scanDisks().then(setDisks); }, [step]);
+  useEffect(() => {
+    if (step === 3) window.kobeOS?.system?.scanDisks?.().then(setDisks);
+  }, [step]);
 
   const startInstall = async () => {
     if (!selectedDisk) return;
     const interval = setInterval(() => {
       setInstallProgress(prev => { if (prev >= 100) { clearInterval(interval); setInstallComplete(true); return 100; } return prev + Math.random() * 5; });
     }, 500);
-    const result = await window.kobeOS.system.installToDisk(selectedDisk);
+    const result = await window.kobeOS?.system?.installToDisk?.(selectedDisk);
     clearInterval(interval);
-    if (result.success) { setInstallProgress(100); setInstallComplete(true); }
+    if (result?.success) { setInstallProgress(100); setInstallComplete(true); }
   };
 
   const renderStepIndicator = () => (
@@ -127,8 +129,8 @@ export default function KobeOSInstaller() {
                   <div className="w-20 h-20 bg-green-500 rounded-full mx-auto flex items-center justify-center"><CheckCircle size={40} className="text-white" /></div>
                   <div><h2 className="text-3xl font-bold text-white mb-2">Installation Complete!</h2><p className="text-gray-400">KobeOS has been successfully installed on your system.</p></div>
                   <div className="flex gap-4 justify-center">
-                    <Button onClick={() => window.kobeOS.system.reboot()} className="bg-blue-600 hover:bg-blue-700"><Power size={18} className="mr-2" /> Reboot Now</Button>
-                    <Button variant="outline" onClick={() => window.kobeOS.system.shutdown()} className="border-gray-600"><Power size={18} className="mr-2" /> Shutdown</Button>
+                    <Button onClick={() => window.kobeOS?.system?.reboot?.()} className="bg-blue-600 hover:bg-blue-700"><Power size={18} className="mr-2" /> Reboot Now</Button>
+                    <Button variant="outline" onClick={() => window.kobeOS?.system?.shutdown?.()} className="border-gray-600"><Power size={18} className="mr-2" /> Shutdown</Button>
                   </div>
                 </>
               )}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 
@@ -8,7 +8,6 @@ import SystemSettings from '@/components/SystemSettings';
 import FileManager from '@/components/FileManager';
 import AppStore from '@/components/AppStore';
 import KobeOSInstaller from '@/components/KobeOSInstaller';
-import { useSystemMode } from '@/hooks/useSystemMode';
 
 function Desktop({ user, onOpenApp }: { user: string; onOpenApp: (app: string) => void }) {
   const apps = [
@@ -95,13 +94,8 @@ function WindowManager({ app, onClose }: { app: string; onClose: () => void }) {
 }
 
 export default function App() {
-  const [user, setUser] = useState<string | null>(null);
+  const [user, setUser] = useState<string | null>(() => localStorage.getItem('kobeos_user'));
   const [openApp, setOpenApp] = useState<string | null>(null);
-
-  useEffect(() => {
-    const saved = localStorage.getItem('kobeos_user');
-    if (saved) setUser(saved);
-  }, []);
 
   const handleLogin = (username: string) => {
     setUser(username);

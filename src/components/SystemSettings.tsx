@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Wifi, Volume2, Display, User, Shield, Power, Moon, Sun } from 'lucide-react';
+import { useState } from 'react';
+import { Wifi, Volume2, Monitor, User, Shield, Power, Moon, Sun } from 'lucide-react';
 
 export default function SystemSettings() {
   const [activeTab, setActiveTab] = useState('general');
@@ -10,7 +10,7 @@ export default function SystemSettings() {
   const tabs = [
     { id: 'general', icon: <User size={20} />, label: 'General' },
     { id: 'wifi', icon: <Wifi size={20} />, label: 'Network' },
-    { id: 'display', icon: <Display size={20} />, label: 'Display' },
+    { id: 'display', icon: <Monitor size={20} />, label: 'Display' },
     { id: 'sound', icon: <Volume2 size={20} />, label: 'Sound' },
     { id: 'security', icon: <Shield size={20} />, label: 'Security' },
     { id: 'power', icon: <Power size={20} />, label: 'Power' },
