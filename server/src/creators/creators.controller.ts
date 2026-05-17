@@ -1,6 +1,7 @@
 import {
   Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards,
 } from '@nestjs/common';
+import { IsEnum, IsString, Matches } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { Public } from '../common/public.decorator';
@@ -8,11 +9,21 @@ import { CreatorsService } from './creators.service';
 import { CampaignService } from './campaign.service';
 import { EscrowService } from './escrow.service';
 import { MetricsEngineService } from './metrics-engine.service';
+import { CreatorSubscriptionService } from './creator-subscription.service';
+import { CreatorTier } from './creator-subscription.entity';
 import { CreateCreatorDto, SearchCreatorsDto, SyncCreatorDto, UpdateCreatorDto } from './dto/creator.dto';
 import {
   CreateCampaignDto, RespondOfferDto, SendOfferDto,
   SubmitProofDto, UpdateCampaignDto,
 } from './dto/campaign.dto';
+
+class UpgradeSubscriptionDto {
+  @IsEnum(['basic', 'premium', 'elite']) tier!: CreatorTier;
+  /** Creator's mobile money phone number e.g. 0712345678 or 255712345678 */
+  @IsString() phone!: string;
+  @IsString() name!: string;
+  @IsString() email!: string;
+}
 
 @UseGuards(JwtAuthGuard)
 @Controller('creators')
@@ -22,6 +33,7 @@ export class CreatorsController {
     private readonly campaigns: CampaignService,
     private readonly escrow: EscrowService,
     private readonly metrics: MetricsEngineService,
+    private readonly subscriptions: CreatorSubscriptionService,
   ) {}
 
   @Get()
@@ -122,5 +134,46 @@ export class CreatorsController {
   @Post(':id/refresh-metrics')
   refreshMetrics(@CurrentUser('id') uid: string, @Param('id') id: string) {
     return this.svc.get(uid, id).then(() => this.metrics.syncCreator(id));
+  }
+
+  // ── Subscription ────────────────────────────────────────────────────────────
+
+  /**
+   * Initiate a tier upgrade via PalmPesa USSD push.
+   * Returns immediately with a pending subscription record.
+   * Tier is activated when PalmPesa posts the payment callback.
+   */
+  @Post(':id/subscribe')
+  subscribe(
+    @CurrentUser('id') uid: string,
+    @Param('id') id: string,
+    @Body() dto: UpgradeSubscriptionDto,
+  ) {
+    // Verify ownership before charging
+    return this.svc.get(uid, id).then(() =>
+      this.subscriptions.initiateUpgrade({
+        creatorId: id,
+        tier: dto.tier,
+        phone: dto.phone,
+        name: dto.name,
+        email: dto.email,
+      }),
+    );
+  }
+
+  /** Active subscription for this creator profile */
+  @Get(':id/subscription')
+  getSubscription(@CurrentUser('id') uid: string, @Param('id') id: string) {
+    return this.svc.get(uid, id).then(() =>
+      this.subscriptions.getActiveSubscription(id),
+    );
+  }
+
+  /** Full billing history */
+  @Get(':id/subscription/history')
+  getSubscriptionHistory(@CurrentUser('id') uid: string, @Param('id') id: string) {
+    return this.svc.get(uid, id).then(() =>
+      this.subscriptions.getHistory(id),
+    );
   }
 }

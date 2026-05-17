@@ -1,11 +1,22 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { WebhookEvent } from './webhook.entity';
+import { PalmPesaCallback } from '../creators/palmpesa.service';
 
 @Injectable()
 export class WebhookService {
   private readonly logger = new Logger(WebhookService.name);
+
+  // Injected lazily to avoid circular module dependency
+  // Set by WebhooksModule after CreatorsModule is loaded
+  private creatorSubSvc?: import('../creators/creator-subscription.service').CreatorSubscriptionService;
+
+  setCreatorSubscriptionService(
+    svc: import('../creators/creator-subscription.service').CreatorSubscriptionService,
+  ) {
+    this.creatorSubSvc = svc;
+  }
 
   constructor(
     @InjectRepository(WebhookEvent)
@@ -56,22 +67,34 @@ export class WebhookService {
   // ── Provider handlers ────────────────────────────────────────────────────
 
   private async handlePalmPesa(event: WebhookEvent): Promise<void> {
-    const { eventType, payload } = event;
-    this.logger.log(`PalmPesa ${eventType}: ref=${payload['reference'] ?? '—'} amount=${payload['amount'] ?? '—'}`);
+    const payload = event.payload as unknown as PalmPesaCallback;
 
-    switch (eventType) {
+    // PalmPesa callbacks carry payment_status directly (not via eventType header)
+    const paymentStatus = payload.payment_status
+      ?? (event.eventType === 'payment.completed' ? 'COMPLETED' : undefined);
+
+    this.logger.log(
+      `PalmPesa callback: order=${payload.order_id ?? '—'} status=${paymentStatus ?? event.eventType}`,
+    );
+
+    // Route to creator subscription handler if this is a subscription payment
+    if (payload.order_id && this.creatorSubSvc) {
+      await this.creatorSubSvc.handleCallback(payload);
+      return;
+    }
+
+    // Fallback for non-subscription PalmPesa payments
+    switch (paymentStatus ?? event.eventType) {
+      case 'COMPLETED':
       case 'payment.completed':
-      case 'payment.success':
-        // TODO: credit the matching wallet via PaymentsService
+        this.logger.log(`PalmPesa payment completed: order=${payload.order_id}`);
         break;
+      case 'FAILED':
       case 'payment.failed':
-        // TODO: mark the pending transaction as FAILED
-        break;
-      case 'refund.completed':
-        // TODO: reverse the transaction
+        this.logger.warn(`PalmPesa payment failed: order=${payload.order_id}`);
         break;
       default:
-        this.logger.debug(`PalmPesa: unhandled event type "${eventType}"`);
+        this.logger.debug(`PalmPesa: unhandled status "${paymentStatus ?? event.eventType}"`);
     }
   }
 

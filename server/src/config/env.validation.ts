@@ -33,6 +33,12 @@ class EnvVars {
   @IsOptional() @IsString() REGISTRY_API_URL?: string;
   /** ScrapeCreators API key — required for creator platform sync (https://scrapecreators.com) */
   @IsOptional() @IsString() SCRAPE_CREATORS_API_KEY?: string;
+
+  /** PalmPesa payment gateway (https://documentation.palmpesa.co.tz) */
+  @IsOptional() @IsString() PALMPESA_API_TOKEN?: string;
+  @IsOptional() @IsNumber() PALMPESA_USER_ID?: number;
+  /** Public base URL of this server — used as PalmPesa callback base */
+  @IsOptional() @IsString() APP_PUBLIC_URL?: string;
 }
 
 export function validateEnv(config: Record<string, unknown>) {

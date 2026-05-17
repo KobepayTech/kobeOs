@@ -105,7 +105,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 // ── Types ──────────────────────────────────────────────
-type ModuleId = 'overview' | 'campaigns' | 'marketplace' | 'deals' | 'escrow' | 'performance' | 'affiliate' | 'messages';
+type ModuleId = 'overview' | 'campaigns' | 'marketplace' | 'deals' | 'escrow' | 'subscription' | 'performance' | 'affiliate' | 'messages';
 
 interface Campaign {
   id: number; name: string; budget: number; creators: number;
@@ -422,6 +422,7 @@ export default function Creator() {
     { id: 'marketplace', icon: Globe, label: 'Marketplace', desc: 'Find creators', color: '#10b981' },
     { id: 'deals', icon: Handshake, label: 'My Deals', desc: 'Active agreements', color: '#f59e0b' },
     { id: 'escrow', icon: Wallet, label: 'Escrow', desc: 'Payments & wallet', color: '#ec4899' },
+    { id: 'subscription', icon: Star, label: 'Subscription', desc: 'Visibility tier', color: '#f59e0b' },
     { id: 'performance', icon: BarChart3, label: 'Performance', desc: 'KPI tracking', color: '#f97316' },
     { id: 'affiliate', icon: Link2, label: 'Affiliate', desc: 'Links & codes', color: '#06b6d4' },
     { id: 'messages', icon: MessageCircle, label: 'Messages', desc: 'Chat & notifications', color: '#8b5cf6' },
@@ -462,6 +463,7 @@ export default function Creator() {
         {activeModule === 'marketplace' && <MarketplaceModule />}
         {activeModule === 'deals' && <DealsModule />}
         {activeModule === 'escrow' && <EscrowModule />}
+        {activeModule === 'subscription' && <SubscriptionModule />}
         {activeModule === 'performance' && <PerformanceModule />}
         {activeModule === 'affiliate' && <AffiliateModule />}
         {activeModule === 'messages' && <MessagesModule />}
@@ -1240,6 +1242,236 @@ function EscrowModule() {
             )}
           </CardContent>
         </Card>
+      </div>
+    </div>
+  );
+}
+
+// ── Subscription Module ────────────────────────────────
+const TIER_PRICES = { free: 0, basic: 2_000, premium: 5_000, elite: 10_000 } as const;
+const TIER_FEATURES: Record<string, string[]> = {
+  free:    ['Not listed in marketplace', 'No visibility boost'],
+  basic:   ['Listed in marketplace', 'Standard ranking', 'Weekly metrics sync'],
+  premium: ['Priority ranking', 'Featured in search results', 'Daily metrics sync', 'Fraud score badge'],
+  elite:   ['Top featured placement', 'Homepage spotlight', 'Real-time metrics', 'Verified badge', 'Dedicated support'],
+};
+
+function SubscriptionModule() {
+  const { creators, reload } = useAppState();
+  const [selectedCreatorId, setSelectedCreatorId] = useState(creators[0]?.id ?? '');
+  const [selectedTier, setSelectedTier] = useState<'basic' | 'premium' | 'elite'>('basic');
+  const [phone, setPhone] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<{ status: 'success' | 'error'; message: string } | null>(null);
+  const [history, setHistory] = useState<Array<{
+    id: string; tier: string; amountTzs: number; status: string;
+    channel?: string | null; createdAt: string; expiresAt?: string | null;
+  }>>([]);
+
+  const selectedCreator = creators.find(c => c.id === selectedCreatorId);
+
+  // Load billing history when creator changes
+  useEffect(() => {
+    if (!selectedCreatorId) return;
+    api<typeof history>(`/creators/${selectedCreatorId}/subscription/history`)
+      .then(setHistory)
+      .catch(() => setHistory([]));
+  }, [selectedCreatorId, result]);
+
+  const handleSubscribe = async () => {
+    if (!selectedCreatorId || !phone) return;
+    setLoading(true);
+    setResult(null);
+    try {
+      await api(`/creators/${selectedCreatorId}/subscribe`, {
+        method: 'POST',
+        body: JSON.stringify({
+          tier: selectedTier,
+          phone,
+          name: selectedCreator?.name ?? 'Creator',
+          email: selectedCreator?.avatarUrl ? '' : `${selectedCreatorId}@kobecreator.app`,
+        }),
+      });
+      setResult({
+        status: 'success',
+        message: `USSD push sent to ${phone}. Check your phone and enter your PIN to confirm payment.`,
+      });
+      reload();
+    } catch (e) {
+      setResult({ status: 'error', message: (e as Error).message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const tiers = (['basic', 'premium', 'elite'] as const);
+
+  return (
+    <div className="h-full overflow-y-auto">
+      <div className="p-6 space-y-6">
+        <div>
+          <h1 className="text-xl font-bold text-white">Creator Subscription</h1>
+          <p className="text-sm text-slate-400 mt-0.5">
+            Upgrade visibility tier — charged weekly via PalmPesa mobile money
+          </p>
+        </div>
+
+        {/* Creator selector */}
+        {creators.length > 1 && (
+          <div>
+            <label className="text-xs text-slate-400 mb-1 block">Creator Profile</label>
+            <Select value={selectedCreatorId} onValueChange={setSelectedCreatorId}>
+              <SelectTrigger className="bg-white/5 border-white/10 text-white w-64">
+                <SelectValue placeholder="Select creator" />
+              </SelectTrigger>
+              <SelectContent className="bg-[#1e1e2e] border-white/10 text-white">
+                {creators.map(c => (
+                  <SelectItem key={c.id} value={c.id} className="text-white hover:bg-white/10">
+                    {c.name} — <span className="text-slate-400">{c.subscriptionTier}</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {/* Tier cards */}
+        <div className="grid grid-cols-3 gap-4">
+          {tiers.map((tier) => {
+            const price = TIER_PRICES[tier];
+            const features = TIER_FEATURES[tier];
+            const isCurrent = selectedCreator?.subscriptionTier === tier;
+            const isSelected = selectedTier === tier;
+            const colors = {
+              basic:   { ring: 'ring-cyan-500/50',   bg: 'bg-cyan-500/10',   text: 'text-cyan-400',   badge: 'bg-cyan-500/20 text-cyan-300' },
+              premium: { ring: 'ring-violet-500/50', bg: 'bg-violet-500/10', text: 'text-violet-400', badge: 'bg-violet-500/20 text-violet-300' },
+              elite:   { ring: 'ring-amber-500/50',  bg: 'bg-amber-500/10',  text: 'text-amber-400',  badge: 'bg-amber-500/20 text-amber-300' },
+            }[tier];
+
+            return (
+              <div
+                key={tier}
+                onClick={() => setSelectedTier(tier)}
+                className={`relative rounded-xl border p-4 cursor-pointer transition-all ${
+                  isSelected
+                    ? `border-white/20 ring-2 ${colors.ring} ${colors.bg}`
+                    : 'border-white/[0.06] hover:border-white/10 bg-[#13131f]'
+                }`}
+              >
+                {isCurrent && (
+                  <span className={`absolute top-3 right-3 text-[10px] px-2 py-0.5 rounded-full font-medium ${colors.badge}`}>
+                    Active
+                  </span>
+                )}
+                {tier === 'elite' && (
+                  <Star className="w-3.5 h-3.5 text-amber-400 mb-2" />
+                )}
+                <div className={`text-sm font-bold capitalize mb-1 ${colors.text}`}>{tier}</div>
+                <div className="text-xl font-bold text-white">
+                  {price.toLocaleString()} <span className="text-xs text-slate-400 font-normal">TZS/week</span>
+                </div>
+                <ul className="mt-3 space-y-1.5">
+                  {features.map(f => (
+                    <li key={f} className="flex items-start gap-1.5 text-xs text-slate-300">
+                      <CheckCircle2 className={`w-3 h-3 mt-0.5 shrink-0 ${colors.text}`} />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Payment form */}
+        <Card className="bg-[#13131f] border-white/[0.06]">
+          <CardContent className="p-5 space-y-4">
+            <h3 className="text-sm font-semibold text-white">Pay via PalmPesa Mobile Money</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Mobile Number *</label>
+                <Input
+                  className="bg-white/5 border-white/10 text-white"
+                  placeholder="0712 345 678"
+                  value={phone}
+                  onChange={e => setPhone(e.target.value)}
+                />
+                <p className="text-[11px] text-slate-500 mt-1">Vodacom, Airtel, Tigo, Halotel</p>
+              </div>
+              <div className="flex flex-col justify-end">
+                <div className="text-xs text-slate-400 mb-2">
+                  You will be charged{' '}
+                  <span className="text-white font-semibold">
+                    {TIER_PRICES[selectedTier].toLocaleString()} TZS/week
+                  </span>{' '}
+                  for the <span className="capitalize text-white">{selectedTier}</span> tier.
+                </div>
+                <Button
+                  className="bg-emerald-500 hover:bg-emerald-600 text-white"
+                  onClick={handleSubscribe}
+                  disabled={loading || !phone}
+                >
+                  {loading ? 'Sending USSD push…' : `Activate ${selectedTier} — ${TIER_PRICES[selectedTier].toLocaleString()} TZS`}
+                </Button>
+              </div>
+            </div>
+
+            {result && (
+              <div className={`flex items-start gap-2 p-3 rounded-lg text-sm ${
+                result.status === 'success'
+                  ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-300'
+                  : 'bg-red-500/10 border border-red-500/20 text-red-300'
+              }`}>
+                {result.status === 'success'
+                  ? <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                  : <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />}
+                {result.message}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Billing history */}
+        {history.length > 0 && (
+          <Card className="bg-[#13131f] border-white/[0.06]">
+            <CardContent className="p-4">
+              <h3 className="text-sm font-semibold text-white mb-3">Billing History</h3>
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-slate-400 border-b border-white/[0.06]">
+                    <th className="text-left py-2 px-3">Date</th>
+                    <th className="text-left py-2 px-3">Tier</th>
+                    <th className="text-left py-2 px-3">Amount</th>
+                    <th className="text-left py-2 px-3">Channel</th>
+                    <th className="text-left py-2 px-3">Status</th>
+                    <th className="text-left py-2 px-3">Expires</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map(h => (
+                    <tr key={h.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
+                      <td className="py-2 px-3 text-slate-300">{new Date(h.createdAt).toLocaleDateString()}</td>
+                      <td className="py-2 px-3 capitalize text-white">{h.tier}</td>
+                      <td className="py-2 px-3 text-white">{Number(h.amountTzs).toLocaleString()} TZS</td>
+                      <td className="py-2 px-3 text-slate-400">{h.channel ?? '—'}</td>
+                      <td className="py-2 px-3">
+                        <span className={`text-xs px-2 py-0.5 rounded-full border ${
+                          h.status === 'active'     ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                          h.status === 'pending'    ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                          h.status === 'failed'     ? 'bg-red-500/10 text-red-400 border-red-500/20' :
+                          'bg-slate-500/10 text-slate-400 border-slate-500/20'
+                        }`}>{h.status}</span>
+                      </td>
+                      <td className="py-2 px-3 text-slate-400">
+                        {h.expiresAt ? new Date(h.expiresAt).toLocaleDateString() : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );
