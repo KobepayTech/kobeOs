@@ -55,6 +55,10 @@ interface StoreSettings {
   // Typography
   headingSize: 'small' | 'medium' | 'large';
   bodySize: 'small' | 'medium' | 'large';
+  // Publish state (read from backend, not editable directly)
+  isPublished?: boolean;
+  publishedUrl?: string | null;
+  publishedAt?: string | null;
 }
 
 interface PreviewProduct {
@@ -644,6 +648,8 @@ export default function StoreEditor() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [publishing, setPublishing] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
 
   // Load persisted settings on mount
   useEffect(() => {
@@ -682,6 +688,42 @@ export default function StoreEditor() {
     setSettings(defaultSettings);
     setSaved(false);
     setSaveError(null);
+  }, []);
+
+  const handlePublish = useCallback(async () => {
+    setPublishing(true);
+    setPublishError(null);
+    try {
+      const updated = await api<StoreSettings>('/store-settings/publish', { method: 'POST' });
+      setSettings((prev) => ({
+        ...prev,
+        isPublished: updated.isPublished,
+        publishedUrl: updated.publishedUrl,
+        publishedAt: updated.publishedAt,
+      }));
+    } catch (e) {
+      setPublishError((e as Error).message);
+    } finally {
+      setPublishing(false);
+    }
+  }, []);
+
+  const handleUnpublish = useCallback(async () => {
+    setPublishing(true);
+    setPublishError(null);
+    try {
+      const updated = await api<StoreSettings>('/store-settings/publish', { method: 'DELETE' });
+      setSettings((prev) => ({
+        ...prev,
+        isPublished: updated.isPublished,
+        publishedUrl: updated.publishedUrl,
+        publishedAt: updated.publishedAt,
+      }));
+    } catch (e) {
+      setPublishError((e as Error).message);
+    } finally {
+      setPublishing(false);
+    }
   }, []);
 
   const handleExport = useCallback(() => {
@@ -772,22 +814,23 @@ export default function StoreEditor() {
             </div>
           </Section>
 
-          {/* ─── Domain ─── */}
-          <Section title="Domain" icon={Globe} defaultOpen>
+          {/* ─── Domain & Publish ─── */}
+          <Section title="Domain & Publish" icon={Globe} defaultOpen>
             <div className="space-y-3">
               {/* Default subdomain (read-only) */}
               <div>
-                <label className="text-xs font-medium text-white/50 mb-1.5 block">Default URL</label>
+                <label className="text-xs font-medium text-white/50 mb-1.5 block">Your subdomain</label>
                 <div className="flex items-center gap-1.5 h-8 px-3 rounded-md bg-white/[0.02] border border-white/[0.06] text-xs text-white/40 font-mono select-all">
                   {settings.domainSlug
-                    ? `${settings.domainSlug}.kobestore.app`
-                    : <span className="italic">save to generate…</span>}
+                    ? `${settings.domainSlug}.kobeapptz.com`
+                    : <span className="italic">save store name first…</span>}
                 </div>
                 <p className="text-[10px] text-white/30 mt-1">Auto-generated from your store name</p>
               </div>
+
               {/* Custom domain */}
               <div>
-                <label className="text-xs font-medium text-white/50 mb-1.5 block">Custom Domain</label>
+                <label className="text-xs font-medium text-white/50 mb-1.5 block">Custom Domain (optional)</label>
                 <Input
                   value={settings.customDomain}
                   onChange={(e) => update('customDomain', e.target.value)}
@@ -795,16 +838,65 @@ export default function StoreEditor() {
                   placeholder="shop.mycompany.com"
                 />
                 <p className="text-[10px] text-white/30 mt-1">
-                  Point a CNAME record to <span className="text-white/50 font-mono">stores.kobestore.app</span>
+                  Point a CNAME to <span className="text-white/50 font-mono">kobeapptz.com</span> then enter it here
                 </p>
               </div>
-              {/* Active URL indicator */}
-              {(settings.customDomain || settings.domainSlug) && (
-                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/5 border border-emerald-500/10">
-                  <Globe className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                  <span className="text-[11px] text-emerald-300 font-mono truncate">
-                    {settings.customDomain || `${settings.domainSlug}.kobestore.app`}
-                  </span>
+
+              {/* Publish status */}
+              {settings.isPublished ? (
+                <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                    <span className="text-xs font-medium text-emerald-300">Live</span>
+                  </div>
+                  <a
+                    href={settings.publishedUrl ?? '#'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block text-[11px] text-emerald-300/80 font-mono truncate hover:text-emerald-200 underline underline-offset-2"
+                  >
+                    {settings.publishedUrl}
+                  </a>
+                  {settings.publishedAt && (
+                    <p className="text-[10px] text-white/30">
+                      Published {new Date(settings.publishedAt).toLocaleDateString()}
+                    </p>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="w-full h-7 text-xs border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 bg-transparent"
+                    onClick={handleUnpublish}
+                    disabled={publishing || !settings.domainSlug}
+                  >
+                    {publishing
+                      ? <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> Unpublishing…</>
+                      : 'Unpublish store'}
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <Button
+                    size="sm"
+                    className="w-full h-8 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-medium"
+                    onClick={handlePublish}
+                    disabled={publishing || !settings.domainSlug}
+                  >
+                    {publishing
+                      ? <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> Publishing…</>
+                      : <><Globe className="w-3 h-3 mr-1.5" /> Publish to kobeapptz.com</>}
+                  </Button>
+                  {!settings.domainSlug && (
+                    <p className="text-[10px] text-amber-400/70 text-center">Save your store name first</p>
+                  )}
+                </div>
+              )}
+
+              {/* Publish error */}
+              {publishError && (
+                <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-[11px] text-red-300">
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  <span>{publishError}</span>
                 </div>
               )}
             </div>
@@ -1118,10 +1210,14 @@ export default function StoreEditor() {
                 375px
               </span>
               {/* Active domain pill */}
-              {(settings.customDomain || settings.domainSlug) && (
-                <span className="hidden sm:flex items-center gap-1 text-[10px] text-white/40 px-2 py-0.5 rounded-full bg-white/[0.03] border border-white/[0.06] font-mono">
+              {(settings.publishedUrl || settings.customDomain || settings.domainSlug) && (
+                <span className={`hidden sm:flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-mono border ${
+                  settings.isPublished
+                    ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20'
+                    : 'text-white/40 bg-white/[0.03] border-white/[0.06]'
+                }`}>
                   <Globe className="w-2.5 h-2.5" />
-                  {settings.customDomain || `${settings.domainSlug}.kobestore.app`}
+                  {settings.publishedUrl ?? settings.customDomain ?? `${settings.domainSlug}.kobeapptz.com`}
                 </span>
               )}
             </div>

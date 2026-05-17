@@ -3,11 +3,12 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { StoreSettings } from './store-settings.entity';
 import { StoreSettingsService } from './store-settings.service';
 import { StoreSettingsController } from './store-settings.controller';
+import { PublishService } from './publish.service';
 
 @Module({
   imports: [TypeOrmModule.forFeature([StoreSettings])],
-  providers: [StoreSettingsService],
+  providers: [StoreSettingsService, PublishService],
   controllers: [StoreSettingsController],
-  exports: [StoreSettingsService],
+  exports: [StoreSettingsService, PublishService],
 })
 export class StoreSettingsModule {}

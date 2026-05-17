@@ -112,4 +112,16 @@ export class StoreSettings extends BaseEntity {
 
   @Column({ default: 'medium' })
   bodySize!: string;
+
+  // Publish state (managed by publish/unpublish endpoints)
+  @Column({ default: false })
+  isPublished!: boolean;
+
+  /** Public URL once published, e.g. https://kelvinfashion.kobeapptz.com */
+  @Column({ nullable: true, type: 'varchar' })
+  publishedUrl!: string | null;
+
+  /** Last time this store was successfully published */
+  @Column({ nullable: true, type: 'timestamptz' })
+  publishedAt!: Date | null;
 }

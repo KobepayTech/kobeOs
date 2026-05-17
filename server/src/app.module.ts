@@ -32,6 +32,8 @@ import { AiModule } from './ai/ai.module';
 import { CompaniesModule } from './companies/companies.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { StoreSettingsModule } from './store-settings/store-settings.module';
+import { StoreModule } from './store/store.module';
+import { StoreRegistryModule } from './store-registry/store-registry.module';
 import { RolesGuard } from './common/roles.guard';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { LoggerMiddleware } from './common/logger.middleware';
@@ -84,6 +86,8 @@ import { KobeModelsModule } from './kobe-models/kobe-models.module';
     CompaniesModule,
     SubscriptionsModule,
     StoreSettingsModule,
+    StoreModule,
+    StoreRegistryModule,
   ],
   controllers: [AppController],
   providers: [

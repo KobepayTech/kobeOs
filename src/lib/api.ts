@@ -1,7 +1,10 @@
 const TOKEN_KEY = 'kobe_auth_token';
 const REFRESH_KEY = 'kobe_refresh_token';
 
-export const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://localhost:3000/api';
+/** In dev, fall back to localhost. In a production build, fall back to the central KobePay API. */
+export const API_BASE =
+  (import.meta.env.VITE_API_BASE as string | undefined) ??
+  (import.meta.env.DEV ? 'http://localhost:3000/api' : 'https://api.kobeapptz.com/api');
 
 export function getToken(): string | null {
   try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
