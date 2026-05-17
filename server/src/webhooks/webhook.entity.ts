@@ -21,7 +21,7 @@ export class WebhookEvent {
   @Column({ type: 'timestamptz', nullable: true })
   processedAt?: Date | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   errorMessage?: string | null;
 
   @Column({ default: () => 'NOW()' })

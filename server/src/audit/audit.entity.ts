@@ -13,13 +13,13 @@ export class AuditLog {
   @Column()
   entityType!: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   entityId?: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   userId?: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   userEmail?: string | null;
 
   @Column({ type: 'jsonb', nullable: true })
