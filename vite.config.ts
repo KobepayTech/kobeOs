@@ -17,6 +17,13 @@ export default defineConfig({
   ],
   base: './',
   resolve: { alias: { '@': path.resolve(__dirname, './src') } },
+  // Bake production defaults into every build so end-user machines need
+  // zero configuration. VITE_API_BASE env var overrides for dev/white-label.
+  define: {
+    __REGISTRY_URL__:       JSON.stringify('https://kobeos-registry.onrender.com'),
+    __REGISTRY_DOMAIN__:    JSON.stringify('kobeapptz.com'),
+    __HEARTBEAT_TOKEN__:    JSON.stringify('7d5f0a36dac2843f58d704ee1f397d2d0b8f4c9b253d3f69ec590726f3d4d9d4'),
+  },
   build: { outDir: 'dist', assetsDir: 'assets', emptyOutDir: true, rollupOptions: { output: { manualChunks: undefined } } },
   test: {
     environment: 'jsdom',

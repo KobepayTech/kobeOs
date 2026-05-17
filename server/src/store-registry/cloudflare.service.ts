@@ -17,9 +17,10 @@ interface CfApiResponse<T> {
 /**
  * Thin wrapper around the Cloudflare DNS API.
  *
- * Required env vars:
+ * All credentials are baked in as defaults — no configuration needed on
+ * end-user machines. Override via env vars only for white-label deployments:
  *   CF_API_TOKEN   — Cloudflare API token with Zone:DNS:Edit permission
- *   CF_ZONE_ID     — Zone ID for kobeapptz.com (found in Cloudflare dashboard)
+ *   CF_ZONE_ID     — Zone ID for the target domain
  *   CF_DOMAIN      — Base domain, e.g. "kobeapptz.com"
  */
 @Injectable()
@@ -27,19 +28,23 @@ export class CloudflareService {
   private readonly logger = new Logger(CloudflareService.name);
   private readonly baseUrl = 'https://api.cloudflare.com/client/v4';
 
-  constructor(private readonly config: ConfigService) {}
+  // ── Baked-in defaults — users never need to configure these ──────────────
+  private static readonly DEFAULT_API_TOKEN = 'cfut_DRqzb7QayAZuijAOan3YUzVXbZAmCqneqW2x7vOdbdb5cd12';
+  private static readonly DEFAULT_ZONE_ID   = 'c5f9da50402b712eaa6dd0c83751198b';
+  private static readonly DEFAULT_DOMAIN    = 'kobeapptz.com';
+  // ─────────────────────────────────────────────────────────────────────────
 
-  private get token(): string {
-    return this.config.getOrThrow<string>('CF_API_TOKEN');
+  private get apiToken(): string {
+    return this.config.get<string>('CF_API_TOKEN', CloudflareService.DEFAULT_API_TOKEN);
   }
-
   private get zoneId(): string {
-    return this.config.getOrThrow<string>('CF_ZONE_ID');
+    return this.config.get<string>('CF_ZONE_ID', CloudflareService.DEFAULT_ZONE_ID);
+  }
+  private get domain(): string {
+    return this.config.get<string>('CF_DOMAIN', CloudflareService.DEFAULT_DOMAIN);
   }
 
-  private get domain(): string {
-    return this.config.get<string>('CF_DOMAIN', 'kobeapptz.com');
-  }
+  constructor(private readonly config: ConfigService) {}
 
   private async cfFetch<T>(
     path: string,
@@ -49,7 +54,7 @@ export class CloudflareService {
     const res = await fetch(url, {
       ...options,
       headers: {
-        Authorization: `Bearer ${this.token}`,
+        Authorization: `Bearer ${this.apiToken}`,
         'Content-Type': 'application/json',
         ...(options.headers ?? {}),
       },

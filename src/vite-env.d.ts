@@ -8,3 +8,9 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+// Baked-in constants injected by vite.config.ts define block.
+// These are replaced at build time — no runtime env vars needed.
+declare const __REGISTRY_URL__:    string;
+declare const __REGISTRY_DOMAIN__: string;
+declare const __HEARTBEAT_TOKEN__: string;
