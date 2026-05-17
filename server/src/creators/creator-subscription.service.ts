@@ -197,14 +197,11 @@ export class CreatorSubscriptionService {
     const creator = await this.creators.findOne({ where: { id: sub.creatorId } });
     if (!creator) return;
 
-    // We need the creator's phone — stored on the user record.
-    // For now we use a placeholder; the real phone comes from the User entity.
-    // The webhook callback will activate the new sub when payment completes.
-    const phone = creator.contactEmail ?? ''; // fallback — see note below
+    const phone = creator.phone ?? '';
     if (!phone) {
       this.logger.warn(
-        `Cannot renew subscription for creator ${sub.creatorId}: no phone on record. ` +
-        `Store phone on Creator entity or User entity to enable auto-renewal.`,
+        `Cannot renew subscription for creator ${sub.creatorId} (${creator.handle}): ` +
+        `no phone on record. Creator must update their profile with a mobile number.`,
       );
       return;
     }
@@ -217,6 +214,7 @@ export class CreatorSubscriptionService {
         name: creator.name,
         email: creator.contactEmail ?? `${sub.creatorId}@kobecreator.app`,
       });
+      this.logger.log(`Renewal initiated for creator ${creator.handle} (${sub.tier})`);
     } catch (err) {
       this.logger.error(
         `Renewal failed for creator ${sub.creatorId}: ${(err as Error).message}`,

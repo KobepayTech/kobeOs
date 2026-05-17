@@ -39,6 +39,7 @@ interface ApiCreator {
   avgViews: number;
   avatarUrl?: string | null;
   contactEmail?: string | null;
+  phone?: string | null;
   bio?: string | null;
   platforms: string[];
   platformStats: PlatformStats[];
@@ -118,7 +119,8 @@ interface CreatorProfile {
   id: string; name: string; handle: string; niche: string; country: string;
   followers: number; engagement: number; avgViews: number; rate: number; score: number;
   platforms: string[]; platformStats: PlatformStats[];
-  avatarUrl?: string | null; bio?: string | null;
+  avatarUrl?: string | null; bio?: string | null; phone?: string | null;
+  contactEmail?: string | null;
   subscriptionTier: string; weeklyRateTzs: number;
   fraudScore: number; verified: boolean;
 }
@@ -187,6 +189,8 @@ function apiToProfile(c: ApiCreator): CreatorProfile {
     platformStats: c.platformStats || [],
     avatarUrl: c.avatarUrl,
     bio: c.bio,
+    phone: c.phone,
+    contactEmail: c.contactEmail,
     subscriptionTier: c.subscriptionTier,
     weeklyRateTzs: Number(c.weeklyRateTzs) || 0,
     fraudScore: c.fraudSignals?.fraudScore ?? 0,
@@ -802,6 +806,13 @@ function MarketplaceModule() {
   const [offerNotes, setOfferNotes] = useState('');
   const [sending, setSending] = useState(false);
   const [syncingId, setSyncingId] = useState<string | null>(null);
+  const [registerOpen, setRegisterOpen] = useState(false);
+  const [editCreator, setEditCreator] = useState<CreatorProfile | null>(null);
+  const [profileForm, setProfileForm] = useState({
+    name: '', handle: '', niche: '', country: 'TZ',
+    phone: '', contactEmail: '', bio: '', weeklyRateTzs: '',
+  });
+  const [savingProfile, setSavingProfile] = useState(false);
 
   const handleSendOffer = async () => {
     if (!selectedCreator || !selectedCampaignId || !offerAmount) return;
@@ -825,6 +836,56 @@ function MarketplaceModule() {
       reload();
     } catch (e) { console.error(e); }
     finally { setSyncingId(null); }
+  };
+
+  const openRegister = () => {
+    setEditCreator(null);
+    setProfileForm({ name: '', handle: '', niche: '', country: 'TZ', phone: '', contactEmail: '', bio: '', weeklyRateTzs: '' });
+    setRegisterOpen(true);
+  };
+
+  const openEdit = (c: CreatorProfile) => {
+    setEditCreator(c);
+    setProfileForm({
+      name: c.name, handle: c.handle, niche: c.niche, country: c.country,
+      phone: c.phone ?? '',
+      contactEmail: c.contactEmail ?? '',
+      bio: c.bio ?? '',
+      weeklyRateTzs: String(c.weeklyRateTzs || ''),
+    });
+    // Fetch full record to get saved phone
+    api<ApiCreator>(`/creators/${c.id}`)
+      .then(full => {
+        if (full.phone) setProfileForm(f => ({ ...f, phone: full.phone ?? '' }));
+        if (full.contactEmail) setProfileForm(f => ({ ...f, contactEmail: full.contactEmail ?? '' }));
+      })
+      .catch(() => {});
+    setRegisterOpen(true);
+  };
+
+  const handleSaveProfile = async () => {
+    if (!profileForm.name || !profileForm.handle) return;
+    setSavingProfile(true);
+    try {
+      const body = {
+        name: profileForm.name,
+        handle: profileForm.handle,
+        niche: profileForm.niche,
+        country: profileForm.country,
+        ...(profileForm.phone        && { phone: profileForm.phone }),
+        ...(profileForm.contactEmail && { contactEmail: profileForm.contactEmail }),
+        ...(profileForm.bio          && { bio: profileForm.bio }),
+        ...(profileForm.weeklyRateTzs && { weeklyRateTzs: Number(profileForm.weeklyRateTzs) }),
+      };
+      if (editCreator) {
+        await api(`/creators/${editCreator.id}`, { method: 'PATCH', body: JSON.stringify(body) });
+      } else {
+        await api('/creators', { method: 'POST', body: JSON.stringify(body) });
+      }
+      setRegisterOpen(false);
+      reload();
+    } catch (e) { console.error(e); }
+    finally { setSavingProfile(false); }
   };
 
   const niches = ['ALL', ...Array.from(new Set(creators.map(c => c.niche)))];
@@ -853,6 +914,13 @@ function MarketplaceModule() {
             <h1 className="text-xl font-bold text-white">Creator Marketplace</h1>
             <p className="text-sm text-slate-400 mt-0.5">Discover and hire top creators</p>
           </div>
+          <Button
+            onClick={openRegister}
+            className="bg-cyan-500 hover:bg-cyan-600 text-white flex items-center gap-2"
+            size="sm"
+          >
+            <Plus className="w-4 h-4" /> Register Creator
+          </Button>
         </div>
 
         {/* Search & Filters */}
@@ -917,8 +985,11 @@ function MarketplaceModule() {
                 </div>
 
                 <div className="flex gap-2">
+                  <Button className="bg-white/5 hover:bg-white/10 text-slate-300 text-xs h-8 px-2" onClick={() => openEdit(c)} title="Edit profile">
+                    Edit
+                  </Button>
                   <Button className="flex-1 bg-white/5 hover:bg-white/10 text-slate-300 text-xs h-8" onClick={() => { setSelectedCreator(c); setHireDialogOpen(true); }}>
-                    View Profile
+                    View
                   </Button>
                   <Button className="flex-1 bg-cyan-500 hover:bg-cyan-600 text-white text-xs h-8" onClick={() => { setSelectedCreator(c); setHireDialogOpen(true); }}>
                     Hire
@@ -987,6 +1058,74 @@ function MarketplaceModule() {
               </Button>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Register / Edit Creator Dialog */}
+      <Dialog open={registerOpen} onOpenChange={setRegisterOpen}>
+        <DialogContent className="bg-[#13131f] border-white/[0.06] text-white max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold">
+              {editCreator ? 'Edit Creator Profile' : 'Register Creator'}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Full Name *</label>
+                <Input className="bg-white/5 border-white/10 text-white" placeholder="e.g. Sofia Amani"
+                  value={profileForm.name} onChange={e => setProfileForm(f => ({ ...f, name: e.target.value }))} />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Handle *</label>
+                <Input className="bg-white/5 border-white/10 text-white" placeholder="e.g. @sofiacreates"
+                  value={profileForm.handle} onChange={e => setProfileForm(f => ({ ...f, handle: e.target.value }))} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Niche</label>
+                <Input className="bg-white/5 border-white/10 text-white" placeholder="e.g. Fashion, Tech"
+                  value={profileForm.niche} onChange={e => setProfileForm(f => ({ ...f, niche: e.target.value }))} />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Country</label>
+                <Input className="bg-white/5 border-white/10 text-white" placeholder="TZ"
+                  value={profileForm.country} onChange={e => setProfileForm(f => ({ ...f, country: e.target.value }))} />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">
+                Mobile Money Phone *
+                <span className="ml-1 text-amber-400">(required for subscription billing &amp; auto-renewal)</span>
+              </label>
+              <Input className="bg-white/5 border-white/10 text-white" placeholder="0712 345 678 or 255712345678"
+                value={profileForm.phone} onChange={e => setProfileForm(f => ({ ...f, phone: e.target.value }))} />
+              <p className="text-[11px] text-slate-500 mt-1">Vodacom, Airtel, Tigo, Halotel — used for weekly subscription payments</p>
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Contact Email</label>
+              <Input type="email" className="bg-white/5 border-white/10 text-white" placeholder="sofia@example.com"
+                value={profileForm.contactEmail} onChange={e => setProfileForm(f => ({ ...f, contactEmail: e.target.value }))} />
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Bio</label>
+              <Input className="bg-white/5 border-white/10 text-white" placeholder="Short bio…"
+                value={profileForm.bio} onChange={e => setProfileForm(f => ({ ...f, bio: e.target.value }))} />
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Weekly Rate (TZS)</label>
+              <Input type="number" className="bg-white/5 border-white/10 text-white" placeholder="50000"
+                value={profileForm.weeklyRateTzs} onChange={e => setProfileForm(f => ({ ...f, weeklyRateTzs: e.target.value }))} />
+            </div>
+            <Button
+              className="w-full bg-cyan-500 hover:bg-cyan-600 text-white mt-2"
+              onClick={handleSaveProfile}
+              disabled={savingProfile || !profileForm.name || !profileForm.handle}
+            >
+              {savingProfile ? 'Saving…' : editCreator ? 'Save Changes' : 'Register Creator'}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
@@ -1270,7 +1409,20 @@ function SubscriptionModule() {
 
   const selectedCreator = creators.find(c => c.id === selectedCreatorId);
 
-  // Load billing history when creator changes
+  // Pre-fill phone from creator profile; fetch full record to get saved phone
+  useEffect(() => {
+    if (!selectedCreatorId) return;
+    // Pre-fill immediately from list data if available
+    const listPhone = selectedCreator?.phone ?? '';
+    if (listPhone) setPhone(listPhone);
+
+    // Fetch full creator record to get phone (not always in list)
+    api<ApiCreator>(`/creators/${selectedCreatorId}`)
+      .then(c => { if (c.phone) setPhone(c.phone); })
+      .catch(() => {});
+  }, [selectedCreatorId]);
+
+  // Load billing history when creator changes or after a payment
   useEffect(() => {
     if (!selectedCreatorId) return;
     api<typeof history>(`/creators/${selectedCreatorId}/subscription/history`)
@@ -1289,7 +1441,7 @@ function SubscriptionModule() {
           tier: selectedTier,
           phone,
           name: selectedCreator?.name ?? 'Creator',
-          email: selectedCreator?.avatarUrl ? '' : `${selectedCreatorId}@kobecreator.app`,
+          email: selectedCreator?.contactEmail ?? `${selectedCreatorId}@kobecreator.app`,
         }),
       });
       setResult({

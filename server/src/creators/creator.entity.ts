@@ -57,6 +57,10 @@ export class Creator extends OwnedEntity {
   @Column({ nullable: true, type: 'varchar' })
   contactEmail?: string | null;
 
+  /** Mobile money phone number e.g. 255712345678 — used for PalmPesa billing */
+  @Column({ nullable: true, type: 'varchar' })
+  phone?: string | null;
+
   @Column({ nullable: true, type: 'varchar' })
   bio?: string | null;
 

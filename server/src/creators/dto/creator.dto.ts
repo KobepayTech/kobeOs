@@ -13,6 +13,7 @@ export class CreateCreatorDto {
   @IsOptional() @IsNumber() avgViews?: number;
   @IsOptional() @IsUrl() avatarUrl?: string;
   @IsOptional() @IsEmail() contactEmail?: string;
+  @IsOptional() @IsString() phone?: string;
   @IsOptional() @IsString() @MaxLength(500) bio?: string;
   @IsOptional() @IsArray() platforms?: string[];
   @IsOptional() @IsBoolean() verified?: boolean;
@@ -29,6 +30,7 @@ export class UpdateCreatorDto {
   @IsOptional() @IsNumber() avgViews?: number;
   @IsOptional() @IsUrl() avatarUrl?: string;
   @IsOptional() @IsEmail() contactEmail?: string;
+  @IsOptional() @IsString() phone?: string;
   @IsOptional() @IsString() bio?: string;
   @IsOptional() @IsArray() platforms?: string[];
   @IsOptional() @IsBoolean() verified?: boolean;
