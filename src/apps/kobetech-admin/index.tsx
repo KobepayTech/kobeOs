@@ -27,25 +27,31 @@ interface Company {
   email: string;
   country?: string;
   phone?: string;
-  status: 'Active' | 'Trial' | 'Suspended' | 'Cancelled';
-  ownerId: string;
-  createdAt: string;
-  updatedAt: string;
+  status: 'Active' | 'Trial' | 'Suspended' | 'Cancelled' | 'Expired';
+  ownerId?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  // Local demo / admin fields
+  plan?: 'Basic' | 'Pro' | 'Enterprise';
+  users?: number;
+  modules?: number;
+  revenue?: number;
+  joined?: string;
 }
 
 /** Shape returned by GET /api/subscriptions */
 interface Subscription {
   id: string;
-  companyId: string;
-  company?: Company;
+  companyId?: string;
+  company?: Company | string;
   plan: 'Basic' | 'Pro' | 'Enterprise';
   price: number;
   startDate: string;
   endDate: string;
   status: 'Trial' | 'Active' | 'Expired' | 'Cancelled';
-  autoRenew: boolean;
-  enabledModules: string[];
-  createdAt: string;
+  autoRenew?: boolean;
+  enabledModules?: string[];
+  createdAt?: string;
 }
 
 interface Invoice {
@@ -554,7 +560,7 @@ function CompaniesModule() {
                       <td className="py-3 px-4 text-slate-400">{company.email}</td>
                       <td className="py-3 px-4 text-slate-400">{company.country ?? '—'}</td>
                       <td className="py-3 px-4"><StatusBadge status={company.status} /></td>
-                      <td className="py-3 px-4 text-slate-500">{new Date(company.createdAt).toLocaleDateString()}</td>
+                      <td className="py-3 px-4 text-slate-500">{company.createdAt ? new Date(company.createdAt).toLocaleDateString() : '—'}</td>
                       <td className="py-3 px-4">
                         <div className="flex gap-1">
                           <Button
@@ -699,7 +705,7 @@ function SubscriptionsModule() {
   );
 
   const companyName = (sub: Subscription) =>
-    sub.company?.name ?? companies.find((c) => c.id === sub.companyId)?.name ?? sub.companyId;
+    (typeof sub.company === 'object' ? sub.company?.name : sub.company) ?? companies.find((c) => c.id === sub.companyId)?.name ?? sub.companyId;
 
   const handleCreate = async () => {
     if (!form.companyId) return;
@@ -1085,7 +1091,7 @@ function ModulesModule() {
                   <tr key={company.id} className="border-b border-white/[0.04]">
                     <td className="py-2 px-3 text-slate-200">{company.name}</td>
                     {['KOBECARGO', 'KobePrint', 'KobeHotel', 'KobePay', 'ERP Suite'].map((modName) => {
-                      const hasMod = company.modules > Math.floor(Math.random() * 5) + 1;
+                      const hasMod = (company.modules ?? 0) > Math.floor(Math.random() * 5) + 1;
                       return (
                         <td key={modName} className="py-2 px-3 text-center">
                           {hasMod ? <CheckCircle2 className="w-4 h-4 text-emerald-400 mx-auto" /> : <XCircle className="w-4 h-4 text-slate-600 mx-auto" />}
