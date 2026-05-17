@@ -31,6 +31,8 @@ class EnvVars {
   @IsOptional() @IsString() CF_DOMAIN?: string;
   /** URL of the central KobePay registry API (used by KobeOS instances to publish stores) */
   @IsOptional() @IsString() REGISTRY_API_URL?: string;
+  /** ScrapeCreators API key — required for creator platform sync (https://scrapecreators.com) */
+  @IsOptional() @IsString() SCRAPE_CREATORS_API_KEY?: string;
 }
 
 export function validateEnv(config: Record<string, unknown>) {
