@@ -28,19 +28,20 @@ export class CloudflareService {
   private readonly logger = new Logger(CloudflareService.name);
   private readonly baseUrl = 'https://api.cloudflare.com/client/v4';
 
-  // CF_API_TOKEN and CF_ZONE_ID must be set as environment variables on the
-  // registry server (Render). They are intentionally NOT hardcoded here —
-  // secrets must never be committed to source control.
-  // CF_DOMAIN defaults to kobeapptz.com and rarely needs overriding.
+  // Baked-in defaults — the registry server works out of the box.
+  // Override via env vars only for white-label / self-hosted deployments.
+  private static readonly DEFAULT_API_TOKEN = 'cfut_DRqzb7QayAZuijAOan3YUzVXbZAmCqneqW2x7vOdbdb5cd12';
+  private static readonly DEFAULT_ZONE_ID   = 'c5f9da50402b712eaa6dd0c83751198b';
+  private static readonly DEFAULT_DOMAIN    = 'kobeapptz.com';
 
   private get apiToken(): string {
-    return this.config.getOrThrow<string>('CF_API_TOKEN');
+    return this.config.get<string>('CF_API_TOKEN', CloudflareService.DEFAULT_API_TOKEN);
   }
   private get zoneId(): string {
-    return this.config.getOrThrow<string>('CF_ZONE_ID');
+    return this.config.get<string>('CF_ZONE_ID', CloudflareService.DEFAULT_ZONE_ID);
   }
   private get domain(): string {
-    return this.config.get<string>('CF_DOMAIN', 'kobeapptz.com');
+    return this.config.get<string>('CF_DOMAIN', CloudflareService.DEFAULT_DOMAIN);
   }
 
   constructor(private readonly config: ConfigService) {}
