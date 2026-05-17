@@ -75,6 +75,13 @@ export class CreatorsController {
     @Body() dto: RespondOfferDto,
   ) { return this.campaigns.respondToOffer(uid, campaignId, offerId, dto); }
 
+  @Post('campaigns/:campaignId/offers/:offerId/lock-funds')
+  lockFunds(
+    @CurrentUser('id') uid: string,
+    @Param('campaignId') campaignId: string,
+    @Param('offerId') offerId: string,
+  ) { return this.campaigns.lockFunds(uid, campaignId, offerId); }
+
   @Post('campaigns/:campaignId/offers/:offerId/proof')
   submitProof(
     @CurrentUser('id') uid: string,

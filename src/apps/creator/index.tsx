@@ -964,7 +964,7 @@ function MarketplaceModule() {
                 <Select value={selectedCampaignId} onValueChange={setSelectedCampaignId}>
                   <SelectTrigger className="bg-white/5 border-white/10 text-white"><SelectValue placeholder="Choose campaign" /></SelectTrigger>
                   <SelectContent className="bg-[#1e1e2e] border-white/10 text-white">
-                    {apiCampaigns.filter(c => ['draft', 'open', 'in_progress'].includes(c.status)).map(c => (
+                    {apiCampaigns.filter(c => ['open', 'in_progress'].includes(c.status)).map(c => (
                       <SelectItem key={c.id} value={c.id} className="text-white hover:bg-white/10">{c.name}</SelectItem>
                     ))}
                   </SelectContent>

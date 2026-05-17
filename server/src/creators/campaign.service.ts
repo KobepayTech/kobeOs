@@ -1,5 +1,7 @@
 import {
   BadRequestException,
+  forwardRef,
+  Inject,
   Injectable,
   Logger,
   NotFoundException,
@@ -9,6 +11,7 @@ import { Repository } from 'typeorm';
 import { randomUUID } from 'crypto';
 import { Campaign, CreatorOffer } from './campaign.entity';
 import { Creator } from './creator.entity';
+import { Wallet } from '../payments/payments.entity';
 import {
   CreateCampaignDto,
   RespondOfferDto,
@@ -16,6 +19,7 @@ import {
   SubmitProofDto,
   UpdateCampaignDto,
 } from './dto/campaign.dto';
+import { EscrowService } from './escrow.service';
 
 @Injectable()
 export class CampaignService {
@@ -24,6 +28,8 @@ export class CampaignService {
   constructor(
     @InjectRepository(Campaign) private readonly campaigns: Repository<Campaign>,
     @InjectRepository(Creator)  private readonly creators: Repository<Creator>,
+    @InjectRepository(Wallet)   private readonly wallets: Repository<Wallet>,
+    @Inject(forwardRef(() => EscrowService)) private readonly escrowSvc: EscrowService,
   ) {}
 
   // ── Advertiser CRUD ─────────────────────────────────────────────────────────
@@ -95,8 +101,11 @@ export class CampaignService {
 
   async sendOffer(advertiserId: string, campaignId: string, dto: SendOfferDto) {
     const campaign = await this.get(advertiserId, campaignId);
+    if (campaign.status === 'draft') {
+      throw new BadRequestException('Campaign must be published before sending offers. Use POST /campaigns/:id/publish first.');
+    }
     if (!['open', 'in_progress'].includes(campaign.status)) {
-      throw new BadRequestException('Campaign is not accepting offers');
+      throw new BadRequestException(`Campaign is not accepting offers (status: ${campaign.status})`);
     }
 
     const creator = await this.creators.findOne({ where: { id: dto.creatorId } });
@@ -161,7 +170,41 @@ export class CampaignService {
     }
 
     campaign.offers = campaign.offers.map((o, i) => (i === offerIdx ? offer : o));
-    return this.campaigns.save(campaign);
+    const saved = await this.campaigns.save(campaign);
+
+    // Auto-hold escrow when creator accepts — debit advertiser's first active wallet
+    if (dto.response === 'accepted') {
+      const advertiserWallet = await this.wallets.findOne({
+        where: { ownerId: campaign.ownerId, active: true },
+        order: { createdAt: 'ASC' },
+      });
+      if (advertiserWallet) {
+        try {
+          await this.escrowSvc.hold({
+            advertiserId: campaign.ownerId,
+            creatorId: creatorUserId,
+            campaignId: campaign.id,
+            offerId: offer.id,
+            amountTzs: offer.amountTzs,
+            platformFeePercent: campaign.platformFeePercent,
+            advertiserWalletId: advertiserWallet.id,
+          });
+        } catch (err) {
+          // Log but don't fail the acceptance — advertiser can lock funds manually
+          this.logger.warn(
+            `Auto-hold failed for offer ${offer.id}: ${(err as Error).message}. ` +
+            `Advertiser can lock funds via POST /campaigns/${campaign.id}/lock-funds`,
+          );
+        }
+      } else {
+        this.logger.warn(
+          `No active wallet for advertiser ${campaign.ownerId} — ` +
+          `escrow not held for offer ${offer.id}`,
+        );
+      }
+    }
+
+    return saved;
   }
 
   /** Creator submits proof of content (URLs to posts/screenshots) */
@@ -189,6 +232,50 @@ export class CampaignService {
     campaign.offers = campaign.offers.map((o, i) => (i === offerIdx ? offer : o));
     campaign.status = 'verifying';
     return this.campaigns.save(campaign);
+  }
+
+  // ── Manual escrow lock ──────────────────────────────────────────────────────
+
+  /**
+   * Advertiser manually locks funds for a specific accepted offer.
+   * Used when auto-hold failed (e.g. insufficient balance at acceptance time)
+   * or when the advertiser wants to pre-fund before the creator responds.
+   */
+  async lockFunds(advertiserId: string, campaignId: string, offerId: string): Promise<CreatorOffer> {
+    const campaign = await this.get(advertiserId, campaignId);
+    const offer = campaign.offers.find((o) => o.id === offerId);
+    if (!offer) throw new NotFoundException('Offer not found');
+
+    if (!['pending', 'active'].includes(offer.status)) {
+      throw new BadRequestException(
+        `Cannot lock funds for an offer with status "${offer.status}"`,
+      );
+    }
+
+    // Check escrow doesn't already exist
+    const existing = await this.escrowSvc.findByCampaign(campaignId);
+    if (existing.some((e) => e.offerId === offerId && e.status === 'held')) {
+      throw new BadRequestException('Funds are already locked for this offer');
+    }
+
+    const advertiserWallet = await this.wallets.findOne({
+      where: { ownerId: advertiserId, active: true },
+      order: { createdAt: 'ASC' },
+    });
+    if (!advertiserWallet) throw new NotFoundException('No active wallet found for your account');
+
+    await this.escrowSvc.hold({
+      advertiserId,
+      creatorId: offer.creatorId,
+      campaignId,
+      offerId,
+      amountTzs: offer.amountTzs,
+      platformFeePercent: campaign.platformFeePercent,
+      advertiserWalletId: advertiserWallet.id,
+    });
+
+    this.logger.log(`Funds manually locked for offer ${offerId} by advertiser ${advertiserId}`);
+    return offer;
   }
 
   // ── Public discovery (for marketplace) ─────────────────────────────────────
