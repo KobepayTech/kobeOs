@@ -15,5 +15,6 @@ export const manifest: AppManifest = {
   singleton: false,
   requiresAuth: false,
   permissions: [],
+  subscriptionTier: 'trial',
   component: lazy(() => import('./index')),
 };

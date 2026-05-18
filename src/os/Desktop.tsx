@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { appRegistry } from './registry';
 import {
   Search,
   Mic,
@@ -98,7 +99,14 @@ const appShortcuts = [
 /*  Desktop component                                                  */
 /* ------------------------------------------------------------------ */
 export function Desktop() {
-  const { launchApp, showContextMenu, hideContextMenu, contextMenu } = useOSStore();
+  const { launchApp, showContextMenu, hideContextMenu, contextMenu, setApps, refreshLicense } = useOSStore();
+
+  // Register all apps and verify the stored license token on first mount.
+  useEffect(() => {
+    setApps(appRegistry);
+    refreshLicense();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);

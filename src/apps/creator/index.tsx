@@ -15,17 +15,88 @@ function idHash(id: string): number {
   return h;
 }
 
+interface PlatformStats {
+  platform: 'tiktok' | 'instagram' | 'youtube';
+  handle: string;
+  followers: number;
+  avgViews: number;
+  avgLikes: number;
+  avgComments: number;
+  engagementRate: number;
+  totalPosts: number;
+  bestPostViews: number;
+  lastSyncedAt: string;
+}
+
 interface ApiCreator {
   id: string;
   name: string;
   handle: string;
   niche: string;
+  country: string;
   followers: number;
   engagement: number;
+  avgViews: number;
   avatarUrl?: string | null;
   contactEmail?: string | null;
+  phone?: string | null;
+  bio?: string | null;
   platforms: string[];
+  platformStats: PlatformStats[];
   verified: boolean;
+  weeklyRateTzs: number;
+  subscriptionTier: 'free' | 'basic' | 'premium' | 'elite';
+  fraudSignals?: { fraudScore: number } | null;
+  lastSyncedAt?: string | null;
+}
+
+interface ApiCampaign {
+  id: string;
+  name: string;
+  description: string;
+  brand: string;
+  niche: string;
+  status: string;
+  budgetTzs: number;
+  platformFeePercent: number;
+  requirements: Array<{
+    platform: string;
+    contentType: string;
+    minViews: number;
+    minLikes?: number;
+    deadline: string;
+    description?: string;
+  }>;
+  offers: Array<{
+    id: string;
+    creatorId: string;
+    creatorName: string;
+    creatorHandle: string;
+    amountTzs: number;
+    status: string;
+    proofUrls: string[];
+    verifiedViews?: number;
+    sentAt: string;
+    respondedAt?: string;
+    paidAt?: string;
+    notes?: string;
+  }>;
+  endsAt?: string | null;
+  escrowId?: string | null;
+  createdAt: string;
+}
+
+interface ApiEscrow {
+  id: string;
+  campaignId: string;
+  offerId: string;
+  amountTzs: number;
+  feeTzs: number;
+  netAmountTzs: number;
+  status: 'held' | 'released' | 'refunded' | 'disputed';
+  createdAt: string;
+  releasedAt?: string | null;
+  refundedAt?: string | null;
 }
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -35,7 +106,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 // ── Types ──────────────────────────────────────────────
-type ModuleId = 'overview' | 'campaigns' | 'marketplace' | 'deals' | 'escrow' | 'performance' | 'affiliate' | 'messages';
+type ModuleId = 'overview' | 'campaigns' | 'marketplace' | 'deals' | 'escrow' | 'subscription' | 'performance' | 'affiliate' | 'messages';
 
 interface Campaign {
   id: number; name: string; budget: number; creators: number;
@@ -45,9 +116,13 @@ interface Campaign {
 }
 
 interface CreatorProfile {
-  id: string; name: string; handle: string; niche: string;
-  followers: number; engagement: number; rate: number; score: number;
-  platforms: string[];
+  id: string; name: string; handle: string; niche: string; country: string;
+  followers: number; engagement: number; avgViews: number; rate: number; score: number;
+  platforms: string[]; platformStats: PlatformStats[];
+  avatarUrl?: string | null; bio?: string | null; phone?: string | null;
+  contactEmail?: string | null;
+  subscriptionTier: string; weeklyRateTzs: number;
+  fraudScore: number; verified: boolean;
 }
 
 interface Deal {
@@ -104,11 +179,22 @@ function apiToProfile(c: ApiCreator): CreatorProfile {
     name: c.name,
     handle: c.handle,
     niche: c.niche || 'Other',
+    country: c.country || '',
     followers: c.followers,
     engagement: c.engagement,
-    rate: 0,
-    score: c.verified ? 10 : 7,
+    avgViews: c.avgViews || 0,
+    rate: Number(c.weeklyRateTzs) || 0,
+    score: c.verified ? 10 : Math.max(5, 10 - Math.round((c.fraudSignals?.fraudScore ?? 0) / 20)),
     platforms: c.platforms,
+    platformStats: c.platformStats || [],
+    avatarUrl: c.avatarUrl,
+    bio: c.bio,
+    phone: c.phone,
+    contactEmail: c.contactEmail,
+    subscriptionTier: c.subscriptionTier,
+    weeklyRateTzs: Number(c.weeklyRateTzs) || 0,
+    fraudScore: c.fraudSignals?.fraudScore ?? 0,
+    verified: c.verified,
   };
 }
 
@@ -267,9 +353,8 @@ function PlatformIcon({ platform }: { platform: string }) {
   }
 }
 
-// ── Creators Context (API-backed) ──────────────────────
-const CreatorsContext = createContext<CreatorProfile[]>([]);
-const useCreators = () => useContext(CreatorsContext);
+// useCreators kept for backward compat with existing modules
+const useCreators = () => useContext(AppContext).creators;
 
 // ── Sidebar Tile Component ─────────────────────────────
 function SidebarTile({ icon: Icon, label, desc, active, onClick, color }: {
@@ -295,36 +380,45 @@ function SidebarTile({ icon: Icon, label, desc, active, onClick, color }: {
 }
 
 // ── Main Export ────────────────────────────────────────
+// ── Shared API state context ───────────────────────────
+interface AppState {
+  creators: CreatorProfile[];
+  campaigns: ApiCampaign[];
+  escrows: ApiEscrow[];
+  reload: () => void;
+}
+const AppContext = createContext<AppState>({ creators: [], campaigns: [], escrows: [], reload: () => {} });
+const useAppState = () => useContext(AppContext);
+
 export default function Creator() {
   const [activeModule, setActiveModule] = useState<ModuleId>('overview');
   const [creators, setCreators] = useState<CreatorProfile[]>([]);
+  const [campaigns, setCampaigns] = useState<ApiCampaign[]>([]);
+  const [escrows, setEscrows] = useState<ApiEscrow[]>([]);
+  const [loadTick, setLoadTick] = useState(0);
+  const reload = () => setLoadTick((t) => t + 1);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         await ensureSession();
-        let list = await api<ApiCreator[]>('/creators');
-        if (list.length === 0) {
-          await Promise.all(seedCreators.map((s) =>
-            api<ApiCreator>('/creators', {
-              method: 'POST',
-              body: JSON.stringify({
-                name: s.name, handle: s.handle, niche: s.niche,
-                followers: s.followers, engagement: s.engagement,
-                platforms: s.platforms,
-              }),
-            }),
-          ));
-          list = await api<ApiCreator[]>('/creators');
+        const [creatorList, campaignList, escrowList] = await Promise.allSettled([
+          api<ApiCreator[]>('/creators/marketplace'),
+          api<ApiCampaign[]>('/creators/campaigns/mine'),
+          api<ApiEscrow[]>('/creators/escrow/mine'),
+        ]);
+        if (!cancelled) {
+          if (creatorList.status === 'fulfilled') setCreators(creatorList.value.map(apiToProfile));
+          if (campaignList.status === 'fulfilled') setCampaigns(campaignList.value);
+          if (escrowList.status === 'fulfilled') setEscrows(escrowList.value);
         }
-        if (!cancelled) setCreators(list.map(apiToProfile));
       } catch {
-        // soft-fail: app remains usable with empty creators
+        // soft-fail: app remains usable with empty data
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [loadTick]);
 
   const sidebarItems: { id: ModuleId; icon: React.ElementType; label: string; desc: string; color: string }[] = [
     { id: 'overview', icon: LayoutDashboard, label: 'Overview', desc: 'Dashboard & analytics', color: '#06b6d4' },
@@ -332,13 +426,14 @@ export default function Creator() {
     { id: 'marketplace', icon: Globe, label: 'Marketplace', desc: 'Find creators', color: '#10b981' },
     { id: 'deals', icon: Handshake, label: 'My Deals', desc: 'Active agreements', color: '#f59e0b' },
     { id: 'escrow', icon: Wallet, label: 'Escrow', desc: 'Payments & wallet', color: '#ec4899' },
+    { id: 'subscription', icon: Star, label: 'Subscription', desc: 'Visibility tier', color: '#f59e0b' },
     { id: 'performance', icon: BarChart3, label: 'Performance', desc: 'KPI tracking', color: '#f97316' },
     { id: 'affiliate', icon: Link2, label: 'Affiliate', desc: 'Links & codes', color: '#06b6d4' },
     { id: 'messages', icon: MessageCircle, label: 'Messages', desc: 'Chat & notifications', color: '#8b5cf6' },
   ];
 
   return (
-    <CreatorsContext.Provider value={creators}>
+    <AppContext.Provider value={{ creators, campaigns, escrows, reload }}>
     <div className="flex h-full w-full bg-[#0a0a1a] text-white overflow-hidden">
       {/* Sidebar */}
       <aside className="w-60 bg-[#0c0c1a] border-r border-white/[0.06] flex flex-col shrink-0">
@@ -372,12 +467,13 @@ export default function Creator() {
         {activeModule === 'marketplace' && <MarketplaceModule />}
         {activeModule === 'deals' && <DealsModule />}
         {activeModule === 'escrow' && <EscrowModule />}
+        {activeModule === 'subscription' && <SubscriptionModule />}
         {activeModule === 'performance' && <PerformanceModule />}
         {activeModule === 'affiliate' && <AffiliateModule />}
         {activeModule === 'messages' && <MessagesModule />}
       </main>
     </div>
-    </CreatorsContext.Provider>
+    </AppContext.Provider>
   );
 }
 
@@ -507,11 +603,49 @@ function OverviewModule({ setActiveModule }: { setActiveModule: (m: ModuleId) =>
 // ── Module 2: Campaigns ────────────────────────────────
 function CampaignsModule() {
   const creators = useCreators();
+  const { campaigns: apiCampaigns, reload } = useAppState();
   const [filter, setFilter] = useState('ALL');
   const [createOpen, setCreateOpen] = useState(false);
-  const [newCampaign, setNewCampaign] = useState({ name: '', description: '', budget: '', creators: [] as string[], upfrontPercent: 40, perfPercent: 60 });
+  const [saving, setSaving] = useState(false);
+  const [newCampaign, setNewCampaign] = useState({ name: '', description: '', brand: '', niche: '', budget: '', minViews: '', deadline: '' });
 
-  const filtered = filter === 'ALL' ? campaigns : campaigns.filter(c => c.status === filter);
+  const filtered = filter === 'ALL' ? apiCampaigns : apiCampaigns.filter(c => c.status === filter);
+
+  const handleCreate = async () => {
+    if (!newCampaign.name || !newCampaign.budget) return;
+    setSaving(true);
+    try {
+      await api('/creators/campaigns', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: newCampaign.name,
+          description: newCampaign.description,
+          brand: newCampaign.brand,
+          niche: newCampaign.niche,
+          budgetTzs: Number(newCampaign.budget),
+          requirements: newCampaign.minViews ? [{
+            platform: 'tiktok', contentType: 'video',
+            minViews: Number(newCampaign.minViews),
+            deadline: newCampaign.deadline || new Date(Date.now() + 30 * 86400000).toISOString(),
+          }] : [],
+        }),
+      });
+      setCreateOpen(false);
+      setNewCampaign({ name: '', description: '', brand: '', niche: '', budget: '', minViews: '', deadline: '' });
+      reload();
+    } catch (e) { console.error(e); }
+    finally { setSaving(false); }
+  };
+
+  const handlePublish = async (id: string) => {
+    await api(`/creators/campaigns/${id}/publish`, { method: 'POST' });
+    reload();
+  };
+
+  const handleCancel = async (id: string) => {
+    await api(`/creators/campaigns/${id}/cancel`, { method: 'POST' });
+    reload();
+  };
 
   const statusGradients: Record<string, string> = {
     ACTIVE: 'from-cyan-500/20 to-cyan-900/10',
@@ -545,54 +679,60 @@ function CampaignsModule() {
 
         {/* Campaign Grid */}
         <div className="grid grid-cols-2 gap-4">
-          {filtered.map((camp) => (
-            <Card key={camp.id} className="bg-[#13131f] border-white/[0.06] overflow-hidden">
-              <div className={`h-2 bg-gradient-to-r ${statusGradients[camp.status]}`} />
-              <CardContent className="p-4">
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <h3 className="text-sm font-semibold text-white">{camp.name}</h3>
-                    <p className="text-xs text-slate-400 mt-0.5">{camp.startDate} to {camp.endDate}</p>
-                  </div>
-                  <StatusBadge status={camp.status} />
-                </div>
-                <div className="grid grid-cols-3 gap-3 mb-3">
-                  <div className="bg-white/[0.03] rounded-lg p-2.5 text-center">
-                    <div className="text-xs text-slate-400">Budget</div>
-                    <div className="text-sm font-semibold text-white">${camp.budget.toLocaleString()}</div>
-                  </div>
-                  <div className="bg-white/[0.03] rounded-lg p-2.5 text-center">
-                    <div className="text-xs text-slate-400">Creators</div>
-                    <div className="text-sm font-semibold text-white">{camp.creators}</div>
-                  </div>
-                  <div className="bg-white/[0.03] rounded-lg p-2.5 text-center">
-                    <div className="text-xs text-slate-400">Views</div>
-                    <div className="text-sm font-semibold text-white">{camp.views > 0 ? `${(camp.views / 1000).toFixed(0)}K` : '-'}</div>
-                  </div>
-                </div>
-                {camp.status === 'ACTIVE' || camp.status === 'COMPLETED' ? (
-                  <div className="space-y-2">
-                    <div className="flex justify-between text-xs">
-                      <span className="text-slate-400">Engagement</span>
-                      <span className="text-cyan-400">{camp.engagement}%</span>
+          {filtered.length === 0 && (
+            <div className="col-span-2 text-center py-12 text-slate-500 text-sm">
+              No campaigns yet. Create your first campaign to get started.
+            </div>
+          )}
+          {filtered.map((camp) => {
+            const totalVerifiedViews = camp.offers.reduce((s, o) => s + (o.verifiedViews ?? 0), 0);
+            const activeOffers = camp.offers.filter(o => ['active', 'submitted', 'verified', 'paid'].includes(o.status)).length;
+            return (
+              <Card key={camp.id} className="bg-[#13131f] border-white/[0.06] overflow-hidden">
+                <div className={`h-2 bg-gradient-to-r ${statusGradients[camp.status.toUpperCase()] ?? statusGradients.DRAFT}`} />
+                <CardContent className="p-4">
+                  <div className="flex items-start justify-between mb-3">
+                    <div>
+                      <h3 className="text-sm font-semibold text-white">{camp.name}</h3>
+                      <p className="text-xs text-slate-400 mt-0.5">{camp.brand || camp.niche || 'Campaign'}</p>
                     </div>
-                    <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden">
-                      <div className="h-full bg-gradient-to-r from-cyan-500 to-violet-500 rounded-full" style={{ width: `${Math.min(camp.engagement * 10, 100)}%` }} />
+                    <StatusBadge status={camp.status.toUpperCase()} />
+                  </div>
+                  <div className="grid grid-cols-3 gap-3 mb-3">
+                    <div className="bg-white/[0.03] rounded-lg p-2.5 text-center">
+                      <div className="text-xs text-slate-400">Budget</div>
+                      <div className="text-sm font-semibold text-white">{Number(camp.budgetTzs).toLocaleString()} TZS</div>
                     </div>
-                    <div className="flex justify-between text-xs">
-                      <span className="text-slate-400">Conversions</span>
-                      <span className="text-emerald-400">{camp.conversions}</span>
+                    <div className="bg-white/[0.03] rounded-lg p-2.5 text-center">
+                      <div className="text-xs text-slate-400">Creators</div>
+                      <div className="text-sm font-semibold text-white">{activeOffers}</div>
+                    </div>
+                    <div className="bg-white/[0.03] rounded-lg p-2.5 text-center">
+                      <div className="text-xs text-slate-400">Views</div>
+                      <div className="text-sm font-semibold text-white">{totalVerifiedViews > 0 ? `${(totalVerifiedViews / 1000).toFixed(0)}K` : '-'}</div>
                     </div>
                   </div>
-                ) : (
-                  <div className="flex items-center gap-2 text-xs text-slate-500">
-                    <Clock className="w-3.5 h-3.5" />
-                    {camp.status === 'DRAFT' ? 'Draft - not yet published' : `Starts ${camp.startDate}`}
+                  <div className="flex gap-2 mt-3">
+                    {camp.status === 'draft' && (
+                      <Button size="sm" className="flex-1 h-7 text-xs bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 border border-cyan-500/30"
+                        onClick={() => handlePublish(camp.id)}>
+                        Publish
+                      </Button>
+                    )}
+                    {['draft', 'open', 'in_progress'].includes(camp.status) && (
+                      <Button size="sm" variant="outline" className="flex-1 h-7 text-xs border-red-500/30 text-red-400 hover:bg-red-500/10 bg-transparent"
+                        onClick={() => handleCancel(camp.id)}>
+                        Cancel
+                      </Button>
+                    )}
+                    {camp.status === 'open' && (
+                      <span className="flex-1 text-center text-xs text-emerald-400 self-center">Open for offers</span>
+                    )}
                   </div>
-                )}
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       </div>
 
@@ -604,56 +744,46 @@ function CampaignsModule() {
           </DialogHeader>
           <div className="space-y-4 mt-2">
             <div>
-              <label className="text-xs text-slate-400 mb-1 block">Campaign Name</label>
-              <Input className="bg-white/5 border-white/10 text-white" placeholder="e.g. Summer Collection Launch" value={newCampaign.name} onChange={(e) => setNewCampaign({ ...newCampaign, name: e.target.value })} />
-            </div>
-            <div>
-              <label className="text-xs text-slate-400 mb-1 block">Description</label>
-              <Input className="bg-white/5 border-white/10 text-white" placeholder="Brief campaign description" />
-            </div>
-            <div>
-              <label className="text-xs text-slate-400 mb-1 block">Budget ($)</label>
-              <Input type="number" className="bg-white/5 border-white/10 text-white" placeholder="5000" value={newCampaign.budget} onChange={(e) => setNewCampaign({ ...newCampaign, budget: e.target.value })} />
-            </div>
-            <div>
-              <label className="text-xs text-slate-400 mb-2 block">Target KPIs</label>
-              <div className="grid grid-cols-2 gap-2">
-                {['Views', 'Likes', 'Comments', 'Shares', 'Link Clicks', 'Purchases', 'Installs', 'Engagement Rate'].map((kpi) => (
-                  <label key={kpi} className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer">
-                    <input type="checkbox" className="rounded border-white/20 bg-white/5" />
-                    {kpi}
-                  </label>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="text-xs text-slate-400 mb-2 block">Select Creators</label>
-              <div className="space-y-1.5 max-h-32 overflow-y-auto">
-                {creators.map((c) => (
-                  <label key={c.id} className="flex items-center gap-2 text-sm text-slate-300 cursor-pointer p-1.5 rounded hover:bg-white/5">
-                    <input type="checkbox" className="rounded border-white/20 bg-white/5"
-                      checked={newCampaign.creators.includes(c.id)}
-                      onChange={() => setNewCampaign({ ...newCampaign, creators: newCampaign.creators.includes(c.id) ? newCampaign.creators.filter(x => x !== c.id) : [...newCampaign.creators, c.id] })} />
-                    <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" style={{ backgroundColor: chartColors[idHash(c.id) % chartColors.length] + '30', color: chartColors[idHash(c.id) % chartColors.length] }}>
-                      {c.name.split(' ').map(n => n[0]).join('')}
-                    </div>
-                    {c.name} <span className="text-slate-500">{c.handle}</span>
-                  </label>
-                ))}
-              </div>
+              <label className="text-xs text-slate-400 mb-1 block">Campaign Name *</label>
+              <Input className="bg-white/5 border-white/10 text-white" placeholder="e.g. Summer Collection Launch"
+                value={newCampaign.name} onChange={(e) => setNewCampaign({ ...newCampaign, name: e.target.value })} />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs text-slate-400 mb-1 block">Upfront %</label>
-                <Input type="number" className="bg-white/5 border-white/10 text-white" value={newCampaign.upfrontPercent} onChange={(e) => setNewCampaign({ ...newCampaign, upfrontPercent: parseInt(e.target.value) || 0 })} />
+                <label className="text-xs text-slate-400 mb-1 block">Brand</label>
+                <Input className="bg-white/5 border-white/10 text-white" placeholder="e.g. Kobe Energy"
+                  value={newCampaign.brand} onChange={(e) => setNewCampaign({ ...newCampaign, brand: e.target.value })} />
               </div>
               <div>
-                <label className="text-xs text-slate-400 mb-1 block">Performance %</label>
-                <Input type="number" className="bg-white/5 border-white/10 text-white" value={newCampaign.perfPercent} onChange={(e) => setNewCampaign({ ...newCampaign, perfPercent: parseInt(e.target.value) || 0 })} />
+                <label className="text-xs text-slate-400 mb-1 block">Niche</label>
+                <Input className="bg-white/5 border-white/10 text-white" placeholder="e.g. Fashion"
+                  value={newCampaign.niche} onChange={(e) => setNewCampaign({ ...newCampaign, niche: e.target.value })} />
               </div>
             </div>
-            <Button className="w-full bg-cyan-500 hover:bg-cyan-600 text-white mt-2" onClick={() => setCreateOpen(false)}>
-              Create Campaign
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Description</label>
+              <Input className="bg-white/5 border-white/10 text-white" placeholder="Brief campaign description"
+                value={newCampaign.description} onChange={(e) => setNewCampaign({ ...newCampaign, description: e.target.value })} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Budget (TZS) *</label>
+                <Input type="number" className="bg-white/5 border-white/10 text-white" placeholder="500000"
+                  value={newCampaign.budget} onChange={(e) => setNewCampaign({ ...newCampaign, budget: e.target.value })} />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Min Views Required</label>
+                <Input type="number" className="bg-white/5 border-white/10 text-white" placeholder="50000"
+                  value={newCampaign.minViews} onChange={(e) => setNewCampaign({ ...newCampaign, minViews: e.target.value })} />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Content Deadline</label>
+              <Input type="date" className="bg-white/5 border-white/10 text-white"
+                value={newCampaign.deadline} onChange={(e) => setNewCampaign({ ...newCampaign, deadline: e.target.value })} />
+            </div>
+            <Button className="w-full bg-cyan-500 hover:bg-cyan-600 text-white mt-2" onClick={handleCreate} disabled={saving}>
+              {saving ? 'Creating…' : 'Create Campaign'}
             </Button>
           </div>
         </DialogContent>
@@ -665,11 +795,98 @@ function CampaignsModule() {
 // ── Module 3: Marketplace ──────────────────────────────
 function MarketplaceModule() {
   const creators = useCreators();
+  const { campaigns: apiCampaigns, reload } = useAppState();
   const [search, setSearch] = useState('');
   const [nicheFilter, setNicheFilter] = useState('ALL');
   const [sortBy, setSortBy] = useState('engagement');
   const [hireDialogOpen, setHireDialogOpen] = useState(false);
   const [selectedCreator, setSelectedCreator] = useState<CreatorProfile | null>(null);
+  const [selectedCampaignId, setSelectedCampaignId] = useState('');
+  const [offerAmount, setOfferAmount] = useState('');
+  const [offerNotes, setOfferNotes] = useState('');
+  const [sending, setSending] = useState(false);
+  const [syncingId, setSyncingId] = useState<string | null>(null);
+  const [registerOpen, setRegisterOpen] = useState(false);
+  const [editCreator, setEditCreator] = useState<CreatorProfile | null>(null);
+  const [profileForm, setProfileForm] = useState({
+    name: '', handle: '', niche: '', country: 'TZ',
+    phone: '', contactEmail: '', bio: '', weeklyRateTzs: '',
+  });
+  const [savingProfile, setSavingProfile] = useState(false);
+
+  const handleSendOffer = async () => {
+    if (!selectedCreator || !selectedCampaignId || !offerAmount) return;
+    setSending(true);
+    try {
+      await api(`/creators/campaigns/${selectedCampaignId}/offers`, {
+        method: 'POST',
+        body: JSON.stringify({ creatorId: selectedCreator.id, amountTzs: Number(offerAmount), notes: offerNotes }),
+      });
+      setHireDialogOpen(false);
+      setOfferAmount(''); setOfferNotes(''); setSelectedCampaignId('');
+      reload();
+    } catch (e) { console.error(e); }
+    finally { setSending(false); }
+  };
+
+  const handleSyncCreator = async (creatorId: string, platform: string, handle: string) => {
+    setSyncingId(creatorId);
+    try {
+      await api(`/creators/${creatorId}/sync`, { method: 'POST', body: JSON.stringify({ platform, handle }) });
+      reload();
+    } catch (e) { console.error(e); }
+    finally { setSyncingId(null); }
+  };
+
+  const openRegister = () => {
+    setEditCreator(null);
+    setProfileForm({ name: '', handle: '', niche: '', country: 'TZ', phone: '', contactEmail: '', bio: '', weeklyRateTzs: '' });
+    setRegisterOpen(true);
+  };
+
+  const openEdit = (c: CreatorProfile) => {
+    setEditCreator(c);
+    setProfileForm({
+      name: c.name, handle: c.handle, niche: c.niche, country: c.country,
+      phone: c.phone ?? '',
+      contactEmail: c.contactEmail ?? '',
+      bio: c.bio ?? '',
+      weeklyRateTzs: String(c.weeklyRateTzs || ''),
+    });
+    // Fetch full record to get saved phone
+    api<ApiCreator>(`/creators/${c.id}`)
+      .then(full => {
+        if (full.phone) setProfileForm(f => ({ ...f, phone: full.phone ?? '' }));
+        if (full.contactEmail) setProfileForm(f => ({ ...f, contactEmail: full.contactEmail ?? '' }));
+      })
+      .catch(() => {});
+    setRegisterOpen(true);
+  };
+
+  const handleSaveProfile = async () => {
+    if (!profileForm.name || !profileForm.handle) return;
+    setSavingProfile(true);
+    try {
+      const body = {
+        name: profileForm.name,
+        handle: profileForm.handle,
+        niche: profileForm.niche,
+        country: profileForm.country,
+        ...(profileForm.phone        && { phone: profileForm.phone }),
+        ...(profileForm.contactEmail && { contactEmail: profileForm.contactEmail }),
+        ...(profileForm.bio          && { bio: profileForm.bio }),
+        ...(profileForm.weeklyRateTzs && { weeklyRateTzs: Number(profileForm.weeklyRateTzs) }),
+      };
+      if (editCreator) {
+        await api(`/creators/${editCreator.id}`, { method: 'PATCH', body: JSON.stringify(body) });
+      } else {
+        await api('/creators', { method: 'POST', body: JSON.stringify(body) });
+      }
+      setRegisterOpen(false);
+      reload();
+    } catch (e) { console.error(e); }
+    finally { setSavingProfile(false); }
+  };
 
   const niches = ['ALL', ...Array.from(new Set(creators.map(c => c.niche)))];
 
@@ -697,6 +914,13 @@ function MarketplaceModule() {
             <h1 className="text-xl font-bold text-white">Creator Marketplace</h1>
             <p className="text-sm text-slate-400 mt-0.5">Discover and hire top creators</p>
           </div>
+          <Button
+            onClick={openRegister}
+            className="bg-cyan-500 hover:bg-cyan-600 text-white flex items-center gap-2"
+            size="sm"
+          >
+            <Plus className="w-4 h-4" /> Register Creator
+          </Button>
         </div>
 
         {/* Search & Filters */}
@@ -761,8 +985,11 @@ function MarketplaceModule() {
                 </div>
 
                 <div className="flex gap-2">
+                  <Button className="bg-white/5 hover:bg-white/10 text-slate-300 text-xs h-8 px-2" onClick={() => openEdit(c)} title="Edit profile">
+                    Edit
+                  </Button>
                   <Button className="flex-1 bg-white/5 hover:bg-white/10 text-slate-300 text-xs h-8" onClick={() => { setSelectedCreator(c); setHireDialogOpen(true); }}>
-                    View Profile
+                    View
                   </Button>
                   <Button className="flex-1 bg-cyan-500 hover:bg-cyan-600 text-white text-xs h-8" onClick={() => { setSelectedCreator(c); setHireDialogOpen(true); }}>
                     Hire
@@ -801,24 +1028,104 @@ function MarketplaceModule() {
                   <div className="text-xs text-slate-400">Engagement</div>
                 </div>
                 <div className="bg-white/5 rounded-lg p-2.5">
-                  <div className="text-sm font-semibold text-white">${selectedCreator.rate}</div>
-                  <div className="text-xs text-slate-400">Per Post</div>
+                  <div className="text-sm font-semibold text-white">{(selectedCreator.avgViews / 1000).toFixed(0)}K</div>
+                  <div className="text-xs text-slate-400">Avg Views</div>
                 </div>
               </div>
               <div>
-                <label className="text-xs text-slate-400 mb-1 block">Select Campaign</label>
-                <Select>
+                <label className="text-xs text-slate-400 mb-1 block">Select Campaign *</label>
+                <Select value={selectedCampaignId} onValueChange={setSelectedCampaignId}>
                   <SelectTrigger className="bg-white/5 border-white/10 text-white"><SelectValue placeholder="Choose campaign" /></SelectTrigger>
                   <SelectContent className="bg-[#1e1e2e] border-white/10 text-white">
-                    {campaigns.filter(c => c.status === 'ACTIVE' || c.status === 'DRAFT').map(c => (
-                      <SelectItem key={c.id} value={String(c.id)} className="text-white hover:bg-white/10">{c.name}</SelectItem>
+                    {apiCampaigns.filter(c => ['open', 'in_progress'].includes(c.status)).map(c => (
+                      <SelectItem key={c.id} value={c.id} className="text-white hover:bg-white/10">{c.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-              <Button className="w-full bg-cyan-500 hover:bg-cyan-600 text-white">Send Hire Request</Button>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Offer Amount (TZS) *</label>
+                <Input type="number" className="bg-white/5 border-white/10 text-white" placeholder={selectedCreator ? String(selectedCreator.weeklyRateTzs || 50000) : '50000'}
+                  value={offerAmount} onChange={(e) => setOfferAmount(e.target.value)} />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Notes</label>
+                <Input className="bg-white/5 border-white/10 text-white" placeholder="Content brief, requirements…"
+                  value={offerNotes} onChange={(e) => setOfferNotes(e.target.value)} />
+              </div>
+              <Button className="w-full bg-cyan-500 hover:bg-cyan-600 text-white" onClick={handleSendOffer} disabled={sending || !selectedCampaignId || !offerAmount}>
+                {sending ? 'Sending…' : 'Send Offer'}
+              </Button>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Register / Edit Creator Dialog */}
+      <Dialog open={registerOpen} onOpenChange={setRegisterOpen}>
+        <DialogContent className="bg-[#13131f] border-white/[0.06] text-white max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-lg font-bold">
+              {editCreator ? 'Edit Creator Profile' : 'Register Creator'}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Full Name *</label>
+                <Input className="bg-white/5 border-white/10 text-white" placeholder="e.g. Sofia Amani"
+                  value={profileForm.name} onChange={e => setProfileForm(f => ({ ...f, name: e.target.value }))} />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Handle *</label>
+                <Input className="bg-white/5 border-white/10 text-white" placeholder="e.g. @sofiacreates"
+                  value={profileForm.handle} onChange={e => setProfileForm(f => ({ ...f, handle: e.target.value }))} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Niche</label>
+                <Input className="bg-white/5 border-white/10 text-white" placeholder="e.g. Fashion, Tech"
+                  value={profileForm.niche} onChange={e => setProfileForm(f => ({ ...f, niche: e.target.value }))} />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Country</label>
+                <Input className="bg-white/5 border-white/10 text-white" placeholder="TZ"
+                  value={profileForm.country} onChange={e => setProfileForm(f => ({ ...f, country: e.target.value }))} />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">
+                Mobile Money Phone *
+                <span className="ml-1 text-amber-400">(required for subscription billing &amp; auto-renewal)</span>
+              </label>
+              <Input className="bg-white/5 border-white/10 text-white" placeholder="0712 345 678 or 255712345678"
+                value={profileForm.phone} onChange={e => setProfileForm(f => ({ ...f, phone: e.target.value }))} />
+              <p className="text-[11px] text-slate-500 mt-1">Vodacom, Airtel, Tigo, Halotel — used for weekly subscription payments</p>
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Contact Email</label>
+              <Input type="email" className="bg-white/5 border-white/10 text-white" placeholder="sofia@example.com"
+                value={profileForm.contactEmail} onChange={e => setProfileForm(f => ({ ...f, contactEmail: e.target.value }))} />
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Bio</label>
+              <Input className="bg-white/5 border-white/10 text-white" placeholder="Short bio…"
+                value={profileForm.bio} onChange={e => setProfileForm(f => ({ ...f, bio: e.target.value }))} />
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Weekly Rate (TZS)</label>
+              <Input type="number" className="bg-white/5 border-white/10 text-white" placeholder="50000"
+                value={profileForm.weeklyRateTzs} onChange={e => setProfileForm(f => ({ ...f, weeklyRateTzs: e.target.value }))} />
+            </div>
+            <Button
+              className="w-full bg-cyan-500 hover:bg-cyan-600 text-white mt-2"
+              onClick={handleSaveProfile}
+              disabled={savingProfile || !profileForm.name || !profileForm.handle}
+            >
+              {savingProfile ? 'Saving…' : editCreator ? 'Save Changes' : 'Register Creator'}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
@@ -909,8 +1216,14 @@ function DealsModule() {
 
 // ── Module 5: Escrow ───────────────────────────────────
 function EscrowModule() {
+  const { escrows } = useAppState();
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawMethod, setWithdrawMethod] = useState('mpesa');
+
+  const totalHeld     = escrows.filter(e => e.status === 'held').reduce((s, e) => s + Number(e.amountTzs), 0);
+  const totalReleased = escrows.filter(e => e.status === 'released').reduce((s, e) => s + Number(e.netAmountTzs), 0);
+  const totalRefunded = escrows.filter(e => e.status === 'refunded').reduce((s, e) => s + Number(e.amountTzs), 0);
+  const totalFees     = escrows.reduce((s, e) => s + Number(e.feeTzs), 0);
 
   return (
     <div className="h-full overflow-y-auto">
@@ -923,10 +1236,10 @@ function EscrowModule() {
         {/* Balance Cards */}
         <div className="grid grid-cols-4 gap-4">
           {[
-            { label: 'Total Balance', value: '$45,000', icon: Wallet, color: '#06b6d4' },
-            { label: 'Available', value: '$12,800', icon: Unlock, color: '#10b981' },
-            { label: 'Locked (Perf.)', value: '$32,200', icon: Lock, color: '#f59e0b' },
-            { label: 'Released (Mo.)', value: '$18,500', icon: DollarSign, color: '#8b5cf6' },
+            { label: 'Held in Escrow', value: `${totalHeld.toLocaleString()} TZS`, icon: Lock, color: '#f59e0b' },
+            { label: 'Released to Creators', value: `${totalReleased.toLocaleString()} TZS`, icon: Unlock, color: '#10b981' },
+            { label: 'Refunded', value: `${totalRefunded.toLocaleString()} TZS`, icon: DollarSign, color: '#ef4444' },
+            { label: 'Platform Fees', value: `${totalFees.toLocaleString()} TZS`, icon: Wallet, color: '#8b5cf6' },
           ].map((b, i) => (
             <Card key={i} className="bg-[#13131f] border-white/[0.06]">
               <CardContent className="p-4">
@@ -1030,43 +1343,287 @@ function EscrowModule() {
         {/* Transactions Table */}
         <Card className="bg-[#13131f] border-white/[0.06]">
           <CardContent className="p-4">
-            <h3 className="text-sm font-semibold text-white mb-3">Escrow Transactions</h3>
-            <div className="overflow-x-auto">
+            <h3 className="text-sm font-semibold text-white mb-3">Escrow Records</h3>
+            {escrows.length === 0 ? (
+              <p className="text-sm text-slate-500 text-center py-6">No escrow records yet. Funds are locked here when you send offers to creators.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-xs text-slate-400 border-b border-white/[0.06]">
+                      <th className="text-left py-2 px-3">Date</th>
+                      <th className="text-left py-2 px-3">Amount</th>
+                      <th className="text-left py-2 px-3">Fee</th>
+                      <th className="text-left py-2 px-3">Net</th>
+                      <th className="text-left py-2 px-3">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {escrows.map((e) => (
+                      <tr key={e.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
+                        <td className="py-2 px-3 text-slate-300">{new Date(e.createdAt).toLocaleDateString()}</td>
+                        <td className="py-2 px-3 font-medium text-white">{Number(e.amountTzs).toLocaleString()} TZS</td>
+                        <td className="py-2 px-3 text-slate-400">{Number(e.feeTzs).toLocaleString()} TZS</td>
+                        <td className="py-2 px-3 text-emerald-400">{Number(e.netAmountTzs).toLocaleString()} TZS</td>
+                        <td className="py-2 px-3">
+                          <span className={`text-xs px-2 py-0.5 rounded-full border ${
+                            e.status === 'held'     ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                            e.status === 'released' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                            e.status === 'refunded' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
+                            'bg-red-500/10 text-red-400 border-red-500/20'
+                          }`}>{e.status}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+// ── Subscription Module ────────────────────────────────
+const TIER_PRICES = { free: 0, basic: 2_000, premium: 5_000, elite: 10_000 } as const;
+const TIER_FEATURES: Record<string, string[]> = {
+  free:    ['Not listed in marketplace', 'No visibility boost'],
+  basic:   ['Listed in marketplace', 'Standard ranking', 'Weekly metrics sync'],
+  premium: ['Priority ranking', 'Featured in search results', 'Daily metrics sync', 'Fraud score badge'],
+  elite:   ['Top featured placement', 'Homepage spotlight', 'Real-time metrics', 'Verified badge', 'Dedicated support'],
+};
+
+function SubscriptionModule() {
+  const { creators, reload } = useAppState();
+  const [selectedCreatorId, setSelectedCreatorId] = useState(creators[0]?.id ?? '');
+  const [selectedTier, setSelectedTier] = useState<'basic' | 'premium' | 'elite'>('basic');
+  const [phone, setPhone] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<{ status: 'success' | 'error'; message: string } | null>(null);
+  const [history, setHistory] = useState<Array<{
+    id: string; tier: string; amountTzs: number; status: string;
+    channel?: string | null; createdAt: string; expiresAt?: string | null;
+  }>>([]);
+
+  const selectedCreator = creators.find(c => c.id === selectedCreatorId);
+
+  // Pre-fill phone from creator profile; fetch full record to get saved phone
+  useEffect(() => {
+    if (!selectedCreatorId) return;
+    // Pre-fill immediately from list data if available
+    const listPhone = selectedCreator?.phone ?? '';
+    if (listPhone) setPhone(listPhone);
+
+    // Fetch full creator record to get phone (not always in list)
+    api<ApiCreator>(`/creators/${selectedCreatorId}`)
+      .then(c => { if (c.phone) setPhone(c.phone); })
+      .catch(() => {});
+  }, [selectedCreatorId]);
+
+  // Load billing history when creator changes or after a payment
+  useEffect(() => {
+    if (!selectedCreatorId) return;
+    api<typeof history>(`/creators/${selectedCreatorId}/subscription/history`)
+      .then(setHistory)
+      .catch(() => setHistory([]));
+  }, [selectedCreatorId, result]);
+
+  const handleSubscribe = async () => {
+    if (!selectedCreatorId || !phone) return;
+    setLoading(true);
+    setResult(null);
+    try {
+      await api(`/creators/${selectedCreatorId}/subscribe`, {
+        method: 'POST',
+        body: JSON.stringify({
+          tier: selectedTier,
+          phone,
+          name: selectedCreator?.name ?? 'Creator',
+          email: selectedCreator?.contactEmail ?? `${selectedCreatorId}@kobecreator.app`,
+        }),
+      });
+      setResult({
+        status: 'success',
+        message: `USSD push sent to ${phone}. Check your phone and enter your PIN to confirm payment.`,
+      });
+      reload();
+    } catch (e) {
+      setResult({ status: 'error', message: (e as Error).message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const tiers = (['basic', 'premium', 'elite'] as const);
+
+  return (
+    <div className="h-full overflow-y-auto">
+      <div className="p-6 space-y-6">
+        <div>
+          <h1 className="text-xl font-bold text-white">Creator Subscription</h1>
+          <p className="text-sm text-slate-400 mt-0.5">
+            Upgrade visibility tier — charged weekly via PalmPesa mobile money
+          </p>
+        </div>
+
+        {/* Creator selector */}
+        {creators.length > 1 && (
+          <div>
+            <label className="text-xs text-slate-400 mb-1 block">Creator Profile</label>
+            <Select value={selectedCreatorId} onValueChange={setSelectedCreatorId}>
+              <SelectTrigger className="bg-white/5 border-white/10 text-white w-64">
+                <SelectValue placeholder="Select creator" />
+              </SelectTrigger>
+              <SelectContent className="bg-[#1e1e2e] border-white/10 text-white">
+                {creators.map(c => (
+                  <SelectItem key={c.id} value={c.id} className="text-white hover:bg-white/10">
+                    {c.name} — <span className="text-slate-400">{c.subscriptionTier}</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {/* Tier cards */}
+        <div className="grid grid-cols-3 gap-4">
+          {tiers.map((tier) => {
+            const price = TIER_PRICES[tier];
+            const features = TIER_FEATURES[tier];
+            const isCurrent = selectedCreator?.subscriptionTier === tier;
+            const isSelected = selectedTier === tier;
+            const colors = {
+              basic:   { ring: 'ring-cyan-500/50',   bg: 'bg-cyan-500/10',   text: 'text-cyan-400',   badge: 'bg-cyan-500/20 text-cyan-300' },
+              premium: { ring: 'ring-violet-500/50', bg: 'bg-violet-500/10', text: 'text-violet-400', badge: 'bg-violet-500/20 text-violet-300' },
+              elite:   { ring: 'ring-amber-500/50',  bg: 'bg-amber-500/10',  text: 'text-amber-400',  badge: 'bg-amber-500/20 text-amber-300' },
+            }[tier];
+
+            return (
+              <div
+                key={tier}
+                onClick={() => setSelectedTier(tier)}
+                className={`relative rounded-xl border p-4 cursor-pointer transition-all ${
+                  isSelected
+                    ? `border-white/20 ring-2 ${colors.ring} ${colors.bg}`
+                    : 'border-white/[0.06] hover:border-white/10 bg-[#13131f]'
+                }`}
+              >
+                {isCurrent && (
+                  <span className={`absolute top-3 right-3 text-[10px] px-2 py-0.5 rounded-full font-medium ${colors.badge}`}>
+                    Active
+                  </span>
+                )}
+                {tier === 'elite' && (
+                  <Star className="w-3.5 h-3.5 text-amber-400 mb-2" />
+                )}
+                <div className={`text-sm font-bold capitalize mb-1 ${colors.text}`}>{tier}</div>
+                <div className="text-xl font-bold text-white">
+                  {price.toLocaleString()} <span className="text-xs text-slate-400 font-normal">TZS/week</span>
+                </div>
+                <ul className="mt-3 space-y-1.5">
+                  {features.map(f => (
+                    <li key={f} className="flex items-start gap-1.5 text-xs text-slate-300">
+                      <CheckCircle2 className={`w-3 h-3 mt-0.5 shrink-0 ${colors.text}`} />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Payment form */}
+        <Card className="bg-[#13131f] border-white/[0.06]">
+          <CardContent className="p-5 space-y-4">
+            <h3 className="text-sm font-semibold text-white">Pay via PalmPesa Mobile Money</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Mobile Number *</label>
+                <Input
+                  className="bg-white/5 border-white/10 text-white"
+                  placeholder="0712 345 678"
+                  value={phone}
+                  onChange={e => setPhone(e.target.value)}
+                />
+                <p className="text-[11px] text-slate-500 mt-1">Vodacom, Airtel, Tigo, Halotel</p>
+              </div>
+              <div className="flex flex-col justify-end">
+                <div className="text-xs text-slate-400 mb-2">
+                  You will be charged{' '}
+                  <span className="text-white font-semibold">
+                    {TIER_PRICES[selectedTier].toLocaleString()} TZS/week
+                  </span>{' '}
+                  for the <span className="capitalize text-white">{selectedTier}</span> tier.
+                </div>
+                <Button
+                  className="bg-emerald-500 hover:bg-emerald-600 text-white"
+                  onClick={handleSubscribe}
+                  disabled={loading || !phone}
+                >
+                  {loading ? 'Sending USSD push…' : `Activate ${selectedTier} — ${TIER_PRICES[selectedTier].toLocaleString()} TZS`}
+                </Button>
+              </div>
+            </div>
+
+            {result && (
+              <div className={`flex items-start gap-2 p-3 rounded-lg text-sm ${
+                result.status === 'success'
+                  ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-300'
+                  : 'bg-red-500/10 border border-red-500/20 text-red-300'
+              }`}>
+                {result.status === 'success'
+                  ? <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                  : <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />}
+                {result.message}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Billing history */}
+        {history.length > 0 && (
+          <Card className="bg-[#13131f] border-white/[0.06]">
+            <CardContent className="p-4">
+              <h3 className="text-sm font-semibold text-white mb-3">Billing History</h3>
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-xs text-slate-400 border-b border-white/[0.06]">
                     <th className="text-left py-2 px-3">Date</th>
-                    <th className="text-left py-2 px-3">Campaign</th>
-                    <th className="text-left py-2 px-3">Creator</th>
+                    <th className="text-left py-2 px-3">Tier</th>
                     <th className="text-left py-2 px-3">Amount</th>
-                    <th className="text-left py-2 px-3">Type</th>
+                    <th className="text-left py-2 px-3">Channel</th>
                     <th className="text-left py-2 px-3">Status</th>
+                    <th className="text-left py-2 px-3">Expires</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {escrowTxs.map((tx) => (
-                    <tr key={tx.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
-                      <td className="py-2 px-3 text-slate-300">{tx.date}</td>
-                      <td className="py-2 px-3 text-white">{tx.campaign}</td>
-                      <td className="py-2 px-3 text-slate-300">{tx.creator}</td>
-                      <td className="py-2 px-3 font-medium text-white">${tx.amount.toLocaleString()}</td>
+                  {history.map(h => (
+                    <tr key={h.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
+                      <td className="py-2 px-3 text-slate-300">{new Date(h.createdAt).toLocaleDateString()}</td>
+                      <td className="py-2 px-3 capitalize text-white">{h.tier}</td>
+                      <td className="py-2 px-3 text-white">{Number(h.amountTzs).toLocaleString()} TZS</td>
+                      <td className="py-2 px-3 text-slate-400">{h.channel ?? '—'}</td>
                       <td className="py-2 px-3">
                         <span className={`text-xs px-2 py-0.5 rounded-full border ${
-                          tx.type === 'Upfront' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
-                          tx.type === 'Locked' ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' :
-                          'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                        }`}>{tx.type}</span>
+                          h.status === 'active'     ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                          h.status === 'pending'    ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                          h.status === 'failed'     ? 'bg-red-500/10 text-red-400 border-red-500/20' :
+                          'bg-slate-500/10 text-slate-400 border-slate-500/20'
+                        }`}>{h.status}</span>
                       </td>
-                      <td className="py-2 px-3">
-                        <span className={`text-xs ${tx.status === 'Completed' ? 'text-emerald-400' : tx.status === 'Processing' ? 'text-amber-400' : 'text-blue-400'}`}>{tx.status}</span>
+                      <td className="py-2 px-3 text-slate-400">
+                        {h.expiresAt ? new Date(h.expiresAt).toLocaleDateString() : '—'}
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </div>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );

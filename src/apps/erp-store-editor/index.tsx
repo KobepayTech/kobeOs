@@ -5,7 +5,6 @@ import {
   Store, Type as TypeIcon, Grid3X3, PanelLeft, Tag, Plus, Globe, Loader2, AlertTriangle
 } from 'lucide-react';
 import { api } from '@/lib/api';
-import { useStoreHeartbeat } from '@/hooks/useStoreHeartbeat';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -652,8 +651,8 @@ export default function StoreEditor() {
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
 
-  // Keep the registry DNS record alive while this store is published
-  useStoreHeartbeat(settings.domainSlug || undefined, !!settings.isPublished);
+  // Heartbeats are sent by the backend @Cron (PublishService.sendHeartbeats)
+  // every 5 minutes — no need to duplicate from the frontend.
 
   // Load persisted settings on mount
   useEffect(() => {
@@ -698,6 +697,16 @@ export default function StoreEditor() {
     setPublishing(true);
     setPublishError(null);
     try {
+      // Pre-validate slug availability before hitting the publish endpoint
+      if (settings.domainSlug) {
+        const check = await api<{ available: boolean; reason?: string }>(
+          `/store-settings/check-slug/${encodeURIComponent(settings.domainSlug)}`,
+        );
+        if (!check.available) {
+          setPublishError(check.reason ?? 'That store name is already taken. Choose a different name.');
+          return;
+        }
+      }
       const updated = await api<StoreSettings>('/store-settings/publish', { method: 'POST' });
       setSettings((prev) => ({
         ...prev,
@@ -710,7 +719,7 @@ export default function StoreEditor() {
     } finally {
       setPublishing(false);
     }
-  }, []);
+  }, [settings.domainSlug]);
 
   const handleUnpublish = useCallback(async () => {
     setPublishing(true);

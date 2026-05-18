@@ -1,9 +1,16 @@
-import { Module, Global } from '@nestjs/common';
+import { Global, Module } from '@nestjs/common';
+import { CacheService } from './cache.service';
 
 /**
- * Placeholder cache module — Redis packages not installed.
- * Swap in @nestjs/cache-manager + cache-manager-redis-yet when Redis is needed.
+ * Global cache module — currently backed by an in-process LRU map.
+ *
+ * To switch to Redis: install @nestjs/cache-manager + cache-manager-redis-yet,
+ * replace CacheService with CacheModule.registerAsync(...) and update
+ * any injected CacheService references to use the CACHE_MANAGER token.
  */
 @Global()
-@Module({})
+@Module({
+  providers: [CacheService],
+  exports: [CacheService],
+})
 export class RedisCacheModule {}

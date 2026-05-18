@@ -37,11 +37,13 @@ import { StoreRegistryModule } from './store-registry/store-registry.module';
 import { RolesGuard } from './common/roles.guard';
 import { JwtAuthGuard } from './auth/jwt-auth.guard';
 import { LoggerMiddleware } from './common/logger.middleware';
+import { TenantMiddleware } from './store-settings/tenant.middleware';
 import { RedisCacheModule } from './cache/redis-cache.module';
 import { AuditModule } from './audit/audit.module';
 import { WebhooksModule } from './webhooks/webhooks.module';
 import { SportsModule } from './sports/sports.module';
 import { KobeModelsModule } from './kobe-models/kobe-models.module';
+import { LicenseModule } from './license/license.module';
 
 @Module({
   imports: [
@@ -81,6 +83,7 @@ import { KobeModelsModule } from './kobe-models/kobe-models.module';
     PaymentsModule,
     HotelModule,
     CreatorsModule,
+    LicenseModule,
     SportsModule,
     KobeModelsModule,
     CompaniesModule,
@@ -99,5 +102,7 @@ import { KobeModelsModule } from './kobe-models/kobe-models.module';
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer.apply(LoggerMiddleware).forRoutes('*');
+    // Resolve store tenant from Host header for subdomain/custom-domain routing
+    consumer.apply(TenantMiddleware).forRoutes('*');
   }
 }

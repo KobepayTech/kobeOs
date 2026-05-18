@@ -9,6 +9,14 @@ import type {
   ContextMenuItem,
 } from './types';
 import { setTheme, setAccentColor, setWallpaper } from './theme';
+import {
+  loadLicense,
+  storeLicenseToken,
+  clearLicenseToken,
+  tierSatisfied,
+} from './license';
+import type { LicensePayload, LicenseStatus } from './license';
+import type { SubscriptionTier } from './types';
 
 interface OSStore {
   // Windows
@@ -53,6 +61,18 @@ interface OSStore {
   pinApp: (appId: string) => void;
   unpinApp: (appId: string) => void;
   toggleTheme: () => void;
+
+  // License / subscription
+  licenseStatus: LicenseStatus;
+  licensePayload: LicensePayload | null;
+  /** Load (or reload) the license from localStorage and verify it. */
+  refreshLicense: () => Promise<void>;
+  /** Persist a new raw token received from the backend and reload. */
+  activateLicense: (rawToken: string) => Promise<void>;
+  /** Clear the stored token (logout / manual revoke). */
+  revokeLicense: () => void;
+  /** Returns true if the current license satisfies the required tier. */
+  canAccess: (required: SubscriptionTier) => boolean;
 }
 
 let idCounter = 0;
@@ -103,6 +123,32 @@ export const useOSStore = create<OSStore>()(
       contextMenu: null,
       notifications: [],
       settings: { ...defaultSettings },
+
+      // License initial state — refreshed on OS boot via refreshLicense()
+      licenseStatus: 'none' as LicenseStatus,
+      licensePayload: null,
+
+      refreshLicense: async () => {
+        const { status, payload } = await loadLicense();
+        set({ licenseStatus: status, licensePayload: payload });
+      },
+
+      activateLicense: async (rawToken: string) => {
+        storeLicenseToken(rawToken);
+        await get().refreshLicense();
+      },
+
+      revokeLicense: () => {
+        clearLicenseToken();
+        set({ licenseStatus: 'none', licensePayload: null });
+      },
+
+      canAccess: (required: SubscriptionTier) => {
+        if (required === 'free') return true;
+        const { licenseStatus, licensePayload } = get();
+        if (licenseStatus !== 'valid' || !licensePayload) return false;
+        return tierSatisfied(required, licensePayload.plan);
+      },
 
       openWindow: (appId, title, data) => {
         const app = get().getApp(appId);
