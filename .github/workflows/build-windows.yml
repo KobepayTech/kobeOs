@@ -1,0 +1,64 @@
+name: Build Windows Installer
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master, main]
+    paths:
+      - 'electron/**'
+      - 'src/**'
+      - 'server/**'
+      - 'package.json'
+      - 'vite.config.*'
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Install server dependencies
+        run: npm ci
+        working-directory: server
+
+      - name: Bundle NestJS backend
+        run: npm run build:bundle
+
+      - name: Build Windows installer
+        run: npx electron-builder --win --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: KobeStudio-Windows-Setup
+          path: release/Kobe Studio-Setup-*.exe
+          retention-days: 30
+
+      - name: Upload portable
+        uses: actions/upload-artifact@v4
+        with:
+          name: KobeStudio-Windows-Portable
+          path: release/Kobe Studio-*.exe
+          retention-days: 30
+
+      - name: Attach to GitHub Release (tags only)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release/Kobe Studio-Setup-*.exe
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
