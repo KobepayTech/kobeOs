@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=KobeOS
+Description=KobeOS boot splash
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/kobeos
+ScriptFile=/usr/share/plymouth/themes/kobeos/kobeos.script

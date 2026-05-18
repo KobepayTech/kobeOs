@@ -90,7 +90,7 @@ describe('KobeSports API', () => {
       const result = await teamsApi.leagueTable('Premier League');
 
       expect(mockFetch).toHaveBeenCalledWith(
-        '/api/sports/teams/league-table/Premier%20League',
+        '/api/sports/teams/table/Premier%20League',
         expect.any(Object),
       );
       expect(result).toEqual(teams);

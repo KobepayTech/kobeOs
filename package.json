@@ -16,7 +16,8 @@
     "electron:build": "npm run build && electron-builder",
     "electron:build:linux": "npm run build && npm run build:bundle && electron-builder --linux",
     "electron:build:win": "npm run build && electron-builder --win",
-    "iso:build": "npm run electron:build:linux && node scripts/build-iso.cjs 2>/dev/null || node -e \"require(\"./scripts/build-iso.js\")\"",
+    "iso:build": "npm run electron:build:linux && node scripts/build-iso.cjs",
+    "iso:package": "node scripts/build-iso.cjs",
     "models:checksums": "node scripts/fetch-model-checksums.js",
     "models:bundle": "node scripts/bundle-kobemodel.js",
     "models:upload": "node scripts/upload-models.js",
@@ -181,17 +182,19 @@
           ]
         }
       ],
-      "icon": "public/kobeos-icon.ico"
+      "icon": "build/kobeos-icon.ico"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "installerIcon": "public/kobeos-icon.ico",
-      "uninstallerIcon": "public/kobeos-icon.ico",
+      "differentialPackage": false,
+      "installerIcon": "build/kobeos-icon.ico",
+      "uninstallerIcon": "build/kobeos-icon.ico",
       "installerHeaderIcon": "public/kobeos-icon.ico",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "Kobe Studio",
+      "artifactName": "${productName}-Setup-${version}.exe",
       "include": "build/installer-migration.nsh"
     },
     "mac": {
