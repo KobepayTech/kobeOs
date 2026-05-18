@@ -49,24 +49,21 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: List release artifacts
+        run: Get-ChildItem release\ -Recurse | Select-Object FullName, Length
+        shell: pwsh
+
       - name: Upload installer
         uses: actions/upload-artifact@v4
         with:
           name: KobeStudio-Windows-Setup
-          path: release/Kobe Studio-Setup-*.exe
-          retention-days: 30
-
-      - name: Upload portable
-        uses: actions/upload-artifact@v4
-        with:
-          name: KobeStudio-Windows-Portable
-          path: release/Kobe Studio-*.exe
+          path: release/*.exe
           retention-days: 30
 
       - name: Attach to GitHub Release (tags only)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v1
         with:
-          files: release/Kobe Studio-Setup-*.exe
+          files: release/*.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
