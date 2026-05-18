@@ -10,6 +10,14 @@ on:
       - 'server/**'
       - 'package.json'
       - 'vite.config.*'
+  pull_request:
+    branches: [master, main]
+    paths:
+      - 'electron/**'
+      - 'src/**'
+      - 'server/**'
+      - 'package.json'
+      - 'vite.config.*'
 
 jobs:
   build-windows:
