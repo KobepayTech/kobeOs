@@ -6,3 +6,6 @@ release/
 *.deb
 *.exe
 *.dmg
+*.iso
+iso-build/
+electron/server-bundle/

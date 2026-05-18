@@ -19,6 +19,27 @@ dirs.forEach(dir => fs.mkdirSync(path.join(ISO_DIR, dir), { recursive: true }));
 // Copy the Electron app into opt/kobeos/
 console.log('📂 Copying Electron app (this may take a minute)...');
 execSync(`cp -r ${linuxUnpacked}/. ${path.join(ISO_DIR, 'opt/kobeos/')}`, { stdio: 'inherit' });
+
+// Copy server-bundle into resources/ so the packaged Electron can find it
+const serverBundle = path.join(__dirname, '..', 'electron', 'server-bundle');
+if (fs.existsSync(serverBundle)) {
+  const bundleDest = path.join(ISO_DIR, 'opt/kobeos/resources/server-bundle');
+  fs.mkdirSync(bundleDest, { recursive: true });
+  execSync(`cp -r ${serverBundle}/. ${bundleDest}/`, { stdio: 'inherit' });
+  console.log('   Server bundle copied to resources/server-bundle/');
+} else {
+  console.warn('⚠️  server-bundle not found — run: npm run build:bundle');
+}
+
+// Copy embedded-postgres binaries into resources/
+const embeddedPgSrc = path.join(__dirname, '..', 'node_modules', 'embedded-postgres');
+if (fs.existsSync(embeddedPgSrc)) {
+  const embeddedPgDest = path.join(ISO_DIR, 'opt/kobeos/resources/node_modules/embedded-postgres');
+  fs.mkdirSync(path.dirname(embeddedPgDest), { recursive: true });
+  execSync(`cp -r ${embeddedPgSrc} ${embeddedPgDest}`, { stdio: 'inherit' });
+  console.log('   embedded-postgres copied to resources/node_modules/');
+}
+
 console.log(`   App size: ${execSync(`du -sh ${path.join(ISO_DIR, 'opt/kobeos/')}`).toString().split('\t')[0]}`);
 const autostart = `#!/bin/bash\nexport DISPLAY=:0\nexport HOME=/home/kobeos\nexport XDG_CONFIG_HOME=/home/kobeos/.config\nopenbox &\nexec /opt/kobeos/kobeos --no-sandbox --disable-gpu --kiosk\n`;
 fs.writeFileSync(path.join(ISO_DIR, 'usr/bin/start-kobeos'), autostart);

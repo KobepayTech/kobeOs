@@ -14,15 +14,16 @@
     "electron": "electron .",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
     "electron:build": "npm run build && electron-builder",
-    "electron:build:linux": "npm run build && electron-builder --linux",
+    "electron:build:linux": "npm run build && npm run build:bundle && electron-builder --linux",
     "electron:build:win": "npm run build && electron-builder --win",
-    "iso:build": "npm run electron:build:linux && node scripts/build-iso.js",
+    "iso:build": "npm run electron:build:linux && node scripts/build-iso.cjs 2>/dev/null || node -e \"require(\"./scripts/build-iso.js\")\"",
     "models:checksums": "node scripts/fetch-model-checksums.js",
     "models:bundle": "node scripts/bundle-kobemodel.js",
     "models:upload": "node scripts/upload-models.js",
     "models:football:train": "python3 scripts/build-football-vision.py --mode train",
     "models:football:export": "python3 scripts/build-football-vision.py --mode export",
-    "models:football:bundle": "python3 scripts/build-football-vision.py --mode bundle"
+    "models:football:bundle": "python3 scripts/build-football-vision.py --mode bundle",
+    "build:bundle": "cd server && npx ncc build src/main.ts -o ../electron/server-bundle --minify --no-source-map-register"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -58,6 +59,7 @@
     "cmdk": "^1.1.1",
     "date-fns": "^4.1.0",
     "electron-updater": "^6.8.3",
+    "embedded-postgres": "^18.3.0-beta.17",
     "embla-carousel-react": "^8.6.0",
     "framer-motion": "^12.38.0",
     "input-otp": "^1.4.2",
@@ -130,6 +132,10 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "electron/server-bundle",
+        "to": "server-bundle"
       }
     ],
     "linux": {
