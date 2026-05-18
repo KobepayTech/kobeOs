@@ -5,8 +5,40 @@ const { exec, execFile, spawn } = require('child_process');
 const { setupAutoUpdater } = require('./update-manager');
 
 let mainWindow;
+let splashWindow = null;
 let backendProcess = null;
 let embeddedPg = null;
+
+// ── Splash window ─────────────────────────────────────────────────────────────
+
+function createSplashWindow() {
+  splashWindow = new BrowserWindow({
+    width: 1920, height: 1080, fullscreen: true,
+    frame: false, transparent: false,
+    autoHideMenuBar: true,
+    resizable: false,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: false,
+      preload: path.join(__dirname, 'splash-preload.js'),
+    },
+  });
+  splashWindow.loadFile(path.join(__dirname, 'splash.html'));
+  splashWindow.on('closed', () => { splashWindow = null; });
+}
+
+function sendBootProgress(pct, msg) {
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    splashWindow.webContents.send('boot-progress', { pct, msg });
+  }
+}
+
+function closeSplash() {
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    splashWindow.close();
+    splashWindow = null;
+  }
+}
 
 // ── Paths ─────────────────────────────────────────────────────────────────────
 
@@ -127,15 +159,53 @@ async function stopEmbeddedPostgres() {
 async function bootServices() {
   const mode = getSystemMode();
   console.log('[KobeOS] mode:', mode);
+
+  sendBootProgress(5, 'Detecting system mode…');
+  await new Promise((r) => setTimeout(r, 300));
+
   let dbConfig;
   if (mode === 'live-usb') {
+    sendBootProgress(15, 'Starting embedded database…');
     dbConfig = await startEmbeddedPostgres();
+    sendBootProgress(45, 'Database ready');
   } else {
+    sendBootProgress(15, 'Connecting to database…');
     dbConfig = await ensureSystemPostgres();
+    sendBootProgress(45, 'Database ready');
   }
-  await new Promise((r) => setTimeout(r, 1500));
+
+  await new Promise((r) => setTimeout(r, 400));
+  sendBootProgress(55, 'Starting backend services…');
   startBackend(dbConfig);
-  await new Promise((r) => setTimeout(r, 3000));
+
+  // Poll until backend responds on :3000 (max 15 s)
+  sendBootProgress(65, 'Waiting for backend…');
+  await waitForBackend(3000, 15000);
+
+  sendBootProgress(90, 'Loading KobeOS…');
+  await new Promise((r) => setTimeout(r, 300));
+  sendBootProgress(100, 'Ready');
+  await new Promise((r) => setTimeout(r, 400));
+}
+
+/** Poll http://localhost:{port}/health until it responds or timeout elapses. */
+function waitForBackend(port, timeoutMs) {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const http = require('http');
+    function attempt() {
+      const req = http.get(`http://127.0.0.1:${port}/health`, (res) => {
+        res.resume();
+        resolve();
+      });
+      req.on('error', () => {
+        if (Date.now() - start >= timeoutMs) { resolve(); return; }
+        setTimeout(attempt, 500);
+      });
+      req.setTimeout(800, () => { req.destroy(); });
+    }
+    attempt();
+  });
 }
 
 // ── Window ────────────────────────────────────────────────────────────────────
@@ -145,6 +215,7 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1920, height: 1080, fullscreen: true, kiosk: true,
     autoHideMenuBar: true, frame: false,
+    show: false,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -170,8 +241,16 @@ function createWindow() {
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 
 app.whenReady().then(async () => {
+  createSplashWindow();
+  // Give the splash window time to render before starting services
+  await new Promise((r) => setTimeout(r, 200));
   await bootServices();
   createWindow();
+  // Keep splash visible until main window is ready to show
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show();
+    closeSplash();
+  });
   setupAutoUpdater(mainWindow);
 });
 
