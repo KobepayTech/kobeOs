@@ -87,7 +87,7 @@ export class LiveDataService {
 
   /** Poll every minute during typical match hours (UTC 12:00–23:00). */
   @Cron('0 * 12-23 * * *')
-  async pollLiveMatches() {
+  async pollLiveMatches(): Promise<void> {
     if (!this.fdApiKey && !this.afApiKey) {
       return; // No API keys configured — skip silently
     }

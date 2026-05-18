@@ -3,6 +3,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { AnalyticsService, MatchEventsService, MatchesService, PlayersService, TeamsService } from './sports.service';
+import { LiveDataService } from './live-data.service';
 import {
   CreateMatchDto, CreateMatchEventDto, CreatePlayerDto, CreateTeamDto,
   UpdateAnalyticsDto, UpdateMatchDto, UpdatePlayerDto, UpdateTeamDto,
@@ -19,7 +20,40 @@ export class SportsController {
     private readonly players: PlayersService,
     private readonly teams: TeamsService,
     private readonly analytics: AnalyticsService,
+    private readonly liveData: LiveDataService,
   ) {}
+
+  // ── Live data (API-Football / football-data.org) ──────────────────────────
+
+  /** Returns all currently cached live + today's matches from external APIs. */
+  @Get('live')
+  @ApiOperation({ summary: 'Get live matches from external data sources' })
+  getLive() {
+    return this.liveData.getLiveMatches();
+  }
+
+  /** Trigger an immediate poll of external APIs (useful for testing). */
+  @Post('live/refresh')
+  @ApiOperation({ summary: 'Force-refresh live match data from external APIs' })
+  refreshLive() {
+    return this.liveData.pollLiveMatches().then(() => ({ ok: true, count: this.liveData.getLiveMatches().length }));
+  }
+
+  /** List all competitions/leagues seen in the live data cache. */
+  @Get('live/leagues')
+  @ApiOperation({ summary: 'List competitions available in the live data cache' })
+  getLiveLeagues() {
+    const matches = this.liveData.getLiveMatches();
+    const seen = new Set<string>();
+    const leagues: { name: string; count: number }[] = [];
+    for (const m of matches) {
+      if (!seen.has(m.competition)) {
+        seen.add(m.competition);
+        leagues.push({ name: m.competition, count: matches.filter((x) => x.competition === m.competition).length });
+      }
+    }
+    return leagues.sort((a, b) => b.count - a.count);
+  }
 
   // ── Matches ───────────────────────────────────────────────────────────────
 

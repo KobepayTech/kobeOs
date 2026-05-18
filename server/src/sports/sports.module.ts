@@ -14,6 +14,6 @@ import { AiModule } from '../ai/ai.module';
   ],
   providers: [MatchesService, MatchEventsService, PlayersService, TeamsService, AnalyticsService, LiveDataService, SportsGateway],
   controllers: [SportsController],
-  exports: [MatchesService, AnalyticsService, LiveDataService],
+  exports: [MatchesService, AnalyticsService, LiveDataService, SportsGateway],
 })
 export class SportsModule {}

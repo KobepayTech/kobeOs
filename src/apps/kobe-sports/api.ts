@@ -141,6 +141,68 @@ export const analyticsApi = {
   commentary: (matchId: string) => req<{ commentary: string }>(`/sports/analytics/${matchId}/commentary`, { method: 'POST' }),
 };
 
+// ── Live data (external API bridge) ──────────────────────────────────────────
+
+export interface LiveMatch {
+  externalId: string;
+  source: 'football-data' | 'api-football';
+  homeTeam: string;
+  awayTeam: string;
+  homeScore: number;
+  awayScore: number;
+  status: 'SCHEDULED' | 'LIVE' | 'HT' | 'FT' | 'POSTPONED' | 'CANCELLED';
+  kickoff: string;
+  competition: string;
+  season: string;
+  venue?: string;
+  minute?: number;
+  events: LiveEvent[];
+  stats?: MatchStats;
+}
+
+export interface LiveEvent {
+  minute: number;
+  type: 'GOAL' | 'YELLOW_CARD' | 'RED_CARD' | 'SUBSTITUTION' | 'VAR' | 'PENALTY' | 'OWN_GOAL';
+  playerName?: string;
+  team: 'home' | 'away';
+  description?: string;
+}
+
+export const liveApi = {
+  matches: () => req<LiveMatch[]>('/sports/live'),
+  refresh: () => req<{ ok: boolean; count: number }>('/sports/live/refresh', { method: 'POST' }),
+  leagues: () => req<{ name: string; count: number }[]>('/sports/live/leagues'),
+};
+
+// ── Extended player stats for ratings ────────────────────────────────────────
+
+export interface PlayerRating {
+  playerId: string;
+  name: string;
+  team: 'home' | 'away';
+  position: string;
+  jerseyNumber: number;
+  overallRating: number;
+  passingScore: number;
+  defensiveScore: number;
+  attackingScore: number;
+  workRateScore: number;
+  stats: {
+    passes: number;
+    passAccuracy: number;
+    tackles: number;
+    interceptions: number;
+    shots: number;
+    shotsOnTarget: number;
+    dribbles: number;
+    distanceCovered: number; // km
+    sprints: number;
+    foulsCommitted: number;
+    foulsSuffered: number;
+    minutesPlayed: number;
+  };
+}
+
 // ── AI ────────────────────────────────────────────────────────────────────────
 
 export const aiSportsApi = {
