@@ -62,8 +62,119 @@ export const matchesApi = {
   update: (id: string, body: Partial<Match>) => req<Match>(`/sports/matches/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   delete: (id: string) => req<void>(`/sports/matches/${id}`, { method: 'DELETE' }),
   events: (id: string) => req<MatchEvent[]>(`/sports/matches/${id}/events`),
-  addEvent: (id: string, body: Partial<MatchEvent>) => req<MatchEvent>(`/sports/matches/${id}/events`, { method: 'POST', body: JSON.stringify(body) }),
+  addEvent: (body: Partial<MatchEvent>) => req<MatchEvent>('/sports/events', { method: 'POST', body: JSON.stringify(body) }),
   aiReport: (id: string) => req<{ report: string }>(`/sports/matches/${id}/ai-report`, { method: 'POST' }),
+  // Lifecycle
+  start: (id: string) => req<Match>(`/sports/matches/${id}/start`, { method: 'POST' }),
+  halftime: (id: string) => req<Match>(`/sports/matches/${id}/halftime`, { method: 'POST' }),
+  end: (id: string) => req<Match>(`/sports/matches/${id}/end`, { method: 'POST' }),
+  postpone: (id: string) => req<Match>(`/sports/matches/${id}/postpone`, { method: 'POST' }),
+  updateScore: (id: string, body: ScoreUpdate) => req<Match>(`/sports/matches/${id}/score`, { method: 'POST', body: JSON.stringify(body) }),
+  setLineup: (id: string, body: MatchLineup) => req<Match>(`/sports/matches/${id}/lineup`, { method: 'POST', body: JSON.stringify(body) }),
+  getLineup: (id: string) => req<MatchLineup>(`/sports/matches/${id}/lineup`),
+  setTracking: (id: string, active: boolean) => req<Match>(`/sports/matches/${id}/tracking`, { method: 'POST', body: JSON.stringify({ active }) }),
+  getLive: () => req<Match[]>('/sports/matches/live'),
+  playerStats: (id: string) => req<MatchPlayerStat[]>(`/sports/matches/${id}/player-stats`),
+};
+
+export interface ScoreUpdate {
+  homeScore: number;
+  awayScore: number;
+  goalEvent?: {
+    team: 'home' | 'away';
+    playerName?: string;
+    minute: number;
+    type: 'GOAL' | 'OWN_GOAL' | 'PENALTY';
+  };
+}
+
+export interface LineupPlayer {
+  playerId?: string;
+  jerseyNumber: number;
+  name: string;
+  position: string;
+  starting: boolean;
+}
+
+export interface MatchLineup {
+  home: LineupPlayer[];
+  away: LineupPlayer[];
+}
+
+export interface MatchPlayerStat {
+  playerId: string;
+  jerseyNumber: number;
+  name: string;
+  team: 'home' | 'away';
+  minutesPlayed: number;
+  distanceKm: number;
+  sprints: number;
+  topSpeedKmh: number;
+  goals: number;
+  assists: number;
+  yellowCards: number;
+  redCards: number;
+  xg: number;
+  rating: number;
+}
+
+export interface PlayerSeasonStats {
+  id: string;
+  playerId: string;
+  season: string;
+  competition?: string;
+  matchesPlayed: number;
+  minutesPlayed: number;
+  goals: number;
+  assists: number;
+  yellowCards: number;
+  redCards: number;
+  xgTotal: number;
+  distanceKm: number;
+  sprints: number;
+  avgRating: number;
+  matchHistory?: Array<{
+    matchId: string;
+    date: string;
+    homeTeam: string;
+    awayTeam: string;
+    rating: number;
+    goals: number;
+    assists: number;
+    distanceKm: number;
+    sprints: number;
+    minutesPlayed: number;
+    xg: number;
+  }>;
+}
+
+export interface Camera {
+  id: string;
+  label: string;
+  role: string;
+  streamUrl: string;
+  status: 'ONLINE' | 'OFFLINE' | 'ERROR' | 'STANDBY';
+  fps: number;
+  resolution?: string;
+  lastHeartbeat?: string;
+  activeMatchId?: string;
+  calibrated: boolean;
+}
+
+export const camerasApi = {
+  list: () => req<Camera[]>('/sports/cameras'),
+  status: () => req<{ total: number; online: number; offline: number; error: number; uncalibrated: number; cameras: Camera[] }>('/sports/cameras/status'),
+  register: (body: { label: string; role: string; streamUrl: string; resolution?: string }) => req<Camera>('/sports/cameras', { method: 'POST', body: JSON.stringify(body) }),
+  assign: (cameraId: string, matchId: string) => req<Camera>(`/sports/cameras/${cameraId}/assign/${matchId}`, { method: 'POST' }),
+  release: (cameraId: string) => req<Camera>(`/sports/cameras/${cameraId}/release`, { method: 'POST' }),
+  remove: (id: string) => req<void>(`/sports/cameras/${id}`, { method: 'DELETE' }),
+};
+
+export const seasonStatsApi = {
+  forPlayer: (playerId: string, season?: string) =>
+    req<PlayerSeasonStats[]>(`/sports/players/${playerId}/season-stats${season ? `?season=${season}` : ''}`),
+  top: (season: string, limit = 20) =>
+    req<PlayerSeasonStats[]>(`/sports/season-stats/top?season=${season}&limit=${limit}`),
 };
 
 // ── Teams ─────────────────────────────────────────────────────────────────────
@@ -91,7 +202,7 @@ export const teamsApi = {
   create: (body: Partial<Team>) => req<Team>('/sports/teams', { method: 'POST', body: JSON.stringify(body) }),
   update: (id: string, body: Partial<Team>) => req<Team>(`/sports/teams/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   delete: (id: string) => req<void>(`/sports/teams/${id}`, { method: 'DELETE' }),
-  leagueTable: (competition: string) => req<Team[]>(`/sports/teams/league-table/${encodeURIComponent(competition)}`),
+  leagueTable: (competition: string) => req<Team[]>(`/sports/teams/table/${encodeURIComponent(competition)}`),
 };
 
 // ── Players ───────────────────────────────────────────────────────────────────
@@ -133,12 +244,22 @@ export interface Analytics {
   aiTacticalReport?: string;
 }
 
+export interface HighlightMarker {
+  frameNumber: number;
+  matchClock: number;
+  minute: number;
+  type: string;
+  team: string | null;
+  description: string;
+}
+
 export const analyticsApi = {
   forMatch: (matchId: string) => req<Analytics>(`/sports/analytics/${matchId}`),
   update: (matchId: string, body: Partial<Analytics>) =>
     req<Analytics>(`/sports/analytics/${matchId}`, { method: 'PATCH', body: JSON.stringify(body) }),
   tacticalReport: (matchId: string) => req<{ report: string }>(`/sports/analytics/${matchId}/tactical-report`, { method: 'POST' }),
   commentary: (matchId: string) => req<{ commentary: string }>(`/sports/analytics/${matchId}/commentary`, { method: 'POST' }),
+  highlights: (matchId: string) => req<HighlightMarker[]>(`/sports/analytics/${matchId}/highlights`),
 };
 
 // ── Live data (external API bridge) ──────────────────────────────────────────

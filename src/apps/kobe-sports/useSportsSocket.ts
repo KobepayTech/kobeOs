@@ -82,6 +82,19 @@ export interface OffsideResult {
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
+export interface AiCommentaryEvent {
+  matchId: string;
+  minute: number;
+  type: string;
+  text: string;
+}
+
+export interface AiReportEvent {
+  matchId: string;
+  stage: 'half-time' | 'full-time';
+  report: string;
+}
+
 export interface SportsSocketState {
   connected: boolean;
   frame: LiveFrame | null;
@@ -89,6 +102,8 @@ export interface SportsSocketState {
   latestEvent: MatchEvent | null;
   latestOffside: OffsideResult | null;
   offsideHistory: OffsideResult[];
+  latestCommentary: AiCommentaryEvent | null;
+  latestReport: AiReportEvent | null;
 }
 
 export function useSportsSocket(matchId: string | null) {
@@ -100,6 +115,8 @@ export function useSportsSocket(matchId: string | null) {
     latestEvent: null,
     latestOffside: null,
     offsideHistory: [],
+    latestCommentary: null,
+    latestReport: null,
   });
 
   useEffect(() => {
@@ -139,6 +156,14 @@ export function useSportsSocket(matchId: string | null) {
         latestOffside: data,
         offsideHistory: [data, ...s.offsideHistory.slice(0, 19)],
       }));
+    });
+
+    socket.on('ai:commentary', (data: AiCommentaryEvent) => {
+      setState((s) => ({ ...s, latestCommentary: data }));
+    });
+
+    socket.on('ai:report', (data: AiReportEvent) => {
+      setState((s) => ({ ...s, latestReport: data }));
     });
 
     return () => {

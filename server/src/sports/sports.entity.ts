@@ -1,5 +1,6 @@
 import { Column, Entity, Index } from 'typeorm';
 import { OwnedEntity } from '../common/owned.entity';
+import { BaseEntity } from '../common/base.entity';
 
 // ── Match ─────────────────────────────────────────────────────────────────
 
@@ -20,6 +21,13 @@ export class SportsMatch extends OwnedEntity {
   @Column({ type: 'jsonb', nullable: true }) awayLineup?: Record<string, unknown> | null;
   @Column({ type: 'jsonb', nullable: true }) stats?: Record<string, unknown> | null;
   @Column({ type: 'text', nullable: true }) aiReport?: string | null;
+  /** Current match minute (updated by vision pipeline) */
+  @Column({ type: 'int', nullable: true }) currentMinute?: number | null;
+  @Column({ type: 'int', default: 1 }) currentHalf!: number;
+  /** Whether the vision pipeline should be posting frames */
+  @Column({ default: false }) trackingActive!: boolean;
+  @Column({ type: 'timestamptz', nullable: true }) startedAt?: Date | null;
+  @Column({ type: 'timestamptz', nullable: true }) endedAt?: Date | null;
 }
 
 // ── Match Event ───────────────────────────────────────────────────────────
@@ -90,4 +98,78 @@ export class MatchAnalytics extends OwnedEntity {
   @Column({ type: 'jsonb', nullable: true }) formations?: Record<string, unknown> | null;
   @Column({ type: 'text', nullable: true }) aiCommentary?: string | null;
   @Column({ type: 'text', nullable: true }) aiTacticalReport?: string | null;
+}
+
+// ── Player Season Stats ───────────────────────────────────────────────────────
+
+@Entity('sports_player_stats')
+@Index(['playerId', 'season'])
+export class PlayerSeasonStats extends OwnedEntity {
+  @Index()
+  @Column('uuid') playerId!: string;
+
+  @Column() season!: string; // e.g. '2024/25'
+
+  @Column({ type: 'varchar', nullable: true }) competition?: string;
+
+  @Column({ default: 0 }) matchesPlayed!: number;
+  @Column({ default: 0 }) minutesPlayed!: number;
+  @Column({ default: 0 }) goals!: number;
+  @Column({ default: 0 }) assists!: number;
+  @Column({ default: 0 }) yellowCards!: number;
+  @Column({ default: 0 }) redCards!: number;
+
+  /** Cumulative xG across all matches */
+  @Column({ type: 'decimal', precision: 8, scale: 3, default: 0 }) xgTotal!: number;
+
+  /** Cumulative distance in km */
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 }) distanceKm!: number;
+
+  /** Total sprints (>25 km/h) */
+  @Column({ default: 0 }) sprints!: number;
+
+  /** Average match rating (0–100) */
+  @Column({ type: 'decimal', precision: 5, scale: 2, default: 0 }) avgRating!: number;
+
+  /** Per-match breakdown [{matchId, date, rating, goals, assists, distanceKm, sprints}] */
+  @Column({ type: 'jsonb', nullable: true }) matchHistory?: Record<string, unknown>[] | null;
+}
+
+// ── Camera Session ────────────────────────────────────────────────────────────
+
+export type CameraStatus = 'ONLINE' | 'OFFLINE' | 'ERROR' | 'STANDBY';
+export type CameraRole = 'main' | 'goal_home' | 'goal_away' | 'tactical' | 'drone' | 'referee';
+
+@Entity('sports_cameras')
+export class CameraSession extends BaseEntity {
+  /** Human-readable label, e.g. "Main Stand Camera 1" */
+  @Column() label!: string;
+
+  @Column({ default: 'main' }) role!: CameraRole;
+
+  /** IP address or RTSP stream URL */
+  @Column() streamUrl!: string;
+
+  @Column({ default: 'STANDBY' }) status!: CameraStatus;
+
+  /** Current frames per second (updated by heartbeat) */
+  @Column({ type: 'decimal', precision: 5, scale: 2, default: 0 }) fps!: number;
+
+  /** Resolution, e.g. "3840x2160" */
+  @Column({ type: 'varchar', nullable: true }) resolution?: string;
+
+  /** Last heartbeat from the Python pipeline */
+  @Column({ type: 'timestamptz', nullable: true }) lastHeartbeat?: Date | null;
+
+  /** Match this camera is currently assigned to */
+  @Column({ type: 'uuid', nullable: true }) activeMatchId?: string | null;
+
+  /** 3×3 homography matrix (pixel → pitch coords) calibrated for this camera */
+  @Column({ type: 'jsonb', nullable: true }) homography?: number[][] | null;
+
+  /** Calibration status */
+  @Column({ default: false }) calibrated!: boolean;
+
+  /** Error message if status === 'ERROR' */
+  @Column({ type: 'text', nullable: true }) errorMessage?: string | null;
 }
