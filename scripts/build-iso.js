@@ -1,63 +1,157 @@
 const { execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+
 const RELEASE_DIR = path.join(__dirname, '..', 'release');
-const ISO_DIR = path.join(__dirname, '..', 'iso-build');
-const OUTPUT_ISO = path.join(__dirname, '..', 'KobeOS-Installer.iso');
+const ISO_DIR     = path.join(__dirname, '..', 'iso-build');
+const OUTPUT_ISO  = path.join(__dirname, '..', 'KobeOS-Installer.iso');
+
 console.log('🖥️  KobeOS ISO Builder\n');
+
 if (fs.existsSync(ISO_DIR)) execSync(`rm -rf ${ISO_DIR}`);
 fs.mkdirSync(ISO_DIR, { recursive: true });
+
 const linuxUnpacked = path.join(RELEASE_DIR, 'linux-unpacked');
 if (!fs.existsSync(linuxUnpacked)) {
   console.error('❌ Linux build not found. Run: npm run electron:build:linux');
   process.exit(1);
 }
-console.log('📦 Packaging KobeOS for bootable ISO...\n');
-const dirs = ['opt/kobeos', 'etc/xdg/openbox', 'usr/share/applications', 'usr/bin', 'boot/grub'];
-dirs.forEach(dir => fs.mkdirSync(path.join(ISO_DIR, dir), { recursive: true }));
 
-// Copy the Electron app into opt/kobeos/
+// ── Find kernel + initrd ──────────────────────────────────────────────────────
+
+function findFile(dir, pattern) {
+  try {
+    const files = fs.readdirSync(dir).filter(f => f.match(pattern)).sort().reverse();
+    return files.length ? path.join(dir, files[0]) : null;
+  } catch { return null; }
+}
+
+const vmlinuz = findFile('/boot', /^vmlinuz-\d/) || '/boot/vmlinuz';
+const initrd  = findFile('/boot', /^initrd\.img-\d/) || '/boot/initrd.img';
+
+if (!fs.existsSync(vmlinuz) || !fs.existsSync(initrd)) {
+  console.error('❌ Kernel not found. Run:');
+  console.error('   sudo apt-get install linux-image-generic');
+  process.exit(1);
+}
+
+console.log(`✅ Kernel : ${vmlinuz}`);
+console.log(`✅ Initrd : ${initrd}\n`);
+
+// ── Directory structure ───────────────────────────────────────────────────────
+
+console.log('📦 Packaging KobeOS for bootable ISO...\n');
+
+['opt/kobeos', 'boot/grub', 'boot/isolinux', 'usr/bin', 'usr/share/applications', 'etc/xdg/openbox'].forEach(
+  d => fs.mkdirSync(path.join(ISO_DIR, d), { recursive: true })
+);
+
+// ── Copy kernel + initrd ──────────────────────────────────────────────────────
+
+console.log('📂 Copying kernel + initrd...');
+execSync(`sudo cp ${vmlinuz} ${path.join(ISO_DIR, 'boot/vmlinuz')}`);
+execSync(`sudo cp ${initrd}  ${path.join(ISO_DIR, 'boot/initrd.img')}`);
+execSync(`sudo chmod 644 ${path.join(ISO_DIR, 'boot/vmlinuz')} ${path.join(ISO_DIR, 'boot/initrd.img')}`);
+
+// ── Copy Electron app ─────────────────────────────────────────────────────────
+
 console.log('📂 Copying Electron app (this may take a minute)...');
 execSync(`cp -r ${linuxUnpacked}/. ${path.join(ISO_DIR, 'opt/kobeos/')}`, { stdio: 'inherit' });
 
-// Copy server-bundle into resources/ so the packaged Electron can find it
+// Copy server-bundle
 const serverBundle = path.join(__dirname, '..', 'electron', 'server-bundle');
 if (fs.existsSync(serverBundle)) {
-  const bundleDest = path.join(ISO_DIR, 'opt/kobeos/resources/server-bundle');
-  fs.mkdirSync(bundleDest, { recursive: true });
-  execSync(`cp -r ${serverBundle}/. ${bundleDest}/`, { stdio: 'inherit' });
-  console.log('   Server bundle copied to resources/server-bundle/');
+  const dest = path.join(ISO_DIR, 'opt/kobeos/resources/server-bundle');
+  fs.mkdirSync(dest, { recursive: true });
+  execSync(`cp -r ${serverBundle}/. ${dest}/`);
+  console.log('   ✅ server-bundle copied');
 } else {
-  console.warn('⚠️  server-bundle not found — run: npm run build:bundle');
+  console.warn('   ⚠️  server-bundle not found — run: npm run build:bundle');
 }
 
-// Copy embedded-postgres binaries into resources/
-const embeddedPgSrc = path.join(__dirname, '..', 'node_modules', 'embedded-postgres');
-if (fs.existsSync(embeddedPgSrc)) {
-  const embeddedPgDest = path.join(ISO_DIR, 'opt/kobeos/resources/node_modules/embedded-postgres');
-  fs.mkdirSync(path.dirname(embeddedPgDest), { recursive: true });
-  execSync(`cp -r ${embeddedPgSrc} ${embeddedPgDest}`, { stdio: 'inherit' });
-  console.log('   embedded-postgres copied to resources/node_modules/');
+// Copy embedded-postgres
+const pgSrc = path.join(__dirname, '..', 'node_modules', 'embedded-postgres');
+if (fs.existsSync(pgSrc)) {
+  const pgDest = path.join(ISO_DIR, 'opt/kobeos/resources/node_modules/embedded-postgres');
+  fs.mkdirSync(path.dirname(pgDest), { recursive: true });
+  execSync(`cp -r ${pgSrc} ${pgDest}`);
+  console.log('   ✅ embedded-postgres copied');
 }
 
-console.log(`   App size: ${execSync(`du -sh ${path.join(ISO_DIR, 'opt/kobeos/')}`).toString().split('\t')[0]}`);
-const autostart = `#!/bin/bash\nexport DISPLAY=:0\nexport HOME=/home/kobeos\nexport XDG_CONFIG_HOME=/home/kobeos/.config\nopenbox &\nexec /opt/kobeos/kobeos --no-sandbox --disable-gpu --kiosk\n`;
-fs.writeFileSync(path.join(ISO_DIR, 'usr/bin/start-kobeos'), autostart);
+console.log(`   App size: ${execSync(`du -sh ${path.join(ISO_DIR, 'opt/kobeos/')}`).toString().split('\t')[0]}\n`);
+
+// ── GRUB config (uses real kernel) ────────────────────────────────────────────
+
+const grubCfg = `
+set timeout=10
+set default=0
+
+insmod all_video
+insmod gfxterm
+terminal_output gfxterm
+
+menuentry "Try KobeOS Live" --class kobeos {
+    linux  /boot/vmlinuz boot=live quiet splash nomodeset
+    initrd /boot/initrd.img
+}
+
+menuentry "Install KobeOS to Disk" --class kobeos {
+    linux  /boot/vmlinuz boot=live install=yes quiet splash nomodeset
+    initrd /boot/initrd.img
+}
+
+menuentry "KobeOS (safe graphics)" --class kobeos {
+    linux  /boot/vmlinuz boot=live nomodeset xforcevesa
+    initrd /boot/initrd.img
+}
+
+menuentry "Reboot"   { reboot }
+menuentry "Shutdown" { halt }
+`.trim();
+
+fs.writeFileSync(path.join(ISO_DIR, 'boot/grub/grub.cfg'), grubCfg);
+
+// ── Autostart script ──────────────────────────────────────────────────────────
+
+const startScript = `#!/bin/bash
+export DISPLAY=:0
+export HOME=/root
+export XDG_RUNTIME_DIR=/tmp/runtime-root
+mkdir -p $XDG_RUNTIME_DIR
+# Start X if not running
+if ! pgrep -x Xorg > /dev/null; then
+  Xorg :0 -nolisten tcp vt1 &
+  sleep 3
+fi
+exec /opt/kobeos/kobeos --no-sandbox --disable-gpu-sandbox --kiosk
+`;
+fs.writeFileSync(path.join(ISO_DIR, 'usr/bin/start-kobeos'), startScript);
 execSync(`chmod +x ${path.join(ISO_DIR, 'usr/bin/start-kobeos')}`);
-const desktopEntry = `[Desktop Entry]\nName=KobeOS\nExec=/usr/bin/start-kobeos\nType=Application\nTerminal=false\nIcon=/opt/kobeos/resources/kobeos-icon.png\nCategories=System;\n`;
-fs.writeFileSync(path.join(ISO_DIR, 'usr/share/applications/kobeos.desktop'), desktopEntry);
-const grubConfig = `set timeout=10\nset default=0\nset menu_color_normal=white/black\nset menu_color_highlight=black/light-gray\n\nmenuentry "🖥️  Try KobeOS (Live Mode)" --class kobeos {\n    linux /boot/vmlinuz root=/dev/sr0 quiet splash\n    initrd /boot/initrd.img\n}\n\nmenuentry "💾 Install KobeOS to Hard Drive" --class kobeos {\n    linux /boot/vmlinuz root=/dev/sr0 install=yes quiet splash\n    initrd /boot/initrd.img\n}\n\nmenuentry "🔧 KobeOS Recovery Mode" --class kobeos {\n    linux /boot/vmlinuz root=/dev/sr0 recovery=yes single\n    initrd /boot/initrd.img\n}\n\nmenuentry "🔄 Reboot" { reboot }\nmenuentry "⏻  Shutdown" { halt }\n`;
-fs.writeFileSync(path.join(ISO_DIR, 'boot/grub/grub.cfg'), grubConfig);
-const initScript = `#!/bin/bash\nmount -t proc none /proc\nmount -t sysfs none /sys\nmount -t devtmpfs none /dev\nfor device in /dev/sr0 /dev/cdrom /dev/sda1 /dev/sdb1; do\n  if mount -o ro $device /mnt 2>/dev/null; then\n    if [ -f /mnt/opt/kobeos/kobeos ]; then\n      echo "Found KobeOS on $device"\n      break\n    fi\n    umount /mnt\n  fi\ndone\nmkdir -p /upper /work\nmount -t tmpfs none /upper\nmount -t overlay overlay -o lowerdir=/mnt,upperdir=/upper,workdir=/work /newroot\nexec switch_root /newroot /sbin/init\n`;
-fs.writeFileSync(path.join(ISO_DIR, 'init'), initScript);
-execSync(`chmod +x ${path.join(ISO_DIR, 'init')}`);
+
+// ── Desktop entry ─────────────────────────────────────────────────────────────
+
+fs.writeFileSync(path.join(ISO_DIR, 'usr/share/applications/kobeos.desktop'),
+`[Desktop Entry]
+Name=KobeOS
+Exec=/usr/bin/start-kobeos
+Type=Application
+Terminal=false
+Categories=System;
+`);
+
+// ── Build ISO ─────────────────────────────────────────────────────────────────
+
 console.log('🔥 Building bootable ISO...\n');
 try {
-  execSync(`cd ${ISO_DIR} && grub-mkrescue -o ${OUTPUT_ISO} . --modules="part_gpt part_msdos fat iso9660 gzio linux boot" 2>&1`, { stdio: 'inherit' });
+  execSync(
+    `grub-mkrescue -o ${OUTPUT_ISO} ${ISO_DIR} ` +
+    `--modules="part_gpt part_msdos fat iso9660 gzio linux normal boot all_video gfxterm" 2>&1`,
+    { stdio: 'inherit' }
+  );
+  const sizeMB = (fs.statSync(OUTPUT_ISO).size / 1024 / 1024).toFixed(2);
   console.log(`\n✅ SUCCESS! ISO created: ${OUTPUT_ISO}`);
-  console.log(`📊 Size: ${(fs.statSync(OUTPUT_ISO).size / 1024 / 1024).toFixed(2)} MB`);
-} catch (error) {
-  console.error('\n❌ ISO build failed. Install required tools:');
-  console.error('   sudo apt-get install grub-pc-bin grub-efi-amd64-bin xorriso mtools');
+  console.log(`📊 Size: ${sizeMB} MB`);
+} catch (err) {
+  console.error('\n❌ ISO build failed:', err.message);
   process.exit(1);
 }
