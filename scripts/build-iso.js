@@ -15,6 +15,11 @@ if (!fs.existsSync(linuxUnpacked)) {
 console.log('📦 Packaging KobeOS for bootable ISO...\n');
 const dirs = ['opt/kobeos', 'etc/xdg/openbox', 'usr/share/applications', 'usr/bin', 'boot/grub'];
 dirs.forEach(dir => fs.mkdirSync(path.join(ISO_DIR, dir), { recursive: true }));
+
+// Copy the Electron app into opt/kobeos/
+console.log('📂 Copying Electron app (this may take a minute)...');
+execSync(`cp -r ${linuxUnpacked}/. ${path.join(ISO_DIR, 'opt/kobeos/')}`, { stdio: 'inherit' });
+console.log(`   App size: ${execSync(`du -sh ${path.join(ISO_DIR, 'opt/kobeos/')}`).toString().split('\t')[0]}`);
 const autostart = `#!/bin/bash\nexport DISPLAY=:0\nexport HOME=/home/kobeos\nexport XDG_CONFIG_HOME=/home/kobeos/.config\nopenbox &\nexec /opt/kobeos/kobeos --no-sandbox --disable-gpu --kiosk\n`;
 fs.writeFileSync(path.join(ISO_DIR, 'usr/bin/start-kobeos'), autostart);
 execSync(`chmod +x ${path.join(ISO_DIR, 'usr/bin/start-kobeos')}`);
