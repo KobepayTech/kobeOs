@@ -79,3 +79,80 @@ export class UpdateAnalyticsDto {
   @IsOptional() @IsObject() xgData?: Record<string, unknown>;
   @IsOptional() @IsObject() formations?: Record<string, unknown>;
 }
+
+// ── Vision pipeline DTOs ──────────────────────────────────────────────────────
+
+/** A single tracked object in a frame (player, ball, referee). */
+export class TrackedObject {
+  /** ByteTrack track ID */
+  @IsInt() trackId!: number;
+
+  /** 'player_home' | 'player_away' | 'ball' | 'referee' | 'goalkeeper_home' | 'goalkeeper_away' */
+  @IsString() class!: string;
+
+  /** Pitch-normalised X coordinate (0 = left goal line, 100 = right goal line) */
+  @IsNumber() x!: number;
+
+  /** Pitch-normalised Y coordinate (0 = top touchline, 100 = bottom touchline) */
+  @IsNumber() y!: number;
+
+  /** Confidence score from YOLO (0–1) */
+  @IsNumber() confidence!: number;
+
+  /** Speed in km/h (computed by ByteTrack from consecutive frames) */
+  @IsOptional() @IsNumber() speed?: number;
+
+  /** Jersey number if detected via OCR */
+  @IsOptional() @IsInt() jerseyNumber?: number;
+
+  /** Bounding box in original pixel coords [x1, y1, x2, y2] */
+  @IsOptional() metadata?: number[];
+}
+
+/**
+ * A single processed frame from the AI vision pipeline.
+ * Posted by the Python process after every YOLO detection + ByteTrack pass.
+ */
+export class IngestFrameDto {
+  /** Frame sequence number (monotonically increasing) */
+  @IsInt() frameNumber!: number;
+
+  /** Match clock in seconds (0 = kickoff) */
+  @IsNumber() matchClock!: number;
+
+  /** Match half: 1 or 2 */
+  @IsInt() half!: number;
+
+  /** All tracked objects in this frame */
+  objects!: TrackedObject[];
+
+  /**
+   * Optional: event detected in this frame by the event-detection model.
+   * e.g. { type: 'PASS', fromTrackId: 5, toTrackId: 12 }
+   */
+  @IsOptional() @IsObject() event?: Record<string, unknown>;
+
+  /**
+   * Optional: raw homography matrix (3×3) used to map pixel → pitch coords.
+   * Stored for audit / replay.
+   */
+  @IsOptional() homography?: number[][];
+}
+
+/** Snapshot of player positions for offside checking. */
+export class CheckOffsideDto {
+  /** Frame number at the moment of the pass */
+  @IsInt() frameNumber!: number;
+
+  /** Match clock in seconds */
+  @IsNumber() matchClock!: number;
+
+  /** Track ID of the attacker to check */
+  @IsInt() attackerTrackId!: number;
+
+  /** Direction of attack: 'left_to_right' | 'right_to_left' */
+  @IsString() attackDirection!: string;
+
+  /** All player positions at this frame */
+  objects!: TrackedObject[];
+}

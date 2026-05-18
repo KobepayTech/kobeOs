@@ -4,7 +4,8 @@ import { MatchAnalytics, MatchEvent, SportsMatch, SportsPlayer, SportsTeam } fro
 import { AnalyticsService, MatchEventsService, MatchesService, PlayersService, TeamsService } from './sports.service';
 import { SportsController } from './sports.controller';
 import { SportsGateway } from './sports.gateway';
-import { LiveDataService } from './live-data.service';
+import { VisionIngestService } from './vision-ingest.service';
+import { OffsideDetectionService } from './offside-detection.service';
 import { AiModule } from '../ai/ai.module';
 
 @Module({
@@ -12,8 +13,11 @@ import { AiModule } from '../ai/ai.module';
     TypeOrmModule.forFeature([SportsMatch, MatchEvent, SportsPlayer, SportsTeam, MatchAnalytics]),
     AiModule,
   ],
-  providers: [MatchesService, MatchEventsService, PlayersService, TeamsService, AnalyticsService, LiveDataService, SportsGateway],
+  providers: [
+    MatchesService, MatchEventsService, PlayersService, TeamsService,
+    AnalyticsService, VisionIngestService, OffsideDetectionService, SportsGateway,
+  ],
   controllers: [SportsController],
-  exports: [MatchesService, AnalyticsService, LiveDataService, SportsGateway],
+  exports: [MatchesService, AnalyticsService, VisionIngestService, OffsideDetectionService, SportsGateway],
 })
 export class SportsModule {}

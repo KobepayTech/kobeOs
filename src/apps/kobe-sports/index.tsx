@@ -88,9 +88,9 @@ export default function KobeSports() {
       <div className="flex-1 overflow-hidden">
         {activeTab === 'dashboard'  && <div className="h-full overflow-auto"><Dashboard /></div>}
         {activeTab === 'matches'    && <Matches onSelectMatch={handleSelectMatch} selectedMatchId={selectedMatchId} />}
-        {activeTab === 'tracking'   && <Tracking />}
-        {activeTab === 'analytics'  && <div className="h-full overflow-auto"><Analytics /></div>}
-        {activeTab === 'broadcast'  && <Broadcast />}
+        {activeTab === 'tracking'   && <Tracking matchId={selectedMatchId} />}
+        {activeTab === 'analytics'  && <div className="h-full overflow-auto"><Analytics matchId={selectedMatchId} /></div>}
+        {activeTab === 'broadcast'  && <Broadcast matchId={selectedMatchId} />}
         {activeTab === 'teams'      && <div className="h-full overflow-auto"><Teams /></div>}
         {activeTab === 'players'    && <div className="h-full overflow-auto"><Players /></div>}
         {activeTab === 'ai'         && <div className="h-full overflow-auto"><AiStudio /></div>}

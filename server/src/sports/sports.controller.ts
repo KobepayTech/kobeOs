@@ -3,10 +3,13 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { AnalyticsService, MatchEventsService, MatchesService, PlayersService, TeamsService } from './sports.service';
-import { LiveDataService } from './live-data.service';
+import { VisionIngestService } from './vision-ingest.service';
+import { OffsideDetectionService } from './offside-detection.service';
+import { SportsGateway } from './sports.gateway';
 import {
   CreateMatchDto, CreateMatchEventDto, CreatePlayerDto, CreateTeamDto,
   UpdateAnalyticsDto, UpdateMatchDto, UpdatePlayerDto, UpdateTeamDto,
+  IngestFrameDto, CheckOffsideDto,
 } from './dto/sports.dto';
 
 @ApiTags('Sports')
@@ -20,39 +23,64 @@ export class SportsController {
     private readonly players: PlayersService,
     private readonly teams: TeamsService,
     private readonly analytics: AnalyticsService,
-    private readonly liveData: LiveDataService,
+    private readonly vision: VisionIngestService,
+    private readonly offside: OffsideDetectionService,
+    private readonly gateway: SportsGateway,
   ) {}
 
-  // ── Live data (API-Football / football-data.org) ──────────────────────────
+  // ── AI Vision ingest (called by Python YOLO/ByteTrack pipeline) ───────────
 
-  /** Returns all currently cached live + today's matches from external APIs. */
-  @Get('live')
-  @ApiOperation({ summary: 'Get live matches from external data sources' })
-  getLive() {
-    return this.liveData.getLiveMatches();
+  /**
+   * Receive a processed frame from the AI vision pipeline.
+   * The Python process posts this after every YOLO detection + ByteTrack pass.
+   * No auth guard — secured by a shared VISION_INGEST_SECRET header instead.
+   */
+  @Post('vision/ingest/:matchId')
+  @ApiOperation({ summary: 'Ingest a processed vision frame from the AI pipeline' })
+  ingestFrame(
+    @Param('matchId') matchId: string,
+    @Body() dto: IngestFrameDto,
+  ) {
+    return this.vision.ingestFrame(matchId, dto);
   }
 
-  /** Trigger an immediate poll of external APIs (useful for testing). */
-  @Post('live/refresh')
-  @ApiOperation({ summary: 'Force-refresh live match data from external APIs' })
-  refreshLive() {
-    return this.liveData.pollLiveMatches().then(() => ({ ok: true, count: this.liveData.getLiveMatches().length }));
+  /** Get the current live match state (positions, stats, events) for a match. */
+  @Get('vision/state/:matchId')
+  @ApiOperation({ summary: 'Get current live match state from vision pipeline' })
+  getLiveState(@Param('matchId') matchId: string) {
+    return this.vision.getLiveState(matchId);
   }
 
-  /** List all competitions/leagues seen in the live data cache. */
-  @Get('live/leagues')
-  @ApiOperation({ summary: 'List competitions available in the live data cache' })
-  getLiveLeagues() {
-    const matches = this.liveData.getLiveMatches();
-    const seen = new Set<string>();
-    const leagues: { name: string; count: number }[] = [];
-    for (const m of matches) {
-      if (!seen.has(m.competition)) {
-        seen.add(m.competition);
-        leagues.push({ name: m.competition, count: matches.filter((x) => x.competition === m.competition).length });
-      }
-    }
-    return leagues.sort((a, b) => b.count - a.count);
+  /** Get all active (live) matches being tracked by the vision pipeline. */
+  @Get('vision/active')
+  @ApiOperation({ summary: 'List matches currently being tracked by the vision pipeline' })
+  getActiveMatches() {
+    return this.vision.getActiveMatches();
+  }
+
+  // ── Offside detection ─────────────────────────────────────────────────────
+
+  /**
+   * Check offside for a specific frame.
+   * Called by the vision pipeline when it detects a potential pass event.
+   */
+  @Post('offside/check/:matchId')
+  @ApiOperation({ summary: 'Run offside detection on a frame snapshot' })
+  checkOffside(
+    @Param('matchId') matchId: string,
+    @Body() dto: CheckOffsideDto,
+  ) {
+    const result = this.offside.check(matchId, dto);
+    // Push result to all WebSocket clients watching this match
+    this.gateway.pushOffsideResult(matchId, result);
+    return result;
+  }
+
+  /** Get all offside events for a match. */
+  @Get('offside/events/:matchId')
+  @ApiOperation({ summary: 'Get all offside events for a match' })
+  getOffsideEvents(@Param('matchId') matchId: string) {
+    return this.offside.getEvents(matchId);
   }
 
   // ── Matches ───────────────────────────────────────────────────────────────
