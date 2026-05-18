@@ -17,6 +17,7 @@
     "electron:build:linux": "npm run build && npm run build:bundle && electron-builder --linux",
     "electron:build:win": "npm run build && electron-builder --win",
     "iso:build": "npm run electron:build:linux && node scripts/build-iso.cjs",
+    "iso:package": "node scripts/build-iso.cjs",
     "models:checksums": "node scripts/fetch-model-checksums.js",
     "models:bundle": "node scripts/bundle-kobemodel.js",
     "models:upload": "node scripts/upload-models.js",
