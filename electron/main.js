@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { exec, execFile, spawn } = require('child_process');
-const { autoUpdater } = require('electron-updater');
+const { setupAutoUpdater } = require('./update-manager');
 
 let mainWindow;
 let backendProcess = null;
@@ -165,26 +165,7 @@ function createWindow() {
   });
 }
 
-// ── Auto-updater ──────────────────────────────────────────────────────────────
-
-function setupAutoUpdater(win) {
-  if (!IS_PACKAGED) return;
-  autoUpdater.autoDownload = false;
-  autoUpdater.autoInstallOnAppQuit = true;
-  const fwd = (p) => win.webContents.send('updater', p);
-  autoUpdater.on('checking-for-update',  ()     => fwd({ event: 'checking' }));
-  autoUpdater.on('update-available',     (info) => fwd({ event: 'available', version: info.version, releaseNotes: info.releaseNotes }));
-  autoUpdater.on('update-not-available', ()     => fwd({ event: 'not-available' }));
-  autoUpdater.on('download-progress',    (p)    => fwd({ event: 'progress', percent: Math.round(p.percent), transferred: p.transferred, total: p.total, bytesPerSecond: p.bytesPerSecond }));
-  autoUpdater.on('update-downloaded',    (info) => fwd({ event: 'downloaded', version: info.version }));
-  autoUpdater.on('error',                (err)  => fwd({ event: 'error', message: err.message }));
-  setTimeout(() => autoUpdater.checkForUpdates(), 5_000);
-  setInterval(() => autoUpdater.checkForUpdates(), 4 * 60 * 60 * 1_000);
-}
-
-ipcMain.handle('updater-download', () => autoUpdater.downloadUpdate());
-ipcMain.handle('updater-install',  () => autoUpdater.quitAndInstall(false, true));
-ipcMain.handle('updater-check',    () => autoUpdater.checkForUpdates());
+// Auto-updater with rollback is handled by ./update-manager.js
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 

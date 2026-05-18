@@ -203,9 +203,10 @@
     },
     "publish": [
       {
-        "provider": "generic",
-        "url": "https://updates.kobe/releases/",
-        "channel": "latest"
+        "provider": "github",
+        "owner": "KobepayTech",
+        "repo": "kobeOs",
+        "releaseType": "release"
       }
     ]
   }

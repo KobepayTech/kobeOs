@@ -5,6 +5,7 @@ import type { LucideIcon } from 'lucide-react';
 import { useOSStore } from '@/os/store';
 import { accentColors, wallpapers } from '@/os/theme';
 import { useSubscription } from '@/hooks/useSubscription';
+import UpdateManager from '@/components/UpdateManager';
 
 type Tab = 'appearance' | 'desktop' | 'taskbar' | 'notifications' | 'system' | 'apps' | 'subscription';
 
@@ -218,35 +219,64 @@ function NotificationsTab() {
 }
 
 function SystemTab() {
+  const [backendStatus, setBackendStatus] = useState<{ running: boolean; pid: number | null; embeddedPg: boolean } | null>(null);
+  const isElectron = typeof window !== 'undefined' && !!window.kobeOS?.system;
+
+  useEffect(() => {
+    if (!isElectron) return;
+    window.kobeOS.system.getBackendStatus().then(setBackendStatus).catch(() => null);
+    const t = setInterval(() => window.kobeOS.system.getBackendStatus().then(setBackendStatus).catch(() => null), 5000);
+    return () => clearInterval(t);
+  }, [isElectron]);
+
   return (
     <div className="space-y-6 max-w-lg">
+      {/* About */}
       <div>
         <h3 className="text-base font-semibold mb-2">About</h3>
         <div className="p-3 rounded-xl border border-white/10 bg-white/5 space-y-1 text-sm">
-          <p><span className="text-os-text-muted">Device name:</span> kobe-os</p>
-          <p><span className="text-os-text-muted">OS:</span> KOBE OS v1.0</p>
-          <p><span className="text-os-text-muted">Build:</span> {new Date().toISOString().split('T')[0]}</p>
-          <p><span className="text-os-text-muted">Kernel:</span> WebAssembly 1.0</p>
+          <p><span className="text-os-text-muted">OS:</span> KobeOS</p>
+          <p><span className="text-os-text-muted">Build date:</span> {new Date().toISOString().split('T')[0]}</p>
+          {backendStatus && (
+            <>
+              <p>
+                <span className="text-os-text-muted">Backend:</span>{' '}
+                <span className={backendStatus.running ? 'text-green-400' : 'text-red-400'}>
+                  {backendStatus.running ? `Running (pid ${backendStatus.pid})` : 'Stopped'}
+                </span>
+              </p>
+              <p>
+                <span className="text-os-text-muted">Database:</span>{' '}
+                <span className="text-os-text-secondary">
+                  {backendStatus.embeddedPg ? 'Embedded PostgreSQL (live mode)' : 'System PostgreSQL'}
+                </span>
+              </p>
+            </>
+          )}
         </div>
       </div>
+
+      {/* Remote updates */}
       <div>
-        <h3 className="text-base font-semibold mb-2">Storage</h3>
-        <div className="h-3 rounded-full bg-white/10 overflow-hidden">
-          <div className="h-full w-1/4 bg-os-accent rounded-full" />
-        </div>
-        <p className="text-xs text-os-text-muted mt-1">25% used — virtual storage is unlimited</p>
+        <h3 className="text-base font-semibold mb-2">Software Updates</h3>
+        <UpdateManager />
       </div>
-      <button
-        className="px-4 py-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
-        onClick={() => {
-          if (confirm('Reset all settings?')) {
-            localStorage.removeItem('kobe-os-settings');
-            window.location.reload();
-          }
-        }}
-      >
-        Reset Settings
-      </button>
+
+      {/* Reset */}
+      <div>
+        <h3 className="text-base font-semibold mb-2">Reset</h3>
+        <button
+          className="px-4 py-2 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors text-sm"
+          onClick={() => {
+            if (confirm('Reset all settings?')) {
+              localStorage.removeItem('kobe-os-settings');
+              window.location.reload();
+            }
+          }}
+        >
+          Reset Settings
+        </button>
+      </div>
     </div>
   );
 }
