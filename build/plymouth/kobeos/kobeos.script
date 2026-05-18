@@ -1,0 +1,114 @@
+/* KobeOS Plymouth boot splash
+ *
+ * Uses Image + Sprite throughout — the only rendering path guaranteed
+ * to work across Plymouth versions. Raw Text() objects and Rectangle()
+ * color/resize calls are not portable and silently render nothing.
+ */
+
+screen_width  = Window.GetWidth();
+screen_height = Window.GetHeight();
+
+/* ── Background ─────────────────────────────────────────────────────────── */
+
+Window.SetBackgroundTopColor(0.05, 0.07, 0.12);
+Window.SetBackgroundBottomColor(0.03, 0.05, 0.09);
+
+/* ── Logo text ──────────────────────────────────────────────────────────── */
+
+logo_img    = Image.Text("KobeOS", 1.0, 1.0, 1.0, 1.0, "Sans Bold 48");
+logo_sprite = Sprite(logo_img);
+logo_sprite.SetX(Math.Int(screen_width  / 2 - logo_img.GetWidth()  / 2));
+logo_sprite.SetY(Math.Int(screen_height / 2 - 100));
+logo_sprite.SetOpacity(1);
+
+/* ── Tagline ────────────────────────────────────────────────────────────── */
+
+tag_img    = Image.Text("Your Business. Your OS.", 0.6, 0.7, 0.9, 1.0, "Sans 16");
+tag_sprite = Sprite(tag_img);
+tag_sprite.SetX(Math.Int(screen_width  / 2 - tag_img.GetWidth()  / 2));
+tag_sprite.SetY(Math.Int(screen_height / 2 - 40));
+tag_sprite.SetOpacity(1);
+
+/* ── Progress bar ───────────────────────────────────────────────────────── */
+
+bar_w = 400;
+bar_h = 6;
+bar_x = Math.Int((screen_width - bar_w) / 2);
+bar_y = Math.Int(screen_height / 2 + 40);
+
+/* Track (background) */
+bar_bg_img    = Image(bar_w, bar_h);
+bar_bg_sprite = Sprite(bar_bg_img);
+bar_bg_sprite.SetX(bar_x);
+bar_bg_sprite.SetY(bar_y);
+bar_bg_sprite.SetOpacity(0.3);
+
+/* Fill — redrawn each frame */
+fill_progress = 0.0;
+
+/* Fill sprite — initialized at 1px wide, grown each frame */
+bar_fill_sprite = Sprite(Image(1, bar_h));
+bar_fill_sprite.SetX(bar_x);
+bar_fill_sprite.SetY(bar_y);
+bar_fill_sprite.SetOpacity(1);
+
+/* ── Status text ────────────────────────────────────────────────────────── */
+
+status_img    = Image.Text("Starting KobeOS...", 0.5, 0.6, 0.8, 1.0, "Sans 12");
+status_sprite = Sprite(status_img);
+status_sprite.SetX(bar_x);
+status_sprite.SetY(bar_y + 14);
+status_sprite.SetOpacity(1);
+
+fun set_status(msg) {
+    status_sprite.SetImage(Image.Text(msg, 0.5, 0.6, 0.8, 1.0, "Sans 12"));
+}
+
+/* ── Version label ──────────────────────────────────────────────────────── */
+
+ver_img    = Image.Text("v1.0.0", 0.3, 0.35, 0.45, 1.0, "Sans 10");
+ver_sprite = Sprite(ver_img);
+ver_sprite.SetX(screen_width  - ver_img.GetWidth()  - 20);
+ver_sprite.SetY(screen_height - ver_img.GetHeight() - 16);
+ver_sprite.SetOpacity(1);
+
+/* ── Refresh callback (smooth bar animation) ────────────────────────────── */
+
+fun refresh_callback() {
+    if (fill_progress < 1.0) {
+        fill_progress = fill_progress + 0.003;
+        if (fill_progress > 1.0) fill_progress = 1.0;
+        bar_fill_sprite.SetImage(Image(Math.Int(bar_w * fill_progress), bar_h));
+    }
+}
+
+Plymouth.SetRefreshFunction(refresh_callback);
+
+/* ── Boot progress callback ─────────────────────────────────────────────── */
+
+fun boot_progress_callback(duration, boot_pct) {
+    if (boot_pct > fill_progress) fill_progress = boot_pct;
+    bar_fill_sprite.SetImage(Image(Math.Int(bar_w * fill_progress), bar_h));
+
+    if (boot_pct < 0.3)
+        set_status("Loading kernel modules...");
+    else if (boot_pct < 0.5)
+        set_status("Starting system services...");
+    else if (boot_pct < 0.7)
+        set_status("Initialising display...");
+    else if (boot_pct < 0.9)
+        set_status("Starting KobeOS...");
+    else
+        set_status("Almost ready...");
+}
+
+Plymouth.SetBootProgressFunction(boot_progress_callback);
+
+/* ── Quit callback ──────────────────────────────────────────────────────── */
+
+fun quit_callback() {
+    set_status("Welcome to KobeOS");
+    bar_fill_sprite.SetImage(Image(bar_w, bar_h));
+}
+
+Plymouth.SetQuitFunction(quit_callback);
