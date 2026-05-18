@@ -24,13 +24,13 @@ jobs:
           cache: npm
 
       - name: Install frontend dependencies
-        run: npm ci
+        run: npm ci --legacy-peer-deps
 
       - name: Build frontend
         run: npm run build
 
       - name: Install server dependencies
-        run: npm ci
+        run: npm ci --legacy-peer-deps
         working-directory: server
 
       - name: Bundle NestJS backend
