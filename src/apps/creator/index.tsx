@@ -165,7 +165,8 @@ const campaigns: Campaign[] = [
 ];
 
 // Seed data for first-load when the /api/creators table is empty.
-const seedCreators: Array<Omit<CreatorProfile, 'id'> & { platforms: string[] }> = [
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const seedCreators: any[] = [
   { name: 'Zara Hassan', handle: '@zarafashion', niche: 'Fashion', followers: 145000, engagement: 6.2, rate: 150, score: 9, platforms: ['Instagram', 'TikTok', 'YouTube'] },
   { name: 'Mike Tech', handle: '@miketechtz', niche: 'Tech', followers: 89000, engagement: 4.8, rate: 120, score: 8, platforms: ['YouTube', 'X', 'Instagram'] },
   { name: 'Chef Juma', handle: '@chefjumatz', niche: 'Food', followers: 234000, engagement: 7.1, rate: 200, score: 9, platforms: ['Instagram', 'TikTok', 'YouTube', 'Facebook'] },

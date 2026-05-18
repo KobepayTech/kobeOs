@@ -48,13 +48,13 @@ export default function UpdateManager() {
   // Load status on mount
   useEffect(() => {
     if (!isElectron) return;
-    window.kobeOS.updater.status().then(setStatus).catch(() => null);
+    window.kobeOS.updater?.status().then(setStatus).catch(() => null);
   }, [isElectron]);
 
   // Subscribe to update events
   useEffect(() => {
     if (!isElectron) return;
-    const unsub = window.kobeOS.updater.onEvent((ev: UpdateEvent) => {
+    const unsub = window.kobeOS.updater?.onEvent((ev: UpdateEvent) => {
       setPhase(ev.event);
       setError(null);
       if (ev.event === 'available') {
@@ -87,28 +87,28 @@ export default function UpdateManager() {
     setPhase('checking');
     setAvailable(null);
     setDownloaded(null);
-    await window.kobeOS.updater.check().catch((e: Error) => setError(e.message));
+    await window.kobeOS.updater?.check().catch((e: Error) => setError(e.message));
   }, [isElectron]);
 
   const handleDownload = useCallback(async () => {
     if (!isElectron) return;
     setBusy(true);
     setError(null);
-    await window.kobeOS.updater.download().catch((e: Error) => { setError(e.message); setBusy(false); });
+    await window.kobeOS.updater?.download().catch((e: Error) => { setError(e.message); setBusy(false); });
   }, [isElectron]);
 
   const handleInstall = useCallback(() => {
     if (!isElectron) return;
-    window.kobeOS.updater.install();
+    window.kobeOS.updater?.install();
   }, [isElectron]);
 
   const handleRollback = useCallback(async () => {
     if (!isElectron) return;
     setBusy(true);
     setError(null);
-    const result = await window.kobeOS.updater.rollback().catch((e: Error) => ({ success: false, error: e.message }));
-    if (!result.success) {
-      setError(result.error ?? 'Rollback failed');
+    const result = await window.kobeOS.updater?.rollback().catch((e: Error) => ({ success: false, error: e.message }));
+    if (!result?.success) {
+      setError(result?.error ?? 'Rollback failed');
       setBusy(false);
     }
     // On success the app relaunches — no further UI update needed

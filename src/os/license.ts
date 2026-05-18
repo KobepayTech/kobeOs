@@ -113,8 +113,8 @@ export async function verifyToken(raw: string): Promise<LicensePayload | null> {
     const valid = await crypto.subtle.verify(
       'HMAC',
       key,
-      b64urlDecode(sigB64),
-      enc.encode(payloadB64),
+      b64urlDecode(sigB64).buffer as ArrayBuffer,
+      enc.encode(payloadB64).buffer as ArrayBuffer,
     );
     if (!valid) return null;
 
@@ -133,7 +133,7 @@ export async function signToken(payload: LicensePayload): Promise<string> {
   const secret = getHmacSecret();
   if (!secret) throw new Error('LICENSE_HMAC_SECRET not configured');
 
-  const payloadB64 = b64urlEncode(new TextEncoder().encode(JSON.stringify(payload)));
+  const payloadB64 = b64urlEncode(new TextEncoder().encode(JSON.stringify(payload)).buffer as ArrayBuffer);
   const key = await importKey(secret);
   const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payloadB64));
   return `${payloadB64}.${b64urlEncode(sig)}`;
