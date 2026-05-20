@@ -2,7 +2,6 @@
   "name": "kobeos",
   "private": true,
   "version": "1.0.0",
-  "type": "module",
   "main": "electron/main.js",
   "scripts": {
     "dev": "vite",
@@ -55,6 +54,7 @@
     "@radix-ui/react-toggle-group": "^1.1.11",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@types/react-router-dom": "^5.3.3",
+    "better-sqlite3": "^12.10.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -86,6 +86,7 @@
     "@eslint/js": "^9.39.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
@@ -137,6 +138,10 @@
       {
         "from": "electron/server-bundle",
         "to": "server-bundle"
+      },
+      {
+        "from": "build/kobeos-release.pub",
+        "to": "kobeos-release.pub"
       }
     ],
     "linux": {
@@ -182,12 +187,13 @@
           ]
         }
       ],
-      "icon": "build/kobeos-icon.ico"
+      "icon": "build/kobeos-icon.ico",
+      "signAndEditExecutable": false
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "differentialPackage": false,
+      "differentialPackage": true,
       "installerIcon": "build/kobeos-icon.ico",
       "uninstallerIcon": "build/kobeos-icon.ico",
       "installerHeaderIcon": "public/kobeos-icon.ico",

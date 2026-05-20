@@ -9,6 +9,6 @@ import { PublishService } from './publish.service';
   imports: [TypeOrmModule.forFeature([StoreSettings])],
   providers: [StoreSettingsService, PublishService],
   controllers: [StoreSettingsController],
-  exports: [StoreSettingsService, PublishService],
+  exports: [TypeOrmModule, StoreSettingsService, PublishService],
 })
 export class StoreSettingsModule {}

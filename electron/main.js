@@ -1,8 +1,12 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { exec, execFile, spawn } = require('child_process');
 const { setupAutoUpdater } = require('./update-manager');
+const localdb = require('./localdb');
+const syncEngine = require('./sync-engine');
+const osUpdateService = require('./os-update-service');
+const lanServer = require('./lan-server');
 
 let mainWindow;
 let splashWindow = null;
@@ -242,25 +246,34 @@ function createWindow() {
 
 app.whenReady().then(async () => {
   createSplashWindow();
-  // Give the splash window time to render before starting services
   await new Promise((r) => setTimeout(r, 200));
   await bootServices();
   createWindow();
-  // Keep splash visible until main window is ready to show
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
     closeSplash();
+    // Start sync engine after window is visible
+    syncEngine.init(mainWindow);
   });
   setupAutoUpdater(mainWindow);
+
+  // Force sync drain when network comes back online
+  app.on('network-connected', () => syncEngine.forceDrain());
 });
 
 app.on('window-all-closed', async () => {
+  syncEngine.stop();
+  lanServer.stop();
+  localdb.close();
   stopBackend();
   await stopEmbeddedPostgres();
   if (process.platform !== 'darwin') app.quit();
 });
 
 app.on('before-quit', async () => {
+  syncEngine.stop();
+  lanServer.stop();
+  localdb.close();
   stopBackend();
   await stopEmbeddedPostgres();
 });
@@ -284,38 +297,112 @@ ipcMain.handle('get-backend-status', () => ({
 
 const DISK_PATH_RE = /^\/dev\/(sd[a-z]|hd[a-z]|vd[a-z]|nvme\d+n\d+|mmcblk\d+)$/;
 
-ipcMain.handle('install-to-disk', async (event, diskPath) => {
+ipcMain.handle('install-to-disk', async (event, diskPath, options = {}) => {
   if (typeof diskPath !== 'string' || !DISK_PATH_RE.test(diskPath)) {
     return { success: false, error: `Invalid disk path: ${diskPath}` };
   }
+
+  // options.luksPassphrase: string — if provided, root partition is LUKS-encrypted
+  const luksPassphrase = typeof options.luksPassphrase === 'string' ? options.luksPassphrase : '';
+  const useLuks = luksPassphrase.length >= 8;
+
+  // Partition layout (GPT, 4 partitions):
+  //   p1  512 MiB  EFI System Partition (FAT32)
+  //   p2  2 GiB    Recovery (ext4, read-only squashfs copy)
+  //   p3  20 GiB   Root OS  (ext4, optionally LUKS)
+  //   p4  rest     User data (ext4, persists across OS reinstalls)
+
   const script = `
 set -e
-echo "=== KobeOS Disk Installer ==="
+echo "=== KobeOS Disk Installer (4-partition layout) ==="
 
+# ── Partition ──────────────────────────────────────────────────────────────────
 parted -s ${diskPath} mklabel gpt
-parted -s ${diskPath} mkpart primary fat32 1MiB 512MiB
+parted -s ${diskPath} mkpart ESP fat32 1MiB 513MiB
 parted -s ${diskPath} set 1 esp on
-parted -s ${diskPath} mkpart primary ext4 512MiB 100%
-mkfs.fat -F32 ${diskPath}1
-mkfs.ext4 -F ${diskPath}2
+parted -s ${diskPath} mkpart Recovery ext4 513MiB 2561MiB
+parted -s ${diskPath} mkpart Root ext4 2561MiB 22561MiB
+parted -s ${diskPath} mkpart UserData ext4 22561MiB 100%
 
+# Inform kernel of new partition table
+partprobe ${diskPath} 2>/dev/null || true
+sleep 2
+
+# Resolve partition device names (handles both /dev/sdX1 and /dev/nvme0n1p1)
+if [ -e "${diskPath}1" ]; then
+  PART_EFI="${diskPath}1"
+  PART_REC="${diskPath}2"
+  PART_ROOT="${diskPath}3"
+  PART_DATA="${diskPath}4"
+else
+  PART_EFI="${diskPath}p1"
+  PART_REC="${diskPath}p2"
+  PART_ROOT="${diskPath}p3"
+  PART_DATA="${diskPath}p4"
+fi
+
+# ── Format EFI ─────────────────────────────────────────────────────────────────
+mkfs.fat -F32 -n KOBEOS_EFI "$PART_EFI"
+
+# ── Format Recovery ────────────────────────────────────────────────────────────
+mkfs.ext4 -F -L KOBEOS_REC "$PART_REC"
+
+# ── Format Root (with optional LUKS) ──────────────────────────────────────────
+${useLuks ? `
+echo "Setting up LUKS encryption on root partition..."
+apt-get install -y --no-install-recommends cryptsetup 2>/dev/null || true
+echo -n "${luksPassphrase}" | cryptsetup luksFormat --type luks2 --batch-mode "$PART_ROOT" -
+echo -n "${luksPassphrase}" | cryptsetup open "$PART_ROOT" kobeos_root -
+mkfs.ext4 -F -L KOBEOS_ROOT /dev/mapper/kobeos_root
+ROOT_DEV=/dev/mapper/kobeos_root
+` : `
+mkfs.ext4 -F -L KOBEOS_ROOT "$PART_ROOT"
+ROOT_DEV="$PART_ROOT"
+`}
+
+# ── Format UserData ────────────────────────────────────────────────────────────
+mkfs.ext4 -F -L KOBEOS_DATA "$PART_DATA"
+
+# ── Mount ──────────────────────────────────────────────────────────────────────
 mkdir -p /mnt/kobeos
-mount ${diskPath}2 /mnt/kobeos
-mkdir -p /mnt/kobeos/boot/efi
-mount ${diskPath}1 /mnt/kobeos/boot/efi
+mount "$ROOT_DEV" /mnt/kobeos
+mkdir -p /mnt/kobeos/boot/efi /mnt/kobeos/boot/recovery /mnt/kobeos/userdata
+mount "$PART_EFI" /mnt/kobeos/boot/efi
+mount "$PART_REC" /mnt/kobeos/boot/recovery
+mount "$PART_DATA" /mnt/kobeos/userdata
 
+# ── Copy OS ────────────────────────────────────────────────────────────────────
 echo "Copying KobeOS..."
 mkdir -p /mnt/kobeos/opt/kobeos
 cp -a /opt/kobeos/. /mnt/kobeos/opt/kobeos/
 
-echo "Installing system packages..."
-apt-get install -y --no-install-recommends openbox xorg xinit postgresql postgresql-client nodejs 2>/dev/null || true
+# ── Copy recovery snapshot (squashfs from live media if present) ───────────────
+echo "Setting up recovery partition..."
+if [ -f /run/live/medium/live/filesystem.squashfs ]; then
+  cp /run/live/medium/live/filesystem.squashfs /mnt/kobeos/boot/recovery/filesystem.squashfs
+  cp /run/live/medium/live/vmlinuz /mnt/kobeos/boot/recovery/vmlinuz 2>/dev/null || true
+  cp /run/live/medium/live/initrd.img /mnt/kobeos/boot/recovery/initrd.img 2>/dev/null || true
+fi
 
+# ── Install system packages ────────────────────────────────────────────────────
+echo "Installing system packages..."
+apt-get install -y --no-install-recommends \
+  openbox xorg xinit xauth util-linux \
+  postgresql postgresql-client nodejs \
+  2>/dev/null || true
+
+# ── Configure PostgreSQL ───────────────────────────────────────────────────────
 echo "Configuring PostgreSQL..."
 systemctl enable postgresql || true
 sudo -u postgres psql -c "CREATE USER kobeos WITH PASSWORD 'kobeos_prod' CREATEDB" 2>/dev/null || true
 sudo -u postgres createdb -O kobeos kobeos 2>/dev/null || true
 
+# ── Symlink userdata dirs ──────────────────────────────────────────────────────
+# PostgreSQL data and KobeOS user data live on the persistent partition
+mkdir -p /mnt/kobeos/userdata/pgdata /mnt/kobeos/userdata/kobeos-home
+ln -sfn /userdata/kobeos-home /mnt/kobeos/home/kobeos 2>/dev/null || true
+
+# ── Systemd services ───────────────────────────────────────────────────────────
 cat > /etc/systemd/system/kobeos-backend.service << 'SVCEOF'
 [Unit]
 Description=KobeOS Backend API
@@ -341,37 +428,99 @@ RestartSec=5
 WantedBy=multi-user.target
 SVCEOF
 
+cat > /etc/systemd/system/kobeos-xorg.service << 'SVCEOF'
+[Unit]
+Description=KobeOS X Server
+After=systemd-udev-settle.service
+Before=kobeos-kiosk.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/Xorg :0 -nolisten tcp -nocursor vt1
+Restart=on-failure
+RestartSec=2
+[Install]
+WantedBy=graphical.target
+SVCEOF
+
 cat > /etc/systemd/system/kobeos-kiosk.service << 'SVCEOF'
 [Unit]
 Description=KobeOS Kiosk
-After=graphical.target kobeos-backend.service
-Requires=kobeos-backend.service
+After=kobeos-xorg.service kobeos-backend.service
+Requires=kobeos-xorg.service kobeos-backend.service
 
 [Service]
 Type=simple
 User=kobeos
 Environment=DISPLAY=:0
 Environment=HOME=/home/kobeos
-ExecStartPre=/bin/bash -c "Xorg :0 -nolisten tcp &"
-ExecStartPre=/bin/sleep 2
-ExecStart=/opt/kobeos/kobeos --no-sandbox --disable-gpu --kiosk
+Environment=XAUTHORITY=/home/kobeos/.Xauthority
+ExecStartPre=/bin/bash -c "xauth -f /home/kobeos/.Xauthority add :0 . $(mcookie) && chown kobeos:kobeos /home/kobeos/.Xauthority"
+ExecStart=/opt/kobeos/kobeos --disable-setuid-sandbox --disable-gpu --kiosk
 Restart=on-failure
 RestartSec=3
 [Install]
 WantedBy=graphical.target
 SVCEOF
 
-useradd -m -s /bin/bash kobeos 2>/dev/null || true
-systemctl enable kobeos-backend.service kobeos-kiosk.service || true
+# ── LUKS crypttab (so root unlocks on boot) ────────────────────────────────────
+${useLuks ? `
+echo "kobeos_root $PART_ROOT none luks,discard" >> /etc/crypttab
+` : ''}
 
+# ── fstab ──────────────────────────────────────────────────────────────────────
+ROOT_UUID=$(blkid -s UUID -o value "$ROOT_DEV")
+EFI_UUID=$(blkid -s UUID -o value "$PART_EFI")
+REC_UUID=$(blkid -s UUID -o value "$PART_REC")
+DATA_UUID=$(blkid -s UUID -o value "$PART_DATA")
+
+cat > /mnt/kobeos/etc/fstab << FSTABEOF
+UUID=$ROOT_UUID  /           ext4  defaults,noatime  0 1
+UUID=$EFI_UUID   /boot/efi   vfat  umask=0077        0 2
+UUID=$REC_UUID   /boot/recovery ext4 ro,noatime      0 2
+UUID=$DATA_UUID  /userdata   ext4  defaults,noatime  0 2
+FSTABEOF
+
+# ── Users ──────────────────────────────────────────────────────────────────────
+useradd -m -s /bin/bash kobeos 2>/dev/null || true
+systemctl enable kobeos-xorg.service kobeos-backend.service kobeos-kiosk.service || true
+
+
+# ── GRUB ──────────────────────────────────────────────────────────────────────
 grub-install --target=x86_64-efi --efi-directory=/mnt/kobeos/boot/efi --bootloader-id=KobeOS --removable
-grub-mkconfig -o /mnt/kobeos/boot/grub/grub.cfg
+
+# Write custom grub.cfg with recovery entry
+cat > /mnt/kobeos/boot/grub/grub.cfg << 'GRUBEOF'
+set default=0
+set timeout=5
+set timeout_style=hidden
+
+menuentry "KobeOS" {
+  search --no-floppy --label --set=root KOBEOS_ROOT
+  linux  /boot/vmlinuz root=LABEL=KOBEOS_ROOT rw quiet splash
+  initrd /boot/initrd.img
+}
+
+menuentry "KobeOS (safe mode)" {
+  search --no-floppy --label --set=root KOBEOS_ROOT
+  linux  /boot/vmlinuz root=LABEL=KOBEOS_ROOT rw nomodeset
+  initrd /boot/initrd.img
+}
+
+menuentry "KobeOS Recovery" {
+  search --no-floppy --label --set=root KOBEOS_REC
+  linux  /boot/recovery/vmlinuz boot=live root=LABEL=KOBEOS_REC toram
+  initrd /boot/recovery/initrd.img
+}
+GRUBEOF
 
 umount -R /mnt/kobeos
+${useLuks ? 'cryptsetup close kobeos_root 2>/dev/null || true' : ''}
 echo "INSTALL_COMPLETE"
 `;
   return new Promise((resolve) => {
-    execFile('/bin/bash', ['-c', script], { timeout: 600_000 }, (error, stdout, stderr) => {
+    execFile('/bin/bash', ['-c', script], { timeout: 900_000 }, (error, stdout, stderr) => {
       resolve({ success: !error, output: stdout, error: stderr });
     });
   });
@@ -388,4 +537,44 @@ ipcMain.handle('scan-disks', async () => {
       resolve(disks);
     });
   });
+});
+
+// ── LocalDB IPC handlers ───────────────────────────────────────────────────────
+
+ipcMain.handle('localdb:kvGet', (_e, key) => localdb.kvGet(key));
+ipcMain.handle('localdb:kvSet', (_e, key, value) => localdb.kvSet(key, value));
+ipcMain.handle('localdb:kvDel', (_e, key) => localdb.kvDel(key));
+
+ipcMain.handle('localdb:query', (_e, table, filters = {}) => {
+  return localdb.query(table, filters);
+});
+
+ipcMain.handle('localdb:insert', (_e, table, record) => {
+  return localdb.insert(table, record);
+});
+
+ipcMain.handle('localdb:update', (_e, table, id, changes) => {
+  return localdb.update(table, id, changes);
+});
+
+ipcMain.handle('localdb:delete', (_e, table, id) => {
+  return localdb.delete(table, id);
+});
+
+ipcMain.handle('localdb:enqueue', (_e, operation) => {
+  return localdb.enqueueOp(operation);
+});
+
+ipcMain.handle('localdb:getStats', () => {
+  return localdb.getStats();
+});
+
+// ── Sync engine IPC handlers ───────────────────────────────────────────────────
+
+ipcMain.handle('sync:status', () => {
+  return syncEngine.getStatus();
+});
+
+ipcMain.handle('sync:forceSync', async () => {
+  return syncEngine.drain();
 });

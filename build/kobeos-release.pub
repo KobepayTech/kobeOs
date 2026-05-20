@@ -1,0 +1,12 @@
+# KobeOS Release Signing Public Key
+# Replace this file with the actual GPG public key before building a release.
+#
+# Generate with:
+#   gpg --batch --gen-key build/gpg-keygen-params.txt
+#   gpg --armor --export releases@kobepaytech.com > build/kobeos-release.pub
+#
+# Sign release artifacts with:
+#   gpg --detach-sign --armor --output artifact.AppImage.sig artifact.AppImage
+#
+# Set KOBEOS_RELEASE_KEY_FINGERPRINT env var to the key fingerprint
+# for strict fingerprint checking during verification.

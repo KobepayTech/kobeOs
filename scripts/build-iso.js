@@ -169,9 +169,15 @@ menuentry "Install KobeOS to Disk" --class kobeos {
     initrd /boot/initrd.img
 }
 
-menuentry "KobeOS (safe graphics)" --class kobeos {
-    linux  /boot/vmlinuz boot=live live-media-path=/live nomodeset xforcevesa
+menuentry "KobeOS (safe graphics / nomodeset)" --class kobeos {
+    linux  /boot/vmlinuz boot=live live-media-path=/live nomodeset
     initrd /boot/initrd.img
+}
+
+menuentry "KobeOS Recovery (installed system)" --class kobeos {
+    search --no-floppy --label --set=root KOBEOS_REC
+    linux  /vmlinuz boot=live root=LABEL=KOBEOS_REC toram
+    initrd /initrd.img
 }
 
 menuentry "Reboot"   { reboot }
@@ -192,7 +198,8 @@ if ! pgrep -x Xorg > /dev/null; then
   Xorg :0 -nolisten tcp vt1 &
   sleep 3
 fi
-exec /opt/kobeos/kobeos --no-sandbox --disable-gpu-sandbox --kiosk
+# --disable-setuid-sandbox is safe for non-root; avoids SUID chrome-sandbox requirement
+exec /opt/kobeos/kobeos --disable-setuid-sandbox --disable-gpu --kiosk
 `;
 fs.writeFileSync(path.join(ISO_DIR, 'usr/bin/start-kobeos'), startScript);
 execSync(`chmod +x ${path.join(ISO_DIR, 'usr/bin/start-kobeos')}`);

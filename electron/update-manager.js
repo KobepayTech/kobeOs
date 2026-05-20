@@ -15,6 +15,7 @@ const { ipcMain, app } = require('electron');
 const { autoUpdater } = require('electron-updater');
 const path = require('path');
 const fs = require('fs');
+const { verifyArtifact, sigUrlFor } = require('./update-verifier');
 
 const RESOURCES     = process.resourcesPath || path.join(__dirname, '..');
 const ASAR_PATH     = path.join(RESOURCES, 'app.asar');
@@ -115,6 +116,10 @@ function setupAutoUpdater(win) {
   autoUpdater.autoInstallOnAppQuit = false; // we control install timing
   autoUpdater.allowPrerelease = false;
   autoUpdater.allowDowngrade = false;
+  // Delta (differential) updates: electron-updater downloads only changed blocks
+  // when the publisher generates blockmap files alongside the release artifacts.
+  // Enabled via differentialPackage:true in electron-builder config.
+  autoUpdater.disableDifferentialDownload = false;
 
   const emit = (payload) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -135,7 +140,27 @@ function setupAutoUpdater(win) {
   autoUpdater.on('download-progress', (p) =>
     emit({ event: 'progress', percent: Math.round(p.percent), transferred: p.transferred, total: p.total, bytesPerSecond: p.bytesPerSecond }));
 
-  autoUpdater.on('update-downloaded', (info) => {
+  autoUpdater.on('update-downloaded', async (info) => {
+    // Verify GPG signature before allowing install
+    if (info.downloadedFile && info.releaseFiles) {
+      const artifactFile = info.downloadedFile;
+      // Find the download URL for the artifact to derive the .sig URL
+      const releaseFile = info.releaseFiles.find(f => f.url && artifactFile.endsWith(f.url.split('/').pop()));
+      const sigUrl = releaseFile ? sigUrlFor(releaseFile.url) : null;
+
+      if (sigUrl) {
+        emit({ event: 'verifying', version: info.version });
+        const result = await verifyArtifact(artifactFile, sigUrl);
+        if (!result.valid && !result.skipped) {
+          console.error('[updater] Signature verification failed — aborting install:', result.reason);
+          emit({ event: 'error', message: `Signature verification failed: ${result.reason}` });
+          // Restore boot stamp so we don't false-rollback
+          markBootOk();
+          return;
+        }
+      }
+    }
+
     // Back up current asar and clear boot stamp BEFORE installing
     backupCurrentAsar();
     clearBootStamp();
