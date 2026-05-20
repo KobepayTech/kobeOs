@@ -23,7 +23,8 @@
     "models:football:train": "python3 scripts/build-football-vision.py --mode train",
     "models:football:export": "python3 scripts/build-football-vision.py --mode export",
     "models:football:bundle": "python3 scripts/build-football-vision.py --mode bundle",
-    "build:bundle": "cd server && npx ncc build src/main.ts -o ../electron/server-bundle --minify --no-source-map-register"
+    "build:bundle": "cd server && npx ncc build src/main.ts -o ../electron/server-bundle --minify --no-source-map-register",
+    "usb:write": "sudo node scripts/write-usb.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
