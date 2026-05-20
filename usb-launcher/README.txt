@@ -6,6 +6,24 @@
 This USB drive works in two ways:
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  HOW TO WRITE THIS USB (using Rufus)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  1. Download Rufus from https://rufus.ie
+  2. Open Rufus, select your USB drive
+  3. Click SELECT and choose KobeOS-Installer.iso
+  4. IMPORTANT: When Rufus asks "Write in ISO or DD mode?"
+     → Choose DD Image mode
+  5. Click START and wait for it to finish
+  6. After Rufus finishes, copy these files to the USB root:
+       KobeOS-Launcher.bat
+       README.txt
+       autorun.inf
+       launcher\  (entire folder)
+
+  That's it — the USB is now dual-purpose.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   OPTION 1 — Run inside Windows (no reboot needed)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 

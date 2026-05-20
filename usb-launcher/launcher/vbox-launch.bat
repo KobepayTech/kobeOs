@@ -39,10 +39,23 @@ echo  Creating VirtualBox VM: %VM_NAME%...
 "%VBOX%" storagectl "%VM_NAME%" --name "SATA" --add sata --controller IntelAhci
 "%VBOX%" storagectl "%VM_NAME%" --name "IDE"  --add ide
 
-:: Attach ISO
-"%VBOX%" storageattach "%VM_NAME%" ^
-    --storagectl "IDE" --port 0 --device 0 ^
-    --type dvddrive --medium "%ISO%"
+:: Attach boot medium — raw disk device (Rufus DD) or ISO file
+echo %ISO% | findstr /i "PhysicalDrive" >nul
+if %errorlevel% equ 0 (
+    :: Raw USB disk — create a VMDK wrapper so VirtualBox can use it
+    set "VMDK=%USB%\launcher\kobeos-usb.vmdk"
+    if not exist "!VMDK!" (
+        echo  Creating raw disk VMDK wrapper...
+        "%VBOX%" internalcommands createrawvmdk -filename "!VMDK!" -rawdisk "%ISO%"
+    )
+    "%VBOX%" storageattach "%VM_NAME%" ^
+        --storagectl "SATA" --port 1 --device 0 ^
+        --type hdd --medium "!VMDK!"
+) else (
+    "%VBOX%" storageattach "%VM_NAME%" ^
+        --storagectl "IDE" --port 0 --device 0 ^
+        --type dvddrive --medium "%ISO%"
+)
 
 :: Create + attach persistent disk (20GB)
 if not exist "%DISK%" (

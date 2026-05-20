@@ -4,7 +4,6 @@ title KobeOS Launcher
 
 :: ── Resolve USB root (the drive this script is running from) ─────────────────
 set "USB=%~d0"
-set "ISO=%USB%\KobeOS-Installer.iso"
 
 echo.
 echo  ██╗  ██╗ ██████╗ ██████╗ ███████╗ ██████╗ ███████╗
@@ -18,13 +17,55 @@ echo  KobeOS Portable Launcher v1.0.0
 echo  Running from: %USB%
 echo.
 
-:: ── Check ISO exists ──────────────────────────────────────────────────────────
-if not exist "%ISO%" (
-    echo  [ERROR] KobeOS-Installer.iso not found on %USB%
-    echo  Make sure the ISO is in the root of the USB drive.
-    pause
-    exit /b 1
+:: ── Locate the ISO ────────────────────────────────────────────────────────────
+:: Priority:
+::   1. KobeOS-Installer.iso in USB root (manual copy or write-usb.js)
+::   2. The USB drive itself as a raw device (written by Rufus in DD mode)
+::      — QEMU and VirtualBox can boot directly from the physical disk device
+
+set "ISO="
+set "USE_RAW_DISK=0"
+
+:: Check for ISO file first
+if exist "%USB%\KobeOS-Installer.iso" (
+    set "ISO=%USB%\KobeOS-Installer.iso"
+    echo  [OK] Found ISO file: %ISO%
+    goto :iso_found
 )
+
+:: No ISO file — detect the physical disk letter so we can pass the raw device
+:: to QEMU/VirtualBox (works when Rufus wrote in DD mode)
+echo  [INFO] No ISO file found on %USB%
+echo  [INFO] Detecting USB physical disk for direct boot (Rufus DD mode)...
+
+for /f "tokens=*" %%D in ('wmic logicaldisk where "DeviceID='%USB:~0,2%'" get DeviceID^,VolumeName /format:list 2^>nul') do (
+    echo %%D | findstr /i "kobeos" >nul && set "USE_RAW_DISK=1"
+)
+
+:: Use PowerShell to find the physical disk number for this drive letter
+for /f "usebackq tokens=*" %%P in (`powershell -NoProfile -Command ^
+    "$dl = '%USB:~0,2%'; $disk = Get-Partition | Where-Object { $_.DriveLetter -eq $dl[0] } | Get-Disk; if($disk){ '\\.\PhysicalDrive' + $disk.Number }"`) do (
+    set "RAW_DISK=%%P"
+)
+
+if defined RAW_DISK (
+    echo  [OK] USB physical device: %RAW_DISK%
+    set "ISO=%RAW_DISK%"
+    set "USE_RAW_DISK=1"
+    goto :iso_found
+)
+
+echo  [ERROR] Could not find KobeOS ISO or detect USB disk.
+echo.
+echo  Solutions:
+echo    A) Copy KobeOS-Installer.iso to the root of this USB drive, OR
+echo    B) Re-write the USB with Rufus using DD Image mode and a KobeOS ISO
+echo       labelled KOBEOS (check volume label in Rufus before writing)
+echo.
+pause
+exit /b 1
+
+:iso_found
 
 :: ── Detect VirtualBox ─────────────────────────────────────────────────────────
 set "VBOX="
