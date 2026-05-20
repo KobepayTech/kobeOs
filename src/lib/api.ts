@@ -1,10 +1,22 @@
-const TOKEN_KEY = 'kobe_auth_token';
+/**
+ * api.ts — HTTP client with offline-first fallback
+ *
+ * When the backend is unreachable, reads fall back to the local SQLite cache
+ * and writes are queued locally so the UI stays responsive offline.
+ * All 70 apps get this for free — no per-app changes needed.
+ *
+ * Token storage uses window.kobeOS.db KV store when in Electron,
+ * falling back to localStorage in browser dev mode.
+ */
+
+// ── Token storage ─────────────────────────────────────────────────────────────
+
+const TOKEN_KEY   = 'kobe_auth_token';
 const REFRESH_KEY = 'kobe_refresh_token';
 
-/** In dev, fall back to localhost. In a production build, fall back to the central KobePay API. */
-export const API_BASE =
-  (import.meta.env.VITE_API_BASE as string | undefined) ??
-  (import.meta.env.DEV ? 'http://localhost:3000/api' : 'https://api.kobeapptz.com/api');
+function db() {
+  return (window as any).kobeOS?.db ?? null;
+}
 
 export function getToken(): string | null {
   try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
@@ -12,8 +24,13 @@ export function getToken(): string | null {
 
 export function setToken(token: string | null) {
   try {
-    if (token) localStorage.setItem(TOKEN_KEY, token);
-    else localStorage.removeItem(TOKEN_KEY);
+    if (token) {
+      localStorage.setItem(TOKEN_KEY, token);
+      db()?.kvSet(TOKEN_KEY, token);
+    } else {
+      localStorage.removeItem(TOKEN_KEY);
+      db()?.kvDel(TOKEN_KEY);
+    }
   } catch { /* ignore */ }
 }
 
@@ -23,8 +40,13 @@ export function getRefreshToken(): string | null {
 
 export function setRefreshToken(token: string | null) {
   try {
-    if (token) localStorage.setItem(REFRESH_KEY, token);
-    else localStorage.removeItem(REFRESH_KEY);
+    if (token) {
+      localStorage.setItem(REFRESH_KEY, token);
+      db()?.kvSet(REFRESH_KEY, token);
+    } else {
+      localStorage.removeItem(REFRESH_KEY);
+      db()?.kvDel(REFRESH_KEY);
+    }
   } catch { /* ignore */ }
 }
 
@@ -32,6 +54,129 @@ export function clearTokens() {
   setToken(null);
   setRefreshToken(null);
 }
+
+// ── API base URL ──────────────────────────────────────────────────────────────
+
+export const API_BASE =
+  (import.meta.env.VITE_API_BASE as string | undefined) ??
+  (import.meta.env.DEV ? 'http://localhost:3000/api' : 'https://api.kobeapptz.com/api');
+
+// ── Backend reachability ──────────────────────────────────────────────────────
+
+let _backendReachable = true;
+let _lastCheck = 0;
+const CHECK_TTL = 10_000;
+
+export function markBackendReachable() {
+  _backendReachable = true;
+  _lastCheck = Date.now();
+}
+
+export function isOnline(): boolean {
+  return _backendReachable;
+}
+
+// ── Path → SQLite table mapping ───────────────────────────────────────────────
+
+const PATH_TABLE_MAP: Record<string, string> = {
+  '/notes':           'notes',
+  '/contacts':        'contacts',
+  '/todo':            'todo_items',
+  '/todo-lists':      'todo_lists',
+  '/pos/products':    'pos_products',
+  '/pos/orders':      'pos_orders',
+  '/pos':             'pos_orders',
+  '/cargo/shipments': 'cargo_shipments',
+  '/cargo':           'cargo_shipments',
+  '/hotel/rooms':     'hotel_rooms',
+  '/hotel/bookings':  'hotel_bookings',
+  '/hotel':           'hotel_bookings',
+  '/calendar/events': 'calendar_events',
+  '/calendar':        'calendar_events',
+};
+
+function pathToTable(path: string): string | null {
+  const sorted = Object.keys(PATH_TABLE_MAP).sort((a, b) => b.length - a.length);
+  for (const prefix of sorted) {
+    if (path.startsWith(prefix)) return PATH_TABLE_MAP[prefix];
+  }
+  return null;
+}
+
+function pathId(path: string): string | null {
+  const m = path.match(/\/(\d+|[0-9a-f-]{36})$/i);
+  return m ? m[1] : null;
+}
+
+// ── Offline read from SQLite cache ────────────────────────────────────────────
+
+async function offlineRead<T>(path: string): Promise<T | null> {
+  const localDb = db();
+  if (!localDb) return null;
+  const table = pathToTable(path);
+  if (!table) return null;
+  const id = pathId(path);
+  try {
+    if (id) {
+      const rows = await localDb.query(table, { id }) as T[];
+      return rows[0] ?? null;
+    }
+    const rows = await localDb.query(table) as Array<Record<string, unknown>>;
+    return rows.filter(r => !r.deleted) as unknown as T;
+  } catch {
+    return null;
+  }
+}
+
+// ── Offline write: apply locally + enqueue for sync ──────────────────────────
+
+async function offlineWrite(
+  path: string,
+  method: string,
+  body: unknown,
+  authHeader: string | null,
+): Promise<void> {
+  const localDb = db();
+  if (!localDb) return;
+  const table = pathToTable(path);
+
+  if (table && body && typeof body === 'object') {
+    const record = { ...(body as Record<string, unknown>) };
+    if (!record.id) record.id = `local_${Date.now()}`;
+    record.updated_at = Math.floor(Date.now() / 1000);
+    record.synced = 0;
+
+    if (method === 'DELETE') {
+      const id = pathId(path);
+      if (id) await localDb.delete(table, id).catch(() => {});
+    } else {
+      await localDb.insert(table, record).catch(() => {});
+    }
+  }
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (authHeader) headers['Authorization'] = authHeader;
+  await localDb.enqueue({ method, path, body, headers }).catch(() => {});
+}
+
+// ── Cache a successful GET response into SQLite ───────────────────────────────
+
+function cacheResponse(path: string, data: unknown): void {
+  const localDb = db();
+  if (!localDb) return;
+  const table = pathToTable(path);
+  if (!table) return;
+  try {
+    const rows = Array.isArray(data) ? data : [data];
+    for (const row of rows) {
+      if (row && typeof row === 'object' && (row as any).id) {
+        localDb.insert(table, { ...(row as object), synced: 1 }).catch(() => {});
+      }
+    }
+  } catch { /* ignore */ }
+}
+
+// ── Error classes ─────────────────────────────────────────────────────────────
 
 export class ApiError extends Error {
   status: number;
@@ -43,12 +188,16 @@ export class ApiError extends Error {
   }
 }
 
+export class OfflineError extends Error {
+  constructor() {
+    super('Offline — changes saved locally and will sync when connected');
+  }
+}
+
+// ── Token refresh ─────────────────────────────────────────────────────────────
+
 let refreshInFlight: Promise<boolean> | null = null;
 
-/**
- * Single-flight refresh: if multiple requests race in with a stale access
- * token, only one POST /auth/refresh runs and the rest await its result.
- */
 async function refreshAccessToken(): Promise<boolean> {
   if (refreshInFlight) return refreshInFlight;
   const rt = getRefreshToken();
@@ -60,10 +209,7 @@ async function refreshAccessToken(): Promise<boolean> {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refreshToken: rt }),
       });
-      if (!res.ok) {
-        clearTokens();
-        return false;
-      }
+      if (!res.ok) { clearTokens(); return false; }
       const body = (await res.json()) as { accessToken: string; refreshToken: string };
       setToken(body.accessToken);
       setRefreshToken(body.refreshToken);
@@ -77,11 +223,16 @@ async function refreshAccessToken(): Promise<boolean> {
   return refreshInFlight;
 }
 
-type RequestExtras = { auth?: boolean; _retry?: boolean };
+// ── Raw fetch ─────────────────────────────────────────────────────────────────
+
+type RequestExtras = {
+  auth?: boolean;
+  _retry?: boolean;
+  offlineFallback?: boolean;
+};
 
 async function rawFetch(path: string, init: RequestInit, attachAuth: boolean): Promise<Response> {
   const headers = new Headers(init.headers);
-  // For multipart bodies (FormData), let fetch set the boundary itself.
   const isFormData = typeof FormData !== 'undefined' && init.body instanceof FormData;
   if (!isFormData && !headers.has('Content-Type') && init.body) {
     headers.set('Content-Type', 'application/json');
@@ -93,22 +244,52 @@ async function rawFetch(path: string, init: RequestInit, attachAuth: boolean): P
   return fetch(`${API_BASE}${path}`, { ...init, headers });
 }
 
+// ── Main api() ────────────────────────────────────────────────────────────────
+
 export async function api<T = unknown>(
   path: string,
   init: RequestInit & RequestExtras = {},
 ): Promise<T> {
-  const { auth = true, _retry, ...rest } = init;
-  let res = await rawFetch(path, rest, auth);
+  const { auth = true, _retry, offlineFallback = true, ...rest } = init;
+  const method = (rest.method ?? 'GET').toUpperCase();
+  const isRead = method === 'GET' || method === 'HEAD';
 
-  // Transparent refresh on 401 — exactly one retry per call.
-  if (res.status === 401 && auth && !_retry && getRefreshToken()) {
-    const refreshed = await refreshAccessToken();
-    if (refreshed) res = await rawFetch(path, rest, true);
+  // Fast-path: backend known down — serve from cache immediately for reads
+  if (offlineFallback && isRead && !_backendReachable) {
+    const cached = await offlineRead<T>(path);
+    if (cached !== null) return cached;
+    // Cache miss — fall through and try network (may have recovered)
   }
 
-  const text = await res.text();
-  const body = text ? safeJson(text) : undefined;
-  if (!res.ok) {
+  try {
+    let res = await rawFetch(path, rest, auth);
+
+    // Transparent 401 → token refresh → retry
+    if (res.status === 401 && auth && !_retry && getRefreshToken()) {
+      const refreshed = await refreshAccessToken();
+      if (refreshed) res = await rawFetch(path, rest, true);
+    }
+
+    if (res.ok) {
+      _backendReachable = true;
+      _lastCheck = Date.now();
+      const text = await res.text();
+      const body = text ? safeJson(text) : undefined;
+      // Cache successful GETs for offline use
+      if (offlineFallback && isRead) cacheResponse(path, body);
+      return body as T;
+    }
+
+    // 5xx — treat as unreachable, fall back to cache for reads
+    if (offlineFallback && isRead && res.status >= 500) {
+      _backendReachable = false;
+      _lastCheck = Date.now();
+      const cached = await offlineRead<T>(path);
+      if (cached !== null) return cached;
+    }
+
+    const text = await res.text();
+    const body = text ? safeJson(text) : undefined;
     const errField =
       body && typeof body === 'object' && 'error' in body
         ? (body as { error?: unknown }).error
@@ -118,11 +299,36 @@ export async function api<T = unknown>(
       res.statusText ||
       `HTTP ${res.status}`;
     throw new ApiError(res.status, msg, body);
+
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+
+    // Network failure
+    _backendReachable = false;
+    _lastCheck = Date.now();
+
+    if (!offlineFallback) throw err;
+
+    if (isRead) {
+      const cached = await offlineRead<T>(path);
+      if (cached !== null) return cached;
+      // No cache — return empty list for collections
+      if (!pathId(path)) return [] as unknown as T;
+      throw new OfflineError();
+    }
+
+    // Offline write: persist locally + enqueue for sync
+    const bodyStr = typeof rest.body === 'string'
+      ? rest.body
+      : JSON.stringify(rest.body ?? {});
+    const token = auth ? getToken() : null;
+    await offlineWrite(path, method, safeJson(bodyStr) ?? {}, token ? `Bearer ${token}` : null);
+    return { _offline: true, _queued: true } as unknown as T;
   }
-  return body as T;
 }
 
-/** Multipart helper: build a FormData payload and POST with auth attached. */
+// ── File upload ───────────────────────────────────────────────────────────────
+
 export async function uploadFile<T = unknown>(
   path: string,
   file: File | Blob,
@@ -137,11 +343,8 @@ export async function uploadFile<T = unknown>(
   return api<T>(path, { method: 'POST', body: form });
 }
 
-/**
- * Fetch an authenticated binary endpoint and return an object URL the
- * browser can render in <img>/<audio>/<video>. Caller is responsible for
- * URL.revokeObjectURL() when the URL is no longer needed.
- */
+// ── Authenticated binary → object URL ────────────────────────────────────────
+
 export async function fetchObjectUrl(path: string): Promise<string> {
   const res = await rawFetch(path, { method: 'GET' }, true);
   if (res.status === 401 && getRefreshToken()) {
@@ -152,6 +355,8 @@ export async function fetchObjectUrl(path: string): Promise<string> {
   const blob = await res.blob();
   return URL.createObjectURL(blob);
 }
+
+// ── Util ──────────────────────────────────────────────────────────────────────
 
 function safeJson(s: string): unknown {
   try { return JSON.parse(s); } catch { return s; }

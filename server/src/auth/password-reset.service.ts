@@ -37,12 +37,13 @@ export class PasswordResetService {
     );
     this.logger.log(`Password reset issued for ${email}`);
 
-    const isDev = this.config.get('NODE_ENV', 'development') === 'development';
-    if (!isDev) {
+    const env = this.config.get('NODE_ENV', 'development');
+    const isDevOrTest = env === 'development' || env === 'test';
+    if (!isDevOrTest) {
       await this.mailer.sendPasswordReset(email, raw);
     }
 
-    return { ok: true, ...(isDev ? { resetToken: raw } : {}) };
+    return { ok: true, ...(isDevOrTest ? { resetToken: raw } : {}) };
   }
 
   async reset(token: string, newPassword: string): Promise<{ ok: true }> {

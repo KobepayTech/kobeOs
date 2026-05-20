@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { api } from '@/lib/api';
 import { ensureSession } from '@/lib/auth';
+import { useOfflineData } from '@/hooks/useOfflineData';
 import {
   Plus, Minus, Trash2, ShoppingCart, CreditCard, Smartphone, Banknote,
   Receipt, Tag, Percent, Search, Barcode, Shirt, Backpack, Coffee,
@@ -116,27 +117,13 @@ export default function POSSystem() {
   const [requests, setRequests] = useState<DiscountRequest[]>([]);
   const [activeTab, setActiveTab] = useState('pos');
 
-  // Seed /api/pos/products on first mount if the catalog is empty.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        await ensureSession();
-        const existing = await api<Array<{ id: string }>>('/pos/products');
-        if (cancelled || existing.length > 0) return;
-        await Promise.all(PRODUCTS.map((p) =>
-          api('/pos/products', {
-            method: 'POST',
-            body: JSON.stringify({
-              sku: p.id, name: p.name, category: p.category,
-              price: p.price, stock: p.stock,
-            }),
-          }),
-        ));
-      } catch { /* leave demo catalog */ }
-    })();
-    return () => { cancelled = true; };
-  }, []);
+  // Load products from SQLite cache first, then sync from backend.
+  // Offline users see their last-known catalog instantly.
+  const { data: products } = useOfflineData<Product>({
+    table: 'pos_products',
+    apiPath: '/pos/products',
+    seed: PRODUCTS,
+  });
 
   // Discount dialog state
   const [showDialog, setShowDialog] = useState(false);
@@ -173,14 +160,14 @@ export default function POSSystem() {
 
   // ── Computed ──
   const filteredProducts = useMemo(() => {
-    return PRODUCTS.filter((p) => {
+    return products.filter((p) => {
       const matchSearch =
         p.name.toLowerCase().includes(search.toLowerCase()) ||
         p.price.toString().includes(search);
       const matchCat = category === 'All' || p.category === category;
       return matchSearch && matchCat;
     });
-  }, [search, category]);
+  }, [products, search, category]);
 
   const subtotal = useMemo(
     () =>
