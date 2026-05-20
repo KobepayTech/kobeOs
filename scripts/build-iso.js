@@ -181,7 +181,7 @@ menuentry "KobeOS Recovery (installed system)" --class kobeos {
 }
 
 menuentry "Reboot"   { reboot }
-menuentry "Shutdown" { halt }
+menuentry "Shutdown" { halt --poweroff }
 `.trim();
 
 fs.writeFileSync(path.join(ISO_DIR, 'boot/grub/grub.cfg'), grubCfg);
