@@ -80,6 +80,43 @@ contextBridge.exposeInMainWorld('kobeOS', {
     },
   },
 
+  speech: {
+    // Status
+    status: () => ipcRenderer.invoke('speech:status'),
+
+    // TTS
+    speak:        (text, opts)  => ipcRenderer.invoke('speech:speak', text, opts),
+    stopSpeaking: ()            => ipcRenderer.invoke('speech:stop'),
+
+    // Live microphone STT (Web Speech API in renderer)
+    startListening: (opts) => ipcRenderer.invoke('speech:listen', opts),
+    stopListening:  ()     => ipcRenderer.invoke('speech:stop-listen'),
+
+    // whisper.cpp transcription
+    transcribe:     (base64Audio, opts) => ipcRenderer.invoke('speech:transcribe', base64Audio, opts),
+    transcribeFile: (audioPath, opts)   => ipcRenderer.invoke('speech:transcribe-file', audioPath, opts),
+
+    // Model management
+    modelStatus:   (modelId) => ipcRenderer.invoke('speech:model-status', modelId),
+    downloadModel: (modelId) => ipcRenderer.invoke('speech:model-download', modelId),
+    downloadProgress: (modelId) => ipcRenderer.invoke('speech:model-progress', modelId),
+
+    // Subscribe to model download progress events. Returns unsubscribe fn.
+    onModelProgress: (cb) => {
+      const handler = (_event, data) => cb(data);
+      ipcRenderer.on('speech:model-progress', handler);
+      return () => ipcRenderer.removeListener('speech:model-progress', handler);
+    },
+
+    // Subscribe to live STT results from the renderer's Web Speech API.
+    // The renderer sends these back via window.kobeOS.speech.emitResult().
+    onResult: (cb) => {
+      const handler = (_event, data) => cb(data);
+      ipcRenderer.on('speech:result', handler);
+      return () => ipcRenderer.removeListener('speech:result', handler);
+    },
+  },
+
   system: {
     shutdown:         ()     => ipcRenderer.invoke('system-shutdown'),
     reboot:           ()     => ipcRenderer.invoke('system-reboot'),

@@ -5,23 +5,26 @@
  *
  * Speech-to-Text (STT) and Text-to-Speech (TTS) for KobeOS.
  *
- * STT: Uses the system's Web Speech API (via renderer IPC) or
- *      Whisper via Ollama when available.
+ * STT:  whisper.cpp via WhisperService (offline, no Ollama dependency).
+ *       Falls back to the renderer's Web Speech API for live microphone input.
  *
- * TTS: Uses the system's SpeechSynthesis API (via renderer IPC)
- *      or espeak/say on Linux/macOS as a fallback.
- *
- * All speech I/O is routed through the renderer because microphone
- * and audio output require browser APIs. The main process acts as
- * coordinator only.
+ * TTS:  Renderer's SpeechSynthesis API (Web Speech).
+ *       Falls back to espeak (Linux) or say (macOS) when no renderer is attached.
  */
 
 const { execSync } = require('child_process');
+const WhisperService = require('./whisper-service');
 
 class SpeechService {
-  constructor(ollamaBridge) {
-    this.ollama   = ollamaBridge;
-    this._webContents = null; // set via attachWindow()
+  /**
+   * @param {object} opts
+   * @param {string} opts.userDataPath     — Electron app.getPath('userData')
+   * @param {string} [opts.resourcesPath]  — Electron process.resourcesPath
+   * @param {string} [opts.whisperModel]   — default whisper model id
+   */
+  constructor({ userDataPath, resourcesPath, whisperModel = 'whisper:base' } = {}) {
+    this.whisper      = new WhisperService({ userDataPath, resourcesPath, model: whisperModel });
+    this._webContents = null;
     this._listening   = false;
   }
 
@@ -31,16 +34,11 @@ class SpeechService {
 
   // ── Text-to-Speech ────────────────────────────────────────────────────────
 
-  /**
-   * Speak text via the renderer's SpeechSynthesis API.
-   * Falls back to espeak (Linux) or say (macOS) if no renderer.
-   */
   speak(text, options = {}) {
     if (this._webContents && !this._webContents.isDestroyed()) {
       this._webContents.send('speech:speak', { text, ...options });
       return { method: 'web-speech', text };
     }
-    // System fallback
     try {
       if (process.platform === 'linux')  execSync(`espeak "${text.replace(/"/g, '')}" 2>/dev/null`);
       if (process.platform === 'darwin') execSync(`say "${text.replace(/"/g, '')}"`);
@@ -48,23 +46,19 @@ class SpeechService {
     return { method: 'system', text };
   }
 
-  stop() {
+  stopSpeaking() {
     if (this._webContents && !this._webContents.isDestroyed()) {
       this._webContents.send('speech:stop');
     }
   }
 
-  // ── Speech-to-Text ────────────────────────────────────────────────────────
+  // ── Live microphone STT (renderer Web Speech API) ─────────────────────────
 
-  /**
-   * Start listening via the renderer's Web Speech API.
-   * Results are sent back via IPC as 'speech:result' events.
-   */
   startListening(options = {}) {
     if (this._webContents && !this._webContents.isDestroyed()) {
       this._listening = true;
       this._webContents.send('speech:listen', options);
-      return { listening: true };
+      return { listening: true, method: 'web-speech' };
     }
     return { listening: false, reason: 'No renderer attached' };
   }
@@ -77,27 +71,49 @@ class SpeechService {
     return { listening: false };
   }
 
-  /**
-   * Transcribe an audio file using Whisper via Ollama (if available).
-   * audioBase64: base64-encoded WAV/MP3 data.
-   */
-  async transcribe(audioBase64, language = 'en') {
-    if (!this.ollama) throw new Error('Ollama bridge not configured');
-    const available = await this.ollama.isAvailable();
-    if (!available) throw new Error('Ollama not running');
+  // ── File / buffer transcription (whisper.cpp) ─────────────────────────────
 
-    // Whisper via Ollama multimodal endpoint
-    return this.ollama.generate('whisper', `Transcribe this audio. Language: ${language}`, {
-      images: [audioBase64],
-    });
+  /**
+   * Transcribe a WAV file path.
+   * @param {string} audioPath
+   * @param {object} opts  — { model, language, translate, threads }
+   */
+  async transcribeFile(audioPath, opts = {}) {
+    return this.whisper.transcribe(audioPath, opts);
   }
+
+  /**
+   * Transcribe a base64-encoded WAV buffer.
+   * Used by the IPC handler when the renderer captures audio.
+   * @param {string} base64Audio
+   * @param {object} opts
+   */
+  async transcribeBase64(base64Audio, opts = {}) {
+    return this.whisper.transcribeBase64(base64Audio, opts);
+  }
+
+  // ── Model management ──────────────────────────────────────────────────────
+
+  isModelReady(modelId) {
+    return this.whisper.isModelDownloaded(modelId);
+  }
+
+  async downloadModel(modelId, onProgress) {
+    return this.whisper.downloadModel(modelId, onProgress);
+  }
+
+  getDownloadProgress(modelId) {
+    return this.whisper.getDownloadProgress(modelId);
+  }
+
+  // ── Status ────────────────────────────────────────────────────────────────
 
   getStatus() {
     return {
-      listening:       this._listening,
-      hasRenderer:     !!this._webContents && !this._webContents?.isDestroyed(),
-      ollamaAvailable: !!this.ollama,
-      platform:        process.platform,
+      listening:   this._listening,
+      hasRenderer: !!this._webContents && !this._webContents?.isDestroyed(),
+      whisper:     this.whisper.getStatus(),
+      platform:    process.platform,
     };
   }
 }

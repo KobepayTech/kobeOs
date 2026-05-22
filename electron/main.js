@@ -9,6 +9,8 @@ const osUpdateService = require('./os-update-service');
 const lanServer = require('./lan-server');
 const kobeRuntime = require('./runtime/index');
 const { enforceIntegrity } = require('./core-integrity');
+const SpeechService = require('../ai/speech/speech-service');
+const { registerSpeechIpc } = require('../ai/speech/speech-ipc');
 
 let mainWindow;
 let splashWindow = null;
@@ -50,6 +52,14 @@ function closeSplash() {
 
 const IS_PACKAGED  = app.isPackaged;
 const USER_DATA    = app.getPath('userData');
+
+// ── Speech service (whisper.cpp STT + Web Speech TTS) ─────────────────────────
+const speechService = new SpeechService({
+  userDataPath:   USER_DATA,
+  resourcesPath:  IS_PACKAGED ? process.resourcesPath : path.join(__dirname, '../resources'),
+  whisperModel:   'whisper:base',
+});
+registerSpeechIpc(speechService);
 const PG_DATA_DIR  = path.join(USER_DATA, 'pgdata');
 const SERVER_BUNDLE = IS_PACKAGED
   ? path.join(process.resourcesPath, 'server-bundle', 'index.js')
@@ -342,6 +352,9 @@ app.whenReady().then(async () => {
     closeSplash();
     // Start sync engine after window is visible
     syncEngine.init(mainWindow);
+    // Attach speech service renderer (TTS + live STT)
+    speechService.attachWindow(mainWindow.webContents);
+
     // Boot Kobe Runtime (HAL + services + drivers)
     try {
       await kobeRuntime.boot(mainWindow);
