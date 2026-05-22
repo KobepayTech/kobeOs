@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { api } from '@/lib/api';
 import {
   TrendingUp, TrendingDown, ShoppingCart, Users, Package, DollarSign,
   Receipt, ShoppingBag, Palette, BarChart3, Store, Warehouse,
@@ -13,39 +14,25 @@ import {
 } from 'recharts';
 import { Card, CardContent } from '@/components/ui/card';
 
-/* ─── DATA ─── */
-const salesData = [
-  { day: 'Mon', sales: 4200 },
-  { day: 'Tue', sales: 3800 },
-  { day: 'Wed', sales: 5100 },
-  { day: 'Thu', sales: 4600 },
-  { day: 'Fri', sales: 6200 },
-  { day: 'Sat', sales: 7800 },
-  { day: 'Sun', sales: 5400 },
-];
+/* ─── API HOOK ─── */
+interface ErpDashboardData {
+  kpis: { revenue: number; orders: number; customers: number; lowStock: number; transactions: number };
+  monthlyRevenue: { month: string; revenue: number }[];
+}
 
+function useErpDashboard() {
+  const [data, setData] = useState<ErpDashboardData | null>(null);
+  useEffect(() => { api<ErpDashboardData>('/erp/dashboard').then(setData).catch(() => {}); }, []);
+  return data;
+}
+
+/* ─── FALLBACK STATIC DATA (shown while loading or offline) ─── */
 const categoryData = [
   { name: 'Electronics', value: 35 },
   { name: 'Clothing', value: 25 },
   { name: 'Food', value: 20 },
   { name: 'Household', value: 15 },
   { name: 'Other', value: 5 },
-];
-
-const recentOrders = [
-  { id: 'ORD-2025-001', customer: 'Amina Hassan', items: 3, total: 125.50, status: 'completed' },
-  { id: 'ORD-2025-002', customer: 'John Mwakasege', items: 1, total: 45.00, status: 'pending' },
-  { id: 'ORD-2025-003', customer: 'Grace Wanjiru', items: 5, total: 289.75, status: 'processing' },
-  { id: 'ORD-2025-004', customer: 'Peter Omondi', items: 2, total: 78.00, status: 'completed' },
-  { id: 'ORD-2025-005', customer: 'Fatima Said', items: 4, total: 156.20, status: 'pending' },
-];
-
-const inventoryAlerts = [
-  { sku: 'ELEC-042', name: 'Samsung Galaxy A14', stock: 3, threshold: 5 },
-  { sku: 'ELEC-051', name: 'Tecno Spark 10', stock: 12, threshold: 10 },
-  { sku: 'CLTH-018', name: "Men's Cotton T-Shirt", stock: 5, threshold: 8 },
-  { sku: 'FOOD-033', name: 'Mama Ntilie Rice 5kg', stock: 4, threshold: 10 },
-  { sku: 'HSHD-009', name: 'Borehole Pump 1HP', stock: 2, threshold: 3 },
 ];
 
 /* ─── MODULE TILE DATA ─── */
@@ -187,6 +174,7 @@ function Sidebar({ activeModule, onModuleChange, launchApp }: {
 
 /* ─── MAIN CONTENT: DASHBOARD OVERVIEW ─── */
 function DashboardOverview({ launchApp }: { launchApp: (appId: string) => void }) {
+  const erpData = useErpDashboard();
   return (
     <div className="p-5 space-y-4 overflow-y-auto">
       {/* Header */}
@@ -210,10 +198,10 @@ function DashboardOverview({ launchApp }: { launchApp: (appId: string) => void }
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
-          { label: 'Total Sales', value: 'TZS 4.2M', change: '+12.5%', up: true, icon: DollarSign },
-          { label: 'Orders', value: '156', change: '+8.2%', up: true, icon: ShoppingCart },
-          { label: 'Customers', value: '1,243', change: '+5.1%', up: true, icon: Users },
-          { label: 'Products', value: '328', change: '-2.3%', up: false, icon: Package },
+          { label: 'Total Sales', value: erpData ? `TZS ${(erpData.kpis.revenue / 1000).toFixed(0)}K` : '…', up: true, icon: DollarSign },
+          { label: 'Orders', value: erpData ? String(erpData.kpis.orders) : '…', up: true, icon: ShoppingCart },
+          { label: 'Customers', value: erpData ? String(erpData.kpis.customers) : '…', up: true, icon: Users },
+          { label: 'Low Stock', value: erpData ? String(erpData.kpis.lowStock) : '…', up: erpData ? erpData.kpis.lowStock === 0 : true, icon: Package },
         ].map((kpi) => (
           <Card key={kpi.label} className="bg-[#13131f] border-white/[0.06] hover:border-white/[0.1] transition-colors">
             <CardContent className="p-3">
@@ -224,7 +212,7 @@ function DashboardOverview({ launchApp }: { launchApp: (appId: string) => void }
               <div className="text-lg font-semibold text-white/90">{kpi.value}</div>
               <div className={`flex items-center gap-1 mt-1 text-[10px] ${kpi.up ? 'text-emerald-400' : 'text-red-400'}`}>
                 {kpi.up ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                {kpi.change}
+                {kpi.up ? 'Live' : 'Needs attention'}
               </div>
             </CardContent>
           </Card>
@@ -273,7 +261,7 @@ function DashboardOverview({ launchApp }: { launchApp: (appId: string) => void }
           <CardContent className="p-3">
             <h3 className="text-xs font-medium text-white/80 mb-3">Sales Trend</h3>
             <ResponsiveContainer width="100%" height={180}>
-              <AreaChart data={salesData}>
+              <AreaChart data={erpData?.monthlyRevenue ?? []}>
                 <defs>
                   <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
@@ -287,7 +275,7 @@ function DashboardOverview({ launchApp }: { launchApp: (appId: string) => void }
                   contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px', fontSize: '11px' }}
                   itemStyle={{ color: '#94a3b8' }}
                 />
-                <Area type="monotone" dataKey="sales" stroke="#3b82f6" fill="url(#salesGrad)" strokeWidth={2} />
+                <Area type="monotone" dataKey="revenue" stroke="#3b82f6" fill="url(#salesGrad)" strokeWidth={2} />
               </AreaChart>
             </ResponsiveContainer>
           </CardContent>
@@ -316,53 +304,46 @@ function DashboardOverview({ launchApp }: { launchApp: (appId: string) => void }
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         <Card className="bg-[#13131f] border-white/[0.06]">
           <CardContent className="p-3">
-            <h3 className="text-xs font-medium text-white/80 mb-3">Recent Orders</h3>
+            <h3 className="text-xs font-medium text-white/80 mb-3">Revenue Trend</h3>
             <div className="space-y-2">
-              {recentOrders.map((order) => (
-                <div key={order.id} className="flex items-center gap-3 p-2 rounded-lg bg-white/[0.03]">
+              {(erpData?.monthlyRevenue ?? []).map((m) => (
+                <div key={m.month} className="flex items-center gap-3 p-2 rounded-lg bg-white/[0.03]">
                   <div className="w-8 h-8 rounded-lg bg-blue-500/15 flex items-center justify-center shrink-0">
                     <Receipt className="w-4 h-4 text-blue-400" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[11px] font-medium text-white/80 truncate">{order.id}</div>
-                    <div className="text-[10px] text-white/30">{order.customer} &middot; {order.items} items</div>
+                    <div className="text-[11px] font-medium text-white/80">{m.month}</div>
                   </div>
                   <div className="text-right shrink-0">
-                    <div className="text-[11px] font-medium text-white/80">TZS {order.total.toFixed(2)}k</div>
-                    <div className={`text-[10px] ${order.status === 'completed' ? 'text-emerald-400' : order.status === 'processing' ? 'text-blue-400' : 'text-amber-400'}`}>
-                      {order.status}
-                    </div>
+                    <div className="text-[11px] font-medium text-white/80">TZS {(m.revenue / 1000).toFixed(0)}K</div>
+                    <div className="text-[10px] text-emerald-400">revenue</div>
                   </div>
                 </div>
               ))}
+              {!erpData && <div className="text-[11px] text-white/20 text-center py-4">Loading…</div>}
             </div>
           </CardContent>
         </Card>
 
         <Card className="bg-[#13131f] border-white/[0.06]">
           <CardContent className="p-3">
-            <h3 className="text-xs font-medium text-white/80 mb-3">Inventory Alerts</h3>
+            <h3 className="text-xs font-medium text-white/80 mb-3">Low Stock Alerts</h3>
             <div className="space-y-2">
-              {inventoryAlerts.map((item) => {
-                const isLow = item.stock <= item.threshold;
-                return (
-                  <div key={item.sku} className="flex items-center gap-3 p-2 rounded-lg bg-white/[0.03]">
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isLow ? 'bg-red-500/15' : 'bg-emerald-500/15'}`}>
-                      <Package className={`w-4 h-4 ${isLow ? 'text-red-400' : 'text-emerald-400'}`} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[11px] font-medium text-white/80 truncate">{item.name}</div>
-                      <div className="text-[10px] text-white/30">{item.sku}</div>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <div className={`text-[11px] font-medium ${isLow ? 'text-red-400' : 'text-emerald-400'}`}>
-                        {item.stock} units
-                      </div>
-                      <div className="text-[10px] text-white/20">min: {item.threshold}</div>
-                    </div>
+              {(erpData?.kpis.lowStock ?? 0) === 0 && (
+                <div className="text-[11px] text-emerald-400 text-center py-4">All items stocked ✓</div>
+              )}
+              {!erpData && <div className="text-[11px] text-white/20 text-center py-4">Loading…</div>}
+              {erpData && erpData.kpis.lowStock > 0 && (
+                <div className="flex items-center gap-3 p-2 rounded-lg bg-red-500/5 border border-red-500/10">
+                  <div className="w-8 h-8 rounded-lg bg-red-500/15 flex items-center justify-center shrink-0">
+                    <Package className="w-4 h-4 text-red-400" />
                   </div>
-                );
-              })}
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[11px] font-medium text-red-400">{erpData.kpis.lowStock} items below reorder level</div>
+                    <div className="text-[10px] text-white/30">Check Sourcing module</div>
+                  </div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

@@ -44,6 +44,9 @@ import { WebhooksModule } from './webhooks/webhooks.module';
 import { SportsModule } from './sports/sports.module';
 import { KobeModelsModule } from './kobe-models/kobe-models.module';
 import { LicenseModule } from './license/license.module';
+import { PrintModule } from './print/print.module';
+import { AdminModule } from './admin/admin.module';
+import { ErpModule } from './erp/erp.module';
 
 @Module({
   imports: [
@@ -84,6 +87,9 @@ import { LicenseModule } from './license/license.module';
     HotelModule,
     CreatorsModule,
     LicenseModule,
+    PrintModule,
+    AdminModule,
+    ErpModule,
     SportsModule,
     KobeModelsModule,
     CompaniesModule,

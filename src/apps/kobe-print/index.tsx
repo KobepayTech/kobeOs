@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { api } from '@/lib/api';
 import {
   Printer, Palette, Shirt, Box, Scissors, Sparkles,
   LayoutDashboard, Layers, Type, Image, Upload, Download,
@@ -185,10 +186,107 @@ const MATERIAL_STATUS_COLORS: Record<string, string> = {
 const colorPresets = ['#1e40af', '#dc2626', '#16a34a', '#1f2937', '#f9fafb', '#f59e0b', '#7c3aed', '#0e7490', '#be185d', '#854d0e'];
 
 /* ================================================================
+   API HOOKS
+   ================================================================ */
+
+interface PrintJobAPI {
+  id: string; jobNumber: string; product: string; customer: string;
+  dueDate?: string; priority: string; status: string;
+  qty: number; method: string; notes?: string; price: number; currency: string;
+}
+interface PrintMaterialAPI {
+  id: string; name: string; type: string; stock: number; unit: string;
+  minThreshold: number; color: string; status: string;
+}
+interface PrintStatsAPI {
+  total: number; pending: number; printing: number; finishing: number; completed: number; revenue: number;
+}
+
+function usePrintJobs() {
+  const [jobs, setJobs] = useState<PrintJobAPI[]>([]);
+  const [stats, setStats] = useState<PrintStatsAPI | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const reload = useCallback(async () => {
+    try {
+      const [j, s] = await Promise.all([
+        api<PrintJobAPI[]>('/print/jobs'),
+        api<PrintStatsAPI>('/print/jobs/stats'),
+      ]);
+      setJobs(j ?? []);
+      setStats(s ?? null);
+    } catch { /* offline — keep previous */ }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { reload(); }, [reload]);
+
+  const createJob = useCallback(async (dto: Partial<PrintJobAPI>) => {
+    const created = await api<PrintJobAPI>('/print/jobs', { method: 'POST', body: JSON.stringify(dto) });
+    setJobs(prev => [created, ...prev]);
+    return created;
+  }, []);
+
+  const updateJob = useCallback(async (id: string, dto: Partial<PrintJobAPI>) => {
+    const updated = await api<PrintJobAPI>(`/print/jobs/${id}`, { method: 'PATCH', body: JSON.stringify(dto) });
+    setJobs(prev => prev.map(j => j.id === id ? updated : j));
+    return updated;
+  }, []);
+
+  const removeJob = useCallback(async (id: string) => {
+    await api(`/print/jobs/${id}`, { method: 'DELETE' });
+    setJobs(prev => prev.filter(j => j.id !== id));
+  }, []);
+
+  return { jobs, stats, loading, reload, createJob, updateJob, removeJob };
+}
+
+function usePrintMaterials() {
+  const [materials, setMaterials] = useState<PrintMaterialAPI[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const reload = useCallback(async () => {
+    try {
+      const m = await api<PrintMaterialAPI[]>('/print/materials');
+      setMaterials(m ?? []);
+    } catch { /* offline */ }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { reload(); }, [reload]);
+
+  const createMaterial = useCallback(async (dto: Partial<PrintMaterialAPI>) => {
+    const created = await api<PrintMaterialAPI>('/print/materials', { method: 'POST', body: JSON.stringify(dto) });
+    setMaterials(prev => [...prev, created]);
+    return created;
+  }, []);
+
+  const adjustStock = useCallback(async (id: string, delta: number) => {
+    const updated = await api<PrintMaterialAPI>(`/print/materials/${id}/adjust-stock`, { method: 'POST', body: JSON.stringify({ delta }) });
+    setMaterials(prev => prev.map(m => m.id === id ? updated : m));
+    return updated;
+  }, []);
+
+  const removeMaterial = useCallback(async (id: string) => {
+    await api(`/print/materials/${id}`, { method: 'DELETE' });
+    setMaterials(prev => prev.filter(m => m.id !== id));
+  }, []);
+
+  return { materials, loading, reload, createMaterial, adjustStock, removeMaterial };
+}
+
+/* ================================================================
    MODULE 1: DASHBOARD
    ================================================================ */
 function DashboardModule() {
+  const { stats } = usePrintJobs();
+  const { materials } = usePrintMaterials();
   const maxOrder = Math.max(...WEEKLY_ORDERS);
+  const activeJobs = (stats?.pending ?? 0) + (stats?.printing ?? 0) + (stats?.finishing ?? 0);
+  const lowMaterials = materials.filter(m => m.status === 'Low' || m.status === 'Out').length;
+  const revenueK = stats ? Math.round(stats.revenue / 1000) : 0;
+  const revenueLabel = revenueK >= 1000 ? `TZS ${(revenueK / 1000).toFixed(1)}M` : `TZS ${revenueK}K`;
+
   return (
     <div className="flex-1 overflow-auto p-6">
       <div className="mb-6">
@@ -197,10 +295,10 @@ function DashboardModule() {
       </div>
       <div className="grid grid-cols-4 gap-4 mb-6">
         {[
-          { label: 'Active Jobs', value: '12', change: '+3 today', icon: Printer, color: 'text-cyan-400', bg: 'bg-cyan-500/10' },
-          { label: 'Completed Today', value: '48', change: '+12 vs yday', icon: CheckCircle2, color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
-          { label: 'Revenue', value: 'TZS 1.2M', change: '+18% this week', icon: DollarSign, color: 'text-amber-400', bg: 'bg-amber-500/10' },
-          { label: 'Materials Low', value: '3', change: 'Restock needed', icon: AlertTriangle, color: 'text-red-400', bg: 'bg-red-500/10' },
+          { label: 'Active Jobs', value: String(activeJobs), change: `${stats?.pending ?? 0} pending`, icon: Printer, color: 'text-cyan-400', bg: 'bg-cyan-500/10' },
+          { label: 'Completed', value: String(stats?.completed ?? 0), change: 'all time', icon: CheckCircle2, color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
+          { label: 'Revenue', value: revenueLabel, change: 'completed jobs', icon: DollarSign, color: 'text-amber-400', bg: 'bg-amber-500/10' },
+          { label: 'Materials Low', value: String(lowMaterials), change: lowMaterials > 0 ? 'Restock needed' : 'All stocked', icon: AlertTriangle, color: 'text-red-400', bg: 'bg-red-500/10' },
         ].map((kpi) => (
           <Card key={kpi.label} className="bg-white/[0.03] border-white/[0.06]">
             <CardContent className="p-4">
@@ -1194,12 +1292,14 @@ function VinylCutterModule() {
    MODULE 7: PRINT JOBS (KANBAN)
    ================================================================ */
 function PrintJobsModule() {
-  const [jobs] = useState<PrintJob[]>(PRINT_JOBS);
-  const [selectedJob, setSelectedJob] = useState<PrintJob | null>(null);
+  const { jobs, loading, createJob, updateJob, removeJob } = usePrintJobs();
+  const [selectedJob, setSelectedJob] = useState<PrintJobAPI | null>(null);
   const [filterStatus, setFilterStatus] = useState('All');
   const [filterPriority, setFilterPriority] = useState('All');
+  const [showNew, setShowNew] = useState(false);
+  const [newForm, setNewForm] = useState({ product: '', customer: '', method: 'DTG', qty: 1, priority: 'Medium' });
 
-  const columns: { id: PrintJob['status']; label: string; color: string }[] = [
+  const columns: { id: string; label: string; color: string }[] = [
     { id: 'Pending', label: 'Pending', color: 'border-t-slate-500' },
     { id: 'Printing', label: 'Printing', color: 'border-t-cyan-500' },
     { id: 'Finishing', label: 'Finishing', color: 'border-t-violet-500' },
@@ -1211,6 +1311,22 @@ function PrintJobsModule() {
     if (filterPriority !== 'All' && j.priority !== filterPriority) return false;
     return true;
   }), [jobs, filterStatus, filterPriority]);
+
+  const handleCreate = async () => {
+    if (!newForm.product) return;
+    const jobNumber = `#${Date.now().toString().slice(-4)}`;
+    await createJob({ ...newForm, jobNumber });
+    setShowNew(false);
+    setNewForm({ product: '', customer: '', method: 'DTG', qty: 1, priority: 'Medium' });
+  };
+
+  const handleAdvance = async (job: PrintJobAPI) => {
+    const next: Record<string, string> = { Pending: 'Printing', Printing: 'Finishing', Finishing: 'Completed' };
+    if (next[job.status]) await updateJob(job.id, { status: next[job.status] });
+    setSelectedJob(null);
+  };
+
+  if (loading) return <div className="flex-1 flex items-center justify-center text-white/30 text-sm">Loading jobs…</div>;
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -1225,10 +1341,17 @@ function PrintJobsModule() {
             <SelectTrigger className="w-32 h-8 bg-white/[0.04] border-white/[0.08] text-xs text-white/70"><SlidersHorizontal className="w-3.5 h-3.5 mr-1" /><SelectValue /></SelectTrigger>
             <SelectContent className="bg-[#1a1a2e] border-white/[0.1]">{['All', 'High', 'Medium', 'Low'].map(s => <SelectItem key={s} value={s} className="text-xs text-white/70">{s}</SelectItem>)}</SelectContent>
           </Select>
-          <Button size="sm" className="bg-cyan-600 hover:bg-cyan-500 text-white h-8 text-xs"><Plus className="w-3.5 h-3.5 mr-1" /> New Job</Button>
+          <Button size="sm" onClick={() => setShowNew(true)} className="bg-cyan-600 hover:bg-cyan-500 text-white h-8 text-xs"><Plus className="w-3.5 h-3.5 mr-1" /> New Job</Button>
         </div>
       </div>
       <div className="flex-1 overflow-auto p-4">
+        {jobs.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-48 text-white/20">
+            <Printer className="w-10 h-10 mb-3 opacity-30" />
+            <p className="text-sm">No print jobs yet</p>
+            <Button size="sm" onClick={() => setShowNew(true)} className="mt-3 bg-cyan-600 hover:bg-cyan-500 text-white text-xs">Create first job</Button>
+          </div>
+        )}
         <div className="grid grid-cols-4 gap-3">
           {columns.map((col) => (
             <div key={col.id} className={`bg-white/[0.02] rounded-xl border-t-2 ${col.color} border-x border-b border-white/[0.04]`}>
@@ -1240,19 +1363,18 @@ function PrintJobsModule() {
                 {filtered.filter(j => j.status === col.id).map((job) => (
                   <div key={job.id} onClick={() => setSelectedJob(job)} className="p-3 rounded-lg bg-white/[0.03] hover:bg-white/[0.06] border border-white/[0.04] cursor-pointer transition-all group">
                     <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-[10px] text-white/30 font-mono">{job.id}</span>
+                      <span className="text-[10px] text-white/30 font-mono">{job.jobNumber}</span>
                       <Badge className={`text-[9px] ${PRIORITY_COLORS[job.priority]}`}>{job.priority}</Badge>
                     </div>
                     <p className="text-xs text-white/70 font-medium mb-0.5">{job.product}</p>
                     <p className="text-[10px] text-white/30 mb-2">{job.customer}</p>
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1"><Clock className="w-3 h-3 text-white/20" /><span className="text-[9px] text-white/30">{job.dueDate}</span></div>
+                      <div className="flex items-center gap-1"><Clock className="w-3 h-3 text-white/20" /><span className="text-[9px] text-white/30">{job.dueDate ?? '—'}</span></div>
                       <span className="text-[9px] text-white/20">{job.method}</span>
                     </div>
                     <div className="flex gap-1 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button className="w-6 h-6 rounded flex items-center justify-center text-white/20 hover:text-cyan-400 hover:bg-cyan-500/10 transition-all"><Play className="w-3 h-3" /></button>
-                      <button className="w-6 h-6 rounded flex items-center justify-center text-white/20 hover:text-amber-400 hover:bg-amber-500/10 transition-all"><Pause className="w-3 h-3" /></button>
-                      <button className="w-6 h-6 rounded flex items-center justify-center text-white/20 hover:text-red-400 hover:bg-red-500/10 transition-all"><Trash2 className="w-3 h-3" /></button>
+                      <button onClick={(e) => { e.stopPropagation(); handleAdvance(job); }} className="w-6 h-6 rounded flex items-center justify-center text-white/20 hover:text-cyan-400 hover:bg-cyan-500/10 transition-all"><Play className="w-3 h-3" /></button>
+                      <button onClick={(e) => { e.stopPropagation(); removeJob(job.id); }} className="w-6 h-6 rounded flex items-center justify-center text-white/20 hover:text-red-400 hover:bg-red-500/10 transition-all"><Trash2 className="w-3 h-3" /></button>
                     </div>
                   </div>
                 ))}
@@ -1261,24 +1383,58 @@ function PrintJobsModule() {
           ))}
         </div>
       </div>
+
+      {/* New Job Dialog */}
+      <Dialog open={showNew} onOpenChange={setShowNew}>
+        <DialogContent className="bg-[#0f0f1e] border-white/[0.08] max-w-md">
+          <DialogHeader><DialogTitle className="text-white flex items-center gap-2"><Printer className="w-5 h-5 text-cyan-400" />New Print Job</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div><label className="text-xs text-white/40 mb-1 block">Product *</label><Input value={newForm.product} onChange={e => setNewForm(f => ({ ...f, product: e.target.value }))} placeholder="e.g. T-Shirt x50" className="bg-white/[0.04] border-white/[0.08] text-white/70 text-sm" /></div>
+            <div><label className="text-xs text-white/40 mb-1 block">Customer</label><Input value={newForm.customer} onChange={e => setNewForm(f => ({ ...f, customer: e.target.value }))} placeholder="Customer name" className="bg-white/[0.04] border-white/[0.08] text-white/70 text-sm" /></div>
+            <div className="grid grid-cols-3 gap-2">
+              <div><label className="text-xs text-white/40 mb-1 block">Qty</label><Input type="number" min={1} value={newForm.qty} onChange={e => setNewForm(f => ({ ...f, qty: +e.target.value }))} className="bg-white/[0.04] border-white/[0.08] text-white/70 text-sm" /></div>
+              <div><label className="text-xs text-white/40 mb-1 block">Method</label>
+                <Select value={newForm.method} onValueChange={v => setNewForm(f => ({ ...f, method: v }))}>
+                  <SelectTrigger className="h-9 bg-white/[0.04] border-white/[0.08] text-xs text-white/70"><SelectValue /></SelectTrigger>
+                  <SelectContent className="bg-[#1a1a2e] border-white/[0.1]">{['DTG', 'DTF', 'Sublimation', 'Transfer', 'Vinyl Cut', 'Embroidery'].map(m => <SelectItem key={m} value={m} className="text-xs text-white/70">{m}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div><label className="text-xs text-white/40 mb-1 block">Priority</label>
+                <Select value={newForm.priority} onValueChange={v => setNewForm(f => ({ ...f, priority: v }))}>
+                  <SelectTrigger className="h-9 bg-white/[0.04] border-white/[0.08] text-xs text-white/70"><SelectValue /></SelectTrigger>
+                  <SelectContent className="bg-[#1a1a2e] border-white/[0.1]">{['High', 'Medium', 'Low'].map(p => <SelectItem key={p} value={p} className="text-xs text-white/70">{p}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <Button onClick={handleCreate} disabled={!newForm.product} className="bg-cyan-600 hover:bg-cyan-500 text-white text-xs flex-1">Create Job</Button>
+              <Button variant="outline" onClick={() => setShowNew(false)} className="border-white/[0.1] text-white/50 text-xs hover:text-white">Cancel</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Job Detail Dialog */}
       <Dialog open={!!selectedJob} onOpenChange={() => setSelectedJob(null)}>
         <DialogContent className="bg-[#0f0f1e] border-white/[0.08] max-w-md">
-          <DialogHeader><DialogTitle className="text-white flex items-center gap-2"><Printer className="w-5 h-5 text-cyan-400" />Job {selectedJob?.id}</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle className="text-white flex items-center gap-2"><Printer className="w-5 h-5 text-cyan-400" />Job {selectedJob?.jobNumber}</DialogTitle></DialogHeader>
           {selectedJob && (
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
-                {[{ label: 'Product', val: selectedJob.product }, { label: 'Customer', val: selectedJob.customer }, { label: 'Quantity', val: `${selectedJob.qty} units` }, { label: 'Method', val: selectedJob.method }].map((f) => (
+                {[{ label: 'Product', val: selectedJob.product }, { label: 'Customer', val: selectedJob.customer || '—' }, { label: 'Quantity', val: `${selectedJob.qty} units` }, { label: 'Method', val: selectedJob.method }].map((f) => (
                   <div key={f.label} className="p-2.5 rounded-lg bg-white/[0.03]"><p className="text-[10px] text-white/30">{f.label}</p><p className="text-sm text-white/70">{f.val}</p></div>
                 ))}
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-white/30">Status:</span><Badge className={JOB_STATUS_COLORS[selectedJob.status]}>{selectedJob.status}</Badge>
-                <span className="text-xs text-white/30 ml-2">Priority:</span><Badge className={PRIORITY_COLORS[selectedJob.priority]}>{selectedJob.priority}</Badge>
+                <span className="text-xs text-white/30">Status:</span><Badge className={JOB_STATUS_COLORS[selectedJob.status] ?? ''}>{selectedJob.status}</Badge>
+                <span className="text-xs text-white/30 ml-2">Priority:</span><Badge className={PRIORITY_COLORS[selectedJob.priority] ?? ''}>{selectedJob.priority}</Badge>
               </div>
-              <div className="flex items-center gap-2"><Clock className="w-4 h-4 text-white/30" /><span className="text-sm text-white/50">Due: {selectedJob.dueDate}</span></div>
+              {selectedJob.dueDate && <div className="flex items-center gap-2"><Clock className="w-4 h-4 text-white/30" /><span className="text-sm text-white/50">Due: {selectedJob.dueDate}</span></div>}
               <div className="flex gap-2 pt-2">
-                <Button className="bg-cyan-600 hover:bg-cyan-500 text-white text-xs"><Play className="w-3.5 h-3.5 mr-1" /> Start</Button>
-                <Button variant="outline" className="border-white/[0.1] text-white/50 text-xs hover:text-white"><Edit className="w-3.5 h-3.5 mr-1" /> Edit</Button>
+                {selectedJob.status !== 'Completed' && (
+                  <Button onClick={() => handleAdvance(selectedJob)} className="bg-cyan-600 hover:bg-cyan-500 text-white text-xs"><Play className="w-3.5 h-3.5 mr-1" /> Advance</Button>
+                )}
+                <Button variant="outline" onClick={() => { removeJob(selectedJob.id); setSelectedJob(null); }} className="border-red-500/30 text-red-400 text-xs hover:bg-red-500/10"><Trash2 className="w-3.5 h-3.5 mr-1" /> Delete</Button>
               </div>
             </div>
           )}
@@ -1425,10 +1581,12 @@ function ProductsModule() {
    MODULE 9: MATERIALS
    ================================================================ */
 function MaterialsModule() {
-  const [materials] = useState<MaterialItem[]>(MATERIALS);
+  const { materials, loading, adjustStock, removeMaterial } = usePrintMaterials();
   const [search, setSearch] = useState('');
   const filtered = materials.filter(m => m.name.toLowerCase().includes(search.toLowerCase()) || m.type.toLowerCase().includes(search.toLowerCase()));
   const lowStock = materials.filter(m => m.status === 'Low' || m.status === 'Out');
+
+  if (loading) return <div className="flex-1 flex items-center justify-center text-white/30 text-sm">Loading materials…</div>;
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -1459,11 +1617,22 @@ function MaterialsModule() {
                   <div className="p-2 rounded bg-white/[0.02]"><p className="text-[10px] text-white/30">Stock</p><p className="text-sm font-semibold text-white/70">{material.stock} <span className="text-[10px] font-normal text-white/30">{material.unit}</span></p></div>
                   <div className="p-2 rounded bg-white/[0.02]"><p className="text-[10px] text-white/30">Min Level</p><p className="text-sm font-semibold text-white/70">{material.minThreshold} <span className="text-[10px] font-normal text-white/30">{material.unit}</span></p></div>
                 </div>
-                <div className="mt-2"><div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden"><div className={`h-full rounded-full transition-all ${material.status === 'In Stock' ? 'bg-emerald-500' : material.status === 'Low' ? 'bg-amber-500' : 'bg-red-500'}`} style={{ width: `${Math.min(100, (material.stock / (material.minThreshold * 4)) * 100)}%` }} /></div></div>
+                <div className="mt-2"><div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden"><div className={`h-full rounded-full transition-all ${material.status === 'In Stock' ? 'bg-emerald-500' : material.status === 'Low' ? 'bg-amber-500' : 'bg-red-500'}`} style={{ width: `${Math.min(100, (material.stock / (Math.max(material.minThreshold, 1) * 4)) * 100)}%` }} /></div></div>
+                <div className="flex gap-1 mt-3">
+                  <button onClick={() => adjustStock(material.id, 10)} className="flex-1 h-6 rounded text-[10px] bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 transition-all flex items-center justify-center gap-1"><ArrowUp className="w-3 h-3" />+10</button>
+                  <button onClick={() => adjustStock(material.id, -10)} className="flex-1 h-6 rounded text-[10px] bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 transition-all flex items-center justify-center gap-1"><ArrowDown className="w-3 h-3" />-10</button>
+                  <button onClick={() => removeMaterial(material.id)} className="w-6 h-6 rounded text-[10px] bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-all flex items-center justify-center"><Trash2 className="w-3 h-3" /></button>
+                </div>
               </CardContent>
             </Card>
           ))}
         </div>
+        {materials.length === 0 && (
+          <div className="flex flex-col items-center justify-center h-48 text-white/20">
+            <Package className="w-10 h-10 mb-3 opacity-30" />
+            <p className="text-sm">No materials yet — add your first stock item</p>
+          </div>
+        )}
       </div>
     </div>
   );

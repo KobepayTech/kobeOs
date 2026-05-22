@@ -111,6 +111,84 @@ export interface KobeOSOsUpdateAPI {
   clearReboot: () => Promise<{ success: boolean; error?: string }>;
 }
 
+// ── Runtime API (HAL + services + drivers) ────────────────────────────────────
+
+export interface KobeOSRuntimeHAL {
+  platform: () => Promise<string>;
+  display:  () => Promise<Record<string, unknown>>;
+  network:  () => Promise<Record<string, unknown>>;
+  storage:  () => Promise<Record<string, unknown>>;
+  power:    () => Promise<Record<string, unknown>>;
+  usb:      () => Promise<unknown[]>;
+}
+
+export interface KobeOSRuntimeAudio {
+  getVolume: ()              => Promise<number>;
+  setVolume: (level: number) => Promise<number>;
+  getMute:   ()              => Promise<boolean>;
+  setMute:   (muted: boolean) => Promise<boolean>;
+  status:    ()              => Promise<Record<string, unknown>>;
+}
+
+export interface KobeOSRuntimeAI {
+  chat:   (messages: unknown[], opts?: Record<string, unknown>) => Promise<string>;
+  embed:  (text: string) => Promise<number[]>;
+  status: () => Promise<Record<string, unknown>>;
+}
+
+export interface KobeOSRuntimeFile {
+  read:   (vpath: string, appId: string, enc?: string) => Promise<string>;
+  write:  (vpath: string, appId: string, data: string) => Promise<void>;
+  list:   (vpath: string, appId: string) => Promise<{ name: string; type: 'file' | 'dir'; size: number; mtime: Date }[]>;
+  delete: (vpath: string, appId: string) => Promise<void>;
+  exists: (vpath: string, appId: string) => Promise<boolean>;
+  mkdir:  (vpath: string, appId: string) => Promise<void>;
+  stat:   (vpath: string, appId: string) => Promise<{ size: number; mtime: Date; isDir: boolean }>;
+  status: () => Promise<Record<string, unknown>>;
+}
+
+export interface KobeOSRuntimeCloud {
+  ping:   () => Promise<number>;
+  status: () => Promise<{ running: boolean; online: boolean; latency: number | null }>;
+}
+
+export interface KobeOSRuntimeDevices {
+  list:   () => Promise<unknown[]>;
+  byType: (type: string) => Promise<unknown[]>;
+  send:   (id: string, cmd: string, data?: unknown) => Promise<unknown>;
+  status: () => Promise<Record<string, unknown>>;
+}
+
+export interface KobeOSRuntimeDriver {
+  send: (driverId: string, deviceId: string, command: string, data?: unknown) => Promise<unknown>;
+}
+
+export interface KobeOSRuntimeBluetooth {
+  select:       (deviceId: string) => Promise<void>;
+  cancel:       () => Promise<void>;
+  devices:      () => Promise<unknown[]>;
+  onDeviceList: (cb: (list: unknown[]) => void) => () => void;
+}
+
+export interface RuntimeEvent {
+  service: string;
+  event:   string;
+  data:    unknown;
+}
+
+export interface KobeOSRuntimeAPI {
+  status:    () => Promise<Record<string, unknown>>;
+  hal:       KobeOSRuntimeHAL;
+  audio:     KobeOSRuntimeAudio;
+  ai:        KobeOSRuntimeAI;
+  file:      KobeOSRuntimeFile;
+  cloud:     KobeOSRuntimeCloud;
+  devices:   KobeOSRuntimeDevices;
+  driver:    KobeOSRuntimeDriver;
+  bluetooth: KobeOSRuntimeBluetooth;
+  onEvent:   (cb: (event: RuntimeEvent) => void) => () => void;
+}
+
 // ── Global window augmentation ────────────────────────────────────────────────
 
 declare global {
@@ -122,6 +200,7 @@ declare global {
       sync:     KobeOSSyncAPI;
       lan:      KobeOSLanAPI;
       osUpdate: KobeOSOsUpdateAPI;
+      runtime?: KobeOSRuntimeAPI;
     };
   }
 }

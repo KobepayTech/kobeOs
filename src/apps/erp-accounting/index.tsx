@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { api } from '@/lib/api';
 import {
   BookOpen, Plus, Trash2, Save, AlertCircle, CheckCircle, Search,
   ArrowRightLeft, Scale, FileText,
@@ -78,10 +79,20 @@ export default function ERPAccounting() {
   const [tab, setTab] = useState('coa');
   const [search, setSearch] = useState('');
   const [journalModalOpen, setJournalModalOpen] = useState(false);
-  const [journalDate, setJournalDate] = useState('2026-05-08');
+  const [journalDate, setJournalDate] = useState(new Date().toISOString().slice(0, 10));
   const [journalDesc, setJournalDesc] = useState('');
   const [journalLines, setJournalLines] = useState([{ account: '', debit: 0, credit: 0 }]);
   const [journalEntries, setJournalEntries] = useState(transactions);
+  const [summary, setSummary] = useState<{ income: number; expenses: number; profit: number } | null>(null);
+
+  useEffect(() => {
+    api<{ summary: { income: number; expenses: number; profit: number }; transactions: typeof transactions }>('/erp/accounting')
+      .then(d => {
+        if (d.transactions?.length) setJournalEntries(d.transactions as typeof transactions);
+        if (d.summary) setSummary(d.summary);
+      })
+      .catch(() => {});
+  }, []);
 
   const filteredAccounts = useMemo(() => {
     return accounts.filter((a) => a.name.toLowerCase().includes(search.toLowerCase()) || a.code.includes(search));
@@ -163,6 +174,24 @@ export default function ERPAccounting() {
             </TabsList>
           </Tabs>
         </div>
+
+        {/* Live P&L summary */}
+        {summary && (
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { label: 'Total Income', value: summary.income, color: 'text-emerald-400' },
+              { label: 'Total Expenses', value: summary.expenses, color: 'text-red-400' },
+              { label: 'Net Profit', value: summary.profit, color: summary.profit >= 0 ? 'text-blue-400' : 'text-red-400' },
+            ].map(k => (
+              <Card key={k.label} className="bg-slate-900/60 border-slate-800">
+                <CardContent className="p-3">
+                  <p className="text-[10px] text-slate-500">{k.label}</p>
+                  <p className={`text-base font-semibold ${k.color}`}>{tzs(k.value)}</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
 
         {tab === 'coa' && (
           <Card className="bg-slate-900/60 border-slate-800">
