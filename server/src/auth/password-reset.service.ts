@@ -37,12 +37,15 @@ export class PasswordResetService {
     );
     this.logger.log(`Password reset issued for ${email}`);
 
-    const isDev = this.config.get('NODE_ENV', 'development') === 'development';
-    if (!isDev) {
+    // In production the token is delivered out-of-band by email; in non-prod
+    // (development/test) it is returned inline so flows can be exercised
+    // without a live mailer.
+    const isProd = this.config.get('NODE_ENV', 'development') === 'production';
+    if (isProd) {
       await this.mailer.sendPasswordReset(email, raw);
     }
 
-    return { ok: true, ...(isDev ? { resetToken: raw } : {}) };
+    return { ok: true, ...(isProd ? {} : { resetToken: raw }) };
   }
 
   async reset(token: string, newPassword: string): Promise<{ ok: true }> {

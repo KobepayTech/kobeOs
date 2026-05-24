@@ -52,6 +52,11 @@ export async function resetDb(app: INestApplication) {
     'discount_rules', 'coupons', 'campaigns',
     'payment_transactions', 'credit_loans', 'wallets',
     'hotel_bookings', 'hotel_guests', 'hotel_rooms',
+    'print_jobs', 'print_products', 'print_materials', 'print_customers',
+    'admin_companies', 'admin_subscriptions', 'admin_invoices', 'admin_roles', 'admin_tickets',
+    'dev_commits', 'dev_feature_flags', 'dev_deployments', 'dev_issues',
+    'erp_accounts', 'erp_transactions', 'erp_loyalty_customers', 'erp_loyalty_rewards',
+    'erp_loyalty_points', 'erp_suppliers', 'erp_purchase_orders',
     'creators', 'users',
   ];
   await ds.query(`TRUNCATE TABLE ${tables.map((t) => `"${t}"`).join(', ')} CASCADE`);
