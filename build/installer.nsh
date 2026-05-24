@@ -1,20 +1,9 @@
-!include "MUI2.nsh"
+; installer.nsh — custom NSIS macros included by electron-builder.
+; Do NOT redefine MUI_ICON, MUI_UNICON, Name, OutFile, InstallDir or
+; SetCompressor here — electron-builder injects those from package.json.
+; Only define registry keys and custom sections/functions below.
 !include "LogicLib.nsh"
 !include "FileFunc.nsh"
-
-Name "Kobe Studio"
-OutFile "KobeStudio-Setup.exe"
-InstallDir "$PROGRAMFILES64\Kobe Studio"
-InstallDirRegKey HKCU "Software\KobepayTech\Kobe Studio" ""
-RequestExecutionLevel admin
-SetCompressor /SOLID lzma
-
-!define MUI_ABORTWARNING
-!define MUI_ICON "..\public\kobeos-icon.ico"
-!define MUI_UNICON "..\public\kobeos-icon.ico"
-!define MUI_WELCOMEFINISHPAGE_BITMAP "..\public\installer-wizard.bmp"
-!define MUI_HEADERIMAGE
-!define MUI_HEADERIMAGE_BITMAP "..\public\installer-header.bmp"
 
 ; ── Registry keys ─────────────────────────────────────────────────────────────
 ; Old appId: com.kobepay.kobeos (KobeOS)

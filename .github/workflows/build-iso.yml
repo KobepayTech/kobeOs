@@ -24,6 +24,8 @@ jobs:
         working-directory: server
       - run: npm run build
       - run: npm run electron:build:linux
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - run: npm run iso:package
       - uses: actions/upload-artifact@v4
         with:
