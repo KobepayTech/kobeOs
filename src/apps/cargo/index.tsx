@@ -1806,7 +1806,7 @@ export default function KOBECARGO() {
     apiPath: '/cargo/shipments',
     seed: shipments,
   });
-  useOfflineData<Flight>({
+  useOfflineData<Shipment>({
     table: 'cargo_shipments', // flights share the shipments cache table
     apiPath: '/cargo/flights',
     seed: flights as unknown as Shipment[],

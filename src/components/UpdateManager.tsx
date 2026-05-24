@@ -1,14 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-type UpdateEvent =
-  | { event: 'checking' }
-  | { event: 'available'; version: string; releaseNotes?: string; releaseDate?: string }
-  | { event: 'not-available'; currentVersion: string }
-  | { event: 'progress'; percent: number; transferred: number; total: number; bytesPerSecond: number }
-  | { event: 'downloaded'; version: string }
-  | { event: 'error'; message: string };
+import type { UpdaterEvent as UpdateEvent } from '../types/electron.d';
 
 interface UpdaterStatus {
   currentVersion: string;
