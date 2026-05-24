@@ -8,4 +8,6 @@ release/
 *.dmg
 *.iso
 iso-build/
+live-build/
 electron/server-bundle/
+electron/.staging/

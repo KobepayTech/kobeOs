@@ -2,7 +2,7 @@ const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { exec, execFile, spawn } = require('child_process');
-const { setupAutoUpdater } = require('./update-manager');
+const { setupAutoUpdater } = require('./update-manager.cjs');
 
 let mainWindow;
 let splashWindow = null;
@@ -20,7 +20,7 @@ function createSplashWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: false,
-      preload: path.join(__dirname, 'splash-preload.js'),
+      preload: path.join(__dirname, 'splash-preload.cjs'),
     },
   });
   splashWindow.loadFile(path.join(__dirname, 'splash.html'));
@@ -219,7 +219,7 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, 'preload.cjs'),
       webSecurity: !isDev,
     },
   });
@@ -236,7 +236,7 @@ function createWindow() {
   });
 }
 
-// Auto-updater with rollback is handled by ./update-manager.js
+// Auto-updater with rollback is handled by ./update-manager.cjs
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 
