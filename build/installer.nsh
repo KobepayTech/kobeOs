@@ -1,7 +1,6 @@
-; installer.nsh — custom NSIS macros included by electron-builder.
-; Do NOT redefine MUI_ICON, MUI_UNICON, Name, OutFile, InstallDir or
-; SetCompressor here — electron-builder injects those from package.json.
-; Only define registry keys and custom sections/functions below.
+; installer.nsh — included by electron-builder into its generated NSIS script.
+; electron-builder already handles: MUI2.nsh, MUI_ICON, pages, language, Name,
+; OutFile, InstallDir, SetCompressor. Only add custom logic here.
 !include "LogicLib.nsh"
 !include "FileFunc.nsh"
 
@@ -11,20 +10,6 @@
 !define OLD_INSTALL_DIR_KEY "Software\KobeOS"
 ; New appId: com.kobepay.kobestudio (Kobe Studio)
 !define NEW_UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\{com.kobepay.kobestudio}"
-
-!insertmacro MUI_PAGE_WELCOME
-!insertmacro MUI_PAGE_LICENSE "..\LICENSE.txt"
-!insertmacro MUI_PAGE_COMPONENTS
-!insertmacro MUI_PAGE_DIRECTORY
-!insertmacro MUI_PAGE_INSTFILES
-!insertmacro MUI_PAGE_FINISH
-
-!insertmacro MUI_UNPAGE_WELCOME
-!insertmacro MUI_UNPAGE_CONFIRM
-!insertmacro MUI_UNPAGE_INSTFILES
-!insertmacro MUI_UNPAGE_FINISH
-
-!insertmacro MUI_LANGUAGE "English"
 
 ; ── Migration: remove old KobeOS install before writing new files ─────────────
 Function MigrateFromKobeOS
@@ -56,59 +41,17 @@ Function MigrateFromKobeOS
   ${EndIf}
 FunctionEnd
 
-Section "Kobe Studio Core" SEC_CORE
-  SectionIn RO
+; electron-builder generates the install/uninstall sections automatically.
+; The MigrateFromKobeOS function is called from the customInstall macro below.
+
+!macro customInstall
   Call MigrateFromKobeOS
-
-  SetOutPath "$INSTDIR"
-  File /r "..\release\win-unpacked\*.*"
-
-  CreateDirectory "$SMPROGRAMS\Kobe Studio"
-  CreateShortcut "$SMPROGRAMS\Kobe Studio\Kobe Studio.lnk" "$INSTDIR\Kobe Studio.exe"
-  CreateShortcut "$SMPROGRAMS\Kobe Studio\Uninstall.lnk" "$INSTDIR\Uninstall.exe"
-  CreateShortcut "$DESKTOP\Kobe Studio.lnk" "$INSTDIR\Kobe Studio.exe"
-
-  WriteRegStr HKCU "Software\KobepayTech\Kobe Studio" "" $INSTDIR
-  WriteRegStr HKCU "${NEW_UNINST_KEY}" "DisplayName" "Kobe Studio"
-  WriteRegStr HKCU "${NEW_UNINST_KEY}" "DisplayVersion" "1.0.0"
-  WriteRegStr HKCU "${NEW_UNINST_KEY}" "Publisher" "KobepayTech"
-  WriteRegStr HKCU "${NEW_UNINST_KEY}" "UninstallString" "$INSTDIR\Uninstall.exe"
-  WriteRegStr HKCU "${NEW_UNINST_KEY}" "InstallLocation" "$INSTDIR"
-  WriteRegStr HKCU "${NEW_UNINST_KEY}" "DisplayIcon" "$INSTDIR\Kobe Studio.exe"
-  WriteRegDWORD HKCU "${NEW_UNINST_KEY}" "NoModify" 1
-  WriteRegDWORD HKCU "${NEW_UNINST_KEY}" "NoRepair" 1
-
-  WriteUninstaller "$INSTDIR\Uninstall.exe"
   EnVar::AddValue "PATH" "$INSTDIR"
-SectionEnd
+!macroend
 
-Section "Start Menu Shortcuts" SEC_STARTMENU
-  CreateDirectory "$SMPROGRAMS\Kobe Studio"
-  CreateShortcut "$SMPROGRAMS\Kobe Studio\Kobe Studio.lnk" "$INSTDIR\Kobe Studio.exe"
-SectionEnd
-
-Section "Desktop Shortcut" SEC_DESKTOP
-  CreateShortcut "$DESKTOP\Kobe Studio.lnk" "$INSTDIR\Kobe Studio.exe"
-SectionEnd
-
-Section "Uninstall"
-  Delete "$INSTDIR\Uninstall.exe"
-  RMDir /r "$INSTDIR"
-  Delete "$SMPROGRAMS\Kobe Studio\Kobe Studio.lnk"
-  Delete "$SMPROGRAMS\Kobe Studio\Uninstall.lnk"
-  RMDir "$SMPROGRAMS\Kobe Studio"
-  Delete "$DESKTOP\Kobe Studio.lnk"
-  DeleteRegKey HKCU "Software\KobepayTech\Kobe Studio"
+!macro customUnInstall
   DeleteRegKey HKCU "${NEW_UNINST_KEY}"
+  DeleteRegKey HKCU "${OLD_UNINST_KEY}"
+  DeleteRegKey HKCU "${OLD_INSTALL_DIR_KEY}"
   EnVar::DeleteValue "PATH" "$INSTDIR"
-SectionEnd
-
-LangString DESC_CORE      ${LANG_ENGLISH} "Kobe Studio core application files."
-LangString DESC_STARTMENU ${LANG_ENGLISH} "Add Kobe Studio to Start Menu."
-LangString DESC_DESKTOP   ${LANG_ENGLISH} "Add Kobe Studio shortcut to Desktop."
-
-!insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
-  !insertmacro MUI_DESCRIPTION_TEXT ${SEC_CORE}      $(DESC_CORE)
-  !insertmacro MUI_DESCRIPTION_TEXT ${SEC_STARTMENU} $(DESC_STARTMENU)
-  !insertmacro MUI_DESCRIPTION_TEXT ${SEC_DESKTOP}   $(DESC_DESKTOP)
-!insertmacro MUI_FUNCTION_DESCRIPTION_END
+!macroend
