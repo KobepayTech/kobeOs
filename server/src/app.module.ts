@@ -46,7 +46,9 @@ import { KobeModelsModule } from './kobe-models/kobe-models.module';
 import { LicenseModule } from './license/license.module';
 import { PrintModule } from './print/print.module';
 import { AdminModule } from './admin/admin.module';
+import { DevopsModule } from './devops/devops.module';
 import { ErpModule } from './erp/erp.module';
+import { AccountModule } from './account/account.module';
 
 @Module({
   imports: [
@@ -97,6 +99,11 @@ import { ErpModule } from './erp/erp.module';
     StoreSettingsModule,
     StoreModule,
     StoreRegistryModule,
+    PrintModule,
+    AdminModule,
+    DevopsModule,
+    ErpModule,
+    AccountModule,
   ],
   controllers: [AppController],
   providers: [

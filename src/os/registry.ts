@@ -9,6 +9,7 @@ import { manifest as clock } from '@/apps/clock/manifest';
 import { manifest as task_manager } from '@/apps/task-manager/manifest';
 import { manifest as package_manager } from '@/apps/package-manager/manifest';
 import { manifest as backup_restore } from '@/apps/backup-restore/manifest';
+import { manifest as tasks } from '@/apps/tasks/manifest';
 import { manifest as notes } from '@/apps/notes/manifest';
 import { manifest as spreadsheet } from '@/apps/spreadsheet/manifest';
 import { manifest as presentation } from '@/apps/presentation/manifest';
@@ -81,6 +82,7 @@ export const appRegistry = [
   task_manager,
   package_manager,
   backup_restore,
+  tasks,
   notes,
   spreadsheet,
   presentation,
