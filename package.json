@@ -1,7 +1,7 @@
 {
   "name": "kobeos",
   "private": true,
-  "version": "1.1.0",
+  "version": "1.1.1",
   "main": "electron/main.js",
   "scripts": {
     "dev": "vite",
@@ -118,7 +118,7 @@
   "build": {
     "appId": "com.kobepaytech.kobeos",
     "productName": "KobeOS",
-    "copyright": "© 2026 KobepayTech",
+    "copyright": "\u00a9 2026 KobepayTech",
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -173,7 +173,7 @@
       "icon": "build/kobeos-icon.png",
       "category": "System",
       "maintainer": "KobepayTech <support@kobepaytech.com>",
-      "synopsis": "KobeOS — Business OS with ERP, cargo, hotel, payments and more",
+      "synopsis": "KobeOS \u2014 Business OS with ERP, cargo, hotel, payments and more",
       "description": "KobeOS is a desktop business platform with 70+ apps covering ERP, cargo logistics, hotel management, payments, POS, and productivity tools.",
       "desktop": {
         "entry": {
@@ -259,7 +259,7 @@
       }
     }
   },
-  "description": "KobeOS — Desktop business platform with ERP, cargo, hotel, payments and more",
+  "description": "KobeOS \u2014 Desktop business platform with ERP, cargo, hotel, payments and more",
   "author": {
     "name": "KobepayTech",
     "email": "support@kobepaytech.com"
