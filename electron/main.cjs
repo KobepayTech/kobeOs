@@ -91,6 +91,41 @@ function getSystemMode() {
 // ── Embedded PostgreSQL (live-usb mode) ───────────────────────────────────────
 
 async function startEmbeddedPostgres() {
+  // When packaged, node_modules live inside app.asar — native binaries cannot
+  // be executed from inside an asar archive. electron-builder's asarUnpack
+  // extracts them to app.asar.unpacked, but the embedded-postgres package
+  // resolves its own binary path using import.meta.url / __dirname which may
+  // still point inside the asar on Windows.
+  //
+  // We patch process.resourcesPath so the platform package's resolveBase()
+  // function finds the unpacked binaries. This is safe — resourcesPath is
+  // already set correctly by Electron; we only set it when missing (dev mode).
+  if (IS_PACKAGED && !process.resourcesPath) {
+    process.resourcesPath = path.join(app.getAppPath(), '..', '..');
+  }
+
+  // Verify the platform binary package is accessible before trying to start.
+  // If it's missing (e.g. wrong arch), fail with a clear message.
+  const platformPkg = {
+    win32:  '@embedded-postgres/windows-x64',
+    linux:  '@embedded-postgres/linux-x64',
+    darwin: '@embedded-postgres/darwin-x64',
+  }[process.platform];
+
+  if (platformPkg) {
+    const unpackedBase = IS_PACKAGED
+      ? path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', platformPkg)
+      : path.join(__dirname, '..', 'node_modules', platformPkg);
+
+    if (!fs.existsSync(unpackedBase)) {
+      throw new Error(
+        `Embedded PostgreSQL platform package not found: ${unpackedBase}\n` +
+        `Make sure ${platformPkg} is installed and included in asarUnpack.`
+      );
+    }
+    console.log(`[KobeOS] PostgreSQL binaries at: ${unpackedBase}`);
+  }
+
   const { default: EmbeddedPostgres } = await import('embedded-postgres');
 
   const pg = new EmbeddedPostgres({

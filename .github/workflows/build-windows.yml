@@ -98,6 +98,24 @@ jobs:
           Write-Host "Core files present in asar"
         shell: pwsh
 
+      - name: Smoke test — verify postgres binaries are unpacked
+        run: |
+          $unpacked = "release\win-unpacked\resources\app.asar.unpacked\node_modules\@embedded-postgres\windows-x64"
+          if (!(Test-Path $unpacked)) {
+            Write-Error "PostgreSQL platform package not found in asar.unpacked: $unpacked"
+            Write-Host "Contents of app.asar.unpacked\node_modules:"
+            Get-ChildItem "release\win-unpacked\resources\app.asar.unpacked\node_modules" -ErrorAction SilentlyContinue | Select-Object Name
+            exit 1
+          }
+          $initdb = Get-ChildItem "$unpacked" -Recurse -Filter "initdb.exe" -ErrorAction SilentlyContinue
+          if (!$initdb) {
+            Write-Error "initdb.exe not found inside $unpacked"
+            exit 1
+          }
+          Write-Host "PostgreSQL initdb.exe found: $($initdb.FullName)"
+          Write-Host "Postgres smoke test passed"
+        shell: pwsh
+
       - name: List release artifacts
         run: Get-ChildItem release\ -Recurse | Select-Object FullName, Length
         shell: pwsh
