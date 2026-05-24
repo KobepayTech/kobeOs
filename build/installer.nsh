@@ -46,12 +46,10 @@ FunctionEnd
 
 !macro customInstall
   Call MigrateFromKobeOS
-  EnVar::AddValue "PATH" "$INSTDIR"
 !macroend
 
 !macro customUnInstall
   DeleteRegKey HKCU "${NEW_UNINST_KEY}"
   DeleteRegKey HKCU "${OLD_UNINST_KEY}"
   DeleteRegKey HKCU "${OLD_INSTALL_DIR_KEY}"
-  EnVar::DeleteValue "PATH" "$INSTDIR"
 !macroend
