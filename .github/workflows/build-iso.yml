@@ -25,6 +25,8 @@ jobs:
         run: npm ci --legacy-peer-deps
         working-directory: server
       - run: npm run build
+      - name: Regenerate core integrity manifest
+        run: node scripts/generate-core-manifest.js
       - run: npx electron-builder --linux --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

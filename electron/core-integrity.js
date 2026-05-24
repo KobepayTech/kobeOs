@@ -67,15 +67,24 @@ function collectCoreFiles(root) {
       const stat = fs.statSync(abs);
       if (stat.isDirectory()) {
         walk(abs, rel);
-      } else if (entry.endsWith('.js')) {
+      } else if (entry.endsWith('.js') || entry.endsWith('.cjs')) {
         files.push(rel);
       }
     }
   };
   // Core directories to protect
-  walk(path.join(root, 'runtime'), 'runtime');
-  // Core files
-  for (const f of ['main.js', 'preload.js', 'update-manager.js', 'update-verifier.js', 'core-integrity.js']) {
+  if (fs.existsSync(path.join(root, 'runtime'))) {
+    walk(path.join(root, 'runtime'), 'runtime');
+  }
+  // Core files — check both .js and .cjs variants (renamed during ESM migration)
+  const coreFiles = [
+    'main.cjs', 'main.js',
+    'preload.cjs', 'preload.js',
+    'update-manager.cjs', 'update-manager.js',
+    'update-verifier.js',
+    'core-integrity.js',
+  ];
+  for (const f of coreFiles) {
     if (fs.existsSync(path.join(root, f))) files.push(f);
   }
   return files;

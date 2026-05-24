@@ -47,10 +47,56 @@ jobs:
       - name: Bundle NestJS backend
         run: npm run build:bundle
 
+      - name: Regenerate core integrity manifest
+        run: node scripts/generate-core-manifest.js
+
+      - name: Verify manifest was generated
+        run: |
+          if (!(Test-Path "build/core-manifest.json")) {
+            Write-Error "core-manifest.json was not generated"
+            exit 1
+          }
+          $manifest = Get-Content "build/core-manifest.json" | ConvertFrom-Json
+          $count = ($manifest.files | Get-Member -MemberType NoteProperty).Count
+          Write-Host "Manifest contains $count files"
+          if ($count -eq 0) {
+            Write-Error "Manifest is empty"
+            exit 1
+          }
+        shell: pwsh
+
       - name: Build Windows installer
         run: npx electron-builder --win --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Smoke test — verify installer exists and is non-trivial
+        run: |
+          $exes = Get-ChildItem release\*.exe -ErrorAction SilentlyContinue
+          if ($exes.Count -eq 0) {
+            Write-Error "No .exe found in release/"
+            exit 1
+          }
+          foreach ($exe in $exes) {
+            Write-Host "$($exe.Name): $([math]::Round($exe.Length/1MB, 1)) MB"
+            if ($exe.Length -lt 10MB) {
+              Write-Error "$($exe.Name) is suspiciously small (<10 MB)"
+              exit 1
+            }
+          }
+          Write-Host "Smoke test passed"
+        shell: pwsh
+
+      - name: Smoke test — verify asar contains core files
+        run: |
+          $asar = "release\win-unpacked\resources\app.asar"
+          if (!(Test-Path $asar)) {
+            Write-Error "app.asar not found at $asar"
+            exit 1
+          }
+          npx asar list $asar | Select-String "electron/main.cjs","electron/preload.cjs","electron/update-manager.cjs"
+          Write-Host "Core files present in asar"
+        shell: pwsh
 
       - name: List release artifacts
         run: Get-ChildItem release\ -Recurse | Select-Object FullName, Length
