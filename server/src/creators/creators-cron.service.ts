@@ -20,8 +20,14 @@ export class CreatorsCronService {
    */
   @Cron(CronExpression.EVERY_30_MINUTES)
   async verifyCampaigns() {
-    this.logger.debug('Running campaign verification cron');
-    await this.metrics.verifyCampaigns();
+    try {
+      this.logger.debug('Running campaign verification cron');
+      await this.metrics.verifyCampaigns();
+    } catch (err: any) {
+      if (!err?.message?.includes('does not exist')) {
+        this.logger.error('verifyCampaigns failed', err?.message);
+      }
+    }
   }
 
   /**
@@ -29,7 +35,7 @@ export class CreatorsCronService {
    * Only syncs creators with at least one connected platform and a non-free tier.
    */
   @Cron(CronExpression.EVERY_DAY_AT_3AM)
-  async refreshCreatorMetrics() {
+  async refreshCreatorMetrics() { try {
     const staleDate = new Date(Date.now() - 23 * 60 * 60 * 1000); // older than 23h
     const creators = await this.creators.find({
       where: [
@@ -50,5 +56,9 @@ export class CreatorsCronService {
         this.logger.warn(`Metrics refresh failed for ${creator.handle}: ${(err as Error).message}`);
       }
     }
-  }
+  } catch (err: any) {
+    if (!err?.message?.includes('does not exist')) {
+      this.logger.error('refreshCreatorMetrics failed', err?.message);
+    }
+  } }
 }

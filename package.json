@@ -2,8 +2,7 @@
   "name": "kobeos",
   "private": true,
   "version": "1.1.0",
-  "type": "module",
-  "main": "electron/main.cjs",
+  "main": "electron/main.js",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
@@ -13,9 +12,10 @@
     "preview": "vite preview",
     "electron": "electron .",
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
-    "electron:build": "npm run build && electron-builder",
-    "electron:build:linux": "npm run build && npm run build:bundle && electron-builder --linux",
-    "electron:build:win": "npm run build && electron-builder --win",
+    "core:manifest": "node scripts/generate-core-manifest.js",
+    "electron:build": "npm run build && npm run core:manifest && electron-builder",
+    "electron:build:linux": "npm run build && npm run build:bundle && npm run core:manifest && electron-builder --linux",
+    "electron:build:win": "npm run build && npm run core:manifest && electron-builder --win",
     "iso:build": "npm run electron:build:linux && node scripts/build-iso.cjs",
     "iso:package": "node scripts/build-iso.cjs",
     "models:checksums": "node scripts/fetch-model-checksums.js",
@@ -24,7 +24,8 @@
     "models:football:train": "python3 scripts/build-football-vision.py --mode train",
     "models:football:export": "python3 scripts/build-football-vision.py --mode export",
     "models:football:bundle": "python3 scripts/build-football-vision.py --mode bundle",
-    "build:bundle": "cd server && npx ncc build src/main.ts -o ../electron/server-bundle --minify --no-source-map-register"
+    "build:bundle": "cd server && npx ncc build src/main.ts -o ../electron/server-bundle --minify --no-source-map-register",
+    "usb:write": "sudo node scripts/write-usb.js"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -55,6 +56,7 @@
     "@radix-ui/react-toggle-group": "^1.1.11",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@types/react-router-dom": "^5.3.3",
+    "better-sqlite3": "^12.10.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
@@ -86,6 +88,7 @@
     "@eslint/js": "^9.39.1",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
@@ -113,8 +116,8 @@
     "wait-on": "^8.0.0"
   },
   "build": {
-    "appId": "com.kobepay.kobestudio",
-    "productName": "Kobe Studio",
+    "appId": "com.kobepaytech.kobeos",
+    "productName": "KobeOS",
     "copyright": "© 2026 KobepayTech",
     "directories": {
       "output": "release",
@@ -123,30 +126,37 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
-      "node_modules/**/*",
-      "package.json"
+      "package.json",
+      "!electron/server-bundle/**",
+      "!**/*.map",
+      "!**/*.ts",
+      "node_modules/better-sqlite3/**",
+      "node_modules/bindings/**",
+      "node_modules/file-uri-to-path/**",
+      "node_modules/embedded-postgres/**",
+      "node_modules/pg/**",
+      "node_modules/pg-protocol/**",
+      "node_modules/pg-types/**",
+      "node_modules/pgpass/**",
+      "node_modules/buffer-writer/**",
+      "node_modules/packet-reader/**"
     ],
     "extraResources": [
       {
-        "from": "dist",
-        "to": "dist",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
         "from": "electron/server-bundle",
         "to": "server-bundle"
+      },
+      {
+        "from": "build/kobeos-release.pub",
+        "to": "kobeos-release.pub"
+      },
+      {
+        "from": "build/core-manifest.json",
+        "to": "core-manifest.json"
       }
     ],
     "linux": {
       "target": [
-        {
-          "target": "dir",
-          "arch": [
-            "x64"
-          ]
-        },
         {
           "target": "AppImage",
           "arch": [
@@ -160,19 +170,25 @@
           ]
         }
       ],
+      "icon": "build/kobeos-icon.png",
       "category": "System",
-      "maintainer": "KobepayTech",
-      "vendor": "KobepayTech",
-      "synopsis": "Kobe Studio — AI-powered business and sports analytics platform",
-      "description": "Kobe Studio is an AI-powered desktop platform with 70+ apps covering ERP, cargo, hotel, payments, sports analytics, and local AI inference."
+      "maintainer": "KobepayTech <support@kobepaytech.com>",
+      "synopsis": "KobeOS — Business OS with ERP, cargo, hotel, payments and more",
+      "description": "KobeOS is a desktop business platform with 70+ apps covering ERP, cargo logistics, hotel management, payments, POS, and productivity tools.",
+      "desktop": {
+        "entry": {
+          "Name": "KobeOS",
+          "Comment": "Business OS Platform",
+          "Categories": "Office;Finance;"
+        }
+      }
     },
     "win": {
       "target": [
         {
           "target": "nsis",
           "arch": [
-            "x64",
-            "ia32"
+            "x64"
           ]
         },
         {
@@ -182,7 +198,9 @@
           ]
         }
       ],
-      "icon": "build/kobeos-icon.ico"
+      "icon": "build/kobeos-icon.ico",
+      "signAndEditExecutable": false,
+      "requestedExecutionLevel": "asInvoker"
     },
     "nsis": {
       "oneClick": false,
@@ -190,19 +208,34 @@
       "differentialPackage": false,
       "installerIcon": "build/kobeos-icon.ico",
       "uninstallerIcon": "build/kobeos-icon.ico",
-      "installerHeaderIcon": "public/kobeos-icon.ico",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Kobe Studio",
-      "artifactName": "${productName}-Setup-${version}.exe",
-      "include": "build/installer-migration.nsh"
+      "shortcutName": "KobeOS",
+      "artifactName": "KobeOS-Setup-${version}.exe",
+      "include": "build/installer.nsh"
     },
     "mac": {
       "target": [
-        "dmg",
-        "zip"
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ],
-      "category": "public.app-category.utilities"
+      "icon": "build/kobeos-icon-mac.png",
+      "category": "public.app-category.business",
+      "darkModeSupport": true,
+      "hardenedRuntime": false,
+      "gatekeeperAssess": false
     },
     "publish": [
       {
@@ -211,6 +244,24 @@
         "repo": "kobeOs",
         "releaseType": "release"
       }
-    ]
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/better-sqlite3/**",
+      "node_modules/embedded-postgres/**"
+    ],
+    "dmg": {
+      "title": "KobeOS ${version}",
+      "artifactName": "KobeOS-${version}.dmg",
+      "window": {
+        "width": 540,
+        "height": 380
+      }
+    }
+  },
+  "description": "KobeOS — Desktop business platform with ERP, cargo, hotel, payments and more",
+  "author": {
+    "name": "KobepayTech",
+    "email": "support@kobepaytech.com"
   }
 }

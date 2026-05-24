@@ -1,82 +1,84 @@
-import {
-  IsBoolean, IsEnum, IsInt, IsNumber, IsOptional, IsString, MaxLength, Min,
-} from 'class-validator';
+import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 
-/* ---------------- products ---------------- */
-export class CreatePrintProductDto {
-  @IsString() @MaxLength(120) name!: string;
-  @IsOptional() @IsString() @MaxLength(80) category?: string;
-  @IsNumber() basePrice!: number;
-  @IsOptional() @IsString() @MaxLength(60) method?: string;
-  @IsOptional() @IsBoolean() active?: boolean;
-  @IsOptional() @IsString() @MaxLength(40) icon?: string;
-}
-export class UpdatePrintProductDto {
-  @IsOptional() @IsString() @MaxLength(120) name?: string;
-  @IsOptional() @IsString() @MaxLength(80) category?: string;
-  @IsOptional() @IsNumber() basePrice?: number;
-  @IsOptional() @IsString() @MaxLength(60) method?: string;
-  @IsOptional() @IsBoolean() active?: boolean;
-  @IsOptional() @IsString() @MaxLength(40) icon?: string;
-}
-
-/* ---------------- jobs ---------------- */
-const PRIORITIES = ['High', 'Medium', 'Low'] as const;
-const JOB_STATUSES = ['Pending', 'Printing', 'Finishing', 'Completed'] as const;
+// ── Print Job DTOs ────────────────────────────────────────────────────────────
 
 export class CreatePrintJobDto {
+  @IsString() @MaxLength(40)  jobNumber!: string;
   @IsString() @MaxLength(200) product!: string;
-  @IsOptional() @IsString() @MaxLength(120) customer?: string;
-  @IsOptional() @IsString() @MaxLength(60) method?: string;
-  @IsOptional() @IsInt() @Min(1) qty?: number;
-  @IsOptional() @IsEnum(PRIORITIES) priority?: 'High' | 'Medium' | 'Low';
-  @IsOptional() @IsEnum(JOB_STATUSES) status?: 'Pending' | 'Printing' | 'Finishing' | 'Completed';
-  @IsOptional() @IsString() @MaxLength(60) dueDate?: string;
+  @IsOptional() @IsString() @MaxLength(200) customer?: string;
+  @IsOptional() @IsString() customerPhone?: string;
+  @IsOptional() @IsString() customerEmail?: string;
+  @IsOptional() @IsString() dueDate?: string;
+  @IsOptional() @IsEnum(['High', 'Medium', 'Low']) priority?: string;
+  @IsOptional() @IsNumber() @Min(1) qty?: number;
+  @IsOptional() @IsString() method?: string;
+  @IsOptional() @IsString() notes?: string;
+  @IsOptional() @IsNumber() price?: number;
+  @IsOptional() @IsString() currency?: string;
+  @IsOptional() @IsString() templateId?: string;
 }
+
 export class UpdatePrintJobDto {
-  @IsOptional() @IsString() @MaxLength(200) product?: string;
-  @IsOptional() @IsString() @MaxLength(120) customer?: string;
-  @IsOptional() @IsString() @MaxLength(60) method?: string;
-  @IsOptional() @IsInt() @Min(1) qty?: number;
-  @IsOptional() @IsEnum(PRIORITIES) priority?: 'High' | 'Medium' | 'Low';
-  @IsOptional() @IsEnum(JOB_STATUSES) status?: 'Pending' | 'Printing' | 'Finishing' | 'Completed';
-  @IsOptional() @IsString() @MaxLength(60) dueDate?: string;
+  @IsOptional() @IsString() product?: string;
+  @IsOptional() @IsString() customer?: string;
+  @IsOptional() @IsString() customerPhone?: string;
+  @IsOptional() @IsString() customerEmail?: string;
+  @IsOptional() @IsString() dueDate?: string;
+  @IsOptional() @IsEnum(['High', 'Medium', 'Low']) priority?: string;
+  @IsOptional() @IsEnum(['Pending', 'Printing', 'Finishing', 'Completed', 'Cancelled']) status?: string;
+  @IsOptional() @IsNumber() @Min(1) qty?: number;
+  @IsOptional() @IsString() method?: string;
+  @IsOptional() @IsString() notes?: string;
+  @IsOptional() @IsNumber() price?: number;
+  @IsOptional() @IsString() templateId?: string;
 }
 
-/* ---------------- materials ---------------- */
+// ── Template DTOs ─────────────────────────────────────────────────────────────
+
+export class CreatePrintTemplateDto {
+  @IsString() @MaxLength(200) name!: string;
+  @IsOptional() @IsString() category?: string;
+  @IsOptional() @IsString() method?: string;
+  @IsOptional() @IsString() canvasData?: string;
+  @IsOptional() @IsString() thumbnailUrl?: string;
+  @IsOptional() @IsBoolean() active?: boolean;
+}
+
+export class UpdatePrintTemplateDto {
+  @IsOptional() @IsString() name?: string;
+  @IsOptional() @IsString() category?: string;
+  @IsOptional() @IsString() method?: string;
+  @IsOptional() @IsString() canvasData?: string;
+  @IsOptional() @IsString() thumbnailUrl?: string;
+  @IsOptional() @IsBoolean() active?: boolean;
+}
+
+// ── Material DTOs ─────────────────────────────────────────────────────────────
+
 export class CreatePrintMaterialDto {
-  @IsString() @MaxLength(120) name!: string;
-  @IsOptional() @IsString() @MaxLength(60) type?: string;
+  @IsString() @MaxLength(200) name!: string;
+  @IsOptional() @IsString() type?: string;
   @IsOptional() @IsNumber() @Min(0) stock?: number;
-  @IsOptional() @IsString() @MaxLength(20) unit?: string;
+  @IsOptional() @IsString() unit?: string;
   @IsOptional() @IsNumber() @Min(0) minThreshold?: number;
-  @IsOptional() @IsString() @MaxLength(20) color?: string;
-}
-export class UpdatePrintMaterialDto {
-  @IsOptional() @IsString() @MaxLength(120) name?: string;
-  @IsOptional() @IsString() @MaxLength(60) type?: string;
-  @IsOptional() @IsNumber() @Min(0) stock?: number;
-  @IsOptional() @IsString() @MaxLength(20) unit?: string;
-  @IsOptional() @IsNumber() @Min(0) minThreshold?: number;
-  @IsOptional() @IsString() @MaxLength(20) color?: string;
+  @IsOptional() @IsString() color?: string;
+  @IsOptional() @IsString() supplier?: string;
+  @IsOptional() @IsNumber() @Min(0) costPerUnit?: number;
+  @IsOptional() @IsString() currency?: string;
 }
 
-/* ---------------- customers ---------------- */
-export class CreatePrintCustomerDto {
-  @IsString() @MaxLength(120) name!: string;
-  @IsOptional() @IsString() @MaxLength(120) contact?: string;
-  @IsOptional() @IsString() @MaxLength(40) phone?: string;
-  @IsOptional() @IsString() @MaxLength(160) email?: string;
-  @IsOptional() @IsString() @MaxLength(20) status?: string;
-  @IsOptional() @IsInt() @Min(0) orders?: number;
-  @IsOptional() @IsNumber() @Min(0) totalSpent?: number;
+export class UpdatePrintMaterialDto {
+  @IsOptional() @IsString() name?: string;
+  @IsOptional() @IsString() type?: string;
+  @IsOptional() @IsNumber() @Min(0) stock?: number;
+  @IsOptional() @IsString() unit?: string;
+  @IsOptional() @IsNumber() @Min(0) minThreshold?: number;
+  @IsOptional() @IsString() color?: string;
+  @IsOptional() @IsString() supplier?: string;
+  @IsOptional() @IsNumber() @Min(0) costPerUnit?: number;
 }
-export class UpdatePrintCustomerDto {
-  @IsOptional() @IsString() @MaxLength(120) name?: string;
-  @IsOptional() @IsString() @MaxLength(120) contact?: string;
-  @IsOptional() @IsString() @MaxLength(40) phone?: string;
-  @IsOptional() @IsString() @MaxLength(160) email?: string;
-  @IsOptional() @IsString() @MaxLength(20) status?: string;
-  @IsOptional() @IsInt() @Min(0) orders?: number;
-  @IsOptional() @IsNumber() @Min(0) totalSpent?: number;
+
+export class AdjustStockDto {
+  @IsNumber() delta!: number; // positive = add, negative = consume
+  @IsOptional() @IsString() reason?: string;
 }

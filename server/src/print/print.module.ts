@@ -1,14 +1,12 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { PrintCustomer, PrintJob, PrintMaterial, PrintProduct } from './print.entity';
-import {
-  PrintCustomersService, PrintJobsService, PrintMaterialsService, PrintProductsService,
-} from './print.service';
+import { PrintJob, PrintMaterial, PrintTemplate } from './print.entity';
+import { PrintJobsService, PrintMaterialsService, PrintTemplatesService } from './print.service';
 import { PrintController } from './print.controller';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([PrintProduct, PrintJob, PrintMaterial, PrintCustomer])],
-  providers: [PrintProductsService, PrintJobsService, PrintMaterialsService, PrintCustomersService],
+  imports: [TypeOrmModule.forFeature([PrintJob, PrintTemplate, PrintMaterial])],
+  providers: [PrintJobsService, PrintTemplatesService, PrintMaterialsService],
   controllers: [PrintController],
 })
 export class PrintModule {}

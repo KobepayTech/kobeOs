@@ -196,7 +196,15 @@ export class PublishService {
     if (!token) return;
 
     // Find all published stores on this instance
-    const published = await this.repo.find({ where: { isPublished: true } });
+    let published: StoreSettings[];
+    try {
+      published = await this.repo.find({ where: { isPublished: true } });
+    } catch (err: any) {
+      if (!err?.message?.includes('does not exist')) {
+        this.logger.error('sendHeartbeats DB query failed', err?.message);
+      }
+      return;
+    }
     if (published.length === 0) return;
 
     let ip: string;

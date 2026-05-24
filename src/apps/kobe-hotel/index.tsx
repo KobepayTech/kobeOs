@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
+import { useOfflineData } from '@/hooks/useOfflineData';
 import { api } from '@/lib/api';
 import { ensureSession } from '@/lib/auth';
 import {
@@ -299,45 +300,21 @@ function statusBadge(status: RoomStatus | string) {
 // ═══════════════════════════════════════════════════════════════════════
 export default function KobeHotel() {
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [rooms, setRooms] = useState<Room[]>(ROOMS);
-  const [guests, setGuests] = useState<Guest[]>(GUESTS);
   const [staff, setStaff] = useState<StaffMember[]>(STAFF);
   const [inventory] = useState<InventoryItem[]>(INVENTORY);
   const [darkMode, setDarkMode] = useState(true);
 
-  // Sync rooms + guests to /api/hotel on first mount; seed if backend is empty.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        await ensureSession();
-        const existingRooms = await api<Array<{ id: string }>>('/hotel/rooms');
-        if (cancelled || existingRooms.length > 0) return;
-        await Promise.all(ROOMS.map((r) =>
-          api('/hotel/rooms', {
-            method: 'POST',
-            body: JSON.stringify({
-              roomNumber: r.number, type: r.type, rate: r.price,
-              capacity: r.beds || 2,
-              status: r.status === 'available' ? 'available'
-                : r.status === 'maintenance' ? 'maintenance'
-                : r.status === 'occupied' ? 'occupied' : 'available',
-            }),
-          }),
-        ));
-        await Promise.all(GUESTS.map((g) =>
-          api('/hotel/guests', {
-            method: 'POST',
-            body: JSON.stringify({
-              name: g.name, phone: g.phone, email: g.email,
-              nationality: g.nationality, idNumber: g.idNumber,
-            }),
-          }),
-        ));
-      } catch { /* leave demo data alone on failure */ }
-    })();
-    return () => { cancelled = true; };
-  }, []);
+  // Load rooms + guests from SQLite first, then sync from backend.
+  const { data: rooms, setData: setRooms } = useOfflineData<Room>({
+    table: 'hotel_rooms',
+    apiPath: '/hotel/rooms',
+    seed: ROOMS,
+  });
+  const { data: guests, setData: setGuests } = useOfflineData<Guest>({
+    table: 'hotel_bookings',
+    apiPath: '/hotel/bookings',
+    seed: GUESTS,
+  });
 
   // Bar POS state
   const [barCategory, setBarCategory] = useState('Beer');

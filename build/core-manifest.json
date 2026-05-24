@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "generatedAt": "2026-05-22T15:41:46.614Z",
+  "files": {
+    "runtime/driver-manager.js": "d84de2c24082ac00b4e70e9d9f9be2993d54246ddea41e2986e73a72d1626578",
+    "runtime/drivers/audio-driver.js": "4f340d17fa4934c0fffdac31cbcf581c988d777cbe6963c17a8ca5621e8b225e",
+    "runtime/drivers/bluetooth-driver.js": "bd883fbb1ed0ba30014f0d618fe77431ea620cec6afc5c979ee5d6eb6373cf9a",
+    "runtime/drivers/camera-driver.js": "b959d85c7d0b84ad589107bc1722ba6fcf09e62da5c30253f38a0bbb3a876e36",
+    "runtime/drivers/index.js": "f50e3e63c6b0f13169c5ffc2f5a56608083ba2dfd08761b39d45a5b6636f3379",
+    "runtime/drivers/payment-driver.js": "8365fae5baff7c754eb34a1790d885e785a2132f7f99dbbc326bacec9ef0953d",
+    "runtime/drivers/pos-driver.js": "5176a66cb5fab9062a9f84b7caf2801a492f9398b391ed2e661e66586884da21",
+    "runtime/hal.js": "bd47865d9fc1dc0c2b93f1742b11eed231204e4002726a2f92e9eeab35ca2a57",
+    "runtime/index.js": "9934a6665236e5d3004498cd3980fb2dadd18473ec5b903d0f43a2cf3eeb35ac",
+    "runtime/sandbox.js": "9f4caf9dbc8c1fafea9f73e35e00f6568697695c66faa713836a72a0236c16d8",
+    "runtime/service-manager.js": "b1799162022396983f20aaea87cd33c07d97ae6df6b0915470181d2dd40cca11",
+    "runtime/services/_base-service.js": "e9fdcf04c0aa4eb30c4c8a9151c0f172b6d0cc6d76dd6614dddea214b342b20c",
+    "runtime/services/ai-service.js": "389586f069b63f212257e3b3e98208787d150d22923bac886c8ed223cfd37879",
+    "runtime/services/audio-service.js": "8851130338e65378db3eba3e9a62c1234774917c95d755bdabd626066a34ab96",
+    "runtime/services/cloud-service.js": "bb704b60c4650adc6dc62b2ba9889e4d32c825db5224c66bb5aa86518038ddcd",
+    "runtime/services/device-manager.js": "a375defd2fb1ceaaa18f789df5fc64d30c72c5c4af7280d12e854dbc05250b9f",
+    "runtime/services/file-service.js": "a7b2090e1861d8da1db658805970583717dfef3db37b65ba1a8c556a67bb1e57",
+    "main.js": "f0b5eef55de7654abf89e02900af87a112fe967090e8a8315962ee5ea6ef2fc5",
+    "preload.js": "08591ea59287eacc51278bd36a587a66f019adeb8060c0e90a2f987d3c238902",
+    "update-manager.js": "44e256cc595e6d516248826355ca8c9c06560dabca49ea81e684cd773e13ad92",
+    "update-verifier.js": "a7790613921ff719fbd6801ddab22ded4be53b1492f9dde22ea1bbf8b99e4eb9",
+    "core-integrity.js": "c2c72483235c22e5e789d97ecc5d0623155f715c658adcec823c91b188ec00c6"
+  }
+}

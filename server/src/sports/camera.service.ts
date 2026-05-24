@@ -141,13 +141,20 @@ export class CameraService {
   /** Mark cameras offline if no heartbeat for >30 seconds */
   @Cron('*/15 * * * * *') // every 15s
   async checkOfflineCameras(): Promise<void> {
-    const threshold = new Date(Date.now() - 30_000);
-    const cameras = await this.repo.find({ where: { status: 'ONLINE' } });
-    for (const cam of cameras) {
-      if (!cam.lastHeartbeat || cam.lastHeartbeat < threshold) {
-        cam.status = 'OFFLINE';
-        await this.repo.save(cam);
-        this.logger.warn(`Camera ${cam.label} went offline`);
+    try {
+      const threshold = new Date(Date.now() - 30_000);
+      const cameras = await this.repo.find({ where: { status: 'ONLINE' } });
+      for (const cam of cameras) {
+        if (!cam.lastHeartbeat || cam.lastHeartbeat < threshold) {
+          cam.status = 'OFFLINE';
+          await this.repo.save(cam);
+          this.logger.warn(`Camera ${cam.label} went offline`);
+        }
+      }
+    } catch (err: any) {
+      // Table may not exist yet during startup sync — ignore until schema is ready
+      if (!err?.message?.includes('does not exist')) {
+        this.logger.error('checkOfflineCameras failed', err?.message);
       }
     }
   }

@@ -1,47 +1,33 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { CurrentUser } from '../auth/current-user.decorator';
-import {
-  CompaniesService, InvoicesService, RolesService, SubscriptionsService, TicketsService,
-} from './admin.service';
-import {
-  CreateCompanyDto, CreateInvoiceDto, CreateRoleDto, CreateSubscriptionDto, CreateTicketDto,
-  UpdateCompanyDto, UpdateInvoiceDto, UpdateRoleDto, UpdateSubscriptionDto, UpdateTicketDto,
-} from './dto/admin.dto';
+import { Roles } from '../common/roles.decorator';
+import { AdminService } from './admin.service';
+import { CreateCompanyAdminDto, UpdateCompanyStatusDto, UpdateUserRoleDto } from './dto/admin.dto';
 
 @UseGuards(JwtAuthGuard)
+@Roles('admin')
 @Controller('admin')
 export class AdminController {
-  constructor(
-    private readonly companies: CompaniesService,
-    private readonly subscriptions: SubscriptionsService,
-    private readonly invoices: InvoicesService,
-    private readonly roles: RolesService,
-    private readonly tickets: TicketsService,
-  ) {}
+  constructor(private readonly svc: AdminService) {}
 
-  @Get('companies') listCompanies(@CurrentUser('id') uid: string) { return this.companies.list(uid); }
-  @Post('companies') createCompany(@CurrentUser('id') uid: string, @Body() dto: CreateCompanyDto) { return this.companies.create(uid, dto); }
-  @Patch('companies/:id') updateCompany(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: UpdateCompanyDto) { return this.companies.update(uid, id, dto); }
-  @Delete('companies/:id') removeCompany(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.companies.remove(uid, id); }
+  // ── Stats ──────────────────────────────────────────────────────────────────
+  @Get('stats') stats() { return this.svc.getStats(); }
 
-  @Get('subscriptions') listSubs(@CurrentUser('id') uid: string) { return this.subscriptions.list(uid); }
-  @Post('subscriptions') createSub(@CurrentUser('id') uid: string, @Body() dto: CreateSubscriptionDto) { return this.subscriptions.create(uid, dto); }
-  @Patch('subscriptions/:id') updateSub(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: UpdateSubscriptionDto) { return this.subscriptions.update(uid, id, dto); }
-  @Delete('subscriptions/:id') removeSub(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.subscriptions.remove(uid, id); }
+  // ── Users ──────────────────────────────────────────────────────────────────
+  @Get('users')           listUsers(@Query('page') page?: string) { return this.svc.listUsers(page ? +page : 1); }
+  @Get('users/:id')       getUser(@Param('id') id: string) { return this.svc.getUser(id); }
+  @Patch('users/:id/role') updateRole(@Param('id') id: string, @Body() dto: UpdateUserRoleDto) { return this.svc.updateUserRole(id, dto.role); }
+  @Delete('users/:id')    deleteUser(@Param('id') id: string) { return this.svc.deleteUser(id); }
 
-  @Get('invoices') listInvoices(@CurrentUser('id') uid: string) { return this.invoices.list(uid); }
-  @Post('invoices') createInvoice(@CurrentUser('id') uid: string, @Body() dto: CreateInvoiceDto) { return this.invoices.create(uid, dto); }
-  @Patch('invoices/:id') updateInvoice(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: UpdateInvoiceDto) { return this.invoices.update(uid, id, dto); }
-  @Delete('invoices/:id') removeInvoice(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.invoices.remove(uid, id); }
+  // ── Companies ──────────────────────────────────────────────────────────────
+  @Get('companies')              listCompanies(@Query('page') page?: string) { return this.svc.listCompanies(page ? +page : 1); }
+  @Get('companies/:id')          getCompany(@Param('id') id: string) { return this.svc.getCompany(id); }
+  @Post('companies')             createCompany(@Body() dto: CreateCompanyAdminDto) { return this.svc.createCompany(dto); }
+  @Patch('companies/:id/status') updateStatus(@Param('id') id: string, @Body() dto: UpdateCompanyStatusDto) { return this.svc.updateCompanyStatus(id, dto.status); }
+  @Delete('companies/:id')       deleteCompany(@Param('id') id: string) { return this.svc.deleteCompany(id); }
 
-  @Get('roles') listRoles(@CurrentUser('id') uid: string) { return this.roles.list(uid); }
-  @Post('roles') createRole(@CurrentUser('id') uid: string, @Body() dto: CreateRoleDto) { return this.roles.create(uid, dto); }
-  @Patch('roles/:id') updateRole(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: UpdateRoleDto) { return this.roles.update(uid, id, dto); }
-  @Delete('roles/:id') removeRole(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.roles.remove(uid, id); }
-
-  @Get('tickets') listTickets(@CurrentUser('id') uid: string) { return this.tickets.list(uid); }
-  @Post('tickets') createTicket(@CurrentUser('id') uid: string, @Body() dto: CreateTicketDto) { return this.tickets.create(uid, dto); }
-  @Patch('tickets/:id') updateTicket(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: UpdateTicketDto) { return this.tickets.update(uid, id, dto); }
-  @Delete('tickets/:id') removeTicket(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.tickets.remove(uid, id); }
+  // ── Subscriptions ──────────────────────────────────────────────────────────
+  @Get('subscriptions')          listSubscriptions(@Query('page') page?: string) { return this.svc.listSubscriptions(page ? +page : 1); }
+  @Patch('subscriptions/:id')    updateSubscription(@Param('id') id: string, @Body() dto: { status?: string; endDate?: string; autoRenew?: boolean }) { return this.svc.updateSubscription(id, dto); }
+  @Delete('subscriptions/:id')   cancelSubscription(@Param('id') id: string) { return this.svc.cancelSubscription(id); }
 }

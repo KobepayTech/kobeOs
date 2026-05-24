@@ -1,0 +1,5 @@
+[AutoRun]
+open=KobeOS-Launcher.bat
+icon=launcher\kobeos.ico
+label=KobeOS
+action=Launch KobeOS

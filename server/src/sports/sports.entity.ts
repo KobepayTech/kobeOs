@@ -84,7 +84,6 @@ export class SportsTeam extends OwnedEntity {
 // ── Analytics Session (heatmaps, tracking data) ───────────────────────────
 
 @Entity('sports_analytics')
-@Index(['matchId'])
 export class MatchAnalytics extends OwnedEntity {
   @Index()
   @Column('uuid') matchId!: string;

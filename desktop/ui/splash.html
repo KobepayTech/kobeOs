@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KobeOS Starting…</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0d1117;
+      color: #e6edf3;
+      font-family: -apple-system, 'Segoe UI', Ubuntu, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      overflow: hidden;
+      user-select: none;
+      -webkit-app-region: drag;
+    }
+
+    /* ── Logo ── */
+    .logo {
+      font-size: 56px;
+      font-weight: 700;
+      letter-spacing: -1px;
+      color: #ffffff;
+      margin-bottom: 8px;
+    }
+
+    .tagline {
+      font-size: 15px;
+      color: #7aa2d4;
+      letter-spacing: 0.5px;
+      margin-bottom: 64px;
+    }
+
+    /* ── Progress bar ── */
+    .progress-track {
+      width: 320px;
+      height: 4px;
+      background: #1e2a3a;
+      border-radius: 2px;
+      overflow: hidden;
+      margin-bottom: 20px;
+    }
+
+    .progress-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, #3b82f6, #60a5fa);
+      border-radius: 2px;
+      transition: width 0.4s ease;
+    }
+
+    /* ── Status text ── */
+    .status {
+      font-size: 13px;
+      color: #8b949e;
+      height: 18px;
+      transition: opacity 0.2s ease;
+    }
+
+    /* ── Version ── */
+    .version {
+      position: fixed;
+      bottom: 24px;
+      right: 28px;
+      font-size: 11px;
+      color: #30363d;
+    }
+
+    /* ── Spinner dots (shown while indeterminate) ── */
+    .dots {
+      display: flex;
+      gap: 6px;
+      margin-top: 32px;
+    }
+
+    .dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #3b82f6;
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+
+    .dot:nth-child(2) { animation-delay: 0.2s; }
+    .dot:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes pulse {
+      0%, 80%, 100% { opacity: 0.2; transform: scale(0.8); }
+      40%            { opacity: 1;   transform: scale(1);   }
+    }
+  </style>
+</head>
+<body>
+  <div class="logo">KobeOS</div>
+  <div class="tagline">Your Business. Your OS.</div>
+
+  <div class="progress-track">
+    <div class="progress-fill" id="bar"></div>
+  </div>
+  <div class="status" id="status">Initializing…</div>
+
+  <div class="dots">
+    <div class="dot"></div>
+    <div class="dot"></div>
+    <div class="dot"></div>
+  </div>
+
+  <div class="version">v1.0.0</div>
+
+  <script>
+    const bar    = document.getElementById('bar');
+    const status = document.getElementById('status');
+
+    function setProgress(pct, msg) {
+      bar.style.width = Math.min(100, Math.max(0, pct)) + '%';
+      if (msg) {
+        status.style.opacity = '0';
+        setTimeout(() => {
+          status.textContent = msg;
+          status.style.opacity = '1';
+        }, 150);
+      }
+    }
+
+    // Listen for progress events from main process
+    window.addEventListener('message', (e) => {
+      if (e.data && e.data.type === 'boot-progress') {
+        setProgress(e.data.pct, e.data.msg);
+      }
+    });
+
+    // Also expose a direct setter for the preload bridge
+    window.__setBootProgress = setProgress;
+  </script>
+</body>
+</html>

@@ -1,18 +1,14 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import {
-  AdminCompany, AdminInvoice, AdminRole, AdminSubscription, AdminTicket,
-} from './admin.entity';
-import {
-  CompaniesService, InvoicesService, RolesService, SubscriptionsService, TicketsService,
-} from './admin.service';
+import { User } from '../users/user.entity';
+import { Company } from '../companies/company.entity';
+import { Subscription } from '../subscriptions/subscription.entity';
+import { AdminService } from './admin.service';
 import { AdminController } from './admin.controller';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([AdminCompany, AdminSubscription, AdminInvoice, AdminRole, AdminTicket]),
-  ],
-  providers: [CompaniesService, SubscriptionsService, InvoicesService, RolesService, TicketsService],
+  imports: [TypeOrmModule.forFeature([User, Company, Subscription])],
+  providers: [AdminService],
   controllers: [AdminController],
 })
 export class AdminModule {}

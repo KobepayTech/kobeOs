@@ -13,12 +13,17 @@ import { HttpExceptionFilter } from '../src/common/http-exception.filter';
  */
 export async function bootTestApp(): Promise<INestApplication> {
   process.env.NODE_ENV = process.env.NODE_ENV ?? 'test';
+  process.env.PORT = process.env.PORT ?? '3001';
+  process.env.DB_HOST = process.env.DB_HOST ?? 'localhost';
+  process.env.DB_PORT = process.env.DB_PORT ?? '5432';
+  process.env.DB_USERNAME = process.env.DB_USERNAME ?? 'kobe';
+  process.env.DB_PASSWORD = process.env.DB_PASSWORD ?? 'kobe';
   // Use synchronize to materialise the schema in the e2e DB without depending
   // on migration ordering. The prod path is exercised separately.
   process.env.DB_SYNCHRONIZE = 'true';
   process.env.DB_MIGRATIONS_RUN = 'false';
   process.env.DB_DATABASE = process.env.DB_DATABASE_E2E ?? 'kobeos_e2e';
-  process.env.JWT_SECRET = process.env.JWT_SECRET ?? 'test-secret';
+  process.env.JWT_SECRET = process.env.JWT_SECRET ?? 'test-secret-32-chars-minimum-ok';
   process.env.JWT_EXPIRES_IN = '15m';
 
   const moduleRef = await Test.createTestingModule({

@@ -1,50 +1,79 @@
-import { Column, Entity } from 'typeorm';
+import { Column, Entity, Index } from 'typeorm';
 import { OwnedEntity } from '../common/owned.entity';
 
-@Entity('print_products')
-export class PrintProduct extends OwnedEntity {
-  @Column()
-  name!: string;
-
-  @Column({ default: '' })
-  category!: string;
-
-  @Column({ type: 'float', default: 0 })
-  basePrice!: number;
-
-  @Column({ default: '' })
-  method!: string;
-
-  @Column({ default: true })
-  active!: boolean;
-
-  @Column({ nullable: true, type: 'varchar' })
-  icon?: string | null;
-}
+// ── Print Job ─────────────────────────────────────────────────────────────────
 
 @Entity('print_jobs')
 export class PrintJob extends OwnedEntity {
+  @Index()
+  @Column()
+  jobNumber!: string;
+
   @Column()
   product!: string;
 
   @Column({ default: '' })
   customer!: string;
 
-  @Column({ default: '' })
-  method!: string;
+  @Column({ nullable: true, type: 'varchar' })
+  customerPhone?: string | null;
+
+  @Column({ nullable: true, type: 'varchar' })
+  customerEmail?: string | null;
+
+  @Column({ type: 'date', nullable: true })
+  dueDate?: string | null;
+
+  @Column({ default: 'Medium' })
+  priority!: string; // High | Medium | Low
+
+  @Column({ default: 'Pending' })
+  status!: string; // Pending | Printing | Finishing | Completed | Cancelled
 
   @Column({ default: 1 })
   qty!: number;
 
-  @Column({ default: 'Medium' })
-  priority!: 'High' | 'Medium' | 'Low';
-
-  @Column({ default: 'Pending' })
-  status!: 'Pending' | 'Printing' | 'Finishing' | 'Completed';
+  @Column({ default: '' })
+  method!: string; // DTG | Sublimation | Screen | Vinyl | Embroidery
 
   @Column({ nullable: true, type: 'varchar' })
-  dueDate?: string | null;
+  notes?: string | null;
+
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
+  price!: number;
+
+  @Column({ default: 'TZS' })
+  currency!: string;
+
+  @Column({ nullable: true, type: 'varchar' })
+  templateId?: string | null;
 }
+
+// ── Print Template ────────────────────────────────────────────────────────────
+
+@Entity('print_templates')
+export class PrintTemplate extends OwnedEntity {
+  @Column()
+  name!: string;
+
+  @Column({ default: '' })
+  category!: string; // T-Shirt | Jersey | Mug | Banner | Sticker | Custom
+
+  @Column({ default: '' })
+  method!: string;
+
+  // JSON blob: array of CanvasShape objects from the UI designer
+  @Column({ type: 'text', default: '[]' })
+  canvasData!: string;
+
+  @Column({ nullable: true, type: 'varchar' })
+  thumbnailUrl?: string | null;
+
+  @Column({ default: true })
+  active!: boolean;
+}
+
+// ── Material / Inventory ──────────────────────────────────────────────────────
 
 @Entity('print_materials')
 export class PrintMaterial extends OwnedEntity {
@@ -52,41 +81,26 @@ export class PrintMaterial extends OwnedEntity {
   name!: string;
 
   @Column({ default: '' })
-  type!: string;
+  type!: string; // Vinyl | Ink | Fabric | Thread | Transfer | Other
 
-  @Column({ type: 'float', default: 0 })
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
   stock!: number;
 
-  @Column({ default: 'pcs' })
+  @Column({ default: 'units' })
   unit!: string;
 
-  @Column({ type: 'float', default: 0 })
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
   minThreshold!: number;
 
-  @Column({ nullable: true, type: 'varchar' })
-  color?: string | null;
-}
-
-@Entity('print_customers')
-export class PrintCustomer extends OwnedEntity {
-  @Column()
-  name!: string;
-
   @Column({ default: '' })
-  contact!: string;
-
-  @Column({ default: '' })
-  phone!: string;
+  color!: string;
 
   @Column({ nullable: true, type: 'varchar' })
-  email?: string | null;
+  supplier?: string | null;
 
-  @Column({ default: 'Active' })
-  status!: string;
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
+  costPerUnit!: number;
 
-  @Column({ default: 0 })
-  orders!: number;
-
-  @Column({ type: 'float', default: 0 })
-  totalSpent!: number;
+  @Column({ default: 'TZS' })
+  currency!: string;
 }

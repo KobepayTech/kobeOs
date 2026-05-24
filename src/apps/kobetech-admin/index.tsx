@@ -285,13 +285,27 @@ function PriorityIcon({ priority }: { priority: string }) {
 
 /* ───────── Module 1: Dashboard ───────── */
 function DashboardModule() {
+  const [stats, setStats] = useState<{
+    users: { total: number; admins: number };
+    companies: { total: number; active: number; suspended: number };
+    subscriptions: { total: number; active: number; trial: number; expired: number };
+    mrr: number;
+  } | null>(null);
+
+  useEffect(() => {
+    api<typeof stats>('/admin/stats').then(setStats).catch(() => {});
+  }, []);
+
+  const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+  const fmtMrr = (n: number) => n >= 1000 ? `$${(n / 1000).toFixed(1)}k` : `$${n}`;
+
   const kpiCards = [
-    { label: 'Total Companies', value: '45', icon: Building2, color: 'text-blue-400', bg: 'bg-blue-500/10' },
-    { label: 'Active Subs', value: '38', icon: CheckCircle2, color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
-    { label: 'Monthly Revenue', value: '$12,500', icon: DollarSign, color: 'text-amber-400', bg: 'bg-amber-500/10' },
-    { label: 'Pending Approvals', value: '7', icon: Clock, color: 'text-orange-400', bg: 'bg-orange-500/10' },
-    { label: 'System Uptime', value: '99.7%', icon: Activity, color: 'text-cyan-400', bg: 'bg-cyan-500/10' },
-    { label: 'Active Users', value: '1,240', icon: Users, color: 'text-violet-400', bg: 'bg-violet-500/10' },
+    { label: 'Total Companies', value: stats ? fmt(stats.companies.total) : '…', icon: Building2, color: 'text-blue-400', bg: 'bg-blue-500/10' },
+    { label: 'Active Subs', value: stats ? fmt(stats.subscriptions.active) : '…', icon: CheckCircle2, color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
+    { label: 'Monthly Revenue', value: stats ? fmtMrr(stats.mrr) : '…', icon: DollarSign, color: 'text-amber-400', bg: 'bg-amber-500/10' },
+    { label: 'Trial Subs', value: stats ? fmt(stats.subscriptions.trial) : '…', icon: Clock, color: 'text-orange-400', bg: 'bg-orange-500/10' },
+    { label: 'Suspended', value: stats ? fmt(stats.companies.suspended) : '…', icon: Activity, color: 'text-cyan-400', bg: 'bg-cyan-500/10' },
+    { label: 'Total Users', value: stats ? fmt(stats.users.total) : '…', icon: Users, color: 'text-violet-400', bg: 'bg-violet-500/10' },
   ];
 
   return (
@@ -434,7 +448,7 @@ function CompaniesModule() {
     setLoading(true);
     setError(null);
     try {
-      const data = await api<Company[]>('/companies');
+      const data = await api<Company[]>('/admin/companies');
       setCompanies(data);
     } catch (e) {
       setError((e as Error).message);
@@ -459,7 +473,7 @@ function CompaniesModule() {
     if (!form.name || !form.email) return;
     setSaving(true);
     try {
-      await api('/companies', { method: 'POST', body: JSON.stringify(form) });
+      await api('/admin/companies', { method: 'POST', body: JSON.stringify(form) });
       setShowAddDialog(false);
       setForm({ name: '', email: '', country: 'Tanzania', phone: '' });
       load();
@@ -473,7 +487,7 @@ function CompaniesModule() {
   const handleSuspend = async (id: string, current: string) => {
     const next = current === 'Suspended' ? 'Active' : 'Suspended';
     try {
-      await api(`/companies/${id}`, { method: 'PATCH', body: JSON.stringify({ status: next }) });
+      await api(`/admin/companies/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status: next }) });
       setCompanies((prev) => prev.map((c) => c.id === id ? { ...c, status: next as Company['status'] } : c));
     } catch (e) {
       alert((e as Error).message);
@@ -483,7 +497,7 @@ function CompaniesModule() {
   const handleDelete = async (id: string) => {
     if (!confirm('Delete this company? This cannot be undone.')) return;
     try {
-      await api(`/companies/${id}`, { method: 'DELETE' });
+      await api(`/admin/companies/${id}`, { method: 'DELETE' });
       setCompanies((prev) => prev.filter((c) => c.id !== id));
     } catch (e) {
       alert((e as Error).message);
@@ -685,8 +699,8 @@ function SubscriptionsModule() {
     setError(null);
     try {
       const [subs, comps] = await Promise.all([
-        api<Subscription[]>('/subscriptions'),
-        api<Company[]>('/companies'),
+        api<Subscription[]>('/admin/subscriptions'),
+        api<Company[]>('/admin/companies'),
       ]);
       setSubscriptions(subs);
       setCompanies(comps);
@@ -711,7 +725,7 @@ function SubscriptionsModule() {
     if (!form.companyId) return;
     setSaving(true);
     try {
-      await api('/subscriptions', {
+      await api('/admin/subscriptions', {
         method: 'POST',
         body: JSON.stringify({ ...form, price: PLAN_PRICES[form.plan] }),
       });
@@ -727,7 +741,7 @@ function SubscriptionsModule() {
   const handleCancel = async (id: string) => {
     if (!confirm('Cancel this subscription?')) return;
     try {
-      await api(`/subscriptions/${id}`, { method: 'PATCH', body: JSON.stringify({ status: 'Cancelled', autoRenew: false }) });
+      await api(`/admin/subscriptions/${id}`, { method: 'DELETE' });
       setSubscriptions((prev) => prev.map((s) => s.id === id ? { ...s, status: 'Cancelled', autoRenew: false } : s));
     } catch (e) {
       alert((e as Error).message);
@@ -738,7 +752,7 @@ function SubscriptionsModule() {
     const newEnd = new Date(sub.endDate);
     newEnd.setFullYear(newEnd.getFullYear() + 1);
     try {
-      const updated = await api<Subscription>(`/subscriptions/${sub.id}`, {
+      const updated = await api<Subscription>(`/admin/subscriptions/${sub.id}`, {
         method: 'PATCH',
         body: JSON.stringify({ status: 'Active', endDate: newEnd.toISOString() }),
       });

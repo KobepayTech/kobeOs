@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { api } from '@/lib/api';
 import {
   Award, Gift, Plus, Minus, Send, Search, User, Star, Crown, Medal, Trophy,
   Calendar, MessageSquare, Mail,
@@ -62,6 +63,16 @@ const rewardsCatalog = [
 export default function ERPLoyalty() {
   const [tab, setTab] = useState('customers');
   const [customers, setCustomers] = useState(initialCustomers);
+  const [liveSummary, setLiveSummary] = useState<{ totalCustomers: number; totalPoints: number; gold: number; silver: number; bronze: number } | null>(null);
+
+  useEffect(() => {
+    api<{ summary: typeof liveSummary; customers: typeof initialCustomers }>('/erp/loyalty')
+      .then(d => {
+        if (d.customers?.length) setCustomers(d.customers as typeof initialCustomers);
+        if (d.summary) setLiveSummary(d.summary);
+      })
+      .catch(() => {});
+  }, []);
   const [search, setSearch] = useState('');
   const [pointsModalOpen, setPointsModalOpen] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState<typeof initialCustomers[0] | null>(null);

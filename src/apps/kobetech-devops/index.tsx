@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import { api } from '@/lib/api';
 import {
   Code2, LayoutDashboard, Package, GitCommit, ToggleLeft, Rocket, Bug, BookOpen, Settings,
   Plus, Search, CheckCircle2, Clock, XCircle, Edit, Trash2, ChevronRight, Copy, Check,
@@ -324,16 +325,46 @@ function StatusBadge({ status }: { status: string }) {
 function DashboardView({ onNavigate }: { onNavigate: (m: ModuleName) => void }) {
   const recentCommits = COMMITS.slice(0, 8);
   const activeDeployments = DEPLOYMENTS.filter(d => d.status === 'Deployed' || d.status === 'Deploying');
+  const [backendStatus, setBackendStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+  const [adminStats, setAdminStats] = useState<{ users: { total: number }; companies: { total: number }; subscriptions: { active: number } } | null>(null);
+
+  useEffect(() => {
+    const check = async () => {
+      try {
+        await api('/health', { auth: false });
+        setBackendStatus('online');
+      } catch {
+        setBackendStatus('offline');
+      }
+    };
+    check();
+    const t = setInterval(check, 30000);
+    return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    api<typeof adminStats>('/admin/stats').then(setAdminStats).catch(() => {});
+  }, []);
 
   return (
     <div className="space-y-6">
+      {/* Backend health indicator */}
+      <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium w-fit ${
+        backendStatus === 'online' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+        backendStatus === 'offline' ? 'bg-red-500/10 text-red-400 border border-red-500/20' :
+        'bg-slate-500/10 text-slate-400 border border-slate-500/20'
+      }`}>
+        <div className={`w-1.5 h-1.5 rounded-full ${backendStatus === 'online' ? 'bg-emerald-400 animate-pulse' : backendStatus === 'offline' ? 'bg-red-400' : 'bg-slate-400'}`} />
+        Backend: {backendStatus === 'checking' ? 'Checking…' : backendStatus === 'online' ? 'Online' : 'Offline'}
+      </div>
+
       <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-        <KpiCard title="Active Modules" value={15} icon={Package} color="text-blue-400" />
-        <KpiCard title="Total Commits" value={1247} icon={GitCommit} color="text-emerald-400" />
-        <KpiCard title="Open Issues" value={23} icon={Bug} color="text-pink-400" />
-        <KpiCard title="Deployed" value={8} icon={CheckCircle2} color="text-emerald-400" />
-        <KpiCard title="In Staging" value={4} icon={Clock} color="text-amber-400" />
-        <KpiCard title="Failed" value={2} icon={XCircle} color="text-red-400" />
+        <KpiCard title="Active Modules" value={MODULES.length} icon={Package} color="text-blue-400" />
+        <KpiCard title="Total Commits" value={COMMITS.length} icon={GitCommit} color="text-emerald-400" />
+        <KpiCard title="Open Issues" value={ISSUES.filter(i => i.status === 'Open').length} icon={Bug} color="text-pink-400" />
+        <KpiCard title="Total Users" value={adminStats?.users.total ?? '…'} icon={CheckCircle2} color="text-emerald-400" />
+        <KpiCard title="Companies" value={adminStats?.companies.total ?? '…'} icon={Clock} color="text-amber-400" />
+        <KpiCard title="Active Subs" value={adminStats?.subscriptions.active ?? '…'} icon={XCircle} color="text-violet-400" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

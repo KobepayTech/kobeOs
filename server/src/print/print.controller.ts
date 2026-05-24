@@ -1,41 +1,42 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
+import { PrintJobsService, PrintMaterialsService, PrintTemplatesService } from './print.service';
 import {
-  PrintCustomersService, PrintJobsService, PrintMaterialsService, PrintProductsService,
-} from './print.service';
-import {
-  CreatePrintCustomerDto, CreatePrintJobDto, CreatePrintMaterialDto, CreatePrintProductDto,
-  UpdatePrintCustomerDto, UpdatePrintJobDto, UpdatePrintMaterialDto, UpdatePrintProductDto,
+  AdjustStockDto,
+  CreatePrintJobDto, CreatePrintMaterialDto, CreatePrintTemplateDto,
+  UpdatePrintJobDto, UpdatePrintMaterialDto, UpdatePrintTemplateDto,
 } from './dto/print.dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller('print')
 export class PrintController {
   constructor(
-    private readonly products: PrintProductsService,
     private readonly jobs: PrintJobsService,
+    private readonly templates: PrintTemplatesService,
     private readonly materials: PrintMaterialsService,
-    private readonly customers: PrintCustomersService,
   ) {}
 
-  @Get('products') listProducts(@CurrentUser('id') uid: string) { return this.products.list(uid); }
-  @Post('products') createProduct(@CurrentUser('id') uid: string, @Body() dto: CreatePrintProductDto) { return this.products.create(uid, dto); }
-  @Patch('products/:id') updateProduct(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: UpdatePrintProductDto) { return this.products.update(uid, id, dto); }
-  @Delete('products/:id') removeProduct(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.products.remove(uid, id); }
+  // ── Jobs ────────────────────────────────────────────────────────────────────
+  @Get('jobs')         listJobs(@CurrentUser('id') uid: string, @Query('page') page?: string, @Query('status') status?: string) { return this.jobs.list(uid, page ? +page : 1, 50, status); }
+  @Get('jobs/stats')   jobStats(@CurrentUser('id') uid: string) { return this.jobs.stats(uid); }
+  @Get('jobs/:id')     getJob(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.jobs.get(uid, id); }
+  @Post('jobs')        createJob(@CurrentUser('id') uid: string, @Body() dto: CreatePrintJobDto) { return this.jobs.create(uid, dto); }
+  @Patch('jobs/:id')   updateJob(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: UpdatePrintJobDto) { return this.jobs.update(uid, id, dto); }
+  @Delete('jobs/:id')  removeJob(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.jobs.remove(uid, id); }
 
-  @Get('jobs') listJobs(@CurrentUser('id') uid: string) { return this.jobs.list(uid); }
-  @Post('jobs') createJob(@CurrentUser('id') uid: string, @Body() dto: CreatePrintJobDto) { return this.jobs.create(uid, dto); }
-  @Patch('jobs/:id') updateJob(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: UpdatePrintJobDto) { return this.jobs.update(uid, id, dto); }
-  @Delete('jobs/:id') removeJob(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.jobs.remove(uid, id); }
+  // ── Templates ───────────────────────────────────────────────────────────────
+  @Get('templates')         listTemplates(@CurrentUser('id') uid: string) { return this.templates.list(uid); }
+  @Get('templates/:id')     getTemplate(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.templates.get(uid, id); }
+  @Post('templates')        createTemplate(@CurrentUser('id') uid: string, @Body() dto: CreatePrintTemplateDto) { return this.templates.create(uid, dto); }
+  @Patch('templates/:id')   updateTemplate(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: UpdatePrintTemplateDto) { return this.templates.update(uid, id, dto); }
+  @Delete('templates/:id')  removeTemplate(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.templates.remove(uid, id); }
 
-  @Get('materials') listMaterials(@CurrentUser('id') uid: string) { return this.materials.list(uid); }
-  @Post('materials') createMaterial(@CurrentUser('id') uid: string, @Body() dto: CreatePrintMaterialDto) { return this.materials.create(uid, dto); }
-  @Patch('materials/:id') updateMaterial(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: UpdatePrintMaterialDto) { return this.materials.update(uid, id, dto); }
-  @Delete('materials/:id') removeMaterial(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.materials.remove(uid, id); }
-
-  @Get('customers') listCustomers(@CurrentUser('id') uid: string) { return this.customers.list(uid); }
-  @Post('customers') createCustomer(@CurrentUser('id') uid: string, @Body() dto: CreatePrintCustomerDto) { return this.customers.create(uid, dto); }
-  @Patch('customers/:id') updateCustomer(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: UpdatePrintCustomerDto) { return this.customers.update(uid, id, dto); }
-  @Delete('customers/:id') removeCustomer(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.customers.remove(uid, id); }
+  // ── Materials ───────────────────────────────────────────────────────────────
+  @Get('materials')                    listMaterials(@CurrentUser('id') uid: string) { return this.materials.list(uid); }
+  @Get('materials/:id')                getMaterial(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.materials.get(uid, id); }
+  @Post('materials')                   createMaterial(@CurrentUser('id') uid: string, @Body() dto: CreatePrintMaterialDto) { return this.materials.create(uid, dto); }
+  @Patch('materials/:id')              updateMaterial(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: UpdatePrintMaterialDto) { return this.materials.update(uid, id, dto); }
+  @Post('materials/:id/adjust-stock')  adjustStock(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: AdjustStockDto) { return this.materials.adjustStock(uid, id, dto); }
+  @Delete('materials/:id')             removeMaterial(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.materials.remove(uid, id); }
 }

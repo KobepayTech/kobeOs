@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { api } from '@/lib/api';
 import {
   BarChart3, TrendingUp, TrendingDown, FileText, Download, Printer,
   DollarSign, ArrowUpRight, ArrowDownRight, Calendar,
@@ -66,8 +67,21 @@ const balanceSheet = [
 export default function ERPReports() {
   const [tab, setTab] = useState('overview');
   const [dateRange] = useState('2026-01-01 - 2026-06-30');
+  const [liveRevenueTrend, setLiveRevenueTrend] = useState(revenueTrend);
+  const [liveSummary, setLiveSummary] = useState<{ totalRevenue: number; totalOrders: number; completedOrders: number } | null>(null);
 
-  const totalRevenue = revenueTrend.reduce((s, d) => s + d.revenue, 0);
+  useEffect(() => {
+    api<{ summary: typeof liveSummary; monthly: { month: string; revenue: number; orders: number }[] }>('/erp/reports')
+      .then(d => {
+        if (d.monthly?.length) {
+          setLiveRevenueTrend(d.monthly.map(m => ({ month: m.month, revenue: m.revenue, expenses: 0 })));
+        }
+        if (d.summary) setLiveSummary(d.summary);
+      })
+      .catch(() => {});
+  }, []);
+
+  const totalRevenue = liveRevenueTrend.reduce((s, d) => s + d.revenue, 0);
   const totalExpenses = revenueTrend.reduce((s, d) => s + d.expenses, 0);
   const netIncome = totalRevenue - totalExpenses;
 
@@ -171,7 +185,7 @@ export default function ERPReports() {
                 </CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={250}>
-                    <LineChart data={revenueTrend}>
+                    <LineChart data={liveRevenueTrend}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
                       <XAxis dataKey="month" stroke="#94a3b8" fontSize={12} />
                       <YAxis stroke="#94a3b8" fontSize={12} tickFormatter={(v) => `${v / 1000000}M`} />

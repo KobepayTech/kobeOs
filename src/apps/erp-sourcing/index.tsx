@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { api } from '@/lib/api';
 import {
   Globe, Truck, Plus, Search, Eye, Trash2, FileText,
   Star,
@@ -52,6 +53,18 @@ export default function ERPSourcing() {
   const [tab, setTab] = useState('suppliers');
   const [suppliers, setSuppliers] = useState(initialSuppliers);
   const [pos] = useState(initialPOs);
+  const [liveSummary, setLiveSummary] = useState<{ suppliers: number; totalItems: number; lowStock: number; totalValue: number } | null>(null);
+  const [lowStockItems, setLowStockItems] = useState<{ id: string; name: string; sku: string; quantity: number; reorderLevel: number }[]>([]);
+
+  useEffect(() => {
+    api<{ summary: typeof liveSummary; suppliers: typeof initialSuppliers; lowStockItems: typeof lowStockItems }>('/erp/sourcing')
+      .then(d => {
+        if (d.suppliers?.length) setSuppliers(d.suppliers as typeof initialSuppliers);
+        if (d.summary) setLiveSummary(d.summary);
+        if (d.lowStockItems) setLowStockItems(d.lowStockItems);
+      })
+      .catch(() => {});
+  }, []);
   const [search, setSearch] = useState('');
   const [supplierModalOpen, setSupplierModalOpen] = useState(false);
   const [poModalOpen, setPoModalOpen] = useState(false);
@@ -89,6 +102,25 @@ export default function ERPSourcing() {
             </TabsList>
           </Tabs>
         </div>
+
+        {/* Live summary */}
+        {liveSummary && (
+          <div className="grid grid-cols-4 gap-3">
+            {[
+              { label: 'Categories', value: liveSummary.suppliers },
+              { label: 'Total Items', value: liveSummary.totalItems },
+              { label: 'Low Stock', value: liveSummary.lowStock },
+              { label: 'Stock Value', value: `TZS ${(liveSummary.totalValue / 1000).toFixed(0)}K` },
+            ].map(k => (
+              <Card key={k.label} className="bg-slate-900/60 border-slate-800">
+                <CardContent className="p-3">
+                  <p className="text-[10px] text-slate-500">{k.label}</p>
+                  <p className="text-base font-semibold text-slate-200">{k.value}</p>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        )}
 
         {tab === 'suppliers' && (
           <>
