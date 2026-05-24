@@ -126,6 +126,9 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "apps/**/*",
+      "ai/**/*",
+      "drivers/**/*",
       "package.json",
       "!electron/server-bundle/**",
       "!**/*.map",
