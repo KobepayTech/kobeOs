@@ -145,6 +145,11 @@ export const useOSStore = create<OSStore>()(
 
       canAccess: (required: SubscriptionTier) => {
         if (required === 'free') return true;
+        // The embedded desktop edition ships the full suite and is not paywalled
+        // (the backend likewise bypasses its guards via KOBEOS_DESKTOP). It is
+        // identified by the kobeOS preload bridge, which only exists in the
+        // Electron app; the hosted web edition keeps subscription gating.
+        if (typeof window !== 'undefined' && !!window.kobeOS?.runtime) return true;
         const { licenseStatus, licensePayload } = get();
         if (licenseStatus !== 'valid' || !licensePayload) return false;
         return tierSatisfied(required, licensePayload.plan);
