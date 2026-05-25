@@ -11,6 +11,7 @@ const kobeRuntime = require('./runtime/index');
 const { enforceIntegrity } = require('./core-integrity');
 const SpeechService = require('../ai/speech/speech-service');
 const { registerSpeechIpc } = require('../ai/speech/speech-ipc');
+const PostgresManager = require('./pg-bootstrap.cjs');
 
 let mainWindow;
 let splashWindow = null;
@@ -91,77 +92,26 @@ function getSystemMode() {
 // ── Embedded PostgreSQL (live-usb mode) ───────────────────────────────────────
 
 async function startEmbeddedPostgres() {
-  // When packaged, node_modules live inside app.asar — native binaries cannot
-  // be executed from inside an asar archive. electron-builder's asarUnpack
-  // extracts them to app.asar.unpacked, but the embedded-postgres package
-  // resolves its own binary path using import.meta.url / __dirname which may
-  // still point inside the asar on Windows.
-  //
-  // We patch process.resourcesPath so the platform package's resolveBase()
-  // function finds the unpacked binaries. This is safe — resourcesPath is
-  // already set correctly by Electron; we only set it when missing (dev mode).
-  if (IS_PACKAGED && !process.resourcesPath) {
-    process.resourcesPath = path.join(app.getAppPath(), '..', '..');
-  }
-
-  // Verify the platform binary package is accessible before trying to start.
-  // If it's missing (e.g. wrong arch), fail with a clear message.
-  const platformPkg = {
-    win32:  '@embedded-postgres/windows-x64',
-    linux:  '@embedded-postgres/linux-x64',
-    darwin: '@embedded-postgres/darwin-x64',
-  }[process.platform];
-
-  if (platformPkg) {
-    const unpackedBase = IS_PACKAGED
-      ? path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules', platformPkg)
-      : path.join(__dirname, '..', 'node_modules', platformPkg);
-
-    if (!fs.existsSync(unpackedBase)) {
-      throw new Error(
-        `Embedded PostgreSQL platform package not found: ${unpackedBase}\n` +
-        `Make sure ${platformPkg} is installed and included in asarUnpack.`
-      );
-    }
-    console.log(`[KobeOS] PostgreSQL binaries at: ${unpackedBase}`);
-  }
-
-  const { default: EmbeddedPostgres } = await import('embedded-postgres');
-
-  const pg = new EmbeddedPostgres({
-    databaseDir: PG_DATA_DIR,
-    user: 'kobeos',
-    password: 'kobeos_live',
-    port: 5433,
-    persistent: true,
+  const pgManager = new PostgresManager({
+    dataDir:       PG_DATA_DIR,
+    resourcesPath: IS_PACKAGED ? process.resourcesPath : path.join(__dirname, '..'),
+    isPackaged:    IS_PACKAGED,
+    port:          5433,
+    user:          'kobeos',
+    password:      'kobeos_live',
+    database:      'kobeos',
   });
-  // Only initialise if pgdata doesn't already exist (first run)
-  const pgdataExists = fs.existsSync(path.join(PG_DATA_DIR, 'PG_VERSION'));
-  if (!pgdataExists) {
-    await pg.initialise();
-  } else {
-    // Remove stale postmaster.pid left by a previous crash so pg.start() succeeds
-    const pidFile = path.join(PG_DATA_DIR, 'postmaster.pid');
-    if (fs.existsSync(pidFile)) {
-      try { fs.unlinkSync(pidFile); } catch { /* ignore */ }
-    }
-    // Clean stale shared memory segments (Linux only)
-    if (process.platform === 'linux') {
-      try {
-        const { execSync } = require('child_process');
-        execSync("ipcs -m | awk 'NR>3 && $6==0 {print $2}' | xargs -r ipcrm -m", { stdio: 'ignore' });
-        execSync("ipcs -s | awk 'NR>3 && $6==0 {print $2}' | xargs -r ipcrm -s", { stdio: 'ignore' });
-      } catch { /* ignore if ipcs not available */ }
-    }
-  }
-  await pg.start();
-  const client = pg.getPgClient();
-  await client.connect();
-  try { await client.query('CREATE DATABASE kobeos'); } catch { /* exists */ }
-  finally { await client.end(); }
-  embeddedPg = pg;
+
+  // Throws immediately with a clear message if the binary is missing
+  pgManager.validate();
+
+  await pgManager.initialise();
+  await pgManager.start();
+  await pgManager.createDatabase();
+
+  embeddedPg = pgManager;
   console.log('[KobeOS] Embedded PostgreSQL started on :5433');
-  return { host: '127.0.0.1', port: 5433, user: 'kobeos', password: 'kobeos_live', database: 'kobeos' };
+  return pgManager.connectionConfig();
 }
 
 // ── System PostgreSQL (installed mode) ────────────────────────────────────────
@@ -240,7 +190,10 @@ function stopBackend() {
 }
 
 async function stopEmbeddedPostgres() {
-  if (embeddedPg) { try { await embeddedPg.stop(); } catch { } embeddedPg = null; }
+  if (embeddedPg) {
+    try { await embeddedPg.stop(); } catch { /* ignore */ }
+    embeddedPg = null;
+  }
 }
 
 // ── Boot sequence ─────────────────────────────────────────────────────────────

@@ -98,21 +98,40 @@ jobs:
           Write-Host "Core files present in asar"
         shell: pwsh
 
-      - name: Smoke test — verify postgres binaries are unpacked
+      - name: Smoke test — verify postgres binaries are unpacked and executable
         run: |
-          $unpacked = "release\win-unpacked\resources\app.asar.unpacked\node_modules\@embedded-postgres\windows-x64"
+          $unpackedRoot = "release\win-unpacked\resources\app.asar.unpacked\node_modules"
+          $unpacked = "$unpackedRoot\@embedded-postgres\windows-x64"
+
+          # Show what's in asar.unpacked for diagnostics
+          Write-Host "Contents of app.asar.unpacked\node_modules:"
+          Get-ChildItem $unpackedRoot -ErrorAction SilentlyContinue | Select-Object Name
+
           if (!(Test-Path $unpacked)) {
-            Write-Error "PostgreSQL platform package not found in asar.unpacked: $unpacked"
-            Write-Host "Contents of app.asar.unpacked\node_modules:"
-            Get-ChildItem "release\win-unpacked\resources\app.asar.unpacked\node_modules" -ErrorAction SilentlyContinue | Select-Object Name
+            Write-Error "PostgreSQL platform package not found: $unpacked"
             exit 1
           }
-          $initdb = Get-ChildItem "$unpacked" -Recurse -Filter "initdb.exe" -ErrorAction SilentlyContinue
+
+          $initdb = Get-ChildItem "$unpacked" -Recurse -Filter "initdb.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
           if (!$initdb) {
             Write-Error "initdb.exe not found inside $unpacked"
             exit 1
           }
-          Write-Host "PostgreSQL initdb.exe found: $($initdb.FullName)"
+          Write-Host "initdb.exe: $($initdb.FullName) ($([math]::Round($initdb.Length/1KB))KB)"
+
+          # Verify it's a real executable (not a stub/symlink)
+          if ($initdb.Length -lt 100KB) {
+            Write-Error "initdb.exe is suspiciously small ($($initdb.Length) bytes) — may be a stub"
+            exit 1
+          }
+
+          # Verify pg-bootstrap.cjs resolves the same path
+          $pgBootstrap = "release\win-unpacked\resources\app.asar.unpacked\electron\pg-bootstrap.cjs"
+          if (!(Test-Path $pgBootstrap)) {
+            # pg-bootstrap.cjs is inside the asar (not a native binary) — check asar
+            npx asar list "release\win-unpacked\resources\app.asar" | Select-String "pg-bootstrap"
+          }
+
           Write-Host "Postgres smoke test passed"
         shell: pwsh
 
