@@ -65,6 +65,38 @@ jobs:
           }
         shell: pwsh
 
+      - name: Bundle Visual C++ runtime next to PostgreSQL binaries
+        shell: pwsh
+        run: |
+          # The MSVC-built PostgreSQL binaries depend on the VC++ runtime. Without
+          # it, initdb.exe fails to launch with 0xC0000135 (STATUS_DLL_NOT_FOUND).
+          # Shipping the DLLs in the same folder as the .exe lets Windows resolve
+          # them via the default search path — no redistributable install needed.
+          $binDir = "node_modules/@embedded-postgres/windows-x64/native/bin"
+          if (!(Test-Path $binDir)) { Write-Error "Postgres bin dir not found: $binDir"; exit 1 }
+
+          function Find-Dll($name) {
+            $sys = Join-Path $env:WINDIR "System32\$name"
+            if (Test-Path $sys) { return $sys }
+            $redist = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\*\*\VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT\$name" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($redist) { return $redist.FullName }
+            return $null
+          }
+
+          $required = @("vcruntime140.dll","vcruntime140_1.dll","msvcp140.dll")
+          $optional = @("msvcp140_1.dll","msvcp140_2.dll","concrt140.dll","vccorlib140.dll")
+
+          foreach ($d in $required) {
+            $src = Find-Dll $d
+            if (!$src) { Write-Error "Required runtime DLL not found on runner: $d"; exit 1 }
+            Copy-Item $src -Destination $binDir -Force
+            Write-Host "Bundled (required): $d  <- $src"
+          }
+          foreach ($d in $optional) {
+            $src = Find-Dll $d
+            if ($src) { Copy-Item $src -Destination $binDir -Force; Write-Host "Bundled (optional): $d" }
+          }
+
       - name: Build Windows installer
         run: npx electron-builder --win --publish never
         env:
@@ -124,6 +156,17 @@ jobs:
             Write-Error "initdb.exe is suspiciously small ($($initdb.Length) bytes) — may be a stub"
             exit 1
           }
+
+          # Verify the VC++ runtime was bundled next to initdb.exe, otherwise the
+          # app fails at startup with 0xC0000135 (STATUS_DLL_NOT_FOUND).
+          $initdbDir = Split-Path $initdb.FullName
+          foreach ($dll in @("vcruntime140.dll","vcruntime140_1.dll","msvcp140.dll")) {
+            if (!(Test-Path (Join-Path $initdbDir $dll))) {
+              Write-Error "$dll not bundled next to initdb.exe — startup would fail with 0xC0000135"
+              exit 1
+            }
+          }
+          Write-Host "VC++ runtime DLLs present next to initdb.exe"
 
           # Verify pg-bootstrap.cjs resolves the same path
           $pgBootstrap = "release\win-unpacked\resources\app.asar.unpacked\electron\pg-bootstrap.cjs"
