@@ -2,6 +2,7 @@ import { Suspense } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { AppWindow } from './AppWindow';
 import { SubscriptionGate } from './SubscriptionGate';
+import { AppErrorBoundary } from './ErrorBoundary';
 import { useOSStore } from './store';
 
 /**
@@ -25,15 +26,17 @@ export function WindowManager() {
             <div key={win.id} className="pointer-events-auto" style={{ position: 'absolute', inset: 0 }}>
               <AppWindow window={win}>
                 <SubscriptionGate required={tier}>
-                  <Suspense
-                    fallback={
-                      <div className="flex items-center justify-center h-full text-os-text-muted">
-                        Loading...
-                      </div>
-                    }
-                  >
-                    <Component />
-                  </Suspense>
+                  <AppErrorBoundary appName={app.name}>
+                    <Suspense
+                      fallback={
+                        <div className="flex items-center justify-center h-full text-os-text-muted">
+                          Loading...
+                        </div>
+                      }
+                    >
+                      <Component />
+                    </Suspense>
+                  </AppErrorBoundary>
                 </SubscriptionGate>
               </AppWindow>
             </div>
