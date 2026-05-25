@@ -4,8 +4,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DeepPartial, Repository } from 'typeorm';
 import { CargoDriver, CargoFlight, Parcel, Shipment } from './cargo.entity';
+import { CargoGateway } from './cargo.gateway';
 import { OwnedCrudService } from '../common/owned.service';
 import type {
   AssignDriverDto,
@@ -35,8 +36,17 @@ const SHIPMENT_TRANSITIONS: Record<string, string[]> = {
 
 @Injectable()
 export class ParcelsService extends OwnedCrudService<Parcel> {
-  constructor(@InjectRepository(Parcel) repo: Repository<Parcel>) {
+  constructor(
+    @InjectRepository(Parcel) repo: Repository<Parcel>,
+    private readonly gateway: CargoGateway,
+  ) {
     super(repo);
+  }
+
+  async create(ownerId: string, data: DeepPartial<Parcel>): Promise<Parcel> {
+    const created = await super.create(ownerId, data);
+    this.gateway.emitParcel(ownerId, created, 'created');
+    return created;
   }
 
   async updateStatus(ownerId: string, id: string, dto: UpdateParcelStatusDto): Promise<Parcel> {
@@ -48,7 +58,9 @@ export class ParcelsService extends OwnedCrudService<Parcel> {
         `Allowed: ${allowed.length ? allowed.join(', ') : 'none'}`,
       );
     }
-    return this.update(ownerId, id, { status: dto.status });
+    const updated = await this.update(ownerId, id, { status: dto.status });
+    this.gateway.emitParcel(ownerId, updated, 'status', parcel.status);
+    return updated;
   }
 }
 
@@ -58,8 +70,15 @@ export class ShipmentsService extends OwnedCrudService<Shipment> {
     @InjectRepository(Shipment) repo: Repository<Shipment>,
     @InjectRepository(CargoDriver) private readonly driverRepo: Repository<CargoDriver>,
     @InjectRepository(CargoFlight) private readonly flightRepo: Repository<CargoFlight>,
+    private readonly gateway: CargoGateway,
   ) {
     super(repo);
+  }
+
+  async create(ownerId: string, data: DeepPartial<Shipment>): Promise<Shipment> {
+    const created = await super.create(ownerId, data);
+    this.gateway.emitShipment(ownerId, created, 'created');
+    return created;
   }
 
   async updateStatus(ownerId: string, id: string, dto: UpdateShipmentStatusDto): Promise<Shipment> {
@@ -71,7 +90,9 @@ export class ShipmentsService extends OwnedCrudService<Shipment> {
         `Allowed: ${allowed.length ? allowed.join(', ') : 'none'}`,
       );
     }
-    return this.update(ownerId, id, { status: dto.status });
+    const updated = await this.update(ownerId, id, { status: dto.status });
+    this.gateway.emitShipment(ownerId, updated, 'status', shipment.status);
+    return updated;
   }
 
   async assignDriver(ownerId: string, shipmentId: string, dto: AssignDriverDto): Promise<Shipment> {
@@ -90,7 +111,9 @@ export class ShipmentsService extends OwnedCrudService<Shipment> {
     }
     driver.status = 'ON_TRIP';
     await this.driverRepo.save(driver);
-    return this.update(ownerId, shipmentId, { driverId: dto.driverId });
+    const updated = await this.update(ownerId, shipmentId, { driverId: dto.driverId });
+    this.gateway.emitShipment(ownerId, updated, 'assignment');
+    return updated;
   }
 
   async assignFlight(ownerId: string, shipmentId: string, dto: AssignFlightDto): Promise<Shipment> {
@@ -115,10 +138,12 @@ export class ShipmentsService extends OwnedCrudService<Shipment> {
     }
     flight.bookedKg += shipment.weight;
     await this.flightRepo.save(flight);
-    return this.update(ownerId, shipmentId, {
+    const updated = await this.update(ownerId, shipmentId, {
       flightNumber: flight.flightNumber,
       carrier: flight.carrier ?? undefined,
     });
+    this.gateway.emitShipment(ownerId, updated, 'assignment');
+    return updated;
   }
 }
 

@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Ship, Truck, Clock, CheckCircle, AlertTriangle, Plus, Search, Eye,
-  Route, Package, ArrowRight,
+  Route, ArrowRight, Wifi, WifiOff,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -10,82 +10,100 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { useCargoShipments, type ApiShipment } from './useCargoShipments';
 
-const tzs = (n: number) => `TZS ${n.toLocaleString()}`;
+const STATUS_LABEL: Record<string, string> = {
+  PENDING: 'Pending',
+  LOADING: 'Loading',
+  IN_TRANSIT: 'In Transit',
+  ARRIVED: 'Arrived',
+  DELIVERED: 'Delivered',
+  CANCELLED: 'Cancelled',
+};
 
-const initialShipments = [
-  { id: 'SH-001', origin: 'Dar es Salaam', destination: 'Arusha', carrier: 'FastFreight TZ', status: 'In Transit', eta: '2026-05-10', cost: 180000, items: 12, weight: '45kg', timeline: [
-    { event: 'Shipped', time: '2026-05-06 08:00', location: 'Dar es Salaam' },
-    { event: 'In Transit', time: '2026-05-07 14:30', location: 'Dodoma Hub' },
-  ]},
-  { id: 'SH-002', origin: 'Dar es Salaam', destination: 'Mwanza', carrier: 'Lake Express', status: 'Pending', eta: '2026-05-12', cost: 220000, items: 8, weight: '32kg', timeline: [
-    { event: 'Order Received', time: '2026-05-08 09:00', location: 'Dar es Salaam' },
-  ]},
-  { id: 'SH-003', origin: 'Nairobi', destination: 'Dar es Salaam', carrier: 'East African Cargo', status: 'Delivered', eta: '2026-05-05', cost: 350000, items: 25, weight: '120kg', timeline: [
-    { event: 'Shipped', time: '2026-05-02 06:00', location: 'Nairobi' },
-    { event: 'Customs Cleared', time: '2026-05-03 11:00', location: 'Namanga Border' },
-    { event: 'In Transit', time: '2026-05-04 16:00', location: 'Arusha' },
-    { event: 'Delivered', time: '2026-05-05 10:30', location: 'Dar es Salaam' },
-  ]},
-  { id: 'SH-004', origin: 'Dar es Salaam', destination: 'Mbeya', carrier: 'FastFreight TZ', status: 'Delayed', eta: '2026-05-09', cost: 160000, items: 5, weight: '18kg', timeline: [
-    { event: 'Shipped', time: '2026-05-06 07:00', location: 'Dar es Salaam' },
-    { event: 'Delayed', time: '2026-05-07 18:00', location: 'Iringa - Road Block' },
-  ]},
-  { id: 'SH-005', origin: 'Dubai', destination: 'Dar es Salaam', carrier: 'DHL Express', status: 'In Transit', eta: '2026-05-14', cost: 850000, items: 40, weight: '210kg', timeline: [
-    { event: 'Shipped', time: '2026-05-05 22:00', location: 'Dubai' },
-    { event: 'Arrived at Port', time: '2026-05-08 06:00', location: 'Dar Port' },
-    { event: 'Customs Processing', time: '2026-05-08 14:00', location: 'Dar Port' },
-  ]},
-  { id: 'SH-006', origin: 'Dar es Salaam', destination: 'Zanzibar', carrier: 'Azam Marine', status: 'Delivered', eta: '2026-05-07', cost: 75000, items: 3, weight: '12kg', timeline: [
-    { event: 'Shipped', time: '2026-05-07 07:00', location: 'Dar Port' },
-    { event: 'Delivered', time: '2026-05-07 11:30', location: 'Zanzibar' },
-  ]},
-  { id: 'SH-007', origin: 'Dar es Salaam', destination: 'Dodoma', carrier: 'FastFreight TZ', status: 'In Transit', eta: '2026-05-09', cost: 95000, items: 6, weight: '22kg', timeline: [
-    { event: 'Shipped', time: '2026-05-08 06:00', location: 'Dar es Salaam' },
-    { event: 'In Transit', time: '2026-05-08 16:00', location: 'Morogoro' },
-  ]},
-  { id: 'SH-008', origin: 'Mumbai', destination: 'Dar es Salaam', carrier: 'Maersk Line', status: 'Pending', eta: '2026-05-20', cost: 1200000, items: 100, weight: '850kg', timeline: [
-    { event: 'Booking Confirmed', time: '2026-05-08 10:00', location: 'Mumbai' },
-  ]},
-];
+// Mirrors the server-side SHIPMENT_TRANSITIONS map.
+const NEXT_STATUS: Record<string, string[]> = {
+  PENDING: ['LOADING', 'CANCELLED'],
+  LOADING: ['IN_TRANSIT', 'CANCELLED'],
+  IN_TRANSIT: ['ARRIVED', 'CANCELLED'],
+  ARRIVED: ['DELIVERED'],
+  DELIVERED: [],
+  CANCELLED: [],
+};
 
 const statusBadge = (status: string) => {
   const map: Record<string, string> = {
-    Delivered: 'bg-green-500/10 text-green-400 border-green-500/20',
-    'In Transit': 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-    Pending: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
-    Delayed: 'bg-red-500/10 text-red-400 border-red-500/20',
+    PENDING: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
+    LOADING: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+    IN_TRANSIT: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+    ARRIVED: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
+    DELIVERED: 'bg-green-500/10 text-green-400 border-green-500/20',
+    CANCELLED: 'bg-red-500/10 text-red-400 border-red-500/20',
   };
   return map[status] || 'bg-slate-500/10 text-slate-400';
 };
 
-const statusIcon = (status: string) => {
-  if (status === 'Delivered') return CheckCircle;
-  if (status === 'In Transit') return Truck;
-  if (status === 'Pending') return Clock;
-  if (status === 'Delayed') return AlertTriangle;
-  return Package;
+const statusIcon = (group: string) => {
+  if (group === 'Delivered') return CheckCircle;
+  if (group === 'In Transit') return Truck;
+  if (group === 'Pending') return Clock;
+  return AlertTriangle;
 };
 
+const fmtDate = (d?: string | null) => (d ? new Date(d).toISOString().split('T')[0] : '—');
+
 export default function ERPShipments() {
-  const [shipments] = useState(initialShipments);
+  const { shipments, loading, connected, createShipment, advanceStatus } = useCargoShipments();
   const [search, setSearch] = useState('');
   const [detailOpen, setDetailOpen] = useState(false);
-  const [detail, setDetail] = useState<typeof initialShipments[0] | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
   const [newOpen, setNewOpen] = useState(false);
-  const [newForm, setNewForm] = useState({ id: '', origin: '', destination: '', carrier: '', cost: 0 });
+  const [newForm, setNewForm] = useState({ shipmentId: '', origin: '', destination: '', carrier: '', weight: 0 });
+  const [busy, setBusy] = useState(false);
+
+  const detail = useMemo(
+    () => shipments.find((s) => s.id === detailId) ?? null,
+    [shipments, detailId],
+  );
 
   const filtered = shipments.filter((s) =>
-    s.id.toLowerCase().includes(search.toLowerCase()) ||
+    s.shipmentId.toLowerCase().includes(search.toLowerCase()) ||
     s.origin.toLowerCase().includes(search.toLowerCase()) ||
     s.destination.toLowerCase().includes(search.toLowerCase())
   );
 
   const statusCounts = {
-    Pending: shipments.filter((s) => s.status === 'Pending').length,
-    'In Transit': shipments.filter((s) => s.status === 'In Transit').length,
-    Delivered: shipments.filter((s) => s.status === 'Delivered').length,
-    Delayed: shipments.filter((s) => s.status === 'Delayed').length,
+    Pending: shipments.filter((s) => ['PENDING', 'LOADING'].includes(s.status)).length,
+    'In Transit': shipments.filter((s) => ['IN_TRANSIT', 'ARRIVED'].includes(s.status)).length,
+    Delivered: shipments.filter((s) => s.status === 'DELIVERED').length,
+    Cancelled: shipments.filter((s) => s.status === 'CANCELLED').length,
+  };
+
+  const handleCreate = async () => {
+    if (!newForm.shipmentId.trim() || !newForm.origin.trim() || !newForm.destination.trim()) return;
+    setBusy(true);
+    try {
+      await createShipment({
+        shipmentId: newForm.shipmentId.trim(),
+        origin: newForm.origin.trim(),
+        destination: newForm.destination.trim(),
+        carrier: newForm.carrier.trim() || undefined,
+        weight: Number(newForm.weight) || undefined,
+      });
+      setNewForm({ shipmentId: '', origin: '', destination: '', carrier: '', weight: 0 });
+      setNewOpen(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleAdvance = async (s: ApiShipment, status: string) => {
+    setBusy(true);
+    try {
+      await advanceStatus(s.id, status);
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
@@ -95,6 +113,15 @@ export default function ERPShipments() {
           <div className="flex items-center gap-2">
             <Ship className="w-5 h-5 text-blue-400" />
             <h1 className="text-lg font-semibold">Shipments</h1>
+            <Badge
+              variant="outline"
+              className={connected
+                ? 'bg-green-500/10 text-green-400 border-green-500/20 gap-1'
+                : 'bg-slate-500/10 text-slate-400 border-slate-500/20 gap-1'}
+            >
+              {connected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+              {connected ? 'Live' : 'Offline'}
+            </Badge>
           </div>
           <Button size="sm" onClick={() => setNewOpen(true)} className="h-8 bg-blue-600 hover:bg-blue-500 text-white text-xs">
             <Plus className="w-3 h-3 mr-1" /> New Shipment
@@ -102,14 +129,14 @@ export default function ERPShipments() {
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {Object.entries(statusCounts).map(([status, count]) => {
-            const Icon = statusIcon(status);
+          {Object.entries(statusCounts).map(([group, count]) => {
+            const Icon = statusIcon(group);
             return (
-              <Card key={status} className="bg-slate-900/60 border-slate-800">
+              <Card key={group} className="bg-slate-900/60 border-slate-800">
                 <CardContent className="p-3">
                   <div className="flex items-center gap-2 mb-1">
-                    <Icon className="w-4 h-4" style={{ color: status === 'Delivered' ? '#22c55e' : status === 'In Transit' ? '#3b82f6' : status === 'Pending' ? '#eab308' : '#ef4444' }} />
-                    <span className="text-xs text-slate-400">{status}</span>
+                    <Icon className="w-4 h-4" style={{ color: group === 'Delivered' ? '#22c55e' : group === 'In Transit' ? '#3b82f6' : group === 'Pending' ? '#eab308' : '#ef4444' }} />
+                    <span className="text-xs text-slate-400">{group}</span>
                   </div>
                   <div className="text-xl font-bold">{count}</div>
                 </CardContent>
@@ -139,14 +166,28 @@ export default function ERPShipments() {
                       <TableHead className="text-slate-400 text-xs">Carrier</TableHead>
                       <TableHead className="text-slate-400 text-xs">Status</TableHead>
                       <TableHead className="text-slate-400 text-xs">ETA</TableHead>
-                      <TableHead className="text-slate-400 text-xs">Cost</TableHead>
+                      <TableHead className="text-slate-400 text-xs">Weight</TableHead>
                       <TableHead className="text-slate-400 text-xs text-right">Action</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
+                    {!loading && filtered.length === 0 && (
+                      <TableRow className="border-slate-800 hover:bg-transparent">
+                        <TableCell colSpan={7} className="text-center text-xs text-slate-500 py-8">
+                          No shipments yet.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {loading && (
+                      <TableRow className="border-slate-800 hover:bg-transparent">
+                        <TableCell colSpan={7} className="text-center text-xs text-slate-500 py-8">
+                          Loading shipments…
+                        </TableCell>
+                      </TableRow>
+                    )}
                     {filtered.map((s) => (
                       <TableRow key={s.id} className="border-slate-800 hover:bg-slate-800/40">
-                        <TableCell className="text-xs font-mono text-slate-300">{s.id}</TableCell>
+                        <TableCell className="text-xs font-mono text-slate-300">{s.shipmentId}</TableCell>
                         <TableCell className="text-xs text-slate-300">
                           <div className="flex items-center gap-1">
                             <span>{s.origin}</span>
@@ -154,16 +195,16 @@ export default function ERPShipments() {
                             <span>{s.destination}</span>
                           </div>
                         </TableCell>
-                        <TableCell className="text-xs text-slate-400">{s.carrier}</TableCell>
+                        <TableCell className="text-xs text-slate-400">{s.carrier || '—'}</TableCell>
                         <TableCell>
                           <Badge variant="outline" className={statusBadge(s.status)}>
-                            {s.status}
+                            {STATUS_LABEL[s.status] ?? s.status}
                           </Badge>
                         </TableCell>
-                        <TableCell className="text-xs text-slate-400">{s.eta}</TableCell>
-                        <TableCell className="text-xs font-medium">{tzs(s.cost)}</TableCell>
+                        <TableCell className="text-xs text-slate-400">{fmtDate(s.eta)}</TableCell>
+                        <TableCell className="text-xs font-medium">{s.weight ? `${s.weight}kg` : '—'}</TableCell>
                         <TableCell className="text-right">
-                          <button onClick={() => { setDetail(s); setDetailOpen(true); }} className="text-slate-400 hover:text-blue-400">
+                          <button onClick={() => { setDetailId(s.id); setDetailOpen(true); }} className="text-slate-400 hover:text-blue-400">
                             <Eye className="w-4 h-4" />
                           </button>
                         </TableCell>
@@ -210,7 +251,7 @@ export default function ERPShipments() {
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
         <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 max-w-md">
           <DialogHeader>
-            <DialogTitle className="text-sm">Shipment {detail?.id}</DialogTitle>
+            <DialogTitle className="text-sm">Shipment {detail?.shipmentId}</DialogTitle>
           </DialogHeader>
           {detail && (
             <div className="space-y-3">
@@ -225,37 +266,51 @@ export default function ERPShipments() {
                 </div>
                 <div className="p-2 rounded-lg bg-slate-800/50 border border-slate-700/50">
                   <div className="text-slate-400">Carrier</div>
-                  <div className="font-medium">{detail.carrier}</div>
+                  <div className="font-medium">{detail.carrier || '—'}</div>
                 </div>
                 <div className="p-2 rounded-lg bg-slate-800/50 border border-slate-700/50">
-                  <div className="text-slate-400">Cost</div>
-                  <div className="font-medium">{tzs(detail.cost)}</div>
-                </div>
-                <div className="p-2 rounded-lg bg-slate-800/50 border border-slate-700/50">
-                  <div className="text-slate-400">Items</div>
-                  <div className="font-medium">{detail.items}</div>
+                  <div className="text-slate-400">Flight</div>
+                  <div className="font-medium">{detail.flightNumber || '—'}</div>
                 </div>
                 <div className="p-2 rounded-lg bg-slate-800/50 border border-slate-700/50">
                   <div className="text-slate-400">Weight</div>
-                  <div className="font-medium">{detail.weight}</div>
+                  <div className="font-medium">{detail.weight ? `${detail.weight}kg` : '—'}</div>
+                </div>
+                <div className="p-2 rounded-lg bg-slate-800/50 border border-slate-700/50">
+                  <div className="text-slate-400">ETA</div>
+                  <div className="font-medium">{fmtDate(detail.eta)}</div>
                 </div>
               </div>
+
               <div className="space-y-2">
-                <div className="text-xs font-medium text-slate-300">Tracking Timeline</div>
-                {detail.timeline.map((t, i) => (
-                  <div key={i} className="flex gap-3">
-                    <div className="flex flex-col items-center">
-                      <div className="w-2 h-2 rounded-full bg-blue-400" />
-                      {i < detail.timeline.length - 1 && <div className="w-px flex-1 bg-slate-700" />}
-                    </div>
-                    <div className="pb-3">
-                      <div className="text-xs font-medium">{t.event}</div>
-                      <div className="text-[10px] text-slate-400">{t.time} &middot; {t.location}</div>
-                    </div>
+                <div className="flex items-center justify-between">
+                  <div className="text-xs font-medium text-slate-300">Current Status</div>
+                  <Badge variant="outline" className={statusBadge(detail.status)}>
+                    {STATUS_LABEL[detail.status] ?? detail.status}
+                  </Badge>
+                </div>
+                {(NEXT_STATUS[detail.status] ?? []).length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {(NEXT_STATUS[detail.status] ?? []).map((next) => (
+                      <Button
+                        key={next}
+                        size="sm"
+                        disabled={busy}
+                        onClick={() => handleAdvance(detail, next)}
+                        className={next === 'CANCELLED'
+                          ? 'h-7 text-xs bg-red-600/80 hover:bg-red-600 text-white'
+                          : 'h-7 text-xs bg-blue-600 hover:bg-blue-500 text-white'}
+                      >
+                        Mark {STATUS_LABEL[next] ?? next}
+                      </Button>
+                    ))}
                   </div>
-                ))}
+                ) : (
+                  <div className="text-[10px] text-slate-500">No further status changes available.</div>
+                )}
               </div>
-              <Button onClick={() => setDetailOpen(false)} className="w-full bg-blue-600 hover:bg-blue-500 text-white">Close</Button>
+
+              <Button onClick={() => setDetailOpen(false)} className="w-full bg-slate-700 hover:bg-slate-600 text-white">Close</Button>
             </div>
           )}
         </DialogContent>
@@ -267,14 +322,14 @@ export default function ERPShipments() {
             <DialogTitle className="text-sm">New Shipment</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
-            <Input placeholder="Shipment ID" value={newForm.id} onChange={(e) => setNewForm((f) => ({ ...f, id: e.target.value }))} className="bg-slate-800 border-slate-700 text-slate-100" />
+            <Input placeholder="Shipment ID" value={newForm.shipmentId} onChange={(e) => setNewForm((f) => ({ ...f, shipmentId: e.target.value }))} className="bg-slate-800 border-slate-700 text-slate-100" />
             <Input placeholder="Origin" value={newForm.origin} onChange={(e) => setNewForm((f) => ({ ...f, origin: e.target.value }))} className="bg-slate-800 border-slate-700 text-slate-100" />
             <Input placeholder="Destination" value={newForm.destination} onChange={(e) => setNewForm((f) => ({ ...f, destination: e.target.value }))} className="bg-slate-800 border-slate-700 text-slate-100" />
             <Input placeholder="Carrier" value={newForm.carrier} onChange={(e) => setNewForm((f) => ({ ...f, carrier: e.target.value }))} className="bg-slate-800 border-slate-700 text-slate-100" />
-            <Input type="number" placeholder="Cost (TZS)" value={newForm.cost} onChange={(e) => setNewForm((f) => ({ ...f, cost: Number(e.target.value) }))} className="bg-slate-800 border-slate-700 text-slate-100" />
+            <Input type="number" placeholder="Weight (kg)" value={newForm.weight} onChange={(e) => setNewForm((f) => ({ ...f, weight: Number(e.target.value) }))} className="bg-slate-800 border-slate-700 text-slate-100" />
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => setNewOpen(false)} className="flex-1 border-slate-700 text-slate-300 hover:bg-slate-800">Cancel</Button>
-              <Button onClick={() => setNewOpen(false)} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white">Create</Button>
+              <Button onClick={handleCreate} disabled={busy || !newForm.shipmentId.trim() || !newForm.origin.trim() || !newForm.destination.trim()} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white">Create</Button>
             </div>
           </div>
         </DialogContent>
