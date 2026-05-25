@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { ensureSession } from '@/lib/auth';
+import { useCargoParcels } from '@/hooks/useCargoParcels';
 import {
   Inbox, Package, Clock, CheckCircle2, Truck, Calendar,
   MapPin, Phone, User, Lock, Star, Bell, Search,
@@ -127,6 +128,23 @@ export default function CargoReceiver() {
   /* notifications */
   const [notifications, setNotifications] = useState<Notification[]>(INITIAL_NOTIFICATIONS);
 
+  // Live parcel events from the /cargo socket, surfaced as notifications.
+  const { events: liveEvents, connected } = useCargoParcels();
+  const liveNotifications = useMemo<Notification[]>(() => liveEvents.map(e => {
+    const human = e.parcel.status.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+    const type: Notification['type'] =
+      e.parcel.status === 'ARRIVED' || e.parcel.status === 'DELIVERED' ? 'arrival' : 'tracking';
+    return {
+      id: `live-${e.parcel.id}-${e.at}`,
+      message: e.kind === 'created'
+        ? `New parcel ${e.parcel.parcelId} registered`
+        : `${e.parcel.parcelId} is now ${human}`,
+      time: new Date(e.at).toLocaleTimeString(),
+      read: false,
+      type,
+    };
+  }), [liveEvents]);
+
   /* login */
   const handleLogin = () => {
     if (loginForm.username.trim() && loginForm.password.trim()) {
@@ -172,7 +190,7 @@ export default function CargoReceiver() {
   };
 
   /* notifications */
-  const unreadCount = notifications.filter(n => !n.read).length;
+  const unreadCount = liveNotifications.length + notifications.filter(n => !n.read).length;
   const markAsRead = (id: string) => {
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
   };
@@ -618,7 +636,13 @@ export default function CargoReceiver() {
           <TabsContent value="notifications" className="space-y-6">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-xl font-bold text-white">Notifications</h2>
+                <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                  Notifications
+                  <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-xs font-medium ${connected ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-slate-400 border-white/10'}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-emerald-400' : 'bg-slate-500'}`} />
+                    {connected ? 'Live' : 'Offline'}
+                  </span>
+                </h2>
                 <p className="text-slate-400 text-sm mt-1">Stay updated on your deliveries</p>
               </div>
               {unreadCount > 0 && (
@@ -635,7 +659,7 @@ export default function CargoReceiver() {
 
             <ScrollArea className="h-[500px]">
               <div className="space-y-2">
-                {notifications.map(notif => (
+                {[...liveNotifications, ...notifications].map(notif => (
                   <div
                     key={notif.id}
                     className={`p-4 rounded-xl border transition-all ${

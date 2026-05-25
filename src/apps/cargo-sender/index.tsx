@@ -1,12 +1,11 @@
-import { useState, useMemo, useEffect } from 'react';
-import { api } from '@/lib/api';
-import { ensureSession } from '@/lib/auth';
+import { useState, useMemo } from 'react';
 import {
   Send, Package, MapPin, User, Weight,
   Ruler, CreditCard, Banknote, Smartphone, Receipt,
   CheckCircle2, ArrowRight, ArrowLeft, Search,
-  Box, Clock, DollarSign, Shield, ChevronRight, Truck
+  Box, Clock, DollarSign, Shield, ChevronRight, Truck, Wifi, WifiOff
 } from 'lucide-react';
+import { useCargoParcels, type ApiParcel } from '@/hooks/useCargoParcels';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -27,7 +26,7 @@ interface PaymentInfo { mode: string; method: string; }
 
 interface Shipment {
   id: string; senderPhone: string; senderName: string; receiverName: string;
-  receiverCountry: string; status: 'REGISTERED' | 'IN_TRANSIT' | 'ARRIVED' | 'DELIVERED';
+  receiverCountry: string; status: 'REGISTERED' | 'IN_TRANSIT' | 'ARRIVED' | 'DELIVERED' | 'CANCELLED';
   date: string; weight: number; category: string; route: string;
   timeline: { status: string; date: string; location: string; completed: boolean }[];
 }
@@ -63,61 +62,53 @@ const STATUS_COLORS: Record<string, string> = {
   IN_TRANSIT: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
   ARRIVED: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
   DELIVERED: 'bg-gray-500/20 text-gray-400 border-gray-500/30',
+  CANCELLED: 'bg-red-500/20 text-red-400 border-red-500/30',
 };
 
 /* ------------------------------------------------------------------ */
-/*  MOCK DATA                                                          */
+/*  BACKEND → DISPLAY MAPPING                                          */
 /* ------------------------------------------------------------------ */
-const INITIAL_SHIPMENTS: Shipment[] = [
-  {
-    id: 'KBE-Chinedu-20250511-001', senderPhone: '+255712345678', senderName: 'Chinedu Okafor',
-    receiverName: 'Amina Mohammed', receiverCountry: 'Tanzania', status: 'IN_TRANSIT',
-    date: '2025-05-08', weight: 45, category: 'Electronics', route: 'Guangzhou → Dar es Salaam',
-    timeline: [
-      { status: 'Parcel Registered', date: '2025-05-08 09:30', location: 'Guangzhou Hub', completed: true },
-      { status: 'Customs Cleared', date: '2025-05-09 14:20', location: 'Guangzhou Customs', completed: true },
-      { status: 'Departed Origin', date: '2025-05-10 06:00', location: 'Guangzhou Port', completed: true },
-      { status: 'In Transit', date: '2025-05-11 08:15', location: 'Indian Ocean', completed: false },
-      { status: 'Arrived Destination', date: 'Expected 2025-05-18', location: 'Dar es Salaam Port', completed: false },
-    ],
-  },
-  {
-    id: 'KBE-Fatima-20250505-002', senderPhone: '+255712345678', senderName: 'Fatima Hassan',
-    receiverName: 'John Mwangi', receiverCountry: 'Kenya', status: 'DELIVERED',
-    date: '2025-05-05', weight: 12, category: 'Textiles', route: 'Shenzhen → Mombasa',
-    timeline: [
-      { status: 'Parcel Registered', date: '2025-05-05 11:00', location: 'Shenzhen Hub', completed: true },
-      { status: 'Customs Cleared', date: '2025-05-06 10:45', location: 'Shenzhen Customs', completed: true },
-      { status: 'Departed Origin', date: '2025-05-07 04:30', location: 'Shenzhen Port', completed: true },
-      { status: 'Arrived Destination', date: '2025-05-12 16:00', location: 'Mombasa Port', completed: true },
-      { status: 'Delivered', date: '2025-05-13 09:30', location: 'Nairobi Depot', completed: true },
-    ],
-  },
-  {
-    id: 'KBE-James-20250428-003', senderPhone: '+255623456789', senderName: 'James Ouma',
-    receiverName: 'Grace Mutua', receiverCountry: 'Tanzania', status: 'ARRIVED',
-    date: '2025-04-28', weight: 78, category: 'Machinery', route: 'Shanghai → Zanzibar',
-    timeline: [
-      { status: 'Parcel Registered', date: '2025-04-28 08:00', location: 'Shanghai Hub', completed: true },
-      { status: 'Customs Cleared', date: '2025-04-29 13:30', location: 'Shanghai Customs', completed: true },
-      { status: 'Departed Origin', date: '2025-04-30 05:45', location: 'Shanghai Port', completed: true },
-      { status: 'Arrived Destination', date: '2025-05-07 11:20', location: 'Zanzibar Port', completed: true },
-      { status: 'Delivered', date: 'Expected 2025-05-14', location: 'Stone Town Depot', completed: false },
-    ],
-  },
-  {
-    id: 'KBE-Priya-20250510-004', senderPhone: '+255712345678', senderName: 'Priya Sharma',
-    receiverName: 'Robert Kabera', receiverCountry: 'Rwanda', status: 'REGISTERED',
-    date: '2025-05-10', weight: 23, category: 'Electronics', route: 'Yiwu → Kampala',
-    timeline: [
-      { status: 'Parcel Registered', date: '2025-05-10 15:45', location: 'Yiwu Hub', completed: true },
-      { status: 'Customs Cleared', date: 'Expected 2025-05-11', location: 'Yiwu Customs', completed: false },
-      { status: 'Departed Origin', date: 'Expected 2025-05-12', location: 'Yiwu Depot', completed: false },
-      { status: 'Arrived Destination', date: 'Expected 2025-05-20', location: 'Kampala Hub', completed: false },
-      { status: 'Delivered', date: 'Expected 2025-05-22', location: 'Kigali Depot', completed: false },
-    ],
-  },
+const STATUS_ORDER = ['REGISTERED', 'IN_TRANSIT', 'ARRIVED', 'DELIVERED'];
+const TIMELINE_STEPS: { key: string; label: string }[] = [
+  { key: 'REGISTERED', label: 'Parcel Registered' },
+  { key: 'IN_TRANSIT', label: 'In Transit' },
+  { key: 'ARRIVED', label: 'Arrived Destination' },
+  { key: 'DELIVERED', label: 'Delivered' },
 ];
+
+function buildTimeline(status: string, destination: string): Shipment['timeline'] {
+  if (status === 'CANCELLED') {
+    return [
+      { status: 'Parcel Registered', date: '—', location: 'Origin Hub', completed: true },
+      { status: 'Cancelled', date: '—', location: '—', completed: true },
+    ];
+  }
+  const currentIdx = STATUS_ORDER.indexOf(status);
+  return TIMELINE_STEPS.map((step, i) => ({
+    status: step.label,
+    date: '—',
+    location: step.key === 'ARRIVED' || step.key === 'DELIVERED' ? (destination || '—') : '—',
+    completed: i <= currentIdx,
+  }));
+}
+
+function parcelToShipment(p: ApiParcel): Shipment {
+  const allowed = ['REGISTERED', 'IN_TRANSIT', 'ARRIVED', 'DELIVERED', 'CANCELLED'];
+  const status = (allowed.includes(p.status) ? p.status : 'REGISTERED') as Shipment['status'];
+  return {
+    id: p.parcelId,
+    senderPhone: p.senderPhone,
+    senderName: p.senderName,
+    receiverName: p.ownerName,
+    receiverCountry: p.destination,
+    status,
+    date: p.createdAt ? p.createdAt.slice(0, 10) : '—',
+    weight: p.weight,
+    category: p.description || '—',
+    route: p.destination ? `→ ${p.destination}` : '',
+    timeline: buildTimeline(p.status, p.destination),
+  };
+}
 
 /* ------------------------------------------------------------------ */
 /*  HELPERS                                                            */
@@ -162,11 +153,16 @@ export default function CargoSender() {
   const [parcelId, setParcelId] = useState('');
   const [agreed, setAgreed] = useState(false);
 
-  /* Shipments state */
-  const [shipments, setShipments] = useState<Shipment[]>(INITIAL_SHIPMENTS);
+  /* Shipments state (backed by /cargo/parcels + live socket) */
+  const { parcels, connected, createParcel } = useCargoParcels();
+  const shipments = useMemo(() => parcels.map(parcelToShipment), [parcels]);
   const [searchPhone, setSearchPhone] = useState('');
   const [searched, setSearched] = useState(false);
-  const [selectedShipment, setSelectedShipment] = useState<Shipment | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selectedShipment = useMemo(
+    () => shipments.find(s => s.id === selectedId) ?? null,
+    [shipments, selectedId],
+  );
 
   /* Quote state */
   const [qOrigin, setQOrigin] = useState('China');
@@ -196,44 +192,24 @@ export default function CargoSender() {
   /* Wizard handlers */
   const nextStep = () => setStep(s => Math.min(s + 1, 6));
   const prevStep = () => { if (step > 1) setStep(s => s - 1); };
-  useEffect(() => {
-    void ensureSession().catch(() => undefined);
-  }, []);
 
   const handleSubmit = async () => {
     const id = genParcelId(sender.name);
     setParcelId(id);
     setSubmitted(true);
-    const routeObj = ROUTES.find(r => r.label === shipping.route) || ROUTES[0];
-    const newShipment: Shipment = {
-      id, senderPhone: sender.phone, senderName: sender.name,
-      receiverName: receiver.name, receiverCountry: receiver.country,
-      status: 'REGISTERED', date: new Date().toISOString().slice(0, 10),
-      weight: pkg.weight, category: pkg.category, route: shipping.route,
-      timeline: [
-        { status: 'Parcel Registered', date: new Date().toLocaleString(), location: 'Origin Hub', completed: true },
-        { status: 'Customs Cleared', date: 'Pending', location: routeObj.from + ' Customs', completed: false },
-        { status: 'Departed Origin', date: 'Pending', location: routeObj.from + ' Port', completed: false },
-        { status: 'In Transit', date: 'Pending', location: 'Sea Route', completed: false },
-        { status: 'Arrived Destination', date: 'Pending', location: routeObj.to + ' Port', completed: false },
-      ],
-    };
-    setShipments(prev => [newShipment, ...prev]);
-    // Persist to /api/cargo/parcels — fire and forget; UI stays optimistic.
+    // Persist to /cargo/parcels — the hook updates the list and the socket
+    // broadcasts the new parcel back to every connected client.
     try {
-      await api('/cargo/parcels', {
-        method: 'POST',
-        body: JSON.stringify({
-          parcelId: id,
-          senderName: sender.name, senderPhone: sender.phone,
-          ownerName: receiver.name, ownerPhone: receiver.phone,
-          destination: receiver.country,
-          weight: pkg.weight,
-          description: pkg.description,
-          paymentMode: payment.mode === 'PAY_NOW' ? 'PAY_NOW' : 'PAY_ON_ARRIVAL',
-        }),
+      await createParcel({
+        parcelId: id,
+        senderName: sender.name, senderPhone: sender.phone,
+        ownerName: receiver.name, ownerPhone: receiver.phone,
+        destination: receiver.country,
+        weight: pkg.weight,
+        description: pkg.description,
+        paymentMode: payment.mode === 'PAY_NOW' ? 'PAY_NOW' : 'PAY_ON_ARRIVAL',
       });
-    } catch { /* leave optimistic local state in place */ }
+    } catch { /* offline — change is queued and will sync */ }
   };
   const resetWizard = () => {
     setStep(1); setSubmitted(false); setParcelId(''); setAgreed(false);
@@ -499,6 +475,15 @@ export default function CargoSender() {
             <h1 className="text-xl font-bold text-white tracking-tight">Cargo Sender</h1>
             <p className="text-xs text-gray-400">Send parcels worldwide with KOBECARGO</p>
           </div>
+          <Badge
+            variant="outline"
+            className={connected
+              ? 'ml-auto gap-1 bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+              : 'ml-auto gap-1 bg-white/5 text-gray-400 border-white/10'}
+          >
+            {connected ? <Wifi size={12} /> : <WifiOff size={12} />}
+            {connected ? 'Live' : 'Offline'}
+          </Badge>
         </div>
       </div>
 
@@ -556,7 +541,7 @@ export default function CargoSender() {
                     <Input placeholder="Enter sender phone number..." value={searchPhone} onChange={e => setSearchPhone(e.target.value)} className="bg-white/5 border-white/10 text-white placeholder:text-gray-500 focus:border-emerald-500" />
                     <Button onClick={() => setSearched(true)} className="bg-emerald-600 hover:bg-emerald-700 text-white shrink-0"><Search size={16} /></Button>
                   </div>
-                  <p className="text-xs text-gray-500 mt-2">Try: +255712345678 or +255623456789</p>
+                  <p className="text-xs text-gray-500 mt-2">Search by the sender phone used at registration.</p>
                 </CardContent>
               </Card>
 
@@ -566,7 +551,7 @@ export default function CargoSender() {
 
               <div className="space-y-3">
                 {(searched ? filteredShipments : shipments).map(s => (
-                  <Card key={s.id} className="bg-white/5 backdrop-blur-md border-white/10 hover:border-emerald-500/30 transition-all cursor-pointer" onClick={() => setSelectedShipment(s)}>
+                  <Card key={s.id} className="bg-white/5 backdrop-blur-md border-white/10 hover:border-emerald-500/30 transition-all cursor-pointer" onClick={() => setSelectedId(s.id)}>
                     <CardContent className="p-4">
                       <div className="flex items-start justify-between">
                         <div className="space-y-1">
@@ -667,7 +652,7 @@ export default function CargoSender() {
       </Tabs>
 
       {/* Timeline Dialog */}
-      <Dialog open={!!selectedShipment} onOpenChange={() => setSelectedShipment(null)}>
+      <Dialog open={!!selectedShipment} onOpenChange={(o) => { if (!o) setSelectedId(null); }}>
         <DialogContent className="bg-slate-900 border-white/10 text-white max-w-md max-h-[80vh] overflow-y-auto">
           <DialogHeader><DialogTitle className="text-white flex items-center gap-2"><Truck size={18} className="text-emerald-400" /> Shipment Timeline</DialogTitle></DialogHeader>
           {selectedShipment && (
