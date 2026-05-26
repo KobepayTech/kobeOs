@@ -11,3 +11,4 @@ iso-build/
 live-build/
 electron/server-bundle/
 electron/.staging/
+build/vcredist/vc_redist.x64.exe

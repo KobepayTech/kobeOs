@@ -97,6 +97,21 @@ jobs:
             if ($src) { Copy-Item $src -Destination $binDir -Force; Write-Host "Bundled (optional): $d" }
           }
 
+      - name: Download Visual C++ 2015-2022 x64 Redistributable
+        run: |
+          $url = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+          $dest = "build\vcredist\vc_redist.x64.exe"
+          New-Item -ItemType Directory -Force -Path "build\vcredist" | Out-Null
+          Write-Host "Downloading vc_redist.x64.exe from $url"
+          Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing
+          $size = (Get-Item $dest).Length
+          Write-Host "Downloaded: $([math]::Round($size/1MB, 1)) MB"
+          if ($size -lt 5MB) {
+            Write-Error "vc_redist.x64.exe is suspiciously small — download may have failed"
+            exit 1
+          }
+        shell: pwsh
+
       - name: Build Windows installer
         run: npx electron-builder --win --publish never
         env:
@@ -117,6 +132,22 @@ jobs:
             }
           }
           Write-Host "Smoke test passed"
+        shell: pwsh
+
+      - name: Smoke test — verify vc_redist.x64.exe is bundled next to installer
+        run: |
+          $redist = "release\vc_redist.x64.exe"
+          if (!(Test-Path $redist)) {
+            Write-Error "vc_redist.x64.exe not found in release\ — extraFiles config may be broken"
+            exit 1
+          }
+          $size = (Get-Item $redist).Length
+          Write-Host "vc_redist.x64.exe: $([math]::Round($size/1MB, 1)) MB"
+          if ($size -lt 5MB) {
+            Write-Error "vc_redist.x64.exe is too small — may be corrupt"
+            exit 1
+          }
+          Write-Host "VC++ redist bundled correctly"
         shell: pwsh
 
       - name: Smoke test — verify asar contains core files
