@@ -1,13 +1,16 @@
 import { useState, useMemo, useEffect, createContext, useContext } from 'react';
 import { api } from '@/lib/api';
 import { ensureSession } from '@/lib/auth';
+import { ExploreModule, CreatorProfileModule, HowItWorksModule, FAQModule } from './marketplace-modules';
 import {
   Users, LayoutDashboard, Megaphone, Globe, Handshake, Wallet,
   BarChart3, Link2, MessageCircle, Plus, Search, CheckCircle2,
   Clock, TrendingUp, Eye, Heart, MessageSquare, Share2, MousePointerClick,
   ShoppingCart, Download, Star, Send, Instagram,
   Smartphone, Copy, AlertCircle, Lock, Unlock, DollarSign, Target, Zap,
-  Youtube, Twitter, Facebook
+  Youtube, Twitter, Facebook, UserCheck, BookOpen, HelpCircle,
+  ChevronDown, ChevronUp, Award, Package, ThumbsUp, MapPin, ExternalLink,
+  Filter, SlidersHorizontal, Sparkles, PlayCircle, Camera, Mic
 } from 'lucide-react';
 function idHash(id: string): number {
   let h = 0;
@@ -106,7 +109,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 // ── Types ──────────────────────────────────────────────
-type ModuleId = 'overview' | 'campaigns' | 'marketplace' | 'deals' | 'escrow' | 'subscription' | 'performance' | 'affiliate' | 'messages';
+type ModuleId = 'overview' | 'campaigns' | 'marketplace' | 'deals' | 'escrow' | 'subscription' | 'performance' | 'affiliate' | 'messages' | 'explore' | 'profile' | 'how-it-works' | 'faq';
 
 interface Campaign {
   id: number; name: string; budget: number; creators: number;
@@ -431,6 +434,10 @@ export default function Creator() {
     { id: 'performance', icon: BarChart3, label: 'Performance', desc: 'KPI tracking', color: '#f97316' },
     { id: 'affiliate', icon: Link2, label: 'Affiliate', desc: 'Links & codes', color: '#06b6d4' },
     { id: 'messages', icon: MessageCircle, label: 'Messages', desc: 'Chat & notifications', color: '#8b5cf6' },
+    { id: 'explore', icon: Globe, label: 'Explore', desc: 'Browse creators by platform', color: '#06b6d4' },
+    { id: 'profile', icon: UserCheck, label: 'Creator Profile', desc: 'Profile, packages & reviews', color: '#f97316' },
+    { id: 'how-it-works', icon: BookOpen, label: 'How It Works', desc: '3-step onboarding guide', color: '#10b981' },
+    { id: 'faq', icon: HelpCircle, label: 'FAQ', desc: 'Common questions answered', color: '#a78bfa' },
   ];
 
   return (
@@ -472,6 +479,10 @@ export default function Creator() {
         {activeModule === 'performance' && <PerformanceModule />}
         {activeModule === 'affiliate' && <AffiliateModule />}
         {activeModule === 'messages' && <MessagesModule />}
+        {activeModule === 'explore' && <ExploreModule />}
+        {activeModule === 'profile' && <CreatorProfileModule />}
+        {activeModule === 'how-it-works' && <HowItWorksModule />}
+        {activeModule === 'faq' && <FAQModule />}
       </main>
     </div>
     </AppContext.Provider>
@@ -2002,3 +2013,6 @@ function MessagesModule() {
     </div>
   );
 }
+
+
+
