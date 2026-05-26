@@ -41,6 +41,12 @@ class EnvVars {
   @IsOptional() @IsString() APP_PUBLIC_URL?: string;
   /** HMAC-SHA256 secret for signing OS license tokens. Must match VITE_LICENSE_HMAC_SECRET in the frontend build. */
   @IsOptional() @IsString() LICENSE_HMAC_SECRET?: string;
+
+  /** Beem Africa SMS / WhatsApp credentials (https://docs.beem.africa). When unset, channel sends are no-ops. */
+  @IsOptional() @IsString() BEEM_API_KEY?: string;
+  @IsOptional() @IsString() BEEM_SECRET_KEY?: string;
+  @IsOptional() @IsString() BEEM_SOURCE_ADDR?: string;
+  @IsOptional() @IsString() BEEM_SMS_URL?: string;
 }
 
 export function validateEnv(config: Record<string, unknown>) {

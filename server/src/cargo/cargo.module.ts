@@ -6,6 +6,7 @@ import { CargoDriver, CargoFlight, Parcel, Shipment } from './cargo.entity';
 import { DriversService, FlightsService, ParcelsService, ShipmentsService } from './cargo.service';
 import { CargoController } from './cargo.controller';
 import { CargoGateway } from './cargo.gateway';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { CargoGateway } from './cargo.gateway';
         secret: config.getOrThrow<string>('JWT_SECRET'),
       }),
     }),
+    NotificationsModule,
   ],
   // ShipmentsService needs CargoDriver + CargoFlight repos for assignment validation.
   providers: [ParcelsService, ShipmentsService, DriversService, FlightsService, CargoGateway],

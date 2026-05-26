@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DeepPartial, Repository } from 'typeorm';
 import { CargoDriver, CargoFlight, Parcel, Shipment } from './cargo.entity';
 import { CargoGateway } from './cargo.gateway';
+import { NotificationsService } from '../notifications/notifications.service';
 import { OwnedCrudService } from '../common/owned.service';
 import type {
   AssignDriverDto,
@@ -39,6 +40,7 @@ export class ParcelsService extends OwnedCrudService<Parcel> {
   constructor(
     @InjectRepository(Parcel) repo: Repository<Parcel>,
     private readonly gateway: CargoGateway,
+    private readonly notifications: NotificationsService,
   ) {
     super(repo);
   }
@@ -46,6 +48,7 @@ export class ParcelsService extends OwnedCrudService<Parcel> {
   async create(ownerId: string, data: DeepPartial<Parcel>): Promise<Parcel> {
     const created = await super.create(ownerId, data);
     this.gateway.emitParcel(ownerId, created, 'created');
+    void this.notifications.notifyParcelEvent(created, 'created');
     return created;
   }
 
@@ -60,6 +63,7 @@ export class ParcelsService extends OwnedCrudService<Parcel> {
     }
     const updated = await this.update(ownerId, id, { status: dto.status });
     this.gateway.emitParcel(ownerId, updated, 'status', parcel.status);
+    void this.notifications.notifyParcelEvent(updated, 'status', parcel.status);
     return updated;
   }
 }
