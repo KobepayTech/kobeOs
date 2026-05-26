@@ -3,13 +3,13 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import {
   BookingsService, GuestsService, MenuItemsService, OrdersService,
-  RoomsService, ServiceRequestsService,
+  RoomsService, ServiceRequestsService, TenantsService,
 } from './hotel.service';
 import {
   CreateBookingDto, CreateGuestDto, CreateMenuItemDto, CreateOrderDto, CreateRoomDto,
-  CreateServiceRequestDto,
+  CreateServiceRequestDto, CreateTenantDto,
   UpdateBookingDto, UpdateGuestDto, UpdateMenuItemDto, UpdateOrderStatusDto, UpdateRoomDto,
-  UpdateServiceRequestStatusDto,
+  UpdateServiceRequestStatusDto, UpdateTenantDto,
 } from './dto/hotel.dto';
 
 @UseGuards(JwtAuthGuard)
@@ -22,7 +22,19 @@ export class HotelController {
     private readonly menu: MenuItemsService,
     private readonly orders: OrdersService,
     private readonly serviceRequests: ServiceRequestsService,
+    private readonly tenants: TenantsService,
   ) {}
+
+  // Tenant (public-facing profile + slug)
+  @Get('tenant') async getTenant(@CurrentUser('id') uid: string) {
+    return (await this.tenants.getMine(uid)) ?? null;
+  }
+  @Post('tenant') upsertTenant(@CurrentUser('id') uid: string, @Body() dto: CreateTenantDto) {
+    return this.tenants.upsertForOwner(uid, dto);
+  }
+  @Patch('tenant') updateTenant(@CurrentUser('id') uid: string, @Body() dto: UpdateTenantDto) {
+    return this.tenants.updateMine(uid, dto);
+  }
 
   @Get('rooms') listRooms(@CurrentUser('id') uid: string, @Query('page') page?: string, @Query('limit') limit?: string) {
     return this.rooms.list(uid, { page: Number(page) || 1, limit: Number(limit) || 50 });

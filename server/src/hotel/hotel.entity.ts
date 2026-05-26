@@ -73,6 +73,25 @@ export class HotelBooking extends OwnedEntity {
   currency!: string;
 }
 
+@Entity('hotel_tenants')
+export class HotelTenant extends OwnedEntity {
+  @Index({ unique: true })
+  @Column()
+  slug!: string;
+
+  @Column()
+  name!: string;
+
+  @Column({ nullable: true, type: 'varchar' })
+  brandColor?: string | null;
+
+  @Column({ nullable: true, type: 'varchar' })
+  logoUrl?: string | null;
+
+  @Column({ default: 'TZS' })
+  currency!: string;
+}
+
 @Entity('hotel_menu_items')
 export class HotelMenuItem extends OwnedEntity {
   @Column()
@@ -89,6 +108,10 @@ export class HotelMenuItem extends OwnedEntity {
 
   @Column({ default: true })
   available!: boolean;
+
+  /** Which station prepares this item — drives KDS routing. */
+  @Column({ default: 'kitchen' })
+  station!: 'kitchen' | 'bar' | 'other';
 }
 
 export interface HotelOrderItem {
@@ -96,6 +119,7 @@ export interface HotelOrderItem {
   name: string;
   qty: number;
   price: number;
+  station?: 'kitchen' | 'bar' | 'other';
 }
 
 @Entity('hotel_orders')
@@ -103,6 +127,10 @@ export class HotelOrder extends OwnedEntity {
   @Index()
   @Column()
   roomNumber!: string;
+
+  /** 'room' for in-room orders, 'table' for restaurant table orders. */
+  @Column({ default: 'room' })
+  locationType!: 'room' | 'table';
 
   @Column({ nullable: true, type: 'varchar' })
   guestName?: string | null;

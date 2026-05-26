@@ -2,11 +2,13 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { DeepPartial, Repository } from 'typeorm';
 import {
-  HotelBooking, HotelGuest, HotelMenuItem, HotelOrder, HotelRoom, HotelServiceRequest,
+  HotelBooking, HotelGuest, HotelMenuItem, HotelOrder, HotelRoom, HotelServiceRequest, HotelTenant,
 } from './hotel.entity';
+import { HotelGateway } from './hotel.gateway';
 import { OwnedCrudService } from '../common/owned.service';
 import type {
-  CreateBookingDto, CreateOrderDto, UpdateBookingDto, UpdateOrderStatusDto, UpdateServiceRequestStatusDto,
+  CreateBookingDto, CreateOrderDto, CreateTenantDto,
+  UpdateBookingDto, UpdateOrderStatusDto, UpdateServiceRequestStatusDto, UpdateTenantDto,
 } from './dto/hotel.dto';
 
 @Injectable()
@@ -126,28 +128,47 @@ const ORDER_TRANSITIONS: Record<string, string[]> = {
 
 @Injectable()
 export class OrdersService extends OwnedCrudService<HotelOrder> {
-  constructor(@InjectRepository(HotelOrder) repo: Repository<HotelOrder>) { super(repo); }
+  constructor(
+    @InjectRepository(HotelOrder) repo: Repository<HotelOrder>,
+    @InjectRepository(HotelMenuItem) private readonly menuRepo: Repository<HotelMenuItem>,
+    private readonly gateway: HotelGateway,
+  ) { super(repo); }
 
   async placeOrder(ownerId: string, dto: CreateOrderDto): Promise<HotelOrder> {
     if (!dto.items || dto.items.length === 0) {
       throw new BadRequestException('Order must contain at least one item');
     }
-    const total = dto.items.reduce((sum, it) => sum + it.price * it.qty, 0);
+
+    // Resolve station per line: prefer the menu item's station when present.
+    const itemIds = dto.items.map((it) => it.menuItemId).filter((x): x is string => !!x);
+    const stationById = new Map<string, 'kitchen' | 'bar' | 'other'>();
+    if (itemIds.length > 0) {
+      const known = await this.menuRepo.find({ where: itemIds.map((id) => ({ id, ownerId })) });
+      for (const m of known) stationById.set(m.id, m.station);
+    }
+
+    const items = dto.items.map((it) => ({
+      menuItemId: it.menuItemId,
+      name: it.name,
+      qty: it.qty,
+      price: it.price,
+      station: (it.menuItemId && stationById.get(it.menuItemId)) || it.station || 'kitchen',
+    }));
+    const total = items.reduce((sum, it) => sum + it.price * it.qty, 0);
+
     const data: DeepPartial<HotelOrder> = {
       roomNumber: dto.roomNumber,
+      locationType: dto.locationType ?? 'room',
       guestName: dto.guestName ?? null,
-      items: dto.items.map((it) => ({
-        menuItemId: it.menuItemId,
-        name: it.name,
-        qty: it.qty,
-        price: it.price,
-      })),
+      items,
       total,
       currency: dto.currency ?? 'TZS',
       status: 'PENDING',
       note: dto.note ?? '',
     };
-    return this.create(ownerId, data);
+    const created = await this.create(ownerId, data);
+    this.gateway.emitOrder(ownerId, created, 'created');
+    return created;
   }
 
   async updateStatus(ownerId: string, id: string, dto: UpdateOrderStatusDto): Promise<HotelOrder> {
@@ -159,7 +180,9 @@ export class OrdersService extends OwnedCrudService<HotelOrder> {
         `Allowed: ${allowed.length ? allowed.join(', ') : 'none'}`,
       );
     }
-    return this.update(ownerId, id, { status: dto.status });
+    const updated = await this.update(ownerId, id, { status: dto.status });
+    this.gateway.emitOrder(ownerId, updated, 'status', order.status);
+    return updated;
   }
 }
 
@@ -172,7 +195,16 @@ const SERVICE_TRANSITIONS: Record<string, string[]> = {
 
 @Injectable()
 export class ServiceRequestsService extends OwnedCrudService<HotelServiceRequest> {
-  constructor(@InjectRepository(HotelServiceRequest) repo: Repository<HotelServiceRequest>) { super(repo); }
+  constructor(
+    @InjectRepository(HotelServiceRequest) repo: Repository<HotelServiceRequest>,
+    private readonly gateway: HotelGateway,
+  ) { super(repo); }
+
+  async create(ownerId: string, data: DeepPartial<HotelServiceRequest>): Promise<HotelServiceRequest> {
+    const created = await super.create(ownerId, data);
+    this.gateway.emitServiceRequest(ownerId, created, 'created');
+    return created;
+  }
 
   async updateStatus(
     ownerId: string,
@@ -187,6 +219,60 @@ export class ServiceRequestsService extends OwnedCrudService<HotelServiceRequest
         `Allowed: ${allowed.length ? allowed.join(', ') : 'none'}`,
       );
     }
-    return this.update(ownerId, id, { status: dto.status });
+    const updated = await this.update(ownerId, id, { status: dto.status });
+    this.gateway.emitServiceRequest(ownerId, updated, 'status', req.status);
+    return updated;
+  }
+}
+
+@Injectable()
+export class TenantsService {
+  constructor(
+    @InjectRepository(HotelTenant) private readonly repo: Repository<HotelTenant>,
+  ) {}
+
+  /** First tenant for this owner (one hotel per operator in v1). */
+  async getMine(ownerId: string): Promise<HotelTenant | null> {
+    return this.repo.findOne({ where: { ownerId }, order: { createdAt: 'ASC' } });
+  }
+
+  async findBySlug(slug: string): Promise<HotelTenant | null> {
+    return this.repo.findOne({ where: { slug } });
+  }
+
+  async upsertForOwner(ownerId: string, dto: CreateTenantDto): Promise<HotelTenant> {
+    const slug = dto.slug.toLowerCase();
+    const existingForOwner = await this.getMine(ownerId);
+    const slugOwner = await this.findBySlug(slug);
+    if (slugOwner && slugOwner.ownerId !== ownerId) {
+      throw new BadRequestException(`Slug '${slug}' is already taken`);
+    }
+    if (existingForOwner) {
+      existingForOwner.slug = slug;
+      existingForOwner.name = dto.name;
+      if (dto.brandColor !== undefined) existingForOwner.brandColor = dto.brandColor ?? null;
+      if (dto.logoUrl !== undefined) existingForOwner.logoUrl = dto.logoUrl ?? null;
+      if (dto.currency) existingForOwner.currency = dto.currency;
+      return this.repo.save(existingForOwner);
+    }
+    const created = this.repo.create({
+      ownerId,
+      slug,
+      name: dto.name,
+      brandColor: dto.brandColor ?? null,
+      logoUrl: dto.logoUrl ?? null,
+      currency: dto.currency ?? 'TZS',
+    });
+    return this.repo.save(created);
+  }
+
+  async updateMine(ownerId: string, dto: UpdateTenantDto): Promise<HotelTenant> {
+    const t = await this.getMine(ownerId);
+    if (!t) throw new NotFoundException('No tenant configured');
+    if (dto.name !== undefined) t.name = dto.name;
+    if (dto.brandColor !== undefined) t.brandColor = dto.brandColor ?? null;
+    if (dto.logoUrl !== undefined) t.logoUrl = dto.logoUrl ?? null;
+    if (dto.currency !== undefined) t.currency = dto.currency;
+    return this.repo.save(t);
   }
 }

@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { useOfflineData } from '@/hooks/useOfflineData';
 import { api } from '@/lib/api';
 import { ensureSession } from '@/lib/auth';
+import { useHotelLive, type HotelOrder as LiveOrder } from './useHotelLive';
 import {
   Building2, LayoutDashboard, ConciergeBell, Bed, Wine, UtensilsCrossed,
   Package, Users, Calculator, QrCode, Plus, Minus, Search, Trash2,
@@ -75,6 +76,22 @@ interface PortalServiceRequest {
   status: string;
   createdAt?: string;
 }
+
+// Mirrors the server-side transition maps in hotel.service.ts.
+const NEXT_ORDER_STATUS: Record<string, Array<'ACCEPTED' | 'PREPARING' | 'READY' | 'DELIVERED' | 'CANCELLED'>> = {
+  PENDING: ['ACCEPTED', 'CANCELLED'],
+  ACCEPTED: ['PREPARING', 'CANCELLED'],
+  PREPARING: ['READY', 'CANCELLED'],
+  READY: ['DELIVERED'],
+  DELIVERED: [],
+  CANCELLED: [],
+};
+const NEXT_REQUEST_STATUS: Record<string, Array<'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'>> = {
+  OPEN: ['IN_PROGRESS', 'CANCELLED'],
+  IN_PROGRESS: ['COMPLETED', 'CANCELLED'],
+  COMPLETED: [],
+  CANCELLED: [],
+};
 
 interface CartItem extends MenuItem {
   qty: number;
@@ -360,6 +377,16 @@ export default function KobeHotel() {
   const [portalRequests, setPortalRequests] = useState<PortalServiceRequest[]>([]);
   const [portalMessage, setPortalMessage] = useState<string | null>(null);
 
+  // Live KDS feed (orders + service requests over the /hotel socket).
+  const live = useHotelLive();
+
+  // Public tenant settings (slug, name) used by the QR + public guest pages.
+  const [tenantSlug, setTenantSlug] = useState('');
+  const [tenantName, setTenantName] = useState('');
+  const [tenantBrand, setTenantBrand] = useState('');
+  const [tenantSaving, setTenantSaving] = useState(false);
+  const [kdsStation, setKdsStation] = useState<'all' | 'kitchen' | 'bar' | 'other'>('all');
+
   // Reception
   const [receiptGuest, setReceiptGuest] = useState<Guest | null>(null);
 
@@ -444,9 +471,46 @@ export default function KobeHotel() {
         setPortalOrders(Array.isArray(orders) ? orders : []);
         setPortalRequests(Array.isArray(requests) ? requests : []);
       } catch { /* keep empty */ }
+
+      try {
+        const t = await api<{ slug?: string; name?: string; brandColor?: string | null } | null>('/hotel/tenant');
+        if (cancelled || !t) return;
+        if (t.slug) setTenantSlug(t.slug);
+        if (t.name) setTenantName(t.name);
+        if (t.brandColor) setTenantBrand(t.brandColor);
+      } catch { /* tenant not configured yet */ }
     })();
     return () => { cancelled = true; };
   }, []);
+
+  const saveTenant = async () => {
+    const slug = tenantSlug.trim().toLowerCase();
+    const name = tenantName.trim();
+    if (!/^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/.test(slug) || !name) {
+      flashPortalMessage('Slug must be 3–40 chars, lowercase, hyphens only.');
+      return;
+    }
+    setTenantSaving(true);
+    try {
+      await api('/hotel/tenant', {
+        method: 'POST',
+        body: JSON.stringify({ slug, name, brandColor: tenantBrand || undefined }),
+      });
+      flashPortalMessage(`Public portal saved: /p/${slug}/…`);
+    } catch (err) {
+      flashPortalMessage(`Could not save tenant: ${(err as Error).message}`);
+    } finally {
+      setTenantSaving(false);
+    }
+  };
+
+  const publicBaseUrl = () => {
+    // In dev the OS shell runs at localhost:5173; the same origin serves /p/...
+    return window.location.origin;
+  };
+  const publicRoomUrl = tenantSlug
+    ? `${publicBaseUrl()}/p/${tenantSlug}/room/${portalRoom}`
+    : `https://kobe-hotel.co.tz/room/${portalRoom}`;
 
   const flashPortalMessage = (msg: string) => {
     setPortalMessage(msg);
@@ -541,6 +605,7 @@ export default function KobeHotel() {
     { id: 'inventory', label: 'Inventory', icon: Package, color: 'text-violet-400 bg-violet-500/10 border-violet-500/20' },
     { id: 'staff', label: 'Staff', icon: Users, color: 'text-sky-400 bg-sky-500/10 border-sky-500/20' },
     { id: 'accounting', label: 'Accounting', icon: Calculator, color: 'text-green-400 bg-green-500/10 border-green-500/20' },
+    { id: 'kds', label: 'KDS', icon: ChefHat, color: 'text-orange-400 bg-orange-500/10 border-orange-500/20' },
     { id: 'portal', label: 'Guest Portal', icon: QrCode, color: 'text-pink-400 bg-pink-500/10 border-pink-500/20' },
   ];
 
@@ -1466,15 +1531,64 @@ export default function KobeHotel() {
               </Select>
             </div>
 
+            <Card className={`${darkMode ? 'bg-[#13131f] border-white/[0.06]' : 'bg-white border-gray-200'}`}>
+              <CardContent className="p-6">
+                <h3 className="font-semibold mb-2">Public Portal Settings</h3>
+                <p className="text-xs text-gray-500 mb-4">
+                  Set your hotel's public slug. QR codes then resolve to
+                  <code className="ml-1">{publicBaseUrl()}/p/&lt;slug&gt;/room/&lt;n&gt;</code> with no login.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">Slug</label>
+                    <Input
+                      value={tenantSlug}
+                      onChange={e => setTenantSlug(e.target.value)}
+                      placeholder="serenahotel"
+                      className={darkMode ? 'bg-[#0a0a1a] border-white/10 text-white placeholder:text-gray-600' : ''}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="text-xs text-gray-400 mb-1 block">Display name</label>
+                    <Input
+                      value={tenantName}
+                      onChange={e => setTenantName(e.target.value)}
+                      placeholder="Serena Hotel"
+                      className={darkMode ? 'bg-[#0a0a1a] border-white/10 text-white placeholder:text-gray-600' : ''}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">Brand color</label>
+                    <Input
+                      value={tenantBrand}
+                      onChange={e => setTenantBrand(e.target.value)}
+                      placeholder="#ec4899"
+                      className={darkMode ? 'bg-[#0a0a1a] border-white/10 text-white placeholder:text-gray-600' : ''}
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center justify-between mt-4">
+                  <p className="text-xs text-gray-500 truncate mr-2">
+                    Current public URL: <span className="text-pink-400">{publicRoomUrl}</span>
+                  </p>
+                  <Button size="sm" onClick={saveTenant} disabled={tenantSaving} className="bg-pink-600 hover:bg-pink-700 shrink-0">
+                    {tenantSaving ? 'Saving…' : 'Save'}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* QR Code */}
               <Card className={`${darkMode ? 'bg-[#13131f] border-white/[0.06]' : 'bg-white border-gray-200'}`}>
                 <CardContent className="p-6 flex flex-col items-center">
                   <h3 className="font-semibold mb-4">Room {portalRoom} QR Code</h3>
                   <div className="bg-white p-4 rounded-xl">
-                    <QRCodeSVG value={`https://kobe-hotel.co.tz/room/${portalRoom}`} size={160} />
+                    <QRCodeSVG value={publicRoomUrl} size={160} />
                   </div>
-                  <p className="text-xs text-gray-400 mt-3 text-center">Scan to access digital menu & services</p>
+                  <p className="text-xs text-gray-400 mt-3 text-center break-all px-2">
+                    {tenantSlug ? publicRoomUrl : 'Set a public slug below to make this QR live.'}
+                  </p>
                   <div className="flex gap-2 mt-4">
                     <Button size="sm" variant="outline" className={darkMode ? 'border-white/10' : ''}><Printer className="w-4 h-4 mr-1" />Print</Button>
                     <Button size="sm" variant="outline" className={darkMode ? 'border-white/10' : ''}><Download className="w-4 h-4 mr-1" />Download</Button>
@@ -1616,6 +1730,140 @@ export default function KobeHotel() {
                 </div>
               </CardContent>
             </Card>
+          </div>
+        )}
+
+        {/* ════════════════════════════════════════════════════════════
+            KITCHEN DISPLAY SYSTEM
+        ════════════════════════════════════════════════════════════ */}
+        {activeTab === 'kds' && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-2xl font-bold flex items-center gap-2">
+                  KDS — Kitchen Display
+                  <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-xs font-medium ${live.connected ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-slate-400 border-white/10'}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${live.connected ? 'bg-emerald-400' : 'bg-slate-500'}`} />
+                    {live.connected ? 'Live' : 'Offline'}
+                  </span>
+                </h1>
+                <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Live guest orders routed by station</p>
+              </div>
+              <div className="flex gap-2">
+                {(['all', 'kitchen', 'bar', 'other'] as const).map(s => (
+                  <Button
+                    key={s}
+                    size="sm"
+                    variant={kdsStation === s ? 'default' : 'outline'}
+                    onClick={() => setKdsStation(s)}
+                    className={kdsStation === s ? 'bg-orange-600 hover:bg-orange-700' : (darkMode ? 'border-white/10' : '')}
+                  >
+                    {s[0].toUpperCase() + s.slice(1)}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <Card className={`${darkMode ? 'bg-[#13131f] border-white/[0.06]' : 'bg-white border-gray-200'}`}>
+                <CardContent className="p-5">
+                  <h3 className="font-semibold mb-3 flex items-center gap-2"><ChefHat className="w-4 h-4 text-orange-400" /> Orders</h3>
+                  {live.loading && <p className="text-xs text-gray-500">Loading…</p>}
+                  {!live.loading && live.orders.length === 0 && (
+                    <p className="text-xs text-gray-500">No orders yet.</p>
+                  )}
+                  <div className="space-y-2">
+                    {live.orders
+                      .filter((o: LiveOrder) => !['DELIVERED', 'CANCELLED'].includes(o.status))
+                      .filter((o: LiveOrder) => kdsStation === 'all' || o.items.some(i => (i.station ?? 'kitchen') === kdsStation))
+                      .slice(0, 30)
+                      .map((o: LiveOrder) => {
+                        const items = kdsStation === 'all'
+                          ? o.items
+                          : o.items.filter(i => (i.station ?? 'kitchen') === kdsStation);
+                        const next = NEXT_ORDER_STATUS[o.status] ?? [];
+                        return (
+                          <div key={o.id} className={`rounded-lg border ${darkMode ? 'border-white/[0.06] bg-[#0a0a1a]' : 'border-gray-200 bg-gray-50'} p-3`}>
+                            <div className="flex items-center justify-between mb-2">
+                              <div>
+                                <p className="text-sm font-semibold">
+                                  {o.locationType === 'table' ? 'Table' : 'Room'} {o.roomNumber}
+                                </p>
+                                <p className="text-[10px] text-gray-500 font-mono">{o.id.slice(0, 8)}</p>
+                              </div>
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-orange-500/15 text-orange-300 border border-orange-500/30">
+                                {o.status}
+                              </span>
+                            </div>
+                            <div className="space-y-0.5 mb-2">
+                              {items.map((it, i) => (
+                                <div key={i} className="flex items-center justify-between text-xs">
+                                  <span>{it.qty}× {it.name}</span>
+                                  <span className="text-gray-500 capitalize">{it.station ?? 'kitchen'}</span>
+                                </div>
+                              ))}
+                            </div>
+                            {next.length > 0 && (
+                              <div className="flex gap-2 flex-wrap">
+                                {next.map(s => (
+                                  <Button
+                                    key={s}
+                                    size="sm"
+                                    onClick={() => live.advanceOrder(o.id, s)}
+                                    className={s === 'CANCELLED' ? 'h-7 text-xs bg-red-600/80 hover:bg-red-600' : 'h-7 text-xs bg-orange-600 hover:bg-orange-700'}
+                                  >
+                                    {s}
+                                  </Button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className={`${darkMode ? 'bg-[#13131f] border-white/[0.06]' : 'bg-white border-gray-200'}`}>
+                <CardContent className="p-5">
+                  <h3 className="font-semibold mb-3 flex items-center gap-2"><Brush className="w-4 h-4 text-pink-400" /> Service Requests</h3>
+                  {!live.loading && live.requests.filter(r => !['COMPLETED', 'CANCELLED'].includes(r.status)).length === 0 && (
+                    <p className="text-xs text-gray-500">No open requests.</p>
+                  )}
+                  <div className="space-y-2">
+                    {live.requests
+                      .filter(r => !['COMPLETED', 'CANCELLED'].includes(r.status))
+                      .slice(0, 30)
+                      .map(r => {
+                        const next = NEXT_REQUEST_STATUS[r.status] ?? [];
+                        return (
+                          <div key={r.id} className={`rounded-lg border ${darkMode ? 'border-white/[0.06] bg-[#0a0a1a]' : 'border-gray-200 bg-gray-50'} p-3 flex items-center justify-between`}>
+                            <div>
+                              <p className="text-sm font-medium">
+                                Room {r.roomNumber} —{' '}
+                                {r.kind.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase())}
+                              </p>
+                              <p className="text-[10px] text-gray-500">{r.status}</p>
+                            </div>
+                            <div className="flex gap-2 flex-wrap">
+                              {next.map(s => (
+                                <Button
+                                  key={s}
+                                  size="sm"
+                                  onClick={() => live.advanceRequest(r.id, s)}
+                                  className={s === 'CANCELLED' ? 'h-7 text-xs bg-red-600/80 hover:bg-red-600' : 'h-7 text-xs bg-pink-600 hover:bg-pink-700'}
+                                >
+                                  {s}
+                                </Button>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           </div>
         )}
 
