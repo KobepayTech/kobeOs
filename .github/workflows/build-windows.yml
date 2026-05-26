@@ -117,6 +117,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Copy vc_redist.x64.exe next to installer
+        # electron-builder extraFiles puts the file inside win-unpacked/.
+        # We also need it next to the .exe so NSIS $EXEDIR can find it
+        # when the user runs the installer.
+        run: |
+          Copy-Item "build\vcredist\vc_redist.x64.exe" "release\vc_redist.x64.exe" -Force
+          Write-Host "Copied vc_redist.x64.exe to release\"
+        shell: pwsh
+
       - name: Smoke test — verify installer exists and is non-trivial
         run: |
           $exes = Get-ChildItem release\*.exe -ErrorAction SilentlyContinue

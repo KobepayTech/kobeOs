@@ -264,16 +264,7 @@
         "width": 540,
         "height": 380
       }
-    },
-    "extraFiles": [
-      {
-        "from": "build/vcredist/vc_redist.x64.exe",
-        "to": "vc_redist.x64.exe",
-        "filter": [
-          "**/*"
-        ]
-      }
-    ]
+    }
   },
   "description": "KobeOS \u2014 Desktop business platform with ERP, cargo, hotel, payments and more",
   "author": {
