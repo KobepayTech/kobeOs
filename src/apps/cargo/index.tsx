@@ -3,6 +3,10 @@ import { api } from '@/lib/api';
 import { ensureSession } from '@/lib/auth';
 import { useOfflineData } from '@/hooks/useOfflineData';
 import { useOSStore } from '@/os/store';
+import { ShipmentCreation } from './ShipmentCreation';
+import { CargoKanban } from './CargoKanban';
+import { CargoPaymentWorkflow } from './CargoPaymentWorkflow';
+import type { Shipment as SharedShipment } from '@/shared/types';
 import {
   Plane, BarChart3, Package, ShieldCheck, Warehouse, PlaneTakeoff,
   Wallet, MapPin, Truck, Search, CheckCircle2, ArrowRight, ClipboardCheck, Ship, Anchor,
@@ -1729,6 +1733,14 @@ const cargoSections = [
       { key: 'portals' as Tab, label: 'Portals', desc: 'External-facing apps', icon: Globe, color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20' },
     ],
   },
+  {
+    title: 'New Workflow',
+    tiles: [
+      { key: 'new-shipment' as Tab, label: 'New Shipment', desc: 'Multi-step creation form', icon: Package, color: 'text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/20' },
+      { key: 'kanban' as Tab, label: 'Kanban Board', desc: 'Pipeline stage tracking', icon: Target, color: 'text-violet-400', bg: 'bg-violet-500/10', border: 'border-violet-500/20' },
+      { key: 'pay-workflow' as Tab, label: 'Pay & Receipt', desc: 'Payment + 3-receipt engine', icon: Receipt, color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20' },
+    ],
+  },
 ];
 
 /* ─── SIDEBAR COMPONENT ─── */
@@ -1793,7 +1805,7 @@ function CargoSidebar({ activeTab, onTabChange }: { activeTab: Tab; onTabChange:
 }
 
 /* ─── MAIN SHELL ─── */
-type Tab = 'dashboard' | 'shipments' | 'customs' | 'warehouse' | 'flights' | 'payments' | 'tracking' | 'delivery' | 'network' | 'insights' | 'analytics' | 'timeline' | 'rates' | 'documents' | 'campaigns' | 'adlibrary' | 'advertisers' | 'adanalytics' | 'adsettings' | 'cargo_tz' | 'portals';
+type Tab = 'dashboard' | 'shipments' | 'customs' | 'warehouse' | 'flights' | 'payments' | 'tracking' | 'delivery' | 'network' | 'insights' | 'analytics' | 'timeline' | 'rates' | 'documents' | 'campaigns' | 'adlibrary' | 'advertisers' | 'adanalytics' | 'adsettings' | 'cargo_tz' | 'portals' | 'new-shipment' | 'kanban' | 'pay-workflow';
 export default function KOBECARGO() {
   const [tab, setTab] = useState<Tab>('dashboard');
   const [search, setSearch] = useState('');
@@ -1838,6 +1850,9 @@ export default function KOBECARGO() {
       case 'adsettings': return <AdSettingsTab />;
       case 'cargo_tz': return <CargoTZ />;
       case 'portals': return <PortalsTab />;
+      case 'new-shipment': return <NewShipmentTab onDone={() => setTab('kanban')} />;
+      case 'kanban': return <KanbanTab />;
+      case 'pay-workflow': return <PayWorkflowTab />;
     }
   };
 
@@ -1878,6 +1893,84 @@ export default function KOBECARGO() {
           {showAlerts && <div className="absolute inset-0 z-40" onClick={() => setShowAlerts(false)} />}
         </div>
       </div>
+    </div>
+  );
+}
+
+
+/* ═══════════════════════════════════════════════════
+   NEW WORKFLOW TABS — Drive components
+   ═══════════════════════════════════════════════════ */
+
+function toSharedShipment(s: Shipment): SharedShipment {
+  const stageMap: Record<string, SharedShipment['stage']> = {
+    ORIGIN: 'created', EXPORT_CUSTOMS: 'export-customs', IN_TRANSIT: 'in-transit',
+    IMPORT_CUSTOMS: 'import-customs', DESTINATION: 'local-warehouse', DELIVERED: 'delivered',
+  };
+  return {
+    id: s.id,
+    reference: s.number,
+    qrCode: `https://cargo.kobe/track/${s.id}`,
+    qrData: `https://cargo.kobe/track/${s.id}`,
+    customerId: s.customer,
+    customerName: s.customer,
+    customerPhone: '',
+    suppliers: [],
+    stage: stageMap[s.status] ?? 'created',
+    status: s.status === 'DELIVERED' ? 'completed' : 'active',
+    origin: s.origin,
+    destination: s.destination,
+    description: s.cargoType,
+    weight: s.actualWeight,
+    value: s.declaredValue,
+    currency: s.currency,
+    payments: [],
+    totalAmount: s.declaredValue,
+    paidAmount: 0,
+    balance: s.declaredValue,
+    purpose: 'full-payment',
+    trackingEvents: [],
+    notifications: [],
+    createdAt: s.createdAt,
+    updatedAt: s.createdAt,
+  };
+}
+
+function NewShipmentTab({ onDone }: { onDone: () => void }) {
+  return (
+    <div className="h-full overflow-auto">
+      <ShipmentCreation
+        onCreate={(_s) => onDone()}
+        onCancel={onDone}
+        currency="TZS"
+      />
+    </div>
+  );
+}
+
+function KanbanTab() {
+  const sharedShipments = shipments.map(toSharedShipment);
+  return (
+    <div className="h-full overflow-auto">
+      <CargoKanban
+        shipments={sharedShipments}
+        onUpdateStage={() => {}}
+        onSelectShipment={() => {}}
+        onScanQR={() => {}}
+      />
+    </div>
+  );
+}
+
+function PayWorkflowTab() {
+  const demo = toSharedShipment(shipments[0]);
+  return (
+    <div className="h-full overflow-auto">
+      <CargoPaymentWorkflow
+        shipment={demo}
+        onProcessPayment={() => {}}
+        onPrintReceipt={() => {}}
+      />
     </div>
   );
 }

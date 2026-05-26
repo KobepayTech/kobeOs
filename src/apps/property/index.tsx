@@ -17,6 +17,10 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { QRCodeSVG } from 'qrcode.react';
+import { PropertySummaryCards } from './PropertySummaryCards';
+import { TenantListView } from './TenantListView';
+import { TenantDetailView } from './TenantDetailView';
+import type { Tenant as SharedTenant, PropertySummary } from '@/shared/types';
 
 /* ─────────────────── TYPES ─────────────────── */
 
@@ -189,7 +193,7 @@ const KPICard = ({ title, value, sub, icon: Icon, color = 'blue' }: {
 
 /* ─────────────────── MAIN APP ─────────────────── */
 
-type Tab = 'dashboard' | 'properties' | 'tenants' | 'units' | 'payments' | 'cashier';
+type Tab = 'dashboard' | 'properties' | 'tenants' | 'tenants-v2' | 'units' | 'payments' | 'cashier';
 
 interface ApiProperty { id: string; name: string; address: string; type: 'residential' | 'commercial' | 'mixed'; totalUnits: number }
 interface ApiUnit { id: string; propertyId: string; unitNumber: string; rentAmount: number; status: 'vacant' | 'occupied' | 'maintenance' }
@@ -297,6 +301,7 @@ export default function PropertyManager() {
     { key: 'units' as Tab, label: 'Units', icon: DoorOpen },
     { key: 'payments' as Tab, label: 'Payments', icon: Receipt },
     { key: 'cashier' as Tab, label: 'Cashier', icon: ScanLine },
+    { key: 'tenants-v2' as Tab, label: 'Tenants V2', icon: UserCheck },
   ];
 
   return (
@@ -351,6 +356,7 @@ export default function PropertyManager() {
         {tab === 'units' && <UnitsTab search={search} />}
         {tab === 'payments' && <PaymentsTab search={search} />}
         {tab === 'cashier' && <CashierTab />}
+        {tab === 'tenants-v2' && <TenantsV2Tab />}
       </div>
     </div>
   );
@@ -1252,5 +1258,90 @@ function TenantDialog({ tenant, onClose }: { tenant: Tenant | null; onClose: () 
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
+   TENANTS V2 TAB — uses Drive components
+   ═══════════════════════════════════════════════════ */
+
+function TenantsV2Tab() {
+  const [selectedTenantId, setSelectedTenantId] = useState<string | null>(null);
+
+  // Map local tenant data to shared Tenant type
+  const sharedTenants: SharedTenant[] = tenants.map(t => ({
+    id: t.id,
+    name: t.name,
+    phone: t.phone,
+    email: t.email,
+    unit: t.unit,
+    propertyId: t.propertyId,
+    propertyName: properties.find(p => p.id === t.propertyId)?.name,
+    status: t.balance === 0 ? 'fully-paid' : t.unpaidMonths.length > 2 ? 'overdue' : t.status === 'Moving Out' ? 'inactive' : 'active',
+    leaseStart: t.leaseStart,
+    leaseEnd: t.leaseEnd,
+    monthlyRent: t.monthlyRent,
+    currency: 'TZS',
+    shortCode: t.shortCode,
+    balance: t.balance,
+    paidAmount: t.amountPaid,
+    totalExpected: t.annualRent,
+    nextDueDate: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1).toISOString().split('T')[0],
+    daysOverdue: t.unpaidMonths.length * 30,
+    paymentHistory: payments
+      .filter(p => p.tenantId === t.id && p.amount > 0)
+      .map(p => ({
+        id: p.id,
+        tenantId: p.tenantId,
+        amount: p.amount,
+        method: p.method === 'Mobile Money' ? 'mobile-money' : p.method === 'Bank Transfer' ? 'bank' : p.method === 'Card' ? 'card' : 'cash',
+        reference: p.receiptNo,
+        date: p.date,
+        month: `${p.year}-${String(MONTHS.indexOf(p.month) + 1).padStart(2, '0')}`,
+        status: 'completed' as const,
+      })),
+    createdAt: t.leaseStart,
+    updatedAt: new Date().toISOString(),
+  }));
+
+  const summary: PropertySummary = {
+    totalTenants: sharedTenants.length,
+    overdueCount: sharedTenants.filter(t => t.status === 'overdue').length,
+    fullyPaidCount: sharedTenants.filter(t => t.status === 'fully-paid').length,
+    pendingCount: sharedTenants.filter(t => t.status === 'pending').length,
+    totalRevenueThisMonth: tenants.reduce((s, t) => s + t.monthlyRent, 0),
+    totalOutstanding: tenants.reduce((s, t) => s + t.balance, 0),
+    occupancyRate: Math.round((units.filter(u => u.status === 'Occupied').length / Math.max(units.length, 1)) * 100),
+  };
+
+  const selectedTenant = sharedTenants.find(t => t.id === selectedTenantId) ?? null;
+
+  if (selectedTenant) {
+    return (
+      <div className="h-full overflow-auto">
+        <TenantDetailView
+          tenant={selectedTenant}
+          onBack={() => setSelectedTenantId(null)}
+          onRecordPayment={() => {}}
+          onSendReminder={() => {}}
+          onWhatsApp={() => {}}
+          onGenerateInvoice={() => {}}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full overflow-auto p-4 space-y-4">
+      <PropertySummaryCards summary={summary} currency="TZS" />
+      <TenantListView
+        tenants={sharedTenants}
+        onSelectTenant={setSelectedTenantId}
+        onRecordPayment={() => {}}
+        onSendReminder={() => {}}
+        onWhatsApp={() => {}}
+        onExport={() => {}}
+      />
+    </div>
   );
 }

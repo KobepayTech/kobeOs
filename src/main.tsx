@@ -1,5 +1,6 @@
 import { createRoot } from 'react-dom/client';
 import './index.css';
+import './styles/global.css';
 import { Desktop } from './os/Desktop';
 
 // /sports/overlay is a standalone transparent OBS browser source page.

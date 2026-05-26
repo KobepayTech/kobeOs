@@ -1,6 +1,9 @@
 import { useState, useMemo, useEffect, createContext, useContext } from 'react';
 import { api } from '@/lib/api';
 import { ensureSession } from '@/lib/auth';
+import { CreatorDashboard } from './CreatorDashboard';
+import { BrandPortal } from './BrandPortal';
+import type { Creator as SharedCreator, Brand, Campaign as SharedCampaign } from '@/shared/types';
 import {
   Users, LayoutDashboard, Megaphone, Globe, Handshake, Wallet,
   BarChart3, Link2, MessageCircle, Plus, Search, CheckCircle2,
@@ -106,7 +109,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 // ── Types ──────────────────────────────────────────────
-type ModuleId = 'overview' | 'campaigns' | 'marketplace' | 'deals' | 'escrow' | 'subscription' | 'performance' | 'affiliate' | 'messages';
+type ModuleId = 'overview' | 'campaigns' | 'marketplace' | 'deals' | 'escrow' | 'subscription' | 'performance' | 'affiliate' | 'messages' | 'creator-v2' | 'brand-portal';
 
 interface Campaign {
   id: number; name: string; budget: number; creators: number;
@@ -431,6 +434,8 @@ export default function Creator() {
     { id: 'performance', icon: BarChart3, label: 'Performance', desc: 'KPI tracking', color: '#f97316' },
     { id: 'affiliate', icon: Link2, label: 'Affiliate', desc: 'Links & codes', color: '#06b6d4' },
     { id: 'messages', icon: MessageCircle, label: 'Messages', desc: 'Chat & notifications', color: '#8b5cf6' },
+    { id: 'creator-v2', icon: Star, label: 'Creator V2', desc: 'New creator dashboard', color: '#f59e0b' },
+    { id: 'brand-portal', icon: Target, label: 'Brand Portal', desc: 'Brand campaign manager', color: '#ec4899' },
   ];
 
   return (
@@ -472,6 +477,8 @@ export default function Creator() {
         {activeModule === 'performance' && <PerformanceModule />}
         {activeModule === 'affiliate' && <AffiliateModule />}
         {activeModule === 'messages' && <MessagesModule />}
+        {activeModule === 'creator-v2' && <CreatorV2Module />}
+        {activeModule === 'brand-portal' && <BrandPortalModule />}
       </main>
     </div>
     </AppContext.Provider>
@@ -1999,6 +2006,129 @@ function MessagesModule() {
           </Button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
+   CREATOR V2 MODULE — Drive CreatorDashboard component
+   ═══════════════════════════════════════════════════ */
+
+function CreatorV2Module() {
+  const demoCreator: SharedCreator = {
+    id: 'c1',
+    userId: 'u1',
+    handle: '@kobecreator',
+    displayName: 'Kobe Creator',
+    bio: 'Content creator based in Dar es Salaam',
+    niches: ['lifestyle', 'tech', 'business'],
+    platforms: [
+      { platform: 'instagram', handle: '@kobecreator', url: 'https://instagram.com/kobecreator', followers: 45000, engagementRate: 4.2, avgLikes: 1890, avgComments: 120, postingFrequency: 5 },
+      { platform: 'youtube', handle: 'KobeCreator', url: 'https://youtube.com/kobecreator', followers: 12000, engagementRate: 3.8, avgLikes: 456, avgComments: 89, avgViews: 8500, postingFrequency: 2 },
+    ],
+    portfolio: [],
+    analytics: { totalReach: 57000, totalEngagements: 24000, avgEngagementRate: 4.0, topPlatform: 'instagram', monthlyGrowth: 3.2, estimatedEarnings: 2500000 },
+    score: 82,
+    isVerified: true,
+    isActive: true,
+    location: 'Dar es Salaam, Tanzania',
+    languages: ['Swahili', 'English'],
+    createdAt: new Date().toISOString(),
+  };
+
+  const demoCampaigns: SharedCampaign[] = [
+    {
+      id: 'camp1', brandId: 'b1', brandName: 'TechBrand TZ', title: 'Product Launch Campaign',
+      description: 'Promote our new smartphone accessories', requirements: 'Min 10k followers, tech niche',
+      deliverables: [{ id: 'd1', type: 'instagram-post', quantity: 2, description: '2 Instagram posts', dueDate: '2026-06-15' }],
+      budget: 500000, currency: 'TZS', niches: ['tech'], platforms: ['instagram'],
+      deadline: '2026-06-30', status: 'open', applications: [], selectedCreators: [], contentSubmissions: [],
+      createdAt: new Date().toISOString(),
+    },
+    {
+      id: 'camp2', brandId: 'b2', brandName: 'FoodCo TZ', title: 'Restaurant Promo',
+      description: 'Showcase our new menu items', requirements: 'Food/lifestyle creators',
+      deliverables: [{ id: 'd2', type: 'tiktok-video', quantity: 1, description: '1 TikTok video', dueDate: '2026-06-20' }],
+      budget: 300000, currency: 'TZS', niches: ['food', 'lifestyle'], platforms: ['tiktok'],
+      deadline: '2026-06-25', status: 'open', applications: [], selectedCreators: [], contentSubmissions: [],
+      createdAt: new Date().toISOString(),
+    },
+  ];
+
+  return (
+    <div className="h-full overflow-auto">
+      <CreatorDashboard
+        creator={demoCreator}
+        campaigns={demoCampaigns}
+        onApplyCampaign={() => {}}
+        onSubmitContent={() => {}}
+        onUpdateProfile={() => {}}
+      />
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════
+   BRAND PORTAL MODULE — Drive BrandPortal component
+   ═══════════════════════════════════════════════════ */
+
+function BrandPortalModule() {
+  const demoBrand: Brand = {
+    id: 'b1',
+    userId: 'u2',
+    companyName: 'KobeBrand TZ',
+    industry: 'Technology',
+    website: 'https://kobebrand.co.tz',
+    description: 'Leading tech brand in East Africa',
+    contactName: 'John Mwita',
+    contactEmail: 'john@kobebrand.co.tz',
+    contactPhone: '+255 712 345 678',
+    location: 'Dar es Salaam, Tanzania',
+    budgetRange: { min: 200000, max: 5000000, currency: 'TZS' },
+    isVerified: true,
+    createdAt: new Date().toISOString(),
+  };
+
+  const demoCreators: SharedCreator[] = [
+    {
+      id: 'c1', userId: 'u1', handle: '@techguru_tz', displayName: 'Tech Guru TZ',
+      bio: 'Tech reviewer & lifestyle creator', niches: ['tech', 'lifestyle'],
+      platforms: [{ platform: 'instagram', handle: '@techguru_tz', url: '', followers: 85000, engagementRate: 5.1, avgLikes: 4335, avgComments: 210, postingFrequency: 4 }],
+      portfolio: [], analytics: { totalReach: 85000, totalEngagements: 43350, avgEngagementRate: 5.1, topPlatform: 'instagram', monthlyGrowth: 4.5, estimatedEarnings: 4500000 },
+      score: 91, isVerified: true, isActive: true, location: 'Dar es Salaam', languages: ['Swahili', 'English'], createdAt: new Date().toISOString(),
+    },
+    {
+      id: 'c2', userId: 'u3', handle: '@lifestyletz', displayName: 'Lifestyle TZ',
+      bio: 'Fashion & lifestyle content', niches: ['fashion', 'lifestyle'],
+      platforms: [{ platform: 'tiktok', handle: '@lifestyletz', url: '', followers: 120000, engagementRate: 7.2, avgLikes: 8640, avgComments: 430, postingFrequency: 7 }],
+      portfolio: [], analytics: { totalReach: 120000, totalEngagements: 86400, avgEngagementRate: 7.2, topPlatform: 'tiktok', monthlyGrowth: 8.1, estimatedEarnings: 6000000 },
+      score: 95, isVerified: true, isActive: true, location: 'Nairobi', languages: ['Swahili', 'English'], createdAt: new Date().toISOString(),
+    },
+  ];
+
+  const demoCampaigns: SharedCampaign[] = [
+    {
+      id: 'camp1', brandId: 'b1', brandName: 'KobeBrand TZ', title: 'Q2 Product Launch',
+      description: 'Launch our new product line across East Africa', requirements: 'Min 50k followers, tech/lifestyle niche',
+      deliverables: [{ id: 'd1', type: 'instagram-post', quantity: 3, description: '3 Instagram posts + stories', dueDate: '2026-07-01' }],
+      budget: 2000000, currency: 'TZS', niches: ['tech', 'lifestyle'], platforms: ['instagram', 'tiktok'],
+      deadline: '2026-07-15', status: 'open', applications: [], selectedCreators: [], contentSubmissions: [],
+      createdAt: new Date().toISOString(),
+    },
+  ];
+
+  return (
+    <div className="h-full overflow-auto">
+      <BrandPortal
+        brand={demoBrand}
+        creators={demoCreators}
+        campaigns={demoCampaigns}
+        onCreateCampaign={() => {}}
+        onApproveApplication={() => {}}
+        onRejectApplication={() => {}}
+        onApproveContent={() => {}}
+        onRejectContent={() => {}}
+      />
     </div>
   );
 }
