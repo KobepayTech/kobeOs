@@ -5,13 +5,14 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DeepPartial, Repository } from 'typeorm';
-import { CargoDriver, CargoFlight, Parcel, Shipment } from './cargo.entity';
+import { CargoDriver, CargoFlight, CargoPayment, Parcel, Shipment } from './cargo.entity';
 import { CargoGateway } from './cargo.gateway';
 import { NotificationsService } from '../notifications/notifications.service';
 import { OwnedCrudService } from '../common/owned.service';
 import type {
   AssignDriverDto,
   AssignFlightDto,
+  CreateCargoPaymentDto,
   UpdateParcelStatusDto,
   UpdateShipmentStatusDto,
 } from './dto/cargo.dto';
@@ -162,5 +163,48 @@ export class DriversService extends OwnedCrudService<CargoDriver> {
 export class FlightsService extends OwnedCrudService<CargoFlight> {
   constructor(@InjectRepository(CargoFlight) repo: Repository<CargoFlight>) {
     super(repo);
+  }
+}
+
+@Injectable()
+export class CargoPaymentsService extends OwnedCrudService<CargoPayment> {
+  constructor(
+    @InjectRepository(CargoPayment) repo: Repository<CargoPayment>,
+    private readonly gateway: CargoGateway,
+  ) { super(repo); }
+
+  async record(ownerId: string, dto: CreateCargoPaymentDto): Promise<CargoPayment> {
+    if (!dto.parcelId && !dto.shipmentId) {
+      throw new BadRequestException('Either parcelId or shipmentId must be provided');
+    }
+    if (!Number.isFinite(dto.amount) || dto.amount <= 0) {
+      throw new BadRequestException('amount must be greater than zero');
+    }
+    const data: DeepPartial<CargoPayment> = {
+      parcelId: dto.parcelId ?? null,
+      shipmentId: dto.shipmentId ?? null,
+      customerName: dto.customerName,
+      customerPhone: dto.customerPhone ?? '',
+      supplierName: dto.supplierName ?? null,
+      supplierNumber: dto.supplierNumber ?? null,
+      amount: dto.amount,
+      currency: dto.currency ?? 'TZS',
+      purpose: dto.purpose,
+      method: dto.method,
+      reference: dto.reference ?? null,
+      notes: dto.notes ?? '',
+      status: dto.status ?? 'COMPLETED',
+    };
+    const created = await this.create(ownerId, data);
+    this.gateway.emitPayment(ownerId, created);
+    return created;
+  }
+
+  byParcel(uid: string, parcelId: string) {
+    return this.repo.find({ where: { ownerId: uid, parcelId }, order: { createdAt: 'DESC' } });
+  }
+
+  byShipment(uid: string, shipmentId: string) {
+    return this.repo.find({ where: { ownerId: uid, shipmentId }, order: { createdAt: 'DESC' } });
   }
 }

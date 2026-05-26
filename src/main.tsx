@@ -12,6 +12,7 @@ const pathname = window.location.pathname;
 const tenantSub = detectTenantSubdomain();
 const isOverlay = pathname.startsWith('/sports/overlay');
 const isPrintCard = pathname.startsWith('/print/qr-card');
+const isPrintCargoReceipt = pathname.startsWith('/print/cargo-receipt');
 const isPublicGuest =
   pathname.startsWith('/p/') ||
   (tenantSub !== null && /^\/(room|table)\//i.test(pathname));
@@ -24,6 +25,10 @@ if (isOverlay) {
 } else if (isPrintCard) {
   import('./public/QrCard').then(({ default: QrCard }) => {
     createRoot(document.getElementById('root')!).render(<QrCard />);
+  });
+} else if (isPrintCargoReceipt) {
+  import('./public/CargoReceipts').then(({ default: CargoReceipts }) => {
+    createRoot(document.getElementById('root')!).render(<CargoReceipts />);
   });
 } else if (isPublicGuest) {
   import('./public/GuestPortal').then(({ default: GuestPortal }) => {

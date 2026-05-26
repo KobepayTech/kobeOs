@@ -6,7 +6,7 @@ import {
   WebSocketGateway, WebSocketServer,
 } from '@nestjs/websockets';
 import type { Server, Socket } from 'socket.io';
-import { Parcel, Shipment } from './cargo.entity';
+import { CargoPayment, Parcel, Shipment } from './cargo.entity';
 import { buildOriginPredicate } from '../common/cors';
 
 interface JwtPayload { sub: string; email: string; }
@@ -53,6 +53,10 @@ export class CargoGateway implements OnGatewayInit, OnGatewayConnection, OnGatew
 
   emitParcel(ownerId: string, parcel: Parcel, kind: CargoEventKind, previousStatus?: string) {
     this.server.to(`owner:${ownerId}`).emit('cargo:parcel', { kind, parcel, previousStatus });
+  }
+
+  emitPayment(ownerId: string, payment: CargoPayment) {
+    this.server.to(`owner:${ownerId}`).emit('cargo:payment', { kind: 'created', payment });
   }
 
   emitShipment(ownerId: string, shipment: Shipment, kind: CargoEventKind, previousStatus?: string) {
