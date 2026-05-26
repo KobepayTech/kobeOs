@@ -7,6 +7,7 @@ import {
 } from '@nestjs/websockets';
 import type { Server, Socket } from 'socket.io';
 import { HotelOrder, HotelServiceRequest } from './hotel.entity';
+import { buildOriginPredicate } from '../common/cors';
 
 interface JwtPayload { sub: string; email: string; }
 
@@ -14,17 +15,7 @@ export type HotelEventKind = 'created' | 'status';
 
 @WebSocketGateway({
   namespace: '/hotel',
-  cors: {
-    origin: (requestOrigin: string | undefined, callback: (err: Error | null, allow: boolean) => void) => {
-      const allowed = (process.env.CORS_ORIGIN || 'http://localhost:5173').split(',');
-      if (!requestOrigin || allowed.includes(requestOrigin)) {
-        callback(null, true);
-      } else {
-        callback(new Error('Not allowed by CORS'), false);
-      }
-    },
-    credentials: true,
-  },
+  cors: { origin: buildOriginPredicate().predicate, credentials: true },
 })
 export class HotelGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer() server!: Server;

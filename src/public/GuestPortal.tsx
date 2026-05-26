@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Clock, Minus, Plus, ShoppingBag, Sparkles, Utensils, Wine, X } from 'lucide-react';
 import {
-  publicApi,
+  detectTenantSubdomain, publicApi,
   type PublicMenuItem, type PublicOrder, type PublicTenant,
 } from './api';
 
@@ -20,13 +20,31 @@ interface RouteParams {
 
 function parseLocation(): RouteParams | null {
   const path = window.location.pathname;
-  const m = path.match(/^\/p\/([a-z0-9][a-z0-9-]{0,38}[a-z0-9])\/(room|table)\/([^/]+)$/i);
-  if (!m) return null;
-  return {
-    slug: m[1].toLowerCase(),
-    locationType: m[2].toLowerCase() as 'room' | 'table',
-    locationNumber: decodeURIComponent(m[3]),
-  };
+
+  // Path form: /p/{slug}/(room|table)/{n}
+  const pathMatch = path.match(/^\/p\/([a-z0-9][a-z0-9-]{0,38}[a-z0-9])\/(room|table)\/([^/]+)$/i);
+  if (pathMatch) {
+    return {
+      slug: pathMatch[1].toLowerCase(),
+      locationType: pathMatch[2].toLowerCase() as 'room' | 'table',
+      locationNumber: decodeURIComponent(pathMatch[3]),
+    };
+  }
+
+  // Subdomain form: {slug}.{base}/(room|table)/{n}
+  const sub = detectTenantSubdomain();
+  if (sub) {
+    const subMatch = path.match(/^\/(room|table)\/([^/]+)$/i);
+    if (subMatch) {
+      return {
+        slug: sub,
+        locationType: subMatch[1].toLowerCase() as 'room' | 'table',
+        locationNumber: decodeURIComponent(subMatch[2]),
+      };
+    }
+  }
+
+  return null;
 }
 
 interface CartLine { item: PublicMenuItem; qty: number; }

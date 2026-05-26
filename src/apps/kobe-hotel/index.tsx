@@ -3,6 +3,7 @@ import { useOfflineData } from '@/hooks/useOfflineData';
 import { api } from '@/lib/api';
 import { ensureSession } from '@/lib/auth';
 import { useHotelLive, type HotelOrder as LiveOrder } from './useHotelLive';
+import { buildPublicGuestUrl } from '@/public/api';
 import {
   Building2, LayoutDashboard, ConciergeBell, Bed, Wine, UtensilsCrossed,
   Package, Users, Calculator, QrCode, Plus, Minus, Search, Trash2,
@@ -387,6 +388,30 @@ export default function KobeHotel() {
   const [tenantSaving, setTenantSaving] = useState(false);
   const [kdsStation, setKdsStation] = useState<'all' | 'kitchen' | 'bar' | 'other'>('all');
 
+  // Menu editor — backend-synced menu items the guest portal/POS read from.
+  interface MenuItemRow {
+    id: string;
+    name: string;
+    category: string;
+    price: number | string;
+    currency: string;
+    available: boolean;
+    station: 'kitchen' | 'bar' | 'other';
+  }
+  const [menuRows, setMenuRows] = useState<MenuItemRow[]>([]);
+  const [menuLoading, setMenuLoading] = useState(true);
+  const [menuFilter, setMenuFilter] = useState<'all' | 'kitchen' | 'bar' | 'other'>('all');
+  const [menuEditor, setMenuEditor] = useState<null | {
+    id?: string;
+    name: string;
+    category: string;
+    price: string;
+    currency: string;
+    station: 'kitchen' | 'bar' | 'other';
+    available: boolean;
+  }>(null);
+  const [menuSaving, setMenuSaving] = useState(false);
+
   // Reception
   const [receiptGuest, setReceiptGuest] = useState<Guest | null>(null);
 
@@ -479,9 +504,94 @@ export default function KobeHotel() {
         if (t.name) setTenantName(t.name);
         if (t.brandColor) setTenantBrand(t.brandColor);
       } catch { /* tenant not configured yet */ }
+
+      try {
+        const items = await api<MenuItemRow[]>('/hotel/menu-items');
+        if (!cancelled) setMenuRows(Array.isArray(items) ? items : []);
+      } catch { /* no menu yet */ }
+      if (!cancelled) setMenuLoading(false);
     })();
     return () => { cancelled = true; };
   }, []);
+
+  const openNewMenuItem = () => setMenuEditor({
+    name: '', category: '', price: '', currency: tenantBrand && tenantBrand.length ? 'TZS' : 'TZS',
+    station: 'kitchen', available: true,
+  });
+  const openEditMenuItem = (m: MenuItemRow) => setMenuEditor({
+    id: m.id,
+    name: m.name,
+    category: m.category,
+    price: String(m.price),
+    currency: m.currency,
+    station: m.station,
+    available: m.available,
+  });
+
+  const saveMenuItem = async () => {
+    if (!menuEditor) return;
+    const price = parseFloat(menuEditor.price);
+    if (!menuEditor.name.trim() || !menuEditor.category.trim() || !Number.isFinite(price) || price < 0) {
+      flashPortalMessage('Name, category and a non-negative price are required.');
+      return;
+    }
+    setMenuSaving(true);
+    try {
+      const payload = {
+        name: menuEditor.name.trim(),
+        category: menuEditor.category.trim(),
+        price,
+        currency: menuEditor.currency || 'TZS',
+        station: menuEditor.station,
+        available: menuEditor.available,
+      };
+      const saved = menuEditor.id
+        ? await api<MenuItemRow>(`/hotel/menu-items/${menuEditor.id}`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload),
+          })
+        : await api<MenuItemRow>('/hotel/menu-items', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          });
+      setMenuRows(prev => {
+        const i = prev.findIndex(x => x.id === saved.id);
+        if (i === -1) return [saved, ...prev];
+        const copy = prev.slice();
+        copy[i] = saved;
+        return copy;
+      });
+      setMenuEditor(null);
+    } catch (err) {
+      flashPortalMessage(`Could not save: ${(err as Error).message}`);
+    } finally {
+      setMenuSaving(false);
+    }
+  };
+
+  const deleteMenuItem = async (id: string) => {
+    const ok = window.confirm('Remove this menu item? Existing orders are not affected.');
+    if (!ok) return;
+    try {
+      await api(`/hotel/menu-items/${id}`, { method: 'DELETE' });
+      setMenuRows(prev => prev.filter(x => x.id !== id));
+      if (menuEditor?.id === id) setMenuEditor(null);
+    } catch (err) {
+      flashPortalMessage(`Could not delete: ${(err as Error).message}`);
+    }
+  };
+
+  const toggleMenuAvailable = async (m: MenuItemRow) => {
+    try {
+      const updated = await api<MenuItemRow>(`/hotel/menu-items/${m.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ available: !m.available }),
+      });
+      setMenuRows(prev => prev.map(x => (x.id === m.id ? updated : x)));
+    } catch (err) {
+      flashPortalMessage(`Could not update: ${(err as Error).message}`);
+    }
+  };
 
   const saveTenant = async () => {
     const slug = tenantSlug.trim().toLowerCase();
@@ -504,13 +614,12 @@ export default function KobeHotel() {
     }
   };
 
-  const publicBaseUrl = () => {
-    // In dev the OS shell runs at localhost:5173; the same origin serves /p/...
-    return window.location.origin;
-  };
+  const tenantBaseDomain = import.meta.env.VITE_TENANT_BASE_DOMAIN as string | undefined;
+  const publicBaseUrl = () =>
+    tenantBaseDomain ? `https://<slug>.${tenantBaseDomain}` : window.location.origin;
   const publicRoomUrl = tenantSlug
-    ? `${publicBaseUrl()}/p/${tenantSlug}/room/${portalRoom}`
-    : `https://kobe-hotel.co.tz/room/${portalRoom}`;
+    ? buildPublicGuestUrl(tenantSlug, 'room', portalRoom)
+    : `${window.location.origin}/p/<slug>/room/${portalRoom}`;
 
   const flashPortalMessage = (msg: string) => {
     setPortalMessage(msg);
@@ -605,6 +714,7 @@ export default function KobeHotel() {
     { id: 'inventory', label: 'Inventory', icon: Package, color: 'text-violet-400 bg-violet-500/10 border-violet-500/20' },
     { id: 'staff', label: 'Staff', icon: Users, color: 'text-sky-400 bg-sky-500/10 border-sky-500/20' },
     { id: 'accounting', label: 'Accounting', icon: Calculator, color: 'text-green-400 bg-green-500/10 border-green-500/20' },
+    { id: 'menu', label: 'Menu', icon: CakeSlice, color: 'text-rose-400 bg-rose-500/10 border-rose-500/20' },
     { id: 'kds', label: 'KDS', icon: ChefHat, color: 'text-orange-400 bg-orange-500/10 border-orange-500/20' },
     { id: 'portal', label: 'Guest Portal', icon: QrCode, color: 'text-pink-400 bg-pink-500/10 border-pink-500/20' },
   ];
@@ -1732,6 +1842,207 @@ export default function KobeHotel() {
             </Card>
           </div>
         )}
+
+        {/* ════════════════════════════════════════════════════════════
+            MENU EDITOR
+        ════════════════════════════════════════════════════════════ */}
+        {activeTab === 'menu' && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h1 className="text-2xl font-bold">Menu</h1>
+                <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                  Drives the guest portal, KDS routing, and POS
+                </p>
+              </div>
+              <Button onClick={openNewMenuItem} className="bg-rose-600 hover:bg-rose-700">
+                <Plus className="w-4 h-4 mr-1" /> Add Item
+              </Button>
+            </div>
+
+            <div className="flex gap-2">
+              {(['all', 'kitchen', 'bar', 'other'] as const).map(s => (
+                <Button
+                  key={s}
+                  size="sm"
+                  variant={menuFilter === s ? 'default' : 'outline'}
+                  onClick={() => setMenuFilter(s)}
+                  className={menuFilter === s ? 'bg-rose-600 hover:bg-rose-700' : (darkMode ? 'border-white/10' : '')}
+                >
+                  {s[0].toUpperCase() + s.slice(1)}
+                  <span className="ml-1.5 text-xs opacity-60">
+                    {s === 'all' ? menuRows.length : menuRows.filter(m => m.station === s).length}
+                  </span>
+                </Button>
+              ))}
+            </div>
+
+            <Card className={`${darkMode ? 'bg-[#13131f] border-white/[0.06]' : 'bg-white border-gray-200'}`}>
+              <CardContent className="p-0">
+                {menuLoading ? (
+                  <div className="p-8 text-center text-sm text-gray-500">Loading menu…</div>
+                ) : menuRows.length === 0 ? (
+                  <div className="p-12 text-center">
+                    <CakeSlice className="w-10 h-10 mx-auto text-rose-400 mb-2 opacity-70" />
+                    <p className="text-sm text-gray-400">No menu items yet.</p>
+                    <Button size="sm" className="mt-3 bg-rose-600 hover:bg-rose-700" onClick={openNewMenuItem}>
+                      <Plus className="w-4 h-4 mr-1" /> Add your first item
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-white/[0.06]">
+                    {menuRows
+                      .filter(m => menuFilter === 'all' || m.station === menuFilter)
+                      .map(m => (
+                        <div key={m.id} className="flex items-center gap-3 px-4 py-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-semibold truncate">{m.name}</p>
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 capitalize">{m.station}</Badge>
+                              {!m.available && (
+                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-amber-400 border-amber-400/40">
+                                  Hidden
+                                </Badge>
+                              )}
+                            </div>
+                            <p className="text-xs text-gray-500 truncate">{m.category}</p>
+                          </div>
+                          <div className="text-sm font-semibold text-rose-400 w-32 text-right">
+                            {Number(m.price).toLocaleString()} {m.currency}
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className={`h-8 ${darkMode ? 'border-white/10' : ''}`}
+                            onClick={() => toggleMenuAvailable(m)}
+                          >
+                            {m.available ? <Eye className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+                          </Button>
+                          <Button size="sm" variant="outline" className={`h-8 ${darkMode ? 'border-white/10' : ''}`} onClick={() => openEditMenuItem(m)}>
+                            Edit
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 border-red-500/40 text-red-400 hover:bg-red-500/10"
+                            onClick={() => deleteMenuItem(m.id)}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        <Dialog open={!!menuEditor} onOpenChange={(o) => !o && setMenuEditor(null)}>
+          <DialogContent className={`${darkMode ? 'bg-[#13131f] border-white/[0.06] text-white' : ''} max-w-md`}>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <CakeSlice className="w-4 h-4 text-rose-400" />
+                {menuEditor?.id ? 'Edit Menu Item' : 'New Menu Item'}
+              </DialogTitle>
+            </DialogHeader>
+            {menuEditor && (
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">Name</label>
+                  <Input
+                    value={menuEditor.name}
+                    onChange={e => setMenuEditor({ ...menuEditor, name: e.target.value })}
+                    placeholder="Cheeseburger"
+                    className={darkMode ? 'bg-[#0a0a1a] border-white/10 text-white placeholder:text-gray-600' : ''}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">Category</label>
+                  <Input
+                    list="menu-category-suggestions"
+                    value={menuEditor.category}
+                    onChange={e => setMenuEditor({ ...menuEditor, category: e.target.value })}
+                    placeholder="Mains, Drinks, Desserts…"
+                    className={darkMode ? 'bg-[#0a0a1a] border-white/10 text-white placeholder:text-gray-600' : ''}
+                  />
+                  <datalist id="menu-category-suggestions">
+                    {Array.from(new Set(menuRows.map(m => m.category))).map(c => (
+                      <option key={c} value={c} />
+                    ))}
+                  </datalist>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">Price</label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={menuEditor.price}
+                      onChange={e => setMenuEditor({ ...menuEditor, price: e.target.value })}
+                      placeholder="15000"
+                      className={darkMode ? 'bg-[#0a0a1a] border-white/10 text-white placeholder:text-gray-600' : ''}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">Currency</label>
+                    <Input
+                      value={menuEditor.currency}
+                      onChange={e => setMenuEditor({ ...menuEditor, currency: e.target.value.toUpperCase() })}
+                      placeholder="TZS"
+                      maxLength={8}
+                      className={darkMode ? 'bg-[#0a0a1a] border-white/10 text-white placeholder:text-gray-600' : ''}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">Station</label>
+                  <Select
+                    value={menuEditor.station}
+                    onValueChange={(v) => setMenuEditor({ ...menuEditor, station: v as 'kitchen' | 'bar' | 'other' })}
+                  >
+                    <SelectTrigger className={darkMode ? 'bg-[#0a0a1a] border-white/10' : ''}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="kitchen">Kitchen</SelectItem>
+                      <SelectItem value="bar">Bar</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={menuEditor.available}
+                    onChange={e => setMenuEditor({ ...menuEditor, available: e.target.checked })}
+                    className="rounded"
+                  />
+                  Visible on guest portal
+                </label>
+                <div className="flex items-center justify-between pt-2">
+                  {menuEditor.id ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-red-500/40 text-red-400 hover:bg-red-500/10"
+                      onClick={() => menuEditor.id && deleteMenuItem(menuEditor.id)}
+                    >
+                      <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete
+                    </Button>
+                  ) : <span />}
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" onClick={() => setMenuEditor(null)} className={darkMode ? 'border-white/10' : ''}>Cancel</Button>
+                    <Button size="sm" disabled={menuSaving} onClick={saveMenuItem} className="bg-rose-600 hover:bg-rose-700">
+                      {menuSaving ? 'Saving…' : (menuEditor.id ? 'Save' : 'Create')}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
 
         {/* ════════════════════════════════════════════════════════════
             KITCHEN DISPLAY SYSTEM
