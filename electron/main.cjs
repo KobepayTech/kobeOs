@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, net } = require('electron');
+const { app, BrowserWindow, ipcMain, net, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { exec, execFile, spawn } = require('child_process');
@@ -333,7 +333,22 @@ app.whenReady().then(async () => {
 
   createSplashWindow();
   await new Promise((r) => setTimeout(r, 200));
-  await bootServices();
+  try {
+    await bootServices();
+  } catch (err) {
+    // Without this, any boot failure becomes an unhandled rejection and the
+    // splash sits on "Starting embedded database…" forever with no feedback.
+    console.error('[KobeOS] Boot failed:', err);
+    sendBootProgress(100, 'Startup failed — see error dialog');
+    dialog.showErrorBox(
+      'KobeOS failed to start',
+      `${err && err.message ? err.message : err}\n\n` +
+      `If this keeps happening: add the KobeOS install folder to your antivirus ` +
+      `exclusions, do not run as Administrator, then reopen the app.`
+    );
+    app.quit();
+    return;
+  }
   createWindow();
   mainWindow.once('ready-to-show', async () => {
     mainWindow.show();

@@ -24,6 +24,8 @@ import {
 } from 'lucide-react';
 import { useOSStore } from './store';
 import { ContextMenu } from './ContextMenu';
+import { WindowManager } from './WindowManager';
+import { Taskbar } from './Taskbar';
 
 /* ------------------------------------------------------------------ */
 /*  Bokeh orb background                                               */
@@ -554,6 +556,12 @@ export function Desktop() {
           </div>
         </div>
       </div>
+
+      {/* Open application windows */}
+      <WindowManager />
+
+      {/* Taskbar */}
+      <Taskbar />
 
       {/* Context menu */}
       {contextMenu && (

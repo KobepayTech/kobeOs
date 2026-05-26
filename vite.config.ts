@@ -28,6 +28,13 @@ export default defineConfig({
       process.env.VITE_LICENSE_HMAC_SECRET ?? 'kobe-license-secret-change-in-prod',
     ),
   },
+  // live-build/ contains a chroot with self-referential symlinks (e.g.
+  // usr/bin/X11/X11/...) that crash chokidar with ELOOP if scanned.
+  // release/ holds packaged Electron output, also outside the source set.
+  server: { watch: { ignored: ['**/live-build/**', '**/release/**', '**/dist/**', '**/node_modules/**'] } },
+  // Restrict the dep scanner to the actual source set so it doesn't crawl
+  // live-build/ or release/ and trip over self-referential symlinks.
+  optimizeDeps: { entries: ['index.html', 'src/**/*.{ts,tsx}'] },
   build: { outDir: 'dist', assetsDir: 'assets', emptyOutDir: true, rollupOptions: { output: { manualChunks: undefined } } },
   test: {
     environment: 'jsdom',

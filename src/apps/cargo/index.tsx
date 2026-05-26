@@ -1,6 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { api } from '@/lib/api';
-import { ensureSession } from '@/lib/auth';
 import { useOfflineData } from '@/hooks/useOfflineData';
 import { useOSStore } from '@/os/store';
 import {
@@ -17,12 +16,14 @@ import {
   Target, Receipt,
   Megaphone, Pause, Play, Eye, MousePointerClick, Users,
   Check, Navigation, Send, PackageSearch, Inbox, Shield,
+  Plus,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Card, CardContent } from '@/components/ui/card';
 import { QRCodeSVG } from 'qrcode.react';
+import CargoPaymentWorkflow from './CargoPaymentWorkflow';
 import {
   BarChart, Bar, PieChart, Pie, Cell, Line, XAxis, YAxis,
   CartesianGrid, Tooltip, ResponsiveContainer, Legend,
@@ -1213,17 +1214,86 @@ function FlightsTab({search}:{search:string}){
 /* KOBE Pay Wallet & Payments */
 function PaymentsTab() {
   const launchApp = useOSStore(s => s.launchApp);
-  useEffect(() => { launchApp('kobe-pay'); }, [launchApp]);
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [recent, setRecent] = useState<Array<{
+    id: string; createdAt?: string; customerName: string; amount: number | string;
+    currency: string; purpose: string; method: string; parcelId?: string | null; shipmentId?: string | null;
+  }>>([]);
+  const [loading, setLoading] = useState(true);
+
+  const refresh = useCallback(async () => {
+    try {
+      const list = await api<typeof recent>('/cargo/payments');
+      setRecent(Array.isArray(list) ? list : []);
+    } catch { /* keep prior */ }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { refresh(); }, [refresh]);
+
   return (
-    <div className="h-full flex flex-col items-center justify-center text-center p-8">
-      <div className="w-16 h-16 rounded-2xl bg-yellow-500/15 flex items-center justify-center mb-4">
-        <Wallet className="w-8 h-8 text-yellow-400" />
+    <div className="h-full overflow-y-auto p-4 space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-sm font-semibold text-white">Cargo Payments</h2>
+          <p className="text-[11px] text-white/40">Cashier receives a payment; the system generates customer, supplier and warehouse receipts.</p>
+        </div>
+        <div className="flex gap-2">
+          <Button size="sm" variant="outline" onClick={() => launchApp('kobe-pay')} className="border-white/10 text-white/70 hover:bg-white/5 text-xs">
+            <Wallet className="w-4 h-4 mr-1.5" /> KobePay
+          </Button>
+          <Button size="sm" onClick={() => setDialogOpen(true)} className="bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 border border-yellow-500/30 text-xs">
+            <Plus className="w-4 h-4 mr-1.5" /> Record Payment
+          </Button>
+        </div>
       </div>
-      <h3 className="text-sm font-medium text-white/50 mb-1">KobePay</h3>
-      <p className="text-[11px] text-white/30 max-w-xs mb-4">Payments now open in the standalone KobePay app with full wallet, cashier, and payout features.</p>
-      <Button onClick={() => launchApp('kobe-pay')} className="bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 border border-yellow-500/30 text-xs">
-        <Wallet className="w-4 h-4 mr-2" /> Open KobePay
-      </Button>
+
+      <Card className="bg-white/[0.03] border-white/[0.06]">
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="p-6 text-center text-[11px] text-white/40">Loading…</div>
+          ) : recent.length === 0 ? (
+            <div className="p-8 text-center">
+              <Receipt className="w-8 h-8 text-yellow-400/60 mx-auto mb-2" />
+              <p className="text-[11px] text-white/40">No payments recorded yet.</p>
+              <Button size="sm" onClick={() => setDialogOpen(true)} className="mt-3 bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30 border border-yellow-500/30 text-xs">
+                <Plus className="w-4 h-4 mr-1.5" /> Record first payment
+              </Button>
+            </div>
+          ) : (
+            <div className="divide-y divide-white/[0.04]">
+              {recent.slice(0, 30).map(p => (
+                <div key={p.id} className="px-4 py-2.5 flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-white truncate">{p.customerName}</p>
+                    <p className="text-[10px] text-white/40">
+                      {p.purpose} · {p.method}
+                      {p.parcelId && ` · Parcel ${p.parcelId.slice(0, 8)}`}
+                      {p.shipmentId && ` · Shipment ${p.shipmentId.slice(0, 8)}`}
+                    </p>
+                  </div>
+                  <span className="text-xs font-semibold text-yellow-400 whitespace-nowrap">
+                    {Number(p.amount).toLocaleString()} {p.currency}
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2 border-white/10 text-white/70"
+                    onClick={() => window.open(`/print/cargo-receipt?id=${encodeURIComponent(p.id)}`, '_blank', 'noopener')}
+                  >
+                    <Printer className="w-3 h-3" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <CargoPaymentWorkflow
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        onSaved={() => refresh()}
+      />
     </div>
   );
 }

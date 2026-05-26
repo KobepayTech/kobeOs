@@ -29,6 +29,10 @@ const PLATFORM_PKG = {
 
 const BIN_EXT = process.platform === 'win32' ? '.exe' : '';
 
+// Cap first-launch cluster creation so a blocked initdb fails loudly instead of
+// hanging the splash screen indefinitely.
+const INITDB_TIMEOUT_MS = 120_000;
+
 /**
  * Resolve the directory containing postgres binaries.
  * In packaged mode: app.asar.unpacked/node_modules/<platform-pkg>/native/bin
@@ -132,21 +136,44 @@ class PostgresManager {
         `--pwfile=${pwFile}`,
         '--encoding=UTF8',
         '--locale=C',
+        // No durable data exists yet, so skip fsync for a much faster first launch.
+        '--no-sync',
       ];
       const env = { ...process.env, LC_MESSAGES: 'C' };
       const proc = spawn(bins.initdb, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
 
+      let settled = false;
+      let lastErr = '';
+      const finish = (fn, arg) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        try { fs.unlinkSync(pwFile); } catch { /* ignore */ }
+        fn(arg);
+      };
+
+      // Without this, a blocked/stalled initdb (e.g. antivirus quarantine, no
+      // write permission) hangs the splash forever instead of reporting an error.
+      const timer = setTimeout(() => {
+        try { proc.kill('SIGKILL'); } catch { /* ignore */ }
+        finish(reject, new Error(
+          `initdb timed out after ${INITDB_TIMEOUT_MS / 1000}s — the database could not be created.\n` +
+          `This is usually antivirus blocking the bundled PostgreSQL, running the app as Administrator, ` +
+          `or no write access to:\n  ${this.dataDir}\n` +
+          (lastErr ? `Last initdb output: ${lastErr}` : '')
+        ));
+      }, INITDB_TIMEOUT_MS);
+
       proc.stdout.on('data', (d) => console.log('[initdb]', d.toString().trim()));
-      proc.stderr.on('data', (d) => console.error('[initdb]', d.toString().trim()));
+      proc.stderr.on('data', (d) => {
+        lastErr = d.toString().trim();
+        console.error('[initdb]', lastErr);
+      });
       proc.on('close', (code) => {
-        try { fs.unlinkSync(pwFile); } catch { /* ignore */ }
-        if (code === 0) resolve();
-        else reject(new Error(`initdb exited with code ${code}`));
+        if (code === 0) finish(resolve);
+        else finish(reject, new Error(`initdb exited with code ${code}${lastErr ? ` — ${lastErr}` : ''}`));
       });
-      proc.on('error', (err) => {
-        try { fs.unlinkSync(pwFile); } catch { /* ignore */ }
-        reject(err);
-      });
+      proc.on('error', (err) => finish(reject, err));
     });
 
     console.log('[pg-bootstrap] initdb complete');

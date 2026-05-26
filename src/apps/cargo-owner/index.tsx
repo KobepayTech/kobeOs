@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { api } from '@/lib/api';
 import { ensureSession } from '@/lib/auth';
+import { useCargoParcels } from '@/hooks/useCargoParcels';
 import {
   PackageSearch, Search, MapPin, Phone, User, Weight,
   Clock, CheckCircle2, Truck, Box,
@@ -427,6 +428,22 @@ export default function CargoOwner() {
   const [notifications, setNotifications] = useState<Notification[]>(INITIAL_NOTIFICATIONS);
   const [myParcelsFilter, setMyParcelsFilter] = useState<'ALL' | ParcelStatus>('ALL');
 
+  // Live parcel events from the /cargo socket, surfaced as notifications.
+  const { events: liveEvents, connected } = useCargoParcels();
+  const liveNotifications = useMemo<Notification[]>(() => liveEvents.map(e => {
+    const human = e.parcel.status.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+    return {
+      id: `live-${e.parcel.id}-${e.at}`,
+      title: e.kind === 'created' ? 'Parcel Registered' : `${human} Update`,
+      message: e.kind === 'created'
+        ? `${e.parcel.parcelId} registered for ${e.parcel.ownerName}`
+        : `${e.parcel.parcelId} is now ${human}`,
+      timestamp: new Date(e.at).toLocaleTimeString(),
+      read: false,
+      parcelId: e.parcel.parcelId,
+    };
+  }), [liveEvents]);
+
   // Track tab search
   const trackResults = useMemo(() => {
     if (!searchQuery.trim()) return [];
@@ -449,7 +466,7 @@ export default function CargoOwner() {
     return myParcels.filter(p => p.status === myParcelsFilter);
   }, [myParcels, myParcelsFilter]);
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  const unreadCount = liveNotifications.length + notifications.filter(n => !n.read).length;
 
   const markAsRead = (id: string) => {
     setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
@@ -692,7 +709,18 @@ export default function CargoOwner() {
           <TabsContent value="notifications" className="m-0 p-5">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h2 className="text-lg font-bold text-white">Notifications</h2>
+                <h2 className="text-lg font-bold text-white flex items-center gap-2">
+                  Notifications
+                  <Badge
+                    variant="outline"
+                    className={connected
+                      ? 'gap-1.5 bg-emerald-500/15 text-emerald-400 border-emerald-500/30'
+                      : 'gap-1.5 bg-white/5 text-slate-400 border-white/10'}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-emerald-400' : 'bg-slate-500'}`} />
+                    {connected ? 'Live' : 'Offline'}
+                  </Badge>
+                </h2>
                 <p className="text-xs text-slate-400">
                   {unreadCount} unread notification{unreadCount !== 1 ? 's' : ''}
                 </p>
@@ -705,7 +733,7 @@ export default function CargoOwner() {
             </div>
 
             <div className="space-y-2">
-              {notifications.map(n => (
+              {[...liveNotifications, ...notifications].map(n => (
                 <Card
                   key={n.id}
                   className={`border transition-all cursor-pointer ${
