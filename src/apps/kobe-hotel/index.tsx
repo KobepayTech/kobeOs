@@ -1700,8 +1700,43 @@ export default function KobeHotel() {
                     {tenantSlug ? publicRoomUrl : 'Set a public slug below to make this QR live.'}
                   </p>
                   <div className="flex gap-2 mt-4">
-                    <Button size="sm" variant="outline" className={darkMode ? 'border-white/10' : ''}><Printer className="w-4 h-4 mr-1" />Print</Button>
-                    <Button size="sm" variant="outline" className={darkMode ? 'border-white/10' : ''}><Download className="w-4 h-4 mr-1" />Download</Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!tenantSlug}
+                      className={darkMode ? 'border-white/10' : ''}
+                      onClick={() => {
+                        const q = new URLSearchParams({
+                          slug: tenantSlug,
+                          type: 'room',
+                          n: portalRoom,
+                          name: tenantName || tenantSlug,
+                          brand: tenantBrand || '#ec4899',
+                        });
+                        window.open(`/print/qr-card?${q.toString()}`, '_blank', 'noopener');
+                      }}
+                    >
+                      <Printer className="w-4 h-4 mr-1" />Print
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!tenantSlug}
+                      className={darkMode ? 'border-white/10' : ''}
+                      onClick={() => {
+                        const q = new URLSearchParams({
+                          slug: tenantSlug,
+                          type: 'room',
+                          n: portalRoom,
+                          name: tenantName || tenantSlug,
+                          brand: tenantBrand || '#ec4899',
+                        });
+                        // Same page — user picks "Save as PDF" from the print dialog.
+                        window.open(`/print/qr-card?${q.toString()}`, '_blank', 'noopener');
+                      }}
+                    >
+                      <Download className="w-4 h-4 mr-1" />Download
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
