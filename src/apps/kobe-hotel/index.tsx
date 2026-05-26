@@ -55,6 +55,27 @@ interface MenuItem {
   category: string;
   stock: number;
 }
+interface PortalOrder {
+  id: string;
+  roomNumber: string;
+  guestName?: string | null;
+  items: Array<{ name: string; qty: number; price: number }>;
+  total: number | string;
+  currency: string;
+  status: string;
+  note?: string;
+  createdAt?: string;
+}
+
+interface PortalServiceRequest {
+  id: string;
+  roomNumber: string;
+  kind: string;
+  note?: string;
+  status: string;
+  createdAt?: string;
+}
+
 interface CartItem extends MenuItem {
   qty: number;
 }
@@ -335,6 +356,9 @@ export default function KobeHotel() {
   // Guest portal
   const [portalRoom, setPortalRoom] = useState('101');
   const [portalCart, setPortalCart] = useState<CartItem[]>([]);
+  const [portalOrders, setPortalOrders] = useState<PortalOrder[]>([]);
+  const [portalRequests, setPortalRequests] = useState<PortalServiceRequest[]>([]);
+  const [portalMessage, setPortalMessage] = useState<string | null>(null);
 
   // Reception
   const [receiptGuest, setReceiptGuest] = useState<Guest | null>(null);
@@ -404,6 +428,66 @@ export default function KobeHotel() {
     });
   };
   const portalTotal = portalCart.reduce((s, c) => s + c.price * c.qty, 0);
+
+  // Load guest-portal orders and service requests from the backend on mount.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try { await ensureSession(); } catch { /* offline — board stays empty */ }
+      if (cancelled) return;
+      try {
+        const [orders, requests] = await Promise.all([
+          api<PortalOrder[]>('/hotel/orders'),
+          api<PortalServiceRequest[]>('/hotel/service-requests'),
+        ]);
+        if (cancelled) return;
+        setPortalOrders(Array.isArray(orders) ? orders : []);
+        setPortalRequests(Array.isArray(requests) ? requests : []);
+      } catch { /* keep empty */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const flashPortalMessage = (msg: string) => {
+    setPortalMessage(msg);
+    setTimeout(() => setPortalMessage(curr => (curr === msg ? null : curr)), 4000);
+  };
+
+  const placePortalOrder = async () => {
+    if (portalCart.length === 0) return;
+    try {
+      const created = await api<PortalOrder>('/hotel/orders', {
+        method: 'POST',
+        body: JSON.stringify({
+          roomNumber: portalRoom,
+          items: portalCart.map(c => ({ name: c.name, qty: c.qty, price: c.price })),
+          currency: 'TZS',
+        }),
+      });
+      if (created && (created as PortalOrder).id) {
+        setPortalOrders(prev => [created, ...prev]);
+      }
+      setPortalCart([]);
+      flashPortalMessage(`Order placed for Room ${portalRoom}. Staff will confirm shortly.`);
+    } catch {
+      flashPortalMessage('Could not place order — please try again.');
+    }
+  };
+
+  const requestPortalService = async (kind: string, label: string) => {
+    try {
+      const created = await api<PortalServiceRequest>('/hotel/service-requests', {
+        method: 'POST',
+        body: JSON.stringify({ roomNumber: portalRoom, kind, note: '' }),
+      });
+      if (created && (created as PortalServiceRequest).id) {
+        setPortalRequests(prev => [created, ...prev]);
+      }
+      flashPortalMessage(`${label} requested for Room ${portalRoom}.`);
+    } catch {
+      flashPortalMessage('Could not submit request — please try again.');
+    }
+  };
 
   // ─── Check-in handler ──────────────────────────────────────────────
   const handleCheckIn = (e: React.FormEvent<HTMLFormElement>) => {
@@ -1427,7 +1511,7 @@ export default function KobeHotel() {
                         <span>Total</span><span className="text-pink-400">{formatTZS(portalTotal)}</span>
                       </div>
                       <div className="flex gap-2 mt-3">
-                        <Button size="sm" className="flex-1 bg-pink-600 hover:bg-pink-700"><Send className="w-3 h-3 mr-1" />Place Order</Button>
+                        <Button size="sm" onClick={placePortalOrder} disabled={portalCart.length === 0} className="flex-1 bg-pink-600 hover:bg-pink-700"><Send className="w-3 h-3 mr-1" />Place Order</Button>
                         <Button size="sm" variant="outline" className={darkMode ? 'border-white/10' : ''}><Smartphone className="w-3 h-3 mr-1" />M-Pesa</Button>
                       </div>
                     </div>
@@ -1436,27 +1520,87 @@ export default function KobeHotel() {
               </Card>
             </div>
 
+            {portalMessage && (
+              <div className="rounded-lg border border-pink-500/30 bg-pink-500/10 px-4 py-2 text-sm text-pink-200">
+                {portalMessage}
+              </div>
+            )}
+
             {/* Services */}
             <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
               {[
-                { label: 'Housekeeping', icon: Brush, desc: 'Request cleaning' },
-                { label: 'Extra Towels', icon: Bed, desc: 'Fresh towels' },
-                { label: 'Wake-up Call', icon: Clock, desc: 'Set alarm' },
-                { label: 'Extend Stay', icon: Calendar, desc: 'Add nights' },
-                { label: 'Checkout', icon: CheckCircle2, desc: 'Early checkout' },
+                { label: 'Housekeeping', icon: Brush, desc: 'Request cleaning', kind: 'HOUSEKEEPING' },
+                { label: 'Extra Towels', icon: Bed, desc: 'Fresh towels', kind: 'TOWELS' },
+                { label: 'Wake-up Call', icon: Clock, desc: 'Set alarm', kind: 'WAKE_UP' },
+                { label: 'Extend Stay', icon: Calendar, desc: 'Add nights', kind: 'EXTEND_STAY' },
+                { label: 'Checkout', icon: CheckCircle2, desc: 'Early checkout', kind: 'CHECKOUT' },
               ].map(svc => {
                 const Icon = svc.icon;
                 return (
-                  <Card key={svc.label} className={`${darkMode ? 'bg-[#13131f] border-white/[0.06]' : 'bg-white border-gray-200'} hover:border-pink-500/30 transition-all cursor-pointer`}>
-                    <CardContent className="p-4 text-center">
-                      <Icon className="w-6 h-6 mx-auto mb-2 text-pink-400" />
-                      <p className="text-sm font-medium">{svc.label}</p>
-                      <p className="text-xs text-gray-400">{svc.desc}</p>
-                    </CardContent>
-                  </Card>
+                  <button
+                    key={svc.label}
+                    type="button"
+                    onClick={() => requestPortalService(svc.kind, svc.label)}
+                    className="text-left"
+                  >
+                    <Card className={`${darkMode ? 'bg-[#13131f] border-white/[0.06]' : 'bg-white border-gray-200'} hover:border-pink-500/30 transition-all cursor-pointer`}>
+                      <CardContent className="p-4 text-center">
+                        <Icon className="w-6 h-6 mx-auto mb-2 text-pink-400" />
+                        <p className="text-sm font-medium">{svc.label}</p>
+                        <p className="text-xs text-gray-400">{svc.desc}</p>
+                      </CardContent>
+                    </Card>
+                  </button>
                 );
               })}
             </div>
+
+            {/* Activity for this room */}
+            <Card className={`${darkMode ? 'bg-[#13131f] border-white/[0.06]' : 'bg-white border-gray-200'}`}>
+              <CardContent className="p-6">
+                <h3 className="font-semibold mb-4">Activity — Room {portalRoom}</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <h4 className="text-sm font-medium mb-2 text-pink-400">Orders</h4>
+                    <div className="space-y-1.5">
+                      {portalOrders.filter(o => o.roomNumber === portalRoom).length === 0 && (
+                        <p className="text-xs text-gray-500">No orders yet.</p>
+                      )}
+                      {portalOrders
+                        .filter(o => o.roomNumber === portalRoom)
+                        .slice(0, 8)
+                        .map(o => (
+                          <div key={o.id} className="flex items-center justify-between text-xs py-1">
+                            <span className={darkMode ? 'text-gray-300' : 'text-gray-700'}>
+                              {o.items.map(i => `${i.qty}× ${i.name}`).join(', ') || '—'}
+                            </span>
+                            <span className="text-gray-400 ml-2 shrink-0">{o.status}</span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-medium mb-2 text-pink-400">Service Requests</h4>
+                    <div className="space-y-1.5">
+                      {portalRequests.filter(r => r.roomNumber === portalRoom).length === 0 && (
+                        <p className="text-xs text-gray-500">No requests yet.</p>
+                      )}
+                      {portalRequests
+                        .filter(r => r.roomNumber === portalRoom)
+                        .slice(0, 8)
+                        .map(r => (
+                          <div key={r.id} className="flex items-center justify-between text-xs py-1">
+                            <span className={darkMode ? 'text-gray-300' : 'text-gray-700'}>
+                              {r.kind.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase())}
+                            </span>
+                            <span className="text-gray-400 ml-2 shrink-0">{r.status}</span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
             {/* Bill Viewer */}
             <Card className={`${darkMode ? 'bg-[#13131f] border-white/[0.06]' : 'bg-white border-gray-200'}`}>

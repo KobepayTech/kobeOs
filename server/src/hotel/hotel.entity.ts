@@ -72,3 +72,70 @@ export class HotelBooking extends OwnedEntity {
   @Column({ default: 'TZS' })
   currency!: string;
 }
+
+@Entity('hotel_menu_items')
+export class HotelMenuItem extends OwnedEntity {
+  @Column()
+  name!: string;
+
+  @Column()
+  category!: string;
+
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
+  price!: number;
+
+  @Column({ default: 'TZS' })
+  currency!: string;
+
+  @Column({ default: true })
+  available!: boolean;
+}
+
+export interface HotelOrderItem {
+  menuItemId?: string;
+  name: string;
+  qty: number;
+  price: number;
+}
+
+@Entity('hotel_orders')
+export class HotelOrder extends OwnedEntity {
+  @Index()
+  @Column()
+  roomNumber!: string;
+
+  @Column({ nullable: true, type: 'varchar' })
+  guestName?: string | null;
+
+  @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })
+  items!: HotelOrderItem[];
+
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
+  total!: number;
+
+  @Column({ default: 'TZS' })
+  currency!: string;
+
+  @Column({ default: 'PENDING' })
+  status!: 'PENDING' | 'ACCEPTED' | 'PREPARING' | 'READY' | 'DELIVERED' | 'CANCELLED';
+
+  @Column({ default: '' })
+  note!: string;
+}
+
+@Entity('hotel_service_requests')
+export class HotelServiceRequest extends OwnedEntity {
+  @Index()
+  @Column()
+  roomNumber!: string;
+
+  /** HOUSEKEEPING | TOWELS | WAKE_UP | EXTEND_STAY | CHECKOUT | OTHER */
+  @Column()
+  kind!: string;
+
+  @Column({ default: '' })
+  note!: string;
+
+  @Column({ default: 'OPEN' })
+  status!: 'OPEN' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+}

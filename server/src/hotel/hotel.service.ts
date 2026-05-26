@@ -1,9 +1,13 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { HotelBooking, HotelGuest, HotelRoom } from './hotel.entity';
+import { DeepPartial, Repository } from 'typeorm';
+import {
+  HotelBooking, HotelGuest, HotelMenuItem, HotelOrder, HotelRoom, HotelServiceRequest,
+} from './hotel.entity';
 import { OwnedCrudService } from '../common/owned.service';
-import type { CreateBookingDto, UpdateBookingDto } from './dto/hotel.dto';
+import type {
+  CreateBookingDto, CreateOrderDto, UpdateBookingDto, UpdateOrderStatusDto, UpdateServiceRequestStatusDto,
+} from './dto/hotel.dto';
 
 @Injectable()
 export class RoomsService extends OwnedCrudService<HotelRoom> {
@@ -102,5 +106,87 @@ export class BookingsService extends OwnedCrudService<HotelBooking> {
     }
 
     return updated;
+  }
+}
+
+@Injectable()
+export class MenuItemsService extends OwnedCrudService<HotelMenuItem> {
+  constructor(@InjectRepository(HotelMenuItem) repo: Repository<HotelMenuItem>) { super(repo); }
+}
+
+// Guest orders placed via the QR portal — kitchen/bar staff transition status.
+const ORDER_TRANSITIONS: Record<string, string[]> = {
+  PENDING: ['ACCEPTED', 'CANCELLED'],
+  ACCEPTED: ['PREPARING', 'CANCELLED'],
+  PREPARING: ['READY', 'CANCELLED'],
+  READY: ['DELIVERED'],
+  DELIVERED: [],
+  CANCELLED: [],
+};
+
+@Injectable()
+export class OrdersService extends OwnedCrudService<HotelOrder> {
+  constructor(@InjectRepository(HotelOrder) repo: Repository<HotelOrder>) { super(repo); }
+
+  async placeOrder(ownerId: string, dto: CreateOrderDto): Promise<HotelOrder> {
+    if (!dto.items || dto.items.length === 0) {
+      throw new BadRequestException('Order must contain at least one item');
+    }
+    const total = dto.items.reduce((sum, it) => sum + it.price * it.qty, 0);
+    const data: DeepPartial<HotelOrder> = {
+      roomNumber: dto.roomNumber,
+      guestName: dto.guestName ?? null,
+      items: dto.items.map((it) => ({
+        menuItemId: it.menuItemId,
+        name: it.name,
+        qty: it.qty,
+        price: it.price,
+      })),
+      total,
+      currency: dto.currency ?? 'TZS',
+      status: 'PENDING',
+      note: dto.note ?? '',
+    };
+    return this.create(ownerId, data);
+  }
+
+  async updateStatus(ownerId: string, id: string, dto: UpdateOrderStatusDto): Promise<HotelOrder> {
+    const order = await this.get(ownerId, id);
+    const allowed = ORDER_TRANSITIONS[order.status] ?? [];
+    if (!allowed.includes(dto.status)) {
+      throw new BadRequestException(
+        `Cannot transition order from '${order.status}' to '${dto.status}'. ` +
+        `Allowed: ${allowed.length ? allowed.join(', ') : 'none'}`,
+      );
+    }
+    return this.update(ownerId, id, { status: dto.status });
+  }
+}
+
+const SERVICE_TRANSITIONS: Record<string, string[]> = {
+  OPEN: ['IN_PROGRESS', 'CANCELLED'],
+  IN_PROGRESS: ['COMPLETED', 'CANCELLED'],
+  COMPLETED: [],
+  CANCELLED: [],
+};
+
+@Injectable()
+export class ServiceRequestsService extends OwnedCrudService<HotelServiceRequest> {
+  constructor(@InjectRepository(HotelServiceRequest) repo: Repository<HotelServiceRequest>) { super(repo); }
+
+  async updateStatus(
+    ownerId: string,
+    id: string,
+    dto: UpdateServiceRequestStatusDto,
+  ): Promise<HotelServiceRequest> {
+    const req = await this.get(ownerId, id);
+    const allowed = SERVICE_TRANSITIONS[req.status] ?? [];
+    if (!allowed.includes(dto.status)) {
+      throw new BadRequestException(
+        `Cannot transition service request from '${req.status}' to '${dto.status}'. ` +
+        `Allowed: ${allowed.length ? allowed.join(', ') : 'none'}`,
+      );
+    }
+    return this.update(ownerId, id, { status: dto.status });
   }
 }
