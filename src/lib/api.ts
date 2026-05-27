@@ -274,7 +274,15 @@ export async function api<T = unknown>(
       _backendReachable = true;
       _lastCheck = Date.now();
       const text = await res.text();
-      const body = text ? safeJson(text) : undefined;
+      // Empty body (204 No Content, etc.) — return safe empty value
+      if (!text || !text.trim()) {
+        return (pathId(path) ? {} : []) as unknown as T;
+      }
+      const body = safeJson(text);
+      // safeJson returned null (malformed JSON) — return safe empty value
+      if (body === null || body === undefined) {
+        return (pathId(path) ? {} : []) as unknown as T;
+      }
       // Cache successful GETs for offline use
       if (offlineFallback && isRead) cacheResponse(path, body);
       return body as T;
@@ -312,9 +320,9 @@ export async function api<T = unknown>(
     if (isRead) {
       const cached = await offlineRead<T>(path);
       if (cached !== null) return cached;
-      // No cache — return empty list for collections
+      // No cache — return safe empty value so apps with fallback state don't crash
       if (!pathId(path)) return [] as unknown as T;
-      throw new OfflineError();
+      return {} as unknown as T;
     }
 
     // Offline write: persist locally + enqueue for sync
@@ -359,5 +367,5 @@ export async function fetchObjectUrl(path: string): Promise<string> {
 // ── Util ──────────────────────────────────────────────────────────────────────
 
 function safeJson(s: string): unknown {
-  try { return JSON.parse(s); } catch { return s; }
+  try { return JSON.parse(s); } catch { return null; }
 }
