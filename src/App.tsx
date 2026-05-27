@@ -8,12 +8,14 @@ import SystemSettings from '@/components/SystemSettings';
 import FileManager from '@/components/FileManager';
 import AppStore from '@/components/AppStore';
 import KobeOSInstaller from '@/components/KobeOSInstaller';
+import KobeSecurity from '@/modules/kobe-security/KobeSecurity';
 
 
 function Desktop({ user, onOpenApp }: { user: string; onOpenApp: (app: string) => void }) {
   const apps = [
     { id: 'erp', name: 'KobeERP', icon: '📊', color: 'from-blue-500 to-blue-600' },
     { id: 'hotel', name: 'KobeHotel', icon: '🏨', color: 'from-purple-500 to-purple-600' },
+    { id: 'security', name: 'Kobe Security', icon: '🛡️', color: 'from-red-600 to-rose-700' },
     { id: 'credit', name: 'KobeCredit', icon: '💳', color: 'from-green-500 to-green-600' },
     { id: 'cargo', name: 'KobeCargo', icon: '🚛', color: 'from-orange-500 to-orange-600' },
     { id: 'settings', name: 'Settings', icon: '⚙️', color: 'from-gray-500 to-gray-600' },
@@ -66,6 +68,7 @@ function WindowManager({ app, onClose }: { app: string; onClose: () => void }) {
       case 'files': return <FileManager />;
       case 'store': return <AppStore />;
       case 'installer': return <KobeOSInstaller />;
+      case 'security': return <KobeSecurity />;
       default: return (
         <div className="h-full flex items-center justify-center text-gray-500">
           <div className="text-center">
@@ -115,6 +118,7 @@ export default function App() {
           <Route path="/settings" element={<SystemSettings />} />
           <Route path="/files" element={<FileManager />} />
           <Route path="/store" element={<AppStore />} />
+          <Route path="/security" element={<KobeSecurity />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>
