@@ -2383,6 +2383,795 @@ function AuditTab() {
 }
 
 /* ------------------------------------------------------------------ */
+/*  LABEL PRINT TAB                                                     */
+/* ------------------------------------------------------------------ */
+function LabelPrintTab({ allParcels }: { allParcels: TZParcel[] }) {
+  const [search, setSearch] = useState('');
+  const [selected, setSelected] = useState<TZParcel | null>(null);
+  const [tripCode, setTripCode] = useState('');
+  const results = useMemo(() => {
+    const q = search.trim().toUpperCase();
+    if (!q) return [];
+    return allParcels.filter(p =>
+      p.shortCode.toUpperCase().includes(q) ||
+      p.parcelId.toUpperCase().includes(q) ||
+      p.ownerName.toUpperCase().includes(q)
+    ).slice(0, 8);
+  }, [allParcels, search]);
+  return (
+    <div className="h-[calc(100vh-80px)] overflow-y-auto space-y-4 p-1">
+      <div><h2 className="text-sm font-bold text-white/90">Parcel Label / Sticker Print</h2>
+        <p className="text-xs text-white/40">Search a parcel, preview the sticker, then print.</p></div>
+      <Card className="bg-white/[0.03] border-white/[0.06]">
+        <CardContent className="p-4 space-y-3">
+          <Input placeholder="Short code, parcel ID or owner name…" value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="bg-white/[0.03] border-white/[0.06] text-white/90 placeholder:text-white/30 font-mono text-sm" />
+          {results.map(p => (
+            <div key={p.id} onClick={() => { setSelected(p); setTripCode(p.tripId || ''); }}
+              className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${selected?.id === p.id ? 'bg-amber-500/10 border-amber-500/30' : 'bg-white/[0.02] border-white/[0.06] hover:bg-white/[0.05]'}`}>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2"><span className="font-mono text-xs text-amber-400">{p.shortCode}</span><PSB status={p.status} /></div>
+                <div className="text-xs text-white/50 mt-0.5">{p.ownerName} → {p.destination}</div>
+              </div>
+              <span className="text-[10px] text-white/30">{p.packageCount} pkg</span>
+            </div>
+          ))}
+        </CardContent>
+      </Card>
+      {selected && (
+        <Card className="bg-white/[0.03] border-white/[0.06]">
+          <CardContent className="p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-white/90">Label Preview</h3>
+              <div className="flex items-center gap-2">
+                <Input value={tripCode} onChange={e => setTripCode(e.target.value)}
+                  placeholder="Vehicle/trip code"
+                  className="w-36 bg-white/[0.03] border-white/[0.06] text-white/90 placeholder:text-white/30 text-xs" />
+                <Button onClick={() => window.print()} className="bg-amber-500 hover:bg-amber-600 text-black font-semibold text-xs">
+                  <FileText className="w-3.5 h-3.5 mr-1" /> Print
+                </Button>
+              </div>
+            </div>
+            <div className="border-2 border-dashed border-white/20 rounded-xl p-4 bg-white text-black max-w-xs mx-auto">
+              <div className="flex items-start gap-3">
+                <QRCodeSVG value={`${selected.parcelId}|${selected.shortCode}`} size={80} />
+                <div className="flex-1 min-w-0">
+                  <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Kobe Transport</div>
+                  <div className="text-xl font-black font-mono tracking-widest text-black">{selected.shortCode}</div>
+                  <div className="text-[9px] font-mono text-gray-600 break-all">{selected.parcelId}</div>
+                </div>
+              </div>
+              <div className="mt-2 pt-2 border-t border-gray-200 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
+                <div><span className="text-gray-400">TO:</span> <span className="font-bold">{selected.destination}</span></div>
+                <div><span className="text-gray-400">PKGS:</span> <span className="font-bold">{selected.packageCount}</span></div>
+                <div><span className="text-gray-400">OWNER:</span> <span className="font-semibold truncate">{selected.ownerName}</span></div>
+                <div><span className="text-gray-400">PHONE:</span> <span>{selected.ownerPhone}</span></div>
+                {tripCode && <div className="col-span-2"><span className="text-gray-400">VEHICLE:</span> <span className="font-bold">{tripCode}</span></div>}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  PARCEL ISSUES TAB                                                   */
+/* ------------------------------------------------------------------ */
+interface ParcelIssue { id: string; parcelId: string; shortCode: string; type: string; description: string; reportedBy: string; reportedAt: string; status: 'open'|'investigating'|'resolved'; }
+const ISSUE_TYPES = ['damaged','missing','wet','delayed','wrong_destination','theft','other'];
+const demoIssues: ParcelIssue[] = [
+  { id:'i1', parcelId:'TZ-DSM-MWZ-000001', shortCode:'KTZ001', type:'delayed', description:'Held at Dodoma checkpoint 6 hours', reportedBy:'Hassan Mwinyi', reportedAt:'May 4 16:30', status:'investigating' },
+  { id:'i2', parcelId:'TZ-DOD-MWZ-000004', shortCode:'KTZ004', type:'damaged', description:'Box corner crushed, contents may be affected', reportedBy:'James Kimaro', reportedAt:'May 2 09:00', status:'open' },
+];
+function IssuesTab({ allParcels }: { allParcels: TZParcel[] }) {
+  const [issues, setIssues] = useState<ParcelIssue[]>(demoIssues);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ shortCode:'', type:'damaged', description:'', reportedBy:'' });
+  const [err, setErr] = useState('');
+  const submit = () => {
+    const p = allParcels.find(x => x.shortCode.toUpperCase() === form.shortCode.trim().toUpperCase());
+    if (!p) { setErr('Parcel not found'); return; }
+    if (!form.description.trim() || !form.reportedBy.trim()) { setErr('Fill all fields'); return; }
+    setIssues(prev => [{ id:`i${Date.now()}`, parcelId:p.parcelId, shortCode:p.shortCode, type:form.type,
+      description:form.description.trim(), reportedBy:form.reportedBy.trim(),
+      reportedAt:new Date().toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}),
+      status:'open' }, ...prev]);
+    setForm({ shortCode:'', type:'damaged', description:'', reportedBy:'' }); setErr(''); setShowForm(false);
+  };
+  const sc = (s: string) => s==='open'?'text-red-400':s==='investigating'?'text-yellow-400':'text-emerald-400';
+  return (
+    <div className="h-[calc(100vh-80px)] overflow-y-auto space-y-4 p-1">
+      <div className="flex items-center justify-between">
+        <div><h2 className="text-sm font-bold text-white/90">Parcel Issue Reports</h2>
+          <p className="text-xs text-white/40">Report damaged, missing, wet, or misdirected parcels.</p></div>
+        <Button onClick={() => setShowForm(v=>!v)} className="bg-amber-500 hover:bg-amber-600 text-black font-semibold text-xs">
+          <Plus className="w-3.5 h-3.5 mr-1" /> Report Issue</Button>
+      </div>
+      {showForm && (
+        <Card className="bg-white/[0.03] border-amber-500/20"><CardContent className="p-4 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="text-[11px] text-white/40 mb-1 block">Short Code *</label>
+              <Input value={form.shortCode} onChange={e => setForm(f=>({...f,shortCode:e.target.value}))} placeholder="KTZ007"
+                className="bg-white/[0.03] border-white/[0.06] text-white/90 placeholder:text-white/30 font-mono text-sm" /></div>
+            <div><label className="text-[11px] text-white/40 mb-1 block">Issue Type *</label>
+              <select value={form.type} onChange={e => setForm(f=>({...f,type:e.target.value}))}
+                className="w-full bg-white/[0.03] border border-white/[0.06] rounded-md px-3 py-2 text-sm text-white/90">
+                {ISSUE_TYPES.map(t => <option key={t} value={t} className="bg-[#0f0f2a]">{t.replace(/_/g,' ')}</option>)}</select></div>
+          </div>
+          <div><label className="text-[11px] text-white/40 mb-1 block">Description *</label>
+            <textarea value={form.description} onChange={e => setForm(f=>({...f,description:e.target.value}))} rows={2}
+              placeholder="Describe the issue…"
+              className="w-full bg-white/[0.03] border border-white/[0.06] rounded-md px-3 py-2 text-sm text-white/90 placeholder:text-white/25 resize-none" /></div>
+          <div><label className="text-[11px] text-white/40 mb-1 block">Reported By *</label>
+            <Input value={form.reportedBy} onChange={e => setForm(f=>({...f,reportedBy:e.target.value}))} placeholder="Staff name"
+              className="bg-white/[0.03] border-white/[0.06] text-white/90 placeholder:text-white/30 text-sm" /></div>
+          {err && <div className="text-red-400 text-xs">{err}</div>}
+          <div className="flex gap-2">
+            <Button onClick={submit} className="flex-1 bg-amber-500 hover:bg-amber-600 text-black font-semibold text-sm">Submit Report</Button>
+            <Button onClick={() => setShowForm(false)} className="bg-white/[0.06] hover:bg-white/[0.10] text-white/70 text-sm">Cancel</Button>
+          </div>
+        </CardContent></Card>
+      )}
+      <div className="space-y-2">
+        {issues.map(issue => (
+          <Card key={issue.id} className="bg-white/[0.03] border-white/[0.06]"><CardContent className="p-4">
+            <div className="flex items-center gap-2 flex-wrap mb-1">
+              <span className="font-mono text-xs text-amber-400">{issue.shortCode}</span>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-red-500/10 text-red-400 border border-red-500/20">{issue.type.replace(/_/g,' ')}</span>
+              <span className={`text-[10px] font-medium ${sc(issue.status)}`}>● {issue.status}</span>
+            </div>
+            <div className="text-xs text-white/70">{issue.description}</div>
+            <div className="text-[10px] text-white/30 mt-1">{issue.reportedBy} · {issue.reportedAt}</div>
+          </CardContent></Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  NOTIFICATIONS TAB                                                   */
+/* ------------------------------------------------------------------ */
+interface NotifLog { id: string; shortCode: string; channel: 'SMS'|'WhatsApp'; recipient: string; message: string; sentAt: string; }
+const NOTIF_TEMPLATES: Record<string,string> = {
+  REGISTERED: 'Your parcel {code} has been registered. Bring this code to the cargo office.',
+  VERIFIED: 'Your parcel {code} has been VERIFIED by staff. Weight confirmed.',
+  PAID_READY: 'Your parcel {code} is PAID & READY for loading.',
+  LOADED: 'Your parcel {code} has been LOADED onto vehicle {vehicle}.',
+  IN_TRANSIT: 'Your parcel {code} is now IN TRANSIT to {route}.',
+  ARRIVED: 'Your parcel {code} has ARRIVED. Ready for pickup.',
+  DELIVERED: 'Your parcel {code} has been DELIVERED. Thank you for using Kobe Transport.',
+};
+const demoNotifs: NotifLog[] = [
+  { id:'n1', shortCode:'KTZ001', channel:'SMS', recipient:'+255 714 333 444', message:'Your parcel KTZ001 is now IN TRANSIT.', sentAt:'May 4 06:05' },
+  { id:'n2', shortCode:'KTZ011', channel:'WhatsApp', recipient:'+255 735 111 222', message:'Your parcel KTZ011 has been VERIFIED.', sentAt:'May 5 15:02' },
+];
+function NotificationsTab({ allParcels }: { allParcels: TZParcel[] }) {
+  const [logs, setLogs] = useState<NotifLog[]>(demoNotifs);
+  const [shortCode, setShortCode] = useState('');
+  const [channel, setChannel] = useState<'SMS'|'WhatsApp'>('SMS');
+  const [trigger, setTrigger] = useState('VERIFIED');
+  const [sent, setSent] = useState(false);
+  const [err, setErr] = useState('');
+  const send = () => {
+    const p = allParcels.find(x => x.shortCode.toUpperCase() === shortCode.trim().toUpperCase());
+    if (!p) { setErr('Parcel not found'); return; }
+    const msg = (NOTIF_TEMPLATES[trigger]||'Update for {code}').replace('{code}',p.shortCode).replace('{vehicle}',p.tripId||'TBD').replace('{route}',p.destination);
+    setLogs(prev => [{ id:`n${Date.now()}`, shortCode:p.shortCode, channel, recipient: trigger==='DELIVERED'?p.ownerPhone:p.senderPhone, message:msg,
+      sentAt:new Date().toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) }, ...prev]);
+    setErr(''); setSent(true); setTimeout(()=>setSent(false),3000);
+  };
+  return (
+    <div className="h-[calc(100vh-80px)] overflow-y-auto space-y-4 p-1">
+      <div><h2 className="text-sm font-bold text-white/90">Smart Notifications</h2>
+        <p className="text-xs text-white/40">Send SMS or WhatsApp updates at each status change.</p></div>
+      <Card className="bg-white/[0.03] border-white/[0.06]"><CardContent className="p-4 space-y-3">
+        <div className="grid grid-cols-3 gap-3">
+          <div><label className="text-[11px] text-white/40 mb-1 block">Short Code</label>
+            <Input value={shortCode} onChange={e=>{setShortCode(e.target.value);setErr('');}} placeholder="KTZ007"
+              className="bg-white/[0.03] border-white/[0.06] text-white/90 placeholder:text-white/30 font-mono text-sm" /></div>
+          <div><label className="text-[11px] text-white/40 mb-1 block">Channel</label>
+            <select value={channel} onChange={e=>setChannel(e.target.value as 'SMS'|'WhatsApp')}
+              className="w-full bg-white/[0.03] border border-white/[0.06] rounded-md px-3 py-2 text-sm text-white/90">
+              <option value="SMS" className="bg-[#0f0f2a]">SMS</option>
+              <option value="WhatsApp" className="bg-[#0f0f2a]">WhatsApp</option></select></div>
+          <div><label className="text-[11px] text-white/40 mb-1 block">Trigger</label>
+            <select value={trigger} onChange={e=>setTrigger(e.target.value)}
+              className="w-full bg-white/[0.03] border border-white/[0.06] rounded-md px-3 py-2 text-sm text-white/90">
+              {Object.keys(NOTIF_TEMPLATES).map(k=><option key={k} value={k} className="bg-[#0f0f2a]">{k.replace(/_/g,' ')}</option>)}</select></div>
+        </div>
+        {err && <div className="text-red-400 text-xs">{err}</div>}
+        {sent && <div className="text-emerald-400 text-xs flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5"/>Notification sent</div>}
+        <Button onClick={send} className="bg-amber-500 hover:bg-amber-600 text-black font-semibold text-sm">
+          <Send className="w-3.5 h-3.5 mr-1.5"/>Send Notification</Button>
+      </CardContent></Card>
+      <div className="space-y-2">
+        {logs.map(n=>(
+          <div key={n.id} className="p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="font-mono text-xs text-amber-400">{n.shortCode}</span>
+              <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${n.channel==='SMS'?'bg-blue-500/15 text-blue-400':'bg-emerald-500/15 text-emerald-400'}`}>{n.channel}</span>
+              <span className="text-[10px] text-white/30">{n.recipient}</span>
+              <span className="ml-auto text-[10px] text-white/25">{n.sentAt}</span>
+            </div>
+            <div className="text-xs text-white/60">{n.message}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  RECEIVER OTP TAB                                                    */
+/* ------------------------------------------------------------------ */
+function ReceiverOTPTab({ allParcels, onUpdateParcel }: { allParcels: TZParcel[]; onUpdateParcel: (id: string, patch: Partial<TZParcel>) => void }) {
+  const [shortCode, setShortCode] = useState('');
+  const [found, setFound] = useState<TZParcel|null>(null);
+  const [notFound, setNotFound] = useState(false);
+  const [pin, setPin] = useState('');
+  const [generatedPin, setGeneratedPin] = useState('');
+  const [pinSent, setPinSent] = useState(false);
+  const [released, setReleased] = useState(false);
+  const [pinErr, setPinErr] = useState('');
+  const lookup = () => {
+    const p = allParcels.find(x => x.shortCode.toUpperCase() === shortCode.trim().toUpperCase());
+    setFound(p||null); setNotFound(!p); setPin(''); setGeneratedPin(''); setPinSent(false); setReleased(false); setPinErr('');
+  };
+  const sendPin = () => { const code = String(Math.floor(100000+Math.random()*900000)); setGeneratedPin(code); setPinSent(true); setPin(''); };
+  const confirmRelease = () => {
+    if (pin !== generatedPin) { setPinErr('Incorrect PIN. Try again.'); return; }
+    if (found) onUpdateParcel(found.id, { status:'DELIVERED', qrStatus:'WHITE' });
+    setReleased(true); setPinErr('');
+  };
+  return (
+    <div className="h-[calc(100vh-80px)] overflow-y-auto space-y-4 p-1">
+      <div><h2 className="text-sm font-bold text-white/90">Receiver OTP / Pickup PIN</h2>
+        <p className="text-xs text-white/40">Owner confirms 6-digit PIN before parcel is released.</p></div>
+      <Card className="bg-white/[0.03] border-white/[0.06]"><CardContent className="p-4 space-y-3">
+        <div className="flex gap-2">
+          <Input value={shortCode} onChange={e=>{setShortCode(e.target.value);setNotFound(false);}} placeholder="Enter short code…"
+            onKeyDown={e=>e.key==='Enter'&&lookup()}
+            className="flex-1 bg-white/[0.03] border-white/[0.06] text-white/90 placeholder:text-white/30 font-mono text-sm"/>
+          <Button onClick={lookup} className="bg-amber-500 hover:bg-amber-600 text-black font-semibold shrink-0">Lookup</Button>
+        </div>
+        {notFound && <div className="text-red-400 text-xs flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5"/>Parcel not found</div>}
+      </CardContent></Card>
+      {found && (
+        <Card className="bg-white/[0.03] border-white/[0.06]"><CardContent className="p-4 space-y-4">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+            <div><span className="text-white/40">Parcel</span><div className="font-mono text-amber-400">{found.shortCode}</div></div>
+            <div><span className="text-white/40">Status</span><div><PSB status={found.status}/></div></div>
+            <div><span className="text-white/40">Owner</span><div className="text-white/80">{found.ownerName}</div></div>
+            <div><span className="text-white/40">Phone</span><div className="text-white/80">{found.ownerPhone}</div></div>
+            <div><span className="text-white/40">Destination</span><div className="text-white/80">{found.destination}</div></div>
+            <div><span className="text-white/40">Packages</span><div className="text-white/80">{found.packageCount}</div></div>
+          </div>
+          {released ? (
+            <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-emerald-400 text-sm flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4"/>Parcel released. Status: DELIVERED.</div>
+          ) : (found.status==='ARRIVED'||found.status==='PAID_READY') ? (
+            <div className="space-y-3">
+              {!pinSent ? (
+                <Button onClick={sendPin} className="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-semibold text-sm">
+                  <Phone className="w-4 h-4 mr-2"/>Send OTP to {found.ownerPhone}</Button>
+              ) : (
+                <>
+                  <div className="p-2.5 bg-indigo-500/10 border border-indigo-500/20 rounded-lg text-indigo-400 text-xs">
+                    PIN sent to {found.ownerPhone}.
+                    <span className="ml-2 text-white/30">(Demo PIN: <span className="font-mono font-bold text-amber-400">{generatedPin}</span>)</span>
+                  </div>
+                  <Input value={pin} onChange={e=>{setPin(e.target.value);setPinErr('');}} placeholder="______" maxLength={6}
+                    className="bg-white/[0.03] border-white/[0.06] text-white/90 font-mono text-xl tracking-[0.5em] text-center"/>
+                  {pinErr && <div className="text-red-400 text-xs">{pinErr}</div>}
+                  <Button onClick={confirmRelease} disabled={pin.length!==6}
+                    className="w-full bg-emerald-500 hover:bg-emerald-600 text-black font-bold disabled:opacity-40">
+                    <CheckCircle2 className="w-4 h-4 mr-2"/>Confirm & Release Parcel</Button>
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg text-yellow-400 text-xs">
+              Parcel must be ARRIVED or PAID_READY before release. Current: {found.status.replace(/_/g,' ')}</div>
+          )}
+        </CardContent></Card>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  DRIVER EXPENSES TAB                                                 */
+/* ------------------------------------------------------------------ */
+interface DriverExpense { id: string; tripId: string; driverName: string; category: string; amount: number; description: string; date: string; }
+const EXPENSE_CATS = ['fuel','toll','repair','police_checkpoint','food','other'];
+const demoExpenses: DriverExpense[] = [
+  { id:'e1', tripId:'t1', driverName:'Hassan Mwinyi', category:'fuel', amount:85000, description:'Fuel refill at Morogoro', date:'May 4 10:45' },
+  { id:'e2', tripId:'t1', driverName:'Hassan Mwinyi', category:'toll', amount:5000, description:'Chalinze toll gate', date:'May 4 08:00' },
+  { id:'e3', tripId:'t4', driverName:'David Hassan', category:'repair', amount:35000, description:'Spare tyre replacement', date:'May 3 15:45' },
+];
+function DriverExpensesTab() {
+  const [expenses, setExpenses] = useState<DriverExpense[]>(demoExpenses);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ tripId:'t1', driverName:'', category:'fuel', amount:'', description:'' });
+  const [err, setErr] = useState('');
+  const submit = () => {
+    if (!form.driverName.trim()||!form.amount||!form.description.trim()) { setErr('Fill all fields'); return; }
+    setExpenses(prev=>[{ id:`e${Date.now()}`, tripId:form.tripId, driverName:form.driverName.trim(),
+      category:form.category, amount:parseFloat(form.amount), description:form.description.trim(),
+      date:new Date().toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) }, ...prev]);
+    setForm({ tripId:'t1', driverName:'', category:'fuel', amount:'', description:'' }); setErr(''); setShowForm(false);
+  };
+  const totalByTrip = useMemo(()=>{ const m: Record<string,number>={}; expenses.forEach(e=>{ m[e.tripId]=(m[e.tripId]||0)+e.amount; }); return m; },[expenses]);
+  const cc: Record<string,string> = { fuel:'text-amber-400', toll:'text-blue-400', repair:'text-red-400', police_checkpoint:'text-yellow-400', food:'text-emerald-400', other:'text-white/50' };
+  return (
+    <div className="h-[calc(100vh-80px)] overflow-y-auto space-y-4 p-1">
+      <div className="flex items-center justify-between">
+        <div><h2 className="text-sm font-bold text-white/90">Driver Expense Tracking</h2>
+          <p className="text-xs text-white/40">Fuel, tolls, repairs, and other trip costs.</p></div>
+        <Button onClick={()=>setShowForm(v=>!v)} className="bg-amber-500 hover:bg-amber-600 text-black font-semibold text-xs">
+          <Plus className="w-3.5 h-3.5 mr-1"/>Add Expense</Button>
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        {Object.entries(totalByTrip).map(([tid,total])=>(
+          <div key={tid} className="p-3 bg-white/[0.03] rounded-lg border border-white/[0.06] text-center">
+            <div className="text-xs text-white/40 mb-0.5">Trip {tid.toUpperCase()}</div>
+            <div className="text-base font-bold text-amber-400">TZS {total.toLocaleString()}</div>
+          </div>
+        ))}
+      </div>
+      {showForm && (
+        <Card className="bg-white/[0.03] border-amber-500/20"><CardContent className="p-4 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="text-[11px] text-white/40 mb-1 block">Trip ID</label>
+              <Input value={form.tripId} onChange={e=>setForm(f=>({...f,tripId:e.target.value}))} placeholder="t1"
+                className="bg-white/[0.03] border-white/[0.06] text-white/90 placeholder:text-white/30 text-sm"/></div>
+            <div><label className="text-[11px] text-white/40 mb-1 block">Driver Name</label>
+              <Input value={form.driverName} onChange={e=>setForm(f=>({...f,driverName:e.target.value}))} placeholder="Full name"
+                className="bg-white/[0.03] border-white/[0.06] text-white/90 placeholder:text-white/30 text-sm"/></div>
+            <div><label className="text-[11px] text-white/40 mb-1 block">Category</label>
+              <select value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))}
+                className="w-full bg-white/[0.03] border border-white/[0.06] rounded-md px-3 py-2 text-sm text-white/90">
+                {EXPENSE_CATS.map(c=><option key={c} value={c} className="bg-[#0f0f2a]">{c.replace(/_/g,' ')}</option>)}</select></div>
+            <div><label className="text-[11px] text-white/40 mb-1 block">Amount (TZS)</label>
+              <Input type="number" value={form.amount} onChange={e=>setForm(f=>({...f,amount:e.target.value}))} placeholder="45000"
+                className="bg-white/[0.03] border-white/[0.06] text-white/90 placeholder:text-white/30 text-sm"/></div>
+            <div className="col-span-2"><label className="text-[11px] text-white/40 mb-1 block">Description</label>
+              <Input value={form.description} onChange={e=>setForm(f=>({...f,description:e.target.value}))} placeholder="e.g. Fuel refill at Morogoro"
+                className="bg-white/[0.03] border-white/[0.06] text-white/90 placeholder:text-white/30 text-sm"/></div>
+          </div>
+          {err && <div className="text-red-400 text-xs">{err}</div>}
+          <div className="flex gap-2">
+            <Button onClick={submit} className="flex-1 bg-amber-500 hover:bg-amber-600 text-black font-semibold text-sm">Save Expense</Button>
+            <Button onClick={()=>setShowForm(false)} className="bg-white/[0.06] hover:bg-white/[0.10] text-white/70 text-sm">Cancel</Button>
+          </div>
+        </CardContent></Card>
+      )}
+      <div className="space-y-2">
+        {expenses.map(e=>(
+          <div key={e.id} className="flex items-center gap-3 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className={`text-xs font-semibold ${cc[e.category]||'text-white/50'}`}>{e.category.replace(/_/g,' ')}</span>
+                <span className="text-[10px] text-white/30">Trip {e.tripId.toUpperCase()} · {e.driverName}</span>
+              </div>
+              <div className="text-xs text-white/60 mt-0.5">{e.description}</div>
+            </div>
+            <div className="text-sm font-bold text-amber-400 shrink-0">TZS {e.amount.toLocaleString()}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  BRANCH TRANSFERS TAB                                                */
+/* ------------------------------------------------------------------ */
+interface BranchTransfer { id: string; parcelId: string; shortCode: string; fromBranch: string; toBranch: string; handedBy: string; receivedBy: string; handedAt: string; receivedAt?: string; status: 'in_transit'|'received'; }
+const BRANCHES = ['Dar es Salaam','Morogoro','Dodoma','Singida','Shinyanga','Mwanza','Arusha','Mbeya','Tanga'];
+const demoBranchTransfers: BranchTransfer[] = [
+  { id:'bt1', parcelId:'TZ-DSM-MWZ-000001', shortCode:'KTZ001', fromBranch:'Dar es Salaam', toBranch:'Dodoma', handedBy:'DSM Staff', receivedBy:'DOD Staff', handedAt:'May 4 06:00', receivedAt:'May 4 16:00', status:'received' },
+  { id:'bt2', parcelId:'TZ-DSM-MWZ-000001', shortCode:'KTZ001', fromBranch:'Dodoma', toBranch:'Mwanza', handedBy:'DOD Staff', receivedBy:'', handedAt:'May 4 17:00', status:'in_transit' },
+];
+function BranchTransfersTab({ allParcels }: { allParcels: TZParcel[] }) {
+  const [transfers, setTransfers] = useState<BranchTransfer[]>(demoBranchTransfers);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ shortCode:'', fromBranch:'Dar es Salaam', toBranch:'Dodoma', handedBy:'' });
+  const [err, setErr] = useState('');
+  const submit = () => {
+    const p = allParcels.find(x=>x.shortCode.toUpperCase()===form.shortCode.trim().toUpperCase());
+    if (!p) { setErr('Parcel not found'); return; }
+    if (!form.handedBy.trim()) { setErr('Enter staff name'); return; }
+    setTransfers(prev=>[{ id:`bt${Date.now()}`, parcelId:p.parcelId, shortCode:p.shortCode,
+      fromBranch:form.fromBranch, toBranch:form.toBranch, handedBy:form.handedBy.trim(), receivedBy:'',
+      handedAt:new Date().toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}),
+      status:'in_transit' }, ...prev]);
+    setErr(''); setShowForm(false);
+  };
+  const markReceived = (id: string) => setTransfers(prev=>prev.map(t=>t.id===id?{...t,status:'received',receivedBy:'Branch Staff',
+    receivedAt:new Date().toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}:t));
+  return (
+    <div className="h-[calc(100vh-80px)] overflow-y-auto space-y-4 p-1">
+      <div className="flex items-center justify-between">
+        <div><h2 className="text-sm font-bold text-white/90">Branch Transfer System</h2>
+          <p className="text-xs text-white/40">Track parcel handovers between branches (DSM → Dodoma → Mwanza).</p></div>
+        <Button onClick={()=>setShowForm(v=>!v)} className="bg-amber-500 hover:bg-amber-600 text-black font-semibold text-xs">
+          <Plus className="w-3.5 h-3.5 mr-1"/>New Transfer</Button>
+      </div>
+      {showForm && (
+        <Card className="bg-white/[0.03] border-amber-500/20"><CardContent className="p-4 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2"><label className="text-[11px] text-white/40 mb-1 block">Short Code *</label>
+              <Input value={form.shortCode} onChange={e=>{setForm(f=>({...f,shortCode:e.target.value}));setErr('');}} placeholder="KTZ007"
+                className="bg-white/[0.03] border-white/[0.06] text-white/90 placeholder:text-white/30 font-mono text-sm"/></div>
+            <div><label className="text-[11px] text-white/40 mb-1 block">From Branch</label>
+              <select value={form.fromBranch} onChange={e=>setForm(f=>({...f,fromBranch:e.target.value}))}
+                className="w-full bg-white/[0.03] border border-white/[0.06] rounded-md px-3 py-2 text-sm text-white/90">
+                {BRANCHES.map(b=><option key={b} value={b} className="bg-[#0f0f2a]">{b}</option>)}</select></div>
+            <div><label className="text-[11px] text-white/40 mb-1 block">To Branch</label>
+              <select value={form.toBranch} onChange={e=>setForm(f=>({...f,toBranch:e.target.value}))}
+                className="w-full bg-white/[0.03] border border-white/[0.06] rounded-md px-3 py-2 text-sm text-white/90">
+                {BRANCHES.map(b=><option key={b} value={b} className="bg-[#0f0f2a]">{b}</option>)}</select></div>
+            <div className="col-span-2"><label className="text-[11px] text-white/40 mb-1 block">Handed By *</label>
+              <Input value={form.handedBy} onChange={e=>setForm(f=>({...f,handedBy:e.target.value}))} placeholder="Staff name"
+                className="bg-white/[0.03] border-white/[0.06] text-white/90 placeholder:text-white/30 text-sm"/></div>
+          </div>
+          {err && <div className="text-red-400 text-xs">{err}</div>}
+          <div className="flex gap-2">
+            <Button onClick={submit} className="flex-1 bg-amber-500 hover:bg-amber-600 text-black font-semibold text-sm">Record Handover</Button>
+            <Button onClick={()=>setShowForm(false)} className="bg-white/[0.06] hover:bg-white/[0.10] text-white/70 text-sm">Cancel</Button>
+          </div>
+        </CardContent></Card>
+      )}
+      <div className="space-y-2">
+        {transfers.map(t=>(
+          <Card key={t.id} className="bg-white/[0.03] border-white/[0.06]"><CardContent className="p-4">
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="font-mono text-xs text-amber-400">{t.shortCode}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${t.status==='received'?'bg-emerald-500/15 text-emerald-400':'bg-yellow-500/15 text-yellow-400'}`}>
+                    {t.status==='received'?'Received':'In Transit'}</span>
+                </div>
+                <div className="flex items-center gap-1.5 text-xs text-white/70">
+                  <span>{t.fromBranch}</span><ArrowRight className="w-3 h-3 text-white/30"/><span>{t.toBranch}</span>
+                </div>
+                <div className="text-[10px] text-white/30 mt-1">Handed: {t.handedBy} · {t.handedAt}
+                  {t.receivedAt&&` · Received: ${t.receivedBy} · ${t.receivedAt}`}</div>
+              </div>
+              {t.status==='in_transit'&&(
+                <Button onClick={()=>markReceived(t.id)} className="bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/20 text-xs shrink-0">
+                  Mark Received</Button>
+              )}
+            </div>
+          </CardContent></Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  MANIFEST TAB                                                        */
+/* ------------------------------------------------------------------ */
+function ManifestTab({ allParcels }: { allParcels: TZParcel[] }) {
+  const [tripId, setTripId] = useState('t1');
+  const [type, setType] = useState<'trip'|'delivery'|'packing'>('trip');
+  const trip = trips.find(t=>t.id===tripId);
+  const driver = trip ? drivers.find(d=>d.name===trip.driverName) : null;
+  const mp = allParcels.filter(p=>p.tripId===tripId);
+  const totalKg = mp.reduce((s,p)=>s+p.weight,0);
+  const totalPkgs = mp.reduce((s,p)=>s+p.packageCount,0);
+  const totalFees = mp.reduce((s,p)=>s+p.transportFee+p.insurance,0);
+  return (
+    <div className="h-[calc(100vh-80px)] overflow-y-auto space-y-4 p-1">
+      <div className="flex items-center justify-between">
+        <div><h2 className="text-sm font-bold text-white/90">Manifest Generator</h2>
+          <p className="text-xs text-white/40">Trip, delivery, or packing list with print/PDF.</p></div>
+        <Button onClick={()=>window.print()} className="bg-amber-500 hover:bg-amber-600 text-black font-semibold text-xs">
+          <FileText className="w-3.5 h-3.5 mr-1"/>Print / PDF</Button>
+      </div>
+      <div className="flex gap-2 flex-wrap">
+        <select value={tripId} onChange={e=>setTripId(e.target.value)}
+          className="bg-white/[0.03] border border-white/[0.06] rounded-md px-3 py-2 text-sm text-white/90">
+          {trips.map(t=><option key={t.id} value={t.id} className="bg-[#0f0f2a]">{t.vehiclePlate} — {t.driverName}</option>)}
+        </select>
+        {(['trip','delivery','packing'] as const).map(t=>(
+          <button key={t} onClick={()=>setType(t)}
+            className={`px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${type===t?'bg-amber-500/15 text-amber-400 border-amber-500/30':'bg-white/[0.03] text-white/50 border-white/[0.06]'}`}>
+            {t==='trip'?'Trip Manifest':t==='delivery'?'Delivery Manifest':'Packing List'}</button>
+        ))}
+      </div>
+      <Card className="bg-white border-gray-200 text-black"><CardContent className="p-6 space-y-4">
+        <div className="flex items-start justify-between border-b border-gray-200 pb-4">
+          <div><div className="text-lg font-black text-gray-900">KOBE TRANSPORT</div>
+            <div className="text-xs text-gray-500 uppercase tracking-wider">{type==='trip'?'Trip Manifest':type==='delivery'?'Delivery Manifest':'Packing List'}</div></div>
+          <div className="text-right text-xs text-gray-500">
+            <div>Date: {new Date().toLocaleDateString('en-GB')}</div><div>Trip: {tripId.toUpperCase()}</div></div>
+        </div>
+        {trip&&(<div className="grid grid-cols-2 gap-4 text-xs border-b border-gray-100 pb-3">
+          <div><span className="text-gray-400">Vehicle:</span> <span className="font-semibold">{trip.vehiclePlate}</span></div>
+          <div><span className="text-gray-400">Driver:</span> <span className="font-semibold">{trip.driverName}</span></div>
+          <div><span className="text-gray-400">Phone:</span> <span>{driver?.phone||'—'}</span></div>
+          <div><span className="text-gray-400">Route:</span> <span className="font-semibold">{trip.route}</span></div>
+        </div>)}
+        <table className="w-full text-xs border-collapse">
+          <thead><tr className="border-b border-gray-200 text-gray-500 text-left">
+            <th className="py-1.5 pr-2">#</th><th className="py-1.5 pr-2">Code</th>
+            <th className="py-1.5 pr-2">Owner</th><th className="py-1.5 pr-2">Phone</th>
+            <th className="py-1.5 pr-2">Destination</th><th className="py-1.5 pr-2">Pkgs</th>
+            <th className="py-1.5 pr-2">Kg</th>{type!=='packing'&&<th className="py-1.5">Fee</th>}
+          </tr></thead>
+          <tbody>{mp.map((p,i)=>(
+            <tr key={p.id} className="border-b border-gray-50">
+              <td className="py-1.5 pr-2 text-gray-400">{i+1}</td>
+              <td className="py-1.5 pr-2 font-mono font-bold">{p.shortCode}</td>
+              <td className="py-1.5 pr-2">{p.ownerName}</td>
+              <td className="py-1.5 pr-2 text-gray-500">{p.ownerPhone}</td>
+              <td className="py-1.5 pr-2 font-semibold">{p.destination}</td>
+              <td className="py-1.5 pr-2">{p.packageCount}</td>
+              <td className="py-1.5 pr-2">{p.weight}</td>
+              {type!=='packing'&&<td className="py-1.5">{(p.transportFee+p.insurance).toLocaleString()}</td>}
+            </tr>
+          ))}</tbody>
+          <tfoot><tr className="font-bold border-t-2 border-gray-300">
+            <td colSpan={5} className="py-2 text-right pr-2">TOTALS:</td>
+            <td className="py-2 pr-2">{totalPkgs}</td><td className="py-2 pr-2">{totalKg} kg</td>
+            {type!=='packing'&&<td className="py-2">{totalFees.toLocaleString()}</td>}
+          </tr></tfoot>
+        </table>
+        <div className="grid grid-cols-3 gap-6 pt-4 border-t border-gray-200 text-xs text-gray-500">
+          <div><div className="border-b border-gray-300 mb-1 h-8"/><div>Prepared By</div></div>
+          <div><div className="border-b border-gray-300 mb-1 h-8"/><div>Driver Signature</div></div>
+          <div><div className="border-b border-gray-300 mb-1 h-8"/><div>Authorized By</div></div>
+        </div>
+      </CardContent></Card>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  MULTI-PARCEL GROUPING TAB                                           */
+/* ------------------------------------------------------------------ */
+interface MasterShipment { id: string; shipmentId: string; senderName: string; senderPhone: string; childIds: string[]; totalPackages: number; createdAt: string; }
+const demoShipments: MasterShipment[] = [
+  { id:'ms1', shipmentId:'SHIP-DSM-001', senderName:'Juma Hassan', senderPhone:'+255 713 111 222', childIds:['KTZ001'], totalPackages:3, createdAt:'May 1 09:30' },
+];
+function MultiParcelTab({ allParcels, onAddParcel }: { allParcels: TZParcel[]; onAddParcel: (p: TZParcel) => void }) {
+  const [shipments, setShipments] = useState<MasterShipment[]>(demoShipments);
+  const [showForm, setShowForm] = useState(false);
+  const [senderName, setSenderName] = useState('');
+  const [senderPhone, setSenderPhone] = useState('');
+  const [rows, setRows] = useState([{ ownerName:'', ownerPhone:'', destination:'', packageCount:'1', description:'' }]);
+  const addRow = () => setRows(r=>[...r,{ ownerName:'', ownerPhone:'', destination:'', packageCount:'1', description:'' }]);
+  const removeRow = (i: number) => setRows(r=>r.filter((_,idx)=>idx!==i));
+  const updateRow = (i: number, k: string, v: string) => setRows(r=>r.map((row,idx)=>idx===i?{...row,[k]:v}:row));
+  const submit = () => {
+    if (!senderName.trim()||!senderPhone.trim()) return;
+    const seq = allParcels.length;
+    const childIds: string[] = [];
+    rows.forEach((row,i) => {
+      if (!row.ownerName.trim()||!row.destination) return;
+      const s = seq+i+1;
+      const p: TZParcel = { id:`p${Date.now()}${i}`, parcelId:genParcelId('DSM',row.destination,s), shortCode:genShortCode(s),
+        senderName:senderName.trim(), senderPhone:senderPhone.trim(), ownerName:row.ownerName.trim(), ownerPhone:row.ownerPhone.trim(),
+        destination:row.destination, packageCount:parseInt(row.packageCount)||1, weight:0,
+        description:row.description.trim()||'Grouped shipment', paymentMode:'PAY_NOW', preRegistered:true,
+        status:'REGISTERED', qrStatus:'BLACK', transportFee:0, insurance:0, extraCharges:0, storageFees:0, totalPaid:0,
+        registeredAt:new Date().toLocaleString('en-GB',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}),
+        cargoCompany:'Kobe Transport', branch:'Dar es Salaam' };
+      onAddParcel(p); childIds.push(p.shortCode);
+    });
+    const totalPkgs = rows.reduce((s,r)=>s+(parseInt(r.packageCount)||1),0);
+    setShipments(prev=>[{ id:`ms${Date.now()}`, shipmentId:`SHIP-DSM-${String(prev.length+1).padStart(3,'0')}`,
+      senderName:senderName.trim(), senderPhone:senderPhone.trim(), childIds, totalPackages:totalPkgs,
+      createdAt:new Date().toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}) }, ...prev]);
+    setSenderName(''); setSenderPhone('');
+    setRows([{ ownerName:'', ownerPhone:'', destination:'', packageCount:'1', description:'' }]);
+    setShowForm(false);
+  };
+  return (
+    <div className="h-[calc(100vh-80px)] overflow-y-auto space-y-4 p-1">
+      <div className="flex items-center justify-between">
+        <div><h2 className="text-sm font-bold text-white/90">Multi-Parcel Grouping</h2>
+          <p className="text-xs text-white/40">One sender, multiple parcels — grouped under a master shipment ID.</p></div>
+        <Button onClick={()=>setShowForm(v=>!v)} className="bg-amber-500 hover:bg-amber-600 text-black font-semibold text-xs">
+          <Plus className="w-3.5 h-3.5 mr-1"/>New Shipment</Button>
+      </div>
+      {showForm && (
+        <Card className="bg-white/[0.03] border-amber-500/20"><CardContent className="p-4 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div><label className="text-[11px] text-white/40 mb-1 block">Sender Name *</label>
+              <Input value={senderName} onChange={e=>setSenderName(e.target.value)} placeholder="Full name"
+                className="bg-white/[0.03] border-white/[0.06] text-white/90 placeholder:text-white/30 text-sm"/></div>
+            <div><label className="text-[11px] text-white/40 mb-1 block">Sender Phone *</label>
+              <Input value={senderPhone} onChange={e=>setSenderPhone(e.target.value)} placeholder="+255 7XX XXX XXX"
+                className="bg-white/[0.03] border-white/[0.06] text-white/90 placeholder:text-white/30 text-sm"/></div>
+          </div>
+          {rows.map((row,i)=>(
+            <div key={i} className="p-3 bg-white/[0.02] rounded-lg border border-white/[0.06] space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-white/50">Parcel {i+1}</span>
+                {rows.length>1&&<button onClick={()=>removeRow(i)} className="text-red-400 text-xs">Remove</button>}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Input value={row.ownerName} onChange={e=>updateRow(i,'ownerName',e.target.value)} placeholder="Owner name"
+                  className="bg-white/[0.03] border-white/[0.06] text-white/90 placeholder:text-white/25 text-xs"/>
+                <Input value={row.ownerPhone} onChange={e=>updateRow(i,'ownerPhone',e.target.value)} placeholder="Owner phone"
+                  className="bg-white/[0.03] border-white/[0.06] text-white/90 placeholder:text-white/25 text-xs"/>
+                <select value={row.destination} onChange={e=>updateRow(i,'destination',e.target.value)}
+                  className="bg-white/[0.03] border border-white/[0.06] rounded-md px-2 py-1.5 text-xs text-white/90">
+                  <option value="" className="bg-[#0f0f2a]">Destination…</option>
+                  {DESTINATIONS.map(d=><option key={d} value={d} className="bg-[#0f0f2a]">{d}</option>)}
+                </select>
+                <Input type="number" value={row.packageCount} onChange={e=>updateRow(i,'packageCount',e.target.value)} placeholder="Pkg count"
+                  className="bg-white/[0.03] border-white/[0.06] text-white/90 placeholder:text-white/25 text-xs"/>
+                <Input value={row.description} onChange={e=>updateRow(i,'description',e.target.value)} placeholder="Description"
+                  className="col-span-2 bg-white/[0.03] border-white/[0.06] text-white/90 placeholder:text-white/25 text-xs"/>
+              </div>
+            </div>
+          ))}
+          <button onClick={addRow} className="text-xs text-amber-400 hover:text-amber-300 flex items-center gap-1">
+            <Plus className="w-3 h-3"/>Add another parcel</button>
+          <div className="flex gap-2">
+            <Button onClick={submit} className="flex-1 bg-amber-500 hover:bg-amber-600 text-black font-semibold text-sm">Create Shipment</Button>
+            <Button onClick={()=>setShowForm(false)} className="bg-white/[0.06] hover:bg-white/[0.10] text-white/70 text-sm">Cancel</Button>
+          </div>
+        </CardContent></Card>
+      )}
+      <div className="space-y-3">
+        {shipments.map(s=>(
+          <Card key={s.id} className="bg-white/[0.03] border-white/[0.06]"><CardContent className="p-4">
+            <div className="flex items-start justify-between mb-2">
+              <div><div className="font-mono text-sm font-bold text-amber-400">{s.shipmentId}</div>
+                <div className="text-xs text-white/60">{s.senderName} · {s.senderPhone}</div></div>
+              <div className="text-right text-xs text-white/40">
+                <div>{s.childIds.length} parcel{s.childIds.length!==1?'s':''}</div>
+                <div>{s.totalPackages} total pkgs</div></div>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {s.childIds.map(code=>(
+                <span key={code} className="font-mono text-[10px] px-2 py-0.5 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded">{code}</span>
+              ))}
+            </div>
+          </CardContent></Card>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  AGENT PERFORMANCE TAB                                               */
+/* ------------------------------------------------------------------ */
+interface AgentPerf { id: string; name: string; phone: string; branch: string; parcelsSent: number; revenue: number; deliveries: number; disputes: number; points: number; rank: number; }
+const demoAgentPerf: AgentPerf[] = [
+  { id:'ag1', name:'Juma Hassan', phone:'+255 713 111 222', branch:'Dar es Salaam', parcelsSent:142, revenue:7100000, deliveries:138, disputes:2, points:1380, rank:1 },
+  { id:'ag2', name:'Peter Omondi', phone:'+255 715 555 666', branch:'Dar es Salaam', parcelsSent:98, revenue:4900000, deliveries:95, disputes:1, points:950, rank:2 },
+  { id:'ag3', name:'David Kimaro', phone:'+255 717 999 000', branch:'Morogoro', parcelsSent:76, revenue:3800000, deliveries:74, disputes:0, points:740, rank:3 },
+  { id:'ag4', name:'Ali Ibrahim', phone:'+255 721 777 888', branch:'Dar es Salaam', parcelsSent:54, revenue:2700000, deliveries:52, disputes:3, points:520, rank:4 },
+  { id:'ag5', name:'Hassan Juma', phone:'+255 723 111 333', branch:'Shinyanga', parcelsSent:31, revenue:1550000, deliveries:30, disputes:0, points:300, rank:5 },
+];
+function AgentPerformanceTab() {
+  const medals = ['🥇','🥈','🥉'];
+  return (
+    <div className="h-[calc(100vh-80px)] overflow-y-auto space-y-4 p-1">
+      <div><h2 className="text-sm font-bold text-white/90">Agent Performance</h2>
+        <p className="text-xs text-white/40">Points, revenue, deliveries and monthly ranking.</p></div>
+      <div className="grid grid-cols-3 gap-3">
+        {demoAgentPerf.slice(0,3).map((a,i)=>(
+          <Card key={a.id} className={`bg-white/[0.03] border-white/[0.06] ${i===0?'border-amber-500/30':''}`}>
+            <CardContent className="p-3 text-center">
+              <div className="text-2xl mb-1">{medals[i]}</div>
+              <div className="text-xs font-semibold text-white/80 truncate">{a.name.split(' ')[0]}</div>
+              <div className="text-[10px] text-white/40">{a.branch}</div>
+              <div className="text-base font-bold text-amber-400 mt-1">{a.points.toLocaleString()} pts</div>
+              <div className="text-[10px] text-white/40">{a.deliveries} deliveries</div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+      <Card className="bg-white/[0.03] border-white/[0.06]"><CardContent className="p-4">
+        <div className="space-y-2">
+          {demoAgentPerf.map(a=>(
+            <div key={a.id} className="flex items-center gap-3 p-3 bg-white/[0.02] rounded-lg border border-white/[0.04]">
+              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${a.rank<=3?'bg-amber-500/20 text-amber-400':'bg-white/[0.05] text-white/40'}`}>{a.rank}</div>
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-semibold text-white/80">{a.name}</div>
+                <div className="text-[10px] text-white/40">{a.branch} · {a.phone}</div>
+              </div>
+              <div className="grid grid-cols-4 gap-3 text-center shrink-0">
+                <div><div className="text-xs font-bold text-amber-400">{a.points.toLocaleString()}</div><div className="text-[9px] text-white/30">pts</div></div>
+                <div><div className="text-xs font-bold text-emerald-400">{a.deliveries}</div><div className="text-[9px] text-white/30">delivered</div></div>
+                <div><div className="text-xs font-bold text-indigo-400">{a.parcelsSent}</div><div className="text-[9px] text-white/30">sent</div></div>
+                <div><div className={`text-xs font-bold ${a.disputes>0?'text-red-400':'text-white/30'}`}>{a.disputes}</div><div className="text-[9px] text-white/30">disputes</div></div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </CardContent></Card>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  OFFLINE SCAN QUEUE TAB                                              */
+/* ------------------------------------------------------------------ */
+interface OfflineScan { id: string; shortCode: string; action: string; scannedAt: string; synced: boolean; }
+function OfflineScanTab({ allParcels, onUpdateParcel }: { allParcels: TZParcel[]; onUpdateParcel: (id: string, patch: Partial<TZParcel>) => void }) {
+  const [queue, setQueue] = useState<OfflineScan[]>([
+    { id:'os1', shortCode:'KTZ009', action:'VERIFY', scannedAt:'May 6 08:12', synced:false },
+    { id:'os2', shortCode:'KTZ010', action:'VERIFY', scannedAt:'May 6 08:14', synced:false },
+  ]);
+  const [shortCode, setShortCode] = useState('');
+  const [action, setAction] = useState('VERIFY');
+  const [syncing, setSyncing] = useState(false);
+  const [synced, setSynced] = useState(false);
+  const addToQueue = () => {
+    if (!shortCode.trim()) return;
+    setQueue(prev=>[...prev,{ id:`os${Date.now()}`, shortCode:shortCode.trim().toUpperCase(), action,
+      scannedAt:new Date().toLocaleString('en-GB',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}), synced:false }]);
+    setShortCode('');
+  };
+  const syncAll = () => {
+    setSyncing(true);
+    setTimeout(()=>{
+      queue.filter(q=>!q.synced).forEach(q=>{
+        const p = allParcels.find(x=>x.shortCode.toUpperCase()===q.shortCode);
+        if (p) {
+          if (q.action==='VERIFY') onUpdateParcel(p.id,{ status:p.paymentMode==='PAY_NOW'?'PAID_READY':'VERIFIED', qrStatus:p.paymentMode==='PAY_NOW'?'GREEN':'YELLOW' });
+          if (q.action==='LOAD') onUpdateParcel(p.id,{ status:'LOADED' });
+        }
+      });
+      setQueue(prev=>prev.map(q=>({...q,synced:true})));
+      setSyncing(false); setSynced(true); setTimeout(()=>setSynced(false),3000);
+    },1200);
+  };
+  const pending = queue.filter(q=>!q.synced).length;
+  return (
+    <div className="h-[calc(100vh-80px)] overflow-y-auto space-y-4 p-1">
+      <div><h2 className="text-sm font-bold text-white/90">Offline Scan Queue</h2>
+        <p className="text-xs text-white/40">Save scans locally when internet is down. Sync when connection returns.</p></div>
+      <Card className="bg-white/[0.03] border-white/[0.06]"><CardContent className="p-4 space-y-3">
+        <div className="flex gap-2">
+          <Input value={shortCode} onChange={e=>setShortCode(e.target.value)} placeholder="Short code…"
+            onKeyDown={e=>e.key==='Enter'&&addToQueue()}
+            className="flex-1 bg-white/[0.03] border-white/[0.06] text-white/90 placeholder:text-white/30 font-mono text-sm"/>
+          <select value={action} onChange={e=>setAction(e.target.value)}
+            className="bg-white/[0.03] border border-white/[0.06] rounded-md px-3 py-2 text-sm text-white/90">
+            <option value="VERIFY" className="bg-[#0f0f2a]">Verify</option>
+            <option value="LOAD" className="bg-[#0f0f2a]">Load</option>
+          </select>
+          <Button onClick={addToQueue} className="bg-white/[0.06] hover:bg-white/[0.10] text-white/80 border border-white/[0.08] shrink-0">+ Queue</Button>
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-white/40">{pending} pending · {queue.length-pending} synced</span>
+          <Button onClick={syncAll} disabled={pending===0||syncing}
+            className="bg-amber-500 hover:bg-amber-600 text-black font-semibold text-xs disabled:opacity-40">
+            {syncing?'Syncing…':`Sync ${pending} Scan${pending!==1?'s':''}`}</Button>
+        </div>
+        {synced&&<div className="text-emerald-400 text-xs flex items-center gap-1"><CheckCircle2 className="w-3.5 h-3.5"/>All scans synced</div>}
+      </CardContent></Card>
+      <div className="space-y-2">
+        {queue.map(q=>(
+          <div key={q.id} className={`flex items-center gap-3 p-3 rounded-lg border ${q.synced?'bg-emerald-500/5 border-emerald-500/15':'bg-white/[0.03] border-white/[0.06]'}`}>
+            <div className={`w-2 h-2 rounded-full shrink-0 ${q.synced?'bg-emerald-400':'bg-amber-400 animate-pulse'}`}/>
+            <span className="font-mono text-xs text-amber-400 w-16 shrink-0">{q.shortCode}</span>
+            <span className="text-xs text-white/60 flex-1">{q.action}</span>
+            <span className="text-[10px] text-white/30">{q.scannedAt}</span>
+            <span className={`text-[10px] font-medium ${q.synced?'text-emerald-400':'text-amber-400'}`}>{q.synced?'Synced':'Pending'}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  MAIN COMPONENT                                                      */
 /* ------------------------------------------------------------------ */
 
