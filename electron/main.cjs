@@ -156,8 +156,7 @@ function startBackend(dbConfig) {
     DB_USERNAME: dbConfig.user,
     DB_PASSWORD: dbConfig.password,
     DB_DATABASE: dbConfig.database,
-    DB_SYNCHRONIZE: 'true',
-    KOBEOS_DESKTOP: 'true',   // signals embedded desktop mode to bypass prod guards
+    KOBEOS_DESKTOP: 'true',   // enables schema sync via database.config.ts; never set DB_SYNCHRONIZE=true without this
     JWT_SECRET: getOrCreateJwtSecret(),
     CORS_ORIGIN: 'file://',
   };
@@ -237,7 +236,7 @@ function waitForBackend(port, timeoutMs) {
     const start = Date.now();
     const http = require('http');
     function attempt() {
-      const req = http.get(`http://127.0.0.1:${port}/health`, (res) => {
+      const req = http.get(`http://127.0.0.1:${port}/api/health`, (res) => {
         res.resume();
         resolve();
       });
@@ -540,12 +539,12 @@ Type=simple
 User=kobeos
 Environment=NODE_ENV=production
 Environment=PORT=3000
+Environment=KOBEOS_DESKTOP=true
 Environment=DB_HOST=127.0.0.1
 Environment=DB_PORT=5432
 Environment=DB_USERNAME=kobeos
 Environment=DB_PASSWORD=kobeos_prod
 Environment=DB_DATABASE=kobeos
-Environment=DB_SYNCHRONIZE=true
 EnvironmentFile=-/opt/kobeos/resources/.env
 ExecStart=/usr/bin/node /opt/kobeos/resources/server-bundle/index.js
 Restart=on-failure

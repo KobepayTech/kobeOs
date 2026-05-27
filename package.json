@@ -159,6 +159,13 @@
         "to": "core-manifest.json"
       }
     ],
+    "extraFiles": [
+      {
+        "from": "build/vcredist/vc_redist.x64.exe",
+        "to": "vc_redist.x64.exe",
+        "filter": ["**/*"]
+      }
+    ],
     "linux": {
       "target": [
         {
