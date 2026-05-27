@@ -49,6 +49,9 @@ import { AdminModule } from './admin/admin.module';
 import { DevopsModule } from './devops/devops.module';
 import { ErpModule } from './erp/erp.module';
 import { AccountModule } from './account/account.module';
+import { QrModule } from './qr/qr.module';
+import { ExchangeRateModule } from './exchange-rates/exchange-rate.module';
+import { DisputeModule } from './disputes/dispute.module';
 
 @Module({
   imports: [
@@ -101,6 +104,9 @@ import { AccountModule } from './account/account.module';
     StoreRegistryModule,
     DevopsModule,
     AccountModule,
+    QrModule,
+    ExchangeRateModule,
+    DisputeModule,
   ],
   controllers: [AppController],
   providers: [
