@@ -63,6 +63,18 @@ const wsUrl = import.meta.env.VITE_RUVIEW_WS_URL || DEFAULT_WS_URL;
 
 const nowIso = () => new Date().toISOString();
 
+function timeoutSignal(timeoutMs: number): AbortSignal {
+  const abortSignalWithTimeout = AbortSignal as typeof AbortSignal & { timeout?: (ms: number) => AbortSignal };
+
+  if (typeof abortSignalWithTimeout.timeout === 'function') {
+    return abortSignalWithTimeout.timeout(timeoutMs);
+  }
+
+  const controller = new AbortController();
+  globalThis.setTimeout(() => controller.abort(), timeoutMs);
+  return controller.signal;
+}
+
 const demoZones: RuViewZone[] = [
   {
     id: 'hotel-room-101',
@@ -74,6 +86,32 @@ const demoZones: RuViewZone[] = [
     peopleCount: 2,
     motionLevel: 0.32,
     confidence: 0.86,
+    lastSeenAt: nowIso(),
+    source: 'simulated',
+  },
+  {
+    id: 'hotel-room-102',
+    name: 'Hotel Room 102',
+    type: 'hotel-room',
+    building: 'Kobe Hotel Demo',
+    floor: '1',
+    occupied: true,
+    peopleCount: 1,
+    motionLevel: 0.18,
+    confidence: 0.88,
+    lastSeenAt: nowIso(),
+    source: 'simulated',
+  },
+  {
+    id: 'hotel-room-103',
+    name: 'Hotel Room 103',
+    type: 'hotel-room',
+    building: 'Kobe Hotel Demo',
+    floor: '1',
+    occupied: false,
+    peopleCount: 0,
+    motionLevel: 0.02,
+    confidence: 0.81,
     lastSeenAt: nowIso(),
     source: 'simulated',
   },
@@ -147,7 +185,7 @@ async function requestJson<T>(path: string, fallback: T): Promise<T> {
   try {
     const response = await fetch(`${baseUrl}${path}`, {
       headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(2500),
+      signal: timeoutSignal(2500),
     });
 
     if (!response.ok) {
@@ -210,7 +248,7 @@ export async function getRuViewHealth(): Promise<RuViewHealth> {
   try {
     const response = await fetch(`${baseUrl}/api/v1/health`, {
       headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(2500),
+      signal: timeoutSignal(2500),
     });
 
     if (!response.ok) {
@@ -263,7 +301,6 @@ export async function getRuViewSnapshot(): Promise<RuViewSnapshot> {
 
 export function connectRuViewStream(onMessage: (snapshot: Partial<RuViewSnapshot>) => void): () => void {
   let socket: WebSocket | null = null;
-  let closed = false;
 
   try {
     socket = new WebSocket(wsUrl);
@@ -277,13 +314,13 @@ export function connectRuViewStream(onMessage: (snapshot: Partial<RuViewSnapshot
       }
     };
   } catch {
-    closed = true;
+    socket = null;
   }
 
   return () => {
-    closed = true;
-    if (!closed && socket?.readyState === WebSocket.OPEN) socket.close();
-    if (socket && socket.readyState < WebSocket.CLOSING) socket.close();
+    if (socket && socket.readyState < WebSocket.CLOSING) {
+      socket.close();
+    }
   };
 }
 
