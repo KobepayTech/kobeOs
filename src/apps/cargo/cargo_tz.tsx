@@ -6,7 +6,7 @@ import {
   FileText, ChevronRight, BarChart3, TrendingUp,
   Navigation, Award, Star, Zap, Eye,
   Route, Gauge, Activity, Target, Timer, Radio, Wifi,
-  Lock, Send, Receipt, Wallet, Banknote,
+  Lock, Send, Receipt, Wallet, Banknote, Printer,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,6 +21,7 @@ import { QRCodeSVG } from 'qrcode.react';
 interface TZParcel {
   id: string;
   parcelId: string;
+  shortCode: string;
   senderName: string;
   senderPhone: string;
   ownerName: string;
@@ -28,9 +29,12 @@ interface TZParcel {
   destination: string;
   packageCount: number;
   weight: number;
+  dimensions?: string;
   description: string;
   paymentMode: 'PAY_NOW' | 'PAY_ON_ARRIVAL';
-  status: 'REGISTERED' | 'VERIFIED' | 'PAID' | 'TRANSIT_PENDING' | 'IN_TRANSIT' | 'ARRIVED' | 'PAYMENT_REQUIRED' | 'RELEASED' | 'DELIVERED';
+  /** true = submitted via public portal before arrival */
+  preRegistered: boolean;
+  status: 'REGISTERED' | 'VERIFIED' | 'PAID_READY' | 'LOADED' | 'IN_TRANSIT' | 'ARRIVED' | 'PAYMENT_REQUIRED' | 'DELIVERED';
   qrStatus: 'BLACK' | 'YELLOW' | 'GREEN' | 'RED' | 'WHITE';
   transportFee: number;
   insurance: number;
@@ -101,14 +105,18 @@ interface TZAuditLog {
 const branches = ['Dar es Salaam', 'Morogoro', 'Dodoma', 'Singida', 'Shinyanga', 'Mwanza', 'Arusha', 'Tanga'];
 
 const parcels: TZParcel[] = [
-  { id:'p1', parcelId:'TZ-DSM-MWZ-000001', senderName:'Juma Hassan', senderPhone:'+255 713 111 222', ownerName:'Asha Mwangi', ownerPhone:'+255 714 333 444', destination:'Mwanza', packageCount:3, weight:45, description:'Electronics - TV, Radio, Phone charger', paymentMode:'PAY_NOW', status:'IN_TRANSIT', qrStatus:'GREEN', transportFee:45000, insurance:5000, extraCharges:0, storageFees:0, totalPaid:50000, registeredAt:'May 1, 2025 09:30', cargoCompany:'Kobe Transport', branch:'Dar es Salaam', tripId:'t1' },
-  { id:'p2', parcelId:'TZ-DSM-DOD-000002', senderName:'Peter Omondi', senderPhone:'+255 715 555 666', ownerName:'Grace Wanjiru', ownerPhone:'+255 716 777 888', destination:'Dodoma', packageCount:2, weight:28, description:'Textiles - Fabric rolls', paymentMode:'PAY_ON_ARRIVAL', status:'IN_TRANSIT', qrStatus:'YELLOW', transportFee:32000, insurance:3000, extraCharges:0, storageFees:0, totalPaid:0, registeredAt:'May 2, 2025 14:15', cargoCompany:'Kobe Transport', branch:'Dar es Salaam', tripId:'t1' },
-  { id:'p3', parcelId:'TZ-MOR-SHI-000003', senderName:'David Kimaro', senderPhone:'+255 717 999 000', ownerName:'Fatima Said', ownerPhone:'+255 718 111 222', destination:'Shinyanga', packageCount:5, weight:120, description:'Building materials - Cement bags', paymentMode:'PAY_NOW', status:'ARRIVED', qrStatus:'GREEN', transportFee:85000, insurance:12000, extraCharges:5000, storageFees:0, totalPaid:102000, registeredAt:'Apr 28, 2025 11:00', cargoCompany:'Kobe Transport', branch:'Morogoro', tripId:'t2' },
-  { id:'p4', parcelId:'TZ-DOD-MWZ-000004', senderName:'John Mwansa', senderPhone:'+255 719 333 444', ownerName:'Mary Joseph', ownerPhone:'+255 720 555 666', destination:'Mwanza', packageCount:1, weight:8, description:'Documents and certificates', paymentMode:'PAY_ON_ARRIVAL', status:'ARRIVED', qrStatus:'RED', transportFee:15000, insurance:2000, extraCharges:0, storageFees:3000, totalPaid:0, registeredAt:'Apr 25, 2025 16:45', cargoCompany:'Kobe Transport', branch:'Dodoma', tripId:'t2' },
-  { id:'p5', parcelId:'TZ-DSM-SIN-000005', senderName:'Ali Ibrahim', senderPhone:'+255 721 777 888', ownerName:'Rose Mwakasege', ownerPhone:'+255 722 999 000', destination:'Singida', packageCount:4, weight:65, description:'Furniture - Chairs and table', paymentMode:'PAY_NOW', status:'DELIVERED', qrStatus:'WHITE', transportFee:55000, insurance:8000, extraCharges:0, storageFees:0, totalPaid:63000, registeredAt:'Apr 20, 2025 08:30', cargoCompany:'Kobe Transport', branch:'Dar es Salaam', tripId:'t3' },
-  { id:'p6', parcelId:'TZ-SHI-MWZ-000006', senderName:'Hassan Juma', senderPhone:'+255 723 111 333', ownerName:'Elizabeth Mcha', ownerPhone:'+255 724 444 555', destination:'Mwanza', packageCount:2, weight:35, description:'Pharma supplies - Medicines', paymentMode:'PAY_NOW', status:'IN_TRANSIT', qrStatus:'GREEN', transportFee:38000, insurance:6000, extraCharges:0, storageFees:0, totalPaid:44000, registeredAt:'May 3, 2025 10:00', cargoCompany:'Kobe Transport', branch:'Shinyanga', tripId:'t4' },
-  { id:'p7', parcelId:'TZ-DSM-ARU-000007', senderName:'Omar Saidi', senderPhone:'+255 725 666 777', ownerName:'Sara Kimaro', ownerPhone:'+255 726 888 999', destination:'Arusha', packageCount:1, weight:12, description:'Laptop computer', paymentMode:'PAY_ON_ARRIVAL', status:'REGISTERED', qrStatus:'BLACK', transportFee:25000, insurance:15000, extraCharges:0, storageFees:0, totalPaid:0, registeredAt:'May 5, 2025 13:20', cargoCompany:'Kobe Transport', branch:'Dar es Salaam' },
-  { id:'p8', parcelId:'TZ-MWZ-DAR-000008', senderName:'Patrick John', senderPhone:'+255 727 000 111', ownerName:'Joyce Leonard', ownerPhone:'+255 728 222 333', destination:'Dar es Salaam', packageCount:3, weight:55, description:'Fish products - Dried fish', paymentMode:'PAY_NOW', status:'DELIVERED', qrStatus:'WHITE', transportFee:42000, insurance:5000, extraCharges:2000, storageFees:0, totalPaid:49000, registeredAt:'Apr 15, 2025 07:45', cargoCompany:'Kobe Transport', branch:'Mwanza', tripId:'t5' },
+  { id:'p1', parcelId:'TZ-DSM-MWZ-000001', shortCode:'KTZ001', senderName:'Juma Hassan', senderPhone:'+255 713 111 222', ownerName:'Asha Mwangi', ownerPhone:'+255 714 333 444', destination:'Mwanza', packageCount:3, weight:45, description:'Electronics - TV, Radio, Phone charger', paymentMode:'PAY_NOW', preRegistered:true, status:'IN_TRANSIT', qrStatus:'GREEN', transportFee:45000, insurance:5000, extraCharges:0, storageFees:0, totalPaid:50000, registeredAt:'May 1, 2025 09:30', cargoCompany:'Kobe Transport', branch:'Dar es Salaam', tripId:'t1' },
+  { id:'p2', parcelId:'TZ-DSM-DOD-000002', shortCode:'KTZ002', senderName:'Peter Omondi', senderPhone:'+255 715 555 666', ownerName:'Grace Wanjiru', ownerPhone:'+255 716 777 888', destination:'Dodoma', packageCount:2, weight:28, description:'Textiles - Fabric rolls', paymentMode:'PAY_ON_ARRIVAL', preRegistered:true, status:'IN_TRANSIT', qrStatus:'YELLOW', transportFee:32000, insurance:3000, extraCharges:0, storageFees:0, totalPaid:0, registeredAt:'May 2, 2025 14:15', cargoCompany:'Kobe Transport', branch:'Dar es Salaam', tripId:'t1' },
+  { id:'p3', parcelId:'TZ-MOR-SHI-000003', shortCode:'KTZ003', senderName:'David Kimaro', senderPhone:'+255 717 999 000', ownerName:'Fatima Said', ownerPhone:'+255 718 111 222', destination:'Shinyanga', packageCount:5, weight:120, description:'Building materials - Cement bags', paymentMode:'PAY_NOW', preRegistered:false, status:'ARRIVED', qrStatus:'GREEN', transportFee:85000, insurance:12000, extraCharges:5000, storageFees:0, totalPaid:102000, registeredAt:'Apr 28, 2025 11:00', cargoCompany:'Kobe Transport', branch:'Morogoro', tripId:'t2' },
+  { id:'p4', parcelId:'TZ-DOD-MWZ-000004', shortCode:'KTZ004', senderName:'John Mwansa', senderPhone:'+255 719 333 444', ownerName:'Mary Joseph', ownerPhone:'+255 720 555 666', destination:'Mwanza', packageCount:1, weight:8, description:'Documents and certificates', paymentMode:'PAY_ON_ARRIVAL', preRegistered:false, status:'ARRIVED', qrStatus:'RED', transportFee:15000, insurance:2000, extraCharges:0, storageFees:3000, totalPaid:0, registeredAt:'Apr 25, 2025 16:45', cargoCompany:'Kobe Transport', branch:'Dodoma', tripId:'t2' },
+  { id:'p5', parcelId:'TZ-DSM-SIN-000005', shortCode:'KTZ005', senderName:'Ali Ibrahim', senderPhone:'+255 721 777 888', ownerName:'Rose Mwakasege', ownerPhone:'+255 722 999 000', destination:'Singida', packageCount:4, weight:65, description:'Furniture - Chairs and table', paymentMode:'PAY_NOW', preRegistered:true, status:'DELIVERED', qrStatus:'WHITE', transportFee:55000, insurance:8000, extraCharges:0, storageFees:0, totalPaid:63000, registeredAt:'Apr 20, 2025 08:30', cargoCompany:'Kobe Transport', branch:'Dar es Salaam', tripId:'t3' },
+  { id:'p6', parcelId:'TZ-SHI-MWZ-000006', shortCode:'KTZ006', senderName:'Hassan Juma', senderPhone:'+255 723 111 333', ownerName:'Elizabeth Mcha', ownerPhone:'+255 724 444 555', destination:'Mwanza', packageCount:2, weight:35, description:'Pharma supplies - Medicines', paymentMode:'PAY_NOW', preRegistered:true, status:'IN_TRANSIT', qrStatus:'GREEN', transportFee:38000, insurance:6000, extraCharges:0, storageFees:0, totalPaid:44000, registeredAt:'May 3, 2025 10:00', cargoCompany:'Kobe Transport', branch:'Shinyanga', tripId:'t4' },
+  { id:'p7', parcelId:'TZ-DSM-ARU-000007', shortCode:'KTZ007', senderName:'Omar Saidi', senderPhone:'+255 725 666 777', ownerName:'Sara Kimaro', ownerPhone:'+255 726 888 999', destination:'Arusha', packageCount:1, weight:12, description:'Laptop computer', paymentMode:'PAY_ON_ARRIVAL', preRegistered:true, status:'REGISTERED', qrStatus:'BLACK', transportFee:25000, insurance:15000, extraCharges:0, storageFees:0, totalPaid:0, registeredAt:'May 5, 2025 13:20', cargoCompany:'Kobe Transport', branch:'Dar es Salaam' },
+  { id:'p8', parcelId:'TZ-MWZ-DAR-000008', shortCode:'KTZ008', senderName:'Patrick John', senderPhone:'+255 727 000 111', ownerName:'Joyce Leonard', ownerPhone:'+255 728 222 333', destination:'Dar es Salaam', packageCount:3, weight:55, description:'Fish products - Dried fish', paymentMode:'PAY_NOW', preRegistered:false, status:'DELIVERED', qrStatus:'WHITE', transportFee:42000, insurance:5000, extraCharges:2000, storageFees:0, totalPaid:49000, registeredAt:'Apr 15, 2025 07:45', cargoCompany:'Kobe Transport', branch:'Mwanza', tripId:'t5' },
+  { id:'p9', parcelId:'TZ-DSM-MWZ-000009', shortCode:'KTZ009', senderName:'Amina Rashid', senderPhone:'+255 731 222 333', ownerName:'Khalid Musa', ownerPhone:'+255 732 444 555', destination:'Mwanza', packageCount:2, weight:0, description:'Clothing and shoes', paymentMode:'PAY_NOW', preRegistered:true, status:'REGISTERED', qrStatus:'BLACK', transportFee:0, insurance:0, extraCharges:0, storageFees:0, totalPaid:0, registeredAt:'May 6, 2025 08:00', cargoCompany:'Kobe Transport', branch:'Dar es Salaam' },
+  { id:'p10', parcelId:'TZ-DSM-DOD-000010', shortCode:'KTZ010', senderName:'Baraka Mwenda', senderPhone:'+255 733 666 777', ownerName:'Neema Baraka', ownerPhone:'+255 734 888 999', destination:'Dodoma', packageCount:4, weight:0, description:'Kitchen utensils and pots', paymentMode:'PAY_NOW', preRegistered:true, status:'REGISTERED', qrStatus:'BLACK', transportFee:0, insurance:0, extraCharges:0, storageFees:0, totalPaid:0, registeredAt:'May 6, 2025 09:15', cargoCompany:'Kobe Transport', branch:'Dar es Salaam' },
+  { id:'p11', parcelId:'TZ-DSM-ARU-000011', shortCode:'KTZ011', senderName:'Zawadi Hamisi', senderPhone:'+255 735 111 222', ownerName:'Zawadi Hamisi', ownerPhone:'+255 735 111 222', destination:'Arusha', packageCount:1, weight:18, description:'Spare parts - motorcycle', paymentMode:'PAY_NOW', preRegistered:true, status:'VERIFIED', qrStatus:'YELLOW', transportFee:28000, insurance:3000, extraCharges:0, storageFees:0, totalPaid:0, registeredAt:'May 5, 2025 15:00', cargoCompany:'Kobe Transport', branch:'Dar es Salaam' },
+  { id:'p12', parcelId:'TZ-DSM-SHI-000012', shortCode:'KTZ012', senderName:'Rehema Ally', senderPhone:'+255 736 333 444', ownerName:'Jafari Ally', ownerPhone:'+255 737 555 666', destination:'Shinyanga', packageCount:3, weight:42, description:'Groceries and dry food', paymentMode:'PAY_NOW', preRegistered:true, status:'PAID_READY', qrStatus:'GREEN', transportFee:38000, insurance:4000, extraCharges:0, storageFees:0, totalPaid:42000, registeredAt:'May 5, 2025 11:30', cargoCompany:'Kobe Transport', branch:'Dar es Salaam' },
 ];
 
 const trips: TZTrip[] = [
@@ -152,16 +160,27 @@ const auditLogs: TZAuditLog[] = [
 /* ------------------------------------------------------------------ */
 
 const sidebarItems = [
-  { key: 'overview', label: 'Overview', desc: 'Dashboard & analytics', icon: LayoutDashboard },
-  { key: 'parcels', label: 'Parcels', desc: 'Manage shipments', icon: Package },
-  { key: 'qr_hub', label: 'QR Hub', desc: 'Scan & verify codes', icon: QrCode },
-  { key: 'loading', label: 'Loading', desc: 'Load parcels into trips', icon: Container },
-  { key: 'trips', label: 'Trips', desc: 'Trip management', icon: Truck },
-  { key: 'tracking', label: 'Tracking', desc: 'Live route tracking', icon: MapPin },
-  { key: 'payments', label: 'Payments', desc: 'Fees & collections', icon: CreditCard },
-  { key: 'drivers', label: 'Drivers', desc: 'Driver leaderboard', icon: UserCircle },
-  { key: 'incidents', label: 'Incidents', desc: 'Safety & reports', icon: ShieldAlert },
-  { key: 'audit', label: 'Audit', desc: 'Activity logs', icon: ClipboardList },
+  { key: 'overview',        label: 'Overview',        desc: 'Dashboard & analytics',      icon: LayoutDashboard },
+  { key: 'public_portal',   label: 'Public Portal',   desc: 'Sender pre-registration',    icon: Send },
+  { key: 'parcels',         label: 'Parcels',         desc: 'Manage shipments',            icon: Package },
+  { key: 'qr_hub',          label: 'QR Hub',          desc: 'Scan & verify parcels',       icon: QrCode },
+  { key: 'loading',         label: 'Loading',         desc: 'Load verified parcels',       icon: Container },
+  { key: 'label_print',     label: 'Label Print',     desc: 'Print parcel stickers',       icon: FileText },
+  { key: 'multi_parcel',    label: 'Multi-Parcel',    desc: 'Group shipments',             icon: Box },
+  { key: 'receiver_otp',    label: 'Receiver OTP',    desc: 'Pickup PIN release',          icon: Lock },
+  { key: 'offline_queue',   label: 'Offline Queue',   desc: 'Sync offline scans',          icon: Wifi },
+  { key: 'branch_transfer', label: 'Transfers',       desc: 'Branch handovers',            icon: ArrowRight },
+  { key: 'manifest',        label: 'Manifest',        desc: 'Generate PDF manifests',      icon: ClipboardList },
+  { key: 'issues',          label: 'Issues',          desc: 'Report parcel problems',      icon: ShieldAlert },
+  { key: 'notifications',   label: 'Notifications',   desc: 'SMS / WhatsApp alerts',       icon: Phone },
+  { key: 'expenses',        label: 'Expenses',        desc: 'Driver trip costs',           icon: Receipt },
+  { key: 'agent_perf',      label: 'Agent Ranking',   desc: 'Performance leaderboard',     icon: Award },
+  { key: 'trips',           label: 'Trips',           desc: 'Trip management',             icon: Truck },
+  { key: 'tracking',        label: 'Tracking',        desc: 'Live route tracking',         icon: MapPin },
+  { key: 'payments',        label: 'Payments',        desc: 'Fees & collections',          icon: CreditCard },
+  { key: 'drivers',         label: 'Drivers',         desc: 'Driver leaderboard',          icon: UserCircle },
+  { key: 'incidents',       label: 'Incidents',       desc: 'Safety & reports',            icon: ShieldAlert },
+  { key: 'audit',           label: 'Audit',           desc: 'Activity logs',               icon: ClipboardList },
 ];
 
 const qrSc: Record<string, string> = {
@@ -173,7 +192,18 @@ const qrSc: Record<string, string> = {
 };
 
 const statusLabels: Record<string, string> = {
-  BLACK: 'Registered', YELLOW: 'Transit Pending', GREEN: 'Paid/Ready', RED: 'Payment Required', WHITE: 'Delivered'
+  BLACK: 'Registered', YELLOW: 'Verified', GREEN: 'Paid/Ready', RED: 'Pay on Arrival', WHITE: 'Delivered'
+};
+
+const parcelStatusColors: Record<string, string> = {
+  REGISTERED: 'bg-gray-500/15 text-gray-400',
+  VERIFIED: 'bg-blue-500/15 text-blue-400',
+  PAID_READY: 'bg-emerald-500/15 text-emerald-400',
+  LOADED: 'bg-indigo-500/15 text-indigo-400',
+  IN_TRANSIT: 'bg-violet-500/15 text-violet-400',
+  ARRIVED: 'bg-cyan-500/15 text-cyan-400',
+  PAYMENT_REQUIRED: 'bg-red-500/15 text-red-400',
+  DELIVERED: 'bg-white/10 text-white/80',
 };
 
 const QSB = ({ qr }: { qr: string }) => (
@@ -183,16 +213,11 @@ const QSB = ({ qr }: { qr: string }) => (
   </span>
 );
 
-const PSB = ({ status }: { status: string }) => {
-  const colors: Record<string, string> = {
-    REGISTERED: 'bg-gray-500/15 text-gray-400', VERIFIED: 'bg-blue-500/15 text-blue-400',
-    PAID: 'bg-emerald-500/15 text-emerald-400', TRANSIT_PENDING: 'bg-yellow-500/15 text-yellow-400',
-    IN_TRANSIT: 'bg-indigo-500/15 text-indigo-400', ARRIVED: 'bg-cyan-500/15 text-cyan-400',
-    PAYMENT_REQUIRED: 'bg-red-500/15 text-red-400', RELEASED: 'bg-violet-500/15 text-violet-400',
-    DELIVERED: 'bg-white/10 text-white/80',
-  };
-  return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border border-white/[0.06] ${colors[status] || ''}`}>{status.replace(/_/g, ' ')}</span>;
-};
+const PSB = ({ status }: { status: string }) => (
+  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border border-white/[0.06] ${parcelStatusColors[status] || 'bg-gray-500/15 text-gray-400'}`}>
+    {status.replace(/_/g, ' ')}
+  </span>
+);
 
 /* ------------------------------------------------------------------ */
 /*  1. OVERVIEW TAB                                                     */
@@ -543,145 +568,469 @@ function ParcelsTab() {
 /*  3. QR HUB TAB                                                       */
 /* ------------------------------------------------------------------ */
 
-function QRHubTab() {
-  const [scanInput, setScanInput] = useState('');
-  const [scannedParcel, setScannedParcel] = useState<TZParcel | null>(null);
-  const [filterQR, setFilterQR] = useState<string>('ALL');
-  const [selectedParcel, setSelectedParcel] = useState<TZParcel | null>(null);
-  const [parcelDetailOpen, setParcelDetailOpen] = useState(false);
+/* ------------------------------------------------------------------ */
+/*  PUBLIC PORTAL TAB                                                   */
+/* ------------------------------------------------------------------ */
 
-  const handleScan = () => {
-    const found = parcels.find(p => p.parcelId === scanInput || p.id === scanInput);
-    setScannedParcel(found || null);
+const DESTINATIONS = ['Mwanza','Dodoma','Arusha','Shinyanga','Singida','Morogoro','Mbeya','Tanga','Zanzibar','Dar es Salaam'];
+const PAYMENT_MODES = [{ value: 'PAY_NOW', label: 'Pay Now (at office)' }, { value: 'PAY_ON_ARRIVAL', label: 'Pay on Arrival' }];
+
+function genShortCode(seq: number) {
+  return `KTZ${String(seq).padStart(3, '0')}`;
+}
+function genParcelId(origin: string, dest: string, seq: number) {
+  const o = origin.slice(0, 3).toUpperCase();
+  const d = dest.slice(0, 3).toUpperCase();
+  return `TZ-${o}-${d}-${String(seq).padStart(6, '0')}`;
+}
+
+function PublicPortalTab({ allParcels, onAddParcel }: { allParcels: TZParcel[]; onAddParcel: (p: TZParcel) => void }) {
+  const [step, setStep] = useState<'form' | 'success'>('form');
+  const [submitted, setSubmitted] = useState<TZParcel | null>(null);
+  const [form, setForm] = useState({
+    senderName: '', senderPhone: '',
+    ownerName: '', ownerPhone: '',
+    destination: '', packageCount: '1',
+    description: '', paymentMode: 'PAY_NOW' as 'PAY_NOW' | 'PAY_ON_ARRIVAL',
+  });
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const set = (k: string, v: string) => { setForm(f => ({ ...f, [k]: v })); setErrors(e => ({ ...e, [k]: '' })); };
+
+  const validate = () => {
+    const e: Record<string, string> = {};
+    if (!form.senderName.trim()) e.senderName = 'Required';
+    if (!form.senderPhone.trim()) e.senderPhone = 'Required';
+    if (!form.ownerName.trim()) e.ownerName = 'Required';
+    if (!form.ownerPhone.trim()) e.ownerPhone = 'Required';
+    if (!form.destination) e.destination = 'Select destination';
+    if (!form.description.trim()) e.description = 'Required';
+    const cnt = parseInt(form.packageCount);
+    if (isNaN(cnt) || cnt < 1) e.packageCount = 'Must be ≥ 1';
+    setErrors(e);
+    return Object.keys(e).length === 0;
   };
 
-  const qrFiltered = useMemo(() => {
-    return filterQR === 'ALL' ? parcels : parcels.filter(p => p.qrStatus === filterQR);
-  }, [filterQR]);
+  const handleSubmit = () => {
+    if (!validate()) return;
+    const seq = allParcels.length + 1;
+    const newParcel: TZParcel = {
+      id: `p${Date.now()}`,
+      parcelId: genParcelId('DSM', form.destination, seq),
+      shortCode: genShortCode(seq),
+      senderName: form.senderName.trim(),
+      senderPhone: form.senderPhone.trim(),
+      ownerName: form.ownerName.trim(),
+      ownerPhone: form.ownerPhone.trim(),
+      destination: form.destination,
+      packageCount: parseInt(form.packageCount),
+      weight: 0,
+      description: form.description.trim(),
+      paymentMode: form.paymentMode,
+      preRegistered: true,
+      status: 'REGISTERED',
+      qrStatus: 'BLACK',
+      transportFee: 0, insurance: 0, extraCharges: 0, storageFees: 0, totalPaid: 0,
+      registeredAt: new Date().toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+      cargoCompany: 'Kobe Transport',
+      branch: 'Dar es Salaam',
+    };
+    onAddParcel(newParcel);
+    setSubmitted(newParcel);
+    setStep('success');
+  };
 
-  const lifecycle = [
-    { from: 'BLACK', to: 'YELLOW', label: 'Verified & Pending', arrow: '→' },
-    { from: 'YELLOW', to: 'GREEN', label: 'Paid & Ready', arrow: '→' },
-    { from: 'GREEN', to: 'WHITE', label: 'Delivered', arrow: '→' },
-    { from: 'BLACK', to: 'RED', label: 'Pay on Arrival', arrow: '⇢' },
-    { from: 'RED', to: 'WHITE', label: 'Paid at Destination', arrow: '→' },
+  const reset = () => {
+    setStep('form');
+    setSubmitted(null);
+    setForm({ senderName:'', senderPhone:'', ownerName:'', ownerPhone:'', destination:'', packageCount:'1', description:'', paymentMode:'PAY_NOW' });
+    setErrors({});
+  };
+
+  const F = ({ label, k, placeholder, type = 'text' }: { label: string; k: string; placeholder?: string; type?: string }) => (
+    <div>
+      <label className="text-[11px] text-white/50 mb-1 block">{label}</label>
+      <Input type={type} value={(form as Record<string,string>)[k]} onChange={e => set(k, e.target.value)}
+        placeholder={placeholder}
+        className={`bg-white/[0.03] border-white/[0.06] text-white/90 placeholder:text-white/25 text-sm ${errors[k] ? 'border-red-500/50' : ''}`} />
+      {errors[k] && <div className="text-[10px] text-red-400 mt-0.5">{errors[k]}</div>}
+    </div>
+  );
+
+  if (step === 'success' && submitted) {
+    return (
+      <div className="h-[calc(100vh-80px)] overflow-y-auto flex items-start justify-center pt-8 p-1">
+        <div className="w-full max-w-md space-y-4">
+          <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-emerald-400 flex items-center gap-3">
+            <CheckCircle2 className="w-6 h-6 shrink-0" />
+            <div>
+              <div className="font-semibold text-sm">Parcel registered successfully!</div>
+              <div className="text-xs text-emerald-400/70 mt-0.5">Show this QR or short code at the Cargo TZ office.</div>
+            </div>
+          </div>
+
+          <Card className="bg-white/[0.03] border-white/[0.06]">
+            <CardContent className="p-5 space-y-4">
+              <div className="flex justify-center p-4 bg-white rounded-xl">
+                <QRCodeSVG value={`${submitted.parcelId}|${submitted.shortCode}`} size={180} />
+              </div>
+              <div className="text-center">
+                <div className="text-xs text-white/40 mb-1">Short Code</div>
+                <div className="text-3xl font-mono font-bold text-amber-400 tracking-widest">{submitted.shortCode}</div>
+              </div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs border-t border-white/[0.06] pt-3">
+                <div><span className="text-white/40">Parcel ID</span><div className="text-white/80 font-mono text-[11px]">{submitted.parcelId}</div></div>
+                <div><span className="text-white/40">Destination</span><div className="text-white/80">{submitted.destination}</div></div>
+                <div><span className="text-white/40">Sender</span><div className="text-white/80">{submitted.senderName}</div></div>
+                <div><span className="text-white/40">Owner</span><div className="text-white/80">{submitted.ownerName}</div></div>
+                <div><span className="text-white/40">Packages</span><div className="text-white/80">{submitted.packageCount}</div></div>
+                <div><span className="text-white/40">Payment</span><div className={submitted.paymentMode === 'PAY_NOW' ? 'text-emerald-400' : 'text-yellow-400'}>{submitted.paymentMode === 'PAY_NOW' ? 'Pay Now' : 'Pay on Arrival'}</div></div>
+                <div className="col-span-2"><span className="text-white/40">Description</span><div className="text-white/80">{submitted.description}</div></div>
+              </div>
+              <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg text-amber-400 text-xs">
+                ⚠ Bring this QR code or short code when you arrive at the cargo office. Staff will weigh your parcel and confirm payment.
+              </div>
+            </CardContent>
+          </Card>
+
+          <Button onClick={reset} className="w-full bg-white/[0.06] hover:bg-white/[0.10] text-white/80 border border-white/[0.08]">
+            Register Another Parcel
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-[calc(100vh-80px)] overflow-y-auto p-1">
+      <div className="max-w-lg mx-auto space-y-4">
+        <div className="mb-2">
+          <h2 className="text-base font-bold text-white/90">Parcel Pre-Registration</h2>
+          <p className="text-xs text-white/40 mt-0.5">Fill in your details before arriving at the cargo office. You'll receive a QR code and short code to show staff.</p>
+        </div>
+
+        {/* Sender info */}
+        <Card className="bg-white/[0.03] border-white/[0.06]">
+          <CardContent className="p-4 space-y-3">
+            <div className="text-xs font-semibold text-white/50 uppercase tracking-wider flex items-center gap-2">
+              <User className="w-3.5 h-3.5 text-amber-400" /> Sender Details
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <F label="Sender Name *" k="senderName" placeholder="Full name" />
+              <F label="Sender Phone *" k="senderPhone" placeholder="+255 7XX XXX XXX" />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Owner info */}
+        <Card className="bg-white/[0.03] border-white/[0.06]">
+          <CardContent className="p-4 space-y-3">
+            <div className="text-xs font-semibold text-white/50 uppercase tracking-wider flex items-center gap-2">
+              <User className="w-3.5 h-3.5 text-amber-400" /> Owner / Receiver Details
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <F label="Owner Name *" k="ownerName" placeholder="Full name" />
+              <F label="Owner Phone *" k="ownerPhone" placeholder="+255 7XX XXX XXX" />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Parcel info */}
+        <Card className="bg-white/[0.03] border-white/[0.06]">
+          <CardContent className="p-4 space-y-3">
+            <div className="text-xs font-semibold text-white/50 uppercase tracking-wider flex items-center gap-2">
+              <Package className="w-3.5 h-3.5 text-amber-400" /> Parcel Details
+            </div>
+            <div>
+              <label className="text-[11px] text-white/50 mb-1 block">Destination *</label>
+              <select value={form.destination} onChange={e => set('destination', e.target.value)}
+                className={`w-full bg-white/[0.03] border rounded-md px-3 py-2 text-sm text-white/90 ${errors.destination ? 'border-red-500/50' : 'border-white/[0.06]'}`}>
+                <option value="" className="bg-[#0f0f2a]">Select destination…</option>
+                {DESTINATIONS.map(d => <option key={d} value={d} className="bg-[#0f0f2a]">{d}</option>)}
+              </select>
+              {errors.destination && <div className="text-[10px] text-red-400 mt-0.5">{errors.destination}</div>}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <F label="Package Count *" k="packageCount" placeholder="e.g. 3" type="number" />
+              <div>
+                <label className="text-[11px] text-white/50 mb-1 block">Payment Mode *</label>
+                <select value={form.paymentMode} onChange={e => set('paymentMode', e.target.value)}
+                  className="w-full bg-white/[0.03] border border-white/[0.06] rounded-md px-3 py-2 text-sm text-white/90">
+                  {PAYMENT_MODES.map(m => <option key={m.value} value={m.value} className="bg-[#0f0f2a]">{m.label}</option>)}
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="text-[11px] text-white/50 mb-1 block">Description *</label>
+              <textarea value={form.description} onChange={e => set('description', e.target.value)}
+                placeholder="e.g. Electronics - 2 phones, 1 laptop"
+                rows={2}
+                className={`w-full bg-white/[0.03] border rounded-md px-3 py-2 text-sm text-white/90 placeholder:text-white/25 resize-none ${errors.description ? 'border-red-500/50' : 'border-white/[0.06]'}`} />
+              {errors.description && <div className="text-[10px] text-red-400 mt-0.5">{errors.description}</div>}
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="p-3 bg-white/[0.02] border border-white/[0.06] rounded-lg text-xs text-white/40">
+          Weight and transport fee will be confirmed by Cargo TZ staff when you arrive.
+        </div>
+
+        <Button onClick={handleSubmit} className="w-full bg-amber-500 hover:bg-amber-600 text-black font-bold py-3 text-sm">
+          <Send className="w-4 h-4 mr-2" /> Submit & Get QR Code
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  3. QR HUB TAB                                                       */
+/* ------------------------------------------------------------------ */
+
+function QRHubTab({ allParcels, onUpdateParcel }: { allParcels: TZParcel[]; onUpdateParcel: (id: string, patch: Partial<TZParcel>) => void }) {
+  const [scanInput, setScanInput] = useState('');
+  const [lookupResult, setLookupResult] = useState<TZParcel | null>(null);
+  const [notFound, setNotFound] = useState(false);
+  const [filterStatus, setFilterStatus] = useState<string>('ALL');
+
+  // Verify panel state
+  const [verifyWeight, setVerifyWeight] = useState('');
+  const [verifyDims, setVerifyDims] = useState('');
+  const [verifyFee, setVerifyFee] = useState('');
+  const [verifyInsurance, setVerifyInsurance] = useState('');
+  const [verifyDone, setVerifyDone] = useState(false);
+
+  const handleLookup = () => {
+    const q = scanInput.trim().toUpperCase();
+    const found = allParcels.find(p =>
+      p.parcelId.toUpperCase() === q ||
+      p.shortCode.toUpperCase() === q
+    );
+    setLookupResult(found || null);
+    setNotFound(!found);
+    setVerifyDone(false);
+    setVerifyWeight(found?.weight ? String(found.weight) : '');
+    setVerifyDims(found?.dimensions || '');
+    setVerifyFee(found?.transportFee ? String(found.transportFee) : '');
+    setVerifyInsurance(found?.insurance ? String(found.insurance) : '');
+  };
+
+  const handleVerify = () => {
+    if (!lookupResult) return;
+    const newStatus: TZParcel['status'] =
+      lookupResult.paymentMode === 'PAY_NOW' ? 'PAID_READY' : 'VERIFIED';
+    const newQr: TZParcel['qrStatus'] =
+      lookupResult.paymentMode === 'PAY_NOW' ? 'GREEN' : 'YELLOW';
+    onUpdateParcel(lookupResult.id, {
+      weight: parseFloat(verifyWeight) || lookupResult.weight,
+      dimensions: verifyDims || lookupResult.dimensions,
+      transportFee: parseFloat(verifyFee) || lookupResult.transportFee,
+      insurance: parseFloat(verifyInsurance) || lookupResult.insurance,
+      status: newStatus,
+      qrStatus: newQr,
+    });
+    setLookupResult(prev => prev ? { ...prev, status: newStatus, qrStatus: newQr,
+      weight: parseFloat(verifyWeight) || prev.weight,
+      dimensions: verifyDims || prev.dimensions,
+    } : null);
+    setVerifyDone(true);
+  };
+
+  const filtered = useMemo(() =>
+    filterStatus === 'ALL' ? allParcels : allParcels.filter(p => p.status === filterStatus),
+    [allParcels, filterStatus]
+  );
+
+  const statusSteps: { status: TZParcel['status']; qr: TZParcel['qrStatus']; label: string }[] = [
+    { status: 'REGISTERED',  qr: 'BLACK',  label: 'Registered' },
+    { status: 'VERIFIED',    qr: 'YELLOW', label: 'Verified' },
+    { status: 'PAID_READY',  qr: 'GREEN',  label: 'Paid / Ready' },
+    { status: 'LOADED',      qr: 'GREEN',  label: 'Loaded' },
+    { status: 'IN_TRANSIT',  qr: 'GREEN',  label: 'In Transit' },
+    { status: 'DELIVERED',   qr: 'WHITE',  label: 'Delivered' },
   ];
 
   return (
-    <div className="h-[calc(100vh-80px)] overflow-y-auto">
-      <div className="space-y-6 p-1">
-        {/* QR Lifecycle Diagram */}
-        <Card className="bg-white/[0.03] border-white/[0.06]">
-          <CardContent className="p-4">
-            <h3 className="text-sm font-semibold text-white/90 mb-4 flex items-center gap-2">
-              <Route className="w-4 h-4 text-amber-400" /> QR Code Lifecycle
-            </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {lifecycle.map((step, i) => (
-                <div key={i} className="flex items-center gap-2 p-3 bg-white/[0.03] rounded-lg border border-white/[0.06]">
-                  <QSB qr={step.from} />
-                  <ArrowRight className="w-4 h-4 text-white/30" />
-                  <QSB qr={step.to} />
-                  <span className="text-xs text-white/50 ml-1">{step.label}</span>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+    <div className="h-[calc(100vh-80px)] overflow-y-auto space-y-5 p-1">
 
-        {/* Scanner Input */}
-        <Card className="bg-white/[0.03] border-white/[0.06]">
-          <CardContent className="p-4">
-            <h3 className="text-sm font-semibold text-white/90 mb-3 flex items-center gap-2">
-              <ScanLine className="w-4 h-4 text-amber-400" /> QR Scanner (Simulated)
-            </h3>
-            <div className="flex gap-2">
-              <Input placeholder="Enter Parcel ID to scan..." value={scanInput} onChange={e => setScanInput(e.target.value)}
-                className="flex-1 bg-white/[0.03] border-white/[0.06] text-white/90 placeholder:text-white/30" />
-              <Button onClick={handleScan} className="bg-amber-500 hover:bg-amber-600 text-black font-medium">
-                <ScanLine className="w-4 h-4 mr-1" /> Scan
-              </Button>
+      {/* Status lifecycle strip */}
+      <Card className="bg-white/[0.03] border-white/[0.06]">
+        <CardContent className="p-4">
+          <h3 className="text-xs font-semibold text-white/60 uppercase tracking-wider mb-3 flex items-center gap-2">
+            <Route className="w-3.5 h-3.5 text-amber-400" /> Parcel Status Lifecycle
+          </h3>
+          <div className="flex flex-wrap items-center gap-1">
+            {statusSteps.map((s, i) => (
+              <div key={s.status} className="flex items-center gap-1">
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white/[0.04] border border-white/[0.06]">
+                  <span className={`w-2 h-2 rounded-full ${s.qr==='BLACK'?'bg-gray-500':s.qr==='YELLOW'?'bg-yellow-400':s.qr==='GREEN'?'bg-emerald-400':'bg-white'}`} />
+                  <span className="text-[11px] text-white/70">{s.label}</span>
+                </div>
+                {i < statusSteps.length - 1 && <ArrowRight className="w-3 h-3 text-white/20 shrink-0" />}
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Scan / Short Code Lookup */}
+      <Card className="bg-white/[0.03] border-white/[0.06]">
+        <CardContent className="p-4">
+          <h3 className="text-sm font-semibold text-white/90 mb-3 flex items-center gap-2">
+            <ScanLine className="w-4 h-4 text-amber-400" /> Scan QR or Enter Short Code
+          </h3>
+          <div className="flex gap-2">
+            <Input
+              placeholder="e.g. KTZ007 or TZ-DSM-ARU-000007"
+              value={scanInput}
+              onChange={e => { setScanInput(e.target.value); setNotFound(false); }}
+              onKeyDown={e => e.key === 'Enter' && handleLookup()}
+              className="flex-1 bg-white/[0.03] border-white/[0.06] text-white/90 placeholder:text-white/30 font-mono"
+            />
+            <Button onClick={handleLookup} className="bg-amber-500 hover:bg-amber-600 text-black font-semibold shrink-0">
+              <ScanLine className="w-4 h-4 mr-1" /> Verify
+            </Button>
+          </div>
+
+          {notFound && (
+            <div className="mt-3 p-3 bg-red-500/10 rounded-lg border border-red-500/20 text-red-400 text-sm flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0" /> No parcel found for <span className="font-mono font-semibold ml-1">{scanInput}</span>
             </div>
-            {scannedParcel && (
-              <div className="mt-4 p-4 bg-white/[0.05] rounded-lg border border-amber-500/20">
+          )}
+
+          {lookupResult && (
+            <div className="mt-4 space-y-4">
+              {/* Pre-filled parcel details */}
+              <div className="p-4 bg-white/[0.04] rounded-xl border border-amber-500/20">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="text-sm font-mono font-semibold text-amber-400">{scannedParcel.parcelId}</span>
-                  <QSB qr={scannedParcel.qrStatus} />
+                  <div>
+                    <div className="text-xs text-white/40 mb-0.5">Parcel ID</div>
+                    <div className="text-sm font-mono font-semibold text-amber-400">{lookupResult.parcelId}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <QSB qr={lookupResult.qrStatus} />
+                    <PSB status={lookupResult.status} />
+                  </div>
                 </div>
-                <div className="flex justify-center p-3 bg-white rounded-lg mb-3">
-                  <QRCodeSVG value={scannedParcel.parcelId} size={140} />
+                {lookupResult.preRegistered && (
+                  <div className="mb-3 px-2.5 py-1.5 bg-blue-500/10 border border-blue-500/20 rounded-lg text-blue-400 text-xs flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5" /> Pre-registered via Public Portal
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs mb-3">
+                  <div><span className="text-white/40">Sender</span><div className="text-white/80 font-medium">{lookupResult.senderName}</div></div>
+                  <div><span className="text-white/40">Sender Phone</span><div className="text-white/80">{lookupResult.senderPhone}</div></div>
+                  <div><span className="text-white/40">Owner</span><div className="text-white/80 font-medium">{lookupResult.ownerName}</div></div>
+                  <div><span className="text-white/40">Owner Phone</span><div className="text-white/80">{lookupResult.ownerPhone}</div></div>
+                  <div><span className="text-white/40">Destination</span><div className="text-white/80">{lookupResult.destination}</div></div>
+                  <div><span className="text-white/40">Packages</span><div className="text-white/80">{lookupResult.packageCount} pkg(s)</div></div>
+                  <div className="col-span-2"><span className="text-white/40">Description</span><div className="text-white/80">{lookupResult.description}</div></div>
+                  <div><span className="text-white/40">Payment Mode</span>
+                    <div className={`font-medium ${lookupResult.paymentMode === 'PAY_NOW' ? 'text-emerald-400' : 'text-yellow-400'}`}>
+                      {lookupResult.paymentMode === 'PAY_NOW' ? 'Pay Now' : 'Pay on Arrival'}
+                    </div>
+                  </div>
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div><span className="text-white/40">Sender:</span> <span className="text-white/80">{scannedParcel.senderName}</span></div>
-                  <div><span className="text-white/40">Owner:</span> <span className="text-white/80">{scannedParcel.ownerName}</span></div>
-                  <div><span className="text-white/40">Status:</span> <span className="text-white/80">{scannedParcel.status.replace(/_/g,' ')}</span></div>
-                  <div><span className="text-white/40">Destination:</span> <span className="text-white/80">{scannedParcel.destination}</span></div>
-                </div>
-              </div>
-            )}
-            {scanInput && !scannedParcel && (
-              <div className="mt-4 p-3 bg-red-500/10 rounded-lg border border-red-500/20 text-red-400 text-sm flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4" /> Parcel not found
-              </div>
-            )}
-          </CardContent>
-        </Card>
 
-        {/* QR Color Legend & Filter */}
-        <div className="flex flex-wrap gap-2">
-          <button onClick={() => setFilterQR('ALL')} className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${filterQR === 'ALL' ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-white/[0.03] text-white/50 border-white/[0.06]'}`}>All</button>
-          {(['BLACK','YELLOW','GREEN','RED','WHITE'] as const).map(qr => (
-            <button key={qr} onClick={() => setFilterQR(qr)} className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${filterQR === qr ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-white/[0.03] text-white/50 border-white/[0.06]'}`}>
-              <span className="flex items-center gap-1.5"><span className={`w-2 h-2 rounded-full ${qr==='BLACK'?'bg-gray-500':qr==='YELLOW'?'bg-yellow-400':qr==='GREEN'?'bg-emerald-400':qr==='RED'?'bg-red-400':'bg-white'}`} /> {statusLabels[qr]}</span>
+                {/* Staff-only fields */}
+                {lookupResult.status === 'REGISTERED' && !verifyDone && (
+                  <div className="border-t border-white/[0.06] pt-3 space-y-3">
+                    <div className="text-xs font-semibold text-white/60 uppercase tracking-wider">Staff — Enter Weight & Confirm</div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[11px] text-white/40 mb-1 block">Actual Weight (kg) *</label>
+                        <Input value={verifyWeight} onChange={e => setVerifyWeight(e.target.value)}
+                          placeholder="e.g. 24.5"
+                          className="bg-white/[0.03] border-white/[0.06] text-white/90 placeholder:text-white/30 text-sm" />
+                      </div>
+                      <div>
+                        <label className="text-[11px] text-white/40 mb-1 block">Dimensions (optional)</label>
+                        <Input value={verifyDims} onChange={e => setVerifyDims(e.target.value)}
+                          placeholder="e.g. 60×40×30 cm"
+                          className="bg-white/[0.03] border-white/[0.06] text-white/90 placeholder:text-white/30 text-sm" />
+                      </div>
+                      <div>
+                        <label className="text-[11px] text-white/40 mb-1 block">Transport Fee (TZS)</label>
+                        <Input value={verifyFee} onChange={e => setVerifyFee(e.target.value)}
+                          placeholder="e.g. 35000"
+                          className="bg-white/[0.03] border-white/[0.06] text-white/90 placeholder:text-white/30 text-sm" />
+                      </div>
+                      <div>
+                        <label className="text-[11px] text-white/40 mb-1 block">Insurance (TZS)</label>
+                        <Input value={verifyInsurance} onChange={e => setVerifyInsurance(e.target.value)}
+                          placeholder="e.g. 3000"
+                          className="bg-white/[0.03] border-white/[0.06] text-white/90 placeholder:text-white/30 text-sm" />
+                      </div>
+                    </div>
+                    <Button
+                      onClick={handleVerify}
+                      disabled={!verifyWeight}
+                      className="w-full bg-amber-500 hover:bg-amber-600 text-black font-semibold disabled:opacity-40"
+                    >
+                      <CheckCircle2 className="w-4 h-4 mr-2" />
+                      {lookupResult.paymentMode === 'PAY_NOW' ? 'Verify & Mark Paid/Ready' : 'Verify & Received'}
+                    </Button>
+                  </div>
+                )}
+
+                {(verifyDone || lookupResult.status !== 'REGISTERED') && (
+                  <div className="border-t border-white/[0.06] pt-3">
+                    <div className={`flex items-center gap-2 text-sm font-medium ${lookupResult.status === 'DELIVERED' ? 'text-white/60' : 'text-emerald-400'}`}>
+                      <CheckCircle2 className="w-4 h-4" />
+                      {verifyDone ? 'Verified successfully — status updated' : `Already ${lookupResult.status.replace(/_/g, ' ').toLowerCase()}`}
+                    </div>
+                    {lookupResult.weight > 0 && (
+                      <div className="mt-2 grid grid-cols-3 gap-2 text-xs">
+                        <div><span className="text-white/40">Weight</span><div className="text-white/80">{lookupResult.weight} kg</div></div>
+                        <div><span className="text-white/40">Fee</span><div className="text-white/80">TZS {lookupResult.transportFee.toLocaleString()}</div></div>
+                        <div><span className="text-white/40">Insurance</span><div className="text-white/80">TZS {lookupResult.insurance.toLocaleString()}</div></div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* QR code display */}
+              <div className="flex justify-center p-4 bg-white rounded-xl">
+                <QRCodeSVG value={`${lookupResult.parcelId}|${lookupResult.shortCode}`} size={160} />
+              </div>
+              <div className="text-center text-xs text-white/40">
+                Short code: <span className="font-mono font-bold text-amber-400 text-sm">{lookupResult.shortCode}</span>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* All parcels grid with filter */}
+      <div>
+        <div className="flex flex-wrap gap-2 mb-3">
+          {(['ALL','REGISTERED','VERIFIED','PAID_READY','LOADED','IN_TRANSIT','DELIVERED'] as const).map(s => (
+            <button key={s} onClick={() => setFilterStatus(s)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${filterStatus === s ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-white/[0.03] text-white/50 border-white/[0.06] hover:text-white/70'}`}>
+              {s === 'ALL' ? 'All' : s.replace(/_/g, ' ')}
             </button>
           ))}
         </div>
-
-        {/* Parcel QR Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-          {qrFiltered.map(p => (
-            <div key={p.id} onClick={() => { setSelectedParcel(p); setParcelDetailOpen(true); }}
-              className="p-4 bg-white/[0.03] rounded-xl border border-white/[0.06] cursor-pointer hover:bg-white/[0.06] transition-colors">
-              <div className="flex justify-center p-2 bg-white rounded-lg mb-3">
-                <QRCodeSVG value={p.parcelId} size={120} />
+          {filtered.map(p => (
+            <div key={p.id}
+              onClick={() => { setScanInput(p.shortCode); setLookupResult(p); setNotFound(false); setVerifyDone(false); setVerifyWeight(p.weight ? String(p.weight) : ''); setVerifyDims(p.dimensions || ''); setVerifyFee(p.transportFee ? String(p.transportFee) : ''); setVerifyInsurance(p.insurance ? String(p.insurance) : ''); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+              className="p-3 bg-white/[0.03] rounded-xl border border-white/[0.06] cursor-pointer hover:bg-white/[0.06] transition-colors">
+              <div className="flex justify-center p-2 bg-white rounded-lg mb-2">
+                <QRCodeSVG value={`${p.parcelId}|${p.shortCode}`} size={100} />
               </div>
-              <div className="text-xs font-mono text-amber-400 text-center mb-2">{p.parcelId}</div>
+              <div className="text-[10px] font-mono text-amber-400 text-center mb-1">{p.shortCode}</div>
               <div className="flex items-center justify-between mb-1">
                 <QSB qr={p.qrStatus} />
                 <PSB status={p.status} />
               </div>
-              <div className="text-xs text-white/50 mt-2">{p.senderName} → {p.destination}</div>
+              <div className="text-[11px] text-white/50 truncate mt-1">{p.senderName} → {p.destination}</div>
+              {p.preRegistered && <div className="text-[9px] text-blue-400 mt-0.5">● Pre-registered</div>}
             </div>
           ))}
         </div>
       </div>
-
-      {/* Parcel Detail with QR Status Change */}
-      <Dialog open={parcelDetailOpen} onOpenChange={setParcelDetailOpen}>
-        <DialogContent className="bg-[#0f0f2a] border-white/[0.08] text-white max-w-md">
-          {selectedParcel && (
-            <>
-              <DialogHeader><DialogTitle className="text-white/90">{selectedParcel.parcelId}</DialogTitle></DialogHeader>
-              <div className="flex justify-center p-4 bg-white rounded-lg mt-2">
-                <QRCodeSVG value={selectedParcel.parcelId} size={180} />
-              </div>
-              <div className="text-center text-sm text-white/70 mt-2">{selectedParcel.senderName} → {selectedParcel.destination}</div>
-              <div className="flex items-center justify-center gap-2 mt-1"><QSB qr={selectedParcel.qrStatus} /></div>
-              <div className="mt-4">
-                <div className="text-xs text-white/50 mb-2">Change QR Status</div>
-                <div className="flex flex-wrap gap-2">
-                  {(['BLACK','YELLOW','GREEN','RED','WHITE'] as const).map(qr => (
-                    <button key={qr} disabled={qr === selectedParcel.qrStatus}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${qr === selectedParcel.qrStatus ? 'opacity-40 cursor-not-allowed bg-white/[0.03] text-white/30' : 'bg-white/[0.03] hover:bg-amber-500/15 hover:text-amber-400 hover:border-amber-500/30 text-white/60 border-white/[0.06]'}`}>
-                      {statusLabels[qr]}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
@@ -691,125 +1040,267 @@ function QRHubTab() {
 /*  4. LOADING TAB                                                      */
 /* ------------------------------------------------------------------ */
 
-function LoadingTab() {
+// Vehicle capacity limits (kg / parcel count)
+const VEHICLE_CAPACITY: Record<string, { maxKg: number; maxParcels: number }> = {
+  't1': { maxKg: 700, maxParcels: 60 },
+  't4': { maxKg: 400, maxParcels: 30 },
+  'new': { maxKg: 800, maxParcels: 80 },
+};
+
+function LoadingTab({ allParcels, onUpdateParcel }: { allParcels: TZParcel[]; onUpdateParcel: (id: string, patch: Partial<TZParcel>) => void }) {
   const [selectedTripId, setSelectedTripId] = useState<string>('t1');
-  const [loadedParcels, setLoadedParcels] = useState<Record<string, boolean>>({
-    'p1': true, 'p2': false, 'p6': false,
-  });
+  const [manifestIds, setManifestIds] = useState<Set<string>>(new Set());
+  const [destFilter, setDestFilter] = useState('ALL');
+  const [confirmed, setConfirmed] = useState(false);
+
+  // Only VERIFIED or PAID_READY parcels not yet loaded
+  const eligible = useMemo(() =>
+    allParcels.filter(p => (p.status === 'VERIFIED' || p.status === 'PAID_READY') && !p.tripId),
+    [allParcels]
+  );
+
+  const destinations = useMemo(() => ['ALL', ...Array.from(new Set(eligible.map(p => p.destination))).sort()], [eligible]);
+
+  const filtered = useMemo(() =>
+    destFilter === 'ALL' ? eligible : eligible.filter(p => p.destination === destFilter),
+    [eligible, destFilter]
+  );
+
+  // Group by destination for auto-sorting
+  const byDest = useMemo(() => {
+    const map: Record<string, TZParcel[]> = {};
+    filtered.forEach(p => { (map[p.destination] = map[p.destination] || []).push(p); });
+    return map;
+  }, [filtered]);
 
   const activeTrips = trips.filter(t => t.status === 'IN_TRANSIT' || t.status === 'SCHEDULED');
   const selectedTrip = activeTrips.find(t => t.id === selectedTripId) || activeTrips[0];
-  const tripParcels = selectedTrip ? parcels.filter(p => selectedTrip.parcels.includes(p.id)) : [];
-  const loadedCount = tripParcels.filter(p => loadedParcels[p.id]).length;
-  const totalCount = tripParcels.length;
-  const progress = totalCount > 0 ? (loadedCount / totalCount) * 100 : 0;
+  const cap = VEHICLE_CAPACITY[selectedTripId] || { maxKg: 700, maxParcels: 60 };
 
-  const toggleLoaded = (parcelId: string) => {
-    setLoadedParcels(prev => ({ ...prev, [parcelId]: !prev[parcelId] }));
+  const manifestParcels = allParcels.filter(p => manifestIds.has(p.id));
+  const totalKg = manifestParcels.reduce((s, p) => s + (p.weight || 0), 0);
+  const weightPct = Math.min(100, Math.round((totalKg / cap.maxKg) * 100));
+  const countPct = Math.min(100, Math.round((manifestIds.size / cap.maxParcels) * 100));
+  const overWeight = totalKg > cap.maxKg;
+  const overCount = manifestIds.size > cap.maxParcels;
+
+  const toggle = (id: string) => {
+    setManifestIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+    setConfirmed(false);
+  };
+
+  const confirmLoading = () => {
+    manifestIds.forEach(id => {
+      onUpdateParcel(id, { status: 'LOADED', tripId: selectedTripId });
+    });
+    setConfirmed(true);
   };
 
   return (
-    <div className="h-[calc(100vh-80px)] overflow-y-auto">
-      <div className="space-y-4 p-1">
-        {/* Active Trips Selector */}
-        <div className="flex flex-wrap gap-2">
-          {activeTrips.map(t => (
-            <button key={t.id} onClick={() => setSelectedTripId(t.id)}
-              className={`px-4 py-2 rounded-lg text-xs font-medium border transition-colors ${selectedTripId === t.id ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-white/[0.03] text-white/50 border-white/[0.06] hover:text-white/80'}`}>
-              <div className="flex items-center gap-2">
-                <Truck className="w-4 h-4" />
-                <span>{t.vehiclePlate}</span>
-                <span className="text-white/30">|</span>
-                <span>{t.driverName}</span>
-              </div>
-            </button>
-          ))}
-        </div>
+    <div className="h-[calc(100vh-80px)] overflow-y-auto space-y-4 p-1">
 
-        {selectedTrip && (
-          <>
-            {/* Trip Info */}
-            <Card className="bg-white/[0.03] border-white/[0.06]">
-              <CardContent className="p-4">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-full bg-indigo-500/15 flex items-center justify-center">
-                      <Truck className="w-5 h-5 text-indigo-400" />
-                    </div>
-                    <div>
-                      <div className="text-sm font-semibold text-white/90">{selectedTrip.vehiclePlate} — {selectedTrip.driverName}</div>
-                      <div className="text-xs text-white/50 flex items-center gap-1"><Route className="w-3 h-3" /> {selectedTrip.route}</div>
-                    </div>
-                  </div>
-                  <span className="px-2 py-1 rounded-full text-[10px] font-medium border bg-indigo-500/15 text-indigo-400 border-indigo-500/30">
-                    {selectedTrip.status.replace(/_/g, ' ')}
+      {/* Vehicle selector */}
+      <div className="flex flex-wrap gap-2">
+        {activeTrips.map(t => (
+          <button key={t.id} onClick={() => { setSelectedTripId(t.id); setConfirmed(false); }}
+            className={`px-3 py-2 rounded-lg text-xs font-medium border transition-colors ${selectedTripId === t.id ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-white/[0.03] text-white/50 border-white/[0.06] hover:text-white/80'}`}>
+            <div className="flex items-center gap-2">
+              <Truck className="w-3.5 h-3.5" />
+              <span className="font-mono">{t.vehiclePlate}</span>
+              <span className="text-white/30">·</span>
+              <span>{t.driverName}</span>
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {selectedTrip && (
+        <>
+          {/* Capacity gauges */}
+          <Card className="bg-white/[0.03] border-white/[0.06]">
+            <CardContent className="p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-semibold text-white/90 flex items-center gap-2">
+                  <Truck className="w-4 h-4 text-amber-400" />
+                  {selectedTrip.vehiclePlate} — {selectedTrip.driverName}
+                </div>
+                <span className="text-xs text-white/40">{selectedTrip.route}</span>
+              </div>
+              {/* Weight bar */}
+              <div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-white/50">Weight</span>
+                  <span className={overWeight ? 'text-red-400 font-semibold' : 'text-amber-400 font-medium'}>
+                    {totalKg} kg / {cap.maxKg} kg — {weightPct}%
+                    {overWeight && ' ⚠ OVER'}
                   </span>
                 </div>
-                <div className="text-xs text-white/50 mb-3">Departure: {selectedTrip.departureTime}</div>
-
-                {/* Progress Bar */}
-                <div className="mb-2">
-                  <div className="flex items-center justify-between text-xs mb-1">
-                    <span className="text-white/60">Loading Progress</span>
-                    <span className="text-amber-400 font-medium">{loadedCount}/{totalCount} loaded</span>
-                  </div>
-                  <div className="w-full h-3 bg-white/[0.06] rounded-full overflow-hidden">
-                    <div className="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full transition-all" style={{ width: `${progress}%` }} />
-                  </div>
+                <div className="w-full h-3 bg-white/[0.06] rounded-full overflow-hidden">
+                  <div className={`h-full rounded-full transition-all ${overWeight ? 'bg-red-500' : weightPct > 80 ? 'bg-yellow-500' : 'bg-gradient-to-r from-amber-500 to-emerald-500'}`}
+                    style={{ width: `${weightPct}%` }} />
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+              {/* Parcel count bar */}
+              <div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-white/50">Parcel Count</span>
+                  <span className={overCount ? 'text-red-400 font-semibold' : 'text-amber-400 font-medium'}>
+                    {manifestIds.size} / {cap.maxParcels} parcels — {countPct}%
+                    {overCount && ' ⚠ OVER'}
+                  </span>
+                </div>
+                <div className="w-full h-3 bg-white/[0.06] rounded-full overflow-hidden">
+                  <div className={`h-full rounded-full transition-all ${overCount ? 'bg-red-500' : countPct > 80 ? 'bg-yellow-500' : 'bg-gradient-to-r from-indigo-500 to-blue-500'}`}
+                    style={{ width: `${countPct}%` }} />
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
-            {/* Loading Manifest */}
+          {/* Destination filter */}
+          <div className="flex flex-wrap gap-2">
+            {destinations.map(d => (
+              <button key={d} onClick={() => setDestFilter(d)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${destFilter === d ? 'bg-amber-500/15 text-amber-400 border-amber-500/30' : 'bg-white/[0.03] text-white/50 border-white/[0.06] hover:text-white/70'}`}>
+                <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{d}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Eligible parcel list — scrollable, grouped by destination */}
+          <Card className="bg-white/[0.03] border-white/[0.06]">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-semibold text-white/90 flex items-center gap-2">
+                  <Container className="w-4 h-4 text-amber-400" /> Select Parcels to Load
+                </h3>
+                <span className="text-xs text-white/40">{eligible.length} eligible (Verified / Paid Ready)</span>
+              </div>
+
+              {eligible.length === 0 ? (
+                <div className="py-8 text-center text-white/30 text-sm">
+                  No verified parcels available. Verify parcels in QR Hub first.
+                </div>
+              ) : (
+                <div className="max-h-[420px] overflow-y-auto space-y-4 pr-1">
+                  {Object.entries(byDest).map(([dest, dParcels]) => (
+                    <div key={dest}>
+                      <div className="flex items-center gap-2 mb-2 sticky top-0 bg-[#0a0a1a] py-1">
+                        <MapPin className="w-3.5 h-3.5 text-amber-400" />
+                        <span className="text-xs font-semibold text-amber-400 uppercase tracking-wider">{dest}</span>
+                        <span className="text-[10px] text-white/30">({dParcels.length} parcel{dParcels.length !== 1 ? 's' : ''})</span>
+                      </div>
+                      <div className="space-y-2">
+                        {dParcels.map(p => {
+                          const selected = manifestIds.has(p.id);
+                          return (
+                            <div key={p.id}
+                              onClick={() => toggle(p.id)}
+                              className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-all ${selected ? 'bg-emerald-500/5 border-emerald-500/25' : 'bg-white/[0.02] border-white/[0.06] hover:bg-white/[0.05]'}`}>
+                              <div className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 transition-colors ${selected ? 'bg-emerald-500 border-emerald-500 text-black' : 'border-white/20'}`}>
+                                {selected && <CheckCircle2 className="w-3.5 h-3.5" />}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-xs font-mono text-amber-400">{p.shortCode}</span>
+                                  <QSB qr={p.qrStatus} />
+                                  <PSB status={p.status} />
+                                </div>
+                                <div className="text-[11px] text-white/60 mt-0.5 truncate">{p.description}</div>
+                                <div className="flex items-center gap-3 text-[11px] text-white/40 mt-0.5">
+                                  <span className="flex items-center gap-1"><User className="w-3 h-3" />{p.ownerName}</span>
+                                  <span className="flex items-center gap-1"><Phone className="w-3 h-3" />{p.ownerPhone}</span>
+                                  <span className="flex items-center gap-1"><Weight className="w-3 h-3" />{p.weight} kg</span>
+                                  <span className="flex items-center gap-1"><Box className="w-3 h-3" />{p.packageCount} pkg</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Manifest summary + confirm */}
+          {manifestIds.size > 0 && (
             <Card className="bg-white/[0.03] border-white/[0.06]">
               <CardContent className="p-4">
-                <h3 className="text-sm font-semibold text-white/90 mb-4 flex items-center gap-2">
-                  <Container className="w-4 h-4 text-amber-400" /> Loading Manifest
+                <h3 className="text-sm font-semibold text-white/90 mb-3 flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-amber-400" /> Vehicle Manifest — {selectedTrip.vehiclePlate}
                 </h3>
-                <div className="space-y-2">
-                  {tripParcels.map(p => (
-                    <div key={p.id} className={`flex items-center gap-3 p-3 rounded-lg border transition-colors ${loadedParcels[p.id] ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-white/[0.03] border-white/[0.06]'}`}>
-                      <button onClick={() => toggleLoaded(p.id)}
-                        className={`w-6 h-6 rounded-md border flex items-center justify-center transition-colors ${loadedParcels[p.id] ? 'bg-emerald-500 border-emerald-500 text-black' : 'border-white/20 hover:border-white/40'}`}>
-                        {loadedParcels[p.id] && <CheckCircle2 className="w-4 h-4" />}
-                      </button>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-mono text-amber-400">{p.parcelId}</span>
-                          <QSB qr={p.qrStatus} />
-                        </div>
-                        <div className="flex items-center gap-3 text-xs text-white/50 mt-1">
-                          <span className="flex items-center gap-1"><User className="w-3 h-3" /> {p.senderName}</span>
-                          <span className="flex items-center gap-1"><MapPin className="w-3 h-3" /> {p.destination}</span>
-                          <span className="flex items-center gap-1"><Weight className="w-3 h-3" /> {p.weight} kg</span>
-                          <span className="flex items-center gap-1"><Box className="w-3 h-3" /> {p.packageCount} pkgs</span>
-                        </div>
-                      </div>
-                      {loadedParcels[p.id] ? (
-                        <span className="text-[10px] text-emerald-400 font-medium">Loaded</span>
-                      ) : (
-                        <span className="text-[10px] text-white/30">Pending</span>
-                      )}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+                  <div className="p-2 bg-white/[0.03] rounded-lg text-center">
+                    <div className="text-lg font-bold text-amber-400">{manifestIds.size}</div>
+                    <div className="text-[10px] text-white/40">Parcels</div>
+                  </div>
+                  <div className="p-2 bg-white/[0.03] rounded-lg text-center">
+                    <div className={`text-lg font-bold ${overWeight ? 'text-red-400' : 'text-emerald-400'}`}>{totalKg} kg</div>
+                    <div className="text-[10px] text-white/40">Total Weight</div>
+                  </div>
+                  <div className="p-2 bg-white/[0.03] rounded-lg text-center">
+                    <div className="text-lg font-bold text-indigo-400">{manifestParcels.reduce((s, p) => s + p.packageCount, 0)}</div>
+                    <div className="text-[10px] text-white/40">Total Packages</div>
+                  </div>
+                  <div className="p-2 bg-white/[0.03] rounded-lg text-center">
+                    <div className="text-lg font-bold text-cyan-400">{new Set(manifestParcels.map(p => p.destination)).size}</div>
+                    <div className="text-[10px] text-white/40">Destinations</div>
+                  </div>
+                </div>
+
+                {/* Manifest rows */}
+                <div className="space-y-1 mb-4 max-h-48 overflow-y-auto">
+                  {manifestParcels.map((p, i) => (
+                    <div key={p.id} className="flex items-center gap-2 text-xs py-1.5 border-b border-white/[0.04]">
+                      <span className="text-white/30 w-5 text-right shrink-0">{i + 1}.</span>
+                      <span className="font-mono text-amber-400 w-16 shrink-0">{p.shortCode}</span>
+                      <span className="text-white/70 flex-1 truncate">{p.ownerName}</span>
+                      <span className="text-white/50 shrink-0">{p.destination}</span>
+                      <span className="text-white/40 shrink-0">{p.weight}kg</span>
+                      <span className="text-white/40 shrink-0">{p.ownerPhone}</span>
                     </div>
                   ))}
                 </div>
 
-                {progress === 100 ? (
-                  <div className="mt-4 p-3 bg-emerald-500/10 rounded-lg border border-emerald-500/20 text-emerald-400 text-sm flex items-center gap-2">
-                    <CheckCircle2 className="w-4 h-4" /> All parcels loaded. Ready for departure.
+                <div className="text-xs text-white/40 mb-3">
+                  Driver: <span className="text-white/70 font-medium">{selectedTrip.driverName}</span>
+                  {' · '}{selectedTrip.driverPhone}
+                  {' · Route: '}<span className="text-white/70">{selectedTrip.route}</span>
+                </div>
+
+                {(overWeight || overCount) && (
+                  <div className="mb-3 p-2.5 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-xs flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    {overWeight && `Weight exceeds limit (${totalKg}kg > ${cap.maxKg}kg). `}
+                    {overCount && `Parcel count exceeds limit (${manifestIds.size} > ${cap.maxParcels}).`}
+                    {' Remove parcels before confirming.'}
                   </div>
-                ) : (
-                  <div className="mt-4 text-xs text-white/40">{totalCount - loadedCount} parcel(s) remaining to load</div>
                 )}
 
-                <Button className="w-full mt-4 bg-amber-500 hover:bg-amber-600 text-black font-medium" disabled={progress < 100}>
-                  <CheckCircle2 className="w-4 h-4 mr-1" /> Confirm Loading Complete
-                </Button>
+                {confirmed ? (
+                  <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-emerald-400 text-sm flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4" /> Loading confirmed — {manifestIds.size} parcels marked as LOADED.
+                  </div>
+                ) : (
+                  <Button
+                    onClick={confirmLoading}
+                    disabled={overWeight || overCount}
+                    className="w-full bg-amber-500 hover:bg-amber-600 text-black font-semibold disabled:opacity-40">
+                    <CheckCircle2 className="w-4 h-4 mr-2" /> Confirm Loading Complete
+                  </Button>
+                )}
               </CardContent>
             </Card>
-          </>
-        )}
-      </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -1895,22 +2386,50 @@ function AuditTab() {
 /*  MAIN COMPONENT                                                      */
 /* ------------------------------------------------------------------ */
 
+
+
+
+
+
+
+
+
 export default function CargoTZ() {
   const [activeTab, setActiveTab] = useState('overview');
+  const [parcelList, setParcelList] = useState<TZParcel[]>(parcels);
+
+  const updateParcel = (id: string, patch: Partial<TZParcel>) => {
+    setParcelList(prev => prev.map(p => p.id === id ? { ...p, ...patch } : p));
+  };
+
+  const addParcel = (p: TZParcel) => {
+    setParcelList(prev => [p, ...prev]);
+  };
 
   const renderTab = () => {
     switch (activeTab) {
-      case 'overview': return <OverviewTab />;
-      case 'parcels': return <ParcelsTab />;
-      case 'qr_hub': return <QRHubTab />;
-      case 'loading': return <LoadingTab />;
-      case 'trips': return <TripsTab />;
-      case 'tracking': return <TrackingTab />;
-      case 'payments': return <PaymentsTab />;
-      case 'drivers': return <DriversTab />;
-      case 'incidents': return <IncidentsTab />;
-      case 'audit': return <AuditTab />;
-      default: return <OverviewTab />;
+      case 'overview':        return <OverviewTab />;
+      case 'public_portal':   return <PublicPortalTab allParcels={parcelList} onAddParcel={addParcel} />;
+      case 'parcels':         return <ParcelsTab />;
+      case 'qr_hub':          return <QRHubTab allParcels={parcelList} onUpdateParcel={updateParcel} />;
+      case 'loading':         return <LoadingTab allParcels={parcelList} onUpdateParcel={updateParcel} />;
+      case 'label_print':     return <LabelPrintTab allParcels={parcelList} />;
+      case 'multi_parcel':    return <MultiParcelTab allParcels={parcelList} onAddParcel={addParcel} />;
+      case 'receiver_otp':    return <ReceiverOTPTab allParcels={parcelList} onUpdateParcel={updateParcel} />;
+      case 'offline_queue':   return <OfflineScanTab allParcels={parcelList} onUpdateParcel={updateParcel} />;
+      case 'branch_transfer': return <BranchTransfersTab allParcels={parcelList} />;
+      case 'manifest':        return <ManifestTab allParcels={parcelList} />;
+      case 'issues':          return <IssuesTab allParcels={parcelList} />;
+      case 'notifications':   return <NotificationsTab allParcels={parcelList} />;
+      case 'expenses':        return <DriverExpensesTab />;
+      case 'agent_perf':      return <AgentPerformanceTab />;
+      case 'trips':           return <TripsTab />;
+      case 'tracking':        return <TrackingTab />;
+      case 'payments':        return <PaymentsTab />;
+      case 'drivers':         return <DriversTab />;
+      case 'incidents':       return <IncidentsTab />;
+      case 'audit':           return <AuditTab />;
+      default:                return <OverviewTab />;
     }
   };
 
@@ -1967,7 +2486,7 @@ export default function CargoTZ() {
             <span className="text-[10px] text-emerald-400">System Online</span>
           </div>
           <div className="text-[9px] text-white/30 mt-1">
-            {parcels.length} parcels • {trips.length} trips • {drivers.length} drivers
+            {parcelList.length} parcels • {trips.length} trips • {drivers.length} drivers
           </div>
         </div>
       </div>
