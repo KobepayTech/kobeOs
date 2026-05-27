@@ -20,9 +20,21 @@ interface ErpDashboardData {
   monthlyRevenue: { month: string; revenue: number }[];
 }
 
+const FALLBACK_ERP_DATA: ErpDashboardData = {
+  kpis: { revenue: 0, orders: 0, customers: 0, lowStock: 0, transactions: 0 },
+  monthlyRevenue: [],
+};
+
 function useErpDashboard() {
-  const [data, setData] = useState<ErpDashboardData | null>(null);
-  useEffect(() => { api<ErpDashboardData>('/erp/dashboard').then(setData).catch(() => {}); }, []);
+  const [data, setData] = useState<ErpDashboardData>(FALLBACK_ERP_DATA);
+  useEffect(() => {
+    api<ErpDashboardData>('/erp/dashboard')
+      .then(res => {
+        // Guard against malformed API responses
+        if (res && res.kpis) setData(res);
+      })
+      .catch(() => {});
+  }, []);
   return data;
 }
 
@@ -198,10 +210,10 @@ function DashboardOverview({ launchApp }: { launchApp: (appId: string) => void }
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         {[
-          { label: 'Total Sales', value: erpData ? `TZS ${(erpData.kpis.revenue / 1000).toFixed(0)}K` : '…', up: true, icon: DollarSign },
-          { label: 'Orders', value: erpData ? String(erpData.kpis.orders) : '…', up: true, icon: ShoppingCart },
-          { label: 'Customers', value: erpData ? String(erpData.kpis.customers) : '…', up: true, icon: Users },
-          { label: 'Low Stock', value: erpData ? String(erpData.kpis.lowStock) : '…', up: erpData ? erpData.kpis.lowStock === 0 : true, icon: Package },
+          { label: 'Total Sales', value: erpData.kpis.revenue > 0 ? `TZS ${(erpData.kpis.revenue / 1000).toFixed(0)}K` : '—', up: true, icon: DollarSign },
+          { label: 'Orders', value: String(erpData.kpis.orders || '—'), up: true, icon: ShoppingCart },
+          { label: 'Customers', value: String(erpData.kpis.customers || '—'), up: true, icon: Users },
+          { label: 'Low Stock', value: String(erpData.kpis.lowStock ?? '—'), up: (erpData.kpis.lowStock ?? 0) === 0, icon: Package },
         ].map((kpi) => (
           <Card key={kpi.label} className="bg-[#13131f] border-white/[0.06] hover:border-white/[0.1] transition-colors">
             <CardContent className="p-3">
@@ -320,7 +332,7 @@ function DashboardOverview({ launchApp }: { launchApp: (appId: string) => void }
                   </div>
                 </div>
               ))}
-              {!erpData && <div className="text-[11px] text-white/20 text-center py-4">Loading…</div>}
+              {erpData.monthlyRevenue.length === 0 && <div className="text-[11px] text-white/20 text-center py-4">No data yet</div>}
             </div>
           </CardContent>
         </Card>
@@ -332,8 +344,8 @@ function DashboardOverview({ launchApp }: { launchApp: (appId: string) => void }
               {(erpData?.kpis.lowStock ?? 0) === 0 && (
                 <div className="text-[11px] text-emerald-400 text-center py-4">All items stocked ✓</div>
               )}
-              {!erpData && <div className="text-[11px] text-white/20 text-center py-4">Loading…</div>}
-              {erpData && erpData.kpis.lowStock > 0 && (
+              {erpData.monthlyRevenue.length === 0 && <div className="text-[11px] text-white/20 text-center py-4">No data yet</div>}
+              {(erpData.kpis.lowStock ?? 0) > 0 && (
                 <div className="flex items-center gap-3 p-2 rounded-lg bg-red-500/5 border border-red-500/10">
                   <div className="w-8 h-8 rounded-lg bg-red-500/15 flex items-center justify-center shrink-0">
                     <Package className="w-4 h-4 text-red-400" />
