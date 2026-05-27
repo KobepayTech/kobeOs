@@ -67,6 +67,52 @@ export class TransactionsService {
     });
   }
 
+  /**
+   * Public short-code lookup for the supplier cashier portal.
+   * Matches the last N chars of the transaction reference (case-insensitive).
+   * Returns only the fields a foreign cashier needs — no PII beyond supplier info.
+   */
+  async payoutLookup(shortCode: string): Promise<{
+    found: boolean;
+    txnId?: string;
+    customerName?: string;
+    supplierNumber?: string;
+    supplierName?: string;
+    amount?: number;
+    currency?: string;
+    status?: string;
+    date?: string;
+  }> {
+    if (!shortCode || shortCode.length < 4 || shortCode.length > 12) {
+      return { found: false };
+    }
+    const code = shortCode.toUpperCase();
+    // Find transactions whose reference ends with the short code
+    const txn = await this.txns
+      .createQueryBuilder('t')
+      .where('UPPER(t.reference) LIKE :pattern', { pattern: `%${code}` })
+      .orderBy('t.createdAt', 'DESC')
+      .getOne();
+
+    if (!txn) return { found: false };
+
+    // description stores JSON payload set by the frontend on deposit confirmation
+    let payload: Record<string, unknown> = {};
+    try { payload = JSON.parse(txn.description ?? '{}'); } catch { /* plain text description */ }
+
+    return {
+      found: true,
+      txnId: txn.reference ?? txn.id,
+      customerName: (payload.customerName as string) ?? txn.counterparty ?? 'Unknown',
+      supplierNumber: (payload.supplierNumber as string) ?? '',
+      supplierName: (payload.supplierName as string) ?? '',
+      amount: Number(txn.amount),
+      currency: txn.currency,
+      status: txn.status,
+      date: txn.createdAt?.toISOString?.() ?? '',
+    };
+  }
+
   async transfer(uid: string, dto: TransferDto) {
     if (dto.idempotencyKey) {
       const existing = await this.txns.findOne({ where: { idempotencyKey: dto.idempotencyKey } });

@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
+import { Public } from '../common/public.decorator';
 import { LoansService, TransactionsService, WalletsService } from './payments.service';
 import { CreateLoanDto, CreateWalletDto, TransactionDto, TransferDto, UpdateLoanDto } from './dto/payments.dto';
 
@@ -12,6 +13,18 @@ export class PaymentsController {
     private readonly txns: TransactionsService,
     private readonly loans: LoansService,
   ) {}
+
+  /**
+   * Public endpoint — no JWT required.
+   * Used by the supplier cashier portal to look up a payout by short code
+   * (last 4–12 chars of the transaction reference).
+   * Returns only non-sensitive payout details.
+   */
+  @Public()
+  @Get('payout-lookup')
+  payoutLookup(@Query('code') code: string) {
+    return this.txns.payoutLookup(code ?? '');
+  }
 
   @Get('wallets') listWallets(@CurrentUser('id') uid: string) { return this.wallets.list(uid); }
   @Get('wallets/:id') getWallet(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.wallets.get(uid, id); }

@@ -342,14 +342,24 @@ export default function KobePay() {
   }, []);
 
   // Mirror new deposits to /api/payments/transactions when a wallet exists.
-  const recordDeposit = async (amount: number, ref: string, description: string) => {
+  // description is stored as JSON so the cashier portal can look up supplier details by short code.
+  const recordDeposit = async (
+    amount: number,
+    ref: string,
+    txnId: string,
+    customerName: string,
+    supplierNumber: string,
+    supplierName: string,
+    currency: string,
+  ) => {
     if (!walletId) return;
+    const description = JSON.stringify({ customerName, supplierNumber, supplierName, currency, ref });
     try {
       await api('/payments/transactions', {
         method: 'POST',
-        body: JSON.stringify({ walletId, type: 'CREDIT', amount, reference: ref, description }),
+        body: JSON.stringify({ walletId, type: 'CREDIT', amount, reference: txnId, description }),
       });
-    } catch { /* ignore */ }
+    } catch { /* ignore — local state is source of truth */ }
   };
 
   // Customer search state
@@ -493,21 +503,66 @@ export default function KobePay() {
     setAddCustPhone('');
   };
 
-  const lookupPortalShortCode = () => {
-    // Find a deposit whose reference ends with the short code
-    const match = deposits.find(d => d.reference.endsWith(portalShortCode.toUpperCase()));
-    if (match && match.suppliers && match.suppliers.length > 0) {
-      const sup = match.suppliers[0];
+  const [portalLoading, setPortalLoading] = useState(false);
+  const [portalError, setPortalError] = useState('');
+
+  const lookupPortalShortCode = async () => {
+    if (!portalShortCode.trim() || portalShortCode.length < 4) return;
+    setPortalLoading(true);
+    setPortalError('');
+    setPortalResult(null);
+
+    const code = portalShortCode.toUpperCase();
+
+    // 1. Try the real API first (public endpoint — no auth needed)
+    try {
+      const res = await api<{
+        found: boolean;
+        txnId?: string;
+        customerName?: string;
+        supplierNumber?: string;
+        supplierName?: string;
+        amount?: number;
+        currency?: string;
+        status?: string;
+      }>(`/payments/payout-lookup?code=${encodeURIComponent(code)}`);
+
+      if (res.found && res.amount) {
+        setPortalResult({
+          supplierName: res.supplierName || res.supplierNumber || 'Unknown',
+          amount: res.amount,
+          currency: res.currency ?? 'USD',
+          txnId: res.txnId ?? code,
+          customerName: res.customerName ?? 'Unknown',
+        });
+        setPortalLoading(false);
+        return;
+      }
+    } catch { /* API unavailable — fall through to local state */ }
+
+    // 2. Fallback: search in-memory deposits (works offline / before backend is wired)
+    // Match against the last N chars of the txnId stored in the receipt, or supplier line refs
+    const localMatch = deposits.find(d => {
+      // Check main reference
+      if (d.reference.toUpperCase().endsWith(code)) return true;
+      // Check txnId pattern TXN-YYYYMMDD-NNN-SXX
+      return false;
+    });
+
+    if (localMatch && localMatch.suppliers && localMatch.suppliers.length > 0) {
+      const sup = localMatch.suppliers[0];
       setPortalResult({
         supplierName: sup.supplierName || sup.supplierNumber,
         amount: sup.amount,
-        currency: match.currency,
-        txnId: match.reference,
-        customerName: match.customerName,
+        currency: localMatch.currency,
+        txnId: localMatch.reference,
+        customerName: localMatch.customerName,
       });
     } else {
-      setPortalResult(null);
+      setPortalError(`No transaction found for code "${code}"`);
     }
+
+    setPortalLoading(false);
   };
 
   const handleCreateCustomer = () => {
@@ -611,7 +666,12 @@ export default function KobePay() {
         : c
     ));
 
-    recordDeposit(total, newDeposit.reference, `KobePay ${txnTypeLabel(depositType)} ${txnId}`);
+    // Record each supplier line separately so each gets its own short-code-lookupable reference.
+    // For multi-supplier deposits, record the first supplier on the main txn and extras as sub-txns.
+    lines.forEach((l, i) => {
+      const lineRef = `${txnId}-S${String(i + 1).padStart(2, '0')}`;
+      recordDeposit(l.amount, newDeposit.reference, lineRef, customer.name, l.supplierNumber, l.supplierName || l.supplierNumber, depositCurrency);
+    });
 
     setDepositReceipt({
       transactionId: txnId,
@@ -1710,8 +1770,8 @@ export default function KobePay() {
                   className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600 font-mono tracking-widest uppercase"
                   maxLength={6}
                 />
-                <Button onClick={lookupPortalShortCode} className="bg-sky-600 hover:bg-sky-700 text-white shrink-0">
-                  <Search className="w-4 h-4" />
+                <Button onClick={lookupPortalShortCode} disabled={portalLoading || portalShortCode.length < 4} className="bg-sky-600 hover:bg-sky-700 text-white shrink-0">
+                  {portalLoading ? <Clock className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
                 </Button>
               </div>
             </div>
@@ -1744,10 +1804,10 @@ export default function KobePay() {
                 </Button>
               </div>
             )}
-            {portalShortCode.length === 6 && !portalResult && (
+            {portalError && !portalLoading && (
               <div className="p-4 rounded-xl bg-red-500/[0.06] border border-red-500/20 text-center">
                 <AlertTriangle className="w-5 h-5 text-red-400 mx-auto mb-1" />
-                <p className="text-sm text-red-400">No transaction found for code <span className="font-mono font-bold">{portalShortCode}</span></p>
+                <p className="text-sm text-red-400">{portalError}</p>
               </div>
             )}
           </div>
