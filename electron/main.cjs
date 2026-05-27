@@ -220,9 +220,9 @@ async function bootServices() {
   sendBootProgress(55, 'Starting backend services…');
   startBackend(dbConfig);
 
-  // Poll until backend responds on :3000 (max 15 s)
+  // Poll until backend responds on :3000 (max 60 s — first boot needs time for NestJS cold start)
   sendBootProgress(65, 'Waiting for backend…');
-  await waitForBackend(3000, 15000);
+  await waitForBackend(3000, 60000);
 
   sendBootProgress(90, 'Loading KobeOS…');
   await new Promise((r) => setTimeout(r, 300));
@@ -373,23 +373,26 @@ app.whenReady().then(async () => {
   app.on('network-connected', () => syncEngine.forceDrain());
 });
 
-app.on('window-all-closed', async () => {
+// Guard against double-teardown when both window-all-closed and before-quit fire.
+let isShuttingDown = false;
+async function teardown() {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
   await kobeRuntime.shutdown().catch(() => {});
   syncEngine.stop();
   lanServer.stop();
   localdb.close();
   stopBackend();
   await stopEmbeddedPostgres();
+}
+
+app.on('window-all-closed', async () => {
+  await teardown();
   if (process.platform !== 'darwin') app.quit();
 });
 
 app.on('before-quit', async () => {
-  await kobeRuntime.shutdown().catch(() => {});
-  syncEngine.stop();
-  lanServer.stop();
-  localdb.close();
-  stopBackend();
-  await stopEmbeddedPostgres();
+  await teardown();
 });
 
 // ── System IPC ────────────────────────────────────────────────────────────────

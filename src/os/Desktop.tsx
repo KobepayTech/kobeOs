@@ -89,6 +89,7 @@ const appShortcuts = [
   { id: 'photos', label: 'Photos', icon: Image, appId: 'image-viewer' },
   { id: 'notes', label: 'Notes', icon: StickyNote, appId: 'notepad' },
   { id: 'cargo', label: 'KOBECARGO', icon: Plane, appId: 'cargo' },
+  { id: 'kobe-cargo-exchange', label: 'Cargo Exchange', icon: Plane, appId: 'kobe-cargo-exchange' },
   { id: 'kobe-print', label: 'KobePrint', icon: Printer, appId: 'kobe-print' },
   { id: 'creator', label: 'Kobe Studio', icon: Users, appId: 'creator' },
   { id: 'kobe-hotel', label: 'KobeHotel', icon: Building2, appId: 'kobe-hotel' },
