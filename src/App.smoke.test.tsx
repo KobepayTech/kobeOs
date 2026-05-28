@@ -50,12 +50,12 @@ describe('KobeOS launcher smoke test', () => {
 
     const implementedApps = [
       ['Kobe Security', 'Security-company operations'],
-      ['Hotel Security', 'Hotel Security'],
-      ['Kobe Studio', 'Kobe Studio'],
-      ['Settings', 'Settings'],
-      ['Files', 'Files'],
-      ['App Store', 'App Store'],
-      ['Installer', 'Installer'],
+      ['Hotel Security', 'Room review'],
+      ['Kobe Studio', 'Media Studios'],
+      ['Settings', 'System Settings'],
+      ['Files', '/home/kobeos'],
+      ['App Store', 'KobeOS App Store'],
+      ['Installer', 'Install KobeOS'],
     ];
 
     for (const [buttonLabel, expectedText] of implementedApps) {
