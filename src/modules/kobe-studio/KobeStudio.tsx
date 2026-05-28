@@ -81,8 +81,8 @@ export default function KobeStudio() {
         projectId: savedProject.id,
         status: 'queued',
         engine: savedProject.engine,
-        requestPayload: JSON.stringify({ topic, format: selectedFormat, section: selectedSection }),
-      } as Partial<StudioMediaJobRecord> & { projectId: string });
+        request: { topic, format: selectedFormat, section: selectedSection },
+      });
       await refresh();
     } catch {
       // Shared api() queues offline writes when possible.
