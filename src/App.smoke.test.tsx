@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import App from './App';
 
 const launcherApps = [
@@ -15,6 +15,11 @@ const launcherApps = [
   'App Store',
   'Installer',
 ];
+
+function closeTopWindow() {
+  const closeButtons = screen.getAllByRole('button').filter((candidate) => String(candidate.className).includes('bg-red-500'));
+  fireEvent.click(closeButtons[closeButtons.length - 1]);
+}
 
 describe('KobeOS launcher smoke test', () => {
   beforeEach(() => {
@@ -44,14 +49,9 @@ describe('KobeOS launcher smoke test', () => {
     ];
 
     for (const [buttonLabel, expectedText] of implementedApps) {
-      const button = screen.getByRole('button', { name: new RegExp(buttonLabel, 'i') });
-      fireEvent.click(button);
+      fireEvent.click(screen.getByRole('button', { name: new RegExp(buttonLabel, 'i') }));
       expect(await screen.findByText(new RegExp(expectedText, 'i'))).toBeInTheDocument();
-
-      const windowChrome = screen.getByText(new RegExp(buttonLabel.split(' ')[0], 'i')).closest('div');
-      const closeButtons = screen.getAllByRole('button').filter((candidate) => candidate.className.includes('bg-red-500'));
-      fireEvent.click(closeButtons[closeButtons.length - 1]);
-      expect(windowChrome).toBeTruthy();
+      closeTopWindow();
     }
   });
 
@@ -60,9 +60,8 @@ describe('KobeOS launcher smoke test', () => {
 
     for (const appName of ['KobeERP', 'KobeHotel', 'KobeCredit', 'KobeCargo']) {
       fireEvent.click(screen.getByRole('button', { name: new RegExp(appName, 'i') }));
-      expect(await screen.findByText(/module/i)).toBeInTheDocument();
-      const closeButtons = screen.getAllByRole('button').filter((candidate) => candidate.className.includes('bg-red-500'));
-      fireEvent.click(closeButtons[closeButtons.length - 1]);
+      expect(await screen.findByText(new RegExp(`${appName.toLowerCase().replace('kobe', '')} module`, 'i'))).toBeInTheDocument();
+      closeTopWindow();
     }
   });
 });
