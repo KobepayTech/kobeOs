@@ -49,6 +49,9 @@ import { AdminModule } from './admin/admin.module';
 import { DevopsModule } from './devops/devops.module';
 import { ErpModule } from './erp/erp.module';
 import { AccountModule } from './account/account.module';
+import { KobeSecurityModule } from './kobe-security/kobe-security.module';
+import { HotelSecurityModule } from './hotel-security/hotel-security.module';
+import { StudioMediaModule } from './studio-media/studio-media.module';
 
 @Module({
   imports: [
@@ -87,7 +90,10 @@ import { AccountModule } from './account/account.module';
     DiscountsModule,
     PaymentsModule,
     HotelModule,
+    HotelSecurityModule,
     CreatorsModule,
+    StudioMediaModule,
+    KobeSecurityModule,
     LicenseModule,
     PrintModule,
     AdminModule,
@@ -99,10 +105,7 @@ import { AccountModule } from './account/account.module';
     StoreSettingsModule,
     StoreModule,
     StoreRegistryModule,
-    PrintModule,
-    AdminModule,
     DevopsModule,
-    ErpModule,
     AccountModule,
   ],
   controllers: [AppController],
