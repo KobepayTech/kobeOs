@@ -147,7 +147,7 @@ These tools are **not** present in the default devcontainer. The ISO build will 
 ## Key Constraints
 
 - **No `DB_SYNCHRONIZE=true` in production.** Use `migration:run` instead.
-- **Electron security:** `contextIsolation: false` and `nodeIntegration: true` are set in main.js — this is intentional for the kiosk use case but means renderer code has full Node access. Do not load untrusted URLs.
+- **Electron security:** `contextIsolation: false` and `nodeIntegration: true` are set in main.js — this is intentional for the kiosk use case but means renderer code has full Node access. Do not expose user input directly to shell commands.
 - **`install-to-disk` IPC handler** runs raw shell commands (`parted`, `mkfs`, `grub-install`) as root. Only expose this in the installer UI, never in general app code.
 - **App.tsx vs Desktop.tsx:** `src/App.tsx` is a legacy simplified shell. The real OS shell is `src/os/Desktop.tsx` + `src/os/WindowManager.tsx`. New work goes in `src/os/`.
 - **`dist2/`** is a committed build artifact — do not delete it; it may be used for deployment without a build step.
