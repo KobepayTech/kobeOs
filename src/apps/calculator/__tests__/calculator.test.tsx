@@ -1,9 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import Calculator from '../index';
 
+let getByRoleRef: ReturnType<typeof render>['getByRole'];
+
 function clickBtn(label: string) {
-  fireEvent.click(screen.getByRole('button', { name: label }));
+  getByRoleRef('button', { name: label }).click();
 }
 
 function getDisplay(): string {
@@ -16,7 +18,8 @@ function getDisplay(): string {
 
 describe('Calculator', () => {
   beforeEach(() => {
-    render(<Calculator />);
+    const view = render(<Calculator />);
+    getByRoleRef = view.getByRole;
   });
 
   // ── Basic arithmetic ──────────────────────────────────────────────────────
@@ -70,13 +73,12 @@ describe('Calculator', () => {
   it('does not allow multiple decimal points in one number', () => {
     clickBtn('3');
     clickBtn('.');
-    clickBtn('.');  // second dot — should be ignored
+    clickBtn('.');
     clickBtn('1');
     expect(getDisplay()).toBe('3.1');
   });
 
   it('prefixes lone decimal with 0', () => {
-    // Start fresh — display is '0', fresh=true
     clickBtn('C');
     clickBtn('.');
     expect(getDisplay()).toBe('0.');
@@ -87,7 +89,7 @@ describe('Calculator', () => {
   it('swaps operator without computing when operator is pressed twice', () => {
     clickBtn('5');
     clickBtn('+');
-    clickBtn('-');  // change mind — subtract instead
+    clickBtn('-');
     clickBtn('3');
     clickBtn('=');
     expect(getDisplay()).toBe('2');
@@ -99,11 +101,11 @@ describe('Calculator', () => {
     clickBtn('2');
     clickBtn('+');
     clickBtn('3');
-    clickBtn('=');  // 2 + 3 = 5
+    clickBtn('=');
     expect(getDisplay()).toBe('5');
-    clickBtn('=');  // 5 + 3 = 8
+    clickBtn('=');
     expect(getDisplay()).toBe('8');
-    clickBtn('=');  // 8 + 3 = 11
+    clickBtn('=');
     expect(getDisplay()).toBe('11');
   });
 
@@ -129,9 +131,9 @@ describe('Calculator', () => {
     clickBtn('4');
     clickBtn('+');
     clickBtn('2');
-    clickBtn('=');  // 4 + 2 = 6
+    clickBtn('=');
     clickBtn('C');
-    clickBtn('=');  // should do nothing (no op pending)
+    clickBtn('=');
     expect(getDisplay()).toBe('0');
   });
 
