@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { api } from '@/lib/api';
 
 const INTERVAL_MS = 5 * 60 * 1000; // 5 minutes — matches backend stale threshold
@@ -17,25 +17,20 @@ const REGISTRY_URL = typeof __REGISTRY_URL__ !== 'undefined'
  * the build. End users just install KobeOS and click Publish.
  */
 export function useStoreHeartbeat(slug: string | undefined, isPublished: boolean) {
-  const slugRef = useRef(slug);
-  slugRef.current = slug;
-
   useEffect(() => {
     if (!isPublished || !slug) return;
 
+    // Fire-and-forget — heartbeat failures are non-critical.
+    // The local backend holds the token; the frontend just triggers the call.
     const send = () => {
-      if (!slugRef.current) return;
-      // Fire-and-forget — heartbeat failures are non-critical.
-      // The local backend holds the token; the frontend just triggers the call.
       void api('/store-settings/heartbeat', {
         method: 'POST',
-        body: JSON.stringify({ slug: slugRef.current, registryUrl: REGISTRY_URL }),
+        body: JSON.stringify({ slug, registryUrl: REGISTRY_URL }),
       }).catch(() => {
         // Silently ignore — the backend cron will mark stale after 10 min
       });
     };
 
-    // Send immediately on mount, then every 5 minutes
     send();
     const timer = setInterval(send, INTERVAL_MS);
     return () => clearInterval(timer);

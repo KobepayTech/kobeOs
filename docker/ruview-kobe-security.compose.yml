@@ -1,0 +1,13 @@
+services:
+  ruview:
+    image: ruvnet/wifi-densepose:latest
+    container_name: kobeos-ruview
+    ports:
+      - "3000:3000"
+      - "3001:3001"
+      - "5005:5005/udp"
+    environment:
+      CSI_SOURCE: auto
+      RUST_LOG: info
+      MODELS_DIR: data/models
+    restart: unless-stopped

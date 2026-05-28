@@ -123,14 +123,35 @@ function EventTimeline({ events }: { events: MatchEvent[] }) {
   );
 }
 
+// ── Shape guards for API payloads ─────────────────────────────────────────────
+// Sports analytics fields are typed as Record<string, …>, so the shape may
+// drift. These guards return the fallback whenever home/away are missing or
+// the wrong type, preventing render-time crashes from partial payloads.
+
+const isNumber = (v: unknown): v is number => typeof v === 'number';
+const isString = (v: unknown): v is string => typeof v === 'string';
+const isNumberArray = (v: unknown): v is number[] => Array.isArray(v) && v.every(isNumber);
+const isMatrix = (v: unknown): v is number[][] => Array.isArray(v) && v.every(isNumberArray);
+
+function pickPair<T>(
+  o: unknown,
+  is: (v: unknown) => v is T,
+  fallback: { home: T; away: T },
+): { home: T; away: T } {
+  if (!o || typeof o !== 'object') return fallback;
+  const rec = o as Record<string, unknown>;
+  if (is(rec.home) && is(rec.away)) return { home: rec.home, away: rec.away };
+  return fallback;
+}
+
 // ── Demo fallback data ────────────────────────────────────────────────────────
 
-const DEMO_STATS: MatchStats = {
+const DEMO_STATS = {
   possession: { home: 58, away: 42 }, shots: { home: 14, away: 8 },
   shotsOnTarget: { home: 6, away: 3 }, corners: { home: 7, away: 4 },
   fouls: { home: 11, away: 14 }, yellowCards: { home: 1, away: 2 },
   redCards: { home: 0, away: 0 }, xg: { home: 1.84, away: 0.92 },
-};
+} satisfies MatchStats;
 
 const DEMO_HEATMAPS = {
   home: Array.from({ length: 10 }, (_, r) => Array.from({ length: 13 }, (_, c) =>
@@ -170,18 +191,16 @@ export default function Analytics({ matchId: propMatchId }: AnalyticsProps) {
 
   const selectedMatch = matches.find((m) => m.id === selectedId);
 
-  // Merge: prefer live WebSocket data, fall back to DB analytics, then demo
-  const possession = matchState?.possession ?? dbAnalytics?.possession as { home: number; away: number } | undefined ?? DEMO_STATS.possession;
-  const xg = matchState?.xg ?? (dbAnalytics?.xgData as { home: number[]; away: number[] } | undefined
-    ? { home: (dbAnalytics!.xgData as { home: number[] }).home.at(-1) ?? 0, away: (dbAnalytics!.xgData as { away: number[] }).away.at(-1) ?? 0 }
-    : DEMO_STATS.xg);
+  // Merge: prefer live WebSocket data, fall back to DB analytics, then demo.
+  // `dbAnalytics` fields are typed as Records and may arrive with missing
+  // home/away keys; pick<>() returns the fallback whenever the shape drifts
+  // so we never read .home/.away on undefined.
+  const possession = matchState?.possession ?? pickPair(dbAnalytics?.possession, isNumber, DEMO_STATS.possession);
   const xgTimeline = matchState?.xgTimeline
-    ?? (dbAnalytics?.xgData as { home: number[]; away: number[] } | undefined)
-    ?? { home: [0, 0.3, 0.8, 1.2, 1.84], away: [0, 0.1, 0.4, 0.7, 0.92] };
-  const heatmaps = matchState?.heatmaps
-    ?? (dbAnalytics?.heatmaps as { home: number[][]; away: number[][] } | undefined)
-    ?? DEMO_HEATMAPS;
-  const formations = matchState?.formations ?? dbAnalytics?.formations as { home: string; away: string } | undefined ?? { home: '4-3-3', away: '4-4-2' };
+    ?? pickPair(dbAnalytics?.xgData, isNumberArray, { home: [0, 0.3, 0.8, 1.2, 1.84], away: [0, 0.1, 0.4, 0.7, 0.92] });
+  const xg = matchState?.xg ?? { home: xgTimeline.home.at(-1) ?? 0, away: xgTimeline.away.at(-1) ?? 0 };
+  const heatmaps = matchState?.heatmaps ?? pickPair(dbAnalytics?.heatmaps, isMatrix, DEMO_HEATMAPS);
+  const formations = matchState?.formations ?? pickPair(dbAnalytics?.formations, isString, { home: '4-3-3', away: '4-4-2' });
   const events: MatchEvent[] = matchState?.events ?? [];
 
   useEffect(() => {

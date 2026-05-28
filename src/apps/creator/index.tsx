@@ -9,7 +9,8 @@ import {
   TrendingUp, Eye, Heart, MessageSquare, Share2, MousePointerClick,
   ShoppingCart, Download, Star, Send, Instagram,
   Smartphone, Copy, AlertCircle, Lock, Unlock, DollarSign, Target, Zap,
-  Youtube, Twitter, Facebook, UserCheck, BookOpen, HelpCircle
+  Youtube, Twitter, Facebook, UserCheck, BookOpen, HelpCircle,
+  QrCode, BadgeCheck, ShieldAlert, Settings,
 } from 'lucide-react';
 function idHash(id: string): number {
   let h = 0;

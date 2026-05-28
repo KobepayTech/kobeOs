@@ -494,6 +494,7 @@ export default function KobePay() {
       id: `C${Date.now()}`, name: addCustName.trim(), phone: addCustPhone.trim(),
       email: addCustEmail.trim(), company: addCustCompany.trim(), balance: 0,
       depositCount: 0, lastDeposit: '-', notes: '',
+      idNumber: '', createdAt: new Date().toISOString(),
     };
     setCustomers(prev => [newC, ...prev]);
     setSelectedDepositCustomer(newC);
@@ -1834,7 +1835,12 @@ export default function KobePay() {
   };
 
   const getModuleTitle = () => {
-    const titles: Record<Module, string> = { dashboard: 'Dashboard', customers: 'Customers', deposits: 'Deposits', payouts: 'Payouts', suppliers: 'Suppliers', allocations: 'Allocations', receipts: 'Receipts', settings: 'Settings' };
+    const titles: Record<Module, string> = {
+      dashboard: 'Dashboard', customers: 'Customers', deposits: 'Deposits',
+      payouts: 'Payouts', suppliers: 'Suppliers', allocations: 'Allocations',
+      receipts: 'Receipts', settings: 'Settings',
+      'exchange-pl': 'Exchange P&L', verification: 'Verification', 'cashier-portal': 'Cashier Portal',
+    };
     return titles[module] || 'Dashboard';
   };
 

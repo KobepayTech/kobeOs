@@ -25,14 +25,20 @@ const FALLBACK_ERP_DATA: ErpDashboardData = {
   monthlyRevenue: [],
 };
 
+function normalizeDashboard(raw: unknown): ErpDashboardData {
+  const d = (raw && typeof raw === 'object') ? raw as Partial<ErpDashboardData> : {};
+  const rawKpis = (d.kpis && typeof d.kpis === 'object') ? d.kpis : {};
+  return {
+    kpis: { ...FALLBACK_ERP_DATA.kpis, ...rawKpis },
+    monthlyRevenue: Array.isArray(d.monthlyRevenue) ? d.monthlyRevenue : [],
+  };
+}
+
 function useErpDashboard() {
   const [data, setData] = useState<ErpDashboardData>(FALLBACK_ERP_DATA);
   useEffect(() => {
-    api<ErpDashboardData>('/erp/dashboard')
-      .then(res => {
-        // Guard against malformed API responses
-        if (res && res.kpis) setData(res);
-      })
+    api<unknown>('/erp/dashboard')
+      .then((d) => setData(normalizeDashboard(d)))
       .catch(() => {});
   }, []);
   return data;
