@@ -16,6 +16,16 @@ const launcherApps = [
   'Installer',
 ];
 
+const appStoreModules = [
+  'KobeERP',
+  'KobeHotel',
+  'KobeCredit',
+  'KobeCargo',
+  'KobeAnalytics',
+  'KobeCRM',
+  'KobeCalendar',
+];
+
 function closeTopWindow() {
   const closeButtons = screen.getAllByRole('button').filter((candidate) => String(candidate.className).includes('bg-red-500'));
   fireEvent.click(closeButtons[closeButtons.length - 1]);
@@ -27,7 +37,7 @@ describe('KobeOS launcher smoke test', () => {
     localStorage.setItem('kobeos_user', 'Smoke Tester');
   });
 
-  it('renders every launcher app without crashing', () => {
+  it('renders every desktop launcher app without crashing', () => {
     render(<App />);
 
     for (const appName of launcherApps) {
@@ -35,7 +45,7 @@ describe('KobeOS launcher smoke test', () => {
     }
   });
 
-  it('opens the implemented apps from the launcher', async () => {
+  it('opens the implemented desktop apps from the launcher', async () => {
     render(<App />);
 
     const implementedApps = [
@@ -55,13 +65,24 @@ describe('KobeOS launcher smoke test', () => {
     }
   });
 
-  it('shows placeholders for apps not implemented yet', async () => {
+  it('shows placeholders for desktop apps not implemented yet', async () => {
     render(<App />);
 
     for (const appName of ['KobeERP', 'KobeHotel', 'KobeCredit', 'KobeCargo']) {
       fireEvent.click(screen.getByRole('button', { name: new RegExp(appName, 'i') }));
       expect(await screen.findByText(new RegExp(`${appName.toLowerCase().replace('kobe', '')} module`, 'i'))).toBeInTheDocument();
       closeTopWindow();
+    }
+  });
+
+  it('renders every App Store module card', async () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole('button', { name: /App Store/i }));
+    expect(await screen.findByText(/KobeOS App Store/i)).toBeInTheDocument();
+
+    for (const moduleName of appStoreModules) {
+      expect(screen.getByText(moduleName)).toBeInTheDocument();
     }
   });
 });
