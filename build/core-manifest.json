@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-05-24T19:20:19.227Z",
+  "generatedAt": "2026-05-28T22:03:41.972Z",
   "files": {
     "runtime/driver-manager.js": "d84de2c24082ac00b4e70e9d9f9be2993d54246ddea41e2986e73a72d1626578",
     "runtime/drivers/audio-driver.js": "4f340d17fa4934c0fffdac31cbcf581c988d777cbe6963c17a8ca5621e8b225e",
@@ -19,7 +19,7 @@
     "runtime/services/cloud-service.js": "bb704b60c4650adc6dc62b2ba9889e4d32c825db5224c66bb5aa86518038ddcd",
     "runtime/services/device-manager.js": "a375defd2fb1ceaaa18f789df5fc64d30c72c5c4af7280d12e854dbc05250b9f",
     "runtime/services/file-service.js": "a7b2090e1861d8da1db658805970583717dfef3db37b65ba1a8c556a67bb1e57",
-    "main.cjs": "4e3ed50fa634fc16d0440718908ec944078a6888a0c42ab431e5044a81b2a770",
+    "main.cjs": "4c1dfb48fb0a8cd6d1fd8e8016b14af1b86016f4e1811a4a2576a844205206a1",
     "preload.cjs": "a19f371d58160aa37ee39e65c9451cf4b8671efb7f372793a442a2869f4b64e6",
     "update-manager.cjs": "44e256cc595e6d516248826355ca8c9c06560dabca49ea81e684cd773e13ad92",
     "update-verifier.js": "a7790613921ff719fbd6801ddab22ded4be53b1492f9dde22ea1bbf8b99e4eb9",

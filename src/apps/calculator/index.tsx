@@ -5,16 +5,23 @@ export default function Calculator() {
   const [prev, setPrev] = useState<string | null>(null);
   const [op, setOp] = useState<string | null>(null);
   const [fresh, setFresh] = useState(true);
+  // Stores the last operand + operator so pressing = repeatedly repeats the op
+  const [lastOp, setLastOp] = useState<{ op: string; b: string } | null>(null);
   const [mode, setMode] = useState<'standard' | 'scientific'>('standard');
   const [history, setHistory] = useState<string[]>([]);
 
   const input = useCallback(
     (val: string) => {
       if (fresh) {
-        setDisplay(val);
+        // Start fresh display; if entering a decimal, prefix with '0'
+        setDisplay(val === '.' ? '0.' : val);
         setFresh(false);
       } else {
-        setDisplay((d) => (d === '0' ? val : d + val));
+        setDisplay((d) => {
+          // Prevent multiple decimal points in a single number
+          if (val === '.' && d.includes('.')) return d;
+          return d === '0' && val !== '.' ? val : d + val;
+        });
       }
     },
     [fresh]
@@ -22,47 +29,59 @@ export default function Calculator() {
 
   const operator = useCallback(
     (o: string) => {
-      setPrev(display);
+      // If an operator is already pending and the user hasn't entered a new
+      // number yet, just swap the operator without computing.
+      setPrev((currentPrev) => (fresh && currentPrev !== null ? currentPrev : display));
       setOp(o);
+      setLastOp(null); // clear repeat-equals state when a new op is chosen
       setFresh(true);
     },
-    [display]
+    [display, fresh]
+  );
+
+  const compute = useCallback(
+    (a: number, o: string, b: number): number => {
+      switch (o) {
+        case '+': return a + b;
+        case '-': return a - b;
+        case '*': return a * b;
+        case '/': return b === 0 ? NaN : a / b;
+        case '^': return Math.pow(a, b);
+        default:  return b;
+      }
+    },
+    []
   );
 
   const equals = useCallback(() => {
+    // Repeat last operation if = is pressed again after a previous =
+    if (!op && lastOp) {
+      const a = parseFloat(display);
+      const result = compute(a, lastOp.op, parseFloat(lastOp.b));
+      const resStr = isNaN(result) ? 'Error' : String(result);
+      setHistory((h) => [`${display} ${lastOp.op} ${lastOp.b} = ${resStr}`, ...h].slice(0, 20));
+      setDisplay(resStr);
+      setFresh(true);
+      return;
+    }
     if (!op || prev === null) return;
     const a = parseFloat(prev);
     const b = parseFloat(display);
-    let result = 0;
-    switch (op) {
-      case '+':
-        result = a + b;
-        break;
-      case '-':
-        result = a - b;
-        break;
-      case '*':
-        result = a * b;
-        break;
-      case '/':
-        result = b === 0 ? NaN : a / b;
-        break;
-      case '^':
-        result = Math.pow(a, b);
-        break;
-    }
-    const resStr = String(result);
+    const result = compute(a, op, b);
+    const resStr = isNaN(result) ? 'Error' : String(result);
     setHistory((h) => [`${prev} ${op} ${display} = ${resStr}`, ...h].slice(0, 20));
+    setLastOp({ op, b: display }); // remember for repeat-equals
     setDisplay(resStr);
     setPrev(null);
     setOp(null);
     setFresh(true);
-  }, [op, prev, display]);
+  }, [op, prev, display, lastOp, compute]);
 
   const clear = useCallback(() => {
     setDisplay('0');
     setPrev(null);
     setOp(null);
+    setLastOp(null);
     setFresh(true);
   }, []);
 

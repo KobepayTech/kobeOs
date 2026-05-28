@@ -51,19 +51,22 @@ describe('KobeOS launcher smoke test', () => {
   it('opens the implemented desktop apps from the launcher', async () => {
     render(<App />);
 
-    const implementedApps = [
-      ['Kobe Security', 'Security-company operations'],
-      ['Hotel Security', 'Room review'],
-      ['Kobe Studio', 'Media Studios'],
-      ['Settings', 'System Settings'],
-      ['Files', '/home/kobeos'],
-      ['App Store', 'KobeOS App Store'],
-      ['Installer', 'Install KobeOS'],
+    const implementedApps: Array<[string, RegExp]> = [
+      ['Kobe Security', /Security-company operations/i],
+      ['Hotel Security', /Saved room reviews/i],
+      // "Media Studios" appears in multiple elements; assert at least one exists
+      ['Kobe Studio', /Media Studios/i],
+      ['Settings', /System Settings/i],
+      ['Files', /\/home\/kobeos/i],
+      ['App Store', /KobeOS App Store/i],
+      ['Installer', /Install KobeOS/i],
     ];
 
-    for (const [buttonLabel, expectedText] of implementedApps) {
+    for (const [buttonLabel, expectedPattern] of implementedApps) {
       fireEvent.click(screen.getByRole('button', { name: new RegExp(buttonLabel, 'i') }));
-      expect(await screen.findByText(new RegExp(expectedText, 'i'))).toBeInTheDocument();
+      // Use findAllByText to handle components that render the text in multiple places
+      const matches = await screen.findAllByText(expectedPattern);
+      expect(matches.length).toBeGreaterThan(0);
       closeTopWindow();
     }
   });
@@ -85,7 +88,10 @@ describe('KobeOS launcher smoke test', () => {
     expect(await screen.findByText(/KobeOS App Store/i)).toBeInTheDocument();
 
     for (const moduleName of appStoreModules) {
-      expect(screen.getByText(moduleName)).toBeInTheDocument();
+      // Use getAllByText — some module names appear in both the desktop launcher
+      // and the App Store card list simultaneously.
+      const matches = screen.getAllByText(moduleName);
+      expect(matches.length).toBeGreaterThan(0);
     }
   });
 });

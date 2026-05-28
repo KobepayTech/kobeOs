@@ -5,6 +5,7 @@ import type { LucideIcon } from 'lucide-react';
 import { useOSStore } from '@/os/store';
 import { accentColors, wallpapers } from '@/os/theme';
 import { useSubscription } from '@/hooks/useSubscription';
+import { getToken, API_BASE } from '@/lib/api';
 import UpdateManager from '@/components/UpdateManager';
 
 type Tab = 'appearance' | 'desktop' | 'taskbar' | 'notifications' | 'system' | 'apps' | 'subscription';
@@ -324,9 +325,6 @@ function AppsTab({
 // Subscription tab
 // ---------------------------------------------------------------------------
 
-const API_BASE =
-  (import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://localhost:3000/api';
-
 type PayStep = 'idle' | 'entering' | 'pending' | 'success' | 'error';
 
 function SubscriptionTab() {
@@ -350,7 +348,7 @@ function SubscriptionTab() {
 
   // On mount, try to pull a fresh token from the backend (online refresh)
   useEffect(() => {
-    const token = localStorage.getItem('kobe_access_token');
+    const token = getToken();
     if (!token) return;
     fetch(`${API_BASE}/license/active`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -369,7 +367,7 @@ function SubscriptionTab() {
     setError('');
     setStep('pending');
     try {
-      const token = localStorage.getItem('kobe_access_token');
+      const token = getToken();
       const res = await fetch(`${API_BASE}/license/initiate`, {
         method: 'POST',
         headers: {
@@ -398,7 +396,7 @@ function SubscriptionTab() {
     const poll = async () => {
       if (cancelled) return;
       try {
-        const token = localStorage.getItem('kobe_access_token');
+        const token = getToken();
         const res = await fetch(`${API_BASE}/license/status/${txId}`, {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });

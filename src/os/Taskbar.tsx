@@ -75,7 +75,9 @@ export function Taskbar() {
                 key={appId}
                 className="relative w-10 h-10 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors group"
                 onClick={() => {
-                  const existing = windows.find((w) => w.appId === appId && !w.isMinimized);
+                  // Prefer any open window (including minimized) to avoid
+                  // spawning a duplicate instance when clicking a pinned app.
+                  const existing = windows.find((w) => w.appId === appId);
                   if (existing) {
                     focusWindow(existing.id);
                   } else {

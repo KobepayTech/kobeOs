@@ -110,10 +110,19 @@ export default function NotesApp() {
   const isNew = activeId === null;
 
   useEffect(() => {
+    let cancelled = false;
     api<Note[]>('/notes')
-      .then((data) => setNotes(data))
-      .catch((e) => setError((e as Error).message))
-      .finally(() => setLoading(false));
+      .then((data) => { if (!cancelled) setNotes(data); })
+      .catch((e) => { if (!cancelled) setError((e as Error).message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => {
+      cancelled = true;
+      // Clear any pending autosave so it doesn't fire after unmount.
+      if (autosaveTimer.current) {
+        clearTimeout(autosaveTimer.current);
+        autosaveTimer.current = null;
+      }
+    };
   }, []);
 
   const filtered = notes

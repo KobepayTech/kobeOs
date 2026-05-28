@@ -23,7 +23,10 @@ export function WindowManager() {
           const Component = app.component;
           const tier = app.subscriptionTier ?? 'free';
           return (
-            <div key={win.id} className="pointer-events-auto" style={{ position: 'absolute', inset: 0 }}>
+            // Each window is sized and positioned by AppWindow itself.
+            // Do NOT use inset-0 here — that would make every wrapper cover
+            // the full desktop and intercept clicks meant for windows below.
+            <div key={win.id} className="pointer-events-none" style={{ position: 'absolute', inset: 0 }}>
               <AppWindow window={win}>
                 <SubscriptionGate required={tier}>
                   <AppErrorBoundary appName={app.name}>

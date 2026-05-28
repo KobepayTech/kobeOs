@@ -68,14 +68,17 @@ export class OrdersService {
       for (const line of dto.lines) {
         const product = await productRepo.findOne({ where: { id: line.productId, ownerId: uid } });
         if (!product) throw new NotFoundException(`Product ${line.productId} not found`);
-        if (product.stock < line.quantity) {
+        // TypeORM returns decimal/integer columns as strings — parse before use.
+        const productStock = Number(product.stock);
+        const productPrice = parseFloat(product.price as unknown as string);
+        if (productStock < line.quantity) {
           throw new BadRequestException(`Insufficient stock for ${product.name}`);
         }
-        product.stock -= line.quantity;
+        product.stock = productStock - line.quantity;
         await productRepo.save(product);
 
-        const lineTotal = product.price * line.quantity;
-        subtotal += lineTotal;
+        const lineTotal = parseFloat((productPrice * line.quantity).toFixed(4));
+        subtotal = parseFloat((subtotal + lineTotal).toFixed(4));
         itemsToInsert.push(
           itemRepo.create({
             ownerId: uid,
