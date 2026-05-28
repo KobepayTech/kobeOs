@@ -2,17 +2,15 @@ import type { ReactNode } from 'react';
 import { useState, useEffect, useCallback } from 'react';
 import { Lock, Loader2, CheckCircle2, AlertCircle, Smartphone } from 'lucide-react';
 import { useSubscription } from '@/hooks/useSubscription';
+import { getToken, API_BASE } from '@/lib/api';
 import type { SubscriptionTier } from './types';
 
 // ---------------------------------------------------------------------------
 // API helpers
 // ---------------------------------------------------------------------------
 
-const API_BASE =
-  (import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://localhost:3000/api';
-
 async function initiatePayment(plan: 'trial' | 'pro', msisdn: string) {
-  const token = localStorage.getItem('kobe_access_token');
+  const token = getToken();
   const res = await fetch(`${API_BASE}/license/initiate`, {
     method: 'POST',
     headers: {
@@ -26,7 +24,7 @@ async function initiatePayment(plan: 'trial' | 'pro', msisdn: string) {
 }
 
 async function pollStatus(transactionId: string): Promise<{ status: string; token?: string; expiresAt?: number }> {
-  const token = localStorage.getItem('kobe_access_token');
+  const token = getToken();
   const res = await fetch(`${API_BASE}/license/status/${transactionId}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });

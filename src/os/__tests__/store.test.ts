@@ -172,6 +172,29 @@ describe('updateWindow', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Taskbar: focusWindow restores minimized windows (regression for pinned-app
+// click spawning a duplicate instead of restoring the minimized instance)
+// ---------------------------------------------------------------------------
+
+describe('focusWindow on minimized window', () => {
+  it('un-minimizes and focuses a minimized window', () => {
+    useOSStore.getState().setApps([makeApp()]);
+    const win = useOSStore.getState().openWindow('test-app')!;
+    useOSStore.getState().minimizeWindow(win.id);
+    expect(useOSStore.getState().windows[0].isMinimized).toBe(true);
+
+    // Simulates what the Taskbar does when clicking a pinned app whose window
+    // is minimized: call focusWindow instead of launchApp.
+    useOSStore.getState().focusWindow(win.id);
+    const w = useOSStore.getState().windows[0];
+    expect(w.isMinimized).toBe(false);
+    expect(w.isFocused).toBe(true);
+    // No duplicate window should have been created
+    expect(useOSStore.getState().windows).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // isAppOpen
 // ---------------------------------------------------------------------------
 

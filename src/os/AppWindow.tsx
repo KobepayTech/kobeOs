@@ -158,7 +158,7 @@ export const AppWindow = memo(function AppWindow({ window: win, children }: AppW
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.95 }}
       transition={{ duration: 0.15 }}
-      className="flex flex-col overflow-hidden rounded-xl border border-white/[0.08]"
+      className="flex flex-col overflow-hidden rounded-xl border border-white/[0.08] pointer-events-auto"
       style={{
         ...style,
         zIndex: win.zIndex,
