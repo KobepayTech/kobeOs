@@ -3,7 +3,6 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './user.entity';
 import { UpdateUserDto } from './dto/update-user.dto';
-import type { AppRole } from '../common/roles';
 
 @Injectable()
 export class UsersService {
@@ -40,13 +39,6 @@ export class UsersService {
 
   async setPasswordHash(id: string, passwordHash: string) {
     await this.repo.update(id, { passwordHash });
-  }
-
-  async assignRole(id: string, role: AppRole, country?: string): Promise<Omit<User, 'passwordHash'>> {
-    const user = await this.findById(id);
-    if (!user) throw new NotFoundException('User not found');
-    await this.repo.update(id, { role, ...(country !== undefined ? { country } : {}) });
-    return this.getProfile(id);
   }
 
   async remove(id: string) {

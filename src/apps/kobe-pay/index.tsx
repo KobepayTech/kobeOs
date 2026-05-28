@@ -16,8 +16,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { QRCodeSVG } from 'qrcode.react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
-type Role = 'Admin' | 'Cashier TZ' | 'Cashier China' | 'Cashier India' | 'Manager TZ' | 'Manager China/India';
-type Module = 'dashboard' | 'customers' | 'deposits' | 'payouts' | 'suppliers' | 'allocations' | 'receipts' | 'settings' | 'exchange-pl' | 'verification' | 'cashier-portal';
+type Role = 'Admin' | 'Cashier TZ' | 'Cashier China';
+type Module = 'dashboard' | 'customers' | 'deposits' | 'payouts' | 'suppliers' | 'allocations' | 'receipts' | 'settings';
 type DepositStatus = 'Pending' | 'Confirmed';
 type PayoutStatus = 'INITIATED' | 'SENT' | 'CONFIRMED' | 'PAID';
 type TxnType = 'Deposit' | 'Goods on Delivery';
@@ -214,52 +214,6 @@ const MOCK_RECEIPTS: Receipt[] = [
   { id: 'R008', transactionId: 'TXN-20240105-008', customerName: 'Rehema Issa', supplierName: 'Dubai Freight', amount: 15000, currency: 'USD', type: 'Payout', status: 'Paid', date: '2024-01-05', reference: 'PAYOUT012' },
 ];
 
-interface ExchangeRate {
-  id: string;
-  date: string;
-  currency: string;          // 'CNY' | 'TZS' | 'INR'
-  customerRate: number;      // rate quoted to customer (per 1 USD)
-  actualRate: number;        // real payout-day rate
-  amountUsd: number;
-  customerReceives: number;  // amountUsd * customerRate
-  actualPaid: number;        // amountUsd * actualRate
-  profitLoss: number;        // actualPaid - customerReceives (positive = profit)
-  status: 'pending' | 'funded';
-  txnRef: string;
-}
-
-interface VerificationEntry {
-  id: string;
-  date: string;
-  country: string;
-  cashierName: string;
-  systemAmount: number;
-  cashOnHand: number;
-  bankBalance: number;
-  mobileBalance: number;
-  cashPaidOut: number;
-  remainingCash: number;
-  remainingPayout: number;
-  notes: string;
-  verifiedBy: string;
-}
-
-const MOCK_EXCHANGE_RATES: ExchangeRate[] = [
-  { id: 'EX001', date: '2024-01-15', currency: 'CNY', customerRate: 6.74, actualRate: 6.79, amountUsd: 1000, customerReceives: 6740, actualPaid: 6790, profitLoss: 50, status: 'funded', txnRef: 'TXN-20240115-001' },
-  { id: 'EX002', date: '2024-01-14', currency: 'CNY', customerRate: 6.72, actualRate: 6.68, amountUsd: 2000, customerReceives: 13440, actualPaid: 13360, profitLoss: -80, status: 'funded', txnRef: 'TXN-20240114-002' },
-  { id: 'EX003', date: '2024-01-13', currency: 'TZS', customerRate: 2650, actualRate: 2700, amountUsd: 500, customerReceives: 1325000, actualPaid: 1350000, profitLoss: 25000, status: 'funded', txnRef: 'TXN-20240113-003' },
-  { id: 'EX004', date: '2024-01-12', currency: 'TZS', customerRate: 2680, actualRate: 2660, amountUsd: 800, customerReceives: 2144000, actualPaid: 2128000, profitLoss: -16000, status: 'funded', txnRef: 'TXN-20240112-004' },
-  { id: 'EX005', date: '2024-01-11', currency: 'CNY', customerRate: 6.75, actualRate: 6.80, amountUsd: 1500, customerReceives: 10125, actualPaid: 10200, profitLoss: 75, status: 'funded', txnRef: 'TXN-20240111-005' },
-  { id: 'EX006', date: '2024-01-10', currency: 'INR', customerRate: 83.2, actualRate: 83.8, amountUsd: 600, customerReceives: 49920, actualPaid: 50280, profitLoss: 360, status: 'funded', txnRef: 'TXN-20240110-006' },
-  { id: 'EX007', date: '2024-01-09', currency: 'CNY', customerRate: 6.76, actualRate: 6.71, amountUsd: 3000, customerReceives: 20280, actualPaid: 20130, profitLoss: -150, status: 'pending', txnRef: 'TXN-20240109-007' },
-];
-
-const MOCK_VERIFICATIONS: VerificationEntry[] = [
-  { id: 'V001', date: '2024-01-15', country: 'Tanzania', cashierName: 'Amina Cashier', systemAmount: 15400, cashOnHand: 15200, bankBalance: 8500, mobileBalance: 6700, cashPaidOut: 0, remainingCash: 0, remainingPayout: 0, notes: 'Minor discrepancy — $200 pending M-Pesa confirmation', verifiedBy: 'Manager TZ' },
-  { id: 'V002', date: '2024-01-15', country: 'China', cashierName: 'Li Cashier', systemAmount: 45000, cashOnHand: 44800, bankBalance: 0, mobileBalance: 0, cashPaidOut: 38000, remainingCash: 6800, remainingPayout: 7000, notes: 'CNY 200 difference under investigation', verifiedBy: 'Manager China/India' },
-  { id: 'V003', date: '2024-01-14', country: 'Tanzania', cashierName: 'Amina Cashier', systemAmount: 12800, cashOnHand: 12800, bankBalance: 7200, mobileBalance: 5600, cashPaidOut: 0, remainingCash: 0, remainingPayout: 0, notes: 'Balanced', verifiedBy: 'Manager TZ' },
-];
-
 const WEEKLY_DATA = [
   { day: 'Mon', deposits: 4200, payouts: 3100 },
   { day: 'Tue', deposits: 5800, payouts: 4200 },
@@ -271,17 +225,14 @@ const WEEKLY_DATA = [
 ];
 
 const SIDEBAR_ITEMS: { id: Module; label: string; icon: typeof Wallet; color: string }[] = [
-  { id: 'dashboard',      label: 'Dashboard',       icon: LayoutDashboard, color: 'text-cyan-400' },
-  { id: 'customers',      label: 'Customers',        icon: Users,           color: 'text-blue-400' },
-  { id: 'deposits',       label: 'Deposits',         icon: ArrowDownLeft,   color: 'text-emerald-400' },
-  { id: 'payouts',        label: 'Payouts',          icon: Send,            color: 'text-amber-400' },
-  { id: 'suppliers',      label: 'Suppliers',        icon: Building2,       color: 'text-violet-400' },
-  { id: 'allocations',    label: 'Allocations',      icon: Share2,          color: 'text-pink-400' },
-  { id: 'receipts',       label: 'Receipts',         icon: Receipt,         color: 'text-orange-400' },
-  { id: 'exchange-pl',    label: 'Exchange P&L',     icon: DollarSign,      color: 'text-lime-400' },
-  { id: 'verification',   label: 'Verification',     icon: BadgeCheck,      color: 'text-teal-400' },
-  { id: 'cashier-portal', label: 'Cashier Portal',   icon: Landmark,        color: 'text-sky-400' },
-  { id: 'settings',       label: 'Settings',         icon: Settings,        color: 'text-slate-400' },
+  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, color: 'text-cyan-400' },
+  { id: 'customers', label: 'Customers', icon: Users, color: 'text-blue-400' },
+  { id: 'deposits', label: 'Deposits', icon: ArrowDownLeft, color: 'text-emerald-400' },
+  { id: 'payouts', label: 'Payouts', icon: Send, color: 'text-amber-400' },
+  { id: 'suppliers', label: 'Suppliers', icon: Building2, color: 'text-violet-400' },
+  { id: 'allocations', label: 'Allocations', icon: Share2, color: 'text-pink-400' },
+  { id: 'receipts', label: 'Receipts', icon: Receipt, color: 'text-orange-400' },
+  { id: 'settings', label: 'Settings', icon: Settings, color: 'text-slate-400' },
 ];
 
 function StatusBadge({ status }: { status: string }) {
@@ -342,24 +293,14 @@ export default function KobePay() {
   }, []);
 
   // Mirror new deposits to /api/payments/transactions when a wallet exists.
-  // description is stored as JSON so the cashier portal can look up supplier details by short code.
-  const recordDeposit = async (
-    amount: number,
-    ref: string,
-    txnId: string,
-    customerName: string,
-    supplierNumber: string,
-    supplierName: string,
-    currency: string,
-  ) => {
+  const recordDeposit = async (amount: number, ref: string, description: string) => {
     if (!walletId) return;
-    const description = JSON.stringify({ customerName, supplierNumber, supplierName, currency, ref });
     try {
       await api('/payments/transactions', {
         method: 'POST',
-        body: JSON.stringify({ walletId, type: 'CREDIT', amount, reference: txnId, description }),
+        body: JSON.stringify({ walletId, type: 'CREDIT', amount, reference: ref, description }),
       });
-    } catch { /* ignore — local state is source of truth */ }
+    } catch { /* ignore */ }
   };
 
   // Customer search state
@@ -372,23 +313,6 @@ export default function KobePay() {
   const [newCustomerId, setNewCustomerId] = useState('');
   const [newCustomerCompany, setNewCustomerCompany] = useState('');
   const [newCustomerNotes, setNewCustomerNotes] = useState('');
-  // Live deposit phone suggestions
-  const [depositPhoneSuggestions, setDepositPhoneSuggestions] = useState<Customer[]>([]);
-  const [showDepositSuggestions, setShowDepositSuggestions] = useState(false);
-  const [showAddCustomerPopup, setShowAddCustomerPopup] = useState(false);
-  const [addCustPhone, setAddCustPhone] = useState('');
-  const [addCustName, setAddCustName] = useState('');
-  const [addCustEmail, setAddCustEmail] = useState('');
-  const [addCustCompany, setAddCustCompany] = useState('');
-  // Exchange P&L state
-  const [exchangeRates, setExchangeRates] = useState<ExchangeRate[]>(MOCK_EXCHANGE_RATES);
-  const [plCurrencyFilter, setPlCurrencyFilter] = useState('All');
-  // Verification state
-  const [verifications, setVerifications] = useState<VerificationEntry[]>(MOCK_VERIFICATIONS);
-  // Cashier portal state
-  const [portalShortCode, setPortalShortCode] = useState('');
-  const [portalCountry, setPortalCountry] = useState('China');
-  const [portalResult, setPortalResult] = useState<{ supplierName: string; amount: number; currency: string; txnId: string; customerName: string } | null>(null);
   const [customerFilter, setCustomerFilter] = useState('');
 
   // Customer edit state
@@ -452,10 +376,7 @@ export default function KobePay() {
   const canAccess = (m: Module): boolean => {
     if (role === 'Admin') return true;
     if (role === 'Cashier TZ') return ['dashboard', 'customers', 'deposits', 'payouts', 'receipts'].includes(m);
-    if (role === 'Cashier China') return ['dashboard', 'payouts', 'receipts', 'suppliers', 'cashier-portal'].includes(m);
-    if (role === 'Cashier India') return ['dashboard', 'payouts', 'receipts', 'suppliers', 'cashier-portal'].includes(m);
-    if (role === 'Manager TZ') return ['dashboard', 'customers', 'deposits', 'payouts', 'receipts', 'verification', 'exchange-pl'].includes(m);
-    if (role === 'Manager China/India') return ['dashboard', 'payouts', 'receipts', 'suppliers', 'verification', 'cashier-portal', 'exchange-pl'].includes(m);
+    if (role === 'Cashier China') return ['dashboard', 'payouts', 'receipts', 'suppliers'].includes(m);
     return false;
   };
 
@@ -464,106 +385,6 @@ export default function KobePay() {
     const found = customers.find(c => c.phone.includes(phoneSearch.trim()));
     if (found) { setSearchedCustomer(found); setShowNewCustomer(false); }
     else { setSearchedCustomer(null); setShowNewCustomer(true); setNewCustomerPhone(phoneSearch.trim()); }
-  };
-
-  const handleDepositPhoneChange = (val: string) => {
-    setDepositPhone(val);
-    if (val.trim().length >= 3) {
-      const matches = customers.filter(c => c.phone.includes(val.trim()) || c.name.toLowerCase().includes(val.trim().toLowerCase()));
-      setDepositPhoneSuggestions(matches.slice(0, 5));
-      setShowDepositSuggestions(matches.length > 0);
-      if (matches.length === 0) {
-        setSelectedDepositCustomer(null);
-      }
-    } else {
-      setDepositPhoneSuggestions([]);
-      setShowDepositSuggestions(false);
-    }
-  };
-
-  const handleSelectDepositSuggestion = (c: Customer) => {
-    setDepositPhone(c.phone);
-    setSelectedDepositCustomer(c);
-    setShowDepositSuggestions(false);
-    setDepositPhoneSuggestions([]);
-  };
-
-  const handleAddCustomerFromDeposit = () => {
-    if (!addCustName.trim() || !addCustPhone.trim()) return;
-    const newC: Customer = {
-      id: `C${Date.now()}`, name: addCustName.trim(), phone: addCustPhone.trim(),
-      email: addCustEmail.trim(), company: addCustCompany.trim(), balance: 0,
-      depositCount: 0, lastDeposit: '-', notes: '',
-      idNumber: '', createdAt: new Date().toISOString(),
-    };
-    setCustomers(prev => [newC, ...prev]);
-    setSelectedDepositCustomer(newC);
-    setDepositPhone(newC.phone);
-    setShowAddCustomerPopup(false);
-    setAddCustName(''); setAddCustEmail(''); setAddCustCompany('');
-    setAddCustPhone('');
-  };
-
-  const [portalLoading, setPortalLoading] = useState(false);
-  const [portalError, setPortalError] = useState('');
-
-  const lookupPortalShortCode = async () => {
-    if (!portalShortCode.trim() || portalShortCode.length < 4) return;
-    setPortalLoading(true);
-    setPortalError('');
-    setPortalResult(null);
-
-    const code = portalShortCode.toUpperCase();
-
-    // 1. Try the real API first (public endpoint — no auth needed)
-    try {
-      const res = await api<{
-        found: boolean;
-        txnId?: string;
-        customerName?: string;
-        supplierNumber?: string;
-        supplierName?: string;
-        amount?: number;
-        currency?: string;
-        status?: string;
-      }>(`/payments/payout-lookup?code=${encodeURIComponent(code)}`);
-
-      if (res.found && res.amount) {
-        setPortalResult({
-          supplierName: res.supplierName || res.supplierNumber || 'Unknown',
-          amount: res.amount,
-          currency: res.currency ?? 'USD',
-          txnId: res.txnId ?? code,
-          customerName: res.customerName ?? 'Unknown',
-        });
-        setPortalLoading(false);
-        return;
-      }
-    } catch { /* API unavailable — fall through to local state */ }
-
-    // 2. Fallback: search in-memory deposits (works offline / before backend is wired)
-    // Match against the last N chars of the txnId stored in the receipt, or supplier line refs
-    const localMatch = deposits.find(d => {
-      // Check main reference
-      if (d.reference.toUpperCase().endsWith(code)) return true;
-      // Check txnId pattern TXN-YYYYMMDD-NNN-SXX
-      return false;
-    });
-
-    if (localMatch && localMatch.suppliers && localMatch.suppliers.length > 0) {
-      const sup = localMatch.suppliers[0];
-      setPortalResult({
-        supplierName: sup.supplierName || sup.supplierNumber,
-        amount: sup.amount,
-        currency: localMatch.currency,
-        txnId: localMatch.reference,
-        customerName: localMatch.customerName,
-      });
-    } else {
-      setPortalError(`No transaction found for code "${code}"`);
-    }
-
-    setPortalLoading(false);
   };
 
   const handleCreateCustomer = () => {
@@ -667,12 +488,7 @@ export default function KobePay() {
         : c
     ));
 
-    // Record each supplier line separately so each gets its own short-code-lookupable reference.
-    // For multi-supplier deposits, record the first supplier on the main txn and extras as sub-txns.
-    lines.forEach((l, i) => {
-      const lineRef = `${txnId}-S${String(i + 1).padStart(2, '0')}`;
-      recordDeposit(l.amount, newDeposit.reference, lineRef, customer.name, l.supplierNumber, l.supplierName || l.supplierNumber, depositCurrency);
-    });
+    recordDeposit(total, newDeposit.reference, `KobePay ${txnTypeLabel(depositType)} ${txnId}`);
 
     setDepositReceipt({
       transactionId: txnId,
@@ -817,23 +633,6 @@ export default function KobePay() {
 
   const renderDashboard = () => (
     <div className="space-y-6">
-      {/* Quick actions */}
-      <div className="flex items-center gap-3 flex-wrap">
-        <Button onClick={() => setModule('deposits')} className="bg-emerald-600 hover:bg-emerald-700 text-white gap-2">
-          <Plus className="w-4 h-4" />New Deposit
-        </Button>
-        <Button onClick={() => setModule('payouts')} variant="outline" className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10 gap-2">
-          <Send className="w-4 h-4" />New Payout
-        </Button>
-        <Button onClick={() => setModule('customers')} variant="outline" className="border-blue-500/30 text-blue-400 hover:bg-blue-500/10 gap-2">
-          <Users className="w-4 h-4" />Customers
-        </Button>
-        {(role === 'Admin' || role === 'Manager TZ' || role === 'Manager China/India') && (
-          <Button onClick={() => setModule('exchange-pl')} variant="outline" className="border-lime-500/30 text-lime-400 hover:bg-lime-500/10 gap-2">
-            <DollarSign className="w-4 h-4" />Exchange P&L
-          </Button>
-        )}
-      </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           { label: 'Total Wallet', value: `$${totalWallet.toLocaleString()}`, icon: Wallet, color: 'text-cyan-400', bg: 'bg-cyan-500/10' },
@@ -1066,53 +865,7 @@ export default function KobePay() {
           <CardContent className="p-5">
             <h3 className="text-white font-semibold mb-4 flex items-center gap-2"><Plus className="w-5 h-5 text-emerald-400" />New Deposit</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-              <div className="relative">
-                <label className="text-xs text-slate-400 mb-1 block">Customer Phone / Name</label>
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <Input
-                      placeholder="Type phone or name…"
-                      value={depositPhone}
-                      onChange={e => handleDepositPhoneChange(e.target.value)}
-                      onBlur={() => setTimeout(() => setShowDepositSuggestions(false), 150)}
-                      onFocus={() => depositPhone.length >= 3 && setShowDepositSuggestions(depositPhoneSuggestions.length > 0)}
-                      className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600"
-                    />
-                    {showDepositSuggestions && (
-                      <div className="absolute z-50 top-full left-0 right-0 mt-1 rounded-lg border border-white/[0.08] bg-[#13131f] shadow-xl overflow-hidden">
-                        {depositPhoneSuggestions.map(c => (
-                          <button key={c.id} onMouseDown={() => handleSelectDepositSuggestion(c)}
-                            className="w-full flex items-center gap-3 px-3 py-2 hover:bg-white/[0.05] text-left transition-colors">
-                            <div className="w-7 h-7 rounded-full bg-blue-500/10 flex items-center justify-center shrink-0">
-                              <User className="w-3.5 h-3.5 text-blue-400" />
-                            </div>
-                            <div>
-                              <p className="text-sm text-white font-medium">{c.name}</p>
-                              <p className="text-xs text-slate-500">{c.phone}</p>
-                            </div>
-                          </button>
-                        ))}
-                        <button onMouseDown={() => { setShowDepositSuggestions(false); setAddCustPhone(depositPhone); setShowAddCustomerPopup(true); }}
-                          className="w-full flex items-center gap-2 px-3 py-2 hover:bg-emerald-500/10 text-left border-t border-white/[0.06]">
-                          <Plus className="w-3.5 h-3.5 text-emerald-400" />
-                          <span className="text-xs text-emerald-400">Add new customer "{depositPhone}"</span>
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  {!selectedDepositCustomer && depositPhone.length >= 3 && depositPhoneSuggestions.length === 0 && (
-                    <Button size="sm" onClick={() => { setAddCustPhone(depositPhone); setShowAddCustomerPopup(true); }} className="bg-emerald-600 hover:bg-emerald-700 shrink-0">
-                      <Plus className="w-4 h-4" />
-                    </Button>
-                  )}
-                </div>
-                {selectedDepositCustomer && (
-                  <p className="text-xs text-emerald-400 mt-1 flex items-center gap-1">
-                    <CheckCircle2 className="w-3 h-3" />{selectedDepositCustomer.name} — {selectedDepositCustomer.phone}
-                    <button onClick={() => { setSelectedDepositCustomer(null); setDepositPhone(''); }} className="ml-1 text-slate-500 hover:text-red-400"><X className="w-3 h-3" /></button>
-                  </p>
-                )}
-              </div>
+              <div><label className="text-xs text-slate-400 mb-1 block">Search Customer Phone</label><div className="flex gap-2"><Input placeholder="Enter phone..." value={depositPhone} onChange={e => setDepositPhone(e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600" /><Button onClick={handleDepositSearch} size="sm" className="bg-blue-600 hover:bg-blue-700"><Search className="w-4 h-4" /></Button></div>{selectedDepositCustomer && <p className="text-xs text-emerald-400 mt-1 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" />{selectedDepositCustomer.name}</p>}</div>
               <div><label className="text-xs text-slate-400 mb-1 block">Currency</label><Select value={depositCurrency} onValueChange={setDepositCurrency}><SelectTrigger className="bg-[#0a0a1a] border-white/[0.08] text-white"><SelectValue /></SelectTrigger><SelectContent className="bg-[#13131f] border-white/[0.08]"><SelectItem value="USD" className="text-white">USD</SelectItem><SelectItem value="TZS" className="text-white">TZS</SelectItem><SelectItem value="CNY" className="text-white">CNY</SelectItem></SelectContent></Select></div>
               <div><label className="text-xs text-slate-400 mb-1 block">Payment Method</label><Select value={depositMethod} onValueChange={setDepositMethod}><SelectTrigger className="bg-[#0a0a1a] border-white/[0.08] text-white"><SelectValue /></SelectTrigger><SelectContent className="bg-[#13131f] border-white/[0.08]"><SelectItem value="Cash" className="text-white">Cash</SelectItem><SelectItem value="M-Pesa" className="text-white">M-Pesa</SelectItem><SelectItem value="Bank Transfer" className="text-white">Bank Transfer</SelectItem><SelectItem value="Agent" className="text-white">Agent</SelectItem><SelectItem value="WeChat Pay" className="text-white">WeChat Pay</SelectItem><SelectItem value="Alipay" className="text-white">Alipay</SelectItem></SelectContent></Select></div>
               <div><label className="text-xs text-slate-400 mb-1 block">Transaction Type</label><Select value={depositType} onValueChange={v => setDepositType(v as TxnType)}><SelectTrigger className="bg-[#0a0a1a] border-white/[0.08] text-white"><SelectValue /></SelectTrigger><SelectContent className="bg-[#13131f] border-white/[0.08]"><SelectItem value="Deposit" className="text-white">Deposit (advance)</SelectItem><SelectItem value="Goods on Delivery" className="text-white">Goods on delivery</SelectItem></SelectContent></Select></div>
@@ -1213,86 +966,46 @@ export default function KobePay() {
           )}
         </DialogContent>
       </Dialog>
-      {/* Dual QR Receipt Dialog */}
       <Dialog open={showDepositReceipt} onOpenChange={setShowDepositReceipt}>
-        <DialogContent className="bg-[#13131f] border-white/[0.06] max-w-lg">
+        <DialogContent className="bg-[#13131f] border-white/[0.06] max-w-md">
           <DialogHeader><DialogTitle className="text-white flex items-center gap-2"><Receipt className="w-5 h-5 text-emerald-400" />Transaction Receipt</DialogTitle></DialogHeader>
           {depositReceipt && (
             <div className="space-y-4">
               <div className="p-4 rounded-xl bg-[#0a0a1a] border border-white/[0.06] text-center">
-                <h3 className="text-base font-bold text-white">{businessName}</h3>
+                <h3 className="text-lg font-bold text-white">{businessName}</h3>
                 <p className="text-xs text-slate-500">{businessPhone} | {businessEmail}</p>
-                {/* Short code for manual entry */}
-                <div className="mt-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/[0.04] border border-white/[0.08]">
-                  <span className="text-[10px] text-slate-400">Short Code:</span>
-                  <span className="text-sm font-bold text-cyan-400 font-mono tracking-widest">{depositReceipt.transactionId.slice(-6).toUpperCase()}</span>
-                </div>
+                <div className="my-3 flex justify-center"><QRCodeSVG value={depositReceipt.transactionId} size={96} bgColor="#0a0a1a" fgColor="#06b6d4" /></div>
+                <p className="text-xs text-slate-500 font-mono">{depositReceipt.transactionId}</p>
               </div>
-              {/* Dual QR codes */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="p-3 rounded-xl bg-[#0a0a1a] border border-white/[0.06] text-center">
-                  <p className="text-[10px] text-slate-400 mb-2 font-medium uppercase tracking-wider">Customer QR</p>
-                  <div className="flex justify-center">
-                    <QRCodeSVG
-                      value={`KOBEPAY:CUSTOMER:${depositReceipt.transactionId}:${depositReceipt.customerName}:${depositReceipt.total}:${depositReceipt.currency}`}
-                      size={100} bgColor="#0a0a1a" fgColor="#06b6d4"
-                    />
-                  </div>
-                  <p className="text-[9px] text-slate-600 mt-1.5 font-mono">{depositReceipt.customerName}</p>
-                </div>
-                <div className="p-3 rounded-xl bg-[#0a0a1a] border border-white/[0.06] text-center">
-                  <p className="text-[10px] text-slate-400 mb-2 font-medium uppercase tracking-wider">Supplier QR</p>
-                  <div className="flex justify-center">
-                    <QRCodeSVG
-                      value={`KOBEPAY:SUPPLIER:${depositReceipt.transactionId}:${depositReceipt.suppliers[0]?.supplierNumber ?? ''}:${depositReceipt.total}:${depositReceipt.currency}`}
-                      size={100} bgColor="#0a0a1a" fgColor="#a78bfa"
-                    />
-                  </div>
-                  <p className="text-[9px] text-slate-600 mt-1.5 font-mono">{depositReceipt.suppliers[0]?.supplierName || depositReceipt.suppliers[0]?.supplierNumber}</p>
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <div className="flex justify-between py-1 border-b border-white/[0.04]"><span className="text-xs text-slate-400">Sender</span><span className="text-sm text-white">{depositReceipt.customerName} · {depositReceipt.phone}</span></div>
-                <div className="flex justify-between py-1 border-b border-white/[0.04]"><span className="text-xs text-slate-400">Method</span><span className="text-sm text-white">{depositReceipt.method}</span></div>
-                <div className="flex justify-between py-1 border-b border-white/[0.04]"><span className="text-xs text-slate-400">Purpose</span><span className="text-sm text-white">{txnTypeLabel(depositReceipt.txnType)}</span></div>
+              <div className="space-y-2">
+                <div className="flex justify-between py-1.5 border-b border-white/[0.04]"><span className="text-xs text-slate-400">Sender (Customer)</span><span className="text-sm text-white">{depositReceipt.customerName}</span></div>
+                <div className="flex justify-between py-1.5 border-b border-white/[0.04]"><span className="text-xs text-slate-400">Phone</span><span className="text-sm text-white">{depositReceipt.phone}</span></div>
+                <div className="flex justify-between py-1.5 border-b border-white/[0.04]"><span className="text-xs text-slate-400">Method</span><span className="text-sm text-white">{depositReceipt.method}</span></div>
+                <div className="flex justify-between py-1.5 border-b border-white/[0.04]"><span className="text-xs text-slate-400">Purpose</span><span className="text-sm text-white">{txnTypeLabel(depositReceipt.txnType)}</span></div>
               </div>
               <div className="rounded-xl bg-[#0a0a1a] border border-white/[0.06] p-3">
-                <p className="text-xs text-slate-400 mb-2">Supplier(s)</p>
-                <div className="space-y-1.5">
+                <p className="text-xs text-slate-400 mb-2">Chinese Supplier(s)</p>
+                <div className="space-y-2">
                   {depositReceipt.suppliers.map((s, i) => (
                     <div key={i} className="flex items-center justify-between">
-                      <div><p className="text-sm text-white">{s.supplierName || s.supplierNumber}</p><p className="text-[10px] text-slate-500 font-mono">No. {s.supplierNumber}</p></div>
+                      <div>
+                        <p className="text-sm text-white">{s.supplierName || s.supplierNumber}</p>
+                        <p className="text-[11px] text-slate-500 font-mono">No. {s.supplierNumber}</p>
+                      </div>
                       <span className="text-sm font-medium text-emerald-400">{s.amount.toLocaleString()} {depositReceipt.currency}</span>
                     </div>
                   ))}
                 </div>
-                <div className="flex justify-between mt-2 pt-2 border-t border-white/[0.06]"><span className="text-sm font-semibold text-white">Total</span><span className="text-sm font-bold text-emerald-400">{depositReceipt.total.toLocaleString()} {depositReceipt.currency}</span></div>
+                <div className="flex justify-between mt-3 pt-2 border-t border-white/[0.06]"><span className="text-sm font-semibold text-white">Total</span><span className="text-sm font-bold text-emerald-400">{depositReceipt.total.toLocaleString()} {depositReceipt.currency}</span></div>
               </div>
               <div className="space-y-2">
                 <Button onClick={() => printHtml(buildCustomerInvoice(depositReceipt))} className="w-full bg-cyan-600 hover:bg-cyan-700 text-white"><Printer className="w-4 h-4 mr-2" />Print Customer Invoice</Button>
                 {depositReceipt.suppliers.map((s, i) => (
-                  <Button key={i} onClick={() => printHtml(buildSupplierInvoice(depositReceipt, s))} variant="outline" className="w-full border-violet-500/30 text-violet-400 hover:bg-violet-500/10"><Printer className="w-4 h-4 mr-2" />Print Supplier Invoice — {s.supplierName || s.supplierNumber}</Button>
+                  <Button key={i} onClick={() => printHtml(buildSupplierInvoice(depositReceipt, s))} variant="outline" className="w-full border-white/10 text-white hover:bg-white/5"><Printer className="w-4 h-4 mr-2" />Print Supplier Invoice — {s.supplierName || s.supplierNumber}</Button>
                 ))}
               </div>
             </div>
           )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Add Customer Popup — inline, no page navigation */}
-      <Dialog open={showAddCustomerPopup} onOpenChange={setShowAddCustomerPopup}>
-        <DialogContent className="bg-[#13131f] border-white/[0.06] max-w-sm">
-          <DialogHeader><DialogTitle className="text-white flex items-center gap-2"><Plus className="w-5 h-5 text-emerald-400" />Add New Customer</DialogTitle></DialogHeader>
-          <div className="space-y-3">
-            <div><label className="text-xs text-slate-400 mb-1 block">Phone *</label><Input value={addCustPhone} onChange={e => setAddCustPhone(e.target.value)} placeholder="+255 7xx xxx xxx" className="bg-[#0a0a1a] border-white/[0.08] text-white" /></div>
-            <div><label className="text-xs text-slate-400 mb-1 block">Full Name *</label><Input value={addCustName} onChange={e => setAddCustName(e.target.value)} placeholder="Customer name" className="bg-[#0a0a1a] border-white/[0.08] text-white" autoFocus /></div>
-            <div><label className="text-xs text-slate-400 mb-1 block">Email</label><Input value={addCustEmail} onChange={e => setAddCustEmail(e.target.value)} placeholder="email@example.com" className="bg-[#0a0a1a] border-white/[0.08] text-white" /></div>
-            <div><label className="text-xs text-slate-400 mb-1 block">Company</label><Input value={addCustCompany} onChange={e => setAddCustCompany(e.target.value)} placeholder="Company (optional)" className="bg-[#0a0a1a] border-white/[0.08] text-white" /></div>
-            <div className="flex gap-2 pt-1">
-              <Button onClick={handleAddCustomerFromDeposit} disabled={!addCustName.trim() || !addCustPhone.trim()} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white"><Check className="w-4 h-4 mr-2" />Create & Select</Button>
-              <Button onClick={() => setShowAddCustomerPopup(false)} variant="outline" className="border-white/10 text-slate-400 hover:bg-white/5"><X className="w-4 h-4" /></Button>
-            </div>
-          </div>
         </DialogContent>
       </Dialog>
     </div>
@@ -1591,232 +1304,6 @@ export default function KobePay() {
     </div>
   );
 
-  // ── Exchange P&L ────────────────────────────────────────────────────────────
-  const renderExchangePL = () => {
-    const filtered = plCurrencyFilter === 'All' ? exchangeRates : exchangeRates.filter(r => r.currency === plCurrencyFilter);
-    const funded = filtered.filter(r => r.status === 'funded');
-    const totalProfit = funded.reduce((s, r) => s + r.profitLoss, 0);
-    const totalVol = funded.reduce((s, r) => s + r.amountUsd, 0);
-    return (
-      <div className="space-y-6">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {[
-            { label: 'Total Volume (USD)', value: `$${totalVol.toLocaleString()}`, color: 'text-cyan-400' },
-            { label: 'Net Profit/Loss', value: totalProfit >= 0 ? `+${totalProfit.toLocaleString()}` : totalProfit.toLocaleString(), color: totalProfit >= 0 ? 'text-emerald-400' : 'text-red-400' },
-            { label: 'Profitable Txns', value: String(funded.filter(r => r.profitLoss > 0).length), color: 'text-emerald-400' },
-            { label: 'Loss Txns', value: String(funded.filter(r => r.profitLoss < 0).length), color: 'text-red-400' },
-          ].map(k => (
-            <Card key={k.label} className="bg-[#13131f] border-white/[0.06]">
-              <CardContent className="p-4">
-                <p className="text-xs text-slate-400 mb-1">{k.label}</p>
-                <p className={`text-xl font-bold ${k.color}`}>{k.value}</p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-        <Card className="bg-[#13131f] border-white/[0.06]">
-          <CardContent className="p-5">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-white font-semibold flex items-center gap-2"><DollarSign className="w-5 h-5 text-lime-400" />Exchange Rate P&L</h3>
-              <div className="flex gap-2">
-                {['All','CNY','TZS','INR'].map(c => (
-                  <button key={c} onClick={() => setPlCurrencyFilter(c)}
-                    className={`px-3 py-1 rounded-lg text-xs font-medium transition-colors ${plCurrencyFilter === c ? 'bg-lime-600 text-white' : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.08]'}`}>
-                    {c}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-white/[0.06]">
-                    {['Date','Ref','Currency','Amount (USD)','Customer Rate','Actual Rate','Customer Gets','Actual Paid','P&L','Status'].map(h => (
-                      <th key={h} className="text-left py-2 px-3 text-xs font-medium text-slate-400 whitespace-nowrap">{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map(r => (
-                    <tr key={r.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
-                      <td className="py-2 px-3 text-slate-400 whitespace-nowrap">{r.date}</td>
-                      <td className="py-2 px-3 text-slate-500 font-mono text-xs">{r.txnRef.slice(-8)}</td>
-                      <td className="py-2 px-3"><Badge variant="outline" className="bg-white/[0.04] text-slate-300 border-white/[0.08] text-xs">{r.currency}</Badge></td>
-                      <td className="py-2 px-3 text-white font-medium">${r.amountUsd.toLocaleString()}</td>
-                      <td className="py-2 px-3 text-slate-300">{r.customerRate.toLocaleString()}</td>
-                      <td className="py-2 px-3 text-slate-300">{r.actualRate.toLocaleString()}</td>
-                      <td className="py-2 px-3 text-slate-400">{r.customerReceives.toLocaleString()}</td>
-                      <td className="py-2 px-3 text-slate-400">{r.actualPaid.toLocaleString()}</td>
-                      <td className={`py-2 px-3 font-bold ${r.profitLoss >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {r.profitLoss >= 0 ? '+' : ''}{r.profitLoss.toLocaleString()} {r.currency}
-                      </td>
-                      <td className="py-2 px-3">
-                        <Badge variant="outline" className={r.status === 'funded' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 text-xs' : 'bg-amber-500/10 text-amber-400 border-amber-500/20 text-xs'}>
-                          {r.status}
-                        </Badge>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="mt-3 p-3 rounded-lg bg-[#0a0a1a] border border-white/[0.06]">
-              <p className="text-xs text-slate-400">
-                <span className="text-white font-medium">How it works:</span> P&L is the difference between what the customer was quoted and what was actually paid out on the transfer day.
-                A positive value means the actual rate was better than quoted (profit). A negative value means the actual rate was worse (loss).
-                Only <span className="text-emerald-400">funded</span> transactions are counted in totals.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  };
-
-  // ── Manager Verification ─────────────────────────────────────────────────────
-  const renderVerification = () => (
-    <div className="space-y-6">
-      <Card className="bg-[#13131f] border-white/[0.06]">
-        <CardContent className="p-5">
-          <h3 className="text-white font-semibold mb-4 flex items-center gap-2"><BadgeCheck className="w-5 h-5 text-teal-400" />Daily Verification</h3>
-          <p className="text-xs text-slate-400 mb-4">Managers reconcile system amounts against physical cash, bank, and mobile money balances.</p>
-          {/* New verification form */}
-          <div className="p-4 rounded-xl bg-[#0a0a1a] border border-white/[0.06] space-y-3 mb-6">
-            <h4 className="text-sm font-medium text-white">Submit Today's Verification</h4>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              {(role === 'Manager TZ' ? [
-                { label: 'System Amount (USD)', key: 'systemAmount' },
-                { label: 'Cash on Hand (USD)', key: 'cashOnHand' },
-                { label: 'Bank Balance (USD)', key: 'bankBalance' },
-                { label: 'Mobile Money Balance (USD)', key: 'mobileBalance' },
-              ] : [
-                { label: 'System Amount', key: 'systemAmount' },
-                { label: 'Cash Received', key: 'cashOnHand' },
-                { label: 'Cash Paid Out', key: 'cashPaidOut' },
-                { label: 'Remaining Cash', key: 'remainingCash' },
-                { label: 'Remaining Payout in System', key: 'remainingPayout' },
-              ]).map(f => (
-                <div key={f.key}>
-                  <label className="text-xs text-slate-400 mb-1 block">{f.label}</label>
-                  <Input type="number" placeholder="0.00" className="bg-[#13131f] border-white/[0.08] text-white placeholder:text-slate-600" />
-                </div>
-              ))}
-              <div className="col-span-2 md:col-span-3">
-                <label className="text-xs text-slate-400 mb-1 block">Notes</label>
-                <Input placeholder="Any discrepancies or notes…" className="bg-[#13131f] border-white/[0.08] text-white placeholder:text-slate-600" />
-              </div>
-            </div>
-            <Button className="bg-teal-600 hover:bg-teal-700 text-white"><BadgeCheck className="w-4 h-4 mr-2" />Submit Verification</Button>
-          </div>
-          {/* History */}
-          <h4 className="text-sm font-medium text-white mb-3">Verification History</h4>
-          <div className="space-y-3">
-            {verifications.map(v => {
-              const diff = v.cashOnHand - v.systemAmount;
-              return (
-                <div key={v.id} className="p-4 rounded-xl bg-[#0a0a1a] border border-white/[0.06]">
-                  <div className="flex items-start justify-between mb-2">
-                    <div>
-                      <p className="text-sm font-medium text-white">{v.cashierName} — {v.country}</p>
-                      <p className="text-xs text-slate-500">{v.date} · Verified by {v.verifiedBy}</p>
-                    </div>
-                    <Badge variant="outline" className={Math.abs(diff) < 10 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 text-xs' : 'bg-red-500/10 text-red-400 border-red-500/20 text-xs'}>
-                      {Math.abs(diff) < 10 ? 'Balanced' : `Diff: ${diff > 0 ? '+' : ''}${diff}`}
-                    </Badge>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
-                    <div><span className="text-slate-500">System</span><p className="text-white font-medium">${v.systemAmount.toLocaleString()}</p></div>
-                    <div><span className="text-slate-500">Cash on Hand</span><p className="text-white font-medium">${v.cashOnHand.toLocaleString()}</p></div>
-                    {v.bankBalance > 0 && <div><span className="text-slate-500">Bank</span><p className="text-white font-medium">${v.bankBalance.toLocaleString()}</p></div>}
-                    {v.mobileBalance > 0 && <div><span className="text-slate-500">Mobile</span><p className="text-white font-medium">${v.mobileBalance.toLocaleString()}</p></div>}
-                    {v.cashPaidOut > 0 && <div><span className="text-slate-500">Paid Out</span><p className="text-white font-medium">${v.cashPaidOut.toLocaleString()}</p></div>}
-                    {v.remainingPayout > 0 && <div><span className="text-slate-500">Remaining Payout</span><p className="text-amber-400 font-medium">${v.remainingPayout.toLocaleString()}</p></div>}
-                  </div>
-                  {v.notes && <p className="text-xs text-slate-500 mt-2 italic">{v.notes}</p>}
-                </div>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-
-  // ── Supplier Cashier Portal ──────────────────────────────────────────────────
-  const renderCashierPortal = () => (
-    <div className="space-y-6">
-      <Card className="bg-[#13131f] border-white/[0.06]">
-        <CardContent className="p-5">
-          <h3 className="text-white font-semibold mb-1 flex items-center gap-2"><Landmark className="w-5 h-5 text-sky-400" />Supplier Payout Portal</h3>
-          <p className="text-xs text-slate-400 mb-5">For China / India / other country cashiers. Scan the supplier QR code or enter the short code to view payout details.</p>
-          <div className="max-w-sm mx-auto space-y-4">
-            <div>
-              <label className="text-xs text-slate-400 mb-1 block">Country</label>
-              <div className="flex gap-2 flex-wrap">
-                {['China','India','Tanzania','Other'].map(c => (
-                  <button key={c} onClick={() => setPortalCountry(c)}
-                    className={`px-4 py-1.5 rounded-lg text-xs font-medium transition-colors ${portalCountry === c ? 'bg-sky-600 text-white' : 'bg-white/[0.04] text-slate-400 hover:bg-white/[0.08]'}`}>
-                    {c}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="text-xs text-slate-400 mb-1 block">Short Code (last 6 chars of Transaction ID)</label>
-              <div className="flex gap-2">
-                <Input
-                  value={portalShortCode}
-                  onChange={e => setPortalShortCode(e.target.value.toUpperCase())}
-                  placeholder="e.g. A1B2C3"
-                  className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600 font-mono tracking-widest uppercase"
-                  maxLength={6}
-                />
-                <Button onClick={lookupPortalShortCode} disabled={portalLoading || portalShortCode.length < 4} className="bg-sky-600 hover:bg-sky-700 text-white shrink-0">
-                  {portalLoading ? <Clock className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-                </Button>
-              </div>
-            </div>
-            <div className="text-center">
-              <div className="inline-flex items-center gap-2 text-xs text-slate-500">
-                <div className="h-px w-12 bg-white/[0.08]" />
-                <span>or scan QR code with camera</span>
-                <div className="h-px w-12 bg-white/[0.08]" />
-              </div>
-              <div className="mt-3 p-6 rounded-xl border-2 border-dashed border-white/[0.08] flex flex-col items-center gap-2">
-                <QrCode className="w-8 h-8 text-slate-600" />
-                <p className="text-xs text-slate-500">Camera scanning not available in desktop mode</p>
-              </div>
-            </div>
-            {portalResult && (
-              <div className="p-4 rounded-xl bg-emerald-500/[0.06] border border-emerald-500/20 space-y-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <CheckCircle2 className="w-5 h-5 text-emerald-400" />
-                  <span className="text-sm font-semibold text-emerald-400">Payout Found</span>
-                </div>
-                <div className="space-y-1.5 text-sm">
-                  <div className="flex justify-between"><span className="text-slate-400">Supplier</span><span className="text-white font-medium">{portalResult.supplierName}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-400">Customer</span><span className="text-white">{portalResult.customerName}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-400">Amount to Pay</span><span className="text-emerald-400 font-bold text-base">{portalResult.amount.toLocaleString()} {portalResult.currency}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-400">Transaction ID</span><span className="text-slate-300 font-mono text-xs">{portalResult.txnId}</span></div>
-                  <div className="flex justify-between"><span className="text-slate-400">Country</span><span className="text-white">{portalCountry}</span></div>
-                </div>
-                <Button className="w-full bg-emerald-600 hover:bg-emerald-700 text-white mt-2">
-                  <Check className="w-4 h-4 mr-2" />Confirm Payout Made
-                </Button>
-              </div>
-            )}
-            {portalError && !portalLoading && (
-              <div className="p-4 rounded-xl bg-red-500/[0.06] border border-red-500/20 text-center">
-                <AlertTriangle className="w-5 h-5 text-red-400 mx-auto mb-1" />
-                <p className="text-sm text-red-400">{portalError}</p>
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-
   const renderModule = () => {
     switch (module) {
       case 'dashboard': return renderDashboard();
@@ -1826,21 +1313,13 @@ export default function KobePay() {
       case 'suppliers': return renderSuppliers();
       case 'allocations': return renderAllocations();
       case 'receipts': return renderReceipts();
-      case 'settings':        return renderSettings();
-      case 'exchange-pl':     return renderExchangePL();
-      case 'verification':    return renderVerification();
-      case 'cashier-portal':  return renderCashierPortal();
+      case 'settings': return renderSettings();
       default: return renderDashboard();
     }
   };
 
   const getModuleTitle = () => {
-    const titles: Record<Module, string> = {
-      dashboard: 'Dashboard', customers: 'Customers', deposits: 'Deposits',
-      payouts: 'Payouts', suppliers: 'Suppliers', allocations: 'Allocations',
-      receipts: 'Receipts', settings: 'Settings',
-      'exchange-pl': 'Exchange P&L', verification: 'Verification', 'cashier-portal': 'Cashier Portal',
-    };
+    const titles: Record<Module, string> = { dashboard: 'Dashboard', customers: 'Customers', deposits: 'Deposits', payouts: 'Payouts', suppliers: 'Suppliers', allocations: 'Allocations', receipts: 'Receipts', settings: 'Settings' };
     return titles[module] || 'Dashboard';
   };
 
@@ -1901,7 +1380,7 @@ export default function KobePay() {
           <div className="flex items-center gap-3">
             <span className="text-xs text-slate-500">Role:</span>
             <div className="flex rounded-lg bg-white/[0.03] border border-white/[0.06] overflow-hidden">
-              {(['Admin', 'Cashier TZ', 'Cashier China', 'Cashier India', 'Manager TZ', 'Manager China/India'] as Role[]).map(r => (
+              {(['Admin', 'Cashier TZ', 'Cashier China'] as Role[]).map(r => (
                 <button
                   key={r}
                   onClick={() => { setRole(r); if (!canAccess(module)) setModule('dashboard'); }}

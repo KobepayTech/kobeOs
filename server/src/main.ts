@@ -13,12 +13,9 @@ async function bootstrap() {
   const config = app.get(ConfigService);
 
   // Prevent accidental schema sync in production — use migrations instead.
-  // Exception: KOBEOS_DESKTOP=true means the backend is running as an Electron
-  // child process where embedded postgres is the only DB and migrations are not run.
   if (
     config.get('DB_SYNCHRONIZE') === 'true' &&
-    config.get('NODE_ENV') === 'production' &&
-    config.get('KOBEOS_DESKTOP') !== 'true'
+    config.get('NODE_ENV') === 'production'
   ) {
     throw new Error(
       'DB_SYNCHRONIZE must not be enabled in production. Run migrations instead.',

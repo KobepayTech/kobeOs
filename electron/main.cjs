@@ -156,12 +156,11 @@ function startBackend(dbConfig) {
     DB_USERNAME: dbConfig.user,
     DB_PASSWORD: dbConfig.password,
     DB_DATABASE: dbConfig.database,
-    // KOBEOS_DESKTOP=true bypasses the prod NODE_ENV/DB_SYNCHRONIZE guard
-    // (see server/src/main.ts) and enables schema sync in the embedded
-    // desktop edition via database.config.ts. DB_SYNCHRONIZE is left
-    // unset here so it falls back to the desktop-edition default ('true').
-    // Never set KOBEOS_DESKTOP=true on a multi-user server install.
-    KOBEOS_DESKTOP: 'true',
+    // DB_SYNCHRONIZE is intentionally NOT set: in production the database
+    // module ignores it (synchronize stays false) and main.ts throws if it
+    // sees both NODE_ENV=production and DB_SYNCHRONIZE=true. Schema is
+    // applied via migrations on boot (migrationsRun=true when !isDev).
+    KOBEOS_DESKTOP: 'true',   // signals embedded desktop mode to bypass prod guards
     JWT_SECRET: getOrCreateJwtSecret(),
     CORS_ORIGIN: 'file://',
   };
@@ -225,9 +224,9 @@ async function bootServices() {
   sendBootProgress(55, 'Starting backend services…');
   startBackend(dbConfig);
 
-  // Poll until backend responds on :3000 (max 60 s — first boot needs time for NestJS cold start)
+  // Poll until backend responds on :3000 (max 15 s)
   sendBootProgress(65, 'Waiting for backend…');
-  await waitForBackend(3000, 60000);
+  await waitForBackend(3000, 15000);
 
   sendBootProgress(90, 'Loading KobeOS…');
   await new Promise((r) => setTimeout(r, 300));
@@ -392,26 +391,23 @@ app.whenReady().then(async () => {
   app.on('network-connected', () => syncEngine.forceDrain());
 });
 
-// Guard against double-teardown when both window-all-closed and before-quit fire.
-let isShuttingDown = false;
-async function teardown() {
-  if (isShuttingDown) return;
-  isShuttingDown = true;
+app.on('window-all-closed', async () => {
   await kobeRuntime.shutdown().catch(() => {});
   syncEngine.stop();
   lanServer.stop();
   localdb.close();
   stopBackend();
   await stopEmbeddedPostgres();
-}
-
-app.on('window-all-closed', async () => {
-  await teardown();
   if (process.platform !== 'darwin') app.quit();
 });
 
 app.on('before-quit', async () => {
-  await teardown();
+  await kobeRuntime.shutdown().catch(() => {});
+  syncEngine.stop();
+  lanServer.stop();
+  localdb.close();
+  stopBackend();
+  await stopEmbeddedPostgres();
 });
 
 // ── System IPC ────────────────────────────────────────────────────────────────
@@ -608,16 +604,14 @@ Type=simple
 User=kobeos
 Environment=NODE_ENV=production
 Environment=PORT=3000
-Environment=KOBEOS_DESKTOP=true
 Environment=DB_HOST=127.0.0.1
 Environment=DB_PORT=5432
 Environment=DB_USERNAME=kobeos
 Environment=DB_PASSWORD=kobeos_prod
 Environment=DB_DATABASE=kobeos
-# KOBEOS_DESKTOP=true (above) lets the embedded edition sync schema via
-# database.config.ts and bypasses the prod DB_SYNCHRONIZE guard. The
-# DB_SYNCHRONIZE env var is intentionally left unset; the desktop
-# branch defaults it to 'true'.
+# DB_SYNCHRONIZE intentionally unset: migrations run automatically in
+# production; setting both NODE_ENV=production and DB_SYNCHRONIZE=true
+# is rejected by the server bootstrap.
 EnvironmentFile=-/opt/kobeos/resources/.env
 ExecStart=/usr/bin/node /opt/kobeos/resources/server-bundle/index.js
 Restart=on-failure

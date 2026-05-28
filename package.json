@@ -15,9 +15,7 @@
     "core:manifest": "node scripts/generate-core-manifest.js",
     "electron:build": "npm run build && npm run core:manifest && electron-builder",
     "electron:build:linux": "npm run build && npm run build:bundle && npm run core:manifest && electron-builder --linux",
-    "smoke-test": "node scripts/smoke-test.cjs",
-    "fetch-win-pg": "node -e \"const fs=require('fs'),path=require('path'),https=require('https'),zlib=require('zlib'),tar=require('tar');const dest=path.join('node_modules','@embedded-postgres','windows-x64');if(fs.existsSync(path.join(dest,'native','bin','initdb.exe'))){console.log('windows-x64 already present');process.exit(0);}const url='https://registry.npmjs.org/@embedded-postgres/windows-x64/-/windows-x64-18.3.0-beta.17.tgz';console.log('Fetching @embedded-postgres/windows-x64...');fs.mkdirSync(dest,{recursive:true});https.get(url,res=>res.pipe(zlib.createGunzip()).pipe(tar.extract({cwd:dest,strip:1}))).on('error',e=>{console.error(e);process.exit(1)});\"",
-    "electron:build:win": "npm run build && npm run fetch-win-pg && npm run core:manifest && electron-builder --win",
+    "electron:build:win": "npm run build && npm run core:manifest && electron-builder --win",
     "iso:build": "npm run electron:build:linux && node scripts/build-iso.cjs",
     "iso:package": "node scripts/build-iso.cjs",
     "models:checksums": "node scripts/fetch-model-checksums.js",
@@ -132,13 +130,6 @@
       { "from": "build/kobeos-release.pub", "to": "kobeos-release.pub" },
       { "from": "build/core-manifest.json", "to": "core-manifest.json" }
     ],
-    "extraFiles": [
-      {
-        "from": "build/vcredist/vc_redist.x64.exe",
-        "to": "vc_redist.x64.exe",
-        "filter": ["**/*"]
-      }
-    ],
     "linux": {
       "target": [{ "target": "AppImage", "arch": ["x64"] }, { "target": "deb", "arch": ["x64"] }],
       "icon": "build/kobeos-icon.png",
@@ -171,7 +162,7 @@
   "description": "KobeOS — Desktop business platform with ERP, cargo, hotel, payments and more",
   "author": { "name": "KobepayTech", "email": "support@kobepaytech.com" },
   "optionalDependencies": {
-    "@embedded-postgres/linux-x64": "^18.3.0-beta.17",
-    "@embedded-postgres/windows-x64": "^18.3.0-beta.17"
+    "@embedded-postgres/windows-x64": "^18.3.0-beta.17",
+    "@embedded-postgres/linux-x64": "^18.3.0-beta.17"
   }
 }

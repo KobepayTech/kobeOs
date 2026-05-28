@@ -2,6 +2,10 @@ import { useState, useMemo, useEffect } from 'react';
 import { useOfflineData } from '@/hooks/useOfflineData';
 import { api } from '@/lib/api';
 import { ensureSession } from '@/lib/auth';
+import { HotelAdminDashboard } from './HotelAdminDashboard';
+import { KDSDisplay } from './KDSDisplay';
+import { QRCustomerPortal } from './QRCustomerPortal';
+import type { Hotel as SharedHotel } from '@/shared/types';
 import { useHotelLive, type HotelOrder as LiveOrder } from './useHotelLive';
 import { buildPublicGuestUrl } from '@/public/api';
 import {
@@ -717,6 +721,9 @@ export default function KobeHotel() {
     { id: 'menu', label: 'Menu', icon: CakeSlice, color: 'text-rose-400 bg-rose-500/10 border-rose-500/20' },
     { id: 'kds', label: 'KDS', icon: ChefHat, color: 'text-orange-400 bg-orange-500/10 border-orange-500/20' },
     { id: 'portal', label: 'Guest Portal', icon: QrCode, color: 'text-pink-400 bg-pink-500/10 border-pink-500/20' },
+    { id: 'erp', label: 'Hotel ERP', icon: LayoutDashboard, color: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20' },
+    { id: 'kds', label: 'KDS', icon: ChefHat, color: 'text-rose-400 bg-rose-500/10 border-rose-500/20' },
+    { id: 'qr-portal', label: 'QR Portal', icon: QrCode, color: 'text-teal-400 bg-teal-500/10 border-teal-500/20' },
   ];
 
   // ═══════════════════════════════════════════════════════════════════
@@ -2298,6 +2305,100 @@ export default function KobeHotel() {
 
       {/* Bar Receipt Dialog */}
       <Dialog open={showReceipt} onOpenChange={setShowReceipt}>
+        {/* ─── Hotel ERP (Drive component) ─── */}
+        {activeTab === 'erp' && (() => {
+          const hotelData: SharedHotel = {
+            id: 'hotel-1',
+            name: 'Kobe Hotel',
+            subdomain: 'kobe',
+            address: 'Dar es Salaam, Tanzania',
+            phone: '+255 700 000 000',
+            email: 'info@kobehotel.co.tz',
+            theme: { primaryColor: '#6366f1', secondaryColor: '#8b5cf6', darkMode: true },
+            rooms: rooms.map(r => ({
+              id: String(r.id),
+              number: r.number,
+              type: r.type,
+              floor: r.floor ?? 1,
+              pricePerNight: r.price ?? 0,
+              status: r.status as 'available' | 'occupied' | 'cleaning' | 'maintenance',
+              capacity: r.beds ?? 2,
+              amenities: [],
+              bookings: [],
+            })),
+            menuCategories: [],
+            tables: [],
+            staff: [],
+            settings: {
+              checkInTime: '14:00',
+              checkOutTime: '11:00',
+              currency: 'TZS',
+              taxRate: 18,
+              serviceCharge: 10,
+              enableQROrdering: true,
+              enableRoomService: true,
+            },
+            createdAt: new Date().toISOString(),
+          };
+          return <HotelAdminDashboard hotel={hotelData} onUpdateHotel={() => {}} />;
+        })()}
+
+        {/* ─── KDS Display (Drive component) ─── */}
+        {activeTab === 'kds' && (
+          <KDSDisplay
+            orders={[]}
+            station="kitchen"
+            onUpdateItemStatus={() => {}}
+            onCompleteOrder={() => {}}
+          />
+        )}
+
+        {/* ─── QR Customer Portal (Drive component) ─── */}
+        {activeTab === 'qr-portal' && (() => {
+          const hotelData: SharedHotel = {
+            id: 'hotel-1',
+            name: 'Kobe Hotel',
+            subdomain: 'kobe',
+            address: 'Dar es Salaam, Tanzania',
+            phone: '+255 700 000 000',
+            email: 'info@kobehotel.co.tz',
+            theme: { primaryColor: '#6366f1', secondaryColor: '#8b5cf6', darkMode: true },
+            rooms: rooms.map(r => ({
+              id: String(r.id),
+              number: r.number,
+              type: r.type,
+              floor: r.floor ?? 1,
+              pricePerNight: r.price ?? 0,
+              status: r.status as 'available' | 'occupied' | 'cleaning' | 'maintenance',
+              capacity: r.beds ?? 2,
+              amenities: [],
+              bookings: [],
+            })),
+            menuCategories: FOOD_ITEMS.reduce((cats, item) => {
+              const cat = cats.find(c => c.name === item.category);
+              if (cat) {
+                cat.items.push({ id: String(item.id), categoryId: item.category, name: item.name, description: '', price: item.price, isAvailable: true, preparationTime: 10, station: 'kitchen' });
+              } else {
+                cats.push({ id: item.category, name: item.category, description: '', items: [{ id: String(item.id), categoryId: item.category, name: item.name, description: '', price: item.price, isAvailable: true, preparationTime: 10, station: 'kitchen' }], sortOrder: 0 });
+              }
+              return cats;
+            }, [] as SharedHotel['menuCategories']),
+            tables: [],
+            staff: [],
+            settings: { checkInTime: '14:00', checkOutTime: '11:00', currency: 'TZS', taxRate: 18, serviceCharge: 10, enableQROrdering: true, enableRoomService: true },
+            createdAt: new Date().toISOString(),
+          };
+          return (
+            <QRCustomerPortal
+              hotel={hotelData}
+              tableId="table-1"
+              onPlaceOrder={() => {}}
+              onCallWaiter={() => {}}
+              onRequestService={() => {}}
+            />
+          );
+        })()}
+
         <DialogContent className={`${darkMode ? 'bg-[#13131f] border-white/[0.06] text-white' : ''} max-w-sm`}>
           <DialogHeader><DialogTitle className="flex items-center gap-2"><Receipt className="w-5 h-5" />Bar Receipt</DialogTitle></DialogHeader>
           <div className="space-y-3 text-sm">

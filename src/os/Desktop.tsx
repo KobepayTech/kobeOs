@@ -10,12 +10,17 @@ import {
   Image,
   StickyNote,
   Bell,
+  ShoppingCart,
+  Play,
   Circle,
   CheckCircle2,
   Plus,
+  Clock,
+  AlertCircle,
   BarChart3,
   Building2,
-  Plane, Printer, Users, Wallet, Shield, Code2, PlaneTakeoff,
+  Zap,
+  Plane, Printer, Users, Wallet, Shield, Code2,
 } from 'lucide-react';
 import { useOSStore } from './store';
 import { ContextMenu } from './ContextMenu';
@@ -84,7 +89,6 @@ const appShortcuts = [
   { id: 'photos', label: 'Photos', icon: Image, appId: 'image-viewer' },
   { id: 'notes', label: 'Notes', icon: StickyNote, appId: 'notepad' },
   { id: 'cargo', label: 'KOBECARGO', icon: Plane, appId: 'cargo' },
-  { id: 'kobe-cargo-exchange', label: 'Cargo Exchange', icon: PlaneTakeoff, appId: 'kobe-cargo-exchange' },
   { id: 'kobe-print', label: 'KobePrint', icon: Printer, appId: 'kobe-print' },
   { id: 'creator', label: 'Kobe Studio', icon: Users, appId: 'creator' },
   { id: 'kobe-hotel', label: 'KobeHotel', icon: Building2, appId: 'kobe-hotel' },
@@ -217,82 +221,102 @@ export function Desktop() {
   return (
     <div
       className="absolute inset-0 overflow-hidden"
-      style={{ background: 'linear-gradient(180deg, #0a0a1a 0%, #0f0f2a 40%, #0a0a1a 100%)' }}
+      style={{
+        background: 'linear-gradient(180deg, #0a0a1a 0%, #0f0f2a 40%, #0a0a1a 100%)',
+      }}
       onContextMenu={handleBgRightClick}
     >
       <BokehBackground />
 
-      {/* Tortoise watermark — faint centered background logo */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none z-0">
-        <svg viewBox="0 0 200 200" className="w-[420px] h-[420px] opacity-[0.025]" fill="white">
-          {/* Shell */}
-          <ellipse cx="100" cy="105" rx="62" ry="52" />
-          {/* Shell pattern */}
-          <ellipse cx="100" cy="105" rx="38" ry="30" fill="none" stroke="black" strokeWidth="3"/>
-          <line x1="100" y1="53" x2="100" y2="157" stroke="black" strokeWidth="2.5"/>
-          <line x1="38" y1="105" x2="162" y2="105" stroke="black" strokeWidth="2.5"/>
-          <line x1="55" y1="65" x2="145" y2="145" stroke="black" strokeWidth="2"/>
-          <line x1="145" y1="65" x2="55" y2="145" stroke="black" strokeWidth="2"/>
-          {/* Head */}
-          <ellipse cx="100" cy="44" rx="16" ry="13" />
-          {/* Eyes */}
-          <circle cx="93" cy="40" r="2.5" fill="black"/>
-          <circle cx="107" cy="40" r="2.5" fill="black"/>
-          {/* Front legs */}
-          <ellipse cx="46" cy="80" rx="12" ry="7" transform="rotate(-30 46 80)"/>
-          <ellipse cx="154" cy="80" rx="12" ry="7" transform="rotate(30 154 80)"/>
-          {/* Back legs */}
-          <ellipse cx="52" cy="140" rx="12" ry="7" transform="rotate(30 52 140)"/>
-          <ellipse cx="148" cy="140" rx="12" ry="7" transform="rotate(-30 148 140)"/>
-          {/* Tail */}
-          <path d="M100 157 Q108 172 104 182" stroke="white" strokeWidth="5" fill="none" strokeLinecap="round"/>
-        </svg>
-      </div>
-
-      {/* Main layout — fixed height, no scroll */}
-      <div className="relative z-10 h-full flex flex-col overflow-hidden" style={{ paddingBottom: '56px' /* taskbar height */ }}>
-
+      {/* Main content container */}
+      <div className="relative z-10 h-full flex flex-col items-center overflow-y-auto scrollbar-hide">
         {/* ── Top Bar ── */}
-        <div className="w-full px-6 pt-4 pb-2 flex items-center justify-between shrink-0">
+        <div className="w-full max-w-4xl px-6 pt-5 pb-2 flex items-center justify-between shrink-0">
           {/* Logo */}
           <div className="flex items-center gap-2.5">
-            <svg viewBox="0 0 40 40" className="w-8 h-8" fill="none">
-              <rect width="40" height="40" rx="10" fill="url(#logoGrad)"/>
-              <defs>
-                <linearGradient id="logoGrad" x1="0" y1="0" x2="40" y2="40">
-                  <stop offset="0%" stopColor="#3b82f6"/>
-                  <stop offset="100%" stopColor="#6366f1"/>
-                </linearGradient>
-              </defs>
-              {/* Mini tortoise in logo */}
-              <ellipse cx="20" cy="22" rx="10" ry="8" fill="white" fillOpacity="0.9"/>
-              <ellipse cx="20" cy="22" rx="6" ry="4.5" fill="none" stroke="#3b82f6" strokeWidth="1.2"/>
-              <ellipse cx="20" cy="12" rx="4" ry="3.2" fill="white" fillOpacity="0.9"/>
-              <ellipse cx="11" cy="17" rx="3.5" ry="2" transform="rotate(-30 11 17)" fill="white" fillOpacity="0.7"/>
-              <ellipse cx="29" cy="17" rx="3.5" ry="2" transform="rotate(30 29 17)" fill="white" fillOpacity="0.7"/>
-              <ellipse cx="12" cy="28" rx="3.5" ry="2" transform="rotate(30 12 28)" fill="white" fillOpacity="0.7"/>
-              <ellipse cx="28" cy="28" rx="3.5" ry="2" transform="rotate(-30 28 28)" fill="white" fillOpacity="0.7"/>
-            </svg>
-            <div>
-              <div className="text-sm font-bold tracking-[0.15em] uppercase leading-tight" style={{ color: 'rgba(255,255,255,0.92)' }}>KOBEOS</div>
-              <div className="text-[9px] tracking-widest uppercase" style={{ color: 'rgba(255,255,255,0.3)' }}>Business Platform</div>
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
+              <Zap className="w-4 h-4 text-white" />
             </div>
+            <span
+              className="text-lg font-bold tracking-[0.2em] uppercase"
+              style={{ color: 'rgba(255,255,255,0.9)' }}
+            >
+              KOBE
+            </span>
           </div>
 
-          {/* Search — centered */}
+          {/* Right status icons */}
+          <div className="flex items-center gap-1">
+            <button className="relative w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:bg-white/[0.06] active:scale-95">
+              <Bell className="w-[18px] h-[18px]" style={{ color: 'rgba(255,255,255,0.6)' }} />
+              <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500" />
+            </button>
+            <button className="relative w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:bg-white/[0.06] active:scale-95">
+              <ShoppingCart className="w-[18px] h-[18px]" style={{ color: 'rgba(255,255,255,0.6)' }} />
+              <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-blue-500 text-[10px] font-bold flex items-center justify-center text-white">
+                3
+              </span>
+            </button>
+            <button className="w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:bg-white/[0.06] active:scale-95">
+              <Play className="w-[18px] h-[18px]" style={{ color: 'rgba(255,255,255,0.6)' }} />
+            </button>
+            <button className="w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:bg-white/[0.06] active:scale-95 ml-1">
+              <div
+                className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold"
+                style={{
+                  background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
+                  color: 'white',
+                }}
+              >
+                K
+              </div>
+            </button>
+          </div>
+        </div>
+
+        {/* ── Center content ── */}
+        <div className="flex-1 w-full max-w-3xl px-6 flex flex-col items-center pt-6 pb-8">
+          {/* Heading */}
+          <h1
+            className="text-3xl sm:text-4xl font-light tracking-tight mb-6 text-center"
+            style={{
+              color: 'rgba(255,255,255,0.92)',
+              fontFamily: "'Inter', Georgia, serif",
+              letterSpacing: '-0.02em',
+            }}
+          >
+            What I can do for you?
+          </h1>
+
+          {/* Search bar */}
           <div
-            className="flex-1 max-w-sm mx-6 relative transition-all duration-300"
-            style={{ transform: searchFocused ? 'scale(1.02)' : 'scale(1)' }}
+            className="w-full max-w-xl relative mb-2 transition-all duration-300"
+            style={{
+              transform: searchFocused ? 'scale(1.02)' : 'scale(1)',
+            }}
           >
             <div
-              className="relative flex items-center w-full h-9 rounded-xl transition-all duration-300"
+              className="relative flex items-center w-full h-11 rounded-2xl transition-all duration-300"
               style={{
-                background: searchFocused ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.04)',
-                border: searchFocused ? '1px solid rgba(255,255,255,0.15)' : '1px solid rgba(255,255,255,0.06)',
-                boxShadow: searchFocused ? '0 0 0 3px rgba(59,130,246,0.15)' : 'none',
+                background: searchFocused
+                  ? 'rgba(255,255,255,0.08)'
+                  : 'rgba(255,255,255,0.04)',
+                border: searchFocused
+                  ? '1px solid rgba(255,255,255,0.15)'
+                  : '1px solid rgba(255,255,255,0.06)',
+                boxShadow: searchFocused
+                  ? '0 0 0 3px rgba(59,130,246,0.15), 0 4px 24px rgba(0,0,0,0.2)'
+                  : '0 2px 12px rgba(0,0,0,0.1)',
               }}
             >
-              <Search className="absolute left-3 shrink-0 w-3.5 h-3.5" style={{ color: 'rgba(255,255,255,0.35)' }} />
+              <Search
+                className="absolute left-3.5 shrink-0"
+                style={{
+                  width: 16,
+                  height: 16,
+                  color: 'rgba(255,255,255,0.35)',
+                }}
+              />
               <input
                 ref={searchRef}
                 type="text"
@@ -300,65 +324,78 @@ export function Desktop() {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onFocus={() => setSearchFocused(true)}
                 onBlur={() => setSearchFocused(false)}
-                placeholder="Search apps…"
-                className="w-full h-full bg-transparent pl-9 pr-3 text-xs outline-none placeholder:text-white/25"
+                placeholder="Search for tasks, files, notes.."
+                className="w-full h-full bg-transparent pl-10 pr-4 text-sm outline-none placeholder:text-white/25"
                 style={{ color: 'rgba(255,255,255,0.85)' }}
               />
-              <Mic className="absolute right-3 w-3 h-3" style={{ color: 'rgba(255,255,255,0.2)' }} />
             </div>
           </div>
 
-          {/* Right status */}
-          <div className="flex items-center gap-1">
-            <button className="relative w-8 h-8 rounded-xl flex items-center justify-center transition-all hover:bg-white/[0.06]">
-              <Bell className="w-4 h-4" style={{ color: 'rgba(255,255,255,0.6)' }} />
-              <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full bg-red-500" />
-            </button>
-            <button className="w-8 h-8 rounded-xl flex items-center justify-center transition-all hover:bg-white/[0.06] ml-1">
-              <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold" style={{ background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)', color: 'white' }}>K</div>
-            </button>
+          {/* Voice hint */}
+          <div className="flex items-center gap-1.5 mb-7">
+            <span className="text-[11px]" style={{ color: 'rgba(255,255,255,0.3)' }}>
+              Press and hold
+            </span>
+            <kbd
+              className="inline-flex items-center justify-center px-1.5 h-4 rounded text-[10px] font-medium"
+              style={{
+                background: 'rgba(255,255,255,0.1)',
+                color: 'rgba(255,255,255,0.5)',
+                border: '1px solid rgba(255,255,255,0.08)',
+              }}
+            >
+              S
+            </kbd>
+            <span className="text-[11px]" style={{ color: 'rgba(255,255,255,0.3)' }}>
+              to speak
+            </span>
+            <Mic
+              className="ml-0.5"
+              style={{
+                width: 11,
+                height: 11,
+                color: 'rgba(255,255,255,0.3)',
+              }}
+            />
           </div>
-        </div>
 
-        {/* ── App Grid — fills all remaining space ── */}
-        <div className="flex-1 px-5 py-2 overflow-hidden flex flex-col">
-          {/* Grid fills available height, no scroll */}
-          <div
-            className="flex-1 overflow-hidden"
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))',
-              gridAutoRows: '1fr',
-              gap: '10px',
-              alignContent: 'start',
-            }}
-          >
+          {/* App shortcuts grid */}
+          <div className="w-full grid grid-cols-4 gap-3 mb-6">
             {(searchQuery ? filteredApps : appShortcuts).map((app) => {
               const Icon = app.icon;
               return (
                 <button
                   key={app.id}
                   onClick={() => launchApp(app.appId)}
-                  className="group flex flex-col items-center justify-center gap-1.5 rounded-xl transition-all duration-200 hover:scale-105 active:scale-95"
+                  className="group flex flex-col items-center gap-2 py-4 px-2 rounded-2xl transition-all duration-200 hover:scale-105 active:scale-95"
                   style={{
-                    background: 'linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%)',
+                    background:
+                      'linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%)',
                     border: '1px solid rgba(255,255,255,0.06)',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.05)',
-                    padding: '10px 8px',
-                    minHeight: '80px',
-                    maxHeight: '96px',
+                    boxShadow:
+                      '0 2px 8px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.05)',
                   }}
                 >
                   <div
-                    className="w-9 h-9 rounded-xl flex items-center justify-center transition-transform duration-200 group-hover:scale-110 shrink-0"
+                    className="w-10 h-10 rounded-xl flex items-center justify-center transition-transform duration-200 group-hover:scale-110"
                     style={{
-                      background: 'linear-gradient(135deg, rgba(255,255,255,0.10), rgba(255,255,255,0.04))',
-                      border: '1px solid rgba(255,255,255,0.08)',
+                      background:
+                        'linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))',
+                      border: '1px solid rgba(255,255,255,0.06)',
                     }}
                   >
-                    <Icon style={{ width: 17, height: 17, color: 'rgba(255,255,255,0.75)' }} />
+                    <Icon
+                      style={{
+                        width: 18,
+                        height: 18,
+                        color: 'rgba(255,255,255,0.7)',
+                      }}
+                    />
                   </div>
-                  <span className="text-[10px] font-medium text-center leading-tight line-clamp-2" style={{ color: 'rgba(255,255,255,0.6)' }}>
+                  <span
+                    className="text-[11px] font-medium"
+                    style={{ color: 'rgba(255,255,255,0.6)' }}
+                  >
                     {app.label}
                   </span>
                 </button>
@@ -366,72 +403,159 @@ export function Desktop() {
             })}
           </div>
 
-          {/* ── Tasks strip — compact, below grid ── */}
+          {/* My Tasks section */}
           <div
-            className="shrink-0 mt-2 rounded-xl overflow-hidden"
+            className="w-full rounded-2xl overflow-hidden"
             style={{
-              background: 'linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.02) 100%)',
-              border: '1px solid rgba(255,255,255,0.05)',
+              background:
+                'linear-gradient(180deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%)',
+              border: '1px solid rgba(255,255,255,0.06)',
+              boxShadow: '0 2px 12px rgba(0,0,0,0.15)',
             }}
           >
-            <div className="flex items-center justify-between px-4 py-2">
-              <span className="text-xs font-medium" style={{ color: 'rgba(255,255,255,0.6)' }}>My Tasks</span>
+            {/* Tasks header */}
+            <div className="flex items-center justify-between px-4 py-3">
+              <span
+                className="text-sm font-medium"
+                style={{ color: 'rgba(255,255,255,0.7)' }}
+              >
+                My Tasks
+              </span>
               <button
                 onClick={() => setShowAddTask(!showAddTask)}
-                className="flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition-all hover:bg-white/[0.06]"
-                style={{ color: 'rgba(255,255,255,0.4)' }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all hover:bg-white/[0.06] active:scale-95"
+                style={{ color: 'rgba(255,255,255,0.5)' }}
               >
-                <Plus style={{ width: 10, height: 10 }} />Add
+                <Plus style={{ width: 12, height: 12 }} />
+                Add Task
               </button>
             </div>
 
+            {/* Add task input */}
             {showAddTask && (
-              <div className="px-4 pb-2 flex items-center gap-2">
-                <input
-                  type="text"
-                  value={newTaskText}
-                  onChange={(e) => setNewTaskText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') addTask();
-                    if (e.key === 'Escape') { setShowAddTask(false); setNewTaskText(''); }
-                  }}
-                  placeholder="New task…"
-                  autoFocus
-                  className="flex-1 h-8 px-3 rounded-lg text-xs outline-none placeholder:text-white/20"
-                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.85)' }}
-                />
-                <button onClick={addTask} className="h-8 px-3 rounded-lg text-xs font-medium" style={{ background: 'linear-gradient(135deg, #3b82f6, #6366f1)', color: 'white' }}>Add</button>
+              <div className="px-4 pb-2">
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={newTaskText}
+                    onChange={(e) => setNewTaskText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') addTask();
+                      if (e.key === 'Escape') {
+                        setShowAddTask(false);
+                        setNewTaskText('');
+                      }
+                    }}
+                    placeholder="Enter a new task..."
+                    autoFocus
+                    className="flex-1 h-9 px-3 rounded-xl text-sm outline-none placeholder:text-white/20"
+                    style={{
+                      background: 'rgba(255,255,255,0.05)',
+                      border: '1px solid rgba(255,255,255,0.08)',
+                      color: 'rgba(255,255,255,0.85)',
+                    }}
+                  />
+                  <button
+                    onClick={addTask}
+                    className="h-9 px-4 rounded-xl text-xs font-medium transition-all hover:opacity-90 active:scale-95"
+                    style={{
+                      background: 'linear-gradient(135deg, #3b82f6, #6366f1)',
+                      color: 'white',
+                    }}
+                  >
+                    Add
+                  </button>
+                </div>
               </div>
             )}
 
-            <div className="flex gap-2 px-3 pb-2 overflow-x-auto scrollbar-hide">
+            {/* Task list */}
+            <div className="px-2 pb-2">
               {tasks.map((task) => (
-                <button
+                <div
                   key={task.id}
-                  onClick={() => toggleTask(task.id)}
-                  className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all hover:bg-white/[0.04]"
-                  style={{
-                    background: task.completed ? 'rgba(59,130,246,0.06)' : 'rgba(255,255,255,0.03)',
-                    border: `1px solid ${task.completed ? 'rgba(59,130,246,0.2)' : 'rgba(255,255,255,0.05)'}`,
-                  }}
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all hover:bg-white/[0.03] group"
                 >
-                  {task.completed
-                    ? <CheckCircle2 style={{ width: 12, height: 12, color: '#3b82f6' }} />
-                    : <Circle style={{ width: 12, height: 12, color: 'rgba(255,255,255,0.2)' }} />
-                  }
-                  <span className="text-[10px] whitespace-nowrap" style={{ color: task.completed ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.65)', textDecoration: task.completed ? 'line-through' : 'none' }}>
+                  <button
+                    onClick={() => toggleTask(task.id)}
+                    className="shrink-0 transition-all active:scale-90"
+                  >
+                    {task.completed ? (
+                      <CheckCircle2
+                        style={{
+                          width: 16,
+                          height: 16,
+                          color: '#3b82f6',
+                        }}
+                      />
+                    ) : (
+                      <Circle
+                        style={{
+                          width: 16,
+                          height: 16,
+                          color: 'rgba(255,255,255,0.2)',
+                        }}
+                      />
+                    )}
+                  </button>
+
+                  <span
+                    className="flex-1 text-[13px] transition-all"
+                    style={{
+                      color: task.completed
+                        ? 'rgba(255,255,255,0.35)'
+                        : 'rgba(255,255,255,0.75)',
+                      textDecoration: task.completed ? 'line-through' : 'none',
+                    }}
+                  >
                     {task.text}
                   </span>
-                  <span className="text-[9px] ml-1" style={{ color: task.dueDate === 'Today' ? 'rgba(59,130,246,0.7)' : task.dueDate === 'Tomorrow' ? 'rgba(245,158,11,0.7)' : 'rgba(255,255,255,0.25)' }}>
+
+                  <span
+                    className="shrink-0 text-[10px] font-medium px-2 py-0.5 rounded-md flex items-center gap-1"
+                    style={{
+                      color:
+                        task.dueDate === 'Today'
+                          ? 'rgba(59,130,246,0.8)'
+                          : task.dueDate === 'Yesterday'
+                            ? 'rgba(255,255,255,0.35)'
+                            : task.dueDate === 'Tomorrow'
+                              ? 'rgba(245,158,11,0.8)'
+                              : 'rgba(255,255,255,0.35)',
+                      background:
+                        task.dueDate === 'Today'
+                          ? 'rgba(59,130,246,0.1)'
+                          : task.dueDate === 'Tomorrow'
+                            ? 'rgba(245,158,11,0.08)'
+                            : 'rgba(255,255,255,0.04)',
+                    }}
+                  >
+                    {task.dueDate === 'Today' && (
+                      <Clock style={{ width: 9, height: 9 }} />
+                    )}
+                    {task.dueDate === 'Tomorrow' && (
+                      <AlertCircle style={{ width: 9, height: 9 }} />
+                    )}
+                    {task.dueDate === 'Next' && (
+                      <Calendar style={{ width: 9, height: 9 }} />
+                    )}
                     {task.dueLabel}
                   </span>
-                </button>
+                </div>
               ))}
+
+              {tasks.length === 0 && (
+                <div
+                  className="text-center py-6 text-xs"
+                  style={{ color: 'rgba(255,255,255,0.25)' }}
+                >
+                  No tasks yet. Click "Add Task" to create one.
+                </div>
+              )}
             </div>
           </div>
         </div>
-
-      </div>{/* end main layout */}
+      </div>
 
       {/* Open application windows */}
       <WindowManager />

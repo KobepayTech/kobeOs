@@ -52,9 +52,6 @@ import { AccountModule } from './account/account.module';
 import { KobeSecurityModule } from './kobe-security/kobe-security.module';
 import { HotelSecurityModule } from './hotel-security/hotel-security.module';
 import { StudioMediaModule } from './studio-media/studio-media.module';
-import { QrModule } from './qr/qr.module';
-import { ExchangeRateModule } from './exchange-rates/exchange-rate.module';
-import { DisputeModule } from './disputes/dispute.module';
 
 @Module({
   imports: [
@@ -110,9 +107,6 @@ import { DisputeModule } from './disputes/dispute.module';
     StoreRegistryModule,
     DevopsModule,
     AccountModule,
-    QrModule,
-    ExchangeRateModule,
-    DisputeModule,
   ],
   controllers: [AppController],
   providers: [
