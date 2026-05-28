@@ -36,7 +36,14 @@ function parseCellRef(ref: string): { col: number; row: number } | null {
 
 
 
-function evaluateFormula(cells: Map<string, CellData>, formula: string): string {
+function evaluateFormula(cells: Map<string, CellData>, formula: string, visited: Set<string> = new Set()): string {
+  // Guard against circular references (e.g. =A1 in cell A1 → infinite recursion).
+  // We use the formula string itself as the cycle key since the same formula
+  // string in different cells is fine; only a cell referencing itself (directly
+  // or transitively) causes a cycle.
+  if (visited.has(formula)) return '#CIRCULAR';
+  const nextVisited = new Set(visited).add(formula);
+
   const expr = formula.slice(1).trim();
 
   // Range functions
@@ -50,7 +57,8 @@ function evaluateFormula(cells: Map<string, CellData>, formula: string): string 
       for (let r = Math.min(s.row, e.row); r <= Math.max(s.row, e.row); r++) {
         const key = `${c},${r}`;
         const cell = cells.get(key);
-        const val = cell?.formula ? evaluateFormula(cells, cell.formula) : (cell?.value ?? '');
+        const val = cell?.formula ? evaluateFormula(cells, cell.formula, nextVisited) : (cell?.value ?? '');
+        if (val === '#CIRCULAR') return '#CIRCULAR';
         const num = parseFloat(val);
         if (!isNaN(num)) values.push(num);
       }
@@ -64,7 +72,7 @@ function evaluateFormula(cells: Map<string, CellData>, formula: string): string 
     if (fn === 'COUNT') return String(values.length);
   }
 
-  // Single-cell functions or arithmetic
+  // Single-cell references or arithmetic expressions
   try {
     const replaced = expr.replace(/([A-Z]\d+)/g, (match) => {
       const parsed = parseCellRef(match);
@@ -72,10 +80,12 @@ function evaluateFormula(cells: Map<string, CellData>, formula: string): string 
       const key = `${parsed.col},${parsed.row}`;
       const cell = cells.get(key);
       if (!cell) return '0';
-      const val = cell.formula ? evaluateFormula(cells, cell.formula) : cell.value;
+      const val = cell.formula ? evaluateFormula(cells, cell.formula, nextVisited) : cell.value;
+      if (val === '#CIRCULAR') return '0'; // break the cycle gracefully
       const num = parseFloat(val);
       return isNaN(num) ? '0' : String(num);
     });
+    // eslint-disable-next-line no-new-func
     const result = new Function('return ' + replaced)();
     return String(result);
   } catch {

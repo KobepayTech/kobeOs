@@ -161,9 +161,12 @@ export default function POSSystem() {
   // ── Computed ──
   const filteredProducts = useMemo(() => {
     return products.filter((p) => {
+      // Parse price to a number first — the API may return it as a decimal
+      // string (e.g. "15000.0000"), so toString() would not match "15000".
+      const priceStr = String(Math.round(parseFloat(String(p.price))));
       const matchSearch =
         p.name.toLowerCase().includes(search.toLowerCase()) ||
-        p.price.toString().includes(search);
+        priceStr.includes(search);
       const matchCat = category === 'All' || p.category === category;
       return matchSearch && matchCat;
     });

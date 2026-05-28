@@ -154,7 +154,11 @@ export class OrdersService extends OwnedCrudService<HotelOrder> {
       price: it.price,
       station: (it.menuItemId && stationById.get(it.menuItemId)) || it.station || 'kitchen',
     }));
-    const total = items.reduce((sum, it) => sum + it.price * it.qty, 0);
+    // DTO prices may arrive as strings when forwarded from TypeORM entities —
+    // parse explicitly to avoid string concatenation in the reduce.
+    const total = parseFloat(
+      items.reduce((sum, it) => sum + parseFloat(String(it.price)) * it.qty, 0).toFixed(4),
+    );
 
     const data: DeepPartial<HotelOrder> = {
       roomNumber: dto.roomNumber,

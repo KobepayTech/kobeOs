@@ -47,10 +47,16 @@ export class TransactionsService {
       const tRepo = tx.getRepository(PaymentTransaction);
       const wallet = await wRepo.findOne({ where: { id: dto.walletId, ownerId: uid } });
       if (!wallet) throw new NotFoundException('Wallet not found');
-      if (dto.type === 'DEBIT' && wallet.balance < dto.amount) {
+      // TypeORM returns decimal columns as strings from PostgreSQL — always
+      // parse before arithmetic or comparison to avoid string concatenation.
+      const currentBalance = parseFloat(wallet.balance as unknown as string);
+      const txAmount = parseFloat(dto.amount as unknown as string);
+      if (dto.type === 'DEBIT' && currentBalance < txAmount) {
         throw new BadRequestException('Insufficient funds');
       }
-      wallet.balance += dto.type === 'CREDIT' ? dto.amount : -dto.amount;
+      wallet.balance = parseFloat(
+        (dto.type === 'CREDIT' ? currentBalance + txAmount : currentBalance - txAmount).toFixed(4),
+      );
       await wRepo.save(wallet);
       return tRepo.save(tRepo.create({
         ownerId: uid,
@@ -79,11 +85,15 @@ export class TransactionsService {
       const to = await wRepo.findOne({ where: { id: dto.toWalletId } });
       if (!from || !to) throw new NotFoundException('Wallet not found');
       if (from.ownerId !== uid) throw new ForbiddenException();
-      if (from.balance < dto.amount) throw new BadRequestException('Insufficient funds');
+      // Parse decimal strings before comparison and arithmetic.
+      const fromBalance = parseFloat(from.balance as unknown as string);
+      const toBalance   = parseFloat(to.balance   as unknown as string);
+      const txAmount    = parseFloat(dto.amount    as unknown as string);
+      if (fromBalance < txAmount) throw new BadRequestException('Insufficient funds');
       if (from.currency !== to.currency) throw new BadRequestException('Currency mismatch');
 
-      from.balance -= dto.amount;
-      to.balance += dto.amount;
+      from.balance = parseFloat((fromBalance - txAmount).toFixed(4));
+      to.balance   = parseFloat((toBalance   + txAmount).toFixed(4));
       await wRepo.save([from, to]);
 
       const outgoing = tRepo.create({
