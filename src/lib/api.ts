@@ -79,20 +79,31 @@ export function isOnline(): boolean {
 // ── Path → SQLite table mapping ───────────────────────────────────────────────
 
 const PATH_TABLE_MAP: Record<string, string> = {
-  '/notes':           'notes',
-  '/contacts':        'contacts',
-  '/todo':            'todo_items',
-  '/todo-lists':      'todo_lists',
-  '/pos/products':    'pos_products',
-  '/pos/orders':      'pos_orders',
-  '/pos':             'pos_orders',
+  '/notes': 'notes',
+  '/contacts': 'contacts',
+  '/todo': 'todo_items',
+  '/todo-lists': 'todo_lists',
+  '/pos/products': 'pos_products',
+  '/pos/orders': 'pos_orders',
+  '/pos': 'pos_orders',
   '/cargo/shipments': 'cargo_shipments',
-  '/cargo':           'cargo_shipments',
-  '/hotel/rooms':     'hotel_rooms',
-  '/hotel/bookings':  'hotel_bookings',
-  '/hotel':           'hotel_bookings',
+  '/cargo': 'cargo_shipments',
+  '/hotel-security/room-links': 'hotel_room_signal_links',
+  '/hotel-security/room-reviews': 'hotel_room_reviews',
+  '/hotel/rooms': 'hotel_rooms',
+  '/hotel/bookings': 'hotel_bookings',
+  '/hotel': 'hotel_bookings',
+  '/security/clients': 'security_clients',
+  '/security/sites': 'client_sites',
+  '/security/members': 'team_members',
+  '/security/routes': 'service_routes',
+  '/security/checks': 'service_checks',
+  '/security/signals': 'site_signals',
+  '/security/work-items': 'work_items',
+  '/studio/media/projects': 'studio_media_projects',
+  '/studio/media/jobs': 'studio_media_jobs',
   '/calendar/events': 'calendar_events',
-  '/calendar':        'calendar_events',
+  '/calendar': 'calendar_events',
 };
 
 function pathToTable(path: string): string | null {
@@ -254,17 +265,14 @@ export async function api<T = unknown>(
   const method = (rest.method ?? 'GET').toUpperCase();
   const isRead = method === 'GET' || method === 'HEAD';
 
-  // Fast-path: backend known down — serve from cache immediately for reads
   if (offlineFallback && isRead && !_backendReachable) {
     const cached = await offlineRead<T>(path);
     if (cached !== null) return cached;
-    // Cache miss — fall through and try network (may have recovered)
   }
 
   try {
     let res = await rawFetch(path, rest, auth);
 
-    // Transparent 401 → token refresh → retry
     if (res.status === 401 && auth && !_retry && getRefreshToken()) {
       const refreshed = await refreshAccessToken();
       if (refreshed) res = await rawFetch(path, rest, true);
@@ -275,12 +283,10 @@ export async function api<T = unknown>(
       _lastCheck = Date.now();
       const text = await res.text();
       const body = text ? safeJson(text) : undefined;
-      // Cache successful GETs for offline use
       if (offlineFallback && isRead) cacheResponse(path, body);
       return body as T;
     }
 
-    // 5xx — treat as unreachable, fall back to cache for reads
     if (offlineFallback && isRead && res.status >= 500) {
       _backendReachable = false;
       _lastCheck = Date.now();
@@ -290,20 +296,13 @@ export async function api<T = unknown>(
 
     const text = await res.text();
     const body = text ? safeJson(text) : undefined;
-    const errField =
-      body && typeof body === 'object' && 'error' in body
-        ? (body as { error?: unknown }).error
-        : undefined;
-    const msg =
-      (typeof errField === 'string' && errField) ||
-      res.statusText ||
-      `HTTP ${res.status}`;
+    const errField = body && typeof body === 'object' && 'error' in body ? (body as { error?: unknown }).error : undefined;
+    const msg = (typeof errField === 'string' && errField) || res.statusText || `HTTP ${res.status}`;
     throw new ApiError(res.status, msg, body);
 
   } catch (err) {
     if (err instanceof ApiError) throw err;
 
-    // Network failure
     _backendReachable = false;
     _lastCheck = Date.now();
 
@@ -312,15 +311,11 @@ export async function api<T = unknown>(
     if (isRead) {
       const cached = await offlineRead<T>(path);
       if (cached !== null) return cached;
-      // No cache — return empty list for collections
       if (!pathId(path)) return [] as unknown as T;
       throw new OfflineError();
     }
 
-    // Offline write: persist locally + enqueue for sync
-    const bodyStr = typeof rest.body === 'string'
-      ? rest.body
-      : JSON.stringify(rest.body ?? {});
+    const bodyStr = typeof rest.body === 'string' ? rest.body : JSON.stringify(rest.body ?? {});
     const token = auth ? getToken() : null;
     await offlineWrite(path, method, safeJson(bodyStr) ?? {}, token ? `Bearer ${token}` : null);
     return { _offline: true, _queued: true } as unknown as T;
