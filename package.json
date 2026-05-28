@@ -27,7 +27,9 @@
     "build:bundle": "cd server && npx ncc build src/main.ts -o ../electron/server-bundle --minify --no-source-map-register",
     "usb:write": "sudo node scripts/write-usb.js",
     "security:engine:clone": "node scripts/install-kobe-security-engine.cjs",
-    "security:engine:docker": "docker compose -f docker/ruview-kobe-security.compose.yml up -d"
+    "security:engine:docker": "docker compose -f docker/ruview-kobe-security.compose.yml up -d",
+    "studio:media:clone": "node scripts/install-kobe-studio-media-engine.cjs",
+    "studio:media:docker": "cd apps/kobe-studio/media-studios/engine/MoneyPrinterTurbo && docker compose up"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
