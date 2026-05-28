@@ -1,21 +1,21 @@
-import { IsEnum, IsInt, IsNumber, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
+import { IsEnum, IsInt, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
 
 export class CreateItemDto {
   @IsString() @MaxLength(60) sku!: string;
   @IsString() @MaxLength(200) name!: string;
   @IsOptional() @IsString() @MaxLength(80) category?: string;
   @IsOptional() @IsString() @MaxLength(20) unit?: string;
-  @IsOptional() @IsInt() quantity?: number;
-  @IsOptional() @IsInt() reorderLevel?: number;
+  @IsOptional() @IsInt() @Min(0) quantity?: number;
+  @IsOptional() @IsInt() @Min(0) reorderLevel?: number;
   @IsOptional() @IsString() location?: string;
-  @IsOptional() @IsNumber() unitCost?: number;
+  @IsOptional() @IsNumber() @Min(0) unitCost?: number;
 }
 export class UpdateItemDto {
   @IsOptional() @IsString() name?: string;
   @IsOptional() @IsString() category?: string;
-  @IsOptional() @IsInt() reorderLevel?: number;
+  @IsOptional() @IsInt() @Min(0) reorderLevel?: number;
   @IsOptional() @IsString() location?: string;
-  @IsOptional() @IsNumber() unitCost?: number;
+  @IsOptional() @IsNumber() @Min(0) unitCost?: number;
 }
 
 export class MovementDto {

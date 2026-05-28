@@ -4,15 +4,15 @@ import { Type } from 'class-transformer';
 export class CreateRoomDto {
   @IsString() @MaxLength(40) roomNumber!: string;
   @IsString() @MaxLength(60) type!: string;
-  @IsNumber() rate!: number;
+  @IsNumber() @Min(0) rate!: number;
   @IsOptional() @IsString() @MaxLength(8) currency?: string;
   @IsOptional() @IsInt() @Min(1) capacity?: number;
   @IsOptional() @IsEnum(['available', 'occupied', 'reserved', 'maintenance']) status?: 'available' | 'occupied' | 'reserved' | 'maintenance';
 }
 export class UpdateRoomDto {
   @IsOptional() @IsString() type?: string;
-  @IsOptional() @IsNumber() rate?: number;
-  @IsOptional() @IsInt() capacity?: number;
+  @IsOptional() @IsNumber() @Min(0) rate?: number;
+  @IsOptional() @IsInt() @Min(1) capacity?: number;
   @IsOptional() @IsEnum(['available', 'occupied', 'reserved', 'maintenance']) status?: 'available' | 'occupied' | 'reserved' | 'maintenance';
 }
 
@@ -35,14 +35,14 @@ export class CreateBookingDto {
   @IsDateString() checkIn!: string;
   @IsDateString() checkOut!: string;
   @IsOptional() @IsInt() @Min(1) guestCount?: number;
-  @IsOptional() @IsNumber() totalAmount?: number;
+  @IsOptional() @IsNumber() @Min(0) totalAmount?: number;
   @IsOptional() @IsString() @MaxLength(8) currency?: string;
 }
 export class UpdateBookingDto {
   @IsOptional() @IsEnum(['PENDING', 'CONFIRMED', 'CHECKED_IN', 'CHECKED_OUT', 'CANCELLED']) status?: 'PENDING' | 'CONFIRMED' | 'CHECKED_IN' | 'CHECKED_OUT' | 'CANCELLED';
   @IsOptional() @IsDateString() checkIn?: string;
   @IsOptional() @IsDateString() checkOut?: string;
-  @IsOptional() @IsNumber() totalAmount?: number;
+  @IsOptional() @IsNumber() @Min(0) totalAmount?: number;
 }
 
 export class CreateTenantDto {
@@ -63,7 +63,7 @@ export class UpdateTenantDto {
 export class CreateMenuItemDto {
   @IsString() @MaxLength(120) name!: string;
   @IsString() @MaxLength(60) category!: string;
-  @IsNumber() price!: number;
+  @IsNumber() @Min(0) price!: number;
   @IsOptional() @IsString() @MaxLength(8) currency?: string;
   @IsOptional() @IsBoolean() available?: boolean;
   @IsOptional() @IsEnum(['kitchen', 'bar', 'other']) station?: 'kitchen' | 'bar' | 'other';
@@ -71,7 +71,7 @@ export class CreateMenuItemDto {
 export class UpdateMenuItemDto {
   @IsOptional() @IsString() name?: string;
   @IsOptional() @IsString() category?: string;
-  @IsOptional() @IsNumber() price?: number;
+  @IsOptional() @IsNumber() @Min(0) price?: number;
   @IsOptional() @IsString() currency?: string;
   @IsOptional() @IsBoolean() available?: boolean;
   @IsOptional() @IsEnum(['kitchen', 'bar', 'other']) station?: 'kitchen' | 'bar' | 'other';
@@ -81,7 +81,7 @@ export class OrderItemDto {
   @IsOptional() @IsUUID() menuItemId?: string;
   @IsString() @MaxLength(120) name!: string;
   @IsInt() @Min(1) qty!: number;
-  @IsNumber() price!: number;
+  @IsNumber() @Min(0) price!: number;
   @IsOptional() @IsEnum(['kitchen', 'bar', 'other']) station?: 'kitchen' | 'bar' | 'other';
 }
 export class CreateOrderDto {
