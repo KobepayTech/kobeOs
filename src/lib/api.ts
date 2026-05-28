@@ -65,7 +65,6 @@ export const API_BASE =
 
 let _backendReachable = true;
 let _lastCheck = 0;
-const CHECK_TTL = 10_000;
 
 export function markBackendReachable() {
   _backendReachable = true;
@@ -282,7 +281,13 @@ export async function api<T = unknown>(
       _backendReachable = true;
       _lastCheck = Date.now();
       const text = await res.text();
-      const body = text ? safeJson(text) : undefined;
+      if (!text || !text.trim()) {
+        return (pathId(path) ? {} : []) as unknown as T;
+      }
+      const body = safeJson(text);
+      if (body === null || body === undefined) {
+        return (pathId(path) ? {} : []) as unknown as T;
+      }
       if (offlineFallback && isRead) cacheResponse(path, body);
       return body as T;
     }
@@ -312,7 +317,7 @@ export async function api<T = unknown>(
       const cached = await offlineRead<T>(path);
       if (cached !== null) return cached;
       if (!pathId(path)) return [] as unknown as T;
-      throw new OfflineError();
+      return {} as unknown as T;
     }
 
     const bodyStr = typeof rest.body === 'string' ? rest.body : JSON.stringify(rest.body ?? {});
@@ -354,5 +359,5 @@ export async function fetchObjectUrl(path: string): Promise<string> {
 // ── Util ──────────────────────────────────────────────────────────────────────
 
 function safeJson(s: string): unknown {
-  try { return JSON.parse(s); } catch { return s; }
+  try { return JSON.parse(s); } catch { return null; }
 }

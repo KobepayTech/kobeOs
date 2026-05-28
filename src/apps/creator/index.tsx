@@ -2,13 +2,15 @@ import { useState, useMemo, useEffect, createContext, useContext } from 'react';
 import { api } from '@/lib/api';
 import { ensureSession } from '@/lib/auth';
 import { ExploreModule, CreatorProfileModule, HowItWorksModule, FAQModule } from './marketplace-modules';
+import { DisputesModule, QrPayoutsModule, ExchangePLModule, VerificationModule, AdminModule } from './studio-modules';
 import {
   Users, LayoutDashboard, Megaphone, Globe, Handshake, Wallet,
   BarChart3, Link2, MessageCircle, Plus, Search, CheckCircle2,
   TrendingUp, Eye, Heart, MessageSquare, Share2, MousePointerClick,
   ShoppingCart, Download, Star, Send, Instagram,
   Smartphone, Copy, AlertCircle, Lock, Unlock, DollarSign, Target, Zap,
-  Youtube, Twitter, Facebook, UserCheck, BookOpen, HelpCircle
+  Youtube, Twitter, Facebook, UserCheck, BookOpen, HelpCircle,
+  QrCode, BadgeCheck, ShieldAlert, Settings,
 } from 'lucide-react';
 function idHash(id: string): number {
   let h = 0;
@@ -107,7 +109,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 // ── Types ──────────────────────────────────────────────
-type ModuleId = 'overview' | 'campaigns' | 'marketplace' | 'deals' | 'escrow' | 'subscription' | 'performance' | 'affiliate' | 'messages' | 'explore' | 'profile' | 'how-it-works' | 'faq';
+type ModuleId = 'overview' | 'campaigns' | 'marketplace' | 'deals' | 'escrow' | 'subscription' | 'performance' | 'affiliate' | 'messages' | 'explore' | 'profile' | 'how-it-works' | 'faq' | 'disputes' | 'qr-payouts' | 'exchange-pl' | 'verification' | 'admin';
 
 interface Campaign {
   id: number; name: string; budget: number; creators: number;
@@ -436,6 +438,11 @@ export default function Creator() {
     { id: 'messages', icon: MessageCircle, label: 'Messages', desc: 'Chat & notifications', color: '#8b5cf6' },
     { id: 'explore', icon: Globe, label: 'Explore', desc: 'Browse creators by platform', color: '#06b6d4' },
     { id: 'profile', icon: UserCheck, label: 'Creator Profile', desc: 'Profile, packages & reviews', color: '#f97316' },
+    { id: 'qr-payouts', icon: QrCode, label: 'QR Payouts', desc: 'Generate & scan payout QR codes', color: '#06b6d4' },
+    { id: 'exchange-pl', icon: TrendingUp, label: 'Exchange P&L', desc: 'Rate profit/loss tracking', color: '#84cc16' },
+    { id: 'verification', icon: BadgeCheck, label: 'Verification', desc: 'Manager daily reconciliation', color: '#14b8a6' },
+    { id: 'disputes', icon: ShieldAlert, label: 'Disputes', desc: 'Raise & resolve disputes', color: '#f43f5e' },
+    { id: 'admin', icon: Settings, label: 'Admin', desc: 'Users, roles & platform settings', color: '#94a3b8' },
     { id: 'how-it-works', icon: BookOpen, label: 'How It Works', desc: '3-step onboarding guide', color: '#10b981' },
     { id: 'faq', icon: HelpCircle, label: 'FAQ', desc: 'Common questions answered', color: '#a78bfa' },
   ];
@@ -483,6 +490,11 @@ export default function Creator() {
         {activeModule === 'profile' && <CreatorProfileModule />}
         {activeModule === 'how-it-works' && <HowItWorksModule />}
         {activeModule === 'faq' && <FAQModule />}
+        {activeModule === 'disputes' && <DisputesModule />}
+        {activeModule === 'qr-payouts' && <QrPayoutsModule />}
+        {activeModule === 'exchange-pl' && <ExchangePLModule />}
+        {activeModule === 'verification' && <VerificationModule />}
+        {activeModule === 'admin' && <AdminModule />}
       </main>
     </div>
     </AppContext.Provider>
@@ -2014,6 +2026,3 @@ function MessagesModule() {
     </div>
   );
 }
-
-
-
