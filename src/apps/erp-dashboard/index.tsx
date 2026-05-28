@@ -20,9 +20,26 @@ interface ErpDashboardData {
   monthlyRevenue: { month: string; revenue: number }[];
 }
 
+const EMPTY_KPIS: ErpDashboardData['kpis'] = {
+  revenue: 0, orders: 0, customers: 0, lowStock: 0, transactions: 0,
+};
+
+function normalizeDashboard(raw: unknown): ErpDashboardData {
+  const d = (raw && typeof raw === 'object') ? raw as Partial<ErpDashboardData> : {};
+  const rawKpis = (d.kpis && typeof d.kpis === 'object') ? d.kpis : {};
+  return {
+    kpis: { ...EMPTY_KPIS, ...rawKpis },
+    monthlyRevenue: Array.isArray(d.monthlyRevenue) ? d.monthlyRevenue : [],
+  };
+}
+
 function useErpDashboard() {
   const [data, setData] = useState<ErpDashboardData | null>(null);
-  useEffect(() => { api<ErpDashboardData>('/erp/dashboard').then(setData).catch(() => {}); }, []);
+  useEffect(() => {
+    api<unknown>('/erp/dashboard')
+      .then((d) => setData(normalizeDashboard(d)))
+      .catch(() => {});
+  }, []);
   return data;
 }
 

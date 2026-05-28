@@ -156,7 +156,10 @@ function startBackend(dbConfig) {
     DB_USERNAME: dbConfig.user,
     DB_PASSWORD: dbConfig.password,
     DB_DATABASE: dbConfig.database,
-    DB_SYNCHRONIZE: 'true',
+    // DB_SYNCHRONIZE is intentionally NOT set: in production the database
+    // module ignores it (synchronize stays false) and main.ts throws if it
+    // sees both NODE_ENV=production and DB_SYNCHRONIZE=true. Schema is
+    // applied via migrations on boot (migrationsRun=true when !isDev).
     KOBEOS_DESKTOP: 'true',   // signals embedded desktop mode to bypass prod guards
     JWT_SECRET: getOrCreateJwtSecret(),
     CORS_ORIGIN: 'file://',
@@ -231,18 +234,32 @@ async function bootServices() {
   await new Promise((r) => setTimeout(r, 400));
 }
 
-/** Poll http://localhost:{port}/health until it responds or timeout elapses. */
+/** Poll http://localhost:{port}/api/health until it responds 2xx or timeout elapses. */
 function waitForBackend(port, timeoutMs) {
   return new Promise((resolve) => {
     const start = Date.now();
     const http = require('http');
     function attempt() {
-      const req = http.get(`http://127.0.0.1:${port}/health`, (res) => {
+      const req = http.get(`http://127.0.0.1:${port}/api/health`, (res) => {
         res.resume();
-        resolve();
+        if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+          resolve(true);
+          return;
+        }
+        // Got a response but it wasn't healthy (e.g. 404) — keep retrying until timeout.
+        if (Date.now() - start >= timeoutMs) {
+          console.warn(`[KobeOS] Backend health check returned ${res.statusCode} after ${timeoutMs}ms; continuing anyway`);
+          resolve(false);
+          return;
+        }
+        setTimeout(attempt, 500);
       });
       req.on('error', () => {
-        if (Date.now() - start >= timeoutMs) { resolve(); return; }
+        if (Date.now() - start >= timeoutMs) {
+          console.warn(`[KobeOS] Backend did not respond on /api/health within ${timeoutMs}ms; continuing anyway`);
+          resolve(false);
+          return;
+        }
         setTimeout(attempt, 500);
       });
       req.setTimeout(800, () => { req.destroy(); });
@@ -395,11 +412,47 @@ app.on('before-quit', async () => {
 
 // ── System IPC ────────────────────────────────────────────────────────────────
 
-ipcMain.handle('system-shutdown', () => {
+/**
+ * Show a native confirmation dialog with Cancel as the default so a misclick
+ * can't trigger a destructive op. Returns true only if the user explicitly
+ * picks the destructive button. Used to gate shutdown/reboot/disk-install.
+ */
+async function confirmDestructive(opts) {
+  const win = mainWindow ?? BrowserWindow.getFocusedWindow() ?? undefined;
+  const { response } = await dialog.showMessageBox(win, {
+    type: 'warning',
+    buttons: [opts.actionLabel, 'Cancel'],
+    defaultId: 1,
+    cancelId: 1,
+    title: opts.title,
+    message: opts.message,
+    detail: opts.detail,
+    noLink: true,
+  });
+  return response === 0;
+}
+
+ipcMain.handle('system-shutdown', async () => {
+  const ok = await confirmDestructive({
+    title: 'Shut down KobeOS',
+    message: 'Shut down this device now?',
+    detail: 'All open work will be closed. Unsaved changes may be lost.',
+    actionLabel: 'Shut Down',
+  });
+  if (!ok) return { confirmed: false };
   exec(process.platform === 'win32' ? 'shutdown /s /t 0' : 'poweroff');
+  return { confirmed: true };
 });
-ipcMain.handle('system-reboot', () => {
+ipcMain.handle('system-reboot', async () => {
+  const ok = await confirmDestructive({
+    title: 'Restart KobeOS',
+    message: 'Restart this device now?',
+    detail: 'All open work will be closed. Unsaved changes may be lost.',
+    actionLabel: 'Restart',
+  });
+  if (!ok) return { confirmed: false };
   exec(process.platform === 'win32' ? 'shutdown /r /t 0' : 'reboot');
+  return { confirmed: true };
 });
 ipcMain.handle('get-system-mode', () => getSystemMode());
 
@@ -431,6 +484,14 @@ ipcMain.handle('install-to-disk', async (event, diskPath, options = {}) => {
   // options.luksPassphrase: string — if provided, root partition is LUKS-encrypted
   const luksPassphrase = typeof options.luksPassphrase === 'string' ? options.luksPassphrase : '';
   const useLuks = luksPassphrase.length >= 8;
+
+  const ok = await confirmDestructive({
+    title: 'Install KobeOS to disk',
+    message: `Install KobeOS to ${diskPath}?`,
+    detail: `THIS WILL ERASE EVERYTHING ON ${diskPath}. All existing partitions and data on this disk will be destroyed.${useLuks ? '\n\nThe root partition will be encrypted with LUKS.' : ''}\n\nThis cannot be undone.`,
+    actionLabel: 'Erase & Install',
+  });
+  if (!ok) return { success: false, error: 'cancelled' };
 
   // Partition layout (GPT, 4 partitions):
   //   p1  512 MiB  EFI System Partition (FAT32)
@@ -529,7 +590,10 @@ mkdir -p /mnt/kobeos/userdata/pgdata /mnt/kobeos/userdata/kobeos-home
 ln -sfn /userdata/kobeos-home /mnt/kobeos/home/kobeos 2>/dev/null || true
 
 # ── Systemd services ───────────────────────────────────────────────────────────
-cat > /etc/systemd/system/kobeos-backend.service << 'SVCEOF'
+# Write units to the TARGET (/mnt/kobeos/etc/...) — writing to /etc/...
+# would modify the live USB instead of the installed OS.
+mkdir -p /mnt/kobeos/etc/systemd/system
+cat > /mnt/kobeos/etc/systemd/system/kobeos-backend.service << 'SVCEOF'
 [Unit]
 Description=KobeOS Backend API
 After=network.target postgresql.service
@@ -545,7 +609,9 @@ Environment=DB_PORT=5432
 Environment=DB_USERNAME=kobeos
 Environment=DB_PASSWORD=kobeos_prod
 Environment=DB_DATABASE=kobeos
-Environment=DB_SYNCHRONIZE=true
+# DB_SYNCHRONIZE intentionally unset: migrations run automatically in
+# production; setting both NODE_ENV=production and DB_SYNCHRONIZE=true
+# is rejected by the server bootstrap.
 EnvironmentFile=-/opt/kobeos/resources/.env
 ExecStart=/usr/bin/node /opt/kobeos/resources/server-bundle/index.js
 Restart=on-failure
@@ -554,7 +620,7 @@ RestartSec=5
 WantedBy=multi-user.target
 SVCEOF
 
-cat > /etc/systemd/system/kobeos-xorg.service << 'SVCEOF'
+cat > /mnt/kobeos/etc/systemd/system/kobeos-xorg.service << 'SVCEOF'
 [Unit]
 Description=KobeOS X Server
 After=systemd-udev-settle.service
@@ -570,7 +636,7 @@ RestartSec=2
 WantedBy=graphical.target
 SVCEOF
 
-cat > /etc/systemd/system/kobeos-kiosk.service << 'SVCEOF'
+cat > /mnt/kobeos/etc/systemd/system/kobeos-kiosk.service << 'SVCEOF'
 [Unit]
 Description=KobeOS Kiosk
 After=kobeos-xorg.service kobeos-backend.service
@@ -591,8 +657,9 @@ WantedBy=graphical.target
 SVCEOF
 
 # ── LUKS crypttab (so root unlocks on boot) ────────────────────────────────────
+# Write to the target's /etc/crypttab, not the live USB's.
 ${useLuks ? `
-echo "kobeos_root $PART_ROOT none luks,discard" >> /etc/crypttab
+echo "kobeos_root $PART_ROOT none luks,discard" >> /mnt/kobeos/etc/crypttab
 ` : ''}
 
 # ── fstab ──────────────────────────────────────────────────────────────────────
@@ -609,8 +676,10 @@ UUID=$DATA_UUID  /userdata   ext4  defaults,noatime  0 2
 FSTABEOF
 
 # ── Users ──────────────────────────────────────────────────────────────────────
-useradd -m -s /bin/bash kobeos 2>/dev/null || true
-systemctl enable kobeos-xorg.service kobeos-backend.service kobeos-kiosk.service || true
+# Create the kobeos user and enable services on the TARGET system, not the
+# live USB. chroot + systemctl --root keep both confined to /mnt/kobeos.
+chroot /mnt/kobeos useradd -m -s /bin/bash kobeos 2>/dev/null || true
+systemctl --root=/mnt/kobeos enable kobeos-xorg.service kobeos-backend.service kobeos-kiosk.service || true
 
 
 # ── GRUB ──────────────────────────────────────────────────────────────────────
