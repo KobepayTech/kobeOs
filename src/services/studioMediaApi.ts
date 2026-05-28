@@ -26,6 +26,16 @@ export type StudioMediaJobRecord = {
   completedAt?: string | null;
 };
 
+export type CreateStudioMediaJobRequest = {
+  projectId: string;
+  status?: StudioMediaJobRecord['status'];
+  engine?: string;
+  request?: Record<string, unknown>;
+  result?: Record<string, unknown>;
+  outputUrl?: string;
+  errorMessage?: string;
+};
+
 export type StudioMediaSummary = {
   projects: number;
   jobs: number;
@@ -50,7 +60,7 @@ export function listStudioMediaJobs() {
   return api<StudioMediaJobRecord[]>('/studio/media/jobs');
 }
 
-export function createStudioMediaJob(data: Partial<StudioMediaJobRecord> & { projectId: string }) {
+export function createStudioMediaJob(data: CreateStudioMediaJobRequest) {
   return api<StudioMediaJobRecord>('/studio/media/jobs', {
     method: 'POST',
     body: JSON.stringify(data),
