@@ -49,6 +49,9 @@ import { AdminModule } from './admin/admin.module';
 import { DevopsModule } from './devops/devops.module';
 import { ErpModule } from './erp/erp.module';
 import { AccountModule } from './account/account.module';
+import { KobeSecurityModule } from './kobe-security/kobe-security.module';
+import { HotelSecurityModule } from './hotel-security/hotel-security.module';
+import { StudioMediaModule } from './studio-media/studio-media.module';
 import { QrModule } from './qr/qr.module';
 import { ExchangeRateModule } from './exchange-rates/exchange-rate.module';
 import { DisputeModule } from './disputes/dispute.module';
@@ -90,7 +93,10 @@ import { DisputeModule } from './disputes/dispute.module';
     DiscountsModule,
     PaymentsModule,
     HotelModule,
+    HotelSecurityModule,
     CreatorsModule,
+    StudioMediaModule,
+    KobeSecurityModule,
     LicenseModule,
     PrintModule,
     AdminModule,
