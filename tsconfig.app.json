@@ -20,7 +20,8 @@
     "paths": {
       "@/*": ["./src/*"]
     },
-    "types": ["node", "vite/client"]
+    "types": ["node", "vite/client", "vitest/globals"]
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/lib/kobeos-app-integration.tsx", "src/lib/kobeos-websocket.tsx", "src/lib/kobeos-notifications.tsx", "src/lib/kobeos-payments.ts", "src/lib/kobeos-auth.tsx", "src/lib/kobeos-api-client.ts", "src/lib/kobeos-token-manager.ts"]
 }

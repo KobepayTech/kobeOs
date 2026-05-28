@@ -5,7 +5,7 @@ export class CreateProductDto {
   @IsString() @MaxLength(60) sku!: string;
   @IsString() @MaxLength(200) name!: string;
   @IsOptional() @IsString() @MaxLength(80) category?: string;
-  @IsNumber() price!: number;
+  @IsNumber() @Min(0) price!: number;
   @IsOptional() @IsString() @MaxLength(8) currency?: string;
   @IsOptional() @IsInt() @Min(0) stock?: number;
   @IsOptional() @IsString() imageUrl?: string;
@@ -14,7 +14,7 @@ export class CreateProductDto {
 export class UpdateProductDto {
   @IsOptional() @IsString() name?: string;
   @IsOptional() @IsString() category?: string;
-  @IsOptional() @IsNumber() price?: number;
+  @IsOptional() @IsNumber() @Min(0) price?: number;
   @IsOptional() @IsInt() @Min(0) stock?: number;
   @IsOptional() @IsString() imageUrl?: string;
   @IsOptional() @IsBoolean() active?: boolean;
@@ -29,8 +29,8 @@ export class CreateOrderDto {
   @IsString() orderNumber!: string;
   @IsArray() @ValidateNested({ each: true }) @Type(() => OrderLineDto)
   lines!: OrderLineDto[];
-  @IsOptional() @IsNumber() taxAmount?: number;
-  @IsOptional() @IsNumber() discountAmount?: number;
+  @IsOptional() @IsNumber() @Min(0) taxAmount?: number;
+  @IsOptional() @IsNumber() @Min(0) discountAmount?: number;
   @IsOptional() @IsString() paymentMethod?: string;
   @IsOptional() @IsString() customerName?: string;
   @IsOptional() @IsString() customerPhone?: string;

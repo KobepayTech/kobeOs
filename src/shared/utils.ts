@@ -101,9 +101,9 @@ export const getShipmentStageLabel = (stage: string): string => {
   return map[stage] || stage;
 };
 
-export const debounce = <T extends (...args: unknown[]) => void>(fn: T, delay: number) => {
+export const debounce = <A extends unknown[]>(fn: (...args: A) => void, delay: number) => {
   let timer: ReturnType<typeof setTimeout>;
-  return (...args: Parameters<T>) => {
+  return (...args: A) => {
     clearTimeout(timer);
     timer = setTimeout(() => fn(...args), delay);
   };

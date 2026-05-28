@@ -1,7 +1,7 @@
 {
   "name": "kobeos",
   "private": true,
-  "version": "1.5.0",
+  "version": "1.6.0",
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
@@ -25,7 +25,11 @@
     "models:football:export": "python3 scripts/build-football-vision.py --mode export",
     "models:football:bundle": "python3 scripts/build-football-vision.py --mode bundle",
     "build:bundle": "cd server && npx ncc build src/main.ts -o ../electron/server-bundle --minify --no-source-map-register",
-    "usb:write": "sudo node scripts/write-usb.js"
+    "usb:write": "sudo node scripts/write-usb.js",
+    "security:engine:clone": "node scripts/install-kobe-security-engine.cjs",
+    "security:engine:docker": "docker compose -f docker/ruview-kobe-security.compose.yml up -d",
+    "studio:media:clone": "node scripts/install-kobe-studio-media-engine.cjs",
+    "studio:media:docker": "cd apps/kobe-studio/media-studios/engine/MoneyPrinterTurbo && docker compose up"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -118,159 +122,45 @@
   "build": {
     "appId": "com.kobepaytech.kobeos",
     "productName": "KobeOS",
-    "copyright": "\u00a9 2026 KobepayTech",
-    "directories": {
-      "output": "release",
-      "buildResources": "build"
-    },
-    "files": [
-      "dist/**/*",
-      "electron/**/*",
-      "apps/**/*",
-      "ai/**/*",
-      "drivers/**/*",
-      "package.json",
-      "!electron/server-bundle/**",
-      "!**/*.map",
-      "!**/*.ts",
-      "node_modules/better-sqlite3/**",
-      "node_modules/bindings/**",
-      "node_modules/file-uri-to-path/**",
-      "node_modules/embedded-postgres/**",
-      "node_modules/@embedded-postgres/**",
-      "node_modules/pg/**",
-      "node_modules/pg-protocol/**",
-      "node_modules/pg-types/**",
-      "node_modules/pgpass/**",
-      "node_modules/buffer-writer/**",
-      "node_modules/packet-reader/**"
-    ],
+    "copyright": "© 2026 KobepayTech",
+    "directories": { "output": "release", "buildResources": "build" },
+    "files": ["dist/**/*", "electron/**/*", "apps/**/*", "ai/**/*", "drivers/**/*", "package.json", "!electron/server-bundle/**", "!**/*.map", "!**/*.ts", "node_modules/better-sqlite3/**", "node_modules/bindings/**", "node_modules/file-uri-to-path/**", "node_modules/embedded-postgres/**", "node_modules/@embedded-postgres/**", "node_modules/pg/**", "node_modules/pg-protocol/**", "node_modules/pg-types/**", "node_modules/pgpass/**", "node_modules/buffer-writer/**", "node_modules/packet-reader/**"],
     "extraResources": [
-      {
-        "from": "electron/server-bundle",
-        "to": "server-bundle"
-      },
-      {
-        "from": "build/kobeos-release.pub",
-        "to": "kobeos-release.pub"
-      },
-      {
-        "from": "build/core-manifest.json",
-        "to": "core-manifest.json"
-      }
+      { "from": "electron/server-bundle", "to": "server-bundle" },
+      { "from": "build/kobeos-release.pub", "to": "kobeos-release.pub" },
+      { "from": "build/core-manifest.json", "to": "core-manifest.json" }
     ],
     "linux": {
-      "target": [
-        {
-          "target": "AppImage",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "deb",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
+      "target": [{ "target": "AppImage", "arch": ["x64"] }, { "target": "deb", "arch": ["x64"] }],
       "icon": "build/kobeos-icon.png",
       "category": "System",
       "maintainer": "KobepayTech <support@kobepaytech.com>",
-      "synopsis": "KobeOS \u2014 Business OS with ERP, cargo, hotel, payments and more",
+      "synopsis": "KobeOS — Business OS with ERP, cargo, hotel, payments and more",
       "description": "KobeOS is a desktop business platform with 70+ apps covering ERP, cargo logistics, hotel management, payments, POS, and productivity tools.",
-      "desktop": {
-        "entry": {
-          "Name": "KobeOS",
-          "Comment": "Business OS Platform",
-          "Categories": "Office;Finance;"
-        }
-      }
+      "desktop": { "entry": { "Name": "KobeOS", "Comment": "Business OS Platform", "Categories": "Office;Finance;" } }
     },
     "win": {
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
+      "target": [{ "target": "nsis", "arch": ["x64"] }, { "target": "portable", "arch": ["x64"] }],
       "icon": "build/kobeos-icon.ico",
       "signAndEditExecutable": false,
       "requestedExecutionLevel": "asInvoker"
     },
-    "nsis": {
-      "oneClick": false,
-      "allowToChangeInstallationDirectory": true,
-      "differentialPackage": false,
-      "installerIcon": "build/kobeos-icon.ico",
-      "uninstallerIcon": "build/kobeos-icon.ico",
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "KobeOS",
-      "artifactName": "KobeOS-Setup-${version}.exe",
-      "include": "build/installer.nsh"
-    },
+    "nsis": { "oneClick": false, "allowToChangeInstallationDirectory": true, "differentialPackage": false, "installerIcon": "build/kobeos-icon.ico", "uninstallerIcon": "build/kobeos-icon.ico", "createDesktopShortcut": true, "createStartMenuShortcut": true, "shortcutName": "KobeOS", "artifactName": "KobeOS-Setup-${version}.exe", "include": "build/installer.nsh" },
     "mac": {
-      "target": [
-        {
-          "target": "dmg",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        },
-        {
-          "target": "zip",
-          "arch": [
-            "x64",
-            "arm64"
-          ]
-        }
-      ],
+      "target": [{ "target": "dmg", "arch": ["x64", "arm64"] }, { "target": "zip", "arch": ["x64", "arm64"] }],
       "icon": "build/kobeos-icon-mac.png",
       "category": "public.app-category.business",
       "darkModeSupport": true,
       "hardenedRuntime": false,
       "gatekeeperAssess": false
     },
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "KobepayTech",
-        "repo": "kobeOs",
-        "releaseType": "release"
-      }
-    ],
+    "publish": [{ "provider": "github", "owner": "KobepayTech", "repo": "kobeOs", "releaseType": "release" }],
     "asar": true,
-    "asarUnpack": [
-      "node_modules/better-sqlite3/**",
-      "node_modules/embedded-postgres/**",
-      "node_modules/@embedded-postgres/**",
-      "node_modules/bindings/**",
-      "node_modules/file-uri-to-path/**"
-    ],
-    "dmg": {
-      "title": "KobeOS ${version}",
-      "artifactName": "KobeOS-${version}.dmg",
-      "window": {
-        "width": 540,
-        "height": 380
-      }
-    }
+    "asarUnpack": ["node_modules/better-sqlite3/**", "node_modules/embedded-postgres/**", "node_modules/@embedded-postgres/**", "node_modules/bindings/**", "node_modules/file-uri-to-path/**"],
+    "dmg": { "title": "KobeOS ${version}", "artifactName": "KobeOS-${version}.dmg", "window": { "width": 540, "height": 380 } }
   },
-  "description": "KobeOS \u2014 Desktop business platform with ERP, cargo, hotel, payments and more",
-  "author": {
-    "name": "KobepayTech",
-    "email": "support@kobepaytech.com"
-  },
+  "description": "KobeOS — Desktop business platform with ERP, cargo, hotel, payments and more",
+  "author": { "name": "KobepayTech", "email": "support@kobepaytech.com" },
   "optionalDependencies": {
     "@embedded-postgres/windows-x64": "^18.3.0-beta.17",
     "@embedded-postgres/linux-x64": "^18.3.0-beta.17"

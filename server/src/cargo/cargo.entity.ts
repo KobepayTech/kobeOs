@@ -124,3 +124,58 @@ export class CargoFlight extends OwnedEntity {
   @Column({ type: 'float', default: 0 })
   bookedKg!: number;
 }
+
+export type CargoPaymentPurpose = 'DEPOSIT' | 'BALANCE' | 'FULL' | 'SHIPPING' | 'CUSTOMS';
+export type CargoPaymentMethod = 'KOBEPAY' | 'BANK' | 'MOBILE_MONEY' | 'CASH' | 'CARD';
+export type CargoPaymentStatus = 'PENDING' | 'COMPLETED' | 'REVERSED';
+
+/**
+ * Records a cashier-recorded payment against a parcel or shipment. Either
+ * parcelId OR shipmentId must be set (validated in the DTO). Multiple
+ * payments can attach to the same subject — e.g. a deposit followed by
+ * a balance payment — and the frontend uses the running sum to drive
+ * receipt copy.
+ */
+@Entity('cargo_payments')
+export class CargoPayment extends OwnedEntity {
+  @Index()
+  @Column({ nullable: true, type: 'uuid' })
+  parcelId?: string | null;
+
+  @Index()
+  @Column({ nullable: true, type: 'uuid' })
+  shipmentId?: string | null;
+
+  @Column()
+  customerName!: string;
+
+  @Column({ default: '' })
+  customerPhone!: string;
+
+  @Column({ nullable: true, type: 'varchar' })
+  supplierName?: string | null;
+
+  @Column({ nullable: true, type: 'varchar' })
+  supplierNumber?: string | null;
+
+  @Column({ type: 'decimal', precision: 18, scale: 4 })
+  amount!: number;
+
+  @Column({ default: 'TZS' })
+  currency!: string;
+
+  @Column({ default: 'DEPOSIT' })
+  purpose!: CargoPaymentPurpose;
+
+  @Column({ default: 'CASH' })
+  method!: CargoPaymentMethod;
+
+  @Column({ nullable: true, type: 'varchar' })
+  reference?: string | null;
+
+  @Column({ default: '' })
+  notes!: string;
+
+  @Column({ default: 'COMPLETED' })
+  status!: CargoPaymentStatus;
+}

@@ -557,7 +557,7 @@ function LivePreview({ settings }: { settings: StoreSettings }) {
     >
       <PreviewHeader settings={settings} />
 
-      <ScrollArea className="flex-1">
+      <ScrollArea className="flex-1 min-h-0">
         {/* Banner */}
         <PreviewBanner settings={settings} />
 
@@ -781,7 +781,7 @@ export default function StoreEditor() {
         </div>
 
         {/* Sections */}
-        <ScrollArea className="flex-1">
+        <ScrollArea className="flex-1 min-h-0">
           {/* ─── Store Identity ─── */}
           <Section title="Store Identity" icon={Store} defaultOpen>
             <div className="space-y-3">
@@ -1253,7 +1253,7 @@ export default function StoreEditor() {
               >
                 {saving
                   ? <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> Saving…</>
-                  : <><Save className="w-3 h-3 mr-1.5" /> Save Theme</>
+                  : <><Save className="w-3 h-3 mr-1.5" /> Save</>
                 }
               </Button>
             </div>
@@ -1274,7 +1274,7 @@ export default function StoreEditor() {
         </div>
 
         {/* Preview Content */}
-        <div className="flex-1 overflow-hidden">
+        <div className="flex-1 min-h-0 overflow-hidden">
           <LivePreview settings={settings} />
         </div>
       </div>

@@ -20,6 +20,7 @@ type Role = 'Admin' | 'Cashier TZ' | 'Cashier China';
 type Module = 'dashboard' | 'customers' | 'deposits' | 'payouts' | 'suppliers' | 'allocations' | 'receipts' | 'settings';
 type DepositStatus = 'Pending' | 'Confirmed';
 type PayoutStatus = 'INITIATED' | 'SENT' | 'CONFIRMED' | 'PAID';
+type TxnType = 'Deposit' | 'Goods on Delivery';
 
 interface Customer {
   id: string;
@@ -46,6 +47,32 @@ interface Deposit {
   reference: string;
   status: DepositStatus;
   date: string;
+  txnType?: TxnType;
+  suppliers?: SupplierEntry[];
+}
+
+interface SupplierEntry {
+  supplierNumber: string;
+  supplierName: string;
+  amount: number;
+}
+
+interface SupplierLine {
+  supplierNumber: string;
+  supplierName: string;
+  amount: string;
+}
+
+interface DepositReceipt {
+  transactionId: string;
+  customerName: string;
+  phone: string;
+  currency: string;
+  method: string;
+  txnType: TxnType;
+  date: string;
+  suppliers: SupplierEntry[];
+  total: number;
 }
 
 interface Payout {
@@ -275,8 +302,6 @@ export default function KobePay() {
       });
     } catch { /* ignore */ }
   };
-  // Exposed for future use; deposits state continues to drive the UI in v1.
-  void recordDeposit;
 
   // Customer search state
   const [phoneSearch, setPhoneSearch] = useState('');
@@ -300,12 +325,17 @@ export default function KobePay() {
 
   // Deposit form state
   const [depositPhone, setDepositPhone] = useState('');
-  const [depositAmount, setDepositAmount] = useState('');
   const [depositCurrency, setDepositCurrency] = useState('USD');
   const [depositMethod, setDepositMethod] = useState('M-Pesa');
-  const [depositRef, setDepositRef] = useState('');
+  const [depositType, setDepositType] = useState<TxnType>('Deposit');
+  const [supplierLines, setSupplierLines] = useState<SupplierLine[]>([{ supplierNumber: '', supplierName: '', amount: '' }]);
   const [selectedDepositCustomer, setSelectedDepositCustomer] = useState<Customer | null>(null);
   const [depositStatusFilter, setDepositStatusFilter] = useState<string>('All');
+
+  // Deposit receipt (shown after confirmation)
+  const [showDepositReceipt, setShowDepositReceipt] = useState(false);
+  const [depositReceipt, setDepositReceipt] = useState<DepositReceipt | null>(null);
+  const supplierTotal = useMemo(() => supplierLines.reduce((s, l) => s + (parseFloat(l.amount) || 0), 0), [supplierLines]);
 
   // Payout form state
   const [payoutSupplier, setPayoutSupplier] = useState('');
@@ -402,23 +432,137 @@ export default function KobePay() {
     if (searchedCustomer?.id === customerId) { setSearchedCustomer(null); setShowNewCustomer(false); }
   };
 
-  const handleDepositSubmit = () => {
-    if (!selectedDepositCustomer || !depositAmount) return;
+  const updateSupplierLine = (index: number, field: keyof SupplierLine, value: string) =>
+    setSupplierLines(lines => lines.map((l, i) => (i === index ? { ...l, [field]: value } : l)));
+  const addSupplierLine = () => setSupplierLines(lines => [...lines, { supplierNumber: '', supplierName: '', amount: '' }]);
+  const removeSupplierLine = (index: number) =>
+    setSupplierLines(lines => (lines.length === 1 ? lines : lines.filter((_, i) => i !== index)));
+
+  const txnTypeLabel = (t: TxnType) =>
+    t === 'Deposit' ? 'Deposit (advance payment)' : 'Payment for goods — payable on delivery';
+
+  const handleConfirmDeposit = () => {
+    if (!selectedDepositCustomer) return;
+    const lines: SupplierEntry[] = supplierLines
+      .map(l => ({ supplierNumber: l.supplierNumber.trim(), supplierName: l.supplierName.trim(), amount: parseFloat(l.amount) || 0 }))
+      .filter(l => l.supplierNumber && l.amount > 0);
+    if (lines.length === 0) return;
+    const total = lines.reduce((s, l) => s + l.amount, 0);
+    const date = new Date().toISOString().split('T')[0];
+    const seq = String(deposits.length + 1).padStart(3, '0');
+    const txnId = `TXN-${date.replace(/-/g, '')}-${seq}`;
+    const customer = selectedDepositCustomer;
+
     const newDeposit: Deposit = {
-      id: `D${String(deposits.length + 1).padStart(3, '0')}`,
-      customerId: selectedDepositCustomer.id,
-      customerName: selectedDepositCustomer.name,
-      phone: selectedDepositCustomer.phone,
-      amount: parseFloat(depositAmount),
+      id: `D${seq}`,
+      customerId: customer.id,
+      customerName: customer.name,
+      phone: customer.phone,
+      amount: total,
       currency: depositCurrency,
       method: depositMethod,
-      reference: depositRef || `${receiptPrefix}${String(deposits.length + 1).padStart(3, '0')}`,
+      reference: lines.length === 1 ? lines[0].supplierNumber : `${lines.length} suppliers`,
       status: 'Confirmed',
-      date: new Date().toISOString().split('T')[0],
+      date,
+      txnType: depositType,
+      suppliers: lines,
     };
     setDeposits([newDeposit, ...deposits]);
-    setCustomers(customers.map(c => c.id === selectedDepositCustomer.id ? { ...c, balance: c.balance + parseFloat(depositAmount), depositCount: c.depositCount + 1, lastDeposit: newDeposit.date } : c));
-    setDepositAmount(''); setDepositRef(''); setDepositPhone(''); setSelectedDepositCustomer(null);
+
+    const newAllocations: Allocation[] = lines.map((l, i) => ({
+      id: `A${String(allocations.length + i + 1).padStart(3, '0')}`,
+      customerId: customer.id,
+      customerName: customer.name,
+      supplierId: l.supplierNumber,
+      supplierName: l.supplierName || l.supplierNumber,
+      amount: l.amount,
+      orderRef: l.supplierNumber,
+      type: depositType === 'Deposit' ? 'Deposit' : 'Goods',
+      date,
+    }));
+    setAllocations([...newAllocations, ...allocations]);
+
+    setCustomers(customers.map(c =>
+      c.id === customer.id
+        ? { ...c, balance: c.balance + total, depositCount: c.depositCount + 1, lastDeposit: date }
+        : c
+    ));
+
+    recordDeposit(total, newDeposit.reference, `KobePay ${txnTypeLabel(depositType)} ${txnId}`);
+
+    setDepositReceipt({
+      transactionId: txnId,
+      customerName: customer.name,
+      phone: customer.phone,
+      currency: depositCurrency,
+      method: depositMethod,
+      txnType: depositType,
+      date,
+      suppliers: lines,
+      total,
+    });
+    setShowDepositReceipt(true);
+
+    setSupplierLines([{ supplierNumber: '', supplierName: '', amount: '' }]);
+    setDepositType('Deposit');
+    setDepositPhone('');
+    setSelectedDepositCustomer(null);
+  };
+
+  const escapeHtml = (s: string) =>
+    s.replace(/[&<>"]/g, c => (({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] as string));
+
+  const printHtml = (html: string) => {
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
+    const win = iframe.contentWindow;
+    if (!win) { document.body.removeChild(iframe); return; }
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    setTimeout(() => {
+      win.print();
+      setTimeout(() => document.body.removeChild(iframe), 500);
+    }, 250);
+  };
+
+  const invoiceShell = (title: string, body: string, footer: string) => `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title>
+<style>*{font-family:Arial,Helvetica,sans-serif;box-sizing:border-box}body{margin:24px;color:#111}.head{text-align:center;border-bottom:2px solid #111;padding-bottom:8px;margin-bottom:12px}.head h1{margin:0;font-size:18px}.head p{margin:2px 0;font-size:11px;color:#444}.title{text-align:center;font-size:14px;font-weight:bold;margin:10px 0;text-transform:uppercase;letter-spacing:1px}table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}th{background:#f0f0f0}.right{text-align:right}.total{font-weight:bold;font-size:13px}.meta{font-size:12px;margin:4px 0}.note{margin-top:14px;font-size:12px;padding:8px;border:1px dashed #999}.foot{margin-top:24px;font-size:10px;text-align:center;color:#666}</style></head><body>
+<div class="head"><h1>${escapeHtml(businessName)}</h1><p>${escapeHtml(businessPhone)} | ${escapeHtml(businessEmail)}</p><p>${escapeHtml(businessAddress)}</p></div>
+<div class="title">${title}</div>${body}
+<div class="foot">${footer}</div></body></html>`;
+
+  const buildCustomerInvoice = (r: DepositReceipt) => {
+    const rows = r.suppliers
+      .map((s, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(s.supplierNumber)}</td><td>${escapeHtml(s.supplierName || '-')}</td><td class="right">${s.amount.toLocaleString()} ${r.currency}</td></tr>`)
+      .join('');
+    const body = `<p class="meta"><b>Receipt No:</b> ${escapeHtml(r.transactionId)}</p>
+<p class="meta"><b>Date:</b> ${r.date}</p>
+<p class="meta"><b>Sender (Customer):</b> ${escapeHtml(r.customerName)} &nbsp; ${escapeHtml(r.phone)}</p>
+<p class="meta"><b>Payment Method:</b> ${escapeHtml(r.method)}</p>
+<table><thead><tr><th>#</th><th>Supplier No.</th><th>Supplier Name</th><th class="right">Amount</th></tr></thead>
+<tbody>${rows}<tr><td colspan="3" class="right total">TOTAL</td><td class="right total">${r.total.toLocaleString()} ${r.currency}</td></tr></tbody></table>
+<div class="note"><b>Purpose:</b> ${txnTypeLabel(r.txnType)}</div>`;
+    return invoiceShell('Customer Invoice', body, 'Customer copy — thank you for using KobePay.');
+  };
+
+  const buildSupplierInvoice = (r: DepositReceipt, s: SupplierEntry) => {
+    const body = `<p class="meta"><b>Receipt No:</b> ${escapeHtml(r.transactionId)}</p>
+<p class="meta"><b>Date:</b> ${r.date}</p>
+<p class="meta"><b>Supplier No.:</b> ${escapeHtml(s.supplierNumber)}</p>
+<p class="meta"><b>Supplier Name:</b> ${escapeHtml(s.supplierName || '-')}</p>
+<p class="meta"><b>Sender (Customer):</b> ${escapeHtml(r.customerName)} &nbsp; ${escapeHtml(r.phone)}</p>
+<table><thead><tr><th>Description</th><th class="right">Amount</th></tr></thead>
+<tbody><tr><td>Funds received for supplier ${escapeHtml(s.supplierNumber)}</td><td class="right total">${s.amount.toLocaleString()} ${r.currency}</td></tr></tbody></table>
+<div class="note"><b>Purpose:</b> ${txnTypeLabel(r.txnType)}</div>`;
+    return invoiceShell('Supplier Invoice', body, 'Supplier copy.');
   };
 
   const handlePayoutSubmit = () => {
@@ -720,13 +864,31 @@ export default function KobePay() {
         <Card className="bg-[#13131f] border-white/[0.06]">
           <CardContent className="p-5">
             <h3 className="text-white font-semibold mb-4 flex items-center gap-2"><Plus className="w-5 h-5 text-emerald-400" />New Deposit</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
               <div><label className="text-xs text-slate-400 mb-1 block">Search Customer Phone</label><div className="flex gap-2"><Input placeholder="Enter phone..." value={depositPhone} onChange={e => setDepositPhone(e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600" /><Button onClick={handleDepositSearch} size="sm" className="bg-blue-600 hover:bg-blue-700"><Search className="w-4 h-4" /></Button></div>{selectedDepositCustomer && <p className="text-xs text-emerald-400 mt-1 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" />{selectedDepositCustomer.name}</p>}</div>
-              <div><label className="text-xs text-slate-400 mb-1 block">Amount</label><Input type="number" placeholder="0.00" value={depositAmount} onChange={e => setDepositAmount(e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600" /></div>
               <div><label className="text-xs text-slate-400 mb-1 block">Currency</label><Select value={depositCurrency} onValueChange={setDepositCurrency}><SelectTrigger className="bg-[#0a0a1a] border-white/[0.08] text-white"><SelectValue /></SelectTrigger><SelectContent className="bg-[#13131f] border-white/[0.08]"><SelectItem value="USD" className="text-white">USD</SelectItem><SelectItem value="TZS" className="text-white">TZS</SelectItem><SelectItem value="CNY" className="text-white">CNY</SelectItem></SelectContent></Select></div>
               <div><label className="text-xs text-slate-400 mb-1 block">Payment Method</label><Select value={depositMethod} onValueChange={setDepositMethod}><SelectTrigger className="bg-[#0a0a1a] border-white/[0.08] text-white"><SelectValue /></SelectTrigger><SelectContent className="bg-[#13131f] border-white/[0.08]"><SelectItem value="Cash" className="text-white">Cash</SelectItem><SelectItem value="M-Pesa" className="text-white">M-Pesa</SelectItem><SelectItem value="Bank Transfer" className="text-white">Bank Transfer</SelectItem><SelectItem value="Agent" className="text-white">Agent</SelectItem><SelectItem value="WeChat Pay" className="text-white">WeChat Pay</SelectItem><SelectItem value="Alipay" className="text-white">Alipay</SelectItem></SelectContent></Select></div>
-              <div><label className="text-xs text-slate-400 mb-1 block">Reference Number</label><Input placeholder="Receipt from customer" value={depositRef} onChange={e => setDepositRef(e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600" /></div>
-              <div className="flex items-end"><Button onClick={handleDepositSubmit} disabled={!selectedDepositCustomer || !depositAmount} className="bg-emerald-600 hover:bg-emerald-700 text-white w-full"><Check className="w-4 h-4 mr-2" />Confirm Deposit</Button></div>
+              <div><label className="text-xs text-slate-400 mb-1 block">Transaction Type</label><Select value={depositType} onValueChange={v => setDepositType(v as TxnType)}><SelectTrigger className="bg-[#0a0a1a] border-white/[0.08] text-white"><SelectValue /></SelectTrigger><SelectContent className="bg-[#13131f] border-white/[0.08]"><SelectItem value="Deposit" className="text-white">Deposit (advance)</SelectItem><SelectItem value="Goods on Delivery" className="text-white">Goods on delivery</SelectItem></SelectContent></Select></div>
+            </div>
+            <div className="mt-4">
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-xs text-slate-400">Chinese Supplier(s)</label>
+                <Button onClick={addSupplierLine} size="sm" variant="outline" className="h-7 text-xs border-white/10 text-white hover:bg-white/5"><Plus className="w-3 h-3 mr-1" />Add Supplier</Button>
+              </div>
+              <div className="space-y-2">
+                {supplierLines.map((l, i) => (
+                  <div key={i} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center">
+                    <div className="md:col-span-4"><Input placeholder="Supplier number *" value={l.supplierNumber} onChange={e => updateSupplierLine(i, 'supplierNumber', e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600" /></div>
+                    <div className="md:col-span-4"><Input placeholder="Chinese supplier name (optional)" value={l.supplierName} onChange={e => updateSupplierLine(i, 'supplierName', e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600" /></div>
+                    <div className="md:col-span-3"><Input type="number" placeholder="Amount *" value={l.amount} onChange={e => updateSupplierLine(i, 'amount', e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600" /></div>
+                    <div className="md:col-span-1 flex justify-center">{supplierLines.length > 1 && <button onClick={() => removeSupplierLine(i)} className="p-2 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10"><Trash2 className="w-4 h-4" /></button>}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="flex items-center justify-between mt-4 pt-4 border-t border-white/[0.06]">
+              <p className="text-sm text-slate-400">Total Sending: <span className="text-emerald-400 font-semibold">{supplierTotal.toLocaleString()} {depositCurrency}</span></p>
+              <Button onClick={handleConfirmDeposit} disabled={!selectedDepositCustomer || !supplierLines.some(l => l.supplierNumber.trim() && (parseFloat(l.amount) || 0) > 0)} className="bg-emerald-600 hover:bg-emerald-700 text-white"><Check className="w-4 h-4 mr-2" />Confirm Deposit</Button>
             </div>
           </CardContent>
         </Card>
@@ -749,7 +911,7 @@ export default function KobePay() {
           </div>
           <div className="overflow-x-auto">
             <table className="w-full">
-              <thead><tr className="border-b border-white/[0.06]"><th className="text-left py-3 px-4 text-xs font-medium text-slate-400">ID</th><th className="text-left py-3 px-4 text-xs font-medium text-slate-400">Customer</th><th className="text-left py-3 px-4 text-xs font-medium text-slate-400">Phone</th><th className="text-right py-3 px-4 text-xs font-medium text-slate-400">Amount</th><th className="text-left py-3 px-4 text-xs font-medium text-slate-400">Method</th><th className="text-left py-3 px-4 text-xs font-medium text-slate-400">Reference</th><th className="text-center py-3 px-4 text-xs font-medium text-slate-400">Status</th><th className="text-left py-3 px-4 text-xs font-medium text-slate-400">Date</th><th className="text-center py-3 px-4 text-xs font-medium text-slate-400">Actions</th></tr></thead>
+              <thead><tr className="border-b border-white/[0.06]"><th className="text-left py-3 px-4 text-xs font-medium text-slate-400">ID</th><th className="text-left py-3 px-4 text-xs font-medium text-slate-400">Customer</th><th className="text-left py-3 px-4 text-xs font-medium text-slate-400">Phone</th><th className="text-right py-3 px-4 text-xs font-medium text-slate-400">Amount</th><th className="text-left py-3 px-4 text-xs font-medium text-slate-400">Method</th><th className="text-left py-3 px-4 text-xs font-medium text-slate-400">Supplier No.</th><th className="text-center py-3 px-4 text-xs font-medium text-slate-400">Status</th><th className="text-left py-3 px-4 text-xs font-medium text-slate-400">Date</th><th className="text-center py-3 px-4 text-xs font-medium text-slate-400">Actions</th></tr></thead>
               <tbody>
                 {filteredDeposits.map(d => (
                   <tr key={d.id} className="border-b border-white/[0.04] hover:bg-white/[0.02] transition-colors">
@@ -783,8 +945,64 @@ export default function KobePay() {
                 <div className="flex justify-between py-1.5 border-b border-white/[0.04]"><span className="text-xs text-slate-400">Phone</span><span className="text-sm text-white">{selectedTransaction.phone}</span></div>
                 <div className="flex justify-between py-1.5 border-b border-white/[0.04]"><span className="text-xs text-slate-400">Amount</span><span className="text-sm font-bold text-emerald-400">${selectedTransaction.amount} {selectedTransaction.currency}</span></div>
                 <div className="flex justify-between py-1.5 border-b border-white/[0.04]"><span className="text-xs text-slate-400">Method</span><span className="text-sm text-white">{selectedTransaction.method}</span></div>
+                {selectedTransaction.txnType && <div className="flex justify-between py-1.5 border-b border-white/[0.04]"><span className="text-xs text-slate-400">Purpose</span><span className="text-sm text-white">{txnTypeLabel(selectedTransaction.txnType)}</span></div>}
                 <div className="flex justify-between py-1.5 border-b border-white/[0.04]"><span className="text-xs text-slate-400">Status</span><StatusBadge status={selectedTransaction.status} /></div>
                 <div className="flex justify-between py-1.5"><span className="text-xs text-slate-400">Date</span><span className="text-sm text-white">{selectedTransaction.date}</span></div>
+              </div>
+              {selectedTransaction.suppliers && selectedTransaction.suppliers.length > 0 && (
+                <div className="rounded-xl bg-[#0a0a1a] border border-white/[0.06] p-3">
+                  <p className="text-xs text-slate-400 mb-2">Chinese Supplier(s)</p>
+                  <div className="space-y-1.5">
+                    {selectedTransaction.suppliers.map((s, i) => (
+                      <div key={i} className="flex items-center justify-between">
+                        <span className="text-xs text-white">{s.supplierName || s.supplierNumber} <span className="text-slate-500 font-mono">({s.supplierNumber})</span></span>
+                        <span className="text-xs font-medium text-emerald-400">{s.amount.toLocaleString()} {selectedTransaction.currency}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={showDepositReceipt} onOpenChange={setShowDepositReceipt}>
+        <DialogContent className="bg-[#13131f] border-white/[0.06] max-w-md">
+          <DialogHeader><DialogTitle className="text-white flex items-center gap-2"><Receipt className="w-5 h-5 text-emerald-400" />Transaction Receipt</DialogTitle></DialogHeader>
+          {depositReceipt && (
+            <div className="space-y-4">
+              <div className="p-4 rounded-xl bg-[#0a0a1a] border border-white/[0.06] text-center">
+                <h3 className="text-lg font-bold text-white">{businessName}</h3>
+                <p className="text-xs text-slate-500">{businessPhone} | {businessEmail}</p>
+                <div className="my-3 flex justify-center"><QRCodeSVG value={depositReceipt.transactionId} size={96} bgColor="#0a0a1a" fgColor="#06b6d4" /></div>
+                <p className="text-xs text-slate-500 font-mono">{depositReceipt.transactionId}</p>
+              </div>
+              <div className="space-y-2">
+                <div className="flex justify-between py-1.5 border-b border-white/[0.04]"><span className="text-xs text-slate-400">Sender (Customer)</span><span className="text-sm text-white">{depositReceipt.customerName}</span></div>
+                <div className="flex justify-between py-1.5 border-b border-white/[0.04]"><span className="text-xs text-slate-400">Phone</span><span className="text-sm text-white">{depositReceipt.phone}</span></div>
+                <div className="flex justify-between py-1.5 border-b border-white/[0.04]"><span className="text-xs text-slate-400">Method</span><span className="text-sm text-white">{depositReceipt.method}</span></div>
+                <div className="flex justify-between py-1.5 border-b border-white/[0.04]"><span className="text-xs text-slate-400">Purpose</span><span className="text-sm text-white">{txnTypeLabel(depositReceipt.txnType)}</span></div>
+              </div>
+              <div className="rounded-xl bg-[#0a0a1a] border border-white/[0.06] p-3">
+                <p className="text-xs text-slate-400 mb-2">Chinese Supplier(s)</p>
+                <div className="space-y-2">
+                  {depositReceipt.suppliers.map((s, i) => (
+                    <div key={i} className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-white">{s.supplierName || s.supplierNumber}</p>
+                        <p className="text-[11px] text-slate-500 font-mono">No. {s.supplierNumber}</p>
+                      </div>
+                      <span className="text-sm font-medium text-emerald-400">{s.amount.toLocaleString()} {depositReceipt.currency}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-between mt-3 pt-2 border-t border-white/[0.06]"><span className="text-sm font-semibold text-white">Total</span><span className="text-sm font-bold text-emerald-400">{depositReceipt.total.toLocaleString()} {depositReceipt.currency}</span></div>
+              </div>
+              <div className="space-y-2">
+                <Button onClick={() => printHtml(buildCustomerInvoice(depositReceipt))} className="w-full bg-cyan-600 hover:bg-cyan-700 text-white"><Printer className="w-4 h-4 mr-2" />Print Customer Invoice</Button>
+                {depositReceipt.suppliers.map((s, i) => (
+                  <Button key={i} onClick={() => printHtml(buildSupplierInvoice(depositReceipt, s))} variant="outline" className="w-full border-white/10 text-white hover:bg-white/5"><Printer className="w-4 h-4 mr-2" />Print Supplier Invoice — {s.supplierName || s.supplierNumber}</Button>
+                ))}
               </div>
             </div>
           )}

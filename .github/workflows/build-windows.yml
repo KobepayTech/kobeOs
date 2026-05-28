@@ -65,10 +65,66 @@ jobs:
           }
         shell: pwsh
 
+      - name: Bundle Visual C++ runtime next to PostgreSQL binaries
+        shell: pwsh
+        run: |
+          # The MSVC-built PostgreSQL binaries depend on the VC++ runtime. Without
+          # it, initdb.exe fails to launch with 0xC0000135 (STATUS_DLL_NOT_FOUND).
+          # Shipping the DLLs in the same folder as the .exe lets Windows resolve
+          # them via the default search path — no redistributable install needed.
+          $binDir = "node_modules/@embedded-postgres/windows-x64/native/bin"
+          if (!(Test-Path $binDir)) { Write-Error "Postgres bin dir not found: $binDir"; exit 1 }
+
+          function Find-Dll($name) {
+            $sys = Join-Path $env:WINDIR "System32\$name"
+            if (Test-Path $sys) { return $sys }
+            $redist = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\*\*\VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT\$name" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($redist) { return $redist.FullName }
+            return $null
+          }
+
+          $required = @("vcruntime140.dll","vcruntime140_1.dll","msvcp140.dll")
+          $optional = @("msvcp140_1.dll","msvcp140_2.dll","concrt140.dll","vccorlib140.dll")
+
+          foreach ($d in $required) {
+            $src = Find-Dll $d
+            if (!$src) { Write-Error "Required runtime DLL not found on runner: $d"; exit 1 }
+            Copy-Item $src -Destination $binDir -Force
+            Write-Host "Bundled (required): $d  <- $src"
+          }
+          foreach ($d in $optional) {
+            $src = Find-Dll $d
+            if ($src) { Copy-Item $src -Destination $binDir -Force; Write-Host "Bundled (optional): $d" }
+          }
+
+      - name: Download Visual C++ 2015-2022 x64 Redistributable
+        run: |
+          $url = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+          $dest = "build\vcredist\vc_redist.x64.exe"
+          New-Item -ItemType Directory -Force -Path "build\vcredist" | Out-Null
+          Write-Host "Downloading vc_redist.x64.exe from $url"
+          Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing
+          $size = (Get-Item $dest).Length
+          Write-Host "Downloaded: $([math]::Round($size/1MB, 1)) MB"
+          if ($size -lt 5MB) {
+            Write-Error "vc_redist.x64.exe is suspiciously small — download may have failed"
+            exit 1
+          }
+        shell: pwsh
+
       - name: Build Windows installer
         run: npx electron-builder --win --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Copy vc_redist.x64.exe next to installer
+        # electron-builder extraFiles puts the file inside win-unpacked/.
+        # We also need it next to the .exe so NSIS $EXEDIR can find it
+        # when the user runs the installer.
+        run: |
+          Copy-Item "build\vcredist\vc_redist.x64.exe" "release\vc_redist.x64.exe" -Force
+          Write-Host "Copied vc_redist.x64.exe to release\"
+        shell: pwsh
 
       - name: Smoke test — verify installer exists and is non-trivial
         run: |
@@ -85,6 +141,22 @@ jobs:
             }
           }
           Write-Host "Smoke test passed"
+        shell: pwsh
+
+      - name: Smoke test — verify vc_redist.x64.exe is bundled next to installer
+        run: |
+          $redist = "release\vc_redist.x64.exe"
+          if (!(Test-Path $redist)) {
+            Write-Error "vc_redist.x64.exe not found in release\ — extraFiles config may be broken"
+            exit 1
+          }
+          $size = (Get-Item $redist).Length
+          Write-Host "vc_redist.x64.exe: $([math]::Round($size/1MB, 1)) MB"
+          if ($size -lt 5MB) {
+            Write-Error "vc_redist.x64.exe is too small — may be corrupt"
+            exit 1
+          }
+          Write-Host "VC++ redist bundled correctly"
         shell: pwsh
 
       - name: Smoke test — verify asar contains core files
@@ -124,6 +196,17 @@ jobs:
             Write-Error "initdb.exe is suspiciously small ($($initdb.Length) bytes) — may be a stub"
             exit 1
           }
+
+          # Verify the VC++ runtime was bundled next to initdb.exe, otherwise the
+          # app fails at startup with 0xC0000135 (STATUS_DLL_NOT_FOUND).
+          $initdbDir = Split-Path $initdb.FullName
+          foreach ($dll in @("vcruntime140.dll","vcruntime140_1.dll","msvcp140.dll")) {
+            if (!(Test-Path (Join-Path $initdbDir $dll))) {
+              Write-Error "$dll not bundled next to initdb.exe — startup would fail with 0xC0000135"
+              exit 1
+            }
+          }
+          Write-Host "VC++ runtime DLLs present next to initdb.exe"
 
           # Verify pg-bootstrap.cjs resolves the same path
           $pgBootstrap = "release\win-unpacked\resources\app.asar.unpacked\electron\pg-bootstrap.cjs"

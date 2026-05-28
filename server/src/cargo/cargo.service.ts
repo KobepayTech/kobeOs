@@ -4,12 +4,15 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { CargoDriver, CargoFlight, Parcel, Shipment } from './cargo.entity';
+import { DeepPartial, Repository } from 'typeorm';
+import { CargoDriver, CargoFlight, CargoPayment, Parcel, Shipment } from './cargo.entity';
+import { CargoGateway } from './cargo.gateway';
+import { NotificationsService } from '../notifications/notifications.service';
 import { OwnedCrudService } from '../common/owned.service';
 import type {
   AssignDriverDto,
   AssignFlightDto,
+  CreateCargoPaymentDto,
   UpdateParcelStatusDto,
   UpdateShipmentStatusDto,
 } from './dto/cargo.dto';
@@ -35,8 +38,19 @@ const SHIPMENT_TRANSITIONS: Record<string, string[]> = {
 
 @Injectable()
 export class ParcelsService extends OwnedCrudService<Parcel> {
-  constructor(@InjectRepository(Parcel) repo: Repository<Parcel>) {
+  constructor(
+    @InjectRepository(Parcel) repo: Repository<Parcel>,
+    private readonly gateway: CargoGateway,
+    private readonly notifications: NotificationsService,
+  ) {
     super(repo);
+  }
+
+  async create(ownerId: string, data: DeepPartial<Parcel>): Promise<Parcel> {
+    const created = await super.create(ownerId, data);
+    this.gateway.emitParcel(ownerId, created, 'created');
+    void this.notifications.notifyParcelEvent(created, 'created');
+    return created;
   }
 
   async updateStatus(ownerId: string, id: string, dto: UpdateParcelStatusDto): Promise<Parcel> {
@@ -48,7 +62,10 @@ export class ParcelsService extends OwnedCrudService<Parcel> {
         `Allowed: ${allowed.length ? allowed.join(', ') : 'none'}`,
       );
     }
-    return this.update(ownerId, id, { status: dto.status });
+    const updated = await this.update(ownerId, id, { status: dto.status });
+    this.gateway.emitParcel(ownerId, updated, 'status', parcel.status);
+    void this.notifications.notifyParcelEvent(updated, 'status', parcel.status);
+    return updated;
   }
 }
 
@@ -58,8 +75,15 @@ export class ShipmentsService extends OwnedCrudService<Shipment> {
     @InjectRepository(Shipment) repo: Repository<Shipment>,
     @InjectRepository(CargoDriver) private readonly driverRepo: Repository<CargoDriver>,
     @InjectRepository(CargoFlight) private readonly flightRepo: Repository<CargoFlight>,
+    private readonly gateway: CargoGateway,
   ) {
     super(repo);
+  }
+
+  async create(ownerId: string, data: DeepPartial<Shipment>): Promise<Shipment> {
+    const created = await super.create(ownerId, data);
+    this.gateway.emitShipment(ownerId, created, 'created');
+    return created;
   }
 
   async updateStatus(ownerId: string, id: string, dto: UpdateShipmentStatusDto): Promise<Shipment> {
@@ -71,7 +95,9 @@ export class ShipmentsService extends OwnedCrudService<Shipment> {
         `Allowed: ${allowed.length ? allowed.join(', ') : 'none'}`,
       );
     }
-    return this.update(ownerId, id, { status: dto.status });
+    const updated = await this.update(ownerId, id, { status: dto.status });
+    this.gateway.emitShipment(ownerId, updated, 'status', shipment.status);
+    return updated;
   }
 
   async assignDriver(ownerId: string, shipmentId: string, dto: AssignDriverDto): Promise<Shipment> {
@@ -90,7 +116,9 @@ export class ShipmentsService extends OwnedCrudService<Shipment> {
     }
     driver.status = 'ON_TRIP';
     await this.driverRepo.save(driver);
-    return this.update(ownerId, shipmentId, { driverId: dto.driverId });
+    const updated = await this.update(ownerId, shipmentId, { driverId: dto.driverId });
+    this.gateway.emitShipment(ownerId, updated, 'assignment');
+    return updated;
   }
 
   async assignFlight(ownerId: string, shipmentId: string, dto: AssignFlightDto): Promise<Shipment> {
@@ -115,10 +143,12 @@ export class ShipmentsService extends OwnedCrudService<Shipment> {
     }
     flight.bookedKg += shipment.weight;
     await this.flightRepo.save(flight);
-    return this.update(ownerId, shipmentId, {
+    const updated = await this.update(ownerId, shipmentId, {
       flightNumber: flight.flightNumber,
       carrier: flight.carrier ?? undefined,
     });
+    this.gateway.emitShipment(ownerId, updated, 'assignment');
+    return updated;
   }
 }
 
@@ -133,5 +163,48 @@ export class DriversService extends OwnedCrudService<CargoDriver> {
 export class FlightsService extends OwnedCrudService<CargoFlight> {
   constructor(@InjectRepository(CargoFlight) repo: Repository<CargoFlight>) {
     super(repo);
+  }
+}
+
+@Injectable()
+export class CargoPaymentsService extends OwnedCrudService<CargoPayment> {
+  constructor(
+    @InjectRepository(CargoPayment) repo: Repository<CargoPayment>,
+    private readonly gateway: CargoGateway,
+  ) { super(repo); }
+
+  async record(ownerId: string, dto: CreateCargoPaymentDto): Promise<CargoPayment> {
+    if (!dto.parcelId && !dto.shipmentId) {
+      throw new BadRequestException('Either parcelId or shipmentId must be provided');
+    }
+    if (!Number.isFinite(dto.amount) || dto.amount <= 0) {
+      throw new BadRequestException('amount must be greater than zero');
+    }
+    const data: DeepPartial<CargoPayment> = {
+      parcelId: dto.parcelId ?? null,
+      shipmentId: dto.shipmentId ?? null,
+      customerName: dto.customerName,
+      customerPhone: dto.customerPhone ?? '',
+      supplierName: dto.supplierName ?? null,
+      supplierNumber: dto.supplierNumber ?? null,
+      amount: dto.amount,
+      currency: dto.currency ?? 'TZS',
+      purpose: dto.purpose,
+      method: dto.method,
+      reference: dto.reference ?? null,
+      notes: dto.notes ?? '',
+      status: dto.status ?? 'COMPLETED',
+    };
+    const created = await this.create(ownerId, data);
+    this.gateway.emitPayment(ownerId, created);
+    return created;
+  }
+
+  byParcel(uid: string, parcelId: string) {
+    return this.repo.find({ where: { ownerId: uid, parcelId }, order: { createdAt: 'DESC' } });
+  }
+
+  byShipment(uid: string, shipmentId: string) {
+    return this.repo.find({ where: { ownerId: uid, shipmentId }, order: { createdAt: 'DESC' } });
   }
 }

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
 import { ensureSession } from '@/lib/auth';
+import { useCargoParcels } from '@/hooks/useCargoParcels';
 import {
   Truck, MapPin, Navigation, Star, DollarSign, Trophy,
   Clock, CheckCircle2, CircleDot, AlertTriangle, Phone,
@@ -933,6 +934,7 @@ export default function CargoDriver() {
   const [driver, setDriver] = useState<Driver>(driverData);
   const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null);
   const [activeTab, setActiveTab] = useState('trips');
+  const { events: liveEvents, connected } = useCargoParcels();
 
   // Provision a driver record on first mount if none exists.
   useEffect(() => {
@@ -990,9 +992,15 @@ export default function CargoDriver() {
               <p className="text-xs text-slate-400">Driver Portal</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <div className={`w-2 h-2 rounded-full ${driver.status === 'ACTIVE' ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`} />
-            <span className="text-xs text-slate-400">{driver.status === 'ACTIVE' ? 'Online' : 'Offline'}</span>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <div className={`w-2 h-2 rounded-full ${driver.status === 'ACTIVE' ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'}`} />
+              <span className="text-xs text-slate-400">{driver.status === 'ACTIVE' ? 'Online' : 'Offline'}</span>
+            </div>
+            <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-xs font-medium ${connected ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-slate-400 border-white/10'}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-emerald-400' : 'bg-slate-500'}`} />
+              {connected ? 'Live' : 'Offline'}
+            </span>
           </div>
         </div>
       </div>
@@ -1000,6 +1008,31 @@ export default function CargoDriver() {
       {/* Content */}
       <ScrollArea className="flex-1 overflow-y-auto">
         <div className="p-4 space-y-4">
+          {liveEvents.length > 0 && (
+            <Card className="bg-white/5 backdrop-blur-md border-white/10">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm text-white flex items-center gap-2">
+                  <Package className="w-4 h-4 text-emerald-400" /> Live Network Updates
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-1.5">
+                  {liveEvents.slice(0, 5).map((e, i) => {
+                    const human = e.parcel.status.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+                    return (
+                      <div key={`${e.parcel.id}-${e.at}-${i}`} className="flex items-center justify-between text-xs">
+                        <span className="text-slate-300">
+                          <span className="font-mono text-emerald-400">{e.parcel.parcelId}</span>{' '}
+                          {e.kind === 'created' ? 'registered' : `is now ${human}`}
+                        </span>
+                        <span className="text-slate-500">{new Date(e.at).toLocaleTimeString()}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          )}
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <TabsList className="w-full bg-white/5 border border-white/10 backdrop-blur-md grid grid-cols-4 h-10">
               <TabsTrigger value="trips" className="text-xs data-[state=active]:bg-emerald-600 data-[state=active]:text-white text-slate-400">

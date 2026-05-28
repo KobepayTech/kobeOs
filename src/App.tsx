@@ -8,12 +8,17 @@ import SystemSettings from '@/components/SystemSettings';
 import FileManager from '@/components/FileManager';
 import AppStore from '@/components/AppStore';
 import KobeOSInstaller from '@/components/KobeOSInstaller';
-
+import KobeSecurity from '@/modules/kobe-security/KobeSecurity';
+import HotelSecurity from '@/modules/kobe-hotel/security/HotelSecurity';
+import KobeStudio from '@/modules/kobe-studio/KobeStudio';
 
 function Desktop({ user, onOpenApp }: { user: string; onOpenApp: (app: string) => void }) {
   const apps = [
     { id: 'erp', name: 'KobeERP', icon: '📊', color: 'from-blue-500 to-blue-600' },
     { id: 'hotel', name: 'KobeHotel', icon: '🏨', color: 'from-purple-500 to-purple-600' },
+    { id: 'hotel-security', name: 'Hotel Security', icon: '🔐', color: 'from-purple-600 to-fuchsia-700' },
+    { id: 'security', name: 'Kobe Security', icon: '🛡️', color: 'from-red-600 to-rose-700' },
+    { id: 'studio', name: 'Kobe Studio', icon: '🎬', color: 'from-pink-500 to-fuchsia-600' },
     { id: 'credit', name: 'KobeCredit', icon: '💳', color: 'from-green-500 to-green-600' },
     { id: 'cargo', name: 'KobeCargo', icon: '🚛', color: 'from-orange-500 to-orange-600' },
     { id: 'settings', name: 'Settings', icon: '⚙️', color: 'from-gray-500 to-gray-600' },
@@ -49,7 +54,7 @@ function Desktop({ user, onOpenApp }: { user: string; onOpenApp: (app: string) =
         </div>
       </div>
       <div className="fixed bottom-3 left-1/2 -translate-x-1/2 bg-gray-800/80 backdrop-blur-xl border border-gray-700/50 rounded-2xl px-3 py-1.5 flex items-center gap-1.5">
-        {apps.slice(0, 4).map(app => (
+        {apps.slice(0, 5).map(app => (
           <button key={app.id} onClick={() => onOpenApp(app.id)} className="w-9 h-9 rounded-xl bg-gradient-to-br from-gray-700 to-gray-600 flex items-center justify-center text-lg hover:scale-110 transition-transform">
             {app.icon}
           </button>
@@ -66,6 +71,9 @@ function WindowManager({ app, onClose }: { app: string; onClose: () => void }) {
       case 'files': return <FileManager />;
       case 'store': return <AppStore />;
       case 'installer': return <KobeOSInstaller />;
+      case 'security': return <KobeSecurity />;
+      case 'hotel-security': return <HotelSecurity />;
+      case 'studio': return <KobeStudio />;
       default: return (
         <div className="h-full flex items-center justify-center text-gray-500">
           <div className="text-center">
@@ -115,6 +123,9 @@ export default function App() {
           <Route path="/settings" element={<SystemSettings />} />
           <Route path="/files" element={<FileManager />} />
           <Route path="/store" element={<AppStore />} />
+          <Route path="/security" element={<KobeSecurity />} />
+          <Route path="/hotel-security" element={<HotelSecurity />} />
+          <Route path="/studio" element={<KobeStudio />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>

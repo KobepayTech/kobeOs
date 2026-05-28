@@ -379,7 +379,8 @@ function SubscriptionTab() {
         body: JSON.stringify({ plan: selectedPlan, msisdn: msisdn.trim() }),
       });
       if (!res.ok) throw new Error(await res.text());
-      const data = await res.json() as { transactionId: string };
+      const data = await res.json() as Partial<{ transactionId: string }>;
+      if (!data.transactionId) throw new Error('Server did not return a transaction id');
       setTxId(data.transactionId);
     } catch (e) {
       setError((e as Error).message || 'Payment initiation failed');

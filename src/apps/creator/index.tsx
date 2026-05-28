@@ -4,13 +4,14 @@ import { ensureSession } from '@/lib/auth';
 import { CreatorDashboard } from './CreatorDashboard';
 import { BrandPortal } from './BrandPortal';
 import type { Creator as SharedCreator, Brand, Campaign as SharedCampaign } from '@/shared/types';
+import { ExploreModule, CreatorProfileModule, HowItWorksModule, FAQModule } from './marketplace-modules';
 import {
   Users, LayoutDashboard, Megaphone, Globe, Handshake, Wallet,
   BarChart3, Link2, MessageCircle, Plus, Search, CheckCircle2,
-  Clock, TrendingUp, Eye, Heart, MessageSquare, Share2, MousePointerClick,
+  TrendingUp, Eye, Heart, MessageSquare, Share2, MousePointerClick,
   ShoppingCart, Download, Star, Send, Instagram,
   Smartphone, Copy, AlertCircle, Lock, Unlock, DollarSign, Target, Zap,
-  Youtube, Twitter, Facebook
+  Youtube, Twitter, Facebook, UserCheck, BookOpen, HelpCircle
 } from 'lucide-react';
 function idHash(id: string): number {
   let h = 0;
@@ -109,7 +110,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 // ── Types ──────────────────────────────────────────────
-type ModuleId = 'overview' | 'campaigns' | 'marketplace' | 'deals' | 'escrow' | 'subscription' | 'performance' | 'affiliate' | 'messages' | 'creator-v2' | 'brand-portal';
+type ModuleId = 'overview' | 'campaigns' | 'marketplace' | 'deals' | 'escrow' | 'subscription' | 'performance' | 'affiliate' | 'messages' | 'creator-v2' | 'brand-portal' | 'explore' | 'profile' | 'how-it-works' | 'faq';
 
 interface Campaign {
   id: number; name: string; budget: number; creators: number;
@@ -169,7 +170,8 @@ const campaigns: Campaign[] = [
 
 // Seed data for first-load when the /api/creators table is empty.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const seedCreators: any[] = [
+// eslint-disable-next-line @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any
+const _seedCreators: any[] = [
   { name: 'Zara Hassan', handle: '@zarafashion', niche: 'Fashion', followers: 145000, engagement: 6.2, rate: 150, score: 9, platforms: ['Instagram', 'TikTok', 'YouTube'] },
   { name: 'Mike Tech', handle: '@miketechtz', niche: 'Tech', followers: 89000, engagement: 4.8, rate: 120, score: 8, platforms: ['YouTube', 'X', 'Instagram'] },
   { name: 'Chef Juma', handle: '@chefjumatz', niche: 'Food', followers: 234000, engagement: 7.1, rate: 200, score: 9, platforms: ['Instagram', 'TikTok', 'YouTube', 'Facebook'] },
@@ -211,7 +213,8 @@ const deals: Deal[] = [
   { id: 6, campaign: 'Holiday Special', brand: 'Gift Store', total: 2000, upfront: 800, upfrontWithdrawn: false, locked: 1200, released: 0, kpiPercent: 0, status: 'PENDING' },
 ];
 
-const escrowTxs: EscrowTx[] = [
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+const _escrowTxs: EscrowTx[] = [
   { id: 1, date: '2024-07-15', campaign: 'Summer Collection', creator: 'Zara Hassan', amount: 400, type: 'Upfront', status: 'Completed' },
   { id: 2, date: '2024-07-15', campaign: 'Summer Collection', creator: 'Zara Hassan', amount: 600, type: 'Locked', status: 'Pending' },
   { id: 3, date: '2024-07-12', campaign: 'Phone Case Review', creator: 'Mike Tech', amount: 320, type: 'Upfront', status: 'Completed' },
@@ -436,6 +439,10 @@ export default function Creator() {
     { id: 'messages', icon: MessageCircle, label: 'Messages', desc: 'Chat & notifications', color: '#8b5cf6' },
     { id: 'creator-v2', icon: Star, label: 'Creator V2', desc: 'New creator dashboard', color: '#f59e0b' },
     { id: 'brand-portal', icon: Target, label: 'Brand Portal', desc: 'Brand campaign manager', color: '#ec4899' },
+    { id: 'explore', icon: Globe, label: 'Explore', desc: 'Browse creators by platform', color: '#06b6d4' },
+    { id: 'profile', icon: UserCheck, label: 'Creator Profile', desc: 'Profile, packages & reviews', color: '#f97316' },
+    { id: 'how-it-works', icon: BookOpen, label: 'How It Works', desc: '3-step onboarding guide', color: '#10b981' },
+    { id: 'faq', icon: HelpCircle, label: 'FAQ', desc: 'Common questions answered', color: '#a78bfa' },
   ];
 
   return (
@@ -479,6 +486,10 @@ export default function Creator() {
         {activeModule === 'messages' && <MessagesModule />}
         {activeModule === 'creator-v2' && <CreatorV2Module />}
         {activeModule === 'brand-portal' && <BrandPortalModule />}
+        {activeModule === 'explore' && <ExploreModule />}
+        {activeModule === 'profile' && <CreatorProfileModule />}
+        {activeModule === 'how-it-works' && <HowItWorksModule />}
+        {activeModule === 'faq' && <FAQModule />}
       </main>
     </div>
     </AppContext.Provider>
@@ -610,7 +621,7 @@ function OverviewModule({ setActiveModule }: { setActiveModule: (m: ModuleId) =>
 
 // ── Module 2: Campaigns ────────────────────────────────
 function CampaignsModule() {
-  const creators = useCreators();
+  const creators = useCreators(); // eslint-disable-line @typescript-eslint/no-unused-vars
   const { campaigns: apiCampaigns, reload } = useAppState();
   const [filter, setFilter] = useState('ALL');
   const [createOpen, setCreateOpen] = useState(false);
@@ -813,7 +824,7 @@ function MarketplaceModule() {
   const [offerAmount, setOfferAmount] = useState('');
   const [offerNotes, setOfferNotes] = useState('');
   const [sending, setSending] = useState(false);
-  const [syncingId, setSyncingId] = useState<string | null>(null);
+  const [syncingId, setSyncingId] = useState<string | null>(null); // eslint-disable-line @typescript-eslint/no-unused-vars
   const [registerOpen, setRegisterOpen] = useState(false);
   const [editCreator, setEditCreator] = useState<CreatorProfile | null>(null);
   const [profileForm, setProfileForm] = useState({
@@ -837,6 +848,7 @@ function MarketplaceModule() {
     finally { setSending(false); }
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleSyncCreator = async (creatorId: string, platform: string, handle: string) => {
     setSyncingId(creatorId);
     try {
@@ -2023,11 +2035,11 @@ function CreatorV2Module() {
     bio: 'Content creator based in Dar es Salaam',
     niches: ['lifestyle', 'tech', 'business'],
     platforms: [
-      { platform: 'instagram', handle: '@kobecreator', url: 'https://instagram.com/kobecreator', followers: 45000, engagementRate: 4.2, avgLikes: 1890, avgComments: 120, postingFrequency: 5 },
-      { platform: 'youtube', handle: 'KobeCreator', url: 'https://youtube.com/kobecreator', followers: 12000, engagementRate: 3.8, avgLikes: 456, avgComments: 89, avgViews: 8500, postingFrequency: 2 },
+      { platform: 'instagram', handle: '@kobecreator', url: 'https://instagram.com/kobecreator', followers: 45000, engagementRate: 4.2, avgLikes: 1890, avgComments: 120, postingFrequency: 5, growthRate: 3.2, isConnected: true },
+      { platform: 'youtube', handle: 'KobeCreator', url: 'https://youtube.com/kobecreator', followers: 12000, engagementRate: 3.8, avgLikes: 456, avgComments: 89, avgViews: 8500, postingFrequency: 2, growthRate: 2.4, isConnected: true },
     ],
     portfolio: [],
-    analytics: { totalReach: 57000, totalEngagements: 24000, avgEngagementRate: 4.0, topPlatform: 'instagram', monthlyGrowth: 3.2, estimatedEarnings: 2500000 },
+    analytics: { totalEarnings: 2500000, activeCampaigns: 3, pendingApprovals: 1, completedCampaigns: 12, avgEngagementRate: 4.0, audienceGrowth: 3.2, performanceScore: 82, monthlyStats: [] },
     score: 82,
     isVerified: true,
     isActive: true,
@@ -2040,7 +2052,7 @@ function CreatorV2Module() {
     {
       id: 'camp1', brandId: 'b1', brandName: 'TechBrand TZ', title: 'Product Launch Campaign',
       description: 'Promote our new smartphone accessories', requirements: 'Min 10k followers, tech niche',
-      deliverables: [{ id: 'd1', type: 'instagram-post', quantity: 2, description: '2 Instagram posts', dueDate: '2026-06-15' }],
+      deliverables: [{ type: 'post', quantity: 2, guidelines: '2 Instagram posts, due 2026-06-15' }],
       budget: 500000, currency: 'TZS', niches: ['tech'], platforms: ['instagram'],
       deadline: '2026-06-30', status: 'open', applications: [], selectedCreators: [], contentSubmissions: [],
       createdAt: new Date().toISOString(),
@@ -2048,7 +2060,7 @@ function CreatorV2Module() {
     {
       id: 'camp2', brandId: 'b2', brandName: 'FoodCo TZ', title: 'Restaurant Promo',
       description: 'Showcase our new menu items', requirements: 'Food/lifestyle creators',
-      deliverables: [{ id: 'd2', type: 'tiktok-video', quantity: 1, description: '1 TikTok video', dueDate: '2026-06-20' }],
+      deliverables: [{ type: 'video', quantity: 1, guidelines: '1 TikTok video, due 2026-06-20' }],
       budget: 300000, currency: 'TZS', niches: ['food', 'lifestyle'], platforms: ['tiktok'],
       deadline: '2026-06-25', status: 'open', applications: [], selectedCreators: [], contentSubmissions: [],
       createdAt: new Date().toISOString(),
@@ -2093,15 +2105,15 @@ function BrandPortalModule() {
     {
       id: 'c1', userId: 'u1', handle: '@techguru_tz', displayName: 'Tech Guru TZ',
       bio: 'Tech reviewer & lifestyle creator', niches: ['tech', 'lifestyle'],
-      platforms: [{ platform: 'instagram', handle: '@techguru_tz', url: '', followers: 85000, engagementRate: 5.1, avgLikes: 4335, avgComments: 210, postingFrequency: 4 }],
-      portfolio: [], analytics: { totalReach: 85000, totalEngagements: 43350, avgEngagementRate: 5.1, topPlatform: 'instagram', monthlyGrowth: 4.5, estimatedEarnings: 4500000 },
+      platforms: [{ platform: 'instagram', handle: '@techguru_tz', url: '', followers: 85000, engagementRate: 5.1, avgLikes: 4335, avgComments: 210, postingFrequency: 4, growthRate: 4.5, isConnected: true }],
+      portfolio: [], analytics: { totalEarnings: 4500000, activeCampaigns: 2, pendingApprovals: 0, completedCampaigns: 15, avgEngagementRate: 5.1, audienceGrowth: 4.5, performanceScore: 91, monthlyStats: [] },
       score: 91, isVerified: true, isActive: true, location: 'Dar es Salaam', languages: ['Swahili', 'English'], createdAt: new Date().toISOString(),
     },
     {
       id: 'c2', userId: 'u3', handle: '@lifestyletz', displayName: 'Lifestyle TZ',
       bio: 'Fashion & lifestyle content', niches: ['fashion', 'lifestyle'],
-      platforms: [{ platform: 'tiktok', handle: '@lifestyletz', url: '', followers: 120000, engagementRate: 7.2, avgLikes: 8640, avgComments: 430, postingFrequency: 7 }],
-      portfolio: [], analytics: { totalReach: 120000, totalEngagements: 86400, avgEngagementRate: 7.2, topPlatform: 'tiktok', monthlyGrowth: 8.1, estimatedEarnings: 6000000 },
+      platforms: [{ platform: 'tiktok', handle: '@lifestyletz', url: '', followers: 120000, engagementRate: 7.2, avgLikes: 8640, avgComments: 430, postingFrequency: 7, growthRate: 8.1, isConnected: true }],
+      portfolio: [], analytics: { totalEarnings: 6000000, activeCampaigns: 4, pendingApprovals: 2, completedCampaigns: 28, avgEngagementRate: 7.2, audienceGrowth: 8.1, performanceScore: 95, monthlyStats: [] },
       score: 95, isVerified: true, isActive: true, location: 'Nairobi', languages: ['Swahili', 'English'], createdAt: new Date().toISOString(),
     },
   ];
@@ -2110,7 +2122,7 @@ function BrandPortalModule() {
     {
       id: 'camp1', brandId: 'b1', brandName: 'KobeBrand TZ', title: 'Q2 Product Launch',
       description: 'Launch our new product line across East Africa', requirements: 'Min 50k followers, tech/lifestyle niche',
-      deliverables: [{ id: 'd1', type: 'instagram-post', quantity: 3, description: '3 Instagram posts + stories', dueDate: '2026-07-01' }],
+      deliverables: [{ type: 'post', quantity: 3, guidelines: '3 Instagram posts + stories, due 2026-07-01' }],
       budget: 2000000, currency: 'TZS', niches: ['tech', 'lifestyle'], platforms: ['instagram', 'tiktok'],
       deadline: '2026-07-15', status: 'open', applications: [], selectedCreators: [], contentSubmissions: [],
       createdAt: new Date().toISOString(),

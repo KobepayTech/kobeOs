@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { ensureSession } from '@/lib/auth';
+import { useCargoParcels } from '@/hooks/useCargoParcels';
 import {
   Shield, Users, Send, Bell, MessageSquare, Settings,
   Plus, Search, Edit2, Trash2, CheckCircle2, XCircle,
@@ -119,6 +120,7 @@ export default function CargoCompany() {
   const [activeTab, setActiveTab] = useState('dashboard');
 
   useEffect(() => { void ensureSession().catch(() => undefined); }, []);
+  const { events: liveEvents, connected } = useCargoParcels();
 
   /* ─── Receiver State ─── */
   const [receivers, setReceivers] = useState<Receiver[]>(RECEIVERS);
@@ -240,7 +242,10 @@ export default function CargoCompany() {
           <p className="text-xs text-gray-400">Company Management Panel</p>
         </div>
         <div className="ml-auto flex items-center gap-2">
-          <Badge className="bg-emerald-500/20 text-emerald-400 border-emerald-500/30">Online</Badge>
+          <Badge className={connected ? 'gap-1.5 bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'gap-1.5 bg-white/5 text-slate-400 border-white/10'}>
+            <span className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-emerald-400' : 'bg-slate-500'}`} />
+            {connected ? 'Live' : 'Offline'}
+          </Badge>
         </div>
       </div>
 
@@ -307,6 +312,23 @@ export default function CargoCompany() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-2">
+                      {liveEvents.slice(0, 5).map((e, i) => {
+                        const human = e.parcel.status.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
+                        return (
+                          <div key={`live-${e.parcel.id}-${e.at}-${i}`} className="flex items-center gap-3 p-2.5 rounded-lg bg-emerald-500/5 border border-emerald-500/10">
+                            <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0">
+                              <Package className="w-4 h-4 text-emerald-400" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm truncate">
+                                <span className="font-mono text-emerald-400">{e.parcel.parcelId}</span>{' '}
+                                {e.kind === 'created' ? 'registered' : `is now ${human}`}
+                              </p>
+                              <p className="text-xs text-gray-500">{new Date(e.at).toLocaleTimeString()}</p>
+                            </div>
+                          </div>
+                        );
+                      })}
                       {ACTIVITIES.map(a => (
                         <div key={a.id} className="flex items-center gap-3 p-2.5 rounded-lg bg-white/3 hover:bg-white/6 transition-colors">
                           <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center shrink-0">

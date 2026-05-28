@@ -10,6 +10,7 @@ import {
   MessageSquare, ScanLine, UserCheck,
   TrendingUp, Check,
   Eye, Loader2,
+  Bell, FileText, Printer, Clock, Activity, TrendingDown,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -635,8 +636,20 @@ function PropertiesTab({ search }: { search: string }) {
    TENANTS TAB
    ═══════════════════════════════════════════════════ */
 
+type TenantStatusFilter = 'all' | 'active' | 'overdue' | 'paid' | 'pending';
+type TenantSortKey = 'name' | 'balance' | 'paid' | 'next-due';
+
+function tenantPaymentStatus(t: Tenant): 'Fully Paid' | 'Overdue' | 'Partial' | 'Pending' {
+  if (t.amountPaid === 0 && t.paidMonths.length === 0) return 'Pending';
+  if (t.balance === 0) return 'Fully Paid';
+  if (t.unpaidMonths.length > 2) return 'Overdue';
+  return 'Partial';
+}
+
 function TenantsTab({ search }: { search: string }) {
   const [propertyFilter, setPropertyFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState<TenantStatusFilter>('all');
+  const [sortKey, setSortKey] = useState<TenantSortKey>('name');
   const [viewTenant, setViewTenant] = useState<Tenant | null>(null);
   const [smsDialog, setSmsDialog] = useState<Tenant | null>(null);
   const [smsText, setSmsText] = useState('');
@@ -644,12 +657,35 @@ function TenantsTab({ search }: { search: string }) {
   const [qrDialog, setQrDialog] = useState<Tenant | null>(null);
 
   const filtered = useMemo(() => {
-    return tenants.filter(t => {
+    const out = tenants.filter(t => {
       const matchSearch = !search || t.name.toLowerCase().includes(search.toLowerCase()) || t.unit.toLowerCase().includes(search.toLowerCase()) || t.phone.includes(search) || t.shortCode.toLowerCase().includes(search.toLowerCase());
       const matchProperty = propertyFilter === 'all' || t.propertyId === propertyFilter;
-      return matchSearch && matchProperty;
+      const ps = tenantPaymentStatus(t);
+      const matchStatus =
+        statusFilter === 'all' ||
+        (statusFilter === 'active' && t.status === 'Active') ||
+        (statusFilter === 'overdue' && ps === 'Overdue') ||
+        (statusFilter === 'paid' && ps === 'Fully Paid') ||
+        (statusFilter === 'pending' && ps === 'Pending');
+      return matchSearch && matchProperty && matchStatus;
     });
-  }, [search, propertyFilter]);
+    out.sort((a, b) => {
+      if (sortKey === 'name') return a.name.localeCompare(b.name);
+      if (sortKey === 'balance') return b.balance - a.balance;
+      if (sortKey === 'paid') return b.amountPaid - a.amountPaid;
+      // next-due: tenants with more unpaid months first
+      return b.unpaidMonths.length - a.unpaidMonths.length;
+    });
+    return out;
+  }, [search, propertyFilter, statusFilter, sortKey]);
+
+  const statusChips: { key: TenantStatusFilter; label: string }[] = [
+    { key: 'all', label: 'All' },
+    { key: 'active', label: 'Active' },
+    { key: 'overdue', label: 'Overdue' },
+    { key: 'paid', label: 'Fully Paid' },
+    { key: 'pending', label: 'Pending' },
+  ];
 
   const sendSMS = () => {
     setSmsSent(true);
@@ -675,10 +711,43 @@ function TenantsTab({ search }: { search: string }) {
           ))}
         </div>
 
+        {/* Payment Status Filter + Sort */}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex gap-1.5 overflow-x-auto scrollbar-hide">
+            {statusChips.map(c => (
+              <button
+                key={c.key}
+                onClick={() => setStatusFilter(c.key)}
+                className={`px-2.5 py-1 rounded-md text-[10px] font-medium whitespace-nowrap transition-all ${
+                  statusFilter === c.key
+                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
+                    : 'text-white/40 hover:text-white/60 border border-white/[0.06]'
+                }`}
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+          <div className="ml-auto flex items-center gap-1.5 text-[10px] text-white/40">
+            <span>Sort:</span>
+            <select
+              value={sortKey}
+              onChange={e => setSortKey(e.target.value as TenantSortKey)}
+              className="bg-white/[0.04] border border-white/[0.06] rounded px-1.5 py-1 text-[10px] text-white/70 outline-none"
+            >
+              <option value="name">Name</option>
+              <option value="balance">Balance</option>
+              <option value="paid">Amount Paid</option>
+              <option value="next-due">Most Overdue</option>
+            </select>
+            <span className="text-white/30">· {filtered.length} tenant{filtered.length === 1 ? '' : 's'}</span>
+          </div>
+        </div>
+
         {/* Tenant Cards */}
         {filtered.map(t => {
           const property = getProperty(t.propertyId);
-          const paymentStatus = t.balance === 0 ? 'Fully Paid' : t.unpaidMonths.length > 2 ? 'Overdue' : 'Partial';
+          const paymentStatus = tenantPaymentStatus(t);
           return (
             <Card key={t.id} className="bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.05] transition-all">
               <CardContent className="p-3">
@@ -1171,90 +1240,197 @@ function CashierTab() {
    SHARED: TENANT DETAIL DIALOG
    ═══════════════════════════════════════════════════ */
 
+function leaseDaysRemaining(end?: string): number | null {
+  if (!end) return null;
+  const target = new Date(end);
+  if (Number.isNaN(target.getTime())) return null;
+  return Math.round((target.getTime() - Date.now()) / 86_400_000);
+}
+
+function consistencyScore(t: Tenant): number {
+  const total = t.paidMonths.length + t.unpaidMonths.length;
+  if (total === 0) return 0;
+  return Math.round((t.paidMonths.length / total) * 100);
+}
+
 function TenantDialog({ tenant, onClose }: { tenant: Tenant | null; onClose: () => void }) {
   if (!tenant) return null;
   const property = getProperty(tenant.propertyId);
-  const paymentStatus = tenant.balance === 0 ? 'Fully Paid' : tenant.unpaidMonths.length > 2 ? 'Overdue' : 'Partial';
+  const paymentStatus = tenantPaymentStatus(tenant);
+  const consistency = consistencyScore(tenant);
+  const daysLeft = leaseDaysRemaining(tenant.leaseEnd);
+  const lateCount = tenant.unpaidMonths.length;
+  const tenantPayments = payments.filter(p => p.tenantId === tenant.id && p.amount > 0);
+
+  // Dynamic QR: encodes outstanding balance + short code + tenant id so a
+  // cashier scan opens a pre-filled payment for exactly what's owed.
+  const qrPayload = JSON.stringify({
+    type: 'KOBE_PROPERTY_PAYMENT',
+    code: tenant.shortCode,
+    tenant: tenant.id,
+    name: tenant.name,
+    unit: tenant.unit,
+    propertyId: tenant.propertyId,
+    balance: tenant.balance,
+    currency: 'TZS',
+    v: 1,
+  });
+
+  const openWhatsApp = () => {
+    const message = `Hi ${tenant.name}, this is a friendly reminder about your rent balance of ${tzs(tenant.balance)} for unit ${tenant.unit}. Reference: ${tenant.shortCode}.`;
+    const phone = tenant.phone.replace(/[^0-9]/g, '');
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener');
+  };
 
   return (
     <Dialog open={!!tenant} onOpenChange={onClose}>
-      <DialogContent className="bg-[#0f0f1a] border-white/[0.08] text-white max-w-md max-h-[85vh] overflow-y-auto">
-        <DialogHeader>
+      <DialogContent className="bg-[#0f0f1a] border-white/[0.08] text-white max-w-5xl max-h-[92vh] overflow-y-auto p-0">
+        <DialogHeader className="px-5 pt-4 pb-3 border-b border-white/[0.06]">
           <DialogTitle className="text-sm flex items-center gap-2">
             <Users className="w-4 h-4 text-blue-400" />
             Tenant Details
           </DialogTitle>
         </DialogHeader>
 
-        {/* Profile */}
-        <div className="flex items-center gap-3 mb-3">
-          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-sm font-bold text-white">
-            {tenant.avatar}
-          </div>
-          <div className="flex-1">
-            <div className="text-sm font-medium text-white/90">{tenant.name}</div>
-            <div className="text-[10px] text-white/40">{property?.name} &middot; Unit {tenant.unit}</div>
-            <StatusBadge status={paymentStatus} />
-          </div>
-        </div>
-
-        {/* Contact */}
-        <div className="space-y-1.5 mb-3 text-[11px]">
-          <div className="flex items-center gap-2 text-white/50"><Phone className="w-3.5 h-3.5" /> {tenant.phone}</div>
-          <div className="flex items-center gap-2 text-white/50"><Mail className="w-3.5 h-3.5" /> {tenant.email}</div>
-          <div className="flex items-center gap-2 text-white/50"><Calendar className="w-3.5 h-3.5" /> {tenant.leaseStart} → {tenant.leaseEnd}</div>
-          <div className="flex items-center gap-2 text-white/50"><QrCode className="w-3.5 h-3.5" /> Short Code: <span className="text-blue-400 font-mono">{tenant.shortCode}</span></div>
-        </div>
-
-        {/* QR Code */}
-        <div className="flex flex-col items-center gap-2 mb-3 p-3 bg-white/[0.03] rounded-xl">
-          <div className="bg-white p-2 rounded-lg">
-            <QRCodeSVG value={`KOBE:${tenant.shortCode}:${tenant.phone}`} size={120} />
-          </div>
-          <div className="text-[10px] text-white/30 text-center">Scan at cashier or use short code for payments</div>
-        </div>
-
-        {/* Financial Summary */}
-        <h4 className="text-xs font-medium text-white/60 mb-2">Annual Payment Summary</h4>
-        <div className="grid grid-cols-3 gap-2 mb-3">
-          <div className="bg-blue-500/[0.05] rounded-lg p-2.5 text-center">
-            <div className="text-sm font-semibold text-blue-400">{tzs(tenant.annualRent)}</div>
-            <div className="text-[9px] text-blue-400/50">Annual Rent</div>
-          </div>
-          <div className="bg-emerald-500/[0.05] rounded-lg p-2.5 text-center">
-            <div className="text-sm font-semibold text-emerald-400">{tzs(tenant.amountPaid)}</div>
-            <div className="text-[9px] text-emerald-400/50">Collected</div>
-          </div>
-          <div className="bg-amber-500/[0.05] rounded-lg p-2.5 text-center">
-            <div className="text-sm font-semibold text-amber-400">{tzs(tenant.balance)}</div>
-            <div className="text-[9px] text-amber-400/50">Balance</div>
-          </div>
-        </div>
-
-        {/* Monthly Breakdown */}
-        <h4 className="text-xs font-medium text-white/60 mb-2">Monthly Breakdown {CURRENT_YEAR}</h4>
-        <div className="grid grid-cols-12 gap-0.5 mb-2">
-          {MONTHS.map(m => <MonthIndicator key={m} month={m} paidMonths={tenant.paidMonths} unpaidMonths={tenant.unpaidMonths} />)}
-        </div>
-
-        {/* Payment History */}
-        <h4 className="text-xs font-medium text-white/60 mb-2">Payment History</h4>
-        <div className="space-y-1.5">
-          {payments.filter(p => p.tenantId === tenant.id && p.amount > 0).map(p => (
-            <div key={p.id} className="flex items-center justify-between p-2 rounded-lg bg-white/[0.03] text-[11px]">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="text-white/60">{p.month} {p.year}</span>
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 p-4">
+          {/* ───────── LEFT: PROFILE ───────── */}
+          <section className="md:col-span-3 space-y-3">
+            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3 text-center">
+              <div className="w-16 h-16 mx-auto rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-base font-bold text-white mb-2">
+                {tenant.avatar}
               </div>
-              <div className="flex items-center gap-2">
-                <span className="text-emerald-400 font-medium">{tzs(p.amount)}</span>
-                <span className="text-white/30">{p.receiptNo}</span>
+              <div className="text-sm font-medium text-white/90 truncate">{tenant.name}</div>
+              <div className="text-[10px] text-white/40 mb-2">{property?.name} · Unit {tenant.unit}</div>
+              <div className="flex flex-wrap items-center justify-center gap-1.5">
+                <StatusBadge status={tenant.status} />
+                <StatusBadge status={paymentStatus} />
               </div>
             </div>
-          ))}
-          {payments.filter(p => p.tenantId === tenant.id && p.amount > 0).length === 0 && (
-            <div className="text-center text-[11px] text-white/30 py-3">No payment records found</div>
-          )}
+
+            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3 space-y-2 text-[11px]">
+              <div className="flex items-center gap-2 text-white/55"><Phone className="w-3.5 h-3.5 text-blue-400/70" /> {tenant.phone}</div>
+              <div className="flex items-center gap-2 text-white/55"><Mail className="w-3.5 h-3.5 text-blue-400/70" /> {tenant.email || '—'}</div>
+              <div className="flex items-center gap-2 text-white/55"><MapPin className="w-3.5 h-3.5 text-blue-400/70" /> {property?.address || '—'}</div>
+              <div className="flex items-center gap-2 text-white/55"><Calendar className="w-3.5 h-3.5 text-blue-400/70" /> {tenant.leaseStart} → {tenant.leaseEnd}</div>
+              <div className="flex items-center gap-2 text-white/55"><DollarSign className="w-3.5 h-3.5 text-blue-400/70" /> {tzs(tenant.monthlyRent)} / month</div>
+              <div className="flex items-center gap-2 text-white/55"><QrCode className="w-3.5 h-3.5 text-blue-400/70" /> <span className="text-blue-400 font-mono">{tenant.shortCode}</span></div>
+            </div>
+          </section>
+
+          {/* ───────── CENTER: PAYMENTS ───────── */}
+          <section className="md:col-span-6 space-y-3">
+            <div>
+              <h4 className="text-[10px] font-semibold uppercase tracking-wider text-white/40 mb-1.5">Annual Summary</h4>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="bg-blue-500/[0.06] border border-blue-500/15 rounded-lg p-2.5">
+                  <div className="text-[9px] text-blue-400/70 uppercase tracking-wider">Expected</div>
+                  <div className="text-sm font-semibold text-blue-300 mt-0.5">{tzs(tenant.annualRent)}</div>
+                </div>
+                <div className="bg-emerald-500/[0.06] border border-emerald-500/15 rounded-lg p-2.5">
+                  <div className="text-[9px] text-emerald-400/70 uppercase tracking-wider">Collected</div>
+                  <div className="text-sm font-semibold text-emerald-300 mt-0.5">{tzs(tenant.amountPaid)}</div>
+                </div>
+                <div className="bg-amber-500/[0.06] border border-amber-500/15 rounded-lg p-2.5">
+                  <div className="text-[9px] text-amber-400/70 uppercase tracking-wider">Balance</div>
+                  <div className="text-sm font-semibold text-amber-300 mt-0.5">{tzs(tenant.balance)}</div>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-3 flex flex-col sm:flex-row items-center gap-3">
+              <div className="bg-white p-2 rounded-lg shrink-0">
+                <QRCodeSVG value={qrPayload} size={120} />
+              </div>
+              <div className="flex-1 text-center sm:text-left">
+                <div className="text-[10px] uppercase tracking-wider text-blue-400/70 mb-0.5">Dynamic Payment QR</div>
+                <div className="text-xs text-white/70 leading-relaxed">
+                  Scan to pay outstanding <span className="text-amber-300 font-medium">{tzs(tenant.balance)}</span>.
+                  Code regenerates as payments come in. Short code <span className="text-blue-400 font-mono">{tenant.shortCode}</span> also works at any cashier.
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <h4 className="text-[10px] font-semibold uppercase tracking-wider text-white/40 mb-1.5">12-Month Timeline · {CURRENT_YEAR}</h4>
+              <div className="grid grid-cols-12 gap-0.5">
+                {MONTHS.map(m => (
+                  <MonthIndicator key={m} month={m} paidMonths={tenant.paidMonths} unpaidMonths={tenant.unpaidMonths} />
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <h4 className="text-[10px] font-semibold uppercase tracking-wider text-white/40 mb-1.5">Transaction History</h4>
+              <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+                {tenantPayments.length === 0 && (
+                  <div className="text-center text-[11px] text-white/30 py-3 bg-white/[0.02] rounded-lg">No payment records yet</div>
+                )}
+                {tenantPayments.map(p => (
+                  <div key={p.id} className="flex items-center justify-between p-2 rounded-lg bg-white/[0.03] text-[11px]">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                      <div className="min-w-0">
+                        <div className="text-white/70 truncate">{p.month} {p.year}</div>
+                        <div className="text-[9px] text-white/35">{p.date || '—'} · {p.method}</div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-emerald-400 font-medium">{tzs(p.amount)}</div>
+                      <div className="text-[9px] text-white/30 font-mono">{p.receiptNo}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          {/* ───────── RIGHT: ACTIONS + ANALYTICS ───────── */}
+          <section className="md:col-span-3 space-y-3">
+            <div>
+              <h4 className="text-[10px] font-semibold uppercase tracking-wider text-white/40 mb-1.5">Quick Actions</h4>
+              <div className="grid grid-cols-1 gap-1.5">
+                <ActionBtn icon={Receipt} label="Record Payment" tone="emerald" onClick={onClose} />
+                <ActionBtn icon={Bell} label="Send Reminder" tone="amber" onClick={() => {/* opens SMS flow on close */ }} />
+                <ActionBtn icon={MessageSquare} label="WhatsApp" tone="emerald" onClick={openWhatsApp} />
+                <ActionBtn icon={FileText} label="Generate Invoice" tone="blue" onClick={() => window.print()} />
+                <ActionBtn icon={Printer} label="Print Receipt" tone="violet" onClick={() => window.print()} />
+              </div>
+            </div>
+
+            <div>
+              <h4 className="text-[10px] font-semibold uppercase tracking-wider text-white/40 mb-1.5">Analytics</h4>
+              <div className="space-y-1.5">
+                <AnalyticTile
+                  icon={Activity}
+                  label="Payment consistency"
+                  value={`${consistency}%`}
+                  hint={`${tenant.paidMonths.length} of ${tenant.paidMonths.length + tenant.unpaidMonths.length} months`}
+                  tone={consistency >= 80 ? 'emerald' : consistency >= 50 ? 'amber' : 'red'}
+                />
+                <AnalyticTile
+                  icon={TrendingDown}
+                  label="Late history"
+                  value={`${lateCount} month${lateCount === 1 ? '' : 's'}`}
+                  hint={lateCount === 0 ? 'On time' : 'Outstanding months'}
+                  tone={lateCount === 0 ? 'emerald' : lateCount > 2 ? 'red' : 'amber'}
+                />
+                <AnalyticTile
+                  icon={Clock}
+                  label="Lease expiry"
+                  value={daysLeft === null ? '—' : daysLeft < 0 ? 'Expired' : `${daysLeft}d`}
+                  hint={tenant.leaseEnd || 'No lease end'}
+                  tone={daysLeft === null ? 'blue' : daysLeft < 30 ? 'red' : daysLeft < 90 ? 'amber' : 'emerald'}
+                />
+                <AnalyticTile
+                  icon={DollarSign}
+                  label="Avg. monthly"
+                  value={tzs(Math.round(tenant.amountPaid / Math.max(1, tenant.paidMonths.length)))}
+                  hint="From collected"
+                  tone="blue"
+                />
+              </div>
+            </div>
+          </section>
         </div>
       </DialogContent>
     </Dialog>
@@ -1324,8 +1500,10 @@ function TenantsV2Tab() {
           onBack={() => setSelectedTenantId(null)}
           onRecordPayment={() => {}}
           onSendReminder={() => {}}
+          onDownloadInvoice={() => {}}
+          onGenerateReceipt={() => {}}
           onWhatsApp={() => {}}
-          onGenerateInvoice={() => {}}
+          onEdit={() => {}}
         />
       </div>
     );
@@ -1342,6 +1520,59 @@ function TenantsV2Tab() {
         onWhatsApp={() => {}}
         onExport={() => {}}
       />
+    </div>
+  );
+}
+
+function ActionBtn({
+  icon: Icon, label, tone, onClick,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  tone: 'emerald' | 'amber' | 'blue' | 'violet' | 'red';
+  onClick: () => void;
+}) {
+  const tones: Record<string, string> = {
+    emerald: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300 hover:bg-emerald-500/20',
+    amber: 'bg-amber-500/10 border-amber-500/20 text-amber-300 hover:bg-amber-500/20',
+    blue: 'bg-blue-500/10 border-blue-500/20 text-blue-300 hover:bg-blue-500/20',
+    violet: 'bg-violet-500/10 border-violet-500/20 text-violet-300 hover:bg-violet-500/20',
+    red: 'bg-red-500/10 border-red-500/20 text-red-300 hover:bg-red-500/20',
+  };
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full px-2.5 py-2 rounded-lg border text-[11px] font-medium flex items-center gap-2 transition-colors ${tones[tone]}`}
+    >
+      <Icon className="w-3.5 h-3.5" />
+      {label}
+    </button>
+  );
+}
+
+function AnalyticTile({
+  icon: Icon, label, value, hint, tone,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  value: string;
+  hint: string;
+  tone: 'emerald' | 'amber' | 'blue' | 'red';
+}) {
+  const tones: Record<string, string> = {
+    emerald: 'text-emerald-400',
+    amber: 'text-amber-400',
+    blue: 'text-blue-400',
+    red: 'text-red-400',
+  };
+  return (
+    <div className="bg-white/[0.03] border border-white/[0.06] rounded-lg p-2.5">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-[10px] text-white/40">{label}</span>
+        <Icon className={`w-3.5 h-3.5 ${tones[tone]}`} />
+      </div>
+      <div className={`text-sm font-semibold ${tones[tone]}`}>{value}</div>
+      <div className="text-[9px] text-white/30 mt-0.5 truncate">{hint}</div>
     </div>
   );
 }

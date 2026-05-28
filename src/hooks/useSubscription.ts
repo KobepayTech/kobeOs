@@ -1,4 +1,4 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useOSStore } from '@/os/store';
 import type { SubscriptionTier } from '@/os/types';
 
@@ -21,8 +21,16 @@ export function useSubscription() {
     ? new Date(licensePayload.expiresAt)
     : null;
 
+  // Tick once per hour so daysRemaining stays current without reading
+  // Date.now() during render (which would violate React purity).
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 60 * 60 * 1000);
+    return () => clearInterval(t);
+  }, []);
+
   const daysRemaining = expiresAt
-    ? Math.max(0, Math.ceil((expiresAt.getTime() - Date.now()) / 86_400_000))
+    ? Math.max(0, Math.ceil((expiresAt.getTime() - now) / 86_400_000))
     : 0;
 
   const check = useCallback(

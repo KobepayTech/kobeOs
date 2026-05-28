@@ -82,7 +82,7 @@ export function useRuntime(): KobeOSRuntimeAPI {
  */
 export function useRuntimeEvent(cb: (event: RuntimeEvent) => void): void {
   const cbRef = useRef(cb);
-  cbRef.current = cb;
+  useEffect(() => { cbRef.current = cb; }, [cb]);
 
   useEffect(() => {
     const runtime = window.kobeOS?.runtime;
@@ -98,7 +98,7 @@ export function useRuntimeEvent(cb: (event: RuntimeEvent) => void): void {
  */
 export function useBluetoothDeviceList(cb: (devices: unknown[]) => void): void {
   const cbRef = useRef(cb);
-  cbRef.current = cb;
+  useEffect(() => { cbRef.current = cb; }, [cb]);
 
   useEffect(() => {
     const runtime = window.kobeOS?.runtime;
@@ -129,7 +129,7 @@ export function useSpeechModelProgress(
   cb: (data: { modelId: string; downloaded: number; total: number; pct: number; done?: boolean }) => void
 ): void {
   const cbRef = useRef(cb);
-  cbRef.current = cb;
+  useEffect(() => { cbRef.current = cb; }, [cb]);
 
   useEffect(() => {
     const speech = (window.kobeOS as any)?.speech;

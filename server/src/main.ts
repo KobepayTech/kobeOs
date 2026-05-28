@@ -6,6 +6,7 @@ import { json, urlencoded } from 'express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/http-exception.filter';
+import { buildOriginPredicate } from './common/cors';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
@@ -29,10 +30,8 @@ async function bootstrap() {
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.useGlobalFilters(new HttpExceptionFilter());
 
-  app.enableCors({
-    origin: config.get<string>('CORS_ORIGIN', 'http://localhost:5173').split(','),
-    credentials: true,
-  });
+  const { predicate: corsPredicate } = buildOriginPredicate();
+  app.enableCors({ origin: corsPredicate, credentials: true });
 
   // Swagger API explorer — available at /api/docs in all environments.
   const swaggerConfig = new DocumentBuilder()

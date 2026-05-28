@@ -1,9 +1,12 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
-import { DriversService, FlightsService, ParcelsService, ShipmentsService } from './cargo.service';
+import {
+  CargoPaymentsService, DriversService, FlightsService, ParcelsService, ShipmentsService,
+} from './cargo.service';
 import {
   AssignDriverDto, AssignFlightDto,
+  CreateCargoPaymentDto,
   CreateDriverDto, CreateFlightDto, CreateParcelDto, CreateShipmentDto,
   UpdateDriverDto, UpdateFlightDto, UpdateParcelDto, UpdateParcelStatusDto,
   UpdateShipmentDto, UpdateShipmentStatusDto,
@@ -17,6 +20,7 @@ export class CargoController {
     private readonly shipments: ShipmentsService,
     private readonly drivers: DriversService,
     private readonly flights: FlightsService,
+    private readonly payments: CargoPaymentsService,
   ) {}
 
   // Parcels
@@ -54,4 +58,23 @@ export class CargoController {
   @Post('flights') createFlight(@CurrentUser('id') uid: string, @Body() dto: CreateFlightDto) { return this.flights.create(uid, dto); }
   @Patch('flights/:id') updateFlight(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: UpdateFlightDto) { return this.flights.update(uid, id, dto); }
   @Delete('flights/:id') removeFlight(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.flights.remove(uid, id); }
+
+  // Payments — cashier records a payment against a parcel or shipment.
+  @Get('payments') listPayments(
+    @CurrentUser('id') uid: string,
+    @Query('parcelId') parcelId?: string,
+    @Query('shipmentId') shipmentId?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    if (parcelId) return this.payments.byParcel(uid, parcelId);
+    if (shipmentId) return this.payments.byShipment(uid, shipmentId);
+    return this.payments.list(uid, { page: Number(page) || 1, limit: Number(limit) || 50 });
+  }
+  @Post('payments') recordPayment(@CurrentUser('id') uid: string, @Body() dto: CreateCargoPaymentDto) {
+    return this.payments.record(uid, dto);
+  }
+  @Get('payments/:id') getPayment(@CurrentUser('id') uid: string, @Param('id') id: string) {
+    return this.payments.get(uid, id);
+  }
 }

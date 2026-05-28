@@ -251,7 +251,7 @@ export const useWebSocketEvent = (event: WebSocketEvent, handler: MessageHandler
 
 // --- MODULE-SPECIFIC REAL-TIME HOOKS ---
 
-import type { Order, Shipment, NotificationMessage } from '@/shared/types';
+import type { Order, Shipment, Notification as NotificationMessage } from '@/shared/types';
 
 // KDS Real-time Orders
 export const useKDSRealtime = (hotelId: string, station: string, onNewOrder: (order: Order) => void) => {

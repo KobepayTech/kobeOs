@@ -96,3 +96,28 @@ export class UpdateFlightDto {
   @IsOptional() @IsNumber() bookedKg?: number;
   @IsOptional() @IsString() status?: string;
 }
+
+const PURPOSES = ['DEPOSIT', 'BALANCE', 'FULL', 'SHIPPING', 'CUSTOMS'] as const;
+const METHODS = ['KOBEPAY', 'BANK', 'MOBILE_MONEY', 'CASH', 'CARD'] as const;
+const PAY_STATUSES = ['PENDING', 'COMPLETED', 'REVERSED'] as const;
+
+export class CreateCargoPaymentDto {
+  /** Either parcelId or shipmentId must be set — enforced in the service layer. */
+  @IsOptional() @IsUUID() parcelId?: string;
+  @IsOptional() @IsUUID() shipmentId?: string;
+
+  @IsString() @MaxLength(120) customerName!: string;
+  @IsOptional() @IsString() @MaxLength(40) customerPhone?: string;
+  @IsOptional() @IsString() @MaxLength(120) supplierName?: string;
+  @IsOptional() @IsString() @MaxLength(40) supplierNumber?: string;
+
+  @IsNumber() amount!: number;
+  @IsOptional() @IsString() @MaxLength(8) currency?: string;
+
+  @IsEnum(PURPOSES) purpose!: typeof PURPOSES[number];
+  @IsEnum(METHODS) method!: typeof METHODS[number];
+
+  @IsOptional() @IsString() @MaxLength(120) reference?: string;
+  @IsOptional() @IsString() @MaxLength(500) notes?: string;
+  @IsOptional() @IsEnum(PAY_STATUSES) status?: typeof PAY_STATUSES[number];
+}

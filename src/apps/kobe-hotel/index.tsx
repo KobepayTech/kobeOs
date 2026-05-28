@@ -6,6 +6,8 @@ import { HotelAdminDashboard } from './HotelAdminDashboard';
 import { KDSDisplay } from './KDSDisplay';
 import { QRCustomerPortal } from './QRCustomerPortal';
 import type { Hotel as SharedHotel } from '@/shared/types';
+import { useHotelLive, type HotelOrder as LiveOrder } from './useHotelLive';
+import { buildPublicGuestUrl } from '@/public/api';
 import {
   Building2, LayoutDashboard, ConciergeBell, Bed, Wine, UtensilsCrossed,
   Package, Users, Calculator, QrCode, Plus, Minus, Search, Trash2,
@@ -59,6 +61,43 @@ interface MenuItem {
   category: string;
   stock: number;
 }
+interface PortalOrder {
+  id: string;
+  roomNumber: string;
+  guestName?: string | null;
+  items: Array<{ name: string; qty: number; price: number }>;
+  total: number | string;
+  currency: string;
+  status: string;
+  note?: string;
+  createdAt?: string;
+}
+
+interface PortalServiceRequest {
+  id: string;
+  roomNumber: string;
+  kind: string;
+  note?: string;
+  status: string;
+  createdAt?: string;
+}
+
+// Mirrors the server-side transition maps in hotel.service.ts.
+const NEXT_ORDER_STATUS: Record<string, Array<'ACCEPTED' | 'PREPARING' | 'READY' | 'DELIVERED' | 'CANCELLED'>> = {
+  PENDING: ['ACCEPTED', 'CANCELLED'],
+  ACCEPTED: ['PREPARING', 'CANCELLED'],
+  PREPARING: ['READY', 'CANCELLED'],
+  READY: ['DELIVERED'],
+  DELIVERED: [],
+  CANCELLED: [],
+};
+const NEXT_REQUEST_STATUS: Record<string, Array<'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED'>> = {
+  OPEN: ['IN_PROGRESS', 'CANCELLED'],
+  IN_PROGRESS: ['COMPLETED', 'CANCELLED'],
+  COMPLETED: [],
+  CANCELLED: [],
+};
+
 interface CartItem extends MenuItem {
   qty: number;
 }
@@ -339,6 +378,43 @@ export default function KobeHotel() {
   // Guest portal
   const [portalRoom, setPortalRoom] = useState('101');
   const [portalCart, setPortalCart] = useState<CartItem[]>([]);
+  const [portalOrders, setPortalOrders] = useState<PortalOrder[]>([]);
+  const [portalRequests, setPortalRequests] = useState<PortalServiceRequest[]>([]);
+  const [portalMessage, setPortalMessage] = useState<string | null>(null);
+
+  // Live KDS feed (orders + service requests over the /hotel socket).
+  const live = useHotelLive();
+
+  // Public tenant settings (slug, name) used by the QR + public guest pages.
+  const [tenantSlug, setTenantSlug] = useState('');
+  const [tenantName, setTenantName] = useState('');
+  const [tenantBrand, setTenantBrand] = useState('');
+  const [tenantSaving, setTenantSaving] = useState(false);
+  const [kdsStation, setKdsStation] = useState<'all' | 'kitchen' | 'bar' | 'other'>('all');
+
+  // Menu editor — backend-synced menu items the guest portal/POS read from.
+  interface MenuItemRow {
+    id: string;
+    name: string;
+    category: string;
+    price: number | string;
+    currency: string;
+    available: boolean;
+    station: 'kitchen' | 'bar' | 'other';
+  }
+  const [menuRows, setMenuRows] = useState<MenuItemRow[]>([]);
+  const [menuLoading, setMenuLoading] = useState(true);
+  const [menuFilter, setMenuFilter] = useState<'all' | 'kitchen' | 'bar' | 'other'>('all');
+  const [menuEditor, setMenuEditor] = useState<null | {
+    id?: string;
+    name: string;
+    category: string;
+    price: string;
+    currency: string;
+    station: 'kitchen' | 'bar' | 'other';
+    available: boolean;
+  }>(null);
+  const [menuSaving, setMenuSaving] = useState(false);
 
   // Reception
   const [receiptGuest, setReceiptGuest] = useState<Guest | null>(null);
@@ -409,6 +485,187 @@ export default function KobeHotel() {
   };
   const portalTotal = portalCart.reduce((s, c) => s + c.price * c.qty, 0);
 
+  // Load guest-portal orders and service requests from the backend on mount.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try { await ensureSession(); } catch { /* offline — board stays empty */ }
+      if (cancelled) return;
+      try {
+        const [orders, requests] = await Promise.all([
+          api<PortalOrder[]>('/hotel/orders'),
+          api<PortalServiceRequest[]>('/hotel/service-requests'),
+        ]);
+        if (cancelled) return;
+        setPortalOrders(Array.isArray(orders) ? orders : []);
+        setPortalRequests(Array.isArray(requests) ? requests : []);
+      } catch { /* keep empty */ }
+
+      try {
+        const t = await api<{ slug?: string; name?: string; brandColor?: string | null } | null>('/hotel/tenant');
+        if (cancelled || !t) return;
+        if (t.slug) setTenantSlug(t.slug);
+        if (t.name) setTenantName(t.name);
+        if (t.brandColor) setTenantBrand(t.brandColor);
+      } catch { /* tenant not configured yet */ }
+
+      try {
+        const items = await api<MenuItemRow[]>('/hotel/menu-items');
+        if (!cancelled) setMenuRows(Array.isArray(items) ? items : []);
+      } catch { /* no menu yet */ }
+      if (!cancelled) setMenuLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const openNewMenuItem = () => setMenuEditor({
+    name: '', category: '', price: '', currency: tenantBrand && tenantBrand.length ? 'TZS' : 'TZS',
+    station: 'kitchen', available: true,
+  });
+  const openEditMenuItem = (m: MenuItemRow) => setMenuEditor({
+    id: m.id,
+    name: m.name,
+    category: m.category,
+    price: String(m.price),
+    currency: m.currency,
+    station: m.station,
+    available: m.available,
+  });
+
+  const saveMenuItem = async () => {
+    if (!menuEditor) return;
+    const price = parseFloat(menuEditor.price);
+    if (!menuEditor.name.trim() || !menuEditor.category.trim() || !Number.isFinite(price) || price < 0) {
+      flashPortalMessage('Name, category and a non-negative price are required.');
+      return;
+    }
+    setMenuSaving(true);
+    try {
+      const payload = {
+        name: menuEditor.name.trim(),
+        category: menuEditor.category.trim(),
+        price,
+        currency: menuEditor.currency || 'TZS',
+        station: menuEditor.station,
+        available: menuEditor.available,
+      };
+      const saved = menuEditor.id
+        ? await api<MenuItemRow>(`/hotel/menu-items/${menuEditor.id}`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload),
+          })
+        : await api<MenuItemRow>('/hotel/menu-items', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          });
+      setMenuRows(prev => {
+        const i = prev.findIndex(x => x.id === saved.id);
+        if (i === -1) return [saved, ...prev];
+        const copy = prev.slice();
+        copy[i] = saved;
+        return copy;
+      });
+      setMenuEditor(null);
+    } catch (err) {
+      flashPortalMessage(`Could not save: ${(err as Error).message}`);
+    } finally {
+      setMenuSaving(false);
+    }
+  };
+
+  const deleteMenuItem = async (id: string) => {
+    const ok = window.confirm('Remove this menu item? Existing orders are not affected.');
+    if (!ok) return;
+    try {
+      await api(`/hotel/menu-items/${id}`, { method: 'DELETE' });
+      setMenuRows(prev => prev.filter(x => x.id !== id));
+      if (menuEditor?.id === id) setMenuEditor(null);
+    } catch (err) {
+      flashPortalMessage(`Could not delete: ${(err as Error).message}`);
+    }
+  };
+
+  const toggleMenuAvailable = async (m: MenuItemRow) => {
+    try {
+      const updated = await api<MenuItemRow>(`/hotel/menu-items/${m.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ available: !m.available }),
+      });
+      setMenuRows(prev => prev.map(x => (x.id === m.id ? updated : x)));
+    } catch (err) {
+      flashPortalMessage(`Could not update: ${(err as Error).message}`);
+    }
+  };
+
+  const saveTenant = async () => {
+    const slug = tenantSlug.trim().toLowerCase();
+    const name = tenantName.trim();
+    if (!/^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/.test(slug) || !name) {
+      flashPortalMessage('Slug must be 3–40 chars, lowercase, hyphens only.');
+      return;
+    }
+    setTenantSaving(true);
+    try {
+      await api('/hotel/tenant', {
+        method: 'POST',
+        body: JSON.stringify({ slug, name, brandColor: tenantBrand || undefined }),
+      });
+      flashPortalMessage(`Public portal saved: /p/${slug}/…`);
+    } catch (err) {
+      flashPortalMessage(`Could not save tenant: ${(err as Error).message}`);
+    } finally {
+      setTenantSaving(false);
+    }
+  };
+
+  const tenantBaseDomain = import.meta.env.VITE_TENANT_BASE_DOMAIN as string | undefined;
+  const publicBaseUrl = () =>
+    tenantBaseDomain ? `https://<slug>.${tenantBaseDomain}` : window.location.origin;
+  const publicRoomUrl = tenantSlug
+    ? buildPublicGuestUrl(tenantSlug, 'room', portalRoom)
+    : `${window.location.origin}/p/<slug>/room/${portalRoom}`;
+
+  const flashPortalMessage = (msg: string) => {
+    setPortalMessage(msg);
+    setTimeout(() => setPortalMessage(curr => (curr === msg ? null : curr)), 4000);
+  };
+
+  const placePortalOrder = async () => {
+    if (portalCart.length === 0) return;
+    try {
+      const created = await api<PortalOrder>('/hotel/orders', {
+        method: 'POST',
+        body: JSON.stringify({
+          roomNumber: portalRoom,
+          items: portalCart.map(c => ({ name: c.name, qty: c.qty, price: c.price })),
+          currency: 'TZS',
+        }),
+      });
+      if (created && (created as PortalOrder).id) {
+        setPortalOrders(prev => [created, ...prev]);
+      }
+      setPortalCart([]);
+      flashPortalMessage(`Order placed for Room ${portalRoom}. Staff will confirm shortly.`);
+    } catch {
+      flashPortalMessage('Could not place order — please try again.');
+    }
+  };
+
+  const requestPortalService = async (kind: string, label: string) => {
+    try {
+      const created = await api<PortalServiceRequest>('/hotel/service-requests', {
+        method: 'POST',
+        body: JSON.stringify({ roomNumber: portalRoom, kind, note: '' }),
+      });
+      if (created && (created as PortalServiceRequest).id) {
+        setPortalRequests(prev => [created, ...prev]);
+      }
+      flashPortalMessage(`${label} requested for Room ${portalRoom}.`);
+    } catch {
+      flashPortalMessage('Could not submit request — please try again.');
+    }
+  };
+
   // ─── Check-in handler ──────────────────────────────────────────────
   const handleCheckIn = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -461,6 +718,8 @@ export default function KobeHotel() {
     { id: 'inventory', label: 'Inventory', icon: Package, color: 'text-violet-400 bg-violet-500/10 border-violet-500/20' },
     { id: 'staff', label: 'Staff', icon: Users, color: 'text-sky-400 bg-sky-500/10 border-sky-500/20' },
     { id: 'accounting', label: 'Accounting', icon: Calculator, color: 'text-green-400 bg-green-500/10 border-green-500/20' },
+    { id: 'menu', label: 'Menu', icon: CakeSlice, color: 'text-rose-400 bg-rose-500/10 border-rose-500/20' },
+    { id: 'kds', label: 'KDS', icon: ChefHat, color: 'text-orange-400 bg-orange-500/10 border-orange-500/20' },
     { id: 'portal', label: 'Guest Portal', icon: QrCode, color: 'text-pink-400 bg-pink-500/10 border-pink-500/20' },
     { id: 'erp', label: 'Hotel ERP', icon: LayoutDashboard, color: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20' },
     { id: 'kds', label: 'KDS', icon: ChefHat, color: 'text-rose-400 bg-rose-500/10 border-rose-500/20' },
@@ -1389,18 +1648,102 @@ export default function KobeHotel() {
               </Select>
             </div>
 
+            <Card className={`${darkMode ? 'bg-[#13131f] border-white/[0.06]' : 'bg-white border-gray-200'}`}>
+              <CardContent className="p-6">
+                <h3 className="font-semibold mb-2">Public Portal Settings</h3>
+                <p className="text-xs text-gray-500 mb-4">
+                  Set your hotel's public slug. QR codes then resolve to
+                  <code className="ml-1">{publicBaseUrl()}/p/&lt;slug&gt;/room/&lt;n&gt;</code> with no login.
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">Slug</label>
+                    <Input
+                      value={tenantSlug}
+                      onChange={e => setTenantSlug(e.target.value)}
+                      placeholder="serenahotel"
+                      className={darkMode ? 'bg-[#0a0a1a] border-white/10 text-white placeholder:text-gray-600' : ''}
+                    />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="text-xs text-gray-400 mb-1 block">Display name</label>
+                    <Input
+                      value={tenantName}
+                      onChange={e => setTenantName(e.target.value)}
+                      placeholder="Serena Hotel"
+                      className={darkMode ? 'bg-[#0a0a1a] border-white/10 text-white placeholder:text-gray-600' : ''}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">Brand color</label>
+                    <Input
+                      value={tenantBrand}
+                      onChange={e => setTenantBrand(e.target.value)}
+                      placeholder="#ec4899"
+                      className={darkMode ? 'bg-[#0a0a1a] border-white/10 text-white placeholder:text-gray-600' : ''}
+                    />
+                  </div>
+                </div>
+                <div className="flex items-center justify-between mt-4">
+                  <p className="text-xs text-gray-500 truncate mr-2">
+                    Current public URL: <span className="text-pink-400">{publicRoomUrl}</span>
+                  </p>
+                  <Button size="sm" onClick={saveTenant} disabled={tenantSaving} className="bg-pink-600 hover:bg-pink-700 shrink-0">
+                    {tenantSaving ? 'Saving…' : 'Save'}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* QR Code */}
               <Card className={`${darkMode ? 'bg-[#13131f] border-white/[0.06]' : 'bg-white border-gray-200'}`}>
                 <CardContent className="p-6 flex flex-col items-center">
                   <h3 className="font-semibold mb-4">Room {portalRoom} QR Code</h3>
                   <div className="bg-white p-4 rounded-xl">
-                    <QRCodeSVG value={`https://kobe-hotel.co.tz/room/${portalRoom}`} size={160} />
+                    <QRCodeSVG value={publicRoomUrl} size={160} />
                   </div>
-                  <p className="text-xs text-gray-400 mt-3 text-center">Scan to access digital menu & services</p>
+                  <p className="text-xs text-gray-400 mt-3 text-center break-all px-2">
+                    {tenantSlug ? publicRoomUrl : 'Set a public slug below to make this QR live.'}
+                  </p>
                   <div className="flex gap-2 mt-4">
-                    <Button size="sm" variant="outline" className={darkMode ? 'border-white/10' : ''}><Printer className="w-4 h-4 mr-1" />Print</Button>
-                    <Button size="sm" variant="outline" className={darkMode ? 'border-white/10' : ''}><Download className="w-4 h-4 mr-1" />Download</Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!tenantSlug}
+                      className={darkMode ? 'border-white/10' : ''}
+                      onClick={() => {
+                        const q = new URLSearchParams({
+                          slug: tenantSlug,
+                          type: 'room',
+                          n: portalRoom,
+                          name: tenantName || tenantSlug,
+                          brand: tenantBrand || '#ec4899',
+                        });
+                        window.open(`/print/qr-card?${q.toString()}`, '_blank', 'noopener');
+                      }}
+                    >
+                      <Printer className="w-4 h-4 mr-1" />Print
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!tenantSlug}
+                      className={darkMode ? 'border-white/10' : ''}
+                      onClick={() => {
+                        const q = new URLSearchParams({
+                          slug: tenantSlug,
+                          type: 'room',
+                          n: portalRoom,
+                          name: tenantName || tenantSlug,
+                          brand: tenantBrand || '#ec4899',
+                        });
+                        // Same page — user picks "Save as PDF" from the print dialog.
+                        window.open(`/print/qr-card?${q.toString()}`, '_blank', 'noopener');
+                      }}
+                    >
+                      <Download className="w-4 h-4 mr-1" />Download
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
@@ -1434,7 +1777,7 @@ export default function KobeHotel() {
                         <span>Total</span><span className="text-pink-400">{formatTZS(portalTotal)}</span>
                       </div>
                       <div className="flex gap-2 mt-3">
-                        <Button size="sm" className="flex-1 bg-pink-600 hover:bg-pink-700"><Send className="w-3 h-3 mr-1" />Place Order</Button>
+                        <Button size="sm" onClick={placePortalOrder} disabled={portalCart.length === 0} className="flex-1 bg-pink-600 hover:bg-pink-700"><Send className="w-3 h-3 mr-1" />Place Order</Button>
                         <Button size="sm" variant="outline" className={darkMode ? 'border-white/10' : ''}><Smartphone className="w-3 h-3 mr-1" />M-Pesa</Button>
                       </div>
                     </div>
@@ -1443,27 +1786,87 @@ export default function KobeHotel() {
               </Card>
             </div>
 
+            {portalMessage && (
+              <div className="rounded-lg border border-pink-500/30 bg-pink-500/10 px-4 py-2 text-sm text-pink-200">
+                {portalMessage}
+              </div>
+            )}
+
             {/* Services */}
             <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
               {[
-                { label: 'Housekeeping', icon: Brush, desc: 'Request cleaning' },
-                { label: 'Extra Towels', icon: Bed, desc: 'Fresh towels' },
-                { label: 'Wake-up Call', icon: Clock, desc: 'Set alarm' },
-                { label: 'Extend Stay', icon: Calendar, desc: 'Add nights' },
-                { label: 'Checkout', icon: CheckCircle2, desc: 'Early checkout' },
+                { label: 'Housekeeping', icon: Brush, desc: 'Request cleaning', kind: 'HOUSEKEEPING' },
+                { label: 'Extra Towels', icon: Bed, desc: 'Fresh towels', kind: 'TOWELS' },
+                { label: 'Wake-up Call', icon: Clock, desc: 'Set alarm', kind: 'WAKE_UP' },
+                { label: 'Extend Stay', icon: Calendar, desc: 'Add nights', kind: 'EXTEND_STAY' },
+                { label: 'Checkout', icon: CheckCircle2, desc: 'Early checkout', kind: 'CHECKOUT' },
               ].map(svc => {
                 const Icon = svc.icon;
                 return (
-                  <Card key={svc.label} className={`${darkMode ? 'bg-[#13131f] border-white/[0.06]' : 'bg-white border-gray-200'} hover:border-pink-500/30 transition-all cursor-pointer`}>
-                    <CardContent className="p-4 text-center">
-                      <Icon className="w-6 h-6 mx-auto mb-2 text-pink-400" />
-                      <p className="text-sm font-medium">{svc.label}</p>
-                      <p className="text-xs text-gray-400">{svc.desc}</p>
-                    </CardContent>
-                  </Card>
+                  <button
+                    key={svc.label}
+                    type="button"
+                    onClick={() => requestPortalService(svc.kind, svc.label)}
+                    className="text-left"
+                  >
+                    <Card className={`${darkMode ? 'bg-[#13131f] border-white/[0.06]' : 'bg-white border-gray-200'} hover:border-pink-500/30 transition-all cursor-pointer`}>
+                      <CardContent className="p-4 text-center">
+                        <Icon className="w-6 h-6 mx-auto mb-2 text-pink-400" />
+                        <p className="text-sm font-medium">{svc.label}</p>
+                        <p className="text-xs text-gray-400">{svc.desc}</p>
+                      </CardContent>
+                    </Card>
+                  </button>
                 );
               })}
             </div>
+
+            {/* Activity for this room */}
+            <Card className={`${darkMode ? 'bg-[#13131f] border-white/[0.06]' : 'bg-white border-gray-200'}`}>
+              <CardContent className="p-6">
+                <h3 className="font-semibold mb-4">Activity — Room {portalRoom}</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <h4 className="text-sm font-medium mb-2 text-pink-400">Orders</h4>
+                    <div className="space-y-1.5">
+                      {portalOrders.filter(o => o.roomNumber === portalRoom).length === 0 && (
+                        <p className="text-xs text-gray-500">No orders yet.</p>
+                      )}
+                      {portalOrders
+                        .filter(o => o.roomNumber === portalRoom)
+                        .slice(0, 8)
+                        .map(o => (
+                          <div key={o.id} className="flex items-center justify-between text-xs py-1">
+                            <span className={darkMode ? 'text-gray-300' : 'text-gray-700'}>
+                              {o.items.map(i => `${i.qty}× ${i.name}`).join(', ') || '—'}
+                            </span>
+                            <span className="text-gray-400 ml-2 shrink-0">{o.status}</span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-medium mb-2 text-pink-400">Service Requests</h4>
+                    <div className="space-y-1.5">
+                      {portalRequests.filter(r => r.roomNumber === portalRoom).length === 0 && (
+                        <p className="text-xs text-gray-500">No requests yet.</p>
+                      )}
+                      {portalRequests
+                        .filter(r => r.roomNumber === portalRoom)
+                        .slice(0, 8)
+                        .map(r => (
+                          <div key={r.id} className="flex items-center justify-between text-xs py-1">
+                            <span className={darkMode ? 'text-gray-300' : 'text-gray-700'}>
+                              {r.kind.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase())}
+                            </span>
+                            <span className="text-gray-400 ml-2 shrink-0">{r.status}</span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
             {/* Bill Viewer */}
             <Card className={`${darkMode ? 'bg-[#13131f] border-white/[0.06]' : 'bg-white border-gray-200'}`}>
@@ -1479,6 +1882,341 @@ export default function KobeHotel() {
                 </div>
               </CardContent>
             </Card>
+          </div>
+        )}
+
+        {/* ════════════════════════════════════════════════════════════
+            MENU EDITOR
+        ════════════════════════════════════════════════════════════ */}
+        {activeTab === 'menu' && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h1 className="text-2xl font-bold">Menu</h1>
+                <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>
+                  Drives the guest portal, KDS routing, and POS
+                </p>
+              </div>
+              <Button onClick={openNewMenuItem} className="bg-rose-600 hover:bg-rose-700">
+                <Plus className="w-4 h-4 mr-1" /> Add Item
+              </Button>
+            </div>
+
+            <div className="flex gap-2">
+              {(['all', 'kitchen', 'bar', 'other'] as const).map(s => (
+                <Button
+                  key={s}
+                  size="sm"
+                  variant={menuFilter === s ? 'default' : 'outline'}
+                  onClick={() => setMenuFilter(s)}
+                  className={menuFilter === s ? 'bg-rose-600 hover:bg-rose-700' : (darkMode ? 'border-white/10' : '')}
+                >
+                  {s[0].toUpperCase() + s.slice(1)}
+                  <span className="ml-1.5 text-xs opacity-60">
+                    {s === 'all' ? menuRows.length : menuRows.filter(m => m.station === s).length}
+                  </span>
+                </Button>
+              ))}
+            </div>
+
+            <Card className={`${darkMode ? 'bg-[#13131f] border-white/[0.06]' : 'bg-white border-gray-200'}`}>
+              <CardContent className="p-0">
+                {menuLoading ? (
+                  <div className="p-8 text-center text-sm text-gray-500">Loading menu…</div>
+                ) : menuRows.length === 0 ? (
+                  <div className="p-12 text-center">
+                    <CakeSlice className="w-10 h-10 mx-auto text-rose-400 mb-2 opacity-70" />
+                    <p className="text-sm text-gray-400">No menu items yet.</p>
+                    <Button size="sm" className="mt-3 bg-rose-600 hover:bg-rose-700" onClick={openNewMenuItem}>
+                      <Plus className="w-4 h-4 mr-1" /> Add your first item
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-white/[0.06]">
+                    {menuRows
+                      .filter(m => menuFilter === 'all' || m.station === menuFilter)
+                      .map(m => (
+                        <div key={m.id} className="flex items-center gap-3 px-4 py-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-semibold truncate">{m.name}</p>
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 capitalize">{m.station}</Badge>
+                              {!m.available && (
+                                <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-amber-400 border-amber-400/40">
+                                  Hidden
+                                </Badge>
+                              )}
+                            </div>
+                            <p className="text-xs text-gray-500 truncate">{m.category}</p>
+                          </div>
+                          <div className="text-sm font-semibold text-rose-400 w-32 text-right">
+                            {Number(m.price).toLocaleString()} {m.currency}
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className={`h-8 ${darkMode ? 'border-white/10' : ''}`}
+                            onClick={() => toggleMenuAvailable(m)}
+                          >
+                            {m.available ? <Eye className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
+                          </Button>
+                          <Button size="sm" variant="outline" className={`h-8 ${darkMode ? 'border-white/10' : ''}`} onClick={() => openEditMenuItem(m)}>
+                            Edit
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 border-red-500/40 text-red-400 hover:bg-red-500/10"
+                            onClick={() => deleteMenuItem(m.id)}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        <Dialog open={!!menuEditor} onOpenChange={(o) => !o && setMenuEditor(null)}>
+          <DialogContent className={`${darkMode ? 'bg-[#13131f] border-white/[0.06] text-white' : ''} max-w-md`}>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <CakeSlice className="w-4 h-4 text-rose-400" />
+                {menuEditor?.id ? 'Edit Menu Item' : 'New Menu Item'}
+              </DialogTitle>
+            </DialogHeader>
+            {menuEditor && (
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">Name</label>
+                  <Input
+                    value={menuEditor.name}
+                    onChange={e => setMenuEditor({ ...menuEditor, name: e.target.value })}
+                    placeholder="Cheeseburger"
+                    className={darkMode ? 'bg-[#0a0a1a] border-white/10 text-white placeholder:text-gray-600' : ''}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">Category</label>
+                  <Input
+                    list="menu-category-suggestions"
+                    value={menuEditor.category}
+                    onChange={e => setMenuEditor({ ...menuEditor, category: e.target.value })}
+                    placeholder="Mains, Drinks, Desserts…"
+                    className={darkMode ? 'bg-[#0a0a1a] border-white/10 text-white placeholder:text-gray-600' : ''}
+                  />
+                  <datalist id="menu-category-suggestions">
+                    {Array.from(new Set(menuRows.map(m => m.category))).map(c => (
+                      <option key={c} value={c} />
+                    ))}
+                  </datalist>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">Price</label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={menuEditor.price}
+                      onChange={e => setMenuEditor({ ...menuEditor, price: e.target.value })}
+                      placeholder="15000"
+                      className={darkMode ? 'bg-[#0a0a1a] border-white/10 text-white placeholder:text-gray-600' : ''}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-400 mb-1 block">Currency</label>
+                    <Input
+                      value={menuEditor.currency}
+                      onChange={e => setMenuEditor({ ...menuEditor, currency: e.target.value.toUpperCase() })}
+                      placeholder="TZS"
+                      maxLength={8}
+                      className={darkMode ? 'bg-[#0a0a1a] border-white/10 text-white placeholder:text-gray-600' : ''}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">Station</label>
+                  <Select
+                    value={menuEditor.station}
+                    onValueChange={(v) => setMenuEditor({ ...menuEditor, station: v as 'kitchen' | 'bar' | 'other' })}
+                  >
+                    <SelectTrigger className={darkMode ? 'bg-[#0a0a1a] border-white/10' : ''}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="kitchen">Kitchen</SelectItem>
+                      <SelectItem value="bar">Bar</SelectItem>
+                      <SelectItem value="other">Other</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={menuEditor.available}
+                    onChange={e => setMenuEditor({ ...menuEditor, available: e.target.checked })}
+                    className="rounded"
+                  />
+                  Visible on guest portal
+                </label>
+                <div className="flex items-center justify-between pt-2">
+                  {menuEditor.id ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-red-500/40 text-red-400 hover:bg-red-500/10"
+                      onClick={() => menuEditor.id && deleteMenuItem(menuEditor.id)}
+                    >
+                      <Trash2 className="w-3.5 h-3.5 mr-1" /> Delete
+                    </Button>
+                  ) : <span />}
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="outline" onClick={() => setMenuEditor(null)} className={darkMode ? 'border-white/10' : ''}>Cancel</Button>
+                    <Button size="sm" disabled={menuSaving} onClick={saveMenuItem} className="bg-rose-600 hover:bg-rose-700">
+                      {menuSaving ? 'Saving…' : (menuEditor.id ? 'Save' : 'Create')}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        {/* ════════════════════════════════════════════════════════════
+            KITCHEN DISPLAY SYSTEM
+        ════════════════════════════════════════════════════════════ */}
+        {activeTab === 'kds' && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <h1 className="text-2xl font-bold flex items-center gap-2">
+                  KDS — Kitchen Display
+                  <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full border text-xs font-medium ${live.connected ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' : 'bg-white/5 text-slate-400 border-white/10'}`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${live.connected ? 'bg-emerald-400' : 'bg-slate-500'}`} />
+                    {live.connected ? 'Live' : 'Offline'}
+                  </span>
+                </h1>
+                <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Live guest orders routed by station</p>
+              </div>
+              <div className="flex gap-2">
+                {(['all', 'kitchen', 'bar', 'other'] as const).map(s => (
+                  <Button
+                    key={s}
+                    size="sm"
+                    variant={kdsStation === s ? 'default' : 'outline'}
+                    onClick={() => setKdsStation(s)}
+                    className={kdsStation === s ? 'bg-orange-600 hover:bg-orange-700' : (darkMode ? 'border-white/10' : '')}
+                  >
+                    {s[0].toUpperCase() + s.slice(1)}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <Card className={`${darkMode ? 'bg-[#13131f] border-white/[0.06]' : 'bg-white border-gray-200'}`}>
+                <CardContent className="p-5">
+                  <h3 className="font-semibold mb-3 flex items-center gap-2"><ChefHat className="w-4 h-4 text-orange-400" /> Orders</h3>
+                  {live.loading && <p className="text-xs text-gray-500">Loading…</p>}
+                  {!live.loading && live.orders.length === 0 && (
+                    <p className="text-xs text-gray-500">No orders yet.</p>
+                  )}
+                  <div className="space-y-2">
+                    {live.orders
+                      .filter((o: LiveOrder) => !['DELIVERED', 'CANCELLED'].includes(o.status))
+                      .filter((o: LiveOrder) => kdsStation === 'all' || o.items.some(i => (i.station ?? 'kitchen') === kdsStation))
+                      .slice(0, 30)
+                      .map((o: LiveOrder) => {
+                        const items = kdsStation === 'all'
+                          ? o.items
+                          : o.items.filter(i => (i.station ?? 'kitchen') === kdsStation);
+                        const next = NEXT_ORDER_STATUS[o.status] ?? [];
+                        return (
+                          <div key={o.id} className={`rounded-lg border ${darkMode ? 'border-white/[0.06] bg-[#0a0a1a]' : 'border-gray-200 bg-gray-50'} p-3`}>
+                            <div className="flex items-center justify-between mb-2">
+                              <div>
+                                <p className="text-sm font-semibold">
+                                  {o.locationType === 'table' ? 'Table' : 'Room'} {o.roomNumber}
+                                </p>
+                                <p className="text-[10px] text-gray-500 font-mono">{o.id.slice(0, 8)}</p>
+                              </div>
+                              <span className="text-xs px-2 py-0.5 rounded-full bg-orange-500/15 text-orange-300 border border-orange-500/30">
+                                {o.status}
+                              </span>
+                            </div>
+                            <div className="space-y-0.5 mb-2">
+                              {items.map((it, i) => (
+                                <div key={i} className="flex items-center justify-between text-xs">
+                                  <span>{it.qty}× {it.name}</span>
+                                  <span className="text-gray-500 capitalize">{it.station ?? 'kitchen'}</span>
+                                </div>
+                              ))}
+                            </div>
+                            {next.length > 0 && (
+                              <div className="flex gap-2 flex-wrap">
+                                {next.map(s => (
+                                  <Button
+                                    key={s}
+                                    size="sm"
+                                    onClick={() => live.advanceOrder(o.id, s)}
+                                    className={s === 'CANCELLED' ? 'h-7 text-xs bg-red-600/80 hover:bg-red-600' : 'h-7 text-xs bg-orange-600 hover:bg-orange-700'}
+                                  >
+                                    {s}
+                                  </Button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className={`${darkMode ? 'bg-[#13131f] border-white/[0.06]' : 'bg-white border-gray-200'}`}>
+                <CardContent className="p-5">
+                  <h3 className="font-semibold mb-3 flex items-center gap-2"><Brush className="w-4 h-4 text-pink-400" /> Service Requests</h3>
+                  {!live.loading && live.requests.filter(r => !['COMPLETED', 'CANCELLED'].includes(r.status)).length === 0 && (
+                    <p className="text-xs text-gray-500">No open requests.</p>
+                  )}
+                  <div className="space-y-2">
+                    {live.requests
+                      .filter(r => !['COMPLETED', 'CANCELLED'].includes(r.status))
+                      .slice(0, 30)
+                      .map(r => {
+                        const next = NEXT_REQUEST_STATUS[r.status] ?? [];
+                        return (
+                          <div key={r.id} className={`rounded-lg border ${darkMode ? 'border-white/[0.06] bg-[#0a0a1a]' : 'border-gray-200 bg-gray-50'} p-3 flex items-center justify-between`}>
+                            <div>
+                              <p className="text-sm font-medium">
+                                Room {r.roomNumber} —{' '}
+                                {r.kind.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase())}
+                              </p>
+                              <p className="text-[10px] text-gray-500">{r.status}</p>
+                            </div>
+                            <div className="flex gap-2 flex-wrap">
+                              {next.map(s => (
+                                <Button
+                                  key={s}
+                                  size="sm"
+                                  onClick={() => live.advanceRequest(r.id, s)}
+                                  className={s === 'CANCELLED' ? 'h-7 text-xs bg-red-600/80 hover:bg-red-600' : 'h-7 text-xs bg-pink-600 hover:bg-pink-700'}
+                                >
+                                  {s}
+                                </Button>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           </div>
         )}
 
@@ -1639,9 +2377,9 @@ export default function KobeHotel() {
             menuCategories: FOOD_ITEMS.reduce((cats, item) => {
               const cat = cats.find(c => c.name === item.category);
               if (cat) {
-                cat.items.push({ id: String(item.id), categoryId: item.category, name: item.name, description: '', price: item.price, currency: 'TZS', available: true, preparationTime: 10, station: 'kitchen', tags: [] });
+                cat.items.push({ id: String(item.id), categoryId: item.category, name: item.name, description: '', price: item.price, isAvailable: true, preparationTime: 10, station: 'kitchen' });
               } else {
-                cats.push({ id: item.category, name: item.category, description: '', items: [{ id: String(item.id), categoryId: item.category, name: item.name, description: '', price: item.price, currency: 'TZS', available: true, preparationTime: 10, station: 'kitchen', tags: [] }], sortOrder: 0 });
+                cats.push({ id: item.category, name: item.category, description: '', items: [{ id: String(item.id), categoryId: item.category, name: item.name, description: '', price: item.price, isAvailable: true, preparationTime: 10, station: 'kitchen' }], sortOrder: 0 });
               }
               return cats;
             }, [] as SharedHotel['menuCategories']),

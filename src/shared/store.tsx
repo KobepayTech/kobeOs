@@ -170,7 +170,7 @@ type HotelAction =
   | { type: 'SET_CURRENT_HOTEL'; payload: string }
   | { type: 'ADD_ORDER'; payload: Order }
   | { type: 'UPDATE_ORDER'; payload: Order }
-  | { type: 'UPDATE_ORDER_STATUS'; payload: { orderId: string; status: string } }
+  | { type: 'UPDATE_ORDER_STATUS'; payload: { orderId: string; status: Order['status'] } }
   | { type: 'SET_ORDERS'; payload: Order[] }
   | { type: 'SET_LOADING'; payload: boolean };
 

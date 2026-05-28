@@ -63,7 +63,7 @@ export const notificationApi = {
   },
 
   markAsRead: async (notificationId: string) => {
-    return api.patch(`/notifications/${notificationId}/read`);
+    return api.patch(`/notifications/${notificationId}/read`, {});
   },
 
   getUnreadCount: async () => {
@@ -240,7 +240,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
         notificationApi.getUnreadCount(),
       ]);
       if (historyRes.data) setNotifications(historyRes.data.data);
-      if (countRes.data !== undefined) setUnreadCount(countRes.data);
+      setUnreadCount(countRes);
     } finally {
       setIsLoading(false);
     }
@@ -269,7 +269,7 @@ export const NotificationProvider: React.FC<{ children: React.ReactNode }> = ({ 
   }, []);
 
   const markAllAsRead = useCallback(async () => {
-    await api.patch('/notifications/mark-all-read');
+    await api.patch('/notifications/mark-all-read', {});
     setNotifications(prev => prev.map(n => ({ ...n, status: 'read' as const })));
     setUnreadCount(0);
   }, []);
