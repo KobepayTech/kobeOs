@@ -1,5 +1,6 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { render } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/dom';
 import App from './App';
 
 const launcherApps = [
@@ -27,7 +28,9 @@ const appStoreModules = [
 ];
 
 function closeTopWindow() {
-  const closeButtons = screen.getAllByRole('button').filter((candidate) => String(candidate.className).includes('bg-red-500'));
+  const closeButtons = screen
+    .getAllByRole('button')
+    .filter((candidate: HTMLElement) => String(candidate.className).includes('bg-red-500'));
   fireEvent.click(closeButtons[closeButtons.length - 1]);
 }
 
