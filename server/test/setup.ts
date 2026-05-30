@@ -53,6 +53,7 @@ export async function resetDb(app: INestApplication) {
     'parcels', 'shipments', 'cargo_drivers', 'cargo_flights',
     'rent_payments', 'tenants', 'property_units', 'properties',
     'pos_order_items', 'pos_orders', 'pos_products',
+    'warehouse_pick_ticket_items', 'warehouse_pick_tickets',
     'warehouse_movements', 'warehouse_items',
     'discount_rules', 'coupons', 'campaigns',
     'payment_transactions', 'credit_loans', 'wallets',

@@ -3,6 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { PosOrder, PosOrderItem, PosProduct } from './pos.entity';
 import { CreateOrderDto, CreateProductDto, UpdateOrderDto, UpdateProductDto } from './dto/pos.dto';
+import { ReceiptService } from './receipt.service';
+import { PickTicketService } from '../warehouse/pick-ticket.service';
 
 @Injectable()
 export class ProductsService {
@@ -42,6 +44,8 @@ export class OrdersService {
     @InjectRepository(PosOrderItem) private readonly items: Repository<PosOrderItem>,
     @InjectRepository(PosProduct) private readonly products: Repository<PosProduct>,
     private readonly ds: DataSource,
+    private readonly receipts: ReceiptService,
+    private readonly pickTickets: PickTicketService,
   ) {}
 
   list(uid: string, page = 1, limit = 50) {
@@ -64,6 +68,7 @@ export class OrdersService {
 
       let subtotal = 0;
       const itemsToInsert: PosOrderItem[] = [];
+      const pickLines: { sku: string; name: string; quantity: number }[] = [];
 
       for (const line of dto.lines) {
         const product = await productRepo.findOne({ where: { id: line.productId, ownerId: uid } });
@@ -89,6 +94,7 @@ export class OrdersService {
             lineTotal,
           }),
         );
+        pickLines.push({ sku: product.sku, name: product.name, quantity: line.quantity });
       }
 
       const tax = dto.taxAmount ?? 0;
@@ -110,7 +116,16 @@ export class OrdersService {
 
       for (const item of itemsToInsert) item.orderId = order.id;
       await itemRepo.save(itemsToInsert);
-      return { ...order, items: itemsToInsert };
+
+      const pickTicket = await this.pickTickets.createInTransaction(tx, uid, {
+        ticketNumber: `PT-${order.orderNumber}`,
+        orderId: order.id,
+        customerName: order.customerName,
+        lines: pickLines,
+      });
+      const receipt = this.receipts.format(order, itemsToInsert);
+
+      return { ...order, items: itemsToInsert, receipt, pickTicket };
     });
   }
 

@@ -96,6 +96,57 @@ describe('New modules + ownership (e2e)', () => {
     expect(summary.body.accounts.monthlyTrend).toHaveLength(6);
   });
 
+  it('POS sale returns receipt + pick ticket and deducts warehouse stock', async () => {
+    const t = await token('pos-slice@e2e.test');
+
+    // Warehouse item with the same SKU as the product gets deducted via OUT movement.
+    await request(http).post('/api/warehouse/items').set(bearer(t))
+      .send({ sku: 'SKU-RICE', name: 'Rice 5kg', quantity: 50, unit: 'bag', location: 'A2' });
+    const product = await request(http).post('/api/pos/products').set(bearer(t))
+      .send({ sku: 'SKU-RICE', name: 'Rice 5kg', price: 12000, stock: 50 });
+
+    const sale = await request(http).post('/api/pos/orders').set(bearer(t)).send({
+      orderNumber: 'SO-1001',
+      lines: [{ productId: product.body.id, quantity: 3 }],
+      customerName: 'Juma Abdallah',
+      paymentMethod: 'CASH',
+    });
+    expect(sale.status).toBe(201);
+    expect(sale.body.total).toBe(36000);
+    expect(sale.body.receipt.text).toContain('SO-1001');
+    expect(sale.body.receipt.text).toContain('Rice 5kg');
+    expect(sale.body.receipt.text).toContain('TOTAL');
+    expect(sale.body.pickTicket.ticketNumber).toBe('PT-SO-1001');
+    expect(sale.body.pickTicket.status).toBe('PENDING');
+    expect(sale.body.pickTicket.items).toHaveLength(1);
+    expect(sale.body.pickTicket.items[0].sku).toBe('SKU-RICE');
+    expect(sale.body.pickTicket.items[0].location).toBe('A2');
+
+    // Warehouse stock decremented from 50 to 47 via OUT movement.
+    const items = await request(http).get('/api/warehouse/items').set(bearer(t));
+    expect(items.body[0].quantity).toBe(47);
+    const moves = await request(http).get('/api/warehouse/movements').set(bearer(t));
+    expect(moves.body[0].type).toBe('OUT');
+    expect(moves.body[0].reference).toBe('PT-SO-1001');
+
+    // Status flow: PENDING -> PICKING -> PACKED -> DISPATCHED.
+    const ticketId = sale.body.pickTicket.id as string;
+    const picking = await request(http).patch(`/api/warehouse/pick-tickets/${ticketId}/status`)
+      .set(bearer(t)).send({ status: 'PICKING', pickedBy: 'Asha' });
+    expect(picking.body.status).toBe('PICKING');
+    const packed = await request(http).patch(`/api/warehouse/pick-tickets/${ticketId}/status`)
+      .set(bearer(t)).send({ status: 'PACKED' });
+    expect(packed.body.status).toBe('PACKED');
+    const dispatched = await request(http).patch(`/api/warehouse/pick-tickets/${ticketId}/status`)
+      .set(bearer(t)).send({ status: 'DISPATCHED' });
+    expect(dispatched.body.status).toBe('DISPATCHED');
+
+    // Illegal transition (DISPATCHED is terminal) -> 400.
+    const bad = await request(http).patch(`/api/warehouse/pick-tickets/${ticketId}/status`)
+      .set(bearer(t)).send({ status: 'PICKING' });
+    expect(bad.status).toBe(400);
+  });
+
   it('rejects unauthenticated access to owned resources', async () => {
     expect((await request(http).get('/api/print/jobs')).status).toBe(401);
     expect((await request(http).get('/api/erp/summary')).status).toBe(401);
