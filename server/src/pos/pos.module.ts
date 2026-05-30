@@ -5,11 +5,15 @@ import { OrdersService, ProductsService } from './pos.service';
 import { PosController } from './pos.controller';
 import { ReceiptService } from './receipt.service';
 import { WarehouseModule } from '../warehouse/warehouse.module';
+import { DiscountsModule } from '../discounts/discount.module';
+import { CreditModule } from '../credit/credit.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([PosProduct, PosOrder, PosOrderItem]),
     WarehouseModule,
+    DiscountsModule,
+    CreditModule,
   ],
   providers: [ProductsService, OrdersService, ReceiptService],
   controllers: [PosController],

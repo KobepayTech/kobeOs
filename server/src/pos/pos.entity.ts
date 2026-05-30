@@ -60,6 +60,13 @@ export class PosOrder extends OwnedEntity {
 
   @Column({ nullable: true, type: 'varchar' })
   customerPhone?: string | null;
+
+  @Column({ default: false })
+  isBnpl!: boolean;
+
+  @Index()
+  @Column('uuid', { nullable: true })
+  receivableId?: string | null;
 }
 
 @Entity('pos_order_items')

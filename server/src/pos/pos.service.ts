@@ -1,10 +1,12 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { PosOrder, PosOrderItem, PosProduct } from './pos.entity';
 import { CreateOrderDto, CreateProductDto, UpdateOrderDto, UpdateProductDto } from './dto/pos.dto';
 import { ReceiptService } from './receipt.service';
 import { PickTicketService } from '../warehouse/pick-ticket.service';
+import { DiscountEngine } from '../discounts/discount-engine.service';
+import { CreditService } from '../credit/credit.service';
 
 @Injectable()
 export class ProductsService {
@@ -46,6 +48,8 @@ export class OrdersService {
     private readonly ds: DataSource,
     private readonly receipts: ReceiptService,
     private readonly pickTickets: PickTicketService,
+    private readonly discountEngine: DiscountEngine,
+    private readonly credit: CreditService,
   ) {}
 
   list(uid: string, page = 1, limit = 50) {
@@ -98,7 +102,28 @@ export class OrdersService {
       }
 
       const tax = dto.taxAmount ?? 0;
-      const discount = dto.discountAmount ?? 0;
+
+      const discountResult = await this.discountEngine.apply(uid, {
+        subtotal,
+        customerScope: dto.customerScope,
+        couponCode: dto.couponCode,
+        approvedBy: dto.approvedBy,
+      });
+      if (discountResult.requiresApproval) {
+        throw new ForbiddenException(
+          'Discount exceeds approval threshold; manager approval required (set approvedBy)',
+        );
+      }
+      // Engine output wins when a coupon/rule applied; otherwise honor manual override.
+      const discount =
+        discountResult.discountAmount > 0 || dto.couponCode
+          ? discountResult.discountAmount
+          : (dto.discountAmount ?? 0);
+
+      const total = parseFloat((subtotal + tax - discount).toFixed(4));
+      const paymentMethod = dto.paymentMethod ?? 'CASH';
+      const isBnpl = paymentMethod === 'BNPL';
+
       const order = await orderRepo.save(
         orderRepo.create({
           ownerId: uid,
@@ -106,16 +131,36 @@ export class OrdersService {
           subtotal,
           taxAmount: tax,
           discountAmount: discount,
-          total: subtotal + tax - discount,
-          paymentMethod: dto.paymentMethod ?? 'CASH',
+          total,
+          paymentMethod,
           customerName: dto.customerName ?? null,
           customerPhone: dto.customerPhone ?? null,
+          isBnpl,
           status: 'COMPLETED',
         }),
       );
 
       for (const item of itemsToInsert) item.orderId = order.id;
       await itemRepo.save(itemsToInsert);
+
+      if (discountResult.appliedCouponId) {
+        await this.discountEngine.consumeCoupon(tx, discountResult.appliedCouponId);
+      }
+
+      let receivable: unknown = null;
+      if (isBnpl) {
+        const approval = await this.credit.approveAndReserveInTransaction(tx, uid, {
+          customerPhone: dto.customerPhone ?? '',
+          customerName: dto.customerName ?? null,
+          amount: total,
+          installmentMonths: dto.installmentMonths,
+          orderId: order.id,
+          currency: order.currency,
+        });
+        order.receivableId = approval.receivable.id;
+        await orderRepo.save(order);
+        receivable = approval.receivable;
+      }
 
       const pickTicket = await this.pickTickets.createInTransaction(tx, uid, {
         ticketNumber: `PT-${order.orderNumber}`,
@@ -125,7 +170,14 @@ export class OrdersService {
       });
       const receipt = this.receipts.format(order, itemsToInsert);
 
-      return { ...order, items: itemsToInsert, receipt, pickTicket };
+      return {
+        ...order,
+        items: itemsToInsert,
+        receipt,
+        pickTicket,
+        discount: discountResult,
+        receivable,
+      };
     });
   }
 

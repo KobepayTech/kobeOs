@@ -25,6 +25,7 @@ import { PosModule } from './pos/pos.module';
 import { WarehouseModule } from './warehouse/warehouse.module';
 import { DiscountsModule } from './discounts/discount.module';
 import { PaymentsModule } from './payments/payments.module';
+import { CreditModule } from './credit/credit.module';
 import { HotelModule } from './hotel/hotel.module';
 import { CreatorsModule } from './creators/creators.module';
 import { VideoGenerationModule } from './video-generation/video-generation.module';
@@ -89,6 +90,7 @@ import { StudioMediaModule } from './studio-media/studio-media.module';
     WarehouseModule,
     DiscountsModule,
     PaymentsModule,
+    CreditModule,
     HotelModule,
     HotelSecurityModule,
     CreatorsModule,

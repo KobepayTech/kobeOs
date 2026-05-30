@@ -147,6 +147,123 @@ describe('New modules + ownership (e2e)', () => {
     expect(bad.status).toBe(400);
   });
 
+  it('POS sale applies coupon + percentage rule and bumps coupon usage', async () => {
+    const t = await token('discount@e2e.test');
+
+    await request(http).post('/api/discounts/rules').set(bearer(t))
+      .send({ name: 'Loyalty 5%', type: 'Percentage', value: 5 });
+    const coupon = await request(http).post('/api/discounts/coupons').set(bearer(t))
+      .send({ code: 'WELCOME10', type: 'Percentage', value: 10, usageLimit: 5 });
+
+    const product = await request(http).post('/api/pos/products').set(bearer(t))
+      .send({ sku: 'SKU-DRINK', name: 'Cola', price: 1000, stock: 100 });
+
+    const sale = await request(http).post('/api/pos/orders').set(bearer(t)).send({
+      orderNumber: 'SO-D1',
+      lines: [{ productId: product.body.id, quantity: 10 }],
+      couponCode: 'WELCOME10',
+    });
+    expect(sale.status).toBe(201);
+    // 10000 subtotal - 5% rule (500) - 10% coupon (1000) = 8500.
+    expect(sale.body.discountAmount).toBe(1500);
+    expect(sale.body.total).toBe(8500);
+    expect(sale.body.discount.breakdown).toHaveLength(2);
+
+    // Coupon usage was incremented.
+    const coupons = await request(http).get('/api/discounts/coupons').set(bearer(t));
+    const refreshed = coupons.body.find((c: { id: string }) => c.id === coupon.body.id);
+    expect(refreshed.usageCount).toBe(1);
+  });
+
+  it('rejects discount > 20% threshold without approval, accepts with approvedBy', async () => {
+    const t = await token('approval@e2e.test');
+    await request(http).post('/api/discounts/rules').set(bearer(t))
+      .send({ name: 'Clearance', type: 'Percentage', value: 30 });
+    const product = await request(http).post('/api/pos/products').set(bearer(t))
+      .send({ sku: 'SKU-X', name: 'Item', price: 1000, stock: 10 });
+
+    const denied = await request(http).post('/api/pos/orders').set(bearer(t)).send({
+      orderNumber: 'SO-A1',
+      lines: [{ productId: product.body.id, quantity: 1 }],
+    });
+    expect(denied.status).toBe(403);
+
+    const approved = await request(http).post('/api/pos/orders').set(bearer(t)).send({
+      orderNumber: 'SO-A2',
+      lines: [{ productId: product.body.id, quantity: 1 }],
+      approvedBy: 'manager-asha',
+    });
+    expect(approved.status).toBe(201);
+    expect(approved.body.total).toBe(700);
+  });
+
+  it('BNPL sale creates receivable, decrements available credit, accepts payment', async () => {
+    const t = await token('bnpl@e2e.test');
+
+    await request(http).post('/api/credit/profiles').set(bearer(t)).send({
+      customerPhone: '+255700000001',
+      customerName: 'Juma Abdallah',
+      creditLimit: 500000,
+      riskGrade: 'B',
+    });
+
+    const product = await request(http).post('/api/pos/products').set(bearer(t))
+      .send({ sku: 'SKU-TV', name: 'TV', price: 300000, stock: 5 });
+
+    const sale = await request(http).post('/api/pos/orders').set(bearer(t)).send({
+      orderNumber: 'SO-BNPL-1',
+      lines: [{ productId: product.body.id, quantity: 1 }],
+      customerName: 'Juma Abdallah',
+      customerPhone: '+255700000001',
+      paymentMethod: 'BNPL',
+      installmentMonths: 3,
+    });
+    expect(sale.status).toBe(201);
+    expect(sale.body.isBnpl).toBe(true);
+    expect(sale.body.receivable.amount).toBe(300000);
+    expect(sale.body.receivable.installmentMonths).toBe(3);
+    expect(sale.body.receivable.monthlyAmount).toBe(100000);
+
+    const profile = await request(http).get('/api/credit/profiles/by-phone/+255700000001').set(bearer(t));
+    expect(profile.body.outstanding).toBe(300000);
+    expect(profile.body.availableCredit).toBe(200000);
+
+    // Second BNPL purchase exceeding remaining limit is rejected.
+    const denied = await request(http).post('/api/pos/orders').set(bearer(t)).send({
+      orderNumber: 'SO-BNPL-2',
+      lines: [{ productId: product.body.id, quantity: 1 }],
+      customerPhone: '+255700000001',
+      paymentMethod: 'BNPL',
+    });
+    expect(denied.status).toBe(400);
+    expect(denied.body.message).toMatch(/BNPL denied/);
+
+    // Partial payment recorded.
+    const receivableId = sale.body.receivable.id as string;
+    const paid = await request(http).patch(`/api/credit/receivables/${receivableId}/pay`).set(bearer(t))
+      .send({ amount: 100000 });
+    expect(paid.body.status).toBe('PARTIAL');
+    expect(paid.body.paid).toBe(100000);
+
+    const after = await request(http).get('/api/credit/profiles/by-phone/+255700000001').set(bearer(t));
+    expect(after.body.outstanding).toBe(200000);
+    expect(after.body.availableCredit).toBe(300000);
+  });
+
+  it('BNPL without a credit profile is rejected', async () => {
+    const t = await token('bnpl-noprofile@e2e.test');
+    const product = await request(http).post('/api/pos/products').set(bearer(t))
+      .send({ sku: 'SKU-N', name: 'Item', price: 1000, stock: 10 });
+    const r = await request(http).post('/api/pos/orders').set(bearer(t)).send({
+      orderNumber: 'SO-NP',
+      lines: [{ productId: product.body.id, quantity: 1 }],
+      customerPhone: '+255000000000',
+      paymentMethod: 'BNPL',
+    });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/No credit profile/);
+  });
+
   it('rejects unauthenticated access to owned resources', async () => {
     expect((await request(http).get('/api/print/jobs')).status).toBe(401);
     expect((await request(http).get('/api/erp/summary')).status).toBe(401);
