@@ -7,6 +7,7 @@ import { ReceiptService } from './receipt.service';
 import { WarehouseModule } from '../warehouse/warehouse.module';
 import { DiscountsModule } from '../discounts/discount.module';
 import { CreditModule } from '../credit/credit.module';
+import { ErpModule } from '../erp/erp.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { CreditModule } from '../credit/credit.module';
     WarehouseModule,
     DiscountsModule,
     CreditModule,
+    ErpModule,
   ],
   providers: [ProductsService, OrdersService, ReceiptService],
   controllers: [PosController],

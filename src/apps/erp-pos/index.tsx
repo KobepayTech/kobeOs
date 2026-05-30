@@ -139,8 +139,17 @@ export default function POSSystem() {
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'mobile'>('cash');
   const [submitting, setSubmitting] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
-  // Last completed sale's receipt + pick ticket, shown after finalize.
-  const [lastReceipt, setLastReceipt] = useState<{ text: string; orderNumber: string; pickTicketNumber: string } | null>(null);
+  // Coupon code applied at checkout. Submitted to /pos/orders; the backend
+  // discount engine resolves it server-side along with active rules.
+  const [couponCode, setCouponCode] = useState('');
+  // Last completed sale's receipt + pick ticket + discount breakdown.
+  const [lastReceipt, setLastReceipt] = useState<{
+    text: string;
+    orderNumber: string;
+    pickTicketNumber: string;
+    discountBreakdown?: Array<{ source: string; label: string; amount: number }>;
+    discountAmount?: number;
+  } | null>(null);
 
   // Counter offer dialog
   const [showCounter, setShowCounter] = useState(false);
@@ -360,6 +369,7 @@ export default function POSSystem() {
       lines: cart.map((item) => ({ productId: item.product.id, quantity: item.quantity })),
       discountAmount,
       paymentMethod: paymentMethod === 'cash' ? 'CASH' : paymentMethod === 'card' ? 'CARD' : 'MOBILE',
+      couponCode: couponCode.trim() || undefined,
       customerName: cart[0]?.product ? undefined : undefined,
     };
 
@@ -367,6 +377,8 @@ export default function POSSystem() {
       const sale = await api<{
         receipt?: { text: string; orderNumber: string };
         pickTicket?: { ticketNumber: string };
+        discount?: { discountAmount: number; breakdown: Array<{ source: string; label: string; amount: number }> };
+        discountAmount?: number;
       }>('/pos/orders', { method: 'POST', body: JSON.stringify(dto) });
 
       if (sale?.receipt) {
@@ -374,8 +386,11 @@ export default function POSSystem() {
           text: sale.receipt.text,
           orderNumber: sale.receipt.orderNumber,
           pickTicketNumber: sale.pickTicket?.ticketNumber ?? '-',
+          discountBreakdown: sale.discount?.breakdown,
+          discountAmount: sale.discount?.discountAmount ?? sale.discountAmount,
         });
       }
+      setCouponCode('');
       setRequests((prev) =>
         prev.map((r) => (r.status === 'APPROVED' ? { ...r, status: 'COMPLETED' } : r)),
       );
@@ -683,6 +698,15 @@ export default function POSSystem() {
 
           {/* Cart Footer */}
           <div className="p-4 border-t border-white/[0.06] bg-[#13131f]">
+            <div className="mb-3">
+              <label className="text-[10px] uppercase tracking-wide text-white/40 block mb-1">Coupon code</label>
+              <Input
+                value={couponCode}
+                onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                placeholder="e.g. WELCOME10"
+                className="h-8 bg-[#0a0a1a] border-white/[0.06] text-white text-sm uppercase"
+              />
+            </div>
             <div className="space-y-2 mb-4">
               <div className="flex justify-between text-sm">
                 <span className="text-white/50">Subtotal</span>
@@ -1254,6 +1278,21 @@ export default function POSSystem() {
 {lastReceipt.text}
               </pre>
               <div className="text-xs text-slate-400">Pick ticket: <span className="font-mono text-amber-400">{lastReceipt.pickTicketNumber}</span></div>
+              {lastReceipt.discountBreakdown && lastReceipt.discountBreakdown.length > 0 && (
+                <div className="rounded-md border border-emerald-500/20 bg-emerald-500/5 p-3 text-xs">
+                  <div className="text-emerald-300 font-semibold mb-1.5">
+                    Discounts applied: {fmt(lastReceipt.discountAmount ?? 0)}
+                  </div>
+                  <ul className="space-y-0.5 text-slate-300">
+                    {lastReceipt.discountBreakdown.map((b, i) => (
+                      <li key={i} className="flex justify-between">
+                        <span>{b.source === 'coupon' ? '🎟' : '·'} {b.label}</span>
+                        <span className="font-mono">-{fmt(b.amount)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               <div className="flex gap-2 pt-2">
                 <Button
                   onClick={() => {

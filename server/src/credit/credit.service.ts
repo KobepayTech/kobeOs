@@ -1,8 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { CreditProfile, CreditReceivable } from './credit.entity';
 import { RecordPaymentDto, UpsertCreditProfileDto } from './dto/credit.dto';
+import { JournalService } from '../erp/journal.service';
 
 export interface BnplApprovalInput {
   customerPhone: string;
@@ -18,6 +19,8 @@ export class CreditService {
   constructor(
     @InjectRepository(CreditProfile) private readonly profiles: Repository<CreditProfile>,
     @InjectRepository(CreditReceivable) private readonly receivables: Repository<CreditReceivable>,
+    private readonly journal: JournalService,
+    private readonly ds: DataSource,
   ) {}
 
   listProfiles(uid: string) {
@@ -105,25 +108,35 @@ export class CreditService {
   }
 
   async recordPayment(uid: string, receivableId: string, dto: RecordPaymentDto) {
-    const r = await this.receivables.findOne({ where: { id: receivableId, ownerId: uid } });
-    if (!r) throw new NotFoundException();
+    return this.ds.transaction(async (tx) => {
+      const recRepo = tx.getRepository(CreditReceivable);
+      const profileRepo = tx.getRepository(CreditProfile);
 
-    const newPaid = parseFloat((Number(r.paid) + dto.amount).toFixed(4));
-    const amount = Number(r.amount);
-    if (newPaid > amount) {
-      throw new BadRequestException(`Payment exceeds outstanding (${amount - Number(r.paid)})`);
-    }
-    r.paid = newPaid;
-    r.status = newPaid >= amount ? 'PAID' : 'PARTIAL';
-    await this.receivables.save(r);
+      const r = await recRepo.findOne({ where: { id: receivableId, ownerId: uid } });
+      if (!r) throw new NotFoundException();
 
-    const profile = await this.profiles.findOne({ where: { id: r.profileId, ownerId: uid } });
-    if (profile) {
-      profile.outstanding = parseFloat((Number(profile.outstanding) - dto.amount).toFixed(4));
-      if (profile.outstanding < 0) profile.outstanding = 0;
-      await this.profiles.save(profile);
-    }
-    return r;
+      const newPaid = parseFloat((Number(r.paid) + dto.amount).toFixed(4));
+      const amount = Number(r.amount);
+      if (newPaid > amount) {
+        throw new BadRequestException(`Payment exceeds outstanding (${amount - Number(r.paid)})`);
+      }
+      r.paid = newPaid;
+      r.status = newPaid >= amount ? 'PAID' : 'PARTIAL';
+      await recRepo.save(r);
+
+      const profile = await profileRepo.findOne({ where: { id: r.profileId, ownerId: uid } });
+      if (profile) {
+        profile.outstanding = parseFloat((Number(profile.outstanding) - dto.amount).toFixed(4));
+        if (profile.outstanding < 0) profile.outstanding = 0;
+        await profileRepo.save(profile);
+      }
+
+      // Auto journal: DR Cash, CR Accounts Receivable.
+      await this.journal.postReceivablePaymentInTransaction(
+        tx, uid, dto.amount, dto.reference ?? `Receivable ${r.id.slice(0, 8)}`,
+      );
+      return r;
+    });
   }
 
   private available(profile: CreditProfile): number {

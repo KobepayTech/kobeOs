@@ -7,6 +7,7 @@ import { ReceiptService } from './receipt.service';
 import { PickTicketService } from '../warehouse/pick-ticket.service';
 import { DiscountEngine } from '../discounts/discount-engine.service';
 import { CreditService } from '../credit/credit.service';
+import { JournalService } from '../erp/journal.service';
 
 @Injectable()
 export class ProductsService {
@@ -50,6 +51,7 @@ export class OrdersService {
     private readonly pickTickets: PickTicketService,
     private readonly discountEngine: DiscountEngine,
     private readonly credit: CreditService,
+    private readonly journal: JournalService,
   ) {}
 
   list(uid: string, page = 1, limit = 50) {
@@ -168,6 +170,12 @@ export class OrdersService {
         customerName: order.customerName,
         lines: pickLines,
       });
+
+      // Auto-post the journal entry. Cash sales debit Cash; BNPL sales
+      // debit Accounts Receivable. Failing here rolls back the whole sale
+      // so the books are never left in a half-written state.
+      const journal = await this.journal.postPosSaleInTransaction(tx, uid, order, itemsToInsert, { isBnpl });
+
       const receipt = this.receipts.format(order, itemsToInsert);
 
       return {
@@ -177,6 +185,7 @@ export class OrdersService {
         pickTicket,
         discount: discountResult,
         receivable,
+        journal,
       };
     });
   }

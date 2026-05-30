@@ -309,6 +309,75 @@ describe('New modules + ownership (e2e)', () => {
     expect(sale.body.pickTicket.warehouseId).toBe(arusha.body.id);
   });
 
+  it('POS sale auto-posts a balanced double-entry to the GL', async () => {
+    const t = await token('je@e2e.test');
+    const product = await request(http).post('/api/pos/products').set(bearer(t))
+      .send({ sku: 'JE-1', name: 'Item', price: 1000, stock: 10 });
+
+    const sale = await request(http).post('/api/pos/orders').set(bearer(t)).send({
+      orderNumber: 'SO-JE-1',
+      lines: [{ productId: product.body.id, quantity: 5 }],
+      taxAmount: 100,
+    });
+    expect(sale.status).toBe(201);
+    expect(sale.body.total).toBe(5100);
+    expect(Array.isArray(sale.body.journal)).toBe(true);
+
+    // Lines posted: DR Cash 5100, CR Revenue 5000, CR Tax 100.
+    const journal = await request(http).get('/api/erp/journal').set(bearer(t));
+    expect(journal.body).toHaveLength(3);
+    const totalDr = journal.body.reduce((s: number, l: { debit: number }) => s + Number(l.debit), 0);
+    const totalCr = journal.body.reduce((s: number, l: { credit: number }) => s + Number(l.credit), 0);
+    expect(totalDr).toBe(totalCr);
+    expect(totalDr).toBe(5100);
+
+    // Chart of accounts bootstrapped and balances updated.
+    const accounts = await request(http).get('/api/erp/accounts').set(bearer(t));
+    expect(accounts.body.length).toBeGreaterThanOrEqual(7);
+    const byCode = Object.fromEntries(accounts.body.map((a: { code: string }) => [a.code, a]));
+    expect(Number(byCode['1000'].balance)).toBe(5100); // Cash
+    expect(Number(byCode['4000'].balance)).toBe(5000); // Sales Revenue
+    expect(Number(byCode['2000'].balance)).toBe(100);  // VAT Payable
+  });
+
+  it('BNPL sale posts to AR; receivable payment debits Cash, credits AR', async () => {
+    const t = await token('je-bnpl@e2e.test');
+    await request(http).post('/api/credit/profiles').set(bearer(t)).send({
+      customerPhone: '+255700JE001', customerName: 'BNPL Cust', creditLimit: 100000,
+    });
+    const product = await request(http).post('/api/pos/products').set(bearer(t))
+      .send({ sku: 'JE-BNPL', name: 'TV', price: 50000, stock: 5 });
+
+    const sale = await request(http).post('/api/pos/orders').set(bearer(t)).send({
+      orderNumber: 'SO-JE-BNPL',
+      lines: [{ productId: product.body.id, quantity: 1 }],
+      customerPhone: '+255700JE001',
+      paymentMethod: 'BNPL',
+    });
+    expect(sale.status).toBe(201);
+
+    let journal = await request(http).get('/api/erp/journal').set(bearer(t));
+    // DR AR (1100) 50000, CR Revenue (4000) 50000  (no tax, no discount)
+    const sortedSale = [...journal.body].sort((a, b) => Number(b.debit) - Number(a.debit));
+    expect(sortedSale[0].account).toMatch(/^1100/);
+    expect(Number(sortedSale[0].debit)).toBe(50000);
+    expect(sortedSale[1].account).toMatch(/^4000/);
+    expect(Number(sortedSale[1].credit)).toBe(50000);
+
+    // Pay 20000 → DR Cash 20000, CR AR 20000.
+    const recId = sale.body.receivable.id as string;
+    await request(http).patch(`/api/credit/receivables/${recId}/pay`).set(bearer(t))
+      .send({ amount: 20000, reference: 'M-Pesa-XYZ' });
+
+    journal = await request(http).get('/api/erp/journal').set(bearer(t));
+    expect(journal.body).toHaveLength(4);
+    const accounts = await request(http).get('/api/erp/accounts').set(bearer(t));
+    const byCode = Object.fromEntries(accounts.body.map((a: { code: string }) => [a.code, a]));
+    expect(Number(byCode['1000'].balance)).toBe(20000); // Cash received
+    expect(Number(byCode['1100'].balance)).toBe(30000); // AR remaining
+    expect(Number(byCode['4000'].balance)).toBe(50000); // Revenue unchanged
+  });
+
   it('rejects unauthenticated access to owned resources', async () => {
     expect((await request(http).get('/api/print/jobs')).status).toBe(401);
     expect((await request(http).get('/api/erp/summary')).status).toBe(401);
