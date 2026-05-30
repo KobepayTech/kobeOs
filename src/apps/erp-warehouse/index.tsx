@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api';
 import { ensureSession } from '@/lib/auth';
 import {
@@ -13,22 +13,38 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
-const initialQueue = [
-  { id: 'FL-1021', orderId: 'ORD-1040', items: 4, priority: 'High', status: 'Picking', assignee: 'John D.', location: 'A-12, B-03, C-07, D-01' },
-  { id: 'FL-1022', orderId: 'ORD-1039', items: 12, priority: 'Normal', status: 'Pending', assignee: 'Unassigned', location: 'A-01..A-12' },
-  { id: 'FL-1023', orderId: 'ORD-1038', items: 2, priority: 'High', status: 'Ready', assignee: 'Mary K.', location: 'C-05, D-02' },
-  { id: 'FL-1024', orderId: 'ORD-1037', items: 7, priority: 'Normal', status: 'Picking', assignee: 'John D.', location: 'B-01..B-07' },
-  { id: 'FL-1025', orderId: 'ORD-1036', items: 3, priority: 'Low', status: 'Shipped', assignee: 'Mary K.', location: 'A-03, C-08, D-01' },
-  { id: 'FL-1026', orderId: 'ORD-1035', items: 5, priority: 'Normal', status: 'Pending', assignee: 'Unassigned', location: 'A-05..A-09' },
-  { id: 'FL-1027', orderId: 'ORD-1034', items: 8, priority: 'High', status: 'Picking', assignee: 'Peter O.', location: 'B-02..B-09' },
-];
+type PickTicketStatus = 'PENDING' | 'PICKING' | 'PACKED' | 'DISPATCHED' | 'CANCELLED';
 
-const pickingItems = [
-  { id: 1, sku: 'ELEC-042', name: 'Samsung Galaxy A14', location: 'A-12', qty: 1, picked: false },
-  { id: 2, sku: 'CLTH-018', name: "Men's Cotton T-Shirt L", location: 'B-03', qty: 2, picked: false },
-  { id: 3, sku: 'FOOD-033', name: 'Mama Ntilie Rice 5kg', location: 'C-07', qty: 1, picked: false },
-  { id: 4, sku: 'HSHD-009', name: 'Borehole Pump 1HP', location: 'D-01', qty: 1, picked: false },
-];
+interface QueueRow {
+  id: string;
+  ticketNumber: string;
+  orderId: string | null;
+  itemCount: number;
+  priority: 'High' | 'Normal' | 'Low';
+  status: PickTicketStatus;
+  assignee: string;
+  location: string;
+}
+
+interface PickItem {
+  id: string;
+  sku: string;
+  name: string;
+  location: string | null;
+  quantity: number;
+  picked: boolean;
+}
+
+// Per-status display label keeps the existing badge palette intact while we
+// move from the old Pending/Picking/Ready/Shipped vocabulary to the backend's
+// PENDING/PICKING/PACKED/DISPATCHED states.
+const DISPLAY_STATUS: Record<PickTicketStatus, string> = {
+  PENDING: 'Pending',
+  PICKING: 'Picking',
+  PACKED: 'Ready',
+  DISPATCHED: 'Shipped',
+  CANCELLED: 'Cancelled',
+};
 
 const statusBadge = (status: string) => {
   const map: Record<string, string> = {
@@ -36,6 +52,7 @@ const statusBadge = (status: string) => {
     Picking: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
     Ready: 'bg-green-500/10 text-green-400 border-green-500/20',
     Shipped: 'bg-slate-500/10 text-slate-400 border-slate-500/20',
+    Cancelled: 'bg-rose-500/10 text-rose-400 border-rose-500/20',
     High: 'bg-red-500/10 text-red-400 border-red-500/20',
     Normal: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
     Low: 'bg-slate-500/10 text-slate-400 border-slate-500/20',
@@ -45,36 +62,75 @@ const statusBadge = (status: string) => {
 
 export default function ERPWarehouse() {
   const [activeTab, setActiveTab] = useState('queue');
-  const [queue, setQueue] = useState(initialQueue);
-  const [items, setItems] = useState(pickingItems);
+  const [queue, setQueue] = useState<QueueRow[]>([]);
+  const [activeTicketId, setActiveTicketId] = useState<string | null>(null);
+  const [items, setItems] = useState<PickItem[]>([]);
   const [scanInput, setScanInput] = useState('');
   const [scanned, setScanned] = useState<string[]>([]);
   const [qrResult, setQrResult] = useState<string | null>(null);
   const [printerStatus, setPrinterStatus] = useState('Online');
+  const [error, setError] = useState<string | null>(null);
 
-  // Seed /api/warehouse/items from the picking list on first mount.
+  const reloadQueue = useCallback(async () => {
+    try {
+      const list = await api<Array<{
+        id: string; ticketNumber: string; orderId: string | null;
+        status: PickTicketStatus; pickedBy: string | null;
+      }>>('/warehouse/pick-tickets');
+      // Fetch each ticket's detail to surface item count + bin range.
+      const detailed = await Promise.all(list.map(async (t) => {
+        try {
+          const d = await api<{ items: Array<{ location: string | null }> }>(`/warehouse/pick-tickets/${t.id}`);
+          const locations = Array.from(new Set(d.items.map((it) => it.location).filter(Boolean))).join(', ');
+          return { ticket: t, count: d.items.length, locations };
+        } catch {
+          return { ticket: t, count: 0, locations: '' };
+        }
+      }));
+      setQueue(detailed.map(({ ticket, count, locations }) => ({
+        id: ticket.id,
+        ticketNumber: ticket.ticketNumber,
+        orderId: ticket.orderId,
+        itemCount: count,
+        priority: 'Normal',
+        status: ticket.status,
+        assignee: ticket.pickedBy ?? 'Unassigned',
+        location: locations || '-',
+      })));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      try {
-        await ensureSession();
-        const existing = await api<Array<{ id: string }>>('/warehouse/items');
-        if (cancelled || existing.length > 0) return;
-        await Promise.all(pickingItems.map((p) =>
-          api('/warehouse/items', {
-            method: 'POST',
-            body: JSON.stringify({
-              sku: p.sku, name: p.name, quantity: 50,
-              reorderLevel: 10, location: p.location,
-            }),
-          }),
-        ));
-      } catch { /* leave demo */ }
+      try { await ensureSession(); } catch { /* offline mode */ }
+      if (!cancelled) await reloadQueue();
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [reloadQueue]);
 
-  const togglePick = (id: number) => {
+  // Whenever the active ticket changes, pull its items so the Picking tab
+  // mirrors the real ticket the user is working on.
+  useEffect(() => {
+    if (!activeTicketId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const detail = await api<{ items: PickItem[] }>(`/warehouse/pick-tickets/${activeTicketId}`);
+        if (!cancelled) {
+          setItems(detail.items.map((it) => ({ ...it, picked: it.picked ?? false })));
+        }
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [activeTicketId]);
+
+  const togglePick = (id: string) => {
     setItems((prev) => prev.map((i) => (i.id === id ? { ...i, picked: !i.picked } : i)));
   };
 
@@ -91,14 +147,39 @@ export default function ERPWarehouse() {
     setQrResult(random);
   };
 
-  const assignTask = (id: string) => {
+  // PENDING -> PICKING. The backend doesn't track a free-text picker; we
+  // record the picker locally and stamp the ticket with a pickedBy value.
+  const assignTask = useCallback(async (id: string) => {
     const names = ['John D.', 'Mary K.', 'Peter O.', 'Grace W.'];
-    // eslint-disable-next-line react-hooks/purity
-    const random = names[Math.floor(Math.random() * names.length)];
-    setQueue((prev) => prev.map((q) => (q.id === id ? { ...q, assignee: random, status: 'Picking' as const } : q)));
-  };
+    const picker = names[Math.floor(Math.random() * names.length)];
+    try {
+      await api(`/warehouse/pick-tickets/${id}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'PICKING', pickedBy: picker }),
+      });
+      setActiveTicketId(id);
+      setActiveTab('picking');
+      await reloadQueue();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, [reloadQueue]);
+
+  const markReady = useCallback(async () => {
+    if (!activeTicketId) return;
+    try {
+      await api(`/warehouse/pick-tickets/${activeTicketId}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'PACKED' }),
+      });
+      await reloadQueue();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, [activeTicketId, reloadQueue]);
 
   const pickedCount = items.filter((i) => i.picked).length;
+  const activeTicket = queue.find((q) => q.id === activeTicketId);
 
   return (
     <div className="h-full bg-slate-950 text-slate-100 overflow-auto">
@@ -139,11 +220,16 @@ export default function ERPWarehouse() {
               <CardTitle className="text-sm font-medium">Fulfillment Queue</CardTitle>
             </CardHeader>
             <CardContent>
+              {error && (
+                <div className="mb-2 rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+                  {error}
+                </div>
+              )}
               <ScrollArea className="h-[450px]">
                 <Table>
                   <TableHeader>
                     <TableRow className="border-slate-800 hover:bg-transparent">
-                      <TableHead className="text-slate-400 text-xs">Queue ID</TableHead>
+                      <TableHead className="text-slate-400 text-xs">Ticket</TableHead>
                       <TableHead className="text-slate-400 text-xs">Order</TableHead>
                       <TableHead className="text-slate-400 text-xs">Items</TableHead>
                       <TableHead className="text-slate-400 text-xs">Priority</TableHead>
@@ -154,27 +240,36 @@ export default function ERPWarehouse() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
+                    {queue.length === 0 && (
+                      <TableRow className="border-slate-800">
+                        <TableCell colSpan={8} className="text-center text-xs text-slate-500 py-8">
+                          No pick tickets yet — complete a POS sale to populate this queue.
+                        </TableCell>
+                      </TableRow>
+                    )}
                     {queue.map((q) => (
                       <TableRow key={q.id} className="border-slate-800 hover:bg-slate-800/40">
-                        <TableCell className="text-xs font-mono text-slate-300">{q.id}</TableCell>
-                        <TableCell className="text-xs font-mono text-slate-400">{q.orderId}</TableCell>
-                        <TableCell className="text-xs text-slate-300">{q.items}</TableCell>
+                        <TableCell className="text-xs font-mono text-slate-300">{q.ticketNumber}</TableCell>
+                        <TableCell className="text-xs font-mono text-slate-400">{q.orderId ?? '-'}</TableCell>
+                        <TableCell className="text-xs text-slate-300">{q.itemCount}</TableCell>
                         <TableCell>
-                          <Badge variant="outline" className={statusBadge(q.priority)}>
-                            {q.priority}
-                          </Badge>
+                          <Badge variant="outline" className={statusBadge(q.priority)}>{q.priority}</Badge>
                         </TableCell>
                         <TableCell>
-                          <Badge variant="outline" className={statusBadge(q.status)}>
-                            {q.status}
+                          <Badge variant="outline" className={statusBadge(DISPLAY_STATUS[q.status])}>
+                            {DISPLAY_STATUS[q.status]}
                           </Badge>
                         </TableCell>
                         <TableCell className="text-xs text-slate-300">{q.assignee}</TableCell>
                         <TableCell className="text-xs text-slate-400">{q.location}</TableCell>
                         <TableCell className="text-right">
-                          {q.assignee === 'Unassigned' ? (
+                          {q.status === 'PENDING' ? (
                             <Button size="sm" onClick={() => assignTask(q.id)} className="h-7 bg-blue-600 hover:bg-blue-500 text-white text-xs">
                               <Play className="w-3 h-3 mr-1" /> Assign
+                            </Button>
+                          ) : q.status === 'PICKING' ? (
+                            <Button size="sm" variant="outline" onClick={() => { setActiveTicketId(q.id); setActiveTab('picking'); }} className="h-7 text-xs">
+                              Open
                             </Button>
                           ) : (
                             <span className="text-xs text-slate-500">-</span>
@@ -194,38 +289,50 @@ export default function ERPWarehouse() {
             <Card className="lg:col-span-2 bg-slate-900/60 border-slate-800">
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-medium">Picking List — FL-1021</CardTitle>
+                  <CardTitle className="text-sm font-medium">
+                    Picking List — {activeTicket?.ticketNumber ?? 'select a ticket'}
+                  </CardTitle>
                   <Badge variant="outline" className="bg-blue-500/10 text-blue-400 border-blue-500/20">
                     {pickedCount}/{items.length} picked
                   </Badge>
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="space-y-2">
-                  {items.map((item) => (
-                    <div
-                      key={item.id}
-                      onClick={() => togglePick(item.id)}
-                      className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                        item.picked ? 'bg-green-500/5 border-green-500/20' : 'bg-slate-800/50 border-slate-700/50 hover:border-slate-600'
-                      }`}
-                    >
-                      {item.picked ? <CheckSquare className="w-5 h-5 text-green-400" /> : <Square className="w-5 h-5 text-slate-500" />}
-                      <div className="flex-1">
-                        <div className="text-xs font-medium">{item.name}</div>
-                        <div className="text-[10px] text-slate-400">{item.sku} &middot; Qty: {item.qty}</div>
+                {items.length === 0 ? (
+                  <div className="text-xs text-slate-500 py-8 text-center">
+                    Open a ticket from the Queue tab to start picking.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {items.map((item) => (
+                      <div
+                        key={item.id}
+                        onClick={() => togglePick(item.id)}
+                        className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                          item.picked ? 'bg-green-500/5 border-green-500/20' : 'bg-slate-800/50 border-slate-700/50 hover:border-slate-600'
+                        }`}
+                      >
+                        {item.picked ? <CheckSquare className="w-5 h-5 text-green-400" /> : <Square className="w-5 h-5 text-slate-500" />}
+                        <div className="flex-1">
+                          <div className="text-xs font-medium">{item.name}</div>
+                          <div className="text-[10px] text-slate-400">{item.sku} &middot; Qty: {item.quantity}</div>
+                        </div>
+                        <Badge variant="outline" className="text-slate-400 border-slate-700 bg-slate-800">
+                          <Box className="w-3 h-3 mr-1" /> {item.location ?? '-'}
+                        </Badge>
                       </div>
-                      <Badge variant="outline" className="text-slate-400 border-slate-700 bg-slate-800">
-                        <Box className="w-3 h-3 mr-1" /> {item.location}
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                )}
                 <div className="mt-4 flex gap-2">
-                  <Button className="flex-1 bg-green-600 hover:bg-green-500 text-white" disabled={pickedCount < items.length}>
+                  <Button
+                    className="flex-1 bg-green-600 hover:bg-green-500 text-white"
+                    disabled={items.length === 0 || pickedCount < items.length || activeTicket?.status !== 'PICKING'}
+                    onClick={markReady}
+                  >
                     Mark Ready
                   </Button>
-                  <Button variant="outline" className="border-slate-700 text-slate-300 hover:bg-slate-800">
+                  <Button variant="outline" className="border-slate-700 text-slate-300 hover:bg-slate-800" onClick={() => window.print()}>
                     Print Pick List
                   </Button>
                 </div>
@@ -239,24 +346,29 @@ export default function ERPWarehouse() {
                 <div>
                   <div className="flex justify-between text-xs mb-1">
                     <span className="text-slate-400">Progress</span>
-                    <span className="text-blue-400">{Math.round((pickedCount / items.length) * 100)}%</span>
+                    <span className="text-blue-400">
+                      {items.length === 0 ? 0 : Math.round((pickedCount / items.length) * 100)}%
+                    </span>
                   </div>
                   <div className="h-2 rounded-full bg-slate-800 overflow-hidden">
-                    <div className="h-full bg-blue-500 transition-all" style={{ width: `${(pickedCount / items.length) * 100}%` }} />
+                    <div
+                      className="h-full bg-blue-500 transition-all"
+                      style={{ width: `${items.length === 0 ? 0 : (pickedCount / items.length) * 100}%` }}
+                    />
                   </div>
                 </div>
                 <div className="space-y-2 text-xs">
                   <div className="flex items-center gap-2 text-slate-400">
-                    <Clock className="w-3 h-3" /> Started: 08:23 AM
+                    <Clock className="w-3 h-3" /> Status: {activeTicket ? DISPLAY_STATUS[activeTicket.status] : '-'}
                   </div>
                   <div className="flex items-center gap-2 text-slate-400">
-                    <User className="w-3 h-3" /> Picker: John D.
+                    <User className="w-3 h-3" /> Picker: {activeTicket?.assignee ?? '-'}
                   </div>
                   <div className="flex items-center gap-2 text-slate-400">
-                    <Package className="w-3 h-3" /> Order: ORD-1040
+                    <Package className="w-3 h-3" /> Order: {activeTicket?.orderId ?? '-'}
                   </div>
                   <div className="flex items-center gap-2 text-slate-400">
-                    <Warehouse className="w-3 h-3" /> Zone: A-D
+                    <Warehouse className="w-3 h-3" /> Bins: {activeTicket?.location ?? '-'}
                   </div>
                 </div>
               </CardContent>
