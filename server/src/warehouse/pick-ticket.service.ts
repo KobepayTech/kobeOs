@@ -45,11 +45,20 @@ export class PickTicketService {
     const warehouseRepo = tx.getRepository(WarehouseItem);
     const movementRepo = tx.getRepository(WarehouseMovement);
 
+    // Resolve the warehouse from the first matching SKU so multi-warehouse
+    // shops route pick tickets to whichever site holds the stock.
+    let resolvedWarehouseId: string | null = null;
+    for (const line of input.lines) {
+      const first = await warehouseRepo.findOne({ where: { sku: line.sku, ownerId: uid } });
+      if (first?.warehouseId) { resolvedWarehouseId = first.warehouseId; break; }
+    }
+
     const ticket = await ticketRepo.save(
       ticketRepo.create({
         ownerId: uid,
         ticketNumber: input.ticketNumber,
         orderId: input.orderId ?? null,
+        warehouseId: resolvedWarehouseId,
         customerName: input.customerName ?? null,
         status: 'PENDING',
       }),

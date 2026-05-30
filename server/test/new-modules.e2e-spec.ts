@@ -264,6 +264,51 @@ describe('New modules + ownership (e2e)', () => {
     expect(r.body.message).toMatch(/No credit profile/);
   });
 
+  it('multi-warehouse: items auto-attach to default, can be scoped to a specific warehouse', async () => {
+    const t = await token('multiwh@e2e.test');
+
+    // First item create with no warehouseId -> default "Main" warehouse is auto-created.
+    const item1 = await request(http).post('/api/warehouse/items').set(bearer(t))
+      .send({ sku: 'SKU-A', name: 'Item A', quantity: 10 });
+    expect(item1.status).toBe(201);
+    expect(item1.body.warehouseId).toBeTruthy();
+    const defaultWhId = item1.body.warehouseId as string;
+
+    const whs = await request(http).get('/api/warehouse/warehouses').set(bearer(t));
+    expect(whs.body).toHaveLength(1);
+    expect(whs.body[0].isDefault).toBe(true);
+    expect(whs.body[0].code).toBe('MAIN');
+
+    // Add an Arusha warehouse and an item scoped to it.
+    const arusha = await request(http).post('/api/warehouse/warehouses').set(bearer(t))
+      .send({ code: 'ARU', name: 'Arusha', location: 'Arusha' });
+    expect(arusha.status).toBe(201);
+    const item2 = await request(http).post('/api/warehouse/items').set(bearer(t))
+      .send({ sku: 'SKU-B', name: 'Item B', quantity: 5, warehouseId: arusha.body.id });
+    expect(item2.body.warehouseId).toBe(arusha.body.id);
+
+    // Filter by warehouse.
+    const inMain = await request(http).get(`/api/warehouse/items?warehouseId=${defaultWhId}`).set(bearer(t));
+    expect(inMain.body).toHaveLength(1);
+    expect(inMain.body[0].sku).toBe('SKU-A');
+    const inAru = await request(http).get(`/api/warehouse/items?warehouseId=${arusha.body.id}`).set(bearer(t));
+    expect(inAru.body).toHaveLength(1);
+    expect(inAru.body[0].sku).toBe('SKU-B');
+
+    // Default warehouse cannot be deleted.
+    const delDefault = await request(http).delete(`/api/warehouse/warehouses/${defaultWhId}`).set(bearer(t));
+    expect(delDefault.status).toBe(400);
+
+    // POS sale of an item routes the pick ticket to that item's warehouse.
+    const product = await request(http).post('/api/pos/products').set(bearer(t))
+      .send({ sku: 'SKU-B', name: 'Item B', price: 5000, stock: 5 });
+    const sale = await request(http).post('/api/pos/orders').set(bearer(t)).send({
+      orderNumber: 'SO-MWH-1',
+      lines: [{ productId: product.body.id, quantity: 1 }],
+    });
+    expect(sale.body.pickTicket.warehouseId).toBe(arusha.body.id);
+  });
+
   it('rejects unauthenticated access to owned resources', async () => {
     expect((await request(http).get('/api/print/jobs')).status).toBe(401);
     expect((await request(http).get('/api/erp/summary')).status).toBe(401);

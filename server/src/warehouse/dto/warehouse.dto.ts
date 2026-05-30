@@ -1,6 +1,7 @@
-import { IsEnum, IsInt, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsEnum, IsInt, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
 
 export class CreateItemDto {
+  @IsOptional() @IsUUID() warehouseId?: string;
   @IsString() @MaxLength(60) sku!: string;
   @IsString() @MaxLength(200) name!: string;
   @IsOptional() @IsString() @MaxLength(80) category?: string;
@@ -11,11 +12,25 @@ export class CreateItemDto {
   @IsOptional() @IsNumber() @Min(0) unitCost?: number;
 }
 export class UpdateItemDto {
+  @IsOptional() @IsUUID() warehouseId?: string;
   @IsOptional() @IsString() name?: string;
   @IsOptional() @IsString() category?: string;
   @IsOptional() @IsInt() @Min(0) reorderLevel?: number;
   @IsOptional() @IsString() location?: string;
   @IsOptional() @IsNumber() @Min(0) unitCost?: number;
+}
+
+export class CreateWarehouseDto {
+  @IsString() @MaxLength(40) code!: string;
+  @IsString() @MaxLength(200) name!: string;
+  @IsOptional() @IsString() location?: string;
+  @IsOptional() @IsBoolean() isDefault?: boolean;
+}
+export class UpdateWarehouseDto {
+  @IsOptional() @IsString() name?: string;
+  @IsOptional() @IsString() location?: string;
+  @IsOptional() @IsBoolean() isDefault?: boolean;
+  @IsOptional() @IsBoolean() active?: boolean;
 }
 
 export class MovementDto {

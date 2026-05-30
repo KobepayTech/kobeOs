@@ -13,6 +13,10 @@ export class WarehousePickTicket extends OwnedEntity {
   @Column('uuid', { nullable: true })
   orderId?: string | null;
 
+  @Index()
+  @Column('uuid', { nullable: true })
+  warehouseId?: string | null;
+
   @Column({ default: 'PENDING' })
   status!: PickTicketStatus;
 

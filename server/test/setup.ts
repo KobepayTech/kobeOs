@@ -54,7 +54,7 @@ export async function resetDb(app: INestApplication) {
     'rent_payments', 'tenants', 'property_units', 'properties',
     'pos_order_items', 'pos_orders', 'pos_products',
     'warehouse_pick_ticket_items', 'warehouse_pick_tickets',
-    'warehouse_movements', 'warehouse_items',
+    'warehouse_movements', 'warehouse_items', 'warehouses',
     'discount_rules', 'coupons', 'campaigns',
     'credit_receivables', 'credit_profiles',
     'payment_transactions', 'credit_loans', 'wallets',
