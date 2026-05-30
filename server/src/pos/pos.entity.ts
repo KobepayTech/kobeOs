@@ -3,6 +3,7 @@ import { OwnedEntity } from '../common/owned.entity';
 
 @Entity('pos_products')
 export class PosProduct extends OwnedEntity {
+  @Index({ unique: false })
   @Column()
   sku!: string;
 
@@ -20,6 +21,15 @@ export class PosProduct extends OwnedEntity {
 
   @Column({ default: 0 })
   stock!: number;
+
+  @Column({ default: 0 })
+  reservedStock!: number;
+
+  @Column({ nullable: true, type: 'varchar' })
+  shelf?: string | null;
+
+  @Column({ nullable: true, type: 'varchar' })
+  warehouseId?: string | null;
 
   @Column({ nullable: true, type: 'varchar' })
   imageUrl?: string | null;
@@ -43,6 +53,9 @@ export class PosOrder extends OwnedEntity {
   @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
   discountAmount!: number;
 
+  @Column({ nullable: true, type: 'varchar' })
+  discountCode?: string | null;
+
   @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
   total!: number;
 
@@ -55,11 +68,23 @@ export class PosOrder extends OwnedEntity {
   @Column({ default: 'CASH' })
   paymentMethod!: string;
 
+  @Column({ default: false })
+  bnplApproved!: boolean;
+
+  @Column({ nullable: true, type: 'varchar' })
+  bnplPlan?: string | null;
+
   @Column({ nullable: true, type: 'varchar' })
   customerName?: string | null;
 
   @Column({ nullable: true, type: 'varchar' })
   customerPhone?: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  receiptText?: string | null;
+
+  @Column({ nullable: true, type: 'varchar' })
+  pickTicketId?: string | null;
 }
 
 @Entity('pos_order_items')
@@ -81,6 +106,28 @@ export class PosOrderItem extends OwnedEntity {
   @Column({ default: 1 })
   quantity!: number;
 
+  @Column({ nullable: true, type: 'varchar' })
+  shelf?: string | null;
+
   @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
   lineTotal!: number;
+}
+
+@Entity('pos_customer_credit_profiles')
+export class PosCustomerCreditProfile extends OwnedEntity {
+  @Index()
+  @Column()
+  phone!: string;
+
+  @Column({ nullable: true, type: 'varchar' })
+  name?: string | null;
+
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
+  creditLimit!: number;
+
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
+  usedCredit!: number;
+
+  @Column({ default: 'B' })
+  score!: 'A+' | 'A' | 'B' | 'C' | 'D';
 }
