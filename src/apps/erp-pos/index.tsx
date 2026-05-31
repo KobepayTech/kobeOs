@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api';
 import { ensureSession } from '@/lib/auth';
 import { useOfflineData } from '@/hooks/useOfflineData';
@@ -188,7 +188,8 @@ export default function POSSystem() {
   const total = subtotal + tax;
   const totalItems = cart.reduce((s, i) => s + i.quantity, 0);
 
-  const pendingRequests = requests.filter((r) => r.status === 'PENDING');
+  // Pending = awaiting owner action (PENDING) OR awaiting seller action (COUNTERED)
+  const pendingRequests = requests.filter((r) => r.status === 'PENDING' || r.status === 'COUNTERED');
 
   // ── Cart Actions ──
   const addToCart = (product: Product) => {
@@ -245,14 +246,45 @@ export default function POSSystem() {
     }
   };
 
-  const submitDiscountRequest = () => {
+  // ── Load requests from backend on mount ──
+  const loadRequests = useCallback(async () => {
+    try {
+      await ensureSession();
+      const data = await api<any[]>('/discounts/requests');
+      const mapped: DiscountRequest[] = data.map((r) => ({
+        id: r.id,
+        cartItemIndex: -1,
+        productId: r.productId,
+        productName: r.productName ?? '',
+        quantity: r.quantity,
+        standardPrice: Number(r.standardPrice),
+        requestedPrice: Number(r.requestedPrice),
+        finalPrice: r.approvedPrice ? Number(r.approvedPrice) : undefined,
+        counterPrice: r.counterPrice ? Number(r.counterPrice) : undefined,
+        reason: r.reason ?? '',
+        customerName: r.customerName ?? '',
+        customerPhone: '',
+        sellerName: r.sellerName ?? SELLER_NAME,
+        status: r.status,
+        createdAt: new Date(r.createdAt).getTime(),
+        expiryAt: r.expiresAt ? new Date(r.expiresAt).getTime() : Date.now() + 5 * 60 * 1000,
+        resolvedAt: r.respondedAt ? new Date(r.respondedAt).getTime() : undefined,
+      }));
+      setRequests(mapped);
+    } catch { /* offline — keep local state */ }
+  }, []);
+
+  useEffect(() => { loadRequests(); }, [loadRequests]);
+
+  const submitDiscountRequest = async () => {
     const idx = parseInt(selectedItemIdx, 10);
     const item = cart[idx];
     if (!item || !reqPrice || !reqReason) return;
     const price = parseInt(reqPrice, 10);
     if (price >= item.product.price || price <= 0) return;
 
-    const request: DiscountRequest = {
+    // Optimistic local state
+    const localReq: DiscountRequest = {
       id: `req-${Date.now()}`,
       cartItemIndex: idx,
       productId: item.product.id,
@@ -268,48 +300,69 @@ export default function POSSystem() {
       createdAt: Date.now(),
       expiryAt: Date.now() + 5 * 60 * 1000,
     };
-
-    setRequests((prev) => [request, ...prev]);
+    setRequests((prev) => [localReq, ...prev]);
     setShowDialog(false);
+
+    // Persist to backend
+    try {
+      await ensureSession();
+      const saved = await api<any>('/discounts/requests', {
+        method: 'POST',
+        body: JSON.stringify({
+          productId: item.product.id,
+          productName: item.product.name,
+          quantity: reqQty,
+          standardPrice: item.product.price,
+          requestedPrice: price,
+          reason: reqReason,
+          customerName: custName || undefined,
+          sellerName: SELLER_NAME,
+        }),
+      });
+      // Replace optimistic entry with real ID from backend
+      setRequests((prev) =>
+        prev.map((r) =>
+          r.id === localReq.id
+            ? { ...r, id: saved.id, status: saved.status, expiryAt: saved.expiresAt ? new Date(saved.expiresAt).getTime() : r.expiryAt }
+            : r
+        )
+      );
+    } catch { /* keep optimistic — will sync on next load */ }
   };
 
   // ── Approval Actions ──
-  const approveRequest = (reqId: string) => {
-    setRequests((prev) =>
-      prev.map((r) => {
-        if (r.id !== reqId) return r;
-        return { ...r, status: 'APPROVED', finalPrice: r.requestedPrice, resolvedAt: Date.now() };
-      })
-    );
-    // Update cart price
-    setRequests((prev) => {
-      const req = prev.find((r) => r.id === reqId);
-      if (req && req.status === 'APPROVED') {
-        setCart((c) => {
-          const updated = [...c];
-          const item = updated[req.cartItemIndex];
-          if (item) {
-            updated[req.cartItemIndex] = {
-              ...item,
-              negotiatedPrice: req.requestedPrice,
-              discountRequestId: req.id,
-            };
-          }
-          return updated;
-        });
-      }
-      return prev;
-    });
-  };
-
-  const rejectRequest = (reqId: string) => {
+  const approveRequest = async (reqId: string) => {
+    const req = requests.find((r) => r.id === reqId);
+    if (!req) return;
+    // Optimistic
     setRequests((prev) =>
       prev.map((r) =>
         r.id === reqId
-          ? { ...r, status: 'REJECTED', resolvedAt: Date.now() }
+          ? { ...r, status: 'APPROVED', finalPrice: r.requestedPrice, resolvedAt: Date.now() }
           : r
       )
     );
+    try {
+      await ensureSession();
+      await api(`/discounts/requests/${reqId}/approve`, {
+        method: 'POST',
+        body: JSON.stringify({ approvedPrice: req.requestedPrice }),
+      });
+      await loadRequests();
+    } catch { /* keep optimistic */ }
+  };
+
+  const rejectRequest = async (reqId: string) => {
+    setRequests((prev) =>
+      prev.map((r) =>
+        r.id === reqId ? { ...r, status: 'REJECTED', resolvedAt: Date.now() } : r
+      )
+    );
+    try {
+      await ensureSession();
+      await api(`/discounts/requests/${reqId}/reject`, { method: 'POST', body: JSON.stringify({}) });
+      await loadRequests();
+    } catch { /* keep optimistic */ }
   };
 
   const openCounterDialog = (reqId: string) => {
@@ -320,19 +373,53 @@ export default function POSSystem() {
     setShowCounter(true);
   };
 
-  const submitCounterOffer = () => {
+  const submitCounterOffer = async () => {
     const price = parseInt(counterPrice, 10);
     const req = requests.find((r) => r.id === counterRequestId);
     if (!req || price <= 0 || price >= req.standardPrice) return;
-
+    // Optimistic
     setRequests((prev) =>
       prev.map((r) =>
-        r.id === counterRequestId
-          ? { ...r, status: 'COUNTERED', counterPrice: price }
-          : r
+        r.id === counterRequestId ? { ...r, status: 'COUNTERED', counterPrice: price } : r
       )
     );
     setShowCounter(false);
+    try {
+      await ensureSession();
+      await api(`/discounts/requests/${counterRequestId}/counter`, {
+        method: 'POST',
+        body: JSON.stringify({ counterPrice: price }),
+      });
+      await loadRequests();
+    } catch { /* keep optimistic */ }
+  };
+
+  const acceptCounterOffer = async (reqId: string) => {
+    setRequests((prev) =>
+      prev.map((r) =>
+        r.id === reqId
+          ? { ...r, status: 'APPROVED', finalPrice: r.counterPrice, resolvedAt: Date.now() }
+          : r
+      )
+    );
+    try {
+      await ensureSession();
+      await api(`/discounts/requests/${reqId}/accept-counter`, { method: 'POST' });
+      await loadRequests();
+    } catch { /* keep optimistic */ }
+  };
+
+  const rejectCounterOffer = async (reqId: string) => {
+    setRequests((prev) =>
+      prev.map((r) =>
+        r.id === reqId ? { ...r, status: 'REJECTED', resolvedAt: Date.now() } : r
+      )
+    );
+    try {
+      await ensureSession();
+      await api(`/discounts/requests/${reqId}/reject-counter`, { method: 'POST' });
+      await loadRequests();
+    } catch { /* keep optimistic */ }
   };
 
   // ── Checkout ──
@@ -756,32 +843,76 @@ export default function POSSystem() {
                       </span>
                     </div>
 
-                    <div className="flex gap-2">
-                      <Button
-                        className="flex-1 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 h-9 text-xs font-bold"
-                        variant="outline"
-                        onClick={() => approveRequest(req.id)}
-                      >
-                        <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
-                        Approve
-                      </Button>
-                      <Button
-                        className="flex-1 bg-blue-500/15 text-blue-400 border border-blue-500/30 hover:bg-blue-500/25 h-9 text-xs font-bold"
-                        variant="outline"
-                        onClick={() => openCounterDialog(req.id)}
-                      >
-                        <ArrowRight className="w-3.5 h-3.5 mr-1.5" />
-                        Counter
-                      </Button>
-                      <Button
-                        className="flex-1 bg-red-500/15 text-red-400 border border-red-500/30 hover:bg-red-500/25 h-9 text-xs font-bold"
-                        variant="outline"
-                        onClick={() => rejectRequest(req.id)}
-                      >
-                        <XCircle className="w-3.5 h-3.5 mr-1.5" />
-                        Reject
-                      </Button>
-                    </div>
+                    {/* Counter offer banner — shown to seller when owner countered */}
+                    {req.status === 'COUNTERED' && req.counterPrice && (
+                      <div className="mb-3 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                        <p className="text-[10px] text-blue-300/70 uppercase tracking-wider mb-1">Owner Counter Offer</p>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-lg font-bold text-blue-300">{fmt(req.counterPrice)}</p>
+                            <p className="text-[10px] text-white/40">
+                              vs your offer {fmt(req.requestedPrice)} &middot; diff {fmt(req.counterPrice - req.requestedPrice)}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[10px] text-white/40">Discount from standard</p>
+                            <p className="text-sm font-bold text-amber-400">
+                              -{discountPct(req.standardPrice, req.counterPrice)}%
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Action buttons — differ by status */}
+                    {req.status === 'PENDING' ? (
+                      <div className="flex gap-2">
+                        <Button
+                          className="flex-1 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 h-9 text-xs font-bold"
+                          variant="outline"
+                          onClick={() => approveRequest(req.id)}
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                          Approve
+                        </Button>
+                        <Button
+                          className="flex-1 bg-blue-500/15 text-blue-400 border border-blue-500/30 hover:bg-blue-500/25 h-9 text-xs font-bold"
+                          variant="outline"
+                          onClick={() => openCounterDialog(req.id)}
+                        >
+                          <ArrowRight className="w-3.5 h-3.5 mr-1.5" />
+                          Counter
+                        </Button>
+                        <Button
+                          className="flex-1 bg-red-500/15 text-red-400 border border-red-500/30 hover:bg-red-500/25 h-9 text-xs font-bold"
+                          variant="outline"
+                          onClick={() => rejectRequest(req.id)}
+                        >
+                          <XCircle className="w-3.5 h-3.5 mr-1.5" />
+                          Reject
+                        </Button>
+                      </div>
+                    ) : (
+                      /* COUNTERED — seller decides */
+                      <div className="flex gap-2">
+                        <Button
+                          className="flex-1 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 h-9 text-xs font-bold"
+                          variant="outline"
+                          onClick={() => acceptCounterOffer(req.id)}
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                          Accept Counter
+                        </Button>
+                        <Button
+                          className="flex-1 bg-red-500/15 text-red-400 border border-red-500/30 hover:bg-red-500/25 h-9 text-xs font-bold"
+                          variant="outline"
+                          onClick={() => rejectCounterOffer(req.id)}
+                        >
+                          <XCircle className="w-3.5 h-3.5 mr-1.5" />
+                          Reject Counter
+                        </Button>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               ))}
