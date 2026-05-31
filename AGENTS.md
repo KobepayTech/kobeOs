@@ -123,6 +123,46 @@ Backend `.env` (see `server/.env.example`):
 | `SENDGRID_API_KEY` / `SMTP_*` | No | Email delivery |
 | `WEBHOOK_SECRET` | No | Outbound webhook signing |
 | `OLLAMA_URL` / `OLLAMA_MODEL` | No | Local AI (DeepSeek via Ollama) |
+| `CF_API_TOKEN` | For publishing | Cloudflare API token — needs `Account:Cloudflare Tunnel:Edit` + `Zone:DNS:Edit` |
+| `CF_ACCOUNT_ID` | For publishing | Cloudflare Account ID |
+| `CF_ZONE_ID` | For publishing | Zone ID for `kobeapptz.com` |
+| `CF_DOMAIN` | No | Base domain, default `kobeapptz.com` |
+
+---
+
+## Store Publishing (Cloudflare Tunnel)
+
+KobeOS uses **Cloudflare Tunnels** to publish stores from local machines without a static IP or port forwarding. Each user's machine runs `cloudflared` which creates a secure tunnel to Cloudflare's edge.
+
+### How it works
+1. User clicks "Publish" in the Store Editor
+2. Backend calls Cloudflare API to create a named tunnel (`kobeos-{slug}`)
+3. Backend creates a CNAME DNS record: `{slug}.kobeapptz.com → {tunnelId}.cfargotunnel.com`
+4. Backend spawns `cloudflared tunnel run --token <token>` on the local machine
+5. Store is live at `https://{slug}.kobeapptz.com` — Cloudflare proxies all traffic
+
+### Requirements for each KobeOS user
+- `cloudflared` must be installed: https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
+  ```bash
+  # Linux
+  curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
+  chmod +x cloudflared && sudo mv cloudflared /usr/local/bin/
+
+  # macOS
+  brew install cloudflared
+
+  # Windows
+  # Download cloudflared-windows-amd64.exe from the link above
+  ```
+- The KobeOS backend must be running (`npm run start:dev` in `server/`)
+- `CF_API_TOKEN`, `CF_ACCOUNT_ID`, `CF_ZONE_ID` must be set in `server/.env`
+
+### Cloudflare API token permissions required
+When creating the token at dash.cloudflare.com/profile/api-tokens:
+- **Account** → Cloudflare Tunnel → Edit
+- **Zone** → DNS → Edit (scoped to `kobeapptz.com`)
+
+**Never hardcode credentials in source code.** Always use `server/.env`.
 
 ---
 

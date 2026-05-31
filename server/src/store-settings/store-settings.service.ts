@@ -34,6 +34,16 @@ export class StoreSettingsService {
     return this.repo.save(defaults);
   }
 
+  /** Check whether a slug is available (not reserved, not taken by another owner). */
+  async checkSlugAvailability(slug: string): Promise<{ available: boolean; reason?: string }> {
+    const normalised = toSlug(slug);
+    if (!normalised) return { available: false, reason: 'invalid' };
+    if (RESERVED_SLUGS.has(normalised)) return { available: false, reason: 'reserved' };
+    const conflict = await this.repo.findOne({ where: { domainSlug: normalised } });
+    if (conflict) return { available: false, reason: 'taken' };
+    return { available: true };
+  }
+
   async upsert(ownerId: string, dto: UpsertStoreSettingsDto): Promise<StoreSettings> {
     const settings = await this.get(ownerId);
     Object.assign(settings, dto);

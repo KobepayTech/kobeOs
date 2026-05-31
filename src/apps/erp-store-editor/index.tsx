@@ -2,7 +2,8 @@ import { useState, useCallback, useEffect } from 'react';
 import {
   Palette, Image, RotateCcw, Save, Download,
   ShoppingBag, Search, ChevronDown, ChevronRight, Check, Upload, Eye, X,
-  Store, Type as TypeIcon, Grid3X3, PanelLeft, Tag, Plus, Globe, Loader2, AlertTriangle
+  Store, Type as TypeIcon, Grid3X3, PanelLeft, Tag, Plus, Globe, Loader2, AlertTriangle,
+  Wifi, WifiOff, ExternalLink,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -650,9 +651,22 @@ export default function StoreEditor() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
+  const [tunnelRunning, setTunnelRunning] = useState(false);
 
-  // Heartbeats are sent by the backend @Cron (PublishService.sendHeartbeats)
-  // every 5 minutes — no need to duplicate from the frontend.
+  // Poll tunnel status every 15 seconds while the store is published
+  useEffect(() => {
+    if (!settings.isPublished) { setTunnelRunning(false); return; }
+    let cancelled = false;
+    const check = async () => {
+      try {
+        const res = await api<{ running: boolean }>('/store-settings/tunnel-status');
+        if (!cancelled) setTunnelRunning(res.running);
+      } catch { /* ignore */ }
+    };
+    check();
+    const interval = setInterval(check, 15_000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, [settings.isPublished]);
 
   // Load persisted settings on mount
   useEffect(() => {
@@ -697,16 +711,28 @@ export default function StoreEditor() {
     setPublishing(true);
     setPublishError(null);
     try {
-      // Pre-validate slug availability before hitting the publish endpoint
+      // Save first so the backend has the latest store name / slug
+      await api<StoreSettings>('/store-settings', {
+        method: 'PUT',
+        body: JSON.stringify(settings),
+      });
+
+      // Check slug availability
       if (settings.domainSlug) {
         const check = await api<{ available: boolean; reason?: string }>(
-          `/store-settings/check-slug/${encodeURIComponent(settings.domainSlug)}`,
+          `/store-settings/check-slug?slug=${encodeURIComponent(settings.domainSlug)}`,
         );
-        if (!check.available) {
-          setPublishError(check.reason ?? 'That store name is already taken. Choose a different name.');
+        if (!check.available && check.reason !== 'taken') {
+          // "taken" by the same owner is fine — they're re-publishing
+          setPublishError(
+            check.reason === 'reserved'
+              ? `"${settings.domainSlug}" is a reserved name. Choose a different store name.`
+              : 'That store name is already taken. Choose a different name.',
+          );
           return;
         }
       }
+
       const updated = await api<StoreSettings>('/store-settings/publish', { method: 'POST' });
       setSettings((prev) => ({
         ...prev,
@@ -714,12 +740,23 @@ export default function StoreEditor() {
         publishedUrl: updated.publishedUrl,
         publishedAt: updated.publishedAt,
       }));
+      setTunnelRunning(true);
     } catch (e) {
-      setPublishError((e as Error).message);
+      const msg = (e as Error).message ?? 'Publish failed';
+      // Surface cloudflared-not-installed error clearly
+      if (msg.includes('cloudflared is not installed')) {
+        setPublishError(
+          'cloudflared is not installed on this machine. ' +
+          'Download it from https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/ ' +
+          'then restart KobeOS.',
+        );
+      } else {
+        setPublishError(msg);
+      }
     } finally {
       setPublishing(false);
     }
-  }, [settings.domainSlug]);
+  }, [settings]);
 
   const handleUnpublish = useCallback(async () => {
     setPublishing(true);
@@ -858,29 +895,41 @@ export default function StoreEditor() {
               {/* Publish status */}
               {settings.isPublished ? (
                 <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-                    <span className="text-xs font-medium text-emerald-300">Live</span>
+                  {/* Live / tunnel indicator */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${tunnelRunning ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
+                      <span className={`text-xs font-medium ${tunnelRunning ? 'text-emerald-300' : 'text-amber-300'}`}>
+                        {tunnelRunning ? 'Live' : 'Tunnel reconnecting…'}
+                      </span>
+                    </div>
+                    {tunnelRunning
+                      ? <Wifi className="w-3.5 h-3.5 text-emerald-400" />
+                      : <WifiOff className="w-3.5 h-3.5 text-amber-400" />}
                   </div>
+
                   <a
                     href={settings.publishedUrl ?? '#'}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="block text-[11px] text-emerald-300/80 font-mono truncate hover:text-emerald-200 underline underline-offset-2"
+                    className="flex items-center gap-1 text-[11px] text-emerald-300/80 font-mono truncate hover:text-emerald-200 underline underline-offset-2"
                   >
                     {settings.publishedUrl}
+                    <ExternalLink className="w-3 h-3 shrink-0" />
                   </a>
+
                   {settings.publishedAt && (
                     <p className="text-[10px] text-white/30">
                       Published {new Date(settings.publishedAt).toLocaleDateString()}
                     </p>
                   )}
+
                   <Button
                     size="sm"
                     variant="outline"
                     className="w-full h-7 text-xs border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 bg-transparent"
                     onClick={handleUnpublish}
-                    disabled={publishing || !settings.domainSlug}
+                    disabled={publishing}
                   >
                     {publishing
                       ? <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> Unpublishing…</>
@@ -902,6 +951,21 @@ export default function StoreEditor() {
                   {!settings.domainSlug && (
                     <p className="text-[10px] text-amber-400/70 text-center">Save your store name first</p>
                   )}
+                  {/* cloudflared requirement notice */}
+                  <div className="flex items-start gap-2 px-2.5 py-2 rounded-md bg-white/[0.03] border border-white/[0.06] text-[10px] text-white/40">
+                    <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5 text-amber-400/60" />
+                    <span>
+                      Requires <span className="font-mono text-white/60">cloudflared</span> installed on this machine.{' '}
+                      <a
+                        href="https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-400/70 underline underline-offset-2 hover:text-blue-300"
+                      >
+                        Download
+                      </a>
+                    </span>
+                  </div>
                 </div>
               )}
 
@@ -909,7 +973,7 @@ export default function StoreEditor() {
               {publishError && (
                 <div className="flex items-start gap-2 px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-[11px] text-red-300">
                   <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                  <span>{publishError}</span>
+                  <span className="break-words">{publishError}</span>
                 </div>
               )}
             </div>

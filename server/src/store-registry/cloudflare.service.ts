@@ -1,57 +1,74 @@
 import { Injectable, Logger, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
-interface CfDnsRecord {
-  id: string;
-  type: string;
-  name: string;
-  content: string;
-}
-
 interface CfApiResponse<T> {
   success: boolean;
   errors: { message: string }[];
   result: T;
 }
 
+interface CfTunnel {
+  id: string;
+  name: string;
+  status: string;
+}
+
+interface CfTunnelToken {
+  token: string;
+}
+
 /**
- * Thin wrapper around the Cloudflare DNS API.
+ * Cloudflare Tunnel API wrapper.
  *
- * All credentials are baked in as defaults — no configuration needed on
- * end-user machines. Override via env vars only for white-label deployments:
- *   CF_API_TOKEN   — Cloudflare API token with Zone:DNS:Edit permission
- *   CF_ZONE_ID     — Zone ID for the target domain
- *   CF_DOMAIN      — Base domain, e.g. "kobeapptz.com"
+ * Each KobeOS user gets their own named Cloudflare Tunnel when they publish
+ * their store. The tunnel runs as `cloudflared tunnel run` on their local
+ * machine — no static IP or port forwarding required.
+ *
+ * Flow:
+ *   1. Create a named tunnel via Cloudflare API  → returns tunnel ID + token
+ *   2. Create a CNAME DNS record: {slug}.kobeapptz.com → {tunnelId}.cfargotunnel.com
+ *   3. Configure tunnel ingress rules (routes hostname → localhost:3000)
+ *   4. Return the tunnel token to the KobeOS backend
+ *   5. KobeOS spawns `cloudflared tunnel run --token <token>` locally
+ *
+ * Required env vars (set in server/.env):
+ *   CF_API_TOKEN   — Cloudflare API token with Account:Cloudflare Tunnel:Edit + Zone:DNS:Edit
+ *   CF_ACCOUNT_ID  — Cloudflare Account ID (d379a7d03f3714377f11cc7e22c96b5d)
+ *   CF_ZONE_ID     — Zone ID for kobeapptz.com (c5f9da50402b712eaa6dd0c83751198b)
+ *   CF_DOMAIN      — Base domain (default: kobeapptz.com)
  */
 @Injectable()
 export class CloudflareService {
   private readonly logger = new Logger(CloudflareService.name);
   private readonly baseUrl = 'https://api.cloudflare.com/client/v4';
 
-  // Baked-in defaults — the registry server works out of the box.
-  // Override via env vars only for white-label / self-hosted deployments.
-  private static readonly DEFAULT_API_TOKEN = 'cfut_DRqzb7QayAZuijAOan3YUzVXbZAmCqneqW2x7vOdbdb5cd12';
-  private static readonly DEFAULT_ZONE_ID   = 'c5f9da50402b712eaa6dd0c83751198b';
-  private static readonly DEFAULT_DOMAIN    = 'kobeapptz.com';
+  private static readonly DEFAULT_ZONE_ID = 'c5f9da50402b712eaa6dd0c83751198b';
+  private static readonly DEFAULT_DOMAIN  = 'kobeapptz.com';
+
+  constructor(private readonly config: ConfigService) {}
 
   private get apiToken(): string {
-    return this.config.get<string>('CF_API_TOKEN', CloudflareService.DEFAULT_API_TOKEN);
+    const t = this.config.get<string>('CF_API_TOKEN', '');
+    if (!t) throw new InternalServerErrorException('CF_API_TOKEN is not set in server/.env');
+    return t;
   }
+
+  private get accountId(): string {
+    const a = this.config.get<string>('CF_ACCOUNT_ID', '');
+    if (!a) throw new InternalServerErrorException('CF_ACCOUNT_ID is not set in server/.env');
+    return a;
+  }
+
   private get zoneId(): string {
     return this.config.get<string>('CF_ZONE_ID', CloudflareService.DEFAULT_ZONE_ID);
   }
+
   private get domain(): string {
     return this.config.get<string>('CF_DOMAIN', CloudflareService.DEFAULT_DOMAIN);
   }
 
-  constructor(private readonly config: ConfigService) {}
-
-  private async cfFetch<T>(
-    path: string,
-    options: RequestInit = {},
-  ): Promise<T> {
-    const url = `${this.baseUrl}${path}`;
-    const res = await fetch(url, {
+  private async cfFetch<T>(path: string, options: RequestInit = {}): Promise<T> {
+    const res = await fetch(`${this.baseUrl}${path}`, {
       ...options,
       headers: {
         Authorization: `Bearer ${this.apiToken}`,
@@ -59,66 +76,120 @@ export class CloudflareService {
         ...(options.headers ?? {}),
       },
     });
-
     const body = (await res.json()) as CfApiResponse<T>;
     if (!body.success) {
       const msg = body.errors.map((e) => e.message).join(', ');
-      this.logger.error(`Cloudflare API error: ${msg}`);
-      throw new InternalServerErrorException(`DNS operation failed: ${msg}`);
+      this.logger.error(`Cloudflare API error on ${path}: ${msg}`);
+      throw new InternalServerErrorException(`Cloudflare error: ${msg}`);
     }
     return body.result;
   }
 
   /**
-   * Create an A record: {slug}.kobeapptz.com → ip
-   * Returns the Cloudflare record ID for future updates/deletes.
+   * Create (or reuse) a named Cloudflare Tunnel for a store slug.
+   * Returns the tunnel ID and the run token needed by cloudflared.
    */
-  async createARecord(slug: string, ip: string): Promise<string> {
-    const record = await this.cfFetch<CfDnsRecord>(
-      `/zones/${this.zoneId}/dns_records`,
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          type: 'A',
-          name: `${slug}.${this.domain}`,
-          content: ip,
-          ttl: 120,
-          proxied: false, // direct — user's server handles SSL
-        }),
-      },
+  async createTunnel(slug: string): Promise<{ tunnelId: string; tunnelToken: string }> {
+    const tunnelName = `kobeos-${slug}`;
+
+    // Reuse if already exists
+    const existing = await this.cfFetch<CfTunnel[]>(
+      `/accounts/${this.accountId}/cfd_tunnel?name=${encodeURIComponent(tunnelName)}&is_deleted=false`,
     );
-    this.logger.log(`Created DNS A record: ${slug}.${this.domain} → ${ip} (id: ${record.id})`);
+
+    let tunnelId: string;
+    if (existing.length > 0) {
+      tunnelId = existing[0].id;
+      this.logger.log(`Reusing tunnel ${tunnelId} for "${slug}"`);
+    } else {
+      const secret = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64');
+      const tunnel = await this.cfFetch<CfTunnel>(
+        `/accounts/${this.accountId}/cfd_tunnel`,
+        { method: 'POST', body: JSON.stringify({ name: tunnelName, tunnel_secret: secret }) },
+      );
+      tunnelId = tunnel.id;
+      this.logger.log(`Created tunnel ${tunnelId} for "${slug}"`);
+    }
+
+    const tokenResult = await this.cfFetch<CfTunnelToken>(
+      `/accounts/${this.accountId}/cfd_tunnel/${tunnelId}/token`,
+    );
+
+    return { tunnelId, tunnelToken: tokenResult.token };
+  }
+
+  /**
+   * Create or update the CNAME record:
+   *   {slug}.kobeapptz.com  →  {tunnelId}.cfargotunnel.com  (proxied)
+   */
+  async upsertTunnelCname(slug: string, tunnelId: string): Promise<string> {
+    const name    = `${slug}.${this.domain}`;
+    const content = `${tunnelId}.cfargotunnel.com`;
+
+    const existing = await this.cfFetch<{ id: string }[]>(
+      `/zones/${this.zoneId}/dns_records?type=CNAME&name=${encodeURIComponent(name)}`,
+    );
+
+    if (existing.length > 0) {
+      const recordId = existing[0].id;
+      await this.cfFetch(`/zones/${this.zoneId}/dns_records/${recordId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ type: 'CNAME', name, content, proxied: true, ttl: 1 }),
+      });
+      this.logger.log(`Updated CNAME ${name} → ${content}`);
+      return recordId;
+    }
+
+    const record = await this.cfFetch<{ id: string }>(`/zones/${this.zoneId}/dns_records`, {
+      method: 'POST',
+      body: JSON.stringify({ type: 'CNAME', name, content, proxied: true, ttl: 1 }),
+    });
+    this.logger.log(`Created CNAME ${name} → ${content}`);
     return record.id;
   }
 
   /**
-   * Update an existing A record to point to a new IP.
+   * Push ingress rules to the tunnel so cloudflared knows to route
+   * {slug}.kobeapptz.com traffic to localhost:{localPort}.
+   * This avoids the need for a config.yml on the user's machine.
    */
-  async updateARecord(recordId: string, slug: string, ip: string): Promise<void> {
-    await this.cfFetch<CfDnsRecord>(
-      `/zones/${this.zoneId}/dns_records/${recordId}`,
-      {
-        method: 'PUT',
-        body: JSON.stringify({
-          type: 'A',
-          name: `${slug}.${this.domain}`,
-          content: ip,
-          ttl: 120,
-          proxied: false,
-        }),
-      },
-    );
-    this.logger.log(`Updated DNS A record ${recordId}: ${slug}.${this.domain} → ${ip}`);
+  async configureTunnelIngress(tunnelId: string, slug: string, localPort: number): Promise<void> {
+    await this.cfFetch(`/accounts/${this.accountId}/cfd_tunnel/${tunnelId}/configurations`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        config: {
+          ingress: [
+            { hostname: `${slug}.${this.domain}`, service: `http://localhost:${localPort}` },
+            { service: 'http_status:404' }, // required catch-all
+          ],
+        },
+      }),
+    });
+    this.logger.log(`Configured ingress for tunnel ${tunnelId}: ${slug}.${this.domain} → localhost:${localPort}`);
   }
 
   /**
-   * Delete an A record (called when a store is unpublished).
+   * Tear down a tunnel when a store is unpublished.
+   * Cleans up active connections first, then deletes the tunnel.
    */
-  async deleteARecord(recordId: string): Promise<void> {
-    await this.cfFetch<{ id: string }>(
-      `/zones/${this.zoneId}/dns_records/${recordId}`,
-      { method: 'DELETE' },
-    );
-    this.logger.log(`Deleted DNS record ${recordId}`);
+  async deleteTunnel(tunnelId: string): Promise<void> {
+    try {
+      await this.cfFetch(`/accounts/${this.accountId}/cfd_tunnel/${tunnelId}/connections`, {
+        method: 'DELETE',
+      });
+    } catch { /* already disconnected */ }
+
+    await this.cfFetch(`/accounts/${this.accountId}/cfd_tunnel/${tunnelId}`, { method: 'DELETE' });
+    this.logger.log(`Deleted tunnel ${tunnelId}`);
+  }
+
+  /** Delete a DNS record by ID (used during unpublish). */
+  async deleteDnsRecord(recordId: string): Promise<void> {
+    try {
+      await this.cfFetch(`/zones/${this.zoneId}/dns_records/${recordId}`, { method: 'DELETE' });
+      this.logger.log(`Deleted DNS record ${recordId}`);
+    } catch (e) {
+      this.logger.warn(`Could not delete DNS record ${recordId}: ${(e as Error).message}`);
+    }
   }
 }

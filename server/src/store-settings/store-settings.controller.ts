@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Headers, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { Public } from '../common/public.decorator';
@@ -25,44 +25,31 @@ export class StoreSettingsController {
   }
 
   /**
-   * Publish this store to kobeapptz.com.
-   * The Authorization header JWT is forwarded to the central registry.
+   * Publish this store to kobeapptz.com via Cloudflare Tunnel.
+   * Creates the tunnel, DNS record, and spawns cloudflared locally.
    * POST /api/store-settings/publish
    */
   @Post('publish')
-  publish(
-    @CurrentUser('id') uid: string,
-    @Headers('authorization') auth: string,
-  ) {
-    const jwt = auth?.replace(/^Bearer\s+/i, '') ?? '';
-    return this.publishSvc.publish(uid, jwt);
+  publish(@CurrentUser('id') uid: string) {
+    return this.publishSvc.publish(uid);
   }
 
   /**
-   * Remove this store from kobeapptz.com.
+   * Unpublish — stops the tunnel and removes the DNS record.
    * DELETE /api/store-settings/publish
    */
   @Delete('publish')
-  unpublish(
-    @CurrentUser('id') uid: string,
-    @Headers('authorization') auth: string,
-  ) {
-    const jwt = auth?.replace(/^Bearer\s+/i, '') ?? '';
-    return this.publishSvc.unpublish(uid, jwt);
+  unpublish(@CurrentUser('id') uid: string) {
+    return this.publishSvc.unpublish(uid);
   }
 
   /**
-   * Heartbeat — called by the frontend every 5 minutes while the store is published.
-   * Forwards to the central registry to keep the DNS record active.
-   * POST /api/store-settings/heartbeat
+   * Check whether the local cloudflared tunnel process is running.
+   * GET /api/store-settings/tunnel-status
    */
-  @Post('heartbeat')
-  heartbeat(
-    @CurrentUser('id') uid: string,
-    @Headers('authorization') auth: string,
-  ) {
-    const jwt = auth?.replace(/^Bearer\s+/i, '') ?? '';
-    return this.publishSvc.heartbeat(uid, jwt);
+  @Get('tunnel-status')
+  tunnelStatus(@CurrentUser('id') uid: string) {
+    return this.publishSvc.tunnelStatus(uid);
   }
 
   /**
@@ -73,6 +60,6 @@ export class StoreSettingsController {
   @Public()
   @Get('check-slug')
   checkSlug(@Query('slug') slug: string) {
-    return this.publishSvc.checkSlug(slug ?? '');
+    return this.svc.checkSlugAvailability(slug ?? '');
   }
 }
