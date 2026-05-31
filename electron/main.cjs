@@ -163,6 +163,14 @@ function startBackend(dbConfig) {
     KOBEOS_DESKTOP: 'true',   // signals embedded desktop mode to bypass prod guards
     JWT_SECRET: getOrCreateJwtSecret(),
     CORS_ORIGIN: 'file://',
+    // Cloudflare Tunnel credentials for store publishing.
+    // These are set at build time via environment variables on the build machine
+    // (CI/CD or developer machine running electron:build).
+    // They are injected here at runtime so they never appear in ASAR source files.
+    CF_API_TOKEN:   process.env.CF_API_TOKEN   || '',
+    CF_ACCOUNT_ID:  process.env.CF_ACCOUNT_ID  || 'd379a7d03f3714377f11cc7e22c96b5d',
+    CF_ZONE_ID:     process.env.CF_ZONE_ID     || 'c5f9da50402b712eaa6dd0c83751198b',
+    CF_DOMAIN:      process.env.CF_DOMAIN      || 'kobeapptz.com',
   };
   // Kill any stale process on port 3000 before starting
   try {
