@@ -14,9 +14,11 @@
     "electron:dev": "concurrently \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
     "core:manifest": "node scripts/generate-core-manifest.js",
     "prepare:postgres": "node scripts/prepare-postgres-resources.cjs",
-    "electron:build": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && electron-builder",
-    "electron:build:linux": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && electron-builder --linux",
-    "electron:build:win": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && electron-builder --win",
+    "download:cloudflared": "node scripts/download-cloudflared.cjs",
+    "electron:build": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && electron-builder",
+    "electron:build:linux": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && electron-builder --linux",
+    "electron:build:win": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && electron-builder --win",
+    "electron:build:mac": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && electron-builder --mac",
     "iso:build": "npm run electron:build:linux && node scripts/build-iso.cjs",
     "iso:package": "node scripts/build-iso.cjs",
     "models:checksums": "node scripts/fetch-model-checksums.js",
@@ -128,6 +130,7 @@
     "files": ["dist/**/*", "electron/**/*", "apps/**/*", "ai/**/*", "drivers/**/*", "package.json", "!electron/server-bundle/**", "!**/*.map", "!**/*.ts", "node_modules/better-sqlite3/**", "node_modules/bindings/**", "node_modules/file-uri-to-path/**", "node_modules/embedded-postgres/**", "node_modules/@embedded-postgres/**", "node_modules/pg/**", "node_modules/pg-protocol/**", "node_modules/pg-types/**", "node_modules/pgpass/**", "node_modules/buffer-writer/**", "node_modules/packet-reader/**"],
     "extraResources": [
       { "from": "electron/server-bundle", "to": "server-bundle" },
+      { "from": "build/cloudflared", "to": "cloudflared" },
       { "from": "build/postgres", "to": "postgres" },
       { "from": "build/kobeos-release.pub", "to": "kobeos-release.pub" },
       { "from": "build/core-manifest.json", "to": "core-manifest.json" }
