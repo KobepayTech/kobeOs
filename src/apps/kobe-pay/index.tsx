@@ -13,7 +13,7 @@ import {
   Wallet, LayoutDashboard, Users, ArrowDownLeft, Send, Building2, Share2, Receipt, Settings,
   Plus, Search, CheckCircle2, Clock, XCircle, Phone, User, Mail, CreditCard, Banknote,
   Smartphone, Landmark, DollarSign, ChevronRight, X, Check, Download, Printer, QrCode,
-  Trash2, Edit, Eye, Filter, BadgeCheck, AlertTriangle
+  Trash2, Edit, Eye, Filter, BadgeCheck, AlertTriangle, TrendingUp
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,7 +25,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 type Role = 'Admin' | 'Cashier TZ' | 'Cashier China';
-type Module = 'dashboard' | 'customers' | 'deposits' | 'payouts' | 'suppliers' | 'allocations' | 'receipts' | 'settings';
+type Module = 'dashboard' | 'owner' | 'customers' | 'deposits' | 'payouts' | 'suppliers' | 'allocations' | 'receipts' | 'settings';
 type DepositStatus = 'Pending' | 'Confirmed';
 type PayoutStatus = 'INITIATED' | 'SENT' | 'CONFIRMED' | 'PAID';
 type TxnType = 'Deposit' | 'Goods on Delivery';
@@ -234,6 +234,7 @@ const WEEKLY_DATA = [
 
 const SIDEBAR_ITEMS: { id: Module; label: string; icon: typeof Wallet; color: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, color: 'text-cyan-400' },
+  { id: 'owner', label: 'Owner Profit', icon: TrendingUp, color: 'text-yellow-400' },
   { id: 'customers', label: 'Customers', icon: Users, color: 'text-blue-400' },
   { id: 'deposits', label: 'Deposits', icon: ArrowDownLeft, color: 'text-emerald-400' },
   { id: 'payouts', label: 'Payouts', icon: Send, color: 'text-amber-400' },
@@ -470,6 +471,46 @@ export default function KobePay() {
 
   // Transaction detail dialog
   const [selectedTransaction, setSelectedTransaction] = useState<Deposit | null>(null);
+
+  // Owner profit dashboard payload (admin-only)
+  interface OwnerKpis {
+    totalCollected: number; totalPaidToSuppliers: number; grossProfit: number;
+    serviceFees: number; exchangeProfit: number; bankAndMobileCharges: number;
+    agentCommissions: number; netProfit: number; realizedProfit: number;
+    projectedProfit: number; pendingPayouts: number; unassignedFunds: number;
+    customerCount: number; supplierCount: number;
+  }
+  interface OwnerEntry {
+    depositId: string; transactionId: string; customerName: string;
+    supplierName: string | null; targetAmount: number; targetCurrency: string;
+    collectedTzs: number; actualCostTzs: number; fees: number; profitTzs: number;
+    status: 'Projected' | 'Realized'; payoutStatus: string | null; date: string;
+  }
+  interface OwnerBucket { label: string; collected: number; actualCost: number; fees: number; realizedProfit: number; projectedProfit: number; }
+  interface OwnerData {
+    kpis: OwnerKpis;
+    entries: OwnerEntry[];
+    daily: OwnerBucket[]; weekly: OwnerBucket[]; monthly: OwnerBucket[];
+    byCustomer: Array<{ id: string; name: string; collected: number; realizedProfit: number }>;
+    bySupplier: Array<{ id: string; name: string; paidTzs: number; realizedProfit: number }>;
+  }
+  const [ownerData, setOwnerData] = useState<OwnerData | null>(null);
+  const [ownerBucket, setOwnerBucket] = useState<'daily' | 'weekly' | 'monthly'>('daily');
+  const [ownerLoading, setOwnerLoading] = useState(false);
+
+  useEffect(() => {
+    if (module !== 'owner' || role !== 'Admin') return;
+    let cancelled = false;
+    (async () => {
+      setOwnerLoading(true);
+      try {
+        const d = await api<OwnerData>('/kobepay/owner-dashboard');
+        if (!cancelled) setOwnerData(d);
+      } catch { /* keep last view */ }
+      finally { if (!cancelled) setOwnerLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [module, role, deposits, payouts]);
   const [showTransactionDialog, setShowTransactionDialog] = useState(false);
 
   // Settings state
@@ -488,6 +529,9 @@ export default function KobePay() {
 
   const canAccess = (m: Module): boolean => {
     if (role === 'Admin') return true;
+    // Owner Profit Dashboard is admin-only; cashiers should not see the
+    // margin between sales rate and actual cost rate.
+    if (m === 'owner') return false;
     if (role === 'Cashier TZ') return ['dashboard', 'customers', 'deposits', 'payouts', 'receipts'].includes(m);
     if (role === 'Cashier China') return ['dashboard', 'payouts', 'receipts', 'suppliers'].includes(m);
     return false;
@@ -1445,9 +1489,179 @@ export default function KobePay() {
     </div>
   );
 
+  const fmtTzs = (n: number) => `TZS ${Math.round(n).toLocaleString()}`;
+  const ownerBuckets = ownerData ? ownerData[ownerBucket] : [];
+
+  const renderOwner = () => {
+    if (role !== 'Admin') {
+      return (
+        <Card className="bg-[#13131f] border-white/[0.06]">
+          <CardContent className="p-8 text-center text-slate-400">
+            <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-amber-400" />
+            Owner Profit Dashboard is admin-only. Switch role to Admin to view margins.
+          </CardContent>
+        </Card>
+      );
+    }
+    if (!ownerData) {
+      return <Card className="bg-[#13131f] border-white/[0.06]"><CardContent className="p-8 text-center text-slate-400">{ownerLoading ? 'Loading…' : 'No profit data yet — record a confirmed deposit and mark a payout PAID with an actual cost rate.'}</CardContent></Card>;
+    }
+    const k = ownerData.kpis;
+    const kpiCards: Array<[string, string, string, string]> = [
+      ['Total Collected',       fmtTzs(k.totalCollected),       'bg-cyan-500/10',     'text-cyan-400'],
+      ['Total Paid to Suppliers', fmtTzs(k.totalPaidToSuppliers), 'bg-orange-500/10',   'text-orange-400'],
+      ['Realized Profit',       fmtTzs(k.realizedProfit),       'bg-emerald-500/10',  'text-emerald-400'],
+      ['Projected (Unconfirmed)', fmtTzs(k.projectedProfit),    'bg-amber-500/10',    'text-amber-400'],
+      ['Exchange Profit',       fmtTzs(k.exchangeProfit),       'bg-violet-500/10',   'text-violet-400'],
+      ['Service Fees',          fmtTzs(k.serviceFees),          'bg-blue-500/10',     'text-blue-400'],
+      ['Bank + M-Pesa Charges', fmtTzs(k.bankAndMobileCharges), 'bg-rose-500/10',     'text-rose-400'],
+      ['Agent Commission',      fmtTzs(k.agentCommissions),     'bg-pink-500/10',     'text-pink-400'],
+      ['Net Profit',            fmtTzs(k.netProfit),            'bg-yellow-500/10',   'text-yellow-400'],
+      ['Pending Payouts',       fmtTzs(k.pendingPayouts),       'bg-slate-500/10',    'text-slate-300'],
+      ['Unassigned Funds',      fmtTzs(k.unassignedFunds),      'bg-teal-500/10',     'text-teal-400'],
+      ['Gross Profit',          fmtTzs(k.grossProfit),          'bg-indigo-500/10',   'text-indigo-400'],
+    ];
+
+    return (
+      <div className="space-y-6">
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
+          {kpiCards.map(([label, value, bg, color]) => (
+            <Card key={label} className="bg-[#13131f] border-white/[0.06]">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-slate-400">{label}</p>
+                    <p className="text-lg font-bold text-white mt-1">{value}</p>
+                  </div>
+                  <div className={`w-9 h-9 rounded-lg ${bg} flex items-center justify-center`}>
+                    <TrendingUp className={`w-4 h-4 ${color}`} />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        <Card className="bg-[#13131f] border-white/[0.06]">
+          <CardContent className="p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-white font-semibold">Profit Over Time</h3>
+              <div className="flex gap-1">
+                {(['daily', 'weekly', 'monthly'] as const).map((b) => (
+                  <button key={b} onClick={() => setOwnerBucket(b)}
+                    className={`px-3 py-1 rounded text-xs ${ownerBucket === b ? 'bg-yellow-500/20 text-yellow-400' : 'text-slate-400 hover:bg-white/[0.04]'}`}>
+                    {b[0].toUpperCase() + b.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={ownerBuckets}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2e" />
+                <XAxis dataKey="label" stroke="#64748b" fontSize={11} />
+                <YAxis stroke="#64748b" fontSize={11} />
+                <Tooltip contentStyle={{ background: '#13131f', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8 }}
+                  formatter={(v: number) => fmtTzs(Number(v))} />
+                <Bar dataKey="realizedProfit" name="Realized Profit" fill="#10b981" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="projectedProfit" name="Projected" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Card className="bg-[#13131f] border-white/[0.06]">
+            <CardContent className="p-5">
+              <h3 className="text-white font-semibold mb-3">Top Customers (by Realized Profit)</h3>
+              {ownerData.byCustomer.length === 0 ? (
+                <p className="text-sm text-slate-500">No confirmed-paid transactions yet.</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead><tr className="text-xs text-slate-400 border-b border-white/[0.04]"><th className="text-left py-2">Customer</th><th className="text-right">Collected</th><th className="text-right">Profit</th></tr></thead>
+                  <tbody>
+                    {ownerData.byCustomer.slice(0, 10).map((c) => (
+                      <tr key={c.id} className="border-b border-white/[0.02]">
+                        <td className="py-2 text-white">{c.name}</td>
+                        <td className="text-right text-slate-300">{fmtTzs(c.collected)}</td>
+                        <td className="text-right text-emerald-400">{fmtTzs(c.realizedProfit)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="bg-[#13131f] border-white/[0.06]">
+            <CardContent className="p-5">
+              <h3 className="text-white font-semibold mb-3">Top Suppliers (by Realized Profit)</h3>
+              {ownerData.bySupplier.length === 0 ? (
+                <p className="text-sm text-slate-500">No PAID payouts yet.</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead><tr className="text-xs text-slate-400 border-b border-white/[0.04]"><th className="text-left py-2">Supplier</th><th className="text-right">Paid (TZS)</th><th className="text-right">Profit</th></tr></thead>
+                  <tbody>
+                    {ownerData.bySupplier.slice(0, 10).map((s) => (
+                      <tr key={s.id} className="border-b border-white/[0.02]">
+                        <td className="py-2 text-white">{s.name}</td>
+                        <td className="text-right text-slate-300">{fmtTzs(s.paidTzs)}</td>
+                        <td className="text-right text-emerald-400">{fmtTzs(s.realizedProfit)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card className="bg-[#13131f] border-white/[0.06]">
+          <CardContent className="p-5">
+            <h3 className="text-white font-semibold mb-3">Per-Transaction Profit ({ownerData.entries.length})</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="text-xs text-slate-400 border-b border-white/[0.04]">
+                  <th className="text-left py-2">Txn</th>
+                  <th className="text-left">Customer</th>
+                  <th className="text-left">Supplier</th>
+                  <th className="text-right">Amount</th>
+                  <th className="text-right">Collected</th>
+                  <th className="text-right">Actual Cost</th>
+                  <th className="text-right">Fees</th>
+                  <th className="text-right">Profit</th>
+                  <th className="text-center">Status</th>
+                </tr></thead>
+                <tbody>
+                  {ownerData.entries.slice(0, 50).map((e) => (
+                    <tr key={e.depositId} className="border-b border-white/[0.02]">
+                      <td className="py-2 font-mono text-[11px] text-slate-300">{e.transactionId}</td>
+                      <td className="text-white">{e.customerName}</td>
+                      <td className="text-slate-300">{e.supplierName ?? '-'}</td>
+                      <td className="text-right text-slate-300">{e.targetAmount.toLocaleString()} {e.targetCurrency}</td>
+                      <td className="text-right text-slate-200">{fmtTzs(e.collectedTzs)}</td>
+                      <td className="text-right text-slate-200">{e.status === 'Realized' ? fmtTzs(e.actualCostTzs) : '—'}</td>
+                      <td className="text-right text-rose-300">{e.status === 'Realized' ? fmtTzs(e.fees) : '—'}</td>
+                      <td className={`text-right font-semibold ${e.status === 'Realized' ? 'text-emerald-400' : 'text-amber-400'}`}>{e.status === 'Realized' ? fmtTzs(e.profitTzs) : 'Projected'}</td>
+                      <td className="text-center">
+                        <Badge variant="outline" className={e.status === 'Realized' ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20' : 'bg-amber-500/15 text-amber-400 border-amber-500/20'}>
+                          {e.status}
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  };
+
   const renderModule = () => {
     switch (module) {
       case 'dashboard': return renderDashboard();
+      case 'owner': return renderOwner();
       case 'customers': return renderCustomers();
       case 'deposits': return renderDeposits();
       case 'payouts': return renderPayouts();
@@ -1460,7 +1674,7 @@ export default function KobePay() {
   };
 
   const getModuleTitle = () => {
-    const titles: Record<Module, string> = { dashboard: 'Dashboard', customers: 'Customers', deposits: 'Deposits', payouts: 'Payouts', suppliers: 'Suppliers', allocations: 'Allocations', receipts: 'Receipts', settings: 'Settings' };
+    const titles: Record<Module, string> = { dashboard: 'Dashboard', owner: 'Owner Profit Dashboard', customers: 'Customers', deposits: 'Deposits', payouts: 'Payouts', suppliers: 'Suppliers', allocations: 'Allocations', receipts: 'Receipts', settings: 'Settings' };
     return titles[module] || 'Dashboard';
   };
 

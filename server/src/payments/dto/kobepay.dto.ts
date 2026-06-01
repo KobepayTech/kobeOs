@@ -48,6 +48,14 @@ export class CreateDepositDto {
   @IsOptional() @IsEnum(['Deposit', 'Goods on Delivery']) txnType?: DepositTxnType;
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => DepositSupplierLineDto)
   suppliers?: DepositSupplierLineDto[];
+
+  /* Profit-accounting inputs (optional; default sensibly). */
+  @IsOptional() @IsString() targetCurrency?: string;
+  @IsOptional() @IsNumber() @Min(0) targetAmount?: number;
+  @IsOptional() @IsNumber() @Min(0) salesRate?: number;
+  @IsOptional() @IsNumber() @Min(0) collectedTzs?: number;
+  @IsOptional() @IsNumber() @Min(0) serviceFee?: number;
+  @IsOptional() @IsString() cashierName?: string;
 }
 
 export class ConfirmDepositDto {
@@ -61,12 +69,28 @@ export class CreatePayoutDto {
   @IsString() method!: string;
   @IsOptional() @IsString() notes?: string;
   @IsOptional() @IsString() initiatedBy?: string;
+
+  /* Profit-accounting inputs. */
+  @IsOptional() @IsUUID() depositId?: string;
+  @IsOptional() @IsNumber() @Min(0) actualRate?: number;
+  @IsOptional() @IsNumber() @Min(0) actualCostTzs?: number;
+  @IsOptional() @IsNumber() @Min(0) transactionFees?: number;
+  @IsOptional() @IsNumber() @Min(0) bankCharges?: number;
+  @IsOptional() @IsNumber() @Min(0) mobileMoneyCharges?: number;
+  @IsOptional() @IsNumber() @Min(0) agentCommission?: number;
 }
 
 export class UpdatePayoutStatusDto {
   @IsEnum(['INITIATED', 'SENT', 'CONFIRMED', 'PAID', 'REJECTED']) status!: PayoutStatus;
   @IsOptional() @IsString() confirmedBy?: string;
   @IsOptional() @IsString() notes?: string;
+  /* Set on transition to PAID so realized profit can be calculated. */
+  @IsOptional() @IsNumber() @Min(0) actualRate?: number;
+  @IsOptional() @IsNumber() @Min(0) actualCostTzs?: number;
+  @IsOptional() @IsNumber() @Min(0) transactionFees?: number;
+  @IsOptional() @IsNumber() @Min(0) bankCharges?: number;
+  @IsOptional() @IsNumber() @Min(0) mobileMoneyCharges?: number;
+  @IsOptional() @IsNumber() @Min(0) agentCommission?: number;
 }
 
 export class CreateAllocationDto {

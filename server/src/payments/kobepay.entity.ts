@@ -96,6 +96,31 @@ export class PaymentDeposit extends OwnedEntity {
   /** Goods-on-delivery deposits carry a per-supplier breakdown. */
   @Column({ type: 'simple-json', nullable: true })
   suppliers?: DepositSupplierLine[] | null;
+
+  /* ── Profit accounting (Owner Profit Dashboard) ────────────────
+   * targetCurrency + targetAmount describe what the supplier will be
+   * paid in (e.g. 5,000 CNY). salesRate is the rate the TZ cashier
+   * quoted the customer (1 CNY = 400 TZS). collectedTzs is the actual
+   * TZS the customer handed over (defaults to targetAmount × salesRate
+   * + serviceFee). serviceFee is the TZS fee KobePay charged on top.
+   */
+  @Column({ default: 'CNY' })
+  targetCurrency!: string;
+
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
+  targetAmount!: number;
+
+  @Column({ type: 'decimal', precision: 18, scale: 6, default: 0 })
+  salesRate!: number;
+
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
+  collectedTzs!: number;
+
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
+  serviceFee!: number;
+
+  @Column({ default: '' })
+  cashierName!: string;
 }
 
 /* ============ Payouts (KobePay → supplier) ============ */
@@ -130,6 +155,35 @@ export class PaymentPayout extends OwnedEntity {
 
   @Column({ default: '' })
   notes!: string;
+
+  /* ── Profit accounting ────────────────────────────────────────
+   * depositId links the payout to the deposit it's fulfilling so the
+   * profit dashboard can pair sales-side TZS in with cost-side TZS out.
+   * actualRate is the real cost rate Cashier China paid (1 CNY = 380
+   * TZS); actualCostTzs is what the payout actually cost us.
+   * Everything else is fee breakdown that subtracts from net profit.
+   */
+  @Index()
+  @Column('uuid', { nullable: true })
+  depositId?: string | null;
+
+  @Column({ type: 'decimal', precision: 18, scale: 6, default: 0 })
+  actualRate!: number;
+
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
+  actualCostTzs!: number;
+
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
+  transactionFees!: number;
+
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
+  bankCharges!: number;
+
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
+  mobileMoneyCharges!: number;
+
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
+  agentCommission!: number;
 }
 
 /* ============ Allocations (customer balance → supplier order) ============ */

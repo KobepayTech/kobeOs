@@ -8,6 +8,7 @@ import {
   KobePayPayoutsService,
   KobePaySuppliersService,
 } from './kobepay.service';
+import { KobePayOwnerService } from './kobepay-owner.service';
 import {
   ConfirmDepositDto,
   CreateAllocationDto,
@@ -29,7 +30,13 @@ export class KobePayController {
     private readonly deposits: KobePayDepositsService,
     private readonly payouts: KobePayPayoutsService,
     private readonly allocations: KobePayAllocationsService,
+    private readonly owner: KobePayOwnerService,
   ) {}
+
+  /* ── Owner Profit Dashboard ── */
+  @Get('owner-dashboard') ownerDashboard(@CurrentUser('id') uid: string) {
+    return this.owner.dashboard(uid);
+  }
 
   /* ── Customers ── */
   @Get('customers')

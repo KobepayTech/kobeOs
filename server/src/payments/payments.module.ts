@@ -16,6 +16,7 @@ import {
   KobePayPayoutsService,
   KobePaySuppliersService,
 } from './kobepay.service';
+import { KobePayOwnerService } from './kobepay-owner.service';
 import { PaymentsController } from './payments.controller';
 import { KobePayController } from './kobepay.controller';
 
@@ -30,6 +31,7 @@ import { KobePayController } from './kobepay.controller';
     WalletsService, TransactionsService, LoansService,
     KobePayCustomersService, KobePaySuppliersService,
     KobePayDepositsService, KobePayPayoutsService, KobePayAllocationsService,
+    KobePayOwnerService,
   ],
   controllers: [PaymentsController, KobePayController],
 })

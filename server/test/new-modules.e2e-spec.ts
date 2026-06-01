@@ -445,6 +445,61 @@ describe('New modules + ownership (e2e)', () => {
     expect(sups.body[0].orders).toBe(1);
   });
 
+  it('KobePay owner dashboard: projected → realized profit on PAID', async () => {
+    const t = await token('profit@e2e.test');
+
+    const cust = await request(http).post('/api/kobepay/customers').set(bearer(t))
+      .send({ name: 'Juma Abdallah', phone: '+255713456789' });
+    const sup = await request(http).post('/api/kobepay/suppliers').set(bearer(t))
+      .send({ name: 'kuku' });
+
+    // Customer deposits 2,000,000 TZS for 5,000 CNY at sales rate 400.
+    const dep = await request(http).post('/api/kobepay/deposits').set(bearer(t)).send({
+      customerId: cust.body.id,
+      amount: 2_000_000, currency: 'TZS',
+      method: 'M-Pesa', status: 'Confirmed',
+      targetCurrency: 'CNY', targetAmount: 5000, salesRate: 400,
+      serviceFee: 0,
+    });
+    expect(dep.status).toBe(201);
+    expect(Number(dep.body.collectedTzs)).toBe(2_000_000);
+
+    // Initiate the payout, link it to the deposit.
+    const pay = await request(http).post('/api/kobepay/payouts').set(bearer(t)).send({
+      supplierId: sup.body.id, amount: 5000, currency: 'CNY', method: 'Bank',
+      depositId: dep.body.id, initiatedBy: 'Cashier TZ',
+    });
+    expect(pay.body.status).toBe('INITIATED');
+
+    // Before PAID: dashboard shows "Projected" for this transaction.
+    let dash = await request(http).get('/api/kobepay/owner-dashboard').set(bearer(t));
+    expect(dash.status).toBe(200);
+    expect(dash.body.kpis.totalCollected).toBe(2_000_000);
+    expect(dash.body.kpis.realizedProfit).toBe(0);
+    expect(dash.body.kpis.projectedProfit).toBe(2_000_000);
+    expect(dash.body.entries[0].status).toBe('Projected');
+    expect(dash.body.entries[0].profitTzs).toBe(0);
+
+    // Walk through SENT → CONFIRMED → PAID with actual cost rate 380.
+    await request(http).patch(`/api/kobepay/payouts/${pay.body.id}/status`).set(bearer(t))
+      .send({ status: 'SENT' });
+    await request(http).patch(`/api/kobepay/payouts/${pay.body.id}/status`).set(bearer(t))
+      .send({ status: 'CONFIRMED', confirmedBy: 'Cashier China' });
+    await request(http).patch(`/api/kobepay/payouts/${pay.body.id}/status`).set(bearer(t))
+      .send({ status: 'PAID', actualRate: 380, bankCharges: 5000 });
+
+    dash = await request(http).get('/api/kobepay/owner-dashboard').set(bearer(t));
+    // collected 2M, actual cost = 5000 × 380 = 1.9M, fees = 5000 → profit = 95,000.
+    expect(dash.body.kpis.totalCollected).toBe(2_000_000);
+    expect(dash.body.kpis.totalPaidToSuppliers).toBe(1_900_000);
+    expect(dash.body.kpis.realizedProfit).toBe(95_000);
+    expect(dash.body.kpis.bankAndMobileCharges).toBe(5_000);
+    // Exchange profit = (400 − 380) × 5000 = 100,000.
+    expect(dash.body.kpis.exchangeProfit).toBe(100_000);
+    expect(dash.body.entries[0].status).toBe('Realized');
+    expect(dash.body.entries[0].profitTzs).toBe(95_000);
+  });
+
   it('rejects unauthenticated access to owned resources', async () => {
     expect((await request(http).get('/api/print/jobs')).status).toBe(401);
     expect((await request(http).get('/api/erp/summary')).status).toBe(401);

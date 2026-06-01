@@ -124,6 +124,16 @@ export class KobePayDepositsService {
       if (!customer) throw new NotFoundException('Customer not found');
 
       const status = dto.status ?? 'Confirmed';
+
+      // Compute collectedTzs from targetAmount × salesRate + serviceFee
+      // when the caller didn't supply it explicitly. This is what the
+      // owner dashboard sums for "Total Collected".
+      const targetAmount = dto.targetAmount ?? 0;
+      const salesRate = dto.salesRate ?? 0;
+      const serviceFee = dto.serviceFee ?? 0;
+      const computedCollected = parseFloat((targetAmount * salesRate + serviceFee).toFixed(4));
+      const collectedTzs = dto.collectedTzs ?? (computedCollected > 0 ? computedCollected : 0);
+
       const deposit = await depRepo.save(
         depRepo.create({
           ownerId: uid,
@@ -137,6 +147,12 @@ export class KobePayDepositsService {
           status,
           txnType: dto.txnType ?? 'Deposit',
           suppliers: dto.suppliers ?? null,
+          targetCurrency: dto.targetCurrency ?? 'CNY',
+          targetAmount,
+          salesRate,
+          collectedTzs,
+          serviceFee,
+          cashierName: dto.cashierName ?? '',
         }),
       );
 
@@ -211,6 +227,13 @@ export class KobePayPayoutsService {
           initiatedBy: dto.initiatedBy ?? '',
           confirmedBy: '',
           notes: dto.notes ?? '',
+          depositId: dto.depositId ?? null,
+          actualRate: dto.actualRate ?? 0,
+          actualCostTzs: dto.actualCostTzs ?? 0,
+          transactionFees: dto.transactionFees ?? 0,
+          bankCharges: dto.bankCharges ?? 0,
+          mobileMoneyCharges: dto.mobileMoneyCharges ?? 0,
+          agentCommission: dto.agentCommission ?? 0,
         }),
       );
     });
@@ -234,6 +257,23 @@ export class KobePayPayoutsService {
       p.status = dto.status;
       if (dto.confirmedBy !== undefined) p.confirmedBy = dto.confirmedBy;
       if (dto.notes !== undefined) p.notes = dto.notes;
+
+      // Cashier China confirms the actual cost + fees on the PAID
+      // transition; these flip the linked deposit's profit from
+      // "Projected" to "Realized" on the owner dashboard.
+      if (dto.actualRate !== undefined) p.actualRate = dto.actualRate;
+      if (dto.actualCostTzs !== undefined) p.actualCostTzs = dto.actualCostTzs;
+      if (dto.transactionFees !== undefined) p.transactionFees = dto.transactionFees;
+      if (dto.bankCharges !== undefined) p.bankCharges = dto.bankCharges;
+      if (dto.mobileMoneyCharges !== undefined) p.mobileMoneyCharges = dto.mobileMoneyCharges;
+      if (dto.agentCommission !== undefined) p.agentCommission = dto.agentCommission;
+
+      // If PAID-transitioning and no explicit actualCost was supplied
+      // but we have an actualRate, derive cost from amount × rate so
+      // the simple flow (cashier just enters the rate) still works.
+      if (dto.status === 'PAID' && Number(p.actualCostTzs) === 0 && Number(p.actualRate) > 0) {
+        p.actualCostTzs = parseFloat((Number(p.amount) * Number(p.actualRate)).toFixed(4));
+      }
 
       if (dto.status === 'PAID') {
         const supplier = await supRepo.findOne({ where: { id: p.supplierId, ownerId: uid } });
