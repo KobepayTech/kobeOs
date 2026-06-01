@@ -9,6 +9,7 @@ import {
   PaymentSupplier,
 } from './kobepay.entity';
 import { KobePayAuditEvent, KobePayUser } from './kobepay-rbac.entity';
+import { KobePayRate } from './kobepay-rate.entity';
 
 export interface ProfitEntry {
   depositId: string;
@@ -353,16 +354,26 @@ export class KobePayRiskService {
     @InjectRepository(PaymentDeposit) private readonly deposits: Repository<PaymentDeposit>,
     @InjectRepository(PaymentPayout) private readonly payouts: Repository<PaymentPayout>,
     @InjectRepository(KobePayAuditEvent) private readonly audits: Repository<KobePayAuditEvent>,
+    @InjectRepository(KobePayRate) private readonly rates: Repository<KobePayRate>,
   ) {}
 
   async dashboard(uid: string): Promise<{ alerts: RiskAlert[]; summary: Record<string, number> }> {
-    const [deposits, payouts, audits] = await Promise.all([
+    const [deposits, payouts, audits, rates] = await Promise.all([
       this.deposits.find({ where: { ownerId: uid } }),
       this.payouts.find({ where: { ownerId: uid } }),
       this.audits.find({ where: { ownerId: uid }, order: { createdAt: 'DESC' }, take: 2000 }),
+      this.rates.find({ where: { ownerId: uid, active: true }, order: { effectiveFrom: 'DESC' } }),
     ]);
     const now = Date.now();
     const alerts: RiskAlert[] = [];
+
+    // Index the most-recent active sales rate per (target -> TZS) pair so we
+    // can detect overrides against the actual house rate, not just statistics.
+    const houseSalesRate: Record<string, number> = {};
+    for (const r of rates) {
+      const key = `${r.fromCurrency}->${r.toCurrency}`;
+      if (!(key in houseSalesRate)) houseSalesRate[key] = Number(r.salesRate);
+    }
 
     // Large deposits.
     for (const d of deposits) {
@@ -402,24 +413,46 @@ export class KobePayRiskService {
       }
     }
 
-    // Rate override flagged when a deposit's salesRate diverges
-    // significantly from the median sales rate across recent deposits.
-    const rates = deposits.map((d) => Number(d.salesRate)).filter((r) => r > 0).sort((a, b) => a - b);
-    if (rates.length >= 5) {
-      const median = rates[Math.floor(rates.length / 2)];
-      for (const d of deposits) {
-        const r = Number(d.salesRate);
-        if (r <= 0) continue;
-        const divergence = Math.abs((r - median) / median) * 100;
+    // Rate override: prefer the house rate when one is configured for the
+    // pair; otherwise fall back to the median of recent deposits (legacy
+    // behaviour, useful when the owner hasn't set rates yet).
+    for (const d of deposits) {
+      const r = Number(d.salesRate);
+      if (r <= 0) continue;
+      const key = `${d.targetCurrency}->TZS`;
+      const house = houseSalesRate[key];
+      if (house && house > 0) {
+        const divergence = Math.abs((r - house) / house) * 100;
         if (divergence > RATE_OVERRIDE_PCT) {
           alerts.push({
             severity: 'medium',
             kind: 'rate_override',
-            message: `Deposit ${d.id.slice(0, 8)} used rate ${r} (median ${median}, ${divergence.toFixed(1)}% off)`,
+            message: `Deposit ${d.id.slice(0, 8)} used rate ${r} ${d.targetCurrency}/TZS (house rate ${house}, ${divergence.toFixed(1)}% off)`,
             resourceType: 'deposit',
             resourceId: d.id,
             createdAt: d.createdAt.toISOString(),
           });
+        }
+      }
+    }
+    if (Object.keys(houseSalesRate).length === 0) {
+      const sampleRates = deposits.map((d) => Number(d.salesRate)).filter((r) => r > 0).sort((a, b) => a - b);
+      if (sampleRates.length >= 5) {
+        const median = sampleRates[Math.floor(sampleRates.length / 2)];
+        for (const d of deposits) {
+          const r = Number(d.salesRate);
+          if (r <= 0) continue;
+          const divergence = Math.abs((r - median) / median) * 100;
+          if (divergence > RATE_OVERRIDE_PCT) {
+            alerts.push({
+              severity: 'medium',
+              kind: 'rate_override',
+              message: `Deposit ${d.id.slice(0, 8)} used rate ${r} (median ${median}, ${divergence.toFixed(1)}% off)`,
+              resourceType: 'deposit',
+              resourceId: d.id,
+              createdAt: d.createdAt.toISOString(),
+            });
+          }
         }
       }
     }

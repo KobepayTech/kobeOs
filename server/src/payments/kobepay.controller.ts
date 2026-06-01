@@ -10,6 +10,7 @@ import {
 } from './kobepay.service';
 import { KobePayCashierPerfService, KobePayOwnerService, KobePayRiskService } from './kobepay-owner.service';
 import { KobePayRbacService, AuditContext } from './kobepay-rbac.service';
+import { KobePayRatesService, UpsertRateInput } from './kobepay-rate.service';
 import { KobePayRole } from './kobepay-rbac.entity';
 import {
   ConfirmDepositDto,
@@ -36,7 +37,25 @@ export class KobePayController {
     private readonly rbac: KobePayRbacService,
     private readonly cashierPerf: KobePayCashierPerfService,
     private readonly risk: KobePayRiskService,
+    private readonly rates: KobePayRatesService,
   ) {}
+
+  /* ── Exchange rates ── */
+  @Get('rates/active') activeRates(@CurrentUser('id') uid: string) {
+    return this.rates.active(uid);
+  }
+  @Get('rates')
+  async listRates(@CurrentUser('id') uid: string, @Headers('x-kobepay-pin') pin: string) {
+    return this.rates.list(uid, await this.ctx(uid, pin));
+  }
+  @Post('rates')
+  async setRate(@CurrentUser('id') uid: string, @Headers('x-kobepay-pin') pin: string, @Body() dto: UpsertRateInput) {
+    return this.rates.setRate(uid, await this.ctx(uid, pin), dto);
+  }
+  @Patch('rates/:id/deactivate')
+  async deactivateRate(@CurrentUser('id') uid: string, @Headers('x-kobepay-pin') pin: string, @Param('id') id: string) {
+    return this.rates.deactivate(uid, await this.ctx(uid, pin), id);
+  }
 
   private async ctx(uid: string, pin?: string): Promise<AuditContext> {
     return { user: await this.rbac.resolveActor(uid, pin) };

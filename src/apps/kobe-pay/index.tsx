@@ -13,7 +13,8 @@ import {
   Wallet, LayoutDashboard, Users, ArrowDownLeft, Send, Building2, Share2, Receipt, Settings,
   Plus, Search, CheckCircle2, Clock, XCircle, Phone, User, Mail, CreditCard, Banknote,
   Smartphone, Landmark, DollarSign, ChevronRight, X, Check, Download, Printer, QrCode,
-  Trash2, Edit, Eye, Filter, BadgeCheck, AlertTriangle, TrendingUp, ShieldCheck, Activity, FileText, KeyRound
+  Trash2, Edit, Eye, Filter, BadgeCheck, AlertTriangle, TrendingUp, ShieldCheck, Activity, FileText, KeyRound,
+  ArrowRightLeft
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,7 +26,9 @@ import { QRCodeSVG } from 'qrcode.react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 type Role = 'Admin' | 'Cashier TZ' | 'Cashier China';
-type Module = 'dashboard' | 'owner' | 'customers' | 'deposits' | 'payouts' | 'suppliers' | 'allocations' | 'receipts' | 'users' | 'cashierPerf' | 'risk' | 'audit' | 'settings';
+type Module = 'dashboard' | 'owner' | 'customers' | 'deposits' | 'payouts' | 'suppliers' | 'allocations' | 'receipts' | 'users' | 'cashierPerf' | 'risk' | 'audit' | 'rates' | 'settings';
+
+interface RateRow { id: string; fromCurrency: string; toCurrency: string; salesRate: string | number; costRate: string | number; effectiveFrom: string; active: boolean; notes: string; createdAt: string; }
 
 type KobePayUserRole = 'Admin' | 'Manager' | 'Cashier TZ' | 'Cashier China' | 'Auditor';
 interface KobePayUserRow { id: string; name: string; phone: string; role: KobePayUserRole; active: boolean; pin: string; permissions?: Record<string, boolean> | null; }
@@ -243,6 +246,7 @@ const SIDEBAR_ITEMS: { id: Module; label: string; icon: typeof Wallet; color: st
   { id: 'owner', label: 'Owner Profit', icon: TrendingUp, color: 'text-yellow-400' },
   { id: 'cashierPerf', label: 'Cashier Performance', icon: Activity, color: 'text-indigo-400' },
   { id: 'risk', label: 'Risk & Exceptions', icon: ShieldCheck, color: 'text-rose-400' },
+  { id: 'rates', label: 'Exchange Rates', icon: ArrowRightLeft, color: 'text-teal-400' },
   { id: 'users', label: 'Users & Permissions', icon: KeyRound, color: 'text-fuchsia-400' },
   { id: 'audit', label: 'Audit Log', icon: FileText, color: 'text-orange-400' },
   { id: 'customers', label: 'Customers', icon: Users, color: 'text-blue-400' },
@@ -590,6 +594,71 @@ export default function KobePay() {
       await reloadKobepayUsers();
     } catch { /* */ }
   };
+
+  /* ── Exchange rates: history + active map for deposit pre-fill ── */
+  const [rateHistory, setRateHistory] = useState<RateRow[]>([]);
+  const [activeRates, setActiveRates] = useState<RateRow[]>([]);
+  const [newRateFrom, setNewRateFrom] = useState('CNY');
+  const [newRateTo, setNewRateTo] = useState('TZS');
+  const [newRateSales, setNewRateSales] = useState('');
+  const [newRateCost, setNewRateCost] = useState('');
+  const [newRateNotes, setNewRateNotes] = useState('');
+  const [rateError, setRateError] = useState<string | null>(null);
+  const [rateSaving, setRateSaving] = useState(false);
+
+  const reloadActiveRates = useCallback(async () => {
+    try { setActiveRates(await api<RateRow[]>('/kobepay/rates/active')); } catch { /* */ }
+  }, []);
+
+  // Anyone authenticated may read the active rates so the deposit form can
+  // pre-fill the sales rate. Full history is admin-only.
+  useEffect(() => { reloadActiveRates(); }, [reloadActiveRates]);
+
+  useEffect(() => {
+    if (module !== 'rates' || role !== 'Admin') return;
+    (async () => {
+      try { setRateHistory(await api<RateRow[]>('/kobepay/rates')); } catch { /* */ }
+    })();
+  }, [module, role, activeRates]);
+
+  const handleSaveRate = async () => {
+    setRateError(null);
+    const sales = parseFloat(newRateSales);
+    const cost = parseFloat(newRateCost);
+    if (!newRateFrom.trim() || !isFinite(sales) || sales <= 0 || !isFinite(cost) || cost <= 0) {
+      setRateError('Currency, sales rate, and cost rate are required and must be > 0');
+      return;
+    }
+    setRateSaving(true);
+    try {
+      await api('/kobepay/rates', {
+        method: 'POST',
+        body: JSON.stringify({
+          fromCurrency: newRateFrom.trim().toUpperCase(),
+          toCurrency: newRateTo.trim().toUpperCase() || 'TZS',
+          salesRate: sales, costRate: cost,
+          notes: newRateNotes,
+        }),
+      });
+      setNewRateSales(''); setNewRateCost(''); setNewRateNotes('');
+      await reloadActiveRates();
+      const history = await api<RateRow[]>('/kobepay/rates');
+      setRateHistory(history);
+    } catch (err) {
+      setRateError(err instanceof Error ? err.message : 'Could not save rate');
+    } finally {
+      setRateSaving(false);
+    }
+  };
+
+  const handleDeactivateRate = async (r: RateRow) => {
+    try {
+      await api(`/kobepay/rates/${r.id}/deactivate`, { method: 'PATCH' });
+      await reloadActiveRates();
+      const history = await api<RateRow[]>('/kobepay/rates');
+      setRateHistory(history);
+    } catch { /* */ }
+  };
   const [showTransactionDialog, setShowTransactionDialog] = useState(false);
 
   // Settings state
@@ -609,7 +678,7 @@ export default function KobePay() {
   const canAccess = (m: Module): boolean => {
     if (role === 'Admin') return true;
     // Admin-only modules: profit margins, RBAC, audit, and risk.
-    if (m === 'owner' || m === 'users' || m === 'audit' || m === 'risk' || m === 'cashierPerf') return false;
+    if (m === 'owner' || m === 'users' || m === 'audit' || m === 'risk' || m === 'cashierPerf' || m === 'rates') return false;
     if (role === 'Cashier TZ') return ['dashboard', 'customers', 'deposits', 'payouts', 'receipts'].includes(m);
     if (role === 'Cashier China') return ['dashboard', 'payouts', 'receipts', 'suppliers'].includes(m);
     return false;
@@ -700,6 +769,13 @@ export default function KobePay() {
     const customer = selectedDepositCustomer;
     const reference = lines.length === 1 ? lines[0].supplierNumber : `${lines.length} suppliers`;
 
+    // Look up the active house rate for the supplier currency so the
+    // Owner Profit Dashboard can compute collectedTzs accurately.
+    const active = activeRates.find(
+      (r) => r.fromCurrency === depositCurrency && r.toCurrency === 'TZS',
+    );
+    const salesRate = active ? Number(active.salesRate) : 0;
+
     try {
       const created = await api<BackendDeposit>('/kobepay/deposits', {
         method: 'POST',
@@ -712,6 +788,10 @@ export default function KobePay() {
           status: 'Confirmed',
           txnType: depositType,
           suppliers: lines,
+          // Engage the profit-accounting fields when a house rate exists.
+          targetCurrency: depositCurrency,
+          targetAmount: total,
+          salesRate,
         }),
       });
       const txnId = `TXN-${created.createdAt.slice(0, 10).replace(/-/g, '')}-${created.id.slice(0, 6)}`;
@@ -840,10 +920,18 @@ export default function KobePay() {
   };
 
   const handleConfirmPayout = async (payoutId: string, newStatus: PayoutStatus) => {
+    // When marking PAID, pre-fill actualRate from the active house cost
+    // rate for this payout's currency so the owner profit dashboard can
+    // realize the spread without Cashier China typing the rate by hand.
+    const body: Record<string, unknown> = { status: newStatus, confirmedBy: role };
+    if (newStatus === 'PAID') {
+      const p = payouts.find((x) => x.id === payoutId);
+      const active = p && activeRates.find((r) => r.fromCurrency === p.currency && r.toCurrency === 'TZS');
+      if (active) body.actualRate = Number(active.costRate);
+    }
     try {
       await api(`/kobepay/payouts/${payoutId}/status`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status: newStatus, confirmedBy: role }),
+        method: 'PATCH', body: JSON.stringify(body),
       });
       await reloadAll();
     } catch {
@@ -1922,6 +2010,141 @@ export default function KobePay() {
     </div>,
   );
 
+  const renderRates = () => adminGate(
+    <div className="space-y-4">
+      <Card className="bg-[#13131f] border-white/[0.06]">
+        <CardContent className="p-5">
+          <h3 className="text-white font-semibold mb-1">Set a new house rate</h3>
+          <p className="text-xs text-slate-500 mb-4">
+            Sales rate = what the TZ cashier quotes the customer. Cost rate = what
+            Cashier China actually pays at. The spread is your margin.
+          </p>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">From</label>
+              <Input value={newRateFrom} onChange={(e) => setNewRateFrom(e.target.value.toUpperCase())}
+                placeholder="CNY" className="bg-[#0a0a1a] border-white/[0.06] text-white font-mono uppercase" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">To</label>
+              <Input value={newRateTo} onChange={(e) => setNewRateTo(e.target.value.toUpperCase())}
+                placeholder="TZS" className="bg-[#0a0a1a] border-white/[0.06] text-white font-mono uppercase" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">Sales rate</label>
+              <Input type="number" step="0.01" value={newRateSales} onChange={(e) => setNewRateSales(e.target.value)}
+                placeholder="400" className="bg-[#0a0a1a] border-white/[0.06] text-white" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">Cost rate</label>
+              <Input type="number" step="0.01" value={newRateCost} onChange={(e) => setNewRateCost(e.target.value)}
+                placeholder="380" className="bg-[#0a0a1a] border-white/[0.06] text-white" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">Notes (optional)</label>
+              <Input value={newRateNotes} onChange={(e) => setNewRateNotes(e.target.value)}
+                placeholder="Why this rate?" className="bg-[#0a0a1a] border-white/[0.06] text-white" />
+            </div>
+          </div>
+          <div className="flex items-center gap-3 mt-4">
+            <Button onClick={handleSaveRate} disabled={rateSaving} className="bg-teal-600 hover:bg-teal-700 text-white">
+              <Plus className="w-4 h-4 mr-1" /> {rateSaving ? 'Saving…' : 'Save new rate'}
+            </Button>
+            {rateError && <span className="text-xs text-rose-400">{rateError}</span>}
+            {newRateSales && newRateCost && parseFloat(newRateSales) > 0 && parseFloat(newRateCost) > 0 && (
+              <span className="text-xs text-emerald-400">
+                Spread: {(parseFloat(newRateSales) - parseFloat(newRateCost)).toFixed(2)} {newRateTo} per {newRateFrom}
+                {' '}({(((parseFloat(newRateSales) - parseFloat(newRateCost)) / parseFloat(newRateCost)) * 100).toFixed(1)}%)
+              </span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="bg-[#13131f] border-white/[0.06]">
+        <CardContent className="p-5">
+          <h3 className="text-white font-semibold mb-3">Active rates</h3>
+          {activeRates.length === 0 ? (
+            <p className="text-sm text-slate-500">No house rates set yet. Deposits will use whatever rate the cashier types in.</p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {activeRates.map((r) => {
+                const sales = Number(r.salesRate);
+                const cost = Number(r.costRate);
+                const spread = sales - cost;
+                const spreadPct = cost > 0 ? (spread / cost) * 100 : 0;
+                return (
+                  <div key={r.id} className="rounded-lg border border-white/[0.06] bg-[#0a0a1a] p-4">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-white text-sm">{r.fromCurrency} → {r.toCurrency}</span>
+                      <Badge variant="outline" className="bg-emerald-500/15 text-emerald-400 border-emerald-500/20">Active</Badge>
+                    </div>
+                    <div className="mt-3 space-y-1 text-sm">
+                      <div className="flex justify-between"><span className="text-slate-400">Sales</span><span className="text-white font-mono">{sales.toLocaleString()}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-400">Cost</span><span className="text-white font-mono">{cost.toLocaleString()}</span></div>
+                      <div className="flex justify-between border-t border-white/[0.04] pt-1 mt-1">
+                        <span className="text-slate-400">Spread</span>
+                        <span className="text-emerald-400 font-mono">{spread.toFixed(2)} ({spreadPct.toFixed(1)}%)</span>
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-slate-500 mt-2">Effective {new Date(r.effectiveFrom).toLocaleString()}</p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="bg-[#13131f] border-white/[0.06]">
+        <CardContent className="p-5">
+          <h3 className="text-white font-semibold mb-3">Rate history ({rateHistory.length})</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="text-xs text-slate-400 border-b border-white/[0.04]">
+                <th className="text-left py-2">Effective</th>
+                <th className="text-left">Pair</th>
+                <th className="text-right">Sales</th>
+                <th className="text-right">Cost</th>
+                <th className="text-left pl-3">Notes</th>
+                <th className="text-center">Active</th>
+                <th className="text-right pr-2"></th>
+              </tr></thead>
+              <tbody>
+                {rateHistory.length === 0 && (
+                  <tr><td colSpan={7} className="py-6 text-center text-slate-500">No rates yet.</td></tr>
+                )}
+                {rateHistory.map((r) => (
+                  <tr key={r.id} className="border-b border-white/[0.02]">
+                    <td className="py-2 text-xs text-slate-400">{new Date(r.effectiveFrom).toLocaleString()}</td>
+                    <td className="font-mono text-white">{r.fromCurrency} → {r.toCurrency}</td>
+                    <td className="text-right text-slate-200 font-mono">{Number(r.salesRate).toLocaleString()}</td>
+                    <td className="text-right text-slate-200 font-mono">{Number(r.costRate).toLocaleString()}</td>
+                    <td className="text-slate-400 pl-3">{r.notes || '-'}</td>
+                    <td className="text-center">
+                      {r.active ? (
+                        <Badge variant="outline" className="bg-emerald-500/15 text-emerald-400 border-emerald-500/20">Yes</Badge>
+                      ) : (
+                        <Badge variant="outline" className="bg-slate-500/15 text-slate-400 border-slate-500/20">No</Badge>
+                      )}
+                    </td>
+                    <td className="text-right pr-2">
+                      {r.active && (
+                        <Button size="sm" variant="ghost" onClick={() => handleDeactivateRate(r)} className="text-rose-300 hover:bg-rose-500/10 text-xs">
+                          Deactivate
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+    </div>,
+  );
+
   const renderAudit = () => adminGate(
     <Card className="bg-[#13131f] border-white/[0.06]">
       <CardContent className="p-5">
@@ -1961,6 +2184,7 @@ export default function KobePay() {
       case 'owner': return renderOwner();
       case 'cashierPerf': return renderCashierPerf();
       case 'risk': return renderRisk();
+      case 'rates': return renderRates();
       case 'users': return renderUsers();
       case 'audit': return renderAudit();
       case 'customers': return renderCustomers();
@@ -1977,7 +2201,7 @@ export default function KobePay() {
   const getModuleTitle = () => {
     const titles: Record<Module, string> = {
       dashboard: 'Dashboard', owner: 'Owner Profit Dashboard', cashierPerf: 'Cashier Performance',
-      risk: 'Risk & Exceptions', users: 'Users & Permissions', audit: 'Audit Log',
+      risk: 'Risk & Exceptions', rates: 'Exchange Rates', users: 'Users & Permissions', audit: 'Audit Log',
       customers: 'Customers', deposits: 'Deposits', payouts: 'Payouts',
       suppliers: 'Suppliers', allocations: 'Allocations', receipts: 'Receipts', settings: 'Settings',
     };

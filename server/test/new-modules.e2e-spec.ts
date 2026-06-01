@@ -578,6 +578,78 @@ describe('New modules + ownership (e2e)', () => {
     expect(risk.body.alerts.filter((a: { kind: string }) => a.kind === 'large_deposit')).toHaveLength(0);
   });
 
+  it('KobePay rates: set house rate, deposit uses it, risk flags override', async () => {
+    const t = await token('rates@e2e.test');
+
+    // No rates set yet -> active list is empty.
+    let active = await request(http).get('/api/kobepay/rates/active').set(bearer(t));
+    expect(active.body).toEqual([]);
+
+    // Set house rate: CNY -> TZS sales 400, cost 380.
+    const rate = await request(http).post('/api/kobepay/rates').set(bearer(t))
+      .send({ fromCurrency: 'CNY', toCurrency: 'TZS', salesRate: 400, costRate: 380, notes: 'opening rate' });
+    expect(rate.status).toBe(201);
+
+    active = await request(http).get('/api/kobepay/rates/active').set(bearer(t));
+    expect(active.body).toHaveLength(1);
+    expect(Number(active.body[0].salesRate)).toBe(400);
+    expect(Number(active.body[0].costRate)).toBe(380);
+
+    // Both sales and cost > 0 validation.
+    const bad = await request(http).post('/api/kobepay/rates').set(bearer(t))
+      .send({ fromCurrency: 'CNY', salesRate: 0, costRate: 380 });
+    expect(bad.status).toBe(400);
+
+    // A new rate inserts (doesn't update) and supersedes the old one.
+    await request(http).post('/api/kobepay/rates').set(bearer(t))
+      .send({ fromCurrency: 'CNY', salesRate: 410, costRate: 385 });
+    const history = await request(http).get('/api/kobepay/rates').set(bearer(t));
+    expect(history.body.length).toBeGreaterThanOrEqual(2);
+    active = await request(http).get('/api/kobepay/rates/active').set(bearer(t));
+    expect(Number(active.body[0].salesRate)).toBe(410);
+
+    // Deposit at house rate (400 was the original; using the new rate now).
+    const cust = await request(http).post('/api/kobepay/customers').set(bearer(t))
+      .send({ name: 'Asha', phone: '+255700000111' });
+    const onHouseRate = await request(http).post('/api/kobepay/deposits').set(bearer(t))
+      .send({
+        customerId: cust.body.id, amount: 100_000, currency: 'CNY',
+        method: 'Bank', status: 'Confirmed', txnType: 'Deposit',
+        targetCurrency: 'CNY', targetAmount: 100, salesRate: 410,
+      });
+    expect(onHouseRate.status).toBe(201);
+
+    // Deposit at off-house rate (435 vs house 410 = 6.1% off — under threshold).
+    await request(http).post('/api/kobepay/deposits').set(bearer(t))
+      .send({
+        customerId: cust.body.id, amount: 100_000, currency: 'CNY',
+        method: 'Bank', status: 'Confirmed', txnType: 'Deposit',
+        targetCurrency: 'CNY', targetAmount: 100, salesRate: 435,
+      });
+
+    // Deposit at heavily-off rate (500 vs house 410 = 21.9% off).
+    const off = await request(http).post('/api/kobepay/deposits').set(bearer(t))
+      .send({
+        customerId: cust.body.id, amount: 100_000, currency: 'CNY',
+        method: 'Bank', status: 'Confirmed', txnType: 'Deposit',
+        targetCurrency: 'CNY', targetAmount: 100, salesRate: 500,
+      });
+    expect(off.status).toBe(201);
+
+    // Risk dashboard now flags the off-house deposit as rate_override.
+    const risk = await request(http).get('/api/kobepay/risk').set(bearer(t));
+    const overrides = risk.body.alerts.filter((a: { kind: string; resourceId: string }) =>
+      a.kind === 'rate_override' && a.resourceId === off.body.id);
+    expect(overrides.length).toBe(1);
+    expect(overrides[0].message).toMatch(/house rate 410/);
+
+    // Deactivating the most recent rate falls back to the older one.
+    await request(http).patch(`/api/kobepay/rates/${rate.body.id}/deactivate`).set(bearer(t)).send({});
+    const auditPage = await request(http).get('/api/kobepay/audit').set(bearer(t));
+    expect(auditPage.body.some((a: { action: string }) => a.action === 'rate.set')).toBe(true);
+    expect(auditPage.body.some((a: { action: string }) => a.action === 'rate.deactivate')).toBe(true);
+  });
+
   it('rejects unauthenticated access to owned resources', async () => {
     expect((await request(http).get('/api/print/jobs')).status).toBe(401);
     expect((await request(http).get('/api/erp/summary')).status).toBe(401);
