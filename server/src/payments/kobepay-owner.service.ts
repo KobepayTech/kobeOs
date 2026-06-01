@@ -8,6 +8,7 @@ import {
   PaymentPayout,
   PaymentSupplier,
 } from './kobepay.entity';
+import { KobePayAuditEvent, KobePayUser } from './kobepay-rbac.entity';
 
 export interface ProfitEntry {
   depositId: string;
@@ -237,4 +238,231 @@ export class KobePayOwnerService {
 
 function round(n: number): number {
   return parseFloat(n.toFixed(2));
+}
+
+/* ============================================================
+ * Cashier performance dashboard
+ * ========================================================== */
+
+export interface CashierStat {
+  userId: string | null;
+  name: string;
+  role: string;
+  deposits: number;
+  depositsTotal: number;
+  payoutsInitiated: number;
+  payoutsPaidValue: number;
+  reversals: number;
+  attributedProfitTzs: number;
+  lastActiveAt: string | null;
+}
+
+@Injectable()
+export class KobePayCashierPerfService {
+  constructor(
+    @InjectRepository(KobePayUser) private readonly users: Repository<KobePayUser>,
+    @InjectRepository(KobePayAuditEvent) private readonly audits: Repository<KobePayAuditEvent>,
+    @InjectRepository(PaymentDeposit) private readonly deposits: Repository<PaymentDeposit>,
+    @InjectRepository(PaymentPayout) private readonly payouts: Repository<PaymentPayout>,
+  ) {}
+
+  async dashboard(uid: string): Promise<CashierStat[]> {
+    const [users, audits, deposits, payouts] = await Promise.all([
+      this.users.find({ where: { ownerId: uid } }),
+      this.audits.find({ where: { ownerId: uid }, order: { createdAt: 'DESC' }, take: 5000 }),
+      this.deposits.find({ where: { ownerId: uid } }),
+      this.payouts.find({ where: { ownerId: uid } }),
+    ]);
+
+    // Group audit events by actorUserId so each cashier's volumes are real.
+    const byActor: Record<string, { events: KobePayAuditEvent[]; last: string }> = {};
+    for (const ev of audits) {
+      const key = ev.actorUserId ?? '__owner';
+      const acc = byActor[key] ?? { events: [], last: '' };
+      acc.events.push(ev);
+      const ts = ev.createdAt.toISOString();
+      if (ts > acc.last) acc.last = ts;
+      byActor[key] = acc;
+    }
+
+    const out: CashierStat[] = users.map((u) => {
+      const bucket = byActor[u.id] ?? { events: [], last: '' };
+      const depositIdsBy = new Set(
+        bucket.events.filter((e) => e.action === 'deposit.create').map((e) => e.resourceId).filter(Boolean) as string[],
+      );
+      const payoutIdsBy = new Set(
+        bucket.events.filter((e) => e.action === 'payout.create' || e.action === 'payout.paid').map((e) => e.resourceId).filter(Boolean) as string[],
+      );
+      const reversals = bucket.events.filter((e) => /reverse|rejected/i.test(e.action)).length;
+
+      const userDeposits = deposits.filter((d) => depositIdsBy.has(d.id));
+      const depositsTotal = userDeposits.reduce((s, d) => s + Number(d.collectedTzs || d.amount), 0);
+      const userPayouts = payouts.filter((p) => payoutIdsBy.has(p.id));
+      const payoutsPaidValue = userPayouts
+        .filter((p) => p.status === 'PAID')
+        .reduce((s, p) => s + Number(p.actualCostTzs || p.amount), 0);
+
+      // Profit attributed to this cashier = sum over realized deposits
+      // they created of (collected − cost − fees).
+      let attributedProfit = 0;
+      for (const d of userDeposits) {
+        const paid = payouts.find((p) => p.depositId === d.id && p.status === 'PAID');
+        if (!paid) continue;
+        const fees = Number(paid.transactionFees) + Number(paid.bankCharges) + Number(paid.mobileMoneyCharges) + Number(paid.agentCommission);
+        attributedProfit += Number(d.collectedTzs) - Number(paid.actualCostTzs) - fees;
+      }
+
+      return {
+        userId: u.id,
+        name: u.name,
+        role: u.role,
+        deposits: userDeposits.length,
+        depositsTotal: round(depositsTotal),
+        payoutsInitiated: userPayouts.length,
+        payoutsPaidValue: round(payoutsPaidValue),
+        reversals,
+        attributedProfitTzs: round(attributedProfit),
+        lastActiveAt: bucket.last || null,
+      };
+    });
+    return out.sort((a, b) => b.depositsTotal - a.depositsTotal);
+  }
+}
+
+/* ============================================================
+ * Risk & exceptions dashboard
+ * ========================================================== */
+
+export interface RiskAlert {
+  severity: 'high' | 'medium' | 'low';
+  kind: string;
+  message: string;
+  resourceType: string;
+  resourceId: string;
+  createdAt: string;
+}
+
+const LARGE_DEPOSIT_TZS = 10_000_000;
+const PAYOUT_STALE_HOURS = 24;
+const PAYOUT_UNCONFIRMED_HOURS = 12;
+const RATE_OVERRIDE_PCT = 8; // sales rate diverging from median > 8% flags
+
+@Injectable()
+export class KobePayRiskService {
+  constructor(
+    @InjectRepository(PaymentDeposit) private readonly deposits: Repository<PaymentDeposit>,
+    @InjectRepository(PaymentPayout) private readonly payouts: Repository<PaymentPayout>,
+    @InjectRepository(KobePayAuditEvent) private readonly audits: Repository<KobePayAuditEvent>,
+  ) {}
+
+  async dashboard(uid: string): Promise<{ alerts: RiskAlert[]; summary: Record<string, number> }> {
+    const [deposits, payouts, audits] = await Promise.all([
+      this.deposits.find({ where: { ownerId: uid } }),
+      this.payouts.find({ where: { ownerId: uid } }),
+      this.audits.find({ where: { ownerId: uid }, order: { createdAt: 'DESC' }, take: 2000 }),
+    ]);
+    const now = Date.now();
+    const alerts: RiskAlert[] = [];
+
+    // Large deposits.
+    for (const d of deposits) {
+      if (Number(d.collectedTzs || d.amount) >= LARGE_DEPOSIT_TZS && d.status === 'Confirmed') {
+        alerts.push({
+          severity: 'medium',
+          kind: 'large_deposit',
+          message: `Deposit of ${Math.round(Number(d.collectedTzs || d.amount)).toLocaleString()} TZS from ${d.customerName} exceeds ${LARGE_DEPOSIT_TZS.toLocaleString()} threshold`,
+          resourceType: 'deposit',
+          resourceId: d.id,
+          createdAt: d.createdAt.toISOString(),
+        });
+      }
+    }
+
+    // Stale pending payouts.
+    for (const p of payouts) {
+      const ageH = (now - new Date(p.createdAt).getTime()) / 3_600_000;
+      if (p.status === 'INITIATED' && ageH > PAYOUT_STALE_HOURS) {
+        alerts.push({
+          severity: 'high',
+          kind: 'stale_payout',
+          message: `Payout to ${p.supplierName} initiated ${Math.round(ageH)}h ago is still pending`,
+          resourceType: 'payout',
+          resourceId: p.id,
+          createdAt: p.createdAt.toISOString(),
+        });
+      } else if (p.status === 'SENT' && ageH > PAYOUT_UNCONFIRMED_HOURS) {
+        alerts.push({
+          severity: 'high',
+          kind: 'unconfirmed_payout',
+          message: `Payout to ${p.supplierName} sent ${Math.round(ageH)}h ago but China has not confirmed`,
+          resourceType: 'payout',
+          resourceId: p.id,
+          createdAt: p.createdAt.toISOString(),
+        });
+      }
+    }
+
+    // Rate override flagged when a deposit's salesRate diverges
+    // significantly from the median sales rate across recent deposits.
+    const rates = deposits.map((d) => Number(d.salesRate)).filter((r) => r > 0).sort((a, b) => a - b);
+    if (rates.length >= 5) {
+      const median = rates[Math.floor(rates.length / 2)];
+      for (const d of deposits) {
+        const r = Number(d.salesRate);
+        if (r <= 0) continue;
+        const divergence = Math.abs((r - median) / median) * 100;
+        if (divergence > RATE_OVERRIDE_PCT) {
+          alerts.push({
+            severity: 'medium',
+            kind: 'rate_override',
+            message: `Deposit ${d.id.slice(0, 8)} used rate ${r} (median ${median}, ${divergence.toFixed(1)}% off)`,
+            resourceType: 'deposit',
+            resourceId: d.id,
+            createdAt: d.createdAt.toISOString(),
+          });
+        }
+      }
+    }
+
+    // Supplier over/underpayment.
+    for (const p of payouts) {
+      if (p.status !== 'PAID' || !p.depositId) continue;
+      const d = deposits.find((x) => x.id === p.depositId);
+      if (!d) continue;
+      const expected = Number(d.targetAmount);
+      const actual = Number(p.amount);
+      if (expected > 0 && Math.abs(expected - actual) > 0.01) {
+        alerts.push({
+          severity: 'high',
+          kind: actual > expected ? 'supplier_overpaid' : 'supplier_underpaid',
+          message: `${p.supplierName} ${actual > expected ? 'overpaid' : 'underpaid'}: expected ${expected} ${d.targetCurrency}, paid ${actual}`,
+          resourceType: 'payout',
+          resourceId: p.id,
+          createdAt: p.createdAt.toISOString(),
+        });
+      }
+    }
+
+    // Cashier mismatch: payout PAID by the same user who initiated it (no 4-eyes).
+    const paidEvents = audits.filter((a) => a.action === 'payout.paid');
+    for (const ev of paidEvents) {
+      const initEv = audits.find((a) => a.action === 'payout.create' && a.resourceId === ev.resourceId);
+      if (initEv && initEv.actorUserId && ev.actorUserId === initEv.actorUserId) {
+        alerts.push({
+          severity: 'medium',
+          kind: 'cashier_mismatch',
+          message: `${ev.actorName} both initiated and marked payout ${ev.resourceId?.slice(0, 8)} as PAID (no four-eye control)`,
+          resourceType: 'payout',
+          resourceId: ev.resourceId ?? '',
+          createdAt: ev.createdAt.toISOString(),
+        });
+      }
+    }
+
+    const summary = alerts.reduce<Record<string, number>>((acc, a) => {
+      acc[a.kind] = (acc[a.kind] ?? 0) + 1;
+      return acc;
+    }, {});
+    return { alerts: alerts.sort((a, b) => (a.severity === 'high' ? -1 : 1)), summary };
+  }
 }

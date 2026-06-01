@@ -13,7 +13,7 @@ import {
   Wallet, LayoutDashboard, Users, ArrowDownLeft, Send, Building2, Share2, Receipt, Settings,
   Plus, Search, CheckCircle2, Clock, XCircle, Phone, User, Mail, CreditCard, Banknote,
   Smartphone, Landmark, DollarSign, ChevronRight, X, Check, Download, Printer, QrCode,
-  Trash2, Edit, Eye, Filter, BadgeCheck, AlertTriangle, TrendingUp
+  Trash2, Edit, Eye, Filter, BadgeCheck, AlertTriangle, TrendingUp, ShieldCheck, Activity, FileText, KeyRound
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,7 +25,13 @@ import { QRCodeSVG } from 'qrcode.react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 type Role = 'Admin' | 'Cashier TZ' | 'Cashier China';
-type Module = 'dashboard' | 'owner' | 'customers' | 'deposits' | 'payouts' | 'suppliers' | 'allocations' | 'receipts' | 'settings';
+type Module = 'dashboard' | 'owner' | 'customers' | 'deposits' | 'payouts' | 'suppliers' | 'allocations' | 'receipts' | 'users' | 'cashierPerf' | 'risk' | 'audit' | 'settings';
+
+type KobePayUserRole = 'Admin' | 'Manager' | 'Cashier TZ' | 'Cashier China' | 'Auditor';
+interface KobePayUserRow { id: string; name: string; phone: string; role: KobePayUserRole; active: boolean; pin: string; permissions?: Record<string, boolean> | null; }
+interface CashierStatRow { userId: string | null; name: string; role: string; deposits: number; depositsTotal: number; payoutsInitiated: number; payoutsPaidValue: number; reversals: number; attributedProfitTzs: number; lastActiveAt: string | null; }
+interface RiskAlertRow { severity: 'high' | 'medium' | 'low'; kind: string; message: string; resourceType: string; resourceId: string; createdAt: string; }
+interface AuditRow { id: string; actorName: string; actorRole: string; action: string; resourceType: string; resourceId: string | null; createdAt: string; metadata?: Record<string, unknown> | null; }
 type DepositStatus = 'Pending' | 'Confirmed';
 type PayoutStatus = 'INITIATED' | 'SENT' | 'CONFIRMED' | 'PAID';
 type TxnType = 'Deposit' | 'Goods on Delivery';
@@ -235,6 +241,10 @@ const WEEKLY_DATA = [
 const SIDEBAR_ITEMS: { id: Module; label: string; icon: typeof Wallet; color: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, color: 'text-cyan-400' },
   { id: 'owner', label: 'Owner Profit', icon: TrendingUp, color: 'text-yellow-400' },
+  { id: 'cashierPerf', label: 'Cashier Performance', icon: Activity, color: 'text-indigo-400' },
+  { id: 'risk', label: 'Risk & Exceptions', icon: ShieldCheck, color: 'text-rose-400' },
+  { id: 'users', label: 'Users & Permissions', icon: KeyRound, color: 'text-fuchsia-400' },
+  { id: 'audit', label: 'Audit Log', icon: FileText, color: 'text-orange-400' },
   { id: 'customers', label: 'Customers', icon: Users, color: 'text-blue-400' },
   { id: 'deposits', label: 'Deposits', icon: ArrowDownLeft, color: 'text-emerald-400' },
   { id: 'payouts', label: 'Payouts', icon: Send, color: 'text-amber-400' },
@@ -511,6 +521,75 @@ export default function KobePay() {
     })();
     return () => { cancelled = true; };
   }, [module, role, deposits, payouts]);
+
+  /* ── Users & Permissions, Cashier Performance, Risk, Audit (admin) ── */
+  const [kobepayUsers, setKobepayUsers] = useState<KobePayUserRow[]>([]);
+  const [cashierStats, setCashierStats] = useState<CashierStatRow[]>([]);
+  const [riskAlerts, setRiskAlerts] = useState<RiskAlertRow[]>([]);
+  const [riskSummary, setRiskSummary] = useState<Record<string, number>>({});
+  const [auditLog, setAuditLog] = useState<AuditRow[]>([]);
+  const [showAddUser, setShowAddUser] = useState(false);
+  const [newUserName, setNewUserName] = useState('');
+  const [newUserRole, setNewUserRole] = useState<KobePayUserRole>('Cashier TZ');
+  const [newUserPin, setNewUserPin] = useState('');
+  const [newUserPhone, setNewUserPhone] = useState('');
+  const [userError, setUserError] = useState<string | null>(null);
+
+  const reloadKobepayUsers = useCallback(async () => {
+    try { const r = await api<KobePayUserRow[]>('/kobepay/users'); setKobepayUsers(r); } catch { /* */ }
+  }, []);
+
+  useEffect(() => {
+    if (role !== 'Admin') return;
+    if (module === 'users') reloadKobepayUsers();
+    if (module === 'cashierPerf') {
+      (async () => { try { setCashierStats(await api<CashierStatRow[]>('/kobepay/cashier-performance')); } catch { /* */ } })();
+    }
+    if (module === 'risk') {
+      (async () => {
+        try {
+          const r = await api<{ alerts: RiskAlertRow[]; summary: Record<string, number> }>('/kobepay/risk');
+          setRiskAlerts(r.alerts); setRiskSummary(r.summary);
+        } catch { /* */ }
+      })();
+    }
+    if (module === 'audit') {
+      (async () => { try { setAuditLog(await api<AuditRow[]>('/kobepay/audit?limit=200')); } catch { /* */ } })();
+    }
+  }, [module, role, reloadKobepayUsers, deposits, payouts]);
+
+  const handleAddKobepayUser = async () => {
+    setUserError(null);
+    if (!newUserName.trim() || !/^\d{4}$/.test(newUserPin)) {
+      setUserError('Name and a 4-digit pin are required');
+      return;
+    }
+    try {
+      await api('/kobepay/users', {
+        method: 'POST',
+        body: JSON.stringify({ name: newUserName.trim(), role: newUserRole, pin: newUserPin, phone: newUserPhone }),
+      });
+      setShowAddUser(false);
+      setNewUserName(''); setNewUserPin(''); setNewUserPhone(''); setNewUserRole('Cashier TZ');
+      await reloadKobepayUsers();
+    } catch (err) {
+      setUserError(err instanceof Error ? err.message : 'Could not create user');
+    }
+  };
+
+  const handleToggleUserActive = async (u: KobePayUserRow) => {
+    try {
+      await api(`/kobepay/users/${u.id}`, { method: 'PATCH', body: JSON.stringify({ active: !u.active }) });
+      await reloadKobepayUsers();
+    } catch { /* */ }
+  };
+
+  const handleDeleteKobepayUser = async (u: KobePayUserRow) => {
+    try {
+      await api(`/kobepay/users/${u.id}`, { method: 'DELETE' });
+      await reloadKobepayUsers();
+    } catch { /* */ }
+  };
   const [showTransactionDialog, setShowTransactionDialog] = useState(false);
 
   // Settings state
@@ -529,9 +608,8 @@ export default function KobePay() {
 
   const canAccess = (m: Module): boolean => {
     if (role === 'Admin') return true;
-    // Owner Profit Dashboard is admin-only; cashiers should not see the
-    // margin between sales rate and actual cost rate.
-    if (m === 'owner') return false;
+    // Admin-only modules: profit margins, RBAC, audit, and risk.
+    if (m === 'owner' || m === 'users' || m === 'audit' || m === 'risk' || m === 'cashierPerf') return false;
     if (role === 'Cashier TZ') return ['dashboard', 'customers', 'deposits', 'payouts', 'receipts'].includes(m);
     if (role === 'Cashier China') return ['dashboard', 'payouts', 'receipts', 'suppliers'].includes(m);
     return false;
@@ -1658,10 +1736,233 @@ export default function KobePay() {
     );
   };
 
+  const adminGate = (panel: React.ReactNode) =>
+    role !== 'Admin'
+      ? (
+        <Card className="bg-[#13131f] border-white/[0.06]">
+          <CardContent className="p-8 text-center text-slate-400">
+            <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-amber-400" />
+            This module is admin-only. Switch role to Admin to view.
+          </CardContent>
+        </Card>
+      )
+      : panel;
+
+  const ROLE_BADGES: Record<KobePayUserRole, string> = {
+    Admin:          'bg-yellow-500/15 text-yellow-400 border-yellow-500/20',
+    Manager:        'bg-violet-500/15 text-violet-400 border-violet-500/20',
+    'Cashier TZ':   'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
+    'Cashier China':'bg-sky-500/15 text-sky-400 border-sky-500/20',
+    Auditor:        'bg-slate-500/15 text-slate-300 border-slate-500/20',
+  };
+
+  const renderUsers = () => adminGate(
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-slate-400">Sub-users authenticate at the till by typing their 4-digit pin.</p>
+        <Button onClick={() => setShowAddUser(true)} className="bg-fuchsia-600 hover:bg-fuchsia-700 text-white">
+          <Plus className="w-4 h-4 mr-1" /> Add User
+        </Button>
+      </div>
+      <Card className="bg-[#13131f] border-white/[0.06]">
+        <CardContent className="p-0">
+          <table className="w-full text-sm">
+            <thead><tr className="text-xs text-slate-400 border-b border-white/[0.04]">
+              <th className="text-left py-3 px-4">Name</th>
+              <th className="text-left">Phone</th>
+              <th className="text-left">Role</th>
+              <th className="text-left">Pin</th>
+              <th className="text-center">Active</th>
+              <th className="text-right pr-4">Actions</th>
+            </tr></thead>
+            <tbody>
+              {kobepayUsers.length === 0 && (
+                <tr><td colSpan={6} className="py-8 text-center text-slate-500">No sub-users yet — add one to start tracking actions per cashier.</td></tr>
+              )}
+              {kobepayUsers.map((u) => (
+                <tr key={u.id} className="border-b border-white/[0.02]">
+                  <td className="py-3 px-4 text-white">{u.name}</td>
+                  <td className="text-slate-300">{u.phone || '-'}</td>
+                  <td><Badge variant="outline" className={ROLE_BADGES[u.role] || ''}>{u.role}</Badge></td>
+                  <td className="font-mono text-slate-300">****</td>
+                  <td className="text-center">
+                    <button onClick={() => handleToggleUserActive(u)}
+                      className={`w-10 h-5 rounded-full transition-colors relative ${u.active ? 'bg-emerald-500/40' : 'bg-slate-600'}`}>
+                      <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${u.active ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                    </button>
+                  </td>
+                  <td className="text-right pr-4">
+                    <Button variant="ghost" size="sm" onClick={() => handleDeleteKobepayUser(u)} className="text-rose-300 hover:bg-rose-500/10">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+
+      <Dialog open={showAddUser} onOpenChange={setShowAddUser}>
+        <DialogContent className="bg-[#13131f] border-white/[0.06] text-white max-w-md">
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><Plus className="w-5 h-5 text-fuchsia-400" />Add KobePay user</DialogTitle></DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div><label className="text-xs text-slate-400 block mb-1">Name</label><Input value={newUserName} onChange={(e) => setNewUserName(e.target.value)} className="bg-[#0a0a1a] border-white/[0.06] text-white" /></div>
+            <div><label className="text-xs text-slate-400 block mb-1">Phone (optional)</label><Input value={newUserPhone} onChange={(e) => setNewUserPhone(e.target.value)} className="bg-[#0a0a1a] border-white/[0.06] text-white" /></div>
+            <div><label className="text-xs text-slate-400 block mb-1">Role</label>
+              <Select value={newUserRole} onValueChange={(v) => setNewUserRole(v as KobePayUserRole)}>
+                <SelectTrigger className="bg-[#0a0a1a] border-white/[0.06] text-white"><SelectValue /></SelectTrigger>
+                <SelectContent className="bg-[#13131f] border-white/[0.06]">
+                  {(['Admin', 'Manager', 'Cashier TZ', 'Cashier China', 'Auditor'] as KobePayUserRole[]).map((r) => (
+                    <SelectItem key={r} value={r} className="text-white">{r}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div><label className="text-xs text-slate-400 block mb-1">4-digit till pin</label>
+              <Input value={newUserPin} onChange={(e) => setNewUserPin(e.target.value.replace(/\D/g, '').slice(0, 4))} placeholder="1234" className="bg-[#0a0a1a] border-white/[0.06] text-white font-mono" />
+            </div>
+            {userError && <div className="text-xs text-rose-400">{userError}</div>}
+            <div className="flex gap-2 pt-2">
+              <Button onClick={handleAddKobepayUser} className="bg-fuchsia-600 hover:bg-fuchsia-700 flex-1">Create user</Button>
+              <Button variant="ghost" onClick={() => setShowAddUser(false)} className="text-slate-400">Cancel</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>,
+  );
+
+  const renderCashierPerf = () => adminGate(
+    <Card className="bg-[#13131f] border-white/[0.06]">
+      <CardContent className="p-5">
+        <h3 className="text-white font-semibold mb-3">Cashier Performance</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="text-xs text-slate-400 border-b border-white/[0.04]">
+              <th className="text-left py-2">Cashier</th>
+              <th className="text-left">Role</th>
+              <th className="text-right">Deposits</th>
+              <th className="text-right">Deposits Total</th>
+              <th className="text-right">Payouts</th>
+              <th className="text-right">Payouts Paid</th>
+              <th className="text-right">Reversals</th>
+              <th className="text-right">Profit Attributed</th>
+              <th className="text-left pl-3">Last Active</th>
+            </tr></thead>
+            <tbody>
+              {cashierStats.length === 0 && (
+                <tr><td colSpan={9} className="py-8 text-center text-slate-500">No cashier activity yet.</td></tr>
+              )}
+              {cashierStats.map((c) => (
+                <tr key={c.userId ?? c.name} className="border-b border-white/[0.02]">
+                  <td className="py-2 text-white">{c.name}</td>
+                  <td><Badge variant="outline" className={ROLE_BADGES[c.role as KobePayUserRole] ?? ''}>{c.role}</Badge></td>
+                  <td className="text-right text-slate-300">{c.deposits}</td>
+                  <td className="text-right text-slate-200">{fmtTzs(c.depositsTotal)}</td>
+                  <td className="text-right text-slate-300">{c.payoutsInitiated}</td>
+                  <td className="text-right text-slate-200">{fmtTzs(c.payoutsPaidValue)}</td>
+                  <td className={`text-right ${c.reversals > 0 ? 'text-rose-300' : 'text-slate-500'}`}>{c.reversals}</td>
+                  <td className="text-right text-emerald-400">{fmtTzs(c.attributedProfitTzs)}</td>
+                  <td className="text-slate-400 pl-3 text-xs">{c.lastActiveAt ? new Date(c.lastActiveAt).toLocaleString() : '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>,
+  );
+
+  const SEVERITY_COLOR: Record<string, string> = {
+    high:   'bg-rose-500/15 text-rose-400 border-rose-500/20',
+    medium: 'bg-amber-500/15 text-amber-400 border-amber-500/20',
+    low:    'bg-slate-500/15 text-slate-300 border-slate-500/20',
+  };
+
+  const renderRisk = () => adminGate(
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {Object.entries(riskSummary).length === 0 ? (
+          <Card className="col-span-full bg-[#13131f] border-white/[0.06]">
+            <CardContent className="p-6 text-center text-slate-400">
+              <CheckCircle2 className="w-7 h-7 mx-auto mb-2 text-emerald-400" /> No active risk alerts.
+            </CardContent>
+          </Card>
+        ) : Object.entries(riskSummary).map(([kind, count]) => (
+          <Card key={kind} className="bg-[#13131f] border-white/[0.06]">
+            <CardContent className="p-4">
+              <p className="text-xs text-slate-400 uppercase">{kind.replace(/_/g, ' ')}</p>
+              <p className="text-2xl font-bold text-rose-400 mt-1">{count}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+      {riskAlerts.length > 0 && (
+        <Card className="bg-[#13131f] border-white/[0.06]">
+          <CardContent className="p-5">
+            <h3 className="text-white font-semibold mb-3">Active alerts</h3>
+            <div className="space-y-2">
+              {riskAlerts.map((a, i) => (
+                <div key={i} className="flex items-start gap-3 p-3 rounded border border-white/[0.04] bg-[#0a0a1a]">
+                  <Badge variant="outline" className={SEVERITY_COLOR[a.severity]}>{a.severity}</Badge>
+                  <div className="flex-1">
+                    <p className="text-sm text-white">{a.message}</p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      <span className="font-mono">{a.resourceType}/{a.resourceId.slice(0, 8)}</span>
+                      {' · '}{new Date(a.createdAt).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>,
+  );
+
+  const renderAudit = () => adminGate(
+    <Card className="bg-[#13131f] border-white/[0.06]">
+      <CardContent className="p-5">
+        <h3 className="text-white font-semibold mb-3">Audit Log ({auditLog.length})</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="text-xs text-slate-400 border-b border-white/[0.04]">
+              <th className="text-left py-2">When</th>
+              <th className="text-left">Actor</th>
+              <th className="text-left">Role</th>
+              <th className="text-left">Action</th>
+              <th className="text-left">Resource</th>
+            </tr></thead>
+            <tbody>
+              {auditLog.length === 0 && (
+                <tr><td colSpan={5} className="py-8 text-center text-slate-500">No audit events yet.</td></tr>
+              )}
+              {auditLog.map((a) => (
+                <tr key={a.id} className="border-b border-white/[0.02]">
+                  <td className="py-2 text-xs text-slate-400">{new Date(a.createdAt).toLocaleString()}</td>
+                  <td className="text-white">{a.actorName}</td>
+                  <td className="text-slate-400">{a.actorRole}</td>
+                  <td className="font-mono text-xs text-amber-300">{a.action}</td>
+                  <td className="font-mono text-xs text-slate-400">{a.resourceType}{a.resourceId ? `/${a.resourceId.slice(0, 8)}` : ''}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>,
+  );
+
   const renderModule = () => {
     switch (module) {
       case 'dashboard': return renderDashboard();
       case 'owner': return renderOwner();
+      case 'cashierPerf': return renderCashierPerf();
+      case 'risk': return renderRisk();
+      case 'users': return renderUsers();
+      case 'audit': return renderAudit();
       case 'customers': return renderCustomers();
       case 'deposits': return renderDeposits();
       case 'payouts': return renderPayouts();
@@ -1674,7 +1975,12 @@ export default function KobePay() {
   };
 
   const getModuleTitle = () => {
-    const titles: Record<Module, string> = { dashboard: 'Dashboard', owner: 'Owner Profit Dashboard', customers: 'Customers', deposits: 'Deposits', payouts: 'Payouts', suppliers: 'Suppliers', allocations: 'Allocations', receipts: 'Receipts', settings: 'Settings' };
+    const titles: Record<Module, string> = {
+      dashboard: 'Dashboard', owner: 'Owner Profit Dashboard', cashierPerf: 'Cashier Performance',
+      risk: 'Risk & Exceptions', users: 'Users & Permissions', audit: 'Audit Log',
+      customers: 'Customers', deposits: 'Deposits', payouts: 'Payouts',
+      suppliers: 'Suppliers', allocations: 'Allocations', receipts: 'Receipts', settings: 'Settings',
+    };
     return titles[module] || 'Dashboard';
   };
 

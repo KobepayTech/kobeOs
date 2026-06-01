@@ -20,13 +20,18 @@ import {
   UpsertCustomerDto,
   UpsertSupplierDto,
 } from './dto/kobepay.dto';
+import { KobePayRbacService, AuditContext } from './kobepay-rbac.service';
 
 /* ── Customers ───────────────────────────────────────────── */
 @Injectable()
 export class KobePayCustomersService {
-  constructor(@InjectRepository(PaymentCustomer) private readonly repo: Repository<PaymentCustomer>) {}
+  constructor(
+    @InjectRepository(PaymentCustomer) private readonly repo: Repository<PaymentCustomer>,
+    private readonly rbac: KobePayRbacService,
+  ) {}
 
-  list(uid: string, q?: string) {
+  async list(uid: string, ctx: AuditContext, q?: string) {
+    this.rbac.ensure(ctx.user ?? null, 'customer.read');
     if (q && q.trim()) {
       return this.repo.find({
         where: [
@@ -39,32 +44,44 @@ export class KobePayCustomersService {
     return this.repo.find({ where: { ownerId: uid }, order: { name: 'ASC' } });
   }
 
-  async byPhone(uid: string, phone: string) {
+  async byPhone(uid: string, ctx: AuditContext, phone: string) {
+    this.rbac.ensure(ctx.user ?? null, 'customer.read');
     const c = await this.repo.findOne({ where: { ownerId: uid, phone } });
     if (!c) throw new NotFoundException('Customer not found');
     return c;
   }
 
-  async upsert(uid: string, dto: UpsertCustomerDto) {
+  async upsert(uid: string, ctx: AuditContext, dto: UpsertCustomerDto) {
     const existing = await this.repo.findOne({ where: { ownerId: uid, phone: dto.phone } });
     if (existing) {
+      this.rbac.ensure(ctx.user ?? null, 'customer.update');
       Object.assign(existing, dto);
-      return this.repo.save(existing);
+      const saved = await this.repo.save(existing);
+      await this.rbac.record(uid, ctx, 'customer.update', 'customer', saved.id, { phone: saved.phone });
+      return saved;
     }
-    return this.repo.save(this.repo.create({ ...dto, ownerId: uid }));
+    this.rbac.ensure(ctx.user ?? null, 'customer.create');
+    const saved = await this.repo.save(this.repo.create({ ...dto, ownerId: uid }));
+    await this.rbac.record(uid, ctx, 'customer.create', 'customer', saved.id, { phone: saved.phone });
+    return saved;
   }
 
-  async update(uid: string, id: string, dto: UpdateCustomerDto) {
+  async update(uid: string, ctx: AuditContext, id: string, dto: UpdateCustomerDto) {
+    this.rbac.ensure(ctx.user ?? null, 'customer.update');
     const c = await this.repo.findOne({ where: { id, ownerId: uid } });
     if (!c) throw new NotFoundException();
     Object.assign(c, dto);
-    return this.repo.save(c);
+    const saved = await this.repo.save(c);
+    await this.rbac.record(uid, ctx, 'customer.update', 'customer', saved.id, dto);
+    return saved;
   }
 
-  async remove(uid: string, id: string) {
+  async remove(uid: string, ctx: AuditContext, id: string) {
+    this.rbac.ensure(ctx.user ?? null, 'customer.delete');
     const c = await this.repo.findOne({ where: { id, ownerId: uid } });
     if (!c) throw new NotFoundException();
     await this.repo.remove(c);
+    await this.rbac.record(uid, ctx, 'customer.delete', 'customer', id, null);
     return { id };
   }
 }
@@ -72,27 +89,39 @@ export class KobePayCustomersService {
 /* ── Suppliers ───────────────────────────────────────────── */
 @Injectable()
 export class KobePaySuppliersService {
-  constructor(@InjectRepository(PaymentSupplier) private readonly repo: Repository<PaymentSupplier>) {}
+  constructor(
+    @InjectRepository(PaymentSupplier) private readonly repo: Repository<PaymentSupplier>,
+    private readonly rbac: KobePayRbacService,
+  ) {}
 
-  list(uid: string) {
+  list(uid: string, ctx: AuditContext) {
+    this.rbac.ensure(ctx.user ?? null, 'supplier.read');
     return this.repo.find({ where: { ownerId: uid }, order: { name: 'ASC' } });
   }
 
-  async create(uid: string, dto: UpsertSupplierDto) {
-    return this.repo.save(this.repo.create({ ...dto, ownerId: uid }));
+  async create(uid: string, ctx: AuditContext, dto: UpsertSupplierDto) {
+    this.rbac.ensure(ctx.user ?? null, 'supplier.create');
+    const saved = await this.repo.save(this.repo.create({ ...dto, ownerId: uid }));
+    await this.rbac.record(uid, ctx, 'supplier.create', 'supplier', saved.id, { name: saved.name });
+    return saved;
   }
 
-  async update(uid: string, id: string, dto: UpdateSupplierDto) {
+  async update(uid: string, ctx: AuditContext, id: string, dto: UpdateSupplierDto) {
+    this.rbac.ensure(ctx.user ?? null, 'supplier.update');
     const s = await this.repo.findOne({ where: { id, ownerId: uid } });
     if (!s) throw new NotFoundException();
     Object.assign(s, dto);
-    return this.repo.save(s);
+    const saved = await this.repo.save(s);
+    await this.rbac.record(uid, ctx, 'supplier.update', 'supplier', saved.id, dto);
+    return saved;
   }
 
-  async remove(uid: string, id: string) {
+  async remove(uid: string, ctx: AuditContext, id: string) {
+    this.rbac.ensure(ctx.user ?? null, 'supplier.delete');
     const s = await this.repo.findOne({ where: { id, ownerId: uid } });
     if (!s) throw new NotFoundException();
     await this.repo.remove(s);
+    await this.rbac.record(uid, ctx, 'supplier.delete', 'supplier', id, null);
     return { id };
   }
 }
@@ -104,6 +133,7 @@ export class KobePayDepositsService {
     @InjectRepository(PaymentDeposit) private readonly deposits: Repository<PaymentDeposit>,
     @InjectRepository(PaymentCustomer) private readonly customers: Repository<PaymentCustomer>,
     private readonly ds: DataSource,
+    private readonly rbac: KobePayRbacService,
   ) {}
 
   list(uid: string) {
@@ -116,7 +146,8 @@ export class KobePayDepositsService {
    * customer must already exist (so phone-lookup stays a real lookup,
    * not a side-effecting upsert).
    */
-  async create(uid: string, dto: CreateDepositDto) {
+  async create(uid: string, ctx: AuditContext, dto: CreateDepositDto) {
+    this.rbac.ensure(ctx.user ?? null, 'deposit.create');
     return this.ds.transaction(async (tx) => {
       const custRepo = tx.getRepository(PaymentCustomer);
       const depRepo = tx.getRepository(PaymentDeposit);
@@ -160,6 +191,10 @@ export class KobePayDepositsService {
         customer.balance = parseFloat((Number(customer.balance) + dto.amount).toFixed(4));
         await custRepo.save(customer);
       }
+      await this.rbac.record(uid, ctx, 'deposit.create', 'deposit', deposit.id, {
+        customerId: customer.id, amount: dto.amount, currency: dto.currency,
+        targetAmount: dto.targetAmount, salesRate: dto.salesRate, status,
+      });
       return deposit;
     });
   }
@@ -168,7 +203,8 @@ export class KobePayDepositsService {
    * Promote a pending deposit to confirmed (or vice versa). Adjusts the
    * customer balance to match the new state.
    */
-  async setStatus(uid: string, id: string, dto: ConfirmDepositDto) {
+  async setStatus(uid: string, ctx: AuditContext, id: string, dto: ConfirmDepositDto) {
+    this.rbac.ensure(ctx.user ?? null, 'deposit.confirm');
     return this.ds.transaction(async (tx) => {
       const depRepo = tx.getRepository(PaymentDeposit);
       const custRepo = tx.getRepository(PaymentCustomer);
@@ -183,7 +219,9 @@ export class KobePayDepositsService {
         await custRepo.save(customer);
       }
       d.status = dto.status;
-      return depRepo.save(d);
+      const saved = await depRepo.save(d);
+      await this.rbac.record(uid, ctx, 'deposit.statusChange', 'deposit', saved.id, { to: dto.status });
+      return saved;
     });
   }
 }
@@ -203,19 +241,21 @@ export class KobePayPayoutsService {
     @InjectRepository(PaymentPayout) private readonly payouts: Repository<PaymentPayout>,
     @InjectRepository(PaymentSupplier) private readonly suppliers: Repository<PaymentSupplier>,
     private readonly ds: DataSource,
+    private readonly rbac: KobePayRbacService,
   ) {}
 
   list(uid: string) {
     return this.payouts.find({ where: { ownerId: uid }, order: { createdAt: 'DESC' } });
   }
 
-  async create(uid: string, dto: CreatePayoutDto) {
+  async create(uid: string, ctx: AuditContext, dto: CreatePayoutDto) {
+    this.rbac.ensure(ctx.user ?? null, 'payout.create');
     return this.ds.transaction(async (tx) => {
       const supRepo = tx.getRepository(PaymentSupplier);
       const payRepo = tx.getRepository(PaymentPayout);
       const supplier = await supRepo.findOne({ where: { id: dto.supplierId, ownerId: uid } });
       if (!supplier) throw new NotFoundException('Supplier not found');
-      return payRepo.save(
+      const saved = await payRepo.save(
         payRepo.create({
           ownerId: uid,
           supplierId: supplier.id,
@@ -224,7 +264,7 @@ export class KobePayPayoutsService {
           currency: dto.currency ?? 'CNY',
           method: dto.method,
           status: 'INITIATED',
-          initiatedBy: dto.initiatedBy ?? '',
+          initiatedBy: dto.initiatedBy ?? ctx.user?.name ?? '',
           confirmedBy: '',
           notes: dto.notes ?? '',
           depositId: dto.depositId ?? null,
@@ -236,6 +276,10 @@ export class KobePayPayoutsService {
           agentCommission: dto.agentCommission ?? 0,
         }),
       );
+      await this.rbac.record(uid, ctx, 'payout.create', 'payout', saved.id, {
+        supplierId: supplier.id, amount: dto.amount, currency: dto.currency, depositId: dto.depositId,
+      });
+      return saved;
     });
   }
 
@@ -244,7 +288,12 @@ export class KobePayPayoutsService {
    * the supplier's lifetime balance + order count. REJECTED is terminal
    * with no balance change. Illegal transitions return 400.
    */
-  async updateStatus(uid: string, id: string, dto: UpdatePayoutStatusDto) {
+  async updateStatus(uid: string, ctx: AuditContext, id: string, dto: UpdatePayoutStatusDto) {
+    // Permission per target state — markPaid is the cashier-China gate.
+    const perm = dto.status === 'PAID' ? 'payout.markPaid'
+               : dto.status === 'CONFIRMED' ? 'payout.confirm'
+               : 'payout.advance';
+    this.rbac.ensure(ctx.user ?? null, perm);
     return this.ds.transaction(async (tx) => {
       const payRepo = tx.getRepository(PaymentPayout);
       const supRepo = tx.getRepository(PaymentSupplier);
@@ -283,7 +332,14 @@ export class KobePayPayoutsService {
           await supRepo.save(supplier);
         }
       }
-      return payRepo.save(p);
+      const saved = await payRepo.save(p);
+      await this.rbac.record(uid, ctx, `payout.${dto.status.toLowerCase()}`, 'payout', saved.id, {
+        actualRate: dto.actualRate, actualCostTzs: saved.actualCostTzs, fees: {
+          bankCharges: dto.bankCharges, mobileMoneyCharges: dto.mobileMoneyCharges,
+          transactionFees: dto.transactionFees, agentCommission: dto.agentCommission,
+        },
+      });
+      return saved;
     });
   }
 }
@@ -296,6 +352,7 @@ export class KobePayAllocationsService {
     @InjectRepository(PaymentCustomer) private readonly customers: Repository<PaymentCustomer>,
     @InjectRepository(PaymentSupplier) private readonly suppliers: Repository<PaymentSupplier>,
     private readonly ds: DataSource,
+    private readonly rbac: KobePayRbacService,
   ) {}
 
   list(uid: string) {
@@ -307,7 +364,8 @@ export class KobePayAllocationsService {
    * the customer's balance; the order is what eventually triggers a payout
    * on the China side. Insufficient balance returns 400.
    */
-  async create(uid: string, dto: CreateAllocationDto) {
+  async create(uid: string, ctx: AuditContext, dto: CreateAllocationDto) {
+    this.rbac.ensure(ctx.user ?? null, 'allocation.create');
     return this.ds.transaction(async (tx) => {
       const allocRepo = tx.getRepository(PaymentAllocation);
       const custRepo = tx.getRepository(PaymentCustomer);
@@ -326,7 +384,7 @@ export class KobePayAllocationsService {
       customer.balance = parseFloat((Number(customer.balance) - dto.amount).toFixed(4));
       await custRepo.save(customer);
 
-      return allocRepo.save(
+      const saved = await allocRepo.save(
         allocRepo.create({
           ownerId: uid,
           customerId: customer.id,
@@ -338,6 +396,10 @@ export class KobePayAllocationsService {
           type: dto.type ?? 'Deposit',
         }),
       );
+      await this.rbac.record(uid, ctx, 'allocation.create', 'allocation', saved.id, {
+        customerId: customer.id, supplierId: supplier.id, amount: dto.amount,
+      });
+      return saved;
     });
   }
 }

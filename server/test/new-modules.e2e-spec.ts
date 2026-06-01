@@ -500,6 +500,84 @@ describe('New modules + ownership (e2e)', () => {
     expect(dash.body.entries[0].profitTzs).toBe(95_000);
   });
 
+  it('KobePay RBAC: cashier pin scopes permissions; audit + risk capture activity', async () => {
+    const t = await token('rbac@e2e.test');
+
+    // Owner creates two cashiers.
+    const tz = await request(http).post('/api/kobepay/users').set(bearer(t))
+      .send({ name: 'Asha', role: 'Cashier TZ', pin: '1111' });
+    expect(tz.status).toBe(201);
+    const cn = await request(http).post('/api/kobepay/users').set(bearer(t))
+      .send({ name: 'Wei', role: 'Cashier China', pin: '2222' });
+    expect(cn.status).toBe(201);
+
+    // Duplicate pin rejected.
+    const dupe = await request(http).post('/api/kobepay/users').set(bearer(t))
+      .send({ name: 'Other', role: 'Cashier TZ', pin: '1111' });
+    expect(dupe.status).toBe(400);
+
+    // Set up a customer + supplier as owner (no pin header).
+    const cust = await request(http).post('/api/kobepay/customers').set(bearer(t))
+      .send({ name: 'Juma', phone: '+255700000000' });
+    const sup = await request(http).post('/api/kobepay/suppliers').set(bearer(t))
+      .send({ name: 'Yiwu' });
+
+    // Cashier TZ can create a deposit (allowed).
+    const depOK = await request(http).post('/api/kobepay/deposits')
+      .set(bearer(t)).set('x-kobepay-pin', '1111')
+      .send({ customerId: cust.body.id, amount: 100000, method: 'M-Pesa', status: 'Confirmed',
+        targetCurrency: 'CNY', targetAmount: 250, salesRate: 400 });
+    expect(depOK.status).toBe(201);
+
+    // Cashier TZ tries to create a payout (forbidden — only China cashiers can).
+    const payDenied = await request(http).post('/api/kobepay/payouts')
+      .set(bearer(t)).set('x-kobepay-pin', '1111')
+      .send({ supplierId: sup.body.id, amount: 250, currency: 'CNY', method: 'Bank' });
+    expect(payDenied.status).toBe(403);
+
+    // China cashier creates the payout (allowed via payout.create perm... but
+    // Cashier China role lacks payout.create — it can only advance existing
+    // payouts. So this should also be 403, demonstrating four-eye control.)
+    const cnCreate = await request(http).post('/api/kobepay/payouts')
+      .set(bearer(t)).set('x-kobepay-pin', '2222')
+      .send({ supplierId: sup.body.id, amount: 250, currency: 'CNY', method: 'Bank', depositId: depOK.body.id });
+    expect(cnCreate.status).toBe(403);
+
+    // Owner creates the payout (no pin → owner-JWT trust path).
+    const payout = await request(http).post('/api/kobepay/payouts').set(bearer(t))
+      .send({ supplierId: sup.body.id, amount: 250, currency: 'CNY', method: 'Bank', depositId: depOK.body.id });
+    expect(payout.status).toBe(201);
+
+    // China cashier advances and marks PAID.
+    await request(http).patch(`/api/kobepay/payouts/${payout.body.id}/status`)
+      .set(bearer(t)).set('x-kobepay-pin', '2222').send({ status: 'SENT' });
+    await request(http).patch(`/api/kobepay/payouts/${payout.body.id}/status`)
+      .set(bearer(t)).set('x-kobepay-pin', '2222').send({ status: 'CONFIRMED', confirmedBy: 'Wei' });
+    const paid = await request(http).patch(`/api/kobepay/payouts/${payout.body.id}/status`)
+      .set(bearer(t)).set('x-kobepay-pin', '2222').send({ status: 'PAID', actualRate: 380 });
+    expect(paid.body.status).toBe('PAID');
+
+    // Audit log captured every mutating action.
+    const audit = await request(http).get('/api/kobepay/audit').set(bearer(t));
+    const actions = audit.body.map((a: { action: string }) => a.action);
+    expect(actions).toContain('deposit.create');
+    expect(actions).toContain('payout.create');
+    expect(actions).toContain('payout.paid');
+    const tzActor = audit.body.find((a: { action: string; actorName: string }) => a.action === 'deposit.create');
+    expect(tzActor.actorName).toBe('Asha');
+
+    // Cashier performance attributes the deposit to Asha.
+    const perf = await request(http).get('/api/kobepay/cashier-performance').set(bearer(t));
+    const asha = perf.body.find((c: { name: string }) => c.name === 'Asha');
+    expect(asha).toBeDefined();
+    expect(asha.deposits).toBe(1);
+    expect(asha.depositsTotal).toBe(100000);
+
+    // Risk dashboard does not flag this 100k deposit (well under 10M threshold).
+    const risk = await request(http).get('/api/kobepay/risk').set(bearer(t));
+    expect(risk.body.alerts.filter((a: { kind: string }) => a.kind === 'large_deposit')).toHaveLength(0);
+  });
+
   it('rejects unauthenticated access to owned resources', async () => {
     expect((await request(http).get('/api/print/jobs')).status).toBe(401);
     expect((await request(http).get('/api/erp/summary')).status).toBe(401);

@@ -8,6 +8,7 @@ import {
   PaymentPayout,
   PaymentSupplier,
 } from './kobepay.entity';
+import { KobePayAuditEvent, KobePayUser } from './kobepay-rbac.entity';
 import { LoansService, TransactionsService, WalletsService } from './payments.service';
 import {
   KobePayAllocationsService,
@@ -16,7 +17,8 @@ import {
   KobePayPayoutsService,
   KobePaySuppliersService,
 } from './kobepay.service';
-import { KobePayOwnerService } from './kobepay-owner.service';
+import { KobePayCashierPerfService, KobePayOwnerService, KobePayRiskService } from './kobepay-owner.service';
+import { KobePayRbacService } from './kobepay-rbac.service';
 import { PaymentsController } from './payments.controller';
 import { KobePayController } from './kobepay.controller';
 
@@ -25,13 +27,15 @@ import { KobePayController } from './kobepay.controller';
     TypeOrmModule.forFeature([
       Wallet, PaymentTransaction, CreditLoan,
       PaymentCustomer, PaymentSupplier, PaymentDeposit, PaymentPayout, PaymentAllocation,
+      KobePayUser, KobePayAuditEvent,
     ]),
   ],
   providers: [
     WalletsService, TransactionsService, LoansService,
     KobePayCustomersService, KobePaySuppliersService,
     KobePayDepositsService, KobePayPayoutsService, KobePayAllocationsService,
-    KobePayOwnerService,
+    KobePayOwnerService, KobePayCashierPerfService, KobePayRiskService,
+    KobePayRbacService,
   ],
   controllers: [PaymentsController, KobePayController],
 })
