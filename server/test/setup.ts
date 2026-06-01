@@ -57,6 +57,8 @@ export async function resetDb(app: INestApplication) {
     'warehouse_movements', 'warehouse_items', 'warehouses',
     'discount_rules', 'coupons', 'campaigns',
     'credit_receivables', 'credit_profiles',
+    'kobepay_allocations', 'kobepay_payouts', 'kobepay_deposits',
+    'kobepay_suppliers', 'kobepay_customers',
     'payment_transactions', 'credit_loans', 'wallets',
     'hotel_bookings', 'hotel_guests', 'hotel_rooms',
     'print_jobs', 'print_products', 'print_materials', 'print_customers',

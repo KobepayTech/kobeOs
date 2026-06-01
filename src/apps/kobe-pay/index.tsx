@@ -1,6 +1,14 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api';
 import { ensureSession } from '@/lib/auth';
+
+interface BackendCustomer { id: string; name: string; phone: string; email: string; idNumber: string; company: string; notes: string; balance: string | number; createdAt: string; }
+interface BackendSupplier { id: string; name: string; country: string; contact: string; phone: string; balance: string | number; orders: number; status: 'Active' | 'Inactive'; }
+interface BackendDeposit { id: string; customerId: string; customerName: string; phone: string; amount: string | number; currency: string; method: string; reference: string; status: DepositStatus; txnType: TxnType; createdAt: string; suppliers?: SupplierEntry[] | null; }
+interface BackendPayout { id: string; supplierId: string; supplierName: string; amount: string | number; currency: string; method: string; status: PayoutStatus; initiatedBy: string; confirmedBy: string; notes: string; createdAt: string; }
+interface BackendAllocation { id: string; customerId: string; customerName: string; supplierId: string; supplierName: string; amount: string | number; orderRef: string; type: 'Deposit' | 'Full'; createdAt: string; }
+
+const num = (x: string | number) => Number(x);
 import {
   Wallet, LayoutDashboard, Users, ArrowDownLeft, Send, Building2, Share2, Receipt, Settings,
   Plus, Search, CheckCircle2, Clock, XCircle, Phone, User, Mail, CreditCard, Banknote,
@@ -266,31 +274,136 @@ function MethodIcon({ method }: { method: string }) {
 export default function KobePay() {
   const [role, setRole] = useState<Role>('Admin');
   const [module, setModule] = useState<Module>('dashboard');
-  const [customers, setCustomers] = useState<Customer[]>(MOCK_CUSTOMERS);
-  const [deposits, setDeposits] = useState<Deposit[]>(MOCK_DEPOSITS);
-  const [payouts, setPayouts] = useState<Payout[]>(MOCK_PAYOUTS);
-  const [suppliers] = useState<Supplier[]>(MOCK_SUPPLIERS);
-  const [allocations, setAllocations] = useState<Allocation[]>(MOCK_ALLOCATIONS);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [deposits, setDeposits] = useState<Deposit[]>([]);
+  const [payouts, setPayouts] = useState<Payout[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [allocations, setAllocations] = useState<Allocation[]>([]);
   const [walletId, setWalletId] = useState<string | null>(null);
 
-  // Provision a USD wallet for the operator on first mount.
+  // Hydrate every list from /kobepay/* and reload after mutations.
+  const reloadAll = useCallback(async () => {
+    try {
+      const [cs, ss, ds, ps, as] = await Promise.all([
+        api<BackendCustomer[]>('/kobepay/customers'),
+        api<BackendSupplier[]>('/kobepay/suppliers'),
+        api<BackendDeposit[]>('/kobepay/deposits'),
+        api<BackendPayout[]>('/kobepay/payouts'),
+        api<BackendAllocation[]>('/kobepay/allocations'),
+      ]);
+      // Deposit counts + lastDeposit date derived client-side.
+      const byCust: Record<string, { count: number; last: string }> = {};
+      for (const d of ds) {
+        const date = d.createdAt.slice(0, 10);
+        const acc = byCust[d.customerId] ?? { count: 0, last: '-' };
+        byCust[d.customerId] = { count: acc.count + 1, last: date > acc.last ? date : acc.last };
+      }
+      setCustomers(cs.map((c) => ({
+        id: c.id, name: c.name, phone: c.phone, email: c.email, idNumber: c.idNumber,
+        company: c.company, notes: c.notes, balance: num(c.balance),
+        depositCount: byCust[c.id]?.count ?? 0,
+        lastDeposit: byCust[c.id]?.last ?? '-',
+        createdAt: c.createdAt.slice(0, 10),
+      })));
+      setSuppliers(ss.map((s) => ({
+        id: s.id, name: s.name, country: s.country, contact: s.contact, phone: s.phone,
+        balance: num(s.balance), orders: s.orders, status: s.status,
+      })));
+      setDeposits(ds.map((d) => ({
+        id: d.id, customerId: d.customerId, customerName: d.customerName, phone: d.phone,
+        amount: num(d.amount), currency: d.currency, method: d.method, reference: d.reference,
+        status: d.status, date: d.createdAt.slice(0, 10), txnType: d.txnType,
+        suppliers: d.suppliers ?? undefined,
+      })));
+      setPayouts(ps.map((p) => ({
+        id: p.id, supplierId: p.supplierId, supplierName: p.supplierName, amount: num(p.amount),
+        currency: p.currency, method: p.method, status: p.status, initiatedBy: p.initiatedBy,
+        confirmedBy: p.confirmedBy, date: p.createdAt.slice(0, 10), notes: p.notes,
+      })));
+      setAllocations(as.map((a) => ({
+        id: a.id, customerId: a.customerId, customerName: a.customerName,
+        supplierId: a.supplierId, supplierName: a.supplierName, amount: num(a.amount),
+        orderRef: a.orderRef, type: a.type, date: a.createdAt.slice(0, 10),
+      })));
+    } catch {
+      // Fall back to demo arrays if the backend is unreachable so the screen
+      // never starts blank on first load.
+      setCustomers((cur) => cur.length ? cur : MOCK_CUSTOMERS);
+      setSuppliers((cur) => cur.length ? cur : MOCK_SUPPLIERS);
+      setDeposits((cur) => cur.length ? cur : MOCK_DEPOSITS);
+      setPayouts((cur) => cur.length ? cur : MOCK_PAYOUTS);
+      setAllocations((cur) => cur.length ? cur : MOCK_ALLOCATIONS);
+    }
+  }, []);
+
+  // Provision a USD wallet for the operator on first mount, then load
+  // every kobepay resource. Seed the backend with the demo catalog on
+  // very first run so the screen starts populated.
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      try { await ensureSession(); } catch { /* offline */ }
       try {
-        await ensureSession();
         const wallets = await api<Array<{ id: string; currency: string }>>('/payments/wallets');
-        if (cancelled) return;
-        const usd = wallets.find((w) => w.currency === 'USD');
-        if (usd) { setWalletId(usd.id); return; }
-        const created = await api<{ id: string }>('/payments/wallets', {
-          method: 'POST', body: JSON.stringify({ currency: 'USD' }),
-        });
-        if (!cancelled) setWalletId(created.id);
-      } catch { /* keep local-only state on failure */ }
+        if (!cancelled) {
+          const usd = wallets.find((w) => w.currency === 'USD');
+          if (usd) {
+            setWalletId(usd.id);
+          } else {
+            const created = await api<{ id: string }>('/payments/wallets', {
+              method: 'POST', body: JSON.stringify({ currency: 'USD' }),
+            });
+            if (!cancelled) setWalletId(created.id);
+          }
+        }
+      } catch { /* leave walletId null; UI still works */ }
+
+      try {
+        const existing = await api<BackendCustomer[]>('/kobepay/customers');
+        if (!cancelled && existing.length === 0) {
+          // Seed demo data once. Customers must come first so deposits
+          // can reference real ids.
+          const seeded = await Promise.all(MOCK_CUSTOMERS.map((c) =>
+            api<BackendCustomer>('/kobepay/customers', {
+              method: 'POST',
+              body: JSON.stringify({
+                name: c.name, phone: c.phone, email: c.email,
+                idNumber: c.idNumber, company: c.company, notes: c.notes,
+              }),
+            }),
+          ));
+          const phoneToId: Record<string, string> = {};
+          for (const r of seeded) phoneToId[r.phone] = r.id;
+          await Promise.all(MOCK_SUPPLIERS.map((s) =>
+            api('/kobepay/suppliers', {
+              method: 'POST',
+              body: JSON.stringify({
+                name: s.name, country: s.country, contact: s.contact,
+                phone: s.phone, status: s.status,
+              }),
+            }),
+          ));
+          for (const d of MOCK_DEPOSITS) {
+            const cid = phoneToId[d.phone];
+            if (!cid) continue;
+            try {
+              await api('/kobepay/deposits', {
+                method: 'POST',
+                body: JSON.stringify({
+                  customerId: cid, amount: d.amount, currency: d.currency,
+                  method: d.method, reference: d.reference,
+                  status: d.status, txnType: 'Deposit',
+                }),
+              });
+            } catch { /* skip dupes */ }
+          }
+        }
+      } catch { /* offline — fall through to reloadAll which will use MOCK */ }
+
+      if (!cancelled) await reloadAll();
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [reloadAll]);
 
   // Mirror new deposits to /api/payments/transactions when a wallet exists.
   const recordDeposit = async (amount: number, ref: string, description: string) => {
@@ -387,23 +500,29 @@ export default function KobePay() {
     else { setSearchedCustomer(null); setShowNewCustomer(true); setNewCustomerPhone(phoneSearch.trim()); }
   };
 
-  const handleCreateCustomer = () => {
+  const handleCreateCustomer = async () => {
     if (!newCustomerName.trim() || !newCustomerPhone.trim()) return;
-    const newCust: Customer = {
-      id: `C${String(customers.length + 1).padStart(3, '0')}`,
-      name: newCustomerName.trim(),
-      phone: newCustomerPhone.trim(),
-      email: newCustomerEmail,
-      idNumber: newCustomerId,
-      company: newCustomerCompany,
-      notes: newCustomerNotes,
-      balance: 0,
-      depositCount: 0,
-      lastDeposit: '-',
-      createdAt: new Date().toISOString().split('T')[0],
-    };
-    setCustomers([newCust, ...customers]);
-    setSearchedCustomer(newCust);
+    try {
+      const created = await api<BackendCustomer>('/kobepay/customers', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: newCustomerName.trim(),
+          phone: newCustomerPhone.trim(),
+          email: newCustomerEmail,
+          idNumber: newCustomerId,
+          company: newCustomerCompany,
+          notes: newCustomerNotes,
+        }),
+      });
+      const c: Customer = {
+        id: created.id, name: created.name, phone: created.phone, email: created.email,
+        idNumber: created.idNumber, company: created.company, notes: created.notes,
+        balance: num(created.balance), depositCount: 0, lastDeposit: '-',
+        createdAt: created.createdAt.slice(0, 10),
+      };
+      setCustomers([c, ...customers]);
+      setSearchedCustomer(c);
+    } catch { /* keep dialog open on failure */ return; }
     setShowNewCustomer(false);
     setNewCustomerName(''); setNewCustomerEmail(''); setNewCustomerId(''); setNewCustomerCompany(''); setNewCustomerNotes('');
   };
@@ -417,8 +536,14 @@ export default function KobePay() {
     setShowEditDialog(true);
   };
 
-  const handleSaveEditCustomer = () => {
+  const handleSaveEditCustomer = async () => {
     if (!editCustomer || !editName.trim()) return;
+    try {
+      await api(`/kobepay/customers/${editCustomer.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name: editName.trim(), email: editEmail, company: editCompany, notes: editNotes }),
+      });
+    } catch { /* ignore — optimistic update still happens */ }
     setCustomers(customers.map(c => c.id === editCustomer.id ? { ...c, name: editName.trim(), email: editEmail, company: editCompany, notes: editNotes } : c));
     if (searchedCustomer?.id === editCustomer.id) {
       setSearchedCustomer({ ...searchedCustomer, name: editName.trim(), email: editEmail, company: editCompany, notes: editNotes });
@@ -427,7 +552,8 @@ export default function KobePay() {
     setEditCustomer(null);
   };
 
-  const handleDeleteCustomer = (customerId: string) => {
+  const handleDeleteCustomer = async (customerId: string) => {
+    try { await api(`/kobepay/customers/${customerId}`, { method: 'DELETE' }); } catch { /* ignore */ }
     setCustomers(customers.filter(c => c.id !== customerId));
     if (searchedCustomer?.id === customerId) { setSearchedCustomer(null); setShowNewCustomer(false); }
   };
@@ -441,7 +567,7 @@ export default function KobePay() {
   const txnTypeLabel = (t: TxnType) =>
     t === 'Deposit' ? 'Deposit (advance payment)' : 'Payment for goods — payable on delivery';
 
-  const handleConfirmDeposit = () => {
+  const handleConfirmDeposit = async () => {
     if (!selectedDepositCustomer) return;
     const lines: SupplierEntry[] = supplierLines
       .map(l => ({ supplierNumber: l.supplierNumber.trim(), supplierName: l.supplierName.trim(), amount: parseFloat(l.amount) || 0 }))
@@ -449,64 +575,69 @@ export default function KobePay() {
     if (lines.length === 0) return;
     const total = lines.reduce((s, l) => s + l.amount, 0);
     const date = new Date().toISOString().split('T')[0];
-    const seq = String(deposits.length + 1).padStart(3, '0');
-    const txnId = `TXN-${date.replace(/-/g, '')}-${seq}`;
     const customer = selectedDepositCustomer;
+    const reference = lines.length === 1 ? lines[0].supplierNumber : `${lines.length} suppliers`;
 
-    const newDeposit: Deposit = {
-      id: `D${seq}`,
-      customerId: customer.id,
-      customerName: customer.name,
-      phone: customer.phone,
-      amount: total,
-      currency: depositCurrency,
-      method: depositMethod,
-      reference: lines.length === 1 ? lines[0].supplierNumber : `${lines.length} suppliers`,
-      status: 'Confirmed',
-      date,
-      txnType: depositType,
-      suppliers: lines,
-    };
-    setDeposits([newDeposit, ...deposits]);
+    try {
+      const created = await api<BackendDeposit>('/kobepay/deposits', {
+        method: 'POST',
+        body: JSON.stringify({
+          customerId: customer.id,
+          amount: total,
+          currency: depositCurrency,
+          method: depositMethod,
+          reference,
+          status: 'Confirmed',
+          txnType: depositType,
+          suppliers: lines,
+        }),
+      });
+      const txnId = `TXN-${created.createdAt.slice(0, 10).replace(/-/g, '')}-${created.id.slice(0, 6)}`;
 
-    const newAllocations: Allocation[] = lines.map((l, i) => ({
-      id: `A${String(allocations.length + i + 1).padStart(3, '0')}`,
-      customerId: customer.id,
-      customerName: customer.name,
-      supplierId: l.supplierNumber,
-      supplierName: l.supplierName || l.supplierNumber,
-      amount: l.amount,
-      orderRef: l.supplierNumber,
-      type: depositType === 'Deposit' ? 'Deposit' : 'Goods',
-      date,
-    }));
-    setAllocations([...newAllocations, ...allocations]);
+      // Best-effort: post a per-supplier allocation row so the dashboard
+      // unassigned/allocated KPIs are accurate. Failures don't block the
+      // receipt — allocations are an audit niceness, not a hard requirement.
+      for (const line of lines) {
+        try {
+          const sup = suppliers.find((s) =>
+            s.id === line.supplierNumber || s.name.toLowerCase() === line.supplierName.toLowerCase(),
+          );
+          if (sup) {
+            await api('/kobepay/allocations', {
+              method: 'POST',
+              body: JSON.stringify({
+                customerId: customer.id,
+                supplierId: sup.id,
+                amount: line.amount,
+                orderRef: line.supplierNumber,
+                type: depositType === 'Deposit' ? 'Deposit' : 'Full',
+              }),
+            });
+          }
+        } catch { /* swallow per-line errors */ }
+      }
 
-    setCustomers(customers.map(c =>
-      c.id === customer.id
-        ? { ...c, balance: c.balance + total, depositCount: c.depositCount + 1, lastDeposit: date }
-        : c
-    ));
+      await recordDeposit(total, reference, `KobePay ${txnTypeLabel(depositType)} ${txnId}`);
+      await reloadAll();
 
-    recordDeposit(total, newDeposit.reference, `KobePay ${txnTypeLabel(depositType)} ${txnId}`);
+      setDepositReceipt({
+        transactionId: txnId,
+        customerName: customer.name,
+        phone: customer.phone,
+        currency: depositCurrency,
+        method: depositMethod,
+        txnType: depositType,
+        date,
+        suppliers: lines,
+        total,
+      });
+      setShowDepositReceipt(true);
 
-    setDepositReceipt({
-      transactionId: txnId,
-      customerName: customer.name,
-      phone: customer.phone,
-      currency: depositCurrency,
-      method: depositMethod,
-      txnType: depositType,
-      date,
-      suppliers: lines,
-      total,
-    });
-    setShowDepositReceipt(true);
-
-    setSupplierLines([{ supplierNumber: '', supplierName: '', amount: '' }]);
-    setDepositType('Deposit');
-    setDepositPhone('');
-    setSelectedDepositCustomer(null);
+      setSupplierLines([{ supplierNumber: '', supplierName: '', amount: '' }]);
+      setDepositType('Deposit');
+      setDepositPhone('');
+      setSelectedDepositCustomer(null);
+    } catch { /* deposit POST failed; keep form open */ }
   };
 
   const escapeHtml = (s: string) =>
@@ -565,51 +696,61 @@ export default function KobePay() {
     return invoiceShell('Supplier Invoice', body, 'Supplier copy.');
   };
 
-  const handlePayoutSubmit = () => {
+  const handlePayoutSubmit = async () => {
     if (!payoutSupplier || !payoutAmount) return;
     const sup = suppliers.find(s => s.id === payoutSupplier);
     if (!sup) return;
-    const newPayout: Payout = {
-      id: `P${String(payouts.length + 1).padStart(3, '0')}`,
-      supplierId: sup.id,
-      supplierName: sup.name,
-      amount: parseFloat(payoutAmount),
-      currency: payoutCurrency,
-      method: payoutMethod,
-      status: 'INITIATED',
-      initiatedBy: role,
-      confirmedBy: '',
-      date: new Date().toISOString().split('T')[0],
-      notes: payoutNotes,
-    };
-    setPayouts([newPayout, ...payouts]);
-    setPayoutAmount(''); setPayoutNotes(''); setPayoutSupplier('');
+    try {
+      await api('/kobepay/payouts', {
+        method: 'POST',
+        body: JSON.stringify({
+          supplierId: sup.id,
+          amount: parseFloat(payoutAmount),
+          currency: payoutCurrency,
+          method: payoutMethod,
+          notes: payoutNotes,
+          initiatedBy: role,
+        }),
+      });
+      await reloadAll();
+      setPayoutAmount(''); setPayoutNotes(''); setPayoutSupplier('');
+    } catch { /* keep form */ }
   };
 
-  const handleConfirmPayout = (payoutId: string, newStatus: PayoutStatus) => {
-    setPayouts(payouts.map(p => p.id === payoutId ? { ...p, status: newStatus, confirmedBy: role } : p));
+  const handleConfirmPayout = async (payoutId: string, newStatus: PayoutStatus) => {
+    try {
+      await api(`/kobepay/payouts/${payoutId}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: newStatus, confirmedBy: role }),
+      });
+      await reloadAll();
+    } catch {
+      // Optimistic update so the demo path still feels live when offline.
+      setPayouts(payouts.map(p => p.id === payoutId ? { ...p, status: newStatus, confirmedBy: role } : p));
+    }
   };
 
-  const handleAllocationSubmit = () => {
+  const handleAllocationSubmit = async () => {
     if (!allocCustomer || !allocSupplier || !allocAmount) return;
     const amt = parseFloat(allocAmount);
     if (amt > unassigned) return;
     const cust = customers.find(c => c.id === allocCustomer);
     const sup = suppliers.find(s => s.id === allocSupplier);
     if (!cust || !sup) return;
-    const newAlloc: Allocation = {
-      id: `A${String(allocations.length + 1).padStart(3, '0')}`,
-      customerId: cust.id,
-      customerName: cust.name,
-      supplierId: sup.id,
-      supplierName: sup.name,
-      amount: amt,
-      orderRef: allocOrderRef || `ORD-${Date.now()}`,
-      type: allocType,
-      date: new Date().toISOString().split('T')[0],
-    };
-    setAllocations([newAlloc, ...allocations]);
-    setAllocAmount(''); setAllocOrderRef('');
+    try {
+      await api('/kobepay/allocations', {
+        method: 'POST',
+        body: JSON.stringify({
+          customerId: cust.id,
+          supplierId: sup.id,
+          amount: amt,
+          orderRef: allocOrderRef || `ORD-${Date.now()}`,
+          type: allocType,
+        }),
+      });
+      await reloadAll();
+      setAllocAmount(''); setAllocOrderRef('');
+    } catch { /* keep form */ }
   };
 
   const handleDepositSearch = () => {

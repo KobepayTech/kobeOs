@@ -378,6 +378,73 @@ describe('New modules + ownership (e2e)', () => {
     expect(Number(byCode['4000'].balance)).toBe(50000); // Revenue unchanged
   });
 
+  it('KobePay: customer + deposit + payout + allocation end-to-end', async () => {
+    const t = await token('kobepay@e2e.test');
+
+    // Customer create.
+    const cust = await request(http).post('/api/kobepay/customers').set(bearer(t))
+      .send({ name: 'Juma Abdallah', phone: '+255713456789', company: 'Juma Traders' });
+    expect(cust.status).toBe(201);
+    expect(cust.body.balance).toBe('0.0000');
+
+    // Phone lookup.
+    const lookup = await request(http).get('/api/kobepay/customers/by-phone/+255713456789').set(bearer(t));
+    expect(lookup.body.id).toBe(cust.body.id);
+
+    // Supplier create.
+    const sup = await request(http).post('/api/kobepay/suppliers').set(bearer(t))
+      .send({ name: 'Yiwu Market', country: 'China', contact: 'Wang Fang' });
+    expect(sup.status).toBe(201);
+
+    // Confirmed deposit bumps customer balance.
+    const dep = await request(http).post('/api/kobepay/deposits').set(bearer(t))
+      .send({ customerId: cust.body.id, amount: 1200, method: 'M-Pesa', reference: 'REF1', status: 'Confirmed' });
+    expect(dep.status).toBe(201);
+    expect(dep.body.status).toBe('Confirmed');
+    const after = await request(http).get(`/api/kobepay/customers/by-phone/+255713456789`).set(bearer(t));
+    expect(Number(after.body.balance)).toBe(1200);
+
+    // Allocation deducts customer balance.
+    const alloc = await request(http).post('/api/kobepay/allocations').set(bearer(t))
+      .send({ customerId: cust.body.id, supplierId: sup.body.id, amount: 500, orderRef: 'ORD-1' });
+    expect(alloc.status).toBe(201);
+    const afterAlloc = await request(http).get(`/api/kobepay/customers/by-phone/+255713456789`).set(bearer(t));
+    expect(Number(afterAlloc.body.balance)).toBe(700);
+
+    // Insufficient-balance allocation is rejected.
+    const denied = await request(http).post('/api/kobepay/allocations').set(bearer(t))
+      .send({ customerId: cust.body.id, supplierId: sup.body.id, amount: 10000, orderRef: 'ORD-X' });
+    expect(denied.status).toBe(400);
+    expect(denied.body.message).toMatch(/Insufficient/);
+
+    // Payout lifecycle: INITIATED -> SENT -> CONFIRMED -> PAID.
+    const payout = await request(http).post('/api/kobepay/payouts').set(bearer(t))
+      .send({ supplierId: sup.body.id, amount: 5000, currency: 'CNY', method: 'Bank', initiatedBy: 'Cashier TZ' });
+    expect(payout.body.status).toBe('INITIATED');
+
+    const sent = await request(http).patch(`/api/kobepay/payouts/${payout.body.id}/status`).set(bearer(t))
+      .send({ status: 'SENT' });
+    expect(sent.body.status).toBe('SENT');
+
+    const confirmed = await request(http).patch(`/api/kobepay/payouts/${payout.body.id}/status`).set(bearer(t))
+      .send({ status: 'CONFIRMED', confirmedBy: 'Cashier China' });
+    expect(confirmed.body.confirmedBy).toBe('Cashier China');
+
+    const paid = await request(http).patch(`/api/kobepay/payouts/${payout.body.id}/status`).set(bearer(t))
+      .send({ status: 'PAID' });
+    expect(paid.body.status).toBe('PAID');
+
+    // PAID is terminal; can't re-transition.
+    const bad = await request(http).patch(`/api/kobepay/payouts/${payout.body.id}/status`).set(bearer(t))
+      .send({ status: 'SENT' });
+    expect(bad.status).toBe(400);
+
+    // Supplier balance + order count incremented on PAID.
+    const sups = await request(http).get('/api/kobepay/suppliers').set(bearer(t));
+    expect(Number(sups.body[0].balance)).toBe(5000);
+    expect(sups.body[0].orders).toBe(1);
+  });
+
   it('rejects unauthenticated access to owned resources', async () => {
     expect((await request(http).get('/api/print/jobs')).status).toBe(401);
     expect((await request(http).get('/api/erp/summary')).status).toBe(401);
