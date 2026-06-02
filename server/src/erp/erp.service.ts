@@ -6,6 +6,7 @@ import { PosOrder, PosProduct } from '../pos/pos.entity';
 import { WarehouseItem } from '../warehouse/warehouse.entity';
 import { Contact } from '../contacts/contact.entity';
 import { PrintJob } from '../print/print.entity';
+import { SupplierCapitalService } from './supplier-capital.service';
 
 @Injectable()
 export class ErpService {
@@ -16,16 +17,18 @@ export class ErpService {
     @InjectRepository(WarehouseItem)      private readonly warehouseRepo: Repository<WarehouseItem>,
     @InjectRepository(Contact)            private readonly contactsRepo: Repository<Contact>,
     @InjectRepository(PrintJob)           private readonly printRepo: Repository<PrintJob>,
+    private readonly supplierCapital: SupplierCapitalService,
   ) {}
 
   // ── ERP Dashboard ─────────────────────────────────────────────────────────
 
   async getDashboard(uid: string) {
-    const [txs, orders, warehouseItems, contacts] = await Promise.all([
+    const [txs, orders, warehouseItems, contacts, supplierCapital] = await Promise.all([
       this.txRepo.find({ where: { ownerId: uid } }),
       this.ordersRepo.find({ where: { ownerId: uid } }),
       this.warehouseRepo.find({ where: { ownerId: uid } }),
       this.contactsRepo.find({ where: { ownerId: uid } }),
+      this.supplierCapital.summary(uid),
     ]);
 
     const completedOrders = orders.filter(o => o.status === 'COMPLETED');
@@ -51,8 +54,12 @@ export class ErpService {
         customers:   contacts.length,
         lowStock:    lowStock.length,
         transactions: txs.length,
+        supplierPaidCny: supplierCapital.totalSupplierReceivedCny,
+        supplierRemainingCny: supplierCapital.remainingPoCny,
+        supplierNeedsAction: supplierCapital.needsAction,
       },
       monthlyRevenue,
+      supplierCapital,
     };
   }
 
@@ -65,11 +72,20 @@ export class ErpService {
       take: 100,
     });
 
+    const supplierCapital = await this.supplierCapital.summary(uid);
     const income   = txs.filter(t => t.type === 'CREDIT' && t.status === 'COMPLETED').reduce((s, t) => s + Number(t.amount), 0);
     const expenses = txs.filter(t => t.type === 'DEBIT'  && t.status === 'COMPLETED').reduce((s, t) => s + Number(t.amount), 0);
 
     return {
-      summary: { income, expenses, profit: income - expenses },
+      summary: {
+        income,
+        expenses,
+        profit: income - expenses,
+        supplierCapitalCny: supplierCapital.totalSupplierReceivedCny,
+        supplierUnallocatedCny: supplierCapital.unallocatedCny,
+        remainingSupplierPoCny: supplierCapital.remainingPoCny,
+      },
+      supplierCapital,
       transactions: txs.map(t => ({
         id:          t.id,
         date:        t.createdAt,
@@ -111,7 +127,7 @@ export class ErpService {
     });
 
     const totalRevenue = orders.filter(o => o.status === 'COMPLETED').reduce((s, o) => s + Number(o.total), 0);
-    const printRevenue = printJobs.filter(j => j.status === 'Completed').reduce((s, j) => s + Number(j.price) * j.qty, 0);
+    const printRevenue = printJobs.filter(j => j.status === 'Completed').reduce((s, j) => Number(j.price) * j.qty + s, 0);
 
     return {
       summary: {
@@ -165,10 +181,13 @@ export class ErpService {
   // ── Sourcing ──────────────────────────────────────────────────────────────
 
   async getSourcing(uid: string) {
-    const items = await this.warehouseRepo.find({
-      where: { ownerId: uid },
-      order: { createdAt: 'DESC' },
-    });
+    const [items, supplierCapital] = await Promise.all([
+      this.warehouseRepo.find({
+        where: { ownerId: uid },
+        order: { createdAt: 'DESC' },
+      }),
+      this.supplierCapital.summary(uid),
+    ]);
 
     // Group by category (no supplier field — use category as proxy)
     const categoryMap: Record<string, { name: string; items: number; totalValue: number }> = {};
@@ -188,15 +207,18 @@ export class ErpService {
     }));
 
     const lowStock = items.filter(w => Number(w.quantity) <= Number(w.reorderLevel));
-
     return {
       summary: {
-        suppliers:    suppliers.length,
+        suppliers:    supplierCapital.suppliers || suppliers.length,
         totalItems:   items.length,
         lowStock:     lowStock.length,
         totalValue:   items.reduce((s, i) => s + Number(i.quantity) * Number(i.unitCost), 0),
+        supplierPaidCny: supplierCapital.totalSupplierReceivedCny,
+        supplierRemainingCny: supplierCapital.remainingPoCny,
+        unallocatedCny: supplierCapital.unallocatedCny,
       },
       suppliers,
+      supplierCapital,
       lowStockItems: lowStock.map(i => ({
         id:           i.id,
         name:         i.name,
