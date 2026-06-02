@@ -10,6 +10,7 @@ import {
 } from './kobepay.entity';
 import { KobePayAuditEvent, KobePayUser } from './kobepay-rbac.entity';
 import { KobePayRate } from './kobepay-rate.entity';
+import { KobePayRatesService } from './kobepay-rate.service';
 
 export interface ProfitEntry {
   depositId: string;
@@ -355,24 +356,29 @@ export class KobePayRiskService {
     @InjectRepository(PaymentPayout) private readonly payouts: Repository<PaymentPayout>,
     @InjectRepository(KobePayAuditEvent) private readonly audits: Repository<KobePayAuditEvent>,
     @InjectRepository(KobePayRate) private readonly rates: Repository<KobePayRate>,
+    private readonly ratesSvc: KobePayRatesService,
   ) {}
 
   async dashboard(uid: string): Promise<{ alerts: RiskAlert[]; summary: Record<string, number> }> {
-    const [deposits, payouts, audits, rates] = await Promise.all([
+    const [deposits, payouts, audits] = await Promise.all([
       this.deposits.find({ where: { ownerId: uid } }),
       this.payouts.find({ where: { ownerId: uid } }),
       this.audits.find({ where: { ownerId: uid }, order: { createdAt: 'DESC' }, take: 2000 }),
-      this.rates.find({ where: { ownerId: uid, active: true }, order: { effectiveFrom: 'DESC' } }),
     ]);
     const now = Date.now();
     const alerts: RiskAlert[] = [];
 
-    // Index the most-recent active sales rate per (target -> TZS) pair so we
-    // can detect overrides against the actual house rate, not just statistics.
+    // Resolve the house sales rate for each distinct targetCurrency that
+    // appears in deposits — uses the rates service so derived USD-based
+    // cross-rates work the same as legacy direct pairs.
     const houseSalesRate: Record<string, number> = {};
-    for (const r of rates) {
-      const key = `${r.fromCurrency}->${r.toCurrency}`;
-      if (!(key in houseSalesRate)) houseSalesRate[key] = Number(r.salesRate);
+    const pairsSeen = new Set<string>();
+    for (const d of deposits) {
+      const key = `${d.targetCurrency}->TZS`;
+      if (pairsSeen.has(key)) continue;
+      pairsSeen.add(key);
+      const resolved = await this.ratesSvc.resolveRate(uid, d.targetCurrency, 'TZS');
+      if (resolved.source !== 'none') houseSalesRate[key] = resolved.salesRate;
     }
 
     // Large deposits.

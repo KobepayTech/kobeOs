@@ -710,6 +710,55 @@ describe('New modules + ownership (e2e)', () => {
     expect(override.actorName).toBe('Asha');
   });
 
+  it('KobePay USD-base rates: cross-rates derive via USD; override gate uses derived', async () => {
+    const t = await token('rate-base@e2e.test');
+
+    // Owner sets the two USD-base rates.
+    await request(http).post('/api/kobepay/rates').set(bearer(t))
+      .send({ fromCurrency: 'USD', toCurrency: 'CNY', salesRate: 6.7, costRate: 6.7 });
+    await request(http).post('/api/kobepay/rates').set(bearer(t))
+      .send({ fromCurrency: 'USD', toCurrency: 'TZS', salesRate: 2630, costRate: 2630 });
+
+    // CNY->TZS isn't stored but should resolve to ~392.537 via USD.
+    const resolved = await request(http).get('/api/kobepay/rates/resolve?from=CNY&to=TZS').set(bearer(t));
+    expect(resolved.body.source).toBe('derived');
+    expect(resolved.body.via).toBe('USD');
+    expect(resolved.body.salesRate).toBeCloseTo(2630 / 6.7, 2);
+
+    // /rates/derived surfaces the CNY->TZS pair plus its reverse.
+    const derived = await request(http).get('/api/kobepay/rates/derived').set(bearer(t));
+    const cnyTzs = derived.body.find((r: { fromCurrency: string; toCurrency: string }) =>
+      r.fromCurrency === 'CNY' && r.toCurrency === 'TZS');
+    expect(cnyTzs).toBeDefined();
+    expect(cnyTzs.salesRate).toBeCloseTo(2630 / 6.7, 2);
+
+    // Cashier TZ with no rate.override is bound by the derived rate.
+    await request(http).post('/api/kobepay/users').set(bearer(t))
+      .send({ name: 'Asha', role: 'Cashier TZ', pin: '3333' });
+    const cust = await request(http).post('/api/kobepay/customers').set(bearer(t))
+      .send({ name: 'Juma', phone: '+255700000333' });
+
+    // Deposit at the exact derived rate → allowed.
+    const houseRate = 2630 / 6.7;
+    const ok = await request(http).post('/api/kobepay/deposits')
+      .set(bearer(t)).set('x-kobepay-pin', '3333')
+      .send({
+        customerId: cust.body.id, amount: 100_000, method: 'M-Pesa', status: 'Confirmed',
+        targetCurrency: 'CNY', targetAmount: 100, salesRate: parseFloat(houseRate.toFixed(2)),
+      });
+    expect(ok.status).toBe(201);
+
+    // Deposit at 10% above derived → blocked.
+    const denied = await request(http).post('/api/kobepay/deposits')
+      .set(bearer(t)).set('x-kobepay-pin', '3333')
+      .send({
+        customerId: cust.body.id, amount: 100_000, method: 'M-Pesa', status: 'Confirmed',
+        targetCurrency: 'CNY', targetAmount: 100, salesRate: parseFloat((houseRate * 1.10).toFixed(2)),
+      });
+    expect(denied.status).toBe(403);
+    expect(denied.body.message).toMatch(/diverges from house rate/);
+  });
+
   it('rejects unauthenticated access to owned resources', async () => {
     expect((await request(http).get('/api/print/jobs')).status).toBe(401);
     expect((await request(http).get('/api/erp/summary')).status).toBe(401);

@@ -44,6 +44,19 @@ export class KobePayController {
   @Get('rates/active') activeRates(@CurrentUser('id') uid: string) {
     return this.rates.active(uid);
   }
+  /** Derived (non-USD) cross-rates computed from the active USD pairs. */
+  @Get('rates/derived') derivedRates(@CurrentUser('id') uid: string) {
+    return this.rates.derivedCrossRates(uid);
+  }
+  /** Resolve any pair (direct first, then derived via USD). */
+  @Get('rates/resolve')
+  resolveRate(
+    @CurrentUser('id') uid: string,
+    @Query('from') from: string,
+    @Query('to') to = 'TZS',
+  ) {
+    return this.rates.resolveRate(uid, from, to);
+  }
   @Get('rates')
   async listRates(@CurrentUser('id') uid: string, @Headers('x-kobepay-pin') pin: string) {
     return this.rates.list(uid, await this.ctx(uid, pin));

@@ -606,11 +606,13 @@ export default function KobePay() {
     } catch { /* */ }
   };
 
-  /* ── Exchange rates: history + active map for deposit pre-fill ── */
+  /* ── Exchange rates: history + active + derived cross-rates ── */
+  interface DerivedRateRow { fromCurrency: string; toCurrency: string; salesRate: number; costRate: number; viaBase: true; }
   const [rateHistory, setRateHistory] = useState<RateRow[]>([]);
   const [activeRates, setActiveRates] = useState<RateRow[]>([]);
-  const [newRateFrom, setNewRateFrom] = useState('CNY');
-  const [newRateTo, setNewRateTo] = useState('TZS');
+  const [derivedRates, setDerivedRates] = useState<DerivedRateRow[]>([]);
+  const [newRateFrom, setNewRateFrom] = useState('USD');
+  const [newRateTo, setNewRateTo] = useState('CNY');
   const [newRateSales, setNewRateSales] = useState('');
   const [newRateCost, setNewRateCost] = useState('');
   const [newRateNotes, setNewRateNotes] = useState('');
@@ -618,8 +620,25 @@ export default function KobePay() {
   const [rateSaving, setRateSaving] = useState(false);
 
   const reloadActiveRates = useCallback(async () => {
-    try { setActiveRates(await api<RateRow[]>('/kobepay/rates/active')); } catch { /* */ }
+    try {
+      const [a, d] = await Promise.all([
+        api<RateRow[]>('/kobepay/rates/active'),
+        api<DerivedRateRow[]>('/kobepay/rates/derived').catch(() => []),
+      ]);
+      setActiveRates(a);
+      setDerivedRates(d);
+    } catch { /* */ }
   }, []);
+
+  // Combined lookup helper: direct active rate first, then USD-derived.
+  const resolveClientRate = useCallback((from: string, to: string): { salesRate: number; costRate: number } | null => {
+    if (from === to) return { salesRate: 1, costRate: 1 };
+    const direct = activeRates.find((r) => r.fromCurrency === from && r.toCurrency === to);
+    if (direct) return { salesRate: Number(direct.salesRate), costRate: Number(direct.costRate) };
+    const derived = derivedRates.find((r) => r.fromCurrency === from && r.toCurrency === to);
+    if (derived) return { salesRate: derived.salesRate, costRate: derived.costRate };
+    return null;
+  }, [activeRates, derivedRates]);
 
   // Anyone authenticated may read the active rates so the deposit form can
   // pre-fill the sales rate. Full history is admin-only.
@@ -780,12 +799,11 @@ export default function KobePay() {
     const customer = selectedDepositCustomer;
     const reference = lines.length === 1 ? lines[0].supplierNumber : `${lines.length} suppliers`;
 
-    // Look up the active house rate for the supplier currency so the
-    // Owner Profit Dashboard can compute collectedTzs accurately.
-    const active = activeRates.find(
-      (r) => r.fromCurrency === depositCurrency && r.toCurrency === 'TZS',
-    );
-    const salesRate = active ? Number(active.salesRate) : 0;
+    // Look up the active house rate (direct or USD-derived) for the
+    // supplier currency so the Owner Profit Dashboard can compute
+    // collectedTzs accurately.
+    const resolved = resolveClientRate(depositCurrency, 'TZS');
+    const salesRate = resolved ? resolved.salesRate : 0;
 
     try {
       const created = await api<BackendDeposit>('/kobepay/deposits', {
@@ -937,8 +955,8 @@ export default function KobePay() {
     const body: Record<string, unknown> = { status: newStatus, confirmedBy: role };
     if (newStatus === 'PAID') {
       const p = payouts.find((x) => x.id === payoutId);
-      const active = p && activeRates.find((r) => r.fromCurrency === p.currency && r.toCurrency === 'TZS');
-      if (active) body.actualRate = Number(active.costRate);
+      const resolved = p && resolveClientRate(p.currency, 'TZS');
+      if (resolved) body.actualRate = resolved.costRate;
     }
     try {
       await api(`/kobepay/payouts/${payoutId}/status`, {
@@ -2040,10 +2058,15 @@ export default function KobePay() {
     <div className="space-y-4">
       <Card className="bg-[#13131f] border-white/[0.06]">
         <CardContent className="p-5">
-          <h3 className="text-white font-semibold mb-1">Set a new house rate</h3>
+          <div className="flex items-center gap-2 mb-1">
+            <h3 className="text-white font-semibold">Set a new house rate</h3>
+            <Badge variant="outline" className="bg-cyan-500/15 text-cyan-300 border-cyan-500/20">Base: USD</Badge>
+          </div>
           <p className="text-xs text-slate-500 mb-4">
-            Sales rate = what the TZ cashier quotes the customer. Cost rate = what
-            Cashier China actually pays at. The spread is your margin.
+            Set per-currency rates against USD (1 USD = ? CNY, 1 USD = ? TZS). Cross-rates
+            like CNY→TZS are derived automatically. Sales rate = what the TZ cashier quotes
+            the customer; cost rate = what Cashier China actually pays at — the spread is
+            your margin.
           </p>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
             <div>
@@ -2114,6 +2137,41 @@ export default function KobePay() {
                       </div>
                     </div>
                     <p className="text-[10px] text-slate-500 mt-2">Effective {new Date(r.effectiveFrom).toLocaleString()}</p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card className="bg-[#13131f] border-white/[0.06]">
+        <CardContent className="p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <h3 className="text-white font-semibold">Derived cross-rates</h3>
+            <Badge variant="outline" className="bg-slate-500/15 text-slate-300 border-slate-500/20">Suggested</Badge>
+          </div>
+          {derivedRates.length === 0 ? (
+            <p className="text-sm text-slate-500">Set at least two USD-based rates (e.g. USD→CNY and USD→TZS) to surface cross-rates here.</p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {derivedRates.map((r) => {
+                const spread = r.salesRate - r.costRate;
+                const spreadPct = r.costRate > 0 ? (spread / r.costRate) * 100 : 0;
+                return (
+                  <div key={`${r.fromCurrency}->${r.toCurrency}`} className="rounded-lg border border-white/[0.06] bg-[#0a0a1a] p-4">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-white text-sm">{r.fromCurrency} → {r.toCurrency}</span>
+                      <Badge variant="outline" className="bg-slate-500/15 text-slate-400 border-slate-500/20">via USD</Badge>
+                    </div>
+                    <div className="mt-3 space-y-1 text-sm">
+                      <div className="flex justify-between"><span className="text-slate-400">Sales</span><span className="text-white font-mono">{r.salesRate.toFixed(3)}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-400">Cost</span><span className="text-white font-mono">{r.costRate.toFixed(3)}</span></div>
+                      <div className="flex justify-between border-t border-white/[0.04] pt-1 mt-1">
+                        <span className="text-slate-400">Spread</span>
+                        <span className="text-emerald-400 font-mono">{spread.toFixed(3)} ({spreadPct.toFixed(1)}%)</span>
+                      </div>
+                    </div>
                   </div>
                 );
               })}
