@@ -68,7 +68,7 @@ export class SupplierCapitalController {
   @UseGuards(JwtAuthGuard)
   @Get('unallocated')
   unallocated(@CurrentUser('id') uid: string) {
-    return this.svc.listReceipts(uid, 'po_missing');
+    return this.svc.listNeedsAction(uid);
   }
 
   @UseGuards(JwtAuthGuard)
