@@ -4,6 +4,8 @@ export class PropertyManagementComplete1780000000000 implements MigrationInterfa
   name = 'PropertyManagementComplete1780000000000';
 
   public async up(q: QueryRunner): Promise<void> {
+    await q.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
+
     await q.query(`ALTER TABLE "properties" ADD COLUMN IF NOT EXISTS "city" varchar NOT NULL DEFAULT ''`);
     await q.query(`ALTER TABLE "properties" ADD COLUMN IF NOT EXISTS "plotNo" varchar NOT NULL DEFAULT ''`);
     await q.query(`ALTER TABLE "properties" ADD COLUMN IF NOT EXISTS "blockNo" varchar NOT NULL DEFAULT ''`);
