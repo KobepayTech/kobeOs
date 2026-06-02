@@ -1,3 +1,3 @@
-import OpenPropertyApp from './OpenPropertyApp';
+import OpenPropertyComplete from './OpenPropertyComplete';
 
-export default OpenPropertyApp;
+export default OpenPropertyComplete;
