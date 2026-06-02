@@ -55,7 +55,14 @@ export class CreateVendorDto {
   @IsOptional() @IsString() color?: string;
   @IsOptional() @IsString() notes?: string;
 }
-export class UpdateVendorDto extends CreateVendorDto {}
+export class UpdateVendorDto {
+  @IsOptional() @IsString() name?: string;
+  @IsOptional() @IsEnum(['plumber', 'electrician', 'hvac', 'handyman', 'cleaning', 'landscaping', 'general']) category?: 'plumber' | 'electrician' | 'hvac' | 'handyman' | 'cleaning' | 'landscaping' | 'general';
+  @IsOptional() @IsString() phone?: string;
+  @IsOptional() @IsString() email?: string;
+  @IsOptional() @IsString() color?: string;
+  @IsOptional() @IsString() notes?: string;
+}
 
 export class CreateWorkOrderDto {
   @IsOptional() @IsUUID() propertyId?: string;
@@ -71,7 +78,20 @@ export class CreateWorkOrderDto {
   @IsOptional() @IsNumber() cost?: number;
   @IsOptional() @IsString() notes?: string;
 }
-export class UpdateWorkOrderDto extends CreateWorkOrderDto {}
+export class UpdateWorkOrderDto {
+  @IsOptional() @IsUUID() propertyId?: string;
+  @IsOptional() @IsUUID() unitId?: string;
+  @IsOptional() @IsUUID() tenantId?: string;
+  @IsOptional() @IsUUID() vendorId?: string;
+  @IsOptional() @IsString() title?: string;
+  @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsEnum(['low', 'normal', 'high', 'urgent']) priority?: 'low' | 'normal' | 'high' | 'urgent';
+  @IsOptional() @IsEnum(['open', 'assigned', 'in_progress', 'completed', 'cancelled']) status?: 'open' | 'assigned' | 'in_progress' | 'completed' | 'cancelled';
+  @IsOptional() @IsDateString() scheduledAt?: string;
+  @IsOptional() @IsDateString() completedAt?: string;
+  @IsOptional() @IsNumber() cost?: number;
+  @IsOptional() @IsString() notes?: string;
+}
 
 export class CreateApplicationDto {
   @IsOptional() @IsUUID() unitId?: string;
@@ -85,7 +105,18 @@ export class CreateApplicationDto {
   @IsOptional() @IsEnum(['new', 'screening', 'approved', 'declined', 'withdrawn']) status?: 'new' | 'screening' | 'approved' | 'declined' | 'withdrawn';
   @IsOptional() @IsString() notes?: string;
 }
-export class UpdateApplicationDto extends CreateApplicationDto {}
+export class UpdateApplicationDto {
+  @IsOptional() @IsUUID() unitId?: string;
+  @IsOptional() @IsString() firstName?: string;
+  @IsOptional() @IsString() lastName?: string;
+  @IsOptional() @IsString() phone?: string;
+  @IsOptional() @IsString() email?: string;
+  @IsOptional() @IsNumber() monthlyIncome?: number;
+  @IsOptional() @IsString() employer?: string;
+  @IsOptional() @IsDateString() desiredMoveIn?: string;
+  @IsOptional() @IsEnum(['new', 'screening', 'approved', 'declined', 'withdrawn']) status?: 'new' | 'screening' | 'approved' | 'declined' | 'withdrawn';
+  @IsOptional() @IsString() notes?: string;
+}
 
 export class UpdateSettingsDto {
   @IsOptional() @IsInt() defaultRentDueDay?: number;
