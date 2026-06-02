@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Patch, Post, Query, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Public } from '../common/public.decorator';
@@ -91,7 +91,9 @@ export class SupplierCapitalController {
 
   @Public()
   @Post('kobepay/webhook')
-  importKobePayReceipt(@Body() dto: KobePaySupplierReceiptWebhookDto) {
+  importKobePayReceipt(@Body() dto: KobePaySupplierReceiptWebhookDto, @Headers('x-kobepay-webhook-secret') secret?: string) {
+    const expectedSecret = process.env.KOBEPAY_WEBHOOK_SECRET;
+    if (expectedSecret && secret !== expectedSecret) throw new UnauthorizedException('Invalid KobePay webhook secret');
     return this.svc.importKobePayReceipt(dto);
   }
 }
