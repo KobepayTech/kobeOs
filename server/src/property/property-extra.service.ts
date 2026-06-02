@@ -1,6 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DeepPartial, Repository } from 'typeorm';
 import { OwnedCrudService } from '../common/owned.service';
 import {
   Property,
@@ -19,6 +19,12 @@ import {
 function money(value: unknown): number {
   const n = Number(value ?? 0);
   return Number.isFinite(n) ? n : 0;
+}
+
+function asDate(value: unknown): Date | null {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  return new Date(String(value));
 }
 
 function chargeStatus(charge: Pick<RentCharge, 'amount' | 'amountPaid' | 'dueDate' | 'status'>): RentCharge['status'] {
@@ -45,6 +51,18 @@ export class LeasesService extends OwnedCrudService<PropertyLease> {
   byUnit(ownerId: string, unitId: string) {
     return this.repo.find({ where: { ownerId, unitId }, order: { startDate: 'DESC' } });
   }
+  override create(ownerId: string, data: DeepPartial<PropertyLease> & Record<string, unknown>) {
+    return super.create(ownerId, this.normalize(data));
+  }
+  override update(ownerId: string, id: string, data: DeepPartial<PropertyLease> & Record<string, unknown>) {
+    return super.update(ownerId, id, this.normalize(data));
+  }
+  private normalize(data: DeepPartial<PropertyLease> & Record<string, unknown>) {
+    const out: Record<string, unknown> = { ...data };
+    if (data.startDate) out.startDate = asDate(data.startDate);
+    if (data.endDate) out.endDate = asDate(data.endDate);
+    return out as DeepPartial<PropertyLease>;
+  }
 }
 
 @Injectable()
@@ -56,6 +74,18 @@ export class RentChargesService extends OwnedCrudService<RentCharge> {
 
   listByPeriod(ownerId: string, period?: string) {
     return period ? this.repo.find({ where: { ownerId, period }, order: { dueDate: 'ASC' } }) : this.list(ownerId);
+  }
+
+  override create(ownerId: string, data: DeepPartial<RentCharge> & Record<string, unknown>) {
+    return super.create(ownerId, this.normalize(data));
+  }
+  override update(ownerId: string, id: string, data: DeepPartial<RentCharge> & Record<string, unknown>) {
+    return super.update(ownerId, id, this.normalize(data));
+  }
+  private normalize(data: DeepPartial<RentCharge> & Record<string, unknown>) {
+    const out: Record<string, unknown> = { ...data };
+    if (data.dueDate) out.dueDate = asDate(data.dueDate);
+    return out as DeepPartial<RentCharge>;
   }
 
   async generate(ownerId: string, period: string) {
@@ -121,18 +151,41 @@ export class VendorsService extends OwnedCrudService<PropertyVendor> {
 @Injectable()
 export class WorkOrdersService extends OwnedCrudService<PropertyWorkOrder> {
   constructor(@InjectRepository(PropertyWorkOrder) repo: Repository<PropertyWorkOrder>) { super(repo); }
+  override create(ownerId: string, data: DeepPartial<PropertyWorkOrder> & Record<string, unknown>) {
+    return super.create(ownerId, this.normalize(data));
+  }
+  override update(ownerId: string, id: string, data: DeepPartial<PropertyWorkOrder> & Record<string, unknown>) {
+    return super.update(ownerId, id, this.normalize(data));
+  }
+  private normalize(data: DeepPartial<PropertyWorkOrder> & Record<string, unknown>) {
+    const out: Record<string, unknown> = { ...data };
+    if (data.scheduledAt) out.scheduledAt = asDate(data.scheduledAt);
+    if (data.completedAt) out.completedAt = asDate(data.completedAt);
+    return out as DeepPartial<PropertyWorkOrder>;
+  }
   filtered(ownerId: string, params: { status?: string; propertyId?: string; vendorId?: string }) {
     const where: Record<string, unknown> = { ownerId };
     if (params.status) where.status = params.status;
     if (params.propertyId) where.propertyId = params.propertyId;
     if (params.vendorId) where.vendorId = params.vendorId;
-    return this.repo.find({ where, order: { createdAt: 'DESC' } });
+    return this.repo.find({ where: where as any, order: { createdAt: 'DESC' } });
   }
 }
 
 @Injectable()
 export class ApplicationsService extends OwnedCrudService<PropertyApplication> {
   constructor(@InjectRepository(PropertyApplication) repo: Repository<PropertyApplication>) { super(repo); }
+  override create(ownerId: string, data: DeepPartial<PropertyApplication> & Record<string, unknown>) {
+    return super.create(ownerId, this.normalize(data));
+  }
+  override update(ownerId: string, id: string, data: DeepPartial<PropertyApplication> & Record<string, unknown>) {
+    return super.update(ownerId, id, this.normalize(data));
+  }
+  private normalize(data: DeepPartial<PropertyApplication> & Record<string, unknown>) {
+    const out: Record<string, unknown> = { ...data };
+    if (data.desiredMoveIn) out.desiredMoveIn = asDate(data.desiredMoveIn);
+    return out as DeepPartial<PropertyApplication>;
+  }
   byStatus(ownerId: string, status?: string) {
     return status ? this.repo.find({ where: { ownerId, status: status as PropertyApplication['status'] }, order: { createdAt: 'DESC' } }) : this.list(ownerId);
   }
@@ -175,6 +228,17 @@ export class PropertySettingsService {
 @Injectable()
 export class ExpensesService extends OwnedCrudService<PropertyExpense> {
   constructor(@InjectRepository(PropertyExpense) repo: Repository<PropertyExpense>) { super(repo); }
+  override create(ownerId: string, data: DeepPartial<PropertyExpense> & Record<string, unknown>) {
+    return super.create(ownerId, this.normalize(data));
+  }
+  override update(ownerId: string, id: string, data: DeepPartial<PropertyExpense> & Record<string, unknown>) {
+    return super.update(ownerId, id, this.normalize(data));
+  }
+  private normalize(data: DeepPartial<PropertyExpense> & Record<string, unknown>) {
+    const out: Record<string, unknown> = { ...data };
+    if (data.spentAt) out.spentAt = asDate(data.spentAt);
+    return out as DeepPartial<PropertyExpense>;
+  }
   byProperty(ownerId: string, propertyId: string) {
     return this.repo.find({ where: { ownerId, propertyId }, order: { spentAt: 'DESC' } });
   }
@@ -190,7 +254,7 @@ export class RentIncreaseSimulationsService extends OwnedCrudService<RentIncreas
   async simulate(ownerId: string, input: { propertyId?: string; increasePercent: number; notes?: string }) {
     const where: Record<string, unknown> = { ownerId };
     if (input.propertyId) where.propertyId = input.propertyId;
-    const units = await this.unitsRepo.find({ where });
+    const units = await this.unitsRepo.find({ where: where as any });
     const current = units.reduce((sum, unit) => sum + money(unit.rentAmount), 0);
     const projected = current * (1 + money(input.increasePercent) / 100);
     const row = this.repo.create({
