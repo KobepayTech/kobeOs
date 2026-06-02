@@ -57,6 +57,7 @@ export async function resetDb(app: INestApplication) {
     'warehouse_movements', 'warehouse_items', 'warehouses',
     'discount_rules', 'coupons', 'campaigns',
     'credit_receivables', 'credit_profiles',
+    'kobepay_supplier_receipts',
     'kobepay_audit_events', 'kobepay_users', 'kobepay_rates',
     'kobepay_allocations', 'kobepay_payouts', 'kobepay_deposits',
     'kobepay_suppliers', 'kobepay_customers',

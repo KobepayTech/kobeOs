@@ -14,7 +14,7 @@ import {
   Plus, Search, CheckCircle2, Clock, XCircle, Phone, User, Mail, CreditCard, Banknote,
   Smartphone, Landmark, DollarSign, ChevronRight, X, Check, Download, Printer, QrCode,
   Trash2, Edit, Eye, Filter, BadgeCheck, AlertTriangle, TrendingUp, ShieldCheck, Activity, FileText, KeyRound,
-  ArrowRightLeft
+  ArrowRightLeft, Inbox, HelpCircle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -26,7 +26,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 type Role = 'Admin' | 'Cashier TZ' | 'Cashier China';
-type Module = 'dashboard' | 'owner' | 'customers' | 'deposits' | 'payouts' | 'suppliers' | 'allocations' | 'receipts' | 'users' | 'cashierPerf' | 'risk' | 'audit' | 'rates' | 'settings';
+type Module = 'dashboard' | 'owner' | 'customers' | 'deposits' | 'payouts' | 'suppliers' | 'allocations' | 'receipts' | 'inbox' | 'users' | 'cashierPerf' | 'risk' | 'audit' | 'rates' | 'settings';
 
 interface RateRow { id: string; fromCurrency: string; toCurrency: string; salesRate: string | number; costRate: string | number; realRate: string | number; effectiveFrom: string; active: boolean; notes: string; createdAt: string; }
 
@@ -252,6 +252,7 @@ const SIDEBAR_ITEMS: { id: Module; label: string; icon: typeof Wallet; color: st
   { id: 'cashierPerf', label: 'Cashier Performance', icon: Activity, color: 'text-indigo-400' },
   { id: 'risk', label: 'Risk & Exceptions', icon: ShieldCheck, color: 'text-rose-400' },
   { id: 'rates', label: 'Exchange Rates', icon: ArrowRightLeft, color: 'text-teal-400' },
+  { id: 'inbox', label: 'Receipt Inbox', icon: Inbox, color: 'text-orange-400' },
   { id: 'users', label: 'Users & Permissions', icon: KeyRound, color: 'text-fuchsia-400' },
   { id: 'audit', label: 'Audit Log', icon: FileText, color: 'text-orange-400' },
   { id: 'customers', label: 'Customers', icon: Users, color: 'text-blue-400' },
@@ -714,6 +715,84 @@ export default function KobePay() {
     } catch { /* */ }
   };
 
+  /* ── Receipt Inbox ── */
+  type ReceiptStatus = 'linked' | 'supplier_missing' | 'needs_review' | 'po_missing' | 'unallocated' | 'expense';
+  interface ReceiptRow {
+    id: string;
+    kobepayReceiptId: string;
+    customerPhone: string;
+    customerName: string;
+    supplierPhone: string;
+    supplierName: string;
+    supplierId: string | null;
+    sentAmount: string | number;
+    sentCurrency: string;
+    supplierReceivedAmount: string | number;
+    supplierCurrency: string;
+    supplierCity: string;
+    allocationStatus: ReceiptStatus;
+    reviewReason: string;
+    createdAt: string;
+  }
+  const [inboxRows, setInboxRows] = useState<ReceiptRow[]>([]);
+  const [inboxSummary, setInboxSummary] = useState<Record<string, number>>({});
+  const [inboxFilter, setInboxFilter] = useState<ReceiptStatus | 'all'>('all');
+  const [resolveOpen, setResolveOpen] = useState<ReceiptRow | null>(null);
+  const [chosenSupplier, setChosenSupplier] = useState('');
+
+  const reloadInbox = useCallback(async () => {
+    try {
+      const [rows, summary] = await Promise.all([
+        api<ReceiptRow[]>(inboxFilter === 'all' ? '/kobepay/receipts' : `/kobepay/receipts?status=${inboxFilter}`),
+        api<Record<string, number>>('/kobepay/receipts/summary'),
+      ]);
+      setInboxRows(rows);
+      setInboxSummary(summary);
+    } catch { /* */ }
+  }, [inboxFilter]);
+
+  useEffect(() => {
+    if (module !== 'inbox' || role !== 'Admin') return;
+    reloadInbox();
+  }, [module, role, reloadInbox]);
+
+  const handleResolveAttach = async () => {
+    if (!resolveOpen || !chosenSupplier) return;
+    try {
+      await api(`/kobepay/receipts/${resolveOpen.id}/attach-supplier`, {
+        method: 'PATCH', body: JSON.stringify({ supplierId: chosenSupplier }),
+      });
+      setResolveOpen(null); setChosenSupplier('');
+      await reloadInbox();
+    } catch { /* */ }
+  };
+  const handleResolveCreate = async () => {
+    if (!resolveOpen) return;
+    try {
+      await api(`/kobepay/receipts/${resolveOpen.id}/create-supplier`, {
+        method: 'POST', body: JSON.stringify({ name: resolveOpen.supplierName || `Supplier ${resolveOpen.supplierPhone}` }),
+      });
+      setResolveOpen(null);
+      await reloadInbox();
+    } catch { /* */ }
+  };
+  const handleResolveExpense = async () => {
+    if (!resolveOpen) return;
+    try {
+      await api(`/kobepay/receipts/${resolveOpen.id}/expense`, { method: 'PATCH', body: JSON.stringify({}) });
+      setResolveOpen(null);
+      await reloadInbox();
+    } catch { /* */ }
+  };
+  const handleResolveDefer = async () => {
+    if (!resolveOpen) return;
+    try {
+      await api(`/kobepay/receipts/${resolveOpen.id}/defer`, { method: 'PATCH' });
+      setResolveOpen(null);
+      await reloadInbox();
+    } catch { /* */ }
+  };
+
   const handleToggleSetReal = async (u: KobePayUserRow) => {
     const current = (u.permissions ?? {})['rate.setReal'] === true;
     try {
@@ -743,7 +822,7 @@ export default function KobePay() {
   const canAccess = (m: Module): boolean => {
     if (role === 'Admin') return true;
     // Admin-only modules: profit margins, RBAC, audit, and risk.
-    if (m === 'owner' || m === 'users' || m === 'audit' || m === 'risk' || m === 'cashierPerf') return false;
+    if (m === 'owner' || m === 'users' || m === 'audit' || m === 'risk' || m === 'cashierPerf' || m === 'inbox') return false;
     if (role === 'Cashier TZ') return ['dashboard', 'customers', 'deposits', 'payouts', 'receipts'].includes(m);
     // Cashier China sees Rates (read-only for sales/office; can update the
     // real rate from their daily market). Other cashier-China access stays
@@ -2389,6 +2468,155 @@ ${cashLine}${usdLine}
     );
   };
 
+  const STATUS_BADGE: Record<ReceiptStatus, string> = {
+    linked:           'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
+    supplier_missing: 'bg-rose-500/15 text-rose-400 border-rose-500/20',
+    needs_review:     'bg-amber-500/15 text-amber-400 border-amber-500/20',
+    po_missing:       'bg-orange-500/15 text-orange-400 border-orange-500/20',
+    unallocated:      'bg-slate-500/15 text-slate-300 border-slate-500/20',
+    expense:          'bg-blue-500/15 text-blue-400 border-blue-500/20',
+  };
+  const STATUS_LABEL: Record<ReceiptStatus, string> = {
+    linked: 'Linked',
+    supplier_missing: 'Supplier missing',
+    needs_review: 'Needs review',
+    po_missing: 'PO missing',
+    unallocated: 'Unallocated',
+    expense: 'Expense',
+  };
+
+  const renderInbox = () => adminGate(
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        {(Object.keys(STATUS_LABEL) as ReceiptStatus[]).map((s) => (
+          <button key={s} onClick={() => setInboxFilter(s)}
+            className={`rounded-lg border p-3 text-left transition-colors ${
+              inboxFilter === s ? 'border-orange-500/40 bg-orange-500/10' : 'border-white/[0.06] bg-[#13131f] hover:border-white/[0.12]'
+            }`}>
+            <p className="text-xs text-slate-400">{STATUS_LABEL[s]}</p>
+            <p className="text-2xl font-bold text-white mt-1">{inboxSummary[s] ?? 0}</p>
+          </button>
+        ))}
+      </div>
+      <div className="flex items-center justify-between">
+        <Button size="sm" variant={inboxFilter === 'all' ? 'default' : 'ghost'} onClick={() => setInboxFilter('all')}
+          className={inboxFilter === 'all' ? 'bg-orange-600 hover:bg-orange-700 text-white' : 'text-slate-300'}>
+          Show all
+        </Button>
+        <p className="text-xs text-slate-500">
+          Supplier match is scoped to <span className="font-mono">ownerId = YOU</span>. Phone numbers shared with other ERP customers never cross-link.
+        </p>
+      </div>
+      <Card className="bg-[#13131f] border-white/[0.06]">
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="text-xs text-slate-400 border-b border-white/[0.04]">
+                <th className="text-left py-3 px-4">Receipt</th>
+                <th className="text-left">Customer</th>
+                <th className="text-left">Supplier</th>
+                <th className="text-left">City</th>
+                <th className="text-right">Sent</th>
+                <th className="text-right">Supplier got</th>
+                <th className="text-left">Status</th>
+                <th className="text-right pr-4">Action</th>
+              </tr></thead>
+              <tbody>
+                {inboxRows.length === 0 && (
+                  <tr><td colSpan={8} className="py-8 text-center text-slate-500">No receipts {inboxFilter !== 'all' ? `with status ${STATUS_LABEL[inboxFilter as ReceiptStatus]}` : 'yet'}.</td></tr>
+                )}
+                {inboxRows.map((r) => (
+                  <tr key={r.id} className="border-b border-white/[0.02]">
+                    <td className="py-3 px-4">
+                      <div className="font-mono text-xs text-slate-300">{r.kobepayReceiptId}</div>
+                      <div className="text-[10px] text-slate-500">{new Date(r.createdAt).toLocaleString()}</div>
+                    </td>
+                    <td>
+                      <div className="text-white text-sm">{r.customerName || '-'}</div>
+                      <div className="font-mono text-[11px] text-slate-400">{r.customerPhone}</div>
+                    </td>
+                    <td>
+                      <div className="text-white text-sm">{r.supplierName || '-'}</div>
+                      <div className="font-mono text-[11px] text-slate-400">{r.supplierPhone}</div>
+                    </td>
+                    <td className="text-slate-300">{r.supplierCity || '-'}</td>
+                    <td className="text-right text-slate-200 font-mono">{Number(r.sentAmount).toLocaleString()} {r.sentCurrency}</td>
+                    <td className="text-right text-slate-200 font-mono">{Number(r.supplierReceivedAmount).toLocaleString()} {r.supplierCurrency}</td>
+                    <td>
+                      <Badge variant="outline" className={STATUS_BADGE[r.allocationStatus]}>
+                        {r.allocationStatus === 'supplier_missing' || r.allocationStatus === 'needs_review' ? (
+                          <span className="inline-flex items-center"><HelpCircle className="w-3 h-3 mr-1" />{STATUS_LABEL[r.allocationStatus]}</span>
+                        ) : STATUS_LABEL[r.allocationStatus]}
+                      </Badge>
+                      {r.reviewReason && (
+                        <div className="text-[10px] text-slate-500 mt-1 max-w-xs">{r.reviewReason}</div>
+                      )}
+                    </td>
+                    <td className="text-right pr-4">
+                      {(r.allocationStatus === 'supplier_missing' || r.allocationStatus === 'needs_review' || r.allocationStatus === 'po_missing') && (
+                        <Button size="sm" onClick={() => { setResolveOpen(r); setChosenSupplier(''); }}
+                          className="bg-orange-600 hover:bg-orange-700 text-white">
+                          Resolve
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Dialog open={!!resolveOpen} onOpenChange={(o) => !o && setResolveOpen(null)}>
+        <DialogContent className="bg-[#13131f] border-white/[0.06] text-white max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><HelpCircle className="w-5 h-5 text-orange-400" />Resolve receipt</DialogTitle>
+          </DialogHeader>
+          {resolveOpen && (
+            <div className="space-y-4">
+              <div className="rounded-md border border-white/[0.06] bg-[#0a0a1a] p-3 text-xs">
+                <p className="text-slate-400">Receipt <span className="font-mono text-white">{resolveOpen.kobepayReceiptId}</span></p>
+                <p className="text-slate-400 mt-1">Supplier phone <span className="font-mono text-white">{resolveOpen.supplierPhone}</span></p>
+                <p className="text-slate-400 mt-1">Customer paid <span className="font-mono text-white">{Number(resolveOpen.sentAmount).toLocaleString()} {resolveOpen.sentCurrency}</span></p>
+                <p className="text-slate-400 mt-1">Supplier received <span className="font-mono text-white">{Number(resolveOpen.supplierReceivedAmount).toLocaleString()} {resolveOpen.supplierCurrency}</span></p>
+                {resolveOpen.reviewReason && <p className="text-amber-400 mt-2">{resolveOpen.reviewReason}</p>}
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Attach to existing supplier (under your account)</label>
+                <Select value={chosenSupplier} onValueChange={setChosenSupplier}>
+                  <SelectTrigger className="bg-[#0a0a1a] border-white/[0.08] text-white"><SelectValue placeholder="Pick one of your suppliers" /></SelectTrigger>
+                  <SelectContent className="bg-[#13131f] border-white/[0.08]">
+                    {suppliers.map((s) => (
+                      <SelectItem key={s.id} value={s.id} className="text-white">
+                        {s.name} · {s.phone || '—'}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button onClick={handleResolveAttach} disabled={!chosenSupplier}
+                  className="mt-2 w-full bg-emerald-600 hover:bg-emerald-700 text-white">
+                  Attach
+                </Button>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <Button onClick={handleResolveCreate} variant="outline" className="border-white/10 text-white hover:bg-white/5">
+                  Create new
+                </Button>
+                <Button onClick={handleResolveExpense} variant="outline" className="border-white/10 text-white hover:bg-white/5">
+                  Mark expense
+                </Button>
+                <Button onClick={handleResolveDefer} variant="ghost" className="text-slate-400">
+                  Ignore for now
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+    </div>,
+  );
+
   const renderAudit = () => adminGate(
     <Card className="bg-[#13131f] border-white/[0.06]">
       <CardContent className="p-5">
@@ -2429,6 +2657,7 @@ ${cashLine}${usdLine}
       case 'cashierPerf': return renderCashierPerf();
       case 'risk': return renderRisk();
       case 'rates': return renderRates();
+      case 'inbox': return renderInbox();
       case 'users': return renderUsers();
       case 'audit': return renderAudit();
       case 'customers': return renderCustomers();
@@ -2445,7 +2674,7 @@ ${cashLine}${usdLine}
   const getModuleTitle = () => {
     const titles: Record<Module, string> = {
       dashboard: 'Dashboard', owner: 'Owner Profit Dashboard', cashierPerf: 'Cashier Performance',
-      risk: 'Risk & Exceptions', rates: 'Exchange Rates', users: 'Users & Permissions', audit: 'Audit Log',
+      risk: 'Risk & Exceptions', rates: 'Exchange Rates', inbox: 'Receipt Inbox', users: 'Users & Permissions', audit: 'Audit Log',
       customers: 'Customers', deposits: 'Deposits', payouts: 'Payouts',
       suppliers: 'Suppliers', allocations: 'Allocations', receipts: 'Receipts', settings: 'Settings',
     };

@@ -11,6 +11,8 @@ import {
 import { KobePayCashierPerfService, KobePayOwnerService, KobePayRiskService } from './kobepay-owner.service';
 import { KobePayRbacService, AuditContext } from './kobepay-rbac.service';
 import { KobePayRatesService, SetRealRateInput, UpsertRateInput } from './kobepay-rate.service';
+import { ImportReceiptInput, KobepayReceiptsService } from './kobepay-receipt.service';
+import { ReceiptAllocationStatus } from './kobepay-receipt.entity';
 import { KobePayRole } from './kobepay-rbac.entity';
 import {
   ConfirmDepositDto,
@@ -38,7 +40,60 @@ export class KobePayController {
     private readonly cashierPerf: KobePayCashierPerfService,
     private readonly risk: KobePayRiskService,
     private readonly rates: KobePayRatesService,
+    private readonly receipts: KobepayReceiptsService,
   ) {}
+
+  /* ── Receipt inbox (KobePay → ERP, safe scoped matching) ── */
+  @Get('receipts')
+  listReceipts(@CurrentUser('id') uid: string, @Query('status') status?: ReceiptAllocationStatus) {
+    return this.receipts.list(uid, status);
+  }
+  @Get('receipts/summary') receiptSummary(@CurrentUser('id') uid: string) {
+    return this.receipts.summary(uid);
+  }
+  @Post('receipts/import')
+  async importReceipt(
+    @CurrentUser('id') uid: string,
+    @Headers('x-kobepay-pin') pin: string,
+    @Body() dto: ImportReceiptInput,
+  ) {
+    return this.receipts.ingest(uid, await this.ctx(uid, pin), dto);
+  }
+  @Patch('receipts/:id/attach-supplier')
+  async attachReceiptSupplier(
+    @CurrentUser('id') uid: string,
+    @Headers('x-kobepay-pin') pin: string,
+    @Param('id') id: string,
+    @Body() dto: { supplierId: string },
+  ) {
+    return this.receipts.attachSupplier(uid, await this.ctx(uid, pin), id, dto.supplierId);
+  }
+  @Post('receipts/:id/create-supplier')
+  async createReceiptSupplier(
+    @CurrentUser('id') uid: string,
+    @Headers('x-kobepay-pin') pin: string,
+    @Param('id') id: string,
+    @Body() dto: { name?: string; country?: string },
+  ) {
+    return this.receipts.createSupplierAndAttach(uid, await this.ctx(uid, pin), id, dto);
+  }
+  @Patch('receipts/:id/expense')
+  async markReceiptExpense(
+    @CurrentUser('id') uid: string,
+    @Headers('x-kobepay-pin') pin: string,
+    @Param('id') id: string,
+    @Body() dto: { notes?: string },
+  ) {
+    return this.receipts.markExpense(uid, await this.ctx(uid, pin), id, dto.notes);
+  }
+  @Patch('receipts/:id/defer')
+  async deferReceipt(
+    @CurrentUser('id') uid: string,
+    @Headers('x-kobepay-pin') pin: string,
+    @Param('id') id: string,
+  ) {
+    return this.receipts.defer(uid, await this.ctx(uid, pin), id);
+  }
 
   /* ── Exchange rates ── */
   @Get('rates/active') activeRates(@CurrentUser('id') uid: string) {

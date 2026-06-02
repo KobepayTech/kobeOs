@@ -10,6 +10,9 @@ import {
 } from './kobepay.entity';
 import { KobePayAuditEvent, KobePayUser } from './kobepay-rbac.entity';
 import { KobePayRate } from './kobepay-rate.entity';
+import { KobepaySupplierReceipt } from './kobepay-receipt.entity';
+import { PurchaseOrder } from '../erp/erp.entity';
+import { KobepayReceiptsService } from './kobepay-receipt.service';
 import { LoansService, TransactionsService, WalletsService } from './payments.service';
 import {
   KobePayAllocationsService,
@@ -30,6 +33,7 @@ import { KobePayController } from './kobepay.controller';
       Wallet, PaymentTransaction, CreditLoan,
       PaymentCustomer, PaymentSupplier, PaymentDeposit, PaymentPayout, PaymentAllocation,
       KobePayUser, KobePayAuditEvent, KobePayRate,
+      KobepaySupplierReceipt, PurchaseOrder,
     ]),
   ],
   providers: [
@@ -38,6 +42,7 @@ import { KobePayController } from './kobepay.controller';
     KobePayDepositsService, KobePayPayoutsService, KobePayAllocationsService,
     KobePayOwnerService, KobePayCashierPerfService, KobePayRiskService,
     KobePayRbacService, KobePayRatesService,
+    KobepayReceiptsService,
   ],
   controllers: [PaymentsController, KobePayController],
 })

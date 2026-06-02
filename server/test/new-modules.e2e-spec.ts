@@ -866,6 +866,91 @@ describe('New modules + ownership (e2e)', () => {
     expect(dash.body.kpis.totalCollected).toBe(52_600_000);
   });
 
+  it('KobePay receipt inbox: phone match is owner-scoped, not global', async () => {
+    const asha = await token('asha@e2e.test');
+    const juma = await token('juma@e2e.test');
+
+    // Both Asha and Juma have a supplier "Guangzhou Shoes Ltd" at the
+    // same Chinese phone. They MUST stay isolated.
+    const sharedPhone = '+8613812345678';
+    const ashaSup = await request(http).post('/api/kobepay/suppliers').set(bearer(asha))
+      .send({ name: 'Guangzhou Shoes Ltd', phone: sharedPhone, country: 'China' });
+    const jumaSup = await request(http).post('/api/kobepay/suppliers').set(bearer(juma))
+      .send({ name: 'Guangzhou Shoes Ltd', phone: sharedPhone, country: 'China' });
+    expect(ashaSup.body.id).not.toBe(jumaSup.body.id);
+
+    // A receipt addressed to Asha lands; supplier match is scoped to Asha.
+    const r1 = await request(http).post('/api/kobepay/receipts/import').set(bearer(asha)).send({
+      kobepayReceiptId: 'RCPT-001',
+      customerPhone: '+255711000001', customerName: 'Asha Trading',
+      supplierPhone: sharedPhone, supplierName: 'Guangzhou Shoes Ltd',
+      sentAmount: 10_000_000, sentCurrency: 'TZS',
+      supplierReceivedAmount: 25_475, supplierCurrency: 'CNY',
+      supplierCity: 'Guangzhou',
+    });
+    expect(r1.status).toBe(201);
+    expect(r1.body.allocationStatus).toBe('linked');
+    expect(r1.body.supplierId).toBe(ashaSup.body.id);
+
+    // Juma's identical receipt resolves to Juma's supplier — never Asha's.
+    const r2 = await request(http).post('/api/kobepay/receipts/import').set(bearer(juma)).send({
+      kobepayReceiptId: 'RCPT-002',
+      customerPhone: '+255722000002', customerName: 'Juma Imports',
+      supplierPhone: sharedPhone, supplierName: 'Guangzhou Shoes Ltd',
+      sentAmount: 5_000_000, sentCurrency: 'TZS',
+      supplierReceivedAmount: 12_500, supplierCurrency: 'CNY',
+    });
+    expect(r2.body.allocationStatus).toBe('linked');
+    expect(r2.body.supplierId).toBe(jumaSup.body.id);
+    expect(r2.body.supplierId).not.toBe(ashaSup.body.id);
+
+    // Re-import the same kobepayReceiptId → idempotent, returns existing row.
+    const r1again = await request(http).post('/api/kobepay/receipts/import').set(bearer(asha)).send({
+      kobepayReceiptId: 'RCPT-001',
+      customerPhone: '+255711000001',
+      supplierPhone: sharedPhone,
+      sentAmount: 99_999_999, sentCurrency: 'TZS',  // ignored — first import wins
+    });
+    expect(r1again.body.id).toBe(r1.body.id);
+    expect(Number(r1again.body.sentAmount)).toBe(10_000_000);
+
+    // Receipt with no matching supplier → supplier_missing.
+    const r3 = await request(http).post('/api/kobepay/receipts/import').set(bearer(asha)).send({
+      kobepayReceiptId: 'RCPT-003',
+      customerPhone: '+255711000001',
+      supplierPhone: '+8613999999999', supplierName: 'Unknown Vendor',
+      sentAmount: 2_000_000, sentCurrency: 'TZS',
+    });
+    expect(r3.body.allocationStatus).toBe('supplier_missing');
+    expect(r3.body.supplierId).toBeNull();
+
+    // Create-from-receipt flow: makes a new supplier in Asha's account
+    // and links the receipt to it. Juma still doesn't see it.
+    const created = await request(http).post(`/api/kobepay/receipts/${r3.body.id}/create-supplier`).set(bearer(asha))
+      .send({ name: 'Unknown Vendor', country: 'China' });
+    expect(created.body.allocationStatus).toBe('linked');
+    expect(created.body.supplierId).toBeTruthy();
+    const jumaSuppliers = await request(http).get('/api/kobepay/suppliers').set(bearer(juma));
+    expect(jumaSuppliers.body.find((s: { phone: string }) => s.phone === '+8613999999999')).toBeUndefined();
+
+    // Two suppliers under the SAME owner sharing a phone → needs_review.
+    await request(http).post('/api/kobepay/suppliers').set(bearer(asha))
+      .send({ name: 'Guangzhou Shoes Ltd #2', phone: sharedPhone, country: 'China' });
+    const r4 = await request(http).post('/api/kobepay/receipts/import').set(bearer(asha)).send({
+      kobepayReceiptId: 'RCPT-004',
+      customerPhone: '+255711000001',
+      supplierPhone: sharedPhone,
+      sentAmount: 1_000_000, sentCurrency: 'TZS',
+    });
+    expect(r4.body.allocationStatus).toBe('needs_review');
+    expect(r4.body.reviewReason).toMatch(/2 suppliers/);
+
+    // Summary counts and inbox listing.
+    const summary = await request(http).get('/api/kobepay/receipts/summary').set(bearer(asha));
+    expect(summary.body.linked).toBeGreaterThanOrEqual(2);
+    expect(summary.body.needs_review).toBe(1);
+  });
+
   it('rejects unauthenticated access to owned resources', async () => {
     expect((await request(http).get('/api/print/jobs')).status).toBe(401);
     expect((await request(http).get('/api/erp/summary')).status).toBe(401);

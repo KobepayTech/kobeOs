@@ -36,6 +36,7 @@ export const PERMISSIONS = [
   'report.cashier.view',
   'report.risk.view',
   'audit.view',
+  'receipt.match',
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -47,7 +48,7 @@ export const ROLE_DEFAULTS: Record<KobePayRole, Permission[]> = {
     'allocation.create',
     'customer.create', 'customer.read', 'customer.update',
     'supplier.create', 'supplier.read', 'supplier.update',
-    'receipt.read', 'report.profit.view', 'report.cashier.view', 'report.risk.view', 'audit.view',
+    'receipt.read', 'receipt.match', 'report.profit.view', 'report.cashier.view', 'report.risk.view', 'audit.view',
   ],
   'Cashier TZ': [
     'deposit.create', 'customer.create', 'customer.read', 'customer.update',
