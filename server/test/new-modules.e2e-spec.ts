@@ -814,6 +814,58 @@ describe('New modules + ownership (e2e)', () => {
     expect(dash.body.kpis.rateVariance).toBeLessThan(4000);
   });
 
+  it('KobePay USD-cash deposit locks supplier CNY and city; TZS-cash derives USD intent', async () => {
+    const t = await token('intent@e2e.test');
+
+    await request(http).post('/api/kobepay/rates').set(bearer(t))
+      .send({ fromCurrency: 'USD', toCurrency: 'CNY', salesRate: 6.7, costRate: 6.75 });
+    await request(http).post('/api/kobepay/rates').set(bearer(t))
+      .send({ fromCurrency: 'USD', toCurrency: 'TZS', salesRate: 2630, costRate: 2620 });
+
+    const cust = await request(http).post('/api/kobepay/customers').set(bearer(t))
+      .send({ name: 'Juma', phone: '+255700000777' });
+
+    // Customer hands 10,000 USD cash; supplier in Yiwu must receive 67,000 CNY.
+    const usdCash = await request(http).post('/api/kobepay/deposits').set(bearer(t)).send({
+      customerId: cust.body.id,
+      amount: 10_000, currency: 'USD', cashCurrency: 'USD',
+      method: 'Cash', status: 'Confirmed', txnType: 'Deposit',
+      targetCurrency: 'CNY',
+      quoteUsd: 10_000,
+      supplierCity: 'Yiwu',
+      suppliers: [{ supplierNumber: 'SUP-001', supplierName: 'Yiwu Trading Co', amount: 67_000, city: 'Yiwu' }],
+    });
+    expect(usdCash.status).toBe(201);
+    expect(Number(usdCash.body.quoteUsd)).toBe(10_000);
+    expect(usdCash.body.cashCurrency).toBe('USD');
+    expect(usdCash.body.supplierCity).toBe('Yiwu');
+    // Derived targetAmount = 10,000 × 6.7 = 67,000 CNY (or kept from explicit supplier line total).
+    expect(Number(usdCash.body.targetAmount)).toBe(67_000);
+    // Derived collectedTzs from USD intent × public USD->TZS = 26,300,000.
+    expect(Number(usdCash.body.collectedTzs)).toBe(26_300_000);
+
+    // Customer pays 26,300,000 TZS cash for the same supplier outcome.
+    const tzsCash = await request(http).post('/api/kobepay/deposits').set(bearer(t)).send({
+      customerId: cust.body.id,
+      amount: 26_300_000, currency: 'TZS', cashCurrency: 'TZS',
+      method: 'Cash', status: 'Confirmed', txnType: 'Deposit',
+      targetCurrency: 'CNY',
+      supplierCity: 'Guangzhou',
+      suppliers: [{ supplierNumber: 'SUP-002', supplierName: 'GZ Electronics', amount: 67_000, city: 'Guangzhou' }],
+    });
+    expect(tzsCash.status).toBe(201);
+    // USD intent derived from TZS cash / public USD->TZS = 10,000.
+    expect(Number(tzsCash.body.quoteUsd)).toBe(10_000);
+    expect(tzsCash.body.cashCurrency).toBe('TZS');
+    // collectedTzs lock equals what they handed over.
+    expect(Number(tzsCash.body.collectedTzs)).toBe(26_300_000);
+
+    // Owner dashboard surfaces the combined USD intent.
+    const dash = await request(http).get('/api/kobepay/owner-dashboard').set(bearer(t));
+    expect(dash.body.kpis.totalQuoteUsd).toBe(20_000);
+    expect(dash.body.kpis.totalCollected).toBe(52_600_000);
+  });
+
   it('rejects unauthenticated access to owned resources', async () => {
     expect((await request(http).get('/api/print/jobs')).status).toBe(401);
     expect((await request(http).get('/api/erp/summary')).status).toBe(401);

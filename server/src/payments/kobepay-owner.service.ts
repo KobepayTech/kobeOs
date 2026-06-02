@@ -58,6 +58,9 @@ export interface OwnerDashboard {
      *  above target (loss vs plan). Computed only for deposits whose
      *  targetCurrency has a real rate set. */
     rateVariance: number;
+    /** Sum of customer USD-denominated intents across confirmed deposits.
+     *  Useful for thinking in USD volume regardless of cash currency. */
+    totalQuoteUsd: number;
   };
   entries: ProfitEntry[];
   daily: ProfitBucket[];
@@ -130,6 +133,9 @@ export class KobePayOwnerService {
     const projected = entries.filter((e) => e.status === 'Projected');
 
     const totalCollected = entries.reduce((s, e) => s + e.collectedTzs, 0);
+    const totalQuoteUsd = deposits
+      .filter((d) => d.status === 'Confirmed')
+      .reduce((s, d) => s + Number(d.quoteUsd ?? 0), 0);
     const totalPaidToSuppliers = realized.reduce((s, e) => s + e.actualCostTzs, 0);
     const grossProfit = realized.reduce((s, e) => s + (e.collectedTzs - e.actualCostTzs), 0);
     const serviceFees = deposits.reduce((s, d) => s + D(d.serviceFee), 0);
@@ -255,6 +261,7 @@ export class KobePayOwnerService {
         customerCount: customers.length,
         supplierCount: suppliers.length,
         rateVariance: round(rateVariance),
+        totalQuoteUsd: round(totalQuoteUsd),
       },
       entries,
       daily: buckets('day').slice(-30),

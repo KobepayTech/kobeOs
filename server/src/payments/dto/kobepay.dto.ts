@@ -36,6 +36,7 @@ class DepositSupplierLineDto {
   @IsString() supplierNumber!: string;
   @IsString() supplierName!: string;
   @IsNumber() @Min(0) amount!: number;
+  @IsOptional() @IsString() city?: string;
 }
 
 export class CreateDepositDto {
@@ -56,6 +57,16 @@ export class CreateDepositDto {
   @IsOptional() @IsNumber() @Min(0) collectedTzs?: number;
   @IsOptional() @IsNumber() @Min(0) serviceFee?: number;
   @IsOptional() @IsString() cashierName?: string;
+
+  /** Customer's USD-denominated intent (e.g. "send 10,000 USD"). When
+   *  set, the service derives targetAmount = quoteUsd × USD→target rate
+   *  if targetAmount wasn't already supplied, locking the supplier's
+   *  CNY receipt regardless of subsequent rate moves. */
+  @IsOptional() @IsNumber() @Min(0) quoteUsd?: number;
+  /** Cash leg currency the customer paid with — 'USD' or 'TZS'. */
+  @IsOptional() @IsString() cashCurrency?: string;
+  /** Single-supplier city (multi-supplier deposits set city per line). */
+  @IsOptional() @IsString() supplierCity?: string;
 }
 
 export class ConfirmDepositDto {

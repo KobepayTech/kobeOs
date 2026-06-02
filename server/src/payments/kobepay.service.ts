@@ -192,15 +192,60 @@ export class KobePayDepositsService {
       if (!customer) throw new NotFoundException('Customer not found');
 
       const status = dto.status ?? 'Confirmed';
-
-      // Compute collectedTzs from targetAmount × salesRate + serviceFee
-      // when the caller didn't supply it explicitly. This is what the
-      // owner dashboard sums for "Total Collected".
-      const targetAmount = dto.targetAmount ?? 0;
-      const salesRate = dto.salesRate ?? 0;
+      const cashCurrency = (dto.cashCurrency ?? dto.currency ?? 'USD').toUpperCase();
+      const targetCurrency = (dto.targetCurrency ?? 'CNY').toUpperCase();
       const serviceFee = dto.serviceFee ?? 0;
-      const computedCollected = parseFloat((targetAmount * salesRate + serviceFee).toFixed(4));
-      const collectedTzs = dto.collectedTzs ?? (computedCollected > 0 ? computedCollected : 0);
+
+      // Lock the customer's USD-denominated intent. If the cashier paid
+      // USD cash, that IS the intent. If they paid TZS cash, derive USD
+      // intent from the public USD→TZS rate so the supplier's CNY
+      // delivery amount is locked regardless of later rate moves.
+      let quoteUsd = dto.quoteUsd ?? 0;
+      if (quoteUsd === 0) {
+        if (cashCurrency === 'USD') {
+          quoteUsd = Number(dto.amount);
+        } else if (cashCurrency === 'TZS') {
+          const r = await this.rates.currentRate(uid, 'USD', 'TZS');
+          if (r && r.salesRate > 0) {
+            quoteUsd = parseFloat((Number(dto.amount) / r.salesRate).toFixed(4));
+          }
+        }
+      }
+
+      // Lock the supplier's receive amount in targetCurrency. If the
+      // cashier supplied targetAmount explicitly use that; otherwise
+      // derive from the USD intent at the public USD→target rate.
+      let targetAmount = dto.targetAmount ?? 0;
+      if (targetAmount === 0 && quoteUsd > 0 && targetCurrency !== 'USD') {
+        const r = await this.rates.currentRate(uid, 'USD', targetCurrency);
+        if (r && r.salesRate > 0) {
+          targetAmount = parseFloat((quoteUsd * r.salesRate).toFixed(4));
+        }
+      } else if (targetAmount === 0 && targetCurrency === 'USD') {
+        targetAmount = quoteUsd;
+      }
+
+      // Sales rate (target → TZS) and collected TZS lock together with
+      // the deposit row so the receipt and the owner dashboard see the
+      // exact numbers the customer transacted at.
+      let salesRate = dto.salesRate ?? 0;
+      if (salesRate === 0 && targetCurrency !== 'TZS') {
+        const r = await this.rates.currentRate(uid, targetCurrency, 'TZS');
+        if (r && r.salesRate > 0) salesRate = r.salesRate;
+      }
+      let collectedTzs = dto.collectedTzs ?? 0;
+      if (collectedTzs === 0) {
+        if (cashCurrency === 'TZS') {
+          collectedTzs = parseFloat((Number(dto.amount) + serviceFee).toFixed(4));
+        } else if (targetAmount > 0 && salesRate > 0) {
+          collectedTzs = parseFloat((targetAmount * salesRate + serviceFee).toFixed(4));
+        } else if (quoteUsd > 0) {
+          const r = await this.rates.currentRate(uid, 'USD', 'TZS');
+          if (r && r.salesRate > 0) {
+            collectedTzs = parseFloat((quoteUsd * r.salesRate + serviceFee).toFixed(4));
+          }
+        }
+      }
 
       const deposit = await depRepo.save(
         depRepo.create({
@@ -209,18 +254,21 @@ export class KobePayDepositsService {
           customerName: customer.name,
           phone: customer.phone,
           amount: dto.amount,
-          currency: dto.currency ?? 'USD',
+          currency: dto.currency ?? cashCurrency,
           method: dto.method,
           reference: dto.reference ?? '',
           status,
           txnType: dto.txnType ?? 'Deposit',
           suppliers: dto.suppliers ?? null,
-          targetCurrency: dto.targetCurrency ?? 'CNY',
+          targetCurrency,
           targetAmount,
           salesRate,
           collectedTzs,
           serviceFee,
           cashierName: dto.cashierName ?? '',
+          quoteUsd,
+          cashCurrency,
+          supplierCity: dto.supplierCity ?? '',
         }),
       );
 

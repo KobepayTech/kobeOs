@@ -72,12 +72,14 @@ interface SupplierEntry {
   supplierNumber: string;
   supplierName: string;
   amount: number;
+  city?: string;
 }
 
 interface SupplierLine {
   supplierNumber: string;
   supplierName: string;
   amount: string;
+  city: string;
 }
 
 interface DepositReceipt {
@@ -90,6 +92,9 @@ interface DepositReceipt {
   date: string;
   suppliers: SupplierEntry[];
   total: number;
+  cashAmount?: number;
+  cashCurrency?: string;
+  quoteUsd?: number;
 }
 
 interface Payout {
@@ -453,10 +458,15 @@ export default function KobePay() {
 
   // Deposit form state
   const [depositPhone, setDepositPhone] = useState('');
-  const [depositCurrency, setDepositCurrency] = useState('USD');
+  /** Currency the supplier in China is paid in (typically CNY). */
+  const [depositCurrency, setDepositCurrency] = useState('CNY');
+  /** Currency of the cash the customer handed to the TZ cashier. */
+  const [depositCashCurrency, setDepositCashCurrency] = useState<'USD' | 'TZS'>('USD');
+  /** Cash amount handed over (in depositCashCurrency). */
+  const [depositCashAmount, setDepositCashAmount] = useState('');
   const [depositMethod, setDepositMethod] = useState('M-Pesa');
   const [depositType, setDepositType] = useState<TxnType>('Deposit');
-  const [supplierLines, setSupplierLines] = useState<SupplierLine[]>([{ supplierNumber: '', supplierName: '', amount: '' }]);
+  const [supplierLines, setSupplierLines] = useState<SupplierLine[]>([{ supplierNumber: '', supplierName: '', amount: '', city: '' }]);
   const [selectedDepositCustomer, setSelectedDepositCustomer] = useState<Customer | null>(null);
   const [depositStatusFilter, setDepositStatusFilter] = useState<string>('All');
 
@@ -809,7 +819,7 @@ export default function KobePay() {
 
   const updateSupplierLine = (index: number, field: keyof SupplierLine, value: string) =>
     setSupplierLines(lines => lines.map((l, i) => (i === index ? { ...l, [field]: value } : l)));
-  const addSupplierLine = () => setSupplierLines(lines => [...lines, { supplierNumber: '', supplierName: '', amount: '' }]);
+  const addSupplierLine = () => setSupplierLines(lines => [...lines, { supplierNumber: '', supplierName: '', amount: '', city: '' }]);
   const removeSupplierLine = (index: number) =>
     setSupplierLines(lines => (lines.length === 1 ? lines : lines.filter((_, i) => i !== index)));
 
@@ -819,7 +829,12 @@ export default function KobePay() {
   const handleConfirmDeposit = async () => {
     if (!selectedDepositCustomer) return;
     const lines: SupplierEntry[] = supplierLines
-      .map(l => ({ supplierNumber: l.supplierNumber.trim(), supplierName: l.supplierName.trim(), amount: parseFloat(l.amount) || 0 }))
+      .map(l => ({
+        supplierNumber: l.supplierNumber.trim(),
+        supplierName: l.supplierName.trim(),
+        amount: parseFloat(l.amount) || 0,
+        city: l.city?.trim() || undefined,
+      }))
       .filter(l => l.supplierNumber && l.amount > 0);
     if (lines.length === 0) return;
     const total = lines.reduce((s, l) => s + l.amount, 0);
@@ -833,13 +848,28 @@ export default function KobePay() {
     const resolved = resolveClientRate(depositCurrency, 'TZS');
     const salesRate = resolved ? resolved.salesRate : 0;
 
+    // Customer cash leg. The "cash" field above the supplier lines is the
+    // amount actually handed to the cashier — USD or TZS. Convert it to
+    // a USD-denominated intent so the supplier's receipt amount stays
+    // locked regardless of subsequent rate moves.
+    const cashCurrency = depositCashCurrency;
+    const cashAmount = parseFloat(depositCashAmount) || 0;
+    let quoteUsd = 0;
+    if (cashCurrency === 'USD') {
+      quoteUsd = cashAmount;
+    } else if (cashCurrency === 'TZS') {
+      const usdTzs = resolveClientRate('USD', 'TZS');
+      if (usdTzs && usdTzs.salesRate > 0) quoteUsd = cashAmount / usdTzs.salesRate;
+    }
+    const cityTopLevel = lines.find((l) => l.city)?.city ?? '';
+
     try {
       const created = await api<BackendDeposit>('/kobepay/deposits', {
         method: 'POST',
         body: JSON.stringify({
           customerId: customer.id,
-          amount: total,
-          currency: depositCurrency,
+          amount: cashAmount > 0 ? cashAmount : total,
+          currency: cashCurrency,
           method: depositMethod,
           reference,
           status: 'Confirmed',
@@ -849,6 +879,9 @@ export default function KobePay() {
           targetCurrency: depositCurrency,
           targetAmount: total,
           salesRate,
+          quoteUsd: quoteUsd > 0 ? quoteUsd : undefined,
+          cashCurrency,
+          supplierCity: cityTopLevel,
         }),
       });
       const txnId = `TXN-${created.createdAt.slice(0, 10).replace(/-/g, '')}-${created.id.slice(0, 6)}`;
@@ -889,10 +922,14 @@ export default function KobePay() {
         date,
         suppliers: lines,
         total,
+        cashAmount: cashAmount > 0 ? cashAmount : undefined,
+        cashCurrency,
+        quoteUsd: quoteUsd > 0 ? quoteUsd : undefined,
       });
       setShowDepositReceipt(true);
 
-      setSupplierLines([{ supplierNumber: '', supplierName: '', amount: '' }]);
+      setSupplierLines([{ supplierNumber: '', supplierName: '', amount: '', city: '' }]);
+      setDepositCashAmount('');
       setDepositType('Deposit');
       setDepositPhone('');
       setSelectedDepositCustomer(null);
@@ -931,15 +968,22 @@ export default function KobePay() {
 
   const buildCustomerInvoice = (r: DepositReceipt) => {
     const rows = r.suppliers
-      .map((s, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(s.supplierNumber)}</td><td>${escapeHtml(s.supplierName || '-')}</td><td class="right">${s.amount.toLocaleString()} ${r.currency}</td></tr>`)
+      .map((s, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(s.supplierNumber)}</td><td>${escapeHtml(s.supplierName || '-')}</td><td>${escapeHtml(s.city || '-')}</td><td class="right">${s.amount.toLocaleString()} ${r.currency}</td></tr>`)
       .join('');
+    const cashLine = r.cashAmount && r.cashCurrency
+      ? `<p class="meta"><b>Cash received:</b> ${r.cashAmount.toLocaleString()} ${escapeHtml(r.cashCurrency)}</p>`
+      : '';
+    const usdLine = r.quoteUsd
+      ? `<p class="meta"><b>USD intent (locked):</b> ${r.quoteUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })} USD</p>`
+      : '';
     const body = `<p class="meta"><b>Receipt No:</b> ${escapeHtml(r.transactionId)}</p>
 <p class="meta"><b>Date:</b> ${r.date}</p>
 <p class="meta"><b>Sender (Customer):</b> ${escapeHtml(r.customerName)} &nbsp; ${escapeHtml(r.phone)}</p>
 <p class="meta"><b>Payment Method:</b> ${escapeHtml(r.method)}</p>
-<table><thead><tr><th>#</th><th>Supplier No.</th><th>Supplier Name</th><th class="right">Amount</th></tr></thead>
-<tbody>${rows}<tr><td colspan="3" class="right total">TOTAL</td><td class="right total">${r.total.toLocaleString()} ${r.currency}</td></tr></tbody></table>
-<div class="note"><b>Purpose:</b> ${txnTypeLabel(r.txnType)}</div>`;
+${cashLine}${usdLine}
+<table><thead><tr><th>#</th><th>Supplier No.</th><th>Supplier Name</th><th>City</th><th class="right">Amount</th></tr></thead>
+<tbody>${rows}<tr><td colspan="4" class="right total">TOTAL</td><td class="right total">${r.total.toLocaleString()} ${r.currency}</td></tr></tbody></table>
+<div class="note"><b>Purpose:</b> ${txnTypeLabel(r.txnType)}<br><b>Locked:</b> the supplier in China will receive the exact amount shown above regardless of any future rate movement.</div>`;
     return invoiceShell('Customer Invoice', body, 'Customer copy — thank you for using KobePay.');
   };
 
@@ -1274,20 +1318,51 @@ export default function KobePay() {
             <h3 className="text-white font-semibold mb-4 flex items-center gap-2"><Plus className="w-5 h-5 text-emerald-400" />New Deposit</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
               <div><label className="text-xs text-slate-400 mb-1 block">Search Customer Phone</label><div className="flex gap-2"><Input placeholder="Enter phone..." value={depositPhone} onChange={e => setDepositPhone(e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600" /><Button onClick={handleDepositSearch} size="sm" className="bg-blue-600 hover:bg-blue-700"><Search className="w-4 h-4" /></Button></div>{selectedDepositCustomer && <p className="text-xs text-emerald-400 mt-1 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" />{selectedDepositCustomer.name}</p>}</div>
-              <div><label className="text-xs text-slate-400 mb-1 block">Currency</label><Select value={depositCurrency} onValueChange={setDepositCurrency}><SelectTrigger className="bg-[#0a0a1a] border-white/[0.08] text-white"><SelectValue /></SelectTrigger><SelectContent className="bg-[#13131f] border-white/[0.08]"><SelectItem value="USD" className="text-white">USD</SelectItem><SelectItem value="TZS" className="text-white">TZS</SelectItem><SelectItem value="CNY" className="text-white">CNY</SelectItem></SelectContent></Select></div>
+              <div><label className="text-xs text-slate-400 mb-1 block">Supplier paid in</label><Select value={depositCurrency} onValueChange={setDepositCurrency}><SelectTrigger className="bg-[#0a0a1a] border-white/[0.08] text-white"><SelectValue /></SelectTrigger><SelectContent className="bg-[#13131f] border-white/[0.08]"><SelectItem value="CNY" className="text-white">CNY (Chinese yuan)</SelectItem><SelectItem value="USD" className="text-white">USD</SelectItem><SelectItem value="TZS" className="text-white">TZS</SelectItem></SelectContent></Select></div>
               <div><label className="text-xs text-slate-400 mb-1 block">Payment Method</label><Select value={depositMethod} onValueChange={setDepositMethod}><SelectTrigger className="bg-[#0a0a1a] border-white/[0.08] text-white"><SelectValue /></SelectTrigger><SelectContent className="bg-[#13131f] border-white/[0.08]"><SelectItem value="Cash" className="text-white">Cash</SelectItem><SelectItem value="M-Pesa" className="text-white">M-Pesa</SelectItem><SelectItem value="Bank Transfer" className="text-white">Bank Transfer</SelectItem><SelectItem value="Agent" className="text-white">Agent</SelectItem><SelectItem value="WeChat Pay" className="text-white">WeChat Pay</SelectItem><SelectItem value="Alipay" className="text-white">Alipay</SelectItem></SelectContent></Select></div>
               <div><label className="text-xs text-slate-400 mb-1 block">Transaction Type</label><Select value={depositType} onValueChange={v => setDepositType(v as TxnType)}><SelectTrigger className="bg-[#0a0a1a] border-white/[0.08] text-white"><SelectValue /></SelectTrigger><SelectContent className="bg-[#13131f] border-white/[0.08]"><SelectItem value="Deposit" className="text-white">Deposit (advance)</SelectItem><SelectItem value="Goods on Delivery" className="text-white">Goods on delivery</SelectItem></SelectContent></Select></div>
             </div>
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Cash received from customer</label>
+                <div className="flex gap-2">
+                  <Select value={depositCashCurrency} onValueChange={(v) => setDepositCashCurrency(v as 'USD' | 'TZS')}>
+                    <SelectTrigger className="bg-[#0a0a1a] border-white/[0.08] text-white w-24"><SelectValue /></SelectTrigger>
+                    <SelectContent className="bg-[#13131f] border-white/[0.08]">
+                      <SelectItem value="USD" className="text-white">USD</SelectItem>
+                      <SelectItem value="TZS" className="text-white">TZS</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input type="number" placeholder={depositCashCurrency === 'USD' ? '10000' : '26300000'}
+                    value={depositCashAmount} onChange={(e) => setDepositCashAmount(e.target.value)}
+                    className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600 flex-1" />
+                </div>
+                {(() => {
+                  const cash = parseFloat(depositCashAmount) || 0;
+                  if (cash <= 0) return null;
+                  let usd = 0;
+                  if (depositCashCurrency === 'USD') usd = cash;
+                  else {
+                    const r = resolveClientRate('USD', 'TZS');
+                    if (r && r.salesRate > 0) usd = cash / r.salesRate;
+                  }
+                  return usd > 0 ? (
+                    <p className="text-[11px] text-emerald-400 mt-1">USD intent ≈ {usd.toLocaleString(undefined, { maximumFractionDigits: 2 })}</p>
+                  ) : null;
+                })()}
+              </div>
+            </div>
             <div className="mt-4">
               <div className="flex items-center justify-between mb-2">
-                <label className="text-xs text-slate-400">Chinese Supplier(s)</label>
+                <label className="text-xs text-slate-400">Chinese Supplier(s) + city</label>
                 <Button onClick={addSupplierLine} size="sm" variant="outline" className="h-7 text-xs border-white/10 text-white hover:bg-white/5"><Plus className="w-3 h-3 mr-1" />Add Supplier</Button>
               </div>
               <div className="space-y-2">
                 {supplierLines.map((l, i) => (
                   <div key={i} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center">
-                    <div className="md:col-span-4"><Input placeholder="Supplier number *" value={l.supplierNumber} onChange={e => updateSupplierLine(i, 'supplierNumber', e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600" /></div>
-                    <div className="md:col-span-4"><Input placeholder="Chinese supplier name (optional)" value={l.supplierName} onChange={e => updateSupplierLine(i, 'supplierName', e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600" /></div>
+                    <div className="md:col-span-3"><Input placeholder="Supplier number *" value={l.supplierNumber} onChange={e => updateSupplierLine(i, 'supplierNumber', e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600" /></div>
+                    <div className="md:col-span-3"><Input placeholder="Supplier name (optional)" value={l.supplierName} onChange={e => updateSupplierLine(i, 'supplierName', e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600" /></div>
+                    <div className="md:col-span-2"><Input placeholder="City *" value={l.city} onChange={e => updateSupplierLine(i, 'city', e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600" /></div>
                     <div className="md:col-span-3"><Input type="number" placeholder="Amount *" value={l.amount} onChange={e => updateSupplierLine(i, 'amount', e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600" /></div>
                     <div className="md:col-span-1 flex justify-center">{supplierLines.length > 1 && <button onClick={() => removeSupplierLine(i)} className="p-2 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10"><Trash2 className="w-4 h-4" /></button>}</div>
                   </div>
@@ -1744,6 +1819,7 @@ export default function KobePay() {
       ['Unassigned Funds',      fmtTzs(k.unassignedFunds),      'bg-teal-500/10',     'text-teal-400'],
       ['Gross Profit',          fmtTzs(k.grossProfit),          'bg-indigo-500/10',   'text-indigo-400'],
       ['Rate Variance',         fmtTzs((k as { rateVariance?: number }).rateVariance ?? 0), 'bg-fuchsia-500/10', 'text-fuchsia-400'],
+      ['USD Intent (locked)',   `USD ${Math.round((k as { totalQuoteUsd?: number }).totalQuoteUsd ?? 0).toLocaleString()}`, 'bg-sky-500/10', 'text-sky-400'],
     ];
 
     return (

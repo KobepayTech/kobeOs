@@ -61,6 +61,10 @@ export interface DepositSupplierLine {
   supplierNumber: string;
   supplierName: string;
   amount: number;
+  /** Optional city the supplier is in (e.g. "Yiwu", "Guangzhou"). The
+   *  cashier collects this from the customer at deposit time so the
+   *  cargo team and accounting know where the money flows to. */
+  city?: string;
 }
 
 @Entity('kobepay_deposits')
@@ -121,6 +125,30 @@ export class PaymentDeposit extends OwnedEntity {
 
   @Column({ default: '' })
   cashierName!: string;
+
+  /**
+   * Customer's USD-denominated intent at the moment of deposit ("I want
+   * to send 10,000 USD"). Once locked, the supplier in China receives
+   * the corresponding amount of targetCurrency (e.g. 67,000 CNY at the
+   * public USD→CNY rate of the day) regardless of subsequent rate
+   * movements. The TZS the customer actually pays is also locked via
+   * collectedTzs. Both are immutable on the deposit row.
+   */
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
+  quoteUsd!: number;
+
+  /** Cash leg currency the customer paid with — typically 'USD' or
+   *  'TZS'. Distinct from targetCurrency (what the supplier receives)
+   *  and from quoteUsd (the USD-denominated intent). Defaults to the
+   *  deposit's currency column on insert. */
+  @Column({ default: '' })
+  cashCurrency!: string;
+
+  /** Top-level supplier city used when the deposit isn't a multi-supplier
+   *  goods-on-delivery split. Per-supplier overrides live on the
+   *  suppliers[].city array entries. */
+  @Column({ default: '' })
+  supplierCity!: string;
 }
 
 /* ============ Payouts (KobePay → supplier) ============ */
