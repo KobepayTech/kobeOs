@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { randomBytes } from 'crypto';
 import { ErpKobepayInbox, ErpKobepayInboxStatus, ErpKobepayProvider } from './erp-kobepay-inbox.entity';
 import { PurchaseOrder, Supplier } from './erp.entity';
+import { JournalService } from './journal.service';
 
 export interface InboundReceipt {
   kobepayReceiptId: string;
@@ -28,7 +29,22 @@ export class ErpKobepayInboxService {
     @InjectRepository(ErpKobepayInbox) private readonly inbox: Repository<ErpKobepayInbox>,
     @InjectRepository(Supplier) private readonly suppliers: Repository<Supplier>,
     @InjectRepository(PurchaseOrder) private readonly purchaseOrders: Repository<PurchaseOrder>,
+    private readonly journal: JournalService,
   ) {}
+
+  /** Post the ERP-side journal entry the FIRST time a receipt is
+   *  linked. Idempotent via the journaledAt flag on the row. */
+  private async postLinkedJournalIfNeeded(receipt: ErpKobepayInbox) {
+    if (receipt.allocationStatus !== 'linked') return;
+    if (receipt.notes?.includes('[journaled]')) return;
+    // Run inside a fresh tx so callers don't have to wrap.
+    const dataSource = this.inbox.manager.connection;
+    await dataSource.transaction(async (tx) => {
+      await this.journal.postKobepayReceiptLinkedInTransaction(tx, receipt.ownerId, receipt);
+      receipt.notes = (receipt.notes ? receipt.notes + ' ' : '') + '[journaled]';
+      await tx.getRepository(ErpKobepayInbox).save(receipt);
+    });
+  }
 
   /* ─── Provider management (the ERP owner controls who can push) ─── */
 
@@ -123,7 +139,7 @@ export class ErpKobepayInboxService {
       }
     }
 
-    return this.inbox.save(this.inbox.create({
+    const saved = await this.inbox.save(this.inbox.create({
       ownerId: uid,
       providerId: provider.id,
       kobepayReceiptId: input.kobepayReceiptId,
@@ -144,6 +160,8 @@ export class ErpKobepayInboxService {
       allocationStatus,
       reviewReason,
     }));
+    await this.postLinkedJournalIfNeeded(saved);
+    return saved;
   }
 
   /* ─── Resolution (the ERP owner manages their own inbox) ─── */
@@ -178,7 +196,9 @@ export class ErpKobepayInboxService {
     r.supplierName = s.name;
     r.allocationStatus = 'linked';
     r.reviewReason = '';
-    return this.inbox.save(r);
+    const saved = await this.inbox.save(r);
+    await this.postLinkedJournalIfNeeded(saved);
+    return saved;
   }
 
   async createSupplierAndAttach(uid: string, receiptId: string, overrides?: { name?: string; country?: string }) {
@@ -196,7 +216,9 @@ export class ErpKobepayInboxService {
     r.supplierName = created.name;
     r.allocationStatus = 'linked';
     r.reviewReason = '';
-    return this.inbox.save(r);
+    const saved = await this.inbox.save(r);
+    await this.postLinkedJournalIfNeeded(saved);
+    return saved;
   }
 
   async markExpense(uid: string, receiptId: string, notes?: string) {

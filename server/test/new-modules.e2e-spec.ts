@@ -960,6 +960,101 @@ describe('New modules + ownership (e2e)', () => {
     expect(kobepayClient.body.erpEndpointUrl).toBe('http://asha-erp.example/api/erp/kobepay-inbox');
   });
 
+  it('Model 2 GL: journal entries post on both KobePay and ERP sides', async () => {
+    const kobepay = await token('gl-kobepay@e2e.test');
+    const asha = await token('gl-asha@e2e.test');
+
+    // Asha (ERP) registers KobePay as a provider.
+    const provider = await request(http).post('/api/erp/kobepay-inbox/providers').set(bearer(asha))
+      .send({ name: 'KobePay Trade Finance' });
+    const apiKey = provider.body.apiKey;
+
+    // KobePay sets USD-base rates for clean math.
+    await request(http).post('/api/kobepay/rates').set(bearer(kobepay))
+      .send({ fromCurrency: 'USD', toCurrency: 'TZS', salesRate: 2630, costRate: 2620 });
+    await request(http).post('/api/kobepay/rates').set(bearer(kobepay))
+      .send({ fromCurrency: 'USD', toCurrency: 'CNY', salesRate: 6.7, costRate: 6.75 });
+
+    const kpClient = await request(http).post('/api/kobepay/customers').set(bearer(kobepay))
+      .send({ name: 'Asha Trading', phone: '+255711000099' });
+
+    // Confirmed deposit → KobePay books DR Cash, CR Customer Deposit Liability.
+    const dep = await request(http).post('/api/kobepay/deposits').set(bearer(kobepay)).send({
+      customerId: kpClient.body.id,
+      amount: 10_000, currency: 'USD', cashCurrency: 'USD',
+      method: 'Cash', status: 'Confirmed', txnType: 'Deposit',
+      targetCurrency: 'CNY', quoteUsd: 10_000,
+      suppliers: [{ supplierNumber: 'SUP-1', supplierName: 'Yiwu Co', amount: 67_000, city: 'Yiwu' }],
+    });
+    expect(dep.status).toBe(201);
+
+    let kpJournal = await request(http).get('/api/erp/journal').set(bearer(kobepay));
+    const cashDeposit = kpJournal.body.find((j: { account: string; debit: number }) =>
+      j.account.startsWith('1000') && Number(j.debit) === 26_300_000);
+    const liabilityCredit = kpJournal.body.find((j: { account: string; credit: number }) =>
+      j.account.startsWith('2100') && Number(j.credit) === 26_300_000);
+    expect(cashDeposit).toBeDefined();
+    expect(liabilityCredit).toBeDefined();
+
+    // ERP side: KobePay dispatches the receipt; once linked the ERP
+    // posts DR Inventory in Transit, CR Cash for the TZS sent.
+    await request(http).post('/api/erp/sourcing/suppliers').set(bearer(asha))
+      .send({ name: 'Yiwu Co', phone: 'SUP-1', country: 'China' });
+    await request(http).post('/api/erp/kobepay-inbox').set('Authorization', `Bearer ${apiKey}`).send({
+      kobepayReceiptId: 'RCPT-GL-1',
+      customerPhone: '+255711000099', customerName: 'Asha Trading',
+      supplierPhone: 'SUP-1', supplierName: 'Yiwu Co',
+      sentAmount: 26_300_000, sentCurrency: 'TZS', exchangeRate: 1,
+      supplierReceivedAmount: 67_000, supplierCurrency: 'CNY',
+      supplierCity: 'Yiwu',
+    });
+
+    const ashaJournal = await request(http).get('/api/erp/journal').set(bearer(asha));
+    const inv = ashaJournal.body.find((j: { account: string; debit: number }) =>
+      j.account.startsWith('1300') && Number(j.debit) === 26_300_000);
+    const cashOut = ashaJournal.body.find((j: { account: string; credit: number }) =>
+      j.account.startsWith('1000') && Number(j.credit) === 26_300_000);
+    expect(inv).toBeDefined();
+    expect(cashOut).toBeDefined();
+
+    // Now Cashier China pays the supplier and marks the payout PAID
+    // at the office rate (no exchange variance to keep math clean).
+    const sup = await request(http).post('/api/kobepay/suppliers').set(bearer(kobepay))
+      .send({ name: 'Yiwu Co', phone: 'SUP-1', country: 'China' });
+    const payout = await request(http).post('/api/kobepay/payouts').set(bearer(kobepay)).send({
+      supplierId: sup.body.id, amount: 67_000, currency: 'CNY', method: 'Bank',
+      depositId: dep.body.id, initiatedBy: 'kobepay-owner',
+    });
+    await request(http).patch(`/api/kobepay/payouts/${payout.body.id}/status`).set(bearer(kobepay))
+      .send({ status: 'SENT' });
+    await request(http).patch(`/api/kobepay/payouts/${payout.body.id}/status`).set(bearer(kobepay))
+      .send({ status: 'CONFIRMED', confirmedBy: 'china-cashier' });
+    // actualRate matches the office rate exactly so no variance posts;
+    // we expect: DR Liability 26.3M, CR China Cash (67000 × actualRate × USD bridge).
+    // The payout's actualCostTzs derives from amount × actualRate when
+    // actualRate is supplied and cost wasn't given. Setting actualRate=2620/6.75
+    // ≈ 388.148 → actualCostTzs ≈ 26 005 916.
+    await request(http).patch(`/api/kobepay/payouts/${payout.body.id}/status`).set(bearer(kobepay))
+      .send({ status: 'PAID', actualRate: parseFloat((2620 / 6.75).toFixed(6)) });
+
+    kpJournal = await request(http).get('/api/erp/journal').set(bearer(kobepay));
+    const liabilityClose = kpJournal.body.find((j: { account: string; debit: number; description: string }) =>
+      j.account.startsWith('2100') && j.description?.includes('close out') && Number(j.debit) > 0);
+    const chinaCashOut = kpJournal.body.find((j: { account: string; credit: number }) =>
+      j.account.startsWith('1010') && Number(j.credit) > 0);
+    expect(liabilityClose).toBeDefined();
+    expect(chinaCashOut).toBeDefined();
+
+    // KobePay's chart now shows non-zero balances on Cash (1000),
+    // Customer Deposit Liability (2100 should be ~0 after close out),
+    // China Cash (1010 negative reflecting outflow), Exchange P&L (4200).
+    const kpAccounts = await request(http).get('/api/erp/accounts').set(bearer(kobepay));
+    const byCode = Object.fromEntries(kpAccounts.body.map((a: { code: string }) => [a.code, a]));
+    expect(Number(byCode['1000'].balance)).toBe(26_300_000);
+    expect(Math.abs(Number(byCode['2100'].balance))).toBeLessThan(1);
+    expect(Number(byCode['1010'].balance)).toBeLessThan(0);
+  });
+
   it('rejects unauthenticated access to owned resources', async () => {
     expect((await request(http).get('/api/print/jobs')).status).toBe(401);
     expect((await request(http).get('/api/erp/summary')).status).toBe(401);

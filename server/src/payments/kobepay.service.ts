@@ -23,6 +23,7 @@ import {
 import { KobePayRbacService, AuditContext } from './kobepay-rbac.service';
 import { KobePayRatesService } from './kobepay-rate.service';
 import { KobepayDispatcherService } from './kobepay-dispatcher.service';
+import { JournalService } from '../erp/journal.service';
 
 /** Anything within ±0.5% of the house rate counts as "matching" — small
  *  rounding differences from typing a rounded UI value shouldn't trip
@@ -149,6 +150,7 @@ export class KobePayDepositsService {
     private readonly rbac: KobePayRbacService,
     private readonly rates: KobePayRatesService,
     private readonly dispatcher: KobepayDispatcherService,
+    private readonly journal: JournalService,
   ) {}
 
   list(uid: string) {
@@ -278,6 +280,12 @@ export class KobePayDepositsService {
         customer.balance = parseFloat((Number(customer.balance) + dto.amount).toFixed(4));
         await custRepo.save(customer);
       }
+      // GL: confirmed deposits hit KobePay's books inside the same tx
+      // so the books never drift from the ledger (a failed journal post
+      // rolls back the entire deposit).
+      if (status === 'Confirmed') {
+        await this.journal.postKobepayDepositConfirmedInTransaction(tx, uid, deposit);
+      }
       await this.rbac.record(uid, ctx, 'deposit.create', 'deposit', deposit.id, {
         customerId: customer.id, amount: dto.amount, currency: dto.currency,
         targetAmount: dto.targetAmount, salesRate: dto.salesRate, status,
@@ -347,6 +355,7 @@ export class KobePayPayoutsService {
     private readonly ds: DataSource,
     private readonly rbac: KobePayRbacService,
     private readonly rates: KobePayRatesService,
+    private readonly journal: JournalService,
   ) {}
 
   list(uid: string) {
@@ -461,6 +470,13 @@ export class KobePayPayoutsService {
           supplier.orders = Number(supplier.orders) + 1;
           await supRepo.save(supplier);
         }
+        // GL: close out customer deposit liability, book real China cash
+        // out, exchange P&L, and any fee expenses inside the same tx.
+        const depRepo = tx.getRepository(PaymentDeposit);
+        const linkedDeposit = p.depositId
+          ? await depRepo.findOne({ where: { id: p.depositId, ownerId: uid } })
+          : null;
+        await this.journal.postKobepayPayoutPaidInTransaction(tx, uid, p, linkedDeposit);
       }
       const saved = await payRepo.save(p);
       await this.rbac.record(uid, ctx, `payout.${dto.status.toLowerCase()}`, 'payout', saved.id, {
