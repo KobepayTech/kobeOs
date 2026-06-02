@@ -1,6 +1,6 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { FindOptionsWhere, Repository } from 'typeorm';
 import {
   ErpKobePayLink,
   ErpKobePaySupplierReceipt,
@@ -243,9 +243,12 @@ export class SupplierCapitalService {
 
   private async resolveOwner(kobepayBusinessId: string, customerPhone: string, kobepayUserId?: string) {
     const phone = normalizePhone(customerPhone);
-    const where = kobepayUserId
-      ? [{ kobepayBusinessId, kobepayUserId, status: 'active' as const }, { kobepayBusinessId, customerPhone: phone, status: 'active' as const }]
-      : { kobepayBusinessId, customerPhone: phone, status: 'active' as const };
+    const where: FindOptionsWhere<ErpKobePayLink>[] = kobepayUserId
+      ? [
+          { kobepayBusinessId, kobepayUserId, status: 'active' },
+          { kobepayBusinessId, customerPhone: phone, status: 'active' },
+        ]
+      : [{ kobepayBusinessId, customerPhone: phone, status: 'active' }];
     const links = await this.linksRepo.find({ where });
     if (links.length !== 1) return null;
     return links[0].ownerId;
