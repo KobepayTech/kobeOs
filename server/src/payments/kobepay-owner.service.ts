@@ -53,6 +53,11 @@ export interface OwnerDashboard {
     unassignedFunds: number;
     customerCount: number;
     supplierCount: number;
+    /** Office vs real-rate gap × deposit volumes. Positive = real cost
+     *  below the office target (extra profit); negative = real cost
+     *  above target (loss vs plan). Computed only for deposits whose
+     *  targetCurrency has a real rate set. */
+    rateVariance: number;
   };
   entries: ProfitEntry[];
   daily: ProfitBucket[];
@@ -72,6 +77,7 @@ export class KobePayOwnerService {
     @InjectRepository(PaymentDeposit) private readonly deposits: Repository<PaymentDeposit>,
     @InjectRepository(PaymentPayout) private readonly payouts: Repository<PaymentPayout>,
     @InjectRepository(PaymentAllocation) private readonly allocations: Repository<PaymentAllocation>,
+    private readonly ratesSvc: KobePayRatesService,
   ) {}
 
   async dashboard(uid: string): Promise<OwnerDashboard> {
@@ -208,6 +214,27 @@ export class KobePayOwnerService {
       bySupplier[sid] = acc;
     }
 
+    // Variance: per confirmed deposit, (officeRate − realRate) × targetAmount
+    // measures whether the real cost in China beat or missed the book target.
+    // Positive value = real cheaper than office (extra profit).
+    const confirmedDeposits = deposits.filter((d) => d.status === 'Confirmed');
+    const pairsSeen = new Map<string, { costRate: number; realRate: number }>();
+    let rateVariance = 0;
+    for (const d of confirmedDeposits) {
+      const key = `${d.targetCurrency}->TZS`;
+      if (!pairsSeen.has(key)) {
+        const r = await this.ratesSvc.resolveRate(uid, d.targetCurrency, 'TZS');
+        if (r.source !== 'none' && r.realRate > 0 && r.costRate !== r.realRate) {
+          pairsSeen.set(key, { costRate: r.costRate, realRate: r.realRate });
+        } else {
+          pairsSeen.set(key, { costRate: 0, realRate: 0 });
+        }
+      }
+      const pair = pairsSeen.get(key);
+      if (!pair || pair.costRate === 0) continue;
+      rateVariance += (pair.costRate - pair.realRate) * Number(d.targetAmount);
+    }
+
     // Surface allocation count so the dashboard can show "X allocations in flight".
     void allocations;
 
@@ -227,6 +254,7 @@ export class KobePayOwnerService {
         unassignedFunds: round(unassignedFunds),
         customerCount: customers.length,
         supplierCount: suppliers.length,
+        rateVariance: round(rateVariance),
       },
       entries,
       daily: buckets('day').slice(-30),

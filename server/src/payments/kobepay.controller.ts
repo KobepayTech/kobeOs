@@ -10,7 +10,7 @@ import {
 } from './kobepay.service';
 import { KobePayCashierPerfService, KobePayOwnerService, KobePayRiskService } from './kobepay-owner.service';
 import { KobePayRbacService, AuditContext } from './kobepay-rbac.service';
-import { KobePayRatesService, UpsertRateInput } from './kobepay-rate.service';
+import { KobePayRatesService, SetRealRateInput, UpsertRateInput } from './kobepay-rate.service';
 import { KobePayRole } from './kobepay-rbac.entity';
 import {
   ConfirmDepositDto,
@@ -68,6 +68,16 @@ export class KobePayController {
   @Patch('rates/:id/deactivate')
   async deactivateRate(@CurrentUser('id') uid: string, @Headers('x-kobepay-pin') pin: string, @Param('id') id: string) {
     return this.rates.deactivate(uid, await this.ctx(uid, pin), id);
+  }
+  /** China-side cashier reports the actual ground rate. */
+  @Patch('rates/:id/real')
+  async setRealRate(
+    @CurrentUser('id') uid: string,
+    @Headers('x-kobepay-pin') pin: string,
+    @Param('id') id: string,
+    @Body() dto: SetRealRateInput,
+  ) {
+    return this.rates.setRealRate(uid, await this.ctx(uid, pin), id, dto);
   }
 
   private async ctx(uid: string, pin?: string): Promise<AuditContext> {

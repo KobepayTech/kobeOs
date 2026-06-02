@@ -28,7 +28,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 type Role = 'Admin' | 'Cashier TZ' | 'Cashier China';
 type Module = 'dashboard' | 'owner' | 'customers' | 'deposits' | 'payouts' | 'suppliers' | 'allocations' | 'receipts' | 'users' | 'cashierPerf' | 'risk' | 'audit' | 'rates' | 'settings';
 
-interface RateRow { id: string; fromCurrency: string; toCurrency: string; salesRate: string | number; costRate: string | number; effectiveFrom: string; active: boolean; notes: string; createdAt: string; }
+interface RateRow { id: string; fromCurrency: string; toCurrency: string; salesRate: string | number; costRate: string | number; realRate: string | number; effectiveFrom: string; active: boolean; notes: string; createdAt: string; }
 
 type KobePayUserRole = 'Admin' | 'Manager' | 'Cashier TZ' | 'Cashier China' | 'Auditor';
 interface KobePayUserRow { id: string; name: string; phone: string; role: KobePayUserRole; active: boolean; pin: string; permissions?: Record<string, boolean> | null; }
@@ -607,7 +607,7 @@ export default function KobePay() {
   };
 
   /* ── Exchange rates: history + active + derived cross-rates ── */
-  interface DerivedRateRow { fromCurrency: string; toCurrency: string; salesRate: number; costRate: number; viaBase: true; }
+  interface DerivedRateRow { fromCurrency: string; toCurrency: string; salesRate: number; costRate: number; realRate: number; viaBase: true; }
   const [rateHistory, setRateHistory] = useState<RateRow[]>([]);
   const [activeRates, setActiveRates] = useState<RateRow[]>([]);
   const [derivedRates, setDerivedRates] = useState<DerivedRateRow[]>([]);
@@ -689,6 +689,31 @@ export default function KobePay() {
       setRateHistory(history);
     } catch { /* */ }
   };
+
+  const [realRateDrafts, setRealRateDrafts] = useState<Record<string, string>>({});
+  const handleSetRealRate = async (r: RateRow) => {
+    const draft = realRateDrafts[r.id];
+    const value = parseFloat(draft ?? '');
+    if (!isFinite(value) || value <= 0) return;
+    try {
+      await api(`/kobepay/rates/${r.id}/real`, { method: 'PATCH', body: JSON.stringify({ realRate: value }) });
+      setRealRateDrafts((d) => ({ ...d, [r.id]: '' }));
+      await reloadActiveRates();
+      const history = await api<RateRow[]>('/kobepay/rates');
+      setRateHistory(history);
+    } catch { /* */ }
+  };
+
+  const handleToggleSetReal = async (u: KobePayUserRow) => {
+    const current = (u.permissions ?? {})['rate.setReal'] === true;
+    try {
+      await api(`/kobepay/users/${u.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ permissions: { ...(u.permissions ?? {}), 'rate.setReal': !current } }),
+      });
+      await reloadKobepayUsers();
+    } catch { /* */ }
+  };
   const [showTransactionDialog, setShowTransactionDialog] = useState(false);
 
   // Settings state
@@ -708,9 +733,12 @@ export default function KobePay() {
   const canAccess = (m: Module): boolean => {
     if (role === 'Admin') return true;
     // Admin-only modules: profit margins, RBAC, audit, and risk.
-    if (m === 'owner' || m === 'users' || m === 'audit' || m === 'risk' || m === 'cashierPerf' || m === 'rates') return false;
+    if (m === 'owner' || m === 'users' || m === 'audit' || m === 'risk' || m === 'cashierPerf') return false;
     if (role === 'Cashier TZ') return ['dashboard', 'customers', 'deposits', 'payouts', 'receipts'].includes(m);
-    if (role === 'Cashier China') return ['dashboard', 'payouts', 'receipts', 'suppliers'].includes(m);
+    // Cashier China sees Rates (read-only for sales/office; can update the
+    // real rate from their daily market). Other cashier-China access stays
+    // as before.
+    if (role === 'Cashier China') return ['dashboard', 'payouts', 'receipts', 'suppliers', 'rates'].includes(m);
     return false;
   };
 
@@ -1715,6 +1743,7 @@ export default function KobePay() {
       ['Pending Payouts',       fmtTzs(k.pendingPayouts),       'bg-slate-500/10',    'text-slate-300'],
       ['Unassigned Funds',      fmtTzs(k.unassignedFunds),      'bg-teal-500/10',     'text-teal-400'],
       ['Gross Profit',          fmtTzs(k.grossProfit),          'bg-indigo-500/10',   'text-indigo-400'],
+      ['Rate Variance',         fmtTzs((k as { rateVariance?: number }).rateVariance ?? 0), 'bg-fuchsia-500/10', 'text-fuchsia-400'],
     ];
 
     return (
@@ -1891,14 +1920,16 @@ export default function KobePay() {
               <th className="text-left">Pin</th>
               <th className="text-center">Active</th>
               <th className="text-center">Rate override</th>
+              <th className="text-center">Set real rate</th>
               <th className="text-right pr-4">Actions</th>
             </tr></thead>
             <tbody>
               {kobepayUsers.length === 0 && (
-                <tr><td colSpan={7} className="py-8 text-center text-slate-500">No sub-users yet — add one to start tracking actions per cashier.</td></tr>
+                <tr><td colSpan={8} className="py-8 text-center text-slate-500">No sub-users yet — add one to start tracking actions per cashier.</td></tr>
               )}
               {kobepayUsers.map((u) => {
                 const canOverride = u.role === 'Admin' || (u.permissions ?? {})['rate.override'] === true;
+                const canSetReal = u.role === 'Admin' || (u.permissions ?? {})['rate.setReal'] === true;
                 return (
                   <tr key={u.id} className="border-b border-white/[0.02]">
                     <td className="py-3 px-4 text-white">{u.name}</td>
@@ -1919,6 +1950,17 @@ export default function KobePay() {
                           title="Allow this user to enter a sales/cost rate different from the house rate"
                           className={`w-10 h-5 rounded-full transition-colors relative ${canOverride ? 'bg-amber-500/60' : 'bg-slate-600'}`}>
                           <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${canOverride ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                        </button>
+                      )}
+                    </td>
+                    <td className="text-center">
+                      {u.role === 'Admin' ? (
+                        <Badge variant="outline" className="bg-yellow-500/15 text-yellow-400 border-yellow-500/20">Always</Badge>
+                      ) : (
+                        <button onClick={() => handleToggleSetReal(u)}
+                          title="Allow this user (typically Cashier China) to update the real rate from the ground"
+                          className={`w-10 h-5 rounded-full transition-colors relative ${canSetReal ? 'bg-sky-500/60' : 'bg-slate-600'}`}>
+                          <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${canSetReal ? 'translate-x-5' : 'translate-x-0.5'}`} />
                         </button>
                       )}
                     </td>
@@ -2054,8 +2096,12 @@ export default function KobePay() {
     </div>,
   );
 
-  const renderRates = () => adminGate(
+  const renderRates = () => {
+    const canSetReal = role === 'Admin' || role === 'Cashier China';
+    const isAdmin = role === 'Admin';
+    return (
     <div className="space-y-4">
+      {isAdmin && (
       <Card className="bg-[#13131f] border-white/[0.06]">
         <CardContent className="p-5">
           <div className="flex items-center gap-2 mb-1">
@@ -2109,6 +2155,7 @@ export default function KobePay() {
           </div>
         </CardContent>
       </Card>
+      )}
 
       <Card className="bg-[#13131f] border-white/[0.06]">
         <CardContent className="p-5">
@@ -2120,8 +2167,11 @@ export default function KobePay() {
               {activeRates.map((r) => {
                 const sales = Number(r.salesRate);
                 const cost = Number(r.costRate);
+                const real = Number(r.realRate);
                 const spread = sales - cost;
                 const spreadPct = cost > 0 ? (spread / cost) * 100 : 0;
+                const variance = real > 0 ? cost - real : 0;
+                const variancePct = real > 0 && cost > 0 ? (variance / cost) * 100 : 0;
                 return (
                   <div key={r.id} className="rounded-lg border border-white/[0.06] bg-[#0a0a1a] p-4">
                     <div className="flex items-center justify-between">
@@ -2129,13 +2179,42 @@ export default function KobePay() {
                       <Badge variant="outline" className="bg-emerald-500/15 text-emerald-400 border-emerald-500/20">Active</Badge>
                     </div>
                     <div className="mt-3 space-y-1 text-sm">
-                      <div className="flex justify-between"><span className="text-slate-400">Sales</span><span className="text-white font-mono">{sales.toLocaleString()}</span></div>
-                      <div className="flex justify-between"><span className="text-slate-400">Cost</span><span className="text-white font-mono">{cost.toLocaleString()}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-400">Public (sales)</span><span className="text-white font-mono">{sales.toLocaleString()}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-400">Office (book)</span><span className="text-white font-mono">{cost.toLocaleString()}</span></div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Real (China)</span>
+                        <span className={`font-mono ${real > 0 ? 'text-amber-300' : 'text-slate-500'}`}>
+                          {real > 0 ? real.toLocaleString() : '— not reported'}
+                        </span>
+                      </div>
                       <div className="flex justify-between border-t border-white/[0.04] pt-1 mt-1">
-                        <span className="text-slate-400">Spread</span>
+                        <span className="text-slate-400">Planned spread</span>
                         <span className="text-emerald-400 font-mono">{spread.toFixed(2)} ({spreadPct.toFixed(1)}%)</span>
                       </div>
+                      {real > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Variance vs office</span>
+                          <span className={`font-mono ${variance >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {variance >= 0 ? '+' : ''}{variance.toFixed(2)} ({variancePct.toFixed(1)}%)
+                          </span>
+                        </div>
+                      )}
                     </div>
+                    {canSetReal && (
+                      <div className="mt-3 pt-3 border-t border-white/[0.04]">
+                        <p className="text-[10px] text-slate-500 mb-1">Update real (China)</p>
+                        <div className="flex gap-2">
+                          <Input type="number" step="0.0001"
+                            value={realRateDrafts[r.id] ?? ''}
+                            onChange={(e) => setRealRateDrafts((d) => ({ ...d, [r.id]: e.target.value }))}
+                            placeholder={String(real || cost)}
+                            className="bg-[#13131f] border-white/[0.06] text-white h-8 text-xs font-mono" />
+                          <Button size="sm" onClick={() => handleSetRealRate(r)} className="bg-amber-600 hover:bg-amber-700 text-white h-8 text-xs">
+                            Save
+                          </Button>
+                        </div>
+                      </div>
+                    )}
                     <p className="text-[10px] text-slate-500 mt-2">Effective {new Date(r.effectiveFrom).toLocaleString()}</p>
                   </div>
                 );
@@ -2145,6 +2224,7 @@ export default function KobePay() {
         </CardContent>
       </Card>
 
+      {isAdmin && (
       <Card className="bg-[#13131f] border-white/[0.06]">
         <CardContent className="p-5">
           <div className="flex items-center gap-2 mb-3">
@@ -2179,7 +2259,9 @@ export default function KobePay() {
           )}
         </CardContent>
       </Card>
+      )}
 
+      {isAdmin && (
       <Card className="bg-[#13131f] border-white/[0.06]">
         <CardContent className="p-5">
           <h3 className="text-white font-semibold mb-3">Rate history ({rateHistory.length})</h3>
@@ -2226,8 +2308,10 @@ export default function KobePay() {
           </div>
         </CardContent>
       </Card>
-    </div>,
-  );
+      )}
+    </div>
+    );
+  };
 
   const renderAudit = () => adminGate(
     <Card className="bg-[#13131f] border-white/[0.06]">

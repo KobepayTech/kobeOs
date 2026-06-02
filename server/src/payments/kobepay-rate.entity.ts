@@ -2,12 +2,19 @@ import { Column, Entity, Index } from 'typeorm';
 import { OwnedEntity } from '../common/owned.entity';
 
 /**
- * House exchange rate per (from, to) currency pair. salesRate is what
- * the TZ cashier should quote customers; costRate is what Cashier China
- * actually pays at. The spread between them is the owner's expected
- * profit margin. New rates are inserted (not updated) so the history
- * is preserved; only the most recent active row per pair is the
- * effective rate.
+ * House exchange rate per (from, to) currency pair. Three rate columns:
+ *
+ *   salesRate (public)  — what the TZ cashier quotes customers
+ *   costRate (office)   — admin's internal book cost / conservative target
+ *   realRate (ground)   — what Cashier China actually achieves on the day
+ *
+ * The spread (sales − office) is the planned margin. The variance
+ * (office − real) is the surprise gain/loss: real > office means China
+ * cost more than budgeted (a loss); real < office means it cost less
+ * (extra profit).
+ *
+ * New rates are inserted (not updated) so history is preserved; only
+ * the most recent active row per pair is the effective rate.
  */
 @Entity('kobepay_rates')
 @Index(['ownerId', 'fromCurrency', 'toCurrency', 'effectiveFrom'])
@@ -18,13 +25,18 @@ export class KobePayRate extends OwnedEntity {
   @Column({ default: 'TZS' })
   toCurrency!: string;
 
-  /** Rate the TZ cashier should quote customers: 1 from = salesRate * to. */
+  /** Public rate: what the TZ cashier should quote customers. */
   @Column({ type: 'decimal', precision: 18, scale: 6, default: 0 })
   salesRate!: number;
 
-  /** Rate Cashier China actually pays at: 1 from = costRate * to. */
+  /** Office rate: admin's internal book cost, conservative target. */
   @Column({ type: 'decimal', precision: 18, scale: 6, default: 0 })
   costRate!: number;
+
+  /** Real rate: what Cashier China actually achieves on the ground.
+   *  Only users with the rate.setReal permission can update this. */
+  @Column({ type: 'decimal', precision: 18, scale: 6, default: 0 })
+  realRate!: number;
 
   @Column({ type: 'timestamptz' })
   effectiveFrom!: Date;

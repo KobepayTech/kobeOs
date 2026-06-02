@@ -759,6 +759,61 @@ describe('New modules + ownership (e2e)', () => {
     expect(denied.body.message).toMatch(/diverges from house rate/);
   });
 
+  it('KobePay three-rate model: admin sets public+office, China sets real, owner sees variance', async () => {
+    const t = await token('three-rate@e2e.test');
+
+    // Admin sets USD-base rates: public 2630, office 2620; USD->CNY 6.7 / 6.75.
+    const tzs = await request(http).post('/api/kobepay/rates').set(bearer(t))
+      .send({ fromCurrency: 'USD', toCurrency: 'TZS', salesRate: 2630, costRate: 2620 });
+    const cny = await request(http).post('/api/kobepay/rates').set(bearer(t))
+      .send({ fromCurrency: 'USD', toCurrency: 'CNY', salesRate: 6.7, costRate: 6.75 });
+    expect(tzs.status).toBe(201);
+    expect(cny.status).toBe(201);
+
+    // Create a Cashier China without rate.setReal — attempt to update real rate fails.
+    const wei = await request(http).post('/api/kobepay/users').set(bearer(t))
+      .send({ name: 'Wei', role: 'Cashier China', pin: '4444' });
+    const denied = await request(http).patch(`/api/kobepay/rates/${cny.body.id}/real`)
+      .set(bearer(t)).set('x-kobepay-pin', '4444')
+      .send({ realRate: 6.8 });
+    expect(denied.status).toBe(403);
+
+    // Grant rate.setReal and retry — succeeds.
+    await request(http).patch(`/api/kobepay/users/${wei.body.id}`).set(bearer(t))
+      .send({ permissions: { 'rate.setReal': true } });
+    const ok = await request(http).patch(`/api/kobepay/rates/${cny.body.id}/real`)
+      .set(bearer(t)).set('x-kobepay-pin', '4444')
+      .send({ realRate: 6.8 });
+    expect(ok.status).toBe(200);
+    expect(Number(ok.body.realRate)).toBe(6.8);
+
+    // Resolve CNY->TZS: derived realRate = (USD->TZS cost) / (USD->CNY real) = 2620 / 6.8 ≈ 385.29
+    const resolved = await request(http).get('/api/kobepay/rates/resolve?from=CNY&to=TZS').set(bearer(t));
+    expect(resolved.body.source).toBe('derived');
+    expect(resolved.body.realRate).toBeCloseTo(2620 / 6.8, 2);
+
+    // Audit captures the rate.setReal event with previous → new.
+    const audit = await request(http).get('/api/kobepay/audit').set(bearer(t));
+    const setReal = audit.body.find((a: { action: string }) => a.action === 'rate.setReal');
+    expect(setReal).toBeDefined();
+    expect(setReal.actorName).toBe('Wei');
+    expect(setReal.metadata.realRate).toBe(6.8);
+
+    // A confirmed deposit feeds the variance KPI: office CNY->TZS = 2620/6.75 ≈ 388.15,
+    // real CNY->TZS = 2620/6.8 ≈ 385.29 → variance per CNY ≈ 2.86 TZS.
+    // 1000 CNY targetAmount → variance ≈ 2860 TZS (positive: real cheaper than office).
+    const cust = await request(http).post('/api/kobepay/customers').set(bearer(t))
+      .send({ name: 'Juma', phone: '+255700000444' });
+    await request(http).post('/api/kobepay/deposits').set(bearer(t)).send({
+      customerId: cust.body.id, amount: 388_148, method: 'M-Pesa', status: 'Confirmed',
+      targetCurrency: 'CNY', targetAmount: 1000, salesRate: 392.537,
+    });
+
+    const dash = await request(http).get('/api/kobepay/owner-dashboard').set(bearer(t));
+    expect(dash.body.kpis.rateVariance).toBeGreaterThan(2000);
+    expect(dash.body.kpis.rateVariance).toBeLessThan(4000);
+  });
+
   it('rejects unauthenticated access to owned resources', async () => {
     expect((await request(http).get('/api/print/jobs')).status).toBe(401);
     expect((await request(http).get('/api/erp/summary')).status).toBe(401);

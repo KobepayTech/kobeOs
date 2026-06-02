@@ -9,7 +9,13 @@ export interface UpsertRateInput {
   toCurrency?: string;
   salesRate: number;
   costRate: number;
+  realRate?: number;
   effectiveFrom?: string;
+  notes?: string;
+}
+
+export interface SetRealRateInput {
+  realRate: number;
   notes?: string;
 }
 
@@ -21,6 +27,7 @@ export const BASE_CURRENCY = 'USD';
 export interface ResolvedRate {
   salesRate: number;
   costRate: number;
+  realRate: number;
   source: 'direct' | 'derived' | 'none';
   via?: string;
 }
@@ -69,17 +76,21 @@ export class KobePayRatesService {
     const active = await this.active(uid);
     const usdRates = active.filter((r) => r.fromCurrency === BASE_CURRENCY);
     if (usdRates.length < 2) return [];
-    const out: Array<{ fromCurrency: string; toCurrency: string; salesRate: number; costRate: number; viaBase: true }> = [];
+    const out: Array<{ fromCurrency: string; toCurrency: string; salesRate: number; costRate: number; realRate: number; viaBase: true }> = [];
     for (const from of usdRates) {
       for (const to of usdRates) {
         if (from.toCurrency === to.toCurrency) continue;
         const sales = Number(to.salesRate) / Number(from.salesRate);
         const cost = Number(to.costRate) / Number(from.costRate);
+        const fromReal = Number(from.realRate) || Number(from.costRate);
+        const toReal = Number(to.realRate) || Number(to.costRate);
+        const real = toReal / fromReal;
         out.push({
           fromCurrency: from.toCurrency,
           toCurrency: to.toCurrency,
           salesRate: parseFloat(sales.toFixed(6)),
           costRate: parseFloat(cost.toFixed(6)),
+          realRate: parseFloat(real.toFixed(6)),
           viaBase: true,
         });
       }
@@ -93,34 +104,48 @@ export class KobePayRatesService {
    * `none` only when neither USD→from nor USD→to is configured.
    */
   async resolveRate(uid: string, from: string, to: string): Promise<ResolvedRate> {
-    if (from === to) return { salesRate: 1, costRate: 1, source: 'direct' };
+    if (from === to) return { salesRate: 1, costRate: 1, realRate: 1, source: 'direct' };
 
     const direct = await this.repo.findOne({
       where: { ownerId: uid, fromCurrency: from, toCurrency: to, active: true, effectiveFrom: LessThanOrEqual(new Date()) },
       order: { effectiveFrom: 'DESC' },
     });
     if (direct) {
-      return { salesRate: Number(direct.salesRate), costRate: Number(direct.costRate), source: 'direct' };
+      return {
+        salesRate: Number(direct.salesRate),
+        costRate: Number(direct.costRate),
+        realRate: Number(direct.realRate) || Number(direct.costRate),
+        source: 'direct',
+      };
     }
 
-    // Derive via USD: (USD→to) / (USD→from). USD itself collapses cleanly.
+    type Triple = { salesRate: number; costRate: number; realRate: number };
     const fromBase = from === BASE_CURRENCY
-      ? { salesRate: 1, costRate: 1 } as { salesRate: number; costRate: number }
+      ? { salesRate: 1, costRate: 1, realRate: 1 } as Triple
       : await this.repo.findOne({
           where: { ownerId: uid, fromCurrency: BASE_CURRENCY, toCurrency: from, active: true, effectiveFrom: LessThanOrEqual(new Date()) },
           order: { effectiveFrom: 'DESC' },
-        }).then((r) => r ? { salesRate: Number(r.salesRate), costRate: Number(r.costRate) } : null);
+        }).then((r) => r ? {
+          salesRate: Number(r.salesRate),
+          costRate: Number(r.costRate),
+          realRate: Number(r.realRate) || Number(r.costRate),
+        } : null);
     const toBase = to === BASE_CURRENCY
-      ? { salesRate: 1, costRate: 1 } as { salesRate: number; costRate: number }
+      ? { salesRate: 1, costRate: 1, realRate: 1 } as Triple
       : await this.repo.findOne({
           where: { ownerId: uid, fromCurrency: BASE_CURRENCY, toCurrency: to, active: true, effectiveFrom: LessThanOrEqual(new Date()) },
           order: { effectiveFrom: 'DESC' },
-        }).then((r) => r ? { salesRate: Number(r.salesRate), costRate: Number(r.costRate) } : null);
+        }).then((r) => r ? {
+          salesRate: Number(r.salesRate),
+          costRate: Number(r.costRate),
+          realRate: Number(r.realRate) || Number(r.costRate),
+        } : null);
 
-    if (!fromBase || !toBase) return { salesRate: 0, costRate: 0, source: 'none' };
+    if (!fromBase || !toBase) return { salesRate: 0, costRate: 0, realRate: 0, source: 'none' };
     return {
       salesRate: parseFloat((toBase.salesRate / fromBase.salesRate).toFixed(6)),
       costRate: parseFloat((toBase.costRate / fromBase.costRate).toFixed(6)),
+      realRate: parseFloat((toBase.realRate / fromBase.realRate).toFixed(6)),
       source: 'derived',
       via: BASE_CURRENCY,
     };
@@ -164,6 +189,30 @@ export class KobePayRatesService {
       pair: `${saved.fromCurrency}->${saved.toCurrency}`,
       salesRate: saved.salesRate,
       costRate: saved.costRate,
+      realRate: saved.realRate,
+    });
+    return saved;
+  }
+
+  /**
+   * Update only the realRate on an existing rate row. Designed for the
+   * China-side cashier/manager to report the actual ground rate without
+   * touching admin's public/office numbers. Requires rate.setReal
+   * permission, which admin grants per user.
+   */
+  async setRealRate(uid: string, ctx: AuditContext, id: string, dto: SetRealRateInput) {
+    this.rbac.ensure(ctx.user ?? null, 'rate.setReal');
+    if (dto.realRate <= 0) throw new BadRequestException('realRate must be > 0');
+    const r = await this.repo.findOne({ where: { id, ownerId: uid } });
+    if (!r) throw new NotFoundException();
+    const previous = Number(r.realRate);
+    r.realRate = dto.realRate;
+    if (dto.notes !== undefined) r.notes = dto.notes;
+    const saved = await this.repo.save(r);
+    await this.rbac.record(uid, ctx, 'rate.setReal', 'rate', saved.id, {
+      pair: `${saved.fromCurrency}->${saved.toCurrency}`,
+      previous,
+      realRate: saved.realRate,
     });
     return saved;
   }
