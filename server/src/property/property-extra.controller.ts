@@ -130,7 +130,7 @@ export class PropertyExtraController {
   }
 
   @Get('settings') getSettings(@CurrentUser('id') uid: string) { return this.settings.get(uid); }
-  @Patch('settings') updateSettings(@CurrentUser('id') uid: string, @Body() dto: UpdateSettingsDto) { return this.settings.update(uid, dto); }
+  @Patch('settings') updateSettings(@CurrentUser('id') uid: string, @Body() dto: UpdateSettingsDto) { return this.settings.update(uid, dto as any); }
 
   @Get('expenses')
   listExpenses(@CurrentUser('id') uid: string, @Query('propertyId') propertyId?: string) {
@@ -147,7 +147,7 @@ export class PropertyExtraController {
   async tenantPortal(@CurrentUser('id') uid: string, @Param('tenantId') tenantId: string) {
     const tenant = await this.tenants.get(uid, tenantId);
     const leases = await this.leases.byTenant(uid, tenantId);
-    const charges = await this.charges.list(uid, { where: { tenantId } as any });
+    const charges = await this.charges.byTenant(uid, tenantId);
     return {
       tenant,
       leases,
