@@ -15,6 +15,8 @@ import {
   KobePaySupplierReceiptWebhookDto,
 } from './dto/supplier-capital.dto';
 
+const UNMATCHED_KOBEPAY_OWNER_ID = '00000000-0000-0000-0000-000000000000';
+
 function n(value: unknown): number {
   const parsed = Number(value ?? 0);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -39,7 +41,12 @@ export class SupplierCapitalService {
   }
 
   createLink(ownerId: string, dto: CreateKobePayLinkDto) {
-    return this.linksRepo.save(this.linksRepo.create({ ...dto, ownerId, customerPhone: normalizePhone(dto.customerPhone), status: dto.status ?? 'active' }));
+    return this.linksRepo.save(this.linksRepo.create({
+      ...dto,
+      ownerId,
+      customerPhone: normalizePhone(dto.customerPhone),
+      status: dto.status ?? 'active',
+    }));
   }
 
   listSuppliers(ownerId: string) {
@@ -47,11 +54,20 @@ export class SupplierCapitalService {
   }
 
   createSupplier(ownerId: string, dto: CreateSupplierDto) {
-    return this.suppliersRepo.save(this.suppliersRepo.create({ ...dto, ownerId, phone: normalizePhone(dto.phone ?? ''), country: dto.country ?? 'CN', currency: dto.currency ?? 'CNY' }));
+    return this.suppliersRepo.save(this.suppliersRepo.create({
+      ...dto,
+      ownerId,
+      phone: normalizePhone(dto.phone ?? ''),
+      country: dto.country ?? 'CN',
+      currency: dto.currency ?? 'CNY',
+    }));
   }
 
   listPurchaseOrders(ownerId: string, supplierId?: string) {
-    return this.poRepo.find({ where: supplierId ? { ownerId, supplierId } : { ownerId }, order: { createdAt: 'DESC' } });
+    return this.poRepo.find({
+      where: supplierId ? { ownerId, supplierId } : { ownerId },
+      order: { createdAt: 'DESC' },
+    });
   }
 
   async createPurchaseOrder(ownerId: string, dto: CreatePurchaseOrderDto) {
@@ -76,7 +92,7 @@ export class SupplierCapitalService {
     const ownerId = await this.resolveOwner(dto.kobepayBusinessId, dto.customerPhone, dto.kobepayUserId);
     if (!ownerId) {
       const receipt = await this.receiptsRepo.save(this.receiptsRepo.create({
-        ownerId: '00000000-0000-0000-0000-000000000001',
+        ownerId: UNMATCHED_KOBEPAY_OWNER_ID,
         kobepayReceiptId: dto.receiptId,
         kobepayBusinessId: dto.kobepayBusinessId,
         kobepayUserId: dto.kobepayUserId ?? '',
@@ -108,7 +124,12 @@ export class SupplierCapitalService {
 
     if (suppliers.length === 1) {
       supplierId = suppliers[0].id;
-      const openPos = await this.poRepo.find({ where: [{ ownerId, supplierId, status: 'open' }, { ownerId, supplierId, status: 'partial' }] });
+      const openPos = await this.poRepo.find({
+        where: [
+          { ownerId, supplierId, status: 'open' },
+          { ownerId, supplierId, status: 'partial' },
+        ],
+      });
       if (openPos.length === 1) {
         poId = openPos[0].id;
         allocationStatus = 'linked';
@@ -158,7 +179,12 @@ export class SupplierCapitalService {
     const receipt = await this.getReceipt(ownerId, receiptId);
     const supplier = await this.suppliersRepo.findOne({ where: { ownerId, id: supplierId } });
     if (!supplier) throw new NotFoundException('Supplier not found for this ERP user');
-    const openPos = await this.poRepo.find({ where: [{ ownerId, supplierId, status: 'open' }, { ownerId, supplierId, status: 'partial' }] });
+    const openPos = await this.poRepo.find({
+      where: [
+        { ownerId, supplierId, status: 'open' },
+        { ownerId, supplierId, status: 'partial' },
+      ],
+    });
     receipt.supplierId = supplier.id;
     if (openPos.length === 1) {
       receipt.poId = openPos[0].id;
@@ -181,7 +207,9 @@ export class SupplierCapitalService {
     const receipt = await this.getReceipt(ownerId, receiptId);
     const po = await this.poRepo.findOne({ where: { ownerId, id: poId } });
     if (!po) throw new NotFoundException('PO not found for this ERP user');
-    if (receipt.supplierId && po.supplierId !== receipt.supplierId) throw new ConflictException('PO belongs to a different supplier');
+    if (receipt.supplierId && po.supplierId !== receipt.supplierId) {
+      throw new ConflictException('PO belongs to a different supplier');
+    }
     receipt.poId = po.id;
     receipt.supplierId = receipt.supplierId ?? po.supplierId;
     receipt.allocationStatus = 'linked';
@@ -203,7 +231,23 @@ export class SupplierCapitalService {
   }
 
   listReceipts(ownerId: string, status?: string) {
-    return this.receiptsRepo.find({ where: status ? { ownerId, allocationStatus: status as ErpKobePaySupplierReceipt['allocationStatus'] } : { ownerId }, order: { paidAt: 'DESC' } });
+    return this.receiptsRepo.find({
+      where: status ? { ownerId, allocationStatus: status as ErpKobePaySupplierReceipt['allocationStatus'] } : { ownerId },
+      order: { paidAt: 'DESC' },
+    });
+  }
+
+  listNeedsAction(ownerId: string) {
+    return this.receiptsRepo.find({
+      where: [
+        { ownerId, actionRequired: 'needs_supplier' },
+        { ownerId, actionRequired: 'needs_po' },
+        { ownerId, actionRequired: 'choose_supplier' },
+        { ownerId, actionRequired: 'choose_po' },
+        { ownerId, actionRequired: 'review' },
+      ],
+      order: { paidAt: 'DESC' },
+    });
   }
 
   async summary(ownerId: string) {
@@ -225,7 +269,15 @@ export class SupplierCapitalService {
       suppliers: suppliers.length,
       purchaseOrders: pos.length,
       needsAction: needsAction.length,
-      redQuestionItems: needsAction.map((r) => ({ id: r.id, receiptId: r.kobepayReceiptId, supplierPhone: r.supplierPhone, supplierName: r.supplierName, cnyAmount: n(r.supplierReceivedAmount), status: r.allocationStatus, actionRequired: r.actionRequired })),
+      redQuestionItems: needsAction.map((r) => ({
+        id: r.id,
+        receiptId: r.kobepayReceiptId,
+        supplierPhone: r.supplierPhone,
+        supplierName: r.supplierName,
+        cnyAmount: n(r.supplierReceivedAmount),
+        status: r.allocationStatus,
+        actionRequired: r.actionRequired,
+      })),
       bySupplier: suppliers.map((supplier) => {
         const supplierReceipts = receipts.filter((r) => r.supplierId === supplier.id);
         const supplierPos = pos.filter((p) => p.supplierId === supplier.id);
@@ -262,7 +314,13 @@ export class SupplierCapitalService {
 
   private async createLedgerForReceipt(receipt: ErpKobePaySupplierReceipt) {
     const existing = await this.ledgerRepo.findOne({ where: { ownerId: receipt.ownerId, receiptId: receipt.id } });
-    const entryType = receipt.allocationStatus === 'linked' ? 'po_payment' : receipt.allocationStatus === 'expense' ? 'expense' : receipt.allocationStatus === 'freight' ? 'freight' : 'supplier_advance';
+    const entryType = receipt.allocationStatus === 'linked'
+      ? 'po_payment'
+      : receipt.allocationStatus === 'expense'
+        ? 'expense'
+        : receipt.allocationStatus === 'freight'
+          ? 'freight'
+          : 'supplier_advance';
     const payload = {
       ownerId: receipt.ownerId,
       supplierId: receipt.supplierId ?? null,
