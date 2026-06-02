@@ -9,6 +9,10 @@ export class UpsertCustomerDto {
   @IsOptional() @IsString() idNumber?: string;
   @IsOptional() @IsString() company?: string;
   @IsOptional() @IsString() notes?: string;
+  /** ERP webhook destination for receipt dispatch (Model 2). */
+  @IsOptional() @IsString() erpEndpointUrl?: string;
+  @IsOptional() @IsString() erpApiKey?: string;
+  @IsOptional() @IsString() erpAccountId?: string;
 }
 
 export class UpdateCustomerDto {
@@ -18,6 +22,9 @@ export class UpdateCustomerDto {
   @IsOptional() @IsString() idNumber?: string;
   @IsOptional() @IsString() company?: string;
   @IsOptional() @IsString() notes?: string;
+  @IsOptional() @IsString() erpEndpointUrl?: string;
+  @IsOptional() @IsString() erpApiKey?: string;
+  @IsOptional() @IsString() erpAccountId?: string;
 }
 
 export class UpsertSupplierDto {

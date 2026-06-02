@@ -1,7 +1,14 @@
 import { Column, Entity, Index } from 'typeorm';
 import { OwnedEntity } from '../common/owned.entity';
 
-/* ============ KobePay customers (deposit holders) ============ */
+/**
+ * KobePay's clients are ERP businesses (e.g. "Asha Trading"), not the
+ * individual end-buyers who walk into Asha's shop. In Model 2 each
+ * client runs their own KobeOS install; KobePay pushes a receipt to
+ * that install via the ERP-side webhook at erpEndpointUrl, authed by
+ * the apiKey the client generated and shared back. erpAccountId is an
+ * opaque identifier the client uses on their side (free-text).
+ */
 @Entity('kobepay_customers')
 @Index(['ownerId', 'phone'], { unique: true })
 export class PaymentCustomer extends OwnedEntity {
@@ -23,9 +30,21 @@ export class PaymentCustomer extends OwnedEntity {
   @Column({ default: '' })
   notes!: string;
 
-  /** Running USD balance the customer has on deposit with KobePay. */
+  /** Running USD balance the client has on deposit with KobePay. */
   @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
   balance!: number;
+
+  /** Where to POST receipts when this client's deposits are confirmed. */
+  @Column({ default: '' })
+  erpEndpointUrl!: string;
+
+  /** Bearer token the client gave KobePay for the inbox webhook. */
+  @Column({ default: '' })
+  erpApiKey!: string;
+
+  /** Free-text identifier the client uses to recognise themselves. */
+  @Column({ default: '' })
+  erpAccountId!: string;
 }
 
 /* ============ KobePay suppliers (payout recipients) ============ */

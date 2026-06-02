@@ -22,6 +22,7 @@ import {
 } from './dto/kobepay.dto';
 import { KobePayRbacService, AuditContext } from './kobepay-rbac.service';
 import { KobePayRatesService } from './kobepay-rate.service';
+import { KobepayDispatcherService } from './kobepay-dispatcher.service';
 
 /** Anything within ±0.5% of the house rate counts as "matching" — small
  *  rounding differences from typing a rounded UI value shouldn't trip
@@ -147,6 +148,7 @@ export class KobePayDepositsService {
     private readonly ds: DataSource,
     private readonly rbac: KobePayRbacService,
     private readonly rates: KobePayRatesService,
+    private readonly dispatcher: KobepayDispatcherService,
   ) {}
 
   list(uid: string) {
@@ -280,6 +282,23 @@ export class KobePayDepositsService {
         customerId: customer.id, amount: dto.amount, currency: dto.currency,
         targetAmount: dto.targetAmount, salesRate: dto.salesRate, status,
       });
+      return { deposit, customer };
+    }).then(async ({ deposit, customer }) => {
+      // Model 2: KobePay pushes a receipt to the client's ERP install
+      // when the deposit is Confirmed AND the client has an endpoint
+      // configured. Best-effort; failure is audited but doesn't unwind
+      // the deposit (the client can pull the receipt manually later).
+      if (deposit.status === 'Confirmed' && customer.erpEndpointUrl && customer.erpApiKey) {
+        const result = await this.dispatcher.dispatchDeposit(
+          customer, deposit, ctx.user?.name ?? 'KobePay',
+        );
+        await this.rbac.record(
+          uid, ctx,
+          result.ok ? 'deposit.dispatched' : 'deposit.dispatchFailed',
+          'deposit', deposit.id,
+          { endpoint: customer.erpEndpointUrl, ...result },
+        );
+      }
       return deposit;
     });
   }
