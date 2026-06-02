@@ -302,8 +302,9 @@ export class SupplierCapitalService {
         ]
       : [{ kobepayBusinessId, customerPhone: phone, status: 'active' }];
     const links = await this.linksRepo.find({ where });
-    if (links.length !== 1) return null;
-    return links[0].ownerId;
+    const ownerIds = Array.from(new Set(links.map((link) => link.ownerId)));
+    if (ownerIds.length !== 1) return null;
+    return ownerIds[0];
   }
 
   private async getReceipt(ownerId: string, id: string) {
