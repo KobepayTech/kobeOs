@@ -12,6 +12,7 @@ export const PERMISSIONS = [
   'user.manage',
   'permission.manage',
   'rate.manage',
+  'rate.override',
   'deposit.create',
   'deposit.confirm',
   'deposit.reverse',

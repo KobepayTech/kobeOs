@@ -492,6 +492,34 @@ export class KobePayRiskService {
       }
     }
 
+    // Explicit rate.override events from the audit log → high severity:
+    // an override was actually approved (vs the heuristic 'rate_override'
+    // that fires when no permission gate exists). Denied overrides also
+    // surface so the owner sees who tried.
+    for (const ev of audits) {
+      if (ev.action === 'rate.override') {
+        const md = (ev.metadata ?? {}) as { attempted?: number; house?: number; pair?: string };
+        alerts.push({
+          severity: 'high',
+          kind: 'rate_override_used',
+          message: `${ev.actorName} used override rate ${md.attempted} on ${md.pair} (house ${md.house})`,
+          resourceType: ev.resourceType,
+          resourceId: ev.resourceId ?? '',
+          createdAt: ev.createdAt.toISOString(),
+        });
+      } else if (ev.action === 'rate.overrideDenied') {
+        const md = (ev.metadata ?? {}) as { attempted?: number; house?: number; pair?: string };
+        alerts.push({
+          severity: 'medium',
+          kind: 'rate_override_denied',
+          message: `${ev.actorName} attempted override rate ${md.attempted} on ${md.pair} (house ${md.house}) — denied`,
+          resourceType: ev.resourceType,
+          resourceId: ev.resourceId ?? '',
+          createdAt: ev.createdAt.toISOString(),
+        });
+      }
+    }
+
     const summary = alerts.reduce<Record<string, number>>((acc, a) => {
       acc[a.kind] = (acc[a.kind] ?? 0) + 1;
       return acc;

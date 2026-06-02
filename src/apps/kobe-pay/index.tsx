@@ -588,6 +588,17 @@ export default function KobePay() {
     } catch { /* */ }
   };
 
+  const handleToggleRateOverride = async (u: KobePayUserRow) => {
+    const current = (u.permissions ?? {})['rate.override'] === true;
+    try {
+      await api(`/kobepay/users/${u.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ permissions: { ...(u.permissions ?? {}), 'rate.override': !current } }),
+      });
+      await reloadKobepayUsers();
+    } catch { /* */ }
+  };
+
   const handleDeleteKobepayUser = async (u: KobePayUserRow) => {
     try {
       await api(`/kobepay/users/${u.id}`, { method: 'DELETE' });
@@ -1861,31 +1872,46 @@ export default function KobePay() {
               <th className="text-left">Role</th>
               <th className="text-left">Pin</th>
               <th className="text-center">Active</th>
+              <th className="text-center">Rate override</th>
               <th className="text-right pr-4">Actions</th>
             </tr></thead>
             <tbody>
               {kobepayUsers.length === 0 && (
-                <tr><td colSpan={6} className="py-8 text-center text-slate-500">No sub-users yet — add one to start tracking actions per cashier.</td></tr>
+                <tr><td colSpan={7} className="py-8 text-center text-slate-500">No sub-users yet — add one to start tracking actions per cashier.</td></tr>
               )}
-              {kobepayUsers.map((u) => (
-                <tr key={u.id} className="border-b border-white/[0.02]">
-                  <td className="py-3 px-4 text-white">{u.name}</td>
-                  <td className="text-slate-300">{u.phone || '-'}</td>
-                  <td><Badge variant="outline" className={ROLE_BADGES[u.role] || ''}>{u.role}</Badge></td>
-                  <td className="font-mono text-slate-300">****</td>
-                  <td className="text-center">
-                    <button onClick={() => handleToggleUserActive(u)}
-                      className={`w-10 h-5 rounded-full transition-colors relative ${u.active ? 'bg-emerald-500/40' : 'bg-slate-600'}`}>
-                      <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${u.active ? 'translate-x-5' : 'translate-x-0.5'}`} />
-                    </button>
-                  </td>
-                  <td className="text-right pr-4">
-                    <Button variant="ghost" size="sm" onClick={() => handleDeleteKobepayUser(u)} className="text-rose-300 hover:bg-rose-500/10">
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </Button>
-                  </td>
-                </tr>
-              ))}
+              {kobepayUsers.map((u) => {
+                const canOverride = u.role === 'Admin' || (u.permissions ?? {})['rate.override'] === true;
+                return (
+                  <tr key={u.id} className="border-b border-white/[0.02]">
+                    <td className="py-3 px-4 text-white">{u.name}</td>
+                    <td className="text-slate-300">{u.phone || '-'}</td>
+                    <td><Badge variant="outline" className={ROLE_BADGES[u.role] || ''}>{u.role}</Badge></td>
+                    <td className="font-mono text-slate-300">****</td>
+                    <td className="text-center">
+                      <button onClick={() => handleToggleUserActive(u)}
+                        className={`w-10 h-5 rounded-full transition-colors relative ${u.active ? 'bg-emerald-500/40' : 'bg-slate-600'}`}>
+                        <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${u.active ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                      </button>
+                    </td>
+                    <td className="text-center">
+                      {u.role === 'Admin' ? (
+                        <Badge variant="outline" className="bg-yellow-500/15 text-yellow-400 border-yellow-500/20">Always</Badge>
+                      ) : (
+                        <button onClick={() => handleToggleRateOverride(u)}
+                          title="Allow this user to enter a sales/cost rate different from the house rate"
+                          className={`w-10 h-5 rounded-full transition-colors relative ${canOverride ? 'bg-amber-500/60' : 'bg-slate-600'}`}>
+                          <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${canOverride ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                        </button>
+                      )}
+                    </td>
+                    <td className="text-right pr-4">
+                      <Button variant="ghost" size="sm" onClick={() => handleDeleteKobepayUser(u)} className="text-rose-300 hover:bg-rose-500/10">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </CardContent>

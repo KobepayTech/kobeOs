@@ -650,6 +650,66 @@ describe('New modules + ownership (e2e)', () => {
     expect(auditPage.body.some((a: { action: string }) => a.action === 'rate.deactivate')).toBe(true);
   });
 
+  it('KobePay rate.override: cashier blocked unless explicitly granted', async () => {
+    const t = await token('rate-override@e2e.test');
+
+    // House rate CNY->TZS 410.
+    await request(http).post('/api/kobepay/rates').set(bearer(t))
+      .send({ fromCurrency: 'CNY', salesRate: 410, costRate: 380 });
+
+    // Create a TZ cashier with pin 1111 (no rate.override by default).
+    const tz = await request(http).post('/api/kobepay/users').set(bearer(t))
+      .send({ name: 'Asha', role: 'Cashier TZ', pin: '1111' });
+
+    const cust = await request(http).post('/api/kobepay/customers').set(bearer(t))
+      .send({ name: 'Juma', phone: '+255700000222' });
+
+    // Deposit at exact house rate → allowed.
+    const ok = await request(http).post('/api/kobepay/deposits')
+      .set(bearer(t)).set('x-kobepay-pin', '1111')
+      .send({
+        customerId: cust.body.id, amount: 100_000, method: 'M-Pesa',
+        status: 'Confirmed', targetCurrency: 'CNY', targetAmount: 100, salesRate: 410,
+      });
+    expect(ok.status).toBe(201);
+
+    // Deposit at 425 (3.7% off) — beyond 0.5% tolerance, blocked.
+    const denied = await request(http).post('/api/kobepay/deposits')
+      .set(bearer(t)).set('x-kobepay-pin', '1111')
+      .send({
+        customerId: cust.body.id, amount: 100_000, method: 'M-Pesa',
+        status: 'Confirmed', targetCurrency: 'CNY', targetAmount: 100, salesRate: 425,
+      });
+    expect(denied.status).toBe(403);
+    expect(denied.body.message).toMatch(/rate.override/);
+
+    // Audit log records the denial.
+    const auditBefore = await request(http).get('/api/kobepay/audit').set(bearer(t));
+    expect(auditBefore.body.some((a: { action: string }) => a.action === 'rate.overrideDenied')).toBe(true);
+
+    // Owner grants Asha the per-user rate.override permission.
+    await request(http).patch(`/api/kobepay/users/${tz.body.id}`).set(bearer(t))
+      .send({ permissions: { 'rate.override': true } });
+
+    // Now the same off-house deposit succeeds.
+    const allowed = await request(http).post('/api/kobepay/deposits')
+      .set(bearer(t)).set('x-kobepay-pin', '1111')
+      .send({
+        customerId: cust.body.id, amount: 100_000, method: 'M-Pesa',
+        status: 'Confirmed', targetCurrency: 'CNY', targetAmount: 100, salesRate: 425,
+      });
+    expect(allowed.status).toBe(201);
+
+    // Audit log captures the override.
+    const auditAfter = await request(http).get('/api/kobepay/audit').set(bearer(t));
+    const override = auditAfter.body.find(
+      (a: { action: string; metadata?: { attempted?: number } }) =>
+        a.action === 'rate.override' && a.metadata?.attempted === 425,
+    );
+    expect(override).toBeDefined();
+    expect(override.actorName).toBe('Asha');
+  });
+
   it('rejects unauthenticated access to owned resources', async () => {
     expect((await request(http).get('/api/print/jobs')).status).toBe(401);
     expect((await request(http).get('/api/erp/summary')).status).toBe(401);

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, ILike, Repository } from 'typeorm';
 import {
@@ -21,6 +21,18 @@ import {
   UpsertSupplierDto,
 } from './dto/kobepay.dto';
 import { KobePayRbacService, AuditContext } from './kobepay-rbac.service';
+import { KobePayRatesService } from './kobepay-rate.service';
+
+/** Anything within ±0.5% of the house rate counts as "matching" — small
+ *  rounding differences from typing a rounded UI value shouldn't trip
+ *  the override gate. */
+const RATE_TOLERANCE_PCT = 0.5;
+
+function divergesFromHouse(supplied: number, house: number): boolean {
+  if (house <= 0) return false;
+  const diff = Math.abs((supplied - house) / house) * 100;
+  return diff > RATE_TOLERANCE_PCT;
+}
 
 /* ── Customers ───────────────────────────────────────────── */
 @Injectable()
@@ -134,6 +146,7 @@ export class KobePayDepositsService {
     @InjectRepository(PaymentCustomer) private readonly customers: Repository<PaymentCustomer>,
     private readonly ds: DataSource,
     private readonly rbac: KobePayRbacService,
+    private readonly rates: KobePayRatesService,
   ) {}
 
   list(uid: string) {
@@ -148,6 +161,30 @@ export class KobePayDepositsService {
    */
   async create(uid: string, ctx: AuditContext, dto: CreateDepositDto) {
     this.rbac.ensure(ctx.user ?? null, 'deposit.create');
+
+    // Hard rate-override gate: if a house sales rate exists for this
+    // (targetCurrency -> TZS) pair and the caller's salesRate diverges
+    // beyond tolerance, require the rate.override permission.
+    if (dto.salesRate && dto.salesRate > 0) {
+      const targetCcy = dto.targetCurrency ?? 'CNY';
+      const house = await this.rates.currentRate(uid, targetCcy, 'TZS');
+      if (house && divergesFromHouse(dto.salesRate, Number(house.salesRate))) {
+        try {
+          this.rbac.ensure(ctx.user ?? null, 'rate.override');
+        } catch {
+          await this.rbac.record(uid, ctx, 'rate.overrideDenied', 'deposit', null, {
+            attempted: dto.salesRate, house: Number(house.salesRate), pair: `${targetCcy}->TZS`,
+          });
+          throw new ForbiddenException(
+            `Sales rate ${dto.salesRate} diverges from house rate ${house.salesRate}; requires rate.override permission`,
+          );
+        }
+        await this.rbac.record(uid, ctx, 'rate.override', 'deposit', null, {
+          field: 'salesRate', attempted: dto.salesRate, house: Number(house.salesRate), pair: `${targetCcy}->TZS`,
+        });
+      }
+    }
+
     return this.ds.transaction(async (tx) => {
       const custRepo = tx.getRepository(PaymentCustomer);
       const depRepo = tx.getRepository(PaymentDeposit);
@@ -242,6 +279,7 @@ export class KobePayPayoutsService {
     @InjectRepository(PaymentSupplier) private readonly suppliers: Repository<PaymentSupplier>,
     private readonly ds: DataSource,
     private readonly rbac: KobePayRbacService,
+    private readonly rates: KobePayRatesService,
   ) {}
 
   list(uid: string) {
@@ -294,6 +332,31 @@ export class KobePayPayoutsService {
                : dto.status === 'CONFIRMED' ? 'payout.confirm'
                : 'payout.advance';
     this.rbac.ensure(ctx.user ?? null, perm);
+
+    // Rate-override gate on the PAID transition: if the caller is
+    // entering an actualRate that diverges from the house cost rate,
+    // require rate.override (so Cashier China can't quietly pocket the
+    // spread by booking a higher cost than what they actually paid).
+    if (dto.status === 'PAID' && dto.actualRate && dto.actualRate > 0) {
+      const existing = await this.payouts.findOne({ where: { id, ownerId: uid } });
+      const ccy = existing?.currency ?? 'CNY';
+      const house = await this.rates.currentRate(uid, ccy, 'TZS');
+      if (house && divergesFromHouse(dto.actualRate, Number(house.costRate))) {
+        try {
+          this.rbac.ensure(ctx.user ?? null, 'rate.override');
+        } catch {
+          await this.rbac.record(uid, ctx, 'rate.overrideDenied', 'payout', id, {
+            attempted: dto.actualRate, house: Number(house.costRate), pair: `${ccy}->TZS`,
+          });
+          throw new ForbiddenException(
+            `Actual cost rate ${dto.actualRate} diverges from house cost rate ${house.costRate}; requires rate.override permission`,
+          );
+        }
+        await this.rbac.record(uid, ctx, 'rate.override', 'payout', id, {
+          field: 'actualRate', attempted: dto.actualRate, house: Number(house.costRate), pair: `${ccy}->TZS`,
+        });
+      }
+    }
     return this.ds.transaction(async (tx) => {
       const payRepo = tx.getRepository(PaymentPayout);
       const supRepo = tx.getRepository(PaymentSupplier);
