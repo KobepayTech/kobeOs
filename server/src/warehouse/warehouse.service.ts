@@ -4,10 +4,29 @@ import { DataSource, Repository } from 'typeorm';
 import { WarehouseItem, WarehouseMovement } from './warehouse.entity';
 import { CreateItemDto, MovementDto, UpdateItemDto } from './dto/warehouse.dto';
 import { OwnedCrudService } from '../common/owned.service';
+import { WarehousesService } from './warehouses.service';
 
 @Injectable()
 export class WarehouseItemsService extends OwnedCrudService<WarehouseItem> {
-  constructor(@InjectRepository(WarehouseItem) repo: Repository<WarehouseItem>) { super(repo); }
+  constructor(
+    @InjectRepository(WarehouseItem) repo: Repository<WarehouseItem>,
+    private readonly warehouses: WarehousesService,
+    private readonly ds: DataSource,
+  ) { super(repo); }
+
+  /** Auto-assign the default warehouse when the caller doesn't pick one. */
+  async create(uid: string, dto: CreateItemDto): Promise<WarehouseItem> {
+    return this.ds.transaction(async (tx) => {
+      const warehouseId = dto.warehouseId
+        ?? (await this.warehouses.getOrCreateDefault(tx, uid)).id;
+      const repo = tx.getRepository(WarehouseItem);
+      return repo.save(repo.create({ ...dto, warehouseId, ownerId: uid }));
+    });
+  }
+
+  listByWarehouse(uid: string, warehouseId?: string) {
+    return super.list(uid, warehouseId ? { where: { warehouseId } } : {});
+  }
 }
 
 @Injectable()

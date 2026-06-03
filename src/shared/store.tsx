@@ -5,8 +5,8 @@
 // Replace with Zustand/Redux if preferred
 // ============================================================================
 
-import React, { createContext, useContext, useReducer, useCallback } from 'react';
-import type { Tenant, Shipment, Creator, Campaign, Hotel, Order, Notification, User } from './types';
+import React, { createContext, useContext, useReducer } from 'react';
+import type { Tenant, Shipment, Creator, Campaign, Hotel, Order } from './types';
 
 // --- PROPERTY STORE ---
 

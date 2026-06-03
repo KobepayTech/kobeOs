@@ -4,8 +4,18 @@
 !include "LogicLib.nsh"
 !include "FileFunc.nsh"
 !include "StrFunc.nsh"
-${StrContains}
-${StrRep}
+; StrFunc declarations must precede first use. StrFunc has no "StrContains";
+; the idiomatic membership test is StrStr (returns the tail starting at the
+; match or "" when absent). electron-builder compiles the uninstaller in a
+; separate pass with BUILD_UNINSTALLER defined — in that pass install-section
+; functions are zeroed out and any declared-but-unused install function is
+; reported as warning 6010, which the build treats as fatal. Gate the
+; declarations on the active pass so only the symbols actually called survive.
+!ifdef BUILD_UNINSTALLER
+  ${UnStrRep}
+!else
+  ${StrStr}
+!endif
 
 ; ── Registry keys ─────────────────────────────────────────────────────────────
 !define OLD_UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\{com.kobepay.kobeos}"
@@ -73,7 +83,6 @@ ${StrRep}
   ${Else}
     DetailPrint "Visual C++ 2015-2022 x64 Redistributable already present — skipping."
   ${EndIf}
-!macroend
 
   ; ── 3. Register cloudflared.exe on the system PATH ────────────────────────
   ; cloudflared-win-x64.exe is bundled in resources\cloudflared\ by electron-builder.
@@ -89,8 +98,9 @@ ${StrRep}
     ReadRegStr $2 HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" "Path"
     ${If} $2 != ""
       StrCpy $3 "$2"
-      ; Simple check: if $INSTDIR is already in PATH, skip
-      ${StrContains} $4 "$INSTDIR" "$3"
+      ; Simple check: if $INSTDIR is already in PATH, skip. StrStr returns the
+      ; tail starting at the match — empty result means the substring is absent.
+      ${StrStr} $4 "$3" "$INSTDIR"
       ${If} $4 == ""
         WriteRegExpandStr HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" "Path" "$2;$INSTDIR"
         ; Broadcast WM_SETTINGCHANGE so running processes pick up the new PATH
@@ -116,9 +126,11 @@ ${StrRep}
   ; Remove $INSTDIR from system PATH
   ReadRegStr $0 HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" "Path"
   ${If} $0 != ""
-    ; Strip ";$INSTDIR" or "$INSTDIR;" from PATH
-    ${StrRep} $1 "$0" ";$INSTDIR" ""
-    ${StrRep} $1 "$1" "$INSTDIR;" ""
+    ; Strip ";$INSTDIR" or "$INSTDIR;" from PATH. Inside the uninstaller we must
+    ; use ${UnStrRep} — the install-section ${StrRep} resolves to a non-"un."
+    ; function call that makensis rejects here.
+    ${UnStrRep} $1 "$0" ";$INSTDIR" ""
+    ${UnStrRep} $1 "$1" "$INSTDIR;" ""
     ${If} $1 != $0
       WriteRegExpandStr HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" "Path" "$1"
       SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=5000

@@ -11,12 +11,12 @@
 
 import React, { useState } from 'react';
 import {
-  LayoutDashboard, Bed, UtensilsCrossed, QrCode, Users, Settings,
-  Globe, ChefHat, CreditCard, BarChart3, Calendar, Plus, Edit2,
-  Trash2, Eye, CheckCircle, Clock, AlertTriangle, TrendingUp,
+  LayoutDashboard, Bed, UtensilsCrossed, QrCode, Users,
+  Globe, ChefHat, BarChart3, Calendar, Plus, Edit2,
+  Trash2, Eye, CheckCircle,
   DollarSign, Percent, Star
 } from 'lucide-react';
-import type { Hotel, Room, Booking, Order, StaffMember, MenuCategory } from '@/shared/types';
+import type { Hotel, Room } from '@/shared/types';
 import { formatCurrency, formatDate, getStatusColor } from '@/shared/utils';
 
 type TabType = 'overview' | 'rooms' | 'bookings' | 'restaurant' | 'menu' | 'staff' | 'website' | 'analytics';

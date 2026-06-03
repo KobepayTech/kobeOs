@@ -23,7 +23,7 @@ export class AirCargoService {
     @InjectRepository(CargoAnalyticsSnapshot) private readonly snapshots: Repository<CargoAnalyticsSnapshot>,
   ) {}
 
-  createHub(ownerId: string, dto: CreateAirHubDto) { return this.hubs.save(this.hubs.create({ ...dto, ownerId, active: dto.active ?? true })); }
+  createHub(ownerId: string, dto: CreateAirHubDto) { return this.hubs.save(this.hubs.create({ ...dto, ownerId, type: (dto.type ?? 'PRIMARY') as CargoAirHub['type'], active: dto.active ?? true } as Partial<CargoAirHub>)); }
   listHubs(ownerId: string) { return this.hubs.find({ where: { ownerId }, order: { code: 'ASC' } }); }
   createAirline(ownerId: string, dto: CreateAirlineDto) { return this.airlines.save(this.airlines.create({ ...dto, ownerId, active: dto.active ?? true })); }
   listAirlines(ownerId: string) { return this.airlines.find({ where: { ownerId }, order: { reliabilityScore: 'DESC' } }); }
@@ -84,9 +84,9 @@ export class AirCargoService {
     return this.routes.save(current);
   }
 
-  createCustoms(ownerId: string, dto: CreateCustomsFlowDto) { return this.customs.save(this.customs.create({ ...dto, ownerId, shipmentId: dto.shipmentId ?? null, parcelId: dto.parcelId ?? null, status: (dto.status ?? 'PENDING') as any, clearedAt: dto.clearedAt ? new Date(dto.clearedAt) : null })); }
+  createCustoms(ownerId: string, dto: CreateCustomsFlowDto) { return this.customs.save(this.customs.create({ ...dto, ownerId, shipmentId: dto.shipmentId ?? null, parcelId: dto.parcelId ?? null, stage: dto.stage as CargoCustomsFlow['stage'], status: (dto.status ?? 'PENDING') as CargoCustomsFlow['status'], clearedAt: dto.clearedAt ? new Date(dto.clearedAt) : null } as Partial<CargoCustomsFlow>)); }
   listCustoms(ownerId: string) { return this.customs.find({ where: { ownerId }, order: { createdAt: 'DESC' } }); }
-  createEvent(ownerId: string, dto: CreateTrackingEventDto) { return this.events.save(this.events.create({ ...dto, ownerId, shipmentId: dto.shipmentId ?? null, parcelId: dto.parcelId ?? null, location: dto.location ?? '', flightNumber: dto.flightNumber ?? '', eventAt: dto.eventAt ? new Date(dto.eventAt) : new Date(), metadata: {}, notes: dto.notes ?? '' })); }
+  createEvent(ownerId: string, dto: CreateTrackingEventDto) { return this.events.save(this.events.create({ ...dto, ownerId, shipmentId: dto.shipmentId ?? null, parcelId: dto.parcelId ?? null, eventType: dto.eventType as CargoTrackingEvent['eventType'], location: dto.location ?? '', flightNumber: dto.flightNumber ?? '', eventAt: dto.eventAt ? new Date(dto.eventAt) : new Date(), metadata: {}, notes: dto.notes ?? '' } as Partial<CargoTrackingEvent>)); }
   listEvents(ownerId: string, shipmentId?: string) { return this.events.find({ where: shipmentId ? { ownerId, shipmentId } : { ownerId }, order: { eventAt: 'DESC' } }); }
   createDelivery(ownerId: string, dto: CreateLastMileDto) { return this.deliveries.save(this.deliveries.create({ ...dto, ownerId, shipmentId: dto.shipmentId ?? null, parcelId: dto.parcelId ?? null, driverId: dto.driverId ?? null, otpCode: dto.otpCode ?? String(Math.floor(100000 + Math.random() * 899999)), status: (dto.status ?? 'PENDING') as any })); }
   listDeliveries(ownerId: string) { return this.deliveries.find({ where: { ownerId }, order: { createdAt: 'DESC' } }); }

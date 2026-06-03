@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import {
-  Cpu, HardDrive, Wifi, WifiOff, Battery, Monitor,
-  Activity, Package, Mic, Eye, Brain, Volume2,
-  RefreshCw, CheckCircle2, XCircle, AlertTriangle,
+import { HardDrive, Wifi, WifiOff, Battery, Monitor,
+  Activity, Package, Eye, Brain, Volume2,
+  RefreshCw, CheckCircle2, XCircle,
   Usb, Bluetooth, Printer, CreditCard,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';

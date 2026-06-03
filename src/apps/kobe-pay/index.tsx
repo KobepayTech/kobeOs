@@ -1,11 +1,20 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api';
 import { ensureSession } from '@/lib/auth';
+
+interface BackendCustomer { id: string; name: string; phone: string; email: string; idNumber: string; company: string; notes: string; balance: string | number; createdAt: string; }
+interface BackendSupplier { id: string; name: string; country: string; contact: string; phone: string; balance: string | number; orders: number; status: 'Active' | 'Inactive'; }
+interface BackendDeposit { id: string; customerId: string; customerName: string; phone: string; amount: string | number; currency: string; method: string; reference: string; status: DepositStatus; txnType: TxnType; createdAt: string; suppliers?: SupplierEntry[] | null; }
+interface BackendPayout { id: string; supplierId: string; supplierName: string; amount: string | number; currency: string; method: string; status: PayoutStatus; initiatedBy: string; confirmedBy: string; notes: string; createdAt: string; }
+interface BackendAllocation { id: string; customerId: string; customerName: string; supplierId: string; supplierName: string; amount: string | number; orderRef: string; type: 'Deposit' | 'Full'; createdAt: string; }
+
+const num = (x: string | number) => Number(x);
 import {
   Wallet, LayoutDashboard, Users, ArrowDownLeft, Send, Building2, Share2, Receipt, Settings,
   Plus, Search, CheckCircle2, Clock, XCircle, Phone, User, Mail, CreditCard, Banknote,
   Smartphone, Landmark, DollarSign, ChevronRight, X, Check, Download, Printer, QrCode,
-  Trash2, Edit, Eye, Filter, BadgeCheck, AlertTriangle
+  Trash2, Edit, Eye, Filter, BadgeCheck, AlertTriangle, TrendingUp, ShieldCheck, Activity, FileText, KeyRound,
+  ArrowRightLeft
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,7 +26,15 @@ import { QRCodeSVG } from 'qrcode.react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 type Role = 'Admin' | 'Cashier TZ' | 'Cashier China';
-type Module = 'dashboard' | 'customers' | 'deposits' | 'payouts' | 'suppliers' | 'allocations' | 'receipts' | 'settings';
+type Module = 'dashboard' | 'owner' | 'customers' | 'deposits' | 'payouts' | 'suppliers' | 'allocations' | 'receipts' | 'users' | 'cashierPerf' | 'risk' | 'audit' | 'rates' | 'settings';
+
+interface RateRow { id: string; fromCurrency: string; toCurrency: string; salesRate: string | number; costRate: string | number; realRate: string | number; effectiveFrom: string; active: boolean; notes: string; createdAt: string; }
+
+type KobePayUserRole = 'Admin' | 'Manager' | 'Cashier TZ' | 'Cashier China' | 'Auditor';
+interface KobePayUserRow { id: string; name: string; phone: string; role: KobePayUserRole; active: boolean; pin: string; permissions?: Record<string, boolean> | null; }
+interface CashierStatRow { userId: string | null; name: string; role: string; deposits: number; depositsTotal: number; payoutsInitiated: number; payoutsPaidValue: number; reversals: number; attributedProfitTzs: number; lastActiveAt: string | null; }
+interface RiskAlertRow { severity: 'high' | 'medium' | 'low'; kind: string; message: string; resourceType: string; resourceId: string; createdAt: string; }
+interface AuditRow { id: string; actorName: string; actorRole: string; action: string; resourceType: string; resourceId: string | null; createdAt: string; metadata?: Record<string, unknown> | null; }
 type DepositStatus = 'Pending' | 'Confirmed';
 type PayoutStatus = 'INITIATED' | 'SENT' | 'CONFIRMED' | 'PAID';
 type TxnType = 'Deposit' | 'Goods on Delivery';
@@ -55,12 +72,14 @@ interface SupplierEntry {
   supplierNumber: string;
   supplierName: string;
   amount: number;
+  city?: string;
 }
 
 interface SupplierLine {
   supplierNumber: string;
   supplierName: string;
   amount: string;
+  city: string;
 }
 
 interface DepositReceipt {
@@ -73,6 +92,9 @@ interface DepositReceipt {
   date: string;
   suppliers: SupplierEntry[];
   total: number;
+  cashAmount?: number;
+  cashCurrency?: string;
+  quoteUsd?: number;
 }
 
 interface Payout {
@@ -226,6 +248,12 @@ const WEEKLY_DATA = [
 
 const SIDEBAR_ITEMS: { id: Module; label: string; icon: typeof Wallet; color: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, color: 'text-cyan-400' },
+  { id: 'owner', label: 'Owner Profit', icon: TrendingUp, color: 'text-yellow-400' },
+  { id: 'cashierPerf', label: 'Cashier Performance', icon: Activity, color: 'text-indigo-400' },
+  { id: 'risk', label: 'Risk & Exceptions', icon: ShieldCheck, color: 'text-rose-400' },
+  { id: 'rates', label: 'Exchange Rates', icon: ArrowRightLeft, color: 'text-teal-400' },
+  { id: 'users', label: 'Users & Permissions', icon: KeyRound, color: 'text-fuchsia-400' },
+  { id: 'audit', label: 'Audit Log', icon: FileText, color: 'text-orange-400' },
   { id: 'customers', label: 'Customers', icon: Users, color: 'text-blue-400' },
   { id: 'deposits', label: 'Deposits', icon: ArrowDownLeft, color: 'text-emerald-400' },
   { id: 'payouts', label: 'Payouts', icon: Send, color: 'text-amber-400' },
@@ -266,31 +294,140 @@ function MethodIcon({ method }: { method: string }) {
 export default function KobePay() {
   const [role, setRole] = useState<Role>('Admin');
   const [module, setModule] = useState<Module>('dashboard');
-  const [customers, setCustomers] = useState<Customer[]>(MOCK_CUSTOMERS);
-  const [deposits, setDeposits] = useState<Deposit[]>(MOCK_DEPOSITS);
-  const [payouts, setPayouts] = useState<Payout[]>(MOCK_PAYOUTS);
-  const [suppliers] = useState<Supplier[]>(MOCK_SUPPLIERS);
-  const [allocations, setAllocations] = useState<Allocation[]>(MOCK_ALLOCATIONS);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [deposits, setDeposits] = useState<Deposit[]>([]);
+  const [payouts, setPayouts] = useState<Payout[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [allocations, setAllocations] = useState<Allocation[]>([]);
   const [walletId, setWalletId] = useState<string | null>(null);
 
-  // Provision a USD wallet for the operator on first mount.
+  // Hydrate every list from /kobepay/* and reload after mutations.
+  const reloadAll = useCallback(async () => {
+    try {
+      const [cs, ss, ds, ps, as] = await Promise.all([
+        api<BackendCustomer[]>('/kobepay/customers'),
+        api<BackendSupplier[]>('/kobepay/suppliers'),
+        api<BackendDeposit[]>('/kobepay/deposits'),
+        api<BackendPayout[]>('/kobepay/payouts'),
+        api<BackendAllocation[]>('/kobepay/allocations'),
+      ]);
+      // Deposit counts + lastDeposit date derived client-side.
+      const byCust: Record<string, { count: number; last: string }> = {};
+      for (const d of ds) {
+        const date = d.createdAt.slice(0, 10);
+        const acc = byCust[d.customerId] ?? { count: 0, last: '-' };
+        byCust[d.customerId] = { count: acc.count + 1, last: date > acc.last ? date : acc.last };
+      }
+      setCustomers(cs.map((c) => ({
+        id: c.id, name: c.name, phone: c.phone, email: c.email, idNumber: c.idNumber,
+        company: c.company, notes: c.notes, balance: num(c.balance),
+        depositCount: byCust[c.id]?.count ?? 0,
+        lastDeposit: byCust[c.id]?.last ?? '-',
+        createdAt: c.createdAt.slice(0, 10),
+      })));
+      setSuppliers(ss.map((s) => ({
+        id: s.id, name: s.name, country: s.country, contact: s.contact, phone: s.phone,
+        balance: num(s.balance), orders: s.orders, status: s.status,
+      })));
+      setDeposits(ds.map((d) => ({
+        id: d.id, customerId: d.customerId, customerName: d.customerName, phone: d.phone,
+        amount: num(d.amount), currency: d.currency, method: d.method, reference: d.reference,
+        status: d.status, date: d.createdAt.slice(0, 10), txnType: d.txnType,
+        suppliers: d.suppliers ?? undefined,
+      })));
+      setPayouts(ps.map((p) => ({
+        id: p.id, supplierId: p.supplierId, supplierName: p.supplierName, amount: num(p.amount),
+        currency: p.currency, method: p.method, status: p.status, initiatedBy: p.initiatedBy,
+        confirmedBy: p.confirmedBy, date: p.createdAt.slice(0, 10), notes: p.notes,
+      })));
+      setAllocations(as.map((a) => ({
+        id: a.id, customerId: a.customerId, customerName: a.customerName,
+        supplierId: a.supplierId, supplierName: a.supplierName, amount: num(a.amount),
+        orderRef: a.orderRef, type: a.type, date: a.createdAt.slice(0, 10),
+      })));
+    } catch {
+      // Fall back to demo arrays if the backend is unreachable so the screen
+      // never starts blank on first load.
+      setCustomers((cur) => cur.length ? cur : MOCK_CUSTOMERS);
+      setSuppliers((cur) => cur.length ? cur : MOCK_SUPPLIERS);
+      setDeposits((cur) => cur.length ? cur : MOCK_DEPOSITS);
+      setPayouts((cur) => cur.length ? cur : MOCK_PAYOUTS);
+      setAllocations((cur) => cur.length ? cur : MOCK_ALLOCATIONS);
+    }
+  }, []);
+
+  // Provision a USD wallet for the operator on first mount, then load
+  // every kobepay resource. Seed the backend with the demo catalog on
+  // very first run so the screen starts populated.
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      try { await ensureSession(); } catch { /* offline */ }
       try {
-        await ensureSession();
         const wallets = await api<Array<{ id: string; currency: string }>>('/payments/wallets');
-        if (cancelled) return;
-        const usd = wallets.find((w) => w.currency === 'USD');
-        if (usd) { setWalletId(usd.id); return; }
-        const created = await api<{ id: string }>('/payments/wallets', {
-          method: 'POST', body: JSON.stringify({ currency: 'USD' }),
-        });
-        if (!cancelled) setWalletId(created.id);
-      } catch { /* keep local-only state on failure */ }
+        if (!cancelled) {
+          const usd = wallets.find((w) => w.currency === 'USD');
+          if (usd) {
+            setWalletId(usd.id);
+          } else {
+            const created = await api<{ id: string }>('/payments/wallets', {
+              method: 'POST', body: JSON.stringify({ currency: 'USD' }),
+            });
+            if (!cancelled) setWalletId(created.id);
+          }
+        }
+      } catch { /* leave walletId null; UI still works */ }
+
+      try {
+        const existing = await api<BackendCustomer[]>('/kobepay/customers');
+        if (!cancelled && existing.length === 0) {
+          // Seed demo data once. Customers must come first so deposits
+          // can reference real ids.
+          const seeded = await Promise.all(MOCK_CUSTOMERS.map((c) =>
+            api<BackendCustomer>('/kobepay/customers', {
+              method: 'POST',
+              body: JSON.stringify({
+                name: c.name, phone: c.phone, email: c.email,
+                idNumber: c.idNumber, company: c.company, notes: c.notes,
+              }),
+            }),
+          ));
+          const phoneToId: Record<string, string> = {};
+          for (const r of seeded) phoneToId[r.phone] = r.id;
+          await Promise.all(MOCK_SUPPLIERS.map((s) =>
+            api('/kobepay/suppliers', {
+              method: 'POST',
+              body: JSON.stringify({
+                name: s.name, country: s.country, contact: s.contact,
+                phone: s.phone, status: s.status,
+              }),
+            }),
+          ));
+          for (const d of MOCK_DEPOSITS) {
+            const cid = phoneToId[d.phone];
+            if (!cid) continue;
+            try {
+              await api('/kobepay/deposits', {
+                method: 'POST',
+                body: JSON.stringify({
+                  customerId: cid, amount: d.amount, currency: d.currency,
+                  method: d.method, reference: d.reference,
+                  status: d.status, txnType: 'Deposit',
+                }),
+              });
+            } catch { /* skip dupes */ }
+          }
+        }
+      } catch { /* offline — fall through to reloadAll which will use MOCK */ }
+
+      if (!cancelled) await reloadAll();
+      try {
+        const pending = await api<{ count: number }>('/kobepay/dispatch-queue/pending-count');
+        if (!cancelled) setPendingDispatches(pending.count);
+      } catch { /* */ }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [reloadAll]);
 
   // Mirror new deposits to /api/payments/transactions when a wallet exists.
   const recordDeposit = async (amount: number, ref: string, description: string) => {
@@ -313,7 +450,13 @@ export default function KobePay() {
   const [newCustomerId, setNewCustomerId] = useState('');
   const [newCustomerCompany, setNewCustomerCompany] = useState('');
   const [newCustomerNotes, setNewCustomerNotes] = useState('');
+  // Model 2: dispatch endpoint config for the client's ERP install.
+  const [newCustomerErpUrl, setNewCustomerErpUrl] = useState('');
+  const [newCustomerErpKey, setNewCustomerErpKey] = useState('');
+  const [newCustomerErpAccountId, setNewCustomerErpAccountId] = useState('');
   const [customerFilter, setCustomerFilter] = useState('');
+  const [testDispatchResult, setTestDispatchResult] = useState<{ customerId: string; ok: boolean; message: string } | null>(null);
+  const [pendingDispatches, setPendingDispatches] = useState(0);
 
   // Customer edit state
   const [editCustomer, setEditCustomer] = useState<Customer | null>(null);
@@ -325,10 +468,15 @@ export default function KobePay() {
 
   // Deposit form state
   const [depositPhone, setDepositPhone] = useState('');
-  const [depositCurrency, setDepositCurrency] = useState('USD');
+  /** Currency the supplier in China is paid in (typically CNY). */
+  const [depositCurrency, setDepositCurrency] = useState('CNY');
+  /** Currency of the cash the customer handed to the TZ cashier. */
+  const [depositCashCurrency, setDepositCashCurrency] = useState<'USD' | 'TZS'>('USD');
+  /** Cash amount handed over (in depositCashCurrency). */
+  const [depositCashAmount, setDepositCashAmount] = useState('');
   const [depositMethod, setDepositMethod] = useState('M-Pesa');
   const [depositType, setDepositType] = useState<TxnType>('Deposit');
-  const [supplierLines, setSupplierLines] = useState<SupplierLine[]>([{ supplierNumber: '', supplierName: '', amount: '' }]);
+  const [supplierLines, setSupplierLines] = useState<SupplierLine[]>([{ supplierNumber: '', supplierName: '', amount: '', city: '' }]);
   const [selectedDepositCustomer, setSelectedDepositCustomer] = useState<Customer | null>(null);
   const [depositStatusFilter, setDepositStatusFilter] = useState<string>('All');
 
@@ -357,6 +505,236 @@ export default function KobePay() {
 
   // Transaction detail dialog
   const [selectedTransaction, setSelectedTransaction] = useState<Deposit | null>(null);
+
+  // Owner profit dashboard payload (admin-only)
+  interface OwnerKpis {
+    totalCollected: number; totalPaidToSuppliers: number; grossProfit: number;
+    serviceFees: number; exchangeProfit: number; bankAndMobileCharges: number;
+    agentCommissions: number; netProfit: number; realizedProfit: number;
+    projectedProfit: number; pendingPayouts: number; unassignedFunds: number;
+    customerCount: number; supplierCount: number;
+  }
+  interface OwnerEntry {
+    depositId: string; transactionId: string; customerName: string;
+    supplierName: string | null; targetAmount: number; targetCurrency: string;
+    collectedTzs: number; actualCostTzs: number; fees: number; profitTzs: number;
+    status: 'Projected' | 'Realized'; payoutStatus: string | null; date: string;
+  }
+  interface OwnerBucket { label: string; collected: number; actualCost: number; fees: number; realizedProfit: number; projectedProfit: number; }
+  interface OwnerData {
+    kpis: OwnerKpis;
+    entries: OwnerEntry[];
+    daily: OwnerBucket[]; weekly: OwnerBucket[]; monthly: OwnerBucket[];
+    byCustomer: Array<{ id: string; name: string; collected: number; realizedProfit: number }>;
+    bySupplier: Array<{ id: string; name: string; paidTzs: number; realizedProfit: number }>;
+  }
+  const [ownerData, setOwnerData] = useState<OwnerData | null>(null);
+  const [ownerBucket, setOwnerBucket] = useState<'daily' | 'weekly' | 'monthly'>('daily');
+  const [ownerLoading, setOwnerLoading] = useState(false);
+
+  useEffect(() => {
+    if (module !== 'owner' || role !== 'Admin') return;
+    let cancelled = false;
+    (async () => {
+      setOwnerLoading(true);
+      try {
+        const d = await api<OwnerData>('/kobepay/owner-dashboard');
+        if (!cancelled) setOwnerData(d);
+      } catch { /* keep last view */ }
+      finally { if (!cancelled) setOwnerLoading(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [module, role, deposits, payouts]);
+
+  /* ── Users & Permissions, Cashier Performance, Risk, Audit (admin) ── */
+  const [kobepayUsers, setKobepayUsers] = useState<KobePayUserRow[]>([]);
+  const [cashierStats, setCashierStats] = useState<CashierStatRow[]>([]);
+  const [riskAlerts, setRiskAlerts] = useState<RiskAlertRow[]>([]);
+  const [riskSummary, setRiskSummary] = useState<Record<string, number>>({});
+  const [auditLog, setAuditLog] = useState<AuditRow[]>([]);
+  const [showAddUser, setShowAddUser] = useState(false);
+  const [newUserName, setNewUserName] = useState('');
+  const [newUserRole, setNewUserRole] = useState<KobePayUserRole>('Cashier TZ');
+  const [newUserPin, setNewUserPin] = useState('');
+  const [newUserPhone, setNewUserPhone] = useState('');
+  const [userError, setUserError] = useState<string | null>(null);
+
+  const reloadKobepayUsers = useCallback(async () => {
+    try { const r = await api<KobePayUserRow[]>('/kobepay/users'); setKobepayUsers(r); } catch { /* */ }
+  }, []);
+
+  useEffect(() => {
+    if (role !== 'Admin') return;
+    if (module === 'users') reloadKobepayUsers();
+    if (module === 'cashierPerf') {
+      (async () => { try { setCashierStats(await api<CashierStatRow[]>('/kobepay/cashier-performance')); } catch { /* */ } })();
+    }
+    if (module === 'risk') {
+      (async () => {
+        try {
+          const r = await api<{ alerts: RiskAlertRow[]; summary: Record<string, number> }>('/kobepay/risk');
+          setRiskAlerts(r.alerts); setRiskSummary(r.summary);
+        } catch { /* */ }
+      })();
+    }
+    if (module === 'audit') {
+      (async () => { try { setAuditLog(await api<AuditRow[]>('/kobepay/audit?limit=200')); } catch { /* */ } })();
+    }
+  }, [module, role, reloadKobepayUsers, deposits, payouts]);
+
+  const handleAddKobepayUser = async () => {
+    setUserError(null);
+    if (!newUserName.trim() || !/^\d{4}$/.test(newUserPin)) {
+      setUserError('Name and a 4-digit pin are required');
+      return;
+    }
+    try {
+      await api('/kobepay/users', {
+        method: 'POST',
+        body: JSON.stringify({ name: newUserName.trim(), role: newUserRole, pin: newUserPin, phone: newUserPhone }),
+      });
+      setShowAddUser(false);
+      setNewUserName(''); setNewUserPin(''); setNewUserPhone(''); setNewUserRole('Cashier TZ');
+      await reloadKobepayUsers();
+    } catch (err) {
+      setUserError(err instanceof Error ? err.message : 'Could not create user');
+    }
+  };
+
+  const handleToggleUserActive = async (u: KobePayUserRow) => {
+    try {
+      await api(`/kobepay/users/${u.id}`, { method: 'PATCH', body: JSON.stringify({ active: !u.active }) });
+      await reloadKobepayUsers();
+    } catch { /* */ }
+  };
+
+  const handleToggleRateOverride = async (u: KobePayUserRow) => {
+    const current = (u.permissions ?? {})['rate.override'] === true;
+    try {
+      await api(`/kobepay/users/${u.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ permissions: { ...(u.permissions ?? {}), 'rate.override': !current } }),
+      });
+      await reloadKobepayUsers();
+    } catch { /* */ }
+  };
+
+  const handleDeleteKobepayUser = async (u: KobePayUserRow) => {
+    try {
+      await api(`/kobepay/users/${u.id}`, { method: 'DELETE' });
+      await reloadKobepayUsers();
+    } catch { /* */ }
+  };
+
+  /* ── Exchange rates: history + active + derived cross-rates ── */
+  interface DerivedRateRow { fromCurrency: string; toCurrency: string; salesRate: number; costRate: number; realRate: number; viaBase: true; }
+  const [rateHistory, setRateHistory] = useState<RateRow[]>([]);
+  const [activeRates, setActiveRates] = useState<RateRow[]>([]);
+  const [derivedRates, setDerivedRates] = useState<DerivedRateRow[]>([]);
+  const [newRateFrom, setNewRateFrom] = useState('USD');
+  const [newRateTo, setNewRateTo] = useState('CNY');
+  const [newRateSales, setNewRateSales] = useState('');
+  const [newRateCost, setNewRateCost] = useState('');
+  const [newRateNotes, setNewRateNotes] = useState('');
+  const [rateError, setRateError] = useState<string | null>(null);
+  const [rateSaving, setRateSaving] = useState(false);
+
+  const reloadActiveRates = useCallback(async () => {
+    try {
+      const [a, d] = await Promise.all([
+        api<RateRow[]>('/kobepay/rates/active'),
+        api<DerivedRateRow[]>('/kobepay/rates/derived').catch(() => []),
+      ]);
+      setActiveRates(a);
+      setDerivedRates(d);
+    } catch { /* */ }
+  }, []);
+
+  // Combined lookup helper: direct active rate first, then USD-derived.
+  const resolveClientRate = useCallback((from: string, to: string): { salesRate: number; costRate: number } | null => {
+    if (from === to) return { salesRate: 1, costRate: 1 };
+    const direct = activeRates.find((r) => r.fromCurrency === from && r.toCurrency === to);
+    if (direct) return { salesRate: Number(direct.salesRate), costRate: Number(direct.costRate) };
+    const derived = derivedRates.find((r) => r.fromCurrency === from && r.toCurrency === to);
+    if (derived) return { salesRate: derived.salesRate, costRate: derived.costRate };
+    return null;
+  }, [activeRates, derivedRates]);
+
+  // Anyone authenticated may read the active rates so the deposit form can
+  // pre-fill the sales rate. Full history is admin-only.
+  useEffect(() => { reloadActiveRates(); }, [reloadActiveRates]);
+
+  useEffect(() => {
+    if (module !== 'rates' || role !== 'Admin') return;
+    (async () => {
+      try { setRateHistory(await api<RateRow[]>('/kobepay/rates')); } catch { /* */ }
+    })();
+  }, [module, role, activeRates]);
+
+  const handleSaveRate = async () => {
+    setRateError(null);
+    const sales = parseFloat(newRateSales);
+    const cost = parseFloat(newRateCost);
+    if (!newRateFrom.trim() || !isFinite(sales) || sales <= 0 || !isFinite(cost) || cost <= 0) {
+      setRateError('Currency, sales rate, and cost rate are required and must be > 0');
+      return;
+    }
+    setRateSaving(true);
+    try {
+      await api('/kobepay/rates', {
+        method: 'POST',
+        body: JSON.stringify({
+          fromCurrency: newRateFrom.trim().toUpperCase(),
+          toCurrency: newRateTo.trim().toUpperCase() || 'TZS',
+          salesRate: sales, costRate: cost,
+          notes: newRateNotes,
+        }),
+      });
+      setNewRateSales(''); setNewRateCost(''); setNewRateNotes('');
+      await reloadActiveRates();
+      const history = await api<RateRow[]>('/kobepay/rates');
+      setRateHistory(history);
+    } catch (err) {
+      setRateError(err instanceof Error ? err.message : 'Could not save rate');
+    } finally {
+      setRateSaving(false);
+    }
+  };
+
+  const handleDeactivateRate = async (r: RateRow) => {
+    try {
+      await api(`/kobepay/rates/${r.id}/deactivate`, { method: 'PATCH' });
+      await reloadActiveRates();
+      const history = await api<RateRow[]>('/kobepay/rates');
+      setRateHistory(history);
+    } catch { /* */ }
+  };
+
+  const [realRateDrafts, setRealRateDrafts] = useState<Record<string, string>>({});
+  const handleSetRealRate = async (r: RateRow) => {
+    const draft = realRateDrafts[r.id];
+    const value = parseFloat(draft ?? '');
+    if (!isFinite(value) || value <= 0) return;
+    try {
+      await api(`/kobepay/rates/${r.id}/real`, { method: 'PATCH', body: JSON.stringify({ realRate: value }) });
+      setRealRateDrafts((d) => ({ ...d, [r.id]: '' }));
+      await reloadActiveRates();
+      const history = await api<RateRow[]>('/kobepay/rates');
+      setRateHistory(history);
+    } catch { /* */ }
+  };
+
+
+  const handleToggleSetReal = async (u: KobePayUserRow) => {
+    const current = (u.permissions ?? {})['rate.setReal'] === true;
+    try {
+      await api(`/kobepay/users/${u.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ permissions: { ...(u.permissions ?? {}), 'rate.setReal': !current } }),
+      });
+      await reloadKobepayUsers();
+    } catch { /* */ }
+  };
   const [showTransactionDialog, setShowTransactionDialog] = useState(false);
 
   // Settings state
@@ -375,8 +753,13 @@ export default function KobePay() {
 
   const canAccess = (m: Module): boolean => {
     if (role === 'Admin') return true;
+    // Admin-only modules: profit margins, RBAC, audit, and risk.
+    if (m === 'owner' || m === 'users' || m === 'audit' || m === 'risk' || m === 'cashierPerf') return false;
     if (role === 'Cashier TZ') return ['dashboard', 'customers', 'deposits', 'payouts', 'receipts'].includes(m);
-    if (role === 'Cashier China') return ['dashboard', 'payouts', 'receipts', 'suppliers'].includes(m);
+    // Cashier China sees Rates (read-only for sales/office; can update the
+    // real rate from their daily market). Other cashier-China access stays
+    // as before.
+    if (role === 'Cashier China') return ['dashboard', 'payouts', 'receipts', 'suppliers', 'rates'].includes(m);
     return false;
   };
 
@@ -387,25 +770,35 @@ export default function KobePay() {
     else { setSearchedCustomer(null); setShowNewCustomer(true); setNewCustomerPhone(phoneSearch.trim()); }
   };
 
-  const handleCreateCustomer = () => {
+  const handleCreateCustomer = async () => {
     if (!newCustomerName.trim() || !newCustomerPhone.trim()) return;
-    const newCust: Customer = {
-      id: `C${String(customers.length + 1).padStart(3, '0')}`,
-      name: newCustomerName.trim(),
-      phone: newCustomerPhone.trim(),
-      email: newCustomerEmail,
-      idNumber: newCustomerId,
-      company: newCustomerCompany,
-      notes: newCustomerNotes,
-      balance: 0,
-      depositCount: 0,
-      lastDeposit: '-',
-      createdAt: new Date().toISOString().split('T')[0],
-    };
-    setCustomers([newCust, ...customers]);
-    setSearchedCustomer(newCust);
+    try {
+      const created = await api<BackendCustomer>('/kobepay/customers', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: newCustomerName.trim(),
+          phone: newCustomerPhone.trim(),
+          email: newCustomerEmail,
+          idNumber: newCustomerId,
+          company: newCustomerCompany,
+          notes: newCustomerNotes,
+          erpEndpointUrl: newCustomerErpUrl,
+          erpApiKey: newCustomerErpKey,
+          erpAccountId: newCustomerErpAccountId,
+        }),
+      });
+      const c: Customer = {
+        id: created.id, name: created.name, phone: created.phone, email: created.email,
+        idNumber: created.idNumber, company: created.company, notes: created.notes,
+        balance: num(created.balance), depositCount: 0, lastDeposit: '-',
+        createdAt: created.createdAt.slice(0, 10),
+      };
+      setCustomers([c, ...customers]);
+      setSearchedCustomer(c);
+    } catch { /* keep dialog open on failure */ return; }
     setShowNewCustomer(false);
     setNewCustomerName(''); setNewCustomerEmail(''); setNewCustomerId(''); setNewCustomerCompany(''); setNewCustomerNotes('');
+    setNewCustomerErpUrl(''); setNewCustomerErpKey(''); setNewCustomerErpAccountId('');
   };
 
   const openEditCustomer = (customer: Customer) => {
@@ -417,8 +810,14 @@ export default function KobePay() {
     setShowEditDialog(true);
   };
 
-  const handleSaveEditCustomer = () => {
+  const handleSaveEditCustomer = async () => {
     if (!editCustomer || !editName.trim()) return;
+    try {
+      await api(`/kobepay/customers/${editCustomer.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name: editName.trim(), email: editEmail, company: editCompany, notes: editNotes }),
+      });
+    } catch { /* ignore — optimistic update still happens */ }
     setCustomers(customers.map(c => c.id === editCustomer.id ? { ...c, name: editName.trim(), email: editEmail, company: editCompany, notes: editNotes } : c));
     if (searchedCustomer?.id === editCustomer.id) {
       setSearchedCustomer({ ...searchedCustomer, name: editName.trim(), email: editEmail, company: editCompany, notes: editNotes });
@@ -427,86 +826,153 @@ export default function KobePay() {
     setEditCustomer(null);
   };
 
-  const handleDeleteCustomer = (customerId: string) => {
+  const handleTestDispatch = async (customerId: string) => {
+    setTestDispatchResult(null);
+    try {
+      const r = await api<{ ok: boolean; status?: number; error?: string }>(`/kobepay/customers/${customerId}/test-dispatch`, {
+        method: 'POST', body: JSON.stringify({}),
+      });
+      setTestDispatchResult({
+        customerId,
+        ok: r.ok,
+        message: r.ok ? `Probe accepted (HTTP ${r.status ?? 200})` : `Probe rejected: ${r.error ?? r.status ?? 'unknown'}`,
+      });
+    } catch (err) {
+      setTestDispatchResult({ customerId, ok: false, message: err instanceof Error ? err.message : String(err) });
+    }
+  };
+
+  const handleDeleteCustomer = async (customerId: string) => {
+    // Only mutate local state if the server actually deleted the row;
+    // a failed DELETE leaving the row gone in the UI used to desync
+    // the customer list until the next reload.
+    try {
+      await api(`/kobepay/customers/${customerId}`, { method: 'DELETE' });
+    } catch (err) {
+      console.error('Customer delete failed:', err);
+      return;
+    }
     setCustomers(customers.filter(c => c.id !== customerId));
     if (searchedCustomer?.id === customerId) { setSearchedCustomer(null); setShowNewCustomer(false); }
   };
 
   const updateSupplierLine = (index: number, field: keyof SupplierLine, value: string) =>
     setSupplierLines(lines => lines.map((l, i) => (i === index ? { ...l, [field]: value } : l)));
-  const addSupplierLine = () => setSupplierLines(lines => [...lines, { supplierNumber: '', supplierName: '', amount: '' }]);
+  const addSupplierLine = () => setSupplierLines(lines => [...lines, { supplierNumber: '', supplierName: '', amount: '', city: '' }]);
   const removeSupplierLine = (index: number) =>
     setSupplierLines(lines => (lines.length === 1 ? lines : lines.filter((_, i) => i !== index)));
 
   const txnTypeLabel = (t: TxnType) =>
     t === 'Deposit' ? 'Deposit (advance payment)' : 'Payment for goods — payable on delivery';
 
-  const handleConfirmDeposit = () => {
+  const handleConfirmDeposit = async () => {
     if (!selectedDepositCustomer) return;
     const lines: SupplierEntry[] = supplierLines
-      .map(l => ({ supplierNumber: l.supplierNumber.trim(), supplierName: l.supplierName.trim(), amount: parseFloat(l.amount) || 0 }))
+      .map(l => ({
+        supplierNumber: l.supplierNumber.trim(),
+        supplierName: l.supplierName.trim(),
+        amount: parseFloat(l.amount) || 0,
+        city: l.city?.trim() || undefined,
+      }))
       .filter(l => l.supplierNumber && l.amount > 0);
     if (lines.length === 0) return;
     const total = lines.reduce((s, l) => s + l.amount, 0);
     const date = new Date().toISOString().split('T')[0];
-    const seq = String(deposits.length + 1).padStart(3, '0');
-    const txnId = `TXN-${date.replace(/-/g, '')}-${seq}`;
     const customer = selectedDepositCustomer;
+    const reference = lines.length === 1 ? lines[0].supplierNumber : `${lines.length} suppliers`;
 
-    const newDeposit: Deposit = {
-      id: `D${seq}`,
-      customerId: customer.id,
-      customerName: customer.name,
-      phone: customer.phone,
-      amount: total,
-      currency: depositCurrency,
-      method: depositMethod,
-      reference: lines.length === 1 ? lines[0].supplierNumber : `${lines.length} suppliers`,
-      status: 'Confirmed',
-      date,
-      txnType: depositType,
-      suppliers: lines,
-    };
-    setDeposits([newDeposit, ...deposits]);
+    // Look up the active house rate (direct or USD-derived) for the
+    // supplier currency so the Owner Profit Dashboard can compute
+    // collectedTzs accurately.
+    const resolved = resolveClientRate(depositCurrency, 'TZS');
+    const salesRate = resolved ? resolved.salesRate : 0;
 
-    const newAllocations: Allocation[] = lines.map((l, i) => ({
-      id: `A${String(allocations.length + i + 1).padStart(3, '0')}`,
-      customerId: customer.id,
-      customerName: customer.name,
-      supplierId: l.supplierNumber,
-      supplierName: l.supplierName || l.supplierNumber,
-      amount: l.amount,
-      orderRef: l.supplierNumber,
-      type: depositType === 'Deposit' ? 'Deposit' : 'Goods',
-      date,
-    }));
-    setAllocations([...newAllocations, ...allocations]);
+    // Customer cash leg. The "cash" field above the supplier lines is the
+    // amount actually handed to the cashier — USD or TZS. Convert it to
+    // a USD-denominated intent so the supplier's receipt amount stays
+    // locked regardless of subsequent rate moves.
+    const cashCurrency = depositCashCurrency;
+    const cashAmount = parseFloat(depositCashAmount) || 0;
+    let quoteUsd = 0;
+    if (cashCurrency === 'USD') {
+      quoteUsd = cashAmount;
+    } else if (cashCurrency === 'TZS') {
+      const usdTzs = resolveClientRate('USD', 'TZS');
+      if (usdTzs && usdTzs.salesRate > 0) quoteUsd = cashAmount / usdTzs.salesRate;
+    }
+    const cityTopLevel = lines.find((l) => l.city)?.city ?? '';
 
-    setCustomers(customers.map(c =>
-      c.id === customer.id
-        ? { ...c, balance: c.balance + total, depositCount: c.depositCount + 1, lastDeposit: date }
-        : c
-    ));
+    try {
+      const created = await api<BackendDeposit>('/kobepay/deposits', {
+        method: 'POST',
+        body: JSON.stringify({
+          customerId: customer.id,
+          amount: cashAmount > 0 ? cashAmount : total,
+          currency: cashCurrency,
+          method: depositMethod,
+          reference,
+          status: 'Confirmed',
+          txnType: depositType,
+          suppliers: lines,
+          // Engage the profit-accounting fields when a house rate exists.
+          targetCurrency: depositCurrency,
+          targetAmount: total,
+          salesRate,
+          quoteUsd: quoteUsd > 0 ? quoteUsd : undefined,
+          cashCurrency,
+          supplierCity: cityTopLevel,
+        }),
+      });
+      const txnId = `TXN-${created.createdAt.slice(0, 10).replace(/-/g, '')}-${created.id.slice(0, 6)}`;
 
-    recordDeposit(total, newDeposit.reference, `KobePay ${txnTypeLabel(depositType)} ${txnId}`);
+      // Best-effort: post a per-supplier allocation row so the dashboard
+      // unassigned/allocated KPIs are accurate. Failures don't block the
+      // receipt — allocations are an audit niceness, not a hard requirement.
+      for (const line of lines) {
+        try {
+          const sup = suppliers.find((s) =>
+            s.id === line.supplierNumber || s.name.toLowerCase() === line.supplierName.toLowerCase(),
+          );
+          if (sup) {
+            await api('/kobepay/allocations', {
+              method: 'POST',
+              body: JSON.stringify({
+                customerId: customer.id,
+                supplierId: sup.id,
+                amount: line.amount,
+                orderRef: line.supplierNumber,
+                type: depositType === 'Deposit' ? 'Deposit' : 'Full',
+              }),
+            });
+          }
+        } catch { /* swallow per-line errors */ }
+      }
 
-    setDepositReceipt({
-      transactionId: txnId,
-      customerName: customer.name,
-      phone: customer.phone,
-      currency: depositCurrency,
-      method: depositMethod,
-      txnType: depositType,
-      date,
-      suppliers: lines,
-      total,
-    });
-    setShowDepositReceipt(true);
+      await recordDeposit(total, reference, `KobePay ${txnTypeLabel(depositType)} ${txnId}`);
+      await reloadAll();
 
-    setSupplierLines([{ supplierNumber: '', supplierName: '', amount: '' }]);
-    setDepositType('Deposit');
-    setDepositPhone('');
-    setSelectedDepositCustomer(null);
+      setDepositReceipt({
+        transactionId: txnId,
+        customerName: customer.name,
+        phone: customer.phone,
+        currency: depositCurrency,
+        method: depositMethod,
+        txnType: depositType,
+        date,
+        suppliers: lines,
+        total,
+        cashAmount: cashAmount > 0 ? cashAmount : undefined,
+        cashCurrency,
+        quoteUsd: quoteUsd > 0 ? quoteUsd : undefined,
+      });
+      setShowDepositReceipt(true);
+
+      setSupplierLines([{ supplierNumber: '', supplierName: '', amount: '', city: '' }]);
+      setDepositCashAmount('');
+      setDepositType('Deposit');
+      setDepositPhone('');
+      setSelectedDepositCustomer(null);
+    } catch { /* deposit POST failed; keep form open */ }
   };
 
   const escapeHtml = (s: string) =>
@@ -541,15 +1007,22 @@ export default function KobePay() {
 
   const buildCustomerInvoice = (r: DepositReceipt) => {
     const rows = r.suppliers
-      .map((s, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(s.supplierNumber)}</td><td>${escapeHtml(s.supplierName || '-')}</td><td class="right">${s.amount.toLocaleString()} ${r.currency}</td></tr>`)
+      .map((s, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(s.supplierNumber)}</td><td>${escapeHtml(s.supplierName || '-')}</td><td>${escapeHtml(s.city || '-')}</td><td class="right">${s.amount.toLocaleString()} ${r.currency}</td></tr>`)
       .join('');
+    const cashLine = r.cashAmount && r.cashCurrency
+      ? `<p class="meta"><b>Cash received:</b> ${r.cashAmount.toLocaleString()} ${escapeHtml(r.cashCurrency)}</p>`
+      : '';
+    const usdLine = r.quoteUsd
+      ? `<p class="meta"><b>USD intent (locked):</b> ${r.quoteUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })} USD</p>`
+      : '';
     const body = `<p class="meta"><b>Receipt No:</b> ${escapeHtml(r.transactionId)}</p>
 <p class="meta"><b>Date:</b> ${r.date}</p>
 <p class="meta"><b>Sender (Customer):</b> ${escapeHtml(r.customerName)} &nbsp; ${escapeHtml(r.phone)}</p>
 <p class="meta"><b>Payment Method:</b> ${escapeHtml(r.method)}</p>
-<table><thead><tr><th>#</th><th>Supplier No.</th><th>Supplier Name</th><th class="right">Amount</th></tr></thead>
-<tbody>${rows}<tr><td colspan="3" class="right total">TOTAL</td><td class="right total">${r.total.toLocaleString()} ${r.currency}</td></tr></tbody></table>
-<div class="note"><b>Purpose:</b> ${txnTypeLabel(r.txnType)}</div>`;
+${cashLine}${usdLine}
+<table><thead><tr><th>#</th><th>Supplier No.</th><th>Supplier Name</th><th>City</th><th class="right">Amount</th></tr></thead>
+<tbody>${rows}<tr><td colspan="4" class="right total">TOTAL</td><td class="right total">${r.total.toLocaleString()} ${r.currency}</td></tr></tbody></table>
+<div class="note"><b>Purpose:</b> ${txnTypeLabel(r.txnType)}<br><b>Locked:</b> the supplier in China will receive the exact amount shown above regardless of any future rate movement.</div>`;
     return invoiceShell('Customer Invoice', body, 'Customer copy — thank you for using KobePay.');
   };
 
@@ -565,51 +1038,69 @@ export default function KobePay() {
     return invoiceShell('Supplier Invoice', body, 'Supplier copy.');
   };
 
-  const handlePayoutSubmit = () => {
+  const handlePayoutSubmit = async () => {
     if (!payoutSupplier || !payoutAmount) return;
     const sup = suppliers.find(s => s.id === payoutSupplier);
     if (!sup) return;
-    const newPayout: Payout = {
-      id: `P${String(payouts.length + 1).padStart(3, '0')}`,
-      supplierId: sup.id,
-      supplierName: sup.name,
-      amount: parseFloat(payoutAmount),
-      currency: payoutCurrency,
-      method: payoutMethod,
-      status: 'INITIATED',
-      initiatedBy: role,
-      confirmedBy: '',
-      date: new Date().toISOString().split('T')[0],
-      notes: payoutNotes,
-    };
-    setPayouts([newPayout, ...payouts]);
-    setPayoutAmount(''); setPayoutNotes(''); setPayoutSupplier('');
+    try {
+      await api('/kobepay/payouts', {
+        method: 'POST',
+        body: JSON.stringify({
+          supplierId: sup.id,
+          amount: parseFloat(payoutAmount),
+          currency: payoutCurrency,
+          method: payoutMethod,
+          notes: payoutNotes,
+          initiatedBy: role,
+        }),
+      });
+      await reloadAll();
+      setPayoutAmount(''); setPayoutNotes(''); setPayoutSupplier('');
+    } catch { /* keep form */ }
   };
 
-  const handleConfirmPayout = (payoutId: string, newStatus: PayoutStatus) => {
-    setPayouts(payouts.map(p => p.id === payoutId ? { ...p, status: newStatus, confirmedBy: role } : p));
+  const handleConfirmPayout = async (payoutId: string, newStatus: PayoutStatus) => {
+    // When marking PAID, pre-fill actualRate from the active house cost
+    // rate for this payout's currency so the owner profit dashboard can
+    // realize the spread without Cashier China typing the rate by hand.
+    const body: Record<string, unknown> = { status: newStatus, confirmedBy: role };
+    if (newStatus === 'PAID') {
+      const p = payouts.find((x) => x.id === payoutId);
+      const resolved = p && resolveClientRate(p.currency, 'TZS');
+      if (resolved) body.actualRate = resolved.costRate;
+    }
+    try {
+      await api(`/kobepay/payouts/${payoutId}/status`, {
+        method: 'PATCH', body: JSON.stringify(body),
+      });
+      await reloadAll();
+    } catch {
+      // Optimistic update so the demo path still feels live when offline.
+      setPayouts(payouts.map(p => p.id === payoutId ? { ...p, status: newStatus, confirmedBy: role } : p));
+    }
   };
 
-  const handleAllocationSubmit = () => {
+  const handleAllocationSubmit = async () => {
     if (!allocCustomer || !allocSupplier || !allocAmount) return;
     const amt = parseFloat(allocAmount);
     if (amt > unassigned) return;
     const cust = customers.find(c => c.id === allocCustomer);
     const sup = suppliers.find(s => s.id === allocSupplier);
     if (!cust || !sup) return;
-    const newAlloc: Allocation = {
-      id: `A${String(allocations.length + 1).padStart(3, '0')}`,
-      customerId: cust.id,
-      customerName: cust.name,
-      supplierId: sup.id,
-      supplierName: sup.name,
-      amount: amt,
-      orderRef: allocOrderRef || `ORD-${Date.now()}`,
-      type: allocType,
-      date: new Date().toISOString().split('T')[0],
-    };
-    setAllocations([newAlloc, ...allocations]);
-    setAllocAmount(''); setAllocOrderRef('');
+    try {
+      await api('/kobepay/allocations', {
+        method: 'POST',
+        body: JSON.stringify({
+          customerId: cust.id,
+          supplierId: sup.id,
+          amount: amt,
+          orderRef: allocOrderRef || `ORD-${Date.now()}`,
+          type: allocType,
+        }),
+      });
+      await reloadAll();
+      setAllocAmount(''); setAllocOrderRef('');
+    } catch { /* keep form */ }
   };
 
   const handleDepositSearch = () => {
@@ -763,10 +1254,16 @@ export default function KobePay() {
               </div>
               {searchedCustomer.email && <p className="text-xs text-slate-500 mt-2"><Mail className="w-3 h-3 inline mr-1" />{searchedCustomer.email}</p>}
               {searchedCustomer.notes && <p className="text-xs text-slate-500 mt-1">{searchedCustomer.notes}</p>}
-              <div className="mt-3 flex gap-2">
+              <div className="mt-3 flex gap-2 flex-wrap">
                 <Button onClick={() => openEditCustomer(searchedCustomer)} size="sm" variant="outline" className="border-white/10 text-white hover:bg-white/5"><Edit className="w-3 h-3 mr-1" />Edit</Button>
+                <Button onClick={() => handleTestDispatch(searchedCustomer.id)} size="sm" variant="outline" className="border-cyan-500/20 text-cyan-400 hover:bg-cyan-500/10"><Send className="w-3 h-3 mr-1" />Test dispatch</Button>
                 {role === 'Admin' && <Button onClick={() => handleDeleteCustomer(searchedCustomer.id)} size="sm" variant="outline" className="border-red-500/20 text-red-400 hover:bg-red-500/10"><Trash2 className="w-3 h-3 mr-1" />Delete</Button>}
               </div>
+              {testDispatchResult?.customerId === searchedCustomer.id && (
+                <div className={`mt-2 text-xs px-2 py-1.5 rounded ${testDispatchResult.ok ? 'bg-emerald-500/10 text-emerald-300' : 'bg-rose-500/10 text-rose-300'}`}>
+                  {testDispatchResult.message}
+                </div>
+              )}
               <div className="mt-4 pt-4 border-t border-white/[0.06]">
                 <h5 className="text-sm font-medium text-white mb-2">Transaction History</h5>
                 <div className="space-y-1 max-h-40 overflow-y-auto">
@@ -799,6 +1296,14 @@ export default function KobePay() {
                 <div><label className="text-xs text-slate-400 mb-1 block">ID / Passport Number</label><Input placeholder="ID or Passport" value={newCustomerId} onChange={e => setNewCustomerId(e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600" /></div>
                 <div><label className="text-xs text-slate-400 mb-1 block">Company / Agent Name</label><Input placeholder="Company or agent" value={newCustomerCompany} onChange={e => setNewCustomerCompany(e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600" /></div>
                 <div><label className="text-xs text-slate-400 mb-1 block">Notes</label><Input placeholder="Additional notes" value={newCustomerNotes} onChange={e => setNewCustomerNotes(e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600" /></div>
+              </div>
+              <div className="mt-4 pt-4 border-t border-white/[0.04]">
+                <p className="text-xs text-slate-400 mb-2">ERP install endpoint (so KobePay can push receipts to this client's books)</p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div><label className="text-xs text-slate-400 mb-1 block">ERP endpoint URL</label><Input placeholder="https://asha-erp.example/api/erp/kobepay-inbox" value={newCustomerErpUrl} onChange={e => setNewCustomerErpUrl(e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600 font-mono text-xs" /></div>
+                  <div><label className="text-xs text-slate-400 mb-1 block">ERP API key</label><Input placeholder="erp-kbp_…" value={newCustomerErpKey} onChange={e => setNewCustomerErpKey(e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600 font-mono text-xs" /></div>
+                  <div><label className="text-xs text-slate-400 mb-1 block">ERP account id (their own ref)</label><Input placeholder="optional" value={newCustomerErpAccountId} onChange={e => setNewCustomerErpAccountId(e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600" /></div>
+                </div>
               </div>
               <div className="flex gap-2 mt-4">
                 <Button onClick={handleCreateCustomer} disabled={!newCustomerName.trim()} className="bg-emerald-600 hover:bg-emerald-700 text-white"><Check className="w-4 h-4 mr-2" />Save Customer</Button>
@@ -866,20 +1371,51 @@ export default function KobePay() {
             <h3 className="text-white font-semibold mb-4 flex items-center gap-2"><Plus className="w-5 h-5 text-emerald-400" />New Deposit</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
               <div><label className="text-xs text-slate-400 mb-1 block">Search Customer Phone</label><div className="flex gap-2"><Input placeholder="Enter phone..." value={depositPhone} onChange={e => setDepositPhone(e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600" /><Button onClick={handleDepositSearch} size="sm" className="bg-blue-600 hover:bg-blue-700"><Search className="w-4 h-4" /></Button></div>{selectedDepositCustomer && <p className="text-xs text-emerald-400 mt-1 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" />{selectedDepositCustomer.name}</p>}</div>
-              <div><label className="text-xs text-slate-400 mb-1 block">Currency</label><Select value={depositCurrency} onValueChange={setDepositCurrency}><SelectTrigger className="bg-[#0a0a1a] border-white/[0.08] text-white"><SelectValue /></SelectTrigger><SelectContent className="bg-[#13131f] border-white/[0.08]"><SelectItem value="USD" className="text-white">USD</SelectItem><SelectItem value="TZS" className="text-white">TZS</SelectItem><SelectItem value="CNY" className="text-white">CNY</SelectItem></SelectContent></Select></div>
+              <div><label className="text-xs text-slate-400 mb-1 block">Supplier paid in</label><Select value={depositCurrency} onValueChange={setDepositCurrency}><SelectTrigger className="bg-[#0a0a1a] border-white/[0.08] text-white"><SelectValue /></SelectTrigger><SelectContent className="bg-[#13131f] border-white/[0.08]"><SelectItem value="CNY" className="text-white">CNY (Chinese yuan)</SelectItem><SelectItem value="USD" className="text-white">USD</SelectItem><SelectItem value="TZS" className="text-white">TZS</SelectItem></SelectContent></Select></div>
               <div><label className="text-xs text-slate-400 mb-1 block">Payment Method</label><Select value={depositMethod} onValueChange={setDepositMethod}><SelectTrigger className="bg-[#0a0a1a] border-white/[0.08] text-white"><SelectValue /></SelectTrigger><SelectContent className="bg-[#13131f] border-white/[0.08]"><SelectItem value="Cash" className="text-white">Cash</SelectItem><SelectItem value="M-Pesa" className="text-white">M-Pesa</SelectItem><SelectItem value="Bank Transfer" className="text-white">Bank Transfer</SelectItem><SelectItem value="Agent" className="text-white">Agent</SelectItem><SelectItem value="WeChat Pay" className="text-white">WeChat Pay</SelectItem><SelectItem value="Alipay" className="text-white">Alipay</SelectItem></SelectContent></Select></div>
               <div><label className="text-xs text-slate-400 mb-1 block">Transaction Type</label><Select value={depositType} onValueChange={v => setDepositType(v as TxnType)}><SelectTrigger className="bg-[#0a0a1a] border-white/[0.08] text-white"><SelectValue /></SelectTrigger><SelectContent className="bg-[#13131f] border-white/[0.08]"><SelectItem value="Deposit" className="text-white">Deposit (advance)</SelectItem><SelectItem value="Goods on Delivery" className="text-white">Goods on delivery</SelectItem></SelectContent></Select></div>
             </div>
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">Cash received from customer</label>
+                <div className="flex gap-2">
+                  <Select value={depositCashCurrency} onValueChange={(v) => setDepositCashCurrency(v as 'USD' | 'TZS')}>
+                    <SelectTrigger className="bg-[#0a0a1a] border-white/[0.08] text-white w-24"><SelectValue /></SelectTrigger>
+                    <SelectContent className="bg-[#13131f] border-white/[0.08]">
+                      <SelectItem value="USD" className="text-white">USD</SelectItem>
+                      <SelectItem value="TZS" className="text-white">TZS</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input type="number" placeholder={depositCashCurrency === 'USD' ? '10000' : '26300000'}
+                    value={depositCashAmount} onChange={(e) => setDepositCashAmount(e.target.value)}
+                    className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600 flex-1" />
+                </div>
+                {(() => {
+                  const cash = parseFloat(depositCashAmount) || 0;
+                  if (cash <= 0) return null;
+                  let usd = 0;
+                  if (depositCashCurrency === 'USD') usd = cash;
+                  else {
+                    const r = resolveClientRate('USD', 'TZS');
+                    if (r && r.salesRate > 0) usd = cash / r.salesRate;
+                  }
+                  return usd > 0 ? (
+                    <p className="text-[11px] text-emerald-400 mt-1">USD intent ≈ {usd.toLocaleString(undefined, { maximumFractionDigits: 2 })}</p>
+                  ) : null;
+                })()}
+              </div>
+            </div>
             <div className="mt-4">
               <div className="flex items-center justify-between mb-2">
-                <label className="text-xs text-slate-400">Chinese Supplier(s)</label>
+                <label className="text-xs text-slate-400">Chinese Supplier(s) + city</label>
                 <Button onClick={addSupplierLine} size="sm" variant="outline" className="h-7 text-xs border-white/10 text-white hover:bg-white/5"><Plus className="w-3 h-3 mr-1" />Add Supplier</Button>
               </div>
               <div className="space-y-2">
                 {supplierLines.map((l, i) => (
                   <div key={i} className="grid grid-cols-1 md:grid-cols-12 gap-2 items-center">
-                    <div className="md:col-span-4"><Input placeholder="Supplier number *" value={l.supplierNumber} onChange={e => updateSupplierLine(i, 'supplierNumber', e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600" /></div>
-                    <div className="md:col-span-4"><Input placeholder="Chinese supplier name (optional)" value={l.supplierName} onChange={e => updateSupplierLine(i, 'supplierName', e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600" /></div>
+                    <div className="md:col-span-3"><Input placeholder="Supplier number *" value={l.supplierNumber} onChange={e => updateSupplierLine(i, 'supplierNumber', e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600" /></div>
+                    <div className="md:col-span-3"><Input placeholder="Supplier name (optional)" value={l.supplierName} onChange={e => updateSupplierLine(i, 'supplierName', e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600" /></div>
+                    <div className="md:col-span-2"><Input placeholder="City *" value={l.city} onChange={e => updateSupplierLine(i, 'city', e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600" /></div>
                     <div className="md:col-span-3"><Input type="number" placeholder="Amount *" value={l.amount} onChange={e => updateSupplierLine(i, 'amount', e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600" /></div>
                     <div className="md:col-span-1 flex justify-center">{supplierLines.length > 1 && <button onClick={() => removeSupplierLine(i)} className="p-2 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10"><Trash2 className="w-4 h-4" /></button>}</div>
                   </div>
@@ -1304,9 +1840,651 @@ export default function KobePay() {
     </div>
   );
 
+  const fmtTzs = (n: number) => `TZS ${Math.round(n).toLocaleString()}`;
+  const ownerBuckets = ownerData ? ownerData[ownerBucket] : [];
+
+  const renderOwner = () => {
+    if (role !== 'Admin') {
+      return (
+        <Card className="bg-[#13131f] border-white/[0.06]">
+          <CardContent className="p-8 text-center text-slate-400">
+            <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-amber-400" />
+            Owner Profit Dashboard is admin-only. Switch role to Admin to view margins.
+          </CardContent>
+        </Card>
+      );
+    }
+    if (!ownerData) {
+      return <Card className="bg-[#13131f] border-white/[0.06]"><CardContent className="p-8 text-center text-slate-400">{ownerLoading ? 'Loading…' : 'No profit data yet — record a confirmed deposit and mark a payout PAID with an actual cost rate.'}</CardContent></Card>;
+    }
+    const k = ownerData.kpis;
+    const kpiCards: Array<[string, string, string, string]> = [
+      ['Total Collected',       fmtTzs(k.totalCollected),       'bg-cyan-500/10',     'text-cyan-400'],
+      ['Total Paid to Suppliers', fmtTzs(k.totalPaidToSuppliers), 'bg-orange-500/10',   'text-orange-400'],
+      ['Realized Profit',       fmtTzs(k.realizedProfit),       'bg-emerald-500/10',  'text-emerald-400'],
+      ['Projected (Unconfirmed)', fmtTzs(k.projectedProfit),    'bg-amber-500/10',    'text-amber-400'],
+      ['Exchange Profit',       fmtTzs(k.exchangeProfit),       'bg-violet-500/10',   'text-violet-400'],
+      ['Service Fees',          fmtTzs(k.serviceFees),          'bg-blue-500/10',     'text-blue-400'],
+      ['Bank + M-Pesa Charges', fmtTzs(k.bankAndMobileCharges), 'bg-rose-500/10',     'text-rose-400'],
+      ['Agent Commission',      fmtTzs(k.agentCommissions),     'bg-pink-500/10',     'text-pink-400'],
+      ['Net Profit',            fmtTzs(k.netProfit),            'bg-yellow-500/10',   'text-yellow-400'],
+      ['Pending Payouts',       fmtTzs(k.pendingPayouts),       'bg-slate-500/10',    'text-slate-300'],
+      ['Unassigned Funds',      fmtTzs(k.unassignedFunds),      'bg-teal-500/10',     'text-teal-400'],
+      ['Gross Profit',          fmtTzs(k.grossProfit),          'bg-indigo-500/10',   'text-indigo-400'],
+      ['Rate Variance',         fmtTzs((k as { rateVariance?: number }).rateVariance ?? 0), 'bg-fuchsia-500/10', 'text-fuchsia-400'],
+      ['USD Intent (locked)',   `USD ${Math.round((k as { totalQuoteUsd?: number }).totalQuoteUsd ?? 0).toLocaleString()}`, 'bg-sky-500/10', 'text-sky-400'],
+      ['Pending dispatches',    String(pendingDispatches), pendingDispatches > 0 ? 'bg-rose-500/10' : 'bg-slate-500/10', pendingDispatches > 0 ? 'text-rose-400' : 'text-slate-400'],
+    ];
+
+    return (
+      <div className="space-y-6">
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
+          {kpiCards.map(([label, value, bg, color]) => (
+            <Card key={label} className="bg-[#13131f] border-white/[0.06]">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-slate-400">{label}</p>
+                    <p className="text-lg font-bold text-white mt-1">{value}</p>
+                  </div>
+                  <div className={`w-9 h-9 rounded-lg ${bg} flex items-center justify-center`}>
+                    <TrendingUp className={`w-4 h-4 ${color}`} />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        <Card className="bg-[#13131f] border-white/[0.06]">
+          <CardContent className="p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-white font-semibold">Profit Over Time</h3>
+              <div className="flex gap-1">
+                {(['daily', 'weekly', 'monthly'] as const).map((b) => (
+                  <button key={b} onClick={() => setOwnerBucket(b)}
+                    className={`px-3 py-1 rounded text-xs ${ownerBucket === b ? 'bg-yellow-500/20 text-yellow-400' : 'text-slate-400 hover:bg-white/[0.04]'}`}>
+                    {b[0].toUpperCase() + b.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={ownerBuckets}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e1e2e" />
+                <XAxis dataKey="label" stroke="#64748b" fontSize={11} />
+                <YAxis stroke="#64748b" fontSize={11} />
+                <Tooltip contentStyle={{ background: '#13131f', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8 }}
+                  formatter={(v: number) => fmtTzs(Number(v))} />
+                <Bar dataKey="realizedProfit" name="Realized Profit" fill="#10b981" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="projectedProfit" name="Projected" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Card className="bg-[#13131f] border-white/[0.06]">
+            <CardContent className="p-5">
+              <h3 className="text-white font-semibold mb-3">Top Customers (by Realized Profit)</h3>
+              {ownerData.byCustomer.length === 0 ? (
+                <p className="text-sm text-slate-500">No confirmed-paid transactions yet.</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead><tr className="text-xs text-slate-400 border-b border-white/[0.04]"><th className="text-left py-2">Customer</th><th className="text-right">Collected</th><th className="text-right">Profit</th></tr></thead>
+                  <tbody>
+                    {ownerData.byCustomer.slice(0, 10).map((c) => (
+                      <tr key={c.id} className="border-b border-white/[0.02]">
+                        <td className="py-2 text-white">{c.name}</td>
+                        <td className="text-right text-slate-300">{fmtTzs(c.collected)}</td>
+                        <td className="text-right text-emerald-400">{fmtTzs(c.realizedProfit)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="bg-[#13131f] border-white/[0.06]">
+            <CardContent className="p-5">
+              <h3 className="text-white font-semibold mb-3">Top Suppliers (by Realized Profit)</h3>
+              {ownerData.bySupplier.length === 0 ? (
+                <p className="text-sm text-slate-500">No PAID payouts yet.</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead><tr className="text-xs text-slate-400 border-b border-white/[0.04]"><th className="text-left py-2">Supplier</th><th className="text-right">Paid (TZS)</th><th className="text-right">Profit</th></tr></thead>
+                  <tbody>
+                    {ownerData.bySupplier.slice(0, 10).map((s) => (
+                      <tr key={s.id} className="border-b border-white/[0.02]">
+                        <td className="py-2 text-white">{s.name}</td>
+                        <td className="text-right text-slate-300">{fmtTzs(s.paidTzs)}</td>
+                        <td className="text-right text-emerald-400">{fmtTzs(s.realizedProfit)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card className="bg-[#13131f] border-white/[0.06]">
+          <CardContent className="p-5">
+            <h3 className="text-white font-semibold mb-3">Per-Transaction Profit ({ownerData.entries.length})</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="text-xs text-slate-400 border-b border-white/[0.04]">
+                  <th className="text-left py-2">Txn</th>
+                  <th className="text-left">Customer</th>
+                  <th className="text-left">Supplier</th>
+                  <th className="text-right">Amount</th>
+                  <th className="text-right">Collected</th>
+                  <th className="text-right">Actual Cost</th>
+                  <th className="text-right">Fees</th>
+                  <th className="text-right">Profit</th>
+                  <th className="text-center">Status</th>
+                </tr></thead>
+                <tbody>
+                  {ownerData.entries.slice(0, 50).map((e) => (
+                    <tr key={e.depositId} className="border-b border-white/[0.02]">
+                      <td className="py-2 font-mono text-[11px] text-slate-300">{e.transactionId}</td>
+                      <td className="text-white">{e.customerName}</td>
+                      <td className="text-slate-300">{e.supplierName ?? '-'}</td>
+                      <td className="text-right text-slate-300">{e.targetAmount.toLocaleString()} {e.targetCurrency}</td>
+                      <td className="text-right text-slate-200">{fmtTzs(e.collectedTzs)}</td>
+                      <td className="text-right text-slate-200">{e.status === 'Realized' ? fmtTzs(e.actualCostTzs) : '—'}</td>
+                      <td className="text-right text-rose-300">{e.status === 'Realized' ? fmtTzs(e.fees) : '—'}</td>
+                      <td className={`text-right font-semibold ${e.status === 'Realized' ? 'text-emerald-400' : 'text-amber-400'}`}>{e.status === 'Realized' ? fmtTzs(e.profitTzs) : 'Projected'}</td>
+                      <td className="text-center">
+                        <Badge variant="outline" className={e.status === 'Realized' ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20' : 'bg-amber-500/15 text-amber-400 border-amber-500/20'}>
+                          {e.status}
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  };
+
+  const adminGate = (panel: React.ReactNode) =>
+    role !== 'Admin'
+      ? (
+        <Card className="bg-[#13131f] border-white/[0.06]">
+          <CardContent className="p-8 text-center text-slate-400">
+            <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-amber-400" />
+            This module is admin-only. Switch role to Admin to view.
+          </CardContent>
+        </Card>
+      )
+      : panel;
+
+  const ROLE_BADGES: Record<KobePayUserRole, string> = {
+    Admin:          'bg-yellow-500/15 text-yellow-400 border-yellow-500/20',
+    Manager:        'bg-violet-500/15 text-violet-400 border-violet-500/20',
+    'Cashier TZ':   'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
+    'Cashier China':'bg-sky-500/15 text-sky-400 border-sky-500/20',
+    Auditor:        'bg-slate-500/15 text-slate-300 border-slate-500/20',
+  };
+
+  const renderUsers = () => adminGate(
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-sm text-slate-400">Sub-users authenticate at the till by typing their 4-digit pin.</p>
+        <Button onClick={() => setShowAddUser(true)} className="bg-fuchsia-600 hover:bg-fuchsia-700 text-white">
+          <Plus className="w-4 h-4 mr-1" /> Add User
+        </Button>
+      </div>
+      <Card className="bg-[#13131f] border-white/[0.06]">
+        <CardContent className="p-0">
+          <table className="w-full text-sm">
+            <thead><tr className="text-xs text-slate-400 border-b border-white/[0.04]">
+              <th className="text-left py-3 px-4">Name</th>
+              <th className="text-left">Phone</th>
+              <th className="text-left">Role</th>
+              <th className="text-left">Pin</th>
+              <th className="text-center">Active</th>
+              <th className="text-center">Rate override</th>
+              <th className="text-center">Set real rate</th>
+              <th className="text-right pr-4">Actions</th>
+            </tr></thead>
+            <tbody>
+              {kobepayUsers.length === 0 && (
+                <tr><td colSpan={8} className="py-8 text-center text-slate-500">No sub-users yet — add one to start tracking actions per cashier.</td></tr>
+              )}
+              {kobepayUsers.map((u) => {
+                const canOverride = u.role === 'Admin' || (u.permissions ?? {})['rate.override'] === true;
+                const canSetReal = u.role === 'Admin' || (u.permissions ?? {})['rate.setReal'] === true;
+                return (
+                  <tr key={u.id} className="border-b border-white/[0.02]">
+                    <td className="py-3 px-4 text-white">{u.name}</td>
+                    <td className="text-slate-300">{u.phone || '-'}</td>
+                    <td><Badge variant="outline" className={ROLE_BADGES[u.role] || ''}>{u.role}</Badge></td>
+                    <td className="font-mono text-slate-300">****</td>
+                    <td className="text-center">
+                      <button onClick={() => handleToggleUserActive(u)}
+                        className={`w-10 h-5 rounded-full transition-colors relative ${u.active ? 'bg-emerald-500/40' : 'bg-slate-600'}`}>
+                        <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${u.active ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                      </button>
+                    </td>
+                    <td className="text-center">
+                      {u.role === 'Admin' ? (
+                        <Badge variant="outline" className="bg-yellow-500/15 text-yellow-400 border-yellow-500/20">Always</Badge>
+                      ) : (
+                        <button onClick={() => handleToggleRateOverride(u)}
+                          title="Allow this user to enter a sales/cost rate different from the house rate"
+                          className={`w-10 h-5 rounded-full transition-colors relative ${canOverride ? 'bg-amber-500/60' : 'bg-slate-600'}`}>
+                          <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${canOverride ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                        </button>
+                      )}
+                    </td>
+                    <td className="text-center">
+                      {u.role === 'Admin' ? (
+                        <Badge variant="outline" className="bg-yellow-500/15 text-yellow-400 border-yellow-500/20">Always</Badge>
+                      ) : (
+                        <button onClick={() => handleToggleSetReal(u)}
+                          title="Allow this user (typically Cashier China) to update the real rate from the ground"
+                          className={`w-10 h-5 rounded-full transition-colors relative ${canSetReal ? 'bg-sky-500/60' : 'bg-slate-600'}`}>
+                          <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full transition-transform ${canSetReal ? 'translate-x-5' : 'translate-x-0.5'}`} />
+                        </button>
+                      )}
+                    </td>
+                    <td className="text-right pr-4">
+                      <Button variant="ghost" size="sm" onClick={() => handleDeleteKobepayUser(u)} className="text-rose-300 hover:bg-rose-500/10">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </CardContent>
+      </Card>
+
+      <Dialog open={showAddUser} onOpenChange={setShowAddUser}>
+        <DialogContent className="bg-[#13131f] border-white/[0.06] text-white max-w-md">
+          <DialogHeader><DialogTitle className="flex items-center gap-2"><Plus className="w-5 h-5 text-fuchsia-400" />Add KobePay user</DialogTitle></DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div><label className="text-xs text-slate-400 block mb-1">Name</label><Input value={newUserName} onChange={(e) => setNewUserName(e.target.value)} className="bg-[#0a0a1a] border-white/[0.06] text-white" /></div>
+            <div><label className="text-xs text-slate-400 block mb-1">Phone (optional)</label><Input value={newUserPhone} onChange={(e) => setNewUserPhone(e.target.value)} className="bg-[#0a0a1a] border-white/[0.06] text-white" /></div>
+            <div><label className="text-xs text-slate-400 block mb-1">Role</label>
+              <Select value={newUserRole} onValueChange={(v) => setNewUserRole(v as KobePayUserRole)}>
+                <SelectTrigger className="bg-[#0a0a1a] border-white/[0.06] text-white"><SelectValue /></SelectTrigger>
+                <SelectContent className="bg-[#13131f] border-white/[0.06]">
+                  {(['Admin', 'Manager', 'Cashier TZ', 'Cashier China', 'Auditor'] as KobePayUserRole[]).map((r) => (
+                    <SelectItem key={r} value={r} className="text-white">{r}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div><label className="text-xs text-slate-400 block mb-1">4-digit till pin</label>
+              <Input value={newUserPin} onChange={(e) => setNewUserPin(e.target.value.replace(/\D/g, '').slice(0, 4))} placeholder="1234" className="bg-[#0a0a1a] border-white/[0.06] text-white font-mono" />
+            </div>
+            {userError && <div className="text-xs text-rose-400">{userError}</div>}
+            <div className="flex gap-2 pt-2">
+              <Button onClick={handleAddKobepayUser} className="bg-fuchsia-600 hover:bg-fuchsia-700 flex-1">Create user</Button>
+              <Button variant="ghost" onClick={() => setShowAddUser(false)} className="text-slate-400">Cancel</Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>,
+  );
+
+  const renderCashierPerf = () => adminGate(
+    <Card className="bg-[#13131f] border-white/[0.06]">
+      <CardContent className="p-5">
+        <h3 className="text-white font-semibold mb-3">Cashier Performance</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="text-xs text-slate-400 border-b border-white/[0.04]">
+              <th className="text-left py-2">Cashier</th>
+              <th className="text-left">Role</th>
+              <th className="text-right">Deposits</th>
+              <th className="text-right">Deposits Total</th>
+              <th className="text-right">Payouts</th>
+              <th className="text-right">Payouts Paid</th>
+              <th className="text-right">Reversals</th>
+              <th className="text-right">Profit Attributed</th>
+              <th className="text-left pl-3">Last Active</th>
+            </tr></thead>
+            <tbody>
+              {cashierStats.length === 0 && (
+                <tr><td colSpan={9} className="py-8 text-center text-slate-500">No cashier activity yet.</td></tr>
+              )}
+              {cashierStats.map((c) => (
+                <tr key={c.userId ?? c.name} className="border-b border-white/[0.02]">
+                  <td className="py-2 text-white">{c.name}</td>
+                  <td><Badge variant="outline" className={ROLE_BADGES[c.role as KobePayUserRole] ?? ''}>{c.role}</Badge></td>
+                  <td className="text-right text-slate-300">{c.deposits}</td>
+                  <td className="text-right text-slate-200">{fmtTzs(c.depositsTotal)}</td>
+                  <td className="text-right text-slate-300">{c.payoutsInitiated}</td>
+                  <td className="text-right text-slate-200">{fmtTzs(c.payoutsPaidValue)}</td>
+                  <td className={`text-right ${c.reversals > 0 ? 'text-rose-300' : 'text-slate-500'}`}>{c.reversals}</td>
+                  <td className="text-right text-emerald-400">{fmtTzs(c.attributedProfitTzs)}</td>
+                  <td className="text-slate-400 pl-3 text-xs">{c.lastActiveAt ? new Date(c.lastActiveAt).toLocaleString() : '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>,
+  );
+
+  const SEVERITY_COLOR: Record<string, string> = {
+    high:   'bg-rose-500/15 text-rose-400 border-rose-500/20',
+    medium: 'bg-amber-500/15 text-amber-400 border-amber-500/20',
+    low:    'bg-slate-500/15 text-slate-300 border-slate-500/20',
+  };
+
+  const renderRisk = () => adminGate(
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {Object.entries(riskSummary).length === 0 ? (
+          <Card className="col-span-full bg-[#13131f] border-white/[0.06]">
+            <CardContent className="p-6 text-center text-slate-400">
+              <CheckCircle2 className="w-7 h-7 mx-auto mb-2 text-emerald-400" /> No active risk alerts.
+            </CardContent>
+          </Card>
+        ) : Object.entries(riskSummary).map(([kind, count]) => (
+          <Card key={kind} className="bg-[#13131f] border-white/[0.06]">
+            <CardContent className="p-4">
+              <p className="text-xs text-slate-400 uppercase">{kind.replace(/_/g, ' ')}</p>
+              <p className="text-2xl font-bold text-rose-400 mt-1">{count}</p>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+      {riskAlerts.length > 0 && (
+        <Card className="bg-[#13131f] border-white/[0.06]">
+          <CardContent className="p-5">
+            <h3 className="text-white font-semibold mb-3">Active alerts</h3>
+            <div className="space-y-2">
+              {riskAlerts.map((a, i) => (
+                <div key={i} className="flex items-start gap-3 p-3 rounded border border-white/[0.04] bg-[#0a0a1a]">
+                  <Badge variant="outline" className={SEVERITY_COLOR[a.severity]}>{a.severity}</Badge>
+                  <div className="flex-1">
+                    <p className="text-sm text-white">{a.message}</p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      <span className="font-mono">{a.resourceType}/{a.resourceId.slice(0, 8)}</span>
+                      {' · '}{new Date(a.createdAt).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>,
+  );
+
+  const renderRates = () => {
+    const canSetReal = role === 'Admin' || role === 'Cashier China';
+    const isAdmin = role === 'Admin';
+    return (
+    <div className="space-y-4">
+      {isAdmin && (
+      <Card className="bg-[#13131f] border-white/[0.06]">
+        <CardContent className="p-5">
+          <div className="flex items-center gap-2 mb-1">
+            <h3 className="text-white font-semibold">Set a new house rate</h3>
+            <Badge variant="outline" className="bg-cyan-500/15 text-cyan-300 border-cyan-500/20">Base: USD</Badge>
+          </div>
+          <p className="text-xs text-slate-500 mb-4">
+            Set per-currency rates against USD (1 USD = ? CNY, 1 USD = ? TZS). Cross-rates
+            like CNY→TZS are derived automatically. Sales rate = what the TZ cashier quotes
+            the customer; cost rate = what Cashier China actually pays at — the spread is
+            your margin.
+          </p>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">From</label>
+              <Input value={newRateFrom} onChange={(e) => setNewRateFrom(e.target.value.toUpperCase())}
+                placeholder="CNY" className="bg-[#0a0a1a] border-white/[0.06] text-white font-mono uppercase" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">To</label>
+              <Input value={newRateTo} onChange={(e) => setNewRateTo(e.target.value.toUpperCase())}
+                placeholder="TZS" className="bg-[#0a0a1a] border-white/[0.06] text-white font-mono uppercase" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">Sales rate</label>
+              <Input type="number" step="0.01" value={newRateSales} onChange={(e) => setNewRateSales(e.target.value)}
+                placeholder="400" className="bg-[#0a0a1a] border-white/[0.06] text-white" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">Cost rate</label>
+              <Input type="number" step="0.01" value={newRateCost} onChange={(e) => setNewRateCost(e.target.value)}
+                placeholder="380" className="bg-[#0a0a1a] border-white/[0.06] text-white" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">Notes (optional)</label>
+              <Input value={newRateNotes} onChange={(e) => setNewRateNotes(e.target.value)}
+                placeholder="Why this rate?" className="bg-[#0a0a1a] border-white/[0.06] text-white" />
+            </div>
+          </div>
+          <div className="flex items-center gap-3 mt-4">
+            <Button onClick={handleSaveRate} disabled={rateSaving} className="bg-teal-600 hover:bg-teal-700 text-white">
+              <Plus className="w-4 h-4 mr-1" /> {rateSaving ? 'Saving…' : 'Save new rate'}
+            </Button>
+            {rateError && <span className="text-xs text-rose-400">{rateError}</span>}
+            {newRateSales && newRateCost && parseFloat(newRateSales) > 0 && parseFloat(newRateCost) > 0 && (
+              <span className="text-xs text-emerald-400">
+                Spread: {(parseFloat(newRateSales) - parseFloat(newRateCost)).toFixed(2)} {newRateTo} per {newRateFrom}
+                {' '}({(((parseFloat(newRateSales) - parseFloat(newRateCost)) / parseFloat(newRateCost)) * 100).toFixed(1)}%)
+              </span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+      )}
+
+      <Card className="bg-[#13131f] border-white/[0.06]">
+        <CardContent className="p-5">
+          <h3 className="text-white font-semibold mb-3">Active rates</h3>
+          {activeRates.length === 0 ? (
+            <p className="text-sm text-slate-500">No house rates set yet. Deposits will use whatever rate the cashier types in.</p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {activeRates.map((r) => {
+                const sales = Number(r.salesRate);
+                const cost = Number(r.costRate);
+                const real = Number(r.realRate);
+                const spread = sales - cost;
+                const spreadPct = cost > 0 ? (spread / cost) * 100 : 0;
+                const variance = real > 0 ? cost - real : 0;
+                const variancePct = real > 0 && cost > 0 ? (variance / cost) * 100 : 0;
+                return (
+                  <div key={r.id} className="rounded-lg border border-white/[0.06] bg-[#0a0a1a] p-4">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-white text-sm">{r.fromCurrency} → {r.toCurrency}</span>
+                      <Badge variant="outline" className="bg-emerald-500/15 text-emerald-400 border-emerald-500/20">Active</Badge>
+                    </div>
+                    <div className="mt-3 space-y-1 text-sm">
+                      <div className="flex justify-between"><span className="text-slate-400">Public (sales)</span><span className="text-white font-mono">{sales.toLocaleString()}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-400">Office (book)</span><span className="text-white font-mono">{cost.toLocaleString()}</span></div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">Real (China)</span>
+                        <span className={`font-mono ${real > 0 ? 'text-amber-300' : 'text-slate-500'}`}>
+                          {real > 0 ? real.toLocaleString() : '— not reported'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between border-t border-white/[0.04] pt-1 mt-1">
+                        <span className="text-slate-400">Planned spread</span>
+                        <span className="text-emerald-400 font-mono">{spread.toFixed(2)} ({spreadPct.toFixed(1)}%)</span>
+                      </div>
+                      {real > 0 && (
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Variance vs office</span>
+                          <span className={`font-mono ${variance >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {variance >= 0 ? '+' : ''}{variance.toFixed(2)} ({variancePct.toFixed(1)}%)
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    {canSetReal && (
+                      <div className="mt-3 pt-3 border-t border-white/[0.04]">
+                        <p className="text-[10px] text-slate-500 mb-1">Update real (China)</p>
+                        <div className="flex gap-2">
+                          <Input type="number" step="0.0001"
+                            value={realRateDrafts[r.id] ?? ''}
+                            onChange={(e) => setRealRateDrafts((d) => ({ ...d, [r.id]: e.target.value }))}
+                            placeholder={String(real || cost)}
+                            className="bg-[#13131f] border-white/[0.06] text-white h-8 text-xs font-mono" />
+                          <Button size="sm" onClick={() => handleSetRealRate(r)} className="bg-amber-600 hover:bg-amber-700 text-white h-8 text-xs">
+                            Save
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                    <p className="text-[10px] text-slate-500 mt-2">Effective {new Date(r.effectiveFrom).toLocaleString()}</p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {isAdmin && (
+      <Card className="bg-[#13131f] border-white/[0.06]">
+        <CardContent className="p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <h3 className="text-white font-semibold">Derived cross-rates</h3>
+            <Badge variant="outline" className="bg-slate-500/15 text-slate-300 border-slate-500/20">Suggested</Badge>
+          </div>
+          {derivedRates.length === 0 ? (
+            <p className="text-sm text-slate-500">Set at least two USD-based rates (e.g. USD→CNY and USD→TZS) to surface cross-rates here.</p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {derivedRates.map((r) => {
+                const spread = r.salesRate - r.costRate;
+                const spreadPct = r.costRate > 0 ? (spread / r.costRate) * 100 : 0;
+                return (
+                  <div key={`${r.fromCurrency}->${r.toCurrency}`} className="rounded-lg border border-white/[0.06] bg-[#0a0a1a] p-4">
+                    <div className="flex items-center justify-between">
+                      <span className="font-mono text-white text-sm">{r.fromCurrency} → {r.toCurrency}</span>
+                      <Badge variant="outline" className="bg-slate-500/15 text-slate-400 border-slate-500/20">via USD</Badge>
+                    </div>
+                    <div className="mt-3 space-y-1 text-sm">
+                      <div className="flex justify-between"><span className="text-slate-400">Sales</span><span className="text-white font-mono">{r.salesRate.toFixed(3)}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-400">Cost</span><span className="text-white font-mono">{r.costRate.toFixed(3)}</span></div>
+                      <div className="flex justify-between border-t border-white/[0.04] pt-1 mt-1">
+                        <span className="text-slate-400">Spread</span>
+                        <span className="text-emerald-400 font-mono">{spread.toFixed(3)} ({spreadPct.toFixed(1)}%)</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      )}
+
+      {isAdmin && (
+      <Card className="bg-[#13131f] border-white/[0.06]">
+        <CardContent className="p-5">
+          <h3 className="text-white font-semibold mb-3">Rate history ({rateHistory.length})</h3>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="text-xs text-slate-400 border-b border-white/[0.04]">
+                <th className="text-left py-2">Effective</th>
+                <th className="text-left">Pair</th>
+                <th className="text-right">Sales</th>
+                <th className="text-right">Cost</th>
+                <th className="text-left pl-3">Notes</th>
+                <th className="text-center">Active</th>
+                <th className="text-right pr-2"></th>
+              </tr></thead>
+              <tbody>
+                {rateHistory.length === 0 && (
+                  <tr><td colSpan={7} className="py-6 text-center text-slate-500">No rates yet.</td></tr>
+                )}
+                {rateHistory.map((r) => (
+                  <tr key={r.id} className="border-b border-white/[0.02]">
+                    <td className="py-2 text-xs text-slate-400">{new Date(r.effectiveFrom).toLocaleString()}</td>
+                    <td className="font-mono text-white">{r.fromCurrency} → {r.toCurrency}</td>
+                    <td className="text-right text-slate-200 font-mono">{Number(r.salesRate).toLocaleString()}</td>
+                    <td className="text-right text-slate-200 font-mono">{Number(r.costRate).toLocaleString()}</td>
+                    <td className="text-slate-400 pl-3">{r.notes || '-'}</td>
+                    <td className="text-center">
+                      {r.active ? (
+                        <Badge variant="outline" className="bg-emerald-500/15 text-emerald-400 border-emerald-500/20">Yes</Badge>
+                      ) : (
+                        <Badge variant="outline" className="bg-slate-500/15 text-slate-400 border-slate-500/20">No</Badge>
+                      )}
+                    </td>
+                    <td className="text-right pr-2">
+                      {r.active && (
+                        <Button size="sm" variant="ghost" onClick={() => handleDeactivateRate(r)} className="text-rose-300 hover:bg-rose-500/10 text-xs">
+                          Deactivate
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+      )}
+    </div>
+    );
+  };
+
+  const renderAudit = () => adminGate(
+    <Card className="bg-[#13131f] border-white/[0.06]">
+      <CardContent className="p-5">
+        <h3 className="text-white font-semibold mb-3">Audit Log ({auditLog.length})</h3>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead><tr className="text-xs text-slate-400 border-b border-white/[0.04]">
+              <th className="text-left py-2">When</th>
+              <th className="text-left">Actor</th>
+              <th className="text-left">Role</th>
+              <th className="text-left">Action</th>
+              <th className="text-left">Resource</th>
+            </tr></thead>
+            <tbody>
+              {auditLog.length === 0 && (
+                <tr><td colSpan={5} className="py-8 text-center text-slate-500">No audit events yet.</td></tr>
+              )}
+              {auditLog.map((a) => (
+                <tr key={a.id} className="border-b border-white/[0.02]">
+                  <td className="py-2 text-xs text-slate-400">{new Date(a.createdAt).toLocaleString()}</td>
+                  <td className="text-white">{a.actorName}</td>
+                  <td className="text-slate-400">{a.actorRole}</td>
+                  <td className="font-mono text-xs text-amber-300">{a.action}</td>
+                  <td className="font-mono text-xs text-slate-400">{a.resourceType}{a.resourceId ? `/${a.resourceId.slice(0, 8)}` : ''}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </CardContent>
+    </Card>,
+  );
+
   const renderModule = () => {
     switch (module) {
       case 'dashboard': return renderDashboard();
+      case 'owner': return renderOwner();
+      case 'cashierPerf': return renderCashierPerf();
+      case 'risk': return renderRisk();
+      case 'rates': return renderRates();
+      case 'users': return renderUsers();
+      case 'audit': return renderAudit();
       case 'customers': return renderCustomers();
       case 'deposits': return renderDeposits();
       case 'payouts': return renderPayouts();
@@ -1319,7 +2497,12 @@ export default function KobePay() {
   };
 
   const getModuleTitle = () => {
-    const titles: Record<Module, string> = { dashboard: 'Dashboard', customers: 'Customers', deposits: 'Deposits', payouts: 'Payouts', suppliers: 'Suppliers', allocations: 'Allocations', receipts: 'Receipts', settings: 'Settings' };
+    const titles: Record<Module, string> = {
+      dashboard: 'Dashboard', owner: 'Owner Profit Dashboard', cashierPerf: 'Cashier Performance',
+      risk: 'Risk & Exceptions', rates: 'Exchange Rates', users: 'Users & Permissions', audit: 'Audit Log',
+      customers: 'Customers', deposits: 'Deposits', payouts: 'Payouts',
+      suppliers: 'Suppliers', allocations: 'Allocations', receipts: 'Receipts', settings: 'Settings',
+    };
     return titles[module] || 'Dashboard';
   };
 

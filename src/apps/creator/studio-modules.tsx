@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import {
-  QrCode, ShieldAlert, TrendingUp, TrendingDown, BadgeCheck,
+  QrCode, ShieldAlert, TrendingUp, BadgeCheck,
   Settings, Plus, Search, CheckCircle2, AlertCircle, Clock,
-  ChevronRight, Send, X, Check, Users, Shield,
+  ChevronRight, X, Check, Users, Shield,
 } from 'lucide-react';
 
 // ── Types ─────────────────────────────────────────────────────────────────────

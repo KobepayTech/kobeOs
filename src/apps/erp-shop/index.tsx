@@ -4,6 +4,7 @@ import {
   ShoppingCart, CreditCard, Truck, CheckCircle2,
   Smartphone, Building2, Banknote, Loader2, AlertCircle,
 } from 'lucide-react';
+import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -62,7 +63,27 @@ interface CheckoutForm {
   name: string;
   phone: string;
   address: string;
-  paymentMethod: 'cod' | 'mobile' | 'bank';
+  paymentMethod: 'cod' | 'mobile' | 'bank' | 'bnpl';
+}
+
+interface BnplEligibility {
+  eligible: boolean;
+  availableCredit: number;
+  creditLimit: number;
+  currency: string;
+  reason?: 'no_profile' | 'inactive' | 'no_phone';
+}
+
+interface TrackedOrder {
+  orderNumber: string;
+  status: string;
+  total: string | number;
+  currency: string;
+  paymentMethod: string;
+  customerName?: string | null;
+  placedAt: string;
+  items: Array<{ productName: string; quantity: number; unitPrice: string | number; lineTotal: string | number }>;
+  pickTicket: { ticketNumber: string; status: string } | null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -179,9 +200,25 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
   const [isCheckout, setIsCheckout] = useState(false);
   const [orderConfirmed, setOrderConfirmed] = useState(false);
   const [orderNumber, setOrderNumber] = useState('');
+  const [orderReceipt, setOrderReceipt] = useState<string | null>(null);
+  const [orderDiscount, setOrderDiscount] = useState<{ discountAmount: number; breakdown: Array<{ source: string; label: string; amount: number }> } | null>(null);
+  const [orderError, setOrderError] = useState<string | null>(null);
+  const [placingOrder, setPlacingOrder] = useState(false);
+  const [couponCode, setCouponCode] = useState('');
   const [checkoutForm, setCheckoutForm] = useState<CheckoutForm>({
     name: '', phone: '', address: '', paymentMethod: 'cod',
   });
+  // BNPL eligibility — fetched whenever the buyer picks BNPL + has a phone.
+  const [bnplEligibility, setBnplEligibility] = useState<BnplEligibility | null>(null);
+  const [bnplLoading, setBnplLoading] = useState(false);
+  const [installmentMonths, setInstallmentMonths] = useState<number>(3);
+  // Track-order dialog
+  const [trackOpen, setTrackOpen] = useState(false);
+  const [trackOrderNumber, setTrackOrderNumber] = useState('');
+  const [trackPhone, setTrackPhone] = useState('');
+  const [trackResult, setTrackResult] = useState<TrackedOrder | null>(null);
+  const [trackError, setTrackError] = useState<string | null>(null);
+  const [tracking, setTracking] = useState(false);
 
   useEffect(() => {
     if (!slug) return;
@@ -254,13 +291,104 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
     if (cart.length) { setIsCartOpen(false); setIsCheckout(true); }
   };
 
-  const handlePlaceOrder = () => {
+  // Pre-flight BNPL check: whenever the buyer is on the BNPL payment
+  // option AND has typed a phone, ask the backend if they're eligible.
+  // Debounced so each keystroke doesn't spam the credit lookup.
+  useEffect(() => {
+    if (!slug) return;
+    if (checkoutForm.paymentMethod !== 'bnpl') {
+      setBnplEligibility(null);
+      return;
+    }
+    const phone = checkoutForm.phone.trim();
+    if (!phone) {
+      setBnplEligibility(null);
+      return;
+    }
+    let cancelled = false;
+    setBnplLoading(true);
+    const timer = setTimeout(async () => {
+      try {
+        const r = await api<BnplEligibility>(
+          `/store/${encodeURIComponent(slug)}/credit/eligibility?phone=${encodeURIComponent(phone)}`,
+          { auth: false },
+        );
+        if (!cancelled) setBnplEligibility(r);
+      } catch {
+        if (!cancelled) setBnplEligibility({ eligible: false, availableCredit: 0, creditLimit: 0, currency: 'TZS' });
+      } finally {
+        if (!cancelled) setBnplLoading(false);
+      }
+    }, 400);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [slug, checkoutForm.paymentMethod, checkoutForm.phone]);
+
+  const handleTrackOrder = async () => {
+    if (!slug || !trackOrderNumber.trim() || !trackPhone.trim()) return;
+    setTrackError(null);
+    setTrackResult(null);
+    setTracking(true);
+    try {
+      const r = await api<TrackedOrder>(
+        `/store/${encodeURIComponent(slug)}/orders/${encodeURIComponent(trackOrderNumber.trim())}?phone=${encodeURIComponent(trackPhone.trim())}`,
+        { auth: false },
+      );
+      setTrackResult(r);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setTrackError(msg.includes('404') || /not found/i.test(msg)
+        ? 'Order not found. Check the order number and phone you used at checkout.'
+        : msg);
+    } finally {
+      setTracking(false);
+    }
+  };
+
+  const handlePlaceOrder = async () => {
     if (!checkoutForm.name || !checkoutForm.phone || !checkoutForm.address) return;
-    setOrderNumber(generateOrderNumber());
-    setIsCheckout(false);
-    setOrderConfirmed(true);
-    clearCart();
-    setCheckoutForm({ name: '', phone: '', address: '', paymentMethod: 'cod' });
+    if (!slug || cart.length === 0) return;
+    setOrderError(null);
+    setPlacingOrder(true);
+    // Map UI payment method codes to POS service's vocabulary.
+    const paymentMethod =
+      checkoutForm.paymentMethod === 'cod' ? 'CASH'
+      : checkoutForm.paymentMethod === 'mobile' ? 'MOBILE'
+      : checkoutForm.paymentMethod === 'bnpl' ? 'BNPL'
+      : 'BANK';
+    const isBnpl = paymentMethod === 'BNPL';
+    const orderDto: Record<string, unknown> = {
+      orderNumber: `SHOP-${Date.now().toString(36).toUpperCase()}`,
+      lines: cart.map((i) => ({ productId: i.product.id, quantity: i.quantity })),
+      paymentMethod,
+      couponCode: couponCode.trim() || undefined,
+      customerName: checkoutForm.name,
+      customerPhone: checkoutForm.phone,
+    };
+    if (isBnpl) orderDto.installmentMonths = installmentMonths;
+    try {
+      const sale = await api<{
+        orderNumber: string;
+        receipt?: { text: string };
+        pickTicket?: { ticketNumber: string };
+        discount?: { discountAmount: number; breakdown: Array<{ source: string; label: string; amount: number }> };
+      }>(`/store/${slug}/orders`, {
+        method: 'POST',
+        auth: false,
+        body: JSON.stringify(orderDto),
+      });
+      setOrderNumber(sale.orderNumber ?? orderDto.orderNumber);
+      setOrderReceipt(sale.receipt?.text ?? null);
+      setOrderDiscount(sale.discount ?? null);
+      setIsCheckout(false);
+      setOrderConfirmed(true);
+      clearCart();
+      setCheckoutForm({ name: '', phone: '', address: '', paymentMethod: 'cod' });
+      setCouponCode('');
+    } catch (err) {
+      setOrderError(err instanceof Error ? err.message : 'Order could not be placed. Try again.');
+    } finally {
+      setPlacingOrder(false);
+    }
   };
 
   if (!slug) return <SlugPicker onSelect={setSlug} />;
@@ -330,6 +458,15 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
               )}
             </Button>
           )}
+          <Button
+            variant="ghost" size="sm"
+            onClick={() => { setTrackOpen(true); setTrackError(null); setTrackResult(null); }}
+            className="h-8 px-2 text-xs hover:bg-white/10"
+            title="Track an order"
+          >
+            <Package className="w-4 h-4 mr-1" />
+            Track
+          </Button>
           <Button
             variant="ghost" size="sm"
             onClick={() => setSlug('')}
@@ -549,11 +686,12 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
             />
             <div className="space-y-1">
               <p className="text-xs text-slate-400 font-medium">Payment method</p>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-4 gap-2">
                 {([
                   { value: 'cod', label: 'Cash', Icon: Banknote },
                   { value: 'mobile', label: 'Mobile', Icon: Smartphone },
                   { value: 'bank', label: 'Bank', Icon: Building2 },
+                  { value: 'bnpl', label: 'Pay Later', Icon: CreditCard },
                 ] as const).map(({ value, label, Icon }) => (
                   <button
                     key={value}
@@ -570,16 +708,75 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
                 ))}
               </div>
             </div>
+            {checkoutForm.paymentMethod === 'bnpl' && (
+              <div className={`rounded-md border p-2 text-xs space-y-2 ${
+                bnplLoading ? 'border-blue-500/30 bg-blue-500/10 text-blue-200'
+                : bnplEligibility?.eligible ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+                : 'border-amber-500/30 bg-amber-500/10 text-amber-200'
+              }`}>
+                {bnplLoading ? 'Checking your credit…'
+                  : !checkoutForm.phone.trim() ? 'Enter your phone above to check BNPL eligibility.'
+                  : !bnplEligibility ? 'Checking…'
+                  : bnplEligibility.reason === 'no_profile'
+                    ? 'No BNPL profile found for this phone. Contact the store to open one, or pick another payment method.'
+                  : bnplEligibility.reason === 'inactive'
+                    ? 'BNPL is currently disabled on this account.'
+                  : !bnplEligibility.eligible
+                    ? `BNPL not available — you've used your full credit limit (${bnplEligibility.creditLimit.toLocaleString()} ${bnplEligibility.currency}).`
+                    : (
+                      <>
+                        <div>
+                          <span className="font-medium">Available credit:</span>{' '}
+                          {bnplEligibility.availableCredit.toLocaleString()} {bnplEligibility.currency}
+                          {' '}(limit {bnplEligibility.creditLimit.toLocaleString()})
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="opacity-80">Pay over</span>
+                          <select
+                            value={installmentMonths}
+                            onChange={(e) => setInstallmentMonths(Number(e.target.value))}
+                            className="h-7 px-2 rounded bg-emerald-950/40 border border-emerald-500/30 text-emerald-100"
+                          >
+                            {[1, 3, 6, 12].map((n) => <option key={n} value={n}>{n} month{n === 1 ? '' : 's'}</option>)}
+                          </select>
+                          <span className="opacity-80">
+                            ≈ {Math.round((cartTotal + SHIPPING_COST) / installmentMonths).toLocaleString()} {bnplEligibility.currency}/month
+                          </span>
+                        </div>
+                      </>
+                    )}
+              </div>
+            )}
+            <Input
+              placeholder="Coupon code (optional)"
+              value={couponCode}
+              onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+              className="bg-white/10 border-white/20 text-white placeholder:text-slate-500 font-mono uppercase"
+            />
             <div className="flex justify-between text-sm font-bold border-t border-white/10 pt-2">
               <span>Total</span>
               <span>{formatPrice(cartTotal + SHIPPING_COST)}</span>
             </div>
+            {orderError && (
+              <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-red-500/15 border border-red-500/30 text-xs text-red-200">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{orderError}</span>
+              </div>
+            )}
             <Button
-              className="w-full bg-blue-600 hover:bg-blue-700"
+              className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-60"
               onClick={handlePlaceOrder}
-              disabled={!checkoutForm.name || !checkoutForm.phone || !checkoutForm.address}
+              disabled={
+                placingOrder
+                || !checkoutForm.name
+                || !checkoutForm.phone
+                || !checkoutForm.address
+                || (checkoutForm.paymentMethod === 'bnpl' && (
+                  !bnplEligibility?.eligible || (cartTotal + SHIPPING_COST) > bnplEligibility.availableCredit
+                ))
+              }
             >
-              Place Order
+              {placingOrder ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Placing…</>) : 'Place Order'}
             </Button>
           </div>
         </DialogContent>
@@ -587,22 +784,132 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
 
       {/* ORDER CONFIRMED DIALOG */}
       <Dialog open={orderConfirmed} onOpenChange={setOrderConfirmed}>
-        <DialogContent className="bg-slate-800 border-white/10 text-white max-w-sm text-center">
+        <DialogContent className="bg-slate-800 border-white/10 text-white max-w-md text-center">
           <div className="flex flex-col items-center gap-3 py-4">
             <CheckCircle2 className="w-12 h-12 text-emerald-400" />
             <h3 className="text-lg font-bold">Order Placed!</h3>
-            <p className="text-slate-400 text-sm">Your order has been received.</p>
+            <p className="text-slate-400 text-sm">Your order has been received and is being prepared.</p>
             <div className="bg-white/10 rounded-lg px-4 py-2">
               <p className="text-xs text-slate-400">Order number</p>
               <p className="font-mono font-bold text-blue-300">{orderNumber}</p>
             </div>
+            {orderDiscount && orderDiscount.breakdown.length > 0 && (
+              <div className="w-full rounded-md border border-emerald-500/30 bg-emerald-500/10 p-2 text-left">
+                <p className="text-emerald-300 text-xs font-semibold">Discount applied: {formatPrice(orderDiscount.discountAmount)}</p>
+                <ul className="mt-1 space-y-0.5 text-[11px] text-emerald-200">
+                  {orderDiscount.breakdown.map((b, i) => (
+                    <li key={i} className="flex justify-between">
+                      <span>{b.source === 'coupon' ? '🎟' : '·'} {b.label}</span>
+                      <span className="font-mono">−{formatPrice(b.amount)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {orderReceipt && (
+              <details className="w-full text-left">
+                <summary className="cursor-pointer text-xs text-slate-300 hover:text-white">View receipt</summary>
+                <pre className="mt-2 max-h-64 overflow-auto rounded-md border border-white/10 bg-black/30 p-2 font-mono text-[11px] leading-relaxed text-slate-200 whitespace-pre-wrap">
+{orderReceipt}
+                </pre>
+              </details>
+            )}
             <Button
               className="w-full bg-blue-600 hover:bg-blue-700 mt-2"
-              onClick={() => setOrderConfirmed(false)}
+              onClick={() => { setOrderConfirmed(false); setOrderReceipt(null); setOrderDiscount(null); }}
             >
               Continue Shopping
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* TRACK ORDER DIALOG */}
+      <Dialog open={trackOpen} onOpenChange={(o) => { setTrackOpen(o); if (!o) { setTrackResult(null); setTrackError(null); } }}>
+        <DialogContent className="bg-slate-800 border-white/10 text-white max-w-md">
+          <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
+            <Package className="w-5 h-5 text-blue-400" /> Track your order
+          </h3>
+          {!trackResult && (
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Order number</label>
+                <Input
+                  placeholder="SHOP-XXXXXX"
+                  value={trackOrderNumber}
+                  onChange={(e) => setTrackOrderNumber(e.target.value.toUpperCase())}
+                  className="bg-white/10 border-white/20 text-white placeholder:text-slate-500 font-mono"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Phone number used at checkout</label>
+                <Input
+                  placeholder="+255…"
+                  value={trackPhone}
+                  onChange={(e) => setTrackPhone(e.target.value)}
+                  className="bg-white/10 border-white/20 text-white placeholder:text-slate-500"
+                />
+              </div>
+              {trackError && (
+                <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-red-500/15 border border-red-500/30 text-xs text-red-200">
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>{trackError}</span>
+                </div>
+              )}
+              <Button
+                className="w-full bg-blue-600 hover:bg-blue-700"
+                onClick={handleTrackOrder}
+                disabled={tracking || !trackOrderNumber.trim() || !trackPhone.trim()}
+              >
+                {tracking ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Looking up…</>) : 'Look up order'}
+              </Button>
+            </div>
+          )}
+          {trackResult && (
+            <div className="space-y-3 text-sm">
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-blue-300">{trackResult.orderNumber}</span>
+                <span className="text-xs px-2 py-0.5 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
+                  {trackResult.status}
+                </span>
+              </div>
+              <div className="text-xs text-slate-400">
+                Placed {new Date(trackResult.placedAt).toLocaleString()}
+                {trackResult.customerName ? ` · ${trackResult.customerName}` : ''}
+              </div>
+              <div className="rounded-md border border-white/10 bg-black/20 p-2 space-y-1">
+                <p className="text-[11px] text-slate-400">Items</p>
+                {trackResult.items.map((it, i) => (
+                  <div key={i} className="flex justify-between text-xs">
+                    <span>{it.productName} × {it.quantity}</span>
+                    <span className="font-mono text-slate-300">{Number(it.lineTotal).toLocaleString()}</span>
+                  </div>
+                ))}
+                <div className="flex justify-between border-t border-white/10 pt-1 mt-1 text-xs font-semibold">
+                  <span>Total ({trackResult.paymentMethod})</span>
+                  <span className="font-mono">{Number(trackResult.total).toLocaleString()} {trackResult.currency}</span>
+                </div>
+              </div>
+              {trackResult.pickTicket ? (
+                <div className="rounded-md border border-blue-500/20 bg-blue-500/10 p-2 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-slate-300">Warehouse</span>
+                    <span className="font-mono text-blue-300">{trackResult.pickTicket.ticketNumber}</span>
+                  </div>
+                  <div className="text-blue-200 mt-1">{trackResult.pickTicket.status}</div>
+                </div>
+              ) : (
+                <p className="text-xs text-slate-400">Warehouse pick ticket not created yet.</p>
+              )}
+              <Button
+                onClick={() => { setTrackResult(null); setTrackOrderNumber(''); setTrackPhone(''); }}
+                variant="outline"
+                className="w-full border-white/20 text-white hover:bg-white/10"
+              >
+                Look up another order
+              </Button>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

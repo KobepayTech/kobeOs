@@ -31,7 +31,7 @@ function evaluateFormula(
       const num = parseFloat(val);
       return isNaN(num) ? '0' : String(num);
     });
-    // eslint-disable-next-line no-new-func
+     
     const result = new Function('return ' + replaced)();
     return String(result);
   } catch {

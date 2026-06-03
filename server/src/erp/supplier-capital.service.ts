@@ -315,13 +315,14 @@ export class SupplierCapitalService {
 
   private async createLedgerForReceipt(receipt: ErpKobePaySupplierReceipt) {
     const existing = await this.ledgerRepo.findOne({ where: { ownerId: receipt.ownerId, receiptId: receipt.id } });
-    const entryType = receipt.allocationStatus === 'linked'
-      ? 'po_payment'
-      : receipt.allocationStatus === 'expense'
-        ? 'expense'
-        : receipt.allocationStatus === 'freight'
-          ? 'freight'
-          : 'supplier_advance';
+    const entryType: 'expense' | 'freight' | 'supplier_advance' | 'po_payment' | 'reversal' =
+      receipt.allocationStatus === 'linked'
+        ? 'po_payment'
+        : receipt.allocationStatus === 'expense'
+          ? 'expense'
+          : receipt.allocationStatus === 'freight'
+            ? 'freight'
+            : 'supplier_advance';
     const payload = {
       ownerId: receipt.ownerId,
       supplierId: receipt.supplierId ?? null,
