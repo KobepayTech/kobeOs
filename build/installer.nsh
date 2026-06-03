@@ -6,9 +6,11 @@
 !include "StrFunc.nsh"
 ; StrFunc declarations must precede first use. StrFunc has no "StrContains"; the
 ; idiomatic membership test is StrStr (returns the tail starting at the match
-; or "" when absent).
+; or "" when absent). The uninstall-section variants (Un* prefix) must be
+; declared separately — calls from inside the uninstaller need "un." functions.
 ${StrStr}
 ${StrRep}
+${UnStrRep}
 
 ; ── Registry keys ─────────────────────────────────────────────────────────────
 !define OLD_UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\{com.kobepay.kobeos}"
@@ -119,9 +121,11 @@ ${StrRep}
   ; Remove $INSTDIR from system PATH
   ReadRegStr $0 HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" "Path"
   ${If} $0 != ""
-    ; Strip ";$INSTDIR" or "$INSTDIR;" from PATH
-    ${StrRep} $1 "$0" ";$INSTDIR" ""
-    ${StrRep} $1 "$1" "$INSTDIR;" ""
+    ; Strip ";$INSTDIR" or "$INSTDIR;" from PATH. Inside the uninstaller we must
+    ; use ${UnStrRep} — the install-section ${StrRep} resolves to a non-"un."
+    ; function call that makensis rejects here.
+    ${UnStrRep} $1 "$0" ";$INSTDIR" ""
+    ${UnStrRep} $1 "$1" "$INSTDIR;" ""
     ${If} $1 != $0
       WriteRegExpandStr HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" "Path" "$1"
       SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=5000
