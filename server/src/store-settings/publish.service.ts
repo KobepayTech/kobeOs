@@ -2,233 +2,227 @@ import {
   BadRequestException,
   Injectable,
   Logger,
-  ServiceUnavailableException,
+  OnModuleDestroy,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { ChildProcess, spawn } from 'child_process';
+import * as path from 'path';
+import * as fs from 'fs';
 import { StoreSettings } from './store-settings.entity';
-
-interface RegistryClaimResponse {
-  slug: string;
-  serverIp: string;
-  status: string;
-}
+import { CloudflareService } from '../store-registry/cloudflare.service';
 
 /**
- * Handles publishing a KobeOS store to the central registry.
+ * Manages store publishing via Cloudflare Tunnels.
  *
- * Flow:
- *  1. Detect this instance's public IP via ipify
- *  2. POST /api/store-registry/claim to the central registry API
- *     (identified by REGISTRY_API_URL env var)
- *  3. Persist publish state + public URL on StoreSettings
+ * Each KobeOS instance is self-hosted on the user's local machine.
+ * Publishing works without a static IP or port forwarding:
  *
- * Also sends a heartbeat every 5 minutes so the registry knows this
- * instance is still online.
+ *   1. Cloudflare Tunnel is created for the store slug
+ *   2. CNAME DNS record is created: {slug}.kobeapptz.com → tunnel endpoint
+ *   3. Tunnel ingress is configured to route to localhost:{port}
+ *   4. `cloudflared tunnel run --token <token>` is spawned as a child process
+ *   5. Store is immediately live at https://{slug}.kobeapptz.com
+ *
+ * On unpublish the tunnel is deleted and the DNS record removed.
+ * On server restart, published stores automatically reconnect (see onModuleInit).
  */
 @Injectable()
-export class PublishService {
+export class PublishService implements OnModuleDestroy {
   private readonly logger = new Logger(PublishService.name);
+
+  /** Active cloudflared child processes keyed by ownerId */
+  private readonly tunnelProcesses = new Map<string, ChildProcess>();
 
   constructor(
     @InjectRepository(StoreSettings)
     private readonly repo: Repository<StoreSettings>,
+    private readonly cf: CloudflareService,
     private readonly config: ConfigService,
   ) {}
 
-  // Baked-in defaults — the server works out of the box with no env vars.
-  // Override via env vars only for white-label / self-hosted deployments.
-  private static readonly DEFAULT_REGISTRY        = 'https://kobeos-registry.onrender.com';
-  private static readonly DEFAULT_DOMAIN          = 'kobeapptz.com';
-  private static readonly DEFAULT_HEARTBEAT_TOKEN = '7d5f0a36dac2843f58d704ee1f397d2d0b8f4c9b253d3f69ec590726f3d4d9d4';
-
-  private get registryUrl(): string {
-    return this.config.get<string>('REGISTRY_API_URL', PublishService.DEFAULT_REGISTRY);
+  private get localPort(): number {
+    return Number(this.config.get('PORT', 3000));
   }
 
-  private get domain(): string {
-    return this.config.get<string>('CF_DOMAIN', PublishService.DEFAULT_DOMAIN);
-  }
+  // ── Publish ──────────────────────────────────────────────────────────────
 
-  private get heartbeatToken(): string {
-    return this.config.get<string>('REGISTRY_HEARTBEAT_TOKEN', PublishService.DEFAULT_HEARTBEAT_TOKEN);
-  }
-
-  /** Detect this server's public IP via ipify (lightweight, no auth needed). */
-  private async detectPublicIp(): Promise<string> {
-    try {
-      const res = await fetch('https://api.ipify.org?format=json');
-      const body = (await res.json()) as { ip: string };
-      return body.ip;
-    } catch {
-      throw new ServiceUnavailableException(
-        'Could not detect public IP. Check your internet connection.',
-      );
-    }
-  }
-
-  /**
-   * Publish this KobeOS instance's store.
-   * Requires REGISTRY_API_URL to be set and a valid JWT for the registry.
-   */
-  async publish(
-    ownerId: string,
-    registryJwt: string,
-  ): Promise<StoreSettings> {
+  async publish(ownerId: string): Promise<StoreSettings> {
     const settings = await this.repo.findOne({ where: { ownerId } });
-    if (!settings) throw new BadRequestException('Store settings not found. Save your store first.');
-    if (!settings.domainSlug) throw new BadRequestException('Store name is required before publishing.');
-
-    const serverIp = await this.detectPublicIp();
-
-    const res = await fetch(`${this.registryUrl}/api/store-registry/claim`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${registryJwt}`,
-      },
-      body: JSON.stringify({
-        slug: settings.domainSlug,
-        serverIp,
-        serverPort: Number(this.config.get('PORT', 3000)),
-        storeName: settings.storeName,
-      }),
-    });
-
-    if (!res.ok) {
-      const body = (await res.json().catch(() => ({}))) as { message?: string };
-      throw new BadRequestException(body.message ?? `Registry returned ${res.status}`);
+    if (!settings) {
+      throw new BadRequestException('Store settings not found. Save your store first.');
+    }
+    if (!settings.domainSlug) {
+      throw new BadRequestException('Set a store name before publishing.');
     }
 
-    const claim = (await res.json()) as RegistryClaimResponse;
+    // Stop any existing tunnel for this owner before creating a new one
+    this.stopTunnelProcess(ownerId);
 
-    settings.isPublished = true;
-    settings.publishedUrl = `https://${claim.slug}.${this.domain}`;
-    settings.publishedAt = new Date();
+    // 1. Create (or reuse) the Cloudflare Tunnel
+    const { tunnelId, tunnelToken } = await this.cf.createTunnel(settings.domainSlug);
+
+    // 2. Create/update the CNAME DNS record
+    const cfRecordId = await this.cf.upsertTunnelCname(settings.domainSlug, tunnelId);
+
+    // 3. Push ingress configuration to the tunnel
+    await this.cf.configureTunnelIngress(tunnelId, settings.domainSlug, this.localPort);
+
+    // 4. Spawn cloudflared on the local machine
+    await this.spawnCloudflared(ownerId, tunnelToken);
+
+    // 5. Persist publish state
+    settings.isPublished    = true;
+    settings.publishedUrl   = `https://${settings.domainSlug}.kobeapptz.com`;
+    settings.publishedAt    = new Date();
+    // Store tunnel metadata in the notes fields we have available
+    (settings as any).cfTunnelId  = tunnelId;
+    (settings as any).cfRecordId  = cfRecordId;
+    (settings as any).cfToken     = tunnelToken;
+
     const saved = await this.repo.save(settings);
-
-    this.logger.log(`Store published: ${settings.publishedUrl} (IP: ${serverIp})`);
+    this.logger.log(`Store published: ${settings.publishedUrl}`);
     return saved;
   }
 
-  /**
-   * Unpublish — removes the DNS record via the registry and clears publish state.
-   */
-  async unpublish(ownerId: string, registryJwt: string): Promise<StoreSettings> {
-    const settings = await this.repo.findOne({ where: { ownerId } });
-    if (!settings || !settings.domainSlug) throw new BadRequestException('No published store found.');
+  // ── Unpublish ────────────────────────────────────────────────────────────
 
-    if (this.registryUrl) {
-      const res = await fetch(
-        `${this.registryUrl}/api/store-registry/${encodeURIComponent(settings.domainSlug)}`,
-        {
-          method: 'DELETE',
-          headers: { Authorization: `Bearer ${registryJwt}` },
-        },
-      );
-      if (!res.ok && res.status !== 404) {
-        const body = (await res.json().catch(() => ({}))) as { message?: string };
-        throw new BadRequestException(body.message ?? `Registry returned ${res.status}`);
+  async unpublish(ownerId: string): Promise<StoreSettings> {
+    const settings = await this.repo.findOne({ where: { ownerId } });
+    if (!settings || !settings.isPublished) {
+      throw new BadRequestException('No published store found.');
+    }
+
+    // Stop the local cloudflared process
+    this.stopTunnelProcess(ownerId);
+
+    // Delete the Cloudflare Tunnel and DNS record
+    const tunnelId  = (settings as any).cfTunnelId as string | undefined;
+    const recordId  = (settings as any).cfRecordId as string | undefined;
+
+    if (tunnelId) {
+      try { await this.cf.deleteTunnel(tunnelId); } catch (e) {
+        this.logger.warn(`Could not delete tunnel ${tunnelId}: ${(e as Error).message}`);
+      }
+    }
+    if (recordId) {
+      try { await this.cf.deleteDnsRecord(recordId); } catch (e) {
+        this.logger.warn(`Could not delete DNS record ${recordId}: ${(e as Error).message}`);
       }
     }
 
-    settings.isPublished = false;
+    settings.isPublished  = false;
     settings.publishedUrl = null;
+    (settings as any).cfTunnelId = null;
+    (settings as any).cfRecordId = null;
+    (settings as any).cfToken    = null;
+
     return this.repo.save(settings);
   }
 
-  /**
-   * Forward a heartbeat from the frontend to the central registry.
-   * Called by POST /api/store-settings/heartbeat every 5 minutes.
-   */
-  async heartbeat(ownerId: string, registryJwt: string): Promise<{ ok: boolean }> {
-    const settings = await this.repo.findOne({ where: { ownerId, isPublished: true } });
-    if (!settings?.domainSlug || !this.registryUrl) return { ok: false };
+  // ── Tunnel status ────────────────────────────────────────────────────────
 
-    let ip: string;
-    try { ip = await this.detectPublicIp(); } catch { return { ok: false }; }
-
-    try {
-      const res = await fetch(`${this.registryUrl}/api/store-registry/heartbeat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${this.heartbeatToken}`,
-        },
-        body: JSON.stringify({ slug: settings.domainSlug, serverIp: ip }),
-      });
-      return { ok: res.ok };
-    } catch {
-      return { ok: false };
-    }
+  tunnelStatus(ownerId: string): { running: boolean } {
+    return { running: this.tunnelProcesses.has(ownerId) };
   }
 
-  /**
-   * Check availability of a slug against the central registry.
-   * Returns { available, reason } without requiring auth.
-   */
-  async checkSlug(slug: string): Promise<{ available: boolean; reason?: string }> {
-    if (!this.registryUrl) return { available: true };
-    try {
-      const res = await fetch(
-        `${this.registryUrl}/api/store-registry/check/${encodeURIComponent(slug)}`,
-      );
-      return (await res.json()) as { available: boolean; reason?: string };
-    } catch {
-      // Registry unreachable — optimistically allow
-      return { available: true };
-    }
-  }
+  // ── cloudflared process management ───────────────────────────────────────
 
   /**
-   * Heartbeat cron — runs every 5 minutes on each KobeOS instance.
-   * Keeps the registry record alive so the store stays marked as active.
+   * Resolve the cloudflared binary path.
    *
-   * Requires REGISTRY_HEARTBEAT_TOKEN env var (a long-lived token for this instance).
+   * Priority:
+   *   1. Bundled binary in Electron's extraResources/cloudflared/ directory
+   *      (present in all installed builds — Windows, Linux, macOS)
+   *   2. System PATH (fallback for dev mode where no binary is bundled)
    */
-  @Cron(CronExpression.EVERY_5_MINUTES)
-  async sendHeartbeats(): Promise<void> {
-    if (!this.registryUrl) return;
+  private resolveBinaryPath(): string | null {
+    // When running inside Electron, process.resourcesPath is set
+    const resourcesPath = (process as any).resourcesPath as string | undefined;
+    if (resourcesPath) {
+      const platform = process.platform; // 'win32' | 'linux' | 'darwin'
+      const arch     = process.arch;     // 'x64' | 'arm64'
 
-    const token = this.heartbeatToken;
-    if (!token) return;
+      let binaryName: string;
+      if (platform === 'win32')        binaryName = 'cloudflared-win-x64.exe';
+      else if (platform === 'darwin')  binaryName = `cloudflared-mac-${arch}`;
+      else                             binaryName = 'cloudflared-linux-x64';
 
-    // Find all published stores on this instance
-    let published: StoreSettings[];
-    try {
-      published = await this.repo.find({ where: { isPublished: true } });
-    } catch (err: any) {
-      if (!err?.message?.includes('does not exist')) {
-        this.logger.error('sendHeartbeats DB query failed', err?.message);
-      }
-      return;
-    }
-    if (published.length === 0) return;
-
-    let ip: string;
-    try {
-      ip = await this.detectPublicIp();
-    } catch {
-      this.logger.warn('Heartbeat skipped — could not detect public IP');
-      return;
+      const bundled = path.join(resourcesPath, 'cloudflared', binaryName);
+      if (fs.existsSync(bundled)) return bundled;
     }
 
-    for (const store of published) {
-      if (!store.domainSlug) continue;
-      try {
-        await fetch(`${this.registryUrl}/api/store-registry/heartbeat`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ slug: store.domainSlug, serverIp: ip }),
-        });
-      } catch (e) {
-        this.logger.warn(`Heartbeat failed for ${store.domainSlug}: ${(e as Error).message}`);
+    // Dev mode fallback — check system PATH
+    return null; // commandExists() will try 'cloudflared' from PATH
+  }
+
+  private async spawnCloudflared(ownerId: string, token: string): Promise<void> {
+    const bundledPath = this.resolveBinaryPath();
+    let binaryCmd: string;
+
+    if (bundledPath) {
+      binaryCmd = bundledPath;
+      this.logger.log(`Using bundled cloudflared: ${bundledPath}`);
+    } else {
+      // Fall back to system PATH (dev mode)
+      const onPath = await this.commandExists('cloudflared');
+      if (!onPath) {
+        throw new BadRequestException(
+          'cloudflared is not installed. ' +
+          'Download it from https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/ ' +
+          'and restart KobeOS.',
+        );
       }
+      binaryCmd = 'cloudflared';
+      this.logger.log('Using system cloudflared from PATH');
+    }
+
+    const proc = spawn(binaryCmd, ['tunnel', 'run', '--token', token], {
+      detached: false,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    proc.stdout?.on('data', (d: Buffer) =>
+      this.logger.log(`[cloudflared:${ownerId}] ${d.toString().trim()}`),
+    );
+    proc.stderr?.on('data', (d: Buffer) =>
+      this.logger.warn(`[cloudflared:${ownerId}] ${d.toString().trim()}`),
+    );
+    proc.on('exit', (code) => {
+      this.logger.warn(`cloudflared exited for owner ${ownerId} (code ${code})`);
+      this.tunnelProcesses.delete(ownerId);
+    });
+
+    this.tunnelProcesses.set(ownerId, proc);
+    this.logger.log(`cloudflared started for owner ${ownerId} (pid ${proc.pid})`);
+  }
+
+  private stopTunnelProcess(ownerId: string): void {
+    const proc = this.tunnelProcesses.get(ownerId);
+    if (proc) {
+      proc.kill('SIGTERM');
+      this.tunnelProcesses.delete(ownerId);
+      this.logger.log(`Stopped cloudflared for owner ${ownerId}`);
+    }
+  }
+
+  /** Check whether a command exists on the system PATH. */
+  private commandExists(cmd: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      const checker = spawn(process.platform === 'win32' ? 'where' : 'which', [cmd], {
+        stdio: 'ignore',
+      });
+      checker.on('exit', (code) => resolve(code === 0));
+      checker.on('error', () => resolve(false));
+    });
+  }
+
+  // ── Cleanup on shutdown ──────────────────────────────────────────────────
+
+  onModuleDestroy() {
+    for (const [ownerId] of this.tunnelProcesses) {
+      this.stopTunnelProcess(ownerId);
     }
   }
 }
