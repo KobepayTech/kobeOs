@@ -1,3 +1,3 @@
-import OpenPropertyComplete from './OpenPropertyComplete';
+import PropertyProduction from './PropertyProduction';
 
-export default OpenPropertyComplete;
+export default PropertyProduction;
