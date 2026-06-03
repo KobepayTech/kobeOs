@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, NotFoundException, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import {
@@ -11,7 +11,12 @@ import {
 import { KobePayCashierPerfService, KobePayOwnerService, KobePayRiskService } from './kobepay-owner.service';
 import { KobePayRbacService, AuditContext } from './kobepay-rbac.service';
 import { KobePayRatesService, SetRealRateInput, UpsertRateInput } from './kobepay-rate.service';
+import { KobepayRetryQueueService } from './kobepay-retry.service';
+import { KobepayDispatcherService } from './kobepay-dispatcher.service';
 import { KobePayRole } from './kobepay-rbac.entity';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { PaymentCustomer } from './kobepay.entity';
 import {
   ConfirmDepositDto,
   CreateAllocationDto,
@@ -38,7 +43,32 @@ export class KobePayController {
     private readonly cashierPerf: KobePayCashierPerfService,
     private readonly risk: KobePayRiskService,
     private readonly rates: KobePayRatesService,
+    private readonly retryQueue: KobepayRetryQueueService,
+    private readonly dispatcher: KobepayDispatcherService,
+    @InjectRepository(PaymentCustomer) private readonly customerRepo: Repository<PaymentCustomer>,
   ) {}
+
+  /* ── Dispatch queue (retries failed receipt pushes) ── */
+  @Get('dispatch-queue')
+  listDispatchQueue(@CurrentUser('id') uid: string) {
+    return this.retryQueue.list(uid);
+  }
+  @Get('dispatch-queue/pending-count')
+  pendingDispatches(@CurrentUser('id') uid: string) {
+    return this.retryQueue.pendingCount(uid).then((count) => ({ count }));
+  }
+  @Patch('dispatch-queue/:id/retry')
+  forceRetry(@CurrentUser('id') uid: string, @Param('id') id: string) {
+    return this.retryQueue.forceRetry(uid, id);
+  }
+
+  /* ── Customer endpoint self-test ── */
+  @Post('customers/:id/test-dispatch')
+  async testDispatch(@CurrentUser('id') uid: string, @Param('id') id: string) {
+    const client = await this.customerRepo.findOne({ where: { id, ownerId: uid } });
+    if (!client) throw new NotFoundException();
+    return this.dispatcher.testDispatch(client);
+  }
 
   /* ── Exchange rates ── */
   @Get('rates/active') activeRates(@CurrentUser('id') uid: string) {

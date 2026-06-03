@@ -23,6 +23,7 @@ import {
 import { KobePayRbacService, AuditContext } from './kobepay-rbac.service';
 import { KobePayRatesService } from './kobepay-rate.service';
 import { KobepayDispatcherService } from './kobepay-dispatcher.service';
+import { KobepayRetryQueueService } from './kobepay-retry.service';
 import { JournalService } from '../erp/journal.service';
 
 /** Anything within ±0.5% of the house rate counts as "matching" — small
@@ -150,6 +151,7 @@ export class KobePayDepositsService {
     private readonly rbac: KobePayRbacService,
     private readonly rates: KobePayRatesService,
     private readonly dispatcher: KobepayDispatcherService,
+    private readonly retryQueue: KobepayRetryQueueService,
     private readonly journal: JournalService,
   ) {}
 
@@ -304,8 +306,15 @@ export class KobePayDepositsService {
           uid, ctx,
           result.ok ? 'deposit.dispatched' : 'deposit.dispatchFailed',
           'deposit', deposit.id,
-          { endpoint: customer.erpEndpointUrl, ...result },
+          { endpoint: customer.erpEndpointUrl, ok: result.ok, status: result.status, error: result.error },
         );
+        if (result.ok) {
+          await this.retryQueue.recordSuccess(uid, deposit, customer, result.payload as unknown as Record<string, unknown>, result.status ?? 200);
+        } else {
+          await this.retryQueue.enqueueFailure(uid, deposit, customer, result.payload as unknown as Record<string, unknown>, {
+            status: result.status, error: result.error ?? 'unknown',
+          });
+        }
       }
       return deposit;
     });

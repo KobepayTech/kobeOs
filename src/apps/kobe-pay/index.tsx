@@ -421,6 +421,10 @@ export default function KobePay() {
       } catch { /* offline — fall through to reloadAll which will use MOCK */ }
 
       if (!cancelled) await reloadAll();
+      try {
+        const pending = await api<{ count: number }>('/kobepay/dispatch-queue/pending-count');
+        if (!cancelled) setPendingDispatches(pending.count);
+      } catch { /* */ }
     })();
     return () => { cancelled = true; };
   }, [reloadAll]);
@@ -446,7 +450,13 @@ export default function KobePay() {
   const [newCustomerId, setNewCustomerId] = useState('');
   const [newCustomerCompany, setNewCustomerCompany] = useState('');
   const [newCustomerNotes, setNewCustomerNotes] = useState('');
+  // Model 2: dispatch endpoint config for the client's ERP install.
+  const [newCustomerErpUrl, setNewCustomerErpUrl] = useState('');
+  const [newCustomerErpKey, setNewCustomerErpKey] = useState('');
+  const [newCustomerErpAccountId, setNewCustomerErpAccountId] = useState('');
   const [customerFilter, setCustomerFilter] = useState('');
+  const [testDispatchResult, setTestDispatchResult] = useState<{ customerId: string; ok: boolean; message: string } | null>(null);
+  const [pendingDispatches, setPendingDispatches] = useState(0);
 
   // Customer edit state
   const [editCustomer, setEditCustomer] = useState<Customer | null>(null);
@@ -772,6 +782,9 @@ export default function KobePay() {
           idNumber: newCustomerId,
           company: newCustomerCompany,
           notes: newCustomerNotes,
+          erpEndpointUrl: newCustomerErpUrl,
+          erpApiKey: newCustomerErpKey,
+          erpAccountId: newCustomerErpAccountId,
         }),
       });
       const c: Customer = {
@@ -785,6 +798,7 @@ export default function KobePay() {
     } catch { /* keep dialog open on failure */ return; }
     setShowNewCustomer(false);
     setNewCustomerName(''); setNewCustomerEmail(''); setNewCustomerId(''); setNewCustomerCompany(''); setNewCustomerNotes('');
+    setNewCustomerErpUrl(''); setNewCustomerErpKey(''); setNewCustomerErpAccountId('');
   };
 
   const openEditCustomer = (customer: Customer) => {
@@ -810,6 +824,22 @@ export default function KobePay() {
     }
     setShowEditDialog(false);
     setEditCustomer(null);
+  };
+
+  const handleTestDispatch = async (customerId: string) => {
+    setTestDispatchResult(null);
+    try {
+      const r = await api<{ ok: boolean; status?: number; error?: string }>(`/kobepay/customers/${customerId}/test-dispatch`, {
+        method: 'POST', body: JSON.stringify({}),
+      });
+      setTestDispatchResult({
+        customerId,
+        ok: r.ok,
+        message: r.ok ? `Probe accepted (HTTP ${r.status ?? 200})` : `Probe rejected: ${r.error ?? r.status ?? 'unknown'}`,
+      });
+    } catch (err) {
+      setTestDispatchResult({ customerId, ok: false, message: err instanceof Error ? err.message : String(err) });
+    }
   };
 
   const handleDeleteCustomer = async (customerId: string) => {
@@ -1216,10 +1246,16 @@ ${cashLine}${usdLine}
               </div>
               {searchedCustomer.email && <p className="text-xs text-slate-500 mt-2"><Mail className="w-3 h-3 inline mr-1" />{searchedCustomer.email}</p>}
               {searchedCustomer.notes && <p className="text-xs text-slate-500 mt-1">{searchedCustomer.notes}</p>}
-              <div className="mt-3 flex gap-2">
+              <div className="mt-3 flex gap-2 flex-wrap">
                 <Button onClick={() => openEditCustomer(searchedCustomer)} size="sm" variant="outline" className="border-white/10 text-white hover:bg-white/5"><Edit className="w-3 h-3 mr-1" />Edit</Button>
+                <Button onClick={() => handleTestDispatch(searchedCustomer.id)} size="sm" variant="outline" className="border-cyan-500/20 text-cyan-400 hover:bg-cyan-500/10"><Send className="w-3 h-3 mr-1" />Test dispatch</Button>
                 {role === 'Admin' && <Button onClick={() => handleDeleteCustomer(searchedCustomer.id)} size="sm" variant="outline" className="border-red-500/20 text-red-400 hover:bg-red-500/10"><Trash2 className="w-3 h-3 mr-1" />Delete</Button>}
               </div>
+              {testDispatchResult?.customerId === searchedCustomer.id && (
+                <div className={`mt-2 text-xs px-2 py-1.5 rounded ${testDispatchResult.ok ? 'bg-emerald-500/10 text-emerald-300' : 'bg-rose-500/10 text-rose-300'}`}>
+                  {testDispatchResult.message}
+                </div>
+              )}
               <div className="mt-4 pt-4 border-t border-white/[0.06]">
                 <h5 className="text-sm font-medium text-white mb-2">Transaction History</h5>
                 <div className="space-y-1 max-h-40 overflow-y-auto">
@@ -1252,6 +1288,14 @@ ${cashLine}${usdLine}
                 <div><label className="text-xs text-slate-400 mb-1 block">ID / Passport Number</label><Input placeholder="ID or Passport" value={newCustomerId} onChange={e => setNewCustomerId(e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600" /></div>
                 <div><label className="text-xs text-slate-400 mb-1 block">Company / Agent Name</label><Input placeholder="Company or agent" value={newCustomerCompany} onChange={e => setNewCustomerCompany(e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600" /></div>
                 <div><label className="text-xs text-slate-400 mb-1 block">Notes</label><Input placeholder="Additional notes" value={newCustomerNotes} onChange={e => setNewCustomerNotes(e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600" /></div>
+              </div>
+              <div className="mt-4 pt-4 border-t border-white/[0.04]">
+                <p className="text-xs text-slate-400 mb-2">ERP install endpoint (so KobePay can push receipts to this client's books)</p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <div><label className="text-xs text-slate-400 mb-1 block">ERP endpoint URL</label><Input placeholder="https://asha-erp.example/api/erp/kobepay-inbox" value={newCustomerErpUrl} onChange={e => setNewCustomerErpUrl(e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600 font-mono text-xs" /></div>
+                  <div><label className="text-xs text-slate-400 mb-1 block">ERP API key</label><Input placeholder="erp-kbp_…" value={newCustomerErpKey} onChange={e => setNewCustomerErpKey(e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600 font-mono text-xs" /></div>
+                  <div><label className="text-xs text-slate-400 mb-1 block">ERP account id (their own ref)</label><Input placeholder="optional" value={newCustomerErpAccountId} onChange={e => setNewCustomerErpAccountId(e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600" /></div>
+                </div>
               </div>
               <div className="flex gap-2 mt-4">
                 <Button onClick={handleCreateCustomer} disabled={!newCustomerName.trim()} className="bg-emerald-600 hover:bg-emerald-700 text-white"><Check className="w-4 h-4 mr-2" />Save Customer</Button>
@@ -1821,6 +1865,7 @@ ${cashLine}${usdLine}
       ['Gross Profit',          fmtTzs(k.grossProfit),          'bg-indigo-500/10',   'text-indigo-400'],
       ['Rate Variance',         fmtTzs((k as { rateVariance?: number }).rateVariance ?? 0), 'bg-fuchsia-500/10', 'text-fuchsia-400'],
       ['USD Intent (locked)',   `USD ${Math.round((k as { totalQuoteUsd?: number }).totalQuoteUsd ?? 0).toLocaleString()}`, 'bg-sky-500/10', 'text-sky-400'],
+      ['Pending dispatches',    String(pendingDispatches), pendingDispatches > 0 ? 'bg-rose-500/10' : 'bg-slate-500/10', pendingDispatches > 0 ? 'text-rose-400' : 'text-slate-400'],
     ];
 
     return (

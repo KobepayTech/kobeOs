@@ -10,7 +10,9 @@ import {
 } from './kobepay.entity';
 import { KobePayAuditEvent, KobePayUser } from './kobepay-rbac.entity';
 import { KobePayRate } from './kobepay-rate.entity';
+import { KobepayDispatchAttempt } from './kobepay-dispatch.entity';
 import { KobepayDispatcherService } from './kobepay-dispatcher.service';
+import { KobepayRetryQueueService } from './kobepay-retry.service';
 import { LoansService, TransactionsService, WalletsService } from './payments.service';
 import {
   KobePayAllocationsService,
@@ -30,7 +32,7 @@ import { KobePayController } from './kobepay.controller';
     TypeOrmModule.forFeature([
       Wallet, PaymentTransaction, CreditLoan,
       PaymentCustomer, PaymentSupplier, PaymentDeposit, PaymentPayout, PaymentAllocation,
-      KobePayUser, KobePayAuditEvent, KobePayRate,
+      KobePayUser, KobePayAuditEvent, KobePayRate, KobepayDispatchAttempt,
     ]),
   ],
   providers: [
@@ -39,7 +41,7 @@ import { KobePayController } from './kobepay.controller';
     KobePayDepositsService, KobePayPayoutsService, KobePayAllocationsService,
     KobePayOwnerService, KobePayCashierPerfService, KobePayRiskService,
     KobePayRbacService, KobePayRatesService,
-    KobepayDispatcherService,
+    KobepayDispatcherService, KobepayRetryQueueService,
   ],
   controllers: [PaymentsController, KobePayController],
 })

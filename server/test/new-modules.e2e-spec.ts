@@ -1055,6 +1055,49 @@ describe('New modules + ownership (e2e)', () => {
     expect(Number(byCode['1010'].balance)).toBeLessThan(0);
   });
 
+  it('KobePay dispatch retry queue: failures enqueue + force-retry path', async () => {
+    const kobepay = await token('retry-kp@e2e.test');
+
+    // Client with a URL that doesn't exist → dispatch fails inline.
+    const client = await request(http).post('/api/kobepay/customers').set(bearer(kobepay))
+      .send({
+        name: 'Doomed Client', phone: '+255700RETRY',
+        erpEndpointUrl: 'http://127.0.0.1:1/never-listening',
+        erpApiKey: 'erp-kbp_fake',
+      });
+
+    // Confirmed deposit → dispatcher tries and fails → row in the queue.
+    const dep = await request(http).post('/api/kobepay/deposits').set(bearer(kobepay)).send({
+      customerId: client.body.id,
+      amount: 1000, currency: 'USD', cashCurrency: 'USD',
+      method: 'Cash', status: 'Confirmed', txnType: 'Deposit',
+      targetCurrency: 'CNY', quoteUsd: 1000,
+    });
+    expect(dep.status).toBe(201);
+
+    const queue = await request(http).get('/api/kobepay/dispatch-queue').set(bearer(kobepay));
+    const row = queue.body.find((r: { depositId: string }) => r.depositId === dep.body.id);
+    expect(row).toBeDefined();
+    expect(row.status).toBe('pending');
+    expect(row.attemptCount).toBe(1);
+    expect(new Date(row.nextRetryAt).getTime()).toBeGreaterThan(Date.now() - 1000);
+
+    const pending = await request(http).get('/api/kobepay/dispatch-queue/pending-count').set(bearer(kobepay));
+    expect(pending.body.count).toBeGreaterThanOrEqual(1);
+
+    // Force-retry: bumps nextRetryAt to now, status stays pending.
+    const forced = await request(http).patch(`/api/kobepay/dispatch-queue/${row.id}/retry`).set(bearer(kobepay)).send({});
+    expect(forced.status).toBe(200);
+    expect(new Date(forced.body.nextRetryAt).getTime()).toBeLessThanOrEqual(Date.now() + 1000);
+
+    // Test dispatch endpoint reports the same failure shape.
+    const probe = await request(http).post(`/api/kobepay/customers/${client.body.id}/test-dispatch`)
+      .set(bearer(kobepay)).send({});
+    expect(probe.status).toBeLessThan(500);
+    expect(probe.body.ok).toBe(false);
+    expect(typeof probe.body.error).toBe('string');
+  });
+
   it('rejects unauthenticated access to owned resources', async () => {
     expect((await request(http).get('/api/print/jobs')).status).toBe(401);
     expect((await request(http).get('/api/erp/summary')).status).toBe(401);
