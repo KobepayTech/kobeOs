@@ -4,13 +4,18 @@
 !include "LogicLib.nsh"
 !include "FileFunc.nsh"
 !include "StrFunc.nsh"
-; StrFunc declarations must precede first use. StrFunc has no "StrContains"; the
-; idiomatic membership test is StrStr (returns the tail starting at the match
-; or "" when absent). The uninstall-section variants (Un* prefix) must be
-; declared separately — calls from inside the uninstaller need "un." functions.
-${StrStr}
-${StrRep}
-${UnStrRep}
+; StrFunc declarations must precede first use. StrFunc has no "StrContains";
+; the idiomatic membership test is StrStr (returns the tail starting at the
+; match or "" when absent). electron-builder compiles the uninstaller in a
+; separate pass with BUILD_UNINSTALLER defined — in that pass install-section
+; functions are zeroed out and any declared-but-unused install function is
+; reported as warning 6010, which the build treats as fatal. Gate the
+; declarations on the active pass so only the symbols actually called survive.
+!ifdef BUILD_UNINSTALLER
+  ${UnStrRep}
+!else
+  ${StrStr}
+!endif
 
 ; ── Registry keys ─────────────────────────────────────────────────────────────
 !define OLD_UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\{com.kobepay.kobeos}"
