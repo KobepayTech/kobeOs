@@ -5,9 +5,10 @@ import { PosProduct } from '../pos/pos.entity';
 import { StoreService } from './store.service';
 import { StoreController } from './store.controller';
 import { TenantMiddleware } from '../store-settings/tenant.middleware';
+import { PosModule } from '../pos/pos.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([StoreSettings, PosProduct])],
+  imports: [TypeOrmModule.forFeature([StoreSettings, PosProduct]), PosModule],
   providers: [StoreService],
   controllers: [StoreController],
   exports: [StoreService],

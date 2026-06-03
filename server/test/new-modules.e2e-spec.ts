@@ -1098,6 +1098,67 @@ describe('New modules + ownership (e2e)', () => {
     expect(typeof probe.body.error).toBe('string');
   });
 
+  it('Storefront: public POST /store/:slug/orders writes a PosOrder + deducts stock + creates pick ticket', async () => {
+    // Owner sets up: storefront slug + a real catalogue product.
+    const t = await token('shop-owner@e2e.test');
+    await request(http).put('/api/store-settings').set(bearer(t))
+      .send({ storeName: 'Asha Trading' });
+    const settings = await request(http).get('/api/store-settings').set(bearer(t));
+    expect(settings.body.domainSlug).toBe('asha-trading');
+    const product = await request(http).post('/api/pos/products').set(bearer(t))
+      .send({ sku: 'SHOP-1', name: 'Shop SKU 1', price: 12000, stock: 5 });
+
+    // Public visitor (no auth) places an order through the storefront route.
+    const sale = await request(http).post('/api/store/asha-trading/orders').send({
+      orderNumber: 'SHOP-TEST-1',
+      lines: [{ productId: product.body.id, quantity: 2 }],
+      paymentMethod: 'CASH',
+      customerName: 'Public Buyer',
+      customerPhone: '+255700storefront',
+    });
+    expect(sale.status).toBe(201);
+    expect(sale.body.total).toBe(24000);
+    expect(sale.body.receipt.text).toContain('SHOP-TEST-1');
+    expect(sale.body.pickTicket.ticketNumber).toBe('PT-SHOP-TEST-1');
+
+    // Stock was decremented atomically (5 - 2 = 3) under the owner's scope.
+    const refreshed = await request(http).get(`/api/pos/products/${product.body.id}`).set(bearer(t));
+    expect(Number(refreshed.body.stock)).toBe(3);
+
+    // The order is visible in the owner's POS orders list (so /erp-store's
+    // Orders tab will see it too).
+    const orders = await request(http).get('/api/pos/orders').set(bearer(t));
+    expect(orders.body.some((o: { orderNumber: string }) => o.orderNumber === 'SHOP-TEST-1')).toBe(true);
+
+    // 404 on a non-existent slug.
+    const missing = await request(http).post('/api/store/no-such-store/orders').send({
+      orderNumber: 'X', lines: [{ productId: product.body.id, quantity: 1 }],
+    });
+    expect(missing.status).toBe(404);
+  });
+
+  it('Storefront: check-slug returns the right verdict for available / taken / reserved / invalid', async () => {
+    const t = await token('slug-check@e2e.test');
+    await request(http).put('/api/store-settings').set(bearer(t))
+      .send({ storeName: 'Taken Name Store' });
+
+    const taken = await request(http).get('/api/store-settings/check-slug?slug=taken-name-store');
+    expect(taken.body.available).toBe(false);
+    expect(taken.body.reason).toBe('taken');
+
+    const available = await request(http).get('/api/store-settings/check-slug?slug=brand-new-12345');
+    expect(available.body.available).toBe(true);
+    expect(available.body.slug).toBe('brand-new-12345');
+
+    const reserved = await request(http).get('/api/store-settings/check-slug?slug=admin');
+    expect(reserved.body.available).toBe(false);
+    expect(reserved.body.reason).toBe('reserved');
+
+    const invalid = await request(http).get('/api/store-settings/check-slug?slug=%20%20');
+    expect(invalid.body.available).toBe(false);
+    expect(invalid.body.reason).toBe('invalid');
+  });
+
   it('rejects unauthenticated access to owned resources', async () => {
     expect((await request(http).get('/api/print/jobs')).status).toBe(401);
     expect((await request(http).get('/api/erp/summary')).status).toBe(401);

@@ -19,5 +19,6 @@ import { ErpModule } from '../erp/erp.module';
   ],
   providers: [ProductsService, OrdersService, ReceiptService],
   controllers: [PosController],
+  exports: [OrdersService],
 })
 export class PosModule {}

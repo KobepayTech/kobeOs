@@ -34,6 +34,29 @@ export class StoreSettingsService {
     return this.repo.save(defaults);
   }
 
+  /**
+   * Live availability check for a candidate slug. Returns the same
+   * verdict logic upsert() would, without persisting anything, so the
+   * editor can show as-you-type validation. `currentOwnerId` is the
+   * caller (if signed in) so we don't tell them their OWN slug is
+   * "taken".
+   */
+  async checkSlug(rawName: string, currentOwnerId?: string): Promise<{
+    available: boolean;
+    slug: string;
+    reason?: 'invalid' | 'reserved' | 'taken';
+  }> {
+    const slug = toSlug(rawName ?? '');
+    if (!slug) return { available: false, slug, reason: 'invalid' };
+    if (RESERVED_SLUGS.has(slug)) return { available: false, slug, reason: 'reserved' };
+    const where = currentOwnerId
+      ? { domainSlug: slug, ownerId: Not(currentOwnerId) }
+      : { domainSlug: slug };
+    const conflict = await this.repo.findOne({ where });
+    if (conflict) return { available: false, slug, reason: 'taken' };
+    return { available: true, slug };
+  }
+
   async upsert(ownerId: string, dto: UpsertStoreSettingsDto): Promise<StoreSettings> {
     const settings = await this.get(ownerId);
     Object.assign(settings, dto);

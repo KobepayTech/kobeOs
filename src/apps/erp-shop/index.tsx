@@ -4,6 +4,7 @@ import {
   ShoppingCart, CreditCard, Truck, CheckCircle2,
   Smartphone, Building2, Banknote, Loader2, AlertCircle,
 } from 'lucide-react';
+import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -179,6 +180,11 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
   const [isCheckout, setIsCheckout] = useState(false);
   const [orderConfirmed, setOrderConfirmed] = useState(false);
   const [orderNumber, setOrderNumber] = useState('');
+  const [orderReceipt, setOrderReceipt] = useState<string | null>(null);
+  const [orderDiscount, setOrderDiscount] = useState<{ discountAmount: number; breakdown: Array<{ source: string; label: string; amount: number }> } | null>(null);
+  const [orderError, setOrderError] = useState<string | null>(null);
+  const [placingOrder, setPlacingOrder] = useState(false);
+  const [couponCode, setCouponCode] = useState('');
   const [checkoutForm, setCheckoutForm] = useState<CheckoutForm>({
     name: '', phone: '', address: '', paymentMethod: 'cod',
   });
@@ -254,13 +260,48 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
     if (cart.length) { setIsCartOpen(false); setIsCheckout(true); }
   };
 
-  const handlePlaceOrder = () => {
+  const handlePlaceOrder = async () => {
     if (!checkoutForm.name || !checkoutForm.phone || !checkoutForm.address) return;
-    setOrderNumber(generateOrderNumber());
-    setIsCheckout(false);
-    setOrderConfirmed(true);
-    clearCart();
-    setCheckoutForm({ name: '', phone: '', address: '', paymentMethod: 'cod' });
+    if (!slug || cart.length === 0) return;
+    setOrderError(null);
+    setPlacingOrder(true);
+    // Map UI payment method codes to POS service's vocabulary.
+    const paymentMethod =
+      checkoutForm.paymentMethod === 'cod' ? 'CASH'
+      : checkoutForm.paymentMethod === 'mobile' ? 'MOBILE'
+      : 'BANK';
+    const orderDto = {
+      orderNumber: `SHOP-${Date.now().toString(36).toUpperCase()}`,
+      lines: cart.map((i) => ({ productId: i.product.id, quantity: i.quantity })),
+      paymentMethod,
+      couponCode: couponCode.trim() || undefined,
+      customerName: checkoutForm.name,
+      customerPhone: checkoutForm.phone,
+    };
+    try {
+      const sale = await api<{
+        orderNumber: string;
+        receipt?: { text: string };
+        pickTicket?: { ticketNumber: string };
+        discount?: { discountAmount: number; breakdown: Array<{ source: string; label: string; amount: number }> };
+      }>(`/store/${slug}/orders`, {
+        method: 'POST',
+        auth: false,
+        body: JSON.stringify(orderDto),
+      });
+      setOrderNumber(sale.orderNumber ?? orderDto.orderNumber);
+      setOrderReceipt(sale.receipt?.text ?? null);
+      setOrderDiscount(sale.discount ?? null);
+      setIsCheckout(false);
+      setOrderConfirmed(true);
+      clearCart();
+      setCheckoutForm({ name: '', phone: '', address: '', paymentMethod: 'cod' });
+      setCouponCode('');
+    } catch (err) {
+      setOrderError(err instanceof Error ? err.message : 'Order could not be placed. Try again.');
+    } finally {
+      setPlacingOrder(false);
+    }
   };
 
   if (!slug) return <SlugPicker onSelect={setSlug} />;
@@ -570,16 +611,28 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
                 ))}
               </div>
             </div>
+            <Input
+              placeholder="Coupon code (optional)"
+              value={couponCode}
+              onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+              className="bg-white/10 border-white/20 text-white placeholder:text-slate-500 font-mono uppercase"
+            />
             <div className="flex justify-between text-sm font-bold border-t border-white/10 pt-2">
               <span>Total</span>
               <span>{formatPrice(cartTotal + SHIPPING_COST)}</span>
             </div>
+            {orderError && (
+              <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-red-500/15 border border-red-500/30 text-xs text-red-200">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                <span>{orderError}</span>
+              </div>
+            )}
             <Button
-              className="w-full bg-blue-600 hover:bg-blue-700"
+              className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-60"
               onClick={handlePlaceOrder}
-              disabled={!checkoutForm.name || !checkoutForm.phone || !checkoutForm.address}
+              disabled={placingOrder || !checkoutForm.name || !checkoutForm.phone || !checkoutForm.address}
             >
-              Place Order
+              {placingOrder ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Placing…</>) : 'Place Order'}
             </Button>
           </div>
         </DialogContent>
@@ -587,18 +640,39 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
 
       {/* ORDER CONFIRMED DIALOG */}
       <Dialog open={orderConfirmed} onOpenChange={setOrderConfirmed}>
-        <DialogContent className="bg-slate-800 border-white/10 text-white max-w-sm text-center">
+        <DialogContent className="bg-slate-800 border-white/10 text-white max-w-md text-center">
           <div className="flex flex-col items-center gap-3 py-4">
             <CheckCircle2 className="w-12 h-12 text-emerald-400" />
             <h3 className="text-lg font-bold">Order Placed!</h3>
-            <p className="text-slate-400 text-sm">Your order has been received.</p>
+            <p className="text-slate-400 text-sm">Your order has been received and is being prepared.</p>
             <div className="bg-white/10 rounded-lg px-4 py-2">
               <p className="text-xs text-slate-400">Order number</p>
               <p className="font-mono font-bold text-blue-300">{orderNumber}</p>
             </div>
+            {orderDiscount && orderDiscount.breakdown.length > 0 && (
+              <div className="w-full rounded-md border border-emerald-500/30 bg-emerald-500/10 p-2 text-left">
+                <p className="text-emerald-300 text-xs font-semibold">Discount applied: {formatPrice(orderDiscount.discountAmount)}</p>
+                <ul className="mt-1 space-y-0.5 text-[11px] text-emerald-200">
+                  {orderDiscount.breakdown.map((b, i) => (
+                    <li key={i} className="flex justify-between">
+                      <span>{b.source === 'coupon' ? '🎟' : '·'} {b.label}</span>
+                      <span className="font-mono">−{formatPrice(b.amount)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {orderReceipt && (
+              <details className="w-full text-left">
+                <summary className="cursor-pointer text-xs text-slate-300 hover:text-white">View receipt</summary>
+                <pre className="mt-2 max-h-64 overflow-auto rounded-md border border-white/10 bg-black/30 p-2 font-mono text-[11px] leading-relaxed text-slate-200 whitespace-pre-wrap">
+{orderReceipt}
+                </pre>
+              </details>
+            )}
             <Button
               className="w-full bg-blue-600 hover:bg-blue-700 mt-2"
-              onClick={() => setOrderConfirmed(false)}
+              onClick={() => { setOrderConfirmed(false); setOrderReceipt(null); setOrderDiscount(null); }}
             >
               Continue Shopping
             </Button>
