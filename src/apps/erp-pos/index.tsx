@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api';
+import { ensureSession } from '@/lib/auth';
 import { useOfflineData } from '@/hooks/useOfflineData';
 import {
   Plus, Minus, Trash2, ShoppingCart, CreditCard, Smartphone, Banknote,
