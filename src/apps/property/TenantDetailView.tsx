@@ -12,13 +12,13 @@
 import React, { useState, useMemo } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import {
-  ArrowLeft, Phone, Mail, Calendar, FileText, Download, MessageSquare,
+  ArrowLeft, Phone, Mail, Calendar, FileText, MessageSquare,
   Bell, CreditCard, Receipt, CheckCircle, XCircle, Clock, AlertTriangle,
   TrendingUp, Home, Copy, Share2, Printer, Edit3, Trash2, ChevronRight,
-  Wallet, Percent, Users
+  Wallet, Percent
 } from 'lucide-react';
 import type { Tenant, PaymentRecord } from '@/shared/types';
-import { formatCurrency, formatDate, formatDateTime, getStatusColor } from '@/shared/utils';
+import { formatCurrency, formatDate, getStatusColor } from '@/shared/utils';
 
 interface TenantDetailViewProps {
   tenant: Tenant;
