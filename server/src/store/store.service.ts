@@ -2,9 +2,11 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { StoreSettings } from '../store-settings/store-settings.entity';
-import { PosProduct } from '../pos/pos.entity';
+import { PosOrder, PosOrderItem, PosProduct } from '../pos/pos.entity';
+import { WarehousePickTicket } from '../warehouse/pick-ticket.entity';
 import { OrdersService } from '../pos/pos.service';
 import { CreateOrderDto } from '../pos/dto/pos.dto';
+import { CreditService } from '../credit/credit.service';
 
 export interface PublicStoreResponse {
   settings: StoreSettings;
@@ -19,7 +21,14 @@ export class StoreService {
     private readonly settingsRepo: Repository<StoreSettings>,
     @InjectRepository(PosProduct)
     private readonly productsRepo: Repository<PosProduct>,
+    @InjectRepository(PosOrder)
+    private readonly orderRepo: Repository<PosOrder>,
+    @InjectRepository(PosOrderItem)
+    private readonly itemRepo: Repository<PosOrderItem>,
+    @InjectRepository(WarehousePickTicket)
+    private readonly pickTicketRepo: Repository<WarehousePickTicket>,
     private readonly orders: OrdersService,
+    private readonly credit: CreditService,
   ) {}
 
   /** Resolve a slug or custom domain to the store owner's userId. */
@@ -42,6 +51,56 @@ export class StoreService {
   async placeOrder(slugOrDomain: string, dto: CreateOrderDto) {
     const ownerId = await this.resolveOwner(slugOrDomain);
     return this.orders.create(ownerId, dto);
+  }
+
+  /**
+   * Public BNPL eligibility check. The buyer hasn't authenticated yet —
+   * we look them up by phone within this store's owner scope. Returns a
+   * compact verdict the storefront can show inline; never leaks names,
+   * risk grades, or other internal credit profile fields.
+   */
+  async eligibility(slugOrDomain: string, phone: string) {
+    const ownerId = await this.resolveOwner(slugOrDomain);
+    if (!phone?.trim()) {
+      return { eligible: false, availableCredit: 0, creditLimit: 0, currency: 'TZS', reason: 'no_phone' as const };
+    }
+    return this.credit.checkEligibility(ownerId, phone.trim());
+  }
+
+  /**
+   * Public order tracker. Buyer's order number + phone proves they own
+   * the order without needing a JWT. Returns the order summary + lines +
+   * pick-ticket status so they can see "your package is being packed".
+   */
+  async trackOrder(slugOrDomain: string, orderNumber: string, phone: string) {
+    const ownerId = await this.resolveOwner(slugOrDomain);
+    const order = await this.orderRepo.findOne({ where: { ownerId, orderNumber } });
+    if (!order) throw new NotFoundException('Order not found');
+    // Mismatched phone is reported as "not found" so we don't confirm an
+    // order exists when the wrong phone is supplied (no enumeration).
+    if (!phone || order.customerPhone !== phone) {
+      throw new NotFoundException('Order not found');
+    }
+    const items = await this.itemRepo.find({ where: { ownerId, orderId: order.id } });
+    const pickTicket = await this.pickTicketRepo.findOne({ where: { ownerId, orderId: order.id } });
+    return {
+      orderNumber: order.orderNumber,
+      status: order.status,
+      total: order.total,
+      currency: order.currency,
+      paymentMethod: order.paymentMethod,
+      customerName: order.customerName,
+      placedAt: order.createdAt,
+      items: items.map((it) => ({
+        productName: it.productName,
+        quantity: it.quantity,
+        unitPrice: it.unitPrice,
+        lineTotal: it.lineTotal,
+      })),
+      pickTicket: pickTicket
+        ? { ticketNumber: pickTicket.ticketNumber, status: pickTicket.status }
+        : null,
+    };
   }
 
   /**

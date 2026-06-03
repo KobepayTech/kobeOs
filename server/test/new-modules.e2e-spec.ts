@@ -1137,6 +1137,95 @@ describe('New modules + ownership (e2e)', () => {
     expect(missing.status).toBe(404);
   });
 
+  it('Storefront: public BNPL eligibility lookup + BNPL checkout creates a receivable', async () => {
+    const t = await token('shop-bnpl@e2e.test');
+    await request(http).put('/api/store-settings').set(bearer(t))
+      .send({ storeName: 'Bnpl Shop' });
+    const product = await request(http).post('/api/pos/products').set(bearer(t))
+      .send({ sku: 'BNPL-1', name: 'Big TV', price: 200000, stock: 5 });
+
+    // Buyer with no credit profile under this owner.
+    const unknown = await request(http).get('/api/store/bnpl-shop/credit/eligibility?phone=%2B255700unknown');
+    expect(unknown.body).toEqual(expect.objectContaining({
+      eligible: false, availableCredit: 0, reason: 'no_profile',
+    }));
+
+    // Owner sets up a credit profile for a known buyer.
+    await request(http).post('/api/credit/profiles').set(bearer(t)).send({
+      customerPhone: '+255700buyer', customerName: 'Buyer One',
+      creditLimit: 500000, riskGrade: 'B',
+    });
+
+    const known = await request(http).get('/api/store/bnpl-shop/credit/eligibility?phone=%2B255700buyer');
+    expect(known.body.eligible).toBe(true);
+    expect(Number(known.body.availableCredit)).toBe(500000);
+
+    // BNPL checkout — order creates a receivable atomically.
+    const sale = await request(http).post('/api/store/bnpl-shop/orders').send({
+      orderNumber: 'SHOP-BNPL-1',
+      lines: [{ productId: product.body.id, quantity: 1 }],
+      paymentMethod: 'BNPL',
+      customerName: 'Buyer One',
+      customerPhone: '+255700buyer',
+      installmentMonths: 6,
+    });
+    expect(sale.status).toBe(201);
+    expect(sale.body.isBnpl).toBe(true);
+    expect(sale.body.receivable.installmentMonths).toBe(6);
+    expect(Number(sale.body.receivable.amount)).toBe(200000);
+
+    // Available credit dropped by the locked amount.
+    const after = await request(http).get('/api/store/bnpl-shop/credit/eligibility?phone=%2B255700buyer');
+    expect(Number(after.body.availableCredit)).toBe(300000);
+
+    // Over-limit BNPL purchase is blocked.
+    await request(http).post('/api/pos/products').set(bearer(t))
+      .send({ sku: 'BNPL-2', name: 'Bigger TV', price: 400000, stock: 5 });
+    const denied = await request(http).post('/api/store/bnpl-shop/orders').send({
+      orderNumber: 'SHOP-BNPL-2',
+      lines: [{ productId: product.body.id, quantity: 2 }],
+      paymentMethod: 'BNPL',
+      customerPhone: '+255700buyer',
+    });
+    expect(denied.status).toBe(400);
+    expect(denied.body.message).toMatch(/BNPL denied/);
+  });
+
+  it('Storefront: track-my-order returns status only with matching phone', async () => {
+    const t = await token('shop-track@e2e.test');
+    await request(http).put('/api/store-settings').set(bearer(t))
+      .send({ storeName: 'Track Shop' });
+    const product = await request(http).post('/api/pos/products').set(bearer(t))
+      .send({ sku: 'TRK-1', name: 'Trackable', price: 10000, stock: 5 });
+
+    const sale = await request(http).post('/api/store/track-shop/orders').send({
+      orderNumber: 'SHOP-TRACK-1',
+      lines: [{ productId: product.body.id, quantity: 1 }],
+      paymentMethod: 'CASH',
+      customerName: 'Track Buyer',
+      customerPhone: '+255700track',
+    });
+    expect(sale.status).toBe(201);
+
+    // Right phone → order data.
+    const ok = await request(http)
+      .get('/api/store/track-shop/orders/SHOP-TRACK-1?phone=%2B255700track');
+    expect(ok.status).toBe(200);
+    expect(ok.body.orderNumber).toBe('SHOP-TRACK-1');
+    expect(ok.body.items).toHaveLength(1);
+    expect(ok.body.pickTicket?.ticketNumber).toBe('PT-SHOP-TRACK-1');
+
+    // Wrong phone → 404 (no enumeration).
+    const wrong = await request(http)
+      .get('/api/store/track-shop/orders/SHOP-TRACK-1?phone=%2B999wrong');
+    expect(wrong.status).toBe(404);
+
+    // Wrong order number → 404.
+    const missing = await request(http)
+      .get('/api/store/track-shop/orders/SHOP-NOPE?phone=%2B255700track');
+    expect(missing.status).toBe(404);
+  });
+
   it('Storefront: check-slug returns the right verdict for available / taken / reserved / invalid', async () => {
     const t = await token('slug-check@e2e.test');
     await request(http).put('/api/store-settings').set(bearer(t))

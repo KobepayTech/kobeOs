@@ -33,6 +33,40 @@ export class CreditService {
     return { ...profile, availableCredit: this.available(profile) };
   }
 
+  /**
+   * Public-safe eligibility lookup for the storefront BNPL flow. Returns
+   * a shape the storefront can show the buyer without leaking internal
+   * profile details (no name, no notes, no risk grade), and never throws
+   * when the buyer has no profile — just reports {eligible: false}.
+   */
+  async checkEligibility(uid: string, phone: string): Promise<{
+    eligible: boolean;
+    availableCredit: number;
+    creditLimit: number;
+    currency: string;
+    reason?: 'no_profile' | 'inactive';
+  }> {
+    const profile = await this.profiles.findOne({ where: { ownerId: uid, customerPhone: phone } });
+    if (!profile) {
+      return { eligible: false, availableCredit: 0, creditLimit: 0, currency: 'TZS', reason: 'no_profile' };
+    }
+    if (!profile.active) {
+      return {
+        eligible: false,
+        availableCredit: 0,
+        creditLimit: Number(profile.creditLimit),
+        currency: profile.currency,
+        reason: 'inactive',
+      };
+    }
+    return {
+      eligible: this.available(profile) > 0,
+      availableCredit: this.available(profile),
+      creditLimit: Number(profile.creditLimit),
+      currency: profile.currency,
+    };
+  }
+
   async upsert(uid: string, dto: UpsertCreditProfileDto) {
     const existing = await this.profiles.findOne({
       where: { ownerId: uid, customerPhone: dto.customerPhone },

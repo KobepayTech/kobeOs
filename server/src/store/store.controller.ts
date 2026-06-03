@@ -60,4 +60,30 @@ export class StoreController {
     }
     return this.svc.placeOrder(req.tenant.domainSlug, dto);
   }
+
+  /**
+   * BNPL eligibility check by phone. The storefront calls this when the
+   * buyer selects "Buy Now Pay Later" so they see a green/red verdict
+   * before clicking Place Order. Never throws on missing profile — it
+   * just reports {eligible: false, reason: 'no_profile'}.
+   */
+  @Get(':slug/credit/eligibility')
+  checkEligibilityBySlug(@Param('slug') slug: string, @Query('phone') phone: string) {
+    return this.svc.eligibility(slug, phone ?? '');
+  }
+
+  /**
+   * Public order tracker — buyer enters their order number + the phone
+   * they used at checkout and gets back the order + pick-ticket status.
+   * Mismatched phone is reported as "not found" to avoid order-number
+   * enumeration.
+   */
+  @Get(':slug/orders/:orderNumber')
+  trackOrderBySlug(
+    @Param('slug') slug: string,
+    @Param('orderNumber') orderNumber: string,
+    @Query('phone') phone: string,
+  ) {
+    return this.svc.trackOrder(slug, orderNumber, phone ?? '');
+  }
 }
