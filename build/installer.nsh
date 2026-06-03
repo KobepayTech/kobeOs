@@ -4,7 +4,10 @@
 !include "LogicLib.nsh"
 !include "FileFunc.nsh"
 !include "StrFunc.nsh"
-${StrContains}
+; StrFunc declarations must precede first use. StrFunc has no "StrContains"; the
+; idiomatic membership test is StrStr (returns the tail starting at the match
+; or "" when absent).
+${StrStr}
 ${StrRep}
 
 ; ── Registry keys ─────────────────────────────────────────────────────────────
@@ -73,7 +76,6 @@ ${StrRep}
   ${Else}
     DetailPrint "Visual C++ 2015-2022 x64 Redistributable already present — skipping."
   ${EndIf}
-!macroend
 
   ; ── 3. Register cloudflared.exe on the system PATH ────────────────────────
   ; cloudflared-win-x64.exe is bundled in resources\cloudflared\ by electron-builder.
@@ -89,8 +91,9 @@ ${StrRep}
     ReadRegStr $2 HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" "Path"
     ${If} $2 != ""
       StrCpy $3 "$2"
-      ; Simple check: if $INSTDIR is already in PATH, skip
-      ${StrContains} $4 "$INSTDIR" "$3"
+      ; Simple check: if $INSTDIR is already in PATH, skip. StrStr returns the
+      ; tail starting at the match — empty result means the substring is absent.
+      ${StrStr} $4 "$3" "$INSTDIR"
       ${If} $4 == ""
         WriteRegExpandStr HKLM "SYSTEM\CurrentControlSet\Control\Session Manager\Environment" "Path" "$2;$INSTDIR"
         ; Broadcast WM_SETTINGCHANGE so running processes pick up the new PATH
