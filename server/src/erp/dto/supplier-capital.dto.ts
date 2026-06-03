@@ -26,6 +26,22 @@ export class CreatePurchaseOrderDto {
   @IsOptional() @IsString() notes?: string;
 }
 
+export class CreatePoFromReceiptDto {
+  @IsOptional() @IsString() poNumber?: string;
+  @IsOptional() @IsNumber() totalCny?: number;
+  @IsOptional() @IsDateString() expectedDate?: string;
+  @IsOptional() @IsString() notes?: string;
+}
+
+export class CreateSupplierFromReceiptDto {
+  @IsOptional() @IsString() name?: string;
+  @IsOptional() @IsString() country?: string;
+  @IsOptional() @IsString() currency?: string;
+  @IsOptional() @IsString() cnyAccount?: string;
+  @IsOptional() @IsString() contactPerson?: string;
+  @IsOptional() @IsString() notes?: string;
+}
+
 export class KobePaySupplierReceiptWebhookDto {
   @IsString() receiptId!: string;
   @IsString() kobepayBusinessId!: string;
