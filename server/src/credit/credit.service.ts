@@ -73,15 +73,27 @@ export class CreditService {
     }
     if (!profile.active) throw new BadRequestException('Credit profile is inactive');
 
-    const available = this.available(profile);
-    if (input.amount > available) {
+    // Atomic credit-headroom check: SET outstanding = outstanding +
+    // :amount WHERE creditLimit - outstanding >= :amount. If no rows are
+    // affected another concurrent BNPL just consumed the headroom — fail
+    // with the same insufficient-credit error rather than overcommit.
+    const ok = await profileRepo
+      .createQueryBuilder()
+      .update(CreditProfile)
+      .set({ outstanding: () => `outstanding + ${input.amount}` })
+      .where(
+        'id = :id AND "ownerId" = :uid AND "creditLimit" - outstanding >= :amt',
+        { id: profile.id, uid, amt: input.amount },
+      )
+      .execute();
+    if (ok.affected === 0) {
+      const refreshed = await profileRepo.findOne({ where: { id: profile.id } });
+      const available = refreshed ? this.available(refreshed) : 0;
       throw new BadRequestException(
         `BNPL denied: requested ${input.amount.toFixed(2)} ${profile.currency}, available ${available.toFixed(2)}`,
       );
     }
-
     profile.outstanding = parseFloat((Number(profile.outstanding) + input.amount).toFixed(4));
-    await profileRepo.save(profile);
 
     const months = input.installmentMonths ?? 1;
     const monthly = parseFloat((input.amount / months).toFixed(4));
@@ -124,12 +136,15 @@ export class CreditService {
       r.status = newPaid >= amount ? 'PAID' : 'PARTIAL';
       await recRepo.save(r);
 
-      const profile = await profileRepo.findOne({ where: { id: r.profileId, ownerId: uid } });
-      if (profile) {
-        profile.outstanding = parseFloat((Number(profile.outstanding) - dto.amount).toFixed(4));
-        if (profile.outstanding < 0) profile.outstanding = 0;
-        await profileRepo.save(profile);
-      }
+      // Atomic outstanding decrement, floored at zero. GREATEST(...) keeps
+      // the column non-negative even if a stale total briefly slipped past
+      // a prior write — the value never goes below zero on disk.
+      await profileRepo
+        .createQueryBuilder()
+        .update(CreditProfile)
+        .set({ outstanding: () => `GREATEST(outstanding - ${dto.amount}, 0)` })
+        .where('id = :id AND "ownerId" = :uid', { id: r.profileId, uid })
+        .execute();
 
       // Auto journal: DR Cash, CR Accounts Receivable.
       await this.journal.postReceivablePaymentInTransaction(

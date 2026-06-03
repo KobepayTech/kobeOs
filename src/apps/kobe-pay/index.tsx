@@ -843,7 +843,15 @@ export default function KobePay() {
   };
 
   const handleDeleteCustomer = async (customerId: string) => {
-    try { await api(`/kobepay/customers/${customerId}`, { method: 'DELETE' }); } catch { /* ignore */ }
+    // Only mutate local state if the server actually deleted the row;
+    // a failed DELETE leaving the row gone in the UI used to desync
+    // the customer list until the next reload.
+    try {
+      await api(`/kobepay/customers/${customerId}`, { method: 'DELETE' });
+    } catch (err) {
+      console.error('Customer delete failed:', err);
+      return;
+    }
     setCustomers(customers.filter(c => c.id !== customerId));
     if (searchedCustomer?.id === customerId) { setSearchedCustomer(null); setShowNewCustomer(false); }
   };

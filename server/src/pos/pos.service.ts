@@ -79,14 +79,25 @@ export class OrdersService {
       for (const line of dto.lines) {
         const product = await productRepo.findOne({ where: { id: line.productId, ownerId: uid } });
         if (!product) throw new NotFoundException(`Product ${line.productId} not found`);
-        // TypeORM returns decimal/integer columns as strings — parse before use.
-        const productStock = Number(product.stock);
+        // TypeORM returns decimal columns as strings — parse before use.
         const productPrice = parseFloat(product.price as unknown as string);
-        if (productStock < line.quantity) {
+
+        // Atomic stock decrement: UPDATE … SET stock = stock - :qty WHERE id
+        // = :id AND ownerId = :uid AND stock >= :qty. If no rows are
+        // affected we know either the product moved out of this owner or
+        // another concurrent order beat us to the last units; either way
+        // it's an oversell, not a silent success.
+        const decrement = await productRepo
+          .createQueryBuilder()
+          .update(PosProduct)
+          .set({ stock: () => `stock - ${line.quantity}` })
+          .where('id = :id AND "ownerId" = :uid AND stock >= :qty', {
+            id: product.id, uid, qty: line.quantity,
+          })
+          .execute();
+        if (decrement.affected === 0) {
           throw new BadRequestException(`Insufficient stock for ${product.name}`);
         }
-        product.stock = productStock - line.quantity;
-        await productRepo.save(product);
 
         const lineTotal = parseFloat((productPrice * line.quantity).toFixed(4));
         subtotal = parseFloat((subtotal + lineTotal).toFixed(4));

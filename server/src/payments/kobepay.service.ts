@@ -31,6 +31,12 @@ import { JournalService } from '../erp/journal.service';
  *  the override gate. */
 const RATE_TOLERANCE_PCT = 0.5;
 
+/** Escape LIKE wildcards in user-supplied search input so a customer
+ *  typing "%" or "_" doesn't expand to an unbounded scan. */
+function escapeLikeWildcards(q: string): string {
+  return q.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+}
+
 function divergesFromHouse(supplied: number, house: number): boolean {
   if (house <= 0) return false;
   const diff = Math.abs((supplied - house) / house) * 100;
@@ -48,10 +54,11 @@ export class KobePayCustomersService {
   async list(uid: string, ctx: AuditContext, q?: string) {
     this.rbac.ensure(ctx.user ?? null, 'customer.read');
     if (q && q.trim()) {
+      const safe = escapeLikeWildcards(q.trim());
       return this.repo.find({
         where: [
-          { ownerId: uid, name: ILike(`%${q}%`) },
-          { ownerId: uid, phone: ILike(`%${q}%`) },
+          { ownerId: uid, name: ILike(`%${safe}%`) },
+          { ownerId: uid, phone: ILike(`%${safe}%`) },
         ],
         order: { name: 'ASC' },
       });
@@ -279,8 +286,12 @@ export class KobePayDepositsService {
       );
 
       if (status === 'Confirmed') {
-        customer.balance = parseFloat((Number(customer.balance) + dto.amount).toFixed(4));
-        await custRepo.save(customer);
+        await custRepo
+          .createQueryBuilder()
+          .update(PaymentCustomer)
+          .set({ balance: () => `balance + ${dto.amount}` })
+          .where('id = :id AND "ownerId" = :uid', { id: customer.id, uid })
+          .execute();
       }
       // GL: confirmed deposits hit KobePay's books inside the same tx
       // so the books never drift from the ledger (a failed journal post
@@ -333,12 +344,13 @@ export class KobePayDepositsService {
       if (!d) throw new NotFoundException();
 
       if (d.status === dto.status) return d;
-      const customer = await custRepo.findOne({ where: { id: d.customerId, ownerId: uid } });
-      if (customer) {
-        const delta = dto.status === 'Confirmed' ? Number(d.amount) : -Number(d.amount);
-        customer.balance = parseFloat((Number(customer.balance) + delta).toFixed(4));
-        await custRepo.save(customer);
-      }
+      const delta = dto.status === 'Confirmed' ? Number(d.amount) : -Number(d.amount);
+      await custRepo
+        .createQueryBuilder()
+        .update(PaymentCustomer)
+        .set({ balance: () => `balance + ${delta}` })
+        .where('id = :id AND "ownerId" = :uid', { id: d.customerId, uid })
+        .execute();
       d.status = dto.status;
       const saved = await depRepo.save(d);
       await this.rbac.record(uid, ctx, 'deposit.statusChange', 'deposit', saved.id, { to: dto.status });
@@ -473,12 +485,16 @@ export class KobePayPayoutsService {
       }
 
       if (dto.status === 'PAID') {
-        const supplier = await supRepo.findOne({ where: { id: p.supplierId, ownerId: uid } });
-        if (supplier) {
-          supplier.balance = parseFloat((Number(supplier.balance) + Number(p.amount)).toFixed(4));
-          supplier.orders = Number(supplier.orders) + 1;
-          await supRepo.save(supplier);
-        }
+        const amt = Number(p.amount);
+        await supRepo
+          .createQueryBuilder()
+          .update(PaymentSupplier)
+          .set({
+            balance: () => `balance + ${amt}`,
+            orders: () => `orders + 1`,
+          })
+          .where('id = :id AND "ownerId" = :uid', { id: p.supplierId, uid })
+          .execute();
         // GL: close out customer deposit liability, book real China cash
         // out, exchange P&L, and any fee expenses inside the same tx.
         const depRepo = tx.getRepository(PaymentDeposit);
@@ -531,13 +547,24 @@ export class KobePayAllocationsService {
       const supplier = await supRepo.findOne({ where: { id: dto.supplierId, ownerId: uid } });
       if (!supplier) throw new NotFoundException('Supplier not found');
 
-      if (Number(customer.balance) < dto.amount) {
+      // Atomic balance-check-and-decrement so two concurrent allocations
+      // can't both pass the check against the same balance, then both
+      // succeed and leave the customer negative.
+      const ok = await custRepo
+        .createQueryBuilder()
+        .update(PaymentCustomer)
+        .set({ balance: () => `balance - ${dto.amount}` })
+        .where('id = :id AND "ownerId" = :uid AND balance >= :amt', {
+          id: customer.id, uid, amt: dto.amount,
+        })
+        .execute();
+      if (ok.affected === 0) {
+        const refreshed = await custRepo.findOne({ where: { id: customer.id, ownerId: uid } });
+        const have = refreshed ? Number(refreshed.balance) : 0;
         throw new BadRequestException(
-          `Insufficient customer balance: have ${Number(customer.balance).toFixed(2)}, need ${dto.amount.toFixed(2)}`,
+          `Insufficient customer balance: have ${have.toFixed(2)}, need ${dto.amount.toFixed(2)}`,
         );
       }
-      customer.balance = parseFloat((Number(customer.balance) - dto.amount).toFixed(4));
-      await custRepo.save(customer);
 
       const saved = await allocRepo.save(
         allocRepo.create({
