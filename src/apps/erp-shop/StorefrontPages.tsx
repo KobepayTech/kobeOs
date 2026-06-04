@@ -14,7 +14,7 @@ interface Product {
   stock: number;
   category: string;
   imageUrl?: string | null;
-  currency?: string;
+  currency: string;
   brand?: string | null;
   compareAtPrice?: number | null;
 }
