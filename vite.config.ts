@@ -40,8 +40,10 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     setupFiles: ['./src/test/setup.ts'],
-    // Exclude Playwright specs and the server directory (NestJS has its own
-    // Jest runner; pulling server/node_modules into Vitest causes failures).
-    exclude: ['tests/**', 'node_modules/**', 'server/**'],
+    // Exclude Playwright specs, the server directory (NestJS has its own
+    // Jest runner; pulling server/node_modules into Vitest causes failures),
+    // the live-build chroot (vendors a full node_modules copy whose internal
+    // *.test.js files would otherwise get discovered), and dist/ output.
+    exclude: ['tests/**', 'node_modules/**', 'server/**', 'live-build/**', 'dist/**', 'release/**', 'electron/**'],
   },
 });

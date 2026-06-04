@@ -8,12 +8,11 @@
 
 import React, { useState, useMemo } from 'react';
 import {
-  Package, ArrowRight, Clock, MapPin, CheckCircle, AlertTriangle,
-  QrCode, ChevronDown, ChevronUp, Phone, DollarSign, Truck, Warehouse,
-  Globe, Shield, Home
+  Package, ArrowRight, Clock, CheckCircle,
+  QrCode, DollarSign, Truck, Warehouse, Shield
 } from 'lucide-react';
-import type { Shipment, TrackingEvent } from '@/shared/types';
-import { formatCurrency, formatDate, formatDateTime, getStatusColor, getShipmentStageLabel } from '@/shared/utils';
+import type { Shipment } from '@/shared/types';
+import { formatCurrency, formatDateTime, getStatusColor, getShipmentStageLabel } from '@/shared/utils';
 
 interface CargoKanbanProps {
   shipments: Shipment[];

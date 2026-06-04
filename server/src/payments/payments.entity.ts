@@ -13,7 +13,14 @@ export class Wallet extends OwnedEntity {
   active!: boolean;
 }
 
+// Per-owner uniqueness on idempotency keys: two different KobeOS
+// accounts may reuse the same key without colliding; the same key from
+// the same owner returns the original transaction. The DB index lives
+// at the entity level so it can include both columns.
 @Entity('payment_transactions')
+@Index('payment_transactions_owner_idempotency_uk',
+       ['ownerId', 'idempotencyKey'],
+       { unique: true, where: '"idempotencyKey" IS NOT NULL' })
 export class PaymentTransaction extends OwnedEntity {
   @Index()
   @Column('uuid')
@@ -40,7 +47,6 @@ export class PaymentTransaction extends OwnedEntity {
   @Column({ default: '' })
   description!: string;
 
-  @Index({ unique: true, where: '"idempotencyKey" IS NOT NULL' })
   @Column({ nullable: true, type: 'varchar' })
   idempotencyKey?: string | null;
 }

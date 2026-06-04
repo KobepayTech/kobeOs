@@ -89,6 +89,10 @@ export default function Calculator() {
     setDisplay((d) => (d.length > 1 ? d.slice(0, -1) : '0'));
   }, []);
 
+  const negate = useCallback(() => {
+    setDisplay((d) => String(parseFloat(d) * -1));
+  }, []);
+
   const scientific = useCallback(
     (fn: string) => {
       const v = parseFloat(display);
@@ -223,7 +227,7 @@ export default function Calculator() {
           {btn('3', () => input('3'), 'bg-white/5 hover:bg-white/10')}
           {btn('+', () => operator('+'), 'bg-os-accent/20 text-os-accent hover:bg-os-accent/30')}
 
-          {btn('±', () => setDisplay((d) => String(parseFloat(d) * -1)), 'bg-white/5 hover:bg-white/10')}
+          {btn('±', negate, 'bg-white/5 hover:bg-white/10')}
           {btn('0', () => input('0'), 'bg-white/5 hover:bg-white/10')}
           {btn('.', () => input('.'), 'bg-white/5 hover:bg-white/10')}
           {btn('=', equals, 'bg-os-accent text-white hover:bg-os-accent/90')}

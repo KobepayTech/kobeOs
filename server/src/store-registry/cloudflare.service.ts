@@ -192,4 +192,28 @@ export class CloudflareService {
       this.logger.warn(`Could not delete DNS record ${recordId}: ${(e as Error).message}`);
     }
   }
+
+  // ── Legacy A-record API ──────────────────────────────────────────────────
+  // StoreRegistryService still calls these — it's the older publish path that
+  // PR #19 supersedes but didn't remove. Keep them as thin wrappers over the
+  // raw DNS API so the registry module compiles until it's actually deleted.
+
+  async createARecord(slug: string, ip: string): Promise<string> {
+    const res = await this.cfFetch<{ result: { id: string } }>(`/zones/${this.zoneId}/dns_records`, {
+      method: 'POST',
+      body: JSON.stringify({ type: 'A', name: slug, content: ip, ttl: 1, proxied: true }),
+    });
+    return res.result.id;
+  }
+
+  async updateARecord(recordId: string, slug: string, ip: string): Promise<void> {
+    await this.cfFetch(`/zones/${this.zoneId}/dns_records/${recordId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ type: 'A', name: slug, content: ip, ttl: 1, proxied: true }),
+    });
+  }
+
+  async deleteARecord(recordId: string): Promise<void> {
+    return this.deleteDnsRecord(recordId);
+  }
 }

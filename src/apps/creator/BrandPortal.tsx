@@ -11,12 +11,12 @@
 
 import React, { useState, useMemo } from 'react';
 import {
-  Plus, Search, Filter, Star, Users, DollarSign, BarChart3,
-  CheckCircle, XCircle, Eye, MessageSquare, ChevronRight,
-  TrendingUp, Target, Calendar, Globe, Instagram, Youtube,
-  Briefcase, Send, Download, ArrowUpDown
+  Plus, Search, Users, DollarSign, BarChart3,
+  CheckCircle, Eye,
+  TrendingUp,
+  Briefcase
 } from 'lucide-react';
-import type { Brand, Campaign, Creator, CampaignApplication, ContentSubmission } from '@/shared/types';
+import type { Brand, Campaign, Creator } from '@/shared/types';
 import { formatCurrency, formatDate, getStatusColor } from '@/shared/utils';
 
 type BrandTab = 'overview' | 'creators' | 'campaigns' | 'analytics';

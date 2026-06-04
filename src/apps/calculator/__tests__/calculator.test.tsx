@@ -1,11 +1,11 @@
-import { describe, it, expect, beforeEach } from 'vitest';
-import { render } from '@testing-library/react';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { render, cleanup, fireEvent } from '@testing-library/react';
 import Calculator from '../index';
 
 let getByRoleRef: ReturnType<typeof render>['getByRole'];
 
 function clickBtn(label: string) {
-  getByRoleRef('button', { name: label }).click();
+  fireEvent.click(getByRoleRef('button', { name: label }));
 }
 
 function getDisplay(): string {
@@ -20,6 +20,10 @@ describe('Calculator', () => {
   beforeEach(() => {
     const view = render(<Calculator />);
     getByRoleRef = view.getByRole;
+  });
+
+  afterEach(() => {
+    cleanup();
   });
 
   // ── Basic arithmetic ──────────────────────────────────────────────────────

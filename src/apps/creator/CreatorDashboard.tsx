@@ -11,10 +11,9 @@
 
 import React, { useState } from 'react';
 import {
-  DollarSign, TrendingUp, Users, Star, BarChart3, Briefcase,
+  DollarSign, TrendingUp, Users, BarChart3, Briefcase,
   CheckCircle, Clock, MessageSquare, Globe, Instagram, Youtube,
-  Music as Tiktok, Twitter, Edit3, Share2, Eye, ChevronRight, Filter,
-  Search, Plus, Image, Video, FileText, Send
+  Music as Tiktok, Twitter, Edit3, Image, Send
 } from 'lucide-react';
 import type { Creator, Campaign, CampaignApplication, ContentSubmission } from '@/shared/types';
 import { formatCurrency, formatDate, getStatusColor } from '@/shared/utils';

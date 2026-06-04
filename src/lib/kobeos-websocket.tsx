@@ -10,7 +10,7 @@
 // - Auto-reconnect with exponential backoff
 // ============================================================================
 
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 
 const WS_BASE_URL = import.meta.env.VITE_WS_URL || 'wss://api.kobeos.app/ws';
 
@@ -251,7 +251,7 @@ export const useWebSocketEvent = (event: WebSocketEvent, handler: MessageHandler
 
 // --- MODULE-SPECIFIC REAL-TIME HOOKS ---
 
-import type { Order, Shipment, Notification as NotificationMessage } from '@/shared/types';
+import type { Order, Notification as NotificationMessage } from '@/shared/types';
 
 // KDS Real-time Orders
 export const useKDSRealtime = (hotelId: string, station: string, onNewOrder: (order: Order) => void) => {
