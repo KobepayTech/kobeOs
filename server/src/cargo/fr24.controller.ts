@@ -55,4 +55,14 @@ export class Fr24ShipmentController {
     }
     return this.fr24.assignFlightToShipment(uid, id, dto.flightNumber.trim());
   }
+
+  /**
+   * Manually trigger the FR24 reconcile loop for a single shipment — useful
+   * when the cashier wants the timeline refreshed without waiting for the
+   * 5-minute cron.
+   */
+  @Post(':id/fr24-refresh')
+  refresh(@CurrentUser('id') uid: string, @Param('id') id: string) {
+    return this.fr24.refreshShipment(uid, id);
+  }
 }

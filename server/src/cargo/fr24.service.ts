@@ -1,8 +1,10 @@
 import { BadGatewayException, ForbiddenException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, Not, Repository } from 'typeorm';
 import { Shipment } from './cargo.entity';
+import { CargoAirHub } from './air-cargo.entity';
 import { CargoTrackingEvent } from './air-cargo-ops.entity';
 
 /**
@@ -52,6 +54,7 @@ export class Fr24Service {
     private readonly config: ConfigService,
     @InjectRepository(Shipment) private readonly shipments: Repository<Shipment>,
     @InjectRepository(CargoTrackingEvent) private readonly events: Repository<CargoTrackingEvent>,
+    @InjectRepository(CargoAirHub) private readonly hubs: Repository<CargoAirHub>,
   ) {
     this.apiKey = config.get<string>('FR24_API_KEY');
     this.apiBase = config.get<string>('FR24_API_BASE') ?? 'https://fr24api.flightradar24.com/api';
@@ -125,6 +128,111 @@ export class Fr24Service {
     );
 
     return { shipment, flight };
+  }
+
+  /**
+   * Poll FR24 for every in-flight shipment and stamp FLIGHT_DEPARTED /
+   * ARRIVED_TRANSIT_HUB when the live state crosses each threshold for the
+   * first time. Runs every 5 minutes; no-ops silently when FR24 is unset.
+   *
+   * Departure heuristic: FR24 reports a status indicating airborne (any
+   * `Live`/`Airborne`/`En route` variant) OR the flight has measurable
+   * altitude/groundspeed. Hub-arrival heuristic: the flight is on the ground
+   * at an airport whose IATA code matches one of this owner's transit hubs
+   * (CargoAirHub) AND that airport differs from the shipment's final
+   * destination — i.e. it's an intermediate stop, not the route end.
+   */
+  @Cron(CronExpression.EVERY_5_MINUTES)
+  async pollAssignedFlights(): Promise<void> {
+    if (!this.apiKey) return;
+    const active = await this.shipments.find({
+      where: { flightNumber: Not(IsNull()), status: Not('DELIVERED') },
+    });
+    if (!active.length) return;
+
+    for (const ship of active) {
+      try {
+        await this.reconcileShipment(ship);
+      } catch (err) {
+        this.logger.warn(`FR24 reconcile failed for shipment ${ship.id}: ${err instanceof Error ? err.message : err}`);
+      }
+    }
+  }
+
+  /** Public entry-point so the controller can trigger a single shipment refresh on demand. */
+  async refreshShipment(ownerId: string, shipmentId: string) {
+    const ship = await this.shipments.findOne({ where: { ownerId, id: shipmentId } });
+    if (!ship) throw new NotFoundException('Shipment not found');
+    if (!ship.flightNumber) return { updated: false, reason: 'no_flight_assigned' };
+    if (!this.apiKey) return { updated: false, reason: 'fr24_not_configured' };
+    const stamped = await this.reconcileShipment(ship);
+    return { updated: stamped.length > 0, events: stamped };
+  }
+
+  private async reconcileShipment(ship: Shipment): Promise<string[]> {
+    const flight = await this.flightByNumber(ship.flightNumber ?? '');
+    if (!flight) return [];
+
+    const existing = await this.events.find({ where: { ownerId: ship.ownerId, shipmentId: ship.id } });
+    const stamped: string[] = [];
+
+    if (this.looksAirborne(flight) && !existing.some((e) => e.eventType === 'FLIGHT_DEPARTED')) {
+      await this.events.save(
+        this.events.create({
+          ownerId: ship.ownerId,
+          shipmentId: ship.id,
+          eventType: 'FLIGHT_DEPARTED' as CargoTrackingEvent['eventType'],
+          location: flight.origin || ship.origin,
+          flightNumber: flight.flightNumber,
+          eventAt: new Date(),
+          metadata: { source: 'fr24', status: flight.status, altitude: flight.altitude, groundSpeed: flight.groundSpeed },
+          notes: `FR24 detected ${flight.flightNumber} airborne from ${flight.origin}`,
+        } as Partial<CargoTrackingEvent>),
+      );
+      stamped.push('FLIGHT_DEPARTED');
+    }
+
+    const hubCodes = (await this.hubs.find({ where: { ownerId: ship.ownerId } })).map((h) => h.code.toUpperCase());
+    const currentAirport = (flight.destination || '').toUpperCase();
+    const onGroundAtHub =
+      hubCodes.includes(currentAirport) &&
+      currentAirport !== (ship.destination ?? '').toUpperCase() &&
+      this.looksOnGround(flight);
+
+    if (
+      onGroundAtHub &&
+      !existing.some((e) => e.eventType === 'ARRIVED_TRANSIT_HUB' && e.location.toUpperCase() === currentAirport)
+    ) {
+      await this.events.save(
+        this.events.create({
+          ownerId: ship.ownerId,
+          shipmentId: ship.id,
+          eventType: 'ARRIVED_TRANSIT_HUB' as CargoTrackingEvent['eventType'],
+          location: currentAirport,
+          flightNumber: flight.flightNumber,
+          eventAt: new Date(),
+          metadata: { source: 'fr24', status: flight.status, hub: currentAirport },
+          notes: `FR24 detected ${flight.flightNumber} at transit hub ${currentAirport}`,
+        } as Partial<CargoTrackingEvent>),
+      );
+      stamped.push('ARRIVED_TRANSIT_HUB');
+    }
+
+    return stamped;
+  }
+
+  private looksAirborne(flight: Fr24Flight): boolean {
+    const status = (flight.status ?? '').toLowerCase();
+    if (status && /live|airborne|en[- ]?route|departed/.test(status)) return true;
+    if ((flight.altitude ?? 0) > 1000) return true;
+    if ((flight.groundSpeed ?? 0) > 80) return true;
+    return false;
+  }
+
+  private looksOnGround(flight: Fr24Flight): boolean {
+    const status = (flight.status ?? '').toLowerCase();
+    if (status && /landed|arrived|on[- ]?ground|taxi/.test(status)) return true;
+    return (flight.altitude ?? 0) < 500 && (flight.groundSpeed ?? 0) < 60;
   }
 
   // ── internals ──────────────────────────────────────────────────────────────
