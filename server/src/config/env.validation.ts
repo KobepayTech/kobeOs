@@ -47,6 +47,11 @@ class EnvVars {
   @IsOptional() @IsString() BEEM_SECRET_KEY?: string;
   @IsOptional() @IsString() BEEM_SOURCE_ADDR?: string;
   @IsOptional() @IsString() BEEM_SMS_URL?: string;
+
+  /** Flightradar24 official API (https://fr24api.flightradar24.com/docs). Server-side only — never expose to the frontend. */
+  @IsOptional() @IsString() FR24_API_KEY?: string;
+  @IsOptional() @IsString() FR24_API_BASE?: string;
+  @IsOptional() @IsString() FR24_API_VERSION?: string;
 }
 
 export function validateEnv(config: Record<string, unknown>) {
