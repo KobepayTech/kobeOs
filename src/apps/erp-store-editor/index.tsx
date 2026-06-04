@@ -699,13 +699,20 @@ export default function StoreEditor() {
     setPublishing(true);
     setPublishError(null);
     try {
-      // Pre-validate slug availability before hitting the publish endpoint
+      // Pre-validate slug availability before hitting the publish endpoint.
+      // The endpoint is the canonical /store-settings/check-slug?slug=:slug
+      // query route (path-param style was a 404 placeholder).
       if (settings.domainSlug) {
         const check = await api<{ available: boolean; reason?: string }>(
-          `/store-settings/check-slug/${encodeURIComponent(settings.domainSlug)}`,
+          `/store-settings/check-slug?slug=${encodeURIComponent(settings.domainSlug)}`,
+          { auth: false },
         );
         if (!check.available) {
-          setPublishError(check.reason ?? 'That store name is already taken. Choose a different name.');
+          const reason = check.reason === 'taken' ? 'That store name is already taken. Choose a different name.'
+            : check.reason === 'reserved' ? 'That subdomain is reserved. Pick a different name.'
+            : check.reason === 'invalid' ? 'That store name contains characters that can\'t be used in a URL.'
+            : 'Store name unavailable.';
+          setPublishError(reason);
           return;
         }
       }

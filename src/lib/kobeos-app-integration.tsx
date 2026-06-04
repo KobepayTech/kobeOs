@@ -34,7 +34,6 @@ import { TenantDetailView } from './property/TenantDetailView';
 // --- HOTEL PAGES ---
 import { HotelAdminDashboard } from './hotel/HotelAdminDashboard';
 import { KDSDisplay } from './hotel/KDSDisplay';
-import { QRCustomerPortal } from './hotel/QRCustomerPortal';
 
 // --- CARGO PAGES ---
 import { ShipmentCreation } from './cargo/ShipmentCreation';
@@ -46,7 +45,7 @@ import { CreatorDashboard } from './creators/CreatorDashboard';
 import { BrandPortal } from './creators/BrandPortal';
 
 // --- API HOOKS (for data fetching) ---
-import { usePropertyApi, useCargoApi, useHotelApi, useCreatorApi } from './backend/api/client';
+import { usePropertyApi, useCargoApi } from './backend/api/client';
 
 // ============================================================================
 // EXAMPLE: PROPERTY PAGE (with backend integration)

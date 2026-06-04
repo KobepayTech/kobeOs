@@ -297,7 +297,7 @@ export const useNotifications = (): NotificationContextType => {
 
 // --- IN-APP NOTIFICATION BELL COMPONENT ---
 
-import { Bell, CheckCheck, X } from 'lucide-react';
+import { Bell, CheckCheck } from 'lucide-react';
 
 export const NotificationBell: React.FC = () => {
   const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();

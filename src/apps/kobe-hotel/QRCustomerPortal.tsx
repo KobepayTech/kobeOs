@@ -5,13 +5,11 @@
 // Features: Digital menu, ordering, payment, room service, call waiter
 // ============================================================================
 
-import React, { useState, useEffect } from 'react';
-import {
-  QrCode, ShoppingCart, Plus, Minus, Trash2, CreditCard,
-  MessageSquare, Wifi, Phone, CheckCircle, Clock, Home,
-  ChevronLeft, ChevronRight, Star, X
+import React, { useState } from 'react';
+import { ShoppingCart, Plus, Minus, Trash2, CreditCard,
+  MessageSquare, Wifi, Phone, CheckCircle, Clock, Home, ChevronRight, Star
 } from 'lucide-react';
-import type { Hotel, MenuCategory, MenuItem, Order, OrderItem } from '@/shared/types';
+import type { Hotel, MenuItem, Order, OrderItem } from '@/shared/types';
 import { formatCurrency, generateId } from '@/shared/utils';
 
 interface QRCustomerPortalProps {

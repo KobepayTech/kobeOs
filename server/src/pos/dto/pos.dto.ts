@@ -36,12 +36,18 @@ export class CreateOrderDto {
   @IsArray() @ValidateNested({ each: true }) @Type(() => OrderLineDto)
   lines!: OrderLineDto[];
   @IsOptional() @IsNumber() @Min(0) taxAmount?: number;
+  /** Manual override; discount engine output wins when couponCode/rules apply. */
   @IsOptional() @IsNumber() @Min(0) discountAmount?: number;
-  @IsOptional() @IsString() discountCode?: string;
+  @IsOptional() @IsString() couponCode?: string;
+  @IsOptional() @IsString() customerScope?: string;
+  /** Set by a manager/admin for discounts above the approval threshold. */
+  @IsOptional() @IsString() approvedBy?: string;
   @IsOptional() @IsString() paymentMethod?: string;
   @IsOptional() @IsString() bnplPlan?: string;
   @IsOptional() @IsString() customerName?: string;
   @IsOptional() @IsString() customerPhone?: string;
+  /** BNPL only — number of monthly installments (defaults to 1 = lump sum). */
+  @IsOptional() @IsInt() @Min(1) installmentMonths?: number;
 }
 
 export class UpdateOrderDto {

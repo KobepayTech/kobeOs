@@ -8,7 +8,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   ChefHat, Wine, IceCream, Flame, Clock, CheckCircle, AlertTriangle,
-  Volume2, VolumeX, Filter, Maximize2, Minimize2
+  Volume2, VolumeX, Maximize2, Minimize2
 } from 'lucide-react';
 import type { Order, KDSOrder } from '@/shared/types';
 

@@ -1,8 +1,13 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { PosOrder, PosOrderItem, PosProduct } from './pos.entity';
 import { CreateOrderDto, CreateProductDto, UpdateOrderDto, UpdateProductDto } from './dto/pos.dto';
+import { ReceiptService } from './receipt.service';
+import { PickTicketService } from '../warehouse/pick-ticket.service';
+import { DiscountEngine } from '../discounts/discount-engine.service';
+import { CreditService } from '../credit/credit.service';
+import { JournalService } from '../erp/journal.service';
 
 @Injectable()
 export class ProductsService {
@@ -42,6 +47,11 @@ export class OrdersService {
     @InjectRepository(PosOrderItem) private readonly items: Repository<PosOrderItem>,
     @InjectRepository(PosProduct) private readonly products: Repository<PosProduct>,
     private readonly ds: DataSource,
+    private readonly receipts: ReceiptService,
+    private readonly pickTickets: PickTicketService,
+    private readonly discountEngine: DiscountEngine,
+    private readonly credit: CreditService,
+    private readonly journal: JournalService,
   ) {}
 
   list(uid: string, page = 1, limit = 50) {
@@ -64,18 +74,30 @@ export class OrdersService {
 
       let subtotal = 0;
       const itemsToInsert: PosOrderItem[] = [];
+      const pickLines: { sku: string; name: string; quantity: number }[] = [];
 
       for (const line of dto.lines) {
         const product = await productRepo.findOne({ where: { id: line.productId, ownerId: uid } });
         if (!product) throw new NotFoundException(`Product ${line.productId} not found`);
-        // TypeORM returns decimal/integer columns as strings — parse before use.
-        const productStock = Number(product.stock);
+        // TypeORM returns decimal columns as strings — parse before use.
         const productPrice = parseFloat(product.price as unknown as string);
-        if (productStock < line.quantity) {
+
+        // Atomic stock decrement: UPDATE … SET stock = stock - :qty WHERE id
+        // = :id AND ownerId = :uid AND stock >= :qty. If no rows are
+        // affected we know either the product moved out of this owner or
+        // another concurrent order beat us to the last units; either way
+        // it's an oversell, not a silent success.
+        const decrement = await productRepo
+          .createQueryBuilder()
+          .update(PosProduct)
+          .set({ stock: () => `stock - ${line.quantity}` })
+          .where('id = :id AND "ownerId" = :uid AND stock >= :qty', {
+            id: product.id, uid, qty: line.quantity,
+          })
+          .execute();
+        if (decrement.affected === 0) {
           throw new BadRequestException(`Insufficient stock for ${product.name}`);
         }
-        product.stock = productStock - line.quantity;
-        await productRepo.save(product);
 
         const lineTotal = parseFloat((productPrice * line.quantity).toFixed(4));
         subtotal = parseFloat((subtotal + lineTotal).toFixed(4));
@@ -89,10 +111,32 @@ export class OrdersService {
             lineTotal,
           }),
         );
+        pickLines.push({ sku: product.sku, name: product.name, quantity: line.quantity });
       }
 
       const tax = dto.taxAmount ?? 0;
-      const discount = dto.discountAmount ?? 0;
+
+      const discountResult = await this.discountEngine.apply(uid, {
+        subtotal,
+        customerScope: dto.customerScope,
+        couponCode: dto.couponCode,
+        approvedBy: dto.approvedBy,
+      });
+      if (discountResult.requiresApproval) {
+        throw new ForbiddenException(
+          'Discount exceeds approval threshold; manager approval required (set approvedBy)',
+        );
+      }
+      // Engine output wins when a coupon/rule applied; otherwise honor manual override.
+      const discount =
+        discountResult.discountAmount > 0 || dto.couponCode
+          ? discountResult.discountAmount
+          : (dto.discountAmount ?? 0);
+
+      const total = parseFloat((subtotal + tax - discount).toFixed(4));
+      const paymentMethod = dto.paymentMethod ?? 'CASH';
+      const isBnpl = paymentMethod === 'BNPL';
+
       const order = await orderRepo.save(
         orderRepo.create({
           ownerId: uid,
@@ -100,17 +144,60 @@ export class OrdersService {
           subtotal,
           taxAmount: tax,
           discountAmount: discount,
-          total: subtotal + tax - discount,
-          paymentMethod: dto.paymentMethod ?? 'CASH',
+          total,
+          paymentMethod,
           customerName: dto.customerName ?? null,
           customerPhone: dto.customerPhone ?? null,
+          isBnpl,
           status: 'COMPLETED',
         }),
       );
 
       for (const item of itemsToInsert) item.orderId = order.id;
       await itemRepo.save(itemsToInsert);
-      return { ...order, items: itemsToInsert };
+
+      if (discountResult.appliedCouponId) {
+        await this.discountEngine.consumeCoupon(tx, discountResult.appliedCouponId);
+      }
+
+      let receivable: unknown = null;
+      if (isBnpl) {
+        const approval = await this.credit.approveAndReserveInTransaction(tx, uid, {
+          customerPhone: dto.customerPhone ?? '',
+          customerName: dto.customerName ?? null,
+          amount: total,
+          installmentMonths: dto.installmentMonths,
+          orderId: order.id,
+          currency: order.currency,
+        });
+        order.receivableId = approval.receivable.id;
+        await orderRepo.save(order);
+        receivable = approval.receivable;
+      }
+
+      const pickTicket = await this.pickTickets.createInTransaction(tx, uid, {
+        ticketNumber: `PT-${order.orderNumber}`,
+        orderId: order.id,
+        customerName: order.customerName,
+        lines: pickLines,
+      });
+
+      // Auto-post the journal entry. Cash sales debit Cash; BNPL sales
+      // debit Accounts Receivable. Failing here rolls back the whole sale
+      // so the books are never left in a half-written state.
+      const journal = await this.journal.postPosSaleInTransaction(tx, uid, order, itemsToInsert, { isBnpl });
+
+      const receipt = this.receipts.format(order, itemsToInsert);
+
+      return {
+        ...order,
+        items: itemsToInsert,
+        receipt,
+        pickTicket,
+        discount: discountResult,
+        receivable,
+        journal,
+      };
     });
   }
 

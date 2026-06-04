@@ -1,8 +1,31 @@
 import { Column, Entity, Index } from 'typeorm';
 import { OwnedEntity } from '../common/owned.entity';
 
+@Entity('warehouses')
+@Index(['ownerId', 'code'], { unique: true })
+export class Warehouse extends OwnedEntity {
+  @Column()
+  code!: string;
+
+  @Column()
+  name!: string;
+
+  @Column({ default: '' })
+  location!: string;
+
+  @Column({ default: false })
+  isDefault!: boolean;
+
+  @Column({ default: true })
+  active!: boolean;
+}
+
 @Entity('warehouse_items')
 export class WarehouseItem extends OwnedEntity {
+  @Index()
+  @Column('uuid', { nullable: true })
+  warehouseId?: string | null;
+
   @Index({ unique: false })
   @Column()
   sku!: string;

@@ -38,26 +38,51 @@ export class TransactionsService {
   }
 
   async post(uid: string, dto: TransactionDto) {
+    // Idempotency lookup is owner-scoped: keys from owner A must never
+    // alias to owner B's transactions, and must never block them either.
     if (dto.idempotencyKey) {
-      const existing = await this.txns.findOne({ where: { idempotencyKey: dto.idempotencyKey } });
+      const existing = await this.txns.findOne({
+        where: { idempotencyKey: dto.idempotencyKey, ownerId: uid },
+      });
       if (existing) return existing;
     }
+    const txAmount = parseFloat(dto.amount as unknown as string);
     return this.ds.transaction(async (tx) => {
       const wRepo = tx.getRepository(Wallet);
       const tRepo = tx.getRepository(PaymentTransaction);
+
+      // Atomic balance change: SET balance = balance ± :amount under a
+      // WHERE clause that enforces ownership AND, for debits, sufficient
+      // funds. No read-modify-write window for concurrent writers to race
+      // through, and the funds check is the same SQL statement as the
+      // decrement so a debit can never overdraw.
+      if (dto.type === 'CREDIT') {
+        const ok = await wRepo
+          .createQueryBuilder()
+          .update(Wallet)
+          .set({ balance: () => `balance + ${txAmount}` })
+          .where('id = :id AND "ownerId" = :uid', { id: dto.walletId, uid })
+          .execute();
+        if (ok.affected === 0) throw new NotFoundException('Wallet not found');
+      } else if (dto.type === 'DEBIT') {
+        const ok = await wRepo
+          .createQueryBuilder()
+          .update(Wallet)
+          .set({ balance: () => `balance - ${txAmount}` })
+          .where('id = :id AND "ownerId" = :uid AND balance >= :amt', {
+            id: dto.walletId, uid, amt: txAmount,
+          })
+          .execute();
+        if (ok.affected === 0) {
+          // Distinguish wallet-missing from insufficient-funds for clearer errors.
+          const wallet = await wRepo.findOne({ where: { id: dto.walletId, ownerId: uid } });
+          if (!wallet) throw new NotFoundException('Wallet not found');
+          throw new BadRequestException('Insufficient funds');
+        }
+      }
+
       const wallet = await wRepo.findOne({ where: { id: dto.walletId, ownerId: uid } });
       if (!wallet) throw new NotFoundException('Wallet not found');
-      // TypeORM returns decimal columns as strings from PostgreSQL — always
-      // parse before arithmetic or comparison to avoid string concatenation.
-      const currentBalance = parseFloat(wallet.balance as unknown as string);
-      const txAmount = parseFloat(dto.amount as unknown as string);
-      if (dto.type === 'DEBIT' && currentBalance < txAmount) {
-        throw new BadRequestException('Insufficient funds');
-      }
-      wallet.balance = parseFloat(
-        (dto.type === 'CREDIT' ? currentBalance + txAmount : currentBalance - txAmount).toFixed(4),
-      );
-      await wRepo.save(wallet);
       return tRepo.save(tRepo.create({
         ownerId: uid,
         walletId: wallet.id,
@@ -75,9 +100,12 @@ export class TransactionsService {
 
   async transfer(uid: string, dto: TransferDto) {
     if (dto.idempotencyKey) {
-      const existing = await this.txns.findOne({ where: { idempotencyKey: dto.idempotencyKey } });
+      const existing = await this.txns.findOne({
+        where: { idempotencyKey: dto.idempotencyKey, ownerId: uid },
+      });
       if (existing) return existing;
     }
+    const txAmount = parseFloat(dto.amount as unknown as string);
     return this.ds.transaction(async (tx) => {
       const wRepo = tx.getRepository(Wallet);
       const tRepo = tx.getRepository(PaymentTransaction);
@@ -85,16 +113,27 @@ export class TransactionsService {
       const to = await wRepo.findOne({ where: { id: dto.toWalletId } });
       if (!from || !to) throw new NotFoundException('Wallet not found');
       if (from.ownerId !== uid) throw new ForbiddenException();
-      // Parse decimal strings before comparison and arithmetic.
-      const fromBalance = parseFloat(from.balance as unknown as string);
-      const toBalance   = parseFloat(to.balance   as unknown as string);
-      const txAmount    = parseFloat(dto.amount    as unknown as string);
-      if (fromBalance < txAmount) throw new BadRequestException('Insufficient funds');
+      // Cross-owner transfers are explicitly allowed (B2B / supplier payouts);
+      // the source-wallet ownership check is the access-control gate.
       if (from.currency !== to.currency) throw new BadRequestException('Currency mismatch');
 
-      from.balance = parseFloat((fromBalance - txAmount).toFixed(4));
-      to.balance   = parseFloat((toBalance   + txAmount).toFixed(4));
-      await wRepo.save([from, to]);
+      // Atomic debit from source with funds check baked into WHERE so two
+      // concurrent transfers can't both drain the same balance.
+      const debit = await wRepo
+        .createQueryBuilder()
+        .update(Wallet)
+        .set({ balance: () => `balance - ${txAmount}` })
+        .where('id = :id AND "ownerId" = :uid AND balance >= :amt', {
+          id: from.id, uid, amt: txAmount,
+        })
+        .execute();
+      if (debit.affected === 0) throw new BadRequestException('Insufficient funds');
+      await wRepo
+        .createQueryBuilder()
+        .update(Wallet)
+        .set({ balance: () => `balance + ${txAmount}` })
+        .where('id = :id', { id: to.id })
+        .execute();
 
       const outgoing = tRepo.create({
         ownerId: uid, walletId: from.id, type: 'TRANSFER', amount: dto.amount,

@@ -169,8 +169,8 @@ const campaigns: Campaign[] = [
 ];
 
 // Seed data for first-load when the /api/creators table is empty.
+ 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-// eslint-disable-next-line @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any
 const _seedCreators: any[] = [
   { name: 'Zara Hassan', handle: '@zarafashion', niche: 'Fashion', followers: 145000, engagement: 6.2, rate: 150, score: 9, platforms: ['Instagram', 'TikTok', 'YouTube'] },
   { name: 'Mike Tech', handle: '@miketechtz', niche: 'Tech', followers: 89000, engagement: 4.8, rate: 120, score: 8, platforms: ['YouTube', 'X', 'Instagram'] },
@@ -213,7 +213,7 @@ const deals: Deal[] = [
   { id: 6, campaign: 'Holiday Special', brand: 'Gift Store', total: 2000, upfront: 800, upfrontWithdrawn: false, locked: 1200, released: 0, kpiPercent: 0, status: 'PENDING' },
 ];
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+ 
 const _escrowTxs: EscrowTx[] = [
   { id: 1, date: '2024-07-15', campaign: 'Summer Collection', creator: 'Zara Hassan', amount: 400, type: 'Upfront', status: 'Completed' },
   { id: 2, date: '2024-07-15', campaign: 'Summer Collection', creator: 'Zara Hassan', amount: 600, type: 'Locked', status: 'Pending' },
@@ -621,7 +621,7 @@ function OverviewModule({ setActiveModule }: { setActiveModule: (m: ModuleId) =>
 
 // ── Module 2: Campaigns ────────────────────────────────
 function CampaignsModule() {
-  const creators = useCreators(); // eslint-disable-line @typescript-eslint/no-unused-vars
+  const creators = useCreators();  
   const { campaigns: apiCampaigns, reload } = useAppState();
   const [filter, setFilter] = useState('ALL');
   const [createOpen, setCreateOpen] = useState(false);
@@ -824,7 +824,7 @@ function MarketplaceModule() {
   const [offerAmount, setOfferAmount] = useState('');
   const [offerNotes, setOfferNotes] = useState('');
   const [sending, setSending] = useState(false);
-  const [syncingId, setSyncingId] = useState<string | null>(null); // eslint-disable-line @typescript-eslint/no-unused-vars
+  const [syncingId, setSyncingId] = useState<string | null>(null);  
   const [registerOpen, setRegisterOpen] = useState(false);
   const [editCreator, setEditCreator] = useState<CreatorProfile | null>(null);
   const [profileForm, setProfileForm] = useState({
@@ -848,7 +848,7 @@ function MarketplaceModule() {
     finally { setSending(false); }
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+   
   const handleSyncCreator = async (creatorId: string, platform: string, handle: string) => {
     setSyncingId(creatorId);
     try {

@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Headers, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { Public } from '../common/public.decorator';
@@ -6,7 +6,6 @@ import { StoreSettingsService } from './store-settings.service';
 import { UpsertStoreSettingsDto } from './dto/store-settings.dto';
 import { PublishService } from './publish.service';
 
-@UseGuards(JwtAuthGuard)
 @Controller('store-settings')
 export class StoreSettingsController {
   constructor(
@@ -14,65 +13,41 @@ export class StoreSettingsController {
     private readonly publishSvc: PublishService,
   ) {}
 
+  @UseGuards(JwtAuthGuard)
   @Get()
   get(@CurrentUser('id') uid: string) {
     return this.svc.get(uid);
   }
 
+  @UseGuards(JwtAuthGuard)
   @Put()
   upsert(@CurrentUser('id') uid: string, @Body() dto: UpsertStoreSettingsDto) {
     return this.svc.upsert(uid, dto);
   }
 
-  /**
-   * Publish this store to kobeapptz.com.
-   * The Authorization header JWT is forwarded to the central registry.
-   * POST /api/store-settings/publish
-   */
+  /** Publish this store via Cloudflare Tunnel. */
+  @UseGuards(JwtAuthGuard)
   @Post('publish')
-  publish(
-    @CurrentUser('id') uid: string,
-    @Headers('authorization') auth: string,
-  ) {
-    const jwt = auth?.replace(/^Bearer\s+/i, '') ?? '';
-    return this.publishSvc.publish(uid, jwt);
+  publish(@CurrentUser('id') uid: string) {
+    return this.publishSvc.publish(uid);
   }
 
-  /**
-   * Remove this store from kobeapptz.com.
-   * DELETE /api/store-settings/publish
-   */
+  /** Unpublish the store and tear down its tunnel + DNS record. */
+  @UseGuards(JwtAuthGuard)
   @Delete('publish')
-  unpublish(
-    @CurrentUser('id') uid: string,
-    @Headers('authorization') auth: string,
-  ) {
-    const jwt = auth?.replace(/^Bearer\s+/i, '') ?? '';
-    return this.publishSvc.unpublish(uid, jwt);
+  unpublish(@CurrentUser('id') uid: string) {
+    return this.publishSvc.unpublish(uid);
   }
 
   /**
-   * Heartbeat — called by the frontend every 5 minutes while the store is published.
-   * Forwards to the central registry to keep the DNS record active.
-   * POST /api/store-settings/heartbeat
-   */
-  @Post('heartbeat')
-  heartbeat(
-    @CurrentUser('id') uid: string,
-    @Headers('authorization') auth: string,
-  ) {
-    const jwt = auth?.replace(/^Bearer\s+/i, '') ?? '';
-    return this.publishSvc.heartbeat(uid, jwt);
-  }
-
-  /**
-   * Check if a slug is available before publishing.
-   * GET /api/store-settings/check-slug?slug=kelvinfashion
-   * Public — no auth needed.
+   * Live availability check for a candidate slug. Editor calls this
+   * as the user types so they see green/red immediately instead of
+   * being told on save. Public so the signed-out signup flow can
+   * use the same endpoint.
    */
   @Public()
   @Get('check-slug')
   checkSlug(@Query('slug') slug: string) {
-    return this.publishSvc.checkSlug(slug ?? '');
+    return this.svc.checkSlug(slug ?? '');
   }
 }
