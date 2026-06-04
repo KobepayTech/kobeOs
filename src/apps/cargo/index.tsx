@@ -34,6 +34,7 @@ import {
   ComposedChart,
 } from 'recharts';
 import CargoTZ from './cargo_tz';
+import FlightBoard from './FlightBoard';
 
 /* ═══════════════════════════════════════════
    KOBECARGO — STATE OF THE ART EDITION
@@ -1762,6 +1763,7 @@ const cargoSections = [
       { key: 'customs' as Tab, label: 'Customs', desc: 'Clearance & duties', icon: ShieldCheck, color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20' },
       { key: 'warehouse' as Tab, label: 'Warehouse', desc: 'Bins, ULDs & storage', icon: Warehouse, color: 'text-teal-400', bg: 'bg-teal-500/10', border: 'border-teal-500/20' },
       { key: 'flights' as Tab, label: 'Flights', desc: 'Air cargo scheduling', icon: PlaneTakeoff, color: 'text-cyan-400', bg: 'bg-cyan-500/10', border: 'border-cyan-500/20' },
+      { key: 'flight-board' as Tab, label: 'Flight Board', desc: 'Live FR24 departures & arrivals', icon: Plane, color: 'text-cyan-300', bg: 'bg-cyan-400/10', border: 'border-cyan-400/20' },
       { key: 'network' as Tab, label: 'Network', desc: 'Route visualization', icon: Route, color: 'text-indigo-400', bg: 'bg-indigo-500/10', border: 'border-indigo-500/20' },
     ],
   },
@@ -1874,7 +1876,7 @@ function CargoSidebar({ activeTab, onTabChange }: { activeTab: Tab; onTabChange:
 }
 
 /* ─── MAIN SHELL ─── */
-type Tab = 'dashboard' | 'shipments' | 'customs' | 'warehouse' | 'flights' | 'payments' | 'tracking' | 'delivery' | 'network' | 'insights' | 'analytics' | 'timeline' | 'rates' | 'documents' | 'campaigns' | 'adlibrary' | 'advertisers' | 'adanalytics' | 'adsettings' | 'cargo_tz' | 'portals' | 'new-shipment' | 'kanban' | 'pay-workflow';
+type Tab = 'dashboard' | 'shipments' | 'customs' | 'warehouse' | 'flights' | 'flight-board' | 'payments' | 'tracking' | 'delivery' | 'network' | 'insights' | 'analytics' | 'timeline' | 'rates' | 'documents' | 'campaigns' | 'adlibrary' | 'advertisers' | 'adanalytics' | 'adsettings' | 'cargo_tz' | 'portals' | 'new-shipment' | 'kanban' | 'pay-workflow';
 export default function KOBECARGO() {
   const [tab, setTab] = useState<Tab>('dashboard');
   const [search, setSearch] = useState('');
@@ -1906,6 +1908,7 @@ export default function KOBECARGO() {
       case 'customs': return <CustomsTab search={search} />;
       case 'warehouse': return <WarehouseTab />;
       case 'flights': return <FlightsTab search={search} />;
+      case 'flight-board': return <FlightBoard />;
       case 'payments': return <PaymentsTab />;
       case 'tracking': return <TrackingTab search={search} />;
       case 'delivery': return <DeliveryTab search={search} />;

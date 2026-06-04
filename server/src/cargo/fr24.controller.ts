@@ -1,65 +1,68 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Fr24Service } from './fr24.service';
 
-const TZ_AIRPORTS = ['DAR', 'ZNZ', 'JRO', 'MWZ'];
+class AssignFr24FlightDto {
+  flightNumber!: string;
+}
 
-type BoardDirection = 'departures' | 'arrivals';
-
+/**
+ * Public-facing FR24 routes. All endpoints are server-side — the API key
+ * never leaves the backend. Frontend consumers hit these routes with a normal
+ * JWT and get back already-normalised flight objects.
+ */
 @UseGuards(JwtAuthGuard)
-@Controller('cargo/fr24')
+@Controller('cargo/flights/fr24')
 export class Fr24Controller {
   constructor(private readonly fr24: Fr24Service) {}
 
   @Get('status')
   status() {
-    return { configured: this.fr24.configured(), tanzaniaAirports: TZ_AIRPORTS };
+    return { configured: this.fr24.isConfigured() };
   }
 
   @Get('airport/:code/departures')
-  departures(@Param('code') code: string, @Query() query: Record<string, string>) {
-    return this.fr24.airportBoard(code, 'departures', query);
+  departures(@Param('code') code: string) {
+    return this.fr24.airportDepartures(code);
   }
 
   @Get('airport/:code/arrivals')
-  arrivals(@Param('code') code: string, @Query() query: Record<string, string>) {
-    return this.fr24.airportBoard(code, 'arrivals', query);
+  arrivals(@Param('code') code: string) {
+    return this.fr24.airportArrivals(code);
   }
 
-  @Get('tanzania/leaving')
-  leavingTanzania(@Query() query: Record<string, string>) {
-    return this.tanzaniaBoard('departures', query);
+  @Get(':flightNumber')
+  byNumber(@Param('flightNumber') flightNumber: string) {
+    return this.fr24.flightByNumber(flightNumber);
+  }
+}
+
+/**
+ * Assign-flight lives under /cargo/shipments to mirror the shipment-scoped
+ * route style used elsewhere in the cargo controller. Kept in this file so
+ * FR24-related routes co-locate.
+ */
+@UseGuards(JwtAuthGuard)
+@Controller('cargo/shipments')
+export class Fr24ShipmentController {
+  constructor(private readonly fr24: Fr24Service) {}
+
+  @Post(':id/assign-fr24-flight')
+  assign(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: AssignFr24FlightDto) {
+    if (!dto?.flightNumber?.trim()) {
+      throw new BadRequestException('flightNumber is required');
+    }
+    return this.fr24.assignFlightToShipment(uid, id, dto.flightNumber.trim());
   }
 
-  @Get('tanzania/going-to')
-  goingToTanzania(@Query() query: Record<string, string>) {
-    return this.tanzaniaBoard('arrivals', query);
-  }
-
-  @Get('flight/:flightNumber')
-  flight(@Param('flightNumber') flightNumber: string) {
-    return this.fr24.byFlightNumber(flightNumber);
-  }
-
-  @Get('live')
-  live(@Query() query: Record<string, string>) {
-    return this.fr24.livePositions(query);
-  }
-
-  private async tanzaniaBoard(type: BoardDirection, query: Record<string, string>) {
-    const results = await Promise.allSettled(
-      TZ_AIRPORTS.map(async (airport) => ({
-        airport,
-        type,
-        flights: await this.fr24.airportBoard(airport, type, query),
-      })),
-    );
-    return {
-      direction: type === 'departures' ? 'LEAVING_TANZANIA' : 'GOING_TO_TANZANIA',
-      airports: TZ_AIRPORTS,
-      boards: results.map((result, index) => result.status === 'fulfilled'
-        ? result.value
-        : { airport: TZ_AIRPORTS[index], type, error: String(result.reason?.message ?? result.reason) }),
-    };
+  /**
+   * Manually trigger the FR24 reconcile loop for a single shipment — useful
+   * when the cashier wants the timeline refreshed without waiting for the
+   * 5-minute cron.
+   */
+  @Post(':id/fr24-refresh')
+  refresh(@CurrentUser('id') uid: string, @Param('id') id: string) {
+    return this.fr24.refreshShipment(uid, id);
   }
 }
