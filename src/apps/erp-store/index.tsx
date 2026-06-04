@@ -14,6 +14,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
+import { UniversalProductForm, blankProduct, type UniversalProduct } from './UniversalProductForm';
 
 const tzs = (n: number) => `TZS ${n.toLocaleString()}`;
 
@@ -57,21 +58,7 @@ const statusBadge = (status: string) => {
   return map[status] || 'bg-slate-500/10 text-slate-400';
 };
 
-interface FormState {
-  name: string;
-  sku: string;
-  price: number;
-  stock: number;
-  category: string;
-  description: string;
-  imageUrl: string;
-  active: boolean;
-}
-
-const blankForm: FormState = {
-  name: '', sku: '', price: 0, stock: 0,
-  category: 'Electronics', description: '', imageUrl: '', active: true,
-};
+const blankForm: UniversalProduct = { ...blankProduct, category: 'Electronics' };
 
 export default function ERPStore() {
   const [tab, setTab] = useState('products');
@@ -85,7 +72,7 @@ export default function ERPStore() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [productModalOpen, setProductModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<PosProductRow | null>(null);
-  const [form, setForm] = useState<FormState>(blankForm);
+  const [form, setForm] = useState<UniversalProduct>(blankForm);
   const [saving, setSaving] = useState(false);
 
   const reload = useCallback(async () => {
@@ -156,13 +143,13 @@ export default function ERPStore() {
   const openEdit = (product: PosProductRow) => {
     setEditingProduct(product);
     setForm({
+      ...blankProduct,
       name: product.name,
       sku: product.sku,
       price: Number(product.price),
       stock: Number(product.stock),
       category: product.category || 'Electronics',
-      description: '',
-      imageUrl: product.imageUrl ?? '',
+      imageUrl: product.imageUrl ?? undefined,
       active: product.active,
     });
     setProductModalOpen(true);
@@ -172,14 +159,32 @@ export default function ERPStore() {
     if (!form.name.trim() || !form.sku.trim()) return;
     setSaving(true);
     try {
+      // Universal product payload — backend accepts every field; older rows
+      // without these columns simply ignore the extras.
       const body = {
         name: form.name.trim(),
         sku: form.sku.trim(),
+        barcode: form.barcode,
+        description: form.description,
         category: form.category,
+        brand: form.brand,
+        supplier: form.supplier,
         price: form.price,
+        compareAtPrice: form.compareAtPrice,
+        cost: form.cost,
+        currency: form.currency,
+        taxRate: form.taxRate,
         stock: form.stock,
+        estimatedStock: form.estimatedStock,
+        shelf: form.shelf,
+        warehouseId: form.warehouseId,
         imageUrl: form.imageUrl || undefined,
+        imageUrls: form.imageUrls,
+        videoUrl: form.videoUrl,
+        variants: form.variants,
+        tags: form.tags,
         active: form.active,
+        featured: form.featured,
       };
       if (editingProduct) {
         await api(`/pos/products/${editingProduct.id}`, { method: 'PATCH', body: JSON.stringify(body) });
@@ -405,62 +410,17 @@ export default function ERPStore() {
       </div>
 
       <Dialog open={productModalOpen} onOpenChange={setProductModalOpen}>
-        <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 max-w-md">
+        <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-sm">{editingProduct ? 'Edit Product' : 'Add Product'}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <label className="text-xs text-slate-400 block mb-1">Name *</label>
-              <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className="bg-slate-800 border-slate-700 text-slate-100" />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">SKU *</label>
-                <Input value={form.sku} onChange={(e) => setForm((f) => ({ ...f, sku: e.target.value }))} className="bg-slate-800 border-slate-700 text-slate-100 font-mono" />
-              </div>
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Category</label>
-                <select
-                  value={form.category}
-                  onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
-                  className="w-full h-9 px-2 rounded-md bg-slate-800 border border-slate-700 text-xs text-slate-300"
-                >
-                  {CATEGORY_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Price (TZS)</label>
-                <Input type="number" value={form.price} onChange={(e) => setForm((f) => ({ ...f, price: Number(e.target.value) }))} className="bg-slate-800 border-slate-700 text-slate-100" />
-              </div>
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Stock</label>
-                <Input type="number" value={form.stock} onChange={(e) => setForm((f) => ({ ...f, stock: Number(e.target.value) }))} className="bg-slate-800 border-slate-700 text-slate-100" />
-              </div>
-            </div>
-            <div>
-              <label className="text-xs text-slate-400 block mb-1">Image URL (optional)</label>
-              <Input value={form.imageUrl} onChange={(e) => setForm((f) => ({ ...f, imageUrl: e.target.value }))} placeholder="https://…" className="bg-slate-800 border-slate-700 text-slate-100 text-xs" />
-            </div>
-            <div>
-              <label className="text-xs text-slate-400 block mb-1">Notes</label>
-              <Textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} className="bg-slate-800 border-slate-700 text-slate-100 text-xs" rows={2} />
-            </div>
-            <label className="flex items-center gap-2 text-xs text-slate-300 select-none">
-              <input type="checkbox" checked={form.active} onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))} />
-              Active in catalogue
-            </label>
-            <div className="flex gap-2 pt-2">
-              <Button variant="outline" onClick={() => setProductModalOpen(false)} disabled={saving} className="flex-1 border-slate-700 text-slate-300 hover:bg-slate-800">
-                Cancel
-              </Button>
-              <Button onClick={saveProduct} disabled={saving || !form.name.trim() || !form.sku.trim()} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white">
-                {saving ? 'Saving…' : 'Save'}
-              </Button>
-            </div>
-          </div>
+          <UniversalProductForm
+            value={form}
+            onChange={setForm}
+            onSave={saveProduct}
+            onCancel={() => setProductModalOpen(false)}
+            categories={CATEGORY_OPTIONS}
+          />
         </DialogContent>
       </Dialog>
     </div>

@@ -12,6 +12,15 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Card, CardContent } from '@/components/ui/card';
+import { StorefrontNav, type StorefrontView } from './StorefrontNav';
+import {
+  BnplPage,
+  BrandsPage,
+  CollectionPage,
+  LoyaltyPage,
+  TrackOrderPage,
+  WishlistPage,
+} from './StorefrontPages';
 
 /* ------------------------------------------------------------------ */
 /*  TYPES                                                               */
@@ -208,6 +217,31 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
   const [checkoutForm, setCheckoutForm] = useState<CheckoutForm>({
     name: '', phone: '', address: '', paymentMethod: 'cod',
   });
+  // Top-level storefront view (home / collection / portal pages).
+  const [view, setView] = useState<StorefrontView>('home');
+  const [wishlistIds, setWishlistIds] = useState<string[]>(() => {
+    try {
+      const raw = window.localStorage.getItem('kobeshop:wishlist');
+      return raw ? (JSON.parse(raw) as string[]) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [loyaltyPhone, setLoyaltyPhone] = useState('');
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem('kobeshop:wishlist', JSON.stringify(wishlistIds));
+    } catch {
+      /* storage disabled */
+    }
+  }, [wishlistIds]);
+
+  const toggleWishlist = (id: string) =>
+    setWishlistIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  const wishlistProducts = useMemo(() => products.filter((p) => wishlistIds.includes(p.id)), [products, wishlistIds]);
+
   // BNPL eligibility — fetched whenever the buyer picks BNPL + has a phone.
   const [bnplEligibility, setBnplEligibility] = useState<BnplEligibility | null>(null);
   const [bnplLoading, setBnplLoading] = useState(false);
@@ -485,8 +519,11 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
         </div>
       )}
 
-      {/* CATEGORY NAV */}
-      {settings.showCategoryNav && categories.length > 1 && (
+      {/* STOREFRONT NAV (collections + portals) */}
+      <StorefrontNav current={view} onChange={setView} />
+
+      {/* CATEGORY NAV — only on home view */}
+      {view === 'home' && settings.showCategoryNav && categories.length > 1 && (
         <div className="flex gap-2 px-4 py-2 overflow-x-auto shrink-0 border-b border-white/10">
           {categories.map((cat) => (
             <button
@@ -504,7 +541,66 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
         </div>
       )}
 
-      {/* PRODUCT GRID */}
+      {/* COLLECTION & PORTAL VIEWS */}
+      {view !== 'home' && (
+        <ScrollArea className="flex-1">
+          {view === 'new-arrivals' && (
+            <CollectionPage
+              slug={slug}
+              collectionSlug="new-arrivals"
+              title="New Arrivals"
+              empty="Nothing new yet — check back soon."
+              onAddToCart={addToCart}
+              onAddToWishlist={(p) => toggleWishlist(p.id)}
+              wishlist={wishlistIds}
+            />
+          )}
+          {view === 'best-sellers' && (
+            <CollectionPage
+              slug={slug}
+              collectionSlug="best-sellers"
+              title="Best Sellers"
+              empty="Top sellers will appear once orders start rolling in."
+              onAddToCart={addToCart}
+              onAddToWishlist={(p) => toggleWishlist(p.id)}
+              wishlist={wishlistIds}
+            />
+          )}
+          {view === 'offers' && (
+            <CollectionPage
+              slug={slug}
+              collectionSlug="promotions"
+              title="Offers"
+              empty="No active offers — keep an eye out for deals."
+              onAddToCart={addToCart}
+              onAddToWishlist={(p) => toggleWishlist(p.id)}
+              wishlist={wishlistIds}
+            />
+          )}
+          {view === 'brands' && (
+            <BrandsPage
+              slug={slug}
+              onPickBrand={(brand) => {
+                setSearchQuery(brand);
+                setView('home');
+              }}
+            />
+          )}
+          {view === 'wishlist' && (
+            <WishlistPage
+              products={wishlistProducts}
+              onAddToCart={addToCart}
+              onRemove={(id) => setWishlistIds((p) => p.filter((x) => x !== id))}
+            />
+          )}
+          {view === 'track-order' && <TrackOrderPage slug={slug} />}
+          {view === 'loyalty' && <LoyaltyPage phone={loyaltyPhone} setPhone={setLoyaltyPhone} />}
+          {view === 'bnpl' && <BnplPage slug={slug} />}
+        </ScrollArea>
+      )}
+
+      {/* PRODUCT GRID — home view */}
+      {view === 'home' && (
       <ScrollArea className="flex-1">
         <div className={`grid ${gridClass} gap-3 p-4`}>
           {filteredProducts.length === 0 ? (
@@ -561,6 +657,7 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
           <p className="text-center text-xs text-slate-500 py-4 px-4">{settings.footerText}</p>
         )}
       </ScrollArea>
+      )}
 
       {/* PRODUCT DETAIL DIALOG */}
       <Dialog open={!!selectedProduct} onOpenChange={() => setSelectedProduct(null)}>
