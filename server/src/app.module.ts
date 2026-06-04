@@ -54,6 +54,7 @@ import { AccountModule } from './account/account.module';
 import { KobeSecurityModule } from './kobe-security/kobe-security.module';
 import { HotelSecurityModule } from './hotel-security/hotel-security.module';
 import { StudioMediaModule } from './studio-media/studio-media.module';
+import { ShopStockModule } from './shop-stock/shop-stock.module';
 import { DiscountApprovalModule } from './discount-approval/discount-approval.module';
 
 @Module({
@@ -112,6 +113,7 @@ import { DiscountApprovalModule } from './discount-approval/discount-approval.mo
     StoreRegistryModule,
     DevopsModule,
     AccountModule,
+    ShopStockModule,
     DiscountApprovalModule,
   ],
   controllers: [AppController],
