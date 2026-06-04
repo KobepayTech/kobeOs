@@ -11,7 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Textarea } from '@/components/ui/textarea';
+import { UniversalProductForm, blankProduct, type UniversalProduct } from './UniversalProductForm';
 
 const tzs = (n: number) => `TZS ${n.toLocaleString()}`;
 
@@ -69,7 +69,7 @@ export default function ERPStore() {
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [productModalOpen, setProductModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<typeof initialProducts[0] | null>(null);
-  const [form, setForm] = useState({ name: '', sku: '', price: 0, stock: 0, category: 'Electronics', description: '', image: 'bg-blue-600' });
+  const [form, setForm] = useState<UniversalProduct>({ ...blankProduct, category: 'Electronics' });
 
   const filteredProducts = useMemo(() => {
     return products.filter((p) => {
@@ -98,22 +98,47 @@ export default function ERPStore() {
 
   const openAdd = () => {
     setEditingProduct(null);
-    setForm({ name: '', sku: '', price: 0, stock: 0, category: 'Electronics', description: '', image: 'bg-blue-600' });
+    setForm({ ...blankProduct, category: 'Electronics' });
     setProductModalOpen(true);
   };
 
   const openEdit = (product: typeof initialProducts[0]) => {
     setEditingProduct(product);
-    setForm({ name: product.name, sku: product.sku, price: product.price, stock: product.stock, category: product.category, description: '', image: product.image });
+    setForm({
+      ...blankProduct,
+      name: product.name,
+      sku: product.sku,
+      price: product.price,
+      stock: product.stock,
+      category: product.category,
+    });
     setProductModalOpen(true);
   };
 
   const saveProduct = () => {
     if (editingProduct) {
-      setProducts((prev) => prev.map((p) => (p.id === editingProduct.id ? { ...p, ...form } : p)));
+      setProducts((prev) =>
+        prev.map((p) =>
+          p.id === editingProduct.id
+            ? { ...p, name: form.name, sku: form.sku, price: form.price, stock: form.stock, category: form.category }
+            : p,
+        ),
+      );
     } else {
       const newId = Math.max(...products.map((p) => p.id), 0) + 1;
-      setProducts((prev) => [...prev, { id: newId, ...form, status: 'Active' }]);
+      setProducts((prev) => [
+        ...prev,
+        {
+          id: newId,
+          name: form.name,
+          sku: form.sku,
+          price: form.price,
+          stock: form.stock,
+          category: form.category,
+          image: 'bg-blue-600',
+          status: form.active ? 'Active' : 'Inactive',
+        },
+      ]);
     }
     setProductModalOpen(false);
   };
@@ -307,54 +332,17 @@ export default function ERPStore() {
       </div>
 
       <Dialog open={productModalOpen} onOpenChange={setProductModalOpen}>
-        <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 max-w-md">
+        <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 max-w-2xl">
           <DialogHeader>
             <DialogTitle className="text-sm">{editingProduct ? 'Edit Product' : 'Add Product'}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <label className="text-xs text-slate-400 block mb-1">Name</label>
-              <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className="bg-slate-800 border-slate-700 text-slate-100" />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">SKU</label>
-                <Input value={form.sku} onChange={(e) => setForm((f) => ({ ...f, sku: e.target.value }))} className="bg-slate-800 border-slate-700 text-slate-100" />
-              </div>
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Category</label>
-                <select
-                  value={form.category}
-                  onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
-                  className="w-full h-9 px-2 rounded-md bg-slate-800 border border-slate-700 text-xs text-slate-300"
-                >
-                  {categories.filter((c) => c !== 'All').map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Price (TZS)</label>
-                <Input type="number" value={form.price} onChange={(e) => setForm((f) => ({ ...f, price: Number(e.target.value) }))} className="bg-slate-800 border-slate-700 text-slate-100" />
-              </div>
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Stock</label>
-                <Input type="number" value={form.stock} onChange={(e) => setForm((f) => ({ ...f, stock: Number(e.target.value) }))} className="bg-slate-800 border-slate-700 text-slate-100" />
-              </div>
-            </div>
-            <div>
-              <label className="text-xs text-slate-400 block mb-1">Description</label>
-              <Textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} className="bg-slate-800 border-slate-700 text-slate-100 text-xs" rows={3} />
-            </div>
-            <div className="flex gap-2 pt-2">
-              <Button variant="outline" onClick={() => setProductModalOpen(false)} className="flex-1 border-slate-700 text-slate-300 hover:bg-slate-800">
-                Cancel
-              </Button>
-              <Button onClick={saveProduct} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white">
-                Save
-              </Button>
-            </div>
-          </div>
+          <UniversalProductForm
+            value={form}
+            onChange={setForm}
+            onSave={saveProduct}
+            onCancel={() => setProductModalOpen(false)}
+            categories={categories.filter((c) => c !== 'All')}
+          />
         </DialogContent>
       </Dialog>
     </div>

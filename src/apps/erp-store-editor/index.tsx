@@ -2,13 +2,15 @@ import { useState, useCallback, useEffect } from 'react';
 import {
   Palette, Image, RotateCcw, Save, Download,
   ShoppingBag, Search, ChevronDown, ChevronRight, Check, Upload, Eye, X,
-  Store, Type as TypeIcon, Grid3X3, PanelLeft, Tag, Plus, Globe, Loader2, AlertTriangle
+  Store, Type as TypeIcon, Grid3X3, PanelLeft, Tag, Plus, Globe, Loader2, AlertTriangle,
+  LayoutGrid, Layers,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Switch } from '@/components/ui/switch';
+import { HomepageSectionBuilder, IndustryTemplatePicker } from './StorefrontSections';
 
 
 /* ═══════════════════════════════════════════════════════════
@@ -782,6 +784,16 @@ export default function StoreEditor() {
 
         {/* Sections */}
         <ScrollArea className="flex-1 min-h-0">
+          {/* ─── Industry Template ─── */}
+          <Section title="Industry Template" icon={LayoutGrid} defaultOpen>
+            <IndustryTemplatePicker />
+          </Section>
+
+          {/* ─── Homepage Section Builder ─── */}
+          <Section title="Homepage Sections" icon={Layers}>
+            <HomepageSectionBuilder />
+          </Section>
+
           {/* ─── Store Identity ─── */}
           <Section title="Store Identity" icon={Store} defaultOpen>
             <div className="space-y-3">
