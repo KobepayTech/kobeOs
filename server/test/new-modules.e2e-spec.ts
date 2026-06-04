@@ -96,6 +96,1158 @@ describe('New modules + ownership (e2e)', () => {
     expect(summary.body.accounts.monthlyTrend).toHaveLength(6);
   });
 
+  it('POS sale returns receipt + pick ticket and deducts warehouse stock', async () => {
+    const t = await token('pos-slice@e2e.test');
+
+    // Warehouse item with the same SKU as the product gets deducted via OUT movement.
+    await request(http).post('/api/warehouse/items').set(bearer(t))
+      .send({ sku: 'SKU-RICE', name: 'Rice 5kg', quantity: 50, unit: 'bag', location: 'A2' });
+    const product = await request(http).post('/api/pos/products').set(bearer(t))
+      .send({ sku: 'SKU-RICE', name: 'Rice 5kg', price: 12000, stock: 50 });
+
+    const sale = await request(http).post('/api/pos/orders').set(bearer(t)).send({
+      orderNumber: 'SO-1001',
+      lines: [{ productId: product.body.id, quantity: 3 }],
+      customerName: 'Juma Abdallah',
+      paymentMethod: 'CASH',
+    });
+    expect(sale.status).toBe(201);
+    expect(sale.body.total).toBe(36000);
+    expect(sale.body.receipt.text).toContain('SO-1001');
+    expect(sale.body.receipt.text).toContain('Rice 5kg');
+    expect(sale.body.receipt.text).toContain('TOTAL');
+    expect(sale.body.pickTicket.ticketNumber).toBe('PT-SO-1001');
+    expect(sale.body.pickTicket.status).toBe('PENDING');
+    expect(sale.body.pickTicket.items).toHaveLength(1);
+    expect(sale.body.pickTicket.items[0].sku).toBe('SKU-RICE');
+    expect(sale.body.pickTicket.items[0].location).toBe('A2');
+
+    // Warehouse stock decremented from 50 to 47 via OUT movement.
+    const items = await request(http).get('/api/warehouse/items').set(bearer(t));
+    expect(items.body[0].quantity).toBe(47);
+    const moves = await request(http).get('/api/warehouse/movements').set(bearer(t));
+    expect(moves.body[0].type).toBe('OUT');
+    expect(moves.body[0].reference).toBe('PT-SO-1001');
+
+    // Status flow: PENDING -> PICKING -> PACKED -> DISPATCHED.
+    const ticketId = sale.body.pickTicket.id as string;
+    const picking = await request(http).patch(`/api/warehouse/pick-tickets/${ticketId}/status`)
+      .set(bearer(t)).send({ status: 'PICKING', pickedBy: 'Asha' });
+    expect(picking.body.status).toBe('PICKING');
+    const packed = await request(http).patch(`/api/warehouse/pick-tickets/${ticketId}/status`)
+      .set(bearer(t)).send({ status: 'PACKED' });
+    expect(packed.body.status).toBe('PACKED');
+    const dispatched = await request(http).patch(`/api/warehouse/pick-tickets/${ticketId}/status`)
+      .set(bearer(t)).send({ status: 'DISPATCHED' });
+    expect(dispatched.body.status).toBe('DISPATCHED');
+
+    // Illegal transition (DISPATCHED is terminal) -> 400.
+    const bad = await request(http).patch(`/api/warehouse/pick-tickets/${ticketId}/status`)
+      .set(bearer(t)).send({ status: 'PICKING' });
+    expect(bad.status).toBe(400);
+  });
+
+  it('POS sale applies coupon + percentage rule and bumps coupon usage', async () => {
+    const t = await token('discount@e2e.test');
+
+    await request(http).post('/api/discounts/rules').set(bearer(t))
+      .send({ name: 'Loyalty 5%', type: 'Percentage', value: 5 });
+    const coupon = await request(http).post('/api/discounts/coupons').set(bearer(t))
+      .send({ code: 'WELCOME10', type: 'Percentage', value: 10, usageLimit: 5 });
+
+    const product = await request(http).post('/api/pos/products').set(bearer(t))
+      .send({ sku: 'SKU-DRINK', name: 'Cola', price: 1000, stock: 100 });
+
+    const sale = await request(http).post('/api/pos/orders').set(bearer(t)).send({
+      orderNumber: 'SO-D1',
+      lines: [{ productId: product.body.id, quantity: 10 }],
+      couponCode: 'WELCOME10',
+    });
+    expect(sale.status).toBe(201);
+    // 10000 subtotal - 5% rule (500) - 10% coupon (1000) = 8500.
+    expect(sale.body.discountAmount).toBe(1500);
+    expect(sale.body.total).toBe(8500);
+    expect(sale.body.discount.breakdown).toHaveLength(2);
+
+    // Coupon usage was incremented.
+    const coupons = await request(http).get('/api/discounts/coupons').set(bearer(t));
+    const refreshed = coupons.body.find((c: { id: string }) => c.id === coupon.body.id);
+    expect(refreshed.usageCount).toBe(1);
+  });
+
+  it('rejects discount > 20% threshold without approval, accepts with approvedBy', async () => {
+    const t = await token('approval@e2e.test');
+    await request(http).post('/api/discounts/rules').set(bearer(t))
+      .send({ name: 'Clearance', type: 'Percentage', value: 30 });
+    const product = await request(http).post('/api/pos/products').set(bearer(t))
+      .send({ sku: 'SKU-X', name: 'Item', price: 1000, stock: 10 });
+
+    const denied = await request(http).post('/api/pos/orders').set(bearer(t)).send({
+      orderNumber: 'SO-A1',
+      lines: [{ productId: product.body.id, quantity: 1 }],
+    });
+    expect(denied.status).toBe(403);
+
+    const approved = await request(http).post('/api/pos/orders').set(bearer(t)).send({
+      orderNumber: 'SO-A2',
+      lines: [{ productId: product.body.id, quantity: 1 }],
+      approvedBy: 'manager-asha',
+    });
+    expect(approved.status).toBe(201);
+    expect(approved.body.total).toBe(700);
+  });
+
+  it('BNPL sale creates receivable, decrements available credit, accepts payment', async () => {
+    const t = await token('bnpl@e2e.test');
+
+    await request(http).post('/api/credit/profiles').set(bearer(t)).send({
+      customerPhone: '+255700000001',
+      customerName: 'Juma Abdallah',
+      creditLimit: 500000,
+      riskGrade: 'B',
+    });
+
+    const product = await request(http).post('/api/pos/products').set(bearer(t))
+      .send({ sku: 'SKU-TV', name: 'TV', price: 300000, stock: 5 });
+
+    const sale = await request(http).post('/api/pos/orders').set(bearer(t)).send({
+      orderNumber: 'SO-BNPL-1',
+      lines: [{ productId: product.body.id, quantity: 1 }],
+      customerName: 'Juma Abdallah',
+      customerPhone: '+255700000001',
+      paymentMethod: 'BNPL',
+      installmentMonths: 3,
+    });
+    expect(sale.status).toBe(201);
+    expect(sale.body.isBnpl).toBe(true);
+    expect(sale.body.receivable.amount).toBe(300000);
+    expect(sale.body.receivable.installmentMonths).toBe(3);
+    expect(sale.body.receivable.monthlyAmount).toBe(100000);
+
+    const profile = await request(http).get('/api/credit/profiles/by-phone/+255700000001').set(bearer(t));
+    expect(profile.body.outstanding).toBe(300000);
+    expect(profile.body.availableCredit).toBe(200000);
+
+    // Second BNPL purchase exceeding remaining limit is rejected.
+    const denied = await request(http).post('/api/pos/orders').set(bearer(t)).send({
+      orderNumber: 'SO-BNPL-2',
+      lines: [{ productId: product.body.id, quantity: 1 }],
+      customerPhone: '+255700000001',
+      paymentMethod: 'BNPL',
+    });
+    expect(denied.status).toBe(400);
+    expect(denied.body.message).toMatch(/BNPL denied/);
+
+    // Partial payment recorded.
+    const receivableId = sale.body.receivable.id as string;
+    const paid = await request(http).patch(`/api/credit/receivables/${receivableId}/pay`).set(bearer(t))
+      .send({ amount: 100000 });
+    expect(paid.body.status).toBe('PARTIAL');
+    expect(paid.body.paid).toBe(100000);
+
+    const after = await request(http).get('/api/credit/profiles/by-phone/+255700000001').set(bearer(t));
+    expect(after.body.outstanding).toBe(200000);
+    expect(after.body.availableCredit).toBe(300000);
+  });
+
+  it('BNPL without a credit profile is rejected', async () => {
+    const t = await token('bnpl-noprofile@e2e.test');
+    const product = await request(http).post('/api/pos/products').set(bearer(t))
+      .send({ sku: 'SKU-N', name: 'Item', price: 1000, stock: 10 });
+    const r = await request(http).post('/api/pos/orders').set(bearer(t)).send({
+      orderNumber: 'SO-NP',
+      lines: [{ productId: product.body.id, quantity: 1 }],
+      customerPhone: '+255000000000',
+      paymentMethod: 'BNPL',
+    });
+    expect(r.status).toBe(400);
+    expect(r.body.message).toMatch(/No credit profile/);
+  });
+
+  it('multi-warehouse: items auto-attach to default, can be scoped to a specific warehouse', async () => {
+    const t = await token('multiwh@e2e.test');
+
+    // First item create with no warehouseId -> default "Main" warehouse is auto-created.
+    const item1 = await request(http).post('/api/warehouse/items').set(bearer(t))
+      .send({ sku: 'SKU-A', name: 'Item A', quantity: 10 });
+    expect(item1.status).toBe(201);
+    expect(item1.body.warehouseId).toBeTruthy();
+    const defaultWhId = item1.body.warehouseId as string;
+
+    const whs = await request(http).get('/api/warehouse/warehouses').set(bearer(t));
+    expect(whs.body).toHaveLength(1);
+    expect(whs.body[0].isDefault).toBe(true);
+    expect(whs.body[0].code).toBe('MAIN');
+
+    // Add an Arusha warehouse and an item scoped to it.
+    const arusha = await request(http).post('/api/warehouse/warehouses').set(bearer(t))
+      .send({ code: 'ARU', name: 'Arusha', location: 'Arusha' });
+    expect(arusha.status).toBe(201);
+    const item2 = await request(http).post('/api/warehouse/items').set(bearer(t))
+      .send({ sku: 'SKU-B', name: 'Item B', quantity: 5, warehouseId: arusha.body.id });
+    expect(item2.body.warehouseId).toBe(arusha.body.id);
+
+    // Filter by warehouse.
+    const inMain = await request(http).get(`/api/warehouse/items?warehouseId=${defaultWhId}`).set(bearer(t));
+    expect(inMain.body).toHaveLength(1);
+    expect(inMain.body[0].sku).toBe('SKU-A');
+    const inAru = await request(http).get(`/api/warehouse/items?warehouseId=${arusha.body.id}`).set(bearer(t));
+    expect(inAru.body).toHaveLength(1);
+    expect(inAru.body[0].sku).toBe('SKU-B');
+
+    // Default warehouse cannot be deleted.
+    const delDefault = await request(http).delete(`/api/warehouse/warehouses/${defaultWhId}`).set(bearer(t));
+    expect(delDefault.status).toBe(400);
+
+    // POS sale of an item routes the pick ticket to that item's warehouse.
+    const product = await request(http).post('/api/pos/products').set(bearer(t))
+      .send({ sku: 'SKU-B', name: 'Item B', price: 5000, stock: 5 });
+    const sale = await request(http).post('/api/pos/orders').set(bearer(t)).send({
+      orderNumber: 'SO-MWH-1',
+      lines: [{ productId: product.body.id, quantity: 1 }],
+    });
+    expect(sale.body.pickTicket.warehouseId).toBe(arusha.body.id);
+  });
+
+  it('POS sale auto-posts a balanced double-entry to the GL', async () => {
+    const t = await token('je@e2e.test');
+    const product = await request(http).post('/api/pos/products').set(bearer(t))
+      .send({ sku: 'JE-1', name: 'Item', price: 1000, stock: 10 });
+
+    const sale = await request(http).post('/api/pos/orders').set(bearer(t)).send({
+      orderNumber: 'SO-JE-1',
+      lines: [{ productId: product.body.id, quantity: 5 }],
+      taxAmount: 100,
+    });
+    expect(sale.status).toBe(201);
+    expect(sale.body.total).toBe(5100);
+    expect(Array.isArray(sale.body.journal)).toBe(true);
+
+    // Lines posted: DR Cash 5100, CR Revenue 5000, CR Tax 100.
+    const journal = await request(http).get('/api/erp/journal').set(bearer(t));
+    expect(journal.body).toHaveLength(3);
+    const totalDr = journal.body.reduce((s: number, l: { debit: number }) => s + Number(l.debit), 0);
+    const totalCr = journal.body.reduce((s: number, l: { credit: number }) => s + Number(l.credit), 0);
+    expect(totalDr).toBe(totalCr);
+    expect(totalDr).toBe(5100);
+
+    // Chart of accounts bootstrapped and balances updated.
+    const accounts = await request(http).get('/api/erp/accounts').set(bearer(t));
+    expect(accounts.body.length).toBeGreaterThanOrEqual(7);
+    const byCode = Object.fromEntries(accounts.body.map((a: { code: string }) => [a.code, a]));
+    expect(Number(byCode['1000'].balance)).toBe(5100); // Cash
+    expect(Number(byCode['4000'].balance)).toBe(5000); // Sales Revenue
+    expect(Number(byCode['2000'].balance)).toBe(100);  // VAT Payable
+  });
+
+  it('BNPL sale posts to AR; receivable payment debits Cash, credits AR', async () => {
+    const t = await token('je-bnpl@e2e.test');
+    await request(http).post('/api/credit/profiles').set(bearer(t)).send({
+      customerPhone: '+255700JE001', customerName: 'BNPL Cust', creditLimit: 100000,
+    });
+    const product = await request(http).post('/api/pos/products').set(bearer(t))
+      .send({ sku: 'JE-BNPL', name: 'TV', price: 50000, stock: 5 });
+
+    const sale = await request(http).post('/api/pos/orders').set(bearer(t)).send({
+      orderNumber: 'SO-JE-BNPL',
+      lines: [{ productId: product.body.id, quantity: 1 }],
+      customerPhone: '+255700JE001',
+      paymentMethod: 'BNPL',
+    });
+    expect(sale.status).toBe(201);
+
+    let journal = await request(http).get('/api/erp/journal').set(bearer(t));
+    // DR AR (1100) 50000, CR Revenue (4000) 50000  (no tax, no discount)
+    const sortedSale = [...journal.body].sort((a, b) => Number(b.debit) - Number(a.debit));
+    expect(sortedSale[0].account).toMatch(/^1100/);
+    expect(Number(sortedSale[0].debit)).toBe(50000);
+    expect(sortedSale[1].account).toMatch(/^4000/);
+    expect(Number(sortedSale[1].credit)).toBe(50000);
+
+    // Pay 20000 → DR Cash 20000, CR AR 20000.
+    const recId = sale.body.receivable.id as string;
+    await request(http).patch(`/api/credit/receivables/${recId}/pay`).set(bearer(t))
+      .send({ amount: 20000, reference: 'M-Pesa-XYZ' });
+
+    journal = await request(http).get('/api/erp/journal').set(bearer(t));
+    expect(journal.body).toHaveLength(4);
+    const accounts = await request(http).get('/api/erp/accounts').set(bearer(t));
+    const byCode = Object.fromEntries(accounts.body.map((a: { code: string }) => [a.code, a]));
+    expect(Number(byCode['1000'].balance)).toBe(20000); // Cash received
+    expect(Number(byCode['1100'].balance)).toBe(30000); // AR remaining
+    expect(Number(byCode['4000'].balance)).toBe(50000); // Revenue unchanged
+  });
+
+  it('KobePay: customer + deposit + payout + allocation end-to-end', async () => {
+    const t = await token('kobepay@e2e.test');
+
+    // Customer create.
+    const cust = await request(http).post('/api/kobepay/customers').set(bearer(t))
+      .send({ name: 'Juma Abdallah', phone: '+255713456789', company: 'Juma Traders' });
+    expect(cust.status).toBe(201);
+    expect(cust.body.balance).toBe('0.0000');
+
+    // Phone lookup.
+    const lookup = await request(http).get('/api/kobepay/customers/by-phone/+255713456789').set(bearer(t));
+    expect(lookup.body.id).toBe(cust.body.id);
+
+    // Supplier create.
+    const sup = await request(http).post('/api/kobepay/suppliers').set(bearer(t))
+      .send({ name: 'Yiwu Market', country: 'China', contact: 'Wang Fang' });
+    expect(sup.status).toBe(201);
+
+    // Confirmed deposit bumps customer balance.
+    const dep = await request(http).post('/api/kobepay/deposits').set(bearer(t))
+      .send({ customerId: cust.body.id, amount: 1200, method: 'M-Pesa', reference: 'REF1', status: 'Confirmed' });
+    expect(dep.status).toBe(201);
+    expect(dep.body.status).toBe('Confirmed');
+    const after = await request(http).get(`/api/kobepay/customers/by-phone/+255713456789`).set(bearer(t));
+    expect(Number(after.body.balance)).toBe(1200);
+
+    // Allocation deducts customer balance.
+    const alloc = await request(http).post('/api/kobepay/allocations').set(bearer(t))
+      .send({ customerId: cust.body.id, supplierId: sup.body.id, amount: 500, orderRef: 'ORD-1' });
+    expect(alloc.status).toBe(201);
+    const afterAlloc = await request(http).get(`/api/kobepay/customers/by-phone/+255713456789`).set(bearer(t));
+    expect(Number(afterAlloc.body.balance)).toBe(700);
+
+    // Insufficient-balance allocation is rejected.
+    const denied = await request(http).post('/api/kobepay/allocations').set(bearer(t))
+      .send({ customerId: cust.body.id, supplierId: sup.body.id, amount: 10000, orderRef: 'ORD-X' });
+    expect(denied.status).toBe(400);
+    expect(denied.body.message).toMatch(/Insufficient/);
+
+    // Payout lifecycle: INITIATED -> SENT -> CONFIRMED -> PAID.
+    const payout = await request(http).post('/api/kobepay/payouts').set(bearer(t))
+      .send({ supplierId: sup.body.id, amount: 5000, currency: 'CNY', method: 'Bank', initiatedBy: 'Cashier TZ' });
+    expect(payout.body.status).toBe('INITIATED');
+
+    const sent = await request(http).patch(`/api/kobepay/payouts/${payout.body.id}/status`).set(bearer(t))
+      .send({ status: 'SENT' });
+    expect(sent.body.status).toBe('SENT');
+
+    const confirmed = await request(http).patch(`/api/kobepay/payouts/${payout.body.id}/status`).set(bearer(t))
+      .send({ status: 'CONFIRMED', confirmedBy: 'Cashier China' });
+    expect(confirmed.body.confirmedBy).toBe('Cashier China');
+
+    const paid = await request(http).patch(`/api/kobepay/payouts/${payout.body.id}/status`).set(bearer(t))
+      .send({ status: 'PAID' });
+    expect(paid.body.status).toBe('PAID');
+
+    // PAID is terminal; can't re-transition.
+    const bad = await request(http).patch(`/api/kobepay/payouts/${payout.body.id}/status`).set(bearer(t))
+      .send({ status: 'SENT' });
+    expect(bad.status).toBe(400);
+
+    // Supplier balance + order count incremented on PAID.
+    const sups = await request(http).get('/api/kobepay/suppliers').set(bearer(t));
+    expect(Number(sups.body[0].balance)).toBe(5000);
+    expect(sups.body[0].orders).toBe(1);
+  });
+
+  it('KobePay owner dashboard: projected → realized profit on PAID', async () => {
+    const t = await token('profit@e2e.test');
+
+    const cust = await request(http).post('/api/kobepay/customers').set(bearer(t))
+      .send({ name: 'Juma Abdallah', phone: '+255713456789' });
+    const sup = await request(http).post('/api/kobepay/suppliers').set(bearer(t))
+      .send({ name: 'kuku' });
+
+    // Customer deposits 2,000,000 TZS for 5,000 CNY at sales rate 400.
+    const dep = await request(http).post('/api/kobepay/deposits').set(bearer(t)).send({
+      customerId: cust.body.id,
+      amount: 2_000_000, currency: 'TZS',
+      method: 'M-Pesa', status: 'Confirmed',
+      targetCurrency: 'CNY', targetAmount: 5000, salesRate: 400,
+      serviceFee: 0,
+    });
+    expect(dep.status).toBe(201);
+    expect(Number(dep.body.collectedTzs)).toBe(2_000_000);
+
+    // Initiate the payout, link it to the deposit.
+    const pay = await request(http).post('/api/kobepay/payouts').set(bearer(t)).send({
+      supplierId: sup.body.id, amount: 5000, currency: 'CNY', method: 'Bank',
+      depositId: dep.body.id, initiatedBy: 'Cashier TZ',
+    });
+    expect(pay.body.status).toBe('INITIATED');
+
+    // Before PAID: dashboard shows "Projected" for this transaction.
+    let dash = await request(http).get('/api/kobepay/owner-dashboard').set(bearer(t));
+    expect(dash.status).toBe(200);
+    expect(dash.body.kpis.totalCollected).toBe(2_000_000);
+    expect(dash.body.kpis.realizedProfit).toBe(0);
+    expect(dash.body.kpis.projectedProfit).toBe(2_000_000);
+    expect(dash.body.entries[0].status).toBe('Projected');
+    expect(dash.body.entries[0].profitTzs).toBe(0);
+
+    // Walk through SENT → CONFIRMED → PAID with actual cost rate 380.
+    await request(http).patch(`/api/kobepay/payouts/${pay.body.id}/status`).set(bearer(t))
+      .send({ status: 'SENT' });
+    await request(http).patch(`/api/kobepay/payouts/${pay.body.id}/status`).set(bearer(t))
+      .send({ status: 'CONFIRMED', confirmedBy: 'Cashier China' });
+    await request(http).patch(`/api/kobepay/payouts/${pay.body.id}/status`).set(bearer(t))
+      .send({ status: 'PAID', actualRate: 380, bankCharges: 5000 });
+
+    dash = await request(http).get('/api/kobepay/owner-dashboard').set(bearer(t));
+    // collected 2M, actual cost = 5000 × 380 = 1.9M, fees = 5000 → profit = 95,000.
+    expect(dash.body.kpis.totalCollected).toBe(2_000_000);
+    expect(dash.body.kpis.totalPaidToSuppliers).toBe(1_900_000);
+    expect(dash.body.kpis.realizedProfit).toBe(95_000);
+    expect(dash.body.kpis.bankAndMobileCharges).toBe(5_000);
+    // Exchange profit = (400 − 380) × 5000 = 100,000.
+    expect(dash.body.kpis.exchangeProfit).toBe(100_000);
+    expect(dash.body.entries[0].status).toBe('Realized');
+    expect(dash.body.entries[0].profitTzs).toBe(95_000);
+  });
+
+  it('KobePay RBAC: cashier pin scopes permissions; audit + risk capture activity', async () => {
+    const t = await token('rbac@e2e.test');
+
+    // Owner creates two cashiers.
+    const tz = await request(http).post('/api/kobepay/users').set(bearer(t))
+      .send({ name: 'Asha', role: 'Cashier TZ', pin: '1111' });
+    expect(tz.status).toBe(201);
+    const cn = await request(http).post('/api/kobepay/users').set(bearer(t))
+      .send({ name: 'Wei', role: 'Cashier China', pin: '2222' });
+    expect(cn.status).toBe(201);
+
+    // Duplicate pin rejected.
+    const dupe = await request(http).post('/api/kobepay/users').set(bearer(t))
+      .send({ name: 'Other', role: 'Cashier TZ', pin: '1111' });
+    expect(dupe.status).toBe(400);
+
+    // Set up a customer + supplier as owner (no pin header).
+    const cust = await request(http).post('/api/kobepay/customers').set(bearer(t))
+      .send({ name: 'Juma', phone: '+255700000000' });
+    const sup = await request(http).post('/api/kobepay/suppliers').set(bearer(t))
+      .send({ name: 'Yiwu' });
+
+    // Cashier TZ can create a deposit (allowed).
+    const depOK = await request(http).post('/api/kobepay/deposits')
+      .set(bearer(t)).set('x-kobepay-pin', '1111')
+      .send({ customerId: cust.body.id, amount: 100000, method: 'M-Pesa', status: 'Confirmed',
+        targetCurrency: 'CNY', targetAmount: 250, salesRate: 400 });
+    expect(depOK.status).toBe(201);
+
+    // Cashier TZ tries to create a payout (forbidden — only China cashiers can).
+    const payDenied = await request(http).post('/api/kobepay/payouts')
+      .set(bearer(t)).set('x-kobepay-pin', '1111')
+      .send({ supplierId: sup.body.id, amount: 250, currency: 'CNY', method: 'Bank' });
+    expect(payDenied.status).toBe(403);
+
+    // China cashier creates the payout (allowed via payout.create perm... but
+    // Cashier China role lacks payout.create — it can only advance existing
+    // payouts. So this should also be 403, demonstrating four-eye control.)
+    const cnCreate = await request(http).post('/api/kobepay/payouts')
+      .set(bearer(t)).set('x-kobepay-pin', '2222')
+      .send({ supplierId: sup.body.id, amount: 250, currency: 'CNY', method: 'Bank', depositId: depOK.body.id });
+    expect(cnCreate.status).toBe(403);
+
+    // Owner creates the payout (no pin → owner-JWT trust path).
+    const payout = await request(http).post('/api/kobepay/payouts').set(bearer(t))
+      .send({ supplierId: sup.body.id, amount: 250, currency: 'CNY', method: 'Bank', depositId: depOK.body.id });
+    expect(payout.status).toBe(201);
+
+    // China cashier advances and marks PAID.
+    await request(http).patch(`/api/kobepay/payouts/${payout.body.id}/status`)
+      .set(bearer(t)).set('x-kobepay-pin', '2222').send({ status: 'SENT' });
+    await request(http).patch(`/api/kobepay/payouts/${payout.body.id}/status`)
+      .set(bearer(t)).set('x-kobepay-pin', '2222').send({ status: 'CONFIRMED', confirmedBy: 'Wei' });
+    const paid = await request(http).patch(`/api/kobepay/payouts/${payout.body.id}/status`)
+      .set(bearer(t)).set('x-kobepay-pin', '2222').send({ status: 'PAID', actualRate: 380 });
+    expect(paid.body.status).toBe('PAID');
+
+    // Audit log captured every mutating action.
+    const audit = await request(http).get('/api/kobepay/audit').set(bearer(t));
+    const actions = audit.body.map((a: { action: string }) => a.action);
+    expect(actions).toContain('deposit.create');
+    expect(actions).toContain('payout.create');
+    expect(actions).toContain('payout.paid');
+    const tzActor = audit.body.find((a: { action: string; actorName: string }) => a.action === 'deposit.create');
+    expect(tzActor.actorName).toBe('Asha');
+
+    // Cashier performance attributes the deposit to Asha.
+    const perf = await request(http).get('/api/kobepay/cashier-performance').set(bearer(t));
+    const asha = perf.body.find((c: { name: string }) => c.name === 'Asha');
+    expect(asha).toBeDefined();
+    expect(asha.deposits).toBe(1);
+    expect(asha.depositsTotal).toBe(100000);
+
+    // Risk dashboard does not flag this 100k deposit (well under 10M threshold).
+    const risk = await request(http).get('/api/kobepay/risk').set(bearer(t));
+    expect(risk.body.alerts.filter((a: { kind: string }) => a.kind === 'large_deposit')).toHaveLength(0);
+  });
+
+  it('KobePay rates: set house rate, deposit uses it, risk flags override', async () => {
+    const t = await token('rates@e2e.test');
+
+    // No rates set yet -> active list is empty.
+    let active = await request(http).get('/api/kobepay/rates/active').set(bearer(t));
+    expect(active.body).toEqual([]);
+
+    // Set house rate: CNY -> TZS sales 400, cost 380.
+    const rate = await request(http).post('/api/kobepay/rates').set(bearer(t))
+      .send({ fromCurrency: 'CNY', toCurrency: 'TZS', salesRate: 400, costRate: 380, notes: 'opening rate' });
+    expect(rate.status).toBe(201);
+
+    active = await request(http).get('/api/kobepay/rates/active').set(bearer(t));
+    expect(active.body).toHaveLength(1);
+    expect(Number(active.body[0].salesRate)).toBe(400);
+    expect(Number(active.body[0].costRate)).toBe(380);
+
+    // Both sales and cost > 0 validation.
+    const bad = await request(http).post('/api/kobepay/rates').set(bearer(t))
+      .send({ fromCurrency: 'CNY', salesRate: 0, costRate: 380 });
+    expect(bad.status).toBe(400);
+
+    // A new rate inserts (doesn't update) and supersedes the old one.
+    await request(http).post('/api/kobepay/rates').set(bearer(t))
+      .send({ fromCurrency: 'CNY', salesRate: 410, costRate: 385 });
+    const history = await request(http).get('/api/kobepay/rates').set(bearer(t));
+    expect(history.body.length).toBeGreaterThanOrEqual(2);
+    active = await request(http).get('/api/kobepay/rates/active').set(bearer(t));
+    expect(Number(active.body[0].salesRate)).toBe(410);
+
+    // Deposit at house rate (400 was the original; using the new rate now).
+    const cust = await request(http).post('/api/kobepay/customers').set(bearer(t))
+      .send({ name: 'Asha', phone: '+255700000111' });
+    const onHouseRate = await request(http).post('/api/kobepay/deposits').set(bearer(t))
+      .send({
+        customerId: cust.body.id, amount: 100_000, currency: 'CNY',
+        method: 'Bank', status: 'Confirmed', txnType: 'Deposit',
+        targetCurrency: 'CNY', targetAmount: 100, salesRate: 410,
+      });
+    expect(onHouseRate.status).toBe(201);
+
+    // Deposit at off-house rate (435 vs house 410 = 6.1% off — under threshold).
+    await request(http).post('/api/kobepay/deposits').set(bearer(t))
+      .send({
+        customerId: cust.body.id, amount: 100_000, currency: 'CNY',
+        method: 'Bank', status: 'Confirmed', txnType: 'Deposit',
+        targetCurrency: 'CNY', targetAmount: 100, salesRate: 435,
+      });
+
+    // Deposit at heavily-off rate (500 vs house 410 = 21.9% off).
+    const off = await request(http).post('/api/kobepay/deposits').set(bearer(t))
+      .send({
+        customerId: cust.body.id, amount: 100_000, currency: 'CNY',
+        method: 'Bank', status: 'Confirmed', txnType: 'Deposit',
+        targetCurrency: 'CNY', targetAmount: 100, salesRate: 500,
+      });
+    expect(off.status).toBe(201);
+
+    // Risk dashboard now flags the off-house deposit as rate_override.
+    const risk = await request(http).get('/api/kobepay/risk').set(bearer(t));
+    const overrides = risk.body.alerts.filter((a: { kind: string; resourceId: string }) =>
+      a.kind === 'rate_override' && a.resourceId === off.body.id);
+    expect(overrides.length).toBe(1);
+    expect(overrides[0].message).toMatch(/house rate 410/);
+
+    // Deactivating the most recent rate falls back to the older one.
+    await request(http).patch(`/api/kobepay/rates/${rate.body.id}/deactivate`).set(bearer(t)).send({});
+    const auditPage = await request(http).get('/api/kobepay/audit').set(bearer(t));
+    expect(auditPage.body.some((a: { action: string }) => a.action === 'rate.set')).toBe(true);
+    expect(auditPage.body.some((a: { action: string }) => a.action === 'rate.deactivate')).toBe(true);
+  });
+
+  it('KobePay rate.override: cashier blocked unless explicitly granted', async () => {
+    const t = await token('rate-override@e2e.test');
+
+    // House rate CNY->TZS 410.
+    await request(http).post('/api/kobepay/rates').set(bearer(t))
+      .send({ fromCurrency: 'CNY', salesRate: 410, costRate: 380 });
+
+    // Create a TZ cashier with pin 1111 (no rate.override by default).
+    const tz = await request(http).post('/api/kobepay/users').set(bearer(t))
+      .send({ name: 'Asha', role: 'Cashier TZ', pin: '1111' });
+
+    const cust = await request(http).post('/api/kobepay/customers').set(bearer(t))
+      .send({ name: 'Juma', phone: '+255700000222' });
+
+    // Deposit at exact house rate → allowed.
+    const ok = await request(http).post('/api/kobepay/deposits')
+      .set(bearer(t)).set('x-kobepay-pin', '1111')
+      .send({
+        customerId: cust.body.id, amount: 100_000, method: 'M-Pesa',
+        status: 'Confirmed', targetCurrency: 'CNY', targetAmount: 100, salesRate: 410,
+      });
+    expect(ok.status).toBe(201);
+
+    // Deposit at 425 (3.7% off) — beyond 0.5% tolerance, blocked.
+    const denied = await request(http).post('/api/kobepay/deposits')
+      .set(bearer(t)).set('x-kobepay-pin', '1111')
+      .send({
+        customerId: cust.body.id, amount: 100_000, method: 'M-Pesa',
+        status: 'Confirmed', targetCurrency: 'CNY', targetAmount: 100, salesRate: 425,
+      });
+    expect(denied.status).toBe(403);
+    expect(denied.body.message).toMatch(/rate.override/);
+
+    // Audit log records the denial.
+    const auditBefore = await request(http).get('/api/kobepay/audit').set(bearer(t));
+    expect(auditBefore.body.some((a: { action: string }) => a.action === 'rate.overrideDenied')).toBe(true);
+
+    // Owner grants Asha the per-user rate.override permission.
+    await request(http).patch(`/api/kobepay/users/${tz.body.id}`).set(bearer(t))
+      .send({ permissions: { 'rate.override': true } });
+
+    // Now the same off-house deposit succeeds.
+    const allowed = await request(http).post('/api/kobepay/deposits')
+      .set(bearer(t)).set('x-kobepay-pin', '1111')
+      .send({
+        customerId: cust.body.id, amount: 100_000, method: 'M-Pesa',
+        status: 'Confirmed', targetCurrency: 'CNY', targetAmount: 100, salesRate: 425,
+      });
+    expect(allowed.status).toBe(201);
+
+    // Audit log captures the override.
+    const auditAfter = await request(http).get('/api/kobepay/audit').set(bearer(t));
+    const override = auditAfter.body.find(
+      (a: { action: string; metadata?: { attempted?: number } }) =>
+        a.action === 'rate.override' && a.metadata?.attempted === 425,
+    );
+    expect(override).toBeDefined();
+    expect(override.actorName).toBe('Asha');
+  });
+
+  it('KobePay USD-base rates: cross-rates derive via USD; override gate uses derived', async () => {
+    const t = await token('rate-base@e2e.test');
+
+    // Owner sets the two USD-base rates.
+    await request(http).post('/api/kobepay/rates').set(bearer(t))
+      .send({ fromCurrency: 'USD', toCurrency: 'CNY', salesRate: 6.7, costRate: 6.7 });
+    await request(http).post('/api/kobepay/rates').set(bearer(t))
+      .send({ fromCurrency: 'USD', toCurrency: 'TZS', salesRate: 2630, costRate: 2630 });
+
+    // CNY->TZS isn't stored but should resolve to ~392.537 via USD.
+    const resolved = await request(http).get('/api/kobepay/rates/resolve?from=CNY&to=TZS').set(bearer(t));
+    expect(resolved.body.source).toBe('derived');
+    expect(resolved.body.via).toBe('USD');
+    expect(resolved.body.salesRate).toBeCloseTo(2630 / 6.7, 2);
+
+    // /rates/derived surfaces the CNY->TZS pair plus its reverse.
+    const derived = await request(http).get('/api/kobepay/rates/derived').set(bearer(t));
+    const cnyTzs = derived.body.find((r: { fromCurrency: string; toCurrency: string }) =>
+      r.fromCurrency === 'CNY' && r.toCurrency === 'TZS');
+    expect(cnyTzs).toBeDefined();
+    expect(cnyTzs.salesRate).toBeCloseTo(2630 / 6.7, 2);
+
+    // Cashier TZ with no rate.override is bound by the derived rate.
+    await request(http).post('/api/kobepay/users').set(bearer(t))
+      .send({ name: 'Asha', role: 'Cashier TZ', pin: '3333' });
+    const cust = await request(http).post('/api/kobepay/customers').set(bearer(t))
+      .send({ name: 'Juma', phone: '+255700000333' });
+
+    // Deposit at the exact derived rate → allowed.
+    const houseRate = 2630 / 6.7;
+    const ok = await request(http).post('/api/kobepay/deposits')
+      .set(bearer(t)).set('x-kobepay-pin', '3333')
+      .send({
+        customerId: cust.body.id, amount: 100_000, method: 'M-Pesa', status: 'Confirmed',
+        targetCurrency: 'CNY', targetAmount: 100, salesRate: parseFloat(houseRate.toFixed(2)),
+      });
+    expect(ok.status).toBe(201);
+
+    // Deposit at 10% above derived → blocked.
+    const denied = await request(http).post('/api/kobepay/deposits')
+      .set(bearer(t)).set('x-kobepay-pin', '3333')
+      .send({
+        customerId: cust.body.id, amount: 100_000, method: 'M-Pesa', status: 'Confirmed',
+        targetCurrency: 'CNY', targetAmount: 100, salesRate: parseFloat((houseRate * 1.10).toFixed(2)),
+      });
+    expect(denied.status).toBe(403);
+    expect(denied.body.message).toMatch(/diverges from house rate/);
+  });
+
+  it('KobePay three-rate model: admin sets public+office, China sets real, owner sees variance', async () => {
+    const t = await token('three-rate@e2e.test');
+
+    // Admin sets USD-base rates: public 2630, office 2620; USD->CNY 6.7 / 6.75.
+    const tzs = await request(http).post('/api/kobepay/rates').set(bearer(t))
+      .send({ fromCurrency: 'USD', toCurrency: 'TZS', salesRate: 2630, costRate: 2620 });
+    const cny = await request(http).post('/api/kobepay/rates').set(bearer(t))
+      .send({ fromCurrency: 'USD', toCurrency: 'CNY', salesRate: 6.7, costRate: 6.75 });
+    expect(tzs.status).toBe(201);
+    expect(cny.status).toBe(201);
+
+    // Create a Cashier China without rate.setReal — attempt to update real rate fails.
+    const wei = await request(http).post('/api/kobepay/users').set(bearer(t))
+      .send({ name: 'Wei', role: 'Cashier China', pin: '4444' });
+    const denied = await request(http).patch(`/api/kobepay/rates/${cny.body.id}/real`)
+      .set(bearer(t)).set('x-kobepay-pin', '4444')
+      .send({ realRate: 6.8 });
+    expect(denied.status).toBe(403);
+
+    // Grant rate.setReal and retry — succeeds.
+    await request(http).patch(`/api/kobepay/users/${wei.body.id}`).set(bearer(t))
+      .send({ permissions: { 'rate.setReal': true } });
+    const ok = await request(http).patch(`/api/kobepay/rates/${cny.body.id}/real`)
+      .set(bearer(t)).set('x-kobepay-pin', '4444')
+      .send({ realRate: 6.8 });
+    expect(ok.status).toBe(200);
+    expect(Number(ok.body.realRate)).toBe(6.8);
+
+    // Resolve CNY->TZS: derived realRate = (USD->TZS cost) / (USD->CNY real) = 2620 / 6.8 ≈ 385.29
+    const resolved = await request(http).get('/api/kobepay/rates/resolve?from=CNY&to=TZS').set(bearer(t));
+    expect(resolved.body.source).toBe('derived');
+    expect(resolved.body.realRate).toBeCloseTo(2620 / 6.8, 2);
+
+    // Audit captures the rate.setReal event with previous → new.
+    const audit = await request(http).get('/api/kobepay/audit').set(bearer(t));
+    const setReal = audit.body.find((a: { action: string }) => a.action === 'rate.setReal');
+    expect(setReal).toBeDefined();
+    expect(setReal.actorName).toBe('Wei');
+    expect(setReal.metadata.realRate).toBe(6.8);
+
+    // A confirmed deposit feeds the variance KPI: office CNY->TZS = 2620/6.75 ≈ 388.15,
+    // real CNY->TZS = 2620/6.8 ≈ 385.29 → variance per CNY ≈ 2.86 TZS.
+    // 1000 CNY targetAmount → variance ≈ 2860 TZS (positive: real cheaper than office).
+    const cust = await request(http).post('/api/kobepay/customers').set(bearer(t))
+      .send({ name: 'Juma', phone: '+255700000444' });
+    await request(http).post('/api/kobepay/deposits').set(bearer(t)).send({
+      customerId: cust.body.id, amount: 388_148, method: 'M-Pesa', status: 'Confirmed',
+      targetCurrency: 'CNY', targetAmount: 1000, salesRate: 392.537,
+    });
+
+    const dash = await request(http).get('/api/kobepay/owner-dashboard').set(bearer(t));
+    expect(dash.body.kpis.rateVariance).toBeGreaterThan(2000);
+    expect(dash.body.kpis.rateVariance).toBeLessThan(4000);
+  });
+
+  it('KobePay USD-cash deposit locks supplier CNY and city; TZS-cash derives USD intent', async () => {
+    const t = await token('intent@e2e.test');
+
+    await request(http).post('/api/kobepay/rates').set(bearer(t))
+      .send({ fromCurrency: 'USD', toCurrency: 'CNY', salesRate: 6.7, costRate: 6.75 });
+    await request(http).post('/api/kobepay/rates').set(bearer(t))
+      .send({ fromCurrency: 'USD', toCurrency: 'TZS', salesRate: 2630, costRate: 2620 });
+
+    const cust = await request(http).post('/api/kobepay/customers').set(bearer(t))
+      .send({ name: 'Juma', phone: '+255700000777' });
+
+    // Customer hands 10,000 USD cash; supplier in Yiwu must receive 67,000 CNY.
+    const usdCash = await request(http).post('/api/kobepay/deposits').set(bearer(t)).send({
+      customerId: cust.body.id,
+      amount: 10_000, currency: 'USD', cashCurrency: 'USD',
+      method: 'Cash', status: 'Confirmed', txnType: 'Deposit',
+      targetCurrency: 'CNY',
+      quoteUsd: 10_000,
+      supplierCity: 'Yiwu',
+      suppliers: [{ supplierNumber: 'SUP-001', supplierName: 'Yiwu Trading Co', amount: 67_000, city: 'Yiwu' }],
+    });
+    expect(usdCash.status).toBe(201);
+    expect(Number(usdCash.body.quoteUsd)).toBe(10_000);
+    expect(usdCash.body.cashCurrency).toBe('USD');
+    expect(usdCash.body.supplierCity).toBe('Yiwu');
+    // Derived targetAmount = 10,000 × 6.7 = 67,000 CNY (or kept from explicit supplier line total).
+    expect(Number(usdCash.body.targetAmount)).toBe(67_000);
+    // Derived collectedTzs from USD intent × public USD->TZS = 26,300,000.
+    expect(Number(usdCash.body.collectedTzs)).toBe(26_300_000);
+
+    // Customer pays 26,300,000 TZS cash for the same supplier outcome.
+    const tzsCash = await request(http).post('/api/kobepay/deposits').set(bearer(t)).send({
+      customerId: cust.body.id,
+      amount: 26_300_000, currency: 'TZS', cashCurrency: 'TZS',
+      method: 'Cash', status: 'Confirmed', txnType: 'Deposit',
+      targetCurrency: 'CNY',
+      supplierCity: 'Guangzhou',
+      suppliers: [{ supplierNumber: 'SUP-002', supplierName: 'GZ Electronics', amount: 67_000, city: 'Guangzhou' }],
+    });
+    expect(tzsCash.status).toBe(201);
+    // USD intent derived from TZS cash / public USD->TZS = 10,000.
+    expect(Number(tzsCash.body.quoteUsd)).toBe(10_000);
+    expect(tzsCash.body.cashCurrency).toBe('TZS');
+    // collectedTzs lock equals what they handed over.
+    expect(Number(tzsCash.body.collectedTzs)).toBe(26_300_000);
+
+    // Owner dashboard surfaces the combined USD intent.
+    const dash = await request(http).get('/api/kobepay/owner-dashboard').set(bearer(t));
+    expect(dash.body.kpis.totalQuoteUsd).toBe(20_000);
+    expect(dash.body.kpis.totalCollected).toBe(52_600_000);
+  });
+
+
+  it('Model 2: KobePay dispatches receipts to the right ERP install only', async () => {
+    const kobepay = await token('kobepay@e2e.test');
+    const asha = await token('asha@e2e.test');
+    const juma = await token('juma@e2e.test');
+
+    // Each ERP install registers a provider; the apiKey is shared
+    // with KobePay out-of-band so KobePay can sign inbound POSTs.
+    const ashaProvider = await request(http).post('/api/erp/kobepay-inbox/providers').set(bearer(asha))
+      .send({ name: 'KobePay Trade Finance' });
+    expect(ashaProvider.status).toBe(201);
+    const ashaKey = ashaProvider.body.apiKey;
+    expect(ashaKey).toMatch(/^erp-kbp_/);
+    const jumaProvider = await request(http).post('/api/erp/kobepay-inbox/providers').set(bearer(juma))
+      .send({ name: 'KobePay Trade Finance' });
+    const jumaKey = jumaProvider.body.apiKey;
+
+    // Both Asha and Juma have a supplier at the same Chinese phone —
+    // separate rows in their respective ERPs; must never cross-link.
+    const sharedPhone = '+8613812345678';
+    const ashaSup = await request(http).post('/api/erp/sourcing/suppliers').set(bearer(asha))
+      .send({ name: 'Guangzhou Shoes Ltd', phone: sharedPhone, country: 'China' });
+    const jumaSup = await request(http).post('/api/erp/sourcing/suppliers').set(bearer(juma))
+      .send({ name: 'Guangzhou Shoes Ltd', phone: sharedPhone, country: 'China' });
+    expect(ashaSup.body.id).not.toBe(jumaSup.body.id);
+
+    const dispatchTo = (apiKey: string, payload: Record<string, unknown>) =>
+      request(http).post('/api/erp/kobepay-inbox')
+        .set('Authorization', `Bearer ${apiKey}`).send(payload);
+
+    // Receipt for Asha → matches Asha's supplier.
+    const r1 = await dispatchTo(ashaKey, {
+      kobepayReceiptId: 'RCPT-001', kobepayBusinessName: 'KobePay TZ',
+      customerPhone: '+255711000001', customerName: 'Asha Trading',
+      supplierPhone: sharedPhone, supplierName: 'Guangzhou Shoes Ltd',
+      sentAmount: 10_000_000, sentCurrency: 'TZS',
+      supplierReceivedAmount: 25_475, supplierCurrency: 'CNY',
+      supplierCity: 'Guangzhou',
+    });
+    expect(r1.status).toBe(201);
+    expect(r1.body.allocationStatus).toBe('linked');
+    expect(r1.body.supplierId).toBe(ashaSup.body.id);
+
+    // Same shape, different bearer → linked to Juma's supplier only.
+    const r2 = await dispatchTo(jumaKey, {
+      kobepayReceiptId: 'RCPT-002',
+      customerPhone: '+255722000002', customerName: 'Juma Imports',
+      supplierPhone: sharedPhone, supplierName: 'Guangzhou Shoes Ltd',
+      sentAmount: 5_000_000, sentCurrency: 'TZS',
+    });
+    expect(r2.body.supplierId).toBe(jumaSup.body.id);
+
+    // Idempotent re-dispatch.
+    const r1again = await dispatchTo(ashaKey, {
+      kobepayReceiptId: 'RCPT-001',
+      customerPhone: '+255711000001', supplierPhone: sharedPhone,
+      sentAmount: 99_999_999, sentCurrency: 'TZS',
+    });
+    expect(r1again.body.id).toBe(r1.body.id);
+    expect(Number(r1again.body.sentAmount)).toBe(10_000_000);
+
+    // Unknown bearer → 401.
+    const denied = await dispatchTo('erp-kbp_not-real', {
+      kobepayReceiptId: 'RCPT-X', customerPhone: '+1', supplierPhone: '+1', sentAmount: 1,
+    });
+    expect(denied.status).toBe(401);
+
+    // ERP owners see only their own inbox.
+    const ashaInbox = await request(http).get('/api/erp/kobepay-inbox').set(bearer(asha));
+    expect(ashaInbox.body.map((r: { kobepayReceiptId: string }) => r.kobepayReceiptId)).toEqual(['RCPT-001']);
+    const jumaInbox = await request(http).get('/api/erp/kobepay-inbox').set(bearer(juma));
+    expect(jumaInbox.body.map((r: { kobepayReceiptId: string }) => r.kobepayReceiptId)).toEqual(['RCPT-002']);
+
+    // Revoking Asha's provider rejects further dispatches with that key.
+    await request(http).patch(`/api/erp/kobepay-inbox/providers/${ashaProvider.body.id}`).set(bearer(asha))
+      .send({ active: false });
+    const revoked = await dispatchTo(ashaKey, {
+      kobepayReceiptId: 'RCPT-003',
+      customerPhone: '+255711000001', supplierPhone: sharedPhone,
+      sentAmount: 1, sentCurrency: 'TZS',
+    });
+    expect(revoked.status).toBe(401);
+
+    // KobePay's own client directory stores where to dispatch.
+    const kobepayClient = await request(http).post('/api/kobepay/customers').set(bearer(kobepay))
+      .send({
+        name: 'Asha Trading', phone: '+255711000001',
+        erpEndpointUrl: 'http://asha-erp.example/api/erp/kobepay-inbox',
+        erpApiKey: ashaKey,
+        erpAccountId: ashaProvider.body.id,
+      });
+    expect(kobepayClient.body.erpEndpointUrl).toBe('http://asha-erp.example/api/erp/kobepay-inbox');
+  });
+
+  it('Model 2 GL: journal entries post on both KobePay and ERP sides', async () => {
+    const kobepay = await token('gl-kobepay@e2e.test');
+    const asha = await token('gl-asha@e2e.test');
+
+    // Asha (ERP) registers KobePay as a provider.
+    const provider = await request(http).post('/api/erp/kobepay-inbox/providers').set(bearer(asha))
+      .send({ name: 'KobePay Trade Finance' });
+    const apiKey = provider.body.apiKey;
+
+    // KobePay sets USD-base rates for clean math.
+    await request(http).post('/api/kobepay/rates').set(bearer(kobepay))
+      .send({ fromCurrency: 'USD', toCurrency: 'TZS', salesRate: 2630, costRate: 2620 });
+    await request(http).post('/api/kobepay/rates').set(bearer(kobepay))
+      .send({ fromCurrency: 'USD', toCurrency: 'CNY', salesRate: 6.7, costRate: 6.75 });
+
+    const kpClient = await request(http).post('/api/kobepay/customers').set(bearer(kobepay))
+      .send({ name: 'Asha Trading', phone: '+255711000099' });
+
+    // Confirmed deposit → KobePay books DR Cash, CR Customer Deposit Liability.
+    const dep = await request(http).post('/api/kobepay/deposits').set(bearer(kobepay)).send({
+      customerId: kpClient.body.id,
+      amount: 10_000, currency: 'USD', cashCurrency: 'USD',
+      method: 'Cash', status: 'Confirmed', txnType: 'Deposit',
+      targetCurrency: 'CNY', quoteUsd: 10_000,
+      suppliers: [{ supplierNumber: 'SUP-1', supplierName: 'Yiwu Co', amount: 67_000, city: 'Yiwu' }],
+    });
+    expect(dep.status).toBe(201);
+
+    let kpJournal = await request(http).get('/api/erp/journal').set(bearer(kobepay));
+    const cashDeposit = kpJournal.body.find((j: { account: string; debit: number }) =>
+      j.account.startsWith('1000') && Number(j.debit) === 26_300_000);
+    const liabilityCredit = kpJournal.body.find((j: { account: string; credit: number }) =>
+      j.account.startsWith('2100') && Number(j.credit) === 26_300_000);
+    expect(cashDeposit).toBeDefined();
+    expect(liabilityCredit).toBeDefined();
+
+    // ERP side: KobePay dispatches the receipt; once linked the ERP
+    // posts DR Inventory in Transit, CR Cash for the TZS sent.
+    await request(http).post('/api/erp/sourcing/suppliers').set(bearer(asha))
+      .send({ name: 'Yiwu Co', phone: 'SUP-1', country: 'China' });
+    await request(http).post('/api/erp/kobepay-inbox').set('Authorization', `Bearer ${apiKey}`).send({
+      kobepayReceiptId: 'RCPT-GL-1',
+      customerPhone: '+255711000099', customerName: 'Asha Trading',
+      supplierPhone: 'SUP-1', supplierName: 'Yiwu Co',
+      sentAmount: 26_300_000, sentCurrency: 'TZS', exchangeRate: 1,
+      supplierReceivedAmount: 67_000, supplierCurrency: 'CNY',
+      supplierCity: 'Yiwu',
+    });
+
+    const ashaJournal = await request(http).get('/api/erp/journal').set(bearer(asha));
+    const inv = ashaJournal.body.find((j: { account: string; debit: number }) =>
+      j.account.startsWith('1300') && Number(j.debit) === 26_300_000);
+    const cashOut = ashaJournal.body.find((j: { account: string; credit: number }) =>
+      j.account.startsWith('1000') && Number(j.credit) === 26_300_000);
+    expect(inv).toBeDefined();
+    expect(cashOut).toBeDefined();
+
+    // Now Cashier China pays the supplier and marks the payout PAID
+    // at the office rate (no exchange variance to keep math clean).
+    const sup = await request(http).post('/api/kobepay/suppliers').set(bearer(kobepay))
+      .send({ name: 'Yiwu Co', phone: 'SUP-1', country: 'China' });
+    const payout = await request(http).post('/api/kobepay/payouts').set(bearer(kobepay)).send({
+      supplierId: sup.body.id, amount: 67_000, currency: 'CNY', method: 'Bank',
+      depositId: dep.body.id, initiatedBy: 'kobepay-owner',
+    });
+    await request(http).patch(`/api/kobepay/payouts/${payout.body.id}/status`).set(bearer(kobepay))
+      .send({ status: 'SENT' });
+    await request(http).patch(`/api/kobepay/payouts/${payout.body.id}/status`).set(bearer(kobepay))
+      .send({ status: 'CONFIRMED', confirmedBy: 'china-cashier' });
+    // actualRate matches the office rate exactly so no variance posts;
+    // we expect: DR Liability 26.3M, CR China Cash (67000 × actualRate × USD bridge).
+    // The payout's actualCostTzs derives from amount × actualRate when
+    // actualRate is supplied and cost wasn't given. Setting actualRate=2620/6.75
+    // ≈ 388.148 → actualCostTzs ≈ 26 005 916.
+    await request(http).patch(`/api/kobepay/payouts/${payout.body.id}/status`).set(bearer(kobepay))
+      .send({ status: 'PAID', actualRate: parseFloat((2620 / 6.75).toFixed(6)) });
+
+    kpJournal = await request(http).get('/api/erp/journal').set(bearer(kobepay));
+    const liabilityClose = kpJournal.body.find((j: { account: string; debit: number; description: string }) =>
+      j.account.startsWith('2100') && j.description?.includes('close out') && Number(j.debit) > 0);
+    const chinaCashOut = kpJournal.body.find((j: { account: string; credit: number }) =>
+      j.account.startsWith('1010') && Number(j.credit) > 0);
+    expect(liabilityClose).toBeDefined();
+    expect(chinaCashOut).toBeDefined();
+
+    // KobePay's chart now shows non-zero balances on Cash (1000),
+    // Customer Deposit Liability (2100 should be ~0 after close out),
+    // China Cash (1010 negative reflecting outflow), Exchange P&L (4200).
+    const kpAccounts = await request(http).get('/api/erp/accounts').set(bearer(kobepay));
+    const byCode = Object.fromEntries(kpAccounts.body.map((a: { code: string }) => [a.code, a]));
+    expect(Number(byCode['1000'].balance)).toBe(26_300_000);
+    expect(Math.abs(Number(byCode['2100'].balance))).toBeLessThan(1);
+    expect(Number(byCode['1010'].balance)).toBeLessThan(0);
+  });
+
+  it('KobePay dispatch retry queue: failures enqueue + force-retry path', async () => {
+    const kobepay = await token('retry-kp@e2e.test');
+
+    // Client with a URL that doesn't exist → dispatch fails inline.
+    const client = await request(http).post('/api/kobepay/customers').set(bearer(kobepay))
+      .send({
+        name: 'Doomed Client', phone: '+255700RETRY',
+        erpEndpointUrl: 'http://127.0.0.1:1/never-listening',
+        erpApiKey: 'erp-kbp_fake',
+      });
+
+    // Confirmed deposit → dispatcher tries and fails → row in the queue.
+    const dep = await request(http).post('/api/kobepay/deposits').set(bearer(kobepay)).send({
+      customerId: client.body.id,
+      amount: 1000, currency: 'USD', cashCurrency: 'USD',
+      method: 'Cash', status: 'Confirmed', txnType: 'Deposit',
+      targetCurrency: 'CNY', quoteUsd: 1000,
+    });
+    expect(dep.status).toBe(201);
+
+    const queue = await request(http).get('/api/kobepay/dispatch-queue').set(bearer(kobepay));
+    const row = queue.body.find((r: { depositId: string }) => r.depositId === dep.body.id);
+    expect(row).toBeDefined();
+    expect(row.status).toBe('pending');
+    expect(row.attemptCount).toBe(1);
+    expect(new Date(row.nextRetryAt).getTime()).toBeGreaterThan(Date.now() - 1000);
+
+    const pending = await request(http).get('/api/kobepay/dispatch-queue/pending-count').set(bearer(kobepay));
+    expect(pending.body.count).toBeGreaterThanOrEqual(1);
+
+    // Force-retry: bumps nextRetryAt to now, status stays pending.
+    const forced = await request(http).patch(`/api/kobepay/dispatch-queue/${row.id}/retry`).set(bearer(kobepay)).send({});
+    expect(forced.status).toBe(200);
+    expect(new Date(forced.body.nextRetryAt).getTime()).toBeLessThanOrEqual(Date.now() + 1000);
+
+    // Test dispatch endpoint reports the same failure shape.
+    const probe = await request(http).post(`/api/kobepay/customers/${client.body.id}/test-dispatch`)
+      .set(bearer(kobepay)).send({});
+    expect(probe.status).toBeLessThan(500);
+    expect(probe.body.ok).toBe(false);
+    expect(typeof probe.body.error).toBe('string');
+  });
+
+  it('Storefront: public POST /store/:slug/orders writes a PosOrder + deducts stock + creates pick ticket', async () => {
+    // Owner sets up: storefront slug + a real catalogue product.
+    const t = await token('shop-owner@e2e.test');
+    await request(http).put('/api/store-settings').set(bearer(t))
+      .send({ storeName: 'Asha Trading' });
+    const settings = await request(http).get('/api/store-settings').set(bearer(t));
+    expect(settings.body.domainSlug).toBe('asha-trading');
+    const product = await request(http).post('/api/pos/products').set(bearer(t))
+      .send({ sku: 'SHOP-1', name: 'Shop SKU 1', price: 12000, stock: 5 });
+
+    // Public visitor (no auth) places an order through the storefront route.
+    const sale = await request(http).post('/api/store/asha-trading/orders').send({
+      orderNumber: 'SHOP-TEST-1',
+      lines: [{ productId: product.body.id, quantity: 2 }],
+      paymentMethod: 'CASH',
+      customerName: 'Public Buyer',
+      customerPhone: '+255700storefront',
+    });
+    expect(sale.status).toBe(201);
+    expect(sale.body.total).toBe(24000);
+    expect(sale.body.receipt.text).toContain('SHOP-TEST-1');
+    expect(sale.body.pickTicket.ticketNumber).toBe('PT-SHOP-TEST-1');
+
+    // Stock was decremented atomically (5 - 2 = 3) under the owner's scope.
+    const refreshed = await request(http).get(`/api/pos/products/${product.body.id}`).set(bearer(t));
+    expect(Number(refreshed.body.stock)).toBe(3);
+
+    // The order is visible in the owner's POS orders list (so /erp-store's
+    // Orders tab will see it too).
+    const orders = await request(http).get('/api/pos/orders').set(bearer(t));
+    expect(orders.body.some((o: { orderNumber: string }) => o.orderNumber === 'SHOP-TEST-1')).toBe(true);
+
+    // 404 on a non-existent slug.
+    const missing = await request(http).post('/api/store/no-such-store/orders').send({
+      orderNumber: 'X', lines: [{ productId: product.body.id, quantity: 1 }],
+    });
+    expect(missing.status).toBe(404);
+  });
+
+  it('Storefront: public BNPL eligibility lookup + BNPL checkout creates a receivable', async () => {
+    const t = await token('shop-bnpl@e2e.test');
+    await request(http).put('/api/store-settings').set(bearer(t))
+      .send({ storeName: 'Bnpl Shop' });
+    const product = await request(http).post('/api/pos/products').set(bearer(t))
+      .send({ sku: 'BNPL-1', name: 'Big TV', price: 200000, stock: 5 });
+
+    // Buyer with no credit profile under this owner.
+    const unknown = await request(http).get('/api/store/bnpl-shop/credit/eligibility?phone=%2B255700unknown');
+    expect(unknown.body).toEqual(expect.objectContaining({
+      eligible: false, availableCredit: 0, reason: 'no_profile',
+    }));
+
+    // Owner sets up a credit profile for a known buyer.
+    await request(http).post('/api/credit/profiles').set(bearer(t)).send({
+      customerPhone: '+255700buyer', customerName: 'Buyer One',
+      creditLimit: 500000, riskGrade: 'B',
+    });
+
+    const known = await request(http).get('/api/store/bnpl-shop/credit/eligibility?phone=%2B255700buyer');
+    expect(known.body.eligible).toBe(true);
+    expect(Number(known.body.availableCredit)).toBe(500000);
+
+    // BNPL checkout — order creates a receivable atomically.
+    const sale = await request(http).post('/api/store/bnpl-shop/orders').send({
+      orderNumber: 'SHOP-BNPL-1',
+      lines: [{ productId: product.body.id, quantity: 1 }],
+      paymentMethod: 'BNPL',
+      customerName: 'Buyer One',
+      customerPhone: '+255700buyer',
+      installmentMonths: 6,
+    });
+    expect(sale.status).toBe(201);
+    expect(sale.body.isBnpl).toBe(true);
+    expect(sale.body.receivable.installmentMonths).toBe(6);
+    expect(Number(sale.body.receivable.amount)).toBe(200000);
+
+    // Available credit dropped by the locked amount.
+    const after = await request(http).get('/api/store/bnpl-shop/credit/eligibility?phone=%2B255700buyer');
+    expect(Number(after.body.availableCredit)).toBe(300000);
+
+    // Over-limit BNPL purchase is blocked.
+    await request(http).post('/api/pos/products').set(bearer(t))
+      .send({ sku: 'BNPL-2', name: 'Bigger TV', price: 400000, stock: 5 });
+    const denied = await request(http).post('/api/store/bnpl-shop/orders').send({
+      orderNumber: 'SHOP-BNPL-2',
+      lines: [{ productId: product.body.id, quantity: 2 }],
+      paymentMethod: 'BNPL',
+      customerPhone: '+255700buyer',
+    });
+    expect(denied.status).toBe(400);
+    expect(denied.body.message).toMatch(/BNPL denied/);
+  });
+
+  it('Storefront: track-my-order returns status only with matching phone', async () => {
+    const t = await token('shop-track@e2e.test');
+    await request(http).put('/api/store-settings').set(bearer(t))
+      .send({ storeName: 'Track Shop' });
+    const product = await request(http).post('/api/pos/products').set(bearer(t))
+      .send({ sku: 'TRK-1', name: 'Trackable', price: 10000, stock: 5 });
+
+    const sale = await request(http).post('/api/store/track-shop/orders').send({
+      orderNumber: 'SHOP-TRACK-1',
+      lines: [{ productId: product.body.id, quantity: 1 }],
+      paymentMethod: 'CASH',
+      customerName: 'Track Buyer',
+      customerPhone: '+255700track',
+    });
+    expect(sale.status).toBe(201);
+
+    // Right phone → order data.
+    const ok = await request(http)
+      .get('/api/store/track-shop/orders/SHOP-TRACK-1?phone=%2B255700track');
+    expect(ok.status).toBe(200);
+    expect(ok.body.orderNumber).toBe('SHOP-TRACK-1');
+    expect(ok.body.items).toHaveLength(1);
+    expect(ok.body.pickTicket?.ticketNumber).toBe('PT-SHOP-TRACK-1');
+
+    // Wrong phone → 404 (no enumeration).
+    const wrong = await request(http)
+      .get('/api/store/track-shop/orders/SHOP-TRACK-1?phone=%2B999wrong');
+    expect(wrong.status).toBe(404);
+
+    // Wrong order number → 404.
+    const missing = await request(http)
+      .get('/api/store/track-shop/orders/SHOP-NOPE?phone=%2B255700track');
+    expect(missing.status).toBe(404);
+  });
+
+  it('Storefront: check-slug returns the right verdict for available / taken / reserved / invalid', async () => {
+    const t = await token('slug-check@e2e.test');
+    await request(http).put('/api/store-settings').set(bearer(t))
+      .send({ storeName: 'Taken Name Store' });
+
+    const taken = await request(http).get('/api/store-settings/check-slug?slug=taken-name-store');
+    expect(taken.body.available).toBe(false);
+    expect(taken.body.reason).toBe('taken');
+
+    const available = await request(http).get('/api/store-settings/check-slug?slug=brand-new-12345');
+    expect(available.body.available).toBe(true);
+    expect(available.body.slug).toBe('brand-new-12345');
+
+    const reserved = await request(http).get('/api/store-settings/check-slug?slug=admin');
+    expect(reserved.body.available).toBe(false);
+    expect(reserved.body.reason).toBe('reserved');
+
+    const invalid = await request(http).get('/api/store-settings/check-slug?slug=%20%20');
+    expect(invalid.body.available).toBe(false);
+    expect(invalid.body.reason).toBe('invalid');
+  });
+
   it('rejects unauthenticated access to owned resources', async () => {
     expect((await request(http).get('/api/print/jobs')).status).toBe(401);
     expect((await request(http).get('/api/erp/summary')).status).toBe(401);

@@ -25,6 +25,7 @@ import { PosModule } from './pos/pos.module';
 import { WarehouseModule } from './warehouse/warehouse.module';
 import { DiscountsModule } from './discounts/discount.module';
 import { PaymentsModule } from './payments/payments.module';
+import { CreditModule } from './credit/credit.module';
 import { HotelModule } from './hotel/hotel.module';
 import { CreatorsModule } from './creators/creators.module';
 import { VideoGenerationModule } from './video-generation/video-generation.module';
@@ -53,6 +54,7 @@ import { KobeSecurityModule } from './kobe-security/kobe-security.module';
 import { HotelSecurityModule } from './hotel-security/hotel-security.module';
 import { StudioMediaModule } from './studio-media/studio-media.module';
 import { ShopStockModule } from './shop-stock/shop-stock.module';
+import { DiscountApprovalModule } from './discount-approval/discount-approval.module';
 
 @Module({
   imports: [
@@ -90,6 +92,7 @@ import { ShopStockModule } from './shop-stock/shop-stock.module';
     WarehouseModule,
     DiscountsModule,
     PaymentsModule,
+    CreditModule,
     HotelModule,
     HotelSecurityModule,
     CreatorsModule,
@@ -109,6 +112,7 @@ import { ShopStockModule } from './shop-stock/shop-stock.module';
     DevopsModule,
     AccountModule,
     ShopStockModule,
+    DiscountApprovalModule,
   ],
   controllers: [AppController],
   providers: [

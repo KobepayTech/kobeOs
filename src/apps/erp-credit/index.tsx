@@ -1,4 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import { api } from '@/lib/api';
+import { ensureSession } from '@/lib/auth';
+
+interface BackendProfile { id: string; customerPhone: string; customerName: string; creditLimit: string | number; outstanding: string | number; riskGrade: string; currency: string; active: boolean; }
+interface BackendReceivable { id: string; profileId: string; orderId: string | null; customerPhone: string; amount: string | number; paid: string | number; currency: string; installmentMonths: number; monthlyAmount: string | number; dueDate: string; status: 'OUTSTANDING' | 'PARTIAL' | 'PAID' | 'OVERDUE' | 'WRITTEN_OFF'; createdAt: string; }
 import {
   CreditCard, Search, DollarSign, AlertTriangle, CheckCircle2, Clock,
   User, Phone, Send, Plus, X,
@@ -177,6 +182,13 @@ export default function CreditCollectionsModule() {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
 
+  /* Live state hydrated from /api/credit. Falls back to demo arrays
+   * before the first round-trip lands. */
+  const [customers, setCustomers] = useState<Customer[]>(CUSTOMERS);
+  const [transactions, setTransactions] = useState<Transaction[]>(TRANSACTIONS);
+  const [receivableByCustomer, setReceivableByCustomer] = useState<Record<string, BackendReceivable[]>>({});
+  const [payError, setPayError] = useState<string | null>(null);
+
   /* Payment form state */
   const [payCustomerId, setPayCustomerId] = useState('');
   const [payAmount, setPayAmount] = useState('');
@@ -188,51 +200,135 @@ export default function CreditCollectionsModule() {
   /* Sales toggle */
   const [showCreditSales, setShowCreditSales] = useState(true);
 
+  const reloadAll = useCallback(async () => {
+    try {
+      const [profiles, receivables] = await Promise.all([
+        api<BackendProfile[]>('/credit/profiles'),
+        api<BackendReceivable[]>('/credit/receivables'),
+      ]);
+      const byCust: Record<string, BackendReceivable[]> = {};
+      for (const r of receivables) {
+        if (!byCust[r.profileId]) byCust[r.profileId] = [];
+        byCust[r.profileId].push(r);
+      }
+      setReceivableByCustomer(byCust);
+      setCustomers(profiles.map((p) => {
+        const rs = byCust[p.id] ?? [];
+        const paidToDate = rs.reduce((s, r) => s + Number(r.paid), 0);
+        const hasOverdue = rs.some((r) => r.status === 'OVERDUE');
+        return {
+          id: p.id,
+          name: p.customerName || p.customerPhone,
+          phone: p.customerPhone,
+          creditLimit: Number(p.creditLimit),
+          balanceOwed: Number(p.outstanding),
+          paidToDate,
+          status: !p.active ? 'Blocked' : hasOverdue ? 'Overdue' : 'Active',
+        };
+      }));
+      setTransactions(receivables.map((r) => {
+        const paid = Number(r.paid);
+        const amount = Number(r.amount);
+        const balance = amount - paid;
+        return {
+          id: r.id,
+          date: r.createdAt.slice(0, 10),
+          invoiceNo: r.orderId ? `INV-${r.orderId.slice(0, 8)}` : `AR-${r.id.slice(0, 8)}`,
+          customerId: r.profileId,
+          customerName: r.customerPhone,
+          type: 'Sale',
+          subType: 'Credit Sale',
+          amount,
+          balance,
+          dueDate: r.dueDate.slice(0, 10),
+          status: r.status === 'PAID' ? 'Paid' : r.status === 'OVERDUE' ? 'Overdue' : 'Pending',
+        };
+      }));
+    } catch { /* keep demo state */ }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try { await ensureSession(); } catch { /* offline */ }
+      if (!cancelled) await reloadAll();
+    })();
+    return () => { cancelled = true; };
+  }, [reloadAll]);
+
   /* Derived data */
-  const totalReceivables = useMemo(() => CUSTOMERS.reduce((s, c) => s + c.balanceOwed, 0), []);
-  const totalOverdue = useMemo(() => CUSTOMERS.filter(c => c.status === 'Overdue').reduce((s, c) => s + c.balanceOwed, 0), []);
-  const paidThisMonth = useMemo(() => CUSTOMERS.reduce((s, c) => s + c.paidToDate, 0), []);
-  const activeAccounts = useMemo(() => CUSTOMERS.filter(c => c.status === 'Active').length, []);
-  const cashSales = useMemo(() => TRANSACTIONS.filter(t => t.subType === 'Cash Sale').reduce((s, t) => s + t.amount, 0), []);
-  const creditSales = useMemo(() => TRANSACTIONS.filter(t => t.subType === 'Credit Sale').reduce((s, t) => s + t.amount, 0), []);
+  const totalReceivables = useMemo(() => customers.reduce((s, c) => s + c.balanceOwed, 0), [customers]);
+  const totalOverdue = useMemo(() => customers.filter(c => c.status === 'Overdue').reduce((s, c) => s + c.balanceOwed, 0), [customers]);
+  const paidThisMonth = useMemo(() => customers.reduce((s, c) => s + c.paidToDate, 0), [customers]);
+  const activeAccounts = useMemo(() => customers.filter(c => c.status === 'Active').length, [customers]);
+  const cashSales = useMemo(() => transactions.filter(t => t.subType === 'Cash Sale').reduce((s, t) => s + t.amount, 0), [transactions]);
+  const creditSales = useMemo(() => transactions.filter(t => t.subType === 'Credit Sale').reduce((s, t) => s + t.amount, 0), [transactions]);
 
   const filteredCustomers = useMemo(() => {
-    if (!search.trim()) return CUSTOMERS;
+    if (!search.trim()) return customers;
     const q = search.toLowerCase();
-    return CUSTOMERS.filter(c => c.name.toLowerCase().includes(q) || c.phone.includes(q) || c.id.toLowerCase().includes(q));
-  }, [search]);
+    return customers.filter(c => c.name.toLowerCase().includes(q) || c.phone.includes(q) || c.id.toLowerCase().includes(q));
+  }, [search, customers]);
 
   const filteredTxns = useMemo(() => {
-    let list = TRANSACTIONS;
+    let list = transactions;
     if (txnFilter === 'Cash Sales') list = list.filter(t => t.subType === 'Cash Sale');
     else if (txnFilter === 'Credit Sales') list = list.filter(t => t.subType === 'Credit Sale');
     else if (txnFilter === 'Payments') list = list.filter(t => t.type === 'Payment');
     else if (txnFilter === 'Overdue') list = list.filter(t => t.status === 'Overdue');
     return list;
-  }, [txnFilter]);
+  }, [txnFilter, transactions]);
 
   const customerTxns = useMemo(() => {
     if (!selectedCustomer) return [];
-    return TRANSACTIONS.filter(t => t.customerId === selectedCustomer.id);
-  }, [selectedCustomer]);
+    return transactions.filter(t => t.customerId === selectedCustomer.id);
+  }, [selectedCustomer, transactions]);
 
-  const payCustomer = useMemo(() => CUSTOMERS.find(c => c.id === payCustomerId) || null, [payCustomerId]);
+  const payCustomer = useMemo(() => customers.find(c => c.id === payCustomerId) || null, [payCustomerId, customers]);
 
   function handleViewCustomer(c: Customer) {
     setSelectedCustomer(c);
     setDetailOpen(true);
   }
 
-  function handleRecordPayment(e: React.FormEvent) {
+  async function handleRecordPayment(e: React.FormEvent) {
     e.preventDefault();
+    setPayError(null);
     if (!payCustomerId || !payAmount) return;
-    setPaySuccess(true);
-    setTimeout(() => {
-      setPaySuccess(false);
-      setPayCustomerId('');
-      setPayAmount('');
-      setPayNotes('');
-    }, 2500);
+    const amountTotal = parseFloat(payAmount);
+    if (!isFinite(amountTotal) || amountTotal <= 0) {
+      setPayError('Payment amount must be greater than zero');
+      return;
+    }
+    // Apply the payment to the oldest still-outstanding receivable. If
+    // the user types more than that, we just allocate what fits — the
+    // backend prevents over-payment per receivable.
+    const outstanding = (receivableByCustomer[payCustomerId] ?? [])
+      .filter((r) => r.status !== 'PAID' && r.status !== 'WRITTEN_OFF')
+      .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+    if (outstanding.length === 0) {
+      setPayError('No outstanding receivables for this customer');
+      return;
+    }
+    const oldest = outstanding[0];
+    const dueOnOldest = Number(oldest.amount) - Number(oldest.paid);
+    const applied = Math.min(dueOnOldest, amountTotal);
+    try {
+      await api(`/credit/receivables/${oldest.id}/pay`, {
+        method: 'PATCH',
+        body: JSON.stringify({ amount: applied, reference: payNotes || undefined }),
+      });
+      await reloadAll();
+      setPaySuccess(true);
+      setTimeout(() => {
+        setPaySuccess(false);
+        setPayCustomerId('');
+        setPayAmount('');
+        setPayNotes('');
+      }, 2500);
+    } catch (err) {
+      setPayError(err instanceof Error ? err.message : String(err));
+    }
   }
 
   /* ── KPI Cards ── */
@@ -510,6 +606,12 @@ export default function CreditCollectionsModule() {
                 <div className="mb-5 flex items-center gap-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-4 text-emerald-400">
                   <CheckCircle2 className="h-5 w-5" />
                   <span className="font-medium">Payment recorded successfully!</span>
+                </div>
+              )}
+              {payError && (
+                <div className="mb-5 flex items-center gap-3 rounded-lg bg-rose-500/10 border border-rose-500/20 p-4 text-rose-300 text-sm">
+                  <AlertTriangle className="h-5 w-5" />
+                  <span>{payError}</span>
                 </div>
               )}
 

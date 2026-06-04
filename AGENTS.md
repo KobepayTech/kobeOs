@@ -123,6 +123,63 @@ Backend `.env` (see `server/.env.example`):
 | `SENDGRID_API_KEY` / `SMTP_*` | No | Email delivery |
 | `WEBHOOK_SECRET` | No | Outbound webhook signing |
 | `OLLAMA_URL` / `OLLAMA_MODEL` | No | Local AI (DeepSeek via Ollama) |
+| `CF_API_TOKEN` | For publishing | Cloudflare API token — needs `Account:Cloudflare Tunnel:Edit` + `Zone:DNS:Edit` |
+| `CF_ACCOUNT_ID` | For publishing | Cloudflare Account ID |
+| `CF_ZONE_ID` | For publishing | Zone ID for `kobeapptz.com` |
+| `CF_DOMAIN` | No | Base domain, default `kobeapptz.com` |
+
+---
+
+## Store Publishing (Cloudflare Tunnel)
+
+KobeOS uses **Cloudflare Tunnels** to publish stores from local machines without a static IP or port forwarding. Each user's machine runs `cloudflared` which creates a secure tunnel to Cloudflare's edge.
+
+### How it works
+1. User clicks "Publish" in the Store Editor
+2. Backend calls Cloudflare API to create a named tunnel (`kobeos-{slug}`)
+3. Backend creates a CNAME DNS record: `{slug}.kobeapptz.com → {tunnelId}.cfargotunnel.com`
+4. Backend spawns `cloudflared tunnel run --token <token>` on the local machine
+5. Store is live at `https://{slug}.kobeapptz.com` — Cloudflare proxies all traffic
+
+### Requirements for each KobeOS user
+- **Nothing.** `cloudflared` is bundled inside the installer — users do not install anything separately.
+- The installer copies `cloudflared.exe` to the KobeOS install directory and adds it to the system PATH automatically (Windows). On Linux/macOS the binary is in `resources/cloudflared/` inside the app bundle and resolved at runtime.
+
+### Building the installer (KobepayTech only)
+
+Before running any `electron:build` command, set your Cloudflare credentials as environment variables on the **build machine**:
+
+```bash
+# Linux / macOS
+export CF_API_TOKEN=your-token-here
+export CF_ACCOUNT_ID=d379a7d03f3714377f11cc7e22c96b5d
+export CF_ZONE_ID=c5f9da50402b712eaa6dd0c83751198b
+
+npm run electron:build:win    # Windows installer
+npm run electron:build:linux  # AppImage + deb
+npm run electron:build:mac    # dmg + zip
+```
+
+```powershell
+# Windows PowerShell
+$env:CF_API_TOKEN  = "your-token-here"
+$env:CF_ACCOUNT_ID = "d379a7d03f3714377f11cc7e22c96b5d"
+$env:CF_ZONE_ID    = "c5f9da50402b712eaa6dd0c83751198b"
+
+npm run electron:build:win
+```
+
+The build pipeline automatically:
+1. Downloads `cloudflared` binaries for all platforms (`npm run download:cloudflared`)
+2. Bundles them as `extraResources/cloudflared/` in the installer
+3. Injects CF credentials into the backend process env at runtime via `electron/main.cjs`
+
+Credentials are **never written to source files or the ASAR archive** — they live only in the running process environment.
+
+### Cloudflare API token permissions required
+When creating the token at dash.cloudflare.com/profile/api-tokens:
+- **Account** → Cloudflare Tunnel → Edit
+- **Zone** → DNS → Edit (scoped to `kobeapptz.com`)
 
 ---
 

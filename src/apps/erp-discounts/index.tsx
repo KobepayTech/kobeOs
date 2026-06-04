@@ -1,6 +1,24 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api';
 import { ensureSession } from '@/lib/auth';
+
+interface BackendRule { id: string; name: string; type: 'Percentage' | 'Fixed' | 'BOGO'; value: string; productScope: string; startDate: string | null; endDate: string | null; status: Status; }
+interface BackendCampaign { id: string; name: string; description: string; startDate: string; endDate: string; status: Status; budget: string; }
+interface BackendCoupon { id: string; code: string; type: 'Percentage' | 'Fixed'; value: string; usageLimit: number; usageCount: number; expiresAt: string | null; active: boolean; }
+
+function toMoneyOrPct(type: string, raw: string | number): string {
+  const n = typeof raw === 'string' ? parseFloat(raw) : raw;
+  if (type === 'Percentage') return `${Math.round(n)}%`;
+  if (type === 'Fixed') return `TSh ${n.toLocaleString()}`;
+  return String(raw);
+}
+
+function deriveStatus(startDate: string | null, endDate: string | null): Status {
+  const now = Date.now();
+  if (startDate && now < new Date(startDate).getTime()) return 'Scheduled';
+  if (endDate && now > new Date(endDate).getTime()) return 'Expired';
+  return 'Active';
+}
 import {
   Percent, Tag, ShoppingBag, Ticket, Plus, Search, Copy, CheckCircle2,
   Clock, Trash2, Edit, ArrowRight, Gift, TrendingUp, X, Zap
@@ -136,56 +154,109 @@ export default function DiscountsPromotions() {
   const [couponSearch, setCouponSearch] = useState('');
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
-  // Seed /api/discounts on first mount so the backend mirrors the demo catalog.
+  // Live state hydrated from /api/discounts/{rules,coupons,campaigns}.
+  // First mount seeds the backend with the demo catalog if the user has
+  // none, so we always render real backend data.
+  const [liveRules, setLiveRules] = useState<Rule[]>(discountRules);
+  const [liveCampaigns, setLiveCampaigns] = useState<Campaign[]>(campaigns);
+  const [liveCoupons, setLiveCoupons] = useState<Coupon[]>(coupons);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const reloadAll = useCallback(async () => {
+    try {
+      const [rules, cps, cmps] = await Promise.all([
+        api<BackendRule[]>('/discounts/rules'),
+        api<BackendCoupon[]>('/discounts/coupons'),
+        api<BackendCampaign[]>('/discounts/campaigns'),
+      ]);
+      setLiveRules(rules.map((r, i) => ({
+        id: i + 1,
+        name: r.name,
+        type: r.type === 'BOGO' ? 'BuyXGetY' : (r.type as DiscountType),
+        value: toMoneyOrPct(r.type, r.value),
+        products: r.productScope || 'All',
+        startDate: r.startDate ? r.startDate.slice(0, 10) : '',
+        endDate: r.endDate ? r.endDate.slice(0, 10) : '',
+        status: deriveStatus(r.startDate, r.endDate),
+        usageCount: 0,
+      })));
+      setLiveCoupons(cps.map((c, i) => ({
+        id: i + 1,
+        code: c.code,
+        type: c.type,
+        discount: toMoneyOrPct(c.type, c.value),
+        usage: c.usageCount,
+        limit: c.usageLimit,
+        expiry: c.expiresAt ? c.expiresAt.slice(0, 10) : '',
+        status: c.active ? deriveStatus(null, c.expiresAt) : 'Expired',
+      })));
+      setLiveCampaigns(cmps.map((c, i) => ({
+        id: i + 1,
+        name: c.name,
+        description: c.description,
+        productsCount: 0,
+        startDate: c.startDate.slice(0, 10),
+        endDate: c.endDate.slice(0, 10),
+        status: deriveStatus(c.startDate, c.endDate),
+        salesLift: '+0%',
+        redemptions: 0,
+        gradient: ['from-orange-500 to-red-600', 'from-blue-500 to-indigo-600', 'from-violet-500 to-purple-600', 'from-emerald-500 to-teal-600', 'from-amber-500 to-orange-600'][i % 5],
+      })));
+    } catch { /* keep current demo state */ }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         await ensureSession();
         const existing = await api<Array<{ id: string }>>('/discounts/rules');
-        if (cancelled || existing.length > 0) return;
-        const numericValue = (v: string) => Number(v.replace(/[^\d.]/g, '')) || 0;
-        await Promise.all([
-          ...discountRules.map((r) =>
-            api('/discounts/rules', {
-              method: 'POST',
-              body: JSON.stringify({
-                name: r.name,
-                type: r.type === 'Fixed' ? 'Fixed' : r.type === 'BuyXGetY' ? 'BOGO' : 'Percentage',
-                value: numericValue(r.value),
-                productScope: r.products,
+        if (!cancelled && existing.length === 0) {
+          const numericValue = (v: string) => Number(v.replace(/[^\d.]/g, '')) || 0;
+          await Promise.all([
+            ...discountRules.map((r) =>
+              api('/discounts/rules', {
+                method: 'POST',
+                body: JSON.stringify({
+                  name: r.name,
+                  type: r.type === 'Fixed' ? 'Fixed' : r.type === 'BuyXGetY' ? 'BOGO' : 'Percentage',
+                  value: numericValue(r.value),
+                  productScope: r.products,
+                }),
               }),
-            }),
-          ),
-          ...campaigns.map((c) =>
-            api('/discounts/campaigns', {
-              method: 'POST',
-              body: JSON.stringify({
-                name: c.name, description: c.description,
-                startDate: c.startDate + 'T00:00:00Z',
-                endDate: c.endDate + 'T23:59:59Z',
-                status: c.status,
+            ),
+            ...campaigns.map((c) =>
+              api('/discounts/campaigns', {
+                method: 'POST',
+                body: JSON.stringify({
+                  name: c.name, description: c.description,
+                  startDate: c.startDate + 'T00:00:00Z',
+                  endDate: c.endDate + 'T23:59:59Z',
+                  status: c.status,
+                }),
               }),
-            }),
-          ),
-          ...coupons.map((c) =>
-            api('/discounts/coupons', {
-              method: 'POST',
-              body: JSON.stringify({
-                code: c.code,
-                type: c.type === 'Fixed' ? 'Fixed' : 'Percentage',
-                value: numericValue(c.discount),
-                usageLimit: c.limit,
-                expiresAt: c.expiry + 'T23:59:59Z',
-                active: c.status === 'Active',
+            ),
+            ...coupons.map((c) =>
+              api('/discounts/coupons', {
+                method: 'POST',
+                body: JSON.stringify({
+                  code: c.code,
+                  type: c.type === 'Fixed' ? 'Fixed' : 'Percentage',
+                  value: numericValue(c.discount),
+                  usageLimit: c.limit,
+                  expiresAt: c.expiry + 'T23:59:59Z',
+                  active: c.status === 'Active',
+                }),
               }),
-            }),
-          ),
-        ]);
+            ),
+          ]);
+        }
+        if (!cancelled) await reloadAll();
       } catch { /* leave demo data alone */ }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [reloadAll]);
 
   // Form states
   const [discountName, setDiscountName] = useState('');
@@ -208,9 +279,38 @@ export default function DiscountsPromotions() {
   const [couponExpiry, setCouponExpiry] = useState('');
 
   const filteredCoupons = useMemo(() => {
-    if (!couponSearch) return coupons;
-    return coupons.filter(c => c.code.toLowerCase().includes(couponSearch.toLowerCase()));
-  }, [couponSearch]);
+    if (!couponSearch) return liveCoupons;
+    return liveCoupons.filter(c => c.code.toLowerCase().includes(couponSearch.toLowerCase()));
+  }, [couponSearch, liveCoupons]);
+
+  const handleSaveDiscount = useCallback(async () => {
+    setSaveError(null);
+    if (!discountName.trim()) { setSaveError('Discount name is required'); return; }
+    const value = parseFloat(discountValue);
+    if (isNaN(value) || value < 0) { setSaveError('Value must be a non-negative number'); return; }
+    setSaving(true);
+    try {
+      await api('/discounts/rules', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: discountName.trim(),
+          type: discountType === 'Fixed' ? 'Fixed' : discountType === 'BuyXGetY' ? 'BOGO' : 'Percentage',
+          value,
+          productScope: productScope || 'All',
+          customerScope: customerScope || 'All',
+          startDate: startDate ? `${startDate}T00:00:00Z` : undefined,
+          endDate: endDate ? `${endDate}T23:59:59Z` : undefined,
+        }),
+      });
+      setDiscountName(''); setDiscountValue(''); setStartDate(''); setEndDate('');
+      await reloadAll();
+      setActiveTab('rules');
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSaving(false);
+    }
+  }, [discountName, discountType, discountValue, productScope, customerScope, startDate, endDate, reloadAll]);
 
   const handleCopy = (code: string) => {
     navigator.clipboard?.writeText(code);
@@ -274,7 +374,7 @@ export default function DiscountsPromotions() {
           <TableCard>
             <Thead headers={ruleHeaders} />
             <tbody>
-              {discountRules.map((rule, i) => (
+              {liveRules.map((rule, i) => (
                 <Row key={rule.id} i={i}>
                   <td className="py-3 px-4 font-medium text-white">{rule.name}</td>
                   <td className="py-3 px-4 text-slate-300">{rule.type}</td>
@@ -299,11 +399,11 @@ export default function DiscountsPromotions() {
         {/* Tab 2: Campaigns */}
         <TabsContent value="campaigns">
           <div className="flex justify-between items-center mb-4">
-            <p className="text-slate-400 text-sm">{campaigns.length} campaigns total</p>
+            <p className="text-slate-400 text-sm">{liveCampaigns.length} campaigns total</p>
             <Button onClick={() => setShowCreateCampaign(true)} size="sm" className="bg-violet-600 hover:bg-violet-700"><Plus className="w-4 h-4 mr-2" /> Create Campaign</Button>
           </div>
           <div className="space-y-4">
-            {campaigns.map(c => (
+            {liveCampaigns.map(c => (
               <Card key={c.id} className="bg-[#13131f] border-white/[0.06] overflow-hidden">
                 <CardContent className="p-0">
                   <div className={`h-24 bg-gradient-to-r ${c.gradient} relative flex items-center px-6`}>
@@ -493,9 +593,12 @@ export default function DiscountsPromotions() {
                   </CardContent>
                 </Card>
               ))}
-              <div className="flex gap-3">
-                <Button className="bg-violet-600 hover:bg-violet-700 text-white px-6">Save Discount</Button>
-                <Button variant="ghost" className="text-slate-400 hover:text-white">Cancel</Button>
+              <div className="flex gap-3 items-center">
+                <Button onClick={handleSaveDiscount} disabled={saving} className="bg-violet-600 hover:bg-violet-700 text-white px-6">
+                  {saving ? 'Saving…' : 'Save Discount'}
+                </Button>
+                <Button variant="ghost" className="text-slate-400 hover:text-white" onClick={() => { setDiscountName(''); setDiscountValue(''); setStartDate(''); setEndDate(''); }}>Cancel</Button>
+                {saveError && <span className="text-xs text-rose-400">{saveError}</span>}
               </div>
             </div>
 

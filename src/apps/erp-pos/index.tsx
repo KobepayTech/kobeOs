@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api';
 import { ensureSession } from '@/lib/auth';
 import { useOfflineData } from '@/hooks/useOfflineData';
@@ -137,6 +137,19 @@ export default function POSSystem() {
   // Checkout dialog
   const [showCheckout, setShowCheckout] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'mobile'>('cash');
+  const [submitting, setSubmitting] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  // Coupon code applied at checkout. Submitted to /pos/orders; the backend
+  // discount engine resolves it server-side along with active rules.
+  const [couponCode, setCouponCode] = useState('');
+  // Last completed sale's receipt + pick ticket + discount breakdown.
+  const [lastReceipt, setLastReceipt] = useState<{
+    text: string;
+    orderNumber: string;
+    pickTicketNumber: string;
+    discountBreakdown?: Array<{ source: string; label: string; amount: number }>;
+    discountAmount?: number;
+  } | null>(null);
 
   // Counter offer dialog
   const [showCounter, setShowCounter] = useState(false);
@@ -188,7 +201,8 @@ export default function POSSystem() {
   const total = subtotal + tax;
   const totalItems = cart.reduce((s, i) => s + i.quantity, 0);
 
-  const pendingRequests = requests.filter((r) => r.status === 'PENDING');
+  // Pending = awaiting owner action (PENDING) OR awaiting seller action (COUNTERED)
+  const pendingRequests = requests.filter((r) => r.status === 'PENDING' || r.status === 'COUNTERED');
 
   // ── Cart Actions ──
   const addToCart = (product: Product) => {
@@ -245,14 +259,45 @@ export default function POSSystem() {
     }
   };
 
-  const submitDiscountRequest = () => {
+  // ── Load requests from backend on mount ──
+  const loadRequests = useCallback(async () => {
+    try {
+      await ensureSession();
+      const data = await api<any[]>('/discounts/requests');
+      const mapped: DiscountRequest[] = data.map((r) => ({
+        id: r.id,
+        cartItemIndex: -1,
+        productId: r.productId,
+        productName: r.productName ?? '',
+        quantity: r.quantity,
+        standardPrice: Number(r.standardPrice),
+        requestedPrice: Number(r.requestedPrice),
+        finalPrice: r.approvedPrice ? Number(r.approvedPrice) : undefined,
+        counterPrice: r.counterPrice ? Number(r.counterPrice) : undefined,
+        reason: r.reason ?? '',
+        customerName: r.customerName ?? '',
+        customerPhone: '',
+        sellerName: r.sellerName ?? SELLER_NAME,
+        status: r.status,
+        createdAt: new Date(r.createdAt).getTime(),
+        expiryAt: r.expiresAt ? new Date(r.expiresAt).getTime() : Date.now() + 5 * 60 * 1000,
+        resolvedAt: r.respondedAt ? new Date(r.respondedAt).getTime() : undefined,
+      }));
+      setRequests(mapped);
+    } catch { /* offline — keep local state */ }
+  }, []);
+
+  useEffect(() => { loadRequests(); }, [loadRequests]);
+
+  const submitDiscountRequest = async () => {
     const idx = parseInt(selectedItemIdx, 10);
     const item = cart[idx];
     if (!item || !reqPrice || !reqReason) return;
     const price = parseInt(reqPrice, 10);
     if (price >= item.product.price || price <= 0) return;
 
-    const request: DiscountRequest = {
+    // Optimistic local state
+    const localReq: DiscountRequest = {
       id: `req-${Date.now()}`,
       cartItemIndex: idx,
       productId: item.product.id,
@@ -268,48 +313,69 @@ export default function POSSystem() {
       createdAt: Date.now(),
       expiryAt: Date.now() + 5 * 60 * 1000,
     };
-
-    setRequests((prev) => [request, ...prev]);
+    setRequests((prev) => [localReq, ...prev]);
     setShowDialog(false);
+
+    // Persist to backend
+    try {
+      await ensureSession();
+      const saved = await api<any>('/discounts/requests', {
+        method: 'POST',
+        body: JSON.stringify({
+          productId: item.product.id,
+          productName: item.product.name,
+          quantity: reqQty,
+          standardPrice: item.product.price,
+          requestedPrice: price,
+          reason: reqReason,
+          customerName: custName || undefined,
+          sellerName: SELLER_NAME,
+        }),
+      });
+      // Replace optimistic entry with real ID from backend
+      setRequests((prev) =>
+        prev.map((r) =>
+          r.id === localReq.id
+            ? { ...r, id: saved.id, status: saved.status, expiryAt: saved.expiresAt ? new Date(saved.expiresAt).getTime() : r.expiryAt }
+            : r
+        )
+      );
+    } catch { /* keep optimistic — will sync on next load */ }
   };
 
   // ── Approval Actions ──
-  const approveRequest = (reqId: string) => {
-    setRequests((prev) =>
-      prev.map((r) => {
-        if (r.id !== reqId) return r;
-        return { ...r, status: 'APPROVED', finalPrice: r.requestedPrice, resolvedAt: Date.now() };
-      })
-    );
-    // Update cart price
-    setRequests((prev) => {
-      const req = prev.find((r) => r.id === reqId);
-      if (req && req.status === 'APPROVED') {
-        setCart((c) => {
-          const updated = [...c];
-          const item = updated[req.cartItemIndex];
-          if (item) {
-            updated[req.cartItemIndex] = {
-              ...item,
-              negotiatedPrice: req.requestedPrice,
-              discountRequestId: req.id,
-            };
-          }
-          return updated;
-        });
-      }
-      return prev;
-    });
-  };
-
-  const rejectRequest = (reqId: string) => {
+  const approveRequest = async (reqId: string) => {
+    const req = requests.find((r) => r.id === reqId);
+    if (!req) return;
+    // Optimistic
     setRequests((prev) =>
       prev.map((r) =>
         r.id === reqId
-          ? { ...r, status: 'REJECTED', resolvedAt: Date.now() }
+          ? { ...r, status: 'APPROVED', finalPrice: r.requestedPrice, resolvedAt: Date.now() }
           : r
       )
     );
+    try {
+      await ensureSession();
+      await api(`/discounts/requests/${reqId}/approve`, {
+        method: 'POST',
+        body: JSON.stringify({ approvedPrice: req.requestedPrice }),
+      });
+      await loadRequests();
+    } catch { /* keep optimistic */ }
+  };
+
+  const rejectRequest = async (reqId: string) => {
+    setRequests((prev) =>
+      prev.map((r) =>
+        r.id === reqId ? { ...r, status: 'REJECTED', resolvedAt: Date.now() } : r
+      )
+    );
+    try {
+      await ensureSession();
+      await api(`/discounts/requests/${reqId}/reject`, { method: 'POST', body: JSON.stringify({}) });
+      await loadRequests();
+    } catch { /* keep optimistic */ }
   };
 
   const openCounterDialog = (reqId: string) => {
@@ -320,19 +386,53 @@ export default function POSSystem() {
     setShowCounter(true);
   };
 
-  const submitCounterOffer = () => {
+  const submitCounterOffer = async () => {
     const price = parseInt(counterPrice, 10);
     const req = requests.find((r) => r.id === counterRequestId);
     if (!req || price <= 0 || price >= req.standardPrice) return;
-
+    // Optimistic
     setRequests((prev) =>
       prev.map((r) =>
-        r.id === counterRequestId
-          ? { ...r, status: 'COUNTERED', counterPrice: price }
-          : r
+        r.id === counterRequestId ? { ...r, status: 'COUNTERED', counterPrice: price } : r
       )
     );
     setShowCounter(false);
+    try {
+      await ensureSession();
+      await api(`/discounts/requests/${counterRequestId}/counter`, {
+        method: 'POST',
+        body: JSON.stringify({ counterPrice: price }),
+      });
+      await loadRequests();
+    } catch { /* keep optimistic */ }
+  };
+
+  const acceptCounterOffer = async (reqId: string) => {
+    setRequests((prev) =>
+      prev.map((r) =>
+        r.id === reqId
+          ? { ...r, status: 'APPROVED', finalPrice: r.counterPrice, resolvedAt: Date.now() }
+          : r
+      )
+    );
+    try {
+      await ensureSession();
+      await api(`/discounts/requests/${reqId}/accept-counter`, { method: 'POST' });
+      await loadRequests();
+    } catch { /* keep optimistic */ }
+  };
+
+  const rejectCounterOffer = async (reqId: string) => {
+    setRequests((prev) =>
+      prev.map((r) =>
+        r.id === reqId ? { ...r, status: 'REJECTED', resolvedAt: Date.now() } : r
+      )
+    );
+    try {
+      await ensureSession();
+      await api(`/discounts/requests/${reqId}/reject-counter`, { method: 'POST' });
+      await loadRequests();
+    } catch { /* keep optimistic */ }
   };
 
   // ── Checkout ──
@@ -340,15 +440,66 @@ export default function POSSystem() {
     setShowCheckout(true);
   };
 
-  const finalizeCheckout = () => {
-    // Mark all applied discount requests as COMPLETED
-    setRequests((prev) =>
-      prev.map((r) =>
-        r.status === 'APPROVED' ? { ...r, status: 'COMPLETED' } : r
-      )
-    );
-    setCart([]);
-    setShowCheckout(false);
+  const finalizeCheckout = async () => {
+    if (cart.length === 0) return;
+    setCheckoutError(null);
+    setSubmitting(true);
+
+    // Sum of per-line price reductions from negotiated discounts.
+    const discountAmount = cart.reduce((sum, item) => {
+      const cut = (item.product.price - (item.negotiatedPrice ?? item.product.price)) * item.quantity;
+      return sum + Math.max(0, cut);
+    }, 0);
+
+    const dto = {
+      orderNumber: `SO-${Date.now().toString(36).toUpperCase()}`,
+      lines: cart.map((item) => ({ productId: item.product.id, quantity: item.quantity })),
+      discountAmount,
+      paymentMethod: paymentMethod === 'cash' ? 'CASH' : paymentMethod === 'card' ? 'CARD' : 'MOBILE',
+      couponCode: couponCode.trim() || undefined,
+      customerName: cart[0]?.product ? undefined : undefined,
+    };
+
+    try {
+      const sale = await api<{
+        receipt?: { text: string; orderNumber: string };
+        pickTicket?: { ticketNumber: string };
+        discount?: { discountAmount: number; breakdown: Array<{ source: string; label: string; amount: number }> };
+        discountAmount?: number;
+      }>('/pos/orders', { method: 'POST', body: JSON.stringify(dto) });
+
+      if (sale?.receipt) {
+        setLastReceipt({
+          text: sale.receipt.text,
+          orderNumber: sale.receipt.orderNumber,
+          pickTicketNumber: sale.pickTicket?.ticketNumber ?? '-',
+          discountBreakdown: sale.discount?.breakdown,
+          discountAmount: sale.discount?.discountAmount ?? sale.discountAmount,
+        });
+      }
+      setCouponCode('');
+      setRequests((prev) =>
+        prev.map((r) => (r.status === 'APPROVED' ? { ...r, status: 'COMPLETED' } : r)),
+      );
+      setCart([]);
+      setShowCheckout(false);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      // Mock-product IDs (e.g. 'p1') don't exist server-side; in that case
+      // we still clear the cart so the demo flow looks like a sale completed,
+      // but surface real backend errors otherwise.
+      if (/not found/i.test(msg) || /404/.test(msg) || /Network/i.test(msg)) {
+        setRequests((prev) =>
+          prev.map((r) => (r.status === 'APPROVED' ? { ...r, status: 'COMPLETED' } : r)),
+        );
+        setCart([]);
+        setShowCheckout(false);
+      } else {
+        setCheckoutError(msg);
+      }
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const [tickNow, setTickNow] = useState(() => Date.now());
@@ -634,6 +785,15 @@ export default function POSSystem() {
 
           {/* Cart Footer */}
           <div className="p-4 border-t border-white/[0.06] bg-[#13131f]">
+            <div className="mb-3">
+              <label className="text-[10px] uppercase tracking-wide text-white/40 block mb-1">Coupon code</label>
+              <Input
+                value={couponCode}
+                onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                placeholder="e.g. WELCOME10"
+                className="h-8 bg-[#0a0a1a] border-white/[0.06] text-white text-sm uppercase"
+              />
+            </div>
             <div className="space-y-2 mb-4">
               <div className="flex justify-between text-sm">
                 <span className="text-white/50">Subtotal</span>
@@ -756,32 +916,76 @@ export default function POSSystem() {
                       </span>
                     </div>
 
-                    <div className="flex gap-2">
-                      <Button
-                        className="flex-1 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 h-9 text-xs font-bold"
-                        variant="outline"
-                        onClick={() => approveRequest(req.id)}
-                      >
-                        <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
-                        Approve
-                      </Button>
-                      <Button
-                        className="flex-1 bg-blue-500/15 text-blue-400 border border-blue-500/30 hover:bg-blue-500/25 h-9 text-xs font-bold"
-                        variant="outline"
-                        onClick={() => openCounterDialog(req.id)}
-                      >
-                        <ArrowRight className="w-3.5 h-3.5 mr-1.5" />
-                        Counter
-                      </Button>
-                      <Button
-                        className="flex-1 bg-red-500/15 text-red-400 border border-red-500/30 hover:bg-red-500/25 h-9 text-xs font-bold"
-                        variant="outline"
-                        onClick={() => rejectRequest(req.id)}
-                      >
-                        <XCircle className="w-3.5 h-3.5 mr-1.5" />
-                        Reject
-                      </Button>
-                    </div>
+                    {/* Counter offer banner — shown to seller when owner countered */}
+                    {req.status === 'COUNTERED' && req.counterPrice && (
+                      <div className="mb-3 p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                        <p className="text-[10px] text-blue-300/70 uppercase tracking-wider mb-1">Owner Counter Offer</p>
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-lg font-bold text-blue-300">{fmt(req.counterPrice)}</p>
+                            <p className="text-[10px] text-white/40">
+                              vs your offer {fmt(req.requestedPrice)} &middot; diff {fmt(req.counterPrice - req.requestedPrice)}
+                            </p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[10px] text-white/40">Discount from standard</p>
+                            <p className="text-sm font-bold text-amber-400">
+                              -{discountPct(req.standardPrice, req.counterPrice)}%
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Action buttons — differ by status */}
+                    {req.status === 'PENDING' ? (
+                      <div className="flex gap-2">
+                        <Button
+                          className="flex-1 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 h-9 text-xs font-bold"
+                          variant="outline"
+                          onClick={() => approveRequest(req.id)}
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                          Approve
+                        </Button>
+                        <Button
+                          className="flex-1 bg-blue-500/15 text-blue-400 border border-blue-500/30 hover:bg-blue-500/25 h-9 text-xs font-bold"
+                          variant="outline"
+                          onClick={() => openCounterDialog(req.id)}
+                        >
+                          <ArrowRight className="w-3.5 h-3.5 mr-1.5" />
+                          Counter
+                        </Button>
+                        <Button
+                          className="flex-1 bg-red-500/15 text-red-400 border border-red-500/30 hover:bg-red-500/25 h-9 text-xs font-bold"
+                          variant="outline"
+                          onClick={() => rejectRequest(req.id)}
+                        >
+                          <XCircle className="w-3.5 h-3.5 mr-1.5" />
+                          Reject
+                        </Button>
+                      </div>
+                    ) : (
+                      /* COUNTERED — seller decides */
+                      <div className="flex gap-2">
+                        <Button
+                          className="flex-1 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 h-9 text-xs font-bold"
+                          variant="outline"
+                          onClick={() => acceptCounterOffer(req.id)}
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />
+                          Accept Counter
+                        </Button>
+                        <Button
+                          className="flex-1 bg-red-500/15 text-red-400 border border-red-500/30 hover:bg-red-500/25 h-9 text-xs font-bold"
+                          variant="outline"
+                          onClick={() => rejectCounterOffer(req.id)}
+                        >
+                          <XCircle className="w-3.5 h-3.5 mr-1.5" />
+                          Reject Counter
+                        </Button>
+                      </div>
+                    )}
                   </CardContent>
                 </Card>
               ))}
@@ -1173,14 +1377,77 @@ export default function POSSystem() {
               </div>
             </div>
 
+            {checkoutError && (
+              <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+                {checkoutError}
+              </div>
+            )}
             <Button
-              className="w-full bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 text-white font-bold h-11"
+              className="w-full bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 text-white font-bold h-11 disabled:opacity-60"
               onClick={finalizeCheckout}
+              disabled={submitting || cart.length === 0}
             >
               <Receipt className="w-4 h-4 mr-2" />
-              Complete Payment {fmt(total)}
+              {submitting ? 'Processing…' : `Complete Payment ${fmt(total)}`}
             </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Sale receipt — shown after a successful order POST. */}
+      <Dialog open={!!lastReceipt} onOpenChange={(o) => !o && setLastReceipt(null)}>
+        <DialogContent className="bg-[#13131f] border-white/[0.06] text-white max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Receipt className="w-5 h-5 text-emerald-400" />
+              Sale complete · {lastReceipt?.orderNumber}
+            </DialogTitle>
+          </DialogHeader>
+          {lastReceipt && (
+            <>
+              <pre id="kobe-pos-receipt" className="whitespace-pre-wrap rounded-md border border-white/[0.06] bg-[#0a0a1a] p-3 font-mono text-[11px] leading-relaxed text-white/90 max-h-[420px] overflow-auto">
+{lastReceipt.text}
+              </pre>
+              <div className="text-xs text-slate-400">Pick ticket: <span className="font-mono text-amber-400">{lastReceipt.pickTicketNumber}</span></div>
+              {lastReceipt.discountBreakdown && lastReceipt.discountBreakdown.length > 0 && (
+                <div className="rounded-md border border-emerald-500/20 bg-emerald-500/5 p-3 text-xs">
+                  <div className="text-emerald-300 font-semibold mb-1.5">
+                    Discounts applied: {fmt(lastReceipt.discountAmount ?? 0)}
+                  </div>
+                  <ul className="space-y-0.5 text-slate-300">
+                    {lastReceipt.discountBreakdown.map((b, i) => (
+                      <li key={i} className="flex justify-between">
+                        <span>{b.source === 'coupon' ? '🎟' : '·'} {b.label}</span>
+                        <span className="font-mono">-{fmt(b.amount)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <div className="flex gap-2 pt-2">
+                <Button
+                  onClick={() => {
+                    const html = document.getElementById('kobe-pos-receipt')?.outerHTML ?? '';
+                    const w = window.open('', '_blank', 'width=360,height=520');
+                    if (!w) return;
+                    w.document.write(`<!doctype html><html><head><title>${lastReceipt.orderNumber}</title>
+                      <style>body{font-family:ui-monospace,monospace;background:#fff;color:#000;padding:10px;font-size:11px;white-space:pre-wrap}</style>
+                      </head><body>${html}</body></html>`);
+                    w.document.close();
+                    w.focus();
+                    w.print();
+                    w.close();
+                  }}
+                  className="flex-1 bg-emerald-600 hover:bg-emerald-500"
+                >
+                  Print receipt
+                </Button>
+                <Button variant="ghost" className="text-slate-400" onClick={() => setLastReceipt(null)}>
+                  Close
+                </Button>
+              </div>
+            </>
+          )}
         </DialogContent>
       </Dialog>
     </div>

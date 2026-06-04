@@ -8,7 +8,7 @@
  */
 import { useEffect, useState } from 'react';
 import { matchesApi, analyticsApi, type Match, type Analytics, type MatchStats } from '../api';
-import { useSportsSocket, type MatchStateSnapshot, type MatchEvent } from '../useSportsSocket';
+import { useSportsSocket, type MatchEvent } from '../useSportsSocket';
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 

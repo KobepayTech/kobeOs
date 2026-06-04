@@ -7,7 +7,7 @@
 // ============================================================================
 
 import React, { useState, useMemo, useCallback } from 'react';
-import { Search, Filter, ChevronDown, ChevronUp, Eye, Phone, MessageSquare, Download, MoreHorizontal, ArrowUpDown, AlertTriangle, CheckCircle, TrendingUp } from 'lucide-react';
+import { Search, Eye, MessageSquare, Download, ArrowUpDown, AlertTriangle, CheckCircle, TrendingUp } from 'lucide-react';
 import type { Tenant } from '@/shared/types';
 import { formatCurrency, formatDate, getStatusColor, debounce } from '@/shared/utils';
 

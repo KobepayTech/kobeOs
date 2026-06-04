@@ -1,8 +1,10 @@
-import { useState, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Store, Search, Plus, Trash2, Package, ShoppingBag, Edit3, CheckSquare, Square,
-  AlertTriangle,
+  AlertTriangle, RefreshCw,
 } from 'lucide-react';
+import { api } from '@/lib/api';
+import { ensureSession } from '@/lib/auth';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -15,110 +17,185 @@ import { Textarea } from '@/components/ui/textarea';
 
 const tzs = (n: number) => `TZS ${n.toLocaleString()}`;
 
-const initialProducts = [
-  { id: 1, name: 'Samsung Galaxy A14', sku: 'ELEC-042', price: 450000, stock: 3, category: 'Electronics', image: 'bg-blue-600', status: 'Active' },
-  { id: 2, name: 'Tecno Spark 10', sku: 'ELEC-051', price: 280000, stock: 12, category: 'Electronics', image: 'bg-indigo-600', status: 'Active' },
-  { id: 3, name: 'Itel PowerBank 20k', sku: 'ELEC-033', price: 45000, stock: 25, category: 'Electronics', image: 'bg-cyan-600', status: 'Active' },
-  { id: 4, name: "Men's Cotton T-Shirt", sku: 'CLTH-018', price: 15000, stock: 5, category: 'Clothing', image: 'bg-emerald-600', status: 'Active' },
-  { id: 5, name: 'Kitenge Dress', sku: 'CLTH-022', price: 45000, stock: 8, category: 'Clothing', image: 'bg-green-600', status: 'Active' },
-  { id: 6, name: 'Mama Ntilie Rice 5kg', sku: 'FOOD-033', price: 18000, stock: 4, category: 'Food', image: 'bg-amber-600', status: 'Active' },
-  { id: 7, name: 'Sunflower Oil 3L', sku: 'FOOD-041', price: 22000, stock: 18, category: 'Food', image: 'bg-yellow-600', status: 'Active' },
-  { id: 8, name: 'Sugar 2kg', sku: 'FOOD-012', price: 8500, stock: 30, category: 'Food', image: 'bg-orange-600', status: 'Active' },
-  { id: 9, name: 'Borehole Pump 1HP', sku: 'HSHD-009', price: 320000, stock: 2, category: 'Household', image: 'bg-rose-600', status: 'Active' },
-  { id: 10, name: 'Solar Panel 100W', sku: 'HSHD-015', price: 180000, stock: 7, category: 'Household', image: 'bg-pink-600', status: 'Active' },
-  { id: 11, name: 'Plastic Chairs (4)', sku: 'HSHD-021', price: 85000, stock: 10, category: 'Household', image: 'bg-fuchsia-600', status: 'Active' },
-  { id: 12, name: 'Mosquito Net Double', sku: 'HSHD-027', price: 25000, stock: 14, category: 'Household', image: 'bg-rose-700', status: 'Active' },
-  { id: 13, name: 'LED Bulb 12W', sku: 'ELEC-019', price: 8000, stock: 40, category: 'Electronics', image: 'bg-blue-700', status: 'Active' },
-  { id: 14, name: 'School Uniform Set', sku: 'CLTH-031', price: 32000, stock: 6, category: 'Clothing', image: 'bg-teal-600', status: 'Inactive' },
-  { id: 15, name: 'Water Filter', sku: 'HSHD-035', price: 65000, stock: 9, category: 'Household', image: 'bg-pink-700', status: 'Active' },
-];
+/* Shape of /api/pos/products rows — the same catalogue the storefront
+ * and the cashier consume, so editing here propagates everywhere. */
+interface PosProductRow {
+  id: string;
+  sku: string;
+  name: string;
+  category: string;
+  price: string | number;
+  currency: string;
+  stock: number;
+  imageUrl?: string | null;
+  active: boolean;
+}
 
-const initialOrders = [
-  { id: 'ORD-2026-1042', customer: 'Juma Bakari', items: 3, total: 125000, status: 'Completed', date: '2026-05-08' },
-  { id: 'ORD-2026-1041', customer: 'Asha Mwangi', items: 1, total: 45000, status: 'Processing', date: '2026-05-08' },
-  { id: 'ORD-2026-1040', customer: 'David Ochieng', items: 5, total: 230000, status: 'Pending', date: '2026-05-07' },
-  { id: 'ORD-2026-1039', customer: 'Fatuma Said', items: 2, total: 78000, status: 'Completed', date: '2026-05-07' },
-  { id: 'ORD-2026-1038', customer: 'Peter Njoroge', items: 4, total: 156000, status: 'Completed', date: '2026-05-07' },
-  { id: 'ORD-2026-1037', customer: 'Grace Wambui', items: 1, total: 34000, status: 'Cancelled', date: '2026-05-06' },
-  { id: 'ORD-2026-1036', customer: 'Omari Juma', items: 6, total: 210000, status: 'Completed', date: '2026-05-06' },
-  { id: 'ORD-2026-1035', customer: 'Halima Said', items: 2, total: 52000, status: 'Processing', date: '2026-05-05' },
-  { id: 'ORD-2026-1034', customer: 'Keneth Mrema', items: 3, total: 98000, status: 'Pending', date: '2026-05-05' },
-  { id: 'ORD-2026-1033', customer: 'Rehema Joseph', items: 4, total: 142000, status: 'Completed', date: '2026-05-04' },
-];
+/* Shape of /api/pos/orders rows. */
+interface PosOrderRow {
+  id: string;
+  orderNumber: string;
+  customerName?: string | null;
+  customerPhone?: string | null;
+  total: string | number;
+  status: 'PENDING' | 'COMPLETED' | 'REFUNDED' | 'CANCELLED';
+  createdAt: string;
+}
 
-const categories = ['All', 'Electronics', 'Clothing', 'Food', 'Household'];
+const CATEGORY_OPTIONS = ['Electronics', 'Clothing', 'Food', 'Household', 'Other'];
 
 const statusBadge = (status: string) => {
   const map: Record<string, string> = {
-    Completed: 'bg-green-500/10 text-green-400 border-green-500/20',
-    Processing: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-    Pending: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
-    Cancelled: 'bg-red-500/10 text-red-400 border-red-500/20',
+    COMPLETED: 'bg-green-500/10 text-green-400 border-green-500/20',
+    PROCESSING: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+    PENDING: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
+    CANCELLED: 'bg-red-500/10 text-red-400 border-red-500/20',
+    REFUNDED: 'bg-violet-500/10 text-violet-400 border-violet-500/20',
     Active: 'bg-green-500/10 text-green-400 border-green-500/20',
     Inactive: 'bg-slate-500/10 text-slate-400 border-slate-500/20',
   };
   return map[status] || 'bg-slate-500/10 text-slate-400';
 };
 
+interface FormState {
+  name: string;
+  sku: string;
+  price: number;
+  stock: number;
+  category: string;
+  description: string;
+  imageUrl: string;
+  active: boolean;
+}
+
+const blankForm: FormState = {
+  name: '', sku: '', price: 0, stock: 0,
+  category: 'Electronics', description: '', imageUrl: '', active: true,
+};
+
 export default function ERPStore() {
   const [tab, setTab] = useState('products');
-  const [products, setProducts] = useState(initialProducts);
-  const [orders] = useState(initialOrders);
+  const [products, setProducts] = useState<PosProductRow[]>([]);
+  const [orders, setOrders] = useState<PosOrderRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
   const [search, setSearch] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('All');
-  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [productModalOpen, setProductModalOpen] = useState(false);
-  const [editingProduct, setEditingProduct] = useState<typeof initialProducts[0] | null>(null);
-  const [form, setForm] = useState({ name: '', sku: '', price: 0, stock: 0, category: 'Electronics', description: '', image: 'bg-blue-600' });
+  const [editingProduct, setEditingProduct] = useState<PosProductRow | null>(null);
+  const [form, setForm] = useState<FormState>(blankForm);
+  const [saving, setSaving] = useState(false);
+
+  const reload = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [p, o] = await Promise.all([
+        api<PosProductRow[]>('/pos/products'),
+        api<PosOrderRow[]>('/pos/orders'),
+      ]);
+      setProducts(p);
+      setOrders(o);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not load store data');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try { await ensureSession(); } catch { /* offline */ }
+      await reload();
+    })();
+  }, [reload]);
+
+  const categoriesOnDisk = useMemo(() => {
+    const set = new Set<string>(products.map((p) => p.category).filter(Boolean));
+    return ['All', ...Array.from(set)];
+  }, [products]);
 
   const filteredProducts = useMemo(() => {
     return products.filter((p) => {
-      const matchSearch = p.name.toLowerCase().includes(search.toLowerCase()) || p.sku.toLowerCase().includes(search.toLowerCase());
+      const q = search.toLowerCase();
+      const matchSearch = !q || p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q);
       const matchCat = categoryFilter === 'All' || p.category === categoryFilter;
       return matchSearch && matchCat;
     });
   }, [products, search, categoryFilter]);
 
-  const toggleSelect = (id: number) => {
+  const toggleSelect = (id: string) =>
     setSelectedIds((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
-  };
 
   const selectAll = () => {
-    if (selectedIds.length === filteredProducts.length) {
-      setSelectedIds([]);
-    } else {
-      setSelectedIds(filteredProducts.map((p) => p.id));
-    }
+    if (selectedIds.length === filteredProducts.length) setSelectedIds([]);
+    else setSelectedIds(filteredProducts.map((p) => p.id));
   };
 
-  const deleteSelected = () => {
-    setProducts((prev) => prev.filter((p) => !selectedIds.includes(p.id)));
-    setSelectedIds([]);
+  const deleteSelected = async () => {
+    if (selectedIds.length === 0) return;
+    try {
+      await Promise.all(
+        selectedIds.map((id) => api(`/pos/products/${id}`, { method: 'DELETE' })),
+      );
+      setSelectedIds([]);
+      await reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Delete failed');
+    }
   };
 
   const openAdd = () => {
     setEditingProduct(null);
-    setForm({ name: '', sku: '', price: 0, stock: 0, category: 'Electronics', description: '', image: 'bg-blue-600' });
+    setForm(blankForm);
     setProductModalOpen(true);
   };
 
-  const openEdit = (product: typeof initialProducts[0]) => {
+  const openEdit = (product: PosProductRow) => {
     setEditingProduct(product);
-    setForm({ name: product.name, sku: product.sku, price: product.price, stock: product.stock, category: product.category, description: '', image: product.image });
+    setForm({
+      name: product.name,
+      sku: product.sku,
+      price: Number(product.price),
+      stock: Number(product.stock),
+      category: product.category || 'Electronics',
+      description: '',
+      imageUrl: product.imageUrl ?? '',
+      active: product.active,
+    });
     setProductModalOpen(true);
   };
 
-  const saveProduct = () => {
-    if (editingProduct) {
-      setProducts((prev) => prev.map((p) => (p.id === editingProduct.id ? { ...p, ...form } : p)));
-    } else {
-      const newId = Math.max(...products.map((p) => p.id), 0) + 1;
-      setProducts((prev) => [...prev, { id: newId, ...form, status: 'Active' }]);
+  const saveProduct = async () => {
+    if (!form.name.trim() || !form.sku.trim()) return;
+    setSaving(true);
+    try {
+      const body = {
+        name: form.name.trim(),
+        sku: form.sku.trim(),
+        category: form.category,
+        price: form.price,
+        stock: form.stock,
+        imageUrl: form.imageUrl || undefined,
+        active: form.active,
+      };
+      if (editingProduct) {
+        await api(`/pos/products/${editingProduct.id}`, { method: 'PATCH', body: JSON.stringify(body) });
+      } else {
+        await api('/pos/products', { method: 'POST', body: JSON.stringify(body) });
+      }
+      setProductModalOpen(false);
+      await reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setSaving(false);
     }
-    setProductModalOpen(false);
   };
 
-  const lowStockCount = products.filter((p) => p.stock < 10).length;
+  const lowStockCount = products.filter((p) => Number(p.stock) < 10).length;
 
   return (
     <div className="h-full bg-slate-950 text-slate-100 overflow-auto">
@@ -128,17 +205,26 @@ export default function ERPStore() {
             <Store className="w-5 h-5 text-blue-400" />
             <h1 className="text-lg font-semibold">Store Manager</h1>
           </div>
-          <Tabs value={tab} onValueChange={setTab}>
-            <TabsList className="bg-slate-900 border border-slate-800">
-              <TabsTrigger value="products" className="text-xs data-[state=active]:bg-blue-600 data-[state=active]:text-white">
-                <Package className="w-3 h-3 mr-1" /> Products
-              </TabsTrigger>
-              <TabsTrigger value="orders" className="text-xs data-[state=active]:bg-blue-600 data-[state=active]:text-white">
-                <ShoppingBag className="w-3 h-3 mr-1" /> Orders
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
+          <div className="flex items-center gap-3">
+            <Tabs value={tab} onValueChange={setTab}>
+              <TabsList className="bg-slate-900 border border-slate-800">
+                <TabsTrigger value="products" className="text-xs data-[state=active]:bg-blue-600 data-[state=active]:text-white">
+                  <Package className="w-3 h-3 mr-1" /> Products ({products.length})
+                </TabsTrigger>
+                <TabsTrigger value="orders" className="text-xs data-[state=active]:bg-blue-600 data-[state=active]:text-white">
+                  <ShoppingBag className="w-3 h-3 mr-1" /> Orders ({orders.length})
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <Button size="sm" variant="ghost" onClick={reload} disabled={loading}>
+              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            </Button>
+          </div>
         </div>
+
+        {error && (
+          <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">{error}</div>
+        )}
 
         {tab === 'products' && (
           <>
@@ -152,7 +238,7 @@ export default function ERPStore() {
               <Card className="bg-slate-900/60 border-slate-800">
                 <CardContent className="p-3">
                   <div className="text-xs text-slate-400">Active</div>
-                  <div className="text-xl font-bold text-green-400">{products.filter((p) => p.status === 'Active').length}</div>
+                  <div className="text-xl font-bold text-green-400">{products.filter((p) => p.active).length}</div>
                 </CardContent>
               </Card>
               <Card className="bg-slate-900/60 border-slate-800">
@@ -167,7 +253,7 @@ export default function ERPStore() {
               <Card className="bg-slate-900/60 border-slate-800">
                 <CardContent className="p-3">
                   <div className="text-xs text-slate-400">Categories</div>
-                  <div className="text-xl font-bold">{categories.length - 1}</div>
+                  <div className="text-xl font-bold">{Math.max(0, categoriesOnDisk.length - 1)}</div>
                 </CardContent>
               </Card>
             </div>
@@ -182,8 +268,8 @@ export default function ERPStore() {
                       <Input
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Search..."
-                        className="pl-8 h-8 w-48 bg-slate-900 border-slate-700 text-xs"
+                        placeholder="Search name or SKU..."
+                        className="pl-8 h-8 w-56 bg-slate-900 border-slate-700 text-xs"
                       />
                     </div>
                     <select
@@ -191,7 +277,7 @@ export default function ERPStore() {
                       onChange={(e) => setCategoryFilter(e.target.value)}
                       className="h-8 px-2 rounded-md bg-slate-900 border border-slate-700 text-xs text-slate-300"
                     >
-                      {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+                      {categoriesOnDisk.map((c) => <option key={c} value={c}>{c}</option>)}
                     </select>
                     {selectedIds.length > 0 && (
                       <Button variant="outline" size="sm" onClick={deleteSelected} className="h-8 border-red-500/30 text-red-400 hover:bg-red-500/10">
@@ -211,7 +297,9 @@ export default function ERPStore() {
                       <TableRow className="border-slate-800 hover:bg-transparent">
                         <TableHead className="w-8">
                           <button onClick={selectAll}>
-                            {selectedIds.length === filteredProducts.length && filteredProducts.length > 0 ? <CheckSquare className="w-4 h-4 text-blue-400" /> : <Square className="w-4 h-4 text-slate-500" />}
+                            {selectedIds.length === filteredProducts.length && filteredProducts.length > 0
+                              ? <CheckSquare className="w-4 h-4 text-blue-400" />
+                              : <Square className="w-4 h-4 text-slate-500" />}
                           </button>
                         </TableHead>
                         <TableHead className="text-slate-400 text-xs">Product</TableHead>
@@ -224,6 +312,11 @@ export default function ERPStore() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
+                      {!loading && filteredProducts.length === 0 && (
+                        <TableRow className="border-slate-800"><TableCell colSpan={8} className="text-center text-xs text-slate-500 py-8">
+                          {products.length === 0 ? 'No products yet — click Add to create the first one.' : 'No products match the current filter.'}
+                        </TableCell></TableRow>
+                      )}
                       {filteredProducts.map((p) => (
                         <TableRow key={p.id} className="border-slate-800 hover:bg-slate-800/40">
                           <TableCell>
@@ -233,21 +326,23 @@ export default function ERPStore() {
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
-                              <div className={`w-8 h-8 rounded-md ${p.image} shrink-0`} />
+                              {p.imageUrl
+                                ? <img src={p.imageUrl} alt={p.name} className="w-8 h-8 rounded-md object-cover shrink-0" />
+                                : <div className="w-8 h-8 rounded-md bg-slate-700 shrink-0 flex items-center justify-center"><Package className="w-4 h-4 text-slate-400" /></div>}
                               <span className="text-xs font-medium">{p.name}</span>
                             </div>
                           </TableCell>
                           <TableCell className="text-xs font-mono text-slate-400">{p.sku}</TableCell>
-                          <TableCell className="text-xs font-medium">{tzs(p.price)}</TableCell>
+                          <TableCell className="text-xs font-medium">{tzs(Number(p.price))}</TableCell>
                           <TableCell>
-                            <Badge variant="outline" className={p.stock < 10 ? 'text-red-400 border-red-400/20 bg-red-500/10' : 'text-slate-400 border-slate-700'}>
+                            <Badge variant="outline" className={Number(p.stock) < 10 ? 'text-red-400 border-red-400/20 bg-red-500/10' : 'text-slate-400 border-slate-700'}>
                               {p.stock}
                             </Badge>
                           </TableCell>
-                          <TableCell className="text-xs text-slate-300">{p.category}</TableCell>
+                          <TableCell className="text-xs text-slate-300">{p.category || '-'}</TableCell>
                           <TableCell>
-                            <Badge variant="outline" className={statusBadge(p.status)}>
-                              {p.status}
+                            <Badge variant="outline" className={statusBadge(p.active ? 'Active' : 'Inactive')}>
+                              {p.active ? 'Active' : 'Inactive'}
                             </Badge>
                           </TableCell>
                           <TableCell className="text-right">
@@ -268,34 +363,37 @@ export default function ERPStore() {
         {tab === 'orders' && (
           <Card className="bg-slate-900/60 border-slate-800">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Customer Orders</CardTitle>
+              <CardTitle className="text-sm font-medium">Customer Orders ({orders.length})</CardTitle>
             </CardHeader>
             <CardContent>
               <ScrollArea className="h-[500px]">
                 <Table>
                   <TableHeader>
                     <TableRow className="border-slate-800 hover:bg-transparent">
-                      <TableHead className="text-slate-400 text-xs">Order ID</TableHead>
+                      <TableHead className="text-slate-400 text-xs">Order #</TableHead>
                       <TableHead className="text-slate-400 text-xs">Customer</TableHead>
-                      <TableHead className="text-slate-400 text-xs">Items</TableHead>
+                      <TableHead className="text-slate-400 text-xs">Phone</TableHead>
                       <TableHead className="text-slate-400 text-xs">Total</TableHead>
                       <TableHead className="text-slate-400 text-xs">Status</TableHead>
                       <TableHead className="text-slate-400 text-xs">Date</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
+                    {!loading && orders.length === 0 && (
+                      <TableRow className="border-slate-800"><TableCell colSpan={6} className="text-center text-xs text-slate-500 py-8">
+                        No orders yet — sales placed via the POS terminal or the online storefront will appear here.
+                      </TableCell></TableRow>
+                    )}
                     {orders.map((o) => (
                       <TableRow key={o.id} className="border-slate-800 hover:bg-slate-800/40">
-                        <TableCell className="text-xs font-mono text-slate-300">{o.id}</TableCell>
-                        <TableCell className="text-xs text-slate-300">{o.customer}</TableCell>
-                        <TableCell className="text-xs text-slate-400">{o.items}</TableCell>
-                        <TableCell className="text-xs font-medium">{tzs(o.total)}</TableCell>
+                        <TableCell className="text-xs font-mono text-slate-300">{o.orderNumber}</TableCell>
+                        <TableCell className="text-xs text-slate-300">{o.customerName ?? 'Walk-in / Online'}</TableCell>
+                        <TableCell className="text-xs text-slate-400">{o.customerPhone ?? '-'}</TableCell>
+                        <TableCell className="text-xs font-medium">{tzs(Number(o.total))}</TableCell>
                         <TableCell>
-                          <Badge variant="outline" className={statusBadge(o.status)}>
-                            {o.status}
-                          </Badge>
+                          <Badge variant="outline" className={statusBadge(o.status)}>{o.status}</Badge>
                         </TableCell>
-                        <TableCell className="text-xs text-slate-400">{o.date}</TableCell>
+                        <TableCell className="text-xs text-slate-400">{new Date(o.createdAt).toLocaleString()}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -313,13 +411,13 @@ export default function ERPStore() {
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <label className="text-xs text-slate-400 block mb-1">Name</label>
+              <label className="text-xs text-slate-400 block mb-1">Name *</label>
               <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className="bg-slate-800 border-slate-700 text-slate-100" />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs text-slate-400 block mb-1">SKU</label>
-                <Input value={form.sku} onChange={(e) => setForm((f) => ({ ...f, sku: e.target.value }))} className="bg-slate-800 border-slate-700 text-slate-100" />
+                <label className="text-xs text-slate-400 block mb-1">SKU *</label>
+                <Input value={form.sku} onChange={(e) => setForm((f) => ({ ...f, sku: e.target.value }))} className="bg-slate-800 border-slate-700 text-slate-100 font-mono" />
               </div>
               <div>
                 <label className="text-xs text-slate-400 block mb-1">Category</label>
@@ -328,7 +426,7 @@ export default function ERPStore() {
                   onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))}
                   className="w-full h-9 px-2 rounded-md bg-slate-800 border border-slate-700 text-xs text-slate-300"
                 >
-                  {categories.filter((c) => c !== 'All').map((c) => <option key={c} value={c}>{c}</option>)}
+                  {CATEGORY_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
             </div>
@@ -343,15 +441,23 @@ export default function ERPStore() {
               </div>
             </div>
             <div>
-              <label className="text-xs text-slate-400 block mb-1">Description</label>
-              <Textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} className="bg-slate-800 border-slate-700 text-slate-100 text-xs" rows={3} />
+              <label className="text-xs text-slate-400 block mb-1">Image URL (optional)</label>
+              <Input value={form.imageUrl} onChange={(e) => setForm((f) => ({ ...f, imageUrl: e.target.value }))} placeholder="https://…" className="bg-slate-800 border-slate-700 text-slate-100 text-xs" />
             </div>
+            <div>
+              <label className="text-xs text-slate-400 block mb-1">Notes</label>
+              <Textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} className="bg-slate-800 border-slate-700 text-slate-100 text-xs" rows={2} />
+            </div>
+            <label className="flex items-center gap-2 text-xs text-slate-300 select-none">
+              <input type="checkbox" checked={form.active} onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))} />
+              Active in catalogue
+            </label>
             <div className="flex gap-2 pt-2">
-              <Button variant="outline" onClick={() => setProductModalOpen(false)} className="flex-1 border-slate-700 text-slate-300 hover:bg-slate-800">
+              <Button variant="outline" onClick={() => setProductModalOpen(false)} disabled={saving} className="flex-1 border-slate-700 text-slate-300 hover:bg-slate-800">
                 Cancel
               </Button>
-              <Button onClick={saveProduct} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white">
-                Save
+              <Button onClick={saveProduct} disabled={saving || !form.name.trim() || !form.sku.trim()} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white">
+                {saving ? 'Saving…' : 'Save'}
               </Button>
             </div>
           </div>
