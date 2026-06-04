@@ -20,6 +20,7 @@ import { FilesModule } from './files/files.module';
 import { PasswordsModule } from './passwords/passwords.module';
 import { MediaModule } from './media/media.module';
 import { CargoModule } from './cargo/cargo.module';
+import { AirCargoModule } from './cargo/air-cargo.module';
 import { PropertyModule } from './property/property.module';
 import { PosModule } from './pos/pos.module';
 import { WarehouseModule } from './warehouse/warehouse.module';
@@ -53,6 +54,7 @@ import { AccountModule } from './account/account.module';
 import { KobeSecurityModule } from './kobe-security/kobe-security.module';
 import { HotelSecurityModule } from './hotel-security/hotel-security.module';
 import { StudioMediaModule } from './studio-media/studio-media.module';
+import { ShopStockModule } from './shop-stock/shop-stock.module';
 import { DiscountApprovalModule } from './discount-approval/discount-approval.module';
 
 @Module({
@@ -86,6 +88,7 @@ import { DiscountApprovalModule } from './discount-approval/discount-approval.mo
     PasswordsModule,
     MediaModule,
     CargoModule,
+    AirCargoModule,
     PropertyModule,
     PosModule,
     WarehouseModule,
@@ -110,6 +113,7 @@ import { DiscountApprovalModule } from './discount-approval/discount-approval.mo
     StoreRegistryModule,
     DevopsModule,
     AccountModule,
+    ShopStockModule,
     DiscountApprovalModule,
   ],
   controllers: [AppController],

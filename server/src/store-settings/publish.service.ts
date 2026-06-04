@@ -8,8 +8,6 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ChildProcess, spawn } from 'child_process';
-import * as path from 'path';
-import * as fs from 'fs';
 import { StoreSettings } from './store-settings.entity';
 import { CloudflareService } from '../store-registry/cloudflare.service';
 
@@ -129,56 +127,18 @@ export class PublishService implements OnModuleDestroy {
 
   // ── cloudflared process management ───────────────────────────────────────
 
-  /**
-   * Resolve the cloudflared binary path.
-   *
-   * Priority:
-   *   1. Bundled binary in Electron's extraResources/cloudflared/ directory
-   *      (present in all installed builds — Windows, Linux, macOS)
-   *   2. System PATH (fallback for dev mode where no binary is bundled)
-   */
-  private resolveBinaryPath(): string | null {
-    // When running inside Electron, process.resourcesPath is set
-    const resourcesPath = (process as any).resourcesPath as string | undefined;
-    if (resourcesPath) {
-      const platform = process.platform; // 'win32' | 'linux' | 'darwin'
-      const arch     = process.arch;     // 'x64' | 'arm64'
-
-      let binaryName: string;
-      if (platform === 'win32')        binaryName = 'cloudflared-win-x64.exe';
-      else if (platform === 'darwin')  binaryName = `cloudflared-mac-${arch}`;
-      else                             binaryName = 'cloudflared-linux-x64';
-
-      const bundled = path.join(resourcesPath, 'cloudflared', binaryName);
-      if (fs.existsSync(bundled)) return bundled;
-    }
-
-    // Dev mode fallback — check system PATH
-    return null; // commandExists() will try 'cloudflared' from PATH
-  }
-
   private async spawnCloudflared(ownerId: string, token: string): Promise<void> {
-    const bundledPath = this.resolveBinaryPath();
-    let binaryCmd: string;
-
-    if (bundledPath) {
-      binaryCmd = bundledPath;
-      this.logger.log(`Using bundled cloudflared: ${bundledPath}`);
-    } else {
-      // Fall back to system PATH (dev mode)
-      const onPath = await this.commandExists('cloudflared');
-      if (!onPath) {
-        throw new BadRequestException(
-          'cloudflared is not installed. ' +
-          'Download it from https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/ ' +
-          'and restart KobeOS.',
-        );
-      }
-      binaryCmd = 'cloudflared';
-      this.logger.log('Using system cloudflared from PATH');
+    // Verify cloudflared is installed
+    const which = await this.commandExists('cloudflared');
+    if (!which) {
+      throw new BadRequestException(
+        'cloudflared is not installed on this machine. ' +
+        'Download it from https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/ ' +
+        'and restart KobeOS.',
+      );
     }
 
-    const proc = spawn(binaryCmd, ['tunnel', 'run', '--token', token], {
+    const proc = spawn('cloudflared', ['tunnel', 'run', '--token', token], {
       detached: false,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -207,14 +167,13 @@ export class PublishService implements OnModuleDestroy {
     }
   }
 
-  /** Check whether a command exists on the system PATH. */
   private commandExists(cmd: string): Promise<boolean> {
     return new Promise((resolve) => {
-      const checker = spawn(process.platform === 'win32' ? 'where' : 'which', [cmd], {
+      const check = spawn(process.platform === 'win32' ? 'where' : 'which', [cmd], {
         stdio: 'ignore',
       });
-      checker.on('exit', (code) => resolve(code === 0));
-      checker.on('error', () => resolve(false));
+      check.on('exit', (code) => resolve(code === 0));
+      check.on('error', () => resolve(false));
     });
   }
 

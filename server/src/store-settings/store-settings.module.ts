@@ -8,6 +8,7 @@ import { StoreSettingsController } from './store-settings.controller';
 import { PublishService } from './publish.service';
 import { StorefrontService } from './storefront.service';
 import { StorefrontController, StorefrontPublicController } from './storefront.controller';
+import { CloudflareService } from '../store-registry/cloudflare.service';
 
 @Module({
   imports: [
@@ -19,7 +20,7 @@ import { StorefrontController, StorefrontPublicController } from './storefront.c
       PosProduct,
     ]),
   ],
-  providers: [StoreSettingsService, PublishService, StorefrontService],
+  providers: [StoreSettingsService, PublishService, StorefrontService, CloudflareService],
   controllers: [StoreSettingsController, StorefrontController, StorefrontPublicController],
   exports: [StoreSettingsService, PublishService, StorefrontService, TypeOrmModule],
 })
