@@ -124,4 +124,21 @@ export class StoreSettings extends BaseEntity {
   /** Last time this store was successfully published */
   @Column({ nullable: true, type: 'timestamptz' })
   publishedAt!: Date | null;
+
+  // Cloudflare Tunnel metadata (set by PublishService)
+  /** Cloudflare Tunnel ID — used to delete/update the tunnel on unpublish */
+  @Column({ nullable: true, type: 'varchar' })
+  cfTunnelId!: string | null;
+
+  /** Cloudflare DNS record ID for the CNAME — used to delete on unpublish */
+  @Column({ nullable: true, type: 'varchar' })
+  cfRecordId!: string | null;
+
+  /**
+   * Cloudflare Tunnel run token — passed to `cloudflared tunnel run --token`.
+   * Stored so the tunnel can be restarted after a server reboot without
+   * calling the Cloudflare API again.
+   */
+  @Column({ nullable: true, type: 'text' })
+  cfToken!: string | null;
 }

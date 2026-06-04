@@ -6,6 +6,7 @@ import { StoreSettingsService } from './store-settings.service';
 import { UpsertStoreSettingsDto } from './dto/store-settings.dto';
 import { PublishService } from './publish.service';
 
+@UseGuards(JwtAuthGuard)
 @Controller('store-settings')
 export class StoreSettingsController {
   constructor(
@@ -13,41 +14,52 @@ export class StoreSettingsController {
     private readonly publishSvc: PublishService,
   ) {}
 
-  @UseGuards(JwtAuthGuard)
   @Get()
   get(@CurrentUser('id') uid: string) {
     return this.svc.get(uid);
   }
 
-  @UseGuards(JwtAuthGuard)
   @Put()
   upsert(@CurrentUser('id') uid: string, @Body() dto: UpsertStoreSettingsDto) {
     return this.svc.upsert(uid, dto);
   }
 
-  /** Publish this store via Cloudflare Tunnel. */
-  @UseGuards(JwtAuthGuard)
+  /**
+   * Publish this store to kobeapptz.com via Cloudflare Tunnel.
+   * Creates the tunnel, DNS record, and spawns cloudflared locally.
+   * POST /api/store-settings/publish
+   */
   @Post('publish')
   publish(@CurrentUser('id') uid: string) {
     return this.publishSvc.publish(uid);
   }
 
-  /** Unpublish the store and tear down its tunnel + DNS record. */
-  @UseGuards(JwtAuthGuard)
+  /**
+   * Unpublish — stops the tunnel and removes the DNS record.
+   * DELETE /api/store-settings/publish
+   */
   @Delete('publish')
   unpublish(@CurrentUser('id') uid: string) {
     return this.publishSvc.unpublish(uid);
   }
 
   /**
-   * Live availability check for a candidate slug. Editor calls this
-   * as the user types so they see green/red immediately instead of
-   * being told on save. Public so the signed-out signup flow can
-   * use the same endpoint.
+   * Check whether the local cloudflared tunnel process is running.
+   * GET /api/store-settings/tunnel-status
+   */
+  @Get('tunnel-status')
+  tunnelStatus(@CurrentUser('id') uid: string) {
+    return this.publishSvc.tunnelStatus(uid);
+  }
+
+  /**
+   * Check if a slug is available before publishing.
+   * GET /api/store-settings/check-slug?slug=kelvinfashion
+   * Public — no auth needed.
    */
   @Public()
   @Get('check-slug')
   checkSlug(@Query('slug') slug: string) {
-    return this.svc.checkSlug(slug ?? '');
+    return this.svc.checkSlugAvailability(slug ?? '');
   }
 }

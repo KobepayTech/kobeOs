@@ -193,48 +193,27 @@ export class CloudflareService {
     }
   }
 
-  /* ────────────────────────────────────────────────────────────────
-   * Legacy A-record API.
-   *
-   * Used by the StoreRegistryService — the pre-tunnel publishing
-   * path that pointed customer subdomains at a fixed server IP.
-   * Kept alongside the tunnel methods so both publish flows compile.
-   * Newer deployments should prefer the tunnel API above; A-records
-   * exist for installs that haven't migrated yet.
-   * ──────────────────────────────────────────────────────────── */
+  // ── Legacy A-record API ──────────────────────────────────────────────────
+  // StoreRegistryService still calls these — it's the older publish path that
+  // PR #19 supersedes but didn't remove. Keep them as thin wrappers over the
+  // raw DNS API so the registry module compiles until it's actually deleted.
 
   async createARecord(slug: string, ip: string): Promise<string> {
-    const record = await this.cfFetch<{ id: string }>(
-      `/zones/${this.zoneId}/dns_records`,
-      {
-        method: 'POST',
-        body: JSON.stringify({
-          type: 'A', name: `${slug}.${this.domain}`, content: ip, ttl: 120, proxied: false,
-        }),
-      },
-    );
-    this.logger.log(`Created DNS A record: ${slug}.${this.domain} → ${ip} (id: ${record.id})`);
-    return record.id;
+    const res = await this.cfFetch<{ result: { id: string } }>(`/zones/${this.zoneId}/dns_records`, {
+      method: 'POST',
+      body: JSON.stringify({ type: 'A', name: slug, content: ip, ttl: 1, proxied: true }),
+    });
+    return res.result.id;
   }
 
   async updateARecord(recordId: string, slug: string, ip: string): Promise<void> {
-    await this.cfFetch(
-      `/zones/${this.zoneId}/dns_records/${recordId}`,
-      {
-        method: 'PUT',
-        body: JSON.stringify({
-          type: 'A', name: `${slug}.${this.domain}`, content: ip, ttl: 120, proxied: false,
-        }),
-      },
-    );
-    this.logger.log(`Updated DNS A record ${recordId}: ${slug}.${this.domain} → ${ip}`);
+    await this.cfFetch(`/zones/${this.zoneId}/dns_records/${recordId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ type: 'A', name: slug, content: ip, ttl: 1, proxied: true }),
+    });
   }
 
   async deleteARecord(recordId: string): Promise<void> {
-    await this.cfFetch(
-      `/zones/${this.zoneId}/dns_records/${recordId}`,
-      { method: 'DELETE' },
-    );
-    this.logger.log(`Deleted DNS A record ${recordId}`);
+    return this.deleteDnsRecord(recordId);
   }
 }
