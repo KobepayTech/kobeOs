@@ -348,8 +348,8 @@ export default function CreditCollectionsModule() {
             <CreditCard className="h-6 w-6 text-blue-400" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-white">Credit & Collections</h1>
-            <p className="text-sm text-slate-400">Manage customer credit, track payments, and monitor aging</p>
+            <h1 className="text-2xl font-bold tracking-tight text-white">People Who Owe Us</h1>
+            <p className="text-sm text-slate-400">Money Out (red) by customer — track who owes and when each instalment turns green.</p>
           </div>
         </div>
         <div className="flex items-center gap-2 rounded-lg bg-[#13131f] border border-white/[0.06] p-1">

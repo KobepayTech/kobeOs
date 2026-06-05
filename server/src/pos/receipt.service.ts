@@ -7,6 +7,14 @@ export interface Receipt {
   printedAt: string;
 }
 
+export interface ReceiptOptions {
+  /**
+   * BNPL instalment schedule. When present the receipt prints the
+   * "Balance to pay later (red)" section with one row per instalment.
+   */
+  schedule?: Array<{ amountDue: number; dueDate: Date }>;
+}
+
 const WIDTH = 40;
 
 function pad(left: string, right: string): string {
@@ -18,11 +26,23 @@ function money(n: number | string, currency: string): string {
   return `${currency} ${Number(n).toFixed(2)}`;
 }
 
+function fmtDate(d: Date): string {
+  return d.toLocaleDateString(undefined, { day: '2-digit', month: 'short' });
+}
+
 @Injectable()
 export class ReceiptService {
-  format(order: PosOrder, items: PosOrderItem[]): Receipt {
+  /**
+   * Plain-language receipt:
+   *   "Money in today (green)"  — what the customer actually paid now
+   *   "Balance to pay later (red)" — what they still owe, per instalment
+   * No accounting jargon (no debit/credit/AR). Designed so a cashier
+   * reading aloud to the buyer doesn't need to translate.
+   */
+  format(order: PosOrder, items: PosOrderItem[], opts: ReceiptOptions = {}): Receipt {
     const lines: string[] = [];
-    lines.push('KobeOS Point of Sale'.padStart((WIDTH + 'KobeOS Point of Sale'.length) / 2));
+    const title = 'KobeOS Point of Sale';
+    lines.push(title.padStart((WIDTH + title.length) / 2));
     lines.push('='.repeat(WIDTH));
     lines.push(`Order:  ${order.orderNumber}`);
     lines.push(`Date:   ${order.createdAt.toISOString().slice(0, 19).replace('T', ' ')}`);
@@ -46,9 +66,31 @@ export class ReceiptService {
     }
     lines.push(pad('TOTAL', money(order.total, order.currency)));
     lines.push('-'.repeat(WIDTH));
-    lines.push(pad('Paid via', order.paymentMethod));
+
+    const isBnpl = (order.paymentMethod ?? '').toUpperCase() === 'BNPL';
+    if (isBnpl && opts.schedule && opts.schedule.length > 0) {
+      // Buyer is paying nothing today (full BNPL) — show the schedule only.
+      lines.push('Money in today (green)');
+      lines.push(pad('  Today', money(0, order.currency)));
+      lines.push('');
+      lines.push('Balance to pay later (red)');
+      lines.push(pad('  Remaining', money(order.total, order.currency)));
+      lines.push('');
+      const plural = opts.schedule.length === 1 ? 'instalment' : `${opts.schedule.length} instalments`;
+      lines.push(`  Pay in ${plural}:`);
+      for (const inst of opts.schedule) {
+        lines.push(pad(`    ${money(inst.amountDue, order.currency)}`, `by ${fmtDate(inst.dueDate)}`));
+      }
+    } else {
+      // Cash / Card / Mobile / Bank — paid in full today.
+      lines.push('Money in today (green)');
+      lines.push(pad(`  ${order.paymentMethod}`, money(order.total, order.currency)));
+    }
+
+    lines.push('-'.repeat(WIDTH));
     lines.push('');
-    lines.push('Thank you for your business!'.padStart((WIDTH + 'Thank you for your business!'.length) / 2));
+    const thanks = 'Thank you for your business!';
+    lines.push(thanks.padStart((WIDTH + thanks.length) / 2));
 
     return {
       orderNumber: order.orderNumber,

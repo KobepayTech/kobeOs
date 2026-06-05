@@ -63,3 +63,42 @@ export class CreditReceivable extends OwnedEntity {
   @Column({ default: 'OUTSTANDING' })
   status!: ReceivableStatus;
 }
+
+export type InstalmentStatus = 'DUE' | 'PARTIAL' | 'PAID' | 'OVERDUE';
+
+/**
+ * Per-instalment row for a BNPL receivable. The receivable splits its
+ * amount into N rows here at creation time so the customer-facing receipt
+ * can show "$40 by 14 Jun / $40 by 28 Jun / $40 by 12 Jul" verbatim and
+ * the cashier's payment UI can mark them off in order as money comes in.
+ */
+@Entity('credit_instalments')
+@Index(['ownerId', 'receivableId', 'sequence'], { unique: true })
+@Index(['ownerId', 'dueDate'])
+export class CreditInstalment extends OwnedEntity {
+  @Index()
+  @Column('uuid')
+  receivableId!: string;
+
+  /** 1-based position within the receivable (1 of 3, 2 of 3, …). */
+  @Column()
+  sequence!: number;
+
+  @Column({ type: 'decimal', precision: 18, scale: 4 })
+  amountDue!: number;
+
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
+  amountPaid!: number;
+
+  @Column({ default: 'TZS' })
+  currency!: string;
+
+  @Column({ type: 'timestamptz' })
+  dueDate!: Date;
+
+  @Column({ default: 'DUE' })
+  status!: InstalmentStatus;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  paidAt?: Date | null;
+}

@@ -33,4 +33,10 @@ export class CreditController {
   ) {
     return this.svc.recordPayment(uid, id, dto);
   }
+
+  /** Per-instalment breakdown for a single receivable. */
+  @Get('receivables/:id/instalments')
+  listInstalments(@CurrentUser('id') uid: string, @Param('id') id: string) {
+    return this.svc.listInstalments(uid, id);
+  }
 }

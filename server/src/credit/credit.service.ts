@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
-import { CreditProfile, CreditReceivable } from './credit.entity';
+import { CreditInstalment, CreditProfile, CreditReceivable } from './credit.entity';
 import { RecordPaymentDto, UpsertCreditProfileDto } from './dto/credit.dto';
 import { JournalService } from '../erp/journal.service';
 
@@ -19,6 +19,7 @@ export class CreditService {
   constructor(
     @InjectRepository(CreditProfile) private readonly profiles: Repository<CreditProfile>,
     @InjectRepository(CreditReceivable) private readonly receivables: Repository<CreditReceivable>,
+    @InjectRepository(CreditInstalment) private readonly instalments: Repository<CreditInstalment>,
     private readonly journal: JournalService,
     private readonly ds: DataSource,
   ) {}
@@ -129,10 +130,12 @@ export class CreditService {
     }
     profile.outstanding = parseFloat((Number(profile.outstanding) + input.amount).toFixed(4));
 
-    const months = input.installmentMonths ?? 1;
+    const months = Math.max(1, input.installmentMonths ?? 1);
     const monthly = parseFloat((input.amount / months).toFixed(4));
-    const due = new Date();
-    due.setMonth(due.getMonth() + months);
+    // dueDate on the receivable points at the LAST instalment so existing
+    // aging queries that filter on it still work after we split the row.
+    const finalDue = new Date();
+    finalDue.setMonth(finalDue.getMonth() + months);
 
     const receivable = await receivableRepo.save(
       receivableRepo.create({
@@ -145,18 +148,46 @@ export class CreditService {
         currency: input.currency ?? profile.currency,
         installmentMonths: months,
         monthlyAmount: monthly,
-        dueDate: due,
+        dueDate: finalDue,
         status: 'OUTSTANDING',
       }),
     );
 
-    return { profile, receivable, availableCredit: this.available(profile) };
+    // Lay down the per-instalment rows. The last row absorbs any rounding
+    // residue so the schedule always sums back to the receivable amount.
+    const schedule = buildSchedule(input.amount, months, new Date());
+    const instalmentRepo = tx.getRepository(CreditInstalment);
+    await instalmentRepo.save(
+      schedule.map((s, idx) =>
+        instalmentRepo.create({
+          ownerId: uid,
+          receivableId: receivable.id,
+          sequence: idx + 1,
+          amountDue: s.amountDue,
+          amountPaid: 0,
+          currency: input.currency ?? profile.currency,
+          dueDate: s.dueDate,
+          status: 'DUE',
+        }),
+      ),
+    );
+
+    return { profile, receivable, availableCredit: this.available(profile), schedule };
+  }
+
+  /** List the instalment schedule for a receivable, ordered by due date. */
+  listInstalments(uid: string, receivableId: string) {
+    return this.instalments.find({
+      where: { ownerId: uid, receivableId },
+      order: { sequence: 'ASC' },
+    });
   }
 
   async recordPayment(uid: string, receivableId: string, dto: RecordPaymentDto) {
     return this.ds.transaction(async (tx) => {
       const recRepo = tx.getRepository(CreditReceivable);
       const profileRepo = tx.getRepository(CreditProfile);
+      const instalmentRepo = tx.getRepository(CreditInstalment);
 
       const r = await recRepo.findOne({ where: { id: receivableId, ownerId: uid } });
       if (!r) throw new NotFoundException();
@@ -169,6 +200,31 @@ export class CreditService {
       r.paid = newPaid;
       r.status = newPaid >= amount ? 'PAID' : 'PARTIAL';
       await recRepo.save(r);
+
+      // Allocate the payment across instalments in due-date order. The
+      // cashier always covers the oldest unpaid instalment first; any
+      // remainder spills onto the next row, and so on. Idempotent against
+      // re-runs because we read amountPaid from the persisted row.
+      const due = await instalmentRepo.find({
+        where: { ownerId: uid, receivableId },
+        order: { sequence: 'ASC' },
+      });
+      let remaining = Number(dto.amount);
+      for (const inst of due) {
+        if (remaining <= 0) break;
+        const headroom = Number(inst.amountDue) - Number(inst.amountPaid);
+        if (headroom <= 0) continue;
+        const apply = Math.min(remaining, headroom);
+        inst.amountPaid = parseFloat((Number(inst.amountPaid) + apply).toFixed(4));
+        if (inst.amountPaid >= Number(inst.amountDue)) {
+          inst.status = 'PAID';
+          inst.paidAt = new Date();
+        } else {
+          inst.status = 'PARTIAL';
+        }
+        await instalmentRepo.save(inst);
+        remaining = parseFloat((remaining - apply).toFixed(4));
+      }
 
       // Atomic outstanding decrement, floored at zero. GREATEST(...) keeps
       // the column non-negative even if a stale total briefly slipped past
@@ -191,4 +247,25 @@ export class CreditService {
   private available(profile: CreditProfile): number {
     return parseFloat((Number(profile.creditLimit) - Number(profile.outstanding)).toFixed(4));
   }
+}
+
+/**
+ * Split `amount` into `months` evenly-sized instalments due monthly starting
+ * one month after `from`. Rounds each row to 2 decimals, then absorbs the
+ * residue into the final row so the schedule always sums back to `amount`
+ * exactly — no silent rounding drift on the receipt.
+ */
+export function buildSchedule(amount: number, months: number, from: Date): Array<{ amountDue: number; dueDate: Date }> {
+  const rows: Array<{ amountDue: number; dueDate: Date }> = [];
+  const per = Math.round((amount / months) * 100) / 100;
+  let sumSoFar = 0;
+  for (let i = 1; i <= months; i++) {
+    const due = new Date(from);
+    due.setMonth(due.getMonth() + i);
+    const isLast = i === months;
+    const row = isLast ? parseFloat((amount - sumSoFar).toFixed(2)) : per;
+    rows.push({ amountDue: row, dueDate: due });
+    sumSoFar = parseFloat((sumSoFar + row).toFixed(2));
+  }
+  return rows;
 }

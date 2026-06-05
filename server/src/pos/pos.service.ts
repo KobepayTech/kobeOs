@@ -161,6 +161,7 @@ export class OrdersService {
       }
 
       let receivable: unknown = null;
+      let bnplSchedule: Array<{ amountDue: number; dueDate: Date }> | undefined;
       if (isBnpl) {
         const approval = await this.credit.approveAndReserveInTransaction(tx, uid, {
           customerPhone: dto.customerPhone ?? '',
@@ -173,6 +174,7 @@ export class OrdersService {
         order.receivableId = approval.receivable.id;
         await orderRepo.save(order);
         receivable = approval.receivable;
+        bnplSchedule = approval.schedule;
       }
 
       const pickTicket = await this.pickTickets.createInTransaction(tx, uid, {
@@ -187,7 +189,7 @@ export class OrdersService {
       // so the books are never left in a half-written state.
       const journal = await this.journal.postPosSaleInTransaction(tx, uid, order, itemsToInsert, { isBnpl });
 
-      const receipt = this.receipts.format(order, itemsToInsert);
+      const receipt = this.receipts.format(order, itemsToInsert, { schedule: bnplSchedule });
 
       return {
         ...order,
