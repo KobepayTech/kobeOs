@@ -533,8 +533,16 @@ export default function POSSystem() {
   }, [requests]);
 
   // ─── Render ──────────────────────────────────────────────────────
+  // <Tabs> wraps the entire shell so TabsList (in the header) and the three
+  // TabsContent blocks below share the Radix Tabs context. Wrapping each
+  // section locally would render the content outside its provider and break
+  // with "`TabsContent` must be used within `Tabs`".
   return (
-    <div className="w-full h-full bg-[#0a0a1a] text-white flex flex-col overflow-hidden">
+    <Tabs
+      value={activeTab}
+      onValueChange={setActiveTab}
+      className="w-full h-full bg-[#0a0a1a] text-white flex flex-col overflow-hidden"
+    >
       {/* Header */}
       <header className="flex items-center justify-between px-6 py-3 bg-[#13131f] border-b border-white/[0.06]">
         <div className="flex items-center gap-3">
@@ -547,36 +555,34 @@ export default function POSSystem() {
           </div>
         </div>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="bg-[#0a0a1a] border border-white/[0.08]">
-            <TabsTrigger
-              value="pos"
-              className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-400 text-white/50"
-            >
-              <Barcode className="w-3.5 h-3.5 mr-1.5" />
-              Point of Sale
-            </TabsTrigger>
-            <TabsTrigger
-              value="pending"
-              className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-400 text-white/50 relative"
-            >
-              <Clock className="w-3.5 h-3.5 mr-1.5" />
-              Pending Approvals
-              {pendingRequests.length > 0 && (
-                <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-amber-500 text-[10px] font-bold text-black flex items-center justify-center">
-                  {pendingRequests.length}
-                </span>
-              )}
-            </TabsTrigger>
-            <TabsTrigger
-              value="history"
-              className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-400 text-white/50"
-            >
-              <History className="w-3.5 h-3.5 mr-1.5" />
-              Approval History
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <TabsList className="bg-[#0a0a1a] border border-white/[0.08]">
+          <TabsTrigger
+            value="pos"
+            className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-400 text-white/50"
+          >
+            <Barcode className="w-3.5 h-3.5 mr-1.5" />
+            Point of Sale
+          </TabsTrigger>
+          <TabsTrigger
+            value="pending"
+            className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-400 text-white/50 relative"
+          >
+            <Clock className="w-3.5 h-3.5 mr-1.5" />
+            Pending Approvals
+            {pendingRequests.length > 0 && (
+              <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-amber-500 text-[10px] font-bold text-black flex items-center justify-center">
+                {pendingRequests.length}
+              </span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger
+            value="history"
+            className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-400 text-white/50"
+          >
+            <History className="w-3.5 h-3.5 mr-1.5" />
+            Approval History
+          </TabsTrigger>
+        </TabsList>
 
         <div className="flex items-center gap-2 text-sm text-white/50">
           <User className="w-4 h-4" />
@@ -1450,6 +1456,6 @@ export default function POSSystem() {
           )}
         </DialogContent>
       </Dialog>
-    </div>
+    </Tabs>
   );
 }
