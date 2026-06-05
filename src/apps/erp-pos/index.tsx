@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { DiscountRulesManager } from './DiscountRulesManager';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -582,6 +583,13 @@ export default function POSSystem() {
             <History className="w-3.5 h-3.5 mr-1.5" />
             Approval History
           </TabsTrigger>
+          <TabsTrigger
+            value="rules"
+            className="data-[state=active]:bg-amber-500/20 data-[state=active]:text-amber-400 text-white/50"
+          >
+            <Zap className="w-3.5 h-3.5 mr-1.5" />
+            Auto-rules
+          </TabsTrigger>
         </TabsList>
 
         <div className="flex items-center gap-2 text-sm text-white/50">
@@ -1121,6 +1129,10 @@ export default function POSSystem() {
             </div>
           )}
         </div>
+      </TabsContent>
+
+      <TabsContent value="rules" className="flex-1 overflow-hidden m-0 p-0">
+        <DiscountRulesManager />
       </TabsContent>
 
       {/* ─── Discount Request Dialog ─── */}
