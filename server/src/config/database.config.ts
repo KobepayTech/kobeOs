@@ -22,6 +22,12 @@ export const databaseConfig: TypeOrmModuleAsyncOptions = {
       migrationsTableName: 'kobeos_migrations',
       migrationsRun,
       logging: isDev ? ['error', 'warn'] : ['error'],
+      // First-boot of the bundled installer sometimes spawns Nest while the
+      // embedded postgres cluster is still finishing initdb. Retry the
+      // connection a handful of times so we don't surface a "the database
+      // system is starting up" splash error to the user.
+      retryAttempts: 30,
+      retryDelay: 1_000,
     };
   },
 };
