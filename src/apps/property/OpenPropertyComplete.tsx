@@ -7,9 +7,9 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { QRCodeSVG } from 'qrcode.react';
 import {
-  AlertCircle, BarChart3, Building2, Calendar, CheckCircle2, ChevronLeft,
+  AlertCircle, BarChart3, Building2, CheckCircle2, ChevronLeft,
   ChevronRight, CreditCard, DoorOpen, Download, Edit3, FileText, Mail, MapPin,
-  Phone, Plus, Printer, QrCode, Receipt, RefreshCw, Search, Settings, Trash2,
+  Phone, Plus, Printer, Receipt, RefreshCw, Search, Settings, Trash2,
   UserCheck, Users, Wrench, X,
 } from 'lucide-react';
 
