@@ -8,6 +8,8 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ChildProcess, spawn } from 'child_process';
+import { existsSync } from 'fs';
+import { join } from 'path';
 import { StoreSettings } from './store-settings.entity';
 import { CloudflareService } from '../store-registry/cloudflare.service';
 
@@ -128,17 +130,18 @@ export class PublishService implements OnModuleDestroy {
   // ── cloudflared process management ───────────────────────────────────────
 
   private async spawnCloudflared(ownerId: string, token: string): Promise<void> {
-    // Verify cloudflared is installed
-    const which = await this.commandExists('cloudflared');
-    if (!which) {
+    // Resolve the binary: prefer the one bundled with the installer
+    // (KOBEOS_RESOURCES_PATH/cloudflared/cloudflared-{plat}-x64{ext}),
+    // then fall back to PATH for developers running the server directly.
+    const binary = this.resolveCloudflaredBinary();
+    if (!binary) {
       throw new BadRequestException(
-        'cloudflared is not installed on this machine. ' +
-        'Download it from https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/ ' +
-        'and restart KobeOS.',
+        'cloudflared binary not found. Reinstall KobeOS (the installer bundles cloudflared) ' +
+        'or place a cloudflared binary on PATH.',
       );
     }
 
-    const proc = spawn('cloudflared', ['tunnel', 'run', '--token', token], {
+    const proc = spawn(binary, ['tunnel', 'run', '--token', token], {
       detached: false,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -175,6 +178,34 @@ export class PublishService implements OnModuleDestroy {
       check.on('exit', (code) => resolve(code === 0));
       check.on('error', () => resolve(false));
     });
+  }
+
+  /**
+   * Returns the path to a runnable cloudflared, in priority order:
+   *   1. Override via CLOUDFLARED_BIN env var.
+   *   2. Bundled binary at <resourcesPath>/cloudflared/<platform-name>.
+   *      In packaged Electron this is /resources/cloudflared/ — main.cjs
+   *      exports KOBEOS_RESOURCES_PATH so the Nest server can find it.
+   *   3. `cloudflared` on PATH (dev or when the user installed it manually).
+   * Returns null if nothing is runnable.
+   */
+  private resolveCloudflaredBinary(): string | null {
+    const envOverride = process.env.CLOUDFLARED_BIN;
+    if (envOverride && existsSync(envOverride)) return envOverride;
+
+    const resourcesRoot = process.env.KOBEOS_RESOURCES_PATH;
+    if (resourcesRoot) {
+      const platformName =
+        process.platform === 'win32' ? 'cloudflared-win-x64.exe'
+        : process.platform === 'darwin' ? (process.arch === 'arm64' ? 'cloudflared-mac-arm64' : 'cloudflared-mac-x64')
+        : 'cloudflared-linux-x64';
+      const candidate = join(resourcesRoot, 'cloudflared', platformName);
+      if (existsSync(candidate)) return candidate;
+    }
+
+    // Dev fallback — server running outside Electron. `spawn('cloudflared')`
+    // resolves through PATH; an error here just means the user has to install it.
+    return 'cloudflared';
   }
 
   // ── Cleanup on shutdown ──────────────────────────────────────────────────
