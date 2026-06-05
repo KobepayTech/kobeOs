@@ -234,42 +234,98 @@ class PostgresManager {
         if (!started) reject(new Error(`postgres exited early with code ${code}`));
       });
 
-      // Timeout after 30s
+      // Hard cap so a silent postgres (no log lines at all) doesn't hang the
+      // splash forever. We reject — never resolve blindly — because resolving
+      // on a not-actually-running postgres just pushes the failure into
+      // createDatabase and gives the user the "database system is starting up"
+      // dialog instead of a clear root cause.
       setTimeout(() => {
         if (!started) {
-          started = true; // prevent double-resolve
-          resolve(); // proceed anyway — postgres may have started without the log line
+          started = true;
+          reject(new Error('postgres did not log "ready" within 60s — check antivirus quarantine or write permissions on the data directory'));
         }
-      }, 30_000);
+      }, 60_000);
     });
 
+    // The "ready" log line means the postmaster is up, but the default
+    // `postgres` database may still return 57P03 ("the database system is
+    // starting up") for a moment longer. Probe with SELECT 1 until it
+    // succeeds, so subsequent createDatabase + Nest startup connect cleanly.
+    await this._waitForReady();
     console.log(`[pg-bootstrap] PostgreSQL ready on 127.0.0.1:${this.port}`);
+  }
+
+  /**
+   * Poll the cluster with SELECT 1 against the default `postgres` database
+   * until it returns success or the deadline expires. Swallows the transient
+   * 57P03 / ECONNREFUSED that fire while the cluster is in its startup phase.
+   */
+  async _waitForReady(timeoutMs = 30_000) {
+    const { Client } = require('pg');
+    const deadline = Date.now() + timeoutMs;
+    let lastErr;
+    while (Date.now() < deadline) {
+      const client = new Client({
+        host: '127.0.0.1',
+        port: this.port,
+        user: this.user,
+        password: this.password,
+        database: 'postgres',
+        connectionTimeoutMillis: 2_000,
+      });
+      try {
+        await client.connect();
+        await client.query('SELECT 1');
+        await client.end();
+        return;
+      } catch (err) {
+        lastErr = err;
+        try { await client.end(); } catch { /* ignore */ }
+        await new Promise((r) => setTimeout(r, 500));
+      }
+    }
+    throw new Error(`PostgreSQL never became ready (last error: ${lastErr ? lastErr.message : 'unknown'})`);
   }
 
   // ── createDatabase ──────────────────────────────────────────────────────────
 
   async createDatabase() {
-    // Use node-postgres to create the database if it doesn't exist
+    // Use node-postgres to create the database if it doesn't exist. Retry
+    // around 57P03 ("the database system is starting up") for callers that
+    // skipped start() — start() already waits for readiness, so a single
+    // attempt is almost always enough here.
     const { Client } = require('pg');
-    const client = new Client({
-      host:     '127.0.0.1',
-      port:     this.port,
-      user:     this.user,
-      password: this.password,
-      database: 'postgres', // connect to default db first
-    });
-    await client.connect();
-    try {
-      const res = await client.query(
-        `SELECT 1 FROM pg_database WHERE datname = $1`, [this.database]
-      );
-      if (res.rowCount === 0) {
-        await client.query(`CREATE DATABASE "${this.database}"`);
-        console.log(`[pg-bootstrap] Database '${this.database}' created`);
+    const deadline = Date.now() + 30_000;
+    let lastErr;
+    while (Date.now() < deadline) {
+      const client = new Client({
+        host:     '127.0.0.1',
+        port:     this.port,
+        user:     this.user,
+        password: this.password,
+        database: 'postgres', // connect to default db first
+        connectionTimeoutMillis: 2_000,
+      });
+      try {
+        await client.connect();
+        const res = await client.query(
+          `SELECT 1 FROM pg_database WHERE datname = $1`, [this.database]
+        );
+        if (res.rowCount === 0) {
+          await client.query(`CREATE DATABASE "${this.database}"`);
+          console.log(`[pg-bootstrap] Database '${this.database}' created`);
+        }
+        await client.end();
+        return;
+      } catch (err) {
+        lastErr = err;
+        try { await client.end(); } catch { /* ignore */ }
+        const transient = err && (err.code === '57P03' || err.code === 'ECONNREFUSED');
+        if (!transient) throw err;
+        await new Promise((r) => setTimeout(r, 500));
       }
-    } finally {
-      await client.end();
     }
+    throw lastErr || new Error('createDatabase failed: timed out waiting for postgres');
   }
 
   // ── stop ────────────────────────────────────────────────────────────────────
