@@ -5,6 +5,29 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 
 /**
+ * Per-section config consumed by JerseyShopChrome. Persisted on
+ * StoreSettings.jerseyConfig (jsonb). Every field is optional — defaults
+ * applied below so a brand-new merchant gets a working storefront before
+ * touching the editor.
+ */
+export interface JerseyConfig {
+  topPromo?: { text?: string; ctaText?: string; bgColor?: string };
+  hero?: { headline?: string; subtext?: string; cta?: string; imageUrl?: string; gradientFrom?: string; gradientTo?: string };
+  trustStrip?: Array<{ icon: 'truck' | 'shield' | 'rotate' | 'star'; title: string; desc: string }>;
+  footerColumns?: Array<{ title: string; items: Array<{ label: string; href?: string }> }>;
+  newsletterPitch?: string;
+}
+
+const DEFAULT_TRUST: NonNullable<JerseyConfig['trustStrip']> = [
+  { icon: 'truck',  title: 'Fast shipping',     desc: 'Same-day dispatch on orders before 2pm' },
+  { icon: 'shield', title: 'Authentic',         desc: 'Sourced direct from suppliers' },
+  { icon: 'rotate', title: '30-day returns',    desc: 'No-questions money-back' },
+  { icon: 'star',   title: 'Excellent reviews', desc: '4.8 / 5 from 12,400+ customers' },
+];
+
+const TRUST_ICONS = { truck: Truck, shield: Shield, rotate: RotateCcw, star: Star } as const;
+
+/**
  * projerseyshop.es-style storefront chrome — top promo bar, multi-tier
  * header, banded hero, category icon row, square product cards with
  * badges, trust strip, multi-column footer.
@@ -36,6 +59,7 @@ export function JerseyShopChrome({
   bannerHeadline,
   bannerSubtext,
   bannerCta,
+  bannerVisible = true,
   categories,
   selectedCategory,
   onSelectCategory,
@@ -45,6 +69,7 @@ export function JerseyShopChrome({
   onOpenCart,
   onGoStores,
   onPickNav,
+  config,
   children,
 }: {
   storeName: string;
@@ -53,6 +78,7 @@ export function JerseyShopChrome({
   bannerHeadline?: string;
   bannerSubtext?: string;
   bannerCta?: string;
+  bannerVisible?: boolean;
   categories: string[];
   selectedCategory: string;
   onSelectCategory: (cat: string) => void;
@@ -62,16 +88,37 @@ export function JerseyShopChrome({
   onOpenCart: () => void;
   onGoStores: () => void;
   onPickNav?: (view: 'new-arrivals' | 'offers' | 'brands' | 'wishlist' | 'track-order') => void;
+  /** Optional jersey-editor config. Defaults applied per-field if absent. */
+  config?: JerseyConfig;
   children: React.ReactNode;
 }) {
+  // Resolve config with sensible defaults so the storefront looks complete
+  // before the merchant ever opens the editor.
+  const promo = {
+    text:    config?.topPromo?.text    ?? 'Free worldwide shipping over $50 · 30-day returns',
+    ctaText: config?.topPromo?.ctaText ?? 'SIGN UP & GET 15% OFF',
+    bgColor: config?.topPromo?.bgColor ?? '#0f172a',
+  };
+  const hero = {
+    headline:     config?.hero?.headline     ?? bannerHeadline,
+    subtext:      config?.hero?.subtext      ?? bannerSubtext,
+    cta:          config?.hero?.cta          ?? bannerCta,
+    imageUrl:     config?.hero?.imageUrl,
+    gradientFrom: config?.hero?.gradientFrom ?? '#1d4ed8',
+    gradientTo:   config?.hero?.gradientTo   ?? '#a21caf',
+  };
+  const trustItems = (config?.trustStrip && config.trustStrip.length > 0) ? config.trustStrip : DEFAULT_TRUST;
+  const footerCols = config?.footerColumns ?? [];
+  const newsletterPitch = config?.newsletterPitch ?? '15% off your first order when you sign up.';
+  const heroVisible = bannerVisible && (hero.headline || hero.imageUrl);
   return (
     <div className="flex flex-col h-full bg-white text-slate-900 overflow-y-auto">
-      {/* Top promo bar — currency selector + signup CTA, projerseyshop style. */}
-      <div className="bg-slate-900 text-white text-[11px]">
+      {/* Top promo bar — text + currency + signup CTA. */}
+      <div className="text-white text-[11px]" style={{ backgroundColor: promo.bgColor }}>
         <div className="max-w-7xl mx-auto px-4 py-1.5 flex items-center justify-between gap-3">
-          <span className="text-white/70 hidden md:inline">Free worldwide shipping over $50 · 30-day returns</span>
+          <span className="text-white/70 hidden md:inline">{promo.text}</span>
           <div className="flex items-center gap-3">
-            <span className="text-amber-300 font-semibold">SIGN UP & GET 15% OFF</span>
+            <span className="text-amber-300 font-semibold">{promo.ctaText}</span>
             <select className="bg-transparent border-none text-[11px] focus:outline-none">
               <option>USD</option>
               <option>TZS</option>
@@ -164,25 +211,32 @@ export function JerseyShopChrome({
       </header>
 
       {/* Hero banner */}
-      {bannerHeadline && (
-        <section className="bg-gradient-to-br from-blue-700 via-indigo-700 to-fuchsia-700 text-white">
+      {heroVisible && (
+        <section
+          className="text-white"
+          style={{ background: `linear-gradient(135deg, ${hero.gradientFrom}, ${hero.gradientTo})` }}
+        >
           <div className="max-w-7xl mx-auto px-4 py-12 md:py-16 flex flex-col md:flex-row items-center justify-between gap-6">
             <div className="space-y-3 text-center md:text-left">
               <div className="inline-block bg-amber-300/90 text-amber-950 text-[10px] uppercase font-bold px-2 py-1 rounded">
                 Featured collection
               </div>
-              <h2 className="text-3xl md:text-4xl font-bold tracking-tight">{bannerHeadline}</h2>
-              {bannerSubtext && <p className="text-base md:text-lg text-white/85">{bannerSubtext}</p>}
-              {bannerCta && (
-                <Button className="bg-white text-blue-700 hover:bg-slate-100 font-bold h-11 px-6">
-                  {bannerCta} <ChevronRight className="w-4 h-4 ml-1" />
+              {hero.headline && <h2 className="text-3xl md:text-4xl font-bold tracking-tight">{hero.headline}</h2>}
+              {hero.subtext && <p className="text-base md:text-lg text-white/85">{hero.subtext}</p>}
+              {hero.cta && (
+                <Button className="bg-white text-slate-900 hover:bg-slate-100 font-bold h-11 px-6">
+                  {hero.cta} <ChevronRight className="w-4 h-4 ml-1" />
                 </Button>
               )}
             </div>
             <div className="hidden md:block">
-              <div className="w-64 h-64 rounded-2xl bg-white/10 border border-white/20 backdrop-blur flex items-center justify-center text-white/40 text-sm">
-                Banner image
-              </div>
+              {hero.imageUrl ? (
+                <img src={hero.imageUrl} alt="" className="w-64 h-64 rounded-2xl object-cover" />
+              ) : (
+                <div className="w-64 h-64 rounded-2xl bg-white/10 border border-white/20 backdrop-blur flex items-center justify-center text-white/40 text-sm">
+                  Banner image
+                </div>
+              )}
             </div>
           </div>
         </section>
@@ -212,13 +266,13 @@ export function JerseyShopChrome({
         </div>
       </section>
 
-      {/* Trust strip */}
+      {/* Trust strip — editable */}
       <section className="bg-white border-b border-slate-200">
         <div className="max-w-7xl mx-auto px-4 py-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-[12px]">
-          <TrustItem icon={<Truck className="w-4 h-4" />} title="Fast shipping" desc="Same-day dispatch on orders before 2pm" />
-          <TrustItem icon={<Shield className="w-4 h-4" />} title="Authentic" desc="Sourced direct from suppliers" />
-          <TrustItem icon={<RotateCcw className="w-4 h-4" />} title="30-day returns" desc="No-questions money-back" />
-          <TrustItem icon={<Star className="w-4 h-4" />} title="Excellent reviews" desc="4.8 / 5 from 12,400+ customers" />
+          {trustItems.map((item, i) => {
+            const IconCmp = TRUST_ICONS[item.icon] ?? Truck;
+            return <TrustItem key={i} icon={<IconCmp className="w-4 h-4" />} title={item.title} desc={item.desc} />;
+          })}
         </div>
       </section>
 
@@ -229,7 +283,9 @@ export function JerseyShopChrome({
         </div>
       </main>
 
-      {/* Footer */}
+      {/* Footer — first column is fixed (store identity), rest come from
+          config.footerColumns; if no columns configured we fall back to a
+          sensible Shop / Support / Newsletter layout. */}
       <footer className="bg-slate-900 text-slate-300 text-xs">
         <div className="max-w-7xl mx-auto px-4 py-10 grid grid-cols-2 md:grid-cols-4 gap-6">
           <div>
@@ -237,19 +293,40 @@ export function JerseyShopChrome({
             <p className="text-slate-400">{tagline ?? 'Quality products, fast delivery.'}</p>
             <p className="text-slate-500 mt-3">© {new Date().getFullYear()} {storeName}</p>
           </div>
-          <FooterCol title="Shop" items={categories.slice(0, 5)} onPick={onSelectCategory} />
-          <div>
-            <h4 className="text-white font-bold text-sm mb-2">Support</h4>
-            <ul className="space-y-1 text-slate-400">
-              <li><button onClick={() => onPickNav?.('track-order')} className="hover:text-white">Track order</button></li>
-              <li><button onClick={() => onPickNav?.('wishlist')} className="hover:text-white">Wishlist</button></li>
-              <li>Shipping &amp; returns</li>
-              <li>Contact us</li>
-            </ul>
-          </div>
+          {footerCols.length > 0 ? (
+            footerCols.map((col, i) => (
+              <div key={i}>
+                <h4 className="text-white font-bold text-sm mb-2">{col.title}</h4>
+                <ul className="space-y-1 text-slate-400">
+                  {col.items.map((item, j) => (
+                    <li key={j}>
+                      {item.href ? (
+                        <a href={item.href} className="hover:text-white">{item.label}</a>
+                      ) : (
+                        <span>{item.label}</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))
+          ) : (
+            <>
+              <FooterCol title="Shop" items={categories.slice(0, 5)} onPick={onSelectCategory} />
+              <div>
+                <h4 className="text-white font-bold text-sm mb-2">Support</h4>
+                <ul className="space-y-1 text-slate-400">
+                  <li><button onClick={() => onPickNav?.('track-order')} className="hover:text-white">Track order</button></li>
+                  <li><button onClick={() => onPickNav?.('wishlist')} className="hover:text-white">Wishlist</button></li>
+                  <li>Shipping &amp; returns</li>
+                  <li>Contact us</li>
+                </ul>
+              </div>
+            </>
+          )}
           <div>
             <h4 className="text-white font-bold text-sm mb-2">Stay in the loop</h4>
-            <p className="text-slate-400 mb-2">15% off your first order when you sign up.</p>
+            <p className="text-slate-400 mb-2">{newsletterPitch}</p>
             <div className="flex gap-1">
               <Input placeholder="your@email.com" className="h-8 bg-white/5 border-white/10 text-white text-xs" />
               <Button size="sm" className="bg-amber-500 text-amber-950 hover:bg-amber-400 h-8">Join</Button>

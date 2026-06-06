@@ -113,6 +113,21 @@ export class StoreSettings extends BaseEntity {
   @Column({ default: 'medium' })
   bodySize!: string;
 
+  /**
+   * Jersey-shop layout config — top promo bar, hero, trust strip, footer
+   * columns. Stored as JSON so the editor can iterate without a migration
+   * per new field. Defaults applied client-side in JerseyShopChrome when
+   * the column is empty.
+   */
+  @Column({ type: 'jsonb', default: {} })
+  jerseyConfig!: {
+    topPromo?: { text?: string; ctaText?: string; bgColor?: string };
+    hero?: { headline?: string; subtext?: string; cta?: string; imageUrl?: string; gradientFrom?: string; gradientTo?: string };
+    trustStrip?: Array<{ icon: 'truck' | 'shield' | 'rotate' | 'star'; title: string; desc: string }>;
+    footerColumns?: Array<{ title: string; items: Array<{ label: string; href?: string }> }>;
+    newsletterPitch?: string;
+  };
+
   // Publish state (managed by publish/unpublish endpoints)
   @Column({ default: false })
   isPublished!: boolean;

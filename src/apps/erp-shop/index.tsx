@@ -21,7 +21,7 @@ import {
   TrackOrderPage,
   WishlistPage,
 } from './StorefrontPages';
-import { JerseyShopChrome, JerseyProductCard } from './JerseyShopLayout';
+import { JerseyShopChrome, JerseyProductCard, type JerseyConfig } from './JerseyShopLayout';
 
 /* ------------------------------------------------------------------ */
 /*  TYPES                                                               */
@@ -37,6 +37,8 @@ interface StoreSettings {
   bannerBg: string;
   bannerHeight: string;
   bannerVisible: boolean;
+  /** Jersey-editor config (top promo, hero, trust strip, footer). */
+  jerseyConfig?: JerseyConfig;
   primaryColor: string;
   accentColor: string;
   bgStyle: string;
@@ -455,18 +457,31 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
   const gridClass = cols === 2 ? 'grid-cols-2' : cols >= 4 ? 'grid-cols-4' : 'grid-cols-3';
 
   return (
-    <div className="flex flex-col h-full bg-slate-900 text-white overflow-hidden">
-      {/* HEADER */}
-      <div className="flex items-center justify-between px-4 py-3 bg-slate-800/80 border-b border-white/10 shrink-0">
-        <div className="flex items-center gap-2">
-          {settings.logoUrl
-            ? <img src={settings.logoUrl} alt={settings.storeName} className="h-7 w-7 rounded object-cover" />
-            : <ShoppingBag className="w-5 h-5 text-blue-400" />}
-          <div>
-            <h1 className="font-bold text-sm leading-tight">{settings.storeName}</h1>
-            {settings.tagline && <p className="text-xs text-slate-400">{settings.tagline}</p>}
-          </div>
-        </div>
+    <div className="h-full overflow-hidden">
+      <JerseyShopChrome
+        storeName={settings.storeName}
+        tagline={settings.tagline}
+        logoUrl={settings.logoUrl}
+        bannerHeadline={settings.bannerHeadline}
+        bannerSubtext={settings.bannerSubtext}
+        bannerCta={settings.bannerCta}
+        bannerVisible={view === 'home' && settings.bannerVisible}
+        categories={categories}
+        selectedCategory={selectedCategory}
+        onSelectCategory={setSelectedCategory}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        cartCount={cartCount}
+        onOpenCart={() => setIsCartOpen(true)}
+        onGoStores={() => setSlug('')}
+        onPickNav={(v) => setView(v as StorefrontView)}
+        config={settings.jerseyConfig}
+      >
+      {/* ----- The dark "header" block below is retained only for the
+            cart/track/back-to-stores actions on legacy callers; the new
+            JerseyShopChrome above renders the visible header. Wrapped in
+            `hidden` so it never appears. ----- */}
+      <div className="hidden">
         <div className="flex items-center gap-2">
           {settings.showSearch && (
             <div className="relative hidden sm:block">
@@ -512,35 +527,11 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
         </div>
       </div>
 
-      {/* BANNER */}
-      {settings.bannerVisible && (
-        <div className={`bg-gradient-to-r ${settings.bannerBg} px-6 py-4 shrink-0`}>
-          <h2 className="font-bold text-lg">{settings.bannerHeadline}</h2>
-          <p className="text-sm opacity-80 mt-0.5">{settings.bannerSubtext}</p>
-        </div>
-      )}
-
-      {/* STOREFRONT NAV (collections + portals) */}
+      {/* StorefrontNav (collections + portals) — kept inside chrome so
+          customers can switch between New Arrivals / BNPL / Wishlist etc.
+          The page-level chrome (header / hero / footer) comes from
+          JerseyShopChrome above. */}
       <StorefrontNav current={view} onChange={setView} />
-
-      {/* CATEGORY NAV — only on home view */}
-      {view === 'home' && settings.showCategoryNav && categories.length > 1 && (
-        <div className="flex gap-2 px-4 py-2 overflow-x-auto shrink-0 border-b border-white/10">
-          {categories.map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setSelectedCategory(cat)}
-              className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
-                selectedCategory === cat
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-white/10 text-slate-300 hover:bg-white/20'
-              }`}
-            >
-              {cat}
-            </button>
-          ))}
-        </div>
-      )}
 
       {/* COLLECTION & PORTAL VIEWS */}
       {view !== 'home' && (
@@ -629,6 +620,7 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
           </div>
         </ScrollArea>
       )}
+      </JerseyShopChrome>
 
       {/* PRODUCT DETAIL DIALOG */}
       <Dialog open={!!selectedProduct} onOpenChange={() => setSelectedProduct(null)}>
