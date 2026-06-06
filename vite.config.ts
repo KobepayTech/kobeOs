@@ -12,7 +12,26 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         runtimeCaching: [{ urlPattern: /^https:\/\/api\./, handler: 'NetworkFirst', options: { cacheName: 'api-cache' } }]
       },
-      manifest: { name: 'KobeOS', short_name: 'KobeOS', theme_color: '#1a1a2e', icons: [{ src: '/icon.png', sizes: '192x192', type: 'image/png' }] }
+      manifest: {
+        name: 'KobeOS — Business OS',
+        short_name: 'KobeOS',
+        description: 'ERP, POS, cargo, hotel and payments in one installable app.',
+        theme_color: '#1a1a2e',
+        background_color: '#0a0a1a',
+        display: 'standalone',
+        orientation: 'any',
+        start_url: '/',
+        scope: '/',
+        icons: [
+          { src: '/icon.png', sizes: '192x192', type: 'image/png' },
+          { src: '/icon.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+        ],
+        shortcuts: [
+          { name: 'POS',        url: '/?app=erp-pos',     description: 'Open the cashier POS' },
+          { name: 'Storefront', url: '/?app=erp-shop',    description: 'Open the public shop' },
+          { name: 'Cargo',      url: '/?app=cargo',       description: 'Open KobeCargo' },
+        ],
+      }
     })
   ],
   base: './',

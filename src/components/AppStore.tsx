@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Download, Check, Globe, Hotel, CreditCard, Truck, ShoppingCart, BarChart3, Users, Calendar } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
+import { InstallAppButton } from '@/components/InstallAppButton';
 
 interface AppModule {
   id: string;
@@ -51,12 +52,15 @@ export default function AppStore() {
   return (
     <div className="h-full bg-gray-900 text-white p-6 overflow-y-auto">
       <div className="max-w-5xl mx-auto">
-        <div className="flex items-center gap-3 mb-2">
-          <Globe size={28} className="text-blue-400" />
-          <div>
-            <h1 className="text-2xl font-bold">KobeOS App Store</h1>
-            <p className="text-gray-400 text-sm">Install business modules</p>
+        <div className="flex items-center justify-between gap-3 mb-2 flex-wrap">
+          <div className="flex items-center gap-3">
+            <Globe size={28} className="text-blue-400" />
+            <div>
+              <h1 className="text-2xl font-bold">KobeOS App Store</h1>
+              <p className="text-gray-400 text-sm">Install business modules</p>
+            </div>
           </div>
+          <InstallAppButton appId="kobeos" appName="KobeOS" />
         </div>
         <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
           {categories.map(cat => (

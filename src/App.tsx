@@ -8,6 +8,7 @@ import SystemSettings from '@/components/SystemSettings';
 import FileManager from '@/components/FileManager';
 import AppStore from '@/components/AppStore';
 import KobeOSInstaller from '@/components/KobeOSInstaller';
+import InstallLandingPage from '@/components/InstallLandingPage';
 import KobeSecurity from '@/modules/kobe-security/KobeSecurity';
 import HotelSecurity from '@/modules/kobe-hotel/security/HotelSecurity';
 import KobeStudio from '@/modules/kobe-studio/KobeStudio';
@@ -111,7 +112,19 @@ export default function App() {
     localStorage.setItem('kobeos_user', username);
   };
 
-  if (!user) return <LoginScreen onLogin={handleLogin} />;
+  // /install/:appId must be reachable without auth — it's the shareable
+  // install link recipients hit before they have any KobeOS account.
+  if (!user) {
+    return (
+      <BrowserRouter>
+        <Routes>
+          <Route path="/install" element={<InstallLandingPage />} />
+          <Route path="/install/:appId" element={<InstallLandingPage />} />
+          <Route path="*" element={<LoginScreen onLogin={handleLogin} />} />
+        </Routes>
+      </BrowserRouter>
+    );
+  }
 
   return (
     <BrowserRouter>
@@ -126,6 +139,8 @@ export default function App() {
           <Route path="/security" element={<KobeSecurity />} />
           <Route path="/hotel-security" element={<HotelSecurity />} />
           <Route path="/studio" element={<KobeStudio />} />
+          <Route path="/install" element={<InstallLandingPage />} />
+          <Route path="/install/:appId" element={<InstallLandingPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>
