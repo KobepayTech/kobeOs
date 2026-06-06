@@ -22,6 +22,7 @@ import { MediaModule } from './media/media.module';
 import { CargoModule } from './cargo/cargo.module';
 import { AirCargoModule } from './cargo/air-cargo.module';
 import { ShopsModule } from './shops/shops.module';
+import { EodModule } from './eod/eod.module';
 import { PropertyModule } from './property/property.module';
 import { PosModule } from './pos/pos.module';
 import { WarehouseModule } from './warehouse/warehouse.module';
@@ -91,6 +92,7 @@ import { DiscountApprovalModule } from './discount-approval/discount-approval.mo
     CargoModule,
     AirCargoModule,
     ShopsModule,
+    EodModule,
     PropertyModule,
     PosModule,
     WarehouseModule,
