@@ -165,6 +165,10 @@
       {
         "from": "build/core-manifest.json",
         "to": "core-manifest.json"
+      },
+      {
+        "from": "build/cloudflared",
+        "to": "cloudflared"
       }
     ],
     "linux": {

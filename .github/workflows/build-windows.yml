@@ -112,6 +112,9 @@ jobs:
           }
         shell: pwsh
 
+      - name: Download cloudflared (bundled into installer for one-click publish)
+        run: npm run download:cloudflared
+
       - name: Build Windows installer
         run: npx electron-builder --win --publish never
         env:

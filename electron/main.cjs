@@ -161,6 +161,10 @@ function startBackend(dbConfig) {
     // sees both NODE_ENV=production and DB_SYNCHRONIZE=true. Schema is
     // applied via migrations on boot (migrationsRun=true when !isDev).
     KOBEOS_DESKTOP: 'true',   // signals embedded desktop mode to bypass prod guards
+    // Path to the bundled resources directory so PublishService can resolve
+    // the cloudflared binary that's shipped alongside the installer rather
+    // than depending on the user having it on PATH.
+    KOBEOS_RESOURCES_PATH: IS_PACKAGED ? process.resourcesPath : path.join(__dirname, '..'),
     JWT_SECRET: getOrCreateJwtSecret(),
     CORS_ORIGIN: 'file://',
     // Cloudflare Tunnel credentials for store publishing.
