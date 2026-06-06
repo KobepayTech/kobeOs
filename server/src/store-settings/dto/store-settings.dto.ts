@@ -1,5 +1,5 @@
 import {
-  IsBoolean, IsNumber, IsOptional, IsString, MaxLength, Min, Max,
+  IsBoolean, IsNumber, IsObject, IsOptional, IsString, MaxLength, Min, Max,
 } from 'class-validator';
 
 export class UpsertStoreSettingsDto {
@@ -39,4 +39,7 @@ export class UpsertStoreSettingsDto {
 
   @IsOptional() @IsString() headingSize?: string;
   @IsOptional() @IsString() bodySize?: string;
+
+  /** Storefront design config (top promo, hero, trust strip, footer). */
+  @IsOptional() @IsObject() jerseyConfig?: Record<string, unknown>;
 }

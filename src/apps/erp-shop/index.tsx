@@ -21,6 +21,7 @@ import {
   TrackOrderPage,
   WishlistPage,
 } from './StorefrontPages';
+import { JerseyShopChrome, JerseyProductCard, type JerseyConfig } from './JerseyShopLayout';
 
 /* ------------------------------------------------------------------ */
 /*  TYPES                                                               */
@@ -36,6 +37,8 @@ interface StoreSettings {
   bannerBg: string;
   bannerHeight: string;
   bannerVisible: boolean;
+  /** Jersey-editor config (top promo, hero, trust strip, footer). */
+  jerseyConfig?: JerseyConfig;
   primaryColor: string;
   accentColor: string;
   bgStyle: string;
@@ -454,18 +457,31 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
   const gridClass = cols === 2 ? 'grid-cols-2' : cols >= 4 ? 'grid-cols-4' : 'grid-cols-3';
 
   return (
-    <div className="flex flex-col h-full bg-slate-900 text-white overflow-hidden">
-      {/* HEADER */}
-      <div className="flex items-center justify-between px-4 py-3 bg-slate-800/80 border-b border-white/10 shrink-0">
-        <div className="flex items-center gap-2">
-          {settings.logoUrl
-            ? <img src={settings.logoUrl} alt={settings.storeName} className="h-7 w-7 rounded object-cover" />
-            : <ShoppingBag className="w-5 h-5 text-blue-400" />}
-          <div>
-            <h1 className="font-bold text-sm leading-tight">{settings.storeName}</h1>
-            {settings.tagline && <p className="text-xs text-slate-400">{settings.tagline}</p>}
-          </div>
-        </div>
+    <div className="h-full overflow-hidden">
+      <JerseyShopChrome
+        storeName={settings.storeName}
+        tagline={settings.tagline}
+        logoUrl={settings.logoUrl}
+        bannerHeadline={settings.bannerHeadline}
+        bannerSubtext={settings.bannerSubtext}
+        bannerCta={settings.bannerCta}
+        bannerVisible={view === 'home' && settings.bannerVisible}
+        categories={categories}
+        selectedCategory={selectedCategory}
+        onSelectCategory={setSelectedCategory}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        cartCount={cartCount}
+        onOpenCart={() => setIsCartOpen(true)}
+        onGoStores={() => setSlug('')}
+        onPickNav={(v) => setView(v as StorefrontView)}
+        config={settings.jerseyConfig}
+      >
+      {/* ----- The dark "header" block below is retained only for the
+            cart/track/back-to-stores actions on legacy callers; the new
+            JerseyShopChrome above renders the visible header. Wrapped in
+            `hidden` so it never appears. ----- */}
+      <div className="hidden">
         <div className="flex items-center gap-2">
           {settings.showSearch && (
             <div className="relative hidden sm:block">
@@ -511,35 +527,11 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
         </div>
       </div>
 
-      {/* BANNER */}
-      {settings.bannerVisible && (
-        <div className={`bg-gradient-to-r ${settings.bannerBg} px-6 py-4 shrink-0`}>
-          <h2 className="font-bold text-lg">{settings.bannerHeadline}</h2>
-          <p className="text-sm opacity-80 mt-0.5">{settings.bannerSubtext}</p>
-        </div>
-      )}
-
-      {/* STOREFRONT NAV (collections + portals) */}
+      {/* StorefrontNav (collections + portals) — kept inside chrome so
+          customers can switch between New Arrivals / BNPL / Wishlist etc.
+          The page-level chrome (header / hero / footer) comes from
+          JerseyShopChrome above. */}
       <StorefrontNav current={view} onChange={setView} />
-
-      {/* CATEGORY NAV — only on home view */}
-      {view === 'home' && settings.showCategoryNav && categories.length > 1 && (
-        <div className="flex gap-2 px-4 py-2 overflow-x-auto shrink-0 border-b border-white/10">
-          {categories.map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setSelectedCategory(cat)}
-              className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${
-                selectedCategory === cat
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-white/10 text-slate-300 hover:bg-white/20'
-              }`}
-            >
-              {cat}
-            </button>
-          ))}
-        </div>
-      )}
 
       {/* COLLECTION & PORTAL VIEWS */}
       {view !== 'home' && (
@@ -599,65 +591,36 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
         </ScrollArea>
       )}
 
-      {/* PRODUCT GRID — home view */}
+      {/* PRODUCT GRID — home view, projerseyshop.es-style cards */}
       {view === 'home' && (
-      <ScrollArea className="flex-1">
-        <div className={`grid ${gridClass} gap-3 p-4`}>
-          {filteredProducts.length === 0 ? (
-            <div className="col-span-full flex flex-col items-center justify-center py-16 text-slate-500 gap-3">
-              <Package className="w-10 h-10" />
-              <p>No products found</p>
-            </div>
-          ) : (
-            filteredProducts.map((product) => (
-              <Card
-                key={product.id}
-                className="bg-white/5 border-white/10 hover:bg-white/10 transition-colors cursor-pointer"
-                onClick={() => setSelectedProduct(product)}
-              >
-                <CardContent className="p-0">
-                  <div className={`h-28 rounded-t-lg bg-gradient-to-br ${productGradient(product.category)} flex items-center justify-center overflow-hidden`}>
-                    {product.imageUrl
-                      ? <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover" />
-                      : <Package className="w-8 h-8 text-white/40" />}
-                  </div>
-                  <div className="p-2.5">
-                    {settings.showCategoryBadge && (
-                      <span className="text-xs text-blue-400 font-medium">{product.category}</span>
-                    )}
-                    <p className="text-sm font-semibold text-white leading-tight mt-0.5 line-clamp-2">{product.name}</p>
-                    <p className="text-xs text-slate-400 mt-0.5">{product.sku}</p>
-                    <div className="flex items-center justify-between mt-2">
-                      <span className="text-sm font-bold text-blue-300">
-                        {formatPrice(product.price, product.currency)}
-                      </span>
-                      {settings.showStock && (
-                        <span className={`text-xs px-1.5 py-0.5 rounded-full text-white ${getStockColor(product.stock)}`}>
-                          {getStockLabel(product.stock)}
-                        </span>
-                      )}
-                    </div>
-                    {settings.showQuickAdd && (
-                      <Button
-                        size="sm"
-                        className="w-full mt-2 h-7 text-xs bg-blue-600 hover:bg-blue-700"
-                        onClick={(e) => { e.stopPropagation(); addToCart(product); }}
-                        disabled={product.stock === 0}
-                      >
-                        <Plus className="w-3 h-3 mr-1" /> Add to Cart
-                      </Button>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            ))
-          )}
-        </div>
-        {settings.footerText && (
-          <p className="text-center text-xs text-slate-500 py-4 px-4">{settings.footerText}</p>
-        )}
-      </ScrollArea>
+        <ScrollArea className="flex-1 bg-slate-50">
+          <div className="max-w-7xl mx-auto px-4 py-6">
+            {filteredProducts.length === 0 ? (
+              <div className="py-16 text-center text-slate-500">
+                <Package className="w-10 h-10 mx-auto mb-2" />
+                <p className="text-sm">No products found</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                {filteredProducts.map((product) => (
+                  <JerseyProductCard
+                    key={product.id}
+                    product={{ ...product, brand: null, tags: [], publishedAt: null }}
+                    onAddToCart={(p) => addToCart(p as unknown as Product)}
+                    onAddToWishlist={(p) => toggleWishlist(p.id)}
+                    onOpen={(p) => setSelectedProduct(p as unknown as Product)}
+                    wished={wishlistIds.includes(product.id)}
+                  />
+                ))}
+              </div>
+            )}
+            {settings.footerText && (
+              <p className="text-center text-xs text-slate-500 py-6">{settings.footerText}</p>
+            )}
+          </div>
+        </ScrollArea>
       )}
+      </JerseyShopChrome>
 
       {/* PRODUCT DETAIL DIALOG */}
       <Dialog open={!!selectedProduct} onOpenChange={() => setSelectedProduct(null)}>

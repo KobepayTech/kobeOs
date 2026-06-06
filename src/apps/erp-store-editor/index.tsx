@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Switch } from '@/components/ui/switch';
 import { HomepageSectionBuilder, IndustryTemplatePicker } from './StorefrontSections';
+import { JerseyDesignEditor } from './JerseyDesignEditor';
 
 
 /* ═══════════════════════════════════════════════════════════
@@ -829,6 +830,11 @@ export default function StoreEditor() {
           {/* ─── Homepage Section Builder ─── */}
           <Section title="Homepage Sections" icon={Layers}>
             <HomepageSectionBuilder />
+          </Section>
+
+          {/* ─── Jersey Storefront Design (projerseyshop.es-style) ─── */}
+          <Section title="Storefront Design" icon={LayoutGrid}>
+            <JerseyDesignEditor />
           </Section>
 
           {/* ─── Store Identity ─── */}

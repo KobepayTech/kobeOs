@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -287,6 +287,8 @@ export function LoyaltyPage({ phone, setPhone }: { phone: string; setPhone: (s: 
 
 export function BnplPage({ slug }: { slug: string }) {
   const [phone, setPhone] = useState('');
+  const [amount, setAmount] = useState<number>(100000);
+  const [months, setMonths] = useState<3 | 6 | 12>(3);
   const [result, setResult] = useState<{ eligible: boolean; availableCredit?: number; creditLimit?: number; currency?: string; reason?: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -309,6 +311,25 @@ export function BnplPage({ slug }: { slug: string }) {
     }
   };
 
+  // Build the per-row preview so the buyer sees exactly when each
+  // instalment falls due. Last row absorbs rounding residue so the
+  // sum equals `amount` precisely.
+  const schedule = useMemo(() => {
+    if (!amount || amount <= 0 || months <= 0) return [];
+    const per = Math.round((amount / months) * 100) / 100;
+    const out: Array<{ due: Date; amount: number }> = [];
+    let sumSoFar = 0;
+    for (let i = 1; i <= months; i++) {
+      const due = new Date();
+      due.setMonth(due.getMonth() + i);
+      const isLast = i === months;
+      const row = isLast ? Math.round((amount - sumSoFar) * 100) / 100 : per;
+      out.push({ due, amount: row });
+      sumSoFar = Math.round((sumSoFar + row) * 100) / 100;
+    }
+    return out;
+  }, [amount, months]);
+
   return (
     <div className="p-4 space-y-3 max-w-md">
       <div className="flex items-center gap-2">
@@ -316,7 +337,7 @@ export function BnplPage({ slug }: { slug: string }) {
         <h2 className="text-base font-semibold">Buy Now, Pay Later</h2>
       </div>
       <p className="text-xs text-slate-400">
-        Split your purchase over weekly instalments. Approval is instant — enter your phone to see your limit.
+        Split your purchase over instalments. Approval is instant — enter your phone to see your limit.
       </p>
       <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" className="bg-white/5 border-white/10 text-sm" />
       <Button onClick={check} disabled={loading} className="bg-emerald-600 hover:bg-emerald-500 text-sm">
@@ -341,6 +362,68 @@ export function BnplPage({ slug }: { slug: string }) {
           </CardContent>
         </Card>
       )}
+
+      <div className="mt-4 pt-4 border-t border-white/10 space-y-3">
+        <div>
+          <h3 className="text-sm font-medium text-white/85">See your instalment plan</h3>
+          <p className="text-[11px] text-white/40">Pick a purchase amount and number of months — we'll show the exact schedule before you commit.</p>
+        </div>
+        <div>
+          <label className="text-[10px] text-white/40 uppercase">Amount</label>
+          <Input
+            type="number"
+            value={amount}
+            min={0}
+            step="1000"
+            onChange={(e) => setAmount(Number(e.target.value))}
+            className="bg-white/5 border-white/10 text-sm"
+          />
+        </div>
+        <div>
+          <label className="text-[10px] text-white/40 uppercase mb-1 block">Pay in</label>
+          <div className="grid grid-cols-3 gap-2">
+            {([3, 6, 12] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setMonths(m)}
+                className={`h-9 rounded-md border text-xs font-medium transition-colors ${
+                  months === m
+                    ? 'bg-emerald-500/20 border-emerald-500/40 text-emerald-200'
+                    : 'border-white/10 text-white/60 hover:bg-white/[0.04]'
+                }`}
+              >
+                {m} months
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {schedule.length > 0 && (
+          <Card className="bg-rose-500/[0.06] border-rose-500/20">
+            <CardContent className="p-3 space-y-2 text-xs">
+              <div className="flex items-center justify-between text-white/80">
+                <span className="font-medium">Balance to pay later (red)</span>
+                <span className="font-bold text-rose-200">{fmt(amount, result?.currency ?? 'TZS')}</span>
+              </div>
+              <div className="space-y-1">
+                {schedule.map((row, idx) => (
+                  <div key={idx} className="flex items-center justify-between text-white/70">
+                    <span>
+                      Instalment {idx + 1} of {schedule.length} — due{' '}
+                      {row.due.toLocaleDateString(undefined, { day: '2-digit', month: 'short' })}
+                    </span>
+                    <span className="font-mono text-white">{fmt(row.amount, result?.currency ?? 'TZS')}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] text-white/40 pt-1">
+                Schedule shown is exact — last instalment absorbs any rounding so the total matches your purchase amount.
+              </p>
+            </CardContent>
+          </Card>
+        )}
+      </div>
     </div>
   );
 }
