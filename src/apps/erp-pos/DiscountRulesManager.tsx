@@ -10,7 +10,7 @@ import { Plus, Trash2, Zap, ShieldCheck, Pencil, Save, X, Loader2 } from 'lucide
  * Owner-facing CRUD for the auto-approval rules engine. Each rule is an
  * AND-set of conditions; the lowest-priority matching rule lets the request
  * skip the owner queue entirely. Maps to the backend's existing
- * /discount-approval/rules endpoints + DiscountApprovalRule entity.
+ * /discounts/rules endpoints + DiscountApprovalRule entity.
  */
 interface DiscountRule {
   id: string;
@@ -51,7 +51,7 @@ export function DiscountRulesManager() {
     setLoading(true);
     setError(null);
     try {
-      const rows = await api<DiscountRule[]>('/discount-approval/rules');
+      const rows = await api<DiscountRule[]>('/discounts/rules');
       setRules([...(rows ?? [])].sort((a, b) => a.priority - b.priority));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load rules');
@@ -69,12 +69,12 @@ export function DiscountRulesManager() {
     setError(null);
     try {
       if ('id' in payload) {
-        await api(`/discount-approval/rules/${payload.id}`, {
+        await api(`/discounts/rules/${payload.id}`, {
           method: 'PUT',
           body: JSON.stringify(payload),
         });
       } else {
-        await api('/discount-approval/rules', {
+        await api('/discounts/rules', {
           method: 'POST',
           body: JSON.stringify(payload),
         });
@@ -92,7 +92,7 @@ export function DiscountRulesManager() {
   const remove = async (id: string, name: string) => {
     if (!window.confirm(`Delete rule "${name}"? Existing pending requests are not affected.`)) return;
     try {
-      await api(`/discount-approval/rules/${id}`, { method: 'DELETE' });
+      await api(`/discounts/rules/${id}`, { method: 'DELETE' });
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Delete failed');

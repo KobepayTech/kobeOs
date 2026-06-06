@@ -48,7 +48,7 @@ export function DiscountReports() {
     setError(null);
     try {
       const params = new URLSearchParams({ from, to }).toString();
-      const r = await api<ReportShape>(`/discount-approval/reports?${params}`);
+      const r = await api<ReportShape>(`/discounts/reports?${params}`);
       setReport(r);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load report');
