@@ -21,6 +21,7 @@ import {
   TrackOrderPage,
   WishlistPage,
 } from './StorefrontPages';
+import { JerseyShopChrome, JerseyProductCard } from './JerseyShopLayout';
 
 /* ------------------------------------------------------------------ */
 /*  TYPES                                                               */
@@ -599,64 +600,34 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
         </ScrollArea>
       )}
 
-      {/* PRODUCT GRID — home view */}
+      {/* PRODUCT GRID — home view, projerseyshop.es-style cards */}
       {view === 'home' && (
-      <ScrollArea className="flex-1">
-        <div className={`grid ${gridClass} gap-3 p-4`}>
-          {filteredProducts.length === 0 ? (
-            <div className="col-span-full flex flex-col items-center justify-center py-16 text-slate-500 gap-3">
-              <Package className="w-10 h-10" />
-              <p>No products found</p>
-            </div>
-          ) : (
-            filteredProducts.map((product) => (
-              <Card
-                key={product.id}
-                className="bg-white/5 border-white/10 hover:bg-white/10 transition-colors cursor-pointer"
-                onClick={() => setSelectedProduct(product)}
-              >
-                <CardContent className="p-0">
-                  <div className={`h-28 rounded-t-lg bg-gradient-to-br ${productGradient(product.category)} flex items-center justify-center overflow-hidden`}>
-                    {product.imageUrl
-                      ? <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover" />
-                      : <Package className="w-8 h-8 text-white/40" />}
-                  </div>
-                  <div className="p-2.5">
-                    {settings.showCategoryBadge && (
-                      <span className="text-xs text-blue-400 font-medium">{product.category}</span>
-                    )}
-                    <p className="text-sm font-semibold text-white leading-tight mt-0.5 line-clamp-2">{product.name}</p>
-                    <p className="text-xs text-slate-400 mt-0.5">{product.sku}</p>
-                    <div className="flex items-center justify-between mt-2">
-                      <span className="text-sm font-bold text-blue-300">
-                        {formatPrice(product.price, product.currency)}
-                      </span>
-                      {settings.showStock && (
-                        <span className={`text-xs px-1.5 py-0.5 rounded-full text-white ${getStockColor(product.stock)}`}>
-                          {getStockLabel(product.stock)}
-                        </span>
-                      )}
-                    </div>
-                    {settings.showQuickAdd && (
-                      <Button
-                        size="sm"
-                        className="w-full mt-2 h-7 text-xs bg-blue-600 hover:bg-blue-700"
-                        onClick={(e) => { e.stopPropagation(); addToCart(product); }}
-                        disabled={product.stock === 0}
-                      >
-                        <Plus className="w-3 h-3 mr-1" /> Add to Cart
-                      </Button>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            ))
-          )}
-        </div>
-        {settings.footerText && (
-          <p className="text-center text-xs text-slate-500 py-4 px-4">{settings.footerText}</p>
-        )}
-      </ScrollArea>
+        <ScrollArea className="flex-1 bg-slate-50">
+          <div className="max-w-7xl mx-auto px-4 py-6">
+            {filteredProducts.length === 0 ? (
+              <div className="py-16 text-center text-slate-500">
+                <Package className="w-10 h-10 mx-auto mb-2" />
+                <p className="text-sm">No products found</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                {filteredProducts.map((product) => (
+                  <JerseyProductCard
+                    key={product.id}
+                    product={{ ...product, brand: null, tags: [], publishedAt: null }}
+                    onAddToCart={(p) => addToCart(p as unknown as Product)}
+                    onAddToWishlist={(p) => toggleWishlist(p.id)}
+                    onOpen={(p) => setSelectedProduct(p as unknown as Product)}
+                    wished={wishlistIds.includes(product.id)}
+                  />
+                ))}
+              </div>
+            )}
+            {settings.footerText && (
+              <p className="text-center text-xs text-slate-500 py-6">{settings.footerText}</p>
+            )}
+          </div>
+        </ScrollArea>
       )}
 
       {/* PRODUCT DETAIL DIALOG */}
