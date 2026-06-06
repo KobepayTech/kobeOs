@@ -139,4 +139,9 @@ export class StoreCollection extends OwnedEntity {
 
   @Column({ default: 0 })
   order!: number;
+
+  /** Parent collection id — enables WORLD CUP > CLUBS > LIVERPOOL hierarchy. */
+  @Index()
+  @Column({ nullable: true, type: 'uuid' })
+  parentId?: string | null;
 }

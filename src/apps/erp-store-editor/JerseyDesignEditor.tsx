@@ -18,7 +18,14 @@ export interface JerseyConfig {
   trustStrip?: Array<{ icon: 'truck' | 'shield' | 'rotate' | 'star'; title: string; desc: string }>;
   footerColumns?: Array<{ title: string; items: Array<{ label: string; href?: string }> }>;
   newsletterPitch?: string;
+  tiers?: Array<{ slug: string; label: string; parentSlug?: string; href?: string }>;
+  paymentLogos?: Array<'visa' | 'mastercard' | 'amex' | 'paypal' | 'mpesa' | 'tigopesa' | 'airtelmoney' | 'kobepay'>;
+  languages?: Array<{ code: string; label: string }>;
+  trustpilot?: { businessUnitId?: string; templateId?: string };
 }
+
+type PaymentLogo = NonNullable<JerseyConfig['paymentLogos']>[number];
+const ALL_PAYMENT_LOGOS: PaymentLogo[] = ['visa', 'mastercard', 'amex', 'paypal', 'mpesa', 'tigopesa', 'airtelmoney', 'kobepay'];
 
 interface StoreSettings {
   jerseyConfig?: JerseyConfig;
@@ -295,6 +302,171 @@ export function JerseyDesignEditor() {
             value={config.newsletterPitch ?? ''}
             onChange={(e) => setConfig({ ...config, newsletterPitch: e.target.value })}
             rows={2}
+            className={inputCls}
+          />
+        </Field>
+      </Section>
+
+      <Section title="Multi-tier nav" icon={<Layout className="w-3.5 h-3.5" />}>
+        <p className="text-[10px] text-white/40 mb-2">
+          Header buttons + dropdowns. Set <code className="text-white/60">parentSlug</code> to nest a tier
+          under another (e.g. parent <code className="text-white/60">world-cup</code> with children
+          <code className="text-white/60"> clubs</code>, <code className="text-white/60">retro</code>).
+        </p>
+        {(config.tiers ?? []).map((tier, idx) => (
+          <div key={idx} className="grid grid-cols-12 gap-2 items-start">
+            <Input
+              value={tier.slug}
+              onChange={(e) => {
+                const next = [...(config.tiers ?? [])];
+                next[idx] = { ...tier, slug: e.target.value };
+                setConfig({ ...config, tiers: next });
+              }}
+              className={`${inputCls} col-span-3`}
+              placeholder="slug"
+            />
+            <Input
+              value={tier.label}
+              onChange={(e) => {
+                const next = [...(config.tiers ?? [])];
+                next[idx] = { ...tier, label: e.target.value };
+                setConfig({ ...config, tiers: next });
+              }}
+              className={`${inputCls} col-span-3`}
+              placeholder="Label"
+            />
+            <Input
+              value={tier.parentSlug ?? ''}
+              onChange={(e) => {
+                const next = [...(config.tiers ?? [])];
+                next[idx] = { ...tier, parentSlug: e.target.value || undefined };
+                setConfig({ ...config, tiers: next });
+              }}
+              className={`${inputCls} col-span-2`}
+              placeholder="parentSlug"
+            />
+            <Input
+              value={tier.href ?? ''}
+              onChange={(e) => {
+                const next = [...(config.tiers ?? [])];
+                next[idx] = { ...tier, href: e.target.value || undefined };
+                setConfig({ ...config, tiers: next });
+              }}
+              className={`${inputCls} col-span-3`}
+              placeholder="href (optional)"
+            />
+            <button
+              onClick={() => setConfig({ ...config, tiers: (config.tiers ?? []).filter((_, i) => i !== idx) })}
+              className="col-span-1 text-rose-300 hover:text-rose-200 self-center"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ))}
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() =>
+            setConfig({ ...config, tiers: [...(config.tiers ?? []), { slug: '', label: '' }] })
+          }
+          className="h-7 text-xs"
+        >
+          <Plus className="w-3 h-3 mr-1" /> Add tier
+        </Button>
+      </Section>
+
+      <Section title="Languages" icon={<Sparkles className="w-3.5 h-3.5" />}>
+        <p className="text-[10px] text-white/40 mb-2">Header language dropdown (ISO code + label).</p>
+        {(config.languages ?? []).map((lang, idx) => (
+          <div key={idx} className="grid grid-cols-12 gap-2 items-start">
+            <Input
+              value={lang.code}
+              onChange={(e) => {
+                const next = [...(config.languages ?? [])];
+                next[idx] = { ...lang, code: e.target.value };
+                setConfig({ ...config, languages: next });
+              }}
+              className={`${inputCls} col-span-3`}
+              placeholder="en"
+            />
+            <Input
+              value={lang.label}
+              onChange={(e) => {
+                const next = [...(config.languages ?? [])];
+                next[idx] = { ...lang, label: e.target.value };
+                setConfig({ ...config, languages: next });
+              }}
+              className={`${inputCls} col-span-8`}
+              placeholder="English"
+            />
+            <button
+              onClick={() => setConfig({ ...config, languages: (config.languages ?? []).filter((_, i) => i !== idx) })}
+              className="col-span-1 text-rose-300 hover:text-rose-200 self-center"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        ))}
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() =>
+            setConfig({ ...config, languages: [...(config.languages ?? []), { code: '', label: '' }] })
+          }
+          className="h-7 text-xs"
+        >
+          <Plus className="w-3 h-3 mr-1" /> Add language
+        </Button>
+      </Section>
+
+      <Section title="Payment logos" icon={<Shield className="w-3.5 h-3.5" />}>
+        <p className="text-[10px] text-white/40 mb-2">Toggle the payment badges shown in the footer.</p>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-1.5">
+          {ALL_PAYMENT_LOGOS.map((p) => {
+            const active = (config.paymentLogos ?? []).includes(p);
+            return (
+              <button
+                key={p}
+                type="button"
+                onClick={() => {
+                  const current = config.paymentLogos ?? [];
+                  setConfig({
+                    ...config,
+                    paymentLogos: active ? current.filter((x) => x !== p) : [...current, p],
+                  });
+                }}
+                className={`text-[10px] uppercase font-bold rounded px-2 py-1 ${
+                  active ? 'bg-white text-slate-900' : 'bg-white/[0.05] text-white/40 hover:bg-white/[0.08]'
+                }`}
+              >
+                {p}
+              </button>
+            );
+          })}
+        </div>
+      </Section>
+
+      <Section title="Trustpilot widget" icon={<Sparkles className="w-3.5 h-3.5" />}>
+        <p className="text-[10px] text-white/40 mb-2">
+          Pulls the real Trustpilot iframe when both fields are set. Leave blank for a static
+          "Excellent reviews" placeholder.
+        </p>
+        <Field label="Business unit id">
+          <Input
+            value={config.trustpilot?.businessUnitId ?? ''}
+            onChange={(e) =>
+              setConfig({ ...config, trustpilot: { ...config.trustpilot, businessUnitId: e.target.value || undefined } })
+            }
+            className={inputCls}
+            placeholder="e.g. 5d4f8b..."
+          />
+        </Field>
+        <Field label="Template id" hint="Default 5419b6a8b0d04a076446a9ad (Mini horizontal).">
+          <Input
+            value={config.trustpilot?.templateId ?? ''}
+            onChange={(e) =>
+              setConfig({ ...config, trustpilot: { ...config.trustpilot, templateId: e.target.value || undefined } })
+            }
             className={inputCls}
           />
         </Field>

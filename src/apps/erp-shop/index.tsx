@@ -605,7 +605,16 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
                 {filteredProducts.map((product) => (
                   <JerseyProductCard
                     key={product.id}
-                    product={{ ...product, brand: null, tags: [], publishedAt: null }}
+                    product={{
+                      ...product,
+                      brand: (product as unknown as { brand?: string | null }).brand ?? null,
+                      tags: (product as unknown as { tags?: string[] }).tags ?? [],
+                      publishedAt: (product as unknown as { publishedAt?: string | null }).publishedAt ?? null,
+                      priceMin: (product as unknown as { priceMin?: number | null }).priceMin ?? null,
+                      priceMax: (product as unknown as { priceMax?: number | null }).priceMax ?? null,
+                      compareAtPrice: (product as unknown as { compareAtPrice?: number | null }).compareAtPrice ?? null,
+                      featured: (product as unknown as { featured?: boolean }).featured ?? false,
+                    }}
                     onAddToCart={(p) => addToCart(p as unknown as Product)}
                     onAddToWishlist={(p) => toggleWishlist(p.id)}
                     onOpen={(p) => setSelectedProduct(p as unknown as Product)}
