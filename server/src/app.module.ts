@@ -21,6 +21,7 @@ import { PasswordsModule } from './passwords/passwords.module';
 import { MediaModule } from './media/media.module';
 import { CargoModule } from './cargo/cargo.module';
 import { AirCargoModule } from './cargo/air-cargo.module';
+import { ShopsModule } from './shops/shops.module';
 import { PropertyModule } from './property/property.module';
 import { PosModule } from './pos/pos.module';
 import { WarehouseModule } from './warehouse/warehouse.module';
@@ -89,6 +90,7 @@ import { DiscountApprovalModule } from './discount-approval/discount-approval.mo
     MediaModule,
     CargoModule,
     AirCargoModule,
+    ShopsModule,
     PropertyModule,
     PosModule,
     WarehouseModule,

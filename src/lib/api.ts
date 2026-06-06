@@ -252,6 +252,15 @@ async function rawFetch(path: string, init: RequestInit, attachAuth: boolean): P
     const token = getToken();
     if (token) headers.set('Authorization', `Bearer ${token}`);
   }
+  // Forward the active shop id on every request so shop-scoped endpoints
+  // (expenses, EOD, POS orders) know which branch to charge. Backend
+  // ignores the header on endpoints that aren't shop-scoped.
+  try {
+    const shopId = window.localStorage.getItem('kobeos:active-shop-id');
+    if (shopId && !headers.has('X-Active-Shop-Id')) headers.set('X-Active-Shop-Id', shopId);
+  } catch {
+    /* storage disabled */
+  }
   return fetch(`${API_BASE}${path}`, { ...init, headers });
 }
 

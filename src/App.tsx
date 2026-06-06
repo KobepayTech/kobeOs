@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 
 import LoginScreen from '@/components/LoginScreen';
 import LiveModeBanner from '@/components/LiveModeBanner';
+import { ShopSwitcher } from '@/components/ShopSwitcher';
 import SystemSettings from '@/components/SystemSettings';
 import FileManager from '@/components/FileManager';
 import AppStore from '@/components/AppStore';
@@ -129,6 +130,9 @@ export default function App() {
   return (
     <BrowserRouter>
       <LiveModeBanner />
+      <div className="fixed top-1 right-2 z-50">
+        <ShopSwitcher compact />
+      </div>
       <div className="pt-8">
         <Routes>
           <Route path="/" element={<><Desktop user={user} onOpenApp={setOpenApp} /><AnimatePresence>{openApp && <WindowManager app={openApp} onClose={() => setOpenApp(null)} />}</AnimatePresence></>} />
