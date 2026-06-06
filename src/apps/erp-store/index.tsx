@@ -14,6 +14,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { UniversalProductForm, blankProduct, type UniversalProduct } from './UniversalProductForm';
+import { ProductWizard } from './ProductWizard';
 
 const tzs = (n: number) => `TZS ${n.toLocaleString()}`;
 
@@ -218,6 +219,9 @@ export default function ERPStore() {
                 <TabsTrigger value="orders" className="text-xs data-[state=active]:bg-blue-600 data-[state=active]:text-white">
                   <ShoppingBag className="w-3 h-3 mr-1" /> Orders ({orders.length})
                 </TabsTrigger>
+                <TabsTrigger value="wizard" className="text-xs data-[state=active]:bg-blue-600 data-[state=active]:text-white">
+                  <Plus className="w-3 h-3 mr-1" /> Wizard
+                </TabsTrigger>
               </TabsList>
             </Tabs>
             <Button size="sm" variant="ghost" onClick={reload} disabled={loading}>
@@ -404,6 +408,12 @@ export default function ERPStore() {
                 </Table>
               </ScrollArea>
             </CardContent>
+          </Card>
+        )}
+
+        {tab === 'wizard' && (
+          <Card className="bg-slate-900/60 border-slate-800 overflow-hidden" style={{ height: '78vh' }}>
+            <ProductWizard onDone={() => { setTab('products'); reload(); }} />
           </Card>
         )}
       </div>

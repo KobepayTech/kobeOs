@@ -606,6 +606,93 @@ export class DiscountApprovalService {
     return this.logs.find({ where: { ownerId }, order: { createdAt: 'DESC' } });
   }
 
+  /**
+   * Aggregated discount report. Returns the headline totals, per-seller and
+   * per-product breakdowns, and the margin impact summary the dashboard
+   * spec asks for ("Profit Lost to Discounts: 14.5%").
+   *
+   * Defaults to the current calendar month when from/to are unset.
+   */
+  async getReport(ownerId: string, fromIso?: string, toIso?: string) {
+    const now = new Date();
+    const defaultFrom = new Date(now.getFullYear(), now.getMonth(), 1);
+    const defaultTo = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+    const from = fromIso ? new Date(fromIso) : defaultFrom;
+    const to = toIso ? new Date(toIso) : defaultTo;
+
+    const rows = await this.logs
+      .createQueryBuilder('l')
+      .where('l."ownerId" = :ownerId', { ownerId })
+      .andWhere('l."createdAt" BETWEEN :from AND :to', { from: from.toISOString(), to: to.toISOString() })
+      .getMany();
+
+    let standardValue = 0;
+    let actualValue = 0;
+    let discountAmount = 0;
+    let profit = 0;
+    const bySeller = new Map<string, { discount: number; actual: number; count: number }>();
+    const byProduct = new Map<string, { discount: number; actual: number; quantity: number; avgPct: number; sumPct: number; n: number }>();
+
+    for (const r of rows) {
+      standardValue += Number(r.standardValue);
+      actualValue += Number(r.actualValue);
+      discountAmount += Number(r.discountAmount);
+      profit += Number(r.profit);
+
+      const sellerKey = r.sellerId;
+      const sb = bySeller.get(sellerKey) ?? { discount: 0, actual: 0, count: 0 };
+      sb.discount += Number(r.discountAmount);
+      sb.actual += Number(r.actualValue);
+      sb.count += 1;
+      bySeller.set(sellerKey, sb);
+
+      const productKey = r.productId;
+      const pb = byProduct.get(productKey) ?? { discount: 0, actual: 0, quantity: 0, avgPct: 0, sumPct: 0, n: 0 };
+      pb.discount += Number(r.discountAmount);
+      pb.actual += Number(r.actualValue);
+      pb.quantity += Number(r.quantity);
+      pb.sumPct += Number(r.discountPercent);
+      pb.n += 1;
+      pb.avgPct = pb.sumPct / pb.n;
+      byProduct.set(productKey, pb);
+    }
+
+    return {
+      period: { from: from.toISOString(), to: to.toISOString() },
+      totals: {
+        approvedRequests: rows.length,
+        standardValue,
+        actualValue,
+        discountAmount,
+        discountRate: standardValue > 0 ? (discountAmount / standardValue) * 100 : 0,
+        profit,
+        // Margin impact: potential profit if every sale had been at standard price.
+        // potentialProfit = profit + discountAmount (the discount was direct margin lost).
+        potentialProfit: profit + discountAmount,
+        profitLostPct: profit + discountAmount > 0 ? (discountAmount / (profit + discountAmount)) * 100 : 0,
+      },
+      bySeller: Array.from(bySeller.entries())
+        .map(([sellerId, s]) => ({
+          sellerId,
+          discountAmount: s.discount,
+          actualValue: s.actual,
+          requests: s.count,
+          discountRate: s.actual > 0 ? (s.discount / (s.discount + s.actual)) * 100 : 0,
+        }))
+        .sort((a, b) => b.discountAmount - a.discountAmount),
+      byProduct: Array.from(byProduct.entries())
+        .map(([productId, p]) => ({
+          productId,
+          discountAmount: p.discount,
+          actualValue: p.actual,
+          quantity: p.quantity,
+          avgDiscountPercent: p.avgPct,
+        }))
+        .sort((a, b) => b.discountAmount - a.discountAmount)
+        .slice(0, 25),
+    };
+  }
+
   // ── Rule management ────────────────────────────────────────────────────────
 
   listRules(ownerId: string) {

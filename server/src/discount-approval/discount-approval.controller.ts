@@ -147,6 +147,20 @@ export class DiscountApprovalController {
     return this.svc.listLogs(uid);
   }
 
+  /**
+   * GET /api/discounts/reports?from=YYYY-MM-DD&to=YYYY-MM-DD
+   * Aggregated report for the dashboard — totals, by-seller and by-product
+   * breakdowns, plus the margin impact (potential profit vs actual profit).
+   */
+  @Get('reports')
+  getReport(
+    @CurrentUser('id') uid: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.svc.getReport(uid, from, to);
+  }
+
   // ── Auto-approval rules ────────────────────────────────────────────────────
 
   @Get('rules')
