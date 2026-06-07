@@ -1,0 +1,30 @@
+# RuView WiFi-CSI sensing sidecar for Kobe Security.
+# Upstream: https://github.com/ruvnet/RuView (MIT)
+#
+# Start:  docker compose -f vendor/ruview/docker-compose.yml up -d
+# Stop:   docker compose -f vendor/ruview/docker-compose.yml down
+#
+# KobeSecurity in KobeOS auto-discovers this on localhost:3000/3001
+# and falls back to its built-in simulated dataset when the container
+# is not running.
+
+services:
+  ruview:
+    image: ruvnet/wifi-densepose:latest
+    container_name: kobeos-ruview
+    restart: unless-stopped
+    ports:
+      - "3000:3000"   # HTTP REST API (/api/v1/{health,zones,alerts,vitals,pose,falls})
+      - "3001:3001"   # WebSocket — live CSI frames
+    environment:
+      # Simulator mode — generates synthetic CSI frames so the demo runs
+      # without ESP32 hardware. Flip to "live" once you wire real
+      # sensors per the upstream README.
+      RUVIEW_MODE: simulator
+      RUVIEW_LOG_LEVEL: info
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3000/api/v1/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
