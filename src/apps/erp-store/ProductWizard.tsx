@@ -5,7 +5,8 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
-import { Plus, Trash2, ChevronLeft, ChevronRight, Camera, Save, FileText, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Plus, Trash2, ChevronLeft, ChevronRight, Save, FileText, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { PhotoUpload } from '@/components/PhotoUpload';
 
 /**
  * 5-step product wizard matching the KobeERP spec — Basic → Variants → Pricing
@@ -575,25 +576,35 @@ function StepPricing({ value, onChange }: { value: WizardProduct; onChange: (p: 
 function StepPhotos({ value, onChange }: { value: WizardProduct; onChange: (p: Partial<WizardProduct>) => void }) {
   return (
     <div className="space-y-4 max-w-2xl">
-      <Field label="Main photo URL" hint="First image shown in the catalogue. Paste a URL or upload separately.">
-        <Input
-          value={value.imageUrl ?? ''}
-          onChange={(e) => onChange({ imageUrl: e.target.value })}
-          placeholder="https://…"
-          className={inputCls}
-        />
-      </Field>
-      <Field label="Additional images (one URL per line)">
-        <Textarea
-          value={value.imageUrls.join('\n')}
-          onChange={(e) =>
-            onChange({ imageUrls: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) })
-          }
-          rows={4}
-          className={inputCls}
-          placeholder={`https://…/photo-2.jpg\nhttps://…/photo-3.jpg`}
-        />
-      </Field>
+      <PhotoUpload
+        label="Main photo"
+        value={value.imageUrl}
+        onChange={(url) => onChange({ imageUrl: url ?? undefined })}
+      />
+      <div>
+        <label className="text-xs text-white/60 block mb-1">Additional images</label>
+        <div className="grid grid-cols-3 gap-2">
+          {value.imageUrls.map((url, idx) => (
+            <PhotoUpload
+              key={idx}
+              value={url}
+              onChange={(next) =>
+                onChange({
+                  imageUrls: next
+                    ? value.imageUrls.map((u, i) => (i === idx ? next : u))
+                    : value.imageUrls.filter((_, i) => i !== idx),
+                })
+              }
+            />
+          ))}
+          <PhotoUpload
+            value={null}
+            onChange={(next) => {
+              if (next) onChange({ imageUrls: [...value.imageUrls, next] });
+            }}
+          />
+        </div>
+      </div>
       <Field label="Video URL" hint="YouTube, Vimeo, or direct .mp4.">
         <Input
           value={value.videoUrl ?? ''}
@@ -601,10 +612,6 @@ function StepPhotos({ value, onChange }: { value: WizardProduct; onChange: (p: P
           className={inputCls}
         />
       </Field>
-      <div className="rounded-md border border-dashed border-white/15 p-6 text-center text-xs text-white/40">
-        <Camera className="w-6 h-6 mx-auto mb-2 text-white/30" />
-        Native camera upload arrives with the mobile build. Until then, paste hosted URLs above.
-      </div>
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent } from '@/components/ui/card';
 import { Loader2, Save, Plus, Trash2, Layout, Sparkles, Truck, Shield, RotateCcw, Star } from 'lucide-react';
+import { PhotoUpload } from '@/components/PhotoUpload';
 
 /**
  * Storefront design editor — projerseyshop.es-style sections (top promo,
@@ -140,8 +141,13 @@ export function JerseyDesignEditor() {
         <Field label="CTA label">
           <Input value={config.hero?.cta ?? ''} onChange={(e) => setConfig({ ...config, hero: { ...config.hero, cta: e.target.value } })} className={inputCls} />
         </Field>
-        <Field label="Banner image URL (optional)" hint="Square image, ~600×600. Leave blank for a clean gradient hero.">
-          <Input value={config.hero?.imageUrl ?? ''} onChange={(e) => setConfig({ ...config, hero: { ...config.hero, imageUrl: e.target.value } })} className={inputCls} />
+        <Field label="Banner image (optional)" hint="Square image, ~600×600. Leave blank for a clean gradient hero.">
+          <PhotoUpload
+            value={config.hero?.imageUrl ?? null}
+            onChange={(url) =>
+              setConfig({ ...config, hero: { ...config.hero, imageUrl: url ?? undefined } })
+            }
+          />
         </Field>
         <div className="grid grid-cols-2 gap-2">
           <Field label="Gradient from">
