@@ -53,6 +53,8 @@ export class HotelSecurityController {
 
   @Get('room-entries/flagged') flagged(@CurrentUser('id') uid: string) { return this.entries.listPolicyFlagged(uid); }
 
+  @Get('room-occupancy-counts') counts(@CurrentUser('id') uid: string) { return this.entries.countRoomOccupancies(uid); }
+
   @Get('room-entries/:roomId') room(@CurrentUser('id') uid: string, @Param('roomId') roomId: string) {
     return this.entries.listRoomEntries(uid, roomId);
   }

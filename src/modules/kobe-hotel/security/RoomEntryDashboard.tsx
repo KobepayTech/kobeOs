@@ -46,6 +46,15 @@ interface RoomStatusRow {
   activeBooking: { id: string; guestId: string; checkIn: string; checkOut: string } | null;
 }
 
+interface OccupancyCount {
+  roomId: string;
+  roomNumber: string;
+  today: number;
+  last7d: number;
+  last30d: number;
+  allTime: number;
+}
+
 interface EntryEvent {
   id: string;
   roomId: string;
@@ -103,6 +112,7 @@ export function RoomEntryDashboard() {
   const [statusRows, setStatusRows] = useState<RoomStatusRow[]>([]);
   const [recent, setRecent] = useState<EntryEvent[]>([]);
   const [flagged, setFlagged] = useState<EntryEvent[]>([]);
+  const [counts, setCounts] = useState<OccupancyCount[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -110,14 +120,16 @@ export function RoomEntryDashboard() {
     setLoading(true);
     setError(null);
     try {
-      const [s, r, f] = await Promise.all([
+      const [s, r, f, c] = await Promise.all([
         api<RoomStatusRow[]>('/hotel-security/room-status'),
         api<EntryEvent[]>('/hotel-security/room-entries'),
         api<EntryEvent[]>('/hotel-security/room-entries/flagged'),
+        api<OccupancyCount[]>('/hotel-security/room-occupancy-counts'),
       ]);
       setStatusRows(s ?? []);
       setRecent(r ?? []);
       setFlagged(f ?? []);
+      setCounts(c ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load room entries');
     } finally {
@@ -154,12 +166,20 @@ export function RoomEntryDashboard() {
 
       <BadgeScanner onScanned={load} statusRows={statusRows} />
 
+      <OccupancyTotals counts={counts} />
+
       <Section title={`Room status (${statusRows.length})`}>
         {statusRows.length === 0 ? (
           <Empty msg="No rooms linked to RuView zones yet. Link rooms in the Room Links tab." />
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-            {statusRows.map((row) => <RoomStatusCard key={row.roomId} row={row} />)}
+            {statusRows.map((row) => (
+              <RoomStatusCard
+                key={row.roomId}
+                row={row}
+                count={counts.find((c) => c.roomId === row.roomId) ?? null}
+              />
+            ))}
           </div>
         )}
       </Section>
@@ -271,7 +291,54 @@ function BadgeScanner({ onScanned, statusRows }: { onScanned: () => Promise<void
   );
 }
 
-function RoomStatusCard({ row }: { row: RoomStatusRow }) {
+function OccupancyTotals({ counts }: { counts: OccupancyCount[] }) {
+  if (!counts.length) return null;
+  const sum = (k: keyof Pick<OccupancyCount, 'today' | 'last7d' | 'last30d' | 'allTime'>) =>
+    counts.reduce((acc, c) => acc + c[k], 0);
+  const top = [...counts].sort((a, b) => b.last7d - a.last7d).slice(0, 3);
+  return (
+    <Card className="bg-emerald-500/5 border-emerald-500/30">
+      <CardContent className="p-3 space-y-2">
+        <div className="flex items-center gap-2 text-sm font-medium">
+          <ArrowDownToLine className="w-4 h-4 text-emerald-300" />
+          Times occupied
+          <span className="text-[10px] text-white/40 font-normal ml-auto">
+            One count per vacant → occupied transition.
+          </span>
+        </div>
+        <div className="grid grid-cols-4 gap-2">
+          <Totals label="Today" value={sum('today')} />
+          <Totals label="Last 7d" value={sum('last7d')} />
+          <Totals label="Last 30d" value={sum('last30d')} />
+          <Totals label="All time" value={sum('allTime')} />
+        </div>
+        {top.length > 0 && (
+          <div className="text-[11px] text-white/60">
+            Busiest this week:{' '}
+            {top.map((c, i) => (
+              <span key={c.roomId}>
+                {i > 0 && ', '}
+                <span className="text-white/90 font-medium">Room {c.roomNumber}</span>{' '}
+                ({c.last7d})
+              </span>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function Totals({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded bg-white/[0.04] border border-white/10 px-2 py-1.5">
+      <div className="text-[10px] text-white/40 uppercase tracking-wide">{label}</div>
+      <div className="text-base font-semibold text-emerald-200">{value}</div>
+    </div>
+  );
+}
+
+function RoomStatusCard({ row, count }: { row: RoomStatusRow; count: OccupancyCount | null }) {
   const TransIcon = row.lastEntryTransition ? TRANSITION_ICON[row.lastEntryTransition] : null;
   return (
     <Card className={`bg-[#13131f] border ${row.lastPolicyFlag ? 'border-rose-500/40' : row.occupied ? 'border-emerald-500/30' : 'border-white/10'}`}>
@@ -310,6 +377,19 @@ function RoomStatusCard({ row }: { row: RoomStatusRow }) {
         <div className="text-[10px] text-white/40">
           Last entry {fmtTime(row.lastEntryAt)}
         </div>
+        {count && (
+          <div className="flex items-center justify-between gap-1 pt-1 border-t border-white/[0.06] text-[10px] text-white/60">
+            <span>
+              Occupied <span className="text-emerald-300 font-semibold">{count.today}</span>× today
+            </span>
+            <span>
+              7d <span className="text-white/80 font-semibold">{count.last7d}</span>
+            </span>
+            <span>
+              30d <span className="text-white/80 font-semibold">{count.last30d}</span>
+            </span>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

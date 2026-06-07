@@ -69,6 +69,48 @@ export class RoomEntryService {
     });
   }
 
+  /**
+   * Count of `vacant_to_occupied` events per room over rolling windows.
+   * One row per room with today / 7d / 30d / all-time tallies. Front-desk
+   * uses this to answer "how many times has room 207 been occupied this
+   * week?" without having to scan the event timeline manually.
+   */
+  async countRoomOccupancies(ownerId: string) {
+    const rows = await this.events
+      .createQueryBuilder('e')
+      .select('e."roomId"', 'roomId')
+      .addSelect('e."roomNumber"', 'roomNumber')
+      .addSelect(
+        `COUNT(*) FILTER (WHERE e."detectedAt" >= date_trunc('day', now()))`,
+        'today',
+      )
+      .addSelect(
+        `COUNT(*) FILTER (WHERE e."detectedAt" >= now() - interval '7 days')`,
+        'last7d',
+      )
+      .addSelect(
+        `COUNT(*) FILTER (WHERE e."detectedAt" >= now() - interval '30 days')`,
+        'last30d',
+      )
+      .addSelect('COUNT(*)', 'allTime')
+      .where('e."ownerId" = :ownerId AND e.transition = :t', {
+        ownerId,
+        t: 'vacant_to_occupied',
+      })
+      .groupBy('e."roomId"')
+      .addGroupBy('e."roomNumber"')
+      .getRawMany<{ roomId: string; roomNumber: string; today: string; last7d: string; last30d: string; allTime: string }>();
+
+    return rows.map((r) => ({
+      roomId: r.roomId,
+      roomNumber: r.roomNumber,
+      today: Number(r.today),
+      last7d: Number(r.last7d),
+      last30d: Number(r.last30d),
+      allTime: Number(r.allTime),
+    }));
+  }
+
   listRecentEntries(ownerId: string, limit = 50) {
     return this.events.find({
       where: { ownerId },
