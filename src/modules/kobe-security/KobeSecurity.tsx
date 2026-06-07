@@ -9,6 +9,7 @@ import {
   type RuViewHealth,
   type RuViewZone,
 } from '@/services/ruviewClient';
+import { RuViewDashboard } from './RuViewDashboard';
 import {
   createWorkItem,
   listClientSites,
@@ -102,6 +103,7 @@ export default function KobeSecurity() {
   const [guardName, setGuardName] = useState('Kobe Guard');
   const [loading, setLoading] = useState(true);
   const [dataSource, setDataSource] = useState<'backend' | 'demo'>('demo');
+  const [topTab, setTopTab] = useState<'ops' | 'ruview'>('ops');
 
   async function refresh() {
     const snapshot = await getRuViewSnapshot();
@@ -178,9 +180,27 @@ export default function KobeSecurity() {
     }
   };
 
+  if (topTab === 'ruview') {
+    return (
+      <div className="h-full flex flex-col bg-slate-950 text-white">
+        <div className="shrink-0 px-6 py-3 border-b border-white/10 bg-slate-900/80 flex items-center gap-2">
+          <TopTabBtn active={false} onClick={() => setTopTab('ops')}>Operations</TopTabBtn>
+          <TopTabBtn active onClick={() => setTopTab('ruview')}>RuView sensing</TopTabBtn>
+        </div>
+        <div className="flex-1 overflow-hidden">
+          <RuViewDashboard />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-full overflow-y-auto bg-slate-950 text-white">
       <div className="border-b border-white/10 bg-slate-900/80 px-6 py-4">
+        <div className="flex items-center gap-2 mb-3">
+          <TopTabBtn active onClick={() => setTopTab('ops')}>Operations</TopTabBtn>
+          <TopTabBtn active={false} onClick={() => setTopTab('ruview')}>RuView sensing</TopTabBtn>
+        </div>
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="text-sm uppercase tracking-[0.3em] text-red-300">KobeOS Module</p>
@@ -291,5 +311,20 @@ export default function KobeSecurity() {
         </section>
       </div>
     </div>
+  );
+}
+
+function TopTabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+        active
+          ? 'bg-red-500/15 text-red-200 border border-red-500/30'
+          : 'border border-white/10 text-white/60 hover:text-white hover:bg-white/[0.04]'
+      }`}
+    >
+      {children}
+    </button>
   );
 }
