@@ -2,12 +2,26 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@n
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { HotelRoomReviewsService, HotelRoomSignalLinksService, HotelSecurityDashboardService } from './hotel-security.service';
+import { RoomEntryService } from './room-entry.service';
+import type { StaffBadgeRole } from './hotel-room-entry.entity';
 import {
   CreateHotelRoomReviewDto,
   CreateHotelRoomSignalLinkDto,
   UpdateHotelRoomReviewDto,
   UpdateHotelRoomSignalLinkDto,
 } from './dto/hotel-security.dto';
+
+class StaffBadgeScanDto {
+  staffId!: string;
+  staffName!: string;
+  staffRole!: StaffBadgeRole;
+  roomId!: string;
+  roomNumber!: string;
+}
+
+class ResolveFlagDto {
+  notes?: string;
+}
 
 @UseGuards(JwtAuthGuard)
 @Controller('hotel-security')
@@ -16,6 +30,7 @@ export class HotelSecurityController {
     private readonly dashboard: HotelSecurityDashboardService,
     private readonly links: HotelRoomSignalLinksService,
     private readonly reviews: HotelRoomReviewsService,
+    private readonly entries: RoomEntryService,
   ) {}
 
   @Get('summary') summary(@CurrentUser('id') uid: string) { return this.dashboard.summary(uid); }
@@ -29,4 +44,26 @@ export class HotelSecurityController {
   @Post('room-reviews') createReview(@CurrentUser('id') uid: string, @Body() dto: CreateHotelRoomReviewDto) { return this.reviews.create(uid, dto); }
   @Patch('room-reviews/:id') updateReview(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: UpdateHotelRoomReviewDto) { return this.reviews.update(uid, id, dto); }
   @Delete('room-reviews/:id') deleteReview(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.reviews.remove(uid, id); }
+
+  // ── Room-entry events (driven by RuView ingest cron) ────────────────────
+
+  @Get('room-status') roomStatus(@CurrentUser('id') uid: string) { return this.entries.listRoomStatus(uid); }
+
+  @Get('room-entries') recent(@CurrentUser('id') uid: string) { return this.entries.listRecentEntries(uid); }
+
+  @Get('room-entries/flagged') flagged(@CurrentUser('id') uid: string) { return this.entries.listPolicyFlagged(uid); }
+
+  @Get('room-entries/:roomId') room(@CurrentUser('id') uid: string, @Param('roomId') roomId: string) {
+    return this.entries.listRoomEntries(uid, roomId);
+  }
+
+  @Post('room-entries/:id/resolve')
+  resolve(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: ResolveFlagDto) {
+    return this.entries.resolvePolicyFlag(uid, id, dto.notes ?? '');
+  }
+
+  @Post('staff-badge-scan')
+  scanBadge(@CurrentUser('id') uid: string, @Body() dto: StaffBadgeScanDto) {
+    return this.entries.scanStaffBadge(uid, dto);
+  }
 }
