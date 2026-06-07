@@ -16,6 +16,14 @@ export interface JerseyConfig {
   trustStrip?: Array<{ icon: 'truck' | 'shield' | 'rotate' | 'star'; title: string; desc: string }>;
   footerColumns?: Array<{ title: string; items: Array<{ label: string; href?: string }> }>;
   newsletterPitch?: string;
+  /** Multi-tier categorisation. parentSlug references another tier's slug. */
+  tiers?: Array<{ slug: string; label: string; parentSlug?: string; href?: string }>;
+  /** Payment method logos rendered in the footer. */
+  paymentLogos?: Array<'visa' | 'mastercard' | 'amex' | 'paypal' | 'mpesa' | 'tigopesa' | 'airtelmoney' | 'kobepay'>;
+  /** Languages offered in the header dropdown (label + ISO code). */
+  languages?: Array<{ code: string; label: string }>;
+  /** Trustpilot widget config. Renders the real Trustpilot mini iframe when both fields set. */
+  trustpilot?: { businessUnitId?: string; templateId?: string };
 }
 
 const DEFAULT_TRUST: NonNullable<JerseyConfig['trustStrip']> = [
@@ -26,6 +34,17 @@ const DEFAULT_TRUST: NonNullable<JerseyConfig['trustStrip']> = [
 ];
 
 const TRUST_ICONS = { truck: Truck, shield: Shield, rotate: RotateCcw, star: Star } as const;
+
+const PAYMENT_LABEL: Record<NonNullable<JerseyConfig['paymentLogos']>[number], string> = {
+  visa:         'VISA',
+  mastercard:   'MasterCard',
+  amex:         'AMEX',
+  paypal:       'PayPal',
+  mpesa:        'M-Pesa',
+  tigopesa:     'Tigo Pesa',
+  airtelmoney:  'Airtel Money',
+  kobepay:      'KobePay',
+};
 
 /**
  * projerseyshop.es-style storefront chrome — top promo bar, multi-tier
@@ -41,6 +60,10 @@ export interface JerseyProduct {
   name: string;
   sku: string;
   price: number;
+  /** Lowest variant price, when variants override the parent. */
+  priceMin?: number | null;
+  /** Highest variant price — drives the "$17.99 ~ $28.99" range display. */
+  priceMax?: number | null;
   compareAtPrice?: number | null;
   stock: number;
   category: string;
@@ -111,19 +134,31 @@ export function JerseyShopChrome({
   const footerCols = config?.footerColumns ?? [];
   const newsletterPitch = config?.newsletterPitch ?? '15% off your first order when you sign up.';
   const heroVisible = bannerVisible && (hero.headline || hero.imageUrl);
+  const tiers = config?.tiers ?? [];
+  const paymentLogos = config?.paymentLogos ?? ['visa', 'mastercard', 'mpesa', 'kobepay'];
+  const languages = config?.languages ?? [{ code: 'en', label: 'English' }, { code: 'sw', label: 'Kiswahili' }];
+  // Group multi-tier nav: top-level tiers (parentSlug=null) become the
+  // header buttons; their children become the dropdown when hovered.
+  const topTiers = tiers.filter((t) => !t.parentSlug);
+  const childTiers = (parentSlug: string) => tiers.filter((t) => t.parentSlug === parentSlug);
   return (
     <div className="flex flex-col h-full bg-white text-slate-900 overflow-y-auto">
-      {/* Top promo bar — text + currency + signup CTA. */}
+      {/* Top promo bar — text + currency + language + signup CTA. */}
       <div className="text-white text-[11px]" style={{ backgroundColor: promo.bgColor }}>
         <div className="max-w-7xl mx-auto px-4 py-1.5 flex items-center justify-between gap-3">
           <span className="text-white/70 hidden md:inline">{promo.text}</span>
           <div className="flex items-center gap-3">
             <span className="text-amber-300 font-semibold">{promo.ctaText}</span>
-            <select className="bg-transparent border-none text-[11px] focus:outline-none">
+            <select className="bg-transparent border-none text-[11px] focus:outline-none" aria-label="Currency">
               <option>USD</option>
               <option>TZS</option>
               <option>EUR</option>
               <option>GBP</option>
+            </select>
+            <select className="bg-transparent border-none text-[11px] focus:outline-none" aria-label="Language">
+              {languages.map((lang) => (
+                <option key={lang.code} value={lang.code}>{lang.label}</option>
+              ))}
             </select>
           </div>
         </div>
@@ -178,7 +213,8 @@ export function JerseyShopChrome({
             </button>
           </div>
         </div>
-        {/* Primary category nav */}
+        {/* Multi-tier nav — categories from products on the left, configured
+            tiers (parent-with-dropdown) in the middle, action shortcuts right. */}
         <nav className="border-t border-slate-100 bg-white">
           <div className="max-w-7xl mx-auto px-4 flex gap-1 overflow-x-auto">
             {categories.map((cat) => (
@@ -194,6 +230,33 @@ export function JerseyShopChrome({
                 {cat}
               </button>
             ))}
+            {topTiers.map((tier) => {
+              const kids = childTiers(tier.slug);
+              return (
+                <div key={tier.slug} className="relative group/tier">
+                  <a
+                    href={tier.href ?? '#'}
+                    className="block px-3 py-2.5 text-[12px] font-semibold uppercase tracking-wide whitespace-nowrap text-slate-700 hover:text-blue-700 border-b-2 border-transparent group-hover/tier:text-blue-700"
+                  >
+                    {tier.label}
+                    {kids.length > 0 && <span className="ml-1 text-slate-400">▾</span>}
+                  </a>
+                  {kids.length > 0 && (
+                    <div className="absolute left-0 top-full z-20 hidden group-hover/tier:block min-w-[200px] bg-white border border-slate-200 shadow-lg rounded-b">
+                      {kids.map((k) => (
+                        <a
+                          key={k.slug}
+                          href={k.href ?? '#'}
+                          className="block px-4 py-2 text-xs text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+                        >
+                          {k.label}
+                        </a>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
             <button
               onClick={() => onPickNav?.('new-arrivals')}
               className="ml-auto px-3 py-2.5 text-[12px] font-semibold uppercase text-amber-700 whitespace-nowrap"
@@ -283,6 +346,30 @@ export function JerseyShopChrome({
         </div>
       </main>
 
+      {/* Trustpilot widget — real Trustpilot iframe when the merchant has
+          published their businessUnitId, otherwise a static "Excellent
+          reviews" placeholder so the strip never looks empty. */}
+      <section className="bg-white border-t border-slate-200">
+        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-center">
+          {config?.trustpilot?.businessUnitId ? (
+            <iframe
+              title="Trustpilot reviews"
+              src={`https://widget.trustpilot.com/trustboxes/${config.trustpilot.templateId ?? '5419b6a8b0d04a076446a9ad'}/index.html?businessunit=${encodeURIComponent(
+                config.trustpilot.businessUnitId,
+              )}`}
+              className="w-full max-w-3xl h-20 border-0"
+              loading="lazy"
+            />
+          ) : (
+            <div className="flex items-center gap-2 text-emerald-700 text-sm">
+              <Star className="w-5 h-5 fill-current" />
+              <strong>Excellent</strong>
+              <span className="text-slate-500">based on 12,400+ customer reviews</span>
+            </div>
+          )}
+        </div>
+      </section>
+
       {/* Footer — first column is fixed (store identity), rest come from
           config.footerColumns; if no columns configured we fall back to a
           sensible Shop / Support / Newsletter layout. */}
@@ -331,6 +418,24 @@ export function JerseyShopChrome({
               <Input placeholder="your@email.com" className="h-8 bg-white/5 border-white/10 text-white text-xs" />
               <Button size="sm" className="bg-amber-500 text-amber-950 hover:bg-amber-400 h-8">Join</Button>
             </div>
+          </div>
+        </div>
+        {/* Payment methods strip + app download CTA */}
+        <div className="border-t border-white/10">
+          <div className="max-w-7xl mx-auto px-4 py-3 flex flex-col md:flex-row items-center justify-between gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
+              {paymentLogos.map((p) => (
+                <span
+                  key={p}
+                  className="text-[10px] uppercase font-bold tracking-wide bg-white text-slate-900 rounded px-2 py-1"
+                >
+                  {PAYMENT_LABEL[p] ?? p}
+                </span>
+              ))}
+            </div>
+            <p className="text-[10px] text-slate-400">
+              Secure checkout · PCI-DSS · Powered by KobePay
+            </p>
           </div>
         </div>
       </footer>
@@ -385,8 +490,12 @@ export function JerseyProductCard({
     return days <= 14;
   }, [product.publishedAt]);
 
+  const hasRange = product.priceMin !== null && product.priceMin !== undefined
+    && product.priceMax !== null && product.priceMax !== undefined
+    && product.priceMin !== product.priceMax;
+
   return (
-    <div className="group bg-white rounded-lg border border-slate-200 overflow-hidden flex flex-col hover:shadow-lg transition-shadow">
+    <div className="group bg-white rounded-lg border border-slate-200 overflow-hidden flex flex-col hover:shadow-lg hover:-translate-y-0.5 transition-all">
       <button onClick={() => onOpen(product)} className="relative aspect-square bg-slate-100 overflow-hidden">
         {product.imageUrl ? (
           <img
@@ -410,11 +519,15 @@ export function JerseyProductCard({
         </div>
         <button
           onClick={(e) => { e.stopPropagation(); onAddToWishlist(product); }}
-          className={`absolute top-2 right-2 p-1.5 rounded-full ${wished ? 'bg-rose-500 text-white' : 'bg-white/90 text-slate-700 hover:bg-white'}`}
+          className={`absolute top-2 right-2 p-1.5 rounded-full transition-colors ${wished ? 'bg-rose-500 text-white' : 'bg-white/90 text-slate-700 hover:bg-white'}`}
           title="Add to wishlist"
         >
           <Heart className={`w-3.5 h-3.5 ${wished ? 'fill-current' : ''}`} />
         </button>
+        {/* Hover overlay matches projerseyshop's "SHOP NOW" CTA. */}
+        <div className="absolute inset-x-0 bottom-0 translate-y-full group-hover:translate-y-0 transition-transform bg-slate-900/90 text-white text-xs font-bold uppercase tracking-wide text-center py-2">
+          Shop now
+        </div>
       </button>
       <div className="p-3 flex-1 flex flex-col gap-1">
         {product.brand && (
@@ -425,9 +538,11 @@ export function JerseyProductCard({
         </h3>
         <div className="flex items-end gap-2 mt-auto pt-1">
           <span className="text-base font-bold text-slate-900">
-            {product.currency} {Number(product.price).toLocaleString()}
+            {hasRange
+              ? `${product.currency} ${Number(product.priceMin).toLocaleString()} ~ ${Number(product.priceMax).toLocaleString()}`
+              : `${product.currency} ${Number(product.price).toLocaleString()}`}
           </span>
-          {onSale && (
+          {onSale && !hasRange && (
             <span className="text-xs text-slate-400 line-through">
               {product.currency} {Number(product.compareAtPrice).toLocaleString()}
             </span>

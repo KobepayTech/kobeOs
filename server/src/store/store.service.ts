@@ -126,6 +126,23 @@ export class StoreService {
       take: limit,
     });
 
-    return { settings, products, total };
+    // Compute priceMin/priceMax from variants so the storefront card can show
+    // the "$17.99 ~ $28.99" range — when no per-variant price is set the
+    // parent price is the single price and we leave min/max null.
+    const enriched = products.map((p) => {
+      const variantPrices = (p.variants ?? [])
+        .map((v) => (typeof v.price === 'number' ? Number(v.price) : null))
+        .filter((n): n is number => n !== null && Number.isFinite(n) && n > 0);
+      if (variantPrices.length === 0) {
+        return { ...p, priceMin: null, priceMax: null };
+      }
+      return {
+        ...p,
+        priceMin: Math.min(Number(p.price), ...variantPrices),
+        priceMax: Math.max(Number(p.price), ...variantPrices),
+      };
+    });
+
+    return { settings, products: enriched as unknown as PosProduct[], total };
   }
 }
