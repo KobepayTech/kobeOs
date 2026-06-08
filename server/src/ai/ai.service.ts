@@ -38,6 +38,8 @@ export type ModelCategory =
   | 'embedding'   // Vector embeddings
   | 'sports'      // Football / sports analytics
   | 'ocr'         // Document / OCR
+  | 'translation' // Multilingual translation
+  | 'image-edit'  // Background removal, in-painting, etc.
   | 'multimodal'; // Combined
 
 export const MODEL_CATALOGUE: ModelInfo[] = [
@@ -65,6 +67,11 @@ export const MODEL_CATALOGUE: ModelInfo[] = [
   { id: 'piper:en_US-amy-medium',     name: 'Piper · Amy (US English)',  category: 'speech', description: 'Offline neural voiceover for Kobe Studio + Hotel notifications', sizeGb: 0.063, recommended: true  },
   { id: 'piper:en_GB-alba-medium',    name: 'Piper · Alba (UK English)', category: 'speech', description: 'UK English voice for storefront / ads',                          sizeGb: 0.063, recommended: false },
   { id: 'piper:en_US-libritts-high',  name: 'Piper · LibriTTS (US English, high)', category: 'speech', description: 'Higher-quality voice (~120 MB) — slower but cleaner', sizeGb: 0.12,  recommended: false },
+  // ── Translation ────────────────────────────────────────────────────────────
+  { id: 'nllb-200-distilled-600M', name: 'NLLB-200 Distilled 600M', category: 'translation', description: 'Meta multilingual translation — 200+ languages incl. Swahili, Amharic, Hausa, Yoruba, Zulu. Runs offline via ONNX.', sizeGb: 0.6, recommended: true },
+  // ── Image edit ─────────────────────────────────────────────────────────────
+  { id: 'rmbg-1.4',            name: 'BRIA RMBG-1.4 (u²-Net)', category: 'image-edit', description: 'Best-quality background removal. u²-Net architecture trained on a large dataset. Non-commercial license — use Xenova/u2net for strict MIT.', sizeGb: 0.17, recommended: true },
+  { id: 'u2net',               name: 'u²-Net (original)',     category: 'image-edit', description: 'Original u²-Net background-removal model. Strict MIT licence. Slightly lower quality than RMBG-1.4.',                                   sizeGb: 0.17, recommended: false },
   // ── Sports / Analytics ────────────────────────────────────────────────────
   { id: 'llama3:8b',           name: 'Sports Commentary', category: 'sports',    description: 'Llama 3 tuned for football commentary and match analysis',          sizeGb: 4.7,  recommended: true  },
 ];

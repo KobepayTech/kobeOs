@@ -13,7 +13,7 @@ async function req<T>(path: string, options?: RequestInit): Promise<T> {
   return res.json();
 }
 
-export type ModelCategory = 'chat' | 'coding' | 'vision' | 'speech' | 'video' | 'image' | 'sports' | 'embedding';
+export type ModelCategory = 'chat' | 'coding' | 'vision' | 'speech' | 'video' | 'image' | 'sports' | 'embedding' | 'translation';
 
 export interface CatalogueModel {
   id: string;
