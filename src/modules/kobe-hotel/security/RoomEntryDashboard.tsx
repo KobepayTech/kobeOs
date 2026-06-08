@@ -46,13 +46,18 @@ interface RoomStatusRow {
   activeBooking: { id: string; guestId: string; checkIn: string; checkOut: string } | null;
 }
 
+type CountWindow = 'today' | 'last7d' | 'last30d' | 'allTime';
+type WindowedCount = Record<CountWindow, number>;
+
 interface OccupancyCount {
   roomId: string;
   roomNumber: string;
-  today: number;
-  last7d: number;
-  last30d: number;
-  allTime: number;
+  sessions: WindowedCount;
+  midStayEntries: WindowedCount;
+  personEntries: WindowedCount;
+  distinctGuests: WindowedCount;
+  distinctStaff: WindowedCount;
+  unattributed: WindowedCount;
 }
 
 interface EntryEvent {
@@ -292,48 +297,77 @@ function BadgeScanner({ onScanned, statusRows }: { onScanned: () => Promise<void
 }
 
 function OccupancyTotals({ counts }: { counts: OccupancyCount[] }) {
+  const [win, setWin] = useState<CountWindow>('last7d');
   if (!counts.length) return null;
-  const sum = (k: keyof Pick<OccupancyCount, 'today' | 'last7d' | 'last30d' | 'allTime'>) =>
-    counts.reduce((acc, c) => acc + c[k], 0);
-  const top = [...counts].sort((a, b) => b.last7d - a.last7d).slice(0, 3);
+  const sum = (field: keyof Pick<OccupancyCount, 'sessions' | 'midStayEntries' | 'personEntries' | 'distinctGuests' | 'distinctStaff' | 'unattributed'>) =>
+    counts.reduce((acc, c) => acc + (c[field][win] ?? 0), 0);
+  const top = [...counts].sort((a, b) => b.personEntries[win] - a.personEntries[win]).slice(0, 3);
   return (
     <Card className="bg-emerald-500/5 border-emerald-500/30">
       <CardContent className="p-3 space-y-2">
         <div className="flex items-center gap-2 text-sm font-medium">
           <ArrowDownToLine className="w-4 h-4 text-emerald-300" />
-          Times occupied
-          <span className="text-[10px] text-white/40 font-normal ml-auto">
-            One count per vacant → occupied transition.
-          </span>
+          Entry stats
+          <div className="ml-auto flex gap-1 text-[10px]">
+            {(['today', 'last7d', 'last30d', 'allTime'] as CountWindow[]).map((w) => (
+              <button
+                key={w}
+                onClick={() => setWin(w)}
+                className={`px-1.5 py-0.5 rounded ${
+                  win === w
+                    ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-500/30'
+                    : 'text-white/50 hover:text-white border border-transparent'
+                }`}
+              >
+                {w === 'today' ? 'Today' : w === 'last7d' ? '7d' : w === 'last30d' ? '30d' : 'All'}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="grid grid-cols-4 gap-2">
-          <Totals label="Today" value={sum('today')} />
-          <Totals label="Last 7d" value={sum('last7d')} />
-          <Totals label="Last 30d" value={sum('last30d')} />
-          <Totals label="All time" value={sum('allTime')} />
+        <div className="grid grid-cols-3 md:grid-cols-6 gap-2">
+          <Totals label="Sessions" hint="vacant → occupied" value={sum('sessions')} tone="emerald" />
+          <Totals label="Mid-stay entries" hint="someone joined occupied room" value={sum('midStayEntries')} tone="amber" />
+          <Totals label="Person entries" hint="sessions + mid-stay" value={sum('personEntries')} tone="emerald" />
+          <Totals label="Distinct guests" hint="by booking" value={sum('distinctGuests')} tone="blue" />
+          <Totals label="Distinct staff" hint="by badge" value={sum('distinctStaff')} tone="violet" />
+          <Totals label="Unattributed" hint="no booking, no badge" value={sum('unattributed')} tone={sum('unattributed') > 0 ? 'rose' : 'mute'} />
         </div>
-        {top.length > 0 && (
+        {top.length > 0 && top[0].personEntries[win] > 0 && (
           <div className="text-[11px] text-white/60">
-            Busiest this week:{' '}
+            Busiest this window:{' '}
             {top.map((c, i) => (
               <span key={c.roomId}>
                 {i > 0 && ', '}
                 <span className="text-white/90 font-medium">Room {c.roomNumber}</span>{' '}
-                ({c.last7d})
+                ({c.personEntries[win]} entries)
               </span>
             ))}
           </div>
         )}
+        <p className="text-[10px] text-white/40 leading-relaxed">
+          WiFi-CSI counts <em>person entries</em> (each new body crossing into the room) and identifies them through bookings + badges.
+          It can't biometrically identify an unbadged stranger; those land in <span className="text-rose-300">unattributed</span> for operator review.
+        </p>
       </CardContent>
     </Card>
   );
 }
 
-function Totals({ label, value }: { label: string; value: number }) {
+const TONE_CLS: Record<string, string> = {
+  emerald: 'text-emerald-200',
+  amber:   'text-amber-200',
+  blue:    'text-blue-200',
+  violet:  'text-violet-200',
+  rose:    'text-rose-200',
+  mute:    'text-white/60',
+};
+
+function Totals({ label, hint, value, tone }: { label: string; hint?: string; value: number; tone: keyof typeof TONE_CLS }) {
   return (
     <div className="rounded bg-white/[0.04] border border-white/10 px-2 py-1.5">
       <div className="text-[10px] text-white/40 uppercase tracking-wide">{label}</div>
-      <div className="text-base font-semibold text-emerald-200">{value}</div>
+      <div className={`text-base font-semibold ${TONE_CLS[tone]}`}>{value}</div>
+      {hint && <div className="text-[9px] text-white/30 leading-tight mt-0.5">{hint}</div>}
     </div>
   );
 }
@@ -378,16 +412,28 @@ function RoomStatusCard({ row, count }: { row: RoomStatusRow; count: OccupancyCo
           Last entry {fmtTime(row.lastEntryAt)}
         </div>
         {count && (
-          <div className="flex items-center justify-between gap-1 pt-1 border-t border-white/[0.06] text-[10px] text-white/60">
-            <span>
-              Occupied <span className="text-emerald-300 font-semibold">{count.today}</span>× today
-            </span>
-            <span>
-              7d <span className="text-white/80 font-semibold">{count.last7d}</span>
-            </span>
-            <span>
-              30d <span className="text-white/80 font-semibold">{count.last30d}</span>
-            </span>
+          <div className="pt-1 border-t border-white/[0.06] space-y-0.5 text-[10px] text-white/60">
+            <div className="flex items-center justify-between">
+              <span>
+                Entries <span className="text-emerald-300 font-semibold">{count.personEntries.today}</span> today
+              </span>
+              <span>
+                7d <span className="text-white/80 font-semibold">{count.personEntries.last7d}</span>
+              </span>
+              <span>
+                30d <span className="text-white/80 font-semibold">{count.personEntries.last30d}</span>
+              </span>
+            </div>
+            {(count.midStayEntries.last7d > 0 || count.unattributed.last7d > 0) && (
+              <div className="flex items-center justify-between text-[9px]">
+                {count.midStayEntries.last7d > 0 && (
+                  <span className="text-amber-300">+{count.midStayEntries.last7d} mid-stay/7d</span>
+                )}
+                {count.unattributed.last7d > 0 && (
+                  <span className="text-rose-300">{count.unattributed.last7d} unattributed/7d</span>
+                )}
+              </div>
+            )}
           </div>
         )}
       </CardContent>

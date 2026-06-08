@@ -70,44 +70,61 @@ export class RoomEntryService {
   }
 
   /**
-   * Count of `vacant_to_occupied` events per room over rolling windows.
-   * One row per room with today / 7d / 30d / all-time tallies. Front-desk
-   * uses this to answer "how many times has room 207 been occupied this
-   * week?" without having to scan the event timeline manually.
+   * Per-room entry stats over rolling windows. Returns the breakdown that
+   * WiFi-CSI + bookings + badges can honestly support:
+   *
+   *   sessions          vacant→occupied transitions ("a new occupancy began")
+   *   midStayEntries    head-count climbed while occupied ("someone joined
+   *                     an occupied room" — same room, different person)
+   *   personEntries     sessions + midStayEntries ("total individual entries")
+   *   distinctGuests    distinct bookingId among guest-attributed entries
+   *   distinctStaff     distinct staffId among badge-attributed entries
+   *   unattributed      entries with attribution='unknown' (need review)
+   *
+   * One row per room with today / 7d / 30d / all-time tallies for each.
    */
   async countRoomOccupancies(ownerId: string) {
-    const rows = await this.events
+    const windows: Array<['today' | 'last7d' | 'last30d' | 'allTime', string]> = [
+      ['today', `e."detectedAt" >= date_trunc('day', now())`],
+      ['last7d', `e."detectedAt" >= now() - interval '7 days'`],
+      ['last30d', `e."detectedAt" >= now() - interval '30 days'`],
+      ['allTime', `TRUE`],
+    ];
+    const entryFilter = `(e.transition = 'vacant_to_occupied' OR (e.transition = 'people_count_changed' AND e."peopleAfter" > e."peopleBefore"))`;
+
+    const qb = this.events
       .createQueryBuilder('e')
       .select('e."roomId"', 'roomId')
-      .addSelect('e."roomNumber"', 'roomNumber')
-      .addSelect(
-        `COUNT(*) FILTER (WHERE e."detectedAt" >= date_trunc('day', now()))`,
-        'today',
-      )
-      .addSelect(
-        `COUNT(*) FILTER (WHERE e."detectedAt" >= now() - interval '7 days')`,
-        'last7d',
-      )
-      .addSelect(
-        `COUNT(*) FILTER (WHERE e."detectedAt" >= now() - interval '30 days')`,
-        'last30d',
-      )
-      .addSelect('COUNT(*)', 'allTime')
-      .where('e."ownerId" = :ownerId AND e.transition = :t', {
-        ownerId,
-        t: 'vacant_to_occupied',
-      })
+      .addSelect('e."roomNumber"', 'roomNumber');
+
+    for (const [key, when] of windows) {
+      qb.addSelect(`COUNT(*) FILTER (WHERE e.transition = 'vacant_to_occupied' AND ${when})`, `sessions_${key}`);
+      qb.addSelect(`COUNT(*) FILTER (WHERE e.transition = 'people_count_changed' AND e."peopleAfter" > e."peopleBefore" AND ${when})`, `midStay_${key}`);
+      qb.addSelect(`COUNT(*) FILTER (WHERE ${entryFilter} AND ${when})`, `personEntries_${key}`);
+      qb.addSelect(`COUNT(DISTINCT e."bookingId") FILTER (WHERE e.attribution = 'guest_checked_in' AND ${when})`, `distinctGuests_${key}`);
+      qb.addSelect(`COUNT(DISTINCT e."staffId") FILTER (WHERE e.attribution = 'staff_badge' AND ${when})`, `distinctStaff_${key}`);
+      qb.addSelect(`COUNT(*) FILTER (WHERE e.attribution = 'unknown' AND ${entryFilter} AND ${when})`, `unattributed_${key}`);
+    }
+
+    const rows = await qb
+      .where('e."ownerId" = :ownerId', { ownerId })
       .groupBy('e."roomId"')
       .addGroupBy('e."roomNumber"')
-      .getRawMany<{ roomId: string; roomNumber: string; today: string; last7d: string; last30d: string; allTime: string }>();
+      .getRawMany<Record<string, string>>();
+
+    const windowKeys: Array<'today' | 'last7d' | 'last30d' | 'allTime'> = ['today', 'last7d', 'last30d', 'allTime'];
+    const pick = (r: Record<string, string>, prefix: string) =>
+      Object.fromEntries(windowKeys.map((k) => [k, Number(r[`${prefix}_${k}`] ?? 0)])) as Record<typeof windowKeys[number], number>;
 
     return rows.map((r) => ({
       roomId: r.roomId,
       roomNumber: r.roomNumber,
-      today: Number(r.today),
-      last7d: Number(r.last7d),
-      last30d: Number(r.last30d),
-      allTime: Number(r.allTime),
+      sessions:       pick(r, 'sessions'),
+      midStayEntries: pick(r, 'midStay'),
+      personEntries:  pick(r, 'personEntries'),
+      distinctGuests: pick(r, 'distinctGuests'),
+      distinctStaff:  pick(r, 'distinctStaff'),
+      unattributed:   pick(r, 'unattributed'),
     }));
   }
 
@@ -289,6 +306,9 @@ export class RoomEntryService {
     let policyFlag: RoomEntryPolicyFlag = null;
     let notes = '';
 
+    const peopleJoined = peopleAfter > peopleBefore;
+    const isEntryEvent = transition === 'vacant_to_occupied' || (transition === 'people_count_changed' && peopleJoined);
+
     if (badge) {
       attribution = 'staff_badge';
       staffId = badge.staffId;
@@ -300,13 +320,18 @@ export class RoomEntryService {
         notes = `Cleaner ${badge.staffName} entered room ${link.roomNumber} while booking ${booking.id.slice(0, 8)} is still CHECKED_IN.`;
       }
     } else if (transition === 'vacant_to_occupied' && booking) {
-      // No badge, but there's an active booking — assume it's the guest.
+      // No badge, but there's an active booking — first entry of the stay is the guest.
       attribution = 'guest_checked_in';
       bookingId = booking.id;
       guestName = `Guest of booking ${booking.id.slice(0, 8)}`;
-    } else if (transition === 'vacant_to_occupied' && !booking) {
+    } else if (isEntryEvent && !badge) {
+      // Either vacant→occupied with no booking, OR head-count climbed during
+      // a stay with no badge scan. WiFi-CSI saw a new person enter; we
+      // can't identify them; needs operator review.
       policyFlag = 'unknown_entry_during_stay';
-      notes = `Room ${link.roomNumber} became occupied with no active booking and no staff badge. Operator review required.`;
+      notes = booking
+        ? `Room ${link.roomNumber} head-count rose from ${peopleBefore} to ${peopleAfter} during booking ${booking.id.slice(0, 8)} with no staff badge. Additional unknown entry.`
+        : `Room ${link.roomNumber} became occupied with no active booking and no staff badge. Operator review required.`;
     }
 
     await this.events.save(
