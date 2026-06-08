@@ -33,6 +33,7 @@ import { HotelModule } from './hotel/hotel.module';
 import { CreatorsModule } from './creators/creators.module';
 import { VideoGenerationModule } from './video-generation/video-generation.module';
 import { AiModule } from './ai/ai.module';
+import { OcrModule } from './ocr/ocr.module';
 import { CompaniesModule } from './companies/companies.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { StoreSettingsModule } from './store-settings/store-settings.module';
@@ -77,6 +78,7 @@ import { DiscountApprovalModule } from './discount-approval/discount-approval.mo
     WebhooksModule,
     VideoGenerationModule,
     AiModule,
+    OcrModule,
     AuthModule,
     UsersModule,
     NotesModule,

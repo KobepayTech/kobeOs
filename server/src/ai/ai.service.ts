@@ -58,6 +58,13 @@ export const MODEL_CATALOGUE: ModelInfo[] = [
   // ── Embeddings ────────────────────────────────────────────────────────────
   { id: 'nomic-embed-text',    name: 'Nomic Embed Text',  category: 'embedding', description: 'Vector embeddings for RAG / semantic search',                      sizeGb: 0.3,  recommended: true  },
   { id: 'mxbai-embed-large',   name: 'MxBai Embed Large', category: 'embedding', description: 'High-quality embeddings for document search',                      sizeGb: 0.7,  recommended: false },
+  // ── Speech (STT — whisper.cpp, see ai/speech/whisper-service.js) ──────────
+  { id: 'whisper:base',        name: 'Whisper Base',      category: 'speech',    description: 'Multilingual offline transcription (~74 MB), good for short clips',  sizeGb: 0.08, recommended: true  },
+  { id: 'whisper:small',       name: 'Whisper Small',     category: 'speech',    description: 'Better accuracy, ~244 MB',                                          sizeGb: 0.24, recommended: false },
+  // ── Speech (TTS — Piper, see ai/speech/piper-service.js) ──────────────────
+  { id: 'piper:en_US-amy-medium',     name: 'Piper · Amy (US English)',  category: 'speech', description: 'Offline neural voiceover for Kobe Studio + Hotel notifications', sizeGb: 0.063, recommended: true  },
+  { id: 'piper:en_GB-alba-medium',    name: 'Piper · Alba (UK English)', category: 'speech', description: 'UK English voice for storefront / ads',                          sizeGb: 0.063, recommended: false },
+  { id: 'piper:en_US-libritts-high',  name: 'Piper · LibriTTS (US English, high)', category: 'speech', description: 'Higher-quality voice (~120 MB) — slower but cleaner', sizeGb: 0.12,  recommended: false },
   // ── Sports / Analytics ────────────────────────────────────────────────────
   { id: 'llama3:8b',           name: 'Sports Commentary', category: 'sports',    description: 'Llama 3 tuned for football commentary and match analysis',          sizeGb: 4.7,  recommended: true  },
 ];

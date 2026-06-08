@@ -31,27 +31,31 @@ docker compose -f vendor/moneyprinter/docker-compose.yml down
 
 # First-run config
 
-MoneyPrinterTurbo needs an LLM provider key (OpenAI, Moonshot, DeepSeek,
-Azure, Qwen, or any OpenAI-compatible endpoint) to write video scripts.
-On first start it auto-creates `./config/config.toml` from its template.
-Open that file and fill in:
-
-```toml
-[app]
-llm_provider = "openai"          # or "moonshot", "deepseek", "azure", etc.
-openai_api_key = "sk-..."        # your key
-openai_base_url = ""             # leave empty for api.openai.com
-openai_model_name = "gpt-4o-mini"
-
-# Stock-footage source — Pexels is free with a key.
-pexels_api_keys = ["..."]
-```
-
-Then restart:
+KobeOS ships a `config.toml.example` in this folder that points
+MoneyPrinterTurbo at the **host's local Ollama** (KobeOS's bundled local
+LLM runtime) by default — so the video pipeline runs fully offline,
+no OpenAI key required.
 
 ```bash
+mkdir -p config && cp config.toml.example config/config.toml
 docker compose -f vendor/moneyprinter/docker-compose.yml restart
 ```
+
+For Ollama to answer, make sure it's running on the host machine:
+
+```bash
+ollama serve &           # if it's not already a system service
+ollama pull llama3.2:3b  # ~2 GB, recommended starter
+```
+
+The `host.docker.internal` mapping in the compose file lets the
+container reach the host's Ollama at `localhost:11434`.
+
+If you'd rather use a cloud provider (OpenAI, Moonshot, DeepSeek,
+Azure, Qwen), open `config/config.toml` and flip `llm_provider` +
+`openai_api_key` to your provider's values. The rest of the pipeline
+(Pexels stock footage, edge-tts voiceover, ffmpeg compositing) is
+unchanged.
 
 # What the KobeOS backend does
 
