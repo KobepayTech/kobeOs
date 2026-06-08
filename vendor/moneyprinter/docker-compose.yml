@@ -1,0 +1,43 @@
+# MoneyPrinterTurbo AI short-video sidecar for Kobe Studio.
+# Upstream: https://github.com/harry0703/MoneyPrinterTurbo (MIT)
+#
+# Start:  docker compose -f vendor/moneyprinter/docker-compose.yml up -d
+# Stop:   docker compose -f vendor/moneyprinter/docker-compose.yml down
+#
+# KobeOS's VideoGenerationService posts to http://localhost:8080/api/v1/videos
+# and polls /api/v1/tasks/{id} for progress. The Streamlit playground at
+# :8501 is exposed for manual experimentation (optional).
+#
+# REQUIRED: before first run, set your LLM provider key in ./config/config.toml
+# (the container creates a default template on first start if missing).
+
+services:
+  api:
+    image: harry0703/moneyprinterturbo:latest
+    container_name: kobeos-moneyprinter-api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config:/MoneyPrinterTurbo/config
+      - ./storage:/MoneyPrinterTurbo/storage
+    command: python3 main.py
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/docs').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  webui:
+    image: harry0703/moneyprinterturbo:latest
+    container_name: kobeos-moneyprinter-webui
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./config:/MoneyPrinterTurbo/config
+      - ./storage:/MoneyPrinterTurbo/storage
+    command: streamlit run ./webui/Main.py --browser.serverAddress="0.0.0.0" --server.enableCORS=true --browser.gatherUsageStats=false
