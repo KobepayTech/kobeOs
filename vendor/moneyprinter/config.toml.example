@@ -31,22 +31,26 @@ pexels_api_keys = [""]
 pixabay_api_keys = [""]
 
 # ── Voiceover ──────────────────────────────────────────────────────────
-# Upstream MoneyPrinterTurbo uses Microsoft Edge TTS by default (needs
-# internet for the first audio render). KobeOS's VideoGenerationService
-# will RE-RENDER the audio offline using Piper TTS and ffmpeg-swap the
-# audio track in the MP4 when these env vars are set on the SERVER
-# (not in this file — these are server config knobs):
+# Three offline-friendly paths, in order of "how offline":
 #
-#   MONEY_PRINTER_USE_PIPER=true
-#   MONEY_PRINTER_PIPER_VOICE=en_US-amy-medium
-#
-# Requirements on the host:
-#   • piper binary downloaded (Kobe Models app → speech → Piper voice)
-#   • ffmpeg available on PATH (or FFMPEG_BIN env var)
-#   • the chosen voice's .onnx file under
-#     ~/.kobeos/kobe-models/speech/<voice>.onnx
-#
-# Failures fall back silently to the upstream edge-tts audio.
+# 1. (default)  Edge TTS — Microsoft cloud, needs internet on every render.
+# 2. (good)     Edge TTS in pipeline + KobeOS-side Piper swap after.
+#               Server env vars:
+#                 MONEY_PRINTER_USE_PIPER=true
+#                 MONEY_PRINTER_PIPER_VOICE=en_US-amy-medium
+#               Needs piper + ffmpeg on the host. Final MP4 uses Piper.
+# 3. (best)     GPT-SoVITS sidecar — fully in-pipeline offline TTS.
+#               Bring up the optional sidecar:
+#                 docker compose -f vendor/moneyprinter/docker-compose.yml \
+#                   --profile offline-tts up -d
+#               Then uncomment the [tts] block below and set tts_server.
+
+# Uncomment to switch the in-pipeline voice to the local GPT-SoVITS
+# sidecar (recommended for fully offline rendering on a GPU host).
+# voice_name = "GPT-SoVITS-default"
+# tts_server = "gpt-sovits"
+# gpt_sovits_url = "http://gpt-sovits:9880"
+# gpt_sovits_voice = "default"
 
 # ── Misc ───────────────────────────────────────────────────────────────
 hide_config = false

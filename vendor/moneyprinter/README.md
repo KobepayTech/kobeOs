@@ -113,6 +113,84 @@ If any of those is missing the swap is skipped silently and the
 upstream edge-tts audio is kept, so the flag is safe to set even on
 machines that don't have Piper installed yet.
 
+# Fully offline: GPT-SoVITS sidecar (in-pipeline)
+
+The Piper post-swap above still relies on edge-tts succeeding *during*
+the render. To take that last cloud dependency out of the loop, KobeOS
+ships an **optional** GPT-SoVITS sidecar
+(https://github.com/RVC-Boss/GPT-SoVITS, MIT) that MoneyPrinterTurbo
+can drive directly.
+
+It's not enabled by default because the upstream Docker image is ~6 GB
+and the pretrained voice models add another ~5 GB. Bring it up only
+when you want fully offline video:
+
+```bash
+docker compose -f vendor/moneyprinter/docker-compose.yml \
+  --profile offline-tts up -d
+```
+
+That starts the `gpt-sovits` service on these ports:
+
+| Port | What |
+|---|---|
+| 9880 | Inference API consumed by MoneyPrinterTurbo |
+| 9871 | Training control (optional) |
+| 9872 | WebUI for cloning new voices (optional) |
+| 9873 | UVR5 vocal separation (optional) |
+
+Then in `config/config.toml`, uncomment the GPT-SoVITS block at the
+bottom of the example file:
+
+```toml
+voice_name = "GPT-SoVITS-default"
+tts_server = "gpt-sovits"
+gpt_sovits_url = "http://gpt-sovits:9880"
+gpt_sovits_voice = "default"
+```
+
+And restart the MoneyPrinterTurbo containers:
+
+```bash
+docker compose -f vendor/moneyprinter/docker-compose.yml restart api webui
+```
+
+## Performance note
+
+CPU-only inference works but is slow — roughly 3–5× real-time per
+generated minute. For production set up an NVIDIA GPU on the host
+and uncomment the `deploy.resources.reservations.devices` block in
+the compose file:
+
+```yaml
+deploy:
+  resources:
+    reservations:
+      devices:
+        - driver: nvidia
+          count: 1
+          capabilities: [gpu]
+```
+
+Also flip `is_half: "True"` in the gpt-sovits env block to use FP16
+on supported GPUs.
+
+## Voice cloning
+
+The default voice that ships with GPT-SoVITS is fine for demos. To
+clone a custom voice from 5–30 seconds of reference audio, open the
+WebUI at http://localhost:9872 and follow the upstream's training
+tutorial. The trained voice ends up in `./gpt-sovits-models/` and
+can be referenced by name in `config/config.toml`.
+
+## Trade-off table
+
+| Path | Cloud needed? | Quality | Cost |
+|---|---|---|---|
+| edge-tts (upstream default) | Yes (Microsoft) | Good | None — but online |
+| edge-tts + Piper post-swap | Render-time only | Good (Piper) | ~30 MB voice |
+| GPT-SoVITS in-pipeline | None | Best (clonable) | ~11 GB image + models, slow on CPU |
+
 # License attribution
 
 MoneyPrinterTurbo is MIT-licensed by `@harry0703`. The full text is

@@ -49,3 +49,53 @@ services:
       # default config.toml.example points llm_provider at local Ollama.
       - "host.docker.internal:host-gateway"
     command: streamlit run ./webui/Main.py --browser.serverAddress="0.0.0.0" --server.enableCORS=true --browser.gatherUsageStats=false
+
+  # ── Optional: fully offline TTS sidecar ─────────────────────────────────────
+  # GPT-SoVITS (https://github.com/RVC-Boss/GPT-SoVITS, MIT) is one of the
+  # local TTS backends MoneyPrinterTurbo can drive directly from its render
+  # pipeline. When this service is up, set `tts_server = "gpt-sovits"` in
+  # config/config.toml and point gpt_sovits_url at http://gpt-sovits:9880
+  # to take the FINAL cloud dependency (edge-tts) out of the loop.
+  #
+  # NOT enabled by default — the upstream image is ~6 GB and the
+  # pretrained voice models add another ~5 GB, so we gate it behind a
+  # Compose profile. Bring it up with:
+  #   docker compose -f vendor/moneyprinter/docker-compose.yml --profile offline-tts up -d
+  #
+  # CPU-only inference works but is slow (≈ real-time × 3–5). For
+  # production use a host with an NVIDIA GPU and uncomment the `deploy`
+  # block below.
+  gpt-sovits:
+    profiles: ["offline-tts"]
+    image: breakstring/gpt-sovits:latest
+    container_name: kobeos-gpt-sovits
+    restart: unless-stopped
+    ports:
+      - "9880:9880"   # Inference API consumed by MoneyPrinterTurbo
+      - "9871:9871"   # Training control (optional)
+      - "9872:9872"   # WebUI (optional, for cloning new voices)
+      - "9873:9873"   # UVR5 vocal separation (optional)
+    volumes:
+      # Pretrained voice models live here. On first start the upstream
+      # image downloads the base models into this directory — keep it
+      # mounted so the ~5 GB doesn't have to re-download on every
+      # container restart.
+      - ./gpt-sovits-models:/workspace/GPT_SoVITS/pretrained_models
+      - ./gpt-sovits-output:/workspace/output
+    environment:
+      is_half: "False"   # set "True" to use FP16 (GPU only)
+      is_share: "False"
+    # Uncomment the next block if you have an NVIDIA GPU available:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:9880/', timeout=5).status<500 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s

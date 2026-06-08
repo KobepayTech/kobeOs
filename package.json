@@ -33,7 +33,8 @@
     "security:engine:docker": "docker compose -f docker/ruview-kobe-security.compose.yml up -d",
     "studio:media:clone": "node scripts/install-kobe-studio-media-engine.cjs",
     "studio:media:docker": "docker compose -f vendor/moneyprinter/docker-compose.yml up -d",
-    "studio:media:down": "docker compose -f vendor/moneyprinter/docker-compose.yml down"
+    "studio:media:docker:offline-tts": "docker compose -f vendor/moneyprinter/docker-compose.yml --profile offline-tts up -d",
+    "studio:media:down": "docker compose -f vendor/moneyprinter/docker-compose.yml --profile offline-tts down"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
