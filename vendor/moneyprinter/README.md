@@ -80,6 +80,38 @@ The backend reads these env vars:
 | `MONEY_PRINTER_BASE_URL` | `http://localhost:8080` | MoneyPrinterTurbo REST API root |
 | `MONEY_PRINTER_POLL_MS` | `4000` | How often to poll task status |
 | `MONEY_PRINTER_TIMEOUT_MS` | `900000` | Max wait for a single generation (15 min) |
+| `MONEY_PRINTER_USE_PIPER` | `false` | Re-render audio with offline Piper TTS post-render |
+| `MONEY_PRINTER_PIPER_VOICE` | `en_US-amy-medium` | Piper voice to swap in |
+| `MONEY_PRINTER_STORAGE_PATH` | `vendor/moneyprinter/storage` | Host path to the bind-mounted storage dir |
+| `PIPER_BIN` | `~/.kobeos/kobe-bin/piper/piper` | Piper binary (falls back to `piper` on PATH) |
+| `PIPER_VOICES_DIR` | `~/.kobeos/kobe-models/speech` | Directory holding downloaded `<voice>.onnx` files |
+| `FFMPEG_BIN` | `ffmpeg` | ffmpeg binary used for the audio swap |
+
+# Offline voiceover (replacing edge-tts)
+
+Upstream MoneyPrinterTurbo's default voiceover comes from Microsoft Edge
+TTS, which needs internet on every render. KobeOS will instead **re-
+render the script with Piper** (`ai/speech/piper-service.js`) and use
+ffmpeg to swap the audio track in the MP4 when:
+
+```bash
+export MONEY_PRINTER_USE_PIPER=true
+export MONEY_PRINTER_PIPER_VOICE=en_US-amy-medium    # default
+```
+
+Prereqs on the host:
+
+1. Download a Piper voice — open the Kobe Models app → Speech category
+   → click the download button on a `piper:*` row. The .onnx file lands
+   in `~/.kobeos/kobe-models/speech/`.
+2. Make sure the Piper binary is on `PATH` (the Whisper/Piper bootstrap
+   in `ai/speech/piper-service.js` will pull it from the upstream
+   GitHub release on first use), or set `PIPER_BIN` explicitly.
+3. Make sure `ffmpeg` is on `PATH` (or set `FFMPEG_BIN`).
+
+If any of those is missing the swap is skipped silently and the
+upstream edge-tts audio is kept, so the flag is safe to set even on
+machines that don't have Piper installed yet.
 
 # License attribution
 

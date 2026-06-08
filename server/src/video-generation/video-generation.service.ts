@@ -2,6 +2,10 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { spawn } from 'child_process';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { VideoJob } from './video-job.entity';
 import { AuditService } from '../audit/audit.service';
 
@@ -37,6 +41,12 @@ export class VideoGenerationService {
   private readonly baseUrl: string;
   private readonly pollMs: number;
   private readonly timeoutMs: number;
+  private readonly usePiper: boolean;
+  private readonly piperVoice: string;
+  private readonly piperBin: string | null;
+  private readonly piperVoicesDir: string;
+  private readonly storagePath: string;
+  private readonly ffmpegBin: string;
 
   constructor(
     @InjectRepository(VideoJob) private readonly repo: Repository<VideoJob>,
@@ -46,6 +56,26 @@ export class VideoGenerationService {
     this.baseUrl = (config.get<string>('MONEY_PRINTER_BASE_URL') ?? 'http://localhost:8080').replace(/\/$/, '');
     this.pollMs = Number(config.get<string>('MONEY_PRINTER_POLL_MS') ?? 4000);
     this.timeoutMs = Number(config.get<string>('MONEY_PRINTER_TIMEOUT_MS') ?? 15 * 60 * 1000);
+
+    // Local Piper TTS swap — defaults to OFF so existing users keep the
+    // upstream edge-tts voice. Flip MONEY_PRINTER_USE_PIPER=true to
+    // re-render the audio with KobeOS's offline Piper voice after each
+    // task completes.
+    this.usePiper = (config.get<string>('MONEY_PRINTER_USE_PIPER') ?? 'false').toLowerCase() === 'true';
+    this.piperVoice = config.get<string>('MONEY_PRINTER_PIPER_VOICE') ?? 'en_US-amy-medium';
+    this.piperBin = config.get<string>('PIPER_BIN') ?? this.resolvePiperBin();
+    this.piperVoicesDir = config.get<string>('PIPER_VOICES_DIR')
+      ?? path.join(os.homedir(), '.kobeos', 'kobe-models', 'speech');
+    this.storagePath = config.get<string>('MONEY_PRINTER_STORAGE_PATH')
+      ?? path.resolve(process.cwd(), '..', 'vendor', 'moneyprinter', 'storage');
+    this.ffmpegBin = config.get<string>('FFMPEG_BIN') ?? 'ffmpeg';
+  }
+
+  private resolvePiperBin(): string | null {
+    const ext = process.platform === 'win32' ? '.exe' : '';
+    const fromUser = path.join(os.homedir(), '.kobeos', 'kobe-bin', 'piper', `piper${ext}`);
+    if (fs.existsSync(fromUser)) return fromUser;
+    return null; // fall back to PATH lookup at spawn time
   }
 
   async createJob(ownerId: string, data: Record<string, unknown>): Promise<VideoJob> {
@@ -117,13 +147,32 @@ export class VideoGenerationService {
       const finalStatus = await this.pollUntilDone(jobId, taskId);
 
       const videos = finalStatus.data?.videos ?? finalStatus.data?.combined_videos ?? [];
-      const outputPath = videos[0] ?? null;
+      let outputPath = videos[0] ?? null;
+      let outputUrl = outputPath ? `${this.baseUrl}/${outputPath.replace(/^\/+/, '')}` : null;
+
+      // Optional: swap edge-tts audio for offline Piper voice. Failures
+      // here are non-fatal — we log and keep the upstream MP4.
+      if (this.usePiper && outputPath && finalStatus.data?.script) {
+        try {
+          job.status = 'compositing';
+          job.progress = { step: 'piper-swap', taskId, detail: 'Re-rendering audio with Piper TTS' };
+          await this.repo.save(job);
+          const swapped = await this.swapAudioWithPiper(outputPath, finalStatus.data.script);
+          if (swapped) {
+            outputPath = swapped.relative;
+            outputUrl = swapped.absolute;
+          }
+        } catch (err) {
+          this.logger.warn(`Piper audio swap failed for job ${jobId}: ${(err as Error).message}`);
+        }
+      }
+
       job.status = 'completed';
       job.progressPercent = 100;
       job.outputPath = outputPath;
-      job.outputUrl = outputPath ? `${this.baseUrl}/${outputPath.replace(/^\/+/, '')}` : null;
+      job.outputUrl = outputUrl;
       job.completedAt = new Date();
-      job.progress = { step: 'completed', taskId, videos };
+      job.progress = { step: 'completed', taskId, videos, voiceover: this.usePiper ? `piper:${this.piperVoice}` : 'edge-tts' };
       await this.repo.save(job);
 
       await this.audit.log({
@@ -223,5 +272,90 @@ export class VideoGenerationService {
     }
     job.progress = { step: job.status, taskId, progress };
     await this.repo.save(job);
+  }
+
+  /**
+   * Replace the audio track on the rendered MP4 with a Piper-generated
+   * voiceover of the same script. Returns the new path / URL pair, or
+   * null if any of the offline tools (piper binary, voice model,
+   * ffmpeg) isn't available — in which case the caller keeps the
+   * upstream edge-tts audio.
+   */
+  private async swapAudioWithPiper(
+    upstreamPath: string,
+    script: string,
+  ): Promise<{ relative: string; absolute: string } | null> {
+    if (!this.piperBin || !this._exists(this.piperBin)) {
+      this.logger.warn('Piper binary not found — falling back to upstream edge-tts audio');
+      return null;
+    }
+    const voicePath = path.join(this.piperVoicesDir, `${this.piperVoice}.onnx`);
+    if (!this._exists(voicePath)) {
+      this.logger.warn(`Piper voice ${this.piperVoice} not downloaded — falling back to upstream audio`);
+      return null;
+    }
+
+    // upstreamPath looks like `/storage/tasks/<task_id>/final-1.mp4` from
+    // inside the container; bind-mount resolves that to <storagePath>/
+    // tasks/<task_id>/final-1.mp4 on the host.
+    const absoluteVideo = this._resolveOnHost(upstreamPath);
+    if (!this._exists(absoluteVideo)) {
+      this.logger.warn(`Rendered video not found on host at ${absoluteVideo} — skipping swap`);
+      return null;
+    }
+
+    const wavPath = path.join(os.tmpdir(), `kobe-piper-${Date.now()}.wav`);
+    await this._spawn(this.piperBin, ['--model', voicePath, '--output_file', wavPath], { stdin: script });
+
+    const swappedAbs = absoluteVideo.replace(/\.mp4$/i, '-piper.mp4');
+    await this._spawn(this.ffmpegBin, [
+      '-y',
+      '-i', absoluteVideo,
+      '-i', wavPath,
+      '-map', '0:v',
+      '-map', '1:a',
+      '-c:v', 'copy',
+      '-c:a', 'aac',
+      '-shortest',
+      swappedAbs,
+    ]);
+    try { fs.unlinkSync(wavPath); } catch { /* ignore */ }
+
+    // Re-derive the container-style path so the front-end's existing
+    // stream URL (built relative to the MoneyPrinterTurbo storage root)
+    // still resolves.
+    const swappedRel = upstreamPath.replace(/\.mp4$/i, '-piper.mp4');
+    return {
+      relative: swappedRel,
+      absolute: `${this.baseUrl}/${swappedRel.replace(/^\/+/, '')}`,
+    };
+  }
+
+  private _resolveOnHost(containerPath: string): string {
+    const trimmed = containerPath.replace(/^\/+/, '');
+    if (trimmed.startsWith('storage/')) return path.join(this.storagePath, trimmed.slice('storage/'.length));
+    if (path.isAbsolute(containerPath) && this._exists(containerPath)) return containerPath;
+    return path.join(this.storagePath, trimmed);
+  }
+
+  private _exists(p: string): boolean {
+    try { return fs.existsSync(p); } catch { return false; }
+  }
+
+  private _spawn(bin: string, args: string[], opts: { stdin?: string } = {}): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const proc = spawn(bin, args, { stdio: ['pipe', 'pipe', 'pipe'] });
+      let stderr = '';
+      proc.stderr.on('data', (c) => { stderr += c.toString(); });
+      proc.on('error', reject);
+      proc.on('close', (code) => {
+        if (code === 0) return resolve();
+        reject(new Error(`${path.basename(bin)} exited ${code}: ${stderr.slice(0, 300)}`));
+      });
+      if (opts.stdin !== undefined) {
+        proc.stdin.write(opts.stdin);
+        proc.stdin.end();
+      }
+    });
   }
 }

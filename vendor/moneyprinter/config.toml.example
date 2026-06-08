@@ -31,13 +31,22 @@ pexels_api_keys = [""]
 pixabay_api_keys = [""]
 
 # ── Voiceover ──────────────────────────────────────────────────────────
-# The upstream default is Microsoft Edge TTS, which DOES need the
-# internet. Set use_piper = true to call KobeOS's local Piper service
-# instead (ai/speech/piper-service.js, fully offline).
-# NOTE: upstream MoneyPrinterTurbo doesn't yet read this flag; KobeOS's
-# VideoGenerationService can swap the audio file post-render if needed.
-use_piper = false
-piper_voice = "en_US-amy-medium"
+# Upstream MoneyPrinterTurbo uses Microsoft Edge TTS by default (needs
+# internet for the first audio render). KobeOS's VideoGenerationService
+# will RE-RENDER the audio offline using Piper TTS and ffmpeg-swap the
+# audio track in the MP4 when these env vars are set on the SERVER
+# (not in this file — these are server config knobs):
+#
+#   MONEY_PRINTER_USE_PIPER=true
+#   MONEY_PRINTER_PIPER_VOICE=en_US-amy-medium
+#
+# Requirements on the host:
+#   • piper binary downloaded (Kobe Models app → speech → Piper voice)
+#   • ffmpeg available on PATH (or FFMPEG_BIN env var)
+#   • the chosen voice's .onnx file under
+#     ~/.kobeos/kobe-models/speech/<voice>.onnx
+#
+# Failures fall back silently to the upstream edge-tts audio.
 
 # ── Misc ───────────────────────────────────────────────────────────────
 hide_config = false
