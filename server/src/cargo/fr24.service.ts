@@ -4,7 +4,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Not, Repository } from 'typeorm';
 import { Shipment } from './cargo.entity';
-import { CargoAirHub } from './air-cargo.entity';
+import { CargoAirHub, type TrackingEventType } from './air-cargo.entity';
 import { CargoTrackingEvent } from './air-cargo-ops.entity';
 
 /**
@@ -132,27 +132,73 @@ export class Fr24Service {
 
   /**
    * Poll FR24 for every in-flight shipment and stamp FLIGHT_DEPARTED /
-   * ARRIVED_TRANSIT_HUB when the live state crosses each threshold for the
-   * first time. Runs every 5 minutes; no-ops silently when FR24 is unset.
+   * ARRIVED_TRANSIT_HUB / FLIGHT_ARRIVED_DESTINATION when the live state
+   * crosses each threshold for the first time. Runs every 5 minutes;
+   * no-ops silently when FR24 is unset.
+   *
+   * Coalescing: shipments are grouped by `flightNumber` so a flight
+   * carrying N shipments is fetched once per tick, not N times. At 10 000
+   * active shipments with ~50 per flight that's a ~50× cut to the FR24
+   * call budget. The per-tick cache is a local Map (no Redis, no
+   * cross-process invalidation; safe because each tick stands alone).
+   *
+   * Skip set: shipments that already carry FLIGHT_ARRIVED_DESTINATION are
+   * excluded. FR24 has nothing more to tell us once the plane is on the
+   * ground at the final destination — ground handling, customs and last
+   * mile are human-stamped.
    *
    * Departure heuristic: FR24 reports a status indicating airborne (any
    * `Live`/`Airborne`/`En route` variant) OR the flight has measurable
-   * altitude/groundspeed. Hub-arrival heuristic: the flight is on the ground
-   * at an airport whose IATA code matches one of this owner's transit hubs
-   * (CargoAirHub) AND that airport differs from the shipment's final
-   * destination — i.e. it's an intermediate stop, not the route end.
+   * altitude/groundspeed. Hub-arrival heuristic: the flight is on the
+   * ground at an airport whose IATA code matches one of this owner's
+   * transit hubs (CargoAirHub) AND that airport differs from the
+   * shipment's final destination — i.e. it's an intermediate stop, not
+   * the route end.
    */
   @Cron(CronExpression.EVERY_5_MINUTES)
   async pollAssignedFlights(): Promise<void> {
     if (!this.apiKey) return;
+
     const active = await this.shipments.find({
       where: { flightNumber: Not(IsNull()), status: Not('DELIVERED') },
     });
     if (!active.length) return;
 
-    for (const ship of active) {
+    // Skip shipments already at final destination — nothing FR24 can add.
+    const arrivedShipmentIds = new Set(
+      (await this.events.find({
+        where: {
+          eventType: 'FLIGHT_ARRIVED_DESTINATION' as TrackingEventType,
+          shipmentId: Not(IsNull() as never),
+        },
+        select: { shipmentId: true },
+      })).map((e) => e.shipmentId),
+    );
+    const live = active.filter((s) => !arrivedShipmentIds.has(s.id));
+    if (!live.length) return;
+
+    // Per-tick cache keyed by uppercase flight number — one upstream call
+    // per unique flight, fanned out to every shipment riding it.
+    const flightCache = new Map<string, Promise<Fr24Flight | null>>();
+    for (const ship of live) {
+      const key = (ship.flightNumber ?? '').trim().toUpperCase();
+      if (!key) continue;
+      if (!flightCache.has(key)) {
+        flightCache.set(key, this.flightByNumber(key).catch((err) => {
+          this.logger.warn(`FR24 fetch failed for ${key}: ${err instanceof Error ? err.message : err}`);
+          return null;
+        }));
+      }
+    }
+    this.logger.debug?.(`FR24 tick: ${live.length} shipments → ${flightCache.size} unique flights`);
+
+    for (const ship of live) {
+      const key = (ship.flightNumber ?? '').trim().toUpperCase();
+      const fetch = key ? flightCache.get(key) : Promise.resolve(null);
+      if (!fetch) continue;
       try {
-        await this.reconcileShipment(ship);
+        const flight = await fetch;
+        await this.reconcileShipmentWithFlight(ship, flight);
       } catch (err) {
         this.logger.warn(`FR24 reconcile failed for shipment ${ship.id}: ${err instanceof Error ? err.message : err}`);
       }
@@ -169,8 +215,32 @@ export class Fr24Service {
     return { updated: stamped.length > 0, events: stamped };
   }
 
+  /**
+   * Single-shipment refresh path (called from refreshShipment and the
+   * `POST /shipments/:id/fr24-refresh` endpoint). Fetches the flight on
+   * its own — not coalesced because we're processing one shipment.
+   */
   private async reconcileShipment(ship: Shipment): Promise<string[]> {
     const flight = await this.flightByNumber(ship.flightNumber ?? '');
+    return this.reconcileShipmentWithFlight(ship, flight);
+  }
+
+  /**
+   * Apply transition stamping for a single shipment given an already-
+   * fetched flight. The cron loop calls this with a coalesced flight so
+   * N shipments riding the same plane share one upstream call.
+   *
+   * Stamps three transitions, each gated on (a) the flight's current
+   * state and (b) the absence of an existing matching event so the
+   * timeline doesn't double-count:
+   *   FLIGHT_DEPARTED              — airborne for the first time
+   *   ARRIVED_TRANSIT_HUB          — on the ground at an owner-registered
+   *                                  hub that isn't the final destination
+   *   FLIGHT_ARRIVED_DESTINATION   — on the ground at the shipment's
+   *                                  destination IATA. After this stamp,
+   *                                  the cron skips this shipment entirely.
+   */
+  private async reconcileShipmentWithFlight(ship: Shipment, flight: Fr24Flight | null): Promise<string[]> {
     if (!flight) return [];
 
     const existing = await this.events.find({ where: { ownerId: ship.ownerId, shipmentId: ship.id } });
@@ -181,7 +251,7 @@ export class Fr24Service {
         this.events.create({
           ownerId: ship.ownerId,
           shipmentId: ship.id,
-          eventType: 'FLIGHT_DEPARTED' as CargoTrackingEvent['eventType'],
+          eventType: 'FLIGHT_DEPARTED' as TrackingEventType,
           location: flight.origin || ship.origin,
           flightNumber: flight.flightNumber,
           eventAt: new Date(),
@@ -192,12 +262,38 @@ export class Fr24Service {
       stamped.push('FLIGHT_DEPARTED');
     }
 
-    const hubCodes = (await this.hubs.find({ where: { ownerId: ship.ownerId } })).map((h) => h.code.toUpperCase());
     const currentAirport = (flight.destination || '').toUpperCase();
+    const finalDestination = (ship.destination ?? '').toUpperCase();
+    const onGround = this.looksOnGround(flight);
+
+    if (
+      onGround &&
+      currentAirport &&
+      currentAirport === finalDestination &&
+      !existing.some((e) => e.eventType === 'FLIGHT_ARRIVED_DESTINATION')
+    ) {
+      await this.events.save(
+        this.events.create({
+          ownerId: ship.ownerId,
+          shipmentId: ship.id,
+          eventType: 'FLIGHT_ARRIVED_DESTINATION' as TrackingEventType,
+          location: currentAirport,
+          flightNumber: flight.flightNumber,
+          eventAt: new Date(),
+          metadata: { source: 'fr24', status: flight.status, destination: currentAirport },
+          notes: `FR24 detected ${flight.flightNumber} on the ground at ${currentAirport} (final destination)`,
+        } as Partial<CargoTrackingEvent>),
+      );
+      stamped.push('FLIGHT_ARRIVED_DESTINATION');
+      // Don't also stamp ARRIVED_TRANSIT_HUB for the final airport.
+      return stamped;
+    }
+
+    const hubCodes = (await this.hubs.find({ where: { ownerId: ship.ownerId } })).map((h) => h.code.toUpperCase());
     const onGroundAtHub =
+      onGround &&
       hubCodes.includes(currentAirport) &&
-      currentAirport !== (ship.destination ?? '').toUpperCase() &&
-      this.looksOnGround(flight);
+      currentAirport !== finalDestination;
 
     if (
       onGroundAtHub &&
@@ -207,7 +303,7 @@ export class Fr24Service {
         this.events.create({
           ownerId: ship.ownerId,
           shipmentId: ship.id,
-          eventType: 'ARRIVED_TRANSIT_HUB' as CargoTrackingEvent['eventType'],
+          eventType: 'ARRIVED_TRANSIT_HUB' as TrackingEventType,
           location: currentAirport,
           flightNumber: flight.flightNumber,
           eventAt: new Date(),
