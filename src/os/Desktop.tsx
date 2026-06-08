@@ -20,7 +20,7 @@ import {
   BarChart3,
   Building2,
   Zap,
-  Plane, Printer, Users, Wallet, Shield, Code2,
+  Plane, Printer, Users, Wallet, Shield, Code2, Clapperboard,
 } from 'lucide-react';
 import { useOSStore } from './store';
 import { ContextMenu } from './ContextMenu';
@@ -90,7 +90,8 @@ const appShortcuts = [
   { id: 'notes', label: 'Notes', icon: StickyNote, appId: 'notepad' },
   { id: 'cargo', label: 'KOBECARGO', icon: Plane, appId: 'cargo' },
   { id: 'kobe-print', label: 'KobePrint', icon: Printer, appId: 'kobe-print' },
-  { id: 'creator', label: 'Kobe Studio', icon: Users, appId: 'creator' },
+  { id: 'kobe-studio', label: 'Kobe Studio', icon: Clapperboard, appId: 'kobe-studio' },
+  { id: 'creator', label: 'Creator', icon: Users, appId: 'creator' },
   { id: 'kobe-hotel', label: 'KobeHotel', icon: Building2, appId: 'kobe-hotel' },
   { id: 'kobe-pay', label: 'KobePay', icon: Wallet, appId: 'kobe-pay' },
   { id: 'kobetech-admin', label: 'Kobetech', icon: Shield, appId: 'kobetech-admin' },
