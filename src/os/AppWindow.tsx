@@ -141,7 +141,7 @@ export const AppWindow = memo(function AppWindow({ window: win, children }: AppW
         left: 0,
         top: 0,
         width: '100%' as const,
-        height: 'calc(100% - 48px)' as const,
+        height: 'calc(100% - 80px)' as const,
         position: 'absolute' as const,
       }
     : {
@@ -158,14 +158,16 @@ export const AppWindow = memo(function AppWindow({ window: win, children }: AppW
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.95 }}
       transition={{ duration: 0.15 }}
-      className="flex flex-col overflow-hidden rounded-xl border border-white/[0.08] pointer-events-auto"
+      className="flex flex-col overflow-hidden rounded-3xl border border-white/50 pointer-events-auto"
       style={{
         ...style,
         zIndex: win.zIndex,
-        background: 'rgba(30,41,59,0.98)',
+        background: 'rgba(255,255,255,0.40)',
+        backdropFilter: 'blur(40px)',
+        WebkitBackdropFilter: 'blur(40px)',
         boxShadow: win.isFocused
-          ? '0 35px 60px -15px rgba(0,0,0,0.6), 0 0 0 1px rgba(59,130,246,0.3)'
-          : '0 25px 50px -12px rgba(0,0,0,0.5)',
+          ? '0 25px 80px rgba(123,140,222,0.20)'
+          : '0 20px 60px rgba(123,140,222,0.12)',
       }}
       onMouseDown={onMouseDownWindow}
     >

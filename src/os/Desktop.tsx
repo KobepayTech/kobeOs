@@ -21,6 +21,11 @@ import {
   Building2,
   Zap,
   Plane, Printer, Users, Wallet, Shield, Code2,
+  Sun,
+  CloudSun,
+  StickyNote as NotepadIcon,
+  MessageCircle,
+  CheckSquare,
 } from 'lucide-react';
 import { useOSStore } from './store';
 import { ContextMenu } from './ContextMenu';
@@ -28,18 +33,18 @@ import { WindowManager } from './WindowManager';
 import { Taskbar } from './Taskbar';
 
 /* ------------------------------------------------------------------ */
-/*  Bokeh orb background                                               */
+/*  Bokeh orb background  - lavender/purple tones                     */
 /* ------------------------------------------------------------------ */
 function BokehBackground() {
   const orbs = [
-    { x: 15, y: 20, size: 280, color: 'rgba(99,102,241,0.12)', blur: 80 },
-    { x: 75, y: 15, size: 240, color: 'rgba(139,92,246,0.10)', blur: 90 },
-    { x: 50, y: 60, size: 320, color: 'rgba(59,130,246,0.08)', blur: 100 },
-    { x: 85, y: 75, size: 200, color: 'rgba(168,85,247,0.09)', blur: 70 },
-    { x: 25, y: 80, size: 260, color: 'rgba(79,70,229,0.07)', blur: 85 },
-    { x: 60, y: 35, size: 180, color: 'rgba(99,102,241,0.06)', blur: 60 },
-    { x: 10, y: 50, size: 220, color: 'rgba(139,92,246,0.05)', blur: 75 },
-    { x: 90, y: 45, size: 250, color: 'rgba(59,130,246,0.07)', blur: 95 },
+    { x: 15, y: 20, size: 320, color: 'rgba(180,170,230,0.35)', blur: 90 },
+    { x: 75, y: 15, size: 280, color: 'rgba(200,180,240,0.30)', blur: 100 },
+    { x: 50, y: 60, size: 380, color: 'rgba(160,190,250,0.28)', blur: 110 },
+    { x: 85, y: 75, size: 240, color: 'rgba(190,160,235,0.30)', blur: 80 },
+    { x: 25, y: 80, size: 300, color: 'rgba(170,180,245,0.25)', blur: 95 },
+    { x: 60, y: 35, size: 220, color: 'rgba(200,195,250,0.22)', blur: 70 },
+    { x: 10, y: 50, size: 260, color: 'rgba(175,165,235,0.28)', blur: 85 },
+    { x: 90, y: 45, size: 290, color: 'rgba(155,185,245,0.25)', blur: 105 },
   ];
 
   return (
@@ -66,6 +71,137 @@ function BokehBackground() {
 }
 
 /* ------------------------------------------------------------------ */
+/*  Live Clock Component                                               */
+/* ------------------------------------------------------------------ */
+function LiveClock() {
+  const [time, setTime] = useState(new Date());
+
+  useEffect(() => {
+    const interval = setInterval(() => setTime(new Date()), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const hours = String(time.getHours()).padStart(2, '0');
+  const minutes = String(time.getMinutes()).padStart(2, '0');
+
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const dayName = days[time.getDay()];
+  const monthName = months[time.getMonth()];
+  const dateNum = time.getDate();
+
+  return (
+    <div className="flex flex-col items-center gap-0.5">
+      <div
+        className="text-[48px] font-light tracking-tight leading-none"
+        style={{
+          color: '#2D2B55',
+          fontFamily: "'Inter', Georgia, serif",
+        }}
+      >
+        {hours}:{minutes}
+      </div>
+      <div
+        className="text-[16px] font-normal"
+        style={{ color: '#6B6691' }}
+      >
+        {dayName}, {monthName} {dateNum}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Widget Row                                                         */
+/* ------------------------------------------------------------------ */
+function WidgetRow({ tasks }: { tasks: Task[] }) {
+  const { launchApp } = useOSStore();
+  const now = new Date();
+  const dateNum = now.getDate();
+  const incompleteCount = tasks.filter((t) => !t.completed).length;
+
+  const widgetGlass =
+    'flex flex-col items-center justify-center gap-1 bg-white/[0.30] backdrop-blur-xl border border-white/40 rounded-2xl shadow-[0_8px_32px_rgba(123,140,222,0.15)] transition-all duration-200 hover:scale-105 hover:bg-white/[0.38] cursor-pointer';
+
+  return (
+    <div className="flex items-center gap-3 mb-6">
+      {/* Weather */}
+      <button
+        className={`${widgetGlass} px-4 py-3 min-w-[110px]`}
+        onClick={() => launchApp('settings')}
+      >
+        <div className="flex items-center gap-1.5">
+          <Sun className="w-5 h-5" style={{ color: '#E8A93A' }} />
+          <span className="text-[15px] font-semibold" style={{ color: '#2D2B55' }}>
+            82&deg;
+          </span>
+        </div>
+        <span className="text-[11px] font-medium" style={{ color: '#6B6691' }}>
+          Miami &middot; Sunny
+        </span>
+      </button>
+
+      {/* Clock */}
+      <button
+        className={`${widgetGlass} w-14 h-14`}
+        onClick={() => launchApp('clock')}
+      >
+        <Clock className="w-5 h-5" style={{ color: '#7B8CDE' }} />
+      </button>
+
+      {/* Calendar */}
+      <button
+        className={`${widgetGlass} w-14 h-14 relative`}
+        onClick={() => launchApp('calendar')}
+      >
+        <Calendar className="w-5 h-5" style={{ color: '#7B8CDE' }} />
+        <span
+          className="absolute -top-1 -right-1 w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center"
+          style={{
+            background: 'linear-gradient(135deg, #7B8CDE, #A78BFA)',
+            color: 'white',
+          }}
+        >
+          {dateNum}
+        </span>
+      </button>
+
+      {/* Notes */}
+      <button
+        className={`${widgetGlass} w-14 h-14`}
+        onClick={() => launchApp('notepad')}
+      >
+        <NotepadIcon className="w-5 h-5" style={{ color: '#7B8CDE' }} />
+      </button>
+
+      {/* Messages */}
+      <button
+        className={`${widgetGlass} w-14 h-14`}
+        onClick={() => launchApp('chat')}
+      >
+        <MessageCircle className="w-5 h-5" style={{ color: '#7B8CDE' }} />
+      </button>
+
+      {/* Tasks */}
+      <button
+        className={`${widgetGlass} px-4 py-3 min-w-[110px]`}
+        onClick={() => {}}
+      >
+        <div className="flex items-center gap-1.5">
+          <CheckSquare className="w-5 h-5" style={{ color: '#5DBE7A' }} />
+          <span className="text-[15px] font-semibold" style={{ color: '#2D2B55' }}>
+            {incompleteCount}
+          </span>
+        </div>
+        <span className="text-[11px] font-medium" style={{ color: '#6B6691' }}>
+          {incompleteCount === 1 ? 'Task' : 'Tasks'} left
+        </span>
+      </button>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
 /*  Task type                                                          */
 /* ------------------------------------------------------------------ */
 interface Task {
@@ -80,21 +216,21 @@ interface Task {
 /*  App shortcut data                                                  */
 /* ------------------------------------------------------------------ */
 const appShortcuts = [
-  { id: 'chat', label: 'Messages', icon: MessageSquare, appId: 'chat' },
-  { id: 'calendar', label: 'Calendar', icon: Calendar, appId: 'calendar' },
-  { id: 'files', label: 'Files', icon: FolderOpen, appId: 'file-manager' },
-  { id: 'settings', label: 'Settings', icon: Settings, appId: 'settings' },
-  { id: 'erp', label: 'ERP', icon: BarChart3, appId: 'erp-dashboard' },
-  { id: 'posys', label: 'Property', icon: Building2, appId: 'property' },
-  { id: 'photos', label: 'Photos', icon: Image, appId: 'image-viewer' },
-  { id: 'notes', label: 'Notes', icon: StickyNote, appId: 'notepad' },
-  { id: 'cargo', label: 'KOBECARGO', icon: Plane, appId: 'cargo' },
-  { id: 'kobe-print', label: 'KobePrint', icon: Printer, appId: 'kobe-print' },
-  { id: 'creator', label: 'Kobe Studio', icon: Users, appId: 'creator' },
-  { id: 'kobe-hotel', label: 'KobeHotel', icon: Building2, appId: 'kobe-hotel' },
-  { id: 'kobe-pay', label: 'KobePay', icon: Wallet, appId: 'kobe-pay' },
-  { id: 'kobetech-admin', label: 'Kobetech', icon: Shield, appId: 'kobetech-admin' },
-  { id: 'kobetech-devops', label: 'DevOps', icon: Code2, appId: 'kobetech-devops' },
+  { id: 'chat', label: 'Messages', icon: MessageSquare, appId: 'chat', iconBg: 'linear-gradient(135deg, #EDE9FE, #DDD6FE)' },
+  { id: 'calendar', label: 'Calendar', icon: Calendar, appId: 'calendar', iconBg: 'linear-gradient(135deg, #DBEAFE, #C7D2FE)' },
+  { id: 'files', label: 'Files', icon: FolderOpen, appId: 'file-manager', iconBg: 'linear-gradient(135deg, #F3E8FF, #E9D5FF)' },
+  { id: 'settings', label: 'Settings', icon: Settings, appId: 'settings', iconBg: 'linear-gradient(135deg, #E0E7FF, #C7D2FE)' },
+  { id: 'erp', label: 'ERP', icon: BarChart3, appId: 'erp-dashboard', iconBg: 'linear-gradient(135deg, #ECFCCB, #D9F99D)' },
+  { id: 'posys', label: 'Property', icon: Building2, appId: 'property', iconBg: 'linear-gradient(135deg, #FEF9C3, #FDE68A)' },
+  { id: 'photos', label: 'Photos', icon: Image, appId: 'image-viewer', iconBg: 'linear-gradient(135deg, #FCE7F3, #FBCFE8)' },
+  { id: 'notes', label: 'Notes', icon: StickyNote, appId: 'notepad', iconBg: 'linear-gradient(135deg, #FFEDD5, #FED7AA)' },
+  { id: 'cargo', label: 'KOBECARGO', icon: Plane, appId: 'cargo', iconBg: 'linear-gradient(135deg, #CFFAFE, #A5F3FC)' },
+  { id: 'kobe-print', label: 'KobePrint', icon: Printer, appId: 'kobe-print', iconBg: 'linear-gradient(135deg, #E0E7FF, #C7D2FE)' },
+  { id: 'creator', label: 'Kobe Studio', icon: Users, appId: 'creator', iconBg: 'linear-gradient(135deg, #F3E8FF, #E9D5FF)' },
+  { id: 'kobe-hotel', label: 'KobeHotel', icon: Building2, appId: 'kobe-hotel', iconBg: 'linear-gradient(135deg, #DBEAFE, #BFDBFE)' },
+  { id: 'kobe-pay', label: 'KobePay', icon: Wallet, appId: 'kobe-pay', iconBg: 'linear-gradient(135deg, #D1FAE5, #A7F3D0)' },
+  { id: 'kobetech-admin', label: 'Kobetech', icon: Shield, appId: 'kobetech-admin', iconBg: 'linear-gradient(135deg, #E0E7FF, #C7D2FE)' },
+  { id: 'kobetech-devops', label: 'DevOps', icon: Code2, appId: 'kobetech-devops', iconBg: 'linear-gradient(135deg, #E0E7FF, #DDD6FE)' },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -222,7 +358,7 @@ export function Desktop() {
     <div
       className="absolute inset-0 overflow-hidden"
       style={{
-        background: 'linear-gradient(180deg, #0a0a1a 0%, #0f0f2a 40%, #0a0a1a 100%)',
+        background: 'linear-gradient(135deg, #E8E4F3 0%, #C9D6FF 40%, #E2D5F5 70%, #F0E8FA 100%)',
       }}
       onContextMenu={handleBgRightClick}
     >
@@ -234,12 +370,17 @@ export function Desktop() {
         <div className="w-full max-w-4xl px-6 pt-5 pb-2 flex items-center justify-between shrink-0">
           {/* Logo */}
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/20">
+            <div
+              className="w-8 h-8 rounded-lg flex items-center justify-center shadow-lg"
+              style={{
+                background: 'linear-gradient(135deg, #7B8CDE, #A78BFA)',
+              }}
+            >
               <Zap className="w-4 h-4 text-white" />
             </div>
             <span
               className="text-lg font-bold tracking-[0.2em] uppercase"
-              style={{ color: 'rgba(255,255,255,0.9)' }}
+              style={{ color: '#2D2B55' }}
             >
               KOBE
             </span>
@@ -247,24 +388,30 @@ export function Desktop() {
 
           {/* Right status icons */}
           <div className="flex items-center gap-1">
-            <button className="relative w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:bg-white/[0.06] active:scale-95">
-              <Bell className="w-[18px] h-[18px]" style={{ color: 'rgba(255,255,255,0.6)' }} />
-              <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-red-500" />
+            <button className="relative w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:bg-[#2D2B55]/[0.06] active:scale-95">
+              <Bell className="w-[18px] h-[18px]" style={{ color: '#6B6691' }} />
+              <span
+                className="absolute top-1 right-1 w-2 h-2 rounded-full"
+                style={{ background: '#E85D5D' }}
+              />
             </button>
-            <button className="relative w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:bg-white/[0.06] active:scale-95">
-              <ShoppingCart className="w-[18px] h-[18px]" style={{ color: 'rgba(255,255,255,0.6)' }} />
-              <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-blue-500 text-[10px] font-bold flex items-center justify-center text-white">
+            <button className="relative w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:bg-[#2D2B55]/[0.06] active:scale-95">
+              <ShoppingCart className="w-[18px] h-[18px]" style={{ color: '#6B6691' }} />
+              <span
+                className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full text-[10px] font-bold flex items-center justify-center text-white"
+                style={{ background: '#7B8CDE' }}
+              >
                 3
               </span>
             </button>
-            <button className="w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:bg-white/[0.06] active:scale-95">
-              <Play className="w-[18px] h-[18px]" style={{ color: 'rgba(255,255,255,0.6)' }} />
+            <button className="w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:bg-[#2D2B55]/[0.06] active:scale-95">
+              <Play className="w-[18px] h-[18px]" style={{ color: '#6B6691' }} />
             </button>
-            <button className="w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:bg-white/[0.06] active:scale-95 ml-1">
+            <button className="w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:bg-[#2D2B55]/[0.06] active:scale-95 ml-1">
               <div
                 className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold"
                 style={{
-                  background: 'linear-gradient(135deg, #3b82f6, #8b5cf6)',
+                  background: 'linear-gradient(135deg, #7B8CDE, #A78BFA)',
                   color: 'white',
                 }}
               >
@@ -275,18 +422,11 @@ export function Desktop() {
         </div>
 
         {/* ── Center content ── */}
-        <div className="flex-1 w-full max-w-3xl px-6 flex flex-col items-center pt-6 pb-8">
-          {/* Heading */}
-          <h1
-            className="text-3xl sm:text-4xl font-light tracking-tight mb-6 text-center"
-            style={{
-              color: 'rgba(255,255,255,0.92)',
-              fontFamily: "'Inter', Georgia, serif",
-              letterSpacing: '-0.02em',
-            }}
-          >
-            What I can do for you?
-          </h1>
+        <div className="flex-1 w-full max-w-3xl px-6 flex flex-col items-center pt-4 pb-8">
+          {/* Live Clock */}
+          <div className="mb-5">
+            <LiveClock />
+          </div>
 
           {/* Search bar */}
           <div
@@ -296,25 +436,27 @@ export function Desktop() {
             }}
           >
             <div
-              className="relative flex items-center w-full h-11 rounded-2xl transition-all duration-300"
+              className="relative flex items-center w-full h-11 rounded-full transition-all duration-300"
               style={{
                 background: searchFocused
-                  ? 'rgba(255,255,255,0.08)'
-                  : 'rgba(255,255,255,0.04)',
+                  ? 'rgba(255,255,255,0.50)'
+                  : 'rgba(255,255,255,0.35)',
                 border: searchFocused
-                  ? '1px solid rgba(255,255,255,0.15)'
-                  : '1px solid rgba(255,255,255,0.06)',
+                  ? '1px solid rgba(255,255,255,0.60)'
+                  : '1px solid rgba(255,255,255,0.40)',
+                backdropFilter: 'blur(20px)',
+                WebkitBackdropFilter: 'blur(20px)',
                 boxShadow: searchFocused
-                  ? '0 0 0 3px rgba(59,130,246,0.15), 0 4px 24px rgba(0,0,0,0.2)'
-                  : '0 2px 12px rgba(0,0,0,0.1)',
+                  ? '0 0 0 3px rgba(123,140,222,0.15), 0 4px 24px rgba(123,140,222,0.15)'
+                  : '0 4px 16px rgba(123,140,222,0.10)',
               }}
             >
               <Search
-                className="absolute left-3.5 shrink-0"
+                className="absolute left-4 shrink-0"
                 style={{
                   width: 16,
                   height: 16,
-                  color: 'rgba(255,255,255,0.35)',
+                  color: '#9B97B1',
                 }}
               />
               <input
@@ -324,29 +466,31 @@ export function Desktop() {
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onFocus={() => setSearchFocused(true)}
                 onBlur={() => setSearchFocused(false)}
-                placeholder="Search for tasks, files, notes.."
-                className="w-full h-full bg-transparent pl-10 pr-4 text-sm outline-none placeholder:text-white/25"
-                style={{ color: 'rgba(255,255,255,0.85)' }}
+                placeholder="Search Apps"
+                className="w-full h-full bg-transparent pl-11 pr-4 text-sm outline-none"
+                style={{
+                  color: '#2D2B55',
+                }}
               />
             </div>
           </div>
 
           {/* Voice hint */}
-          <div className="flex items-center gap-1.5 mb-7">
-            <span className="text-[11px]" style={{ color: 'rgba(255,255,255,0.3)' }}>
+          <div className="flex items-center gap-1.5 mb-6">
+            <span className="text-[11px]" style={{ color: '#9B97B1' }}>
               Press and hold
             </span>
             <kbd
               className="inline-flex items-center justify-center px-1.5 h-4 rounded text-[10px] font-medium"
               style={{
-                background: 'rgba(255,255,255,0.1)',
-                color: 'rgba(255,255,255,0.5)',
-                border: '1px solid rgba(255,255,255,0.08)',
+                background: 'rgba(123,140,222,0.12)',
+                color: '#6B6691',
+                border: '1px solid rgba(123,140,222,0.15)',
               }}
             >
               S
             </kbd>
-            <span className="text-[11px]" style={{ color: 'rgba(255,255,255,0.3)' }}>
+            <span className="text-[11px]" style={{ color: '#9B97B1' }}>
               to speak
             </span>
             <Mic
@@ -354,10 +498,13 @@ export function Desktop() {
               style={{
                 width: 11,
                 height: 11,
-                color: 'rgba(255,255,255,0.3)',
+                color: '#9B97B1',
               }}
             />
           </div>
+
+          {/* Widget Row */}
+          <WidgetRow tasks={tasks} />
 
           {/* App shortcuts grid */}
           <div className="w-full grid grid-cols-4 gap-3 mb-6">
@@ -369,32 +516,31 @@ export function Desktop() {
                   onClick={() => launchApp(app.appId)}
                   className="group flex flex-col items-center gap-2 py-4 px-2 rounded-2xl transition-all duration-200 hover:scale-105 active:scale-95"
                   style={{
-                    background:
-                      'linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%)',
-                    border: '1px solid rgba(255,255,255,0.06)',
+                    background: 'rgba(255,255,255,0.25)',
+                    backdropFilter: 'blur(16px)',
+                    WebkitBackdropFilter: 'blur(16px)',
+                    border: '1px solid rgba(255,255,255,0.40)',
                     boxShadow:
-                      '0 2px 8px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.05)',
+                      '0 8px 32px rgba(123,140,222,0.10), inset 0 1px 0 rgba(255,255,255,0.50)',
                   }}
                 >
                   <div
-                    className="w-10 h-10 rounded-xl flex items-center justify-center transition-transform duration-200 group-hover:scale-110"
+                    className="w-10 h-10 rounded-full flex items-center justify-center transition-transform duration-200 group-hover:scale-110"
                     style={{
-                      background:
-                        'linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))',
-                      border: '1px solid rgba(255,255,255,0.06)',
+                      background: app.iconBg,
                     }}
                   >
                     <Icon
                       style={{
                         width: 18,
                         height: 18,
-                        color: 'rgba(255,255,255,0.7)',
+                        color: '#2D2B55',
                       }}
                     />
                   </div>
                   <span
                     className="text-[11px] font-medium"
-                    style={{ color: 'rgba(255,255,255,0.6)' }}
+                    style={{ color: '#2D2B55' }}
                   >
                     {app.label}
                   </span>
@@ -407,24 +553,25 @@ export function Desktop() {
           <div
             className="w-full rounded-2xl overflow-hidden"
             style={{
-              background:
-                'linear-gradient(180deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 100%)',
-              border: '1px solid rgba(255,255,255,0.06)',
-              boxShadow: '0 2px 12px rgba(0,0,0,0.15)',
+              background: 'rgba(255,255,255,0.25)',
+              backdropFilter: 'blur(16px)',
+              WebkitBackdropFilter: 'blur(16px)',
+              border: '1px solid rgba(255,255,255,0.40)',
+              boxShadow: '0 8px 32px rgba(123,140,222,0.10)',
             }}
           >
             {/* Tasks header */}
             <div className="flex items-center justify-between px-4 py-3">
               <span
-                className="text-sm font-medium"
-                style={{ color: 'rgba(255,255,255,0.7)' }}
+                className="text-sm font-semibold"
+                style={{ color: '#2D2B55' }}
               >
                 My Tasks
               </span>
               <button
                 onClick={() => setShowAddTask(!showAddTask)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all hover:bg-white/[0.06] active:scale-95"
-                style={{ color: 'rgba(255,255,255,0.5)' }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all hover:bg-[#2D2B55]/[0.06] active:scale-95"
+                style={{ color: '#6B6691' }}
               >
                 <Plus style={{ width: 12, height: 12 }} />
                 Add Task
@@ -448,18 +595,18 @@ export function Desktop() {
                     }}
                     placeholder="Enter a new task..."
                     autoFocus
-                    className="flex-1 h-9 px-3 rounded-xl text-sm outline-none placeholder:text-white/20"
+                    className="flex-1 h-9 px-3 rounded-xl text-sm outline-none placeholder:text-[#9B97B1]"
                     style={{
-                      background: 'rgba(255,255,255,0.05)',
-                      border: '1px solid rgba(255,255,255,0.08)',
-                      color: 'rgba(255,255,255,0.85)',
+                      background: 'rgba(255,255,255,0.40)',
+                      border: '1px solid rgba(255,255,255,0.50)',
+                      color: '#2D2B55',
                     }}
                   />
                   <button
                     onClick={addTask}
                     className="h-9 px-4 rounded-xl text-xs font-medium transition-all hover:opacity-90 active:scale-95"
                     style={{
-                      background: 'linear-gradient(135deg, #3b82f6, #6366f1)',
+                      background: 'linear-gradient(135deg, #7B8CDE, #A78BFA)',
                       color: 'white',
                     }}
                   >
@@ -474,7 +621,7 @@ export function Desktop() {
               {tasks.map((task) => (
                 <div
                   key={task.id}
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all hover:bg-white/[0.03] group"
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all hover:bg-white/[0.15] group"
                 >
                   <button
                     onClick={() => toggleTask(task.id)}
@@ -485,7 +632,7 @@ export function Desktop() {
                         style={{
                           width: 16,
                           height: 16,
-                          color: '#3b82f6',
+                          color: '#7B8CDE',
                         }}
                       />
                     ) : (
@@ -493,7 +640,7 @@ export function Desktop() {
                         style={{
                           width: 16,
                           height: 16,
-                          color: 'rgba(255,255,255,0.2)',
+                          color: '#C7C3DB',
                         }}
                       />
                     )}
@@ -502,9 +649,7 @@ export function Desktop() {
                   <span
                     className="flex-1 text-[13px] transition-all"
                     style={{
-                      color: task.completed
-                        ? 'rgba(255,255,255,0.35)'
-                        : 'rgba(255,255,255,0.75)',
+                      color: task.completed ? '#9B97B1' : '#2D2B55',
                       textDecoration: task.completed ? 'line-through' : 'none',
                     }}
                   >
@@ -516,18 +661,18 @@ export function Desktop() {
                     style={{
                       color:
                         task.dueDate === 'Today'
-                          ? 'rgba(59,130,246,0.8)'
+                          ? '#7B8CDE'
                           : task.dueDate === 'Yesterday'
-                            ? 'rgba(255,255,255,0.35)'
+                            ? '#9B97B1'
                             : task.dueDate === 'Tomorrow'
-                              ? 'rgba(245,158,11,0.8)'
-                              : 'rgba(255,255,255,0.35)',
+                              ? '#E8A93A'
+                              : '#9B97B1',
                       background:
                         task.dueDate === 'Today'
-                          ? 'rgba(59,130,246,0.1)'
+                          ? 'rgba(123,140,222,0.12)'
                           : task.dueDate === 'Tomorrow'
-                            ? 'rgba(245,158,11,0.08)'
-                            : 'rgba(255,255,255,0.04)',
+                            ? 'rgba(232,169,58,0.10)'
+                            : 'rgba(123,140,222,0.06)',
                     }}
                   >
                     {task.dueDate === 'Today' && (
@@ -547,9 +692,9 @@ export function Desktop() {
               {tasks.length === 0 && (
                 <div
                   className="text-center py-6 text-xs"
-                  style={{ color: 'rgba(255,255,255,0.25)' }}
+                  style={{ color: '#9B97B1' }}
                 >
-                  No tasks yet. Click "Add Task" to create one.
+                  No tasks yet. Click &quot;Add Task&quot; to create one.
                 </div>
               )}
             </div>

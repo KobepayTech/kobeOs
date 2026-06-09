@@ -27,7 +27,8 @@ export function Taskbar() {
     return () => clearInterval(t);
   }, []);
 
-  const posClass = settings.taskbarPosition === 'top' ? 'top-0' : 'bottom-0';
+  const isBottom = settings.taskbarPosition !== 'top';
+  const posClass = isBottom ? 'bottom-4' : 'top-4';
 
   const formatTime = useCallback(
     (d: Date) =>
@@ -44,39 +45,51 @@ export function Taskbar() {
 
   return (
     <>
+      {/* Centered Glassmorphism Pill Taskbar */}
       <div
-        className={`fixed ${posClass} left-0 right-0 h-12 flex items-center justify-between px-2 select-none z-[200]`}
+        className={`fixed ${posClass} left-1/2 -translate-x-1/2 h-14 flex items-center select-none z-[200] px-3 gap-1`}
         style={{
-          background: 'rgba(15,23,42,0.95)',
-          backdropFilter: 'blur(20px)',
-          borderTop: settings.taskbarPosition === 'bottom' ? '1px solid rgba(255,255,255,0.05)' : 'none',
-          borderBottom: settings.taskbarPosition === 'top' ? '1px solid rgba(255,255,255,0.05)' : 'none',
+          background: 'rgba(255,255,255,0.25)',
+          backdropFilter: 'blur(24px)',
+          WebkitBackdropFilter: 'blur(24px)',
+          borderRadius: 9999,
+          border: '1px solid rgba(255,255,255,0.40)',
+          boxShadow: '0 8px 32px rgba(123,140,222,0.12)',
+          maxWidth: '90vw',
         }}
       >
-        {/* Start Button */}
+        {/* Start Button ("Ask Genie" style) */}
         <button
-          className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors ${
-            startOpen ? 'bg-white/15' : 'hover:bg-white/10'
-          }`}
+          className="h-10 px-3 flex items-center gap-2 rounded-full transition-colors mr-1"
+          style={{ background: startOpen ? 'rgba(123,140,222,0.20)' : 'transparent' }}
+          onMouseEnter={(e) => {
+            if (!startOpen) e.currentTarget.style.background = 'rgba(123,140,222,0.12)';
+          }}
+          onMouseLeave={(e) => {
+            if (!startOpen) e.currentTarget.style.background = 'transparent';
+          }}
           onClick={() => setStartOpen((s) => !s)}
         >
-          <icons.Hexagon className="w-6 h-6 text-os-accent" />
+          <icons.Sparkles className="w-5 h-5" style={{ color: '#7B8CDE' }} />
+          <span className="text-xs font-medium hidden sm:inline" style={{ color: '#2D2B55' }}>Ask Genie</span>
         </button>
 
+        {/* Divider */}
+        <div className="w-px h-6 mx-1" style={{ background: 'rgba(45,43,85,0.12)' }} />
+
         {/* Pinned + Open Windows */}
-        <div className="flex items-center gap-1 flex-1 px-2 overflow-hidden">
+        <div className="flex items-center gap-0.5 overflow-hidden">
           {settings.pinnedApps.map((appId) => {
             const app = getApp(appId);
             if (!app) return null;
             const Icon = (icons[app.icon as keyof typeof icons] as LucideIcon | undefined) ?? icons.Circle;
             const isOpen = openWindows.some((w) => w.appId === appId);
+            const isFocused = openWindows.some((w) => w.appId === appId && w.isFocused);
             return (
               <button
                 key={appId}
-                className="relative w-10 h-10 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors group"
+                className="relative w-10 h-10 flex items-center justify-center rounded-full transition-colors group"
                 onClick={() => {
-                  // Prefer any open window (including minimized) to avoid
-                  // spawning a duplicate instance when clicking a pinned app.
                   const existing = windows.find((w) => w.appId === appId);
                   if (existing) {
                     focusWindow(existing.id);
@@ -85,10 +98,15 @@ export function Taskbar() {
                   }
                 }}
                 title={app.name}
+                onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(123,140,222,0.12)')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
               >
-                <Icon className="w-5 h-5 text-os-text-primary" />
+                <Icon className="w-5 h-5" style={{ color: '#2D2B55' }} />
                 {isOpen && (
-                  <div className="absolute bottom-1 left-1/2 -translate-x-1/2 w-4 h-[3px] rounded-full bg-os-accent" />
+                  <div
+                    className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full"
+                    style={{ background: isFocused ? '#7B8CDE' : 'rgba(45,43,85,0.25)' }}
+                  />
                 )}
               </button>
             );
@@ -104,29 +122,39 @@ export function Taskbar() {
               return (
                 <button
                   key={w.id}
-                  className={`h-10 px-2 flex items-center gap-2 rounded-lg transition-colors max-w-[160px] ${
-                    w.isFocused ? 'bg-white/10' : 'hover:bg-white/5'
-                  }`}
+                  className="h-10 px-2 flex items-center gap-2 rounded-full transition-colors max-w-[140px]"
+                  style={{ background: w.isFocused ? 'rgba(123,140,222,0.15)' : 'transparent' }}
                   onClick={() => focusWindow(w.id)}
+                  onMouseEnter={(e) => {
+                    if (!w.isFocused) e.currentTarget.style.background = 'rgba(123,140,222,0.08)';
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!w.isFocused) e.currentTarget.style.background = 'transparent';
+                  }}
                 >
-                  <Icon className="w-4 h-4 text-os-text-primary shrink-0" />
-                  <span className="text-xs text-os-text-primary truncate">{w.title}</span>
+                  <Icon className="w-4 h-4 shrink-0" style={{ color: '#2D2B55' }} />
+                  <span className="text-xs truncate" style={{ color: '#2D2B55' }}>{w.title}</span>
                 </button>
               );
             })}
         </div>
 
+        {/* Divider */}
+        <div className="w-px h-6 mx-1" style={{ background: 'rgba(45,43,85,0.12)' }} />
+
         {/* System Tray */}
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-0.5">
           <div className="relative">
             <button
-              className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors"
+              className="w-9 h-9 flex items-center justify-center rounded-full transition-colors"
               onClick={() => {
                 setVolumeOpen((v) => !v);
                 setCalendarOpen(false);
               }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(123,140,222,0.12)')}
+              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
             >
-              <icons.Volume2 className="w-4 h-4 text-os-text-secondary" />
+              <icons.Volume2 className="w-4 h-4" style={{ color: '#2D2B55' }} />
             </button>
             <AnimatePresence>
               {volumeOpen && (
@@ -134,12 +162,22 @@ export function Taskbar() {
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 10 }}
-                  className="absolute bottom-12 right-0 w-48 p-4 rounded-xl border border-white/10 bg-[#1e293b] shadow-2xl"
+                  className="absolute p-4 rounded-2xl shadow-2xl"
+                  style={{
+                    bottom: 56,
+                    right: 0,
+                    width: 192,
+                    background: 'rgba(255,255,255,0.40)',
+                    backdropFilter: 'blur(24px)',
+                    WebkitBackdropFilter: 'blur(24px)',
+                    border: '1px solid rgba(255,255,255,0.50)',
+                    boxShadow: '0 25px 80px rgba(123,140,222,0.20)',
+                  }}
                 >
                   <div className="flex items-center gap-3">
-                    <icons.Volume2 className="w-4 h-4 text-os-text-secondary" />
-                    <div className="flex-1 h-1 bg-white/10 rounded-full overflow-hidden">
-                      <div className="h-full w-3/4 bg-os-accent rounded-full" />
+                    <icons.Volume2 className="w-4 h-4" style={{ color: '#6B6691' }} />
+                    <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(45,43,85,0.10)' }}>
+                      <div className="h-full rounded-full" style={{ width: '75%', background: '#7B8CDE' }} />
                     </div>
                   </div>
                 </motion.div>
@@ -147,21 +185,30 @@ export function Taskbar() {
             </AnimatePresence>
           </div>
 
-          <button className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors">
-            <icons.Wifi className="w-4 h-4 text-os-text-secondary" />
+          <button
+            className="w-9 h-9 flex items-center justify-center rounded-full transition-colors"
+            onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(123,140,222,0.12)')}
+            onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+          >
+            <icons.Wifi className="w-4 h-4" style={{ color: '#2D2B55' }} />
           </button>
 
           <div className="relative">
             <button
-              className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-white/10 transition-colors relative"
+              className="w-9 h-9 flex items-center justify-center rounded-full transition-colors relative"
               onClick={() => {
                 setCalendarOpen(false);
                 setVolumeOpen(false);
               }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(123,140,222,0.12)')}
+              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
             >
-              <icons.Bell className="w-4 h-4 text-os-text-secondary" />
+              <icons.Bell className="w-4 h-4" style={{ color: '#2D2B55' }} />
               {unreadCount > 0 && (
-                <span className="absolute top-1 right-1 w-4 h-4 flex items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white">
+                <span
+                  className="absolute top-0.5 right-0.5 w-4 h-4 flex items-center justify-center rounded-full text-[9px] font-bold text-white"
+                  style={{ background: '#E85D5D' }}
+                >
                   {unreadCount}
                 </span>
               )}
@@ -170,16 +217,18 @@ export function Taskbar() {
 
           <div className="relative">
             <button
-              className="h-10 px-3 flex flex-col items-end justify-center rounded-lg hover:bg-white/10 transition-colors"
+              className="h-10 px-2 flex flex-col items-end justify-center rounded-full transition-colors"
               onClick={() => {
                 setCalendarOpen((c) => !c);
                 setVolumeOpen(false);
               }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(123,140,222,0.12)')}
+              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
             >
-              <span className="text-xs font-medium text-os-text-primary leading-tight">
+              <span className="text-xs font-medium leading-tight" style={{ color: '#2D2B55' }}>
                 {formatTime(time)}
               </span>
-              <span className="text-[10px] text-os-text-muted leading-tight">
+              <span className="text-[10px] leading-tight" style={{ color: '#6B6691' }}>
                 {time.toLocaleDateString('en-GB')}
               </span>
             </button>
@@ -189,7 +238,17 @@ export function Taskbar() {
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: 10 }}
-                  className="absolute bottom-12 right-0 p-4 rounded-xl border border-white/10 bg-[#1e293b] shadow-2xl w-72"
+                  className="absolute p-4 rounded-2xl shadow-2xl"
+                  style={{
+                    bottom: 56,
+                    right: 0,
+                    width: 288,
+                    background: 'rgba(255,255,255,0.40)',
+                    backdropFilter: 'blur(24px)',
+                    WebkitBackdropFilter: 'blur(24px)',
+                    border: '1px solid rgba(255,255,255,0.50)',
+                    boxShadow: '0 25px 80px rgba(123,140,222,0.20)',
+                  }}
                 >
                   <MiniCalendar date={time} />
                 </motion.div>
@@ -208,35 +267,45 @@ export function Taskbar() {
             initial={{ opacity: 0, y: 60 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 60 }}
-            className={`fixed ${settings.taskbarPosition === 'top' ? 'top-14' : 'bottom-14'} right-4 z-[9999] flex items-center gap-3 px-4 py-3 rounded-xl bg-[#1e293b] border border-white/10 shadow-2xl text-sm text-white max-w-sm`}
+            className={`fixed ${isBottom ? 'bottom-20' : 'top-20'} right-4 z-[9999] flex items-center gap-3 px-4 py-3 rounded-2xl max-w-sm`}
+            style={{
+              background: 'rgba(255,255,255,0.40)',
+              backdropFilter: 'blur(24px)',
+              WebkitBackdropFilter: 'blur(24px)',
+              border: '1px solid rgba(255,255,255,0.50)',
+              boxShadow: '0 25px 80px rgba(123,140,222,0.20)',
+            }}
           >
-            <icons.RefreshCw className="w-4 h-4 text-blue-400 shrink-0" />
+            <icons.RefreshCw className="w-4 h-4 shrink-0" style={{ color: '#7B8CDE' }} />
             <div className="flex-1 min-w-0">
               {updaterState.status === 'available' && (
                 <>
-                  <p className="font-semibold text-white">Update available — v{updaterState.version}</p>
-                  <p className="text-xs text-gray-400">Kobe Studio update ready to download</p>
+                  <p className="font-semibold text-xs" style={{ color: '#2D2B55' }}>Update available — v{updaterState.version}</p>
+                  <p className="text-xs" style={{ color: '#6B6691' }}>Kobe Studio update ready to download</p>
                 </>
               )}
               {updaterState.status === 'downloading' && (
                 <>
-                  <p className="font-semibold text-white">Downloading update… {updaterState.percent}%</p>
-                  <div className="mt-1 h-1 bg-gray-700 rounded-full overflow-hidden">
-                    <div className="h-full bg-blue-500 transition-all" style={{ width: `${updaterState.percent}%` }} />
+                  <p className="font-semibold text-xs" style={{ color: '#2D2B55' }}>Downloading update… {updaterState.percent}%</p>
+                  <div className="mt-1 h-1 rounded-full overflow-hidden" style={{ background: 'rgba(45,43,85,0.10)' }}>
+                    <div className="h-full transition-all" style={{ width: `${updaterState.percent}%`, background: '#7B8CDE' }} />
                   </div>
                 </>
               )}
               {updaterState.status === 'ready' && (
                 <>
-                  <p className="font-semibold text-white">Update ready — v{updaterState.version}</p>
-                  <p className="text-xs text-gray-400">Restart to apply</p>
+                  <p className="font-semibold text-xs" style={{ color: '#2D2B55' }}>Update ready — v{updaterState.version}</p>
+                  <p className="text-xs" style={{ color: '#6B6691' }}>Restart to apply</p>
                 </>
               )}
             </div>
             {updaterState.status === 'available' && (
               <button
                 onClick={download}
-                className="px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold shrink-0 transition-colors"
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold shrink-0 transition-colors text-white"
+                style={{ background: '#7B8CDE' }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = '#6B7CCE')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = '#7B8CDE')}
               >
                 Download
               </button>
@@ -244,7 +313,10 @@ export function Taskbar() {
             {updaterState.status === 'ready' && (
               <button
                 onClick={install}
-                className="px-3 py-1.5 rounded-lg bg-green-600 hover:bg-green-500 text-white text-xs font-semibold shrink-0 transition-colors"
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold shrink-0 transition-colors text-white"
+                style={{ background: '#5DBE7A' }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = '#4CAE6A')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = '#5DBE7A')}
               >
                 Restart
               </button>
@@ -266,12 +338,12 @@ function MiniCalendar({ date }: { date: Date }) {
 
   return (
     <div>
-      <div className="text-sm font-semibold text-os-text-primary mb-2">
+      <div className="text-sm font-semibold mb-2" style={{ color: '#2D2B55' }}>
         {date.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}
       </div>
       <div className="grid grid-cols-7 gap-1 text-center">
         {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((d) => (
-          <div key={d} className="text-[10px] text-os-text-muted font-medium">
+          <div key={d} className="text-[10px] font-medium" style={{ color: '#9B97B1' }}>
             {d}
           </div>
         ))}
@@ -281,11 +353,18 @@ function MiniCalendar({ date }: { date: Date }) {
         {days.map((d) => (
           <div
             key={d}
-            className={`w-7 h-7 flex items-center justify-center rounded-full text-xs ${
+            className="w-7 h-7 flex items-center justify-center rounded-full text-xs transition-colors cursor-pointer"
+            style={
               d === today
-                ? 'bg-os-accent text-white font-semibold'
-                : 'text-os-text-secondary hover:bg-white/5'
-            }`}
+                ? { background: '#7B8CDE', color: '#fff', fontWeight: 600 }
+                : { color: '#2D2B55' }
+            }
+            onMouseEnter={(e) => {
+              if (d !== today) e.currentTarget.style.background = 'rgba(123,140,222,0.12)';
+            }}
+            onMouseLeave={(e) => {
+              if (d !== today) e.currentTarget.style.background = 'transparent';
+            }}
           >
             {d}
           </div>
