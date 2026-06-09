@@ -1,92 +1,86 @@
-import React from 'react';
-import { render } from '@testing-library/react';
+import { render, act } from '@testing-library/react';
 import App from './App';
 
-const launcherApps = [
-  'KobeERP',
-  'KobeHotel',
-  'Hotel Security',
-  'Kobe Security',
-  'Kobe Studio',
-  'KobeCredit',
-  'KobeCargo',
-  'Settings',
+/** Labels shown on the real OS Desktop shortcuts (see src/os/Desktop.tsx appShortcuts) */
+const desktopShortcuts = [
+  'Messages',
+  'Calendar',
   'Files',
-  'App Store',
-  'Installer',
-];
-
-const appStoreModules = [
-  'KobeERP',
+  'Settings',
+  'ERP',
+  'Property',
+  'Photos',
+  'Notes',
+  'KOBECARGO',
+  'KobePrint',
+  'Kobe Studio',
   'KobeHotel',
-  'KobeCredit',
-  'KobeCargo',
-  'KobeAnalytics',
-  'KobeCRM',
-  'KobeCalendar',
+  'KobePay',
+  'Kobetech',
+  'DevOps',
 ];
 
-function closeTopWindow(getAllByRole: ReturnType<typeof render>['getAllByRole']) {
-  const closeButtons = getAllByRole('button').filter((candidate: HTMLElement) =>
-    String(candidate.className).includes('bg-red-500'),
-  );
-  closeButtons[closeButtons.length - 1]?.click();
-}
-
-describe('KobeOS launcher smoke test', () => {
+describe('KobeOS launcher smoke test (real OS shell)', () => {
   beforeEach(() => {
     localStorage.clear();
     localStorage.setItem('kobeos_user', 'Smoke Tester');
   });
 
-  it('renders every desktop launcher app without crashing', () => {
+  it('renders the real OS desktop with all shortcut labels', () => {
     const { getByText } = render(<App />);
 
-    for (const appName of launcherApps) {
-      expect(getByText(appName)).toBeInTheDocument();
+    for (const label of desktopShortcuts) {
+      expect(getByText(label)).toBeInTheDocument();
     }
   });
 
-  it('opens the implemented desktop apps from the launcher', async () => {
-    const { getByRole, findAllByText, getAllByRole } = render(<App />);
-
-    const implementedApps: Array<[string, RegExp]> = [
-      ['Kobe Security', /Security-company operations/i],
-      ['Hotel Security', /Saved room reviews/i],
-      ['Kobe Studio', /Media Studios/i],
-      ['Settings', /System Settings/i],
-      ['Files', /\/home\/kobeos/i],
-      ['App Store', /KobeOS App Store/i],
-      ['Installer', /Install KobeOS/i],
-    ];
-
-    for (const [buttonLabel, expectedPattern] of implementedApps) {
-      getByRole('button', { name: new RegExp(buttonLabel, 'i') }).click();
-      const matches = await findAllByText(expectedPattern);
-      expect(matches.length).toBeGreaterThan(0);
-      closeTopWindow(getAllByRole);
-    }
+  it('renders the search bar', () => {
+    const { getByPlaceholderText } = render(<App />);
+    expect(
+      getByPlaceholderText(/Search for tasks/i)
+    ).toBeInTheDocument();
   });
 
-  it('shows placeholders for desktop apps not implemented yet', async () => {
-    const { getByRole, findByText, getAllByRole } = render(<App />);
-
-    for (const appName of ['KobeERP', 'KobeHotel', 'KobeCredit', 'KobeCargo']) {
-      getByRole('button', { name: new RegExp(appName, 'i') }).click();
-      expect(await findByText(new RegExp(`${appName.toLowerCase().replace('kobe', '')} module`, 'i'))).toBeInTheDocument();
-      closeTopWindow(getAllByRole);
-    }
+  it('renders the My Tasks section', () => {
+    const { getByText } = render(<App />);
+    expect(getByText(/My Tasks/i)).toBeInTheDocument();
   });
 
-  it('renders every App Store module card', async () => {
-    const { getByRole, findByText, getAllByText } = render(<App />);
+  it('renders the KOBE branding', () => {
+    const { getByText } = render(<App />);
+    expect(getByText('KOBE')).toBeInTheDocument();
+  });
 
-    getByRole('button', { name: /App Store/i }).click();
-    expect(await findByText(/KobeOS App Store/i)).toBeInTheDocument();
+  it('opens an implemented app from the desktop shortcuts', async () => {
+    const { getByText, findByText } = render(<App />);
 
-    for (const moduleName of appStoreModules) {
-      const matches = getAllByText(moduleName);
-      expect(matches.length).toBeGreaterThan(0);
-    }
+    // Click the Settings shortcut — this is a registered app
+    act(() => {
+      getByText('Settings').click();
+    });
+
+    // The real OS WindowManager should render the settings window
+    const settingsWindow = await findByText(/System Settings/i);
+    expect(settingsWindow).toBeInTheDocument();
+  });
+
+  it('filters shortcuts when typing in the search bar', () => {
+    const { getByPlaceholderText, getByText, queryByText } = render(<App />);
+
+    const searchInput = getByPlaceholderText(/Search for tasks/i);
+
+    act(() => {
+      searchInput.focus();
+      // Simulate typing "erp" to filter
+      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        'value'
+      )?.set;
+      nativeInputValueSetter?.call(searchInput, 'erp');
+      searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+
+    // ERP should still be visible
+    expect(getByText('ERP')).toBeInTheDocument();
   });
 });

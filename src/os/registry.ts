@@ -1,6 +1,7 @@
 import { manifest as file_manager } from '@/apps/file-manager/manifest';
 import { manifest as terminal } from '@/apps/terminal/manifest';
 import { manifest as settings } from '@/apps/settings/manifest';
+import { manifest as system_settings } from '@/apps/system-settings/manifest';
 import { manifest as calculator } from '@/apps/calculator/manifest';
 import { manifest as text_editor } from '@/apps/text-editor/manifest';
 import { manifest as notepad } from '@/apps/notepad/manifest';
@@ -76,6 +77,7 @@ export const appRegistry = [
   file_manager,
   terminal,
   settings,
+  system_settings,
   calculator,
   text_editor,
   notepad,

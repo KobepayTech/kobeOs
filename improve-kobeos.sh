@@ -1,6 +1,12 @@
 #!/bin/bash
 set -e
 
+read -r -p "This script will modify source files and/or push to git. Continue? [y/N] " confirm
+if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+  echo "Aborted."
+  exit 1
+fi
+
 echo "Improving KobeOS with 5 major features..."
 
 # 1. Offline PWA
