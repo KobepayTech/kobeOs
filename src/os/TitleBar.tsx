@@ -30,8 +30,8 @@ export const TitleBar = memo(function TitleBar({
       style={{ background: 'transparent' }}
       onMouseDown={onMouseDown}
     >
-      <div className="flex items-center gap-2 px-4" style={{ color: '#2D2B55' }}>
-        {IconComp && <IconComp className="w-4 h-4" style={{ color: '#2D2B55' }} />}
+      <div className="flex items-center gap-2 px-4" style={{ color: 'var(--os-text-primary)' }}>
+        {IconComp && <IconComp className="w-4 h-4" style={{ color: 'var(--os-text-primary)' }} />}
         <span className="text-sm font-semibold truncate max-w-[200px]">{title}</span>
       </div>
       <div className="flex items-center gap-1.5 pr-3">
@@ -43,7 +43,7 @@ export const TitleBar = memo(function TitleBar({
           onClick={() => minimizeWindow(windowId)}
           aria-label="Minimize"
         >
-          <Minus className="w-3 h-3" style={{ color: '#2D2B55' }} />
+          <Minus className="w-3 h-3" style={{ color: 'var(--os-text-primary)' }} />
         </button>
         <button
           className="w-6 h-6 flex items-center justify-center rounded-full transition-colors"
@@ -53,7 +53,7 @@ export const TitleBar = memo(function TitleBar({
           onClick={() => maximizeWindow(windowId)}
           aria-label="Maximize"
         >
-          <Square className="w-3 h-3" style={{ color: '#2D2B55' }} />
+          <Square className="w-3 h-3" style={{ color: 'var(--os-text-primary)' }} />
         </button>
         <button
           className="w-6 h-6 flex items-center justify-center rounded-full transition-colors"
@@ -63,7 +63,7 @@ export const TitleBar = memo(function TitleBar({
           onClick={() => closeWindow(windowId)}
           aria-label="Close"
         >
-          <X className="w-3 h-3" style={{ color: '#E85D5D' }} />
+          <X className="w-3 h-3" style={{ color: 'var(--os-danger)' }} />
         </button>
       </div>
     </div>

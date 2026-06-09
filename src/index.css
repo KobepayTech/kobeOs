@@ -67,6 +67,7 @@
   }
 
   .dark, [data-theme="dark"] {
+    /* shadcn/ui dark */
     --background: 246 32% 12%;
     --foreground: 0 0% 98%;
     --card: 246 32% 15%;
@@ -95,14 +96,34 @@
     --sidebar-border: 246 20% 20%;
     --sidebar-ring: 229 57% 68%;
 
+    /* Aladin OS dark tokens */
+    --os-accent: #7B8CDE;
+    --os-accent-rgb: 123, 140, 222;
+    --os-accent-hover: #8B9CEE;
+    --os-wallpaper: linear-gradient(135deg, #0f0f2a 0%, #1a1a3e 40%, #121230 70%, #0d0d26 100%);
+    --os-bg-waves: #1e1e4a;
     --os-text-primary: #E2DDF5;
     --os-text-secondary: #A8A3C8;
     --os-text-muted: #7A7599;
     --os-surface: rgba(255, 255, 255, 0.08);
     --os-surface-elevated: rgba(255, 255, 255, 0.12);
+    --os-border: rgba(255, 255, 255, 0.12);
+    --os-danger: #E85D5D;
+    --os-success: #5DBE7A;
+    --os-warning: #E8A93A;
+
+    /* Glassmorphism dark tokens */
     --os-glass-bg: rgba(255, 255, 255, 0.08);
     --os-glass-border: rgba(255, 255, 255, 0.15);
-    --os-glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.25);
+    --os-glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+    --os-glass-strong-bg: rgba(255, 255, 255, 0.12);
+    --os-glass-strong-border: rgba(255, 255, 255, 0.20);
+    --os-glass-weak-bg: rgba(255, 255, 255, 0.04);
+    --os-glass-weak-border: rgba(255, 255, 255, 0.10);
+    --os-widget-bg: rgba(255, 255, 255, 0.08);
+    --os-window-bg: rgba(30, 30, 60, 0.75);
+    --os-window-shadow: 0 25px 80px rgba(0, 0, 0, 0.45);
+    --os-taskbar-bg: rgba(255, 255, 255, 0.08);
   }
 
   * {
@@ -119,6 +140,11 @@
   ::selection {
     background: rgba(123, 140, 222, 0.25);
     color: #2D2B55;
+  }
+  .dark ::selection,
+  [data-theme="dark"] ::selection {
+    background: rgba(123, 140, 222, 0.35);
+    color: #E2DDF5;
   }
 
   /* ── Scrollbar ── */
@@ -141,28 +167,28 @@
 /* ── Aladin OS Glassmorphism Utilities ── */
 
 @layer utilities {
-  /* Core glass effect */
+  /* Core glass effect — uses CSS vars that switch in dark mode */
   .glass {
-    background: rgba(255, 255, 255, 0.30);
+    background: var(--os-glass-bg);
     backdrop-filter: blur(24px);
     -webkit-backdrop-filter: blur(24px);
-    border: 1px solid rgba(255, 255, 255, 0.40);
-    box-shadow: 0 8px 32px rgba(123, 140, 222, 0.15);
+    border: 1px solid var(--os-glass-border);
+    box-shadow: var(--os-glass-shadow);
   }
 
   .glass-strong {
-    background: rgba(255, 255, 255, 0.45);
+    background: var(--os-glass-strong-bg);
     backdrop-filter: blur(40px);
     -webkit-backdrop-filter: blur(40px);
-    border: 1px solid rgba(255, 255, 255, 0.50);
-    box-shadow: 0 8px 32px rgba(123, 140, 222, 0.15);
+    border: 1px solid var(--os-glass-strong-border);
+    box-shadow: var(--os-glass-shadow);
   }
 
   .glass-weak {
-    background: rgba(255, 255, 255, 0.15);
+    background: var(--os-glass-weak-bg);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.25);
+    border: 1px solid var(--os-glass-weak-border);
     box-shadow: 0 4px 16px rgba(123, 140, 222, 0.08);
   }
 
@@ -175,43 +201,51 @@
     transform: scale(1.05);
     box-shadow: 0 12px 48px rgba(123, 140, 222, 0.22);
   }
+  .dark .glass-hover:hover,
+  [data-theme="dark"] .glass-hover:hover {
+    box-shadow: 0 12px 48px rgba(0, 0, 0, 0.40);
+  }
 
   /* Window chrome */
   .glass-window {
-    background: rgba(255, 255, 255, 0.40);
+    background: var(--os-window-bg);
     backdrop-filter: blur(40px);
     -webkit-backdrop-filter: blur(40px);
-    border: 1px solid rgba(255, 255, 255, 0.50);
+    border: 1px solid var(--os-glass-border);
     border-radius: 24px;
-    box-shadow: 0 25px 80px rgba(123, 140, 222, 0.20);
+    box-shadow: var(--os-window-shadow);
   }
 
   /* Taskbar pill */
   .glass-taskbar {
-    background: rgba(255, 255, 255, 0.25);
+    background: var(--os-taskbar-bg);
     backdrop-filter: blur(24px);
     -webkit-backdrop-filter: blur(24px);
-    border: 1px solid rgba(255, 255, 255, 0.35);
+    border: 1px solid var(--os-glass-border);
     border-radius: 9999px;
     box-shadow: 0 4px 24px rgba(123, 140, 222, 0.12);
+  }
+  .dark .glass-taskbar,
+  [data-theme="dark"] .glass-taskbar {
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.30);
   }
 
   /* Widget card */
   .glass-widget {
-    background: rgba(255, 255, 255, 0.25);
+    background: var(--os-widget-bg);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.35);
+    border: 1px solid var(--os-glass-border);
     border-radius: 16px;
     box-shadow: 0 4px 20px rgba(123, 140, 222, 0.10);
   }
 
-  /* Desktop background gradient */
+  /* Desktop background — uses CSS var */
   .bg-aladin-desktop {
-    background: linear-gradient(135deg, #E8E4F3 0%, #C9D6FF 40%, #E2D5F5 70%, #F0E8FA 100%);
+    background: var(--os-wallpaper);
   }
 
-  /* Text color utilities */
+  /* Text color utilities — dark-mode responsive */
   .text-os-primary {
     color: var(--os-text-primary);
   }
@@ -243,7 +277,7 @@
 
   /* Border utilities */
   .border-os-glass {
-    border-color: rgba(255, 255, 255, 0.40);
+    border-color: var(--os-glass-border);
   }
 
   /* Backdrop blur utilities */

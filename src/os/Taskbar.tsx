@@ -70,8 +70,8 @@ export function Taskbar() {
           }}
           onClick={() => setStartOpen((s) => !s)}
         >
-          <icons.Sparkles className="w-5 h-5" style={{ color: '#7B8CDE' }} />
-          <span className="text-xs font-medium hidden sm:inline" style={{ color: '#2D2B55' }}>Ask Genie</span>
+          <icons.Sparkles className="w-5 h-5" style={{ color: 'var(--os-accent)' }} />
+          <span className="text-xs font-medium hidden sm:inline" style={{ color: 'var(--os-text-primary)' }}>Ask Genie</span>
         </button>
 
         {/* Divider */}
@@ -101,11 +101,11 @@ export function Taskbar() {
                 onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(123,140,222,0.12)')}
                 onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
               >
-                <Icon className="w-5 h-5" style={{ color: '#2D2B55' }} />
+                <Icon className="w-5 h-5" style={{ color: 'var(--os-text-primary)' }} />
                 {isOpen && (
                   <div
                     className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full"
-                    style={{ background: isFocused ? '#7B8CDE' : 'rgba(45,43,85,0.25)' }}
+                    style={{ background: isFocused ? '#7B8CDE' : 'rgba(255,255,255,0.15)' }}
                   />
                 )}
               </button>
@@ -132,8 +132,8 @@ export function Taskbar() {
                     if (!w.isFocused) e.currentTarget.style.background = 'transparent';
                   }}
                 >
-                  <Icon className="w-4 h-4 shrink-0" style={{ color: '#2D2B55' }} />
-                  <span className="text-xs truncate" style={{ color: '#2D2B55' }}>{w.title}</span>
+                  <Icon className="w-4 h-4 shrink-0" style={{ color: 'var(--os-text-primary)' }} />
+                  <span className="text-xs truncate" style={{ color: 'var(--os-text-primary)' }}>{w.title}</span>
                 </button>
               );
             })}
@@ -154,7 +154,7 @@ export function Taskbar() {
               onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(123,140,222,0.12)')}
               onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
             >
-              <icons.Volume2 className="w-4 h-4" style={{ color: '#2D2B55' }} />
+              <icons.Volume2 className="w-4 h-4" style={{ color: 'var(--os-text-primary)' }} />
             </button>
             <AnimatePresence>
               {volumeOpen && (
@@ -175,9 +175,9 @@ export function Taskbar() {
                   }}
                 >
                   <div className="flex items-center gap-3">
-                    <icons.Volume2 className="w-4 h-4" style={{ color: '#6B6691' }} />
+                    <icons.Volume2 className="w-4 h-4" style={{ color: 'var(--os-text-secondary)' }} />
                     <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(45,43,85,0.10)' }}>
-                      <div className="h-full rounded-full" style={{ width: '75%', background: '#7B8CDE' }} />
+                      <div className="h-full rounded-full" style={{ width: '75%', background: 'var(--os-accent)' }} />
                     </div>
                   </div>
                 </motion.div>
@@ -190,7 +190,7 @@ export function Taskbar() {
             onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(123,140,222,0.12)')}
             onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
           >
-            <icons.Wifi className="w-4 h-4" style={{ color: '#2D2B55' }} />
+            <icons.Wifi className="w-4 h-4" style={{ color: 'var(--os-text-primary)' }} />
           </button>
 
           <div className="relative">
@@ -203,11 +203,11 @@ export function Taskbar() {
               onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(123,140,222,0.12)')}
               onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
             >
-              <icons.Bell className="w-4 h-4" style={{ color: '#2D2B55' }} />
+              <icons.Bell className="w-4 h-4" style={{ color: 'var(--os-text-primary)' }} />
               {unreadCount > 0 && (
                 <span
                   className="absolute top-0.5 right-0.5 w-4 h-4 flex items-center justify-center rounded-full text-[9px] font-bold text-white"
-                  style={{ background: '#E85D5D' }}
+                  style={{ background: 'var(--os-danger)' }}
                 >
                   {unreadCount}
                 </span>
@@ -225,10 +225,10 @@ export function Taskbar() {
               onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(123,140,222,0.12)')}
               onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
             >
-              <span className="text-xs font-medium leading-tight" style={{ color: '#2D2B55' }}>
+              <span className="text-xs font-medium leading-tight" style={{ color: 'var(--os-text-primary)' }}>
                 {formatTime(time)}
               </span>
-              <span className="text-[10px] leading-tight" style={{ color: '#6B6691' }}>
+              <span className="text-[10px] leading-tight" style={{ color: 'var(--os-text-secondary)' }}>
                 {time.toLocaleDateString('en-GB')}
               </span>
             </button>
@@ -276,26 +276,26 @@ export function Taskbar() {
               boxShadow: '0 25px 80px rgba(123,140,222,0.20)',
             }}
           >
-            <icons.RefreshCw className="w-4 h-4 shrink-0" style={{ color: '#7B8CDE' }} />
+            <icons.RefreshCw className="w-4 h-4 shrink-0" style={{ color: 'var(--os-accent)' }} />
             <div className="flex-1 min-w-0">
               {updaterState.status === 'available' && (
                 <>
-                  <p className="font-semibold text-xs" style={{ color: '#2D2B55' }}>Update available — v{updaterState.version}</p>
-                  <p className="text-xs" style={{ color: '#6B6691' }}>Kobe Studio update ready to download</p>
+                  <p className="font-semibold text-xs" style={{ color: 'var(--os-text-primary)' }}>Update available — v{updaterState.version}</p>
+                  <p className="text-xs" style={{ color: 'var(--os-text-secondary)' }}>Kobe Studio update ready to download</p>
                 </>
               )}
               {updaterState.status === 'downloading' && (
                 <>
-                  <p className="font-semibold text-xs" style={{ color: '#2D2B55' }}>Downloading update… {updaterState.percent}%</p>
+                  <p className="font-semibold text-xs" style={{ color: 'var(--os-text-primary)' }}>Downloading update… {updaterState.percent}%</p>
                   <div className="mt-1 h-1 rounded-full overflow-hidden" style={{ background: 'rgba(45,43,85,0.10)' }}>
-                    <div className="h-full transition-all" style={{ width: `${updaterState.percent}%`, background: '#7B8CDE' }} />
+                    <div className="h-full transition-all" style={{ width: `${updaterState.percent}%`, background: 'var(--os-accent)' }} />
                   </div>
                 </>
               )}
               {updaterState.status === 'ready' && (
                 <>
-                  <p className="font-semibold text-xs" style={{ color: '#2D2B55' }}>Update ready — v{updaterState.version}</p>
-                  <p className="text-xs" style={{ color: '#6B6691' }}>Restart to apply</p>
+                  <p className="font-semibold text-xs" style={{ color: 'var(--os-text-primary)' }}>Update ready — v{updaterState.version}</p>
+                  <p className="text-xs" style={{ color: 'var(--os-text-secondary)' }}>Restart to apply</p>
                 </>
               )}
             </div>
@@ -303,7 +303,7 @@ export function Taskbar() {
               <button
                 onClick={download}
                 className="px-3 py-1.5 rounded-lg text-xs font-semibold shrink-0 transition-colors text-white"
-                style={{ background: '#7B8CDE' }}
+                style={{ background: 'var(--os-accent)' }}
                 onMouseEnter={(e) => (e.currentTarget.style.background = '#6B7CCE')}
                 onMouseLeave={(e) => (e.currentTarget.style.background = '#7B8CDE')}
               >
@@ -314,7 +314,7 @@ export function Taskbar() {
               <button
                 onClick={install}
                 className="px-3 py-1.5 rounded-lg text-xs font-semibold shrink-0 transition-colors text-white"
-                style={{ background: '#5DBE7A' }}
+                style={{ background: 'var(--os-success)' }}
                 onMouseEnter={(e) => (e.currentTarget.style.background = '#4CAE6A')}
                 onMouseLeave={(e) => (e.currentTarget.style.background = '#5DBE7A')}
               >
@@ -338,12 +338,12 @@ function MiniCalendar({ date }: { date: Date }) {
 
   return (
     <div>
-      <div className="text-sm font-semibold mb-2" style={{ color: '#2D2B55' }}>
+      <div className="text-sm font-semibold mb-2" style={{ color: 'var(--os-text-primary)' }}>
         {date.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}
       </div>
       <div className="grid grid-cols-7 gap-1 text-center">
         {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((d) => (
-          <div key={d} className="text-[10px] font-medium" style={{ color: '#9B97B1' }}>
+          <div key={d} className="text-[10px] font-medium" style={{ color: 'var(--os-text-muted)' }}>
             {d}
           </div>
         ))}
@@ -356,7 +356,7 @@ function MiniCalendar({ date }: { date: Date }) {
             className="w-7 h-7 flex items-center justify-center rounded-full text-xs transition-colors cursor-pointer"
             style={
               d === today
-                ? { background: '#7B8CDE', color: '#fff', fontWeight: 600 }
+                ? { background: 'var(--os-accent)', color: '#fff', fontWeight: 600 }
                 : { color: '#2D2B55' }
             }
             onMouseEnter={(e) => {

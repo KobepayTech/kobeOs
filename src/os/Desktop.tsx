@@ -95,7 +95,7 @@ function LiveClock() {
       <div
         className="text-[48px] font-light tracking-tight leading-none"
         style={{
-          color: '#2D2B55',
+          color: 'var(--os-text-primary)',
           fontFamily: "'Inter', Georgia, serif",
         }}
       >
@@ -103,7 +103,7 @@ function LiveClock() {
       </div>
       <div
         className="text-[16px] font-normal"
-        style={{ color: '#6B6691' }}
+        style={{ color: 'var(--os-text-secondary)' }}
       >
         {dayName}, {monthName} {dateNum}
       </div>
@@ -121,7 +121,7 @@ function WidgetRow({ tasks }: { tasks: Task[] }) {
   const incompleteCount = tasks.filter((t) => !t.completed).length;
 
   const widgetGlass =
-    'flex flex-col items-center justify-center gap-1 bg-white/[0.30] backdrop-blur-xl border border-white/40 rounded-2xl shadow-[0_8px_32px_rgba(123,140,222,0.15)] transition-all duration-200 hover:scale-105 hover:bg-white/[0.38] cursor-pointer';
+    'flex flex-col items-center justify-center gap-1 glass rounded-2xl transition-all duration-200 hover:scale-105 cursor-pointer';
 
   return (
     <div className="flex items-center gap-3 mb-6">
@@ -131,12 +131,12 @@ function WidgetRow({ tasks }: { tasks: Task[] }) {
         onClick={() => launchApp('settings')}
       >
         <div className="flex items-center gap-1.5">
-          <Sun className="w-5 h-5" style={{ color: '#E8A93A' }} />
-          <span className="text-[15px] font-semibold" style={{ color: '#2D2B55' }}>
+          <Sun className="w-5 h-5" style={{ color: 'var(--os-warning)' }} />
+          <span className="text-[15px] font-semibold" style={{ color: 'var(--os-text-primary)' }}>
             82&deg;
           </span>
         </div>
-        <span className="text-[11px] font-medium" style={{ color: '#6B6691' }}>
+        <span className="text-[11px] font-medium" style={{ color: 'var(--os-text-secondary)' }}>
           Miami &middot; Sunny
         </span>
       </button>
@@ -146,7 +146,7 @@ function WidgetRow({ tasks }: { tasks: Task[] }) {
         className={`${widgetGlass} w-14 h-14`}
         onClick={() => launchApp('clock')}
       >
-        <Clock className="w-5 h-5" style={{ color: '#7B8CDE' }} />
+        <Clock className="w-5 h-5" style={{ color: 'var(--os-accent)' }} />
       </button>
 
       {/* Calendar */}
@@ -154,11 +154,11 @@ function WidgetRow({ tasks }: { tasks: Task[] }) {
         className={`${widgetGlass} w-14 h-14 relative`}
         onClick={() => launchApp('calendar')}
       >
-        <Calendar className="w-5 h-5" style={{ color: '#7B8CDE' }} />
+        <Calendar className="w-5 h-5" style={{ color: 'var(--os-accent)' }} />
         <span
           className="absolute -top-1 -right-1 w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center"
           style={{
-            background: 'linear-gradient(135deg, #7B8CDE, #A78BFA)',
+            background: 'linear-gradient(135deg, var(--os-accent), #A78BFA)',
             color: 'white',
           }}
         >
@@ -171,7 +171,7 @@ function WidgetRow({ tasks }: { tasks: Task[] }) {
         className={`${widgetGlass} w-14 h-14`}
         onClick={() => launchApp('notepad')}
       >
-        <NotepadIcon className="w-5 h-5" style={{ color: '#7B8CDE' }} />
+        <NotepadIcon className="w-5 h-5" style={{ color: 'var(--os-accent)' }} />
       </button>
 
       {/* Messages */}
@@ -179,7 +179,7 @@ function WidgetRow({ tasks }: { tasks: Task[] }) {
         className={`${widgetGlass} w-14 h-14`}
         onClick={() => launchApp('chat')}
       >
-        <MessageCircle className="w-5 h-5" style={{ color: '#7B8CDE' }} />
+        <MessageCircle className="w-5 h-5" style={{ color: 'var(--os-accent)' }} />
       </button>
 
       {/* Tasks */}
@@ -188,12 +188,12 @@ function WidgetRow({ tasks }: { tasks: Task[] }) {
         onClick={() => {}}
       >
         <div className="flex items-center gap-1.5">
-          <CheckSquare className="w-5 h-5" style={{ color: '#5DBE7A' }} />
-          <span className="text-[15px] font-semibold" style={{ color: '#2D2B55' }}>
+          <CheckSquare className="w-5 h-5" style={{ color: 'var(--os-success)' }} />
+          <span className="text-[15px] font-semibold" style={{ color: 'var(--os-text-primary)' }}>
             {incompleteCount}
           </span>
         </div>
-        <span className="text-[11px] font-medium" style={{ color: '#6B6691' }}>
+        <span className="text-[11px] font-medium" style={{ color: 'var(--os-text-secondary)' }}>
           {incompleteCount === 1 ? 'Task' : 'Tasks'} left
         </span>
       </button>
@@ -216,21 +216,21 @@ interface Task {
 /*  App shortcut data                                                  */
 /* ------------------------------------------------------------------ */
 const appShortcuts = [
-  { id: 'chat', label: 'Messages', icon: MessageSquare, appId: 'chat', iconBg: 'linear-gradient(135deg, #EDE9FE, #DDD6FE)' },
-  { id: 'calendar', label: 'Calendar', icon: Calendar, appId: 'calendar', iconBg: 'linear-gradient(135deg, #DBEAFE, #C7D2FE)' },
-  { id: 'files', label: 'Files', icon: FolderOpen, appId: 'file-manager', iconBg: 'linear-gradient(135deg, #F3E8FF, #E9D5FF)' },
-  { id: 'settings', label: 'Settings', icon: Settings, appId: 'settings', iconBg: 'linear-gradient(135deg, #E0E7FF, #C7D2FE)' },
-  { id: 'erp', label: 'ERP', icon: BarChart3, appId: 'erp-dashboard', iconBg: 'linear-gradient(135deg, #ECFCCB, #D9F99D)' },
-  { id: 'posys', label: 'Property', icon: Building2, appId: 'property', iconBg: 'linear-gradient(135deg, #FEF9C3, #FDE68A)' },
-  { id: 'photos', label: 'Photos', icon: Image, appId: 'image-viewer', iconBg: 'linear-gradient(135deg, #FCE7F3, #FBCFE8)' },
-  { id: 'notes', label: 'Notes', icon: StickyNote, appId: 'notepad', iconBg: 'linear-gradient(135deg, #FFEDD5, #FED7AA)' },
-  { id: 'cargo', label: 'KOBECARGO', icon: Plane, appId: 'cargo', iconBg: 'linear-gradient(135deg, #CFFAFE, #A5F3FC)' },
-  { id: 'kobe-print', label: 'KobePrint', icon: Printer, appId: 'kobe-print', iconBg: 'linear-gradient(135deg, #E0E7FF, #C7D2FE)' },
-  { id: 'creator', label: 'Kobe Studio', icon: Users, appId: 'creator', iconBg: 'linear-gradient(135deg, #F3E8FF, #E9D5FF)' },
-  { id: 'kobe-hotel', label: 'KobeHotel', icon: Building2, appId: 'kobe-hotel', iconBg: 'linear-gradient(135deg, #DBEAFE, #BFDBFE)' },
-  { id: 'kobe-pay', label: 'KobePay', icon: Wallet, appId: 'kobe-pay', iconBg: 'linear-gradient(135deg, #D1FAE5, #A7F3D0)' },
-  { id: 'kobetech-admin', label: 'Kobetech', icon: Shield, appId: 'kobetech-admin', iconBg: 'linear-gradient(135deg, #E0E7FF, #C7D2FE)' },
-  { id: 'kobetech-devops', label: 'DevOps', icon: Code2, appId: 'kobetech-devops', iconBg: 'linear-gradient(135deg, #E0E7FF, #DDD6FE)' },
+  { id: 'chat', label: 'Messages', icon: MessageSquare, appId: 'chat', iconBg: 'linear-gradient(135deg, rgba(123,140,222,0.25), rgba(167,139,250,0.20))' },
+  { id: 'calendar', label: 'Calendar', icon: Calendar, appId: 'calendar', iconBg: 'linear-gradient(135deg, rgba(96,165,250,0.25), rgba(123,140,222,0.20))' },
+  { id: 'files', label: 'Files', icon: FolderOpen, appId: 'file-manager', iconBg: 'linear-gradient(135deg, rgba(167,139,250,0.25), rgba(192,132,252,0.20))' },
+  { id: 'settings', label: 'Settings', icon: Settings, appId: 'settings', iconBg: 'linear-gradient(135deg, rgba(99,102,241,0.25), rgba(123,140,222,0.20))' },
+  { id: 'erp', label: 'ERP', icon: BarChart3, appId: 'erp-dashboard', iconBg: 'linear-gradient(135deg, rgba(132,204,22,0.25), rgba(163,230,53,0.20))' },
+  { id: 'posys', label: 'Property', icon: Building2, appId: 'property', iconBg: 'linear-gradient(135deg, rgba(234,179,8,0.25), rgba(250,204,21,0.20))' },
+  { id: 'photos', label: 'Photos', icon: Image, appId: 'image-viewer', iconBg: 'linear-gradient(135deg, rgba(236,72,153,0.25), rgba(244,114,182,0.20))' },
+  { id: 'notes', label: 'Notes', icon: StickyNote, appId: 'notepad', iconBg: 'linear-gradient(135deg, rgba(249,115,22,0.25), rgba(251,146,60,0.20))' },
+  { id: 'cargo', label: 'KOBECARGO', icon: Plane, appId: 'cargo', iconBg: 'linear-gradient(135deg, rgba(6,182,212,0.25), rgba(34,211,238,0.20))' },
+  { id: 'kobe-print', label: 'KobePrint', icon: Printer, appId: 'kobe-print', iconBg: 'linear-gradient(135deg, rgba(99,102,241,0.25), rgba(123,140,222,0.20))' },
+  { id: 'creator', label: 'Kobe Studio', icon: Users, appId: 'creator', iconBg: 'linear-gradient(135deg, rgba(167,139,250,0.25), rgba(192,132,252,0.20))' },
+  { id: 'kobe-hotel', label: 'KobeHotel', icon: Building2, appId: 'kobe-hotel', iconBg: 'linear-gradient(135deg, rgba(96,165,250,0.25), rgba(59,130,246,0.20))' },
+  { id: 'kobe-pay', label: 'KobePay', icon: Wallet, appId: 'kobe-pay', iconBg: 'linear-gradient(135deg, rgba(34,197,94,0.25), rgba(74,222,128,0.20))' },
+  { id: 'kobetech-admin', label: 'Kobetech', icon: Shield, appId: 'kobetech-admin', iconBg: 'linear-gradient(135deg, rgba(99,102,241,0.25), rgba(123,140,222,0.20))' },
+  { id: 'kobetech-devops', label: 'DevOps', icon: Code2, appId: 'kobetech-devops', iconBg: 'linear-gradient(135deg, rgba(99,102,241,0.25), rgba(167,139,250,0.20))' },
 ];
 
 /* ------------------------------------------------------------------ */
@@ -358,7 +358,7 @@ export function Desktop() {
     <div
       className="absolute inset-0 overflow-hidden"
       style={{
-        background: 'linear-gradient(135deg, #E8E4F3 0%, #C9D6FF 40%, #E2D5F5 70%, #F0E8FA 100%)',
+        background: 'var(--os-wallpaper)',
       }}
       onContextMenu={handleBgRightClick}
     >
@@ -373,14 +373,14 @@ export function Desktop() {
             <div
               className="w-8 h-8 rounded-lg flex items-center justify-center shadow-lg"
               style={{
-                background: 'linear-gradient(135deg, #7B8CDE, #A78BFA)',
+                background: 'linear-gradient(135deg, var(--os-accent), #A78BFA)',
               }}
             >
               <Zap className="w-4 h-4 text-white" />
             </div>
             <span
               className="text-lg font-bold tracking-[0.2em] uppercase"
-              style={{ color: '#2D2B55' }}
+              style={{ color: 'var(--os-text-primary)' }}
             >
               KOBE
             </span>
@@ -388,30 +388,30 @@ export function Desktop() {
 
           {/* Right status icons */}
           <div className="flex items-center gap-1">
-            <button className="relative w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:bg-[#2D2B55]/[0.06] active:scale-95">
-              <Bell className="w-[18px] h-[18px]" style={{ color: '#6B6691' }} />
+            <button className="relative w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:bg-black/[0.06] dark:hover:bg-white/[0.06] active:scale-95">
+              <Bell className="w-[18px] h-[18px]" style={{ color: 'var(--os-text-secondary)' }} />
               <span
                 className="absolute top-1 right-1 w-2 h-2 rounded-full"
-                style={{ background: '#E85D5D' }}
+                style={{ background: 'var(--os-danger)' }}
               />
             </button>
-            <button className="relative w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:bg-[#2D2B55]/[0.06] active:scale-95">
-              <ShoppingCart className="w-[18px] h-[18px]" style={{ color: '#6B6691' }} />
+            <button className="relative w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:bg-black/[0.06] dark:hover:bg-white/[0.06] active:scale-95">
+              <ShoppingCart className="w-[18px] h-[18px]" style={{ color: 'var(--os-text-secondary)' }} />
               <span
                 className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full text-[10px] font-bold flex items-center justify-center text-white"
-                style={{ background: '#7B8CDE' }}
+                style={{ background: 'var(--os-accent)' }}
               >
                 3
               </span>
             </button>
-            <button className="w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:bg-[#2D2B55]/[0.06] active:scale-95">
-              <Play className="w-[18px] h-[18px]" style={{ color: '#6B6691' }} />
+            <button className="w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:bg-black/[0.06] dark:hover:bg-white/[0.06] active:scale-95">
+              <Play className="w-[18px] h-[18px]" style={{ color: 'var(--os-text-secondary)' }} />
             </button>
-            <button className="w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:bg-[#2D2B55]/[0.06] active:scale-95 ml-1">
+            <button className="w-9 h-9 rounded-xl flex items-center justify-center transition-all hover:bg-black/[0.06] dark:hover:bg-white/[0.06] active:scale-95 ml-1">
               <div
                 className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold"
                 style={{
-                  background: 'linear-gradient(135deg, #7B8CDE, #A78BFA)',
+                  background: 'linear-gradient(135deg, var(--os-accent), #A78BFA)',
                   color: 'white',
                 }}
               >
@@ -439,16 +439,16 @@ export function Desktop() {
               className="relative flex items-center w-full h-11 rounded-full transition-all duration-300"
               style={{
                 background: searchFocused
-                  ? 'rgba(255,255,255,0.50)'
-                  : 'rgba(255,255,255,0.35)',
+                  ? 'var(--os-glass-strong-bg)'
+                  : 'var(--os-glass-bg)',
                 border: searchFocused
-                  ? '1px solid rgba(255,255,255,0.60)'
-                  : '1px solid rgba(255,255,255,0.40)',
+                  ? '1px solid var(--os-glass-strong-border)'
+                  : '1px solid var(--os-glass-border)',
                 backdropFilter: 'blur(20px)',
                 WebkitBackdropFilter: 'blur(20px)',
                 boxShadow: searchFocused
-                  ? '0 0 0 3px rgba(123,140,222,0.15), 0 4px 24px rgba(123,140,222,0.15)'
-                  : '0 4px 16px rgba(123,140,222,0.10)',
+                  ? '0 0 0 3px rgba(var(--os-accent-rgb),0.15), 0 4px 24px rgba(var(--os-accent-rgb),0.15)'
+                  : '0 4px 16px rgba(var(--os-accent-rgb),0.10)',
               }}
             >
               <Search
@@ -456,7 +456,7 @@ export function Desktop() {
                 style={{
                   width: 16,
                   height: 16,
-                  color: '#9B97B1',
+                  color: 'var(--os-text-muted)',
                 }}
               />
               <input
@@ -469,7 +469,7 @@ export function Desktop() {
                 placeholder="Search Apps"
                 className="w-full h-full bg-transparent pl-11 pr-4 text-sm outline-none"
                 style={{
-                  color: '#2D2B55',
+                  color: 'var(--os-text-primary)',
                 }}
               />
             </div>
@@ -477,20 +477,20 @@ export function Desktop() {
 
           {/* Voice hint */}
           <div className="flex items-center gap-1.5 mb-6">
-            <span className="text-[11px]" style={{ color: '#9B97B1' }}>
+            <span className="text-[11px]" style={{ color: 'var(--os-text-muted)' }}>
               Press and hold
             </span>
             <kbd
               className="inline-flex items-center justify-center px-1.5 h-4 rounded text-[10px] font-medium"
               style={{
-                background: 'rgba(123,140,222,0.12)',
-                color: '#6B6691',
-                border: '1px solid rgba(123,140,222,0.15)',
+                background: 'rgba(var(--os-accent-rgb),0.12)',
+                color: 'var(--os-text-secondary)',
+                border: '1px solid rgba(var(--os-accent-rgb),0.15)',
               }}
             >
               S
             </kbd>
-            <span className="text-[11px]" style={{ color: '#9B97B1' }}>
+            <span className="text-[11px]" style={{ color: 'var(--os-text-muted)' }}>
               to speak
             </span>
             <Mic
@@ -498,7 +498,7 @@ export function Desktop() {
               style={{
                 width: 11,
                 height: 11,
-                color: '#9B97B1',
+                color: 'var(--os-text-muted)',
               }}
             />
           </div>
@@ -516,10 +516,10 @@ export function Desktop() {
                   onClick={() => launchApp(app.appId)}
                   className="group flex flex-col items-center gap-2 py-4 px-2 rounded-2xl transition-all duration-200 hover:scale-105 active:scale-95"
                   style={{
-                    background: 'rgba(255,255,255,0.25)',
+                    background: 'var(--os-widget-bg)',
                     backdropFilter: 'blur(16px)',
                     WebkitBackdropFilter: 'blur(16px)',
-                    border: '1px solid rgba(255,255,255,0.40)',
+                    border: '1px solid var(--os-glass-border)',
                     boxShadow:
                       '0 8px 32px rgba(123,140,222,0.10), inset 0 1px 0 rgba(255,255,255,0.50)',
                   }}
@@ -534,13 +534,13 @@ export function Desktop() {
                       style={{
                         width: 18,
                         height: 18,
-                        color: '#2D2B55',
+                        color: 'var(--os-text-primary)',
                       }}
                     />
                   </div>
                   <span
                     className="text-[11px] font-medium"
-                    style={{ color: '#2D2B55' }}
+                    style={{ color: 'var(--os-text-primary)' }}
                   >
                     {app.label}
                   </span>
@@ -553,25 +553,25 @@ export function Desktop() {
           <div
             className="w-full rounded-2xl overflow-hidden"
             style={{
-              background: 'rgba(255,255,255,0.25)',
+              background: 'var(--os-widget-bg)',
               backdropFilter: 'blur(16px)',
               WebkitBackdropFilter: 'blur(16px)',
-              border: '1px solid rgba(255,255,255,0.40)',
-              boxShadow: '0 8px 32px rgba(123,140,222,0.10)',
+              border: '1px solid var(--os-glass-border)',
+              boxShadow: '0 8px 32px rgba(var(--os-accent-rgb),0.10)',
             }}
           >
             {/* Tasks header */}
             <div className="flex items-center justify-between px-4 py-3">
               <span
                 className="text-sm font-semibold"
-                style={{ color: '#2D2B55' }}
+                style={{ color: 'var(--os-text-primary)' }}
               >
                 My Tasks
               </span>
               <button
                 onClick={() => setShowAddTask(!showAddTask)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all hover:bg-[#2D2B55]/[0.06] active:scale-95"
-                style={{ color: '#6B6691' }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all hover:bg-black/[0.06] dark:hover:bg-white/[0.06] active:scale-95"
+                style={{ color: 'var(--os-text-secondary)' }}
               >
                 <Plus style={{ width: 12, height: 12 }} />
                 Add Task
@@ -595,18 +595,18 @@ export function Desktop() {
                     }}
                     placeholder="Enter a new task..."
                     autoFocus
-                    className="flex-1 h-9 px-3 rounded-xl text-sm outline-none placeholder:text-[#9B97B1]"
+                    className="flex-1 h-9 px-3 rounded-xl text-sm outline-none placeholder:text-[var(--os-text-muted)]"
                     style={{
-                      background: 'rgba(255,255,255,0.40)',
+                      background: 'var(--os-glass-border)',
                       border: '1px solid rgba(255,255,255,0.50)',
-                      color: '#2D2B55',
+                      color: 'var(--os-text-primary)',
                     }}
                   />
                   <button
                     onClick={addTask}
                     className="h-9 px-4 rounded-xl text-xs font-medium transition-all hover:opacity-90 active:scale-95"
                     style={{
-                      background: 'linear-gradient(135deg, #7B8CDE, #A78BFA)',
+                      background: 'linear-gradient(135deg, var(--os-accent), #A78BFA)',
                       color: 'white',
                     }}
                   >
@@ -621,7 +621,7 @@ export function Desktop() {
               {tasks.map((task) => (
                 <div
                   key={task.id}
-                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all hover:bg-white/[0.15] group"
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all hover:bg-black/[0.06] dark:hover:bg-white/[0.08] group"
                 >
                   <button
                     onClick={() => toggleTask(task.id)}
@@ -632,7 +632,7 @@ export function Desktop() {
                         style={{
                           width: 16,
                           height: 16,
-                          color: '#7B8CDE',
+                          color: 'var(--os-accent)',
                         }}
                       />
                     ) : (
@@ -640,7 +640,7 @@ export function Desktop() {
                         style={{
                           width: 16,
                           height: 16,
-                          color: '#C7C3DB',
+                          color: 'var(--os-text-muted)',
                         }}
                       />
                     )}
@@ -649,7 +649,7 @@ export function Desktop() {
                   <span
                     className="flex-1 text-[13px] transition-all"
                     style={{
-                      color: task.completed ? '#9B97B1' : '#2D2B55',
+                      color: task.completed ? 'var(--os-text-muted)' : 'var(--os-text-primary)',
                       textDecoration: task.completed ? 'line-through' : 'none',
                     }}
                   >
@@ -661,11 +661,11 @@ export function Desktop() {
                     style={{
                       color:
                         task.dueDate === 'Today'
-                          ? '#7B8CDE'
+                          ? 'var(--os-accent)'
                           : task.dueDate === 'Yesterday'
-                            ? '#9B97B1'
+                            ? 'var(--os-text-muted)'
                             : task.dueDate === 'Tomorrow'
-                              ? '#E8A93A'
+                              ? 'var(--os-warning)'
                               : '#9B97B1',
                       background:
                         task.dueDate === 'Today'
@@ -692,7 +692,7 @@ export function Desktop() {
               {tasks.length === 0 && (
                 <div
                   className="text-center py-6 text-xs"
-                  style={{ color: '#9B97B1' }}
+                  style={{ color: 'var(--os-text-muted)' }}
                 >
                   No tasks yet. Click &quot;Add Task&quot; to create one.
                 </div>
