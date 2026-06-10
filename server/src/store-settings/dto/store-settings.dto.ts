@@ -40,6 +40,16 @@ export class UpsertStoreSettingsDto {
   @IsOptional() @IsString() headingSize?: string;
   @IsOptional() @IsString() bodySize?: string;
 
-  /** Storefront design config (top promo, hero, trust strip, footer). */
-  @IsOptional() @IsObject() jerseyConfig?: Record<string, unknown>;
+  /** Storefront design config (top promo, hero, trust strip, footer, tiers, languages, trustpilot). */
+  @IsOptional() @IsObject() jerseyConfig?: {
+    topPromo?: { text?: string; ctaText?: string; bgColor?: string };
+    hero?: { headline?: string; subtext?: string; cta?: string; imageUrl?: string; gradientFrom?: string; gradientTo?: string };
+    trustStrip?: Array<{ icon: string; title: string; desc: string }>;
+    footerColumns?: Array<{ title: string; items: Array<{ label: string; href?: string }> }>;
+    newsletterPitch?: string;
+    tiers?: Array<{ slug: string; label: string; parentSlug?: string; href?: string }>;
+    languages?: Array<{ code: string; label: string }>;
+    trustpilot?: { businessUnitId?: string; templateId?: string };
+    paymentLogos?: string[];
+  };
 }

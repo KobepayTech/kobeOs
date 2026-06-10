@@ -1,29 +1,69 @@
-import { IsArray, IsBoolean, IsEnum, IsInt, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsEnum, IsInt, IsNumber, IsObject, IsOptional, IsString, IsUUID, MaxLength, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreateProductDto {
   @IsString() @MaxLength(60) sku!: string;
   @IsString() @MaxLength(200) name!: string;
+  @IsOptional() @IsString() @MaxLength(500) description?: string;
   @IsOptional() @IsString() @MaxLength(80) category?: string;
+  @IsOptional() @IsString() @MaxLength(80) brand?: string;
   @IsNumber() @Min(0) price!: number;
+  @IsOptional() @IsNumber() @Min(0) compareAtPrice?: number;
+  @IsOptional() @IsNumber() @Min(0) cost?: number;
   @IsOptional() @IsString() @MaxLength(8) currency?: string;
   @IsOptional() @IsInt() @Min(0) stock?: number;
   @IsOptional() @IsInt() @Min(0) reservedStock?: number;
   @IsOptional() @IsString() @MaxLength(80) shelf?: string;
   @IsOptional() @IsString() @MaxLength(80) warehouseId?: string;
   @IsOptional() @IsString() imageUrl?: string;
+  @IsOptional() @IsArray() @IsString({ each: true }) imageUrls?: string[];
+  @IsOptional() @IsArray() @IsString({ each: true }) tags?: string[];
+  @IsOptional() @IsArray() variants?: ProductVariant[];
   @IsOptional() @IsBoolean() active?: boolean;
+  @IsOptional() @IsBoolean() featured?: boolean;
+
+  /** Jersey-specific product details */
+  @IsOptional() @IsObject() jerseyDetails?: {
+    teamClub?: string;
+    jerseyType?: 'fan' | 'match' | 'retro' | 'player' | 'kids';
+    season?: string;
+    badgeOptions?: string[];
+    nameNumber?: string;
+    size?: string;
+    kitType?: 'jersey-only' | 'shorts-socks' | 'full-kit';
+  };
 }
 export class UpdateProductDto {
-  @IsOptional() @IsString() name?: string;
-  @IsOptional() @IsString() category?: string;
+  @IsOptional() @IsString() @MaxLength(60) sku?: string;
+  @IsOptional() @IsString() @MaxLength(200) name?: string;
+  @IsOptional() @IsString() @MaxLength(500) description?: string;
+  @IsOptional() @IsString() @MaxLength(80) category?: string;
+  @IsOptional() @IsString() @MaxLength(80) brand?: string;
   @IsOptional() @IsNumber() @Min(0) price?: number;
+  @IsOptional() @IsNumber() @Min(0) compareAtPrice?: number;
+  @IsOptional() @IsNumber() @Min(0) cost?: number;
+  @IsOptional() @IsString() @MaxLength(8) currency?: string;
   @IsOptional() @IsInt() @Min(0) stock?: number;
   @IsOptional() @IsInt() @Min(0) reservedStock?: number;
-  @IsOptional() @IsString() shelf?: string;
-  @IsOptional() @IsString() warehouseId?: string;
+  @IsOptional() @IsString() @MaxLength(80) shelf?: string;
+  @IsOptional() @IsString() @MaxLength(80) warehouseId?: string;
   @IsOptional() @IsString() imageUrl?: string;
+  @IsOptional() @IsArray() @IsString({ each: true }) imageUrls?: string[];
+  @IsOptional() @IsArray() @IsString({ each: true }) tags?: string[];
+  @IsOptional() @IsArray() variants?: ProductVariant[];
   @IsOptional() @IsBoolean() active?: boolean;
+  @IsOptional() @IsBoolean() featured?: boolean;
+
+  /** Jersey-specific product details */
+  @IsOptional() @IsObject() jerseyDetails?: {
+    teamClub?: string;
+    jerseyType?: 'fan' | 'match' | 'retro' | 'player' | 'kids';
+    season?: string;
+    badgeOptions?: string[];
+    nameNumber?: string;
+    size?: string;
+    kitType?: 'jersey-only' | 'shorts-socks' | 'full-kit';
+  };
 }
 
 export class OrderLineDto {

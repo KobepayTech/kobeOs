@@ -91,6 +91,18 @@ export class PosProduct extends OwnedEntity {
   @Column({ type: 'jsonb', default: [] })
   tags!: string[];
 
+  /** Jersey-specific product details — team, type, season, badges, size, kit type, name/number printing */
+  @Column({ type: 'jsonb', default: {} })
+  jerseyDetails!: {
+    teamClub?: string;
+    jerseyType?: 'fan' | 'match' | 'retro' | 'player' | 'kids';
+    season?: string;
+    badgeOptions?: string[];
+    nameNumber?: string;
+    size?: string;
+    kitType?: 'jersey-only' | 'shorts-socks' | 'full-kit';
+  };
+
   @Column({ default: true })
   active!: boolean;
 

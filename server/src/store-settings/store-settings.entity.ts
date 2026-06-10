@@ -126,6 +126,10 @@ export class StoreSettings extends BaseEntity {
     trustStrip?: Array<{ icon: 'truck' | 'shield' | 'rotate' | 'star'; title: string; desc: string }>;
     footerColumns?: Array<{ title: string; items: Array<{ label: string; href?: string }> }>;
     newsletterPitch?: string;
+    tiers?: Array<{ slug: string; label: string; parentSlug?: string; href?: string }>;
+    languages?: Array<{ code: string; label: string }>;
+    trustpilot?: { businessUnitId?: string; templateId?: string };
+    paymentLogos?: string[];
   };
 
   // Publish state (managed by publish/unpublish endpoints)
