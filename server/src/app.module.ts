@@ -58,6 +58,7 @@ import { HotelSecurityModule } from './hotel-security/hotel-security.module';
 import { StudioMediaModule } from './studio-media/studio-media.module';
 import { ShopStockModule } from './shop-stock/shop-stock.module';
 import { DiscountApprovalModule } from './discount-approval/discount-approval.module';
+import { SocialSchedulerModule } from './social-scheduler/social-scheduler.module';
 
 @Module({
   imports: [
@@ -115,6 +116,7 @@ import { DiscountApprovalModule } from './discount-approval/discount-approval.mo
     StoreSettingsModule,
     StoreModule,
     StoreRegistryModule,
+    SocialSchedulerModule,
     DevopsModule,
     AccountModule,
     ShopStockModule,

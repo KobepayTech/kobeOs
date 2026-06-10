@@ -11,8 +11,10 @@ import {
   TrendingUp, Eye, Heart, MessageSquare, Share2, MousePointerClick,
   ShoppingCart, Download, Star, Send, Instagram,
   Smartphone, Copy, AlertCircle, Lock, Unlock, DollarSign, Target, Zap,
-  Youtube, Twitter, Facebook, UserCheck, BookOpen, HelpCircle
+  Youtube, Twitter, Facebook, UserCheck, BookOpen, HelpCircle,
+  Calendar
 } from 'lucide-react';
+import { SocialScheduler } from './SocialScheduler';
 function idHash(id: string): number {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
@@ -110,7 +112,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 // ── Types ──────────────────────────────────────────────
-type ModuleId = 'overview' | 'campaigns' | 'marketplace' | 'deals' | 'escrow' | 'subscription' | 'performance' | 'affiliate' | 'messages' | 'creator-v2' | 'brand-portal' | 'explore' | 'profile' | 'how-it-works' | 'faq';
+type ModuleId = 'overview' | 'campaigns' | 'marketplace' | 'deals' | 'escrow' | 'subscription' | 'performance' | 'affiliate' | 'messages' | 'creator-v2' | 'brand-portal' | 'explore' | 'profile' | 'how-it-works' | 'faq' | 'social-scheduler';
 
 interface Campaign {
   id: number; name: string; budget: number; creators: number;
@@ -443,6 +445,7 @@ export default function Creator() {
     { id: 'profile', icon: UserCheck, label: 'Creator Profile', desc: 'Profile, packages & reviews', color: '#f97316' },
     { id: 'how-it-works', icon: BookOpen, label: 'How It Works', desc: '3-step onboarding guide', color: '#10b981' },
     { id: 'faq', icon: HelpCircle, label: 'FAQ', desc: 'Common questions answered', color: '#a78bfa' },
+    { id: 'social-scheduler', icon: Calendar, label: 'Social Scheduler', desc: 'Schedule posts across platforms', color: '#06b6d4' },
   ];
 
   return (
@@ -490,6 +493,7 @@ export default function Creator() {
         {activeModule === 'profile' && <CreatorProfileModule />}
         {activeModule === 'how-it-works' && <HowItWorksModule />}
         {activeModule === 'faq' && <FAQModule />}
+        {activeModule === 'social-scheduler' && <SocialScheduler />}
       </main>
     </div>
     </AppContext.Provider>
