@@ -7,6 +7,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Plus, Trash2, ChevronLeft, ChevronRight, Save, FileText, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
 import { PhotoUpload } from '@/components/PhotoUpload';
+import type { JerseyDetails } from './UniversalProductForm';
 
 /**
  * 5-step product wizard matching the KobeERP spec — Basic → Variants → Pricing
@@ -15,6 +16,7 @@ import { PhotoUpload } from '@/components/PhotoUpload';
  * with auto-SKU, margin preview, and a saved-as-draft state.
  *
  * Mounted as a route inside erp-store; the inline form remains for quick edits.
+ * Updated for ProJerseyShop.es — jersey-first product structure.
  */
 export interface WizardVariant {
   id: string;
@@ -58,6 +60,8 @@ export interface WizardProduct {
   imageUrl?: string;
   imageUrls: string[];
   videoUrl?: string;
+  // Jersey (ProJerseyShop.es)
+  jerseyDetails?: JerseyDetails;
   // Meta
   tags: string[];
   active: boolean;
@@ -77,7 +81,7 @@ const BLANK: WizardProduct = {
   sellingPrice: 0,
   costTzs: 0,
   fxRmbToTzs: 350.5,
-  currency: 'TZS',
+  currency: 'EUR',
   taxRate: 0,
   stock: 0,
   estimatedStock: 0,
@@ -86,19 +90,88 @@ const BLANK: WizardProduct = {
   active: true,
   featured: false,
   status: 'ACTIVE',
+  jerseyDetails: {
+    teamClub: '',
+    jerseyType: 'fan',
+    season: '2025/26',
+    badgeOptions: [],
+    nameNumber: '',
+    size: 'M',
+    kitType: 'jersey-only',
+  },
 };
 
-const CATEGORY_OPTIONS = [
-  { value: 'electronics', label: '📱 Electronics' },
-  { value: 'apparel',     label: '👕 Apparel' },
-  { value: 'shoes',       label: '👟 Shoes & Sneakers' },
-  { value: 'bags',        label: '🎒 Bags & Backpacks' },
-  { value: 'home',        label: '🏠 Home & Kitchen' },
-  { value: 'beauty',      label: '💄 Beauty & Personal Care' },
-  { value: 'food',        label: '🍔 Food & Beverages' },
-  { value: 'kids',        label: '🧸 Kids & Baby' },
-  { value: 'other',       label: '📦 Other' },
+const CATEGORY_TREE = [
+  {
+    value: 'world-cup-2026',
+    label: '🏆 World Cup 2026',
+    children: [
+      { value: 'wc-spain', label: '🇪🇸 Spain' },
+      { value: 'wc-brazil', label: '🇧🇷 Brazil' },
+      { value: 'wc-usa', label: '🇺🇸 USA' },
+      { value: 'wc-mexico', label: '🇲🇽 Mexico' },
+      { value: 'wc-argentina', label: '🇦🇷 Argentina' },
+      { value: 'wc-germany', label: '🇩🇪 Germany' },
+      { value: 'wc-france', label: '🇫🇷 France' },
+      { value: 'wc-other', label: '🌐 Other Nations' },
+    ],
+  },
+  {
+    value: 'clubs',
+    label: '⚽ Clubs',
+    children: [
+      { value: 'club-real-madrid', label: 'Real Madrid' },
+      { value: 'club-barcelona', label: 'Barcelona' },
+      { value: 'club-psg', label: 'PSG' },
+      { value: 'club-liverpool', label: 'Liverpool' },
+      { value: 'club-man-utd', label: 'Manchester United' },
+      { value: 'club-man-city', label: 'Manchester City' },
+      { value: 'club-arsenal', label: 'Arsenal' },
+      { value: 'club-chelsea', label: 'Chelsea' },
+      { value: 'club-juventus', label: 'Juventus' },
+      { value: 'club-bayern', label: 'Bayern Munich' },
+      { value: 'club-other', label: 'Other Clubs' },
+    ],
+  },
+  {
+    value: 'retro',
+    label: '👕 Retro',
+    children: [
+      { value: 'retro-1990s', label: '1990s Classics' },
+      { value: 'retro-1994-wc', label: '1994 World Cup' },
+      { value: 'retro-1998-wc', label: '1998 World Cup' },
+      { value: 'retro-2002-wc', label: '2002 World Cup' },
+      { value: 'retro-club', label: 'Classic Club' },
+      { value: 'retro-special', label: 'Special Edition' },
+    ],
+  },
+  {
+    value: 'kids',
+    label: '🧒 Kids',
+    children: [
+      { value: 'kids-jerseys', label: 'Kids Jerseys' },
+      { value: 'kids-kits', label: 'Kids Kits' },
+      { value: 'kids-mini', label: 'Mini Kits' },
+    ],
+  },
+  {
+    value: 'apparel',
+    label: '🎽 Apparel',
+    children: [
+      { value: 'apparel-training', label: 'Training Wear' },
+      { value: 'apparel-jackets', label: 'Jackets' },
+      { value: 'apparel-accessories', label: 'Accessories' },
+    ],
+  },
+  { value: 'nba', label: '🏀 NBA', children: [{ value: 'nba-jerseys', label: 'NBA Jerseys' }] },
 ];
+
+/** Flattened list for the <select> element */
+const CATEGORY_OPTIONS = CATEGORY_TREE.flatMap((group) =>
+  group.children
+    ? [{ value: group.value, label: group.label }, ...group.children.map((c) => ({ value: c.value, label: `  ${c.label}` }))]
+    : [{ value: group.value, label: group.label }],
+);
 
 const STORAGE_KEY = 'kobeerp:product-wizard-draft';
 
@@ -218,6 +291,28 @@ export function ProductWizard({
             </span>
           ))}
         </div>
+        {/* Quick-add presets */}
+        <div className="grid grid-cols-2 gap-2 pt-2">
+          {QUICK_ADDS.map((qa) => (
+            <button
+              key={qa.label}
+              type="button"
+              onClick={() => {
+                const preset = qa.preset();
+                setDraft((d) => ({
+                  ...d,
+                  ...preset,
+                  jerseyDetails: { ...(d.jerseyDetails ?? BLANK.jerseyDetails!), ...preset.jerseyDetails },
+                  tags: [...new Set([...d.tags, ...(preset.tags ?? [])])],
+                }));
+              }}
+              className="flex items-center gap-1.5 text-[11px] px-2 py-1.5 rounded-md border border-white/10 bg-white/[0.03] hover:bg-white/[0.08] text-white/70 hover:text-white/90 transition-colors text-left"
+            >
+              <span>{qa.icon}</span>
+              {qa.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Step body */}
@@ -258,13 +353,24 @@ export function ProductWizard({
 // ── Step 1 — Basic ──────────────────────────────────────────────────────────
 
 function StepBasic({ value, onChange }: { value: WizardProduct; onChange: (p: Partial<WizardProduct>) => void }) {
+  const patchJersey = (field: keyof JerseyDetails, val: unknown) => {
+    onChange({
+      jerseyDetails: {
+        ...(value.jerseyDetails ?? BLANK.jerseyDetails!),
+        [field]: val,
+      },
+    });
+  };
+
+  const isKids = value.category?.toLowerCase().includes('kids');
+
   return (
     <div className="space-y-4 max-w-2xl">
       <Field label="Product name" required>
         <Input
           value={value.name}
           onChange={(e) => onChange({ name: e.target.value })}
-          placeholder="e.g. Nike Air Max Style"
+          placeholder="e.g. Spain World Cup 2026 Home Jersey"
           className={inputCls}
           autoFocus
         />
@@ -301,6 +407,117 @@ function StepBasic({ value, onChange }: { value: WizardProduct; onChange: (p: Pa
           className={inputCls}
         />
       </Field>
+
+      {/* ── Jersey-specific fields ── */}
+      <div className="border-t border-white/10 pt-4 space-y-4">
+        <h3 className="text-xs font-semibold text-amber-300 uppercase tracking-wider">Jersey Details</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Team / Club">
+            <select
+              value={value.jerseyDetails?.teamClub ?? ''}
+              onChange={(e) => patchJersey('teamClub', e.target.value)}
+              className={selectCls}
+            >
+              <option value="">— Choose —</option>
+              <optgroup label="World Cup 2026">
+                {WORLD_CUP_TEAMS.map((t) => <option key={t} value={t}>{t}</option>)}
+              </optgroup>
+              <optgroup label="Clubs">
+                {CLUB_TEAMS.map((t) => <option key={t} value={t}>{t}</option>)}
+              </optgroup>
+              <optgroup label="Other">
+                <option value="Other Nation">Other Nation</option>
+                <option value="Other Club">Other Club</option>
+                <option value="Classic">Classic / Special</option>
+              </optgroup>
+            </select>
+          </Field>
+          <Field label="Jersey Type">
+            <select
+              value={value.jerseyDetails?.jerseyType ?? 'fan'}
+              onChange={(e) => patchJersey('jerseyType', e.target.value)}
+              className={selectCls}
+            >
+              <option value="fan">Fan Jersey</option>
+              <option value="match">Match Jersey</option>
+              <option value="retro">Retro Jersey</option>
+              <option value="player">Player Version</option>
+              <option value="kids">Kids Kit</option>
+            </select>
+          </Field>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Season">
+            <select
+              value={value.jerseyDetails?.season ?? '2025/26'}
+              onChange={(e) => patchJersey('season', e.target.value)}
+              className={selectCls}
+            >
+              <option value="2024/25">2024/25</option>
+              <option value="2025/26">2025/26</option>
+              <option value="2026/27">2026/27</option>
+              <option value="world-cup-2026">World Cup 2026</option>
+            </select>
+          </Field>
+          <Field label="Size">
+            <select
+              value={value.jerseyDetails?.size ?? 'M'}
+              onChange={(e) => patchJersey('size', e.target.value)}
+              className={selectCls}
+            >
+              <optgroup label="Adult">
+                {ADULT_SIZES.map((s) => <option key={s} value={s}>{s}</option>)}
+              </optgroup>
+              <optgroup label="Kids">
+                {KIDS_SIZES.map((s) => <option key={s} value={s}>{s}</option>)}
+              </optgroup>
+            </select>
+          </Field>
+        </div>
+        <Field label="Badge Options">
+          <div className="grid grid-cols-2 gap-2 p-2 rounded-md bg-white/[0.03] border border-white/10">
+            {BADGE_OPTIONS.map((badge) => (
+              <label key={badge} className="flex items-center gap-2 text-xs text-white/70 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={(value.jerseyDetails?.badgeOptions ?? []).includes(badge)}
+                  onChange={(e) => {
+                    const current = value.jerseyDetails?.badgeOptions ?? [];
+                    const next = e.target.checked
+                      ? [...current, badge]
+                      : current.filter((b) => b !== badge);
+                    patchJersey('badgeOptions', next);
+                  }}
+                  className="rounded border-white/30"
+                />
+                {badge}
+              </label>
+            ))}
+          </div>
+        </Field>
+        <Field label="Name & Number (Custom Printing)">
+          <Input
+            value={value.jerseyDetails?.nameNumber ?? ''}
+            onChange={(e) => patchJersey('nameNumber', e.target.value)}
+            placeholder="e.g. Yamal 19"
+            className={inputCls}
+          />
+        </Field>
+        {isKids && (
+          <Field label="Kit Type">
+            <select
+              value={value.jerseyDetails?.kitType ?? 'jersey-only'}
+              onChange={(e) => patchJersey('kitType', e.target.value)}
+              className={selectCls}
+            >
+              <option value="jersey-only">Jersey Only</option>
+              <option value="shorts-socks">Shorts + Socks Set</option>
+              <option value="full-kit">Full Kit</option>
+            </select>
+          </Field>
+        )}
+      </div>
+
       <div className="grid grid-cols-2 gap-3">
         <Field label="Track inventory">
           <select
@@ -491,7 +708,7 @@ function StepPricing({ value, onChange }: { value: WizardProduct; onChange: (p: 
             className={inputCls}
           />
         </Field>
-        <Field label="FX RMB→TZS">
+        <Field label="FX RMB→EUR">
           <Input
             type="number"
             step="0.01"
@@ -500,7 +717,7 @@ function StepPricing({ value, onChange }: { value: WizardProduct; onChange: (p: 
             className={inputCls}
           />
         </Field>
-        <Field label="Cost (TZS)" hint="Auto from RMB × FX. Edit to override.">
+        <Field label="Cost (EUR)" hint="Auto from RMB × FX. Edit to override.">
           <Input
             type="number"
             value={value.costTzs ?? cost}
@@ -633,6 +850,17 @@ function StepReview({ value }: { value: WizardProduct }) {
             <div><span className="text-white/40">Brand</span><br /><strong>{value.brand || '—'}</strong></div>
             <div><span className="text-white/40">Selling price</span><br /><strong>{fmt(value.sellingPrice)} {value.currency}</strong></div>
             <div><span className="text-white/40">Total stock</span><br /><strong>{totalStock}{value.hasVariants ? ` across ${value.variants.length} variant${value.variants.length === 1 ? '' : 's'}` : ''}</strong></div>
+            {value.jerseyDetails?.teamClub && (
+              <>
+                <div><span className="text-white/40">Team / Club</span><br /><strong>{value.jerseyDetails.teamClub}</strong></div>
+                <div><span className="text-white/40">Jersey Type</span><br /><strong>{value.jerseyDetails.jerseyType}</strong></div>
+                <div><span className="text-white/40">Season</span><br /><strong>{value.jerseyDetails.season}</strong></div>
+                <div><span className="text-white/40">Size</span><br /><strong>{value.jerseyDetails.size}</strong></div>
+                {value.jerseyDetails.nameNumber && (
+                  <div className="col-span-2"><span className="text-white/40">Custom Name & Number</span><br /><strong>{value.jerseyDetails.nameNumber}</strong></div>
+                )}
+              </>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -719,3 +947,110 @@ const selectCls = 'w-full h-9 px-2 rounded-md bg-white/5 border border-white/10 
 function fmt(n: number): string {
   return Number(n).toLocaleString();
 }
+
+// ── Jersey constants (shared with UniversalProductForm) ──
+
+const WORLD_CUP_TEAMS = [
+  'Spain', 'Brazil', 'USA', 'Mexico', 'Argentina', 'Germany', 'France',
+  'Portugal', 'England', 'Netherlands', 'Italy', 'Belgium', 'Croatia',
+  'Uruguay', 'Colombia', 'Japan', 'South Korea', 'Morocco', 'Senegal',
+  'Canada', 'Ecuador', 'Poland', 'Wales', 'Australia', 'Cameroon',
+  'Ghana', 'Qatar', 'Saudi Arabia', 'Tunisia', 'Iran', 'Costa Rica',
+];
+
+const CLUB_TEAMS = [
+  'Real Madrid', 'Barcelona', 'PSG', 'Liverpool', 'Manchester United',
+  'Manchester City', 'Arsenal', 'Chelsea', 'Juventus', 'Bayern Munich',
+  'Borussia Dortmund', 'AC Milan', 'Inter Milan', 'Napoli', 'Roma',
+  'Atletico Madrid', 'Sevilla', 'Tottenham', 'Newcastle', 'Aston Villa',
+  'Benfica', 'Porto', 'Ajax', 'Celtic', 'Rangers', 'Al Nassr', 'Al Hilal',
+];
+
+const ADULT_SIZES = ['S', 'M', 'L', 'XL', 'XXL'];
+const KIDS_SIZES = ['Kids 4-5Y', 'Kids 6-7Y', 'Kids 8-9Y', 'Kids 10-11Y', 'Kids 12-13Y'];
+
+const BADGE_OPTIONS = [
+  'No Badge',
+  'World Cup 2026 Sleeve Badge',
+  'Champions League Badge',
+  'League Badge',
+  'Respect Badge',
+  'Foundation Badge',
+];
+
+// ── Quick-add presets ──
+
+const QUICK_ADDS = [
+  {
+    label: 'Add Spain World Cup Jersey',
+    icon: '🏆',
+    preset: (): Partial<WizardProduct> => ({
+      name: 'Spain World Cup 2026 Home Jersey',
+      category: 'wc-spain',
+      jerseyDetails: {
+        teamClub: 'Spain',
+        jerseyType: 'fan',
+        season: 'world-cup-2026',
+        badgeOptions: ['World Cup 2026 Sleeve Badge'],
+        nameNumber: '',
+        size: 'M',
+        kitType: 'jersey-only',
+      },
+      tags: ['world-cup-2026', 'spain', 'home'],
+    }),
+  },
+  {
+    label: 'Add Club Home Jersey',
+    icon: '⚽',
+    preset: (): Partial<WizardProduct> => ({
+      name: 'Real Madrid 2025/26 Home Jersey',
+      category: 'club-real-madrid',
+      jerseyDetails: {
+        teamClub: 'Real Madrid',
+        jerseyType: 'fan',
+        season: '2025/26',
+        badgeOptions: ['Champions League Badge'],
+        nameNumber: '',
+        size: 'M',
+        kitType: 'jersey-only',
+      },
+      tags: ['2025/26', 'real-madrid', 'home'],
+    }),
+  },
+  {
+    label: 'Add Retro Jersey',
+    icon: '👕',
+    preset: (): Partial<WizardProduct> => ({
+      name: 'Retro 1998 World Cup Classic Jersey',
+      category: 'retro-1998-wc',
+      jerseyDetails: {
+        teamClub: 'France',
+        jerseyType: 'retro',
+        season: '2024/25',
+        badgeOptions: ['No Badge'],
+        nameNumber: '',
+        size: 'M',
+        kitType: 'jersey-only',
+      },
+      tags: ['retro', '1998', 'classic'],
+    }),
+  },
+  {
+    label: 'Add Kids Kit',
+    icon: '🧒',
+    preset: (): Partial<WizardProduct> => ({
+      name: 'Kids Full Kit 2025/26',
+      category: 'kids-kits',
+      jerseyDetails: {
+        teamClub: 'Barcelona',
+        jerseyType: 'kids',
+        season: '2025/26',
+        badgeOptions: ['No Badge'],
+        nameNumber: '',
+        size: 'Kids 8-9Y',
+        kitType: 'full-kit',
+      },
+      tags: ['kids', 'kit', '2025/26'],
+    }),
+  },
+];

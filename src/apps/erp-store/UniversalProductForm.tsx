@@ -22,6 +22,16 @@ export interface ProductVariant {
   imageUrl?: string;
 }
 
+export interface JerseyDetails {
+  teamClub: string;
+  jerseyType: 'fan' | 'match' | 'retro' | 'player' | 'kids';
+  season: '2024/25' | '2025/26' | '2026/27' | 'world-cup-2026';
+  badgeOptions: string[];
+  nameNumber: string;
+  size: string;
+  kitType: 'jersey-only' | 'shorts-socks' | 'full-kit';
+}
+
 export interface UniversalProduct {
   id?: string;
   name: string;
@@ -47,6 +57,8 @@ export interface UniversalProduct {
   tags: string[];
   active: boolean;
   featured: boolean;
+  /** Jersey-specific fields for ProJerseyShop.es product structure */
+  jerseyDetails?: JerseyDetails;
 }
 
 export const blankProduct: UniversalProduct = {
@@ -55,7 +67,7 @@ export const blankProduct: UniversalProduct = {
   description: '',
   category: '',
   price: 0,
-  currency: 'TZS',
+  currency: 'EUR',
   taxRate: 0,
   stock: 0,
   estimatedStock: 0,
@@ -64,6 +76,15 @@ export const blankProduct: UniversalProduct = {
   tags: [],
   active: true,
   featured: false,
+  jerseyDetails: {
+    teamClub: '',
+    jerseyType: 'fan',
+    season: '2025/26',
+    badgeOptions: [],
+    nameNumber: '',
+    size: 'M',
+    kitType: 'jersey-only',
+  },
 };
 
 export function UniversalProductForm({
@@ -82,11 +103,22 @@ export function UniversalProductForm({
   const [tab, setTab] = useState('basic');
   const patch = (p: Partial<UniversalProduct>) => onChange({ ...value, ...p });
 
+  const patchJersey = (field: keyof JerseyDetails, val: unknown) => {
+    onChange({
+      ...value,
+      jerseyDetails: {
+        ...(value.jerseyDetails ?? blankProduct.jerseyDetails!),
+        [field]: val,
+      },
+    });
+  };
+
   return (
     <div className="space-y-3">
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="bg-slate-800 border border-slate-700 w-full">
           <TabsTrigger value="basic" className="text-xs flex-1">Basic</TabsTrigger>
+          <TabsTrigger value="jersey" className="text-xs flex-1">Jersey</TabsTrigger>
           <TabsTrigger value="inventory" className="text-xs flex-1">Inventory</TabsTrigger>
           <TabsTrigger value="variants" className="text-xs flex-1">Variants</TabsTrigger>
           <TabsTrigger value="media" className="text-xs flex-1">Media</TabsTrigger>
@@ -136,6 +168,114 @@ export function UniversalProductForm({
               className={`${inputCls} text-xs`}
             />
           </Field>
+        </TabsContent>
+
+        <TabsContent value="jersey" className="space-y-3 pt-3">
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Team / Club">
+              <select
+                value={value.jerseyDetails?.teamClub ?? ''}
+                onChange={(e) => patchJersey('teamClub', e.target.value)}
+                className={selectCls}
+              >
+                <option value="">— Choose —</option>
+                <optgroup label="World Cup 2026">
+                  {WORLD_CUP_TEAMS.map((t) => <option key={t} value={t}>{t}</option>)}
+                </optgroup>
+                <optgroup label="Clubs">
+                  {CLUB_TEAMS.map((t) => <option key={t} value={t}>{t}</option>)}
+                </optgroup>
+                <optgroup label="Other">
+                  <option value="Other Nation">Other Nation</option>
+                  <option value="Other Club">Other Club</option>
+                  <option value="Classic">Classic / Special</option>
+                </optgroup>
+              </select>
+            </Field>
+            <Field label="Jersey Type">
+              <select
+                value={value.jerseyDetails?.jerseyType ?? 'fan'}
+                onChange={(e) => patchJersey('jerseyType', e.target.value)}
+                className={selectCls}
+              >
+                <option value="fan">Fan Jersey</option>
+                <option value="match">Match Jersey</option>
+                <option value="retro">Retro Jersey</option>
+                <option value="player">Player Version</option>
+                <option value="kids">Kids Kit</option>
+              </select>
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Season">
+              <select
+                value={value.jerseyDetails?.season ?? '2025/26'}
+                onChange={(e) => patchJersey('season', e.target.value)}
+                className={selectCls}
+              >
+                <option value="2024/25">2024/25</option>
+                <option value="2025/26">2025/26</option>
+                <option value="2026/27">2026/27</option>
+                <option value="world-cup-2026">World Cup 2026</option>
+              </select>
+            </Field>
+            <Field label="Size">
+              <select
+                value={value.jerseyDetails?.size ?? 'M'}
+                onChange={(e) => patchJersey('size', e.target.value)}
+                className={selectCls}
+              >
+                <optgroup label="Adult">
+                  {ADULT_SIZES.map((s) => <option key={s} value={s}>{s}</option>)}
+                </optgroup>
+                <optgroup label="Kids">
+                  {KIDS_SIZES.map((s) => <option key={s} value={s}>{s}</option>)}
+                </optgroup>
+              </select>
+            </Field>
+          </div>
+          <Field label="Badge Options">
+            <div className="grid grid-cols-2 gap-2 p-2 rounded-md bg-slate-800 border border-slate-700">
+              {BADGE_OPTIONS.map((badge) => (
+                <label key={badge} className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={(value.jerseyDetails?.badgeOptions ?? []).includes(badge)}
+                    onChange={(e) => {
+                      const current = value.jerseyDetails?.badgeOptions ?? [];
+                      const next = e.target.checked
+                        ? [...current, badge]
+                        : current.filter((b) => b !== badge);
+                      patchJersey('badgeOptions', next);
+                    }}
+                    className="rounded border-slate-600"
+                  />
+                  {badge}
+                </label>
+              ))}
+            </div>
+          </Field>
+          <Field label="Name & Number (Custom Printing)">
+            <Input
+              value={value.jerseyDetails?.nameNumber ?? ''}
+              onChange={(e) => patchJersey('nameNumber', e.target.value)}
+              placeholder="e.g. Yamal 19"
+              className={inputCls}
+            />
+          </Field>
+          {value.category?.toLowerCase().includes('kids') && (
+            <Field label="Kit Type">
+              <select
+                value={value.jerseyDetails?.kitType ?? 'jersey-only'}
+                onChange={(e) => patchJersey('kitType', e.target.value)}
+                className={selectCls}
+              >
+                <option value="jersey-only">Jersey Only</option>
+                <option value="shorts-socks">Shorts + Socks Set</option>
+                <option value="full-kit">Full Kit</option>
+              </select>
+            </Field>
+          )}
         </TabsContent>
 
         <TabsContent value="inventory" className="space-y-3 pt-3">
@@ -365,3 +505,31 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 const inputCls = 'bg-slate-800 border-slate-700 text-slate-100';
 const selectCls = 'w-full h-9 px-2 rounded-md bg-slate-800 border border-slate-700 text-xs text-slate-300';
+
+const WORLD_CUP_TEAMS = [
+  'Spain', 'Brazil', 'USA', 'Mexico', 'Argentina', 'Germany', 'France',
+  'Portugal', 'England', 'Netherlands', 'Italy', 'Belgium', 'Croatia',
+  'Uruguay', 'Colombia', 'Japan', 'South Korea', 'Morocco', 'Senegal',
+  'Canada', 'Ecuador', 'Poland', 'Wales', 'Australia', 'Cameroon',
+  'Ghana', 'Qatar', 'Saudi Arabia', 'Tunisia', 'Iran', 'Costa Rica',
+];
+
+const CLUB_TEAMS = [
+  'Real Madrid', 'Barcelona', 'PSG', 'Liverpool', 'Manchester United',
+  'Manchester City', 'Arsenal', 'Chelsea', 'Juventus', 'Bayern Munich',
+  'Borussia Dortmund', 'AC Milan', 'Inter Milan', 'Napoli', 'Roma',
+  'Atletico Madrid', 'Sevilla', 'Tottenham', 'Newcastle', 'Aston Villa',
+  'Benfica', 'Porto', 'Ajax', 'Celtic', 'Rangers', 'Al Nassr', 'Al Hilal',
+];
+
+const ADULT_SIZES = ['S', 'M', 'L', 'XL', 'XXL'];
+const KIDS_SIZES = ['Kids 4-5Y', 'Kids 6-7Y', 'Kids 8-9Y', 'Kids 10-11Y', 'Kids 12-13Y'];
+
+const BADGE_OPTIONS = [
+  'No Badge',
+  'World Cup 2026 Sleeve Badge',
+  'Champions League Badge',
+  'League Badge',
+  'Respect Badge',
+  'Foundation Badge',
+];

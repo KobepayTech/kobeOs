@@ -1,68 +1,74 @@
-import { useMemo } from 'react';
-import { ShoppingCart, Search, User, Heart, ChevronRight, Truck, Shield, RotateCcw, Star } from 'lucide-react';
-import { Input } from '@/components/ui/input';
+import { useMemo, useState } from 'react';
+import {
+  ShoppingCart,
+  Search,
+  User,
+  Heart,
+  ChevronRight,
+  Truck,
+  RotateCcw,
+  Star,
+  Facebook,
+  Youtube,
+  Instagram,
+  Smartphone,
+  Award,
+  Globe,
+  Clock,
+  CreditCard,
+  Package,
+  Trophy,
+  Gift,
+  Sparkles,
+  ShieldCheck,
+  CircleDot,
+  Fuel,
+  Mail,
+  ChevronLeft,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 
-/**
- * Per-section config consumed by JerseyShopChrome. Persisted on
- * StoreSettings.jerseyConfig (jsonb). Every field is optional — defaults
- * applied below so a brand-new merchant gets a working storefront before
- * touching the editor.
- */
+/* ─── Types ─────────────────────────────────────────────────────────── */
+
 export interface JerseyConfig {
   topPromo?: { text?: string; ctaText?: string; bgColor?: string };
-  hero?: { headline?: string; subtext?: string; cta?: string; imageUrl?: string; gradientFrom?: string; gradientTo?: string };
-  trustStrip?: Array<{ icon: 'truck' | 'shield' | 'rotate' | 'star'; title: string; desc: string }>;
-  footerColumns?: Array<{ title: string; items: Array<{ label: string; href?: string }> }>;
+  hero?: {
+    headline?: string;
+    subtext?: string;
+    cta?: string;
+    imageUrl?: string;
+    gradientFrom?: string;
+    gradientTo?: string;
+  };
+  trustStrip?: Array<{
+    icon: 'truck' | 'shield' | 'rotate' | 'star';
+    title: string;
+    desc: string;
+  }>;
+  footerColumns?: Array<{
+    title: string;
+    items: Array<{ label: string; href?: string }>;
+  }>;
   newsletterPitch?: string;
-  /** Multi-tier categorisation. parentSlug references another tier's slug. */
-  tiers?: Array<{ slug: string; label: string; parentSlug?: string; href?: string }>;
-  /** Payment method logos rendered in the footer. */
-  paymentLogos?: Array<'visa' | 'mastercard' | 'amex' | 'paypal' | 'mpesa' | 'tigopesa' | 'airtelmoney' | 'kobepay'>;
-  /** Languages offered in the header dropdown (label + ISO code). */
+  tiers?: Array<{
+    slug: string;
+    label: string;
+    parentSlug?: string;
+    href?: string;
+  }>;
+  paymentLogos?: Array<
+    'visa' | 'mastercard' | 'amex' | 'paypal' | 'mpesa' | 'tigopesa' | 'airtelmoney' | 'kobepay'
+  >;
   languages?: Array<{ code: string; label: string }>;
-  /** Trustpilot widget config. Renders the real Trustpilot mini iframe when both fields set. */
   trustpilot?: { businessUnitId?: string; templateId?: string };
 }
 
-const DEFAULT_TRUST: NonNullable<JerseyConfig['trustStrip']> = [
-  { icon: 'truck',  title: 'Fast shipping',     desc: 'Same-day dispatch on orders before 2pm' },
-  { icon: 'shield', title: 'Authentic',         desc: 'Sourced direct from suppliers' },
-  { icon: 'rotate', title: '30-day returns',    desc: 'No-questions money-back' },
-  { icon: 'star',   title: 'Excellent reviews', desc: '4.8 / 5 from 12,400+ customers' },
-];
-
-const TRUST_ICONS = { truck: Truck, shield: Shield, rotate: RotateCcw, star: Star } as const;
-
-const PAYMENT_LABEL: Record<NonNullable<JerseyConfig['paymentLogos']>[number], string> = {
-  visa:         'VISA',
-  mastercard:   'MasterCard',
-  amex:         'AMEX',
-  paypal:       'PayPal',
-  mpesa:        'M-Pesa',
-  tigopesa:     'Tigo Pesa',
-  airtelmoney:  'Airtel Money',
-  kobepay:      'KobePay',
-};
-
-/**
- * projerseyshop.es-style storefront chrome — top promo bar, multi-tier
- * header, banded hero, category icon row, square product cards with
- * badges, trust strip, multi-column footer.
- *
- * The container takes a `children` slot for the product grid so the host
- * page (erp-shop) keeps owning data fetching, cart state and routing.
- * `Product` is the same shape the existing storefront already uses.
- */
 export interface JerseyProduct {
   id: string;
   name: string;
   sku: string;
   price: number;
-  /** Lowest variant price, when variants override the parent. */
   priceMin?: number | null;
-  /** Highest variant price — drives the "$17.99 ~ $28.99" range display. */
   priceMax?: number | null;
   compareAtPrice?: number | null;
   stock: number;
@@ -75,26 +81,7 @@ export interface JerseyProduct {
   featured?: boolean;
 }
 
-export function JerseyShopChrome({
-  storeName,
-  tagline,
-  logoUrl,
-  bannerHeadline,
-  bannerSubtext,
-  bannerCta,
-  bannerVisible = true,
-  categories,
-  selectedCategory,
-  onSelectCategory,
-  searchQuery,
-  onSearchChange,
-  cartCount,
-  onOpenCart,
-  onGoStores,
-  onPickNav,
-  config,
-  children,
-}: {
+interface JerseyShopChromeProps {
   storeName: string;
   tagline?: string;
   logoUrl?: string;
@@ -110,365 +97,359 @@ export function JerseyShopChrome({
   cartCount: number;
   onOpenCart: () => void;
   onGoStores: () => void;
-  onPickNav?: (view: 'new-arrivals' | 'offers' | 'brands' | 'wishlist' | 'track-order') => void;
-  /** Optional jersey-editor config. Defaults applied per-field if absent. */
+  onPickNav?: (
+    view: 'new-arrivals' | 'offers' | 'brands' | 'wishlist' | 'track-order',
+  ) => void;
   config?: JerseyConfig;
   children: React.ReactNode;
-}) {
-  // Resolve config with sensible defaults so the storefront looks complete
-  // before the merchant ever opens the editor.
-  const promo = {
-    text:    config?.topPromo?.text    ?? 'Free worldwide shipping over $50 · 30-day returns',
-    ctaText: config?.topPromo?.ctaText ?? 'SIGN UP & GET 15% OFF',
-    bgColor: config?.topPromo?.bgColor ?? '#0f172a',
-  };
-  const hero = {
-    headline:     config?.hero?.headline     ?? bannerHeadline,
-    subtext:      config?.hero?.subtext      ?? bannerSubtext,
-    cta:          config?.hero?.cta          ?? bannerCta,
-    imageUrl:     config?.hero?.imageUrl,
-    gradientFrom: config?.hero?.gradientFrom ?? '#1d4ed8',
-    gradientTo:   config?.hero?.gradientTo   ?? '#a21caf',
-  };
-  const trustItems = (config?.trustStrip && config.trustStrip.length > 0) ? config.trustStrip : DEFAULT_TRUST;
-  const footerCols = config?.footerColumns ?? [];
-  const newsletterPitch = config?.newsletterPitch ?? '15% off your first order when you sign up.';
-  const heroVisible = bannerVisible && (hero.headline || hero.imageUrl);
-  const tiers = config?.tiers ?? [];
-  const paymentLogos = config?.paymentLogos ?? ['visa', 'mastercard', 'mpesa', 'kobepay'];
-  const languages = config?.languages ?? [{ code: 'en', label: 'English' }, { code: 'sw', label: 'Kiswahili' }];
-  // Group multi-tier nav: top-level tiers (parentSlug=null) become the
-  // header buttons; their children become the dropdown when hovered.
-  const topTiers = tiers.filter((t) => !t.parentSlug);
-  const childTiers = (parentSlug: string) => tiers.filter((t) => t.parentSlug === parentSlug);
+}
+
+/* ─── Announcement Bar ──────────────────────────────────────────────── */
+
+export function AnnouncementBar() {
   return (
-    <div className="flex flex-col h-full bg-white text-slate-900 overflow-y-auto">
-      {/* Top promo bar — text + currency + language + signup CTA. */}
-      <div className="text-white text-[11px]" style={{ backgroundColor: promo.bgColor }}>
-        <div className="max-w-7xl mx-auto px-4 py-1.5 flex items-center justify-between gap-3">
-          <span className="text-white/70 hidden md:inline">{promo.text}</span>
-          <div className="flex items-center gap-3">
-            <span className="text-amber-300 font-semibold">{promo.ctaText}</span>
-            <select className="bg-transparent border-none text-[11px] focus:outline-none" aria-label="Currency">
-              <option>USD</option>
-              <option>TZS</option>
-              <option>EUR</option>
-              <option>GBP</option>
-            </select>
-            <select className="bg-transparent border-none text-[11px] focus:outline-none" aria-label="Language">
-              {languages.map((lang) => (
-                <option key={lang.code} value={lang.code}>{lang.label}</option>
-              ))}
-            </select>
-          </div>
+    <div className="bg-[#f5f5f5] text-[11px] text-[#666] border-b border-[#e5e5e5]">
+      <div className="max-w-7xl mx-auto px-4 py-1.5">
+        {/* Row 1 */}
+        <div className="flex items-center justify-center gap-2 mb-1">
+          <select
+            className="bg-transparent border-none text-[11px] text-[#666] focus:outline-none cursor-pointer"
+            aria-label="Currency"
+            defaultValue="USD"
+          >
+            <option>USD / US$</option>
+            <option>EUR / €</option>
+            <option>GBP / £</option>
+          </select>
+          <span className="text-[#ccc]">|</span>
+          <select
+            className="bg-transparent border-none text-[11px] text-[#666] focus:outline-none cursor-pointer"
+            aria-label="Language"
+            defaultValue="en"
+          >
+            <option value="en">Language: English</option>
+            <option value="es">Language: Español</option>
+            <option value="fr">Language: Français</option>
+          </select>
+          <span className="text-[#ccc]">|</span>
+          <button className="hover:text-[#c8102e] transition-colors">
+            Contact us
+          </button>
+        </div>
+        {/* Row 2 */}
+        <div className="flex items-center justify-center gap-2 mb-1">
+          <span className="font-semibold text-[#1a1a1a]">
+            SIGN UP GET 15% OFF
+          </span>
+          <button className="border border-[#999] text-[#1a1a1a] px-3 py-0.5 text-[11px] font-medium hover:border-[#c8102e] hover:text-[#c8102e] transition-colors">
+            Sign up
+          </button>
+        </div>
+        {/* Row 3 */}
+        <div className="flex items-center justify-center gap-2">
+          <span className="flex items-center gap-1">
+            <Truck className="w-3 h-3" />
+            Free Shipping Worldwide
+          </span>
+          <span className="text-[#ccc]">|</span>
+          <button className="underline hover:text-[#c8102e] transition-colors">
+            See terms
+          </button>
+          <span className="text-[#ccc]">|</span>
+          <span className="flex items-center gap-1">
+            <Gift className="w-3 h-3" />
+            Buy 3 Get 1 Free
+          </span>
+          <span className="text-[#ccc]">|</span>
+          <button className="underline hover:text-[#c8102e] transition-colors">
+            Shop Now
+          </button>
         </div>
       </div>
+    </div>
+  );
+}
 
-      {/* Main header */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center gap-4">
-          <button onClick={onGoStores} className="flex items-center gap-2 shrink-0">
-            {logoUrl ? (
-              <img src={logoUrl} alt={storeName} className="h-9 w-9 rounded object-cover" />
-            ) : (
-              <div className="h-9 w-9 rounded bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-white font-bold text-sm">
-                {storeName.slice(0, 1).toUpperCase()}
-              </div>
-            )}
-            <div>
-              <div className="text-base font-bold leading-tight">{storeName}</div>
-              {tagline && <div className="text-[10px] text-slate-500">{tagline}</div>}
-            </div>
-          </button>
-          <div className="flex-1 max-w-2xl relative">
-            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <Input
-              placeholder="Search products, brands, categories…"
-              value={searchQuery}
-              onChange={(e) => onSearchChange(e.target.value)}
-              className="pl-9 h-10 bg-slate-100 border-slate-200 text-sm"
-            />
-          </div>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => onPickNav?.('wishlist')}
-              className="p-2 hover:bg-slate-100 rounded"
-              title="Wishlist"
-            >
-              <Heart className="w-5 h-5 text-slate-700" />
-            </button>
-            <button
-              onClick={() => onPickNav?.('track-order')}
-              className="hidden md:flex items-center gap-1 text-xs text-slate-700 px-2 hover:bg-slate-100 rounded h-9"
-            >
-              <User className="w-4 h-4" /> Track order
-            </button>
-            <button onClick={onOpenCart} className="relative p-2 hover:bg-slate-100 rounded">
-              <ShoppingCart className="w-5 h-5 text-slate-700" />
-              {cartCount > 0 && (
-                <span className="absolute -top-0 -right-0 bg-rose-500 text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center font-bold">
-                  {cartCount}
-                </span>
-              )}
-            </button>
-          </div>
+/* ─── Header ────────────────────────────────────────────────────────── */
+
+export function Header({
+  searchQuery,
+  onSearchChange,
+  cartCount,
+  onOpenCart,
+  onPickNav,
+}: {
+  searchQuery: string;
+  onSearchChange: (q: string) => void;
+  cartCount: number;
+  onOpenCart: () => void;
+  onPickNav?: JerseyShopChromeProps['onPickNav'];
+}) {
+  return (
+    <header className="bg-white border-b border-[#e5e5e5]">
+      <div className="max-w-7xl mx-auto px-4 h-[70px] flex items-center gap-6">
+        {/* Logo */}
+        <a href="/" className="shrink-0 flex items-center gap-0">
+          <span
+            className="text-[22px] font-black tracking-wider"
+            style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}
+          >
+            <span className="text-[#c8102e]">PRO</span>
+            <span className="text-[#1a1a1a]">JERSEY SHOP</span>
+          </span>
+        </a>
+
+        {/* Search */}
+        <div className="flex-1 max-w-xl relative">
+          <Search className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-[#999]" />
+          <input
+            type="text"
+            placeholder="Search Your Favourite Gears"
+            value={searchQuery}
+            onChange={(e) => onSearchChange(e.target.value)}
+            className="w-full h-10 pl-10 pr-4 rounded-full bg-gray-100 border border-gray-200 text-sm text-[#1a1a1a] placeholder:text-[#999] focus:outline-none focus:border-[#c8102e] focus:ring-1 focus:ring-[#c8102e] transition-all"
+          />
         </div>
-        {/* Multi-tier nav — categories from products on the left, configured
-            tiers (parent-with-dropdown) in the middle, action shortcuts right. */}
-        <nav className="border-t border-slate-100 bg-white">
-          <div className="max-w-7xl mx-auto px-4 flex gap-1 overflow-x-auto">
-            {categories.map((cat) => (
-              <button
-                key={cat}
-                onClick={() => onSelectCategory(cat)}
-                className={`px-3 py-2.5 text-[12px] font-semibold uppercase tracking-wide whitespace-nowrap border-b-2 ${
-                  selectedCategory === cat
-                    ? 'border-blue-600 text-blue-700'
-                    : 'border-transparent text-slate-700 hover:text-blue-700'
-                }`}
-              >
-                {cat}
-              </button>
-            ))}
-            {topTiers.map((tier) => {
-              const kids = childTiers(tier.slug);
-              return (
-                <div key={tier.slug} className="relative group/tier">
-                  <a
-                    href={tier.href ?? '#'}
-                    className="block px-3 py-2.5 text-[12px] font-semibold uppercase tracking-wide whitespace-nowrap text-slate-700 hover:text-blue-700 border-b-2 border-transparent group-hover/tier:text-blue-700"
-                  >
-                    {tier.label}
-                    {kids.length > 0 && <span className="ml-1 text-slate-400">▾</span>}
-                  </a>
-                  {kids.length > 0 && (
-                    <div className="absolute left-0 top-full z-20 hidden group-hover/tier:block min-w-[200px] bg-white border border-slate-200 shadow-lg rounded-b">
-                      {kids.map((k) => (
-                        <a
-                          key={k.slug}
-                          href={k.href ?? '#'}
-                          className="block px-4 py-2 text-xs text-slate-700 hover:bg-blue-50 hover:text-blue-700"
-                        >
-                          {k.label}
-                        </a>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-            <button
-              onClick={() => onPickNav?.('new-arrivals')}
-              className="ml-auto px-3 py-2.5 text-[12px] font-semibold uppercase text-amber-700 whitespace-nowrap"
-            >
-              New arrivals
-            </button>
-            <button
-              onClick={() => onPickNav?.('offers')}
-              className="px-3 py-2.5 text-[12px] font-semibold uppercase text-rose-700 whitespace-nowrap"
-            >
-              Hot offers
-            </button>
-          </div>
-        </nav>
-      </header>
 
-      {/* Hero banner */}
-      {heroVisible && (
-        <section
-          className="text-white"
-          style={{ background: `linear-gradient(135deg, ${hero.gradientFrom}, ${hero.gradientTo})` }}
-        >
-          <div className="max-w-7xl mx-auto px-4 py-12 md:py-16 flex flex-col md:flex-row items-center justify-between gap-6">
-            <div className="space-y-3 text-center md:text-left">
-              <div className="inline-block bg-amber-300/90 text-amber-950 text-[10px] uppercase font-bold px-2 py-1 rounded">
-                Featured collection
-              </div>
-              {hero.headline && <h2 className="text-3xl md:text-4xl font-bold tracking-tight">{hero.headline}</h2>}
-              {hero.subtext && <p className="text-base md:text-lg text-white/85">{hero.subtext}</p>}
-              {hero.cta && (
-                <Button className="bg-white text-slate-900 hover:bg-slate-100 font-bold h-11 px-6">
-                  {hero.cta} <ChevronRight className="w-4 h-4 ml-1" />
-                </Button>
-              )}
-            </div>
-            <div className="hidden md:block">
-              {hero.imageUrl ? (
-                <img src={hero.imageUrl} alt="" className="w-64 h-64 rounded-2xl object-cover" />
-              ) : (
-                <div className="w-64 h-64 rounded-2xl bg-white/10 border border-white/20 backdrop-blur flex items-center justify-center text-white/40 text-sm">
-                  Banner image
-                </div>
-              )}
-            </div>
-          </div>
-        </section>
-      )}
+        {/* Right actions */}
+        <div className="flex items-center gap-5 text-[12px] text-[#1a1a1a]">
+          <button className="hidden lg:flex items-center gap-1.5 hover:text-[#c8102e] transition-colors">
+            <Truck className="w-4 h-4" />
+            Track Order
+          </button>
+          <button className="hidden lg:flex items-center gap-1.5 hover:text-[#c8102e] transition-colors">
+            <Smartphone className="w-4 h-4" />
+            Download App
+          </button>
+          <button
+            onClick={() => onPickNav?.('track-order')}
+            className="flex items-center gap-1.5 hover:text-[#c8102e] transition-colors"
+          >
+            <User className="w-4 h-4" />
+            Login
+          </button>
+          <button
+            onClick={onOpenCart}
+            className="relative flex items-center gap-1.5 hover:text-[#c8102e] transition-colors"
+          >
+            <ShoppingCart className="w-4 h-4" />
+            Cart
+            {cartCount > 0 && (
+              <span className="absolute -top-2 -right-2 bg-[#c8102e] text-white text-[10px] rounded-full w-4 h-4 flex items-center justify-center font-bold">
+                {cartCount}
+              </span>
+            )}
+          </button>
+        </div>
+      </div>
+    </header>
+  );
+}
 
-      {/* Category icon strip */}
-      <section className="bg-slate-50 border-b border-slate-200">
-        <div className="max-w-7xl mx-auto px-4 py-4 grid grid-cols-3 md:grid-cols-6 gap-3">
-          {categories.slice(0, 6).map((cat) => (
+/* ─── Main Nav ──────────────────────────────────────────────────────── */
+
+const NAV_ITEMS = [
+  'WORLD CUP 2026',
+  'CLUBS',
+  'APPAREL',
+  'RETRO',
+  'KIDS',
+  'Buy 3 Get 1 FREE',
+  'PLAYERS',
+  'NBA',
+  'NEW',
+];
+
+export function MainNav({
+  selectedCategory,
+  onSelectCategory,
+}: {
+  selectedCategory: string;
+  onSelectCategory: (cat: string) => void;
+}) {
+  return (
+    <nav className="bg-white border-t border-b border-[#e5e5e5]">
+      <div className="max-w-7xl mx-auto px-4 flex items-center gap-0 overflow-x-auto">
+        {NAV_ITEMS.map((item) => {
+          const isActive = selectedCategory === item;
+          const isPromo = item === 'Buy 3 Get 1 FREE';
+          return (
             <button
-              key={cat}
-              onClick={() => onSelectCategory(cat)}
-              className="flex flex-col items-center gap-1.5 hover:opacity-80 transition"
+              key={item}
+              onClick={() => onSelectCategory(item)}
+              className={`px-4 h-12 text-[13px] font-bold uppercase tracking-wide whitespace-nowrap border-b-2 transition-colors ${
+                isActive
+                  ? 'border-[#c8102e] text-[#c8102e]'
+                  : 'border-transparent text-[#1a1a1a] hover:text-[#c8102e]'
+              } ${isPromo ? 'text-[#c8102e]' : ''}`}
+            >
+              {item}
+            </button>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
+
+/* ─── Category Quick Icons ──────────────────────────────────────────── */
+
+const CATEGORY_ICONS = [
+  {
+    label: 'Clubs',
+    gradient: 'from-green-400 to-green-600',
+    Icon: CircleDot,
+  },
+  {
+    label: 'World Cup',
+    gradient: 'from-amber-400 to-amber-600',
+    Icon: Trophy,
+  },
+  {
+    label: 'Buy 3 Get 1',
+    gradient: 'from-red-400 to-red-600',
+    Icon: Gift,
+  },
+  {
+    label: '26/27 New',
+    gradient: 'from-blue-400 to-blue-600',
+    Icon: Sparkles,
+  },
+  {
+    label: 'UCL',
+    gradient: 'from-violet-400 to-violet-600',
+    Icon: Star,
+  },
+  {
+    label: '2026 F1',
+    gradient: 'from-orange-400 to-orange-600',
+    Icon: Fuel,
+  },
+];
+
+export function CategoryIcons() {
+  return (
+    <section className="bg-white border-b border-[#e5e5e5]">
+      <div className="max-w-7xl mx-auto px-4 py-5">
+        <div className="flex items-center justify-center gap-8 md:gap-12">
+          {CATEGORY_ICONS.map(({ label, gradient, Icon }) => (
+            <button
+              key={label}
+              className="flex flex-col items-center gap-2 group"
             >
               <div
-                className={`w-16 h-16 md:w-20 md:h-20 rounded-full flex items-center justify-center text-2xl font-bold ${
-                  selectedCategory === cat
-                    ? 'bg-blue-600 text-white ring-4 ring-blue-200'
-                    : 'bg-white border border-slate-200 text-slate-700'
-                }`}
+                className={`w-14 h-14 rounded-full bg-gradient-to-br ${gradient} flex items-center justify-center text-white shadow-md group-hover:scale-110 transition-transform`}
               >
-                {cat.slice(0, 1).toUpperCase()}
+                <Icon className="w-6 h-6" />
               </div>
-              <span className="text-[11px] font-medium text-slate-700 text-center">{cat}</span>
+              <span className="text-[12px] text-[#1a1a1a] font-medium whitespace-nowrap">
+                {label}
+              </span>
             </button>
           ))}
         </div>
-      </section>
-
-      {/* Trust strip — editable */}
-      <section className="bg-white border-b border-slate-200">
-        <div className="max-w-7xl mx-auto px-4 py-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-[12px]">
-          {trustItems.map((item, i) => {
-            const IconCmp = TRUST_ICONS[item.icon] ?? Truck;
-            return <TrustItem key={i} icon={<IconCmp className="w-4 h-4" />} title={item.title} desc={item.desc} />;
-          })}
-        </div>
-      </section>
-
-      {/* Product grid (host-provided) */}
-      <main className="flex-1 bg-slate-50">
-        <div className="max-w-7xl mx-auto px-4 py-6">
-          {children}
-        </div>
-      </main>
-
-      {/* Trustpilot widget — real Trustpilot iframe when the merchant has
-          published their businessUnitId, otherwise a static "Excellent
-          reviews" placeholder so the strip never looks empty. */}
-      <section className="bg-white border-t border-slate-200">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-center">
-          {config?.trustpilot?.businessUnitId ? (
-            <iframe
-              title="Trustpilot reviews"
-              src={`https://widget.trustpilot.com/trustboxes/${config.trustpilot.templateId ?? '5419b6a8b0d04a076446a9ad'}/index.html?businessunit=${encodeURIComponent(
-                config.trustpilot.businessUnitId,
-              )}`}
-              className="w-full max-w-3xl h-20 border-0"
-              loading="lazy"
-            />
-          ) : (
-            <div className="flex items-center gap-2 text-emerald-700 text-sm">
-              <Star className="w-5 h-5 fill-current" />
-              <strong>Excellent</strong>
-              <span className="text-slate-500">based on 12,400+ customer reviews</span>
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* Footer — first column is fixed (store identity), rest come from
-          config.footerColumns; if no columns configured we fall back to a
-          sensible Shop / Support / Newsletter layout. */}
-      <footer className="bg-slate-900 text-slate-300 text-xs">
-        <div className="max-w-7xl mx-auto px-4 py-10 grid grid-cols-2 md:grid-cols-4 gap-6">
-          <div>
-            <h4 className="text-white font-bold text-sm mb-2">{storeName}</h4>
-            <p className="text-slate-400">{tagline ?? 'Quality products, fast delivery.'}</p>
-            <p className="text-slate-500 mt-3">© {new Date().getFullYear()} {storeName}</p>
-          </div>
-          {footerCols.length > 0 ? (
-            footerCols.map((col, i) => (
-              <div key={i}>
-                <h4 className="text-white font-bold text-sm mb-2">{col.title}</h4>
-                <ul className="space-y-1 text-slate-400">
-                  {col.items.map((item, j) => (
-                    <li key={j}>
-                      {item.href ? (
-                        <a href={item.href} className="hover:text-white">{item.label}</a>
-                      ) : (
-                        <span>{item.label}</span>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))
-          ) : (
-            <>
-              <FooterCol title="Shop" items={categories.slice(0, 5)} onPick={onSelectCategory} />
-              <div>
-                <h4 className="text-white font-bold text-sm mb-2">Support</h4>
-                <ul className="space-y-1 text-slate-400">
-                  <li><button onClick={() => onPickNav?.('track-order')} className="hover:text-white">Track order</button></li>
-                  <li><button onClick={() => onPickNav?.('wishlist')} className="hover:text-white">Wishlist</button></li>
-                  <li>Shipping &amp; returns</li>
-                  <li>Contact us</li>
-                </ul>
-              </div>
-            </>
-          )}
-          <div>
-            <h4 className="text-white font-bold text-sm mb-2">Stay in the loop</h4>
-            <p className="text-slate-400 mb-2">{newsletterPitch}</p>
-            <div className="flex gap-1">
-              <Input placeholder="your@email.com" className="h-8 bg-white/5 border-white/10 text-white text-xs" />
-              <Button size="sm" className="bg-amber-500 text-amber-950 hover:bg-amber-400 h-8">Join</Button>
-            </div>
-          </div>
-        </div>
-        {/* Payment methods strip + app download CTA */}
-        <div className="border-t border-white/10">
-          <div className="max-w-7xl mx-auto px-4 py-3 flex flex-col md:flex-row items-center justify-between gap-2">
-            <div className="flex items-center gap-2 flex-wrap">
-              {paymentLogos.map((p) => (
-                <span
-                  key={p}
-                  className="text-[10px] uppercase font-bold tracking-wide bg-white text-slate-900 rounded px-2 py-1"
-                >
-                  {PAYMENT_LABEL[p] ?? p}
-                </span>
-              ))}
-            </div>
-            <p className="text-[10px] text-slate-400">
-              Secure checkout · PCI-DSS · Powered by KobePay
-            </p>
-          </div>
-        </div>
-      </footer>
-    </div>
-  );
-}
-
-function FooterCol({ title, items, onPick }: { title: string; items: string[]; onPick: (item: string) => void }) {
-  return (
-    <div>
-      <h4 className="text-white font-bold text-sm mb-2">{title}</h4>
-      <ul className="space-y-1 text-slate-400">
-        {items.map((i) => (
-          <li key={i}><button onClick={() => onPick(i)} className="hover:text-white text-left">{i}</button></li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function TrustItem({ icon, title, desc }: { icon: React.ReactNode; title: string; desc: string }) {
-  return (
-    <div className="flex items-start gap-2">
-      <div className="text-blue-600 mt-0.5">{icon}</div>
-      <div>
-        <div className="font-semibold text-slate-800">{title}</div>
-        <div className="text-slate-500 text-[11px]">{desc}</div>
       </div>
+    </section>
+  );
+}
+
+/* ─── Hero Banner ───────────────────────────────────────────────────── */
+
+export function HeroBanner({
+  config,
+  bannerHeadline,
+  bannerSubtext,
+  bannerCta,
+  bannerVisible,
+}: {
+  config?: JerseyConfig;
+  bannerHeadline?: string;
+  bannerSubtext?: string;
+  bannerCta?: string;
+  bannerVisible?: boolean;
+}) {
+  if (!bannerVisible) return null;
+
+  const hero = {
+    headline:
+      config?.hero?.headline ?? bannerHeadline ?? '2026 WORLD CUP',
+    subtext:
+      config?.hero?.subtext ??
+      bannerSubtext ??
+      'UPGRADE YOUR JERSEY WITH SLEEVE BADGES',
+    cta: config?.hero?.cta ?? bannerCta ?? 'SHOP NOW',
+    imageUrl: config?.hero?.imageUrl,
+    gradientFrom: config?.hero?.gradientFrom ?? '#1a1a2e',
+    gradientTo: config?.hero?.gradientTo ?? '#16213e',
+  };
+
+  return (
+    <section
+      className="relative text-white overflow-hidden"
+      style={{
+        background: hero.imageUrl
+          ? undefined
+          : `linear-gradient(135deg, ${hero.gradientFrom}, ${hero.gradientTo})`,
+      }}
+    >
+      {hero.imageUrl && (
+        <img
+          src={hero.imageUrl}
+          alt=""
+          className="absolute inset-0 w-full h-full object-cover"
+        />
+      )}
+      <div
+        className={`relative max-w-7xl mx-auto px-4 py-16 md:py-20 flex flex-col items-center text-center gap-4 ${
+          hero.imageUrl ? 'bg-black/40' : ''
+        }`}
+      >
+        <p className="text-sm md:text-base tracking-[0.2em] uppercase text-white/80">
+          UPGRADE YOUR JERSEY WITH
+        </p>
+        <h2
+          className="text-4xl md:text-6xl font-black tracking-tight"
+          style={{ textShadow: '0 2px 10px rgba(0,0,0,0.5)' }}
+        >
+          {hero.headline}
+        </h2>
+        <p className="text-lg md:text-xl tracking-[0.15em] uppercase text-white/90">
+          SLEEVE BADGES
+        </p>
+        <button className="mt-4 px-10 py-3 bg-[#c9a96e] hover:bg-[#b8985e] text-[#1a1a1a] font-bold text-sm uppercase tracking-wide rounded transition-colors shadow-lg">
+          {hero.cta}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+/* ─── Section Title ─────────────────────────────────────────────────── */
+
+export function SectionTitle({
+  title,
+  onMore,
+}: {
+  title: string;
+  onMore?: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between border-b-2 border-[#e5e5e5] pb-3 mb-5">
+      <h2 className="text-xl font-bold text-[#1a1a1a]">{title}</h2>
+      {onMore && (
+        <button
+          onClick={onMore}
+          className="flex items-center gap-1 text-[13px] text-[#666] hover:text-[#c8102e] transition-colors"
+        >
+          MORE
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      )}
     </div>
   );
 }
 
-// ── Product card matching the jersey-shop look ──────────────────────────────
+/* ─── Product Card ──────────────────────────────────────────────────── */
 
 export function JerseyProductCard({
   product,
@@ -483,20 +464,41 @@ export function JerseyProductCard({
   onOpen: (p: JerseyProduct) => void;
   wished: boolean;
 }) {
-  const onSale = (product.compareAtPrice ?? 0) > product.price;
   const newRecent = useMemo(() => {
     if (!product.publishedAt) return false;
-    const days = (Date.now() - new Date(product.publishedAt).getTime()) / (1000 * 60 * 60 * 24);
+    const days =
+      (Date.now() - new Date(product.publishedAt).getTime()) /
+      (1000 * 60 * 60 * 24);
     return days <= 14;
   }, [product.publishedAt]);
 
-  const hasRange = product.priceMin !== null && product.priceMin !== undefined
-    && product.priceMax !== null && product.priceMax !== undefined
-    && product.priceMin !== product.priceMax;
+  const hasRange =
+    product.priceMin != null &&
+    product.priceMax != null &&
+    product.priceMin !== product.priceMax;
+
+  const displayPrice = hasRange
+    ? `${product.currency}$${Number(product.priceMin).toFixed(2)} ~ ${product.currency}$${Number(product.priceMax).toFixed(2)}`
+    : `${product.currency}$${Number(product.price).toFixed(2)}`;
+
+  // Derive badge from tags
+  const badgeTag = product.tags?.find((t) =>
+    ['26/27', 'World Cup', 'TOP SALE', 'NEW'].includes(t),
+  );
+  const badgeColor: Record<string, string> = {
+    '26/27': 'bg-blue-600',
+    'World Cup': 'bg-red-600',
+    'TOP SALE': 'bg-amber-500',
+    NEW: 'bg-emerald-500',
+  };
 
   return (
-    <div className="group bg-white rounded-lg border border-slate-200 overflow-hidden flex flex-col hover:shadow-lg hover:-translate-y-0.5 transition-all">
-      <button onClick={() => onOpen(product)} className="relative aspect-square bg-slate-100 overflow-hidden">
+    <div className="group bg-white rounded-lg border border-[#e5e5e5] overflow-hidden flex flex-col hover:shadow-md transition-shadow">
+      {/* Image area */}
+      <button
+        onClick={() => onOpen(product)}
+        className="relative aspect-square bg-[#f8f8f8] overflow-hidden"
+      >
         {product.imageUrl ? (
           <img
             src={product.imageUrl}
@@ -504,60 +506,698 @@ export function JerseyProductCard({
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
           />
         ) : (
-          <div className="w-full h-full flex items-center justify-center text-slate-300 text-xs">No image</div>
+          <div className="w-full h-full flex items-center justify-center text-[#ccc] text-xs">
+            <Package className="w-10 h-10" />
+          </div>
         )}
-        <div className="absolute top-2 left-2 flex flex-col gap-1">
-          {product.featured && (
-            <Badge className="bg-amber-500 hover:bg-amber-500 text-amber-950 text-[9px] font-bold uppercase">Featured</Badge>
-          )}
-          {newRecent && (
-            <Badge className="bg-emerald-500 hover:bg-emerald-500 text-white text-[9px] font-bold uppercase">New</Badge>
-          )}
-          {onSale && (
-            <Badge className="bg-rose-500 hover:bg-rose-500 text-white text-[9px] font-bold uppercase">Hot offer</Badge>
-          )}
-        </div>
+
+        {/* Badge top-right */}
+        {badgeTag && (
+          <span
+            className={`absolute top-2 right-2 ${badgeColor[badgeTag] ?? 'bg-blue-600'} text-white text-[10px] font-bold px-2.5 py-1 rounded-full uppercase`}
+          >
+            {badgeTag}
+          </span>
+        )}
+
+        {/* Wishlist button */}
         <button
-          onClick={(e) => { e.stopPropagation(); onAddToWishlist(product); }}
-          className={`absolute top-2 right-2 p-1.5 rounded-full transition-colors ${wished ? 'bg-rose-500 text-white' : 'bg-white/90 text-slate-700 hover:bg-white'}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onAddToWishlist(product);
+          }}
+          className={`absolute top-2 left-2 p-1.5 rounded-full transition-colors ${
+            wished
+              ? 'bg-[#c8102e] text-white'
+              : 'bg-white/90 text-[#999] hover:bg-white hover:text-[#c8102e]'
+          }`}
           title="Add to wishlist"
         >
           <Heart className={`w-3.5 h-3.5 ${wished ? 'fill-current' : ''}`} />
         </button>
-        {/* Hover overlay matches projerseyshop's "SHOP NOW" CTA. */}
-        <div className="absolute inset-x-0 bottom-0 translate-y-full group-hover:translate-y-0 transition-transform bg-slate-900/90 text-white text-xs font-bold uppercase tracking-wide text-center py-2">
-          Shop now
+
+        {/* Hover overlay - Quick View */}
+        <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpen(product);
+            }}
+            className="px-6 py-2 bg-white text-[#1a1a1a] text-xs font-bold uppercase tracking-wide rounded hover:bg-[#f5f5f5] transition-colors"
+          >
+            QUICK VIEW
+          </button>
         </div>
       </button>
-      <div className="p-3 flex-1 flex flex-col gap-1">
-        {product.brand && (
-          <span className="text-[10px] font-semibold uppercase tracking-wide text-blue-700">{product.brand}</span>
-        )}
-        <h3 onClick={() => onOpen(product)} className="text-sm font-medium text-slate-900 line-clamp-2 leading-snug cursor-pointer hover:text-blue-700">
+
+      {/* Info area */}
+      <div className="p-3 flex-1 flex flex-col gap-1.5">
+        <h3
+          onClick={() => onOpen(product)}
+          className="text-[13px] text-[#1a1a1a] line-clamp-2 leading-snug cursor-pointer hover:text-[#c8102e] transition-colors min-h-[2.5rem]"
+        >
           {product.name}
         </h3>
-        <div className="flex items-end gap-2 mt-auto pt-1">
-          <span className="text-base font-bold text-slate-900">
-            {hasRange
-              ? `${product.currency} ${Number(product.priceMin).toLocaleString()} ~ ${Number(product.priceMax).toLocaleString()}`
-              : `${product.currency} ${Number(product.price).toLocaleString()}`}
-          </span>
-          {onSale && !hasRange && (
-            <span className="text-xs text-slate-400 line-through">
-              {product.currency} {Number(product.compareAtPrice).toLocaleString()}
-            </span>
-          )}
+
+        <div className="text-[15px] font-bold text-[#1a1a1a]">
+          {displayPrice}
         </div>
+
+        {/* Star rating placeholder */}
+        <div className="flex items-center gap-1">
+          <div className="flex">
+            {[1, 2, 3, 4, 5].map((s) => (
+              <Star
+                key={s}
+                className="w-3 h-3 text-amber-400 fill-amber-400"
+              />
+            ))}
+          </div>
+          <span className="text-[11px] text-[#999]">(211)</span>
+        </div>
+
         <Button
           size="sm"
           onClick={() => onAddToCart(product)}
           disabled={product.stock <= 0}
-          className="bg-blue-600 hover:bg-blue-700 text-white h-8 text-xs mt-1"
+          className="bg-[#c8102e] hover:bg-[#a00d24] text-white h-8 text-[11px] mt-1 font-bold uppercase tracking-wide"
         >
           <ShoppingCart className="w-3.5 h-3.5 mr-1.5" />
-          {product.stock <= 0 ? 'Out of stock' : 'Add to cart'}
+          {product.stock <= 0 ? 'OUT OF STOCK' : 'ADD TO CART'}
         </Button>
       </div>
+    </div>
+  );
+}
+
+/* ─── Product Section (carousel/grid) ───────────────────────────────── */
+
+export function ProductSection({
+  title,
+  products,
+  onMore,
+  onAddToCart,
+  onAddToWishlist,
+  onOpenProduct,
+  wishlistIds,
+  variant = 'carousel',
+}: {
+  title: string;
+  products: JerseyProduct[];
+  onMore?: () => void;
+  onAddToCart: (p: JerseyProduct) => void;
+  onAddToWishlist: (p: JerseyProduct) => void;
+  onOpenProduct: (p: JerseyProduct) => void;
+  wishlistIds: Set<string>;
+  variant?: 'carousel' | 'grid';
+}) {
+  const [scrollRef, setScrollRef] = useState<HTMLDivElement | null>(null);
+
+  const scroll = (dir: 'left' | 'right') => {
+    if (!scrollRef) return;
+    const amount = 300;
+    scrollRef.scrollBy({
+      left: dir === 'left' ? -amount : amount,
+      behavior: 'smooth',
+    });
+  };
+
+  if (products.length === 0) return null;
+
+  return (
+    <section className="py-8">
+      <div className="max-w-7xl mx-auto px-4">
+        <SectionTitle title={title} onMore={onMore} />
+
+        {variant === 'carousel' ? (
+          <div className="relative">
+            {/* Arrow left */}
+            <button
+              onClick={() => scroll('left')}
+              className="absolute -left-3 top-[40%] z-10 w-8 h-8 bg-white border border-[#e5e5e5] rounded-full flex items-center justify-center shadow hover:border-[#c8102e] hover:text-[#c8102e] transition-colors"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+
+            <div
+              ref={setScrollRef}
+              className="flex gap-4 overflow-x-auto pb-2 scrollbar-hide scroll-smooth"
+              style={{ scrollbarWidth: 'none' }}
+            >
+              {products.map((product) => (
+                <div key={product.id} className="w-[220px] md:w-[260px] shrink-0">
+                  <JerseyProductCard
+                    product={product}
+                    onAddToCart={onAddToCart}
+                    onAddToWishlist={onAddToWishlist}
+                    onOpen={onOpenProduct}
+                    wished={wishlistIds.has(product.id)}
+                  />
+                </div>
+              ))}
+            </div>
+
+            {/* Arrow right */}
+            <button
+              onClick={() => scroll('right')}
+              className="absolute -right-3 top-[40%] z-10 w-8 h-8 bg-white border border-[#e5e5e5] rounded-full flex items-center justify-center shadow hover:border-[#c8102e] hover:text-[#c8102e] transition-colors"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            {products.map((product) => (
+              <JerseyProductCard
+                key={product.id}
+                product={product}
+                onAddToCart={onAddToCart}
+                onAddToWishlist={onAddToWishlist}
+                onOpen={onOpenProduct}
+                wished={wishlistIds.has(product.id)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+/* ─── Recommend Tabs Section ────────────────────────────────────────── */
+
+const TABS = ['World Cup', '¡Hala Madrid!', 'Barcelona'];
+
+export function RecommendSection({
+  products,
+  onAddToCart,
+  onAddToWishlist,
+  onOpenProduct,
+  wishlistIds,
+}: {
+  products: JerseyProduct[];
+  onAddToCart: (p: JerseyProduct) => void;
+  onAddToWishlist: (p: JerseyProduct) => void;
+  onOpenProduct: (p: JerseyProduct) => void;
+  wishlistIds: Set<string>;
+}) {
+  const [activeTab, setActiveTab] = useState(0);
+
+  const filtered = useMemo(() => {
+    const tab = TABS[activeTab];
+    if (tab === 'World Cup') {
+      return products.filter(
+        (p) =>
+          p.tags?.includes('World Cup') ||
+          p.name.toLowerCase().includes('world cup'),
+      );
+    }
+    if (tab === '¡Hala Madrid!') {
+      return products.filter(
+        (p) =>
+          p.name.toLowerCase().includes('real madrid') ||
+          p.name.toLowerCase().includes('madrid'),
+      );
+    }
+    if (tab === 'Barcelona') {
+      return products.filter(
+        (p) =>
+          p.name.toLowerCase().includes('barcelona') ||
+          p.name.toLowerCase().includes('barca'),
+      );
+    }
+    return products;
+  }, [activeTab, products]);
+
+  return (
+    <section className="py-8 bg-white">
+      <div className="max-w-7xl mx-auto px-4">
+        {/* Tab bar */}
+        <div className="flex items-center justify-between border-b-2 border-[#e5e5e5] mb-5">
+          <div className="flex gap-0">
+            {TABS.map((tab, i) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(i)}
+                className={`px-5 py-3 text-[14px] font-bold border-b-2 transition-colors ${
+                  activeTab === i
+                    ? 'border-[#c8102e] text-[#c8102e]'
+                    : 'border-transparent text-[#666] hover:text-[#1a1a1a]'
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
+          <button className="flex items-center gap-1 text-[13px] text-[#666] hover:text-[#c8102e] transition-colors mb-2">
+            Shop all
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Product grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+          {(filtered.length > 0 ? filtered : products.slice(0, 5)).map(
+            (product) => (
+              <JerseyProductCard
+                key={product.id}
+                product={product}
+                onAddToCart={onAddToCart}
+                onAddToWishlist={onAddToWishlist}
+                onOpen={onOpenProduct}
+                wished={wishlistIds.has(product.id)}
+              />
+            ),
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ─── Trust Badges ──────────────────────────────────────────────────── */
+
+const TRUST_BADGES_DATA = [
+  { icon: Award, title: '8-Year Brand', desc: 'Since 2017' },
+  { icon: ShieldCheck, title: 'Premium Quality', desc: 'Top materials' },
+  { icon: Globe, title: 'Ship Worldwide', desc: 'Global delivery' },
+  { icon: RotateCcw, title: '30 Days Return', desc: 'Easy returns' },
+  { icon: Clock, title: '24/7 Service', desc: 'Always here' },
+  { icon: CreditCard, title: 'Secure Payment', desc: '100% secure' },
+];
+
+export function TrustBadges() {
+  return (
+    <section className="bg-[#f5f5f5] border-y border-[#e5e5e5]">
+      <div className="max-w-7xl mx-auto px-4 py-6">
+        <div className="grid grid-cols-3 md:grid-cols-6 gap-4">
+          {TRUST_BADGES_DATA.map(({ icon: Icon, title, desc }) => (
+            <div
+              key={title}
+              className="flex flex-col items-center gap-2 text-center"
+            >
+              <div className="w-12 h-12 rounded-full bg-white border border-[#e5e5e5] flex items-center justify-center text-[#c8102e]">
+                <Icon className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="text-[12px] font-bold text-[#1a1a1a]">
+                  {title}
+                </div>
+                <div className="text-[11px] text-[#999]">{desc}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ─── Testimonials ──────────────────────────────────────────────────── */
+
+const TESTIMONIALS_HELPFUL = [
+  {
+    name: 'Michael R.',
+    avatar: 'M',
+    text: 'The quality of the jerseys is outstanding. I ordered a Real Madrid kit and the stitching, fabric, and badges are all top-notch. Will definitely be ordering again!',
+    product: 'Real Madrid Home Jersey 2024/25',
+    stars: 5,
+  },
+  {
+    name: 'Sarah L.',
+    avatar: 'S',
+    text: 'Fast shipping to the US and the jersey fits perfectly. The player version feels authentic and the detailing is incredible. Highly recommend!',
+    product: 'Barcelona Away Jersey 2024/25',
+    stars: 5,
+  },
+  {
+    name: 'James T.',
+    avatar: 'J',
+    text: 'Great customer service. Had a question about sizing and they responded within minutes. The World Cup jersey I got looks amazing.',
+    product: 'World Cup 2026 USA Jersey',
+    stars: 5,
+  },
+];
+
+const TESTIMONIALS_STORIES = [
+  {
+    name: 'Carlos M.',
+    avatar: 'C',
+    text: 'I have been collecting retro jerseys for years and Pro Jersey Shop has the best selection. The 1998 France jersey I bought brings back so many memories!',
+    product: 'France Retro Jersey 1998',
+    stars: 5,
+  },
+  {
+    name: 'Emma W.',
+    avatar: 'E',
+    text: 'Bought matching jerseys for my whole family for the World Cup. The kids jerseys are adorable and great quality. Everyone loved them!',
+    product: 'Kids Argentina Jersey 2024/25',
+    stars: 5,
+  },
+];
+
+export function TestimonialsSection() {
+  const [tab, setTab] = useState<'helpful' | 'stories'>('helpful');
+  const reviews = tab === 'helpful' ? TESTIMONIALS_HELPFUL : TESTIMONIALS_STORIES;
+
+  return (
+    <section className="py-10 bg-white">
+      <div className="max-w-7xl mx-auto px-4">
+        <h2 className="text-xl font-bold text-[#1a1a1a] mb-4">
+          What They Said About Our Soccer Jerseys
+        </h2>
+
+        {/* Tabs */}
+        <div className="flex gap-4 mb-6 border-b border-[#e5e5e5]">
+          <button
+            onClick={() => setTab('helpful')}
+            className={`pb-2 text-[13px] font-bold uppercase tracking-wide border-b-2 transition-colors ${
+              tab === 'helpful'
+                ? 'border-[#c8102e] text-[#c8102e]'
+                : 'border-transparent text-[#999] hover:text-[#1a1a1a]'
+            }`}
+          >
+            Helpful
+          </button>
+          <button
+            onClick={() => setTab('stories')}
+            className={`pb-2 text-[13px] font-bold uppercase tracking-wide border-b-2 transition-colors ${
+              tab === 'stories'
+                ? 'border-[#c8102e] text-[#c8102e]'
+                : 'border-transparent text-[#999] hover:text-[#1a1a1a]'
+            }`}
+          >
+            Soccer Stories
+          </button>
+        </div>
+
+        {/* Review cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {reviews.map((review, i) => (
+            <div
+              key={i}
+              className="border border-[#e5e5e5] rounded-lg p-4 hover:shadow-sm transition-shadow"
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-full bg-[#f5f5f5] flex items-center justify-center text-[#1a1a1a] font-bold text-sm">
+                  {review.avatar}
+                </div>
+                <div>
+                  <div className="text-[13px] font-bold text-[#1a1a1a]">
+                    {review.name}
+                  </div>
+                  <div className="flex">
+                    {[...Array(5)].map((_, s) => (
+                      <Star
+                        key={s}
+                        className={`w-3 h-3 ${
+                          s < review.stars
+                            ? 'text-amber-400 fill-amber-400'
+                            : 'text-gray-300'
+                        }`}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+              <p className="text-[12px] text-[#666] leading-relaxed mb-3">
+                {review.text}
+              </p>
+              <div className="text-[11px] text-[#c8102e] font-medium">
+                {review.product}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ─── Newsletter ────────────────────────────────────────────────────── */
+
+export function NewsletterSection() {
+  const [email, setEmail] = useState('');
+
+  return (
+    <section className="bg-[#f5f5f5] border-y border-[#e5e5e5]">
+      <div className="max-w-7xl mx-auto px-4 py-10">
+        <div className="text-center max-w-2xl mx-auto">
+          <h2 className="text-lg font-bold text-[#1a1a1a] mb-2 uppercase tracking-wide">
+            Join PJ, BE THE 1ST TO KNOW ABOUT SPECIAL OFFERS & PROMOTIONS!
+          </h2>
+          <div className="flex gap-2 mt-5 max-w-md mx-auto">
+            <div className="flex-1 relative">
+              <Mail className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#999]" />
+              <input
+                type="email"
+                placeholder="Enter your email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full h-10 pl-9 pr-4 border border-[#e5e5e5] rounded text-sm text-[#1a1a1a] placeholder:text-[#999] focus:outline-none focus:border-[#c8102e] bg-white"
+              />
+            </div>
+            <button className="h-10 px-6 bg-[#c8102e] hover:bg-[#a00d24] text-white text-[12px] font-bold uppercase tracking-wide rounded transition-colors">
+              SIGN UP NOW
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ─── Footer ────────────────────────────────────────────────────────── */
+
+const DEFAULT_FOOTER_COLS: JerseyConfig['footerColumns'] = [
+  {
+    title: 'PRODUCTS',
+    items: [
+      { label: 'New Arrivals', href: '#' },
+      { label: 'Best Sellers', href: '#' },
+      { label: 'Soccer Kits', href: '#' },
+    ],
+  },
+  {
+    title: 'COLLECTIONS',
+    items: [
+      { label: 'National Jerseys', href: '#' },
+      { label: 'Club Jerseys', href: '#' },
+      { label: 'Retro Jerseys', href: '#' },
+      { label: 'Player Version', href: '#' },
+    ],
+  },
+  {
+    title: 'SUPPORT',
+    items: [
+      { label: 'Contact Us', href: '#' },
+      { label: 'Returns & Exchanges', href: '#' },
+      { label: 'Shipping', href: '#' },
+      { label: 'Payment', href: '#' },
+      { label: 'How to Clean', href: '#' },
+    ],
+  },
+  {
+    title: 'COMPANY INFO',
+    items: [
+      { label: 'About Us', href: '#' },
+      { label: 'Wholesale Price', href: '#' },
+      { label: 'Dropshipping', href: '#' },
+      { label: 'MOQ', href: '#' },
+    ],
+  },
+];
+
+export function Footer({
+  storeName,
+  tagline,
+  config,
+}: {
+  storeName: string;
+  tagline?: string;
+  config?: JerseyConfig;
+}) {
+  const footerCols =
+    config?.footerColumns && config.footerColumns.length > 0
+      ? config.footerColumns
+      : DEFAULT_FOOTER_COLS;
+
+  return (
+    <footer className="bg-[#1a1a1a] text-[#999] text-[12px]">
+      {/* Main footer columns */}
+      <div className="max-w-7xl mx-auto px-4 py-10 grid grid-cols-2 md:grid-cols-5 gap-8">
+        {/* Brand column */}
+        <div className="col-span-2 md:col-span-1">
+          <div className="text-[16px] font-black mb-2">
+            <span className="text-[#c8102e]">PRO</span>
+            <span className="text-white">JERSEY SHOP</span>
+          </div>
+          <p className="text-[#999] mb-4">
+            {tagline ?? 'Your #1 Source for Premium Soccer Jerseys Since 2017.'}
+          </p>
+          {/* Social icons */}
+          <div className="flex items-center gap-3 mt-4">
+            <a
+              href="#"
+              className="w-8 h-8 rounded-full bg-[#333] flex items-center justify-center hover:bg-[#c8102e] transition-colors"
+            >
+              <Facebook className="w-4 h-4 text-white" />
+            </a>
+            <a
+              href="#"
+              className="w-8 h-8 rounded-full bg-[#333] flex items-center justify-center hover:bg-[#c8102e] transition-colors"
+            >
+              <Youtube className="w-4 h-4 text-white" />
+            </a>
+            <a
+              href="#"
+              className="w-8 h-8 rounded-full bg-[#333] flex items-center justify-center hover:bg-[#c8102e] transition-colors"
+            >
+              <Instagram className="w-4 h-4 text-white" />
+            </a>
+          </div>
+        </div>
+
+        {/* Link columns */}
+        {footerCols.map((col, i) => (
+          <div key={i}>
+            <h4 className="text-white font-bold text-[13px] mb-3 tracking-wide">
+              {col.title}
+            </h4>
+            <ul className="space-y-2">
+              {col.items.map((item, j) => (
+                <li key={j}>
+                  {item.href ? (
+                    <a
+                      href={item.href}
+                      className="hover:text-white transition-colors"
+                    >
+                      {item.label}
+                    </a>
+                  ) : (
+                    <span>{item.label}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+
+      {/* Trustpilot + App download */}
+      <div className="border-t border-[#333]">
+        <div className="max-w-7xl mx-auto px-4 py-4 flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <Star className="w-5 h-5 text-[#00b67a] fill-[#00b67a]" />
+            <span className="text-white font-bold text-[13px]">Excellent</span>
+            <span className="text-[#666]">based on 12,400+ reviews</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-[#999]">Download App:</span>
+            <button className="flex items-center gap-1.5 px-3 py-1.5 bg-[#333] rounded text-white text-[11px] hover:bg-[#444] transition-colors">
+              <Smartphone className="w-3.5 h-3.5" />
+              Android
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Copyright */}
+      <div className="border-t border-[#333]">
+        <div className="max-w-7xl mx-auto px-4 py-4 flex flex-col md:flex-row items-center justify-between gap-2 text-[11px] text-[#666]">
+          <div className="flex items-center gap-3">
+            <a href="#" className="hover:text-white transition-colors">
+              Privacy Policy
+            </a>
+            <span>|</span>
+            <a href="#" className="hover:text-white transition-colors">
+              Terms and Conditions
+            </a>
+          </div>
+          <p>
+            &copy; 2010-{new Date().getFullYear()} {storeName} soccer store All
+            Rights Reserved
+          </p>
+        </div>
+      </div>
+    </footer>
+  );
+}
+
+/* ─── JerseyShopChrome (main wrapper) ───────────────────────────────── */
+
+export function JerseyShopChrome({
+  storeName,
+  tagline,
+  logoUrl: _logoUrl,
+  bannerHeadline,
+  bannerSubtext,
+  bannerCta,
+  bannerVisible = true,
+  categories: _categories,
+  selectedCategory,
+  onSelectCategory,
+  searchQuery,
+  onSearchChange,
+  cartCount,
+  onOpenCart,
+  onGoStores: _onGoStores,
+  onPickNav,
+  config,
+  children,
+}: JerseyShopChromeProps) {
+  // _logoUrl, _categories, _onGoStores kept for backward compatibility
+  void _logoUrl;
+  void _categories;
+  void _onGoStores;
+  return (
+    <div className="flex flex-col min-h-screen bg-white text-[#1a1a1a] font-sans">
+      {/* Announcement Bar */}
+      <AnnouncementBar />
+
+      {/* Header */}
+      <Header
+        searchQuery={searchQuery}
+        onSearchChange={onSearchChange}
+        cartCount={cartCount}
+        onOpenCart={onOpenCart}
+        onPickNav={onPickNav}
+      />
+
+      {/* Main Navigation */}
+      <MainNav
+        selectedCategory={selectedCategory}
+        onSelectCategory={onSelectCategory}
+      />
+
+      {/* Category Quick Icons */}
+      <CategoryIcons />
+
+      {/* Hero Banner */}
+      <HeroBanner
+        config={config}
+        bannerHeadline={bannerHeadline}
+        bannerSubtext={bannerSubtext}
+        bannerCta={bannerCta}
+        bannerVisible={bannerVisible}
+      />
+
+      {/* Main content area (product grid from host) */}
+      <main className="flex-1">
+        {children}
+      </main>
+
+      {/* Trust Badges */}
+      <TrustBadges />
+
+      {/* Testimonials */}
+      <TestimonialsSection />
+
+      {/* Newsletter */}
+      <NewsletterSection />
+
+      {/* Footer */}
+      <Footer storeName={storeName} tagline={tagline} config={config} />
     </div>
   );
 }

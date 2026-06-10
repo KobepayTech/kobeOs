@@ -79,45 +79,48 @@ interface PreviewProduct {
    ═══════════════════════════════════════════════════════════ */
 
 const defaultSettings: StoreSettings = {
-  storeName: 'KOBESTORE',
-  tagline: 'Your One-Stop Shop',
+  storeName: 'PRO JERSEY SHOP',
+  tagline: 'Soccer Jerseys Wholesale and Retail',
   logoUrl: '',
   faviconUrl: '',
   customDomain: '',
   domainSlug: '',
-  bannerHeadline: 'Summer Collection',
-  bannerSubtext: 'Up to 50% off on selected items',
-  bannerCta: 'Shop Now',
-  bannerBg: '#3b82f6',
-  bannerHeight: 'medium',
+  bannerHeadline: 'UPGRADE YOUR JERSEY WITH 2026 WORLD CUP SLEEVE BADGES',
+  bannerSubtext: 'Shop authentic World Cup 2026 jerseys and sleeve badges',
+  bannerCta: 'SHOP NOW',
+  bannerBg: '#1a1a2e',
+  bannerHeight: 'large',
   bannerVisible: true,
-  primaryColor: '#6366f1',
+  primaryColor: '#c8102e',
   bgStyle: 'dark',
-  cardStyle: 'glass',
-  accentColor: '#8b5cf6',
-  gridColumns: 3,
+  cardStyle: 'solid',
+  accentColor: '#c8102e',
+  gridColumns: 4,
   productCardStyle: 'standard',
-  showStock: true,
+  showStock: false,
   showCategoryBadge: true,
   showQuickAdd: true,
-  productsPerPage: 9,
+  productsPerPage: 12,
   headerStyle: 'left',
   showSearch: true,
   showCategoryNav: true,
   showCartIcon: true,
-  footerText: '© 2025 KOBESTORE. All rights reserved.',
+  footerText: '© 2010-2026 Pro Jersey Shop soccer store All Rights Reserved',
   enableCategoryNav: true,
-  headingSize: 'medium',
+  headingSize: 'large',
   bodySize: 'medium',
+  isPublished: false,
+  publishedUrl: null,
+  publishedAt: null,
 };
 
-const previewProducts: PreviewProduct[] = [
-  { id: 1, name: 'Samsung Galaxy A14', price: 450000, stock: 3, category: 'Electronics', gradient: 'from-blue-600 to-indigo-700' },
-  { id: 2, name: 'Tecno Spark 10', price: 280000, stock: 12, category: 'Electronics', gradient: 'from-indigo-600 to-purple-700' },
-  { id: 3, name: "Men's Cotton T-Shirt", price: 15000, stock: 5, category: 'Clothing', gradient: 'from-emerald-600 to-green-700' },
-  { id: 4, name: 'Kitenge Dress', price: 45000, stock: 8, category: 'Clothing', gradient: 'from-green-600 to-teal-700' },
-  { id: 5, name: 'Mama Ntilie Rice 5kg', price: 18000, stock: 4, category: 'Food', gradient: 'from-amber-600 to-yellow-700' },
-  { id: 6, name: 'Solar Panel 100W', price: 180000, stock: 7, category: 'Household', gradient: 'from-pink-600 to-fuchsia-700' },
+const PREVIEW_PRODUCTS: PreviewProduct[] = [
+  { id: 1, name: 'Spain Away Soccer Match Jersey World Cup 2026', price: 24.99, stock: 150, category: 'World Cup 2026', gradient: 'from-red-500 to-yellow-500' },
+  { id: 2, name: 'Real Madrid Home Soccer Fan Jersey 2026/27', price: 17.99, stock: 200, category: 'Clubs', gradient: 'from-white to-purple-600' },
+  { id: 3, name: 'PSG Champions of Europe #26 Home Soccer Fan Jersey', price: 29.99, stock: 80, category: 'Clubs', gradient: 'from-blue-700 to-red-600' },
+  { id: 4, name: 'Brazil Home Soccer Fan Jersey World Cup 2026', price: 19.99, stock: 120, category: 'World Cup 2026', gradient: 'from-yellow-400 to-green-500' },
+  { id: 5, name: 'Retro 1998 Brazil Home Soccer Jersey', price: 22.99, stock: 60, category: 'Retro', gradient: 'from-yellow-400 to-blue-600' },
+  { id: 6, name: 'Liverpool Home Soccer Match Jersey 2026/27', price: 22.99, stock: 90, category: 'Clubs', gradient: 'from-red-600 to-red-800' },
 ];
 
 const categoryOptions = ['Electronics', 'Clothing', 'Food', 'Household'];
@@ -600,7 +603,7 @@ function LivePreview({ settings }: { settings: StoreSettings }) {
             </button>
           </div>
           <div className={`grid ${gridCols} gap-3`}>
-            {previewProducts.slice(0, settings.productsPerPage > 6 ? 6 : settings.productsPerPage).map((product) => (
+            {PREVIEW_PRODUCTS.slice(0, settings.productsPerPage > 6 ? 6 : settings.productsPerPage).map((product) => (
               <PreviewProductCard key={product.id} product={product} settings={settings} />
             ))}
           </div>

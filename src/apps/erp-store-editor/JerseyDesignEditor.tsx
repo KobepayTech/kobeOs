@@ -33,20 +33,75 @@ interface StoreSettings {
   [k: string]: unknown;
 }
 
-const DEFAULT_CONFIG: Required<Pick<JerseyConfig, 'topPromo' | 'hero' | 'trustStrip' | 'footerColumns' | 'newsletterPitch'>> = {
-  topPromo: { text: 'Free worldwide shipping over $50 · 30-day returns', ctaText: 'SIGN UP & GET 15% OFF', bgColor: '#0f172a' },
-  hero: { headline: 'Daily new arrivals', subtext: 'Latest jerseys, shoes and apparel — shipped from Tanzania.', cta: 'Shop now', imageUrl: '', gradientFrom: '#1d4ed8', gradientTo: '#a21caf' },
+const DEFAULT_CONFIG: Required<Pick<JerseyConfig, 'topPromo' | 'hero' | 'trustStrip' | 'footerColumns' | 'newsletterPitch' | 'tiers'>> = {
+  topPromo: {
+    text: 'Free Shipping Worldwide · Buy 3 Get 1 Free',
+    ctaText: 'SIGN UP & GET 15% OFF',
+    bgColor: '#f5f5f5'
+  },
+  hero: {
+    headline: 'UPGRADE YOUR JERSEY WITH 2026 WORLD CUP SLEEVE BADGES',
+    subtext: 'Shop authentic World Cup 2026 jerseys and sleeve badges',
+    cta: 'SHOP NOW',
+    imageUrl: '',
+    gradientFrom: '#1a1a2e',
+    gradientTo: '#16213e'
+  },
   trustStrip: [
-    { icon: 'truck',  title: 'Fast shipping',     desc: 'Same-day dispatch on orders before 2pm' },
-    { icon: 'shield', title: 'Authentic',         desc: 'Sourced direct from suppliers' },
-    { icon: 'rotate', title: '30-day returns',    desc: 'No-questions money-back' },
-    { icon: 'star',   title: 'Excellent reviews', desc: '4.8 / 5 from 12,400+ customers' },
+    { icon: 'shield', title: '8-Year Brand', desc: 'Trusted since 2010' },
+    { icon: 'truck', title: 'Ship Worldwide', desc: 'Free shipping over $50' },
+    { icon: 'rotate', title: '30 Days Return', desc: 'No-questions money-back' },
+    { icon: 'star', title: 'Excellent reviews', desc: '4.8 / 5 from 12,400+ customers' },
+    { icon: 'shield', title: 'Secure Payment', desc: 'Encrypted transactions' },
+    { icon: 'truck', title: '24/7 Service', desc: 'Always here to help' },
   ],
   footerColumns: [
-    { title: 'Shop',    items: [{ label: 'All products' }, { label: 'New arrivals' }, { label: 'Hot offers' }] },
-    { title: 'Support', items: [{ label: 'Track order' }, { label: 'Shipping' }, { label: 'Returns' }, { label: 'Contact' }] },
+    {
+      title: 'PRODUCTS',
+      items: [
+        { label: 'New Arrivals', href: '/new' },
+        { label: 'Best Sellers', href: '/best-sellers' },
+        { label: 'Soccer Kits', href: '/kits' }
+      ]
+    },
+    {
+      title: 'COLLECTIONS',
+      items: [
+        { label: 'National Jerseys', href: '/national' },
+        { label: 'Club Jerseys', href: '/clubs' },
+        { label: 'Retro Jerseys', href: '/retro' },
+        { label: 'Player Version', href: '/player-version' }
+      ]
+    },
+    {
+      title: 'SUPPORT',
+      items: [
+        { label: 'Contact Us', href: '/contact' },
+        { label: 'Returns & Exchanges', href: '/returns' },
+        { label: 'Shipping', href: '/shipping' },
+        { label: 'Payment', href: '/payment' },
+        { label: 'How to Clean', href: '/care' }
+      ]
+    },
+    {
+      title: 'COMPANY INFO',
+      items: [
+        { label: 'About Us', href: '/about' },
+        { label: 'Wholesale Price', href: '/wholesale' },
+        { label: 'Dropshipping', href: '/dropshipping' },
+        { label: 'MOQ', href: '/moq' }
+      ]
+    },
   ],
-  newsletterPitch: '15% off your first order when you sign up.',
+  newsletterPitch: 'Join PJ, BE THE 1ST TO KNOW ABOUT SPECIAL OFFERS & PROMOTIONS!',
+  tiers: [
+    { slug: 'clubs', label: 'Clubs', href: '/clubs' },
+    { slug: 'world-cup', label: 'World Cup', href: '/world-cup' },
+    { slug: 'buy3get1', label: 'Buy 3 Get 1', href: '/buy-3-get-1' },
+    { slug: 'new-2627', label: '26/27 New', href: '/new-26-27' },
+    { slug: 'ucl', label: 'UCL', href: '/ucl' },
+    { slug: 'f1-2026', label: '2026 F1', href: '/f1-2026' },
+  ],
 };
 
 const ICONS = { truck: Truck, shield: Shield, rotate: RotateCcw, star: Star };
