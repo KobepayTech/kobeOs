@@ -1,19 +1,69 @@
 // Influencer Marketplace modules: Explore, CreatorProfile, HowItWorks, FAQ
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   Search, CheckCircle2, Instagram, Youtube, Star, Handshake,
   Lock, BarChart3, Globe, Zap, DollarSign, Award, HelpCircle,
-  ChevronDown, ChevronUp, Sparkles, Mic, Twitter
+  ChevronDown, ChevronUp, Sparkles, Mic, Twitter, Loader2, AlertCircle
 } from 'lucide-react';
 import {
   MarketCreator, fmtK, idHash,
   DEMO_MARKET_CREATORS, DEMO_PACKAGES, DEMO_REVIEWS, FAQ_DATA,
   PLATFORM_COLORS, TIER_COLORS, TIER_BADGE,
 } from './marketplace-data';
+import { api } from '@/lib/api';
 
 // ── Local types ───────────────────────────────────────────────────────────────
 
 type CreatorPackage = typeof DEMO_PACKAGES[number];
+
+// ── Package generation from creator data (replaces mock packages) ─────────────
+
+function generatePackagesFromCreator(creator: MarketCreator): CreatorPackage[] {
+  const rate = creator.weeklyRateTzs;
+  const tier = creator.subscriptionTier;
+  const platforms = creator.platforms.length > 0 ? creator.platforms : ['instagram'];
+  const pkgs: CreatorPackage[] = [];
+  let idCounter = 1;
+
+  for (const plat of platforms) {
+    const platformName = plat.charAt(0).toUpperCase() + plat.slice(1);
+    // Basic package: ~20% of weekly rate
+    pkgs.push({
+      id: `pkg-${idCounter++}`,
+      tier: 'Basic' as const,
+      platform: platformName,
+      deliverables: `1 ${platformName} post + story mention`,
+      price: Math.round(rate * 0.2),
+      deliveryDays: 3,
+      revisions: 1,
+    });
+    // Standard package: ~50% of weekly rate (if tier is basic+)
+    if (tier !== 'free') {
+      pkgs.push({
+        id: `pkg-${idCounter++}`,
+        tier: 'Standard' as const,
+        platform: platformName,
+        deliverables: `2 ${platformName} posts + stories + highlights`,
+        price: Math.round(rate * 0.5),
+        deliveryDays: 5,
+        revisions: 2,
+      });
+    }
+    // Premium package: ~100%+ of weekly rate (if tier is premium/elite)
+    if (tier === 'premium' || tier === 'elite') {
+      pkgs.push({
+        id: `pkg-${idCounter++}`,
+        tier: 'Premium' as const,
+        platform: platformName,
+        deliverables: `Full ${platformName} campaign: posts, stories, reel/video + analytics report`,
+        price: Math.round(rate * 1.2),
+        deliveryDays: 7,
+        revisions: 3,
+      });
+    }
+  }
+  return pkgs.length > 0 ? pkgs : DEMO_PACKAGES;
+}
 
 function PlatformIcon({ p }: { p: string }) {
   if (p === 'instagram') return <Instagram className="w-3.5 h-3.5" />;
@@ -79,16 +129,199 @@ function CreatorCard({ c, onView }: { c: MarketCreator; onView: () => void }) {
   );
 }
 
+// ── Skeleton Loader ───────────────────────────────────────────────────────────
+
+function CreatorCardSkeleton() {
+  return (
+    <div className="bg-white/[0.03] border border-white/[0.06] rounded-xl overflow-hidden animate-pulse">
+      <div className="h-20 bg-white/[0.04]" />
+      <div className="px-4 -mt-8 pb-4">
+        <div className="w-14 h-14 rounded-full bg-white/[0.06] border-2 border-[#0a0a1a] mb-2" />
+        <div className="h-4 bg-white/[0.06] rounded w-2/3 mb-1" />
+        <div className="h-3 bg-white/[0.06] rounded w-1/2 mb-3" />
+        <div className="flex gap-3 mt-3">
+          <div className="h-6 bg-white/[0.06] rounded flex-1" />
+          <div className="h-6 bg-white/[0.06] rounded flex-1" />
+          <div className="h-6 bg-white/[0.06] rounded flex-1" />
+        </div>
+        <div className="h-6 bg-white/[0.06] rounded w-full mt-3" />
+        <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/[0.06]">
+          <div className="h-4 bg-white/[0.06] rounded w-16" />
+          <div className="h-7 bg-white/[0.06] rounded w-20" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Loading Spinner ───────────────────────────────────────────────────────────
+
+function LoadingSpinner({ text = 'Loading...' }: { text?: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 text-white/30">
+      <Loader2 className="w-8 h-8 animate-spin mb-2" />
+      <p className="text-sm">{text}</p>
+    </div>
+  );
+}
+
+// ── Error Display ─────────────────────────────────────────────────────────────
+
+function ErrorDisplay({ message, onRetry }: { message: string; onRetry?: () => void }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 text-red-400/80">
+      <AlertCircle className="w-8 h-8 mb-2" />
+      <p className="text-sm text-center max-w-sm mb-3">{message}</p>
+      {onRetry && (
+        <button
+          onClick={onRetry}
+          className="text-xs px-4 py-1.5 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 transition-colors"
+        >
+          Retry
+        </button>
+      )}
+    </div>
+  );
+}
+
 
 // ── ExploreModule ─────────────────────────────────────────────────────────────
 
-export function ExploreModule({ creators = DEMO_MARKET_CREATORS }: { creators?: MarketCreator[] }) {
+interface ApiCreator {
+  id: string;
+  name: string;
+  handle: string;
+  niche: string;
+  country: string;
+  followers: number;
+  engagement: number;
+  avgViews: number;
+  avatarUrl?: string | null;
+  contactEmail?: string | null;
+  phone?: string | null;
+  bio?: string | null;
+  platforms: string[];
+  verified: boolean;
+  weeklyRateTzs: number;
+  subscriptionTier: 'free' | 'basic' | 'premium' | 'elite';
+}
+
+function apiCreatorToMarketCreator(c: ApiCreator): MarketCreator {
+  return {
+    id: c.id,
+    name: c.name,
+    handle: c.handle,
+    niche: c.niche || 'Other',
+    country: c.country || '',
+    followers: c.followers,
+    engagement: c.engagement,
+    avgViews: c.avgViews || 0,
+    verified: c.verified,
+    weeklyRateTzs: Number(c.weeklyRateTzs) || 0,
+    subscriptionTier: c.subscriptionTier,
+    platforms: c.platforms,
+    bio: c.bio,
+  };
+}
+
+export function ExploreModule({ creators: propCreators }: { creators?: MarketCreator[] }) {
   const [search, setSearch] = useState('');
   const [platform, setPlatform] = useState('all');
   const [niche, setNiche] = useState('all');
   const [sort, setSort] = useState<'followers'|'engagement'|'price'>('followers');
   const [selected, setSelected] = useState<MarketCreator | null>(null);
+
+  // API state
+  const [apiCreators, setApiCreators] = useState<MarketCreator[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [apiFailed, setApiFailed] = useState(false);
+
+  // Fetch from API on mount
+  const fetchCreators = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await api<ApiCreator[]>('/creators/marketplace');
+      if (Array.isArray(res) && res.length > 0) {
+        setApiCreators(res.map(apiCreatorToMarketCreator));
+        setApiFailed(false);
+      } else {
+        // API returned empty — use fallback
+        setApiCreators([]);
+        setApiFailed(true);
+      }
+    } catch (err) {
+      setApiFailed(true);
+      setApiCreators([]);
+      // Check for auth error
+      if (err && typeof err === 'object' && 'status' in err) {
+        const status = (err as { status: number }).status;
+        if (status === 401) {
+          setError('Authentication required. Please log in.');
+          window.dispatchEvent(new CustomEvent('kobe:auth-required'));
+        } else {
+          setError(`Failed to load creators: ${(err as Error).message || 'Server error'}`);
+        }
+      } else {
+        setError('Failed to load creators. Using demo data.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    // If prop creators are explicitly provided and different from defaults, use them
+    if (propCreators && propCreators !== DEMO_MARKET_CREATORS) {
+      setApiCreators(propCreators);
+    } else {
+      fetchCreators();
+    }
+  }, [fetchCreators, propCreators]);
+
+  // Fallback to demo data if API fails or returns empty
+  const creators = apiFailed ? DEMO_MARKET_CREATORS : apiCreators;
+
+  // Fetch filtered results from search API when filters change
+  const [debounceTimer, setDebounceTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (propCreators && propCreators !== DEMO_MARKET_CREATORS) return; // Don't search if props provided
+
+    if (debounceTimer) clearTimeout(debounceTimer);
+    const timer = setTimeout(async () => {
+      const hasFilters = search || (platform && platform !== 'all') || (niche && niche !== 'all');
+      if (!hasFilters) {
+        if (!apiFailed) fetchCreators();
+        return;
+      }
+      setLoading(true);
+      try {
+        const params = new URLSearchParams();
+        if (search) params.append('q', search);
+        if (platform && platform !== 'all') params.append('platform', platform);
+        if (niche && niche !== 'all') params.append('niche', niche);
+        const qs = params.toString();
+        const res = await api<ApiCreator[]>(`/creators/search${qs ? `?${qs}` : ''}`);
+        if (Array.isArray(res)) {
+          setApiCreators(res.map(apiCreatorToMarketCreator));
+          setApiFailed(false);
+        }
+      } catch {
+        // On search error, fall back to client-side filtering
+        setApiFailed(true);
+      } finally {
+        setLoading(false);
+      }
+    }, 400);
+    setDebounceTimer(timer);
+    return () => { if (timer) clearTimeout(timer); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, platform, niche]);
+
   const niches = ['all', ...Array.from(new Set(creators.map(c => c.niche)))];
+
+  // Client-side sort (API doesn't handle sort)
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return creators
@@ -98,13 +331,17 @@ export function ExploreModule({ creators = DEMO_MARKET_CREATORS }: { creators?: 
       })
       .sort((a, b) => sort === 'followers' ? b.followers - a.followers : sort === 'engagement' ? b.engagement - a.engagement : a.weeklyRateTzs - b.weeklyRateTzs);
   }, [creators, search, platform, niche, sort]);
+
   const featured  = filtered.filter(c => c.verified && c.subscriptionTier === 'elite').slice(0, 3);
   const instagram = filtered.filter(c => c.platforms.includes('instagram'));
   const youtube   = filtered.filter(c => c.platforms.includes('youtube'));
+
   if (selected) return <CreatorProfileModule creator={selected} onBack={() => setSelected(null)} />;
+
   return (
     <div className="h-full overflow-y-auto p-5 space-y-6">
       <div><h2 className="text-lg font-bold text-white">Explore Creators</h2><p className="text-sm text-white/40 mt-0.5">Find the right creator for your campaign</p></div>
+
       <div className="flex flex-wrap gap-2">
         <div className="relative flex-1 min-w-[180px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/30" />
@@ -120,10 +357,27 @@ export function ExploreModule({ creators = DEMO_MARKET_CREATORS }: { creators?: 
           <option value="followers">Most Followers</option><option value="engagement">Best Engagement</option><option value="price">Lowest Price</option>
         </select>
       </div>
-      {featured.length > 0 && (<section><div className="flex items-center gap-2 mb-3"><Sparkles className="w-4 h-4 text-yellow-400" /><h3 className="text-sm font-semibold text-white">Featured</h3></div><div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">{featured.map(c => <CreatorCard key={c.id} c={c} onView={() => setSelected(c)} />)}</div></section>)}
-      {instagram.length > 0 && (<section><div className="flex items-center gap-2 mb-3"><Instagram className="w-4 h-4 text-pink-400" /><h3 className="text-sm font-semibold text-white">Instagram</h3><span className="text-xs text-white/30">{instagram.length}</span></div><div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">{instagram.slice(0,6).map(c => <CreatorCard key={c.id} c={c} onView={() => setSelected(c)} />)}</div></section>)}
-      {youtube.length > 0 && (<section><div className="flex items-center gap-2 mb-3"><Youtube className="w-4 h-4 text-red-400" /><h3 className="text-sm font-semibold text-white">YouTube</h3><span className="text-xs text-white/30">{youtube.length}</span></div><div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">{youtube.slice(0,6).map(c => <CreatorCard key={c.id} c={c} onView={() => setSelected(c)} />)}</div></section>)}
-      {filtered.length === 0 && (<div className="text-center py-16 text-white/30"><Search className="w-8 h-8 mx-auto mb-2 opacity-40" /><p className="text-sm">No creators match your filters</p></div>)}
+
+      {apiFailed && (
+        <div className="text-[11px] text-amber-400/80 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 flex items-center gap-2">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+          <span>Could not connect to the server. Showing demo creators. <button onClick={fetchCreators} className="underline hover:text-amber-300">Retry</button></span>
+        </div>
+      )}
+
+      {loading && apiCreators.length === 0 ? (
+        <LoadingSpinner text="Loading creators..." />
+      ) : error && apiCreators.length === 0 ? (
+        <ErrorDisplay message={error} onRetry={fetchCreators} />
+      ) : (
+        <>
+          {featured.length > 0 && (<section><div className="flex items-center gap-2 mb-3"><Sparkles className="w-4 h-4 text-yellow-400" /><h3 className="text-sm font-semibold text-white">Featured</h3></div><div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">{featured.map(c => <CreatorCard key={c.id} c={c} onView={() => setSelected(c)} />)}</div></section>)}
+          {instagram.length > 0 && (<section><div className="flex items-center gap-2 mb-3"><Instagram className="w-4 h-4 text-pink-400" /><h3 className="text-sm font-semibold text-white">Instagram</h3><span className="text-xs text-white/30">{instagram.length}</span></div><div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">{instagram.slice(0,6).map(c => <CreatorCard key={c.id} c={c} onView={() => setSelected(c)} />)}</div></section>)}
+          {youtube.length > 0 && (<section><div className="flex items-center gap-2 mb-3"><Youtube className="w-4 h-4 text-red-400" /><h3 className="text-sm font-semibold text-white">YouTube</h3><span className="text-xs text-white/30">{youtube.length}</span></div><div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">{youtube.slice(0,6).map(c => <CreatorCard key={c.id} c={c} onView={() => setSelected(c)} />)}</div></section>)}
+          {filtered.length === 0 && (<div className="text-center py-16 text-white/30"><Search className="w-8 h-8 mx-auto mb-2 opacity-40" /><p className="text-sm">No creators match your filters</p></div>)}
+          {loading && <div className="flex justify-center py-4"><Loader2 className="w-5 h-5 text-white/30 animate-spin" /></div>}
+        </>
+      )}
     </div>
   );
 }
@@ -138,6 +392,13 @@ export function CreatorProfileModule({ creator, onBack }: { creator?: MarketCrea
   const bgs = ['from-violet-600','from-pink-600','from-cyan-600','from-emerald-600','from-orange-600','from-blue-600'];
   const bg = bgs[idHash(c.id) % bgs.length];
   const avgRating = DEMO_REVIEWS.reduce((s, r) => s + r.rating, 0) / DEMO_REVIEWS.length;
+
+  // Generate packages from creator data instead of using mock
+  const creatorPackages = useMemo(() => generatePackagesFromCreator(c), [c]);
+
+  // TODO: Replace DEMO_REVIEWS with API call when backend has review endpoint
+  // const { reviews, loading: reviewsLoading } = useCreatorReviews(c.id);
+
   return (
     <div className="h-full overflow-y-auto">
       {onBack && (<div className="px-5 pt-4"><button onClick={onBack} className="flex items-center gap-1.5 text-xs text-white/40 hover:text-white/70 transition-colors"><ChevronDown className="w-3.5 h-3.5 rotate-90" />Back to Explore</button></div>)}
@@ -173,34 +434,39 @@ export function CreatorProfileModule({ creator, onBack }: { creator?: MarketCrea
         </div>
         {tab === 'packages' && (
           <div className="mt-4 space-y-3">
-            {['Instagram','YouTube'].map(plat => {
-              const pkgs = DEMO_PACKAGES.filter(p => p.platform === plat);
-              if (!pkgs.length) return null;
-              return (
-                <div key={plat}>
-                  <div className="flex items-center gap-2 mb-2">
-                    {plat === 'Instagram' ? <Instagram className="w-4 h-4 text-pink-400" /> : <Youtube className="w-4 h-4 text-red-400" />}
-                    <span className="text-sm font-medium text-white">{plat} Packages</span>
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    {pkgs.map(pkg => (
-                      <div key={pkg.id} onClick={() => setSelPkg(pkg)} className={`rounded-xl border p-4 cursor-pointer hover:border-white/20 transition-all ${TIER_COLORS[pkg.tier]} ${selPkg?.id === pkg.id ? 'ring-1 ring-violet-500' : ''}`}>
-                        <div className="flex items-center justify-between mb-2">
-                          <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${TIER_BADGE[pkg.tier]}`}>{pkg.tier}</span>
-                          {pkg.tier === 'Premium' && <Award className="w-3.5 h-3.5 text-yellow-400" />}
+            {/* Show packages derived from creator data */}
+            {(() => {
+              const platformsWithPackages = [...new Set(creatorPackages.map(p => p.platform))];
+              if (platformsWithPackages.length === 0) return null;
+              return platformsWithPackages.map(plat => {
+                const pkgs = creatorPackages.filter(p => p.platform === plat);
+                if (!pkgs.length) return null;
+                return (
+                  <div key={plat}>
+                    <div className="flex items-center gap-2 mb-2">
+                      {plat === 'Instagram' ? <Instagram className="w-4 h-4 text-pink-400" /> : plat === 'YouTube' ? <Youtube className="w-4 h-4 text-red-400" /> : <PlatformIcon p={plat.toLowerCase()} />}
+                      <span className="text-sm font-medium text-white">{plat} Packages</span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      {pkgs.map(pkg => (
+                        <div key={pkg.id} onClick={() => setSelPkg(pkg)} className={`rounded-xl border p-4 cursor-pointer hover:border-white/20 transition-all ${TIER_COLORS[pkg.tier]} ${selPkg?.id === pkg.id ? 'ring-1 ring-violet-500' : ''}`}>
+                          <div className="flex items-center justify-between mb-2">
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${TIER_BADGE[pkg.tier]}`}>{pkg.tier}</span>
+                            {pkg.tier === 'Premium' && <Award className="w-3.5 h-3.5 text-yellow-400" />}
+                          </div>
+                          <div className="text-base font-bold text-white">TZS {(pkg.price/1000).toFixed(0)}K</div>
+                          <p className="text-[11px] text-white/50 mt-1 leading-relaxed">{pkg.deliverables}</p>
+                          <div className="flex gap-3 mt-3 text-[10px] text-white/40"><span>⏱ {pkg.deliveryDays}d</span><span>↩ {pkg.revisions} rev</span></div>
+                          <button className={`w-full mt-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${selPkg?.id === pkg.id ? 'bg-violet-600 text-white' : 'bg-white/[0.06] text-white/60 hover:bg-white/10'}`}>
+                            {selPkg?.id === pkg.id ? 'Selected' : 'Select'}
+                          </button>
                         </div>
-                        <div className="text-base font-bold text-white">TZS {(pkg.price/1000).toFixed(0)}K</div>
-                        <p className="text-[11px] text-white/50 mt-1 leading-relaxed">{pkg.deliverables}</p>
-                        <div className="flex gap-3 mt-3 text-[10px] text-white/40"><span>⏱ {pkg.deliveryDays}d</span><span>↩ {pkg.revisions} rev</span></div>
-                        <button className={`w-full mt-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${selPkg?.id === pkg.id ? 'bg-violet-600 text-white' : 'bg-white/[0.06] text-white/60 hover:bg-white/10'}`}>
-                          {selPkg?.id === pkg.id ? 'Selected' : 'Select'}
-                        </button>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              });
+            })()}
             {selPkg && (
               <div className="mt-2 p-3 bg-violet-500/10 border border-violet-500/20 rounded-xl flex items-center justify-between">
                 <div className="text-sm text-white"><span className="font-medium">{selPkg.tier}</span> {selPkg.platform} — TZS {(selPkg.price/1000).toFixed(0)}K</div>
@@ -227,6 +493,7 @@ export function CreatorProfileModule({ creator, onBack }: { creator?: MarketCrea
         )}
         {tab === 'reviews' && (
           <div className="mt-4 space-y-3">
+            {/* TODO: Replace DEMO_REVIEWS with real reviews from API when available */}
             <div className="p-4 bg-white/[0.03] border border-white/[0.06] rounded-xl flex items-center gap-4">
               <div className="text-center">
                 <div className="text-3xl font-bold text-white">{avgRating.toFixed(1)}</div>
@@ -382,7 +649,7 @@ export function FAQModule() {
             </div>
           </div>
         ))}
-        {filtered.length === 0 && (<div className="text-center py-12 text-white/30"><HelpCircle className="w-8 h-8 mx-auto mb-2 opacity-40" /><p className="text-sm">No questions match "{search}"</p></div>)}
+        {filtered.length === 0 && (<div className="text-center py-12 text-white/30"><HelpCircle className="w-8 h-8 mx-auto mb-2 opacity-40" /><p className="text-sm">No questions match &quot;{search}&quot;</p></div>)}
       </div>
       <div className="max-w-2xl mx-auto p-4 bg-white/[0.03] border border-white/[0.06] rounded-xl flex items-center justify-between gap-4">
         <div><div className="text-sm font-medium text-white">Still have questions?</div><div className="text-xs text-white/40">Our support team responds within 2 hours</div></div>

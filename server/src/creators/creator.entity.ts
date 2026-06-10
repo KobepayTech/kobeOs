@@ -89,4 +89,28 @@ export class Creator extends OwnedEntity {
 
   @Column({ nullable: true, type: 'timestamptz' })
   lastSyncedAt?: Date | null;
+
+  // ── Marketplace fields ──────────────────────────────────────────────────────
+
+  /** Service packages offered by the creator */
+  @Column({ type: 'jsonb', default: '[]' })
+  packages!: Array<{
+    tier: 'Basic' | 'Standard' | 'Premium';
+    platform: string;
+    deliverables: string;
+    price: number;
+    deliveryDays: number;
+    revisions: number;
+  }>;
+
+  /** Reviews left by brands after completed campaigns */
+  @Column({ type: 'jsonb', default: '[]' })
+  reviews!: Array<{
+    id: string;
+    brandName: string;
+    rating: number;
+    comment: string;
+    campaignName?: string;
+    date: string;
+  }>;
 }

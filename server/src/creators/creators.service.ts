@@ -6,6 +6,7 @@ import { OwnedCrudService } from '../common/owned.service';
 import { ScrapeCreatorsService } from './scrape-creators.service';
 import { MetricsEngineService } from './metrics-engine.service';
 import { CreateCreatorDto, SearchCreatorsDto, SyncCreatorDto, UpdateCreatorDto } from './dto/creator.dto';
+import { AddReviewDto, SetPackagesDto } from './dto/marketplace.dto';
 
 @Injectable()
 export class CreatorsService extends OwnedCrudService<Creator> {
@@ -90,6 +91,50 @@ export class CreatorsService extends OwnedCrudService<Creator> {
       lastSyncedAt: new Date(),
     });
   }
+
+  // ── Reviews ─────────────────────────────────────────────────────────────────
+
+  async addReview(_userId: string, dto: AddReviewDto) {
+    const creator = await this.repo.findOne({ where: { id: dto.creatorId } });
+    if (!creator) throw new NotFoundException('Creator not found');
+
+    const review = {
+      id: crypto.randomUUID(),
+      brandName: dto.brandName,
+      rating: dto.rating,
+      comment: dto.comment,
+      campaignName: dto.campaignName,
+      date: new Date().toISOString(),
+    };
+
+    creator.reviews = [...(creator.reviews ?? []), review];
+    await this.repo.save(creator);
+    return review;
+  }
+
+  async getReviews(creatorId: string) {
+    const creator = await this.repo.findOne({ where: { id: creatorId } });
+    if (!creator) throw new NotFoundException('Creator not found');
+    return creator.reviews ?? [];
+  }
+
+  // ── Packages ────────────────────────────────────────────────────────────────
+
+  async setPackages(userId: string, dto: SetPackagesDto) {
+    const creator = await this.repo.findOne({ where: { ownerId: userId } });
+    if (!creator) throw new NotFoundException('Creator profile not found for this user');
+
+    creator.packages = dto.packages ?? [];
+    return this.repo.save(creator);
+  }
+
+  async getPackages(creatorId: string) {
+    const creator = await this.repo.findOne({ where: { id: creatorId } });
+    if (!creator) throw new NotFoundException('Creator not found');
+    return creator.packages ?? [];
+  }
+
+  // ── Media kit ───────────────────────────────────────────────────────────────
 
   /** Public media kit — no auth required */
   async getMediaKit(creatorId: string) {

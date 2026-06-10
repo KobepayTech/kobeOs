@@ -3,6 +3,7 @@ import { api } from '@/lib/api';
 import { ensureSession } from '@/lib/auth';
 import { CreatorDashboard } from './CreatorDashboard';
 import { BrandPortal } from './BrandPortal';
+import { CreatorOnboarding } from './CreatorOnboarding';
 import type { Creator as SharedCreator, Brand, Campaign as SharedCampaign } from '@/shared/types';
 import { ExploreModule, CreatorProfileModule, HowItWorksModule, FAQModule } from './marketplace-modules';
 import {
@@ -12,9 +13,14 @@ import {
   ShoppingCart, Download, Star, Send, Instagram,
   Smartphone, Copy, AlertCircle, Lock, Unlock, DollarSign, Target, Zap,
   Youtube, Twitter, Facebook, UserCheck, BookOpen, HelpCircle,
-  Calendar
+  Calendar, Loader2
 } from 'lucide-react';
 import { SocialScheduler } from './SocialScheduler';
+import {
+  useMarketplace, useMyCampaigns, useOpenCampaigns, useCreateCampaign,
+  useMyEscrow, useCreatorProfile, useSyncCreator, useCampaignActions
+} from './useCreatorApi';
+export { useMarketplace, useMyCampaigns, useOpenCampaigns, useCreateCampaign, useMyEscrow, useCreatorProfile, useSyncCreator };
 function idHash(id: string): number {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
@@ -112,7 +118,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 // ── Types ──────────────────────────────────────────────
-type ModuleId = 'overview' | 'campaigns' | 'marketplace' | 'deals' | 'escrow' | 'subscription' | 'performance' | 'affiliate' | 'messages' | 'creator-v2' | 'brand-portal' | 'explore' | 'profile' | 'how-it-works' | 'faq' | 'social-scheduler';
+type ModuleId = 'overview' | 'campaigns' | 'marketplace' | 'deals' | 'escrow' | 'subscription' | 'performance' | 'affiliate' | 'messages' | 'creator-v2' | 'brand-portal' | 'explore' | 'profile' | 'how-it-works' | 'faq' | 'social-scheduler' | 'onboarding';
 
 interface Campaign {
   id: number; name: string; budget: number; creators: number;
@@ -494,6 +500,7 @@ export default function Creator() {
         {activeModule === 'how-it-works' && <HowItWorksModule />}
         {activeModule === 'faq' && <FAQModule />}
         {activeModule === 'social-scheduler' && <SocialScheduler />}
+        {activeModule === 'onboarding' && <CreatorOnboarding />}
       </main>
     </div>
     </AppContext.Provider>
@@ -625,18 +632,26 @@ function OverviewModule({ setActiveModule }: { setActiveModule: (m: ModuleId) =>
 
 // ── Module 2: Campaigns ────────────────────────────────
 function CampaignsModule() {
-  const creators = useCreators();  
-  const { campaigns: apiCampaigns, reload } = useAppState();
+  const creators = useCreators();
+  const { campaigns: apiCampaigns, reload, escrows } = useAppState();
   const [filter, setFilter] = useState('ALL');
   const [createOpen, setCreateOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [createSuccess, setCreateSuccess] = useState(false);
   const [newCampaign, setNewCampaign] = useState({ name: '', description: '', brand: '', niche: '', budget: '', minViews: '', deadline: '' });
+  const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  // Loading state derived from context data availability
+  const campaignsLoading = apiCampaigns.length === 0;
 
   const filtered = filter === 'ALL' ? apiCampaigns : apiCampaigns.filter(c => c.status === filter);
 
   const handleCreate = async () => {
     if (!newCampaign.name || !newCampaign.budget) return;
     setSaving(true);
+    setCreateError(null);
+    setCreateSuccess(false);
     try {
       await api('/creators/campaigns', {
         method: 'POST',
@@ -653,21 +668,36 @@ function CampaignsModule() {
           }] : [],
         }),
       });
-      setCreateOpen(false);
-      setNewCampaign({ name: '', description: '', brand: '', niche: '', budget: '', minViews: '', deadline: '' });
+      setCreateSuccess(true);
+      setTimeout(() => {
+        setCreateOpen(false);
+        setCreateSuccess(false);
+        setNewCampaign({ name: '', description: '', brand: '', niche: '', budget: '', minViews: '', deadline: '' });
+      }, 800);
       reload();
-    } catch (e) { console.error(e); }
+    } catch (e) {
+      console.error(e);
+      setCreateError((e as Error).message || 'Failed to create campaign');
+    }
     finally { setSaving(false); }
   };
 
   const handlePublish = async (id: string) => {
-    await api(`/creators/campaigns/${id}/publish`, { method: 'POST' });
-    reload();
+    setActionLoading(`publish-${id}`);
+    try {
+      await api(`/creators/campaigns/${id}/publish`, { method: 'POST' });
+      reload();
+    } catch (e) { console.error(e); }
+    finally { setActionLoading(null); }
   };
 
   const handleCancel = async (id: string) => {
-    await api(`/creators/campaigns/${id}/cancel`, { method: 'POST' });
-    reload();
+    setActionLoading(`cancel-${id}`);
+    try {
+      await api(`/creators/campaigns/${id}/cancel`, { method: 'POST' });
+      reload();
+    } catch (e) { console.error(e); }
+    finally { setActionLoading(null); }
   };
 
   const statusGradients: Record<string, string> = {
@@ -685,7 +715,7 @@ function CampaignsModule() {
             <h1 className="text-xl font-bold text-white">Campaigns</h1>
             <p className="text-sm text-slate-400 mt-0.5">Manage and track all your campaigns</p>
           </div>
-          <Button className="bg-cyan-500 hover:bg-cyan-600 text-white gap-2" onClick={() => setCreateOpen(true)}>
+          <Button className="bg-cyan-500 hover:bg-cyan-600 text-white gap-2" onClick={() => { setCreateError(null); setCreateOpen(true); }}>
             <Plus className="w-4 h-4" /> Create Campaign
           </Button>
         </div>
@@ -702,7 +732,13 @@ function CampaignsModule() {
 
         {/* Campaign Grid */}
         <div className="grid grid-cols-2 gap-4">
-          {filtered.length === 0 && (
+          {campaignsLoading && apiCampaigns.length === 0 && (
+            <div className="col-span-2 flex flex-col items-center justify-center py-16 text-slate-500">
+              <Loader2 className="w-8 h-8 animate-spin mb-2" />
+              <p className="text-sm">Loading campaigns...</p>
+            </div>
+          )}
+          {!campaignsLoading && filtered.length === 0 && (
             <div className="col-span-2 text-center py-12 text-slate-500 text-sm">
               No campaigns yet. Create your first campaign to get started.
             </div>
@@ -738,14 +774,16 @@ function CampaignsModule() {
                   <div className="flex gap-2 mt-3">
                     {camp.status === 'draft' && (
                       <Button size="sm" className="flex-1 h-7 text-xs bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 border border-cyan-500/30"
-                        onClick={() => handlePublish(camp.id)}>
-                        Publish
+                        onClick={() => handlePublish(camp.id)}
+                        disabled={actionLoading === `publish-${camp.id}`}>
+                        {actionLoading === `publish-${camp.id}` ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Publish'}
                       </Button>
                     )}
                     {['draft', 'open', 'in_progress'].includes(camp.status) && (
                       <Button size="sm" variant="outline" className="flex-1 h-7 text-xs border-red-500/30 text-red-400 hover:bg-red-500/10 bg-transparent"
-                        onClick={() => handleCancel(camp.id)}>
-                        Cancel
+                        onClick={() => handleCancel(camp.id)}
+                        disabled={actionLoading === `cancel-${camp.id}`}>
+                        {actionLoading === `cancel-${camp.id}` ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Cancel'}
                       </Button>
                     )}
                     {camp.status === 'open' && (
@@ -760,12 +798,22 @@ function CampaignsModule() {
       </div>
 
       {/* Create Campaign Dialog */}
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+      <Dialog open={createOpen} onOpenChange={(open) => { setCreateOpen(open); if (!open) { setCreateError(null); setCreateSuccess(false); } }}>
         <DialogContent className="bg-[#13131f] border-white/[0.06] text-white max-w-lg max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-lg font-bold">Create New Campaign</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 mt-2">
+            {createSuccess && (
+              <div className="flex items-center gap-2 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 text-xs">
+                <CheckCircle2 className="w-4 h-4 shrink-0" /> Campaign created successfully!
+              </div>
+            )}
+            {createError && (
+              <div className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-300 text-xs">
+                <AlertCircle className="w-4 h-4 shrink-0" /> {createError}
+              </div>
+            )}
             <div>
               <label className="text-xs text-slate-400 mb-1 block">Campaign Name *</label>
               <Input className="bg-white/5 border-white/10 text-white" placeholder="e.g. Summer Collection Launch"

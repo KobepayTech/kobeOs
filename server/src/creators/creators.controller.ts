@@ -16,6 +16,7 @@ import {
   CreateCampaignDto, RespondOfferDto, SendOfferDto,
   SubmitProofDto, UpdateCampaignDto,
 } from './dto/campaign.dto';
+import { AddReviewDto, CampaignAnalyticsDto, SetPackagesDto } from './dto/marketplace.dto';
 
 class UpgradeSubscriptionDto {
   @IsEnum(['basic', 'premium', 'elite']) tier!: CreatorTier;
@@ -46,6 +47,34 @@ export class CreatorsController {
   @Get('marketplace')
   @Public()
   marketplace(@Query() dto: SearchCreatorsDto) { return this.svc.search(dto); }
+
+  // ── Reviews ─────────────────────────────────────────────────────────────────
+
+  /** Add a review after a completed campaign */
+  @Post('reviews')
+  addReview(@CurrentUser('id') uid: string, @Body() dto: AddReviewDto) {
+    return this.svc.addReview(uid, dto);
+  }
+
+  @Get('reviews')
+  getReviews(@Query('creatorId') creatorId: string) {
+    return this.svc.getReviews(creatorId);
+  }
+
+  // ── Packages ────────────────────────────────────────────────────────────────
+
+  /** Set service packages for a creator */
+  @Post('packages')
+  setPackages(@CurrentUser('id') uid: string, @Body() dto: SetPackagesDto) {
+    return this.svc.setPackages(uid, dto);
+  }
+
+  @Get('packages/:creatorId')
+  getPackages(@Param('creatorId') creatorId: string) {
+    return this.svc.getPackages(creatorId);
+  }
+
+  // ── Campaigns ───────────────────────────────────────────────────────────────
 
   @Get('campaigns/open')
   @Public()
@@ -101,6 +130,15 @@ export class CreatorsController {
     @Param('offerId') offerId: string,
     @Body() dto: SubmitProofDto,
   ) { return this.campaigns.submitProof(uid, campaignId, offerId, dto); }
+
+  // ── Campaign analytics ──────────────────────────────────────────────────────
+
+  @Get('campaigns/:id/analytics')
+  getCampaignAnalytics(@CurrentUser('id') uid: string, @Param('id') id: string, @Query() _dto: CampaignAnalyticsDto) {
+    return this.metrics.getCampaignAnalytics(uid, id);
+  }
+
+  // ── Escrow ──────────────────────────────────────────────────────────────────
 
   @Get('escrow/mine')
   myEscrows(@CurrentUser('id') uid: string) { return this.escrow.findByAdvertiser(uid); }

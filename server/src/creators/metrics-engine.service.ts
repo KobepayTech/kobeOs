@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Creator, FraudSignals, PlatformStats } from './creator.entity';
@@ -230,6 +230,57 @@ export class MetricsEngineService {
       viewFollowerMismatch,
       fraudScore: Math.min(100, fraudScore),
       checkedAt: new Date().toISOString(),
+    };
+  }
+
+  // ── Campaign analytics ──────────────────────────────────────────────────────
+
+  /**
+   * Return analytics for a single campaign.
+   * Includes offer breakdowns, spend, completion rates, and KPI metrics.
+   */
+  async getCampaignAnalytics(_userId: string, campaignId: string) {
+    const campaign = await this.campaigns.findOne({ where: { id: campaignId } });
+    if (!campaign) throw new NotFoundException('Campaign not found');
+
+    const offers = campaign.offers ?? [];
+    const totalOffers = offers.length;
+    const accepted = offers.filter((o) => o.status === 'accepted' || o.status === 'active' || o.status === 'submitted' || o.status === 'verified' || o.status === 'paid').length;
+    const completed = offers.filter((o) => o.status === 'paid' || o.status === 'verified').length;
+    const declined = offers.filter((o) => o.status === 'declined').length;
+    const pending = offers.filter((o) => o.status === 'pending' || o.status === 'negotiating').length;
+    const failed = offers.filter((o) => o.status === 'failed').length;
+
+    const totalCommitted = offers.reduce((s, o) => s + (o.amountTzs ?? 0), 0);
+    const totalPaid = offers.filter((o) => o.status === 'paid').reduce((s, o) => s + (o.amountTzs ?? 0), 0);
+
+    const avgVerifiedViews = offers
+      .filter((o) => o.verifiedViews != null)
+      .reduce((s, o, _i, arr) => s + (o.verifiedViews ?? 0) / (arr.length || 1), 0);
+
+    return {
+      campaignId: campaign.id,
+      name: campaign.name,
+      status: campaign.status,
+      budgetTzs: Number(campaign.budgetTzs),
+      totalCommitted,
+      totalPaid,
+      platformFeePercent: campaign.platformFeePercent,
+      offers: {
+        total: totalOffers,
+        accepted,
+        completed,
+        declined,
+        pending,
+        failed,
+        completionRate: totalOffers > 0 ? Math.round((completed / totalOffers) * 100) : 0,
+      },
+      kpis: {
+        avgVerifiedViews: Math.round(avgVerifiedViews),
+        totalVerifiedViews: offers.reduce((s, o) => s + (o.verifiedViews ?? 0), 0),
+        totalVerifiedLikes: offers.reduce((s, o) => s + (o.verifiedLikes ?? 0), 0),
+      },
+      requirements: campaign.requirements,
     };
   }
 
