@@ -14,7 +14,7 @@ import {
   Plus, Search, CheckCircle2, Clock, XCircle, Phone, User, Mail, CreditCard, Banknote,
   Smartphone, Landmark, DollarSign, ChevronRight, X, Check, Download, Printer, QrCode,
   Trash2, Edit, Eye, Filter, BadgeCheck, AlertTriangle, TrendingUp, ShieldCheck, Activity, FileText, KeyRound,
-  ArrowRightLeft
+  ArrowRightLeft, ScanLine, Loader2
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -1368,7 +1368,18 @@ ${cashLine}${usdLine}
       {role !== 'Cashier China' && (
         <Card className="bg-[#13131f] border-white/[0.06]">
           <CardContent className="p-5">
-            <h3 className="text-white font-semibold mb-4 flex items-center gap-2"><Plus className="w-5 h-5 text-emerald-400" />New Deposit</h3>
+            <div className="mb-4 flex items-center justify-between gap-2">
+              <h3 className="text-white font-semibold flex items-center gap-2"><Plus className="w-5 h-5 text-emerald-400" />New Deposit</h3>
+              <ReceiptScanButton onParsed={(r) => {
+                if (r.parsed.total != null) setDepositCashAmount(String(r.parsed.total));
+                if (r.parsed.currency) setDepositCashCurrency(r.parsed.currency === 'TZS' ? 'TZS' : 'USD');
+                if (r.parsed.merchant) {
+                  setSupplierLines((lines) => lines.length && !lines[0].supplierName
+                    ? [{ ...lines[0], supplierName: r.parsed.merchant ?? '' }, ...lines.slice(1)]
+                    : lines);
+                }
+              }} />
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
               <div><label className="text-xs text-slate-400 mb-1 block">Search Customer Phone</label><div className="flex gap-2"><Input placeholder="Enter phone..." value={depositPhone} onChange={e => setDepositPhone(e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600" /><Button onClick={handleDepositSearch} size="sm" className="bg-blue-600 hover:bg-blue-700"><Search className="w-4 h-4" /></Button></div>{selectedDepositCustomer && <p className="text-xs text-emerald-400 mt-1 flex items-center gap-1"><CheckCircle2 className="w-3 h-3" />{selectedDepositCustomer.name}</p>}</div>
               <div><label className="text-xs text-slate-400 mb-1 block">Supplier paid in</label><Select value={depositCurrency} onValueChange={setDepositCurrency}><SelectTrigger className="bg-[#0a0a1a] border-white/[0.08] text-white"><SelectValue /></SelectTrigger><SelectContent className="bg-[#13131f] border-white/[0.08]"><SelectItem value="CNY" className="text-white">CNY (Chinese yuan)</SelectItem><SelectItem value="USD" className="text-white">USD</SelectItem><SelectItem value="TZS" className="text-white">TZS</SelectItem></SelectContent></Select></div>
@@ -2581,6 +2592,75 @@ ${cashLine}${usdLine}
           {renderModule()}
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ─────────────────────────── Receipt OCR button ─────────────────────────── */
+
+interface OcrReceipt {
+  text: string;
+  confidence: number;
+  language: string;
+  parsed: { total: number | null; currency: string | null; date: string | null; merchant: string | null };
+}
+
+function ReceiptScanButton({ onParsed }: { onParsed: (r: OcrReceipt) => void }) {
+  const [scanning, setScanning] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [hint, setHint] = useState<string | null>(null);
+
+  const handleFile = async (file: File) => {
+    setScanning(true);
+    setError(null);
+    setHint(null);
+    try {
+      const fd = new FormData();
+      fd.append('image', file);
+      const token = localStorage.getItem('access_token');
+      const res = await fetch('/api/ocr/extract-receipt', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: fd,
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.message || `HTTP ${res.status}`);
+      }
+      const data = (await res.json()) as OcrReceipt;
+      onParsed(data);
+      const bits: string[] = [];
+      if (data.parsed.total != null) bits.push(`amount ${data.parsed.total}`);
+      if (data.parsed.merchant) bits.push(`merchant ${data.parsed.merchant}`);
+      setHint(bits.length ? `Filled: ${bits.join(', ')}` : 'No fields recognised — text extracted only');
+      setTimeout(() => setHint(null), 4000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Scan failed');
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      {hint && <span className="text-[11px] text-emerald-400">{hint}</span>}
+      {error && <span className="text-[11px] text-rose-400">{error}</span>}
+      <label className="cursor-pointer">
+        <input
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) handleFile(f);
+            e.target.value = '';
+          }}
+        />
+        <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-amber-500/15 text-amber-300 hover:bg-amber-500/25 border border-amber-500/30">
+          {scanning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ScanLine className="w-3.5 h-3.5" />}
+          {scanning ? 'Scanning…' : 'Scan receipt'}
+        </span>
+      </label>
     </div>
   );
 }
