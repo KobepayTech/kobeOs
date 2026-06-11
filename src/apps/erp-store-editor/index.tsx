@@ -4,7 +4,7 @@ import {
   ShoppingBag, Search, ChevronDown, ChevronRight, Check, Upload, Eye, X,
   Store, Type as TypeIcon, Grid3X3, PanelLeft, Tag, Plus, Globe, Loader2, AlertTriangle,
   LayoutGrid, Layers,
-  Wifi, WifiOff, ExternalLink,
+  Wifi, WifiOff, ExternalLink, Languages,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -853,7 +853,10 @@ export default function StoreEditor() {
                 />
               </div>
               <div>
-                <label className="text-xs font-medium text-white/50 mb-1.5 block">Tagline</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-medium text-white/50">Tagline</label>
+                  <TranslateButton text={settings.tagline} onTranslated={(t) => update('tagline', t)} />
+                </div>
                 <Input
                   value={settings.tagline}
                   onChange={(e) => update('tagline', e.target.value)}
@@ -1363,6 +1366,57 @@ export default function StoreEditor() {
           <LivePreview settings={settings} />
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ─────────────────── NLLB translate button (en → swh) ─────────────────── */
+
+function TranslateButton({ text, onTranslated }: { text: string; onTranslated: (t: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [target, setTarget] = useState<'swh_Latn' | 'fra_Latn' | 'arb_Arab' | 'por_Latn'>('swh_Latn');
+  const [err, setErr] = useState<string | null>(null);
+
+  const run = async () => {
+    if (!text?.trim()) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      const out = await api<{ translation: string }>('/translation/translate', {
+        method: 'POST',
+        body: JSON.stringify({ text, source: 'eng_Latn', target }),
+      });
+      if (out.translation) onTranslated(out.translation);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Failed');
+      setTimeout(() => setErr(null), 4000);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-1.5">
+      {err && <span className="text-[10px] text-rose-300">{err}</span>}
+      <select
+        value={target}
+        onChange={(e) => setTarget(e.target.value as typeof target)}
+        className="bg-white/5 border border-white/10 rounded text-[10px] text-white/80 px-1.5 py-0.5"
+      >
+        <option value="swh_Latn">→ Swahili</option>
+        <option value="fra_Latn">→ French</option>
+        <option value="arb_Arab">→ Arabic</option>
+        <option value="por_Latn">→ Portuguese</option>
+      </select>
+      <button
+        type="button"
+        onClick={run}
+        disabled={busy || !text?.trim()}
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-500/15 text-blue-300 hover:bg-blue-500/25 border border-blue-500/30 disabled:opacity-60"
+      >
+        {busy ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <Languages className="w-2.5 h-2.5" />}
+        {busy ? '…' : 'Translate'}
+      </button>
     </div>
   );
 }

@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, Scissors, Loader2 } from 'lucide-react';
 
 /**
  * Universal product shape — matches PosProduct on the backend. Used by both
@@ -424,6 +424,7 @@ export function UniversalProductForm({
               placeholder="https://…"
               className={inputCls}
             />
+            <RemoveBackgroundButton imageUrl={value.imageUrl ?? ''} onResult={(blobUrl) => patch({ imageUrl: blobUrl })} />
           </Field>
           <Field label="Additional images">
             <Textarea
@@ -533,3 +534,56 @@ const BADGE_OPTIONS = [
   'Respect Badge',
   'Foundation Badge',
 ];
+
+/* ─────────────── Background removal (u²-Net / RMBG) button ─────────────── */
+
+function RemoveBackgroundButton({ imageUrl, onResult }: { imageUrl: string; onResult: (blobUrl: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const run = async () => {
+    if (!imageUrl) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      // Fetch the source image as a blob so we can re-POST it as multipart.
+      const src = await fetch(imageUrl);
+      if (!src.ok) throw new Error(`Source image fetch failed: ${src.status}`);
+      const blob = await src.blob();
+      const fd = new FormData();
+      fd.append('image', blob, 'src.png');
+      const token = localStorage.getItem('access_token');
+      const res = await fetch('/api/image-edit/remove-background', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: fd,
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.message || `HTTP ${res.status}`);
+      }
+      const out = await res.blob();
+      onResult(URL.createObjectURL(out));
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Failed');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!imageUrl) return null;
+  return (
+    <div className="mt-1.5 flex items-center gap-2">
+      <button
+        type="button"
+        onClick={run}
+        disabled={busy}
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[11px] font-semibold bg-violet-500/15 text-violet-300 hover:bg-violet-500/25 border border-violet-500/30 disabled:opacity-60"
+      >
+        {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Scissors className="w-3 h-3" />}
+        {busy ? 'Removing…' : 'Remove background'}
+      </button>
+      {err && <span className="text-[10px] text-rose-400">{err}</span>}
+    </div>
+  );
+}
