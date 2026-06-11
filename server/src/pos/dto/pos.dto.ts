@@ -1,5 +1,6 @@
 import { IsArray, IsBoolean, IsEnum, IsInt, IsNumber, IsObject, IsOptional, IsString, IsUUID, MaxLength, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
+import type { ProductVariant } from '../pos.entity';
 
 export class CreateProductDto {
   @IsString() @MaxLength(60) sku!: string;

@@ -789,7 +789,6 @@ export const HotelAdminDashboard: React.FC = () => {
                         <StatusBadge key="s" status={b.status} />,
                       ];
                     })}
-                  }
                 />
               </GlassCard>
             </div>
@@ -854,7 +853,6 @@ export const HotelAdminDashboard: React.FC = () => {
                         <button className="p-1.5 rounded-lg hover:bg-white/50 transition-all cursor-pointer" title="Edit"><Edit2 size={13} style={{ color: '#8B5CF6' }} /></button>
                       </div>,
                     ])}
-                  }
                 />
               </GlassCard>
               {/* Add Guest Modal */}
