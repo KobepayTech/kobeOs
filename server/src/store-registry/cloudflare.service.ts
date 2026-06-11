@@ -53,6 +53,14 @@ export class CloudflareService {
     return t;
   }
 
+  /** True when the operator has set CF_API_TOKEN + CF_ACCOUNT_ID. Lets
+   *  callers branch on "Cloudflare is reachable" without provoking the
+   *  throwing getter above. */
+  isCloudflareConfigured(): boolean {
+    return Boolean(this.config.get<string>('CF_API_TOKEN', ''))
+        && Boolean(this.config.get<string>('CF_ACCOUNT_ID', ''));
+  }
+
   private get accountId(): string {
     const a = this.config.get<string>('CF_ACCOUNT_ID', '');
     if (!a) throw new InternalServerErrorException('CF_ACCOUNT_ID is not set in server/.env');

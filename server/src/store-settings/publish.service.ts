@@ -70,9 +70,24 @@ export class PublishService implements OnModuleDestroy {
       throw new BadRequestException('Set a store name before publishing.');
     }
 
-    return this.deploymentMode === 'hosted'
-      ? this.publishHosted(settings)
-      : this.publishSelfHosted(ownerId, settings);
+    // Hosted mode = pure DB flip (wildcard tunnel handles routing).
+    // Self-hosted mode = per-store tunnel + cloudflared spawn — BUT only
+    // when CF_API_TOKEN is actually set. If the operator hasn't configured
+    // Cloudflare credentials yet, we silently fall back to the hosted DB
+    // flip so the storefront still gets a `publishedUrl` and the UI can
+    // proceed. Operator can come back later, set the env vars, restart,
+    // and re-publish for a real tunnel.
+    if (this.deploymentMode === 'hosted') {
+      return this.publishHosted(settings);
+    }
+    if (!this.cf.isCloudflareConfigured()) {
+      this.logger.warn(
+        `Self-hosted publish for ${settings.domainSlug} falling back to DB-only — CF_API_TOKEN not set. ` +
+        `Run System Settings → Cloudflare Tunnel → Bootstrap to enable real tunnels.`,
+      );
+      return this.publishHosted(settings);
+    }
+    return this.publishSelfHosted(ownerId, settings);
   }
 
   /**
@@ -123,6 +138,11 @@ export class PublishService implements OnModuleDestroy {
   async bootstrapWildcardTunnel() {
     if (this.deploymentMode !== 'hosted') {
       throw new BadRequestException('Wildcard bootstrap is only valid in hosted deployment mode (KOBEOS_DEPLOYMENT=hosted).');
+    }
+    if (!this.cf.isCloudflareConfigured()) {
+      throw new BadRequestException(
+        'Cloudflare credentials not configured. Set CF_API_TOKEN and CF_ACCOUNT_ID on the server first.',
+      );
     }
     return this.cf.bootstrapWildcardTunnel(this.localPort);
   }
