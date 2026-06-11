@@ -261,7 +261,7 @@ export function ExploreModule({ creators: propCreators }: { creators?: MarketCre
           setError('Authentication required. Please log in.');
           window.dispatchEvent(new CustomEvent('kobe:auth-required'));
         } else {
-          setError(`Failed to load creators: ${(err as Error).message || 'Server error'}`);
+          setError(`Failed to load creators: ${(err as unknown as Error)?.message || 'Server error'}`);
         }
       } else {
         setError('Failed to load creators. Using demo data.');

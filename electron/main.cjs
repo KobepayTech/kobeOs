@@ -204,6 +204,78 @@ function stopBackend() {
   if (backendProcess) { backendProcess.kill('SIGTERM'); backendProcess = null; }
 }
 
+// ── Cloudflared auto-start ───────────────────────────────────────────────────
+// The user bootstraps the wildcard tunnel once via System Settings → Cloudflare
+// Tunnel → "Bootstrap wildcard tunnel". That call returns a run token which the
+// UI persists to a file under userData. On every subsequent boot, we read the
+// token and spawn cloudflared automatically so the hosted storefronts stay live
+// without manual `cloudflared tunnel run` invocations.
+
+let cloudflaredProcess = null;
+
+function tokenPath() {
+  return path.join(app.getPath('userData'), 'cloudflared-token.txt');
+}
+
+function readPersistedToken() {
+  try {
+    if (!fs.existsSync(tokenPath())) return null;
+    const t = fs.readFileSync(tokenPath(), 'utf8').trim();
+    return t || null;
+  } catch { return null; }
+}
+
+function resolveCloudflaredBinary() {
+  if (process.env.CLOUDFLARED_BIN && fs.existsSync(process.env.CLOUDFLARED_BIN)) {
+    return process.env.CLOUDFLARED_BIN;
+  }
+  const resourcesRoot = IS_PACKAGED ? process.resourcesPath : path.join(__dirname, '..');
+  const platformName =
+    process.platform === 'win32' ? 'cloudflared-win-x64.exe'
+    : process.platform === 'darwin' ? (process.arch === 'arm64' ? 'cloudflared-mac-arm64' : 'cloudflared-mac-x64')
+    : 'cloudflared-linux-x64';
+  const candidate = path.join(resourcesRoot, 'cloudflared', platformName);
+  if (fs.existsSync(candidate)) return candidate;
+  return 'cloudflared'; // PATH fallback
+}
+
+function startCloudflared() {
+  const token = process.env.CLOUDFLARED_TOKEN || readPersistedToken();
+  if (!token) {
+    console.log('[KobeOS] cloudflared not started — no token persisted. Run System Settings → Cloudflare Tunnel → Bootstrap.');
+    return;
+  }
+  const bin = resolveCloudflaredBinary();
+  cloudflaredProcess = spawn(bin, ['tunnel', '--no-autoupdate', 'run', '--token', token], {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    detached: false,
+  });
+  cloudflaredProcess.stdout.on('data', (d) => console.log('[cloudflared]', d.toString().trim()));
+  cloudflaredProcess.stderr.on('data', (d) => console.error('[cloudflared]', d.toString().trim()));
+  cloudflaredProcess.on('exit', (code, signal) => {
+    console.log(`[KobeOS] cloudflared exited code=${code} signal=${signal}`);
+    cloudflaredProcess = null;
+  });
+  console.log(`[KobeOS] cloudflared started pid=${cloudflaredProcess.pid} bin=${bin}`);
+}
+
+function stopCloudflared() {
+  if (cloudflaredProcess) { cloudflaredProcess.kill('SIGTERM'); cloudflaredProcess = null; }
+}
+
+/** IPC: renderer (TunnelSection) persists the token after a successful bootstrap. */
+function persistCloudflaredToken(token) {
+  try {
+    fs.mkdirSync(path.dirname(tokenPath()), { recursive: true });
+    fs.writeFileSync(tokenPath(), token, { mode: 0o600 });
+    if (cloudflaredProcess) stopCloudflared();
+    startCloudflared();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
 async function stopEmbeddedPostgres() {
   if (embeddedPg) {
     try { await embeddedPg.stop(); } catch { /* ignore */ }
@@ -239,6 +311,10 @@ async function bootServices() {
   // Poll until backend responds on :3000 (max 15 s)
   sendBootProgress(65, 'Waiting for backend…');
   await waitForBackend(3000, 15000);
+
+  // Spin up cloudflared so any previously-published storefronts stay reachable.
+  // No-ops silently if no token was persisted yet (admin hasn't bootstrapped).
+  startCloudflared();
 
   sendBootProgress(90, 'Loading KobeOS…');
   await new Promise((r) => setTimeout(r, 300));
@@ -408,6 +484,7 @@ app.on('window-all-closed', async () => {
   syncEngine.stop();
   lanServer.stop();
   localdb.close();
+  stopCloudflared();
   stopBackend();
   await stopEmbeddedPostgres();
   if (process.platform !== 'darwin') app.quit();
@@ -418,8 +495,15 @@ app.on('before-quit', async () => {
   syncEngine.stop();
   lanServer.stop();
   localdb.close();
+  stopCloudflared();
   stopBackend();
   await stopEmbeddedPostgres();
+});
+
+// ── Cloudflared IPC ───────────────────────────────────────────────────────────
+ipcMain.handle('cloudflared:persist-token', async (_evt, token) => {
+  if (typeof token !== 'string' || token.length < 10) return { ok: false, error: 'Invalid token' };
+  return persistCloudflaredToken(token);
 });
 
 // ── System IPC ────────────────────────────────────────────────────────────────

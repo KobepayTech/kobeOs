@@ -12,11 +12,12 @@ import {
   Smartphone,
   Check,
   Loader2,
+  Cloud,
 } from 'lucide-react';
 
 /* ───────────────────────────── types ───────────────────────────── */
 
-type TabKey = 'appearance' | 'language' | 'storage' | 'system' | 'notifications';
+type TabKey = 'appearance' | 'language' | 'storage' | 'system' | 'notifications' | 'tunnel';
 
 interface SystemSettingsState {
   theme: 'light' | 'dark' | 'auto';
@@ -62,6 +63,7 @@ const tabs: TabDef[] = [
   { key: 'storage', label: 'Storage', icon: HardDrive },
   { key: 'system', label: 'System Info', icon: Info },
   { key: 'notifications', label: 'Notifications', icon: Bell },
+  { key: 'tunnel', label: 'Cloudflare Tunnel', icon: Cloud },
 ];
 
 /* ═══════════════════════════ main component ═══════════════════════════ */
@@ -138,6 +140,7 @@ export default function SystemSettingsApp() {
             {activeTab === 'storage' && <StorageSection />}
             {activeTab === 'system' && <SystemInfoSection />}
             {activeTab === 'notifications' && <NotificationsSection settings={settings} update={update} />}
+            {activeTab === 'tunnel' && <TunnelSection />}
           </motion.div>
         </AnimatePresence>
       </div>
@@ -570,5 +573,140 @@ function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: b
         transition={{ type: 'spring', stiffness: 500, damping: 30 }}
       />
     </button>
+  );
+}
+
+/* ─────────────────────────── Tunnel Section ─────────────────────────── */
+
+interface BootstrapResult {
+  tunnelId: string;
+  tunnelToken: string;
+  wildcardRecordId: string;
+  wildcardHostname: string;
+}
+
+function TunnelSection() {
+  const [bootstrapping, setBootstrapping] = useState(false);
+  const [result, setResult] = useState<BootstrapResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const bootstrap = async () => {
+    setBootstrapping(true);
+    setError(null);
+    try {
+      const token = localStorage.getItem('access_token');
+      const res = await fetch('/api/store-settings/admin/bootstrap-wildcard', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body?.message || `HTTP ${res.status}`);
+      }
+      const data = (await res.json()) as BootstrapResult;
+      setResult(data);
+      // Persist the token so the Electron main process can pick it up on next boot
+      // AND start cloudflared right now via IPC.
+      localStorage.setItem('kobeos-cloudflared-token', data.tunnelToken);
+      const electron = (window as unknown as { electron?: { invoke?: (ch: string, ...args: unknown[]) => Promise<unknown> } }).electron;
+      if (electron?.invoke) {
+        await electron.invoke('cloudflared:persist-token', data.tunnelToken).catch(() => undefined);
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to bootstrap tunnel');
+    } finally {
+      setBootstrapping(false);
+    }
+  };
+
+  const copyToken = async () => {
+    if (!result?.tunnelToken) return;
+    await navigator.clipboard.writeText(result.tunnelToken);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="space-y-6 text-os-text-primary">
+      <div>
+        <h2 className="text-xl font-semibold mb-1">Cloudflare Tunnel</h2>
+        <p className="text-sm text-os-text-secondary">
+          Bootstrap the wildcard tunnel that serves every published storefront.
+          Runs once per install — adds <code>*.kobeapptz.com</code> DNS, creates
+          one shared tunnel, returns the run token.
+        </p>
+      </div>
+
+      <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+        <div className="flex items-start gap-4">
+          <div className="w-10 h-10 rounded-xl bg-blue-500/15 text-blue-300 flex items-center justify-center">
+            <Cloud className="w-5 h-5" />
+          </div>
+          <div className="flex-1">
+            <h3 className="font-semibold">Wildcard storefront tunnel</h3>
+            <p className="text-xs text-os-text-secondary mt-1 leading-relaxed">
+              Idempotent — safe to click repeatedly. Requires <code>CF_API_TOKEN</code>,{' '}
+              <code>CF_ACCOUNT_ID</code>, and <code>CF_ZONE_ID</code> env vars on the backend.
+              After bootstrap, every <code>POST /store-settings/publish</code> is a single DB write
+              (no Cloudflare API call).
+            </p>
+            <button
+              onClick={bootstrap}
+              disabled={bootstrapping}
+              className="mt-4 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-500 disabled:opacity-60 flex items-center gap-2"
+            >
+              {bootstrapping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Cloud className="w-4 h-4" />}
+              {bootstrapping ? 'Calling Cloudflare…' : 'Bootstrap wildcard tunnel'}
+            </button>
+          </div>
+        </div>
+
+        {error && (
+          <div className="mt-4 px-3 py-2 rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-200 text-xs">
+            {error}
+          </div>
+        )}
+
+        {result && (
+          <div className="mt-5 space-y-3">
+            <Row label="Tunnel ID" value={result.tunnelId} />
+            <Row label="Wildcard CNAME" value={result.wildcardHostname} />
+            <Row label="DNS record ID" value={result.wildcardRecordId} />
+            <div>
+              <div className="text-[11px] text-os-text-secondary mb-1.5 font-medium">cloudflared run token</div>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 px-3 py-2 rounded-lg bg-black/40 text-emerald-300 text-[11px] truncate font-mono">
+                  {result.tunnelToken}
+                </code>
+                <button
+                  onClick={copyToken}
+                  className="px-3 py-2 rounded-lg text-xs font-semibold bg-white/10 hover:bg-white/15 flex items-center gap-1.5"
+                >
+                  {copied ? <Check className="w-3 h-3 text-emerald-400" /> : null}
+                  {copied ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+              <p className="text-[10px] text-os-text-secondary mt-1.5">
+                Saved to <code>localStorage['kobeos-cloudflared-token']</code> — the desktop wrapper
+                picks it up on next boot and starts cloudflared automatically.
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between text-xs gap-3">
+      <span className="text-os-text-secondary font-medium shrink-0">{label}</span>
+      <code className="font-mono text-os-text-primary truncate">{value}</code>
+    </div>
   );
 }

@@ -1059,7 +1059,7 @@ export function Footer({
         </div>
 
         {/* Link columns */}
-        {footerCols.map((col, i) => (
+        {(footerCols ?? []).map((col, i) => (
           <div key={i}>
             <h4 className="text-white font-bold text-[13px] mb-3 tracking-wide">
               {col.title}

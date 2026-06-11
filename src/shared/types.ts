@@ -196,7 +196,7 @@ export interface OrderItem {
   options?: string;
   notes?: string;
   station: 'kitchen' | 'bar' | 'dessert' | 'grill';
-  status: 'pending' | 'preparing' | 'ready';
+  status: 'pending' | 'preparing' | 'ready' | 'served';
 }
 
 export interface StaffMember {

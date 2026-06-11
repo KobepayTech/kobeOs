@@ -2340,7 +2340,8 @@ export default function KobeHotel() {
             },
             createdAt: new Date().toISOString(),
           };
-          return <HotelAdminDashboard hotel={hotelData} onUpdateHotel={() => {}} />;
+          void hotelData;
+          return <HotelAdminDashboard />;
         })()}
 
         {/* ─── KDS Display (Drive component) ─── */}
