@@ -33,6 +33,9 @@ import { HotelModule } from './hotel/hotel.module';
 import { CreatorsModule } from './creators/creators.module';
 import { VideoGenerationModule } from './video-generation/video-generation.module';
 import { AiModule } from './ai/ai.module';
+import { OcrModule } from './ocr/ocr.module';
+import { TranslationModule } from './translation/translation.module';
+import { ImageEditModule } from './image-edit/image-edit.module';
 import { CompaniesModule } from './companies/companies.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { StoreSettingsModule } from './store-settings/store-settings.module';
@@ -78,6 +81,9 @@ import { SocialSchedulerModule } from './social-scheduler/social-scheduler.modul
     WebhooksModule,
     VideoGenerationModule,
     AiModule,
+    OcrModule,
+    TranslationModule,
+    ImageEditModule,
     AuthModule,
     UsersModule,
     NotesModule,

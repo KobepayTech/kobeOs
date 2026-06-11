@@ -1,0 +1,5 @@
+# Created at runtime by the docker compose service; not part of source.
+config/
+storage/
+gpt-sovits-models/
+gpt-sovits-output/

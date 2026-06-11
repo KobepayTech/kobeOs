@@ -14,7 +14,8 @@ export type ModelCategory =
   | 'video'
   | 'image'
   | 'sports'
-  | 'embedding';
+  | 'embedding'
+  | 'translation';
 
 export type ModelLicense = 'apache-2.0' | 'mit' | 'llama' | 'gemma' | 'mistral' | 'proprietary' | 'other';
 

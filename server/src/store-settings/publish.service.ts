@@ -14,36 +14,49 @@ import { StoreSettings } from './store-settings.entity';
 import { CloudflareService } from '../store-registry/cloudflare.service';
 
 /**
- * Manages store publishing via Cloudflare Tunnels.
+ * Manages store publishing — two deployment modes:
  *
- * Each KobeOS instance is self-hosted on the user's local machine.
- * Publishing works without a static IP or port forwarding:
+ * MODE 1: hosted (default) — multi-tenant cloud.
+ *   One wildcard `*.kobeapptz.com` CNAME + one shared Cloudflare Tunnel
+ *   set up via CloudflareService.bootstrapWildcardTunnel() at install time
+ *   serves every store. "Publishing" is a single DB-flag flip; zero
+ *   Cloudflare API calls. Scales to millions of stores. TenantMiddleware
+ *   resolves the slug from the Host header and the store service gates on
+ *   `isPublished`.
  *
- *   1. Cloudflare Tunnel is created for the store slug
- *   2. CNAME DNS record is created: {slug}.kobeapptz.com → tunnel endpoint
- *   3. Tunnel ingress is configured to route to localhost:{port}
- *   4. `cloudflared tunnel run --token <token>` is spawned as a child process
- *   5. Store is immediately live at https://{slug}.kobeapptz.com
+ * MODE 2: self-hosted — user runs KobeOS on their own laptop.
+ *   Per-store tunnel + per-store CNAME + per-store `cloudflared` process.
+ *   The original behaviour, kept for backward compatibility. Trades scale
+ *   for "works behind any NAT without a public IP".
  *
- * On unpublish the tunnel is deleted and the DNS record removed.
- * On server restart, published stores automatically reconnect (see onModuleInit).
+ * Toggle with `KOBEOS_DEPLOYMENT=hosted | self-hosted` (default: hosted).
  */
 @Injectable()
 export class PublishService implements OnModuleDestroy {
   private readonly logger = new Logger(PublishService.name);
 
-  /** Active cloudflared child processes keyed by ownerId */
+  /** Active cloudflared child processes keyed by ownerId (self-hosted only) */
   private readonly tunnelProcesses = new Map<string, ChildProcess>();
+  private readonly deploymentMode: 'hosted' | 'self-hosted';
 
   constructor(
     @InjectRepository(StoreSettings)
     private readonly repo: Repository<StoreSettings>,
     private readonly cf: CloudflareService,
     private readonly config: ConfigService,
-  ) {}
+  ) {
+    const raw = (this.config.get<string>('KOBEOS_DEPLOYMENT') ?? 'hosted').toLowerCase();
+    this.deploymentMode = raw === 'self-hosted' ? 'self-hosted' : 'hosted';
+    this.logger.log(`Publish deployment mode: ${this.deploymentMode}`);
+  }
 
   private get localPort(): number {
     return Number(this.config.get('PORT', 3000));
+  }
+
+  /** Exposed so other services + tests can branch on it. */
+  getDeploymentMode(): 'hosted' | 'self-hosted' {
+    return this.deploymentMode;
   }
 
   // ── Publish ──────────────────────────────────────────────────────────────
@@ -57,33 +70,61 @@ export class PublishService implements OnModuleDestroy {
       throw new BadRequestException('Set a store name before publishing.');
     }
 
-    // Stop any existing tunnel for this owner before creating a new one
+    return this.deploymentMode === 'hosted'
+      ? this.publishHosted(settings)
+      : this.publishSelfHosted(ownerId, settings);
+  }
+
+  /**
+   * Hosted mode — zero Cloudflare calls. The wildcard CNAME + shared
+   * tunnel were created once at bootstrap; making a store reachable is
+   * just `isPublished=true`.
+   */
+  private async publishHosted(settings: StoreSettings): Promise<StoreSettings> {
+    settings.isPublished  = true;
+    settings.publishedUrl = `https://${settings.domainSlug}.kobeapptz.com`;
+    settings.publishedAt  = new Date();
+    const saved = await this.repo.save(settings);
+    this.logger.log(`Store published (hosted, wildcard): ${settings.publishedUrl}`);
+    return saved;
+  }
+
+  /**
+   * Self-hosted mode — per-store tunnel + DNS + local cloudflared. The
+   * original behaviour, kept for KobeOS running on a user's laptop where
+   * a wildcard tunnel doesn't make sense.
+   */
+  private async publishSelfHosted(ownerId: string, settings: StoreSettings): Promise<StoreSettings> {
     this.stopTunnelProcess(ownerId);
 
-    // 1. Create (or reuse) the Cloudflare Tunnel
     const { tunnelId, tunnelToken } = await this.cf.createTunnel(settings.domainSlug);
-
-    // 2. Create/update the CNAME DNS record
     const cfRecordId = await this.cf.upsertTunnelCname(settings.domainSlug, tunnelId);
-
-    // 3. Push ingress configuration to the tunnel
     await this.cf.configureTunnelIngress(tunnelId, settings.domainSlug, this.localPort);
-
-    // 4. Spawn cloudflared on the local machine
     await this.spawnCloudflared(ownerId, tunnelToken);
 
-    // 5. Persist publish state
     settings.isPublished    = true;
     settings.publishedUrl   = `https://${settings.domainSlug}.kobeapptz.com`;
     settings.publishedAt    = new Date();
-    // Store tunnel metadata in the notes fields we have available
-    (settings as any).cfTunnelId  = tunnelId;
-    (settings as any).cfRecordId  = cfRecordId;
-    (settings as any).cfToken     = tunnelToken;
+    settings.cfTunnelId     = tunnelId;
+    settings.cfRecordId     = cfRecordId;
+    settings.cfToken        = tunnelToken;
 
     const saved = await this.repo.save(settings);
-    this.logger.log(`Store published: ${settings.publishedUrl}`);
+    this.logger.log(`Store published (self-hosted, per-tunnel): ${settings.publishedUrl}`);
     return saved;
+  }
+
+  /**
+   * Bootstrap the shared wildcard tunnel + DNS record. Admin-only; meant
+   * to be called once per KobeOS install. Returns the cloudflared run
+   * token — persist it as CLOUDFLARED_TOKEN and run cloudflared as a
+   * system service. Returns null in self-hosted mode (no shared tunnel).
+   */
+  async bootstrapWildcardTunnel() {
+    if (this.deploymentMode !== 'hosted') {
+      throw new BadRequestException('Wildcard bootstrap is only valid in hosted deployment mode (KOBEOS_DEPLOYMENT=hosted).');
+    }
+    return this.cf.bootstrapWildcardTunnel(this.localPort);
   }
 
   // ── Unpublish ────────────────────────────────────────────────────────────
@@ -94,30 +135,28 @@ export class PublishService implements OnModuleDestroy {
       throw new BadRequestException('No published store found.');
     }
 
-    // Stop the local cloudflared process
-    this.stopTunnelProcess(ownerId);
-
-    // Delete the Cloudflare Tunnel and DNS record
-    const tunnelId  = (settings as any).cfTunnelId as string | undefined;
-    const recordId  = (settings as any).cfRecordId as string | undefined;
-
-    if (tunnelId) {
-      try { await this.cf.deleteTunnel(tunnelId); } catch (e) {
-        this.logger.warn(`Could not delete tunnel ${tunnelId}: ${(e as Error).message}`);
+    if (this.deploymentMode === 'self-hosted') {
+      // Tear down per-store Cloudflare resources.
+      this.stopTunnelProcess(ownerId);
+      if (settings.cfTunnelId) {
+        try { await this.cf.deleteTunnel(settings.cfTunnelId); } catch (e) {
+          this.logger.warn(`Could not delete tunnel ${settings.cfTunnelId}: ${(e as Error).message}`);
+        }
       }
-    }
-    if (recordId) {
-      try { await this.cf.deleteDnsRecord(recordId); } catch (e) {
-        this.logger.warn(`Could not delete DNS record ${recordId}: ${(e as Error).message}`);
+      if (settings.cfRecordId) {
+        try { await this.cf.deleteDnsRecord(settings.cfRecordId); } catch (e) {
+          this.logger.warn(`Could not delete DNS record ${settings.cfRecordId}: ${(e as Error).message}`);
+        }
       }
+      settings.cfTunnelId = null;
+      settings.cfRecordId = null;
+      settings.cfToken    = null;
     }
+    // Hosted mode: nothing to tear down upstream; the wildcard tunnel
+    // stays — TenantMiddleware + the isPublished gate handle visibility.
 
     settings.isPublished  = false;
     settings.publishedUrl = null;
-    (settings as any).cfTunnelId = null;
-    (settings as any).cfRecordId = null;
-    (settings as any).cfToken    = null;
-
     return this.repo.save(settings);
   }
 

@@ -62,4 +62,22 @@ export class StoreSettingsController {
   checkSlug(@Query('slug') slug: string) {
     return this.svc.checkSlugAvailability(slug ?? '');
   }
+
+  /**
+   * One-time bootstrap of the shared wildcard tunnel + *.kobeapptz.com
+   * CNAME used by hosted multi-tenant deployments. After this runs once,
+   * publishing any number of stores is a zero-Cloudflare-call DB flip.
+   * POST /api/store-settings/admin/bootstrap-wildcard
+   *
+   * Idempotent — safe to call repeatedly. Returns the cloudflared run
+   * token; persist it as CLOUDFLARED_TOKEN and run cloudflared as a
+   * system service.
+   *
+   * Requires an authenticated admin (any JWT today; a role check can be
+   * layered later if needed).
+   */
+  @Post('admin/bootstrap-wildcard')
+  bootstrapWildcard() {
+    return this.publishSvc.bootstrapWildcardTunnel();
+  }
 }

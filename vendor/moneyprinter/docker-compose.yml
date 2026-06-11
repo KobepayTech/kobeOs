@@ -1,0 +1,101 @@
+# MoneyPrinterTurbo AI short-video sidecar for Kobe Studio.
+# Upstream: https://github.com/harry0703/MoneyPrinterTurbo (MIT)
+#
+# Start:  docker compose -f vendor/moneyprinter/docker-compose.yml up -d
+# Stop:   docker compose -f vendor/moneyprinter/docker-compose.yml down
+#
+# KobeOS's VideoGenerationService posts to http://localhost:8080/api/v1/videos
+# and polls /api/v1/tasks/{id} for progress. The Streamlit playground at
+# :8501 is exposed for manual experimentation (optional).
+#
+# REQUIRED: before first run, set your LLM provider key in ./config/config.toml
+# (the container creates a default template on first start if missing).
+
+services:
+  api:
+    image: harry0703/moneyprinterturbo:latest
+    container_name: kobeos-moneyprinter-api
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config:/MoneyPrinterTurbo/config
+      - ./storage:/MoneyPrinterTurbo/storage
+    extra_hosts:
+      # Lets the container reach Ollama on the host machine when the
+      # default config.toml.example points llm_provider at local Ollama.
+      - "host.docker.internal:host-gateway"
+    command: python3 main.py
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/docs').status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  webui:
+    image: harry0703/moneyprinterturbo:latest
+    container_name: kobeos-moneyprinter-webui
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./config:/MoneyPrinterTurbo/config
+      - ./storage:/MoneyPrinterTurbo/storage
+    extra_hosts:
+      # Lets the container reach Ollama on the host machine when the
+      # default config.toml.example points llm_provider at local Ollama.
+      - "host.docker.internal:host-gateway"
+    command: streamlit run ./webui/Main.py --browser.serverAddress="0.0.0.0" --server.enableCORS=true --browser.gatherUsageStats=false
+
+  # ── Optional: fully offline TTS sidecar ─────────────────────────────────────
+  # GPT-SoVITS (https://github.com/RVC-Boss/GPT-SoVITS, MIT) is one of the
+  # local TTS backends MoneyPrinterTurbo can drive directly from its render
+  # pipeline. When this service is up, set `tts_server = "gpt-sovits"` in
+  # config/config.toml and point gpt_sovits_url at http://gpt-sovits:9880
+  # to take the FINAL cloud dependency (edge-tts) out of the loop.
+  #
+  # NOT enabled by default — the upstream image is ~6 GB and the
+  # pretrained voice models add another ~5 GB, so we gate it behind a
+  # Compose profile. Bring it up with:
+  #   docker compose -f vendor/moneyprinter/docker-compose.yml --profile offline-tts up -d
+  #
+  # CPU-only inference works but is slow (≈ real-time × 3–5). For
+  # production use a host with an NVIDIA GPU and uncomment the `deploy`
+  # block below.
+  gpt-sovits:
+    profiles: ["offline-tts"]
+    image: breakstring/gpt-sovits:latest
+    container_name: kobeos-gpt-sovits
+    restart: unless-stopped
+    ports:
+      - "9880:9880"   # Inference API consumed by MoneyPrinterTurbo
+      - "9871:9871"   # Training control (optional)
+      - "9872:9872"   # WebUI (optional, for cloning new voices)
+      - "9873:9873"   # UVR5 vocal separation (optional)
+    volumes:
+      # Pretrained voice models live here. On first start the upstream
+      # image downloads the base models into this directory — keep it
+      # mounted so the ~5 GB doesn't have to re-download on every
+      # container restart.
+      - ./gpt-sovits-models:/workspace/GPT_SoVITS/pretrained_models
+      - ./gpt-sovits-output:/workspace/output
+    environment:
+      is_half: "False"   # set "True" to use FP16 (GPU only)
+      is_share: "False"
+    # Uncomment the next block if you have an NVIDIA GPU available:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:9880/', timeout=5).status<500 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s

@@ -26,6 +26,7 @@ import { KobePayRbacService } from './kobepay-rbac.service';
 import { KobePayRatesService } from './kobepay-rate.service';
 import { PaymentsController } from './payments.controller';
 import { KobePayController } from './kobepay.controller';
+import { ErpModule } from '../erp/erp.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { KobePayController } from './kobepay.controller';
       PaymentCustomer, PaymentSupplier, PaymentDeposit, PaymentPayout, PaymentAllocation,
       KobePayUser, KobePayAuditEvent, KobePayRate, KobepayDispatchAttempt,
     ]),
+    ErpModule,
   ],
   providers: [
     WalletsService, TransactionsService, LoansService,

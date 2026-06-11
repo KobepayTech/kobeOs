@@ -7,13 +7,15 @@ import {
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const CATEGORIES: { id: ModelCategory | 'all'; label: string; icon: string }[] = [
-  { id: 'all',       label: 'All',       icon: '🗂️' },
-  { id: 'chat',      label: 'Chat',      icon: '💬' },
-  { id: 'coding',    label: 'Coding',    icon: '💻' },
-  { id: 'vision',    label: 'Vision',    icon: '👁️' },
-  { id: 'sports',    label: 'Sports',    icon: '⚽' },
-  { id: 'embedding', label: 'Embedding', icon: '🔗' },
-  { id: 'speech',    label: 'Speech',    icon: '🎙️' },
+  { id: 'all',         label: 'All',         icon: '🗂️' },
+  { id: 'chat',        label: 'Chat',        icon: '💬' },
+  { id: 'coding',      label: 'Coding',      icon: '💻' },
+  { id: 'vision',      label: 'Vision',      icon: '👁️' },
+  { id: 'sports',      label: 'Sports',      icon: '⚽' },
+  { id: 'embedding',   label: 'Embedding',   icon: '🔗' },
+  { id: 'speech',      label: 'Speech',      icon: '🎙️' },
+  { id: 'translation', label: 'Translation', icon: '🌐' },
+  { id: 'image',       label: 'Image edit',  icon: '🖼️' },
 ];
 
 const LICENSE_COLORS: Record<string, string> = {

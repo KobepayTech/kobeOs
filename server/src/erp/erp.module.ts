@@ -7,11 +7,20 @@ import { Contact } from '../contacts/contact.entity';
 import { PrintJob } from '../print/print.entity';
 import { ErpAccount, ErpTransaction, PurchaseOrder, Supplier } from './erp.entity';
 import { ErpKobepayInbox, ErpKobepayProvider } from './erp-kobepay-inbox.entity';
+import {
+  ErpKobePayLink,
+  ErpKobePaySupplierReceipt,
+  ErpPurchaseOrder,
+  ErpSupplier,
+  ErpSupplierCapitalLedger,
+} from './supplier-capital.entity';
 import { ErpService } from './erp.service';
 import { JournalService } from './journal.service';
 import { ErpKobepayInboxService } from './erp-kobepay-inbox.service';
+import { SupplierCapitalService } from './supplier-capital.service';
 import { ErpController } from './erp.controller';
 import { ErpKobepayInboxController } from './erp-kobepay-inbox.controller';
+import { SupplierCapitalController } from './supplier-capital.controller';
 
 @Module({
   imports: [
@@ -20,10 +29,11 @@ import { ErpKobepayInboxController } from './erp-kobepay-inbox.controller';
       ErpAccount, ErpTransaction,
       PurchaseOrder, Supplier,
       ErpKobepayProvider, ErpKobepayInbox,
+      ErpKobePayLink, ErpKobePaySupplierReceipt, ErpPurchaseOrder, ErpSupplier, ErpSupplierCapitalLedger,
     ]),
   ],
-  providers: [ErpService, JournalService, ErpKobepayInboxService],
-  controllers: [ErpController, ErpKobepayInboxController],
-  exports: [JournalService],
+  providers: [ErpService, JournalService, ErpKobepayInboxService, SupplierCapitalService],
+  controllers: [ErpController, ErpKobepayInboxController, SupplierCapitalController],
+  exports: [JournalService, SupplierCapitalService],
 })
 export class ErpModule {}

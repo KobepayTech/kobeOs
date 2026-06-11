@@ -193,6 +193,103 @@ export class CloudflareService {
     }
   }
 
+  // ── Wildcard multi-tenant deployment ─────────────────────────────────────
+
+  /**
+   * One-time admin bootstrap for hosted/multi-tenant deployments.
+   *
+   * Creates (or reuses):
+   *   • a single shared tunnel "kobeos-storefronts"
+   *   • a wildcard CNAME "*.kobeapptz.com" → <tunnelId>.cfargotunnel.com
+   *   • ingress: catch-all → http://localhost:<port>
+   *
+   * After this runs once, ANY new store slug works instantly — publishing
+   * becomes a database flag flip with zero Cloudflare API calls. Returns
+   * the run token so the operator can persist it (e.g. CLOUDFLARED_TOKEN
+   * env var) and run `cloudflared tunnel run --token <...>` as a system
+   * service.
+   *
+   * Idempotent — safe to re-run; reuses the existing tunnel + record.
+   *
+   * REQUIRED Cloudflare API token scopes:
+   *   Account → Cloudflare Tunnel → Edit
+   *   Zone    → DNS → Edit         (on the kobeapptz.com zone)
+   */
+  async bootstrapWildcardTunnel(localPort: number): Promise<{
+    tunnelId: string;
+    tunnelToken: string;
+    wildcardRecordId: string;
+    wildcardHostname: string;
+  }> {
+    const tunnelName = 'kobeos-storefronts';
+    const wildcardName = `*.${this.domain}`;
+
+    // 1. Reuse or create the shared tunnel.
+    const existing = await this.cfFetch<CfTunnel[]>(
+      `/accounts/${this.accountId}/cfd_tunnel?name=${encodeURIComponent(tunnelName)}&is_deleted=false`,
+    );
+    let tunnelId: string;
+    if (existing.length > 0) {
+      tunnelId = existing[0].id;
+      this.logger.log(`Reusing shared wildcard tunnel ${tunnelId}`);
+    } else {
+      const secret = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64');
+      const tunnel = await this.cfFetch<CfTunnel>(
+        `/accounts/${this.accountId}/cfd_tunnel`,
+        { method: 'POST', body: JSON.stringify({ name: tunnelName, tunnel_secret: secret }) },
+      );
+      tunnelId = tunnel.id;
+      this.logger.log(`Created shared wildcard tunnel ${tunnelId}`);
+    }
+
+    // 2. Get the run token (needed by the operator).
+    const tokenResult = await this.cfFetch<CfTunnelToken>(
+      `/accounts/${this.accountId}/cfd_tunnel/${tunnelId}/token`,
+    );
+
+    // 3. Upsert the wildcard CNAME.
+    const cnameContent = `${tunnelId}.cfargotunnel.com`;
+    const existingDns = await this.cfFetch<{ id: string }[]>(
+      `/zones/${this.zoneId}/dns_records?type=CNAME&name=${encodeURIComponent(wildcardName)}`,
+    );
+    let wildcardRecordId: string;
+    if (existingDns.length > 0) {
+      wildcardRecordId = existingDns[0].id;
+      await this.cfFetch(`/zones/${this.zoneId}/dns_records/${wildcardRecordId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ type: 'CNAME', name: wildcardName, content: cnameContent, proxied: true, ttl: 1 }),
+      });
+      this.logger.log(`Updated wildcard CNAME ${wildcardName} → ${cnameContent}`);
+    } else {
+      const record = await this.cfFetch<{ id: string }>(`/zones/${this.zoneId}/dns_records`, {
+        method: 'POST',
+        body: JSON.stringify({ type: 'CNAME', name: wildcardName, content: cnameContent, proxied: true, ttl: 1 }),
+      });
+      wildcardRecordId = record.id;
+      this.logger.log(`Created wildcard CNAME ${wildcardName} → ${cnameContent}`);
+    }
+
+    // 4. Push a catch-all ingress rule (no per-store rules needed).
+    await this.cfFetch(`/accounts/${this.accountId}/cfd_tunnel/${tunnelId}/configurations`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        config: {
+          ingress: [
+            { service: `http://localhost:${localPort}` },  // catch-all → backend
+          ],
+        },
+      }),
+    });
+    this.logger.log(`Wildcard tunnel ${tunnelId} ingress → http://localhost:${localPort} (catch-all)`);
+
+    return {
+      tunnelId,
+      tunnelToken: tokenResult.token,
+      wildcardRecordId,
+      wildcardHostname: wildcardName,
+    };
+  }
+
   // ── Legacy A-record API ──────────────────────────────────────────────────
   // StoreRegistryService still calls these — it's the older publish path that
   // PR #19 supersedes but didn't remove. Keep them as thin wrappers over the

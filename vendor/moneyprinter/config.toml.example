@@ -1,0 +1,59 @@
+# MoneyPrinterTurbo config — KobeOS offline-first defaults.
+#
+# Copy this file to ./config/config.toml before the first compose up:
+#   mkdir -p config && cp config.toml.example config/config.toml
+#
+# The defaults point at KobeOS's local Ollama process (set up via the
+# `ai/llama-runtime/ollama-bridge.js` service) so the video pipeline
+# runs FULLY OFFLINE with no OpenAI/Moonshot key. If you'd rather use a
+# cloud provider, flip `llm_provider` and fill in the matching keys.
+
+[app]
+
+# ── LLM provider ────────────────────────────────────────────────────────
+# Default: talk to the host's Ollama via OpenAI-compatible API.
+# Requires the host to be running:   ollama serve
+# And to have pulled one chat model:  ollama pull llama3.2:3b
+llm_provider = "openai"
+openai_api_key = "ollama"
+openai_base_url = "http://host.docker.internal:11434/v1"
+openai_model_name = "llama3.2:3b"
+
+# If you'd rather use Mistral, Qwen with Swahili, or DeepSeek:
+#   openai_model_name = "mistral:7b"          # general
+#   openai_model_name = "qwen2.5:7b"          # strong Swahili / Arabic
+#   openai_model_name = "deepseek-r1:8b"      # reasoning
+
+# ── Stock footage ──────────────────────────────────────────────────────
+# Pexels is free with an API key (https://www.pexels.com/api/).
+# Pixabay is free too — either is fine.
+pexels_api_keys = [""]
+pixabay_api_keys = [""]
+
+# ── Voiceover ──────────────────────────────────────────────────────────
+# Three offline-friendly paths, in order of "how offline":
+#
+# 1. (default)  Edge TTS — Microsoft cloud, needs internet on every render.
+# 2. (good)     Edge TTS in pipeline + KobeOS-side Piper swap after.
+#               Server env vars:
+#                 MONEY_PRINTER_USE_PIPER=true
+#                 MONEY_PRINTER_PIPER_VOICE=en_US-amy-medium
+#               Needs piper + ffmpeg on the host. Final MP4 uses Piper.
+# 3. (best)     GPT-SoVITS sidecar — fully in-pipeline offline TTS.
+#               Bring up the optional sidecar:
+#                 docker compose -f vendor/moneyprinter/docker-compose.yml \
+#                   --profile offline-tts up -d
+#               Then uncomment the [tts] block below and set tts_server.
+
+# Uncomment to switch the in-pipeline voice to the local GPT-SoVITS
+# sidecar (recommended for fully offline rendering on a GPU host).
+# voice_name = "GPT-SoVITS-default"
+# tts_server = "gpt-sovits"
+# gpt_sovits_url = "http://gpt-sovits:9880"
+# gpt_sovits_voice = "default"
+
+# ── Misc ───────────────────────────────────────────────────────────────
+hide_config = false
+endpoint = ""
+material_directory = ""
+max_concurrent_tasks = 5

@@ -8,6 +8,7 @@ import {
 } from '@/services/ruviewClient';
 import { buildHotelRoomAudits, type HotelRoomAudit, type HotelRoomRisk } from '@/services/kobeHotelPms';
 import { createHotelRoomReview, listHotelRoomReviews, type HotelRoomReviewRecord } from '@/services/hotelSecurityApi';
+import { RoomEntryDashboard } from './RoomEntryDashboard';
 
 const defaultHealth: RuViewHealth = {
   status: 'simulated',
@@ -47,12 +48,15 @@ function reviewSummary(audit: HotelRoomAudit) {
   ].join('\n');
 }
 
+type HotelSecurityTab = 'audits' | 'entries';
+
 export default function HotelSecurity() {
   const [health, setHealth] = useState<RuViewHealth>(defaultHealth);
   const [zones, setZones] = useState<RuViewZone[]>([]);
   const [reviews, setReviews] = useState<HotelRoomReviewRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [dataSource, setDataSource] = useState<'backend' | 'demo'>('demo');
+  const [tab, setTab] = useState<HotelSecurityTab>('audits');
 
   async function refresh() {
     const snapshot = await getRuViewSnapshot();
@@ -121,6 +125,10 @@ export default function HotelSecurity() {
             <p className="mt-1 max-w-3xl text-sm text-slate-400">Room review, checkout confirmation, housekeeping timing, payment checks, and RuView hotel-room sensing.</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] p-1">
+              <HotelTopTabBtn active={tab === 'audits'} onClick={() => setTab('audits')}>Audits</HotelTopTabBtn>
+              <HotelTopTabBtn active={tab === 'entries'} onClick={() => setTab('entries')}>Room entries</HotelTopTabBtn>
+            </div>
             <span className={`rounded-full border px-3 py-1 text-xs font-medium ${statusClasses(health.status)}`}>RuView {health.status}</span>
             <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-slate-300">Data: {dataSource}</span>
             <button onClick={refresh} className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm hover:bg-white/10">Refresh</button>
@@ -128,6 +136,39 @@ export default function HotelSecurity() {
         </div>
       </div>
 
+      {tab === 'entries' ? (
+        <RoomEntryDashboard />
+      ) : (
+        <AuditsView
+          audits={audits}
+          flaggedRooms={flaggedRooms}
+          occupiedHotelZones={occupiedHotelZones}
+          reviews={reviews}
+          loading={loading}
+          saveReview={saveReview}
+        />
+      )}
+    </div>
+  );
+}
+
+function AuditsView({
+  audits,
+  flaggedRooms,
+  occupiedHotelZones,
+  reviews,
+  loading,
+  saveReview,
+}: {
+  audits: HotelRoomAudit[];
+  flaggedRooms: HotelRoomAudit[];
+  occupiedHotelZones: RuViewZone[];
+  reviews: HotelRoomReviewRecord[];
+  loading: boolean;
+  saveReview: (audit: HotelRoomAudit) => Promise<void>;
+}) {
+  return (
+    <>
       <div className="grid gap-4 p-6 lg:grid-cols-4">
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><p className="text-sm text-slate-400">PMS rooms</p><p className="mt-2 text-3xl font-bold">{audits.length}</p><p className="mt-1 text-xs text-slate-500">Mapped to sensing zones</p></div>
         <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><p className="text-sm text-slate-400">Occupied zones</p><p className="mt-2 text-3xl font-bold">{occupiedHotelZones.length}</p><p className="mt-1 text-xs text-slate-500">RuView hotel-room status</p></div>
@@ -156,6 +197,21 @@ export default function HotelSecurity() {
       <div className="px-6 pb-6">
         <section className="rounded-2xl border border-white/10 bg-slate-900/70 p-5"><h2 className="text-xl font-semibold">Saved room reviews</h2>{reviews.length === 0 ? <p className="mt-3 text-sm text-slate-400">No saved reviews yet.</p> : <div className="mt-4 space-y-3">{reviews.slice(0, 10).map((review) => <div key={review.id} className="rounded-xl border border-white/10 bg-slate-950 p-3"><div className="flex items-center justify-between gap-3"><p className="font-medium">{review.title}</p><span className={`rounded-full border px-2 py-1 text-xs ${riskClasses(review.risk)}`}>{review.risk}</span></div><p className="mt-1 text-xs text-slate-500">Room {review.roomNumber} • {review.state}</p><p className="mt-2 whitespace-pre-line text-sm text-slate-300">{review.summary}</p></div>)}</div>}</section>
       </div>
-    </div>
+    </>
+  );
+}
+
+function HotelTopTabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-colors ${
+        active
+          ? 'bg-purple-500/15 text-purple-200 border border-purple-500/30'
+          : 'border border-transparent text-white/60 hover:text-white hover:bg-white/[0.04]'
+      }`}
+    >
+      {children}
+    </button>
   );
 }

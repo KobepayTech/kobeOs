@@ -119,6 +119,13 @@ export class StoreService {
 
     if (!settings) throw new NotFoundException('Store not found');
 
+    // With wildcard DNS every <slug>.kobeapptz.com reaches the backend, so
+    // we must gate visibility here. An unpublished store stays invisible
+    // to public visitors even though the subdomain technically resolves.
+    if (!settings.isPublished) {
+      throw new NotFoundException('Store not found');
+    }
+
     const [products, total] = await this.productsRepo.findAndCount({
       where: { ownerId: settings.ownerId, active: true },
       order: { name: 'ASC' },
