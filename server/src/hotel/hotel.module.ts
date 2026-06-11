@@ -4,10 +4,11 @@ import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import {
   HotelBooking, HotelGuest, HotelMenuItem, HotelOrder, HotelRoom, HotelServiceRequest, HotelTenant,
+  HotelChain, HotelParkingSpot, HotelFinancialRecord,
 } from './hotel.entity';
 import {
   BookingsService, GuestsService, MenuItemsService, OrdersService,
-  RoomsService, ServiceRequestsService, TenantsService,
+  RoomsService, ServiceRequestsService, TenantsService, HotelChainService,
 } from './hotel.service';
 import { HotelController } from './hotel.controller';
 import { PublicHotelController } from './public-hotel.controller';
@@ -16,7 +17,8 @@ import { HotelGateway } from './hotel.gateway';
 @Module({
   imports: [
     TypeOrmModule.forFeature([
-      HotelRoom, HotelGuest, HotelBooking, HotelMenuItem, HotelOrder, HotelServiceRequest, HotelTenant,
+      HotelRoom, HotelGuest, HotelBooking, HotelTenant, HotelMenuItem, HotelOrder, HotelServiceRequest,
+      HotelChain, HotelParkingSpot, HotelFinancialRecord,
     ]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -30,7 +32,7 @@ import { HotelGateway } from './hotel.gateway';
   providers: [
     RoomsService, GuestsService, BookingsService,
     MenuItemsService, OrdersService, ServiceRequestsService,
-    TenantsService, HotelGateway,
+    TenantsService, HotelChainService, HotelGateway,
   ],
   controllers: [HotelController, PublicHotelController],
 })

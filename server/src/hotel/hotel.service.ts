@@ -1,8 +1,9 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DeepPartial, Repository } from 'typeorm';
+import { DeepPartial, FindOptionsOrder, FindOptionsWhere, Repository } from 'typeorm';
 import {
   HotelBooking, HotelGuest, HotelMenuItem, HotelOrder, HotelRoom, HotelServiceRequest, HotelTenant,
+  HotelChain, HotelParkingSpot, HotelFinancialRecord,
 } from './hotel.entity';
 import { HotelGateway } from './hotel.gateway';
 import { OwnedCrudService } from '../common/owned.service';
@@ -10,6 +11,9 @@ import type {
   CreateBookingDto, CreateOrderDto, CreateTenantDto,
   UpdateBookingDto, UpdateOrderStatusDto, UpdateServiceRequestStatusDto, UpdateTenantDto,
 } from './dto/hotel.dto';
+import type {
+  CreateHotelChainDto, CreateFinancialRecordDto, CreateParkingSpotDto, HotelAggregationQueryDto, UpdateParkingSpotDto,
+} from './dto/hotel-extras.dto';
 
 @Injectable()
 export class RoomsService extends OwnedCrudService<HotelRoom> {
@@ -278,5 +282,243 @@ export class TenantsService {
     if (dto.logoUrl !== undefined) t.logoUrl = dto.logoUrl ?? null;
     if (dto.currency !== undefined) t.currency = dto.currency;
     return this.repo.save(t);
+  }
+}
+
+/* ─────────────── Multi-Hotel Services ─────────────── */
+
+@Injectable()
+export class HotelChainService {
+  constructor(
+    @InjectRepository(HotelChain) private readonly chainRepo: Repository<HotelChain>,
+    @InjectRepository(HotelTenant) private readonly tenantRepo: Repository<HotelTenant>,
+    @InjectRepository(HotelRoom) private readonly roomRepo: Repository<HotelRoom>,
+    @InjectRepository(HotelBooking) private readonly bookingRepo: Repository<HotelBooking>,
+    @InjectRepository(HotelGuest) private readonly guestRepo: Repository<HotelGuest>,
+    @InjectRepository(HotelFinancialRecord) private readonly financialRepo: Repository<HotelFinancialRecord>,
+  ) {}
+
+  /** Get all chains owned by the user. */
+  async getChains(ownerId: string): Promise<HotelChain[]> {
+    return this.chainRepo.find({ where: { ownerId }, order: { createdAt: 'DESC' } });
+  }
+
+  /** Create a new hotel chain. */
+  async createChain(ownerId: string, dto: CreateHotelChainDto): Promise<HotelChain> {
+    const slug = dto.slug.toLowerCase().trim();
+    const existing = await this.chainRepo.findOne({ where: { slug } });
+    if (existing) {
+      throw new BadRequestException(`Chain slug '${slug}' is already taken`);
+    }
+    const chain = this.chainRepo.create({
+      ownerId,
+      slug,
+      name: dto.name,
+      description: dto.description,
+      currency: dto.currency ?? 'TZS',
+      brandColor: dto.brandColor ?? '#7B8CDE',
+      isActive: true,
+    });
+    return this.chainRepo.save(chain);
+  }
+
+  /** Get all hotels belonging to a chain.
+   *  For v1, hotels are linked via the chain's slug prefix in their slug or
+   *  by a future chainId column. Here we filter by owner (all owner's hotels).
+   */
+  async getChainHotels(ownerId: string, chainId: string): Promise<HotelTenant[]> {
+    const chain = await this.chainRepo.findOne({ where: { id: chainId, ownerId } });
+    if (!chain) throw new NotFoundException('Chain not found');
+    return this.tenantRepo.find({ where: { ownerId }, order: { createdAt: 'ASC' } });
+  }
+
+  /** Admin dashboard aggregation: totals across all hotels + per-hotel breakdown. */
+  async getAdminDashboard(ownerId: string, query: HotelAggregationQueryDto): Promise<Record<string, unknown>> {
+    // Base where conditions for date filtering on bookings and financials
+    const fromDate = query.from ? new Date(query.from) : undefined;
+    const toDate = query.to ? new Date(query.to) : undefined;
+
+    // ── Hotel count ──
+    const totalHotels = await this.tenantRepo.count({ where: { ownerId } });
+
+    // ── Room count ──
+    const totalRooms = await this.roomRepo.count({ where: { ownerId } });
+
+    // ── Occupancy: rooms currently occupied ──
+    const occupiedRooms = await this.roomRepo.count({ where: { ownerId, status: 'occupied' } });
+    const occupancyRate = totalRooms > 0 ? Math.round((occupiedRooms / totalRooms) * 100) : 0;
+
+    // ── Guest count ──
+    const totalGuests = await this.guestRepo.count({ where: { ownerId } });
+
+    // ── Active bookings count ──
+    const activeBookings = await this.bookingRepo.count({
+      where: { ownerId, status: 'CONFIRMED' },
+    });
+
+    // ── Financial summary ──
+    const finWhere: FindOptionsWhere<HotelFinancialRecord> = { ownerId };
+    if (query.hotelId) finWhere.hotelId = query.hotelId;
+    if (fromDate || toDate) {
+      // Use query builder for date range
+      const qb = this.financialRepo.createQueryBuilder('f')
+        .where('f.ownerId = :ownerId', { ownerId });
+      if (query.hotelId) qb.andWhere('f.hotelId = :hotelId', { hotelId: query.hotelId });
+      if (fromDate) qb.andWhere('f.recordDate >= :fromDate', { fromDate });
+      if (toDate) qb.andWhere('f.recordDate <= :toDate', { toDate });
+      const financials = await qb.getMany();
+      const revenue = financials
+        .filter((f) => f.category.includes('revenue'))
+        .reduce((sum, f) => sum + parseFloat(String(f.amount)), 0);
+      const expenses = financials
+        .filter((f) => f.category.includes('expense'))
+        .reduce((sum, f) => sum + parseFloat(String(f.amount)), 0);
+
+      // ── Per-hotel breakdown ──
+      const hotels = await this.tenantRepo.find({ where: { ownerId } });
+      const perHotel = await Promise.all(
+        hotels.map(async (h) => {
+          const rooms = await this.roomRepo.count({ where: { ownerId, id: undefined } });
+          const hotelRooms = await this.roomRepo.find({ where: { ownerId } });
+          const hotelRoomIds = hotelRooms.map((r) => r.id);
+          const hOccupied = hotelRooms.filter((r) => r.status === 'occupied').length;
+          const hOccupancy = rooms > 0 ? Math.round((hOccupied / rooms) * 100) : 0;
+          const hGuests = await this.guestRepo.count({ where: { ownerId } });
+          const hBookings = await this.bookingRepo.count({ where: { ownerId, status: 'CONFIRMED' } });
+          return {
+            hotelId: h.id,
+            name: h.name,
+            slug: h.slug,
+            roomCount: rooms,
+            occupiedRooms: hOccupied,
+            occupancyRate: hOccupancy,
+            guestCount: hGuests,
+            activeBookings: hBookings,
+          };
+        }),
+      );
+
+      return {
+        summary: {
+          totalHotels,
+          totalRooms,
+          occupiedRooms,
+          occupancyRate,
+          totalGuests,
+          activeBookings,
+          revenue,
+          expenses,
+          netRevenue: revenue - expenses,
+        },
+        perHotel,
+        dateRange: { from: query.from ?? null, to: query.to ?? null },
+      };
+    }
+
+    // Without date range — simpler aggregation
+    const financials = await this.financialRepo.find({ where: finWhere });
+    const revenue = financials
+      .filter((f) => f.category.includes('revenue'))
+      .reduce((sum, f) => sum + parseFloat(String(f.amount)), 0);
+    const expenses = financials
+      .filter((f) => f.category.includes('expense'))
+      .reduce((sum, f) => sum + parseFloat(String(f.amount)), 0);
+
+    // ── Per-hotel breakdown ──
+    const hotels = await this.tenantRepo.find({ where: { ownerId } });
+    const perHotel = await Promise.all(
+      hotels.map(async (h) => {
+        const hotelRooms = await this.roomRepo.find({ where: { ownerId } });
+        const rooms = hotelRooms.length;
+        const hOccupied = hotelRooms.filter((r) => r.status === 'occupied').length;
+        const hOccupancy = rooms > 0 ? Math.round((hOccupied / rooms) * 100) : 0;
+        const hGuests = await this.guestRepo.count({ where: { ownerId } });
+        const hBookings = await this.bookingRepo.count({ where: { ownerId, status: 'CONFIRMED' } });
+        return {
+          hotelId: h.id,
+          name: h.name,
+          slug: h.slug,
+          roomCount: rooms,
+          occupiedRooms: hOccupied,
+          occupancyRate: hOccupancy,
+          guestCount: hGuests,
+          activeBookings: hBookings,
+        };
+      }),
+    );
+
+    return {
+      summary: {
+        totalHotels,
+        totalRooms,
+        occupiedRooms,
+        occupancyRate,
+        totalGuests,
+        activeBookings,
+        revenue,
+        expenses,
+        netRevenue: revenue - expenses,
+      },
+      perHotel,
+      dateRange: { from: query.from ?? null, to: query.to ?? null },
+    };
+  }
+
+  /* ── Parking ── */
+  async getParkingSpots(hotelId: string): Promise<HotelParkingSpot[]> {
+    return this.roomRepo.manager.getRepository(HotelParkingSpot).find({
+      where: { hotelId },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async createParkingSpot(dto: CreateParkingSpotDto): Promise<HotelParkingSpot> {
+    const repo = this.roomRepo.manager.getRepository(HotelParkingSpot);
+    const spot = repo.create({
+      hotelId: dto.hotelId,
+      spotNumber: dto.spotNumber,
+      type: dto.type,
+      status: 'free',
+      ratePerDay: dto.ratePerDay ?? 0,
+    });
+    return repo.save(spot);
+  }
+
+  async updateParkingSpot(id: string, dto: UpdateParkingSpotDto): Promise<HotelParkingSpot> {
+    const repo = this.roomRepo.manager.getRepository(HotelParkingSpot);
+    const spot = await repo.findOne({ where: { id } });
+    if (!spot) throw new NotFoundException('Parking spot not found');
+    if (dto.status !== undefined) spot.status = dto.status;
+    if (dto.vehiclePlate !== undefined) spot.vehiclePlate = dto.vehiclePlate;
+    if (dto.vehicleModel !== undefined) spot.vehicleModel = dto.vehicleModel;
+    if (dto.guestId !== undefined) spot.guestId = dto.guestId;
+    if (dto.reservedUntil !== undefined) spot.reservedUntil = dto.reservedUntil;
+    return repo.save(spot);
+  }
+
+  /* ── Financials ── */
+  async getFinancials(hotelId: string, query: HotelAggregationQueryDto): Promise<HotelFinancialRecord[]> {
+    const where: FindOptionsWhere<HotelFinancialRecord> = { hotelId };
+    if (query.from || query.to) {
+      const qb = this.financialRepo.createQueryBuilder('f')
+        .where('f.hotelId = :hotelId', { hotelId });
+      if (query.from) qb.andWhere('f.recordDate >= :from', { from: query.from });
+      if (query.to) qb.andWhere('f.recordDate <= :to', { to: query.to });
+      return qb.orderBy('f.recordDate', 'DESC').getMany();
+    }
+    return this.financialRepo.find({ where, order: { recordDate: 'DESC' } });
+  }
+
+  async createFinancialRecord(dto: CreateFinancialRecordDto): Promise<HotelFinancialRecord> {
+    const record = this.financialRepo.create({
+      hotelId: dto.hotelId,
+      category: dto.category,
+      amount: dto.amount,
+      currency: dto.currency ?? 'TZS',
+      description: dto.description ?? '',
+      recordDate: dto.recordDate ?? new Date(),
+      granularity: dto.granularity ?? 'daily',
+    });
+    return this.financialRepo.save(record);
   }
 }

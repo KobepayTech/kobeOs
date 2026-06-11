@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } f
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import {
-  BookingsService, GuestsService, MenuItemsService, OrdersService,
+  BookingsService, GuestsService, HotelChainService, MenuItemsService, OrdersService,
   RoomsService, ServiceRequestsService, TenantsService,
 } from './hotel.service';
 import {
@@ -11,6 +11,10 @@ import {
   UpdateBookingDto, UpdateGuestDto, UpdateMenuItemDto, UpdateOrderStatusDto, UpdateRoomDto,
   UpdateServiceRequestStatusDto, UpdateTenantDto,
 } from './dto/hotel.dto';
+import {
+  CreateHotelChainDto, CreateFinancialRecordDto, CreateParkingSpotDto,
+  HotelAggregationQueryDto, UpdateParkingSpotDto,
+} from './dto/hotel-extras.dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller('hotel')
@@ -23,6 +27,7 @@ export class HotelController {
     private readonly orders: OrdersService,
     private readonly serviceRequests: ServiceRequestsService,
     private readonly tenants: TenantsService,
+    private readonly svc: HotelChainService,
   ) {}
 
   // Tenant (public-facing profile + slug)
@@ -80,4 +85,56 @@ export class HotelController {
   @Post('service-requests') createServiceRequest(@CurrentUser('id') uid: string, @Body() dto: CreateServiceRequestDto) { return this.serviceRequests.create(uid, dto); }
   @Patch('service-requests/:id/status') updateServiceRequestStatus(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: UpdateServiceRequestStatusDto) { return this.serviceRequests.updateStatus(uid, id, dto); }
   @Delete('service-requests/:id') removeServiceRequest(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.serviceRequests.remove(uid, id); }
+
+  /** ─────────── Multi-hotel admin endpoints ─────────── */
+
+  @Get('chains')
+  getMyChains(@CurrentUser('id') uid: string) {
+    return this.svc.getChains(uid);
+  }
+
+  @Post('chains')
+  createChain(@CurrentUser('id') uid: string, @Body() dto: CreateHotelChainDto) {
+    return this.svc.createChain(uid, dto);
+  }
+
+  @Get('chains/:chainId/hotels')
+  getChainHotels(@CurrentUser('id') uid: string, @Param('chainId') chainId: string) {
+    return this.svc.getChainHotels(uid, chainId);
+  }
+
+  /** Admin aggregation endpoint */
+  @Get('admin/dashboard')
+  getAdminDashboard(@CurrentUser('id') uid: string, @Query() query: HotelAggregationQueryDto) {
+    return this.svc.getAdminDashboard(uid, query);
+  }
+
+  /** ─────────── Parking endpoints ─────────── */
+
+  @Get('parking/:hotelId')
+  getParkingSpots(@Param('hotelId') hotelId: string) {
+    return this.svc.getParkingSpots(hotelId);
+  }
+
+  @Post('parking')
+  createParkingSpot(@Body() dto: CreateParkingSpotDto) {
+    return this.svc.createParkingSpot(dto);
+  }
+
+  @Patch('parking/:id')
+  updateParkingSpot(@Param('id') id: string, @Body() dto: UpdateParkingSpotDto) {
+    return this.svc.updateParkingSpot(id, dto);
+  }
+
+  /** ─────────── Financial endpoints ─────────── */
+
+  @Get('financials/:hotelId')
+  getFinancials(@Param('hotelId') hotelId: string, @Query() query: HotelAggregationQueryDto) {
+    return this.svc.getFinancials(hotelId, query);
+  }
+
+  @Post('financials')
+  createFinancialRecord(@Body() dto: CreateFinancialRecordDto) {
+    return this.svc.createFinancialRecord(dto);
+  }
 }

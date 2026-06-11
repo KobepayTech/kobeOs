@@ -114,6 +114,10 @@ export class HotelMenuItem extends OwnedEntity {
   station!: 'kitchen' | 'bar' | 'other';
 }
 
+export { HotelChain } from './hotel-chain.entity';
+export { HotelParkingSpot } from './hotel-parking.entity';
+export { HotelFinancialRecord } from './hotel-financials.entity';
+
 export interface HotelOrderItem {
   menuItemId?: string;
   name: string;

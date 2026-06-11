@@ -1,533 +1,1429 @@
 // ============================================================================
-// HOTEL ADMIN DASHBOARD
+// KOBE HOTEL ADMIN DASHBOARD — Behance-Style Multi-Hotel Management
 // ============================================================================
-// Central ERP dashboard for hotel owners to manage:
-// - Content (website, menus, rooms)
-// - Bookings & Reservations
-// - Restaurant (QR ordering, KDS, tables)
-// - Staff management
-// - Analytics
+// Glassmorphism Aladin OS theme with multi-hotel support, KPI cards, charts,
+// and comprehensive hotel management: rooms, bookings, guests, restaurant,
+// parking, financials, analytics, and website builder.
 // ============================================================================
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
-  LayoutDashboard, Bed, UtensilsCrossed, QrCode, Users,
-  Globe, ChefHat, BarChart3, Calendar, Plus, Edit2,
-  Trash2, Eye, CheckCircle,
-  DollarSign, Percent, Star
+  LayoutDashboard, Building2, Bed, Calendar, Users,
+  UtensilsCrossed, Car, DollarSign, BarChart3, Globe,
+  Bell, ChevronDown, Search, Plus, Edit2, Trash2, Eye,
+  CheckCircle, X, TrendingUp, TrendingDown, Minus,
+  ChefHat, QrCode, Star, Percent, Phone, Mail, MapPin,
+  Clock, ArrowUpRight, ArrowDownRight, Filter, Download,
+  Settings, LogOut, Shield, Wifi, Coffee, Waves, Dumbbell,
+  CreditCard, Receipt, Wallet, CircleDollarSign, UserPlus,
+  CarFront, Bike, ParkingSquare, FileText, MoreHorizontal,
+  XCircle, HelpCircle, Megaphone
 } from 'lucide-react';
-import type { Hotel, Room } from '@/shared/types';
-import { formatCurrency, formatDate, getStatusColor } from '@/shared/utils';
+import type { Hotel, Room, Booking, Guest, MenuCategory, StaffMember, Order } from '@/shared/types';
+import { formatCurrency, formatDate, getStatusColor, classNames } from '@/shared/utils';
 
-type TabType = 'overview' | 'rooms' | 'bookings' | 'restaurant' | 'menu' | 'staff' | 'website' | 'analytics';
+// ── Tab Types ───────────────────────────────────────────────────────────────
+type TabType =
+  | 'overview' | 'hotels' | 'rooms' | 'bookings' | 'guests'
+  | 'restaurant' | 'parking' | 'financials' | 'analytics' | 'website';
 
-interface HotelAdminDashboardProps {
-  hotel: Hotel;
-  onUpdateHotel: (hotel: Hotel) => void;
+// ── Extended Types ──────────────────────────────────────────────────────────
+interface GuestProfile extends Guest {
+  email?: string;
+  nationality?: string;
+  idType?: 'passport' | 'national_id' | 'driving_license';
+  idNumber?: string;
+  checkInCount: number;
+  lastStay?: string;
+  notes?: string;
 }
 
-export const HotelAdminDashboard: React.FC<HotelAdminDashboardProps> = ({ hotel, onUpdateHotel }) => {
-  const [activeTab, setActiveTab] = useState<TabType>('overview');
-  const [showAddRoom, setShowAddRoom] = useState(false);
-  const [showAddMenuItem, setShowAddMenuItem] = useState(false);
+interface ParkingSpot {
+  id: string;
+  number: string;
+  type: 'car' | 'motorcycle' | 'vip';
+  status: 'free' | 'occupied' | 'reserved';
+  vehiclePlate?: string;
+  vehicleModel?: string;
+  guestName?: string;
+  checkInTime?: string;
+  checkOutTime?: string;
+}
 
+interface HotelRecord {
+  id: string;
+  name: string;
+  location: string;
+  status: 'active' | 'maintenance' | 'closed';
+  rooms: Room[];
+  bookings: Booking[];
+  guests: GuestProfile[];
+  staff: StaffMember[];
+  menuCategories: MenuCategory[];
+  orders: Order[];
+  parkingSpots: ParkingSpot[];
+  revenueToday: number;
+  revenueThisMonth: number;
+  expensesToday: number;
+  currency: string;
+  subdomain: string;
+  phone: string;
+  email: string;
+  address: string;
+  settings: {
+    checkInTime: string;
+    checkOutTime: string;
+    currency: string;
+    taxRate: number;
+    serviceCharge: number;
+    enableQROrdering: boolean;
+    enableRoomService: boolean;
+  };
+}
+
+// ── Mock Data: Multi-Hotel ──────────────────────────────────────────────────
+const MOCK_HOTELS: HotelRecord[] = [
+  {
+    id: 'h1', name: 'Kobe Grand Hotel', location: 'Dar es Salaam, TZ', status: 'active',
+    currency: 'TZS', revenueToday: 1850000, revenueThisMonth: 45200000, expensesToday: 620000,
+    subdomain: 'grand', phone: '+255 744 123 456', email: 'grand@kobe.co.tz',
+    address: '123 Samora Avenue, Dar es Salaam',
+    settings: { checkInTime: '14:00', checkOutTime: '11:00', currency: 'TZS', taxRate: 18, serviceCharge: 5, enableQROrdering: true, enableRoomService: true },
+    staff: [
+      { id: 's1', name: 'John Mwinyi', phone: '+255 744 111 222', email: 'john@kobe.co.tz', role: 'manager', pin: '1234', isActive: true, permissions: ['all'] },
+      { id: 's2', name: 'Amina Hassan', phone: '+255 744 333 444', email: 'amina@kobe.co.tz', role: 'receptionist', pin: '2345', isActive: true, permissions: ['bookings', 'guests'] },
+      { id: 's3', name: 'David Kimaro', phone: '+255 744 555 666', role: 'chef', pin: '3456', isActive: true, permissions: ['kitchen'] },
+      { id: 's4', name: 'Grace Joseph', phone: '+255 744 777 888', role: 'housekeeping', pin: '4567', isActive: true, permissions: ['rooms'] },
+    ],
+    parkingSpots: [
+      { id: 'p1', number: 'P-01', type: 'car', status: 'occupied', vehiclePlate: 'T123 ABC', vehicleModel: 'Toyota Prado', guestName: 'Michael Brown', checkInTime: '2026-01-15T08:00:00' },
+      { id: 'p2', number: 'P-02', type: 'car', status: 'free' },
+      { id: 'p3', number: 'P-03', type: 'car', status: 'reserved' },
+      { id: 'p4', number: 'P-04', type: 'vip', status: 'occupied', vehiclePlate: 'T456 DEF', vehicleModel: 'BMW X5', guestName: 'Sarah Johnson', checkInTime: '2026-01-15T10:30:00' },
+      { id: 'p5', number: 'P-05', type: 'motorcycle', status: 'free' },
+      { id: 'p6', number: 'P-06', type: 'car', status: 'free' },
+      { id: 'p7', number: 'P-07', type: 'car', status: 'occupied', vehiclePlate: 'T789 GHI', vehicleModel: 'Nissan Patrol', guestName: 'James Wilson', checkInTime: '2026-01-14T16:00:00' },
+      { id: 'p8', number: 'P-08', type: 'car', status: 'free' },
+      { id: 'p9', number: 'P-09', type: 'motorcycle', status: 'occupied', vehiclePlate: 'T321 JKL', vehicleModel: 'Honda CBR', guestName: 'Alice Smith' },
+      { id: 'p10', number: 'P-10', type: 'vip', status: 'free' },
+      { id: 'p11', number: 'P-11', type: 'car', status: 'free' },
+      { id: 'p12', number: 'P-12', type: 'car', status: 'reserved' },
+    ],
+    bookings: [], rooms: [], menuCategories: [], orders: [], guests: [],
+  },
+  {
+    id: 'h2', name: 'Kobe Beach Resort', location: 'Zanzibar, TZ', status: 'active',
+    currency: 'TZS', revenueToday: 2100000, revenueThisMonth: 38900000, expensesToday: 780000,
+    subdomain: 'beach', phone: '+255 744 999 000', email: 'beach@kobe.co.tz',
+    address: '45 Nungwi Road, Zanzibar',
+    settings: { checkInTime: '15:00', checkOutTime: '12:00', currency: 'TZS', taxRate: 18, serviceCharge: 5, enableQROrdering: true, enableRoomService: true },
+    staff: [
+      { id: 's5', name: 'Fatima Omar', phone: '+255 744 222 333', email: 'fatima@kobe.co.tz', role: 'manager', pin: '5678', isActive: true, permissions: ['all'] },
+      { id: 's6', name: 'Omar Salim', phone: '+255 744 444 555', role: 'chef', pin: '6789', isActive: true, permissions: ['kitchen'] },
+    ],
+    parkingSpots: [
+      { id: 'p13', number: 'A-01', type: 'car', status: 'occupied', vehiclePlate: 'T555 MNO', vehicleModel: 'Land Cruiser', guestName: 'Robert Chen' },
+      { id: 'p14', number: 'A-02', type: 'car', status: 'free' },
+      { id: 'p15', number: 'A-03', type: 'car', status: 'free' },
+      { id: 'p16', number: 'A-04', type: 'motorcycle', status: 'occupied', vehiclePlate: 'T777 PQR', vehicleModel: 'Yamaha R1', guestName: 'Lisa Wang' },
+    ],
+    bookings: [], rooms: [], menuCategories: [], orders: [], guests: [],
+  },
+  {
+    id: 'h3', name: 'Kobe Business Inn', location: 'Arusha, TZ', status: 'active',
+    currency: 'TZS', revenueToday: 950000, revenueThisMonth: 21400000, expensesToday: 410000,
+    subdomain: 'business', phone: '+255 744 666 777', email: 'arusha@kobe.co.tz',
+    address: '78 Sokoine Road, Arusha',
+    settings: { checkInTime: '14:00', checkOutTime: '11:00', currency: 'TZS', taxRate: 18, serviceCharge: 5, enableQROrdering: true, enableRoomService: false },
+    staff: [
+      { id: 's7', name: 'Peter Mosha', phone: '+255 744 888 999', email: 'peter@kobe.co.tz', role: 'manager', pin: '7890', isActive: true, permissions: ['all'] },
+    ],
+    parkingSpots: [
+      { id: 'p17', number: 'B-01', type: 'car', status: 'free' },
+      { id: 'p18', number: 'B-02', type: 'car', status: 'occupied', vehiclePlate: 'T888 STU', vehicleModel: 'Mazda CX-5', guestName: 'Emma Davis' },
+      { id: 'p19', number: 'B-03', type: 'car', status: 'free' },
+      { id: 'p20', number: 'B-04', type: 'car', status: 'reserved' },
+    ],
+    bookings: [], rooms: [], menuCategories: [], orders: [], guests: [],
+  },
+  {
+    id: 'h4', name: 'Kobe Safari Lodge', location: 'Serengeti, TZ', status: 'maintenance',
+    currency: 'TZS', revenueToday: 0, revenueThisMonth: 8500000, expensesToday: 320000,
+    subdomain: 'safari', phone: '+255 744 000 111', email: 'safari@kobe.co.tz',
+    address: 'Serengeti National Park',
+    settings: { checkInTime: '12:00', checkOutTime: '10:00', currency: 'TZS', taxRate: 18, serviceCharge: 5, enableQROrdering: false, enableRoomService: true },
+    staff: [
+      { id: 's8', name: 'Martha Lema', phone: '+255 744 123 789', role: 'manager', pin: '8901', isActive: true, permissions: ['all'] },
+    ],
+    parkingSpots: [
+      { id: 'p21', number: 'S-01', type: 'car', status: 'free' },
+      { id: 'p22', number: 'S-02', type: 'car', status: 'free' },
+      { id: 'p23', number: 'S-03', type: 'vip', status: 'free' },
+    ],
+    bookings: [], rooms: [], menuCategories: [], orders: [], guests: [],
+  },
+];
+
+// Populate rooms for each hotel
+const roomTypes = ['Standard', 'Deluxe', 'Suite', 'Presidential'];
+const roomAmenities = ['WiFi', 'AC', 'TV', 'Minibar', 'Safe', 'Balcony', 'Sea View', 'Kitchenette'];
+MOCK_HOTELS.forEach((hotel, hi) => {
+  const roomCount = [12, 8, 6, 4][hi];
+  for (let i = 1; i <= roomCount; i++) {
+    const status = i <= 3 ? 'occupied' : i <= 5 ? 'maintenance' : 'available';
+    const type = roomTypes[i % roomTypes.length];
+    const price = type === 'Standard' ? 85000 : type === 'Deluxe' ? 150000 : type === 'Suite' ? 280000 : 450000;
+    const booking: Booking = {
+      id: `b${hi}-${i}`, guestId: `Guest ${i}`, roomId: `r${hi}-${i}`,
+      checkIn: '2026-01-10', checkOut: '2026-01-20',
+      status: i <= 2 ? 'checked-in' : 'confirmed',
+      totalAmount: price * 10, paidAmount: price * 5,
+      source: i % 2 === 0 ? 'online' : 'walk-in',
+    };
+    const room: Room = {
+      id: `r${hi}-${i}`, number: `${100 + i}`, type, floor: Math.ceil(i / 4),
+      pricePerNight: price, status: status as any, capacity: 2 + (i % 3),
+      amenities: roomAmenities.slice(0, 3 + (i % 5)),
+      qrCode: status === 'occupied' ? `qr-${hi}-${i}` : undefined,
+      currentGuest: status === 'occupied' ? {
+        id: `g${hi}-${i}`, name: `Guest ${i}`, phone: `+255 744 ${100000 + i * 111}`,
+        checkInDate: '2026-01-10', checkOutDate: '2026-01-20',
+      } : undefined,
+      bookings: [booking],
+    };
+    hotel.rooms.push(room);
+    hotel.bookings.push(booking);
+  }
+  // Add guests
+  for (let i = 1; i <= 6; i++) {
+    hotel.guests.push({
+      id: `gp${hi}-${i}`, name: ['Michael Brown', 'Sarah Johnson', 'James Wilson', 'Alice Smith', 'Robert Chen', 'Emma Davis'][i - 1],
+      phone: `+255 744 ${200000 + hi * 1000 + i * 111}`,
+      email: `guest${i}@email.com`, nationality: ['US', 'UK', 'Germany', 'France', 'China', 'Canada'][i - 1],
+      idType: i % 2 === 0 ? 'passport' : 'national_id',
+      idNumber: `ID${100000 + i}`, checkInCount: 1 + (i % 4), lastStay: '2026-01-15',
+      checkInDate: '2026-01-10', checkOutDate: '2026-01-20',
+    });
+  }
+  // Add menu categories & orders
+  hotel.menuCategories = [
+    {
+      id: `mc${hi}-1`, name: 'Breakfast', sortOrder: 1,
+      items: [
+        { id: `mi${hi}-1`, categoryId: `mc${hi}-1`, name: 'Full English Breakfast', description: 'Eggs, bacon, sausage, beans, toast', price: 25000, isAvailable: true, preparationTime: 15, station: 'kitchen' },
+        { id: `mi${hi}-2`, categoryId: `mc${hi}-1`, name: 'Continental Breakfast', description: 'Croissants, jam, butter, coffee', price: 18000, isAvailable: true, preparationTime: 5, station: 'kitchen' },
+        { id: `mi${hi}-3`, categoryId: `mc${hi}-1`, name: 'Tropical Fruit Platter', description: 'Seasonal fresh fruits', price: 15000, isAvailable: true, preparationTime: 10, station: 'kitchen' },
+      ],
+    },
+    {
+      id: `mc${hi}-2`, name: 'Main Course', sortOrder: 2,
+      items: [
+        { id: `mi${hi}-4`, categoryId: `mc${hi}-2`, name: 'Grilled Tilapia', description: 'Fresh lake fish with ugali and vegetables', price: 35000, isAvailable: true, preparationTime: 25, station: 'grill' },
+        { id: `mi${hi}-5`, categoryId: `mc${hi}-2`, name: 'Chicken Biryani', description: 'Aromatic rice with spiced chicken', price: 28000, isAvailable: true, preparationTime: 30, station: 'kitchen' },
+        { id: `mi${hi}-6`, categoryId: `mc${hi}-2`, name: 'Beef Steak', description: '300g sirloin with mashed potatoes', price: 45000, isAvailable: true, preparationTime: 20, station: 'grill' },
+      ],
+    },
+    {
+      id: `mc${hi}-3`, name: 'Beverages', sortOrder: 3,
+      items: [
+        { id: `mi${hi}-7`, categoryId: `mc${hi}-3`, name: 'Fresh Juice', description: 'Orange, mango, or passion', price: 8000, isAvailable: true, preparationTime: 5, station: 'bar' },
+        { id: `mi${hi}-8`, categoryId: `mc${hi}-3`, name: 'Espresso', description: 'Double shot Italian roast', price: 6000, isAvailable: true, preparationTime: 3, station: 'bar' },
+        { id: `mi${hi}-9`, categoryId: `mc${hi}-3`, name: 'Tropical Cocktail', description: 'Rum, pineapple, coconut cream', price: 18000, isAvailable: true, preparationTime: 5, station: 'bar' },
+      ],
+    },
+  ];
+  // Add orders
+  hotel.orders = [
+    { id: `o${hi}-1`, tableId: `t${hi}-1`, items: [{ id: `oi${hi}-1`, menuItemId: `mi${hi}-1`, name: 'Full English Breakfast', quantity: 2, unitPrice: 25000, totalPrice: 50000, station: 'kitchen', status: 'ready' }], status: 'ready', subtotal: 50000, tax: 9000, serviceCharge: 2500, total: 61500, paymentStatus: 'unpaid', station: 'kitchen', createdAt: '2026-01-15T07:30:00', updatedAt: '2026-01-15T07:45:00' },
+    { id: `o${hi}-2`, roomId: `r${hi}-1`, guestName: 'Michael Brown', items: [{ id: `oi${hi}-2`, menuItemId: `mi${hi}-7`, name: 'Fresh Juice', quantity: 1, unitPrice: 8000, totalPrice: 8000, station: 'bar', status: 'served' }], status: 'served', subtotal: 8000, tax: 1440, serviceCharge: 400, total: 9840, paymentStatus: 'paid', station: 'bar', createdAt: '2026-01-15T08:00:00', updatedAt: '2026-01-15T08:10:00' },
+    { id: `o${hi}-3`, tableId: `t${hi}-2`, items: [{ id: `oi${hi}-3`, menuItemId: `mi${hi}-4`, name: 'Grilled Tilapia', quantity: 1, unitPrice: 35000, totalPrice: 35000, station: 'grill', status: 'preparing' }], status: 'preparing', subtotal: 35000, tax: 6300, serviceCharge: 1750, total: 43050, paymentStatus: 'unpaid', station: 'grill', createdAt: '2026-01-15T09:00:00', updatedAt: '2026-01-15T09:05:00' },
+  ];
+});
+
+// ── Component ───────────────────────────────────────────────────────────────
+
+export const HotelAdminDashboard: React.FC = () => {
+  const [activeTab, setActiveTab] = useState<TabType>('overview');
+  const [selectedHotelId, setSelectedHotelId] = useState<string>('all');
+  const [hotelSelectorOpen, setHotelSelectorOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [bookingStatusFilter, setBookingStatusFilter] = useState<string>('all');
+  const [showAddRoom, setShowAddRoom] = useState(false);
+  const [showAddGuest, setShowAddGuest] = useState(false);
+  const [showAddHotel, setShowAddHotel] = useState(false);
+  const [showAssignSpot, setShowAssignSpot] = useState(false);
+  const [guestSearch, setGuestSearch] = useState('');
+  const [financialPeriod, setFinancialPeriod] = useState<'today' | 'week' | 'month'>('today');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+
+  // ── Derived data ──────────────────────────────────────────────────────────
+  const selectedHotel = useMemo(() =>
+    MOCK_HOTELS.find(h => h.id === selectedHotelId),
+    [selectedHotelId]
+  );
+
+  const allHotels = MOCK_HOTELS;
+
+  const aggregatedStats = useMemo(() => {
+    const hotels = selectedHotel ? [selectedHotel] : allHotels;
+    const allRooms = hotels.flatMap(h => h.rooms);
+    const allBookings = hotels.flatMap(h => h.bookings);
+    const allGuests = hotels.flatMap(h => h.guests);
+    const allOrders = hotels.flatMap(h => h.orders);
+    const totalRooms = allRooms.length;
+    const occupiedRooms = allRooms.filter(r => r.status === 'occupied').length;
+    const availableRooms = allRooms.filter(r => r.status === 'available').length;
+    const maintenanceRooms = allRooms.filter(r => r.status === 'maintenance').length;
+    const occupancyRate = totalRooms > 0 ? Math.round((occupiedRooms / totalRooms) * 100) : 0;
+    const totalRevenueToday = hotels.reduce((s, h) => s + h.revenueToday, 0);
+    const totalRevenueMonth = hotels.reduce((s, h) => s + h.revenueThisMonth, 0);
+    const totalExpensesToday = hotels.reduce((s, h) => s + h.expensesToday, 0);
+    const activeGuests = allGuests.length;
+    const pendingOrders = allOrders.filter(o => o.status === 'pending' || o.status === 'preparing').length;
+    const totalStaff = hotels.reduce((s, h) => s + h.staff.length, 0);
+    const totalParking = hotels.reduce((s, h) => s + h.parkingSpots.length, 0);
+    const occupiedParking = hotels.reduce((s, h) => s + h.parkingSpots.filter(p => p.status === 'occupied').length, 0);
+    return {
+      hotelCount: hotels.length, totalRooms, occupiedRooms, availableRooms, maintenanceRooms,
+      occupancyRate, totalRevenueToday, totalRevenueMonth, totalExpensesToday,
+      activeGuests, pendingOrders, totalStaff, totalParking, occupiedParking,
+      netProfit: totalRevenueToday - totalExpensesToday,
+      allBookings, allGuests, allOrders, allRooms,
+    };
+  }, [selectedHotel, allHotels]);
+
+  const occupancyData = useMemo(() => {
+    return [65, 72, 68, 80, 75, 82, 78, 85, 70, 88, 76, 90, 82, 78, 70].map((v, i) => ({
+      day: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun', 'Mon'][i],
+      value: v,
+    }));
+  }, []);
+
+  const revenueSources = useMemo(() => [
+    { label: 'Room Revenue', value: 62, color: '#6366F1' },
+    { label: 'Restaurant', value: 23, color: '#10B981' },
+    { label: 'Services', value: 10, color: '#F59E0B' },
+    { label: 'Parking', value: 5, color: '#EC4899' },
+  ], []);
+
+  // ── Navigation ────────────────────────────────────────────────────────────
   const tabs: { id: TabType; label: string; icon: React.ReactNode }[] = [
-    { id: 'overview', label: 'Overview', icon: <LayoutDashboard size={16} /> },
-    { id: 'rooms', label: 'Rooms', icon: <Bed size={16} /> },
-    { id: 'bookings', label: 'Bookings', icon: <Calendar size={16} /> },
-    { id: 'restaurant', label: 'Restaurant', icon: <UtensilsCrossed size={16} /> },
-    { id: 'menu', label: 'Menu Editor', icon: <ChefHat size={16} /> },
-    { id: 'staff', label: 'Staff', icon: <Users size={16} /> },
-    { id: 'website', label: 'Website', icon: <Globe size={16} /> },
-    { id: 'analytics', label: 'Analytics', icon: <BarChart3 size={16} /> },
+    { id: 'overview', label: 'Overview', icon: <LayoutDashboard size={18} /> },
+    { id: 'hotels', label: 'Hotels', icon: <Building2 size={18} /> },
+    { id: 'rooms', label: 'Rooms', icon: <Bed size={18} /> },
+    { id: 'bookings', label: 'Bookings', icon: <Calendar size={18} /> },
+    { id: 'guests', label: 'Guests', icon: <Users size={18} /> },
+    { id: 'restaurant', label: 'Restaurant', icon: <UtensilsCrossed size={18} /> },
+    { id: 'parking', label: 'Parking', icon: <Car size={18} /> },
+    { id: 'financials', label: 'Financials', icon: <DollarSign size={18} /> },
+    { id: 'analytics', label: 'Analytics', icon: <BarChart3 size={18} /> },
+    { id: 'website', label: 'Website', icon: <Globe size={18} /> },
   ];
 
-  const stats = {
-    totalRooms: hotel.rooms.length,
-    occupiedRooms: hotel.rooms.filter(r => r.status === 'occupied').length,
-    availableRooms: hotel.rooms.filter(r => r.status === 'available').length,
-    todayBookings: hotel.rooms.reduce((sum, r) => sum + r.bookings.filter(b => {
-      const today = new Date().toISOString().split('T')[0];
-      return b.checkIn <= today && b.checkOut >= today;
-    }).length, 0),
-    activeOrders: 0, // Would come from orders store
-    revenueToday: 0,
-    occupancyRate: hotel.rooms.length > 0 ? Math.round((hotel.rooms.filter(r => r.status === 'occupied').length / hotel.rooms.length) * 100) : 0,
-  };
-
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div style={{ display: 'flex', height: '100vh', background: '#0B0B0B' }}>
-      {/* Sidebar */}
-      <div style={{
-        width: '240px',
-        background: '#111111',
-        borderRight: '1px solid #1A1A1A',
-        display: 'flex',
-        flexDirection: 'column',
-        padding: '20px 0',
-      }}>
-        <div style={{ padding: '0 20px 20px', borderBottom: '1px solid #1A1A1A' }}>
-          <h2 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: '#FFFFFF' }}>{hotel.name}</h2>
-          <p style={{ margin: '4px 0 0', fontSize: '12px', color: '#6B7280' }}>{hotel.subdomain}.kobe</p>
+    <div className="flex h-screen w-full overflow-hidden" style={{ background: 'var(--os-wallpaper, linear-gradient(135deg, #E8E4F0 0%, #D4CCE8 50%, #EDE8F5 100%))' }}>
+
+      {/* ── Sidebar ───────────────────────────────────────────────────────── */}
+      <aside
+        className={classNames(
+          "flex flex-col transition-all duration-300 border-r flex-shrink-0",
+          sidebarCollapsed ? "w-[72px]" : "w-[240px]"
+        )}
+        style={{ background: 'rgba(255,255,255,0.20)', backdropFilter: 'blur(24px)', borderColor: 'rgba(255,255,255,0.30)' }}
+      >
+        {/* Logo */}
+        <div className="flex items-center gap-3 px-5 h-16 border-b flex-shrink-0" style={{ borderColor: 'rgba(255,255,255,0.25)' }}>
+          <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}>
+            <Building2 size={16} className="text-white" />
+          </div>
+          {!sidebarCollapsed && (
+            <span className="font-bold text-sm tracking-tight" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Kobe Hotel</span>
+          )}
         </div>
-        <nav style={{ padding: '12px 12px', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+
+        {/* Nav Items */}
+        <nav className="flex flex-col gap-1 p-3 flex-1 overflow-y-auto">
           {tabs.map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                padding: '10px 14px',
-                borderRadius: '8px',
-                background: activeTab === tab.id ? '#1F3B73' : 'transparent',
-                color: activeTab === tab.id ? '#FFFFFF' : '#9CA3AF',
-                border: 'none',
-                cursor: 'pointer',
-                fontSize: '14px',
-                fontWeight: 500,
-                textAlign: 'left',
-                transition: 'all 0.15s',
-              }}
+              className={classNames(
+                "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 cursor-pointer w-full",
+                activeTab === tab.id
+                  ? "bg-white/[0.35] shadow-sm"
+                  : "hover:bg-white/[0.15]"
+              )}
+              style={{ color: activeTab === tab.id ? 'var(--os-text-primary, #2D2B55)' : 'rgba(45,43,85,0.55)' }}
+              title={sidebarCollapsed ? tab.label : undefined}
             >
-              {tab.icon}
-              {tab.label}
+              <span className="flex-shrink-0">{tab.icon}</span>
+              {!sidebarCollapsed && <span>{tab.label}</span>}
             </button>
           ))}
         </nav>
-      </div>
 
-      {/* Main Content */}
-      <div style={{ flex: 1, overflow: 'auto', padding: '24px' }}>
-        {activeTab === 'overview' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 700, color: '#FFFFFF' }}>Dashboard Overview</h1>
+        {/* Collapse toggle */}
+        <button
+          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+          className="mx-3 mb-3 p-2 rounded-xl hover:bg-white/[0.15] transition-all flex items-center justify-center cursor-pointer"
+          style={{ color: 'rgba(45,43,85,0.55)' }}
+        >
+          {sidebarCollapsed ? <ArrowDownRight size={16} className="-rotate-90" /> : <Minus size={16} />}
+        </button>
+      </aside>
 
-            {/* Stats Grid */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
-              <StatCard title="Total Rooms" value={stats.totalRooms} icon={<Bed size={18} />} color="#60A5FA" />
-              <StatCard title="Occupied" value={stats.occupiedRooms} icon={<Users size={18} />} color="#F87171" subtitle={`${stats.occupancyRate}% occupancy`} />
-              <StatCard title="Available" value={stats.availableRooms} icon={<CheckCircle size={18} />} color="#4ADE80" />
-              <StatCard title="Today's Bookings" value={stats.todayBookings} icon={<Calendar size={18} />} color="#A78BFA" />
-              <StatCard title="Active Orders" value={stats.activeOrders} icon={<UtensilsCrossed size={18} />} color="#FACC15" />
-              <StatCard title="Revenue Today" value={formatCurrency(stats.revenueToday, hotel.settings.currency)} icon={<DollarSign size={18} />} color="#4ADE80" trend="+8%" />
-            </div>
+      {/* ── Main Content ────────────────────────────────────────────────────── */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
 
-            {/* Quick Actions */}
-            <div style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-              gap: '16px',
-            }}>
-              <QuickActionCard
-                title="QR Ordering"
-                description="Generate QR codes for tables and rooms"
-                icon={<QrCode size={24} />}
-                color="#60A5FA"
-                onClick={() => setActiveTab('restaurant')}
-              />
-              <QuickActionCard
-                title="Menu Editor"
-                description="Update digital menus and pricing"
-                icon={<ChefHat size={24} />}
-                color="#FACC15"
-                onClick={() => setActiveTab('menu')}
-              />
-              <QuickActionCard
-                title="Website Builder"
-                description="Edit your public hotel website"
-                icon={<Globe size={24} />}
-                color="#4ADE80"
-                onClick={() => setActiveTab('website')}
-              />
-              <QuickActionCard
-                title="Kitchen Display"
-                description="Open KDS for real-time orders"
-                icon={<UtensilsCrossed size={24} />}
-                color="#F87171"
-                onClick={() => { /* Open KDS in new window */ }}
-              />
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'rooms' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 700, color: '#FFFFFF' }}>Room Management</h1>
-              <button
-                onClick={() => setShowAddRoom(true)}
-                style={{
-                  padding: '10px 18px',
-                  background: '#1F3B73',
-                  border: 'none',
-                  borderRadius: '8px',
-                  color: '#FFFFFF',
-                  fontSize: '14px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                }}
+        {/* Top Bar */}
+        <header
+          className="flex items-center justify-between px-6 h-16 flex-shrink-0 border-b"
+          style={{ background: 'rgba(255,255,255,0.15)', backdropFilter: 'blur(24px)', borderColor: 'rgba(255,255,255,0.25)' }}
+        >
+          {/* Left: Page title */}
+          <div className="flex items-center gap-4">
+            <h1 className="text-lg font-bold" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>
+              {tabs.find(t => t.id === activeTab)?.label}
+            </h1>
+            {selectedHotel && (
+              <span
+                className="px-2.5 py-1 rounded-lg text-xs font-medium flex items-center gap-1.5"
+                style={{ background: 'rgba(99,102,241,0.12)', color: '#6366F1' }}
               >
-                <Plus size={16} /> Add Room
-              </button>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '16px' }}>
-              {hotel.rooms.map(room => (
-                <RoomCard key={room.id} room={room} currency={hotel.settings.currency} />
-              ))}
-            </div>
+                <MapPin size={10} />
+                {selectedHotel.name}
+              </span>
+            )}
           </div>
-        )}
 
-        {activeTab === 'bookings' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 700, color: '#FFFFFF' }}>Bookings</h1>
-            <div style={{ background: '#181818', border: '1px solid #222', borderRadius: '12px', overflow: 'hidden' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid #222', background: '#141414' }}>
-                    <th style={{ padding: '12px 16px', textAlign: 'left', color: '#9CA3AF', fontSize: '12px' }}>GUEST</th>
-                    <th style={{ padding: '12px 16px', textAlign: 'left', color: '#9CA3AF', fontSize: '12px' }}>ROOM</th>
-                    <th style={{ padding: '12px 16px', textAlign: 'left', color: '#9CA3AF', fontSize: '12px' }}>CHECK IN</th>
-                    <th style={{ padding: '12px 16px', textAlign: 'left', color: '#9CA3AF', fontSize: '12px' }}>CHECK OUT</th>
-                    <th style={{ padding: '12px 16px', textAlign: 'right', color: '#9CA3AF', fontSize: '12px' }}>AMOUNT</th>
-                    <th style={{ padding: '12px 16px', textAlign: 'center', color: '#9CA3AF', fontSize: '12px' }}>STATUS</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {hotel.rooms.flatMap(r => r.bookings).map(booking => (
-                    <tr key={booking.id} style={{ borderBottom: '1px solid #1A1A1A' }}>
-                      <td style={{ padding: '12px 16px', color: '#FFFFFF' }}>{booking.guestId}</td>
-                      <td style={{ padding: '12px 16px', color: '#B3B3B3' }}>{hotel.rooms.find(r => r.id === booking.roomId)?.number}</td>
-                      <td style={{ padding: '12px 16px', color: '#B3B3B3' }}>{formatDate(booking.checkIn)}</td>
-                      <td style={{ padding: '12px 16px', color: '#B3B3B3' }}>{formatDate(booking.checkOut)}</td>
-                      <td style={{ padding: '12px 16px', textAlign: 'right', color: '#4ADE80' }}>{formatCurrency(booking.totalAmount, hotel.settings.currency)}</td>
-                      <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                        <StatusBadge status={booking.status} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {activeTab === 'menu' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 700, color: '#FFFFFF' }}>Menu Editor</h1>
-              <button
-                onClick={() => setShowAddMenuItem(true)}
-                style={{
-                  padding: '10px 18px',
-                  background: '#1F3B73',
-                  border: 'none',
-                  borderRadius: '8px',
-                  color: '#FFFFFF',
-                  fontSize: '14px',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                }}
-              >
-                <Plus size={16} /> Add Item
-              </button>
-            </div>
-            {hotel.menuCategories.map(category => (
-              <div key={category.id} style={{ background: '#181818', border: '1px solid #222', borderRadius: '12px', padding: '20px' }}>
-                <h3 style={{ margin: '0 0 16px', fontSize: '16px', fontWeight: 600, color: '#FFFFFF' }}>{category.name}</h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  {category.items.map(item => (
-                    <div key={item.id} style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      padding: '12px',
-                      background: '#141414',
-                      borderRadius: '8px',
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                        <div style={{
-                          width: '48px',
-                          height: '48px',
-                          borderRadius: '8px',
-                          background: '#1A1A1A',
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          color: '#6B7280',
-                        }}>
-                          {item.image ? <img src={item.image} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '8px' }} /> : <UtensilsCrossed size={20} />}
+          {/* Center: Hotel Selector */}
+          <div className="relative">
+            <button
+              onClick={() => setHotelSelectorOpen(!hotelSelectorOpen)}
+              className="flex items-center gap-2.5 px-4 py-2 rounded-xl text-sm font-medium transition-all cursor-pointer hover:shadow-sm"
+              style={{ background: 'rgba(255,255,255,0.40)', backdropFilter: 'blur(12px)', border: '1px solid rgba(255,255,255,0.40)', color: 'var(--os-text-primary, #2D2B55)' }}
+            >
+              <Building2 size={15} className="opacity-60" />
+              <span>{selectedHotel ? selectedHotel.name : 'All Hotels'}</span>
+              <ChevronDown size={14} className={classNames("transition-transform", hotelSelectorOpen && "rotate-180")} />
+            </button>
+            {hotelSelectorOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setHotelSelectorOpen(false)} />
+                <div
+                  className="absolute top-full mt-2 left-0 w-72 rounded-2xl shadow-xl z-50 overflow-hidden border"
+                  style={{ background: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(24px)', borderColor: 'rgba(255,255,255,0.50)' }}
+                >
+                  <div className="p-2">
+                    <button
+                      onClick={() => { setSelectedHotelId('all'); setHotelSelectorOpen(false); }}
+                      className={classNames(
+                        "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all cursor-pointer",
+                        selectedHotelId === 'all' ? "bg-indigo-50 text-indigo-700 font-semibold" : "hover:bg-white/50"
+                      )}
+                    >
+                      <LayoutDashboard size={16} />
+                      <span>All Hotels</span>
+                      <span className="ml-auto text-xs opacity-50">{allHotels.length} hotels</span>
+                    </button>
+                    <div className="my-1.5 mx-3 h-px" style={{ background: 'rgba(0,0,0,0.06)' }} />
+                    {allHotels.map(h => (
+                      <button
+                        key={h.id}
+                        onClick={() => { setSelectedHotelId(h.id); setHotelSelectorOpen(false); }}
+                        className={classNames(
+                          "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all cursor-pointer",
+                          selectedHotelId === h.id ? "bg-indigo-50 text-indigo-700 font-semibold" : "hover:bg-white/50"
+                        )}
+                      >
+                        <div className="relative">
+                          <Building2 size={16} />
+                          <span
+                            className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-white"
+                            style={{ background: h.status === 'active' ? '#10B981' : h.status === 'maintenance' ? '#F59E0B' : '#6B7280' }}
+                          />
                         </div>
-                        <div>
-                          <div style={{ fontSize: '14px', fontWeight: 500, color: '#FFFFFF' }}>{item.name}</div>
-                          <div style={{ fontSize: '12px', color: '#6B7280' }}>{item.description}</div>
-                          <div style={{ fontSize: '12px', color: '#FACC15', marginTop: '2px' }}>{formatCurrency(item.price, hotel.settings.currency)}</div>
+                        <div className="text-left">
+                          <div className="text-sm font-medium">{h.name}</div>
+                          <div className="text-xs opacity-50">{h.location}</div>
                         </div>
-                      </div>
-                      <div style={{ display: 'flex', gap: '8px' }}>
-                        <span style={{
-                          padding: '3px 8px',
-                          borderRadius: '4px',
-                          fontSize: '11px',
-                          background: item.station === 'kitchen' ? '#0A3D1F' : item.station === 'bar' ? '#1E3A5F' : '#422006',
-                          color: item.station === 'kitchen' ? '#4ADE80' : item.station === 'bar' ? '#60A5FA' : '#FACC15',
-                          textTransform: 'uppercase',
-                        }}>
-                          {item.station}
-                        </span>
-                        <button style={{ padding: '6px', background: 'transparent', border: '1px solid #2C2C2C', borderRadius: '6px', color: '#9CA3AF', cursor: 'pointer' }}>
-                          <Edit2 size={14} />
-                        </button>
-                        <button style={{ padding: '6px', background: 'transparent', border: '1px solid #2C2C2C', borderRadius: '6px', color: '#F87171', cursor: 'pointer' }}>
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                      </button>
+                    ))}
+                  </div>
                 </div>
+              </>
+            )}
+          </div>
+
+          {/* Right: Notifications + User */}
+          <div className="flex items-center gap-3">
+            <button className="relative p-2 rounded-xl hover:bg-white/30 transition-all cursor-pointer" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>
+              <Bell size={18} />
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500 border border-white" />
+            </button>
+            <div className="flex items-center gap-2.5 pl-3 border-l" style={{ borderColor: 'rgba(255,255,255,0.30)' }}>
+              <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}>
+                A
               </div>
-            ))}
-          </div>
-        )}
-
-        {activeTab === 'staff' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 700, color: '#FFFFFF' }}>Staff Management</h1>
-            <div style={{ background: '#181818', border: '1px solid #222', borderRadius: '12px', overflow: 'hidden' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid #222', background: '#141414' }}>
-                    <th style={{ padding: '12px 16px', textAlign: 'left', color: '#9CA3AF', fontSize: '12px' }}>NAME</th>
-                    <th style={{ padding: '12px 16px', textAlign: 'left', color: '#9CA3AF', fontSize: '12px' }}>ROLE</th>
-                    <th style={{ padding: '12px 16px', textAlign: 'left', color: '#9CA3AF', fontSize: '12px' }}>PHONE</th>
-                    <th style={{ padding: '12px 16px', textAlign: 'center', color: '#9CA3AF', fontSize: '12px' }}>STATUS</th>
-                    <th style={{ padding: '12px 16px', textAlign: 'center', color: '#9CA3AF', fontSize: '12px' }}>ACTIONS</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {hotel.staff.map(staff => (
-                    <tr key={staff.id} style={{ borderBottom: '1px solid #1A1A1A' }}>
-                      <td style={{ padding: '12px 16px', color: '#FFFFFF', fontWeight: 500 }}>{staff.name}</td>
-                      <td style={{ padding: '12px 16px', color: '#B3B3B3', textTransform: 'capitalize' }}>{staff.role}</td>
-                      <td style={{ padding: '12px 16px', color: '#B3B3B3' }}>{staff.phone}</td>
-                      <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                        <StatusBadge status={staff.isActive ? 'active' : 'inactive'} />
-                      </td>
-                      <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                        <button style={{ padding: '6px', background: 'transparent', border: '1px solid #2C2C2C', borderRadius: '6px', color: '#9CA3AF', cursor: 'pointer' }}>
-                          <Edit2 size={14} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div className="hidden md:block">
+                <div className="text-sm font-semibold" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Admin</div>
+                <div className="text-xs opacity-50">Super Admin</div>
+              </div>
             </div>
           </div>
-        )}
+        </header>
 
-        {activeTab === 'website' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 700, color: '#FFFFFF' }}>Website Builder</h1>
-            <div style={{
-              background: '#181818',
-              border: '1px solid #222',
-              borderRadius: '12px',
-              padding: '24px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '16px',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <div>
-                  <h3 style={{ margin: 0, fontSize: '16px', color: '#FFFFFF' }}>Public Website</h3>
-                  <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#6B7280' }}>
-                    Your hotel website is live at: <span style={{ color: '#60A5FA' }}>https://{hotel.subdomain}.kobe</span>
-                  </p>
+        {/* Main Scrollable Area */}
+        <main className="flex-1 overflow-y-auto p-6">
+
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {/* OVERVIEW TAB                                               */}
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {activeTab === 'overview' && (
+            <div className="flex flex-col gap-6">
+              {/* KPI Cards Row */}
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                <KpiCard title="Hotels" value={aggregatedStats.hotelCount} subtitle="+2 this month" icon={<Building2 size={18} />} accent="#6366F1" trend="up" />
+                <KpiCard title="Rooms" value={`${aggregatedStats.occupiedRooms}/${aggregatedStats.totalRooms}`} subtitle={`${aggregatedStats.occupancyRate}% occupied`} icon={<Bed size={18} />} accent="#3B82F6" trend="up" />
+                <KpiCard title="Guests" value={aggregatedStats.activeGuests} subtitle="+12 today" icon={<Users size={18} />} accent="#F59E0B" trend="up" />
+                <KpiCard title="Revenue" value={formatCurrency(aggregatedStats.totalRevenueToday, 'TZS')} subtitle="+15% vs yest" icon={<DollarSign size={18} />} accent="#10B981" trend="up" />
+                <KpiCard title="Occupancy" value={`${aggregatedStats.occupancyRate}%`} subtitle="5% this week" icon={<Percent size={18} />} accent="#8B5CF6" trend="up" />
+                <KpiCard title="Orders" value={aggregatedStats.pendingOrders} subtitle={`${aggregatedStats.allOrders.filter(o => o.status === 'preparing').length} preparing`} icon={<UtensilsCrossed size={18} />} accent="#EC4899" trend="neutral" />
+              </div>
+
+              {/* Charts Row */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Occupancy Chart */}
+                <GlassCard className="lg:col-span-2 p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-semibold text-sm" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Occupancy Rate — Last 15 Days</h3>
+                    <span className="text-xs px-2.5 py-1 rounded-lg" style={{ background: 'rgba(99,102,241,0.10)', color: '#6366F1' }}>Daily</span>
+                  </div>
+                  <div className="flex items-end gap-2 h-40">
+                    {occupancyData.map((d, i) => (
+                      <div key={i} className="flex-1 flex flex-col items-center gap-1.5 group">
+                        <div className="text-xs font-semibold opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: '#6366F1' }}>{d.value}%</div>
+                        <div
+                          className="w-full rounded-t-md transition-all duration-500 hover:opacity-80"
+                          style={{
+                            height: `${d.value * 1.6}px`,
+                            background: i === occupancyData.length - 1
+                              ? 'linear-gradient(180deg, #6366F1, #8B5CF6)'
+                              : 'linear-gradient(180deg, rgba(99,102,241,0.4), rgba(139,92,246,0.2))',
+                          }}
+                        />
+                        <span className="text-[10px] opacity-40 font-medium">{d.day}</span>
+                      </div>
+                    ))}
+                  </div>
+                </GlassCard>
+
+                {/* Revenue Sources Pie */}
+                <GlassCard className="p-5">
+                  <h3 className="font-semibold text-sm mb-4" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Revenue Sources</h3>
+                  <div className="flex items-center justify-center mb-4">
+                    <div
+                      className="w-32 h-32 rounded-full"
+                      style={{
+                        background: `conic-gradient(
+                          ${revenueSources.map((s, i) => `${s.color} ${i === 0 ? 0 : revenueSources.slice(0, i).reduce((a, b) => a + b.value, 0)}% ${revenueSources.slice(0, i + 1).reduce((a, b) => a + b.value, 0)}%`).join(', ')}
+                        )`,
+                      }}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-2">
+                    {revenueSources.map(s => (
+                      <div key={s.label} className="flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full" style={{ background: s.color }} />
+                          <span style={{ color: 'var(--os-text-primary, #2D2B55)' }}>{s.label}</span>
+                        </div>
+                        <span className="font-semibold" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>{s.value}%</span>
+                      </div>
+                    ))}
+                  </div>
+                </GlassCard>
+              </div>
+
+              {/* Hotel Performance Table */}
+              {!selectedHotel && (
+                <GlassCard className="p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-semibold text-sm" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Hotel Performance</h3>
+                    <button className="text-xs px-3 py-1.5 rounded-lg hover:shadow-sm transition-all cursor-pointer" style={{ background: 'rgba(99,102,241,0.10)', color: '#6366F1' }}>
+                      View All
+                    </button>
+                  </div>
+                  <DataTable
+                    headers={['Hotel', 'Location', 'Rooms', 'Occupancy', 'Revenue Today', 'Status', 'Actions']}
+                    rows={allHotels.map(h => {
+                      const occ = h.rooms.length > 0 ? Math.round((h.rooms.filter(r => r.status === 'occupied').length / h.rooms.length) * 100) : 0;
+                      return [
+                        <div key="n" className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'rgba(99,102,241,0.12)' }}>
+                            <Building2 size={14} style={{ color: '#6366F1' }} />
+                          </div>
+                          <span className="font-medium text-sm" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>{h.name}</span>
+                        </div>,
+                        <span key="l" className="text-xs opacity-60">{h.location}</span>,
+                        <span key="r" className="text-xs font-medium">{h.rooms.length}</span>,
+                        <div key="o" className="flex items-center gap-2">
+                          <div className="w-16 h-1.5 rounded-full overflow-hidden" style={{ background: 'rgba(0,0,0,0.05)' }}>
+                            <div className="h-full rounded-full transition-all" style={{ width: `${occ}%`, background: occ > 75 ? '#10B981' : occ > 50 ? '#F59E0B' : '#EF4444' }} />
+                          </div>
+                          <span className="text-xs font-medium">{occ}%</span>
+                        </div>,
+                        <span key="rv" className="text-xs font-semibold" style={{ color: '#10B981' }}>{formatCurrency(h.revenueToday, 'TZS')}</span>,
+                        <StatusBadge key="s" status={h.status} />,
+                        <div key="a" className="flex items-center gap-1.5">
+                          <button onClick={() => { setSelectedHotelId(h.id); setActiveTab('rooms'); }} className="p-1.5 rounded-lg hover:bg-white/50 transition-all cursor-pointer" title="View">
+                            <Eye size={13} style={{ color: '#6366F1' }} />
+                          </button>
+                          <button className="p-1.5 rounded-lg hover:bg-white/50 transition-all cursor-pointer" title="Edit">
+                            <Edit2 size={13} style={{ color: '#8B5CF6' }} />
+                          </button>
+                        </div>,
+                      ];
+                    })}
+                  />
+                </GlassCard>
+              )}
+
+              {/* Recent Bookings */}
+              <GlassCard className="p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="font-semibold text-sm" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Recent Bookings</h3>
+                  <button onClick={() => setActiveTab('bookings')} className="text-xs px-3 py-1.5 rounded-lg hover:shadow-sm transition-all cursor-pointer" style={{ background: 'rgba(99,102,241,0.10)', color: '#6366F1' }}>
+                    View All
+                  </button>
                 </div>
-                <button style={{
-                  padding: '10px 18px',
-                  background: '#1F3B73',
-                  border: 'none',
-                  borderRadius: '8px',
-                  color: '#FFFFFF',
-                  fontSize: '14px',
-                  cursor: 'pointer',
-                }}>
-                  <Eye size={16} style={{ marginRight: '6px' }} /> Preview
+                <DataTable
+                  headers={['Guest', 'Room', 'Hotel', 'Check In', 'Check Out', 'Amount', 'Status']}
+                  rows={aggregatedStats.allBookings.slice(0, 10).map(b => {
+                    const hotel = allHotels.find(h => h.rooms.some(r => r.id === b.roomId));
+                    const room = hotel?.rooms.find(r => r.id === b.roomId);
+                    return [
+                      <span key="g" className="text-xs font-medium" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>{b.guestId}</span>,
+                      <span key="r" className="text-xs opacity-60">{room?.number || '-'}</span>,
+                      <span key="h" className="text-xs opacity-60">{hotel?.name || '-'}</span>,
+                      <span key="ci" className="text-xs opacity-60">{formatDate(b.checkIn)}</span>,
+                      <span key="co" className="text-xs opacity-60">{formatDate(b.checkOut)}</span>,
+                      <span key="a" className="text-xs font-semibold" style={{ color: '#10B981' }}>{formatCurrency(b.totalAmount, 'TZS')}</span>,
+                      <StatusBadge key="s" status={b.status} />,
+                    ];
+                  })}
+                />
+              </GlassCard>
+            </div>
+          )}
+
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {/* HOTELS TAB                                                 */}
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {activeTab === 'hotels' && (
+            <div className="flex flex-col gap-5">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Multi-Hotel Management</h2>
+                <button
+                  onClick={() => setShowAddHotel(true)}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-white cursor-pointer transition-all hover:shadow-lg hover:opacity-90"
+                  style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}
+                >
+                  <Plus size={16} /> Add Hotel
                 </button>
               </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {allHotels.map(h => {
+                  const occ = h.rooms.length > 0 ? Math.round((h.rooms.filter(r => r.status === 'occupied').length / h.rooms.length) * 100) : 0;
+                  return (
+                    <GlassCard key={h.id} className="p-5 hover:shadow-lg transition-all">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-11 h-11 rounded-xl flex items-center justify-center" style={{ background: 'rgba(99,102,241,0.12)' }}>
+                            <Building2 size={20} style={{ color: '#6366F1' }} />
+                          </div>
+                          <div>
+                            <h3 className="font-semibold text-sm" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>{h.name}</h3>
+                            <p className="text-xs opacity-50">{h.location}</p>
+                          </div>
+                        </div>
+                        <StatusBadge status={h.status} />
+                      </div>
+                      <div className="grid grid-cols-4 gap-3 mb-4">
+                        <MiniStat label="Rooms" value={h.rooms.length} />
+                        <MiniStat label="Occupancy" value={`${occ}%`} />
+                        <MiniStat label="Staff" value={h.staff.length} />
+                        <MiniStat label="Revenue" value={formatCurrency(h.revenueToday, 'TZS').replace('TZS ', '')} />
+                      </div>
+                      <div className="flex gap-2">
+                        <button onClick={() => { setSelectedHotelId(h.id); setActiveTab('rooms'); }} className="flex-1 text-xs py-2 rounded-lg font-medium transition-all cursor-pointer hover:shadow-sm" style={{ background: 'rgba(99,102,241,0.10)', color: '#6366F1' }}>
+                          View Dashboard
+                        </button>
+                        <button className="px-3 py-2 rounded-lg transition-all cursor-pointer hover:shadow-sm" style={{ background: 'rgba(139,92,246,0.10)', color: '#8B5CF6' }}>
+                          <Edit2 size={13} />
+                        </button>
+                      </div>
+                    </GlassCard>
+                  );
+                })}
+              </div>
+              {/* Add Hotel Modal */}
+              {showAddHotel && (
+                <Modal title="Add New Hotel" onClose={() => setShowAddHotel(false)}>
+                  <div className="flex flex-col gap-4">
+                    <FormInput label="Hotel Name" placeholder="e.g., Kobe Plaza Hotel" />
+                    <FormInput label="Location" placeholder="e.g., Mwanza, TZ" />
+                    <FormInput label="Number of Rooms" type="number" placeholder="e.g., 20" />
+                    <FormInput label="Phone" placeholder="+255 744 000 000" />
+                    <FormInput label="Email" placeholder="hotel@kobe.co.tz" />
+                    <div className="flex gap-3 mt-2">
+                      <button onClick={() => setShowAddHotel(false)} className="flex-1 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer hover:bg-white/50" style={{ border: '1px solid rgba(0,0,0,0.08)', color: 'var(--os-text-primary, #2D2B55)' }}>
+                        Cancel
+                      </button>
+                      <button onClick={() => setShowAddHotel(false)} className="flex-1 py-2.5 rounded-xl text-sm font-medium text-white transition-all cursor-pointer hover:opacity-90" style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}>
+                        Create Hotel
+                      </button>
+                    </div>
+                  </div>
+                </Modal>
+              )}
+            </div>
+          )}
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                <div>
-                  <label style={{ fontSize: '12px', color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Hotel Name</label>
-                  <input type="text" defaultValue={hotel.name} style={inputStyle} />
-                </div>
-                <div>
-                  <label style={{ fontSize: '12px', color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Subdomain</label>
-                  <input type="text" defaultValue={hotel.subdomain} style={inputStyle} />
-                </div>
-                <div>
-                  <label style={{ fontSize: '12px', color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Phone</label>
-                  <input type="text" defaultValue={hotel.phone} style={inputStyle} />
-                </div>
-                <div>
-                  <label style={{ fontSize: '12px', color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Email</label>
-                  <input type="text" defaultValue={hotel.email} style={inputStyle} />
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {/* ROOMS TAB                                                  */}
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {activeTab === 'rooms' && (
+            <div className="flex flex-col gap-5">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>
+                  Room Management {selectedHotel && `- ${selectedHotel.name}`}
+                </h2>
+                <button
+                  onClick={() => setShowAddRoom(true)}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-white cursor-pointer transition-all hover:shadow-lg"
+                  style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}
+                >
+                  <Plus size={16} /> Add Room
+                </button>
+              </div>
+              {/* Room Stats */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <KpiCard title="Total" value={aggregatedStats.totalRooms} icon={<Bed size={16} />} accent="#6366F1" />
+                <KpiCard title="Occupied" value={aggregatedStats.occupiedRooms} icon={<Users size={16} />} accent="#3B82F6" />
+                <KpiCard title="Available" value={aggregatedStats.availableRooms} icon={<CheckCircle size={16} />} accent="#10B981" />
+                <KpiCard title="Maintenance" value={aggregatedStats.maintenanceRooms} icon={<Settings size={16} />} accent="#F59E0B" />
+              </div>
+              {/* Room Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {aggregatedStats.allRooms.map(room => (
+                  <RoomCard key={room.id} room={room} currency={selectedHotel?.currency || 'TZS'} />
+                ))}
+              </div>
+              {/* Add Room Modal */}
+              {showAddRoom && (
+                <Modal title="Add New Room" onClose={() => setShowAddRoom(false)}>
+                  <div className="flex flex-col gap-4">
+                    <FormInput label="Room Number" placeholder="e.g., 101" />
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs font-medium opacity-60">Room Type</label>
+                      <select className="w-full px-3 py-2.5 rounded-xl text-sm border outline-none focus:ring-2" style={{ background: 'rgba(255,255,255,0.50)', borderColor: 'rgba(0,0,0,0.08)', color: 'var(--os-text-primary, #2D2B55)' }}>
+                        <option>Standard</option><option>Deluxe</option><option>Suite</option><option>Presidential</option>
+                      </select>
+                    </div>
+                    <FormInput label="Floor" type="number" placeholder="1" />
+                    <FormInput label="Price per Night" type="number" placeholder="85000" />
+                    <FormInput label="Capacity" type="number" placeholder="2" />
+                    <div className="flex gap-3 mt-2">
+                      <button onClick={() => setShowAddRoom(false)} className="flex-1 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer hover:bg-white/50" style={{ border: '1px solid rgba(0,0,0,0.08)', color: 'var(--os-text-primary, #2D2B55)' }}>Cancel</button>
+                      <button onClick={() => setShowAddRoom(false)} className="flex-1 py-2.5 rounded-xl text-sm font-medium text-white transition-all cursor-pointer hover:opacity-90" style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}>Add Room</button>
+                    </div>
+                  </div>
+                </Modal>
+              )}
+            </div>
+          )}
+
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {/* BOOKINGS TAB                                               */}
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {activeTab === 'bookings' && (
+            <div className="flex flex-col gap-5">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Bookings</h2>
+                <div className="flex items-center gap-3">
+                  <select
+                    value={bookingStatusFilter}
+                    onChange={e => setBookingStatusFilter(e.target.value)}
+                    className="px-3 py-2 rounded-xl text-xs font-medium border outline-none cursor-pointer"
+                    style={{ background: 'rgba(255,255,255,0.50)', borderColor: 'rgba(0,0,0,0.08)', color: 'var(--os-text-primary, #2D2B55)' }}
+                  >
+                    <option value="all">All Status</option>
+                    <option value="confirmed">Confirmed</option>
+                    <option value="checked-in">Checked In</option>
+                    <option value="checked-out">Checked Out</option>
+                    <option value="cancelled">Cancelled</option>
+                  </select>
+                  <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-white cursor-pointer transition-all hover:shadow-lg" style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}>
+                    <Plus size={16} /> New Booking
+                  </button>
                 </div>
               </div>
+              <GlassCard className="p-5">
+                <DataTable
+                  headers={['Guest', 'Room', 'Hotel', 'Check In', 'Check Out', 'Amount', 'Source', 'Status']}
+                  rows={aggregatedStats.allBookings
+                    .filter(b => bookingStatusFilter === 'all' || b.status === bookingStatusFilter)
+                    .map(b => {
+                      const hotel = allHotels.find(h => h.rooms.some(r => r.id === b.roomId));
+                      const room = hotel?.rooms.find(r => r.id === b.roomId);
+                      return [
+                        <span key="g" className="text-xs font-medium" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>{b.guestId}</span>,
+                        <span key="r" className="text-xs opacity-60">{room?.number || '-'}</span>,
+                        <span key="h" className="text-xs opacity-60">{hotel?.name || '-'}</span>,
+                        <span key="ci" className="text-xs opacity-60">{formatDate(b.checkIn)}</span>,
+                        <span key="co" className="text-xs opacity-60">{formatDate(b.checkOut)}</span>,
+                        <span key="a" className="text-xs font-semibold" style={{ color: '#10B981' }}>{formatCurrency(b.totalAmount, 'TZS')}</span>,
+                        <span key="src" className="text-xs capitalize opacity-60">{b.source}</span>,
+                        <StatusBadge key="s" status={b.status} />,
+                      ];
+                    })}
+                  }
+                />
+              </GlassCard>
+            </div>
+          )}
 
-              <div>
-                <label style={{ fontSize: '12px', color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Address</label>
-                <textarea defaultValue={hotel.address} style={{ ...inputStyle, minHeight: '80px', resize: 'vertical' }} />
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {/* GUESTS TAB (NEW)                                           */}
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {activeTab === 'guests' && (
+            <div className="flex flex-col gap-5">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Guest Management</h2>
+                <button
+                  onClick={() => setShowAddGuest(true)}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-white cursor-pointer transition-all hover:shadow-lg"
+                  style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}
+                >
+                  <UserPlus size={16} /> Add Guest
+                </button>
               </div>
+              {/* Guest KPIs */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <KpiCard title="Total Guests" value={aggregatedStats.allGuests.length} icon={<Users size={16} />} accent="#6366F1" />
+                <KpiCard title="Checked In" value={aggregatedStats.occupiedRooms} icon={<CheckCircle size={16} />} accent="#10B981" />
+                <KpiCard title="New Today" value={12} icon={<UserPlus size={16} />} accent="#F59E0B" />
+                <KpiCard title="Returning" value={aggregatedStats.allGuests.filter(g => g.checkInCount > 1).length} icon={<Star size={16} />} accent="#EC4899" />
+              </div>
+              {/* Search */}
+              <div className="flex items-center gap-3">
+                <div className="relative flex-1 max-w-sm">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 opacity-40" />
+                  <input
+                    value={guestSearch}
+                    onChange={e => setGuestSearch(e.target.value)}
+                    placeholder="Search by name or phone..."
+                    className="w-full pl-9 pr-4 py-2.5 rounded-xl text-xs border outline-none focus:ring-2"
+                    style={{ background: 'rgba(255,255,255,0.50)', borderColor: 'rgba(0,0,0,0.08)', color: 'var(--os-text-primary, #2D2B55)' }}
+                  />
+                </div>
+              </div>
+              {/* Guest Table */}
+              <GlassCard className="p-5">
+                <DataTable
+                  headers={['Name', 'Phone', 'Email', 'Nationality', 'ID Type', 'ID Number', 'Stays', 'Actions']}
+                  rows={aggregatedStats.allGuests
+                    .filter(g => !guestSearch || g.name.toLowerCase().includes(guestSearch.toLowerCase()) || g.phone.includes(guestSearch))
+                    .map(g => [
+                      <div key="n" className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold" style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}>
+                          {g.name.charAt(0)}
+                        </div>
+                        <span className="text-xs font-medium" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>{g.name}</span>
+                      </div>,
+                      <span key="p" className="text-xs opacity-60">{g.phone}</span>,
+                      <span key="e" className="text-xs opacity-60">{g.email || '-'}</span>,
+                      <span key="nat" className="text-xs opacity-60">{g.nationality || '-'}</span>,
+                      <span key="idt" className="text-xs capitalize opacity-60">{g.idType?.replace('-', ' ') || '-'}</span>,
+                      <span key="idn" className="text-xs opacity-60 font-mono">{g.idNumber || '-'}</span>,
+                      <span key="st" className="text-xs font-semibold px-2 py-0.5 rounded-md" style={{ background: 'rgba(99,102,241,0.10)', color: '#6366F1' }}>{g.checkInCount}</span>,
+                      <div key="a" className="flex items-center gap-1.5">
+                        <button className="p-1.5 rounded-lg hover:bg-white/50 transition-all cursor-pointer" title="View History"><Eye size={13} style={{ color: '#6366F1' }} /></button>
+                        <button className="p-1.5 rounded-lg hover:bg-white/50 transition-all cursor-pointer" title="Edit"><Edit2 size={13} style={{ color: '#8B5CF6' }} /></button>
+                      </div>,
+                    ])}
+                  }
+                />
+              </GlassCard>
+              {/* Add Guest Modal */}
+              {showAddGuest && (
+                <Modal title="Add New Guest" onClose={() => setShowAddGuest(false)}>
+                  <div className="flex flex-col gap-4">
+                    <FormInput label="Full Name" placeholder="e.g., John Doe" />
+                    <FormInput label="Phone" placeholder="+255 744 000 000" />
+                    <FormInput label="Email" placeholder="guest@email.com" />
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs font-medium opacity-60">ID Type</label>
+                      <select className="w-full px-3 py-2.5 rounded-xl text-sm border outline-none" style={{ background: 'rgba(255,255,255,0.50)', borderColor: 'rgba(0,0,0,0.08)', color: 'var(--os-text-primary, #2D2B55)' }}>
+                        <option>Passport</option><option>National ID</option><option>Driving License</option>
+                      </select>
+                    </div>
+                    <FormInput label="ID Number" placeholder="e.g., AB123456" />
+                    <div className="flex gap-3 mt-2">
+                      <button onClick={() => setShowAddGuest(false)} className="flex-1 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer hover:bg-white/50" style={{ border: '1px solid rgba(0,0,0,0.08)', color: 'var(--os-text-primary, #2D2B55)' }}>Cancel</button>
+                      <button onClick={() => setShowAddGuest(false)} className="flex-1 py-2.5 rounded-xl text-sm font-medium text-white transition-all cursor-pointer hover:opacity-90" style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}>Add Guest</button>
+                    </div>
+                  </div>
+                </Modal>
+              )}
+            </div>
+          )}
 
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#B3B3B3', fontSize: '14px', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={hotel.settings.enableQROrdering} readOnly />
-                  Enable QR Ordering
-                </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#B3B3B3', fontSize: '14px', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={hotel.settings.enableRoomService} readOnly />
-                  Enable Room Service
-                </label>
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {/* RESTAURANT TAB                                             */}
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {activeTab === 'restaurant' && (
+            <div className="flex flex-col gap-5">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Restaurant & Bar</h2>
+                <div className="flex items-center gap-2">
+                  <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer hover:shadow-sm" style={{ background: 'rgba(99,102,241,0.10)', color: '#6366F1' }}>
+                    <QrCode size={16} /> QR Ordering
+                  </button>
+                  <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer hover:shadow-sm" style={{ background: 'rgba(16,185,129,0.10)', color: '#10B981' }}>
+                    <ChefHat size={16} /> Kitchen Display
+                  </button>
+                </div>
+              </div>
+              {/* Orders */}
+              <GlassCard className="p-5">
+                <h3 className="font-semibold text-sm mb-4" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Active Orders</h3>
+                <DataTable
+                  headers={['Order ID', 'Table/Room', 'Guest', 'Items', 'Total', 'Station', 'Status']}
+                  rows={aggregatedStats.allOrders.map(o => [
+                    <span key="id" className="text-xs font-mono opacity-60">{o.id}</span>,
+                    <span key="tr" className="text-xs">{o.tableId ? `Table ${o.tableId}` : o.roomId ? `Room ${o.roomId}` : 'Walk-in'}</span>,
+                    <span key="g" className="text-xs">{o.guestName || '-'}</span>,
+                    <span key="it" className="text-xs">{o.items.length} items</span>,
+                    <span key="tot" className="text-xs font-semibold" style={{ color: '#10B981' }}>{formatCurrency(o.total, 'TZS')}</span>,
+                    <span key="stn" className="text-xs capitalize px-2 py-0.5 rounded-md" style={{ background: o.station === 'kitchen' ? 'rgba(16,185,129,0.10)' : o.station === 'bar' ? 'rgba(59,130,246,0.10)' : 'rgba(245,158,11,0.10)', color: o.station === 'kitchen' ? '#10B981' : o.station === 'bar' ? '#3B82F6' : '#F59E0B' }}>{o.station}</span>,
+                    <StatusBadge key="s" status={o.status} />,
+                  ])}
+                />
+              </GlassCard>
+              {/* Menu */}
+              <div className="flex flex-col gap-4">
+                <h3 className="font-semibold text-sm" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Menu</h3>
+                {(selectedHotel || allHotels[0]).menuCategories.map(cat => (
+                  <GlassCard key={cat.id} className="p-5">
+                    <h4 className="font-semibold text-sm mb-3" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>{cat.name}</h4>
+                    <div className="flex flex-col gap-2">
+                      {cat.items.map(item => (
+                        <div key={item.id} className="flex items-center justify-between p-3 rounded-xl hover:bg-white/30 transition-all">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-lg flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.03)' }}>
+                              <UtensilsCrossed size={16} className="opacity-30" />
+                            </div>
+                            <div>
+                              <div className="text-xs font-medium" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>{item.name}</div>
+                              <div className="text-[11px] opacity-50">{item.description}</div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="text-xs font-semibold" style={{ color: '#10B981' }}>{formatCurrency(item.price, 'TZS')}</span>
+                            <span className="text-[10px] px-2 py-0.5 rounded-md capitalize" style={{ background: item.station === 'kitchen' ? 'rgba(16,185,129,0.10)' : item.station === 'bar' ? 'rgba(59,130,246,0.10)' : 'rgba(245,158,11,0.10)', color: item.station === 'kitchen' ? '#10B981' : item.station === 'bar' ? '#3B82F6' : '#F59E0B' }}>{item.station}</span>
+                            <div className="flex gap-1">
+                              <button className="p-1.5 rounded-lg hover:bg-white/50 transition-all cursor-pointer"><Edit2 size={12} style={{ color: '#8B5CF6' }} /></button>
+                              <button className="p-1.5 rounded-lg hover:bg-white/50 transition-all cursor-pointer"><Trash2 size={12} style={{ color: '#EF4444' }} /></button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </GlassCard>
+                ))}
               </div>
             </div>
-          </div>
-        )}
+          )}
 
-        {activeTab === 'analytics' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <h1 style={{ margin: 0, fontSize: '24px', fontWeight: 700, color: '#FFFFFF' }}>Analytics</h1>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px' }}>
-              <StatCard title="Occupancy Rate" value={`${stats.occupancyRate}%`} icon={<Percent size={18} />} color="#60A5FA" />
-              <StatCard title="Avg Room Rate" value={formatCurrency(hotel.rooms[0]?.pricePerNight || 0, hotel.settings.currency)} icon={<DollarSign size={18} />} color="#4ADE80" />
-              <StatCard title="Total Guests" value={hotel.rooms.filter(r => r.status === 'occupied').reduce((sum, r) => sum + (r.currentGuest ? 1 : 0), 0).toString()} icon={<Users size={18} />} color="#A78BFA" />
-              <StatCard title="Rating" value="4.8" icon={<Star size={18} />} color="#FACC15" />
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {/* PARKING TAB (NEW)                                          */}
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {activeTab === 'parking' && (
+            <div className="flex flex-col gap-5">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Parking Management</h2>
+                <button
+                  onClick={() => setShowAssignSpot(true)}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-white cursor-pointer transition-all hover:shadow-lg"
+                  style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}
+                >
+                  <Car size={16} /> Assign Spot
+                </button>
+              </div>
+              {/* Parking KPIs */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <KpiCard title="Total Spots" value={aggregatedStats.totalParking} icon={<ParkingSquare size={16} />} accent="#6366F1" />
+                <KpiCard title="Occupied" value={aggregatedStats.occupiedParking} icon={<CarFront size={16} />} accent="#3B82F6" />
+                <KpiCard title="Free" value={aggregatedStats.totalParking - aggregatedStats.occupiedParking} icon={<CheckCircle size={16} />} accent="#10B981" />
+                <KpiCard title="Reserved" value={aggregatedStats.allRooms.length > 0 ? 3 : 0} icon={<Clock size={16} />} accent="#F59E0B" />
+              </div>
+              {/* Parking Grid */}
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+                {(selectedHotel || allHotels[0]).parkingSpots.map(spot => (
+                  <div
+                    key={spot.id}
+                    className={classNames(
+                      "rounded-2xl p-4 flex flex-col gap-2 transition-all hover:shadow-md border",
+                      spot.status === 'occupied' && "border-l-4",
+                      spot.status === 'free' && "border-l-4",
+                      spot.status === 'reserved' && "border-l-4"
+                    )}
+                    style={{
+                      background: 'rgba(255,255,255,0.30)',
+                      backdropFilter: 'blur(16px)',
+                      borderColor: spot.status === 'occupied' ? 'rgba(59,130,246,0.40)' : spot.status === 'reserved' ? 'rgba(245,158,11,0.40)' : 'rgba(16,185,129,0.40)',
+                    }}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>{spot.number}</span>
+                      {spot.type === 'motorcycle' ? <Bike size={14} className="opacity-40" /> : spot.type === 'vip' ? <CarFront size={14} style={{ color: '#F59E0B' }} /> : <CarFront size={14} className="opacity-40" />}
+                    </div>
+                    <StatusBadge status={spot.status} />
+                    {spot.vehiclePlate && (
+                      <div className="mt-1">
+                        <div className="text-xs font-mono font-semibold" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>{spot.vehiclePlate}</div>
+                        <div className="text-[10px] opacity-50">{spot.vehicleModel}</div>
+                        {spot.guestName && <div className="text-[10px] opacity-60 mt-0.5">{spot.guestName}</div>}
+                      </div>
+                    )}
+                    {spot.status === 'free' && <div className="text-[10px] opacity-40 mt-1">Available</div>}
+                  </div>
+                ))}
+              </div>
+              {/* Assign Spot Modal */}
+              {showAssignSpot && (
+                <Modal title="Assign Parking Spot" onClose={() => setShowAssignSpot(false)}>
+                  <div className="flex flex-col gap-4">
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-xs font-medium opacity-60">Spot</label>
+                      <select className="w-full px-3 py-2.5 rounded-xl text-sm border outline-none" style={{ background: 'rgba(255,255,255,0.50)', borderColor: 'rgba(0,0,0,0.08)', color: 'var(--os-text-primary, #2D2B55)' }}>
+                        {(selectedHotel || allHotels[0]).parkingSpots.filter(s => s.status === 'free').map(s => <option key={s.id} value={s.id}>{s.number} - {s.type}</option>)}
+                      </select>
+                    </div>
+                    <FormInput label="Guest Name" placeholder="Guest name" />
+                    <FormInput label="Vehicle Plate" placeholder="T123 ABC" />
+                    <FormInput label="Vehicle Model" placeholder="Toyota Prado" />
+                    <div className="flex gap-3 mt-2">
+                      <button onClick={() => setShowAssignSpot(false)} className="flex-1 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer hover:bg-white/50" style={{ border: '1px solid rgba(0,0,0,0.08)', color: 'var(--os-text-primary, #2D2B55)' }}>Cancel</button>
+                      <button onClick={() => setShowAssignSpot(false)} className="flex-1 py-2.5 rounded-xl text-sm font-medium text-white transition-all cursor-pointer hover:opacity-90" style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}>Assign Spot</button>
+                    </div>
+                  </div>
+                </Modal>
+              )}
             </div>
-          </div>
-        )}
+          )}
+
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {/* FINANCIALS TAB (NEW)                                       */}
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {activeTab === 'financials' && (
+            <div className="flex flex-col gap-5">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Financials</h2>
+                <div className="flex items-center gap-2 p-1 rounded-xl" style={{ background: 'rgba(255,255,255,0.30)' }}>
+                  {(['today', 'week', 'month'] as const).map(p => (
+                    <button
+                      key={p}
+                      onClick={() => setFinancialPeriod(p)}
+                      className={classNames(
+                        "px-4 py-1.5 rounded-lg text-xs font-medium transition-all cursor-pointer capitalize",
+                        financialPeriod === p ? "text-white shadow-sm" : "opacity-50 hover:opacity-80"
+                      )}
+                      style={financialPeriod === p ? { background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' } : {}}
+                    >
+                      {p === 'today' ? 'Today' : p === 'week' ? 'This Week' : 'This Month'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {/* Financial KPIs */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <KpiCard
+                  title="Revenue"
+                  value={formatCurrency(financialPeriod === 'today' ? aggregatedStats.totalRevenueToday : financialPeriod === 'week' ? aggregatedStats.totalRevenueToday * 7 : aggregatedStats.totalRevenueMonth, 'TZS')}
+                  subtitle="+12% vs last period" icon={<CircleDollarSign size={16} />} accent="#10B981" trend="up"
+                />
+                <KpiCard
+                  title="Expenses"
+                  value={formatCurrency(financialPeriod === 'today' ? aggregatedStats.totalExpensesToday : financialPeriod === 'week' ? aggregatedStats.totalExpensesToday * 7 : aggregatedStats.totalExpensesToday * 30, 'TZS')}
+                  subtitle="-5% vs last period" icon={<Receipt size={16} />} accent="#EF4444" trend="down"
+                />
+                <KpiCard
+                  title="Net Profit"
+                  value={formatCurrency(financialPeriod === 'today' ? aggregatedStats.netProfit : financialPeriod === 'week' ? aggregatedStats.netProfit * 7 : aggregatedStats.netProfit * 30, 'TZS')}
+                  subtitle="+18% vs last period" icon={<Wallet size={16} />} accent="#6366F1" trend="up"
+                />
+                <KpiCard title="Profit Margin" value={`${Math.round((aggregatedStats.netProfit / (aggregatedStats.totalRevenueToday || 1)) * 100)}%`} subtitle="Target: 65%" icon={<TrendingUp size={16} />} accent="#8B5CF6" trend="up" />
+              </div>
+              {/* Revenue vs Expenses Chart */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <GlassCard className="p-5">
+                  <h3 className="font-semibold text-sm mb-4" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Revenue vs Expenses</h3>
+                  <div className="flex items-end gap-3 h-48">
+                    {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, i) => {
+                      const rev = [1.2, 1.5, 1.3, 1.8, 2.1, 2.4, 2.0][i] * 1000000;
+                      const exp = [0.6, 0.7, 0.5, 0.8, 0.9, 1.0, 0.8][i] * 1000000;
+                      return (
+                        <div key={day} className="flex-1 flex flex-col items-center gap-1.5">
+                          <div className="w-full flex gap-1 items-end justify-center" style={{ height: '140px' }}>
+                            <div className="w-3 rounded-t-md" style={{ height: `${(rev / 2500000) * 120}px`, background: 'linear-gradient(180deg, #6366F1, #8B5CF6)' }} />
+                            <div className="w-3 rounded-t-md" style={{ height: `${(exp / 2500000) * 120}px`, background: 'linear-gradient(180deg, #EF4444, #F87171)' }} />
+                          </div>
+                          <span className="text-[10px] opacity-40 font-medium">{day}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="flex items-center justify-center gap-6 mt-3">
+                    <div className="flex items-center gap-2"><span className="w-3 h-3 rounded" style={{ background: '#6366F1' }} /><span className="text-xs opacity-60">Revenue</span></div>
+                    <div className="flex items-center gap-2"><span className="w-3 h-3 rounded" style={{ background: '#EF4444' }} /><span className="text-xs opacity-60">Expenses</span></div>
+                  </div>
+                </GlassCard>
+                {/* Revenue Breakdown */}
+                <GlassCard className="p-5">
+                  <h3 className="font-semibold text-sm mb-4" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Revenue Breakdown</h3>
+                  <div className="flex flex-col gap-4">
+                    {[
+                      { label: 'Room Revenue', amount: aggregatedStats.totalRevenueToday * 0.62, color: '#6366F1', icon: <Bed size={14} /> },
+                      { label: 'Restaurant & Bar', amount: aggregatedStats.totalRevenueToday * 0.23, color: '#10B981', icon: <UtensilsCrossed size={14} /> },
+                      { label: 'Services & Amenities', amount: aggregatedStats.totalRevenueToday * 0.10, color: '#F59E0B', icon: <Star size={14} /> },
+                      { label: 'Parking', amount: aggregatedStats.totalRevenueToday * 0.05, color: '#EC4899', icon: <Car size={14} /> },
+                    ].map(item => (
+                      <div key={item.label} className="flex items-center gap-3">
+                        <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: `${item.color}15`, color: item.color }}>{item.icon}</div>
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-medium" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>{item.label}</span>
+                            <span className="text-xs font-semibold" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>{formatCurrency(item.amount, 'TZS')}</span>
+                          </div>
+                          <div className="w-full h-1.5 rounded-full mt-1.5 overflow-hidden" style={{ background: 'rgba(0,0,0,0.04)' }}>
+                            <div className="h-full rounded-full" style={{ width: `${(item.amount / (aggregatedStats.totalRevenueToday || 1)) * 100}%`, background: item.color }} />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </GlassCard>
+              </div>
+              {/* Expense Breakdown Table */}
+              <GlassCard className="p-5">
+                <h3 className="font-semibold text-sm mb-4" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Expense Tracking</h3>
+                <DataTable
+                  headers={['Category', 'Description', 'Amount', 'Date', 'Status']}
+                  rows={[
+                    ['Staff Salaries', 'Monthly payroll for all staff', 1850000, '2026-01-15', 'paid'],
+                    ['Maintenance', 'HVAC repair Room 102', 320000, '2026-01-14', 'paid'],
+                    ['Supplies', 'Cleaning supplies & toiletries', 180000, '2026-01-13', 'pending'],
+                    ['Utilities', 'Electricity & water bill', 450000, '2026-01-12', 'paid'],
+                    ['Food & Beverage', 'Restaurant inventory restock', 680000, '2026-01-11', 'pending'],
+                    ['Marketing', 'Social media ads', 120000, '2026-01-10', 'paid'],
+                  ].map((row, i) => [
+                    <span key="c" className="text-xs font-medium" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>{row[0]}</span>,
+                    <span key="d" className="text-xs opacity-60">{row[1]}</span>,
+                    <span key="a" className="text-xs font-semibold" style={{ color: '#EF4444' }}>{formatCurrency(row[2] as number, 'TZS')}</span>,
+                    <span key="dt" className="text-xs opacity-60">{row[3]}</span>,
+                    <StatusBadge key="s" status={row[4] as string} />,
+                  ])}
+                />
+              </GlassCard>
+            </div>
+          )}
+
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {/* ANALYTICS TAB                                              */}
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {activeTab === 'analytics' && (
+            <div className="flex flex-col gap-5">
+              <h2 className="text-xl font-bold" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Analytics Dashboard</h2>
+              {/* Analytics KPIs */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <KpiCard title="Occupancy Rate" value={`${aggregatedStats.occupancyRate}%`} subtitle="Avg last 30 days" icon={<Percent size={16} />} accent="#6366F1" />
+                <KpiCard title="Avg Daily Rate" value={formatCurrency(selectedHotel?.rooms[0]?.pricePerNight || 150000, 'TZS')} subtitle="Per room/night" icon={<DollarSign size={16} />} accent="#10B981" />
+                <KpiCard title="RevPAR" value={formatCurrency(Math.round((aggregatedStats.occupancyRate / 100) * (selectedHotel?.rooms[0]?.pricePerNight || 150000)), 'TZS')} subtitle="Revenue per available room" icon={<TrendingUp size={16} />} accent="#8B5CF6" />
+                <KpiCard title="Guest Rating" value="4.8/5" subtitle="Based on 128 reviews" icon={<Star size={16} />} accent="#F59E0B" />
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Monthly Revenue Trend */}
+                <GlassCard className="p-5">
+                  <h3 className="font-semibold text-sm mb-4" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Monthly Revenue Trend</h3>
+                  <div className="flex items-end gap-3 h-48">
+                    {['Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan'].map((m, i) => {
+                      const val = [28, 32, 30, 38, 35, 42, 45][i];
+                      return (
+                        <div key={m} className="flex-1 flex flex-col items-center gap-1.5 group">
+                          <div className="text-xs font-semibold opacity-0 group-hover:opacity-100 transition-opacity" style={{ color: '#6366F1' }}>TZS {val}M</div>
+                          <div className="w-full rounded-t-md transition-all hover:opacity-80" style={{ height: `${val * 2.8}px`, background: i === 6 ? 'linear-gradient(180deg, #6366F1, #8B5CF6)' : 'linear-gradient(180deg, rgba(99,102,241,0.35), rgba(139,92,246,0.15))' }} />
+                          <span className="text-[10px] opacity-40 font-medium">{m}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </GlassCard>
+                {/* Guest Satisfaction */}
+                <GlassCard className="p-5">
+                  <h3 className="font-semibold text-sm mb-4" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Guest Satisfaction</h3>
+                  <div className="flex flex-col gap-3">
+                    {[
+                      { label: 'Cleanliness', score: 4.9 },
+                      { label: 'Staff Service', score: 4.7 },
+                      { label: 'Food Quality', score: 4.6 },
+                      { label: 'Room Comfort', score: 4.8 },
+                      { label: 'Value for Money', score: 4.5 },
+                      { label: 'Location', score: 4.9 },
+                    ].map(item => (
+                      <div key={item.label} className="flex items-center gap-3">
+                        <span className="text-xs w-28" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>{item.label}</span>
+                        <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: 'rgba(0,0,0,0.04)' }}>
+                          <div className="h-full rounded-full transition-all" style={{ width: `${(item.score / 5) * 100}%`, background: item.score >= 4.8 ? '#10B981' : item.score >= 4.5 ? '#6366F1' : '#F59E0B' }} />
+                        </div>
+                        <span className="text-xs font-semibold w-8 text-right" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>{item.score}</span>
+                      </div>
+                    ))}
+                  </div>
+                </GlassCard>
+              </div>
+              {/* Top Revenue Sources */}
+              <GlassCard className="p-5">
+                <h3 className="font-semibold text-sm mb-4" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Top Revenue Sources by Hotel</h3>
+                <DataTable
+                  headers={['Hotel', 'Room Revenue', 'Restaurant', 'Services', 'Parking', 'Total']}
+                  rows={allHotels.map(h => {
+                    const total = h.revenueToday;
+                    return [
+                      <span key="n" className="text-xs font-medium" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>{h.name}</span>,
+                      <span key="rr" className="text-xs">{formatCurrency(total * 0.62, 'TZS')}</span>,
+                      <span key="rt" className="text-xs">{formatCurrency(total * 0.23, 'TZS')}</span>,
+                      <span key="rs" className="text-xs">{formatCurrency(total * 0.10, 'TZS')}</span>,
+                      <span key="rp" className="text-xs">{formatCurrency(total * 0.05, 'TZS')}</span>,
+                      <span key="tot" className="text-xs font-semibold" style={{ color: '#10B981' }}>{formatCurrency(total, 'TZS')}</span>,
+                    ];
+                  })}
+                />
+              </GlassCard>
+            </div>
+          )}
+
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {/* WEBSITE TAB                                                */}
+          {/* ═══════════════════════════════════════════════════════════ */}
+          {activeTab === 'website' && (
+            <div className="flex flex-col gap-5">
+              <h2 className="text-xl font-bold" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Website Builder</h2>
+              <GlassCard className="p-6">
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <h3 className="font-semibold text-base" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Public Website</h3>
+                    <p className="text-xs opacity-50 mt-1">Your hotel website is live at: <span className="font-medium" style={{ color: '#6366F1' }}>https://{(selectedHotel || allHotels[0]).subdomain}.kobe</span></p>
+                  </div>
+                  <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-white cursor-pointer transition-all hover:shadow-lg" style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}>
+                    <Eye size={16} /> Preview
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  <FormInput label="Hotel Name" defaultValue={(selectedHotel || allHotels[0]).name} />
+                  <FormInput label="Subdomain" defaultValue={(selectedHotel || allHotels[0]).subdomain} />
+                  <FormInput label="Phone" defaultValue={(selectedHotel || allHotels[0]).phone} />
+                  <FormInput label="Email" defaultValue={(selectedHotel || allHotels[0]).email} />
+                </div>
+                <div className="mb-4">
+                  <label className="text-xs font-medium opacity-60 mb-1.5 block">Address</label>
+                  <textarea
+                    defaultValue={(selectedHotel || allHotels[0]).address}
+                    className="w-full px-3 py-2.5 rounded-xl text-sm border outline-none focus:ring-2 resize-y min-h-[80px]"
+                    style={{ background: 'rgba(255,255,255,0.50)', borderColor: 'rgba(0,0,0,0.08)', color: 'var(--os-text-primary, #2D2B55)' }}
+                  />
+                </div>
+                <div className="flex flex-col gap-3 mb-6">
+                  <label className="flex items-center gap-2.5 text-xs cursor-pointer" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>
+                    <input type="checkbox" defaultChecked={(selectedHotel || allHotels[0]).settings.enableQROrdering} className="rounded" />
+                    Enable QR Ordering
+                  </label>
+                  <label className="flex items-center gap-2.5 text-xs cursor-pointer" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>
+                    <input type="checkbox" defaultChecked={(selectedHotel || allHotels[0]).settings.enableRoomService} className="rounded" />
+                    Enable Room Service
+                  </label>
+                </div>
+                <div className="flex gap-3">
+                  <button className="px-6 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer hover:bg-white/50" style={{ border: '1px solid rgba(0,0,0,0.08)', color: 'var(--os-text-primary, #2D2B55)' }}>Reset</button>
+                  <button className="px-6 py-2.5 rounded-xl text-sm font-medium text-white transition-all cursor-pointer hover:opacity-90" style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}>Save Changes</button>
+                </div>
+              </GlassCard>
+            </div>
+          )}
+        </main>
       </div>
     </div>
   );
 };
 
-// --- Sub-components ---
+// ── Sub-Components ──────────────────────────────────────────────────────────
 
-const StatCard: React.FC<{ title: string; value: string | number; icon: React.ReactNode; color: string; subtitle?: string; trend?: string }> = ({ title, value, icon, color, subtitle, trend }) => (
-  <div style={{ background: '#181818', border: '1px solid #222', borderRadius: '12px', padding: '20px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-      <span style={{ color: '#9CA3AF', fontSize: '13px', fontWeight: 500, textTransform: 'uppercase' }}>{title}</span>
-      <div style={{ width: '36px', height: '36px', borderRadius: '10px', background: `${color}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', color }}>{icon}</div>
-    </div>
-    <div style={{ fontSize: '28px', fontWeight: 700, color: '#FFFFFF' }}>{value}</div>
-    {subtitle && <div style={{ fontSize: '12px', color: '#6B7280' }}>{subtitle}</div>}
-    {trend && <div style={{ fontSize: '12px', color: '#4ADE80' }}>{trend}</div>}
+/** Glassmorphism card container */
+const GlassCard: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className = '' }) => (
+  <div
+    className={classNames("rounded-2xl border", className)}
+    style={{ background: 'rgba(255,255,255,0.30)', backdropFilter: 'blur(24px)', borderColor: 'rgba(255,255,255,0.40)' }}
+  >
+    {children}
   </div>
 );
 
-const QuickActionCard: React.FC<{ title: string; description: string; icon: React.ReactNode; color: string; onClick: () => void }> = ({ title, description, icon, color, onClick }) => (
-  <button
-    onClick={onClick}
-    style={{
-      background: '#181818',
-      border: '1px solid #222',
-      borderRadius: '12px',
-      padding: '24px',
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '12px',
-      cursor: 'pointer',
-      textAlign: 'left',
-      color: 'inherit',
-      transition: 'all 0.15s',
-    }}
-    onMouseEnter={e => { e.currentTarget.style.borderColor = color; e.currentTarget.style.background = '#1A1A1A'; }}
-    onMouseLeave={e => { e.currentTarget.style.borderColor = '#222'; e.currentTarget.style.background = '#181818'; }}
+/** KPI Card with colored accent */
+const KpiCard: React.FC<{
+  title: string; value: string | number; subtitle?: string;
+  icon: React.ReactNode; accent: string; trend?: 'up' | 'down' | 'neutral';
+}> = ({ title, value, subtitle, icon, accent, trend }) => (
+  <div
+    className="rounded-2xl p-4 flex flex-col gap-2 transition-all hover:shadow-lg border-t-4"
+    style={{ background: 'rgba(255,255,255,0.30)', backdropFilter: 'blur(24px)', borderColor: 'rgba(255,255,255,0.40)', borderTopColor: accent }}
   >
-    <div style={{ width: '44px', height: '44px', borderRadius: '10px', background: `${color}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', color }}>
-      {icon}
+    <div className="flex items-center justify-between">
+      <span className="text-[11px] font-semibold uppercase tracking-wider opacity-50">{title}</span>
+      <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: `${accent}15`, color: accent }}>{icon}</div>
     </div>
-    <div>
-      <div style={{ fontSize: '16px', fontWeight: 600, color: '#FFFFFF' }}>{title}</div>
-      <div style={{ fontSize: '13px', color: '#6B7280', marginTop: '4px' }}>{description}</div>
-    </div>
-  </button>
+    <div className="text-xl font-bold" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>{value}</div>
+    {subtitle && (
+      <div className="flex items-center gap-1">
+        {trend === 'up' && <ArrowUpRight size={12} style={{ color: '#10B981' }} />}
+        {trend === 'down' && <ArrowDownRight size={12} style={{ color: '#EF4444' }} />}
+        {trend === 'neutral' && <Minus size={12} className="opacity-30" />}
+        <span className="text-[11px] opacity-50">{subtitle}</span>
+      </div>
+    )}
+  </div>
 );
 
-const RoomCard: React.FC<{ room: Room; currency: string }> = ({ room, currency }) => {
-  const statusColors = getStatusColor(room.status);
-  return (
-    <div style={{ background: '#181818', border: '1px solid #222', borderRadius: '12px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div>
-          <div style={{ fontSize: '18px', fontWeight: 700, color: '#FFFFFF' }}>Room {room.number}</div>
-          <div style={{ fontSize: '13px', color: '#6B7280' }}>{room.type} · Floor {room.floor}</div>
-        </div>
-        <span style={{
-          padding: '4px 10px',
-          borderRadius: '6px',
-          fontSize: '12px',
-          fontWeight: 600,
-          background: statusColors.bg,
-          color: statusColors.text,
-          border: `1px solid ${statusColors.border}`,
-          textTransform: 'uppercase',
-        }}>
-          {room.status}
-        </span>
-      </div>
-      <div style={{ fontSize: '20px', fontWeight: 700, color: '#4ADE80' }}>{formatCurrency(room.pricePerNight, currency)}<span style={{ fontSize: '13px', color: '#6B7280', fontWeight: 400 }}>/night</span></div>
-      {room.currentGuest && (
-        <div style={{ padding: '10px', background: '#0F1115', borderRadius: '8px', border: '1px solid #222' }}>
-          <div style={{ fontSize: '12px', color: '#6B7280' }}>Current Guest</div>
-          <div style={{ fontSize: '14px', color: '#FFFFFF', fontWeight: 500 }}>{room.currentGuest.name}</div>
-          <div style={{ fontSize: '12px', color: '#9CA3AF' }}>Until {formatDate(room.currentGuest.checkOutDate)}</div>
-        </div>
-      )}
-      {room.qrCode && (
-        <div style={{ fontSize: '12px', color: '#60A5FA', display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <QrCode size={14} /> QR Code Active
-        </div>
-      )}
-    </div>
-  );
-};
+/** Mini stat for hotel cards */
+const MiniStat: React.FC<{ label: string; value: string | number }> = ({ label, value }) => (
+  <div className="text-center p-2.5 rounded-xl" style={{ background: 'rgba(255,255,255,0.20)' }}>
+    <div className="text-sm font-bold" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>{value}</div>
+    <div className="text-[10px] opacity-50 mt-0.5">{label}</div>
+  </div>
+);
 
+/** Status badge with dynamic colors */
 const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
   const colors = getStatusColor(status);
   return (
-    <span style={{
-      padding: '3px 10px',
-      borderRadius: '6px',
-      fontSize: '12px',
-      fontWeight: 600,
-      background: colors.bg,
-      color: colors.text,
-      border: `1px solid ${colors.border}`,
-      textTransform: 'uppercase',
-    }}>
-      {status.replace('-', ' ')}
+    <span
+      className="inline-flex items-center px-2.5 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wide"
+      style={{ background: colors.bg, color: colors.text, border: `1px solid ${colors.border}` }}
+    >
+      {status.replace(/[_-]/g, ' ')}
     </span>
   );
 };
 
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '10px 12px',
-  background: '#1A1A1A',
-  border: '1px solid #2C2C2C',
-  borderRadius: '8px',
-  color: '#FFFFFF',
-  fontSize: '14px',
-  marginTop: '6px',
-  outline: 'none',
+/** Room card with guest info */
+const RoomCard: React.FC<{ room: Room; currency: string }> = ({ room, currency }) => {
+  const colors = getStatusColor(room.status);
+  return (
+    <div
+      className="rounded-2xl p-4 flex flex-col gap-3 transition-all hover:shadow-lg border-l-4"
+      style={{ background: 'rgba(255,255,255,0.30)', backdropFilter: 'blur(16px)', borderColor: 'rgba(255,255,255,0.40)', borderLeftColor: colors.text }}
+    >
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="text-base font-bold" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Room {room.number}</div>
+          <div className="text-xs opacity-50">{room.type} &middot; Floor {room.floor}</div>
+        </div>
+        <StatusBadge status={room.status} />
+      </div>
+      <div className="text-lg font-bold" style={{ color: '#10B981' }}>
+        {formatCurrency(room.pricePerNight, currency)}<span className="text-xs font-normal opacity-50 ml-1">/night</span>
+      </div>
+      {room.currentGuest && (
+        <div className="p-3 rounded-xl" style={{ background: 'rgba(0,0,0,0.03)' }}>
+          <div className="text-[10px] opacity-50 uppercase tracking-wide">Current Guest</div>
+          <div className="text-xs font-semibold mt-0.5" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>{room.currentGuest.name}</div>
+          <div className="text-[11px] opacity-50">Until {formatDate(room.currentGuest.checkOutDate)}</div>
+        </div>
+      )}
+      {room.qrCode && (
+        <div className="flex items-center gap-1.5 text-xs" style={{ color: '#6366F1' }}>
+          <QrCode size={12} /> QR Code Active
+        </div>
+      )}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        {room.amenities.slice(0, 4).map(a => (
+          <span key={a} className="text-[9px] px-1.5 py-0.5 rounded-md font-medium" style={{ background: 'rgba(99,102,241,0.08)', color: '#6366F1' }}>{a}</span>
+        ))}
+      </div>
+    </div>
+  );
 };
+
+/** Data table with glass styling */
+const DataTable: React.FC<{ headers: string[]; rows: React.ReactNode[][] }> = ({ headers, rows }) => (
+  <div className="overflow-x-auto">
+    <table className="w-full text-sm">
+      <thead>
+        <tr style={{ borderBottom: '1px solid rgba(0,0,0,0.06)' }}>
+          {headers.map((h, i) => (
+            <th key={i} className="text-left px-3 py-2.5 text-[10px] font-semibold uppercase tracking-wider opacity-40">{h}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row, i) => (
+          <tr key={i} className="transition-all hover:bg-white/20" style={{ borderBottom: '1px solid rgba(0,0,0,0.03)' }}>
+            {row.map((cell, j) => (
+              <td key={j} className="px-3 py-2.5 whitespace-nowrap">{cell}</td>
+            ))}
+          </tr>
+        ))}
+        {rows.length === 0 && (
+          <tr>
+            <td colSpan={headers.length} className="text-center py-8 text-xs opacity-40">No data available</td>
+          </tr>
+        )}
+      </tbody>
+    </table>
+  </div>
+);
+
+/** Modal overlay */
+const Modal: React.FC<{ title: string; children: React.ReactNode; onClose: () => void }> = ({ title, children, onClose }) => (
+  <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="absolute inset-0 bg-black/20 backdrop-blur-sm" onClick={onClose} />
+    <div
+      className="relative w-full max-w-md rounded-2xl p-6 shadow-2xl border"
+      style={{ background: 'rgba(255,255,255,0.90)', backdropFilter: 'blur(32px)', borderColor: 'rgba(255,255,255,0.50)' }}
+    >
+      <div className="flex items-center justify-between mb-5">
+        <h3 className="font-bold text-base" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>{title}</h3>
+        <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-black/5 transition-all cursor-pointer"><X size={16} /></button>
+      </div>
+      {children}
+    </div>
+  </div>
+);
+
+/** Form input field */
+const FormInput: React.FC<{ label: string; type?: string; placeholder?: string; defaultValue?: string }> = ({ label, type = 'text', placeholder, defaultValue }) => (
+  <div className="flex flex-col gap-1.5">
+    <label className="text-xs font-medium opacity-60">{label}</label>
+    <input
+      type={type}
+      placeholder={placeholder}
+      defaultValue={defaultValue}
+      className="w-full px-3 py-2.5 rounded-xl text-sm border outline-none focus:ring-2 transition-all"
+      style={{ background: 'rgba(255,255,255,0.50)', borderColor: 'rgba(0,0,0,0.08)', color: 'var(--os-text-primary, #2D2B55)' }}
+    />
+  </div>
+);
 
 export default HotelAdminDashboard;
