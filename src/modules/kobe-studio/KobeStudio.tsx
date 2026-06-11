@@ -7,6 +7,16 @@ import {
   type StudioMediaJobRecord,
   type StudioMediaProjectRecord,
 } from '@/services/studioMediaApi';
+import { api } from '@/lib/api';
+
+interface VideoJobResponse {
+  id: string;
+  status: string;
+  progressPercent: number;
+  outputPath?: string | null;
+  outputUrl?: string | null;
+  errorMessage?: string | null;
+}
 
 type StudioSectionId = 'media-studios' | 'creator-marketplace' | 'football-analytics' | 'brand-studio';
 type StudioFormat = 'short-video' | 'ad-video' | 'creator-package' | 'product-video' | 'match-analysis';
@@ -83,6 +93,27 @@ export default function KobeStudio() {
         engine: savedProject.engine,
         request: { topic, format: selectedFormat, section: selectedSection },
       });
+
+      // Trigger the actual MoneyPrinterTurbo render via the video-generation
+      // endpoint. Job is async — backend polls upstream every 4 s and updates
+      // status. We don't await completion here; the job ledger handles that.
+      try {
+        const job = await api<VideoJobResponse>('/videos/generate', {
+          method: 'POST',
+          body: JSON.stringify({
+            title: savedProject.title,
+            topic,
+            aspect: selectedFormat === 'short-video' ? '9:16' : '16:9',
+            count: 1,
+            subtitlesEnabled: true,
+          }),
+        });
+        setVideoJob(job);
+      } catch (err) {
+        // No upstream available — keep the project record, surface the error.
+        setVideoJob({ id: '', status: 'failed', progressPercent: 0, errorMessage: (err as Error).message });
+      }
+
       await refresh();
     } catch {
       // Shared api() queues offline writes when possible.
@@ -90,6 +121,20 @@ export default function KobeStudio() {
       setSaving(false);
     }
   };
+
+  const [videoJob, setVideoJob] = useState<VideoJobResponse | null>(null);
+
+  // Poll the active video job until it reaches a terminal state.
+  useEffect(() => {
+    if (!videoJob?.id || videoJob.status === 'completed' || videoJob.status === 'failed') return;
+    const t = setInterval(async () => {
+      try {
+        const updated = await api<VideoJobResponse>(`/videos/jobs/${videoJob.id}`);
+        setVideoJob(updated);
+      } catch { /* ignore poll errors */ }
+    }, 3000);
+    return () => clearInterval(t);
+  }, [videoJob?.id, videoJob?.status]);
 
   return (
     <div className="h-full overflow-y-auto bg-slate-950 text-white">
@@ -117,7 +162,7 @@ export default function KobeStudio() {
 
       <div className="grid gap-6 px-6 pb-6 xl:grid-cols-[0.8fr_1.2fr]">
         <section className="rounded-2xl border border-white/10 bg-slate-900/70 p-5"><h2 className="text-xl font-semibold">Studio sections</h2><div className="mt-4 space-y-3">{studioSections.map((section) => <button key={section.id} onClick={() => setSelectedSection(section.id)} className={`w-full rounded-2xl border p-4 text-left transition ${selectedSection === section.id ? 'border-pink-400/60 bg-pink-500/10' : 'border-white/10 bg-white/[0.03] hover:bg-white/[0.06]'}`}><h3 className="font-semibold">{section.title}</h3><p className="mt-2 text-sm text-slate-400">{section.description}</p><p className="mt-3 rounded-xl border border-white/10 bg-slate-950 p-2 text-xs text-slate-300">Engine: {section.engine}</p></button>)}</div></section>
-        <section className="rounded-2xl border border-white/10 bg-slate-900/70 p-5"><h2 className="text-xl font-semibold">Media Studios</h2><p className="mt-1 text-sm text-slate-400">Create a persistent Studio Media project and queue a backend job record.</p><div className="mt-5 space-y-4"><div><label className="text-sm text-slate-400">Topic / prompt</label><textarea value={topic} onChange={(event) => setTopic(event.target.value)} rows={5} className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950 p-3 text-sm outline-none focus:border-pink-400/70" /></div><div><label className="text-sm text-slate-400">Format</label><div className="mt-2 grid gap-2 md:grid-cols-2">{(['short-video', 'ad-video', 'creator-package', 'product-video'] as const).map((format) => <button key={format} onClick={() => setSelectedFormat(format)} className={`rounded-xl border px-3 py-2 text-left text-sm capitalize ${selectedFormat === format ? 'border-pink-400/60 bg-pink-500/10 text-pink-100' : 'border-white/10 bg-white/[0.03] text-slate-300'}`}>{format.replace('-', ' ')}</button>)}</div></div><button onClick={createProject} disabled={saving} className="rounded-xl bg-pink-600 px-4 py-2 text-sm font-medium hover:bg-pink-500 disabled:opacity-60">{saving ? 'Saving...' : 'Save project + queue job'}</button><div className="rounded-2xl border border-white/10 bg-slate-950 p-4"><h3 className="font-semibold">Engine commands</h3><pre className="mt-3 overflow-x-auto rounded-xl bg-black/40 p-3 text-xs text-slate-200">npm run studio:media:clone{`\n`}npm run studio:media:docker</pre><p className="mt-3 text-xs text-slate-500">Open Web UI at http://localhost:8501 and API docs at http://localhost:8080/docs.</p></div></div></section>
+        <section className="rounded-2xl border border-white/10 bg-slate-900/70 p-5"><h2 className="text-xl font-semibold">Media Studios</h2><p className="mt-1 text-sm text-slate-400">Create a persistent Studio Media project and queue a backend job record.</p><div className="mt-5 space-y-4"><div><label className="text-sm text-slate-400">Topic / prompt</label><textarea value={topic} onChange={(event) => setTopic(event.target.value)} rows={5} className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950 p-3 text-sm outline-none focus:border-pink-400/70" /></div><div><label className="text-sm text-slate-400">Format</label><div className="mt-2 grid gap-2 md:grid-cols-2">{(['short-video', 'ad-video', 'creator-package', 'product-video'] as const).map((format) => <button key={format} onClick={() => setSelectedFormat(format)} className={`rounded-xl border px-3 py-2 text-left text-sm capitalize ${selectedFormat === format ? 'border-pink-400/60 bg-pink-500/10 text-pink-100' : 'border-white/10 bg-white/[0.03] text-slate-300'}`}>{format.replace('-', ' ')}</button>)}</div></div><button onClick={createProject} disabled={saving} className="rounded-xl bg-pink-600 px-4 py-2 text-sm font-medium hover:bg-pink-500 disabled:opacity-60">{saving ? 'Saving...' : 'Save project + render with MoneyPrinterTurbo'}</button>{videoJob && (<div className="rounded-2xl border border-white/10 bg-slate-950 p-4 text-sm"><div className="flex items-center justify-between mb-2"><span className="font-semibold">Render job {videoJob.id ? videoJob.id.slice(0, 8) : ''}</span><span className={`px-2 py-0.5 rounded-full text-xs ${videoJob.status === 'completed' ? 'bg-emerald-500/15 text-emerald-300' : videoJob.status === 'failed' ? 'bg-rose-500/15 text-rose-300' : 'bg-amber-500/15 text-amber-300'}`}>{videoJob.status}</span></div><div className="h-2 rounded-full bg-white/[0.05] overflow-hidden"><div className="h-full bg-pink-500 transition-all" style={{ width: `${videoJob.progressPercent ?? 0}%` }} /></div>{videoJob.errorMessage && <p className="mt-2 text-xs text-rose-300">{videoJob.errorMessage}</p>}{videoJob.outputUrl && (<a href={videoJob.outputUrl} target="_blank" rel="noopener noreferrer" className="mt-3 inline-block text-xs text-pink-300 underline">Open rendered video →</a>)}</div>)}<div className="rounded-2xl border border-white/10 bg-slate-950 p-4"><h3 className="font-semibold">Engine commands</h3><pre className="mt-3 overflow-x-auto rounded-xl bg-black/40 p-3 text-xs text-slate-200">npm run studio:media:clone{`\n`}npm run studio:media:docker</pre><p className="mt-3 text-xs text-slate-500">Open Web UI at http://localhost:8501 and API docs at http://localhost:8080/docs.</p></div></div></section>
       </div>
 
       <div className="grid gap-6 px-6 pb-6 xl:grid-cols-2">
