@@ -393,6 +393,10 @@ export function Desktop() {
       {/* OTA update banner — appears when the backend reports a new build hash */}
       <UpdateBanner />
 
+      {/* Electron shell update banner — appears when electron-updater finds
+          a new binary release on GitHub (signed, GPG-verified by main.cjs). */}
+      <ShellUpdateBanner />
+
       {/* Main content container */}
       <div className="relative z-10 h-full flex flex-col items-center overflow-y-auto scrollbar-hide">
         {/* ── Top Bar ── */}
@@ -835,6 +839,82 @@ function UpdateBanner() {
         className="text-emerald-200/70 hover:text-emerald-100 text-[14px] leading-none"
         title="Dismiss"
       >×</button>
+    </div>
+  );
+}
+
+/* ─────────────────────── Electron shell update banner ─────────────────────── */
+
+/**
+ * Subscribes to the `updater` IPC channel from electron/main.cjs (already
+ * wired in update-manager.cjs — autoUpdater.checkForUpdates runs on boot
+ * + every 4 hours). Surfaces the lifecycle states the renderer can act on:
+ *
+ *   available  → operator can click "Download"
+ *   progress   → show download %
+ *   verifying  → GPG signature check
+ *   downloaded → "Restart to install" button
+ *   error      → message + "Try again"
+ *
+ * The actual binary swap + relaunch is handled by electron-updater on
+ * Win/Mac and AppImage/Linux — the renderer just controls timing.
+ */
+type ShellUpdateState =
+  | { event: 'idle' }
+  | { event: 'checking' }
+  | { event: 'available'; version: string }
+  | { event: 'progress'; percent: number }
+  | { event: 'verifying'; version: string }
+  | { event: 'downloaded'; version: string }
+  | { event: 'error'; message: string };
+
+interface KobeOSUpdaterBridge {
+  download?: () => Promise<unknown>;
+  install?: () => Promise<unknown>;
+  onEvent?: (cb: (data: unknown) => void) => () => void;
+}
+
+function ShellUpdateBanner() {
+  const [state, setState] = useState<ShellUpdateState>({ event: 'idle' });
+
+  useEffect(() => {
+    const bridge = (window as unknown as { kobeOS?: { updater?: KobeOSUpdaterBridge } }).kobeOS?.updater;
+    if (!bridge?.onEvent) return; // running in a browser tab — no Electron shell
+    const off = bridge.onEvent((data) => {
+      setState(data as ShellUpdateState);
+    });
+    return () => { off?.(); };
+  }, []);
+
+  const bridge = (window as unknown as { kobeOS?: { updater?: KobeOSUpdaterBridge } }).kobeOS?.updater;
+  if (!bridge?.onEvent) return null;
+  if (state.event === 'idle' || state.event === 'checking' || state.event === 'not-available' as never) return null;
+
+  const onAction = () => {
+    if (state.event === 'available') bridge.download?.();
+    else if (state.event === 'downloaded') bridge.install?.();
+  };
+
+  const dismiss = () => setState({ event: 'idle' });
+
+  return (
+    <div className="absolute top-12 right-3 z-40 flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-500/20 backdrop-blur-md border border-indigo-400/40 text-indigo-100 text-xs font-semibold shadow-lg">
+      <span className="inline-block w-1.5 h-1.5 rounded-full bg-indigo-300 animate-pulse" />
+      {state.event === 'available' && <>Shell update {state.version}</>}
+      {state.event === 'progress' && <>Downloading {state.percent}%</>}
+      {state.event === 'verifying' && <>Verifying signature…</>}
+      {state.event === 'downloaded' && <>Installed — restart to apply</>}
+      {state.event === 'error' && <>Update error: {state.message.slice(0, 60)}</>}
+
+      {(state.event === 'available' || state.event === 'downloaded') && (
+        <button
+          onClick={onAction}
+          className="ml-1 px-2 py-0.5 rounded-full bg-indigo-300 text-indigo-900 text-[10px] hover:bg-indigo-200 transition-colors"
+        >
+          {state.event === 'available' ? 'Download' : 'Restart now'}
+        </button>
+      )}
+      <button onClick={dismiss} className="text-indigo-200/70 hover:text-indigo-100 text-[14px] leading-none" title="Dismiss">×</button>
     </div>
   );
 }
