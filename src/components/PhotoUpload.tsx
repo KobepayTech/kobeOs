@@ -79,7 +79,25 @@ export function PhotoUpload({
   return (
     <div className={className}>
       {label && <label className="text-xs text-white/60 block mb-1">{label}</label>}
-      <input ref={fileRef} type="file" accept="image/*" hidden onChange={onFileChange} />
+      {/* Off-screen, NOT hidden — some browsers refuse programmatic .click()
+          on display:none / hidden file inputs. sr-only keeps it focusable. */}
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        onChange={onFileChange}
+        style={{
+          position: 'absolute',
+          width: 1,
+          height: 1,
+          padding: 0,
+          margin: -1,
+          overflow: 'hidden',
+          clip: 'rect(0, 0, 0, 0)',
+          whiteSpace: 'nowrap',
+          border: 0,
+        }}
+      />
       {resolvedSrc ? (
         <div className={`relative ${aspectClass} bg-slate-900/40 border border-white/10 rounded overflow-hidden`}>
           <img src={resolvedSrc} alt="" className="w-full h-full object-cover" />
@@ -100,7 +118,21 @@ export function PhotoUpload({
         </div>
       ) : (
         <div
-          onClick={() => fileRef.current?.click()}
+          role="button"
+          tabIndex={0}
+          onClick={(e) => {
+            // Some parent containers (modals, drag handlers) call
+            // preventDefault on click. stopPropagation here keeps the
+            // file picker reliable regardless of the parent wrapping.
+            e.stopPropagation();
+            fileRef.current?.click();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              fileRef.current?.click();
+            }
+          }}
           onDragOver={(e) => {
             e.preventDefault();
             setDragOver(true);

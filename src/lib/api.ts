@@ -363,7 +363,12 @@ export async function uploadFile<T = unknown>(
   if (opts.extraFields) {
     for (const [k, v] of Object.entries(opts.extraFields)) form.append(k, v);
   }
-  return api<T>(path, { method: 'POST', body: form });
+  // Force-disable offline fallback for file uploads: FormData can't be
+  // serialised to the local queue (JSON.stringify(formData) → "{}"),
+  // so silently queuing would lose the file. Surface the real error to
+  // the caller — they can show a clear "backend offline" message
+  // instead of pretending the upload worked.
+  return api<T>(path, { method: 'POST', body: form, offlineFallback: false });
 }
 
 // ── Authenticated binary → object URL ────────────────────────────────────────
