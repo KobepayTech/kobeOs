@@ -390,6 +390,9 @@ export function Desktop() {
       {/* Trial countdown — shown only while a free trial is active */}
       <TrialBanner />
 
+      {/* OTA update banner — appears when the backend reports a new build hash */}
+      <UpdateBanner />
+
       {/* Main content container */}
       <div className="relative z-10 h-full flex flex-col items-center overflow-y-auto scrollbar-hide">
         {/* ── Top Bar ── */}
@@ -769,6 +772,69 @@ function TrialBanner() {
       >
         Upgrade
       </button>
+    </div>
+  );
+}
+
+/* ─────────────────────────── OTA update banner ─────────────────────────── */
+
+/**
+ * Polls /system/version every 5 minutes. When the backend reports a new
+ * buildHash (the deployed frontend bundle changed) OR a new startedAt
+ * (server was redeployed even if the bundle is identical), surface a
+ * "Update available — Reload" banner. Single click → location.reload(),
+ * the browser / Electron renderer fetches the new bundle on next boot
+ * without the user needing to reinstall anything.
+ */
+function UpdateBanner() {
+  const [available, setAvailable] = useState(false);
+  const baselineRef = useRef<{ buildHash: string; startedAt: string } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const POLL_MS = 5 * 60 * 1000;
+
+    const check = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/system/version`, { cache: 'no-store' });
+        if (!res.ok) return;
+        const body = await res.json() as { buildHash: string; startedAt: string };
+        if (cancelled) return;
+        if (!baselineRef.current) {
+          baselineRef.current = { buildHash: body.buildHash, startedAt: body.startedAt };
+          return;
+        }
+        if (
+          body.buildHash !== baselineRef.current.buildHash ||
+          body.startedAt !== baselineRef.current.startedAt
+        ) {
+          setAvailable(true);
+        }
+      } catch { /* offline — try again next tick */ }
+    };
+
+    check();
+    const t = setInterval(check, POLL_MS);
+    return () => { cancelled = true; clearInterval(t); };
+  }, []);
+
+  if (!available) return null;
+
+  return (
+    <div className="absolute top-3 right-3 z-40 flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/20 backdrop-blur-md border border-emerald-400/40 text-emerald-100 text-xs font-semibold shadow-lg">
+      <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse" />
+      Update available
+      <button
+        onClick={() => window.location.reload()}
+        className="ml-1 px-2 py-0.5 rounded-full bg-emerald-300 text-emerald-900 text-[10px] hover:bg-emerald-200 transition-colors"
+      >
+        Reload
+      </button>
+      <button
+        onClick={() => setAvailable(false)}
+        className="text-emerald-200/70 hover:text-emerald-100 text-[14px] leading-none"
+        title="Dismiss"
+      >×</button>
     </div>
   );
 }

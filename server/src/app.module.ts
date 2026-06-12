@@ -36,6 +36,7 @@ import { AiModule } from './ai/ai.module';
 import { OcrModule } from './ocr/ocr.module';
 import { TranslationModule } from './translation/translation.module';
 import { ImageEditModule } from './image-edit/image-edit.module';
+import { SystemModule } from './system/system.module';
 import { CompaniesModule } from './companies/companies.module';
 import { SubscriptionsModule } from './subscriptions/subscriptions.module';
 import { StoreSettingsModule } from './store-settings/store-settings.module';
@@ -84,6 +85,7 @@ import { SocialSchedulerModule } from './social-scheduler/social-scheduler.modul
     OcrModule,
     TranslationModule,
     ImageEditModule,
+    SystemModule,
     AuthModule,
     UsersModule,
     NotesModule,
