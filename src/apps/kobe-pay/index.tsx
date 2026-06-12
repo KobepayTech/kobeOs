@@ -24,6 +24,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { QRCodeSVG } from 'qrcode.react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { SendMoneyWizard, type ContactOption } from './SendMoneyWizard';
 
 type Role = 'Admin' | 'Cashier TZ' | 'Cashier China';
 type Module = 'dashboard' | 'owner' | 'customers' | 'deposits' | 'payouts' | 'suppliers' | 'allocations' | 'receipts' | 'users' | 'cashierPerf' | 'risk' | 'audit' | 'rates' | 'settings';
@@ -486,6 +487,7 @@ export default function KobePay() {
   const supplierTotal = useMemo(() => supplierLines.reduce((s, l) => s + (parseFloat(l.amount) || 0), 0), [supplierLines]);
 
   // Payout form state
+  const [sendOpen, setSendOpen] = useState(false);
   const [payoutSupplier, setPayoutSupplier] = useState('');
   const [payoutAmount, setPayoutAmount] = useState('');
   const [payoutCurrency, setPayoutCurrency] = useState('CNY');
@@ -747,6 +749,23 @@ export default function KobePay() {
   const [taxRate, setTaxRate] = useState('0');
 
   const totalWallet = useMemo(() => deposits.filter(d => d.status === 'Confirmed').reduce((s, d) => s + d.amount, 0), [deposits]);
+
+  const sendMoneyContacts = useMemo<ContactOption[]>(() => [
+    ...suppliers.map((s) => ({
+      id: s.id,
+      kind: 'supplier' as const,
+      name: s.name,
+      subtitle: s.phone || s.country || 'supplier',
+      avatarHue: 'linear-gradient(135deg, #6366f1, #8b5cf6)',
+    })),
+    ...customers.map((c) => ({
+      id: c.id,
+      kind: 'customer' as const,
+      name: c.name,
+      subtitle: c.phone || c.email,
+      avatarHue: 'linear-gradient(135deg, #f59e0b, #f97316)',
+    })),
+  ], [suppliers, customers]);
   const unassigned = useMemo(() => totalWallet - allocations.reduce((s, a) => s + a.amount, 0), [totalWallet, allocations]);
   const allocated = useMemo(() => allocations.reduce((s, a) => s + a.amount, 0), [allocations]);
   const pendingPayouts = useMemo(() => payouts.filter(p => p.status === 'INITIATED' || p.status === 'SENT').reduce((s, p) => s + p.amount, 0), [payouts]);
@@ -1216,6 +1235,7 @@ ${cashLine}${usdLine}
       </div>
       <div className="flex gap-3">
         {role !== 'Cashier China' && <Button onClick={() => setModule('deposits')} className="bg-cyan-600 hover:bg-cyan-700 text-white"><Plus className="w-4 h-4 mr-2" />New Deposit</Button>}
+        {role !== 'Cashier China' && <Button onClick={() => setSendOpen(true)} className="bg-lime-500 hover:bg-lime-600 text-white"><Send className="w-4 h-4 mr-2" />Send Money</Button>}
         <Button onClick={() => setModule('customers')} variant="outline" className="border-white/10 text-white hover:bg-white/5"><Search className="w-4 h-4 mr-2" />Search Customer</Button>
         {role !== 'Cashier China' && <Button onClick={() => setModule('payouts')} variant="outline" className="border-white/10 text-white hover:bg-white/5"><Send className="w-4 h-4 mr-2" />Initiate Payout</Button>}
       </div>
@@ -2592,6 +2612,15 @@ ${cashLine}${usdLine}
           {renderModule()}
         </div>
       </div>
+
+      {/* Send-Money wizard (mounted at root so it overlays the whole app) */}
+      <SendMoneyWizard
+        open={sendOpen}
+        onClose={() => setSendOpen(false)}
+        onSent={() => { void reloadAll(); }}
+        availableBalance={totalWallet}
+        contacts={sendMoneyContacts}
+      />
     </div>
   );
 }
