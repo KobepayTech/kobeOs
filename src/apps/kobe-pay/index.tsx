@@ -489,6 +489,7 @@ export default function KobePay() {
   // Payout form state
   const [sendOpen, setSendOpen] = useState(false);
   const [customerSaveError, setCustomerSaveError] = useState<string | null>(null);
+  const [transactIntent, setTransactIntent] = useState<'send' | 'receive'>('send');
   const [payoutSupplier, setPayoutSupplier] = useState('');
   const [payoutAmount, setPayoutAmount] = useState('');
   const [payoutCurrency, setPayoutCurrency] = useState('CNY');
@@ -1243,7 +1244,8 @@ ${cashLine}${usdLine}
       </div>
       <div className="flex gap-3">
         {role !== 'Cashier China' && <Button onClick={() => setModule('deposits')} className="bg-cyan-600 hover:bg-cyan-700 text-white"><Plus className="w-4 h-4 mr-2" />New Deposit</Button>}
-        {role !== 'Cashier China' && <Button onClick={() => setSendOpen(true)} className="bg-lime-500 hover:bg-lime-600 text-white"><Send className="w-4 h-4 mr-2" />Send Money</Button>}
+        {role !== 'Cashier China' && <Button onClick={() => { setTransactIntent('send'); setSendOpen(true); }} className="bg-lime-500 hover:bg-lime-600 text-white"><Send className="w-4 h-4 mr-2" />Send Money</Button>}
+        {role !== 'Cashier China' && <Button onClick={() => { setTransactIntent('receive'); setSendOpen(true); }} variant="outline" className="border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"><Download className="w-4 h-4 mr-2" />Receive (Scan)</Button>}
         <Button onClick={() => setModule('customers')} variant="outline" className="border-white/10 text-white hover:bg-white/5"><Search className="w-4 h-4 mr-2" />Search Customer</Button>
         {role !== 'Cashier China' && <Button onClick={() => setModule('payouts')} variant="outline" className="border-white/10 text-white hover:bg-white/5"><Send className="w-4 h-4 mr-2" />Initiate Payout</Button>}
       </div>
@@ -2633,6 +2635,7 @@ ${cashLine}${usdLine}
         onSent={() => { void reloadAll(); }}
         availableBalance={totalWallet}
         contacts={sendMoneyContacts}
+        intent={transactIntent}
       />
     </div>
   );
