@@ -488,6 +488,7 @@ export default function KobePay() {
 
   // Payout form state
   const [sendOpen, setSendOpen] = useState(false);
+  const [customerSaveError, setCustomerSaveError] = useState<string | null>(null);
   const [payoutSupplier, setPayoutSupplier] = useState('');
   const [payoutAmount, setPayoutAmount] = useState('');
   const [payoutCurrency, setPayoutCurrency] = useState('CNY');
@@ -814,7 +815,14 @@ export default function KobePay() {
       };
       setCustomers([c, ...customers]);
       setSearchedCustomer(c);
-    } catch { /* keep dialog open on failure */ return; }
+    } catch (err) {
+      // Surface the real reason — silent failure is what made customers
+      // appear to "never save" on a misconfigured backend.
+      const msg = (err as Error).message || 'Unable to save customer.';
+      setCustomerSaveError(msg);
+      setTimeout(() => setCustomerSaveError(null), 6000);
+      return;
+    }
     setShowNewCustomer(false);
     setNewCustomerName(''); setNewCustomerEmail(''); setNewCustomerId(''); setNewCustomerCompany(''); setNewCustomerNotes('');
     setNewCustomerErpUrl(''); setNewCustomerErpKey(''); setNewCustomerErpAccountId('');
@@ -1309,6 +1317,11 @@ ${cashLine}${usdLine}
           {showNewCustomer && (
             <div className="mt-4 p-4 rounded-xl bg-[#0a0a1a] border border-amber-500/20">
               <div className="flex items-center gap-2 mb-4"><AlertTriangle className="w-5 h-5 text-amber-400" /><h4 className="text-white font-semibold">New Customer Registration</h4><Badge variant="outline" className="bg-amber-500/15 text-amber-400 border-amber-500/20">First Time</Badge></div>
+              {customerSaveError && (
+                <div className="mb-3 px-3 py-2 rounded-lg border border-rose-500/40 bg-rose-500/10 text-rose-200 text-xs">
+                  {customerSaveError}
+                </div>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div><label className="text-xs text-slate-400 mb-1 block">Full Name *</label><Input placeholder="Enter full name" value={newCustomerName} onChange={e => setNewCustomerName(e.target.value)} className="bg-[#0a0a1a] border-white/[0.08] text-white placeholder:text-slate-600" /></div>
                 <div><label className="text-xs text-slate-400 mb-1 block">Phone Number *</label><Input value={newCustomerPhone} readOnly className="bg-[#0a0a1a] border-white/[0.08] text-white opacity-60" /></div>

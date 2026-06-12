@@ -205,6 +205,20 @@ export class OfflineError extends Error {
   }
 }
 
+/**
+ * Thrown when a write call fell through to the local offline queue
+ * because the backend was unreachable. The write IS saved locally (and
+ * will sync later) but the caller should know about it so the UI can
+ * decide whether to optimistically render or surface a "backend offline,
+ * queued for sync" notice.
+ */
+export class OfflineWriteQueuedError extends Error {
+  readonly queued = true;
+  constructor(public readonly path: string) {
+    super(`Backend unreachable — ${path} write queued locally and will sync when reconnected`);
+  }
+}
+
 // ── Token refresh ─────────────────────────────────────────────────────────────
 
 let refreshInFlight: Promise<boolean> | null = null;
@@ -327,7 +341,12 @@ export async function api<T = unknown>(
     const bodyStr = typeof rest.body === 'string' ? rest.body : JSON.stringify(rest.body ?? {});
     const token = auth ? getToken() : null;
     await offlineWrite(path, method, safeJson(bodyStr) ?? {}, token ? `Bearer ${token}` : null);
-    return { _offline: true, _queued: true } as unknown as T;
+    // The legacy `{ _offline: true, _queued: true }` return looked like a
+    // success to callers and crashed any code that tried to read fields
+    // off the response. Throw a recognisable error instead so handlers
+    // can decide what to do — show a toast, surface inline, etc. The
+    // local queue still has the write; nothing is lost.
+    throw new OfflineWriteQueuedError(path);
   }
 }
 
