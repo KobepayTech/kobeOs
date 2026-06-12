@@ -28,6 +28,7 @@ import {
   CheckSquare,
 } from 'lucide-react';
 import { useOSStore } from './store';
+import { API_BASE } from '@/lib/api';
 import { ContextMenu } from './ContextMenu';
 import { WindowManager } from './WindowManager';
 import { Taskbar } from './Taskbar';
@@ -238,12 +239,33 @@ const appShortcuts = [
 /*  Desktop component                                                  */
 /* ------------------------------------------------------------------ */
 export function Desktop() {
-  const { launchApp, showContextMenu, hideContextMenu, contextMenu, setApps, refreshLicense } = useOSStore();
+  const { launchApp, showContextMenu, hideContextMenu, contextMenu, setApps, refreshLicense, activateLicense } = useOSStore();
 
   // Register all apps and verify the stored license token on first mount.
+  // If no license is stored and the user is signed in, auto-claim the free
+  // 7-day trial — operator gets a working OS immediately, the paywall only
+  // shows once the trial expires.
   useEffect(() => {
     setApps(appRegistry);
-    refreshLicense();
+    (async () => {
+      await refreshLicense();
+      const status = useOSStore.getState().licenseStatus;
+      if (status === 'none') {
+        try {
+          const token = localStorage.getItem('access_token');
+          if (!token) return; // not signed in — paywall handles it later
+          const res = await fetch(`${API_BASE}/license/start-trial`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!res.ok) return;
+          const body = await res.json() as { token?: string; status?: string };
+          if (body.status === 'active' && body.token) {
+            await activateLicense(body.token);
+          }
+        } catch { /* offline / network — paywall will kick in when needed */ }
+      }
+    })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [searchQuery, setSearchQuery] = useState('');
@@ -364,6 +386,9 @@ export function Desktop() {
       onContextMenu={handleBgRightClick}
     >
       <BokehBackground />
+
+      {/* Trial countdown — shown only while a free trial is active */}
+      <TrialBanner />
 
       {/* Main content container */}
       <div className="relative z-10 h-full flex flex-col items-center overflow-y-auto scrollbar-hide">
@@ -718,6 +743,32 @@ export function Desktop() {
           onClose={hideContextMenu}
         />
       )}
+    </div>
+  );
+}
+
+/* ─────────────────────────── Trial countdown banner ─────────────────────────── */
+
+function TrialBanner() {
+  const licenseStatus = useOSStore((s) => s.licenseStatus);
+  const licensePayload = useOSStore((s) => s.licensePayload);
+  const launchApp = useOSStore((s) => s.launchApp);
+
+  if (licenseStatus !== 'valid' || licensePayload?.plan !== 'trial' || !licensePayload?.expiresAt) return null;
+  const msRemaining = licensePayload.expiresAt - Date.now();
+  if (msRemaining <= 0) return null;
+  const daysRemaining = Math.ceil(msRemaining / 86_400_000);
+
+  return (
+    <div className="absolute top-3 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/20 backdrop-blur-md border border-amber-400/40 text-amber-100 text-xs font-semibold shadow-lg">
+      <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-300 animate-pulse" />
+      Free trial · {daysRemaining} day{daysRemaining === 1 ? '' : 's'} left
+      <button
+        onClick={() => launchApp('settings')}
+        className="ml-1 px-2 py-0.5 rounded-full bg-amber-300 text-amber-900 text-[10px] hover:bg-amber-200 transition-colors"
+      >
+        Upgrade
+      </button>
     </div>
   );
 }

@@ -42,6 +42,14 @@ function buildToken(payload: LicensePayload, secret: string): string {
 // ---------------------------------------------------------------------------
 
 const LICENSE_DURATION_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const TRIAL_DURATION_MS   =  7 * 24 * 60 * 60 * 1000; //  7 days (free)
+
+/**
+ * Sentinel transaction id used by the free-trial path. We don't talk to
+ * PalmPesa for trials, so there's nothing to lookup — this prefix lets
+ * the rest of the system recognise trial rows without an extra column.
+ */
+const TRIAL_TX_PREFIX = 'trial-';
 
 @Injectable()
 export class LicenseService {
@@ -59,6 +67,63 @@ export class LicenseService {
       'LICENSE_HMAC_SECRET',
       'kobe-license-secret-change-in-prod',
     );
+  }
+
+  // ── Free 7-day trial ──────────────────────────────────────────────────────
+
+  /**
+   * Issue a free 7-day trial license to a user. Idempotent — if a trial
+   * row already exists for this user we return its status (active token
+   * if still valid, "expired" otherwise) so the client never gets two
+   * trials. After the trial expires the user is forced through the paid
+   * `initiate` flow to keep using KobeOS.
+   */
+  async startTrial(userId: string): Promise<{ token: string; expiresAt: number; status: 'active' | 'expired'; daysRemaining: number }> {
+    // Reuse the existing trial row if there is one.
+    const existing = await this.repo.findOne({
+      where: { userId, transactionId: TRIAL_TX_PREFIX + userId },
+    });
+
+    if (existing) {
+      const expiresAtMs = existing.expiresAt?.getTime() ?? 0;
+      const stillValid = expiresAtMs > Date.now() && existing.status === 'active' && existing.licenseToken;
+      if (stillValid) {
+        return {
+          token: existing.licenseToken!,
+          expiresAt: expiresAtMs,
+          status: 'active',
+          daysRemaining: Math.max(0, Math.ceil((expiresAtMs - Date.now()) / 86_400_000)),
+        };
+      }
+      // Mark expired so the client can render the paywall and offer paid upgrade.
+      if (existing.status !== 'expired') {
+        existing.status = 'expired';
+        await this.repo.save(existing);
+      }
+      return { token: '', expiresAt: expiresAtMs, status: 'expired', daysRemaining: 0 };
+    }
+
+    // First-time trial — issue immediately, no PalmPesa round-trip.
+    const issuedAt = Date.now();
+    const expiresAt = new Date(issuedAt + TRIAL_DURATION_MS);
+    const token = buildToken(
+      { userId, plan: 'trial', issuedAt, expiresAt: expiresAt.getTime() },
+      this.hmacSecret,
+    );
+
+    const license = this.repo.create({
+      userId,
+      plan: 'trial',
+      amountTzs: 0,
+      transactionId: TRIAL_TX_PREFIX + userId,
+      status: 'active',
+      licenseToken: token,
+      expiresAt,
+    });
+    await this.repo.save(license);
+
+    this.logger.log(`Free trial started for user ${userId} (expires ${expiresAt.toISOString()})`);
+    return { token, expiresAt: expiresAt.getTime(), status: 'active', daysRemaining: 7 };
   }
 
   // ── Initiate payment ──────────────────────────────────────────────────────

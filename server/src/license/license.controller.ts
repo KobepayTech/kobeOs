@@ -49,6 +49,18 @@ export class LicenseController {
   }
 
   /**
+   * Issue a free 7-day trial license (idempotent — one trial per user).
+   * Called automatically on first OS boot after signup; subsequent calls
+   * return either the same active trial or {status:'expired'} so the
+   * client can show the paywall and route the user into /initiate.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Post('start-trial')
+  startTrial(@Request() req: { user: { id: string } }) {
+    return this.svc.startTrial(req.user.id);
+  }
+
+  /**
    * Renew the current plan — initiates a new USSD push for the same tier.
    */
   @UseGuards(JwtAuthGuard)
