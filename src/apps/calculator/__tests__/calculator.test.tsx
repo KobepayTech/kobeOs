@@ -123,7 +123,7 @@ describe('Calculator', () => {
     expect(getDisplay()).toBe('Error');
   });
 
-  // ── Clear ─────────────────────────────────────────────────────────────────
+  // ── Clear ───────────────────────────────────────────────────────────[...]
 
   it('C resets display to 0', () => {
     clickBtn('9');
@@ -141,7 +141,7 @@ describe('Calculator', () => {
     expect(getDisplay()).toBe('0');
   });
 
-  // ── Backspace ─────────────────────────────────────────────────────────────
+  // ── Backspace ───────────────────────────────────────────────────────────[...]
 
   it('del removes the last digit', () => {
     clickBtn('1');
@@ -157,7 +157,7 @@ describe('Calculator', () => {
     expect(getDisplay()).toBe('0');
   });
 
-  // ── Negation ──────────────────────────────────────────────────────────────
+  // ── Negation ──────────────────────────────────────────────────────────[...]
 
   it('± negates the current value', () => {
     clickBtn('5');
