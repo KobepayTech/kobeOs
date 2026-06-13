@@ -169,10 +169,10 @@ export default function CargoPaymentWorkflow({
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="bg-[#13131f] border-white/[0.06] text-white max-w-xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="bg-white/[0.85] backdrop-blur-xl border-white/[0.40] text-slate-700 max-w-xl max-h-[90vh] overflow-y-auto rounded-2xl shadow-lg">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Receipt className="w-4 h-4 text-yellow-400" />
+          <DialogTitle className="flex items-center gap-2 text-slate-700">
+            <Receipt className="w-4 h-4 text-blue-500" />
             {step === 'form' && 'Record Payment'}
             {step === 'confirm' && 'Confirm Payment'}
             {step === 'receipts' && 'Payment Recorded'}
@@ -189,7 +189,7 @@ export default function CargoPaymentWorkflow({
                     size="sm"
                     variant={subjectKind === k ? 'default' : 'outline'}
                     onClick={() => setSubjectKind(k)}
-                    className={subjectKind === k ? 'bg-yellow-600 hover:bg-yellow-700 capitalize' : 'border-white/10 capitalize'}
+                    className={subjectKind === k ? 'bg-blue-500 hover:bg-blue-600 capitalize' : 'border-slate-300 text-slate-600 capitalize hover:bg-slate-50'}
                   >
                     {k}
                   </Button>
@@ -199,8 +199,8 @@ export default function CargoPaymentWorkflow({
                 value={subjectId}
                 onValueChange={(v) => (subjectKind === 'parcel' ? setParcelId(v) : setShipmentId(v))}
               >
-                <SelectTrigger className="bg-[#0a0a1a] border-white/10">
-                  <SelectValue placeholder={`Select a ${subjectKind}…`} />
+                <SelectTrigger className="bg-white/50 border-white/[0.40] rounded-xl text-slate-700 text-xs h-9">
+                  <SelectValue placeholder={`Select a ${subjectKind}...`} />
                 </SelectTrigger>
                 <SelectContent>
                   {subjectKind === 'parcel'
@@ -230,7 +230,7 @@ export default function CargoPaymentWorkflow({
 
             <Section title="Payment">
               <div>
-                <label className="text-[10px] uppercase tracking-wider text-gray-500 block mb-1.5">Purpose</label>
+                <label className="text-[10px] uppercase tracking-wider text-slate-400 block mb-1.5">Purpose</label>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {PURPOSES.map(p => (
                     <Button
@@ -238,7 +238,7 @@ export default function CargoPaymentWorkflow({
                       size="sm"
                       variant={purpose === p.value ? 'default' : 'outline'}
                       onClick={() => setPurpose(p.value)}
-                      className={purpose === p.value ? 'bg-yellow-600 hover:bg-yellow-700 text-xs h-9' : 'border-white/10 text-xs h-9'}
+                      className={purpose === p.value ? 'bg-blue-500 hover:bg-blue-600 text-white text-xs h-9' : 'border-slate-300 text-slate-600 text-xs h-9 hover:bg-slate-50'}
                     >
                       {p.label}
                     </Button>
@@ -247,31 +247,31 @@ export default function CargoPaymentWorkflow({
               </div>
               <div className="grid grid-cols-3 gap-2">
                 <div className="col-span-2">
-                  <label className="text-[10px] uppercase tracking-wider text-gray-500 block mb-1.5">Amount *</label>
+                  <label className="text-[10px] uppercase tracking-wider text-slate-400 block mb-1.5">Amount *</label>
                   <Input
                     type="number"
                     min="0"
                     step="0.01"
                     value={amount}
                     onChange={e => setAmount(e.target.value)}
-                    className="bg-[#0a0a1a] border-white/10 text-white placeholder:text-gray-600"
+                    className="bg-white/50 border-white/[0.40] rounded-xl text-slate-700 text-xs h-9 placeholder:text-slate-400"
                     placeholder="100000"
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] uppercase tracking-wider text-gray-500 block mb-1.5">Currency</label>
+                  <label className="text-[10px] uppercase tracking-wider text-slate-400 block mb-1.5">Currency</label>
                   <Input
                     value={currency}
                     onChange={e => setCurrency(e.target.value.toUpperCase())}
                     maxLength={8}
-                    className="bg-[#0a0a1a] border-white/10 text-white"
+                    className="bg-white/50 border-white/[0.40] rounded-xl text-slate-700 text-xs h-9"
                   />
                 </div>
               </div>
               <div>
-                <label className="text-[10px] uppercase tracking-wider text-gray-500 block mb-1.5">Method</label>
+                <label className="text-[10px] uppercase tracking-wider text-slate-400 block mb-1.5">Method</label>
                 <Select value={method} onValueChange={(v) => setMethod(v as Method)}>
-                  <SelectTrigger className="bg-[#0a0a1a] border-white/10"><SelectValue /></SelectTrigger>
+                  <SelectTrigger className="bg-white/50 border-white/[0.40] rounded-xl text-slate-700 text-xs h-9"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     {METHODS.map(m => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
                   </SelectContent>
@@ -286,10 +286,10 @@ export default function CargoPaymentWorkflow({
         {step === 'confirm' && (
           <div className="space-y-3">
             <div className="flex flex-col items-center text-center py-2">
-              <AlertTriangle className="w-9 h-9 text-amber-400 mb-2" />
-              <p className="text-sm text-gray-400">Review before confirming — receipts will be generated.</p>
+              <AlertTriangle className="w-9 h-9 text-amber-500 mb-2" />
+              <p className="text-sm text-slate-500">Review before confirming — receipts will be generated.</p>
             </div>
-            <div className="border border-white/[0.06] rounded-lg divide-y divide-white/[0.06]">
+            <div className="border border-white/[0.40] rounded-xl divide-y divide-white/[0.30] bg-white/30 backdrop-blur-lg">
               <Row label="Subject" value={`${subjectKind[0].toUpperCase()}${subjectKind.slice(1)} ${subjectId.slice(0, 8)}`} />
               <Row label="Customer" value={`${customerName}${customerPhone ? ` · ${customerPhone}` : ''}`} />
               {(supplierNumber || supplierName) && (
@@ -301,16 +301,16 @@ export default function CargoPaymentWorkflow({
               {reference && <Row label="Reference" value={reference} />}
               {notes && <Row label="Notes" value={notes} />}
             </div>
-            {error && <p className="text-xs text-red-400">{error}</p>}
+            {error && <p className="text-xs text-red-500">{error}</p>}
           </div>
         )}
 
         {step === 'receipts' && saved && (
           <div className="space-y-4">
             <div className="text-center py-2">
-              <CheckCircle2 className="w-10 h-10 text-emerald-400 mx-auto mb-2" />
-              <h3 className="font-semibold">Payment recorded</h3>
-              <p className="text-xs text-gray-500 mt-1">
+              <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
+              <h3 className="font-semibold text-slate-700">Payment recorded</h3>
+              <p className="text-xs text-slate-400 mt-1">
                 {Number(saved.amount).toLocaleString()} {saved.currency} · {saved.id.slice(0, 8).toUpperCase()}
               </p>
             </div>
@@ -326,14 +326,14 @@ export default function CargoPaymentWorkflow({
           </div>
         )}
 
-        <div className="flex items-center justify-between pt-3 border-t border-white/[0.06]">
+        <div className="flex items-center justify-between pt-3 border-t border-white/[0.40]">
           {step === 'form' && (
             <>
-              <Button variant="outline" onClick={onClose} className="border-white/10">Cancel</Button>
+              <Button variant="outline" onClick={onClose} className="border-slate-300 text-slate-600 hover:bg-slate-50 rounded-xl">Cancel</Button>
               <Button
                 onClick={() => setStep('confirm')}
                 disabled={!canReview}
-                className="bg-yellow-600 hover:bg-yellow-700"
+                className="bg-blue-500 hover:bg-blue-600 text-white rounded-xl"
               >
                 Review <ChevronRight className="w-4 h-4 ml-1" />
               </Button>
@@ -341,16 +341,16 @@ export default function CargoPaymentWorkflow({
           )}
           {step === 'confirm' && (
             <>
-              <Button variant="outline" onClick={() => setStep('form')} className="border-white/10" disabled={submitting}>Back</Button>
-              <Button onClick={submit} disabled={submitting} className="bg-emerald-600 hover:bg-emerald-700">
-                {submitting ? 'Saving…' : <><CheckCircle2 className="w-4 h-4 mr-1" /> Confirm & Generate</>}
+              <Button variant="outline" onClick={() => setStep('form')} className="border-slate-300 text-slate-600 hover:bg-slate-50 rounded-xl" disabled={submitting}>Back</Button>
+              <Button onClick={submit} disabled={submitting} className="bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl">
+                {submitting ? 'Saving...' : <><CheckCircle2 className="w-4 h-4 mr-1" /> Confirm & Generate</>}
               </Button>
             </>
           )}
           {step === 'receipts' && (
             <>
-              <Button variant="outline" onClick={onClose} className="border-white/10">Done</Button>
-              <Button onClick={openPrintAll} className="bg-yellow-600 hover:bg-yellow-700">
+              <Button variant="outline" onClick={onClose} className="border-slate-300 text-slate-600 hover:bg-slate-50 rounded-xl">Done</Button>
+              <Button onClick={openPrintAll} className="bg-blue-500 hover:bg-blue-600 text-white rounded-xl">
                 <Printer className="w-4 h-4 mr-1" /> Print All
               </Button>
             </>
@@ -363,8 +363,8 @@ export default function CargoPaymentWorkflow({
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="border border-white/[0.06] rounded-lg p-3 space-y-2 bg-[#0c0c18]">
-      <h4 className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold">{title}</h4>
+    <div className="border border-white/[0.40] rounded-xl p-3 space-y-2 bg-white/30 backdrop-blur-lg">
+      <h4 className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">{title}</h4>
       {children}
     </div>
   );
@@ -375,13 +375,13 @@ function LabeledInput({
 }: { label: string; value: string; onChange: (v: string) => void; icon?: React.ReactNode }) {
   return (
     <div>
-      <label className="text-[10px] uppercase tracking-wider text-gray-500 flex items-center gap-1.5 mb-1.5">
+      <label className="text-[10px] uppercase tracking-wider text-slate-400 flex items-center gap-1.5 mb-1.5">
         {icon}{label}
       </label>
       <Input
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="bg-[#0a0a1a] border-white/10 text-white placeholder:text-gray-600"
+        className="bg-white/50 border-white/[0.40] rounded-xl text-slate-700 text-xs h-9 placeholder:text-slate-400"
       />
     </div>
   );
@@ -390,8 +390,8 @@ function LabeledInput({
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between px-3 py-2 text-xs">
-      <span className="text-gray-500">{label}</span>
-      <span className="text-white font-medium text-right max-w-[60%] truncate">{value}</span>
+      <span className="text-slate-500">{label}</span>
+      <span className="text-slate-700 font-medium text-right max-w-[60%] truncate">{value}</span>
     </div>
   );
 }
@@ -404,10 +404,10 @@ function ReceiptPreview({ label, payment }: { label: string; payment: CargoPayme
     catch { /* clipboard unavailable */ }
   };
   return (
-    <div className="bg-white text-gray-900 rounded-lg p-3 font-mono text-[11px]">
+    <div className="bg-white text-slate-900 rounded-xl p-3 font-mono text-[11px] shadow-sm border border-slate-200">
       <div className="flex items-center justify-between mb-2">
         <span className="font-bold uppercase tracking-wide">{label}</span>
-        <span className="text-[10px] text-gray-500">{payment.id.slice(0, 8).toUpperCase()}</span>
+        <span className="text-[10px] text-slate-500">{payment.id.slice(0, 8).toUpperCase()}</span>
       </div>
       <div className="space-y-0.5">
         <Line k="Customer" v={payment.customerName} />
@@ -420,7 +420,7 @@ function ReceiptPreview({ label, payment }: { label: string; payment: CargoPayme
         <Button
           size="sm"
           onClick={() => window.open(`/print/cargo-receipt?id=${encodeURIComponent(payment.id)}`, '_blank', 'noopener')}
-          className="flex-1 h-7 text-[11px] bg-gray-900 hover:bg-black text-white"
+          className="flex-1 h-7 text-[11px] bg-slate-800 hover:bg-slate-900 text-white rounded-lg"
         >
           <Printer className="w-3 h-3 mr-1" /> Print
         </Button>
@@ -428,7 +428,7 @@ function ReceiptPreview({ label, payment }: { label: string; payment: CargoPayme
           size="sm"
           variant="outline"
           onClick={onCopy}
-          className="flex-1 h-7 text-[11px] border-gray-200 text-gray-900 hover:bg-gray-100"
+          className="flex-1 h-7 text-[11px] border-slate-300 text-slate-700 hover:bg-slate-100 rounded-lg"
         >
           <Copy className="w-3 h-3 mr-1" /> {copied ? 'Copied' : 'Copy'}
         </Button>
@@ -440,7 +440,7 @@ function ReceiptPreview({ label, payment }: { label: string; payment: CargoPayme
 function Line({ k, v, bold }: { k: string; v: string; bold?: boolean }) {
   return (
     <div className="flex justify-between gap-2">
-      <span className="text-gray-500">{k}</span>
+      <span className="text-slate-500">{k}</span>
       <span className={bold ? 'font-bold' : ''}>{v}</span>
     </div>
   );
