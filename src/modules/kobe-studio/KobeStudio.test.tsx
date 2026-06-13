@@ -1,6 +1,7 @@
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, waitFor } from '@testing-library/react';
+import { render } from '@testing-library/react';
+import { waitFor } from '@testing-library/dom';
 import KobeStudio from './KobeStudio';
 import * as studioApi from '@/services/studioMediaApi';
 
