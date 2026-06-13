@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { render, cleanup, fireEvent } from '@testing-library/react';
+import { render, cleanup } from '@testing-library/react';
+import { fireEvent } from '@testing-library/dom';
 import Calculator from '../index';
 
 let getByRoleRef: ReturnType<typeof render>['getByRole'];
@@ -141,7 +142,7 @@ describe('Calculator', () => {
     expect(getDisplay()).toBe('0');
   });
 
-  // ── Backspace ───────────────────────────────────────────────────────────[...]
+  // ── Backspace ───────────────────────────────────────────────────────────
 
   it('del removes the last digit', () => {
     clickBtn('1');
@@ -157,7 +158,7 @@ describe('Calculator', () => {
     expect(getDisplay()).toBe('0');
   });
 
-  // ── Negation ──────────────────────────────────────────────────────────[...]
+  // ── Negation ────────────────────────────────────────────────────────────
 
   it('± negates the current value', () => {
     clickBtn('5');
