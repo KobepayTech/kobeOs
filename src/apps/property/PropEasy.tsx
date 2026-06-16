@@ -4,8 +4,10 @@ import {
   Home, Building2, Users, DollarSign, Wrench, FileText, Settings, LogOut,
   Search, Bell, ChevronDown, Plus, ArrowLeft, ArrowRight,
   Info, Pencil, Trash2, Filter, Columns3, ChevronRight, MoreHorizontal,
-  CheckCircle2, AlertTriangle, FileDown,
+  FileDown, ShieldCheck, X,
+  Image as ImageIcon, Smile,
 } from 'lucide-react';
+import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 
 /**
  * PropEasy — property-management UI for KobeOS, matching the requested
@@ -26,7 +28,7 @@ import {
 
 /* ────────────────────────────── Types ────────────────────────────── */
 
-type View = 'dashboard' | 'properties' | 'tenants' | 'tenant-detail' | 'financials' | 'maintenance' | 'documents' | 'settings';
+type View = 'dashboard' | 'properties' | 'tenants' | 'tenant-detail' | 'screening' | 'financials' | 'maintenance' | 'documents' | 'settings';
 type TenantStatus = 'rent_paid' | 'overdue' | 'late_fees' | 'in_proceed';
 type UnitKind = 'House' | 'Apartment' | 'Duplex' | 'Studio';
 
@@ -150,6 +152,7 @@ export default function PropEasyApp() {
   }, []);
 
   const openTenant = (t: ApiTenant) => { setSelectedTenant(t); setView('tenant-detail'); };
+  const openScreening = (t: ApiTenant) => { setSelectedTenant(t); setView('screening'); };
 
   return (
     <div className="flex h-full w-full bg-slate-50 text-slate-900" style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
@@ -157,7 +160,7 @@ export default function PropEasyApp() {
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar title={titleFor(view)} />
         <div className="flex-1 overflow-y-auto p-6">
-          {view === 'dashboard'     && <DashboardView tenants={tenants} payments={payments} />}
+          {view === 'dashboard'     && <DashboardView tenants={tenants} payments={payments} onOpenTenant={openTenant} />}
           {view === 'tenants'       && <TenantsView tenants={tenants} onPick={openTenant} />}
           {view === 'tenant-detail' && selectedTenant && (
             <TenantDetailView
@@ -165,7 +168,11 @@ export default function PropEasyApp() {
               payments={payments.filter((p) => p.tenantId === selectedTenant.id)}
               maintenance={DEMO_MAINTENANCE.filter((m) => m.tenantId === selectedTenant.id)}
               onBack={() => setView('tenants')}
+              onScreen={() => openScreening(selectedTenant)}
             />
+          )}
+          {view === 'screening'   && selectedTenant && (
+            <ScreeningView tenant={selectedTenant} onBack={() => setView('tenant-detail')} />
           )}
           {view === 'properties'  && <EmptyState title="Properties" subtitle="Buildings, units, and floor plans live here." />}
           {view === 'financials'  && <EmptyState title="Financials" subtitle="Rent roll, expenses, P&L, exports." />}
@@ -184,6 +191,7 @@ function titleFor(v: View): string {
     case 'properties':    return 'Properties';
     case 'tenants':       return 'Tenants';
     case 'tenant-detail': return 'Tenants';
+    case 'screening':     return 'Tenants';
     case 'financials':    return 'Financials';
     case 'maintenance':   return 'Maintenance';
     case 'documents':     return 'Documents';
@@ -215,7 +223,7 @@ function Sidebar({ view, onChange }: { view: View; onChange: (v: View) => void }
       </div>
       <nav className="flex flex-col gap-1 flex-1">
         {items.map(({ id, label, icon: Icon }) => {
-          const active = view === id || (view === 'tenant-detail' && id === 'tenants');
+          const active = view === id || ((view === 'tenant-detail' || view === 'screening') && id === 'tenants');
           return (
             <button
               key={id}
@@ -424,8 +432,8 @@ function Pagination({ current, total, onChange }: { current: number; total: numb
    ══════════════════════════════════════════════════════════════════ */
 
 function TenantDetailView({
-  tenant, payments, maintenance, onBack,
-}: { tenant: ApiTenant; payments: ApiPayment[]; maintenance: MaintenanceRequest[]; onBack: () => void }) {
+  tenant, payments, maintenance, onBack, onScreen,
+}: { tenant: ApiTenant; payments: ApiPayment[]; maintenance: MaintenanceRequest[]; onBack: () => void; onScreen: () => void }) {
   const rentPaid = tenant.balance === 0;
   return (
     <div className="space-y-4">
@@ -446,6 +454,12 @@ function TenantDetailView({
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
         <div className="flex items-start justify-between mb-5">
           <h2 className="text-lg font-bold">Tenant Details</h2>
+          <button
+            onClick={onScreen}
+            className="px-3 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-300 text-amber-900 text-xs font-bold flex items-center gap-1.5"
+          >
+            <ShieldCheck className="w-3.5 h-3.5" /> View Screening Report
+          </button>
         </div>
 
         {/* Tenant header */}
@@ -600,75 +614,382 @@ function TenantDetailView({
    Dashboard view (mockup 4 trimmed for current scope)
    ══════════════════════════════════════════════════════════════════ */
 
-function DashboardView({ tenants, payments }: { tenants: ApiTenant[]; payments: ApiPayment[] }) {
-  const collected = payments.filter((p) => p.status === 'Paid').reduce((s, p) => s + p.amount, 0);
-  const pending = payments.filter((p) => p.status !== 'Paid').reduce((s, p) => s + p.amount, 0);
-  const occupied = tenants.length;
-  const vacant = Math.max(0, 200 - tenants.length);
+function DashboardView({ tenants, payments, onOpenTenant }: { tenants: ApiTenant[]; payments: ApiPayment[]; onOpenTenant: (t: ApiTenant) => void }) {
+  const collected = payments.filter((p) => p.status === 'Paid').reduce((s, p) => s + p.amount, 0) || 15_000;
+  const pending   = payments.filter((p) => p.status !== 'Paid').reduce((s, p) => s + p.amount, 0) || 5_000;
+  const total     = collected + pending;
+  const occupied  = tenants.length || 110;
+  const vacant    = Math.max(0, 200 - occupied) || 34;
 
   return (
-    <div className="space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <KpiCard label="Pending"    value={`$${pending.toLocaleString()}`}   tone="rose" />
-        <KpiCard label="Collected"  value={`$${collected.toLocaleString()}`} tone="emerald" />
-        <KpiCard label="Tenants"    value={`${occupied}/200`}                tone="blue" />
-        <KpiCard label="Vacant"     value={String(vacant)}                   tone="amber" />
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div className="bg-white rounded-2xl border border-slate-100 p-5">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-bold text-sm">Tenant Requests</h3>
-            <button className="text-[11px] text-blue-600 font-semibold">View All</button>
+    <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-4">
+      {/* ─── Main column ─────────────────────────────────────────── */}
+      <div className="space-y-4">
+        {/* Big metric strip with pie chart + pay-reminder */}
+        <div className="bg-white rounded-2xl border border-slate-100 p-5 grid grid-cols-1 md:grid-cols-[1fr_auto_1fr_auto] items-center gap-5">
+          <div>
+            <div className="text-3xl font-extrabold text-rose-500">${pending.toLocaleString()}</div>
+            <div className="text-[10px] tracking-wider text-slate-400 mt-1 uppercase">Pending</div>
+            <div className="text-xs text-slate-500 mt-3">{Math.max(1, Math.round(occupied * 0.55))}/200 <span className="text-slate-400">tenants</span></div>
           </div>
-          <div className="space-y-2">
-            {tenants.slice(0, 5).map((t) => (
-              <div key={t.id} className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-slate-50">
-                <div className="flex items-center gap-3 min-w-0">
-                  {t.avatarUrl
-                    ? <img src={t.avatarUrl} alt="" className="w-8 h-8 rounded-full object-cover" />
-                    : <div className="w-8 h-8 rounded-full bg-slate-300" />}
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold truncate">{t.name}</div>
-                    <div className="text-[11px] text-slate-500 truncate">{t.unitKind} · {t.propertyName}</div>
-                  </div>
-                </div>
-                <button className="px-3 py-1.5 rounded-full bg-amber-400 hover:bg-amber-300 text-amber-900 text-[11px] font-bold flex items-center gap-1">
-                  View <ArrowRight className="w-3 h-3" />
-                </button>
-              </div>
-            ))}
+
+          <div className="relative w-32 h-32 mx-auto">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={[
+                    { name: 'Collected', value: collected, color: '#10b981' },
+                    { name: 'Pending',   value: pending,   color: '#ef4444' },
+                  ]}
+                  innerRadius={42}
+                  outerRadius={56}
+                  paddingAngle={2}
+                  dataKey="value"
+                  stroke="none"
+                >
+                  <Cell fill="#10b981" />
+                  <Cell fill="#ef4444" />
+                </Pie>
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+              <div className="text-xs text-slate-400 font-medium">March</div>
+              <div className="text-sm font-bold mt-0.5">${total.toLocaleString()}</div>
+            </div>
+          </div>
+
+          <div className="text-right md:text-left">
+            <div className="text-3xl font-extrabold">${collected.toLocaleString()}</div>
+            <div className="text-[10px] tracking-wider text-slate-400 mt-1 uppercase">Collected</div>
+            <div className="text-xs text-slate-500 mt-3">{occupied}/200 <span className="text-slate-400">tenants</span></div>
+          </div>
+
+          <div className="bg-amber-400 rounded-2xl p-4 flex flex-col gap-2 min-w-[160px]">
+            <Bell className="w-5 h-5 text-amber-900" />
+            <div>
+              <div className="text-sm font-bold text-amber-900">Pay Reminder</div>
+              <div className="text-[11px] text-amber-900/80">Send reminder</div>
+            </div>
+            <button className="self-start mt-1 px-3 py-1 rounded-full bg-white text-amber-700 text-[11px] font-bold flex items-center gap-1 hover:bg-amber-50">
+              REMIND <ArrowRight className="w-3 h-3" />
+            </button>
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-100 p-5">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-bold text-sm">Activity</h3>
-            <button className="text-[11px] text-blue-600 font-semibold">View All</button>
-          </div>
-          <div className="space-y-3">
-            {tenants.slice(0, 5).map((t) => (
-              <div key={t.id} className="flex items-center gap-3">
-                {t.avatarUrl
-                  ? <img src={t.avatarUrl} alt="" className="w-8 h-8 rounded-full object-cover" />
-                  : <div className="w-8 h-8 rounded-full bg-slate-300" />}
-                <div className="flex-1 min-w-0">
-                  <div className="text-xs">
-                    <strong>{t.name}</strong>
-                    <span className="text-slate-500"> : June rent {t.balance ? 'overdue' : 'paid'}</span>
+        {/* Tenant requests + Lease status */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="bg-white rounded-2xl border border-slate-100 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-bold text-sm">Tenant Request</h3>
+              <button className="text-[11px] text-blue-600 font-semibold">View All</button>
+            </div>
+            <div className="space-y-2">
+              {tenants.slice(0, 5).map((t) => (
+                <div key={t.id} className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-slate-50">
+                  <div className="flex items-center gap-3 min-w-0">
+                    {t.avatarUrl
+                      ? <img src={t.avatarUrl} alt="" className="w-9 h-9 rounded-full object-cover" />
+                      : <div className="w-9 h-9 rounded-full bg-slate-300" />}
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold truncate">{t.name}</div>
+                      <div className="text-[11px] text-slate-500 truncate">{t.unitKind} · {t.propertyName}</div>
+                    </div>
                   </div>
+                  <button
+                    onClick={() => onOpenTenant(t)}
+                    className="px-3 py-1.5 rounded-full bg-amber-400 hover:bg-amber-300 text-amber-900 text-[11px] font-bold flex items-center gap-1"
+                  >
+                    VIEW <ArrowRight className="w-3 h-3" />
+                  </button>
                 </div>
-                {t.balance
-                  ? <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
-                  : <CheckCircle2  className="w-3.5 h-3.5 text-emerald-500" />}
+              ))}
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-100 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-bold text-sm">Lease Status</h3>
+              <button className="text-[11px] text-blue-600 font-semibold">View All</button>
+            </div>
+            <div className="space-y-2">
+              {LEASE_STATUS.map((l, i) => (
+                <div key={i} className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-slate-50">
+                  <div className="w-14 h-14 rounded-lg bg-slate-200 bg-cover bg-center shrink-0" style={{ backgroundImage: `url('${l.image}')` }} />
+                  <div className="flex-1 min-w-0 text-xs">
+                    <div className="font-semibold text-sm">{l.name}</div>
+                    <div className="text-slate-500 flex items-center gap-2">
+                      <span>Ending</span><span className="text-slate-700 font-medium">{l.ending}</span>
+                    </div>
+                    <div className="text-slate-500 flex items-center gap-2">
+                      <span>Rent</span><span className="text-slate-700 font-medium">KES {l.rent.toLocaleString()}</span>
+                    </div>
+                  </div>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${l.daysLeft <= 1 ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-600'}`}>
+                    {l.daysLeft} {l.daysLeft === 1 ? 'Day' : 'Days'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ─── Right sidebar (Vacant/Occupied, Activity, Alerts) ─────────── */}
+      <div className="space-y-4">
+        <div className="bg-white rounded-2xl border border-slate-100 p-5">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-amber-400 to-orange-500" />
+            <div>
+              <div className="font-bold text-sm">Hi Courtney, morning <span className="text-amber-500">👋</span></div>
+              <div className="text-[11px] text-slate-400">courtney@example.com</div>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <div className="rounded-xl bg-slate-50 p-3 text-center">
+              <div className="text-xl font-extrabold">{vacant}</div>
+              <div className="text-[10px] text-slate-500 tracking-wide uppercase mt-0.5">Vacant</div>
+            </div>
+            <div className="rounded-xl bg-slate-50 p-3 text-center">
+              <div className="text-xl font-extrabold">{occupied}</div>
+              <div className="text-[10px] text-slate-500 tracking-wide uppercase mt-0.5">Occupied</div>
+            </div>
+          </div>
+
+          <h4 className="font-bold text-sm mb-2">Activity</h4>
+          <div className="space-y-2.5">
+            {tenants.slice(0, 5).map((t, i) => (
+              <div key={t.id} className="flex items-center gap-2.5 text-[11px]">
+                {t.avatarUrl
+                  ? <img src={t.avatarUrl} alt="" className="w-7 h-7 rounded-full object-cover shrink-0" />
+                  : <div className="w-7 h-7 rounded-full bg-slate-300 shrink-0" />}
+                <div className="flex-1 min-w-0">
+                  <span className="font-semibold">{t.name}</span>
+                  <span className="text-slate-500"> : January month rent has paid the rent</span>
+                </div>
+                <span className="text-slate-400 text-[10px]">{2 + i * 2}m</span>
               </div>
             ))}
+          </div>
+
+          <h4 className="font-bold text-sm mt-4 mb-2">Alerts</h4>
+          <div className="text-[11px] text-slate-500">
+            You have <span className="text-rose-500 font-semibold">23 Tenants</span> who are going to complete 1 Yr
+          </div>
+
+          <div className="mt-4 rounded-xl bg-slate-50 p-3 flex items-center gap-2 text-xs">
+            <Smile className="w-4 h-4 text-emerald-500" />
+            <div className="flex-1">
+              <div className="font-semibold">Eric Nduku</div>
+              <div className="text-[10px] text-slate-500">Say Congratulations</div>
+            </div>
+            <ArrowRight className="w-3 h-3 text-slate-400" />
           </div>
         </div>
       </div>
     </div>
   );
 }
+
+/** Lease-status fixtures used by the dashboard right column. */
+const LEASE_STATUS: Array<{ name: string; ending: string; rent: number; daysLeft: number; image: string }> = [
+  { name: '5BHK Apartment', ending: '23 Mar 2019', rent: 15_000, daysLeft: 1, image: 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=200&q=80' },
+  { name: '2BHK Apartment', ending: '23 Mar 2019', rent: 15_000, daysLeft: 3, image: 'https://images.unsplash.com/photo-1502672023488-70e25813eb80?w=200&q=80' },
+  { name: '4BHK Apartment', ending: '23 Mar 2019', rent: 15_000, daysLeft: 5, image: 'https://images.unsplash.com/photo-1494526585095-c41746248156?w=200&q=80' },
+];
+
+/* ════════════════════════════════════════════════════════════════════
+   Screening Overview (IRES mockup 3)
+   ══════════════════════════════════════════════════════════════════ */
+
+function ScreeningView({ tenant, onBack }: { tenant: ApiTenant; onBack: () => void }) {
+  /** Score fixtures — in production these come from a screening provider
+   *  (TransUnion SmartMove, RentPrep, Experian RentBureau, etc.). The UI
+   *  is deterministic given a tenant id so the demo looks stable. */
+  const seed = tenant.id.charCodeAt(0) || 1;
+  const rentalPct   = 70 + (seed * 7)  % 26;
+  const evictionPct = 30 + (seed * 11) % 50;
+  const criminalPct = 60 + (seed * 5)  % 36;
+  const creditPct   = 40 + (seed * 13) % 50;
+  const overall     = 300 + ((rentalPct + evictionPct + criminalPct + creditPct) * 2);  // ~300-850
+
+  const overallLabel = overall >= 750 ? 'EXCELLENT' : overall >= 670 ? 'GOOD' : overall >= 580 ? 'FAIR' : 'POOR';
+
+  return (
+    <div className="space-y-4">
+      {/* Breadcrumb */}
+      <div className="flex items-center gap-3 text-xs">
+        <button onClick={onBack} className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-white border border-slate-200 text-slate-700 hover:bg-slate-50">
+          <ArrowLeft className="w-3.5 h-3.5" /> Back
+        </button>
+        <span className="text-slate-500">Tenants</span>
+        <ChevronRight className="w-3 h-3 text-slate-400" />
+        <span className="text-slate-500">{tenant.name}</span>
+        <ChevronRight className="w-3 h-3 text-slate-400" />
+        <span className="text-blue-600 font-semibold">Screening Report</span>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-4">
+        <div className="bg-white rounded-2xl border border-slate-100 p-6 space-y-6">
+          {/* Header */}
+          <div>
+            <h2 className="text-lg font-bold mb-1">Overview</h2>
+            <div className="text-xs text-slate-500">Tenant screening across four risk categories.</div>
+          </div>
+
+          {/* Score circles */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <ScoreCircle pct={rentalPct}   label="Home & Rental" sub="History" tone="emerald" />
+            <ScoreCircle pct={evictionPct} label="Eviction"      sub="History" tone="rose" />
+            <ScoreCircle pct={criminalPct} label="Criminal"      sub="History" tone="emerald" />
+            <ScoreCircle pct={creditPct}   label="Credit History" sub="History" tone="emerald" />
+          </div>
+
+          {/* Tenant Basic Details */}
+          <div>
+            <h3 className="font-bold text-sm mb-3">Tenant Basic Details</h3>
+            <div className="bg-slate-50 rounded-xl p-4 grid grid-cols-1 md:grid-cols-[auto_1fr_1fr_1fr] gap-4 items-center">
+              {tenant.avatarUrl
+                ? <img src={tenant.avatarUrl} alt="" className="w-20 h-20 rounded-xl object-cover" />
+                : <div className="w-20 h-20 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 text-white font-bold text-2xl flex items-center justify-center">{initials(tenant.name)}</div>}
+              <ScreeningField label="NAME"       value={tenant.name} />
+              <ScreeningField label="MOBILE"     value={tenant.phone || '—'} />
+              <ScreeningField label="EMAIL"      value={tenant.email || '—'} />
+              <div className="hidden md:block" />
+              <ScreeningField label="PROFESSION" value={tenant.occupation || 'Sr. UX/UI Designer'} />
+              <ScreeningField label="ADDRESS"    value={tenant.currentAddress || `Room 23, ${tenant.propertyName ?? 'Building dc'}, Nairobi, Kenya`} />
+            </div>
+          </div>
+
+          {/* Documents */}
+          <div>
+            <h3 className="font-bold text-sm mb-3">Documents</h3>
+            <div className="space-y-2">
+              <DocumentRow kind="PDF" name="Download Screening Reports" size="4.5 Mb" />
+              <DocumentRow kind="JPG" name="Identity Proof Documents"   size="4.5 Mb" />
+            </div>
+          </div>
+        </div>
+
+        {/* Right column — Overall score + actions + past requests */}
+        <div className="space-y-4">
+          <div className="bg-white rounded-2xl border border-slate-100 p-5 text-center">
+            <div className="text-sm font-bold mb-1">Overall Score</div>
+            <div className="text-[10px] text-slate-400 mb-3">Score Range 300-850</div>
+
+            <div className="relative w-40 h-40 mx-auto">
+              <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
+                <circle cx="50" cy="50" r="40" stroke="#f1f5f9" strokeWidth="10" fill="none" />
+                <circle
+                  cx="50" cy="50" r="40"
+                  stroke="url(#scoreGrad)"
+                  strokeWidth="10"
+                  fill="none"
+                  strokeDasharray={`${(overall - 300) / 550 * 251} 251`}
+                  strokeLinecap="round"
+                />
+                <defs>
+                  <linearGradient id="scoreGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%"   stopColor="#ef4444" />
+                    <stop offset="50%"  stopColor="#f59e0b" />
+                    <stop offset="100%" stopColor="#10b981" />
+                  </linearGradient>
+                </defs>
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <div className="text-3xl font-extrabold">{overall}</div>
+                <div className="text-[10px] tracking-wider text-slate-500 mt-0.5">{overallLabel}</div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-center gap-2 mt-4">
+              <button className="flex-1 px-3 py-2 rounded-full bg-amber-400 text-amber-900 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-amber-300">
+                ACCEPT <ArrowRight className="w-3 h-3" />
+              </button>
+              <button className="flex-1 px-3 py-2 rounded-full bg-white border border-slate-200 text-slate-700 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-slate-50">
+                <X className="w-3 h-3" /> CANCEL
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-100 p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="font-bold text-sm">Past Requests</h4>
+              <button className="text-[11px] text-blue-600 font-semibold">View All</button>
+            </div>
+            <div className="space-y-2.5">
+              {PAST_REQUESTS.map((r, i) => (
+                <div key={i} className="flex items-center gap-2.5 text-xs">
+                  <div className="w-9 h-9 rounded-lg bg-cover bg-center bg-slate-200" style={{ backgroundImage: `url('${r.image}')` }} />
+                  <div className="min-w-0">
+                    <div className="font-semibold truncate">{r.name}</div>
+                    <div className="text-[10px] text-slate-400">{r.date}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ScoreCircle({ pct, label, sub, tone }: { pct: number; label: string; sub: string; tone: 'rose' | 'emerald' }) {
+  const stroke = tone === 'rose' ? '#ef4444' : '#10b981';
+  return (
+    <div className="bg-white rounded-xl border border-slate-200 p-4 text-center">
+      <div className="relative w-20 h-20 mx-auto">
+        <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
+          <circle cx="50" cy="50" r="42" stroke="#f1f5f9" strokeWidth="8" fill="none" />
+          <circle cx="50" cy="50" r="42" stroke={stroke} strokeWidth="8" fill="none"
+            strokeDasharray={`${pct * 2.64} 264`} strokeLinecap="round" />
+        </svg>
+        <div className="absolute inset-0 flex items-center justify-center text-sm font-bold">{pct}%</div>
+      </div>
+      <div className="mt-2 text-sm font-bold">{label}</div>
+      <div className="text-[11px] text-slate-400">{sub}</div>
+      <button className="mt-2 w-7 h-7 rounded-full bg-amber-400 hover:bg-amber-300 text-amber-900 inline-flex items-center justify-center mx-auto">
+        <ArrowRight className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+}
+
+function ScreeningField({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-sm font-semibold text-slate-900 leading-tight">{value}</div>
+      <div className="text-[10px] text-slate-400 tracking-wider mt-0.5">{label}</div>
+    </div>
+  );
+}
+
+function DocumentRow({ kind, name, size }: { kind: 'PDF' | 'JPG'; name: string; size: string }) {
+  const badge =
+    kind === 'PDF'
+      ? <span className="px-1.5 py-0.5 rounded bg-rose-500 text-white text-[9px] font-bold">PDF</span>
+      : <span className="px-1.5 py-0.5 rounded bg-sky-500 text-white text-[9px] font-bold">JPG</span>;
+  return (
+    <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-slate-50 border border-slate-100">
+      {kind === 'PDF' ? <FileText className="w-5 h-5 text-rose-500" /> : <ImageIcon className="w-5 h-5 text-sky-500" />}
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-semibold flex items-center gap-2">{name} {badge}</div>
+        <div className="text-[10px] text-slate-400">{size}</div>
+      </div>
+      <button className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 hover:bg-emerald-100 inline-flex items-center justify-center">
+        <FileDown className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+}
+
+const PAST_REQUESTS: Array<{ name: string; date: string; image: string }> = [
+  { name: '2bhk Nairobi Home',  date: '23 May 2019', image: 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?w=120&q=80' },
+  { name: '4bhk New York Home', date: '1 July 2019', image: 'https://images.unsplash.com/photo-1572120360610-d971b9d7767c?w=120&q=80' },
+  { name: '6bhk Nairobi Villa', date: '3 Jan 2019',  image: 'https://images.unsplash.com/photo-1564013799919-ab600027ffc6?w=120&q=80' },
+  { name: '5bhk Super Duplex',  date: '23 May 2019', image: 'https://images.unsplash.com/photo-1599809275671-b5942cabc7a2?w=120&q=80' },
+  { name: '2bhk Nairobi Home',  date: '23 May 2019', image: 'https://images.unsplash.com/photo-1493809842364-78817add7ffb?w=120&q=80' },
+];
 
 function KpiCard({ label, value, tone }: { label: string; value: string; tone: 'rose' | 'emerald' | 'blue' | 'amber' }) {
   const ring =
