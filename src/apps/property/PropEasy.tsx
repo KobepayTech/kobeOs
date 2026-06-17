@@ -32,7 +32,7 @@ type View = 'dashboard' | 'properties' | 'tenants' | 'tenant-detail' | 'screenin
 type TenantStatus = 'rent_paid' | 'overdue' | 'late_fees' | 'in_proceed';
 type UnitKind = 'House' | 'Apartment' | 'Duplex' | 'Studio';
 
-interface ApiProperty   { id: string; name: string; address: string }
+interface ApiProperty   { id: string; name: string; address: string; imageUrl?: string }
 interface ApiUnit       { id: string; propertyId: string; kind?: UnitKind; rent?: number }
 interface ApiTenant     {
   id: string;
@@ -131,7 +131,7 @@ export default function PropEasyApp() {
 
   const [tenants, setTenants] = useState<ApiTenant[]>(DEMO_TENANTS);
   const [payments, setPayments] = useState<ApiPayment[]>(DEMO_PAYMENTS);
-  const [, setProperties] = useState<ApiProperty[]>([]);
+  const [properties, setProperties] = useState<ApiProperty[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -160,7 +160,7 @@ export default function PropEasyApp() {
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar title={titleFor(view)} />
         <div className="flex-1 overflow-y-auto p-6">
-          {view === 'dashboard'     && <DashboardView tenants={tenants} payments={payments} onOpenTenant={openTenant} />}
+          {view === 'dashboard'     && <DashboardView tenants={tenants} payments={payments} properties={properties} onOpenTenant={openTenant} />}
           {view === 'tenants'       && <TenantsView tenants={tenants} onPick={openTenant} />}
           {view === 'tenant-detail' && selectedTenant && (
             <TenantDetailView
@@ -614,7 +614,19 @@ function TenantDetailView({
    Dashboard view (mockup 4 trimmed for current scope)
    ══════════════════════════════════════════════════════════════════ */
 
-function DashboardView({ tenants, payments, onOpenTenant }: { tenants: ApiTenant[]; payments: ApiPayment[]; onOpenTenant: (t: ApiTenant) => void }) {
+function DashboardView({ tenants, payments, properties, onOpenTenant }: { tenants: ApiTenant[]; payments: ApiPayment[]; properties: ApiProperty[]; onOpenTenant: (t: ApiTenant) => void }) {
+  // Lease-status cards — use real properties when the operator has data,
+  // fall back to the bundled fixtures so the dashboard never renders empty.
+  const leaseRows: Array<{ name: string; ending: string; rent: number; daysLeft: number; image: string }> =
+    properties.length
+      ? properties.slice(0, 3).map((p, i) => ({
+          name:     p.name || `Unit ${i + 1}`,
+          ending:   '23 Mar 2026',
+          rent:     15_000,
+          daysLeft: [1, 3, 5][i] ?? 5,
+          image:    p.imageUrl || LEASE_STATUS[i]?.image || '',
+        }))
+      : LEASE_STATUS;
   const collected = payments.filter((p) => p.status === 'Paid').reduce((s, p) => s + p.amount, 0) || 15_000;
   const pending   = payments.filter((p) => p.status !== 'Paid').reduce((s, p) => s + p.amount, 0) || 5_000;
   const total     = collected + pending;
@@ -712,7 +724,7 @@ function DashboardView({ tenants, payments, onOpenTenant }: { tenants: ApiTenant
               <button className="text-[11px] text-blue-600 font-semibold">View All</button>
             </div>
             <div className="space-y-2">
-              {LEASE_STATUS.map((l, i) => (
+              {leaseRows.map((l, i) => (
                 <div key={i} className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-slate-50">
                   <div className="w-14 h-14 rounded-lg bg-slate-200 bg-cover bg-center shrink-0" style={{ backgroundImage: `url('${l.image}')` }} />
                   <div className="flex-1 min-w-0 text-xs">
@@ -801,16 +813,54 @@ const LEASE_STATUS: Array<{ name: string; ending: string; rent: number; daysLeft
    Screening Overview (IRES mockup 3)
    ══════════════════════════════════════════════════════════════════ */
 
+interface ScreeningReport {
+  rentalHistoryPct: number;
+  evictionHistoryPct: number;
+  criminalHistoryPct: number;
+  creditHistoryPct: number;
+  overallScore: number;
+  verdict: 'pending' | 'accepted' | 'rejected';
+  provider: string;
+  reportPdfUrl?: string;
+  identityProofUrl?: string;
+}
+
 function ScreeningView({ tenant, onBack }: { tenant: ApiTenant; onBack: () => void }) {
-  /** Score fixtures — in production these come from a screening provider
-   *  (TransUnion SmartMove, RentPrep, Experian RentBureau, etc.). The UI
-   *  is deterministic given a tenant id so the demo looks stable. */
+  const [report, setReport] = useState<ScreeningReport | null>(null);
+  const [deciding, setDeciding] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await api<ScreeningReport>(`/property/tenants/${tenant.id}/screening`);
+        if (!cancelled) setReport(r);
+      } catch { /* fall through to local fixture below */ }
+    })();
+    return () => { cancelled = true; };
+  }, [tenant.id]);
+
+  const decide = async (verdict: 'accepted' | 'rejected') => {
+    setDeciding(true);
+    try {
+      const r = await api<ScreeningReport>(
+        `/property/tenants/${tenant.id}/screening/decide`,
+        { method: 'POST', body: JSON.stringify({ verdict }) },
+      );
+      setReport(r);
+    } catch { /* keep the existing report visible */ }
+    finally { setDeciding(false); }
+  };
+
+  // Local fallback only when the backend hasn't responded yet (first render
+  // before the fetch resolves, or when the API isn't reachable at all).
   const seed = tenant.id.charCodeAt(0) || 1;
-  const rentalPct   = 70 + (seed * 7)  % 26;
-  const evictionPct = 30 + (seed * 11) % 50;
-  const criminalPct = 60 + (seed * 5)  % 36;
-  const creditPct   = 40 + (seed * 13) % 50;
-  const overall     = 300 + ((rentalPct + evictionPct + criminalPct + creditPct) * 2);  // ~300-850
+  const rentalPct   = report?.rentalHistoryPct   ?? (70 + (seed * 7)  % 26);
+  const evictionPct = report?.evictionHistoryPct ?? (30 + (seed * 11) % 50);
+  const criminalPct = report?.criminalHistoryPct ?? (60 + (seed * 5)  % 36);
+  const creditPct   = report?.creditHistoryPct   ?? (40 + (seed * 13) % 50);
+  const overall     = report?.overallScore       ?? (300 + ((rentalPct + evictionPct + criminalPct + creditPct) * 2));
+  const verdict     = report?.verdict ?? 'pending';
 
   const overallLabel = overall >= 750 ? 'EXCELLENT' : overall >= 670 ? 'GOOD' : overall >= 580 ? 'FAIR' : 'POOR';
 
@@ -864,8 +914,8 @@ function ScreeningView({ tenant, onBack }: { tenant: ApiTenant; onBack: () => vo
           <div>
             <h3 className="font-bold text-sm mb-3">Documents</h3>
             <div className="space-y-2">
-              <DocumentRow kind="PDF" name="Download Screening Reports" size="4.5 Mb" />
-              <DocumentRow kind="JPG" name="Identity Proof Documents"   size="4.5 Mb" />
+              <DocumentRow kind="PDF" name="Download Screening Reports" size="4.5 Mb" href={report?.reportPdfUrl} />
+              <DocumentRow kind="JPG" name="Identity Proof Documents"   size="4.5 Mb" href={report?.identityProofUrl} />
             </div>
           </div>
         </div>
@@ -901,12 +951,26 @@ function ScreeningView({ tenant, onBack }: { tenant: ApiTenant; onBack: () => vo
               </div>
             </div>
 
+            {verdict !== 'pending' && (
+              <div className={`mt-4 mx-auto inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold
+                ${verdict === 'accepted' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                {verdict === 'accepted' ? 'ACCEPTED' : 'REJECTED'}
+              </div>
+            )}
             <div className="flex items-center justify-center gap-2 mt-4">
-              <button className="flex-1 px-3 py-2 rounded-full bg-amber-400 text-amber-900 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-amber-300">
-                ACCEPT <ArrowRight className="w-3 h-3" />
+              <button
+                onClick={() => decide('accepted')}
+                disabled={deciding || verdict === 'accepted'}
+                className="flex-1 px-3 py-2 rounded-full bg-amber-400 text-amber-900 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-amber-300 disabled:opacity-50"
+              >
+                {deciding ? '…' : 'ACCEPT'} <ArrowRight className="w-3 h-3" />
               </button>
-              <button className="flex-1 px-3 py-2 rounded-full bg-white border border-slate-200 text-slate-700 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-slate-50">
-                <X className="w-3 h-3" /> CANCEL
+              <button
+                onClick={() => decide('rejected')}
+                disabled={deciding || verdict === 'rejected'}
+                className="flex-1 px-3 py-2 rounded-full bg-white border border-slate-200 text-slate-700 text-xs font-bold flex items-center justify-center gap-1.5 hover:bg-slate-50 disabled:opacity-50"
+              >
+                <X className="w-3 h-3" /> {deciding ? '…' : 'CANCEL'}
               </button>
             </div>
           </div>
@@ -964,7 +1028,7 @@ function ScreeningField({ label, value }: { label: string; value: string }) {
   );
 }
 
-function DocumentRow({ kind, name, size }: { kind: 'PDF' | 'JPG'; name: string; size: string }) {
+function DocumentRow({ kind, name, size, href }: { kind: 'PDF' | 'JPG'; name: string; size: string; href?: string }) {
   const badge =
     kind === 'PDF'
       ? <span className="px-1.5 py-0.5 rounded bg-rose-500 text-white text-[9px] font-bold">PDF</span>
@@ -976,9 +1040,16 @@ function DocumentRow({ kind, name, size }: { kind: 'PDF' | 'JPG'; name: string; 
         <div className="text-sm font-semibold flex items-center gap-2">{name} {badge}</div>
         <div className="text-[10px] text-slate-400">{size}</div>
       </div>
-      <button className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 hover:bg-emerald-100 inline-flex items-center justify-center">
+      <a
+        href={href || '#'}
+        target={href ? '_blank' : undefined}
+        rel="noreferrer"
+        onClick={(e) => { if (!href) e.preventDefault(); }}
+        className={`w-8 h-8 rounded-full inline-flex items-center justify-center ${href ? 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100' : 'bg-slate-100 text-slate-300 cursor-not-allowed'}`}
+        title={href ? 'Download' : 'Not available yet'}
+      >
         <FileDown className="w-3.5 h-3.5" />
-      </button>
+      </a>
     </div>
   );
 }

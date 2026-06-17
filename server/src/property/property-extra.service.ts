@@ -6,3 +6,4 @@ export {
   PropertySettingsService,
   RentIncreaseSimulationsService,
 } from './services/finance-dashboard.service';
+export { TenantScreeningService } from './services/screening.service';
