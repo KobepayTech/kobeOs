@@ -71,6 +71,7 @@ export class CreateMenuItemDto {
   @IsOptional() @IsString() @MaxLength(8) currency?: string;
   @IsOptional() @IsBoolean() available?: boolean;
   @IsOptional() @IsEnum(['kitchen', 'bar', 'other']) station?: 'kitchen' | 'bar' | 'other';
+  @IsOptional() @IsUUID() hotelId?: string;
 }
 export class UpdateMenuItemDto {
   @IsOptional() @IsString() name?: string;
@@ -79,6 +80,7 @@ export class UpdateMenuItemDto {
   @IsOptional() @IsString() currency?: string;
   @IsOptional() @IsBoolean() available?: boolean;
   @IsOptional() @IsEnum(['kitchen', 'bar', 'other']) station?: 'kitchen' | 'bar' | 'other';
+  @IsOptional() @IsUUID() hotelId?: string;
 }
 
 export class OrderItemDto {

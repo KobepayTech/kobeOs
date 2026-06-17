@@ -63,8 +63,8 @@ export class HotelController {
   @Delete('bookings/:id') removeBooking(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.bookings.remove(uid, id); }
 
   // Menu items
-  @Get('menu-items') listMenuItems(@CurrentUser('id') uid: string, @Query('page') page?: string, @Query('limit') limit?: string) {
-    return this.menu.list(uid, { page: Number(page) || 1, limit: Number(limit) || 100 });
+  @Get('menu-items') listMenuItems(@CurrentUser('id') uid: string, @Query('page') page?: string, @Query('limit') limit?: string, @Query('hotelId') hotelId?: string) {
+    return this.menu.list(uid, { page: Number(page) || 1, limit: Number(limit) || 100, where: hotelId ? { hotelId } : undefined });
   }
   @Post('menu-items') createMenuItem(@CurrentUser('id') uid: string, @Body() dto: CreateMenuItemDto) { return this.menu.create(uid, dto); }
   @Patch('menu-items/:id') updateMenuItem(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: UpdateMenuItemDto) { return this.menu.update(uid, id, dto); }

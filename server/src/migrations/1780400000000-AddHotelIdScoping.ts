@@ -18,6 +18,7 @@ export class AddHotelIdScoping1780400000000 implements MigrationInterface {
       { table: 'hotel_bookings',         index: 'idx_hotel_bookings_hotel_id' },
       { table: 'hotel_orders',           index: 'idx_hotel_orders_hotel_id' },
       { table: 'hotel_service_requests', index: 'idx_hotel_service_requests_hotel_id' },
+      { table: 'hotel_menu_items',       index: 'idx_hotel_menu_items_hotel_id' },
     ];
 
     for (const { table, index } of tables) {
@@ -28,6 +29,7 @@ export class AddHotelIdScoping1780400000000 implements MigrationInterface {
 
   public async down(queryRunner: QueryRunner): Promise<void> {
     const tables: Array<{ table: string; index: string }> = [
+      { table: 'hotel_menu_items',       index: 'idx_hotel_menu_items_hotel_id' },
       { table: 'hotel_service_requests', index: 'idx_hotel_service_requests_hotel_id' },
       { table: 'hotel_orders',           index: 'idx_hotel_orders_hotel_id' },
       { table: 'hotel_bookings',         index: 'idx_hotel_bookings_hotel_id' },

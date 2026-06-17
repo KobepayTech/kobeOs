@@ -128,6 +128,12 @@ export class HotelMenuItem extends OwnedEntity {
   /** Which station prepares this item — drives KDS routing. */
   @Column({ default: 'kitchen' })
   station!: 'kitchen' | 'bar' | 'other';
+
+  /** Scope to a single property when set; null = shared across the owner's
+   *  properties (common for small chains that run one menu). */
+  @Index()
+  @Column({ type: 'uuid', nullable: true })
+  hotelId?: string | null;
 }
 
 export { HotelChain } from './hotel-chain.entity';

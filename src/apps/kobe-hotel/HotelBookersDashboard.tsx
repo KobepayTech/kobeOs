@@ -12,6 +12,18 @@ const ALL_PROPERTIES = '__all__';
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const isUuid = (v: string) => UUID_PATTERN.test(v);
 
+function formatRelative(iso: string): string {
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return 'recently';
+  const diffMin = Math.floor((Date.now() - t) / 60_000);
+  if (diffMin < 1) return 'just now';
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDay = Math.floor(diffHr / 24);
+  return `${diffDay}d ago`;
+}
+
 /**
  * Body-only Hotel Booker's-style dashboard. Mounts inside the legacy
  * KobeHotel shell as the contents of the "dashboard" tab; the outer
@@ -36,10 +48,19 @@ interface ApiBooking {
   roomType?: string;
   amountDue?: number;
 }
+interface ApiServiceRequest {
+  id: string;
+  roomNumber: string;
+  kind: string;
+  note?: string;
+  status: 'OPEN' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+  createdAt?: string;
+}
 
 interface RoomThumb { id: string; number: string; type: string; imageUrl: string }
 interface CleanRow  { room: string; task: 'Dirty' | 'Clean'; assignee: string | null }
 interface GuestRow  { name: string; checkIn: string; checkOut: string; type: string; room: string; due: number | null }
+interface MaintenanceRow { id: string; room: string; title: string; priority: 'High' | 'Medium' | 'Low'; assignee: string | null; opened: string }
 
 const DEMO_ROOM_THUMBS: RoomThumb[] = [
   { id: 'b17', number: '#B17', type: 'Double Bed',  imageUrl: 'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?w=400&h=240&fit=crop' },
@@ -52,6 +73,12 @@ const DEMO_CLEAN: CleanRow[] = [
   { room: '#H29', task: 'Clean', assignee: 'Cameron Will' },
   { room: '#B45', task: 'Dirty', assignee: null },
   { room: '#B08', task: 'Clean', assignee: null },
+];
+
+const DEMO_MAINTENANCE: MaintenanceRow[] = [
+  { id: 'm1', room: '#B17', title: 'AC not cooling',           priority: 'High',   assignee: 'Eng. Daniel', opened: '2h ago' },
+  { id: 'm2', room: '#A54', title: 'Shower drain blocked',     priority: 'Medium', assignee: 'Eng. Maria',  opened: '5h ago' },
+  { id: 'm3', room: '#C41', title: 'Bedside lamp flickering',  priority: 'Low',    assignee: null,          opened: '1d ago' },
 ];
 
 const DEMO_GUESTS: GuestRow[] = [
@@ -97,6 +124,7 @@ export default function HotelBookersDashboard() {
   const [thumbs, setThumbs]   = useState<RoomThumb[]>(DEMO_ROOM_THUMBS);
   const [cleanRows, setCleanRows] = useState<CleanRow[]>(DEMO_CLEAN);
   const [guests, setGuests]   = useState<GuestRow[]>(DEMO_GUESTS);
+  const [maintenance, setMaintenance] = useState<MaintenanceRow[]>(DEMO_MAINTENANCE);
 
   // Replace the seeded demo portfolio with the real backend list on mount.
   // Falls back to demo if the user is offline / unauthenticated / hasn't
@@ -118,10 +146,13 @@ export default function HotelBookersDashboard() {
     const scoped = isUuid(selectedHotelId) ? `?hotelId=${selectedHotelId}` : '';
     (async () => {
       try {
-        const [r, b] = await Promise.all([
+        const sep = scoped ? '&' : '?';
+        const [r, b, sr] = await Promise.all([
           api<ApiRoom[]>(`/hotel/rooms${scoped}`).catch(() => [] as ApiRoom[]),
           api<ApiBooking[]>(`/hotel/bookings${scoped}`).catch(() => [] as ApiBooking[]),
+          api<ApiServiceRequest[]>(`/hotel/service-requests${scoped}`).catch(() => [] as ApiServiceRequest[]),
         ]);
+        void sep; // reserved for future query param chaining
         if (cancelled) return;
         if (r.length) {
           setAvailable(r.filter((x) => x.status === 'available').length);
@@ -134,6 +165,33 @@ export default function HotelBookersDashboard() {
               imageUrl: row.imageUrl ?? PLACEHOLDER_ROOM,
             })),
           );
+        }
+        if (sr.length) {
+          const housekeeping = sr.filter((x) => /housekeep/i.test(x.kind) && x.status !== 'COMPLETED' && x.status !== 'CANCELLED');
+          if (housekeeping.length) {
+            setCleanRows(
+              housekeeping.slice(0, 6).map((x) => ({
+                room: `#${x.roomNumber}`,
+                task: x.status === 'IN_PROGRESS' ? 'Clean' : 'Dirty',
+                assignee: null,
+              })),
+            );
+          }
+          const maint = sr.filter((x) => /maint/i.test(x.kind) && x.status !== 'COMPLETED' && x.status !== 'CANCELLED');
+          if (maint.length) {
+            setMaintenance(
+              maint.slice(0, 6).map((x) => ({
+                id: x.id,
+                room: `#${x.roomNumber}`,
+                title: x.note?.trim() || 'Maintenance request',
+                priority: (x.note ?? '').toLowerCase().includes('urgent') ? 'High' : 'Medium',
+                assignee: null,
+                opened: x.createdAt ? formatRelative(x.createdAt) : 'recently',
+              })),
+            );
+          }
+        } else if (r.length) {
+          // Fall back: derive housekeeping rows from rooms in cleaning state.
           setCleanRows(
             r.slice(0, 4).map((row) => ({
               room: `#${row.number ?? row.id}`,
@@ -243,7 +301,10 @@ export default function HotelBookersDashboard() {
             </div>
           </section>
 
-          <RoomCleanCard rows={cleanRows} />
+          <div className="space-y-5">
+            <RoomCleanCard rows={cleanRows} />
+            <MaintenanceTicketsCard rows={maintenance} />
+          </div>
 
           <section className="xl:col-span-2">
             <GuestListCard guests={guests} />
@@ -460,6 +521,40 @@ function PricingHintCard({ hotel, occupancyPct }: { hotel: PortfolioHotel | null
       <button className="mt-3 w-full py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-xs font-extrabold inline-flex items-center justify-center gap-1.5">
         <TrendingUp className="w-3.5 h-3.5" />Apply Suggested Rate
       </button>
+    </div>
+  );
+}
+
+// ─── Maintenance Tickets ─────────────────────────────────────────────
+function MaintenanceTicketsCard({ rows }: { rows: MaintenanceRow[] }) {
+  return (
+    <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-sm">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-base font-extrabold text-slate-900">Maintenance</h3>
+        <button className="text-[11px] font-bold text-blue-600 hover:text-blue-500">+ New Ticket</button>
+      </div>
+      {rows.length === 0 ? (
+        <p className="text-xs text-slate-400 italic">No open tickets — engineering inbox is clear.</p>
+      ) : (
+        <div className="divide-y divide-slate-50">
+          {rows.map((r) => (
+            <div key={r.id} className="py-2.5 first:pt-0 last:pb-0">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-extrabold text-slate-800 truncate">{r.title}</span>
+                <span className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-bold flex-shrink-0 ${
+                  r.priority === 'High'   ? 'bg-rose-100 text-rose-700'   :
+                  r.priority === 'Medium' ? 'bg-amber-100 text-amber-700' :
+                                            'bg-slate-100 text-slate-600'
+                }`}>{r.priority}</span>
+              </div>
+              <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-slate-500">
+                <span>{r.room} · {r.opened}</span>
+                <span className="font-semibold text-slate-700">{r.assignee ?? 'Unassigned'}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
