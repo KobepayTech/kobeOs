@@ -21,6 +21,14 @@ export class HotelRoom extends OwnedEntity {
 
   @Column({ default: 'available' })
   status!: 'available' | 'occupied' | 'reserved' | 'maintenance';
+
+  /** Property this room belongs to (HotelTenant.id). Nullable for legacy rows
+   *  predating the multi-property switch — the controller treats missing
+   *  hotelId as "any property" so the legacy single-hotel dashboard keeps
+   *  working unchanged. */
+  @Index()
+  @Column({ type: 'uuid', nullable: true })
+  hotelId?: string | null;
 }
 
 @Entity('hotel_guests')
@@ -42,6 +50,10 @@ export class HotelGuest extends OwnedEntity {
 
   @Column({ nullable: true, type: 'varchar' })
   idNumber?: string | null;
+
+  @Index()
+  @Column({ type: 'uuid', nullable: true })
+  hotelId?: string | null;
 }
 
 @Entity('hotel_bookings')
@@ -71,6 +83,10 @@ export class HotelBooking extends OwnedEntity {
 
   @Column({ default: 'TZS' })
   currency!: string;
+
+  @Index()
+  @Column({ type: 'uuid', nullable: true })
+  hotelId?: string | null;
 }
 
 @Entity('hotel_tenants')
@@ -153,6 +169,10 @@ export class HotelOrder extends OwnedEntity {
 
   @Column({ default: '' })
   note!: string;
+
+  @Index()
+  @Column({ type: 'uuid', nullable: true })
+  hotelId?: string | null;
 }
 
 @Entity('hotel_service_requests')
@@ -170,4 +190,8 @@ export class HotelServiceRequest extends OwnedEntity {
 
   @Column({ default: 'OPEN' })
   status!: 'OPEN' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+
+  @Index()
+  @Column({ type: 'uuid', nullable: true })
+  hotelId?: string | null;
 }

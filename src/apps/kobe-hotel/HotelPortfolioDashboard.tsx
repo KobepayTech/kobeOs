@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { api } from '@/lib/api';
 import {
   ArrowUpRight, ArrowDownRight, BedDouble, Wallet, TrendingUp,
   AlertTriangle, MapPin,
@@ -43,6 +44,54 @@ const DEMO_PORTFOLIO: PortfolioHotel[] = [
 
 export function getPortfolio(): PortfolioHotel[] {
   return DEMO_PORTFOLIO;
+}
+
+interface BackendPortfolioEntry {
+  id: string;
+  slug: string;
+  name: string;
+  brandColor: string | null;
+  logoUrl: string | null;
+  currency: string;
+  roomsTotal: number;
+  occupied: number;
+  occupancyRate: number;
+  todayCheckIn: number;
+  todayCheckOut: number;
+  revenueToday: number | string;
+  adr: number | string;
+  revPar: number | string;
+  alerts: number;
+}
+
+const FALLBACK_THUMB = 'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=600&h=360&fit=crop';
+
+/**
+ * Fetches the multi-property portfolio from the backend. Returns null when
+ * the caller is not authenticated or has no tenants configured yet — callers
+ * should fall back to `getPortfolio()` for the demo dataset in that case.
+ */
+export async function fetchPortfolio(): Promise<PortfolioHotel[] | null> {
+  try {
+    const rows = await api<BackendPortfolioEntry[]>('/hotel/portfolio');
+    if (!Array.isArray(rows) || rows.length === 0) return null;
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      city: row.slug,
+      country: 'Tanzania',
+      category: 'Business',
+      roomsTotal: row.roomsTotal,
+      occupied: row.occupied,
+      revenueToday: parseFloat(String(row.revenueToday)) || 0,
+      adr: parseFloat(String(row.adr)) || 0,
+      revPar: parseFloat(String(row.revPar)) || 0,
+      alerts: row.alerts,
+      imageUrl: row.logoUrl ?? FALLBACK_THUMB,
+    }));
+  } catch {
+    return null;
+  }
 }
 
 interface Props {

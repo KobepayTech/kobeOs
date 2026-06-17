@@ -41,22 +41,22 @@ export class HotelController {
     return this.tenants.updateMine(uid, dto);
   }
 
-  @Get('rooms') listRooms(@CurrentUser('id') uid: string, @Query('page') page?: string, @Query('limit') limit?: string) {
-    return this.rooms.list(uid, { page: Number(page) || 1, limit: Number(limit) || 50 });
+  @Get('rooms') listRooms(@CurrentUser('id') uid: string, @Query('page') page?: string, @Query('limit') limit?: string, @Query('hotelId') hotelId?: string) {
+    return this.rooms.list(uid, { page: Number(page) || 1, limit: Number(limit) || 50, where: hotelId ? { hotelId } : undefined });
   }
   @Post('rooms') createRoom(@CurrentUser('id') uid: string, @Body() dto: CreateRoomDto) { return this.rooms.create(uid, dto); }
   @Patch('rooms/:id') updateRoom(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: UpdateRoomDto) { return this.rooms.update(uid, id, dto); }
   @Delete('rooms/:id') removeRoom(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.rooms.remove(uid, id); }
 
-  @Get('guests') listGuests(@CurrentUser('id') uid: string, @Query('page') page?: string, @Query('limit') limit?: string) {
-    return this.guests.list(uid, { page: Number(page) || 1, limit: Number(limit) || 50 });
+  @Get('guests') listGuests(@CurrentUser('id') uid: string, @Query('page') page?: string, @Query('limit') limit?: string, @Query('hotelId') hotelId?: string) {
+    return this.guests.list(uid, { page: Number(page) || 1, limit: Number(limit) || 50, where: hotelId ? { hotelId } : undefined });
   }
   @Post('guests') createGuest(@CurrentUser('id') uid: string, @Body() dto: CreateGuestDto) { return this.guests.create(uid, dto); }
   @Patch('guests/:id') updateGuest(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: UpdateGuestDto) { return this.guests.update(uid, id, dto); }
   @Delete('guests/:id') removeGuest(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.guests.remove(uid, id); }
 
-  @Get('bookings') listBookings(@CurrentUser('id') uid: string, @Query('page') page?: string, @Query('limit') limit?: string) {
-    return this.bookings.list(uid, { page: Number(page) || 1, limit: Number(limit) || 50 });
+  @Get('bookings') listBookings(@CurrentUser('id') uid: string, @Query('page') page?: string, @Query('limit') limit?: string, @Query('hotelId') hotelId?: string) {
+    return this.bookings.list(uid, { page: Number(page) || 1, limit: Number(limit) || 50, where: hotelId ? { hotelId } : undefined });
   }
   @Post('bookings') createBooking(@CurrentUser('id') uid: string, @Body() dto: CreateBookingDto) { return this.bookings.createBooking(uid, dto); }
   @Patch('bookings/:id') updateBooking(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: UpdateBookingDto) { return this.bookings.updateBooking(uid, id, dto); }
@@ -71,20 +71,46 @@ export class HotelController {
   @Delete('menu-items/:id') removeMenuItem(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.menu.remove(uid, id); }
 
   // Orders (guest QR portal → kitchen/bar)
-  @Get('orders') listOrders(@CurrentUser('id') uid: string, @Query('page') page?: string, @Query('limit') limit?: string) {
-    return this.orders.list(uid, { page: Number(page) || 1, limit: Number(limit) || 100 });
+  @Get('orders') listOrders(@CurrentUser('id') uid: string, @Query('page') page?: string, @Query('limit') limit?: string, @Query('hotelId') hotelId?: string) {
+    return this.orders.list(uid, { page: Number(page) || 1, limit: Number(limit) || 100, where: hotelId ? { hotelId } : undefined });
   }
   @Post('orders') placeOrder(@CurrentUser('id') uid: string, @Body() dto: CreateOrderDto) { return this.orders.placeOrder(uid, dto); }
   @Patch('orders/:id/status') updateOrderStatus(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: UpdateOrderStatusDto) { return this.orders.updateStatus(uid, id, dto); }
   @Delete('orders/:id') removeOrder(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.orders.remove(uid, id); }
 
   // Service requests (housekeeping, towels, wake-up, etc.)
-  @Get('service-requests') listServiceRequests(@CurrentUser('id') uid: string, @Query('page') page?: string, @Query('limit') limit?: string) {
-    return this.serviceRequests.list(uid, { page: Number(page) || 1, limit: Number(limit) || 100 });
+  @Get('service-requests') listServiceRequests(@CurrentUser('id') uid: string, @Query('page') page?: string, @Query('limit') limit?: string, @Query('hotelId') hotelId?: string) {
+    return this.serviceRequests.list(uid, { page: Number(page) || 1, limit: Number(limit) || 100, where: hotelId ? { hotelId } : undefined });
   }
   @Post('service-requests') createServiceRequest(@CurrentUser('id') uid: string, @Body() dto: CreateServiceRequestDto) { return this.serviceRequests.create(uid, dto); }
   @Patch('service-requests/:id/status') updateServiceRequestStatus(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: UpdateServiceRequestStatusDto) { return this.serviceRequests.updateStatus(uid, id, dto); }
   @Delete('service-requests/:id') removeServiceRequest(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.serviceRequests.remove(uid, id); }
+
+  /** ─────────── Portfolio ─────────── */
+
+  /** Returns every property (HotelTenant) owned by the caller, enriched with
+   *  per-property aggregates (room counts, occupancy, today's revenue, alerts).
+   *  Powers the multi-hotel "All Properties" dashboard. */
+  @Get('portfolio')
+  getPortfolio(@CurrentUser('id') uid: string) {
+    return this.tenants.portfolio(uid);
+  }
+
+  /** Create an additional property for the caller. Unlike POST /hotel/tenant
+   *  which upserts a single primary record, this always inserts a new tenant
+   *  so an owner can register multiple hotels. */
+  @Post('properties')
+  createProperty(@CurrentUser('id') uid: string, @Body() dto: CreateTenantDto) {
+    return this.tenants.createProperty(uid, dto);
+  }
+
+  /** List every property for the caller without aggregates — useful for the
+   *  switcher dropdown when the dashboard hasn't loaded the full portfolio
+   *  yet. */
+  @Get('properties')
+  listProperties(@CurrentUser('id') uid: string) {
+    return this.tenants.listMine(uid);
+  }
 
   /** ─────────── Multi-hotel admin endpoints ─────────── */
 

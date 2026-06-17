@@ -4,10 +4,12 @@ import {
   BedDouble, CalendarCheck, LogOut, Bookmark, ChevronDown,
   Plus, Search, Building2, Check, MapPin,
 } from 'lucide-react';
-import HotelPortfolioDashboard, { getPortfolio, type PortfolioHotel } from './HotelPortfolioDashboard';
+import HotelPortfolioDashboard, { getPortfolio, fetchPortfolio, type PortfolioHotel } from './HotelPortfolioDashboard';
 
 const SELECTED_HOTEL_STORAGE_KEY = 'kobe.hotel.selectedHotelId';
 const ALL_PROPERTIES = '__all__';
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isUuid = (v: string) => UUID_PATTERN.test(v);
 
 /**
  * Body-only Hotel Booker's-style dashboard. Mounts inside the legacy
@@ -63,7 +65,7 @@ const DEMO_GUESTS: GuestRow[] = [
 const PLACEHOLDER_ROOM = 'https://images.unsplash.com/photo-1611892440504-42a792e24d32?w=400&h=240&fit=crop';
 
 export default function HotelBookersDashboard() {
-  const portfolio = useMemo<PortfolioHotel[]>(() => getPortfolio(), []);
+  const [portfolio, setPortfolio] = useState<PortfolioHotel[]>(() => getPortfolio());
   const [selectedHotelId, setSelectedHotelId] = useState<string>(() => {
     try {
       const stored = window.localStorage.getItem(SELECTED_HOTEL_STORAGE_KEY);
@@ -95,13 +97,29 @@ export default function HotelBookersDashboard() {
   const [cleanRows, setCleanRows] = useState<CleanRow[]>(DEMO_CLEAN);
   const [guests, setGuests]   = useState<GuestRow[]>(DEMO_GUESTS);
 
+  // Replace the seeded demo portfolio with the real backend list on mount.
+  // Falls back to demo if the user is offline / unauthenticated / hasn't
+  // configured any properties yet.
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      const real = await fetchPortfolio();
+      if (!cancelled && real && real.length > 0) setPortfolio(real);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    // Only forward hotelId when it's a real backend UUID — demo IDs would
+    // filter to an empty set on the server, but we want the legacy
+    // single-hotel data to keep rendering for the demo properties.
+    const scoped = isUuid(selectedHotelId) ? `?hotelId=${selectedHotelId}` : '';
+    (async () => {
       try {
         const [r, b] = await Promise.all([
-          api<ApiRoom[]>('/hotel/rooms').catch(() => [] as ApiRoom[]),
-          api<ApiBooking[]>('/hotel/bookings').catch(() => [] as ApiBooking[]),
+          api<ApiRoom[]>(`/hotel/rooms${scoped}`).catch(() => [] as ApiRoom[]),
+          api<ApiBooking[]>(`/hotel/bookings${scoped}`).catch(() => [] as ApiBooking[]),
         ]);
         if (cancelled) return;
         if (r.length) {
@@ -141,7 +159,7 @@ export default function HotelBookersDashboard() {
       } catch { /* keep demo */ }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [selectedHotelId]);
 
   const isPortfolio = selectedHotelId === ALL_PROPERTIES;
 
