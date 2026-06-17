@@ -14,3 +14,7 @@ electron/server-bundle/
 electron/.staging/
 build/vcredist/vc_redist.x64.exe
 build/cloudflared/
+
+# Local AI model downloads
+models/
+tools/locateanything/.tmp_input.png
