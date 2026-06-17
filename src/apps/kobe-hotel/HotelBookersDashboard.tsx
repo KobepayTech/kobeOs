@@ -2,8 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import {
   BedDouble, CalendarCheck, LogOut, Bookmark, ChevronDown,
-  Plus, Search,
+  Plus, Search, Building2, Check, MapPin,
 } from 'lucide-react';
+import HotelPortfolioDashboard, { getPortfolio, type PortfolioHotel } from './HotelPortfolioDashboard';
+
+const SELECTED_HOTEL_STORAGE_KEY = 'kobe.hotel.selectedHotelId';
+const ALL_PROPERTIES = '__all__';
 
 /**
  * Body-only Hotel Booker's-style dashboard. Mounts inside the legacy
@@ -59,8 +63,28 @@ const DEMO_GUESTS: GuestRow[] = [
 const PLACEHOLDER_ROOM = 'https://images.unsplash.com/photo-1611892440504-42a792e24d32?w=400&h=240&fit=crop';
 
 export default function HotelBookersDashboard() {
+  const portfolio = useMemo<PortfolioHotel[]>(() => getPortfolio(), []);
+  const [selectedHotelId, setSelectedHotelId] = useState<string>(() => {
+    try {
+      const stored = window.localStorage.getItem(SELECTED_HOTEL_STORAGE_KEY);
+      if (stored) return stored;
+    } catch { /* localStorage unavailable */ }
+    return ALL_PROPERTIES;
+  });
+
+  useEffect(() => {
+    try { window.localStorage.setItem(SELECTED_HOTEL_STORAGE_KEY, selectedHotelId); }
+    catch { /* ignore */ }
+  }, [selectedHotelId]);
+
+  const selectedHotel = useMemo(
+    () => portfolio.find((h) => h.id === selectedHotelId) ?? null,
+    [portfolio, selectedHotelId],
+  );
+
   const [period, setPeriod] = useState<'Daily' | 'Weekly' | 'Monthly'>('Daily');
   const [periodOpen, setPeriodOpen] = useState(false);
+  const [propertyMenuOpen, setPropertyMenuOpen] = useState(false);
 
   const [todayCheckIn, setTodayCheckIn]   = useState(23);
   const [todayCheckOut, setTodayCheckOut] = useState(21);
@@ -119,66 +143,164 @@ export default function HotelBookersDashboard() {
     return () => { cancelled = true; };
   }, []);
 
+  const isPortfolio = selectedHotelId === ALL_PROPERTIES;
+
   return (
     <div
       className="-mx-6 -my-6 px-6 py-6 bg-slate-50 text-slate-900 min-h-full"
       style={{ fontFamily: 'Inter, system-ui, sans-serif' }}
     >
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
-        <section className="xl:col-span-2 space-y-5">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-extrabold text-slate-900">Overview</h2>
-            <div className="relative">
-              <button
-                onClick={() => setPeriodOpen((v) => !v)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-slate-200 bg-white text-xs font-semibold text-slate-700"
-              >
-                {period} <ChevronDown className="w-3 h-3" />
-              </button>
-              {periodOpen && (
-                <div className="absolute right-0 mt-1 w-28 bg-white border border-slate-200 rounded-md shadow-lg overflow-hidden z-10">
-                  {(['Daily', 'Weekly', 'Monthly'] as const).map((p) => (
-                    <button
-                      key={p}
-                      onClick={() => { setPeriod(p); setPeriodOpen(false); }}
-                      className={`w-full px-3 py-1.5 text-left text-xs ${period === p ? 'bg-blue-50 text-blue-600 font-semibold' : 'text-slate-700 hover:bg-slate-50'}`}
-                    >
-                      {p}
-                    </button>
-                  ))}
-                </div>
+      <div className="flex items-center justify-between mb-5">
+        <PropertySwitcher
+          hotels={portfolio}
+          selectedId={selectedHotelId}
+          selectedHotel={selectedHotel}
+          open={propertyMenuOpen}
+          onOpenChange={setPropertyMenuOpen}
+          onSelect={(id) => { setSelectedHotelId(id); setPropertyMenuOpen(false); }}
+        />
+
+        {!isPortfolio && (
+          <div className="relative">
+            <button
+              onClick={() => setPeriodOpen((v) => !v)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-slate-200 bg-white text-xs font-semibold text-slate-700"
+            >
+              {period} <ChevronDown className="w-3 h-3" />
+            </button>
+            {periodOpen && (
+              <div className="absolute right-0 mt-1 w-28 bg-white border border-slate-200 rounded-md shadow-lg overflow-hidden z-10">
+                {(['Daily', 'Weekly', 'Monthly'] as const).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => { setPeriod(p); setPeriodOpen(false); }}
+                    className={`w-full px-3 py-1.5 text-left text-xs ${period === p ? 'bg-blue-50 text-blue-600 font-semibold' : 'text-slate-700 hover:bg-slate-50'}`}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {isPortfolio ? (
+        <HotelPortfolioDashboard hotels={portfolio} onSelectHotel={setSelectedHotelId} />
+      ) : (
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+          <section className="xl:col-span-2 space-y-5">
+            <div>
+              <h2 className="text-xl font-extrabold text-slate-900">{selectedHotel?.name ?? 'Overview'}</h2>
+              {selectedHotel && (
+                <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1">
+                  <MapPin className="w-3 h-3" />{selectedHotel.city} · {selectedHotel.category} · {selectedHotel.roomsTotal} rooms
+                </p>
               )}
             </div>
-          </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <Kpi tone="emerald" icon={<CalendarCheck className="w-4 h-4" />} title="Today's Check in"  value={todayCheckIn}  delta="24%"  deltaDir="up"   sub="Last 7 Days" />
-            <Kpi tone="rose"    icon={<LogOut className="w-4 h-4" />}        title="Today's Check out" value={todayCheckOut} delta="11%"  deltaDir="down" sub="Last 7 Days" />
-            <Kpi tone="amber"   icon={<Bookmark className="w-4 h-4" />}      title="Room's Reserved"   value={reserved}      delta="59%"  deltaDir="up"   sub="Last 7 Days" />
-            <Kpi tone="sky"     icon={<BedDouble className="w-4 h-4" />}     title="Room's Available"  value={available}     delta="41%"  deltaDir="down" sub="Last 7 Days" />
-          </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <Kpi tone="emerald" icon={<CalendarCheck className="w-4 h-4" />} title="Today's Check in"  value={todayCheckIn}  delta="24%"  deltaDir="up"   sub="Last 7 Days" />
+              <Kpi tone="rose"    icon={<LogOut className="w-4 h-4" />}        title="Today's Check out" value={todayCheckOut} delta="11%"  deltaDir="down" sub="Last 7 Days" />
+              <Kpi tone="amber"   icon={<Bookmark className="w-4 h-4" />}      title="Room's Reserved"   value={reserved}      delta="59%"  deltaDir="up"   sub="Last 7 Days" />
+              <Kpi tone="sky"     icon={<BedDouble className="w-4 h-4" />}     title="Room's Available"  value={available}     delta="41%"  deltaDir="down" sub="Last 7 Days" />
+            </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-            {thumbs.map((t) => (
-              <div key={t.id} className="relative rounded-2xl overflow-hidden aspect-[16/10] bg-slate-200">
-                <img src={t.imageUrl} alt={t.type} className="w-full h-full object-cover" />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/0 to-transparent" />
-                <div className="absolute left-3 bottom-2 text-white text-xs font-bold drop-shadow">
-                  {t.number} - {t.type}
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {thumbs.map((t) => (
+                <div key={t.id} className="relative rounded-2xl overflow-hidden aspect-[16/10] bg-slate-200">
+                  <img src={t.imageUrl} alt={t.type} className="w-full h-full object-cover" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/0 to-transparent" />
+                  <div className="absolute left-3 bottom-2 text-white text-xs font-bold drop-shadow">
+                    {t.number} - {t.type}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
+          </section>
+
+          <RoomCleanCard rows={cleanRows} />
+
+          <section className="xl:col-span-2">
+            <GuestListCard guests={guests} />
+          </section>
+
+          <QuickActionCard />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PropertySwitcher({
+  hotels, selectedId, selectedHotel, open, onOpenChange, onSelect,
+}: {
+  hotels: PortfolioHotel[];
+  selectedId: string;
+  selectedHotel: PortfolioHotel | null;
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  onSelect: (id: string) => void;
+}) {
+  const isAll = selectedId === ALL_PROPERTIES;
+  return (
+    <div className="relative">
+      <button
+        onClick={() => onOpenChange(!open)}
+        className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-white shadow-sm hover:border-blue-300"
+      >
+        <span className={`w-7 h-7 rounded-md flex items-center justify-center ${isAll ? 'bg-blue-600' : 'bg-slate-900'} text-white`}>
+          <Building2 className="w-4 h-4" />
+        </span>
+        <span className="text-left">
+          <span className="block text-[10px] uppercase tracking-wide text-slate-400 font-semibold leading-none">Property</span>
+          <span className="block text-sm font-extrabold text-slate-900 leading-tight">
+            {isAll ? `All Properties (${hotels.length})` : selectedHotel?.name ?? 'Select…'}
+          </span>
+        </span>
+        <ChevronDown className="w-4 h-4 text-slate-400" />
+      </button>
+
+      {open && (
+        <div className="absolute left-0 mt-1 w-80 bg-white border border-slate-200 rounded-xl shadow-xl overflow-hidden z-20">
+          <button
+            onClick={() => onSelect(ALL_PROPERTIES)}
+            className={`w-full flex items-center justify-between gap-2 px-3 py-2.5 text-left ${isAll ? 'bg-blue-50' : 'hover:bg-slate-50'} border-b border-slate-100`}
+          >
+            <span className="flex items-center gap-2">
+              <span className="w-7 h-7 rounded-md bg-blue-600 text-white flex items-center justify-center">
+                <Building2 className="w-4 h-4" />
+              </span>
+              <span>
+                <span className="block text-xs font-extrabold text-slate-900">All Properties</span>
+                <span className="block text-[10px] text-slate-500">Group / portfolio view</span>
+              </span>
+            </span>
+            {isAll && <Check className="w-4 h-4 text-blue-600" />}
+          </button>
+          <div className="max-h-72 overflow-y-auto">
+            {hotels.map((h) => {
+              const active = h.id === selectedId;
+              return (
+                <button
+                  key={h.id}
+                  onClick={() => onSelect(h.id)}
+                  className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-left ${active ? 'bg-blue-50' : 'hover:bg-slate-50'}`}
+                >
+                  <span className="flex items-center gap-2 min-w-0">
+                    <img src={h.imageUrl} alt="" className="w-7 h-7 rounded-md object-cover bg-slate-200" />
+                    <span className="min-w-0">
+                      <span className="block text-xs font-bold text-slate-800 truncate">{h.name}</span>
+                      <span className="block text-[10px] text-slate-500 truncate">{h.city} · {h.roomsTotal} rooms</span>
+                    </span>
+                  </span>
+                  {active && <Check className="w-4 h-4 text-blue-600 flex-shrink-0" />}
+                </button>
+              );
+            })}
           </div>
-        </section>
-
-        <RoomCleanCard rows={cleanRows} />
-
-        <section className="xl:col-span-2">
-          <GuestListCard guests={guests} />
-        </section>
-
-        <QuickActionCard />
-      </div>
+        </div>
+      )}
     </div>
   );
 }
