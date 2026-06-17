@@ -5,9 +5,9 @@ import {
   Search, Bell, ChevronDown, Plus, ArrowLeft, ArrowRight,
   Info, Pencil, Trash2, Filter, Columns3, ChevronRight, MoreHorizontal,
   FileDown, ShieldCheck, X,
-  Image as ImageIcon, Smile,
+  Image as ImageIcon,
+  Calendar, Activity, MapPin, MessageCircle,
 } from 'lucide-react';
-import { PieChart, Pie, Cell, ResponsiveContainer } from 'recharts';
 
 /**
  * PropEasy — property-management UI for KobeOS, matching the requested
@@ -661,200 +661,183 @@ function TenantDetailView({
    ══════════════════════════════════════════════════════════════════ */
 
 function DashboardView({ tenants, payments, properties, onOpenTenant }: { tenants: ApiTenant[]; payments: ApiPayment[]; properties: ApiProperty[]; onOpenTenant: (t: ApiTenant) => void }) {
-  // Lease-status cards — use real properties when the operator has data,
-  // fall back to the bundled fixtures so the dashboard never renders empty.
-  const leaseRows: Array<{ name: string; ending: string; rent: number; daysLeft: number; image: string }> =
+  const totalProperties = properties.length || 24;
+  const activeTenants   = tenants.length || 187;
+  const monthlyRevenue  = payments.filter((p) => p.status === 'Paid').reduce((s, p) => s + p.amount, 0) || 47_290;
+  const pendingRequests = tenants.filter((t) => t.balance && t.balance > 0).length || 8;
+
+  const propertyCards: Array<{ id: string; name: string; address: string; image: string; status: 'Occupied' | 'Vacant' | 'Maintenance'; tenants: string; rent: number; nextPayment?: string }> =
     properties.length
-      ? properties.slice(0, 3).map((p, i) => ({
-          name:     p.name || `Unit ${i + 1}`,
-          ending:   '23 Mar 2026',
-          rent:     15_000,
-          daysLeft: [1, 3, 5][i] ?? 5,
-          image:    p.imageUrl || LEASE_STATUS[i]?.image || '',
+      ? properties.slice(0, 4).map((p, i) => ({
+          id: p.id,
+          name: p.name,
+          address: p.address || '—',
+          image: p.imageUrl || DEMO_PROPERTY_IMAGES[i % DEMO_PROPERTY_IMAGES.length],
+          status: DEMO_PROPERTY_FALLBACK[i % DEMO_PROPERTY_FALLBACK.length].status,
+          tenants: DEMO_PROPERTY_FALLBACK[i % DEMO_PROPERTY_FALLBACK.length].tenants,
+          rent: DEMO_PROPERTY_FALLBACK[i % DEMO_PROPERTY_FALLBACK.length].rent,
+          nextPayment: DEMO_PROPERTY_FALLBACK[i % DEMO_PROPERTY_FALLBACK.length].nextPayment,
         }))
-      : LEASE_STATUS;
-  const collected = payments.filter((p) => p.status === 'Paid').reduce((s, p) => s + p.amount, 0) || 15_000;
-  const pending   = payments.filter((p) => p.status !== 'Paid').reduce((s, p) => s + p.amount, 0) || 5_000;
-  const total     = collected + pending;
-  const occupied  = tenants.length || 110;
-  const vacant    = Math.max(0, 200 - occupied) || 34;
+      : DEMO_PROPERTY_FALLBACK;
+
+  const recentActivity: Array<{ id: string; kind: 'payment' | 'maintenance' | 'tenant' | 'message'; title: string; when: string }> = [
+    { id: 'a1', kind: 'payment',     title: `Rent payment received from ${tenants[0]?.name ?? 'John Doe'}`, when: '2 hours ago' },
+    { id: 'a2', kind: 'maintenance', title: 'Maintenance request submitted for Unit 4B',                    when: '4 hours ago' },
+    { id: 'a3', kind: 'tenant',      title: 'New tenant application received',                              when: '1 day ago' },
+    { id: 'a4', kind: 'message',     title: 'Message from Sarah Johnson about lease renewal',               when: '2 days ago' },
+  ];
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-4">
-      {/* ─── Main column ─────────────────────────────────────────── */}
-      <div className="space-y-4">
-        {/* Big metric strip with pie chart + pay-reminder */}
-        <div className="bg-white rounded-2xl border border-slate-100 p-5 grid grid-cols-1 md:grid-cols-[1fr_auto_1fr_auto] items-center gap-5">
-          <div>
-            <div className="text-3xl font-extrabold text-rose-500">${pending.toLocaleString()}</div>
-            <div className="text-[10px] tracking-wider text-slate-400 mt-1 uppercase">Pending</div>
-            <div className="text-xs text-slate-500 mt-3">{Math.max(1, Math.round(occupied * 0.55))}/200 <span className="text-slate-400">tenants</span></div>
-            <AvatarStack tenants={tenants.filter((t) => t.balance && t.balance > 0).slice(0, 5)} extra={Math.max(0, tenants.filter((t) => t.balance && t.balance > 0).length - 5)} />
-          </div>
-
-          <div className="relative w-32 h-32 mx-auto">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={[
-                    { name: 'Collected', value: collected, color: '#10b981' },
-                    { name: 'Pending',   value: pending,   color: '#ef4444' },
-                  ]}
-                  innerRadius={42}
-                  outerRadius={56}
-                  paddingAngle={2}
-                  dataKey="value"
-                  stroke="none"
-                >
-                  <Cell fill="#10b981" />
-                  <Cell fill="#ef4444" />
-                </Pie>
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-              <div className="text-xs text-slate-400 font-medium">March</div>
-              <div className="text-sm font-bold mt-0.5">${total.toLocaleString()}</div>
-            </div>
-          </div>
-
-          <div className="text-right md:text-left">
-            <div className="text-3xl font-extrabold">${collected.toLocaleString()}</div>
-            <div className="text-[10px] tracking-wider text-slate-400 mt-1 uppercase">Collected</div>
-            <div className="text-xs text-slate-500 mt-3">{occupied}/200 <span className="text-slate-400">tenants</span></div>
-            <AvatarStack tenants={tenants.filter((t) => !t.balance).slice(0, 5)} extra={Math.max(0, tenants.filter((t) => !t.balance).length - 5)} align="right" />
-          </div>
-
-          <div className="bg-amber-400 rounded-2xl p-4 flex flex-col gap-2 min-w-[160px]">
-            <Bell className="w-5 h-5 text-amber-900" />
-            <div>
-              <div className="text-sm font-bold text-amber-900">Pay Reminder</div>
-              <div className="text-[11px] text-amber-900/80">Send reminder</div>
-            </div>
-            <button className="self-start mt-1 px-3 py-1 rounded-full bg-white text-amber-700 text-[11px] font-bold flex items-center gap-1 hover:bg-amber-50">
-              REMIND <ArrowRight className="w-3 h-3" />
-            </button>
-          </div>
-        </div>
-
-        {/* Tenant requests + Lease status */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <div className="bg-white rounded-2xl border border-slate-100 p-5">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-bold text-sm">Tenant Request</h3>
-              <button className="text-[11px] text-blue-600 font-semibold">View All</button>
-            </div>
-            <div className="space-y-2">
-              {tenants.slice(0, 5).map((t) => (
-                <div key={t.id} className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg bg-slate-50">
-                  <div className="flex items-center gap-3 min-w-0">
-                    {t.avatarUrl
-                      ? <img src={t.avatarUrl} alt="" className="w-9 h-9 rounded-full object-cover" />
-                      : <div className="w-9 h-9 rounded-full bg-slate-300" />}
-                    <div className="min-w-0">
-                      <div className="text-sm font-semibold truncate">{t.name}</div>
-                      <div className="text-[11px] text-slate-500 truncate">{t.unitKind} · {t.propertyName}</div>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => onOpenTenant(t)}
-                    className="px-3 py-1.5 rounded-full bg-amber-400 hover:bg-amber-300 text-amber-900 text-[11px] font-bold flex items-center gap-1"
-                  >
-                    VIEW <ArrowRight className="w-3 h-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="bg-white rounded-2xl border border-slate-100 p-5">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-bold text-sm">Lease Status</h3>
-              <button className="text-[11px] text-blue-600 font-semibold">View All</button>
-            </div>
-            <div className="space-y-2">
-              {leaseRows.map((l, i) => (
-                <div key={i} className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-slate-50">
-                  <div className="w-14 h-14 rounded-lg bg-slate-200 bg-cover bg-center shrink-0" style={{ backgroundImage: `url('${l.image}')` }} />
-                  <div className="flex-1 min-w-0 text-xs">
-                    <div className="font-semibold text-sm">{l.name}</div>
-                    <div className="text-slate-500 flex items-center gap-2">
-                      <span>Ending</span><span className="text-slate-700 font-medium">{l.ending}</span>
-                    </div>
-                    <div className="text-slate-500 flex items-center gap-2">
-                      <span>Rent</span><span className="text-slate-700 font-medium">KES {l.rent.toLocaleString()}</span>
-                    </div>
-                  </div>
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${l.daysLeft <= 1 ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-600'}`}>
-                    {l.daysLeft} {l.daysLeft === 1 ? 'Day' : 'Days'}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+    <div className="space-y-5">
+      <div>
+        <h2 className="text-2xl font-extrabold text-slate-900">Dashboard Overview</h2>
+        <p className="text-sm text-slate-500 mt-0.5">Welcome back! Here's what's happening with your properties.</p>
       </div>
 
-      {/* ─── Right sidebar (Vacant/Occupied, Activity, Alerts) ─────────── */}
-      <div className="space-y-4">
-        <div className="bg-white rounded-2xl border border-slate-100 p-5">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-12 h-12 rounded-full bg-gradient-to-br from-amber-400 to-orange-500" />
-            <div>
-              <div className="font-bold text-sm">Hi Courtney, morning <span className="text-amber-500">👋</span></div>
-              <div className="text-[11px] text-slate-400">courtney@example.com</div>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3 mb-4">
-            <div className="rounded-xl bg-slate-50 p-3 text-center">
-              <div className="text-xl font-extrabold">{vacant}</div>
-              <div className="text-[10px] text-slate-500 tracking-wide uppercase mt-0.5">Vacant</div>
-            </div>
-            <div className="rounded-xl bg-slate-50 p-3 text-center">
-              <div className="text-xl font-extrabold">{occupied}</div>
-              <div className="text-[10px] text-slate-500 tracking-wide uppercase mt-0.5">Occupied</div>
-            </div>
-          </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <PpKpi title="Total Properties" value={totalProperties.toLocaleString()} delta="+2 this month"           tone="blue"   icon={<Home className="w-5 h-5 text-white" />} />
+        <PpKpi title="Active Tenants"   value={activeTenants.toLocaleString()}   delta="+12 this month"          tone="emerald" icon={<Users className="w-5 h-5 text-white" />} />
+        <PpKpi title="Monthly Revenue"  value={`$${monthlyRevenue.toLocaleString()}`} delta="+8.2% from last month" tone="violet" icon={<Calendar className="w-5 h-5 text-white" />} />
+        <PpKpi title="Pending Requests" value={pendingRequests.toLocaleString()} delta="-3 from yesterday" deltaNeg tone="orange" icon={<Activity className="w-5 h-5 text-white" />} />
+      </div>
 
-          <h4 className="font-bold text-sm mb-2">Activity</h4>
-          <div className="space-y-2.5">
-            {tenants.slice(0, 5).map((t, i) => (
-              <div key={t.id} className="flex items-center gap-2.5 text-[11px]">
-                {t.avatarUrl
-                  ? <img src={t.avatarUrl} alt="" className="w-7 h-7 rounded-full object-cover shrink-0" />
-                  : <div className="w-7 h-7 rounded-full bg-slate-300 shrink-0" />}
-                <div className="flex-1 min-w-0">
-                  <span className="font-semibold">{t.name}</span>
-                  <span className="text-slate-500"> : January month rent has paid the rent</span>
-                </div>
-                <span className="text-slate-400 text-[10px]">{2 + i * 2}m</span>
-              </div>
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-5">
+        <section>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-lg font-extrabold text-slate-900">Properties</h3>
+            <button className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold">
+              <Plus className="w-3.5 h-3.5" /> Add Property
+            </button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {propertyCards.map((p) => (
+              <PropertyCard
+                key={p.id}
+                card={p}
+                onView={() => {
+                  const occupant = tenants.find((t) => t.propertyName === p.name);
+                  if (occupant) onOpenTenant(occupant);
+                }}
+              />
             ))}
           </div>
+        </section>
 
-          <h4 className="font-bold text-sm mt-4 mb-2">Alerts</h4>
-          <div className="text-[11px] text-slate-500">
-            You have <span className="text-rose-500 font-semibold">23 Tenants</span> who are going to complete 1 Yr
+        <aside className="space-y-4">
+          <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-sm">
+            <h3 className="text-base font-extrabold text-slate-900 mb-3">Recent Activity</h3>
+            <ul className="space-y-3">
+              {recentActivity.map((a) => (
+                <li key={a.id} className="flex items-start gap-3">
+                  <ActivityIcon kind={a.kind} />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs text-slate-700 leading-snug">{a.title}</div>
+                    <div className="text-[11px] text-slate-400 mt-0.5">{a.when}</div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            <button className="mt-4 text-xs font-semibold text-blue-600 hover:text-blue-500 w-full text-center">View all activity</button>
           </div>
 
-          <div className="mt-4 rounded-xl bg-slate-50 p-3 flex items-center gap-2 text-xs">
-            <Smile className="w-4 h-4 text-emerald-500" />
-            <div className="flex-1">
-              <div className="font-semibold">Eric Nduku</div>
-              <div className="text-[10px] text-slate-500">Say Congratulations</div>
+          <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-sm">
+            <h3 className="text-base font-extrabold text-slate-900 mb-3">Quick Actions</h3>
+            <div className="space-y-2">
+              <QaButton icon={<DollarSign className="w-4 h-4 text-emerald-600" />}     label="Collect Rent Payment" />
+              <QaButton icon={<Wrench className="w-4 h-4 text-amber-600" />}            label="Schedule Maintenance" />
+              <QaButton icon={<MessageCircle className="w-4 h-4 text-blue-600" />}      label="Send Message to Tenant" />
+              <QaButton icon={<FileText className="w-4 h-4 text-violet-600" />}         label="Generate Report" />
             </div>
-            <ArrowRight className="w-3 h-3 text-slate-400" />
           </div>
-        </div>
+        </aside>
       </div>
     </div>
   );
 }
 
-/** Lease-status fixtures used by the dashboard right column. */
-const LEASE_STATUS: Array<{ name: string; ending: string; rent: number; daysLeft: number; image: string }> = [
-  { name: '5BHK Apartment', ending: '23 Mar 2019', rent: 15_000, daysLeft: 1, image: 'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=200&q=80' },
-  { name: '2BHK Apartment', ending: '23 Mar 2019', rent: 15_000, daysLeft: 3, image: 'https://images.unsplash.com/photo-1502672023488-70e25813eb80?w=200&q=80' },
-  { name: '4BHK Apartment', ending: '23 Mar 2019', rent: 15_000, daysLeft: 5, image: 'https://images.unsplash.com/photo-1494526585095-c41746248156?w=200&q=80' },
+function PpKpi({ title, value, delta, tone, icon, deltaNeg }: { title: string; value: string; delta: string; tone: 'blue' | 'emerald' | 'violet' | 'orange'; icon: React.ReactNode; deltaNeg?: boolean }) {
+  const bg = { blue: 'bg-blue-500', emerald: 'bg-emerald-500', violet: 'bg-violet-500', orange: 'bg-orange-500' }[tone];
+  return (
+    <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm flex items-start justify-between gap-3">
+      <div>
+        <div className="text-xs font-semibold text-slate-500">{title}</div>
+        <div className="text-2xl font-extrabold text-slate-900 mt-1">{value}</div>
+        <div className={`text-[11px] font-semibold mt-1 ${deltaNeg ? 'text-rose-500' : 'text-emerald-600'}`}>{delta}</div>
+      </div>
+      <div className={`w-11 h-11 rounded-full ${bg} flex items-center justify-center shrink-0`}>{icon}</div>
+    </div>
+  );
+}
+
+function PropertyCard({ card, onView }: {
+  card: { id: string; name: string; address: string; image: string; status: 'Occupied' | 'Vacant' | 'Maintenance'; tenants: string; rent: number; nextPayment?: string };
+  onView: () => void;
+}) {
+  const statusTone =
+    card.status === 'Occupied'   ? 'bg-emerald-100 text-emerald-700' :
+    card.status === 'Vacant'     ? 'bg-amber-100 text-amber-700'     :
+                                   'bg-rose-100 text-rose-700';
+  return (
+    <button onClick={onView} className="text-left bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-sm hover:shadow transition-shadow">
+      <div className="relative aspect-[16/9] bg-slate-200">
+        <img src={card.image} alt={card.name} className="w-full h-full object-cover" />
+        <span className={`absolute top-2 right-2 px-2 py-0.5 rounded-full text-[10px] font-bold ${statusTone}`}>{card.status}</span>
+      </div>
+      <div className="p-4 space-y-1.5">
+        <div className="font-bold text-sm text-slate-900">{card.name}</div>
+        <div className="flex items-center gap-1 text-[11px] text-slate-500">
+          <MapPin className="w-3 h-3" /> {card.address}
+        </div>
+        <div className="flex items-center justify-between pt-1">
+          <div className="flex items-center gap-1 text-[11px] text-slate-500">
+            <Users className="w-3 h-3" /> {card.tenants} tenants
+          </div>
+          <div className="text-sm font-extrabold text-blue-600">${card.rent.toLocaleString()}<span className="text-[10px] font-semibold text-slate-400">/mo</span></div>
+        </div>
+        {card.nextPayment && (
+          <div className="flex items-center gap-1 text-[11px] text-slate-500 pt-1 border-t border-slate-100 mt-2">
+            <Calendar className="w-3 h-3" /> Next payment: {card.nextPayment}
+          </div>
+        )}
+      </div>
+    </button>
+  );
+}
+
+function ActivityIcon({ kind }: { kind: 'payment' | 'maintenance' | 'tenant' | 'message' }) {
+  const { bg, color, Icon } =
+    kind === 'payment'     ? { bg: 'bg-emerald-100', color: 'text-emerald-600', Icon: Calendar } :
+    kind === 'maintenance' ? { bg: 'bg-rose-100',    color: 'text-rose-600',    Icon: Activity } :
+    kind === 'tenant'      ? { bg: 'bg-blue-100',    color: 'text-blue-600',    Icon: Users    } :
+                             { bg: 'bg-violet-100',  color: 'text-violet-600',  Icon: MessageCircle };
+  return (
+    <div className={`w-8 h-8 rounded-lg ${bg} flex items-center justify-center shrink-0`}>
+      <Icon className={`w-4 h-4 ${color}`} />
+    </div>
+  );
+}
+
+function QaButton({ icon, label }: { icon: React.ReactNode; label: string }) {
+  return (
+    <button className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-xs font-semibold text-slate-700 text-left">
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+const DEMO_PROPERTY_IMAGES = [
+  'https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?w=600&h=360&fit=crop',
+  'https://images.unsplash.com/photo-1568605114967-8130f3a36994?w=600&h=360&fit=crop',
+  'https://images.unsplash.com/photo-1494526585095-c41746248156?w=600&h=360&fit=crop',
+  'https://images.unsplash.com/photo-1545324418-cc1a3fa10c00?w=600&h=360&fit=crop',
+];
+
+const DEMO_PROPERTY_FALLBACK: Array<{ id: string; name: string; address: string; image: string; status: 'Occupied' | 'Vacant' | 'Maintenance'; tenants: string; rent: number; nextPayment?: string }> = [
+  { id: 'demo-1', name: 'Sunset Apartments', address: '123 Oak Street, Downtown', image: DEMO_PROPERTY_IMAGES[0], status: 'Occupied',   tenants: '8/10',  rent: 2400, nextPayment: 'Dec 1, 2024' },
+  { id: 'demo-2', name: 'Riverside Condos',  address: '456 River Road, Westside', image: DEMO_PROPERTY_IMAGES[1], status: 'Vacant',     tenants: '0/6',   rent: 1800 },
+  { id: 'demo-3', name: 'Garden Heights',    address: '789 Garden Ave, Eastside', image: DEMO_PROPERTY_IMAGES[2], status: 'Occupied',   tenants: '12/12', rent: 3200, nextPayment: 'Nov 28, 2024' },
+  { id: 'demo-4', name: 'Metro Plaza',       address: '321 Metro Blvd, Central',  image: DEMO_PROPERTY_IMAGES[3], status: 'Maintenance', tenants: '4/8',   rent: 2800 },
 ];
 
 /* ════════════════════════════════════════════════════════════════════
@@ -1162,29 +1145,6 @@ function Th({ children, sortable, tight }: { children: React.ReactNode; sortable
 
 function Td({ children, tight, className = '' }: { children: React.ReactNode; tight?: boolean; className?: string }) {
   return <td className={`${tight ? 'px-3 py-2' : 'px-4 py-3'} ${className}`}>{children}</td>;
-}
-
-/**
- * Overlapping-avatar chip used under the Pending/Collected totals on the
- * dashboard. Mirrors the IRES "+12" cluster — up to 5 tenants stacked
- * with -1.5 overlap, then a final circle showing the count of the rest.
- */
-function AvatarStack({ tenants, extra, align = 'left' }: { tenants: ApiTenant[]; extra: number; align?: 'left' | 'right' }) {
-  if (tenants.length === 0 && extra === 0) return null;
-  return (
-    <div className={`mt-2 flex items-center -space-x-1.5 ${align === 'right' ? 'justify-end' : ''}`}>
-      {tenants.map((t) => (
-        t.avatarUrl
-          ? <img key={t.id} src={t.avatarUrl} alt={t.name} title={t.name} className="w-6 h-6 rounded-full ring-2 ring-white object-cover" />
-          : <div key={t.id} title={t.name} className="w-6 h-6 rounded-full ring-2 ring-white bg-slate-300 flex items-center justify-center text-[8px] font-bold text-white">{initials(t.name)}</div>
-      ))}
-      {extra > 0 && (
-        <div className="w-6 h-6 rounded-full ring-2 ring-white bg-amber-100 text-amber-800 text-[9px] font-bold flex items-center justify-center">
-          +{extra}
-        </div>
-      )}
-    </div>
-  );
 }
 
 function EmptyState({ title, subtitle }: { title: string; subtitle: string }) {
