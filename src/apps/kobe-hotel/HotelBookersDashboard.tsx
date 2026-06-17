@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import {
   BedDouble, CalendarCheck, LogOut, Bookmark, ChevronDown,
-  Plus, Search, Building2, Check, MapPin,
+  Plus, Search, Building2, Check, MapPin, Star, Sparkles, TrendingUp,
+  ArrowUpRight,
 } from 'lucide-react';
 import HotelPortfolioDashboard, { getPortfolio, fetchPortfolio, type PortfolioHotel } from './HotelPortfolioDashboard';
 
@@ -235,6 +236,11 @@ export default function HotelBookersDashboard() {
                 </div>
               ))}
             </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <ReviewsCard hotel={selectedHotel} />
+              <PricingHintCard hotel={selectedHotel} occupancyPct={selectedHotel ? Math.round((selectedHotel.occupied / Math.max(1, selectedHotel.roomsTotal)) * 100) : 0} />
+            </div>
           </section>
 
           <RoomCleanCard rows={cleanRows} />
@@ -349,6 +355,111 @@ function Kpi({
         </div>
         <span className="text-2xl font-extrabold text-slate-900">{value}</span>
       </div>
+    </div>
+  );
+}
+
+// ─── Reviews aggregator (Google / TripAdvisor / Booking) ─────────────
+// Demo data only — when a reviews backend lands, swap for /hotel/reviews?hotelId=…
+function ReviewsCard({ hotel }: { hotel: PortfolioHotel | null }) {
+  const score = hotel ? 4.3 + ((hotel.id.charCodeAt(0) % 6) / 10) : 4.6;
+  const reviews = hotel ? 80 + (hotel.id.charCodeAt(1) % 90) : 142;
+  const breakdown = [
+    { src: 'Google',      score: clamp(score + 0.1),  color: 'bg-blue-100 text-blue-700' },
+    { src: 'TripAdvisor', score: clamp(score - 0.2),  color: 'bg-emerald-100 text-emerald-700' },
+    { src: 'Booking',     score: clamp(score),        color: 'bg-violet-100 text-violet-700' },
+  ];
+  return (
+    <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-sm">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-base font-extrabold text-slate-900">Reviews</h3>
+        <span className="text-[10px] text-slate-500">across 3 sources</span>
+      </div>
+      <div className="flex items-end gap-2 mb-3">
+        <span className="text-3xl font-extrabold text-slate-900 leading-none">{score.toFixed(1)}</span>
+        <span className="text-xs text-slate-500 pb-0.5">/ 5</span>
+        <div className="flex gap-0.5 pb-1 ml-1">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <Star key={i} className={`w-3 h-3 ${i < Math.round(score) ? 'text-amber-400 fill-amber-400' : 'text-slate-200'}`} />
+          ))}
+        </div>
+        <span className="ml-auto text-[10px] font-semibold text-emerald-600 inline-flex items-center gap-0.5">
+          <ArrowUpRight className="w-3 h-3" />0.2 this month
+        </span>
+      </div>
+      <div className="space-y-1.5 mb-3">
+        {breakdown.map((b) => (
+          <div key={b.src} className="flex items-center gap-2 text-[11px]">
+            <span className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-extrabold ${b.color} w-20 text-center`}>{b.src}</span>
+            <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+              <div className="h-full bg-amber-400" style={{ width: `${(b.score / 5) * 100}%` }} />
+            </div>
+            <span className="w-8 text-right font-extrabold text-slate-700">{b.score.toFixed(1)}</span>
+          </div>
+        ))}
+      </div>
+      <div className="border-t border-slate-100 pt-2.5">
+        <p className="text-[11px] text-slate-600 italic line-clamp-2">
+          “Friendly staff, the pool view was incredible at sunset. Breakfast spread is worth waking up for.”
+        </p>
+        <p className="text-[10px] text-slate-400 mt-1">— Sarah J., Google · {reviews} reviews total</p>
+      </div>
+    </div>
+  );
+}
+function clamp(n: number) { return Math.max(0, Math.min(5, parseFloat(n.toFixed(1)))); }
+
+// ─── Dynamic pricing hint ────────────────────────────────────────────
+// Heuristic-only: nudges the rate up at high occupancy, down at low. A real
+// implementation would call a /hotel/pricing-suggestion endpoint that pulls
+// peer ADR + booking velocity.
+function PricingHintCard({ hotel, occupancyPct }: { hotel: PortfolioHotel | null; occupancyPct: number }) {
+  const baseAdr = hotel?.adr ?? 100_000;
+  // Push +20% above 85% occupancy, +10% above 70%, hold at 50–70%, −10% below 50%.
+  const factor =
+    occupancyPct >= 85 ? 1.20 :
+    occupancyPct >= 70 ? 1.10 :
+    occupancyPct >= 50 ? 1.00 :
+                          0.90;
+  const suggested = Math.round(baseAdr * factor);
+  const delta = suggested - baseAdr;
+  const upward = delta > 0;
+  const flat   = delta === 0;
+  return (
+    <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-sm">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-base font-extrabold text-slate-900">Suggested Rate Today</h3>
+        <Sparkles className="w-4 h-4 text-violet-500" />
+      </div>
+      <div className="flex items-baseline gap-2">
+        <span className="text-3xl font-extrabold text-slate-900">TZS {(suggested / 1000).toFixed(0)}K</span>
+        <span className={`text-xs font-extrabold inline-flex items-center gap-0.5 ${
+          flat ? 'text-slate-400' : upward ? 'text-emerald-600' : 'text-rose-600'
+        }`}>
+          {flat ? '— hold' : (upward ? '↗ +' : '↘ ') + `${Math.abs(Math.round((delta / baseAdr) * 100))}%`}
+        </span>
+      </div>
+      <p className="text-[11px] text-slate-500 mt-1">
+        Current ADR <span className="font-bold text-slate-700">TZS {(baseAdr / 1000).toFixed(0)}K</span>
+      </p>
+      <div className="mt-3 grid grid-cols-2 gap-2 text-[10px]">
+        <div className="rounded-lg bg-slate-50 px-2.5 py-2">
+          <div className="text-slate-400 uppercase tracking-wide font-semibold">Occupancy</div>
+          <div className="text-sm font-extrabold text-slate-800 mt-0.5">{occupancyPct}%</div>
+        </div>
+        <div className="rounded-lg bg-slate-50 px-2.5 py-2">
+          <div className="text-slate-400 uppercase tracking-wide font-semibold">Reason</div>
+          <div className="text-[10px] font-semibold text-slate-700 mt-0.5 leading-tight">
+            {occupancyPct >= 85 ? 'Near-full, capture upside' :
+             occupancyPct >= 70 ? 'High demand, push +10%'    :
+             occupancyPct >= 50 ? 'Steady, hold the rate'     :
+                                  'Soft demand, discount −10%'}
+          </div>
+        </div>
+      </div>
+      <button className="mt-3 w-full py-2 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-xs font-extrabold inline-flex items-center justify-center gap-1.5">
+        <TrendingUp className="w-3.5 h-3.5" />Apply Suggested Rate
+      </button>
     </div>
   );
 }

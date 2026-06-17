@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { api } from '@/lib/api';
 import {
   ArrowUpRight, ArrowDownRight, BedDouble, Wallet, TrendingUp,
-  AlertTriangle, MapPin,
+  AlertTriangle, MapPin, BellRing, Wrench, ShieldAlert, Sparkles,
 } from 'lucide-react';
 
 /**
@@ -143,7 +143,7 @@ export default function HotelPortfolioDashboard({ hotels = DEMO_PORTFOLIO, onSel
           </div>
         </section>
 
-        <section>
+        <section className="space-y-5">
           <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-sm">
             <h3 className="text-base font-extrabold text-slate-900 mb-1">Leaderboard</h3>
             <p className="text-[11px] text-slate-500 mb-4">Ranked by RevPAR today</p>
@@ -170,10 +170,107 @@ export default function HotelPortfolioDashboard({ hotels = DEMO_PORTFOLIO, onSel
               ))}
             </ol>
           </div>
+
+          <AlertsFeedCard hotels={hotels} onSelectHotel={onSelectHotel} />
         </section>
       </div>
     </div>
   );
+}
+
+// ─── Alerts Feed ─────────────────────────────────────────────────────
+// Synthesises per-hotel alerts (maintenance, low occupancy, low score) from
+// the portfolio's `alerts` count and occupancy. Replace with /hotel/alerts
+// when the backend ships real notifications.
+function AlertsFeedCard({ hotels, onSelectHotel }: { hotels: PortfolioHotel[]; onSelectHotel: (id: string) => void }) {
+  const items = useMemo(() => buildAlerts(hotels), [hotels]);
+  const open = items.length;
+  return (
+    <div className="bg-white rounded-2xl border border-slate-100 p-5 shadow-sm">
+      <div className="flex items-center justify-between mb-1">
+        <h3 className="text-base font-extrabold text-slate-900 inline-flex items-center gap-1.5">
+          <BellRing className="w-4 h-4 text-rose-500" />Alerts
+        </h3>
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-100 text-rose-700 text-[10px] font-extrabold">
+          {open} open
+        </span>
+      </div>
+      <p className="text-[11px] text-slate-500 mb-4">Across all properties</p>
+      {items.length === 0 ? (
+        <p className="text-xs text-slate-400 italic">No open alerts — all properties look healthy.</p>
+      ) : (
+        <ul className="space-y-2">
+          {items.map((a) => (
+            <li key={a.id}>
+              <button
+                onClick={() => onSelectHotel(a.hotelId)}
+                className="w-full flex items-start gap-2.5 px-2 py-2 rounded-lg hover:bg-slate-50 text-left"
+              >
+                <span className={`w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0 ${a.tone}`}>
+                  <a.Icon className="w-3.5 h-3.5" />
+                </span>
+                <span className="flex-1 min-w-0">
+                  <span className="block text-[11px] font-extrabold text-slate-800 leading-tight">{a.title}</span>
+                  <span className="block text-[10px] text-slate-500 truncate">{a.hotelName} · {a.when}</span>
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+interface PortfolioAlert {
+  id: string;
+  hotelId: string;
+  hotelName: string;
+  title: string;
+  when: string;
+  tone: string;
+  Icon: typeof Wrench;
+}
+
+function buildAlerts(hotels: PortfolioHotel[]): PortfolioAlert[] {
+  const out: PortfolioAlert[] = [];
+  for (const h of hotels) {
+    if (h.alerts > 0) {
+      out.push({
+        id: `${h.id}-maint`,
+        hotelId: h.id,
+        hotelName: h.name,
+        title: `${h.alerts} maintenance ${h.alerts === 1 ? 'issue' : 'issues'}`,
+        when: 'pending action',
+        tone: 'bg-rose-100 text-rose-600',
+        Icon: Wrench,
+      });
+    }
+    const occupancyPct = h.roomsTotal ? Math.round((h.occupied / h.roomsTotal) * 100) : 0;
+    if (occupancyPct < 50) {
+      out.push({
+        id: `${h.id}-occ`,
+        hotelId: h.id,
+        hotelName: h.name,
+        title: `Low occupancy ${occupancyPct}% — push promos`,
+        when: 'today',
+        tone: 'bg-amber-100 text-amber-700',
+        Icon: ShieldAlert,
+      });
+    }
+    if (h.revPar < 60_000) {
+      out.push({
+        id: `${h.id}-revpar`,
+        hotelId: h.id,
+        hotelName: h.name,
+        title: `RevPAR underperforming peers`,
+        when: 'this week',
+        tone: 'bg-violet-100 text-violet-700',
+        Icon: Sparkles,
+      });
+    }
+  }
+  return out.slice(0, 6);
 }
 
 function PropertyCard({ hotel, onClick }: { hotel: PortfolioHotel; onClick: () => void }) {
