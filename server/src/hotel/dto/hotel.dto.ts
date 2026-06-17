@@ -8,12 +8,14 @@ export class CreateRoomDto {
   @IsOptional() @IsString() @MaxLength(8) currency?: string;
   @IsOptional() @IsInt() @Min(1) capacity?: number;
   @IsOptional() @IsEnum(['available', 'occupied', 'reserved', 'maintenance']) status?: 'available' | 'occupied' | 'reserved' | 'maintenance';
+  @IsOptional() @IsUUID() hotelId?: string;
 }
 export class UpdateRoomDto {
   @IsOptional() @IsString() type?: string;
   @IsOptional() @IsNumber() @Min(0) rate?: number;
   @IsOptional() @IsInt() @Min(1) capacity?: number;
   @IsOptional() @IsEnum(['available', 'occupied', 'reserved', 'maintenance']) status?: 'available' | 'occupied' | 'reserved' | 'maintenance';
+  @IsOptional() @IsUUID() hotelId?: string;
 }
 
 export class CreateGuestDto {
@@ -23,6 +25,7 @@ export class CreateGuestDto {
   @IsOptional() @IsString() nationality?: string;
   @IsOptional() @IsString() idType?: string;
   @IsOptional() @IsString() idNumber?: string;
+  @IsOptional() @IsUUID() hotelId?: string;
 }
 export class UpdateGuestDto extends CreateGuestDto {
   @IsOptional() @IsString() declare name: string;
@@ -37,6 +40,7 @@ export class CreateBookingDto {
   @IsOptional() @IsInt() @Min(1) guestCount?: number;
   @IsOptional() @IsNumber() @Min(0) totalAmount?: number;
   @IsOptional() @IsString() @MaxLength(8) currency?: string;
+  @IsOptional() @IsUUID() hotelId?: string;
 }
 export class UpdateBookingDto {
   @IsOptional() @IsEnum(['PENDING', 'CONFIRMED', 'CHECKED_IN', 'CHECKED_OUT', 'CANCELLED']) status?: 'PENDING' | 'CONFIRMED' | 'CHECKED_IN' | 'CHECKED_OUT' | 'CANCELLED';
@@ -67,6 +71,7 @@ export class CreateMenuItemDto {
   @IsOptional() @IsString() @MaxLength(8) currency?: string;
   @IsOptional() @IsBoolean() available?: boolean;
   @IsOptional() @IsEnum(['kitchen', 'bar', 'other']) station?: 'kitchen' | 'bar' | 'other';
+  @IsOptional() @IsUUID() hotelId?: string;
 }
 export class UpdateMenuItemDto {
   @IsOptional() @IsString() name?: string;
@@ -75,6 +80,7 @@ export class UpdateMenuItemDto {
   @IsOptional() @IsString() currency?: string;
   @IsOptional() @IsBoolean() available?: boolean;
   @IsOptional() @IsEnum(['kitchen', 'bar', 'other']) station?: 'kitchen' | 'bar' | 'other';
+  @IsOptional() @IsUUID() hotelId?: string;
 }
 
 export class OrderItemDto {
@@ -91,6 +97,7 @@ export class CreateOrderDto {
   @IsArray() @ValidateNested({ each: true }) @Type(() => OrderItemDto) items!: OrderItemDto[];
   @IsOptional() @IsString() @MaxLength(8) currency?: string;
   @IsOptional() @IsString() @MaxLength(500) note?: string;
+  @IsOptional() @IsUUID() hotelId?: string;
 }
 export class UpdateOrderStatusDto {
   @IsEnum(['PENDING', 'ACCEPTED', 'PREPARING', 'READY', 'DELIVERED', 'CANCELLED'])
@@ -101,6 +108,7 @@ export class CreateServiceRequestDto {
   @IsString() @MaxLength(40) roomNumber!: string;
   @IsString() @MaxLength(40) kind!: string;
   @IsOptional() @IsString() @MaxLength(500) note?: string;
+  @IsOptional() @IsUUID() hotelId?: string;
 }
 export class UpdateServiceRequestStatusDto {
   @IsEnum(['OPEN', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'])

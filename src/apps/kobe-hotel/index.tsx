@@ -6,6 +6,10 @@ import { HotelAdminDashboard } from './HotelAdminDashboard';
 import { KDSDisplay } from './KDSDisplay';
 import { QRCustomerPortal } from './QRCustomerPortal';
 import HotelBookersDashboard from './HotelBookersDashboard';
+import ChannelsTab from './ChannelsTab';
+import GuestInboxTab from './GuestInboxTab';
+import RoomsBoard from './RoomsBoard';
+import FoodListBoard from './FoodListBoard';
 import type { Hotel as SharedHotel } from '@/shared/types';
 import { useHotelLive, type HotelOrder as LiveOrder } from './useHotelLive';
 import { buildPublicGuestUrl } from '@/public/api';
@@ -16,7 +20,8 @@ import {
   Banknote, Receipt, Calendar, Phone, User,
   ArrowLeft, Download, TrendingUp, AlertTriangle, Star, Lock,
   Unlock, Eye, Send, Moon, Sun, GlassWater, Beef, CakeSlice,
-  Coffee, ChefHat, Brush, ShieldCheck, CircleDollarSign
+  Coffee, ChefHat, Brush, ShieldCheck, CircleDollarSign,
+  Globe2, MessageSquare,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -716,14 +721,16 @@ export default function KobeHotel() {
     { id: 'rooms', label: 'Rooms', icon: Bed, color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' },
     { id: 'bar', label: 'Bar POS', icon: Wine, color: 'text-amber-400 bg-amber-500/10 border-amber-500/20' },
     { id: 'restaurant', label: 'Restaurant', icon: UtensilsCrossed, color: 'text-orange-400 bg-orange-500/10 border-orange-500/20' },
+    { id: 'food', label: 'Food List', icon: CakeSlice, color: 'text-rose-400 bg-rose-500/10 border-rose-500/20' },
     { id: 'inventory', label: 'Inventory', icon: Package, color: 'text-violet-400 bg-violet-500/10 border-violet-500/20' },
     { id: 'staff', label: 'Staff', icon: Users, color: 'text-sky-400 bg-sky-500/10 border-sky-500/20' },
     { id: 'accounting', label: 'Accounting', icon: Calculator, color: 'text-green-400 bg-green-500/10 border-green-500/20' },
     { id: 'menu', label: 'Menu', icon: CakeSlice, color: 'text-rose-400 bg-rose-500/10 border-rose-500/20' },
     { id: 'kds', label: 'KDS', icon: ChefHat, color: 'text-orange-400 bg-orange-500/10 border-orange-500/20' },
     { id: 'portal', label: 'Guest Portal', icon: QrCode, color: 'text-pink-400 bg-pink-500/10 border-pink-500/20' },
+    { id: 'channels', label: 'Channels', icon: Globe2, color: 'text-teal-400 bg-teal-500/10 border-teal-500/20' },
+    { id: 'inbox', label: 'Inbox', icon: MessageSquare, color: 'text-fuchsia-400 bg-fuchsia-500/10 border-fuchsia-500/20' },
     { id: 'erp', label: 'Hotel ERP', icon: LayoutDashboard, color: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20' },
-    { id: 'kds', label: 'KDS', icon: ChefHat, color: 'text-rose-400 bg-rose-500/10 border-rose-500/20' },
     { id: 'qr-portal', label: 'QR Portal', icon: QrCode, color: 'text-teal-400 bg-teal-500/10 border-teal-500/20' },
   ];
 
@@ -918,69 +925,17 @@ export default function KobeHotel() {
         )}
 
         {/* ════════════════════════════════════════════════════════════
-            ROOMS
+            ROOMS (blue/light board view)
         ════════════════════════════════════════════════════════════ */}
         {activeTab === 'rooms' && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div><h1 className="text-2xl font-bold">Rooms</h1><p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Floor Plan View</p></div>
-              <div className="flex gap-2">
-                {['All', 'Available', 'Occupied', 'Cleaning', 'Maintenance'].map(f => (
-                  <Button key={f} size="sm" variant={f === 'All' ? 'default' : 'outline'} className={f === 'All' ? 'bg-emerald-600' : darkMode ? 'border-white/10' : ''}>
-                    {f}
-                  </Button>
-                ))}
-                <Button size="sm" className="bg-cyan-600"><Plus className="w-4 h-4 mr-1" />Add Room</Button>
-              </div>
-            </div>
+          <RoomsBoard rooms={rooms} onSelect={(r) => setSelectedRoom(r as Room)} />
+        )}
 
-            {/* Stats */}
-            <div className="grid grid-cols-4 gap-4">
-              {[
-                { label: 'Available', value: availableCount, color: 'text-emerald-400' },
-                { label: 'Occupied', value: occupiedCount, color: 'text-red-400' },
-                { label: 'Cleaning', value: cleaningCount, color: 'text-amber-400' },
-                { label: 'Maintenance', value: maintenanceCount, color: 'text-slate-400' },
-              ].map(s => (
-                <Card key={s.label} className={`${darkMode ? 'bg-[#13131f] border-white/[0.06]' : 'bg-white border-gray-200'}`}>
-                  <CardContent className="p-4 text-center">
-                    <p className={`text-3xl font-bold ${s.color}`}>{s.value}</p>
-                    <p className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{s.label}</p>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-
-            {/* Floor sections */}
-            {[1, 2, 3].map(floor => (
-              <div key={floor}>
-                <h3 className="text-sm font-semibold mb-3 text-gray-400">Floor {floor}</h3>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
-                  {rooms.filter(r => r.floor === floor).map(room => (
-                    <button
-                      key={room.id}
-                      onClick={() => setSelectedRoom(room)}
-                      className={`p-4 rounded-xl border text-left transition-all hover:scale-[1.03] ${
-                        room.status === 'available' ? 'border-emerald-500/30 bg-emerald-500/5' :
-                        room.status === 'occupied' ? 'border-red-500/30 bg-red-500/5' :
-                        room.status === 'cleaning' ? 'border-amber-500/30 bg-amber-500/5' :
-                        'border-slate-500/30 bg-slate-500/5'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-lg font-bold">{room.number}</span>
-                        {room.status === 'occupied' ? <Lock className="w-4 h-4 text-red-400" /> : <Unlock className="w-4 h-4 text-emerald-400" />}
-                      </div>
-                      <p className="text-xs text-gray-400">{room.type}</p>
-                      <p className="text-xs font-medium mt-1">TZS {room.price.toLocaleString()}/night</p>
-                      {room.guest && <p className="text-[10px] text-gray-500 mt-1 truncate">{room.guest}</p>}
-                      <div className="mt-2">{statusBadge(room.status)}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
+        {/* ════════════════════════════════════════════════════════════
+            FOOD LIST (customer-facing menu catalog)
+        ════════════════════════════════════════════════════════════ */}
+        {activeTab === 'food' && (
+          <FoodListBoard />
         )}
 
         {/* ════════════════════════════════════════════════════════════
@@ -1745,6 +1700,16 @@ export default function KobeHotel() {
             </Card>
           </div>
         )}
+
+        {/* ════════════════════════════════════════════════════════════
+            CHANNELS (OTA integrations)
+        ════════════════════════════════════════════════════════════ */}
+        {activeTab === 'channels' && <ChannelsTab darkMode={darkMode} />}
+
+        {/* ════════════════════════════════════════════════════════════
+            INBOX (guest messaging)
+        ════════════════════════════════════════════════════════════ */}
+        {activeTab === 'inbox' && <GuestInboxTab darkMode={darkMode} />}
 
         {/* ════════════════════════════════════════════════════════════
             MENU EDITOR

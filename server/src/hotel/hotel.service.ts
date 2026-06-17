@@ -237,17 +237,28 @@ export class ServiceRequestsService extends OwnedCrudService<HotelServiceRequest
 export class TenantsService {
   constructor(
     @InjectRepository(HotelTenant) private readonly repo: Repository<HotelTenant>,
+    @InjectRepository(HotelRoom) private readonly roomRepo: Repository<HotelRoom>,
+    @InjectRepository(HotelBooking) private readonly bookingRepo: Repository<HotelBooking>,
   ) {}
 
-  /** First tenant for this owner (one hotel per operator in v1). */
+  /** Primary tenant — kept for back-compat with single-hotel callers (the QR
+   *  portal, public guest pages). New multi-property code should call
+   *  {@link listMine} instead. */
   async getMine(ownerId: string): Promise<HotelTenant | null> {
     return this.repo.findOne({ where: { ownerId }, order: { createdAt: 'ASC' } });
+  }
+
+  /** Every tenant owned by the caller — the multi-property switcher list. */
+  async listMine(ownerId: string): Promise<HotelTenant[]> {
+    return this.repo.find({ where: { ownerId }, order: { createdAt: 'ASC' } });
   }
 
   async findBySlug(slug: string): Promise<HotelTenant | null> {
     return this.repo.findOne({ where: { slug } });
   }
 
+  /** Upsert the primary tenant for this owner. Preserved so single-hotel
+   *  callers (the QR portal flow) keep working unchanged. */
   async upsertForOwner(ownerId: string, dto: CreateTenantDto): Promise<HotelTenant> {
     const slug = dto.slug.toLowerCase();
     const existingForOwner = await this.getMine(ownerId);
@@ -274,6 +285,25 @@ export class TenantsService {
     return this.repo.save(created);
   }
 
+  /** Insert a brand new property (never upserts) — supports owners running
+   *  multiple hotels under one account. */
+  async createProperty(ownerId: string, dto: CreateTenantDto): Promise<HotelTenant> {
+    const slug = dto.slug.toLowerCase();
+    const slugOwner = await this.findBySlug(slug);
+    if (slugOwner) {
+      throw new BadRequestException(`Slug '${slug}' is already taken`);
+    }
+    const created = this.repo.create({
+      ownerId,
+      slug,
+      name: dto.name,
+      brandColor: dto.brandColor ?? null,
+      logoUrl: dto.logoUrl ?? null,
+      currency: dto.currency ?? 'TZS',
+    });
+    return this.repo.save(created);
+  }
+
   async updateMine(ownerId: string, dto: UpdateTenantDto): Promise<HotelTenant> {
     const t = await this.getMine(ownerId);
     if (!t) throw new NotFoundException('No tenant configured');
@@ -283,6 +313,93 @@ export class TenantsService {
     if (dto.currency !== undefined) t.currency = dto.currency;
     return this.repo.save(t);
   }
+
+  /** Per-property aggregates for the "All Properties" dashboard.
+   *  Joins each tenant the caller owns with derived KPIs from rooms +
+   *  bookings (today's check-ins / check-outs / revenue). Untagged legacy
+   *  rooms (hotelId is null) are excluded so they don't double-count when an
+   *  owner hasn't migrated their data yet. */
+  async portfolio(ownerId: string): Promise<PortfolioEntry[]> {
+    const tenants = await this.listMine(ownerId);
+    if (tenants.length === 0) return [];
+
+    const today = new Date().toISOString().slice(0, 10);
+
+    return Promise.all(
+      tenants.map(async (t) => {
+        const rooms = await this.roomRepo.find({ where: { ownerId, hotelId: t.id } });
+        const roomsTotal = rooms.length;
+        const occupied   = rooms.filter((r) => r.status === 'occupied').length;
+        const maintenance = rooms.filter((r) => r.status === 'maintenance').length;
+
+        // Today's check-ins / check-outs (date columns are stored as YYYY-MM-DD).
+        const todayCheckIn = await this.bookingRepo
+          .createQueryBuilder('b')
+          .where('b.ownerId = :ownerId', { ownerId })
+          .andWhere('b.hotelId = :hotelId', { hotelId: t.id })
+          .andWhere("to_char(b.checkIn, 'YYYY-MM-DD') = :today", { today })
+          .getCount();
+        const todayCheckOut = await this.bookingRepo
+          .createQueryBuilder('b')
+          .where('b.ownerId = :ownerId', { ownerId })
+          .andWhere('b.hotelId = :hotelId', { hotelId: t.id })
+          .andWhere("to_char(b.checkOut, 'YYYY-MM-DD') = :today", { today })
+          .getCount();
+
+        // Revenue today: sum of bookings whose checkIn is today and that
+        // are CONFIRMED or CHECKED_IN.
+        const revRow = await this.bookingRepo
+          .createQueryBuilder('b')
+          .select('COALESCE(SUM(b.totalAmount), 0)', 'sum')
+          .where('b.ownerId = :ownerId', { ownerId })
+          .andWhere('b.hotelId = :hotelId', { hotelId: t.id })
+          .andWhere("to_char(b.checkIn, 'YYYY-MM-DD') = :today", { today })
+          .andWhere("b.status IN ('CONFIRMED', 'CHECKED_IN')")
+          .getRawOne<{ sum: string }>();
+        const revenueToday = revRow ? parseFloat(revRow.sum ?? '0') : 0;
+
+        const occupancyRate = roomsTotal > 0 ? Math.round((occupied / roomsTotal) * 100) : 0;
+        const adr     = occupied > 0  ? Math.round(revenueToday / occupied)  : 0;
+        const revPar  = roomsTotal > 0 ? Math.round(revenueToday / roomsTotal) : 0;
+
+        return {
+          id: t.id,
+          slug: t.slug,
+          name: t.name,
+          brandColor: t.brandColor ?? null,
+          logoUrl: t.logoUrl ?? null,
+          currency: t.currency,
+          roomsTotal,
+          occupied,
+          occupancyRate,
+          todayCheckIn,
+          todayCheckOut,
+          revenueToday,
+          adr,
+          revPar,
+          alerts: maintenance,
+        };
+      }),
+    );
+  }
+}
+
+export interface PortfolioEntry {
+  id: string;
+  slug: string;
+  name: string;
+  brandColor: string | null;
+  logoUrl: string | null;
+  currency: string;
+  roomsTotal: number;
+  occupied: number;
+  occupancyRate: number;
+  todayCheckIn: number;
+  todayCheckOut: number;
+  revenueToday: number;
+  adr: number;
+  revPar: number;
+  alerts: number;
 }
 
 /* ─────────────── Multi-Hotel Services ─────────────── */
