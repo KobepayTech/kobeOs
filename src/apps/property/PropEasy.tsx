@@ -79,6 +79,18 @@ const DEMO_TENANTS: ApiTenant[] = [
   { id: 't6', name: 'Emmy Witt',          phone: '+44 9999 999 994', email: 'emmy@example.com',     propertyName: 'Tavares Cliffs', propertyAddress: '089 Grant Overpass', unitKind: 'Duplex',    rent: 5000, balance: 5000, status: 'overdue',    avatarUrl: 'https://i.pravatar.cc/64?img=16' },
   { id: 't7', name: 'Brock Ray',          phone: '+44 9999 999 993', email: 'brock@example.com',    propertyName: 'Tavares Cliffs', propertyAddress: '089 Grant Overpass', unitKind: 'House',     rent: 5000, balance: 5000, status: 'late_fees',  avatarUrl: 'https://i.pravatar.cc/64?img=17' },
   { id: 't8', name: 'Desiree Chapman',    phone: '+44 9999 999 992', email: 'desiree@example.com',  propertyName: 'Tavares Cliffs', propertyAddress: '089 Grant Overpass', unitKind: 'Duplex',    rent: 5000, balance: 0,    status: 'rent_paid',  avatarUrl: 'https://i.pravatar.cc/64?img=20' },
+  { id: 't9',  name: 'Jake Hicks',         phone: '+44 9999 999 991', email: 'jake@example.com',     propertyName: 'Tavares Cliffs', propertyAddress: '089 Grant Overpass', unitKind: 'House',     rent: 5000, balance: 5000, status: 'overdue',    avatarUrl: 'https://i.pravatar.cc/64?img=33' },
+  { id: 't10', name: 'Jesse Waters',       phone: '+44 9999 999 990', email: 'jesse@example.com',    propertyName: 'Tavares Cliffs', propertyAddress: '089 Grant Overpass', unitKind: 'Apartment', rent: 5000, balance: 5000, status: 'overdue',    avatarUrl: 'https://i.pravatar.cc/64?img=14' },
+  { id: 't11', name: 'Bernice Lopez',      phone: '+44 9999 999 989', email: 'bernice@example.com',  propertyName: 'Tavares Cliffs', propertyAddress: '089 Grant Overpass', unitKind: 'Apartment', rent: 5000, balance: 0,    status: 'rent_paid',  avatarUrl: 'https://i.pravatar.cc/64?img=22' },
+  { id: 't12', name: 'Owen Bishop',        phone: '+44 9999 999 988', email: 'owen@example.com',     propertyName: 'Tavares Cliffs', propertyAddress: '089 Grant Overpass', unitKind: 'House',     rent: 5000, balance: 2500, status: 'in_proceed', avatarUrl: 'https://i.pravatar.cc/64?img=51' },
+  { id: 't13', name: 'Hazel Drake',        phone: '+44 9999 999 987', email: 'hazel@example.com',    propertyName: 'Tavares Cliffs', propertyAddress: '089 Grant Overpass', unitKind: 'Duplex',    rent: 5000, balance: 0,    status: 'rent_paid',  avatarUrl: 'https://i.pravatar.cc/64?img=36' },
+  { id: 't14', name: 'Marcus Holt',        phone: '+44 9999 999 986', email: 'marcus@example.com',   propertyName: 'Tavares Cliffs', propertyAddress: '089 Grant Overpass', unitKind: 'House',     rent: 5000, balance: 5000, status: 'late_fees',  avatarUrl: 'https://i.pravatar.cc/64?img=58' },
+  { id: 't15', name: 'Felicia Stone',      phone: '+44 9999 999 985', email: 'felicia@example.com',  propertyName: 'Tavares Cliffs', propertyAddress: '089 Grant Overpass', unitKind: 'Apartment', rent: 5000, balance: 0,    status: 'rent_paid',  avatarUrl: 'https://i.pravatar.cc/64?img=44' },
+  { id: 't16', name: 'Roy Mendez',         phone: '+44 9999 999 984', email: 'roy@example.com',      propertyName: 'Tavares Cliffs', propertyAddress: '089 Grant Overpass', unitKind: 'Duplex',    rent: 5000, balance: 5000, status: 'overdue',    avatarUrl: 'https://i.pravatar.cc/64?img=11' },
+  { id: 't17', name: 'Priya Sharma',       phone: '+44 9999 999 983', email: 'priya@example.com',    propertyName: 'Tavares Cliffs', propertyAddress: '089 Grant Overpass', unitKind: 'House',     rent: 5000, balance: 0,    status: 'rent_paid',  avatarUrl: 'https://i.pravatar.cc/64?img=47' },
+  { id: 't18', name: 'Lukas Vogel',        phone: '+44 9999 999 982', email: 'lukas@example.com',    propertyName: 'Tavares Cliffs', propertyAddress: '089 Grant Overpass', unitKind: 'Apartment', rent: 5000, balance: 5000, status: 'late_fees',  avatarUrl: 'https://i.pravatar.cc/64?img=60' },
+  { id: 't19', name: 'Amaya Cole',         phone: '+44 9999 999 981', email: 'amaya@example.com',    propertyName: 'Tavares Cliffs', propertyAddress: '089 Grant Overpass', unitKind: 'House',     rent: 5000, balance: 0,    status: 'rent_paid',  avatarUrl: 'https://i.pravatar.cc/64?img=29' },
+  { id: 't20', name: 'Theo Reed',          phone: '+44 9999 999 980', email: 'theo@example.com',     propertyName: 'Tavares Cliffs', propertyAddress: '089 Grant Overpass', unitKind: 'Duplex',    rent: 5000, balance: 0,    status: 'rent_paid',  avatarUrl: 'https://i.pravatar.cc/64?img=53' },
 ];
 
 const DEMO_MAINTENANCE: MaintenanceRequest[] = [
@@ -156,7 +168,7 @@ export default function PropEasyApp() {
 
   return (
     <div className="flex h-full w-full bg-slate-50 text-slate-900" style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
-      <Sidebar view={view} onChange={setView} />
+      <Sidebar view={view} onChange={setView} onInviteTenant={() => setView('tenants')} />
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar title={titleFor(view)} />
         <div className="flex-1 overflow-y-auto p-6">
@@ -201,7 +213,7 @@ function titleFor(v: View): string {
 
 /* ────────────────────────────── Sidebar ────────────────────────────── */
 
-function Sidebar({ view, onChange }: { view: View; onChange: (v: View) => void }) {
+function Sidebar({ view, onChange, onInviteTenant }: { view: View; onChange: (v: View) => void; onInviteTenant: () => void }) {
   const items: Array<{ id: View; label: string; icon: React.ComponentType<{ className?: string }> }> = [
     { id: 'dashboard',   label: 'Dashboard',   icon: Home },
     { id: 'properties',  label: 'Properties',  icon: Building2 },
@@ -213,7 +225,7 @@ function Sidebar({ view, onChange }: { view: View; onChange: (v: View) => void }
   ];
   return (
     <aside className="w-56 shrink-0 bg-white m-4 mr-0 rounded-2xl p-4 flex flex-col">
-      <div className="flex items-center gap-2 px-2 pb-5 mb-2">
+      <div className="flex items-center gap-2 px-2 pb-4 mb-2">
         <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-blue-50 text-blue-600">
           <Home className="w-4 h-4" />
         </span>
@@ -221,6 +233,21 @@ function Sidebar({ view, onChange }: { view: View; onChange: (v: View) => void }
           <span className="text-blue-600">Prop</span>Easy
         </span>
       </div>
+
+      {/* Invite-new-tenant pill — mirrors the IRES dashboard's CTA so a
+          new tenant can be invited from any screen, not just Tenants. */}
+      <button
+        onClick={onInviteTenant}
+        className="flex items-center justify-between gap-2 px-3 py-2 mb-4 rounded-full bg-slate-50 hover:bg-amber-50 border border-transparent hover:border-amber-200 text-sm text-slate-700 font-medium transition-colors"
+      >
+        <span className="leading-tight text-xs">
+          Invite new<br />Tenant
+        </span>
+        <span className="w-7 h-7 rounded-full bg-amber-400 text-amber-900 inline-flex items-center justify-center">
+          <Plus className="w-3.5 h-3.5" />
+        </span>
+      </button>
+
       <nav className="flex flex-col gap-1 flex-1">
         {items.map(({ id, label, icon: Icon }) => {
           const active = view === id || ((view === 'tenant-detail' || view === 'screening') && id === 'tenants');
@@ -237,6 +264,25 @@ function Sidebar({ view, onChange }: { view: View; onChange: (v: View) => void }
           );
         })}
       </nav>
+
+      {/* Operator profile card — keeps the IRES-style "Sarah Bano · Profile
+          Setting" affordance inside the app's own sidebar so it survives
+          screen captures even when the OS chrome isn't visible. */}
+      <div className="mt-3 mb-2 rounded-xl bg-amber-100/70 px-3 py-2 flex items-center gap-2.5">
+        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 shrink-0" />
+        <div className="flex-1 min-w-0 text-xs">
+          <div className="font-bold leading-tight truncate">Courtney Henry</div>
+          <div className="text-amber-900/70 text-[10px]">Profile Setting</div>
+        </div>
+        <button
+          onClick={() => onChange('settings')}
+          className="w-6 h-6 rounded-full bg-white/60 hover:bg-white inline-flex items-center justify-center text-amber-700"
+          title="Notifications & settings"
+        >
+          <Bell className="w-3 h-3" />
+        </button>
+      </div>
+
       <button className="flex items-center gap-3 px-3 py-2 rounded-lg text-left text-sm font-medium text-slate-600 hover:bg-slate-50">
         <LogOut className="w-4 h-4" /> Log Out
       </button>
@@ -643,6 +689,7 @@ function DashboardView({ tenants, payments, properties, onOpenTenant }: { tenant
             <div className="text-3xl font-extrabold text-rose-500">${pending.toLocaleString()}</div>
             <div className="text-[10px] tracking-wider text-slate-400 mt-1 uppercase">Pending</div>
             <div className="text-xs text-slate-500 mt-3">{Math.max(1, Math.round(occupied * 0.55))}/200 <span className="text-slate-400">tenants</span></div>
+            <AvatarStack tenants={tenants.filter((t) => t.balance && t.balance > 0).slice(0, 5)} extra={Math.max(0, tenants.filter((t) => t.balance && t.balance > 0).length - 5)} />
           </div>
 
           <div className="relative w-32 h-32 mx-auto">
@@ -674,6 +721,7 @@ function DashboardView({ tenants, payments, properties, onOpenTenant }: { tenant
             <div className="text-3xl font-extrabold">${collected.toLocaleString()}</div>
             <div className="text-[10px] tracking-wider text-slate-400 mt-1 uppercase">Collected</div>
             <div className="text-xs text-slate-500 mt-3">{occupied}/200 <span className="text-slate-400">tenants</span></div>
+            <AvatarStack tenants={tenants.filter((t) => !t.balance).slice(0, 5)} extra={Math.max(0, tenants.filter((t) => !t.balance).length - 5)} align="right" />
           </div>
 
           <div className="bg-amber-400 rounded-2xl p-4 flex flex-col gap-2 min-w-[160px]">
@@ -1114,6 +1162,29 @@ function Th({ children, sortable, tight }: { children: React.ReactNode; sortable
 
 function Td({ children, tight, className = '' }: { children: React.ReactNode; tight?: boolean; className?: string }) {
   return <td className={`${tight ? 'px-3 py-2' : 'px-4 py-3'} ${className}`}>{children}</td>;
+}
+
+/**
+ * Overlapping-avatar chip used under the Pending/Collected totals on the
+ * dashboard. Mirrors the IRES "+12" cluster — up to 5 tenants stacked
+ * with -1.5 overlap, then a final circle showing the count of the rest.
+ */
+function AvatarStack({ tenants, extra, align = 'left' }: { tenants: ApiTenant[]; extra: number; align?: 'left' | 'right' }) {
+  if (tenants.length === 0 && extra === 0) return null;
+  return (
+    <div className={`mt-2 flex items-center -space-x-1.5 ${align === 'right' ? 'justify-end' : ''}`}>
+      {tenants.map((t) => (
+        t.avatarUrl
+          ? <img key={t.id} src={t.avatarUrl} alt={t.name} title={t.name} className="w-6 h-6 rounded-full ring-2 ring-white object-cover" />
+          : <div key={t.id} title={t.name} className="w-6 h-6 rounded-full ring-2 ring-white bg-slate-300 flex items-center justify-center text-[8px] font-bold text-white">{initials(t.name)}</div>
+      ))}
+      {extra > 0 && (
+        <div className="w-6 h-6 rounded-full ring-2 ring-white bg-amber-100 text-amber-800 text-[9px] font-bold flex items-center justify-center">
+          +{extra}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function EmptyState({ title, subtitle }: { title: string; subtitle: string }) {
