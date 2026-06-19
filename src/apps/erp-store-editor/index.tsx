@@ -657,6 +657,37 @@ export default function StoreEditor() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
+  const [cloudflaredInstalled, setCloudflaredInstalled] = useState<boolean | null>(null);
+  const [installingCf, setInstallingCf] = useState(false);
+  const [installCfMsg, setInstallCfMsg] = useState<string | null>(null);
+
+  // One-shot check of whether cloudflared is available on the backend host.
+  // Drives the "Install cloudflared" CTA below the publish controls.
+  useEffect(() => {
+    let cancelled = false;
+    api<{ installed: boolean }>('/store-settings/cloudflared-status')
+      .then((r) => { if (!cancelled) setCloudflaredInstalled(Boolean(r?.installed)); })
+      .catch(() => { /* hosted backend may not even need it — leave null */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  const handleInstallCloudflared = useCallback(async () => {
+    setInstallingCf(true);
+    setInstallCfMsg(null);
+    try {
+      const r = await api<{ installed: boolean; path: string; version: string }>(
+        '/store-settings/install-cloudflared',
+        { method: 'POST' },
+      );
+      setCloudflaredInstalled(Boolean(r?.installed));
+      setInstallCfMsg(`cloudflared ${r?.version} installed at ${r?.path}`);
+      setTimeout(() => setInstallCfMsg(null), 5000);
+    } catch (e) {
+      setInstallCfMsg(`Install failed: ${(e as Error).message}`);
+    } finally {
+      setInstallingCf(false);
+    }
+  }, []);
   const [tunnelRunning, setTunnelRunning] = useState(false);
 
   // Poll tunnel status every 15 seconds while the store is published
@@ -976,19 +1007,46 @@ export default function StoreEditor() {
                     <p className="text-[10px] text-amber-400/70 text-center">Save your store name first</p>
                   )}
                   {/* cloudflared requirement notice */}
-                  <div className="flex items-start gap-2 px-2.5 py-2 rounded-md bg-white/[0.03] border border-white/[0.06] text-[10px] text-white/40">
-                    <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5 text-amber-400/60" />
-                    <span>
-                      Requires <span className="font-mono text-white/60">cloudflared</span> installed on this machine.{' '}
-                      <a
-                        href="https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-400/70 underline underline-offset-2 hover:text-blue-300"
-                      >
-                        Download
-                      </a>
-                    </span>
+                  <div className={`flex items-start gap-2 px-2.5 py-2 rounded-md border text-[10px] ${
+                    cloudflaredInstalled === true
+                      ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-300/80'
+                      : 'bg-white/[0.03] border-white/[0.06] text-white/50'
+                  }`}>
+                    <AlertTriangle className={`w-3 h-3 shrink-0 mt-0.5 ${cloudflaredInstalled === true ? 'text-emerald-400/70' : 'text-amber-400/60'}`} />
+                    <div className="flex-1 space-y-1.5">
+                      {cloudflaredInstalled === true ? (
+                        <span><span className="font-mono">cloudflared</span> is installed — publishing the subdomain will work.</span>
+                      ) : (
+                        <>
+                          <span>
+                            Publishing requires <span className="font-mono text-white/70">cloudflared</span>.
+                            {cloudflaredInstalled === false && ' It looks like it isn\'t installed on this machine.'}
+                          </span>
+                          <div className="flex items-center gap-2 pt-0.5">
+                            <button
+                              onClick={handleInstallCloudflared}
+                              disabled={installingCf}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded bg-blue-500/15 border border-blue-500/30 text-blue-300 hover:bg-blue-500/25 disabled:opacity-50 text-[10px] font-bold"
+                            >
+                              {installingCf ? 'Installing…' : 'Install cloudflared'}
+                            </button>
+                            <a
+                              href="https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-400/60 underline underline-offset-2 hover:text-blue-300"
+                            >
+                              Manual download
+                            </a>
+                          </div>
+                          {installCfMsg && (
+                            <p className={`text-[10px] mt-1 ${installCfMsg.startsWith('Install failed') ? 'text-rose-300' : 'text-emerald-300'}`}>
+                              {installCfMsg}
+                            </p>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}

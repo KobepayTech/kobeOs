@@ -20,8 +20,29 @@ export class StoreSettingsController {
   }
 
   @Put()
-  upsert(@CurrentUser('id') uid: string, @Body() dto: UpsertStoreSettingsDto) {
-    return this.svc.upsert(uid, dto);
+  async upsert(@CurrentUser('id') uid: string, @Body() dto: UpsertStoreSettingsDto) {
+    const before = await this.svc.get(uid);
+    const saved  = await this.svc.upsert(uid, dto);
+
+    // Auto-publish the subdomain when the operator saves a valid store name.
+    // Hosted mode = free DB flip. Self-hosted = spawn cloudflared (best-effort).
+    // Republish when the slug changed so {newSlug}.kobeapptz.com starts
+    // resolving without a separate "Publish" click. Saves stay successful
+    // even if publishing fails — the operator can retry from the editor.
+    const slugChanged = saved.domainSlug && saved.domainSlug !== before.domainSlug;
+    const needsFirstPublish = saved.domainSlug && !saved.isPublished;
+    if (slugChanged || needsFirstPublish) {
+      try {
+        return await this.publishSvc.publish(uid);
+      } catch (err) {
+        // Surface in logs only; the saved settings still come back to the UI.
+        // The editor displays cfStatus + has a manual Publish button for retry.
+        console.warn(
+          `[store-settings] auto-publish skipped for ${saved.domainSlug}: ${(err as Error).message}`,
+        );
+      }
+    }
+    return saved;
   }
 
   /**
@@ -79,5 +100,28 @@ export class StoreSettingsController {
   @Post('admin/bootstrap-wildcard')
   bootstrapWildcard() {
     return this.publishSvc.bootstrapWildcardTunnel();
+  }
+
+  /**
+   * Report whether a runnable `cloudflared` binary is available on this
+   * machine. Lets the editor show an "Install cloudflared" call-to-action
+   * instead of letting the publish click error out.
+   * GET /api/store-settings/cloudflared-status
+   */
+  @Get('cloudflared-status')
+  cloudflaredStatus() {
+    return this.publishSvc.isCloudflaredInstalled();
+  }
+
+  /**
+   * Download the cloudflared binary for this platform into the user-data
+   * dir and make it executable. Used when the installer didn't ship one
+   * (docker-built backend, manual server install, etc.). Idempotent —
+   * always re-downloads so users can refresh stale binaries.
+   * POST /api/store-settings/install-cloudflared
+   */
+  @Post('install-cloudflared')
+  installCloudflared() {
+    return this.publishSvc.installCloudflared();
   }
 }

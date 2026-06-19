@@ -26,6 +26,7 @@ import {
   StickyNote as NotepadIcon,
   MessageCircle,
   CheckSquare,
+  Wifi, Bluetooth, PlaneTakeoff, Moon, User as UserIcon, type LucideIcon,
 } from 'lucide-react';
 import { useOSStore } from './store';
 import { API_BASE } from '@/lib/api';
@@ -113,92 +114,229 @@ function LiveClock() {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Widget Row                                                         */
+/*  Left widget rail — fills the left side of the desktop so the      */
+/*  layout doesn't have an empty gutter. Stacks weather + a 2x2 grid  */
+/*  of one-tap app shortcuts and a tasks card.                        */
 /* ------------------------------------------------------------------ */
-function WidgetRow({ tasks }: { tasks: Task[] }) {
+function LeftWidgetRail({ tasks }: { tasks: Task[] }) {
   const { launchApp } = useOSStore();
   const now = new Date();
   const dateNum = now.getDate();
+  const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+  const monthAbbr = months[now.getMonth()];
   const incompleteCount = tasks.filter((t) => !t.completed).length;
-
-  const widgetGlass =
-    'flex flex-col items-center justify-center gap-1 glass rounded-2xl transition-all duration-200 hover:scale-105 cursor-pointer';
+  const widgetCard =
+    'glass rounded-2xl transition-all duration-200 hover:scale-[1.02] cursor-pointer overflow-hidden';
 
   return (
-    <div className="flex items-center gap-3 mb-6">
-      {/* Weather */}
+    <aside className="w-64 shrink-0 hidden lg:flex flex-col gap-3 pt-2">
+      {/* Weather card */}
       <button
-        className={`${widgetGlass} px-4 py-3 min-w-[110px]`}
+        className={`${widgetCard} p-4 text-left`}
         onClick={() => launchApp('settings')}
       >
-        <div className="flex items-center gap-1.5">
-          <Sun className="w-5 h-5" style={{ color: 'var(--os-warning)' }} />
-          <span className="text-[15px] font-semibold" style={{ color: 'var(--os-text-primary)' }}>
-            82&deg;
+        <div className="flex items-center justify-between">
+          <span
+            className="text-xs font-medium"
+            style={{ color: 'var(--os-text-secondary)' }}
+          >
+            Dar es Salaam
           </span>
+          <Sun className="w-4 h-4" style={{ color: 'var(--os-warning)' }} />
         </div>
-        <span className="text-[11px] font-medium" style={{ color: 'var(--os-text-secondary)' }}>
-          Miami &middot; Sunny
+        <div
+          className="text-[28px] font-light tracking-tight mt-1"
+          style={{ color: 'var(--os-text-primary)' }}
+        >
+          28&deg;C
+        </div>
+        <span
+          className="text-[11px]"
+          style={{ color: 'var(--os-text-muted)' }}
+        >
+          Partly Cloudy
         </span>
       </button>
 
-      {/* Clock */}
-      <button
-        className={`${widgetGlass} w-14 h-14`}
-        onClick={() => launchApp('clock')}
-      >
-        <Clock className="w-5 h-5" style={{ color: 'var(--os-accent)' }} />
-      </button>
+      {/* 2×2 app shortcut grid */}
+      <div className="grid grid-cols-2 gap-3">
+        <WidgetTile
+          Icon={Clock}
+          label="Clock"
+          onClick={() => launchApp('clock')}
+          accent="var(--os-accent)"
+        />
+        <WidgetTile
+          Icon={Calendar}
+          label={`${monthAbbr} ${dateNum}`}
+          onClick={() => launchApp('calendar')}
+          accent="var(--os-accent)"
+        />
+        <WidgetTile
+          Icon={NotepadIcon}
+          label="Notes"
+          onClick={() => launchApp('notepad')}
+          accent="var(--os-accent)"
+        />
+        <WidgetTile
+          Icon={MessageCircle}
+          label="Messages"
+          onClick={() => launchApp('chat')}
+          accent="var(--os-accent)"
+        />
+      </div>
 
-      {/* Calendar */}
+      {/* Tasks card */}
       <button
-        className={`${widgetGlass} w-14 h-14 relative`}
-        onClick={() => launchApp('calendar')}
+        className={`${widgetCard} p-4 text-left`}
+        onClick={() => {/* no-op — tasks shown in main column */}}
       >
-        <Calendar className="w-5 h-5" style={{ color: 'var(--os-accent)' }} />
+        <div className="flex items-center justify-between mb-1">
+          <span
+            className="text-xs font-semibold"
+            style={{ color: 'var(--os-text-primary)' }}
+          >
+            Tasks
+          </span>
+          <CheckSquare className="w-4 h-4" style={{ color: 'var(--os-success)' }} />
+        </div>
+        <div
+          className="text-2xl font-bold leading-none"
+          style={{ color: 'var(--os-text-primary)' }}
+        >
+          {incompleteCount}
+        </div>
         <span
-          className="absolute -top-1 -right-1 w-5 h-5 rounded-full text-[10px] font-bold flex items-center justify-center"
+          className="text-[11px] font-medium"
+          style={{ color: 'var(--os-text-secondary)' }}
+        >
+          {incompleteCount === 1 ? 'task left' : 'tasks left'}
+        </span>
+      </button>
+    </aside>
+  );
+}
+
+function WidgetTile({
+  Icon, label, onClick, accent,
+}: {
+  Icon: LucideIcon;
+  label: string;
+  onClick: () => void;
+  accent: string;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className="glass rounded-2xl transition-all duration-200 hover:scale-105 cursor-pointer p-3 flex flex-col items-center justify-center gap-1.5 aspect-square"
+    >
+      <Icon className="w-6 h-6" style={{ color: accent }} />
+      <span
+        className="text-[11px] font-semibold"
+        style={{ color: 'var(--os-text-primary)' }}
+      >
+        {label}
+      </span>
+    </button>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  Right rail — Admin User card + Quick Settings (Wi-Fi, Bluetooth,  */
+/*  Airplane Mode, Dark Mode). Mirrors the Kimi mockup so neither     */
+/*  side feels empty.                                                  */
+/* ------------------------------------------------------------------ */
+function RightAdminPanel() {
+  const [wifi, setWifi]           = useState(true);
+  const [bluetooth, setBluetooth] = useState(false);
+  const [airplane, setAirplane]   = useState(false);
+  const [dark, setDark]           = useState(false);
+
+  return (
+    <aside className="w-64 shrink-0 hidden lg:flex flex-col gap-3 pt-2">
+      {/* Admin User card */}
+      <div
+        className="glass rounded-2xl p-4 flex items-center gap-3"
+      >
+        <div
+          className="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
           style={{
             background: 'linear-gradient(135deg, var(--os-accent), #A78BFA)',
             color: 'white',
           }}
         >
-          {dateNum}
-        </span>
-      </button>
-
-      {/* Notes */}
-      <button
-        className={`${widgetGlass} w-14 h-14`}
-        onClick={() => launchApp('notepad')}
-      >
-        <NotepadIcon className="w-5 h-5" style={{ color: 'var(--os-accent)' }} />
-      </button>
-
-      {/* Messages */}
-      <button
-        className={`${widgetGlass} w-14 h-14`}
-        onClick={() => launchApp('chat')}
-      >
-        <MessageCircle className="w-5 h-5" style={{ color: 'var(--os-accent)' }} />
-      </button>
-
-      {/* Tasks */}
-      <button
-        className={`${widgetGlass} px-4 py-3 min-w-[110px]`}
-        onClick={() => {}}
-      >
-        <div className="flex items-center gap-1.5">
-          <CheckSquare className="w-5 h-5" style={{ color: 'var(--os-success)' }} />
-          <span className="text-[15px] font-semibold" style={{ color: 'var(--os-text-primary)' }}>
-            {incompleteCount}
-          </span>
+          <UserIcon className="w-5 h-5" />
         </div>
-        <span className="text-[11px] font-medium" style={{ color: 'var(--os-text-secondary)' }}>
-          {incompleteCount === 1 ? 'Task' : 'Tasks'} left
+        <div className="min-w-0">
+          <div
+            className="text-sm font-semibold truncate"
+            style={{ color: 'var(--os-text-primary)' }}
+          >
+            Admin User
+          </div>
+          <div
+            className="text-[11px]"
+            style={{ color: 'var(--os-text-secondary)' }}
+          >
+            Super Admin
+          </div>
+        </div>
+      </div>
+
+      {/* Quick Settings card */}
+      <div className="glass rounded-2xl p-4">
+        <div
+          className="text-sm font-semibold mb-3"
+          style={{ color: 'var(--os-text-primary)' }}
+        >
+          Quick Settings
+        </div>
+        <QuickToggle Icon={Wifi}          label="Wi-Fi"         on={wifi}      onToggle={() => setWifi((v) => !v)} />
+        <QuickToggle Icon={Bluetooth}     label="Bluetooth"     on={bluetooth} onToggle={() => setBluetooth((v) => !v)} />
+        <QuickToggle Icon={PlaneTakeoff}  label="Airplane Mode" on={airplane}  onToggle={() => setAirplane((v) => !v)} />
+        <QuickToggle Icon={Moon}          label="Dark Mode"     on={dark}      onToggle={() => setDark((v) => !v)} />
+      </div>
+    </aside>
+  );
+}
+
+function QuickToggle({
+  Icon, label, on, onToggle,
+}: {
+  Icon: LucideIcon;
+  label: string;
+  on: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      onClick={onToggle}
+      className="w-full flex items-center justify-between py-1.5 group"
+    >
+      <span className="flex items-center gap-2">
+        <Icon
+          className="w-4 h-4"
+          style={{ color: on ? 'var(--os-accent)' : 'var(--os-text-muted)' }}
+        />
+        <span
+          className="text-[13px] font-medium"
+          style={{ color: 'var(--os-text-primary)' }}
+        >
+          {label}
         </span>
-      </button>
-    </div>
+      </span>
+      <span
+        className="relative w-9 h-5 rounded-full transition-colors duration-200"
+        style={{
+          background: on ? 'var(--os-accent)' : 'rgba(120,120,135,0.35)',
+        }}
+      >
+        <span
+          className="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-all duration-200"
+          style={{ left: on ? '18px' : '2px' }}
+        />
+      </span>
+    </button>
   );
 }
 
@@ -398,9 +536,9 @@ export function Desktop() {
       <ShellUpdateBanner />
 
       {/* Main content container */}
-      <div className="relative z-10 h-full flex flex-col items-center overflow-y-auto scrollbar-hide">
+      <div className="relative z-10 h-full flex flex-col overflow-y-auto scrollbar-hide">
         {/* ── Top Bar ── */}
-        <div className="w-full max-w-4xl px-6 pt-5 pb-2 flex items-center justify-between shrink-0">
+        <div className="w-full max-w-[1600px] mx-auto px-6 pt-5 pb-2 flex items-center justify-between shrink-0">
           {/* Logo */}
           <div className="flex items-center gap-2.5">
             <div
@@ -454,8 +592,14 @@ export function Desktop() {
           </div>
         </div>
 
-        {/* ── Center content ── */}
-        <div className="flex-1 w-full max-w-3xl px-6 flex flex-col items-center pt-4 pb-8">
+        {/* ── 3-column main layout: left widgets | center | right admin ── */}
+        <div className="flex-1 w-full max-w-[1600px] mx-auto px-6 pb-8 grid grid-cols-1 lg:grid-cols-[16rem_minmax(0,1fr)_16rem] gap-6 items-start">
+
+          {/* LEFT: widget rail */}
+          <LeftWidgetRail tasks={tasks} />
+
+          {/* CENTER: clock + search + apps + tasks */}
+          <div className="flex flex-col items-center pt-2">
           {/* Live Clock */}
           <div className="mb-5">
             <LiveClock />
@@ -536,11 +680,8 @@ export function Desktop() {
             />
           </div>
 
-          {/* Widget Row */}
-          <WidgetRow tasks={tasks} />
-
-          {/* App shortcuts grid */}
-          <div className="w-full grid grid-cols-4 gap-3 mb-6">
+          {/* App shortcuts grid (widget row is now in the left rail) */}
+          <div className="w-full grid grid-cols-4 gap-3 mb-6 mt-4">
             {(searchQuery ? filteredApps : appShortcuts).map((app) => {
               const Icon = app.icon;
               return (
@@ -732,6 +873,10 @@ export function Desktop() {
               )}
             </div>
           </div>
+          </div>{/* /center */}
+
+          {/* RIGHT: admin user + quick settings */}
+          <RightAdminPanel />
         </div>
       </div>
 

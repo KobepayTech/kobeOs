@@ -1464,9 +1464,12 @@ export default function POSSystem() {
                       <style>body{font-family:ui-monospace,monospace;background:#fff;color:#000;padding:10px;font-size:11px;white-space:pre-wrap}</style>
                       </head><body>${html}</body></html>`);
                     w.document.close();
+                    // Close after the print dialog completes — closing
+                    // immediately after window.print() can race the native
+                    // print dialog on Chromium/Firefox and abort it.
+                    w.addEventListener('afterprint', () => w.close(), { once: true });
                     w.focus();
                     w.print();
-                    w.close();
                   }}
                   className="flex-1 bg-emerald-600 hover:bg-emerald-500"
                 >
