@@ -74,7 +74,26 @@ export default function ERPSourcing() {
 
   const filteredSuppliers = suppliers.filter((s) => s.name.toLowerCase().includes(search.toLowerCase()));
 
-  const addSupplier = () => {
+  const addSupplier = async () => {
+    if (!supplierForm.name.trim()) return;
+    try {
+      // Persist via the real backend so the supplier survives a reload.
+      // Backend POST /erp/sourcing/suppliers already existed (see
+      // erp.controller.ts) — this UI just wasn't calling it.
+      await api('/erp/sourcing/suppliers', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: supplierForm.name.trim(),
+          contact: supplierForm.contact,
+          phone: supplierForm.phone,
+          country: supplierForm.country,
+        }),
+      });
+    } catch (err) {
+      // Network/offline — fall back to local insert so the form doesn't
+      // dead-end. The list will reconcile on the next /erp/sourcing fetch.
+      console.warn('[sourcing] supplier persist failed, keeping local entry only:', (err as Error).message);
+    }
     const newId = Math.max(...suppliers.map((s) => s.id), 0) + 1;
     setSuppliers((prev) => [...prev, { id: newId, ...supplierForm, status: 'Active' }]);
     setSupplierModalOpen(false);

@@ -208,49 +208,63 @@ export default function DiscountsPromotions() {
 
   useEffect(() => {
     let cancelled = false;
+    // One-shot localStorage flag so the demo seed runs exactly once per
+    // browser. Without it, an operator who deletes every rule would see
+    // them re-created on the next mount — and two cashiers opening at
+    // the same instant could both pass `existing.length === 0` and
+    // bulk-create duplicates.
+    const SEED_FLAG = 'kobe.erp.discounts.seeded.v1';
     (async () => {
       try {
         await ensureSession();
-        const existing = await api<Array<{ id: string }>>('/discounts/rules');
-        if (!cancelled && existing.length === 0) {
-          const numericValue = (v: string) => Number(v.replace(/[^\d.]/g, '')) || 0;
-          await Promise.all([
-            ...discountRules.map((r) =>
-              api('/discounts/rules', {
-                method: 'POST',
-                body: JSON.stringify({
-                  name: r.name,
-                  type: r.type === 'Fixed' ? 'Fixed' : r.type === 'BuyXGetY' ? 'BOGO' : 'Percentage',
-                  value: numericValue(r.value),
-                  productScope: r.products,
+        const alreadySeeded = (() => {
+          try { return localStorage.getItem(SEED_FLAG) === '1'; } catch { return false; }
+        })();
+        if (!alreadySeeded) {
+          const existing = await api<Array<{ id: string }>>('/discounts/rules');
+          if (!cancelled && existing.length === 0) {
+            const numericValue = (v: string) => Number(v.replace(/[^\d.]/g, '')) || 0;
+            await Promise.all([
+              ...discountRules.map((r) =>
+                api('/discounts/rules', {
+                  method: 'POST',
+                  body: JSON.stringify({
+                    name: r.name,
+                    type: r.type === 'Fixed' ? 'Fixed' : r.type === 'BuyXGetY' ? 'BOGO' : 'Percentage',
+                    value: numericValue(r.value),
+                    productScope: r.products,
+                  }),
                 }),
-              }),
-            ),
-            ...campaigns.map((c) =>
-              api('/discounts/campaigns', {
-                method: 'POST',
-                body: JSON.stringify({
-                  name: c.name, description: c.description,
-                  startDate: c.startDate + 'T00:00:00Z',
-                  endDate: c.endDate + 'T23:59:59Z',
-                  status: c.status,
+              ),
+              ...campaigns.map((c) =>
+                api('/discounts/campaigns', {
+                  method: 'POST',
+                  body: JSON.stringify({
+                    name: c.name, description: c.description,
+                    startDate: c.startDate + 'T00:00:00Z',
+                    endDate: c.endDate + 'T23:59:59Z',
+                    status: c.status,
+                  }),
                 }),
-              }),
-            ),
-            ...coupons.map((c) =>
-              api('/discounts/coupons', {
-                method: 'POST',
-                body: JSON.stringify({
-                  code: c.code,
-                  type: c.type === 'Fixed' ? 'Fixed' : 'Percentage',
-                  value: numericValue(c.discount),
-                  usageLimit: c.limit,
-                  expiresAt: c.expiry + 'T23:59:59Z',
-                  active: c.status === 'Active',
+              ),
+              ...coupons.map((c) =>
+                api('/discounts/coupons', {
+                  method: 'POST',
+                  body: JSON.stringify({
+                    code: c.code,
+                    type: c.type === 'Fixed' ? 'Fixed' : 'Percentage',
+                    value: numericValue(c.discount),
+                    usageLimit: c.limit,
+                    expiresAt: c.expiry + 'T23:59:59Z',
+                    active: c.status === 'Active',
+                  }),
                 }),
-              }),
-            ),
-          ]);
+              ),
+            ]);
+          }
+          // Mark seeded regardless of whether we wrote rows — the user
+          // having existing rules counts as "already initialised".
+          try { localStorage.setItem(SEED_FLAG, '1'); } catch { /* private mode */ }
         }
         if (!cancelled) await reloadAll();
       } catch { /* leave demo data alone */ }
