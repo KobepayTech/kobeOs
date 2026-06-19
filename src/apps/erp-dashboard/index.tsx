@@ -6,6 +6,7 @@ import {
   FileText, ShieldCheck, Truck, Heart, UserCircle,
   ChevronRight, Boxes, CircleDollarSign,
   Globe, LayoutDashboard, CreditCard, Percent,
+  NotebookPen, Calculator,
 } from 'lucide-react';
 import { useOSStore } from '@/os/store';
 import {
@@ -93,6 +94,8 @@ const moduleSections = [
   {
     title: 'Finance & Reports',
     tiles: [
+      { id: 'summary', appId: 'erp-summary', label: 'Sales & Expenses', desc: 'Quick-entry summary log', icon: NotebookPen, color: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/20' },
+      { id: 'eod', appId: 'erp-eod', label: 'End of Day', desc: 'Count till & close trading day', icon: Calculator, color: 'text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/20' },
       { id: 'accounting', appId: 'erp-accounting', label: 'Accounting', desc: 'Financial records & ledgers', icon: CircleDollarSign, color: 'text-green-400', bg: 'bg-green-500/10', border: 'border-green-500/20' },
       { id: 'reports', appId: 'erp-reports', label: 'Reports', desc: 'Analytics & business insights', icon: FileText, color: 'text-indigo-400', bg: 'bg-indigo-500/10', border: 'border-indigo-500/20' },
       { id: 'loyalty', appId: 'erp-loyalty', label: 'Loyalty Program', desc: 'Customer rewards & points', icon: Heart, color: 'text-rose-400', bg: 'bg-rose-500/10', border: 'border-rose-500/20' },
