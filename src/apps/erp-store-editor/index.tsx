@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   Palette, Image, RotateCcw, Save, Download,
-  ShoppingBag, Search, ChevronDown, ChevronRight, Check, Upload, Eye, X,
+  ShoppingBag, Search, ChevronDown, ChevronRight, Check, Eye, X,
   Store, Type as TypeIcon, Grid3X3, PanelLeft, Tag, Plus, Globe, Loader2, AlertTriangle,
   LayoutGrid, Layers,
   Wifi, WifiOff, ExternalLink, Languages,
@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Switch } from '@/components/ui/switch';
+import { PhotoUpload } from '@/components/PhotoUpload';
 import { HomepageSectionBuilder, IndustryTemplatePicker } from './StorefrontSections';
 import { JerseyDesignEditor } from './JerseyDesignEditor';
 
@@ -908,8 +909,9 @@ export default function StoreEditor() {
           <Section title="Store Identity" icon={Store} defaultOpen>
             <div className="space-y-3">
               <div>
-                <label className="text-xs font-medium text-white/50 mb-1.5 block">Store Name</label>
+                <label htmlFor="store-name-input" className="text-xs font-medium text-white/50 mb-1.5 block">Store Name</label>
                 <Input
+                  id="store-name-input"
                   value={settings.storeName}
                   onChange={(e) => update('storeName', e.target.value)}
                   className="h-8 bg-white/[0.04] border-white/[0.08] text-sm text-white/90 placeholder:text-white/30"
@@ -918,10 +920,11 @@ export default function StoreEditor() {
               </div>
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-medium text-white/50">Tagline</label>
+                  <label htmlFor="store-tagline-input" className="text-xs font-medium text-white/50">Tagline</label>
                   <TranslateButton text={settings.tagline} onTranslated={(t) => update('tagline', t)} />
                 </div>
                 <Input
+                  id="store-tagline-input"
                   value={settings.tagline}
                   onChange={(e) => update('tagline', e.target.value)}
                   className="h-8 bg-white/[0.04] border-white/[0.08] text-sm text-white/90 placeholder:text-white/30"
@@ -930,18 +933,26 @@ export default function StoreEditor() {
               </div>
               <div>
                 <label className="text-xs font-medium text-white/50 mb-1.5 block">Logo</label>
-                <div className="border border-dashed border-white/[0.12] rounded-lg p-4 flex flex-col items-center gap-2 hover:border-white/20 transition-colors cursor-pointer bg-white/[0.02]">
-                  <Upload className="w-5 h-5 text-white/30" />
-                  <span className="text-[10px] text-white/40">Click to upload logo</span>
-                </div>
+                {/* Real upload — was a dead <div> before. PhotoUpload handles
+                    drag-drop, click-to-pick, paste-URL, error state, and
+                    persists via /api/media/upload. */}
+                <PhotoUpload
+                  value={settings.logoUrl}
+                  onChange={(url) => update('logoUrl', url ?? '')}
+                  aspect="square"
+                />
               </div>
               <div>
-                <label className="text-xs font-medium text-white/50 mb-1.5 block">Favicon</label>
+                <label htmlFor="store-favicon-input" className="text-xs font-medium text-white/50 mb-1.5 block">Favicon</label>
                 <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded bg-[#1a1a2e] border border-white/[0.08] flex items-center justify-center text-xs font-bold text-white/60">
+                  <div
+                    aria-hidden="true"
+                    className="w-8 h-8 rounded bg-[#1a1a2e] border border-white/[0.08] flex items-center justify-center text-xs font-bold text-white/60"
+                  >
                     {settings.storeName.charAt(0)}
                   </div>
                   <Input
+                    id="store-favicon-input"
                     value={settings.faviconUrl}
                     onChange={(e) => update('faviconUrl', e.target.value)}
                     className="flex-1 h-8 bg-white/[0.04] border-white/[0.08] text-xs text-white/70 placeholder:text-white/30"
@@ -968,8 +979,9 @@ export default function StoreEditor() {
 
               {/* Custom domain */}
               <div>
-                <label className="text-xs font-medium text-white/50 mb-1.5 block">Custom Domain (optional)</label>
+                <label htmlFor="store-custom-domain-input" className="text-xs font-medium text-white/50 mb-1.5 block">Custom Domain (optional)</label>
                 <Input
+                  id="store-custom-domain-input"
                   value={settings.customDomain}
                   onChange={(e) => update('customDomain', e.target.value)}
                   className="h-8 bg-white/[0.04] border-white/[0.08] text-sm text-white/90 placeholder:text-white/30 font-mono"
@@ -1106,24 +1118,27 @@ export default function StoreEditor() {
               {settings.bannerVisible && (
                 <>
                   <div>
-                    <label className="text-xs font-medium text-white/50 mb-1.5 block">Headline</label>
+                    <label htmlFor="store-banner-headline-input" className="text-xs font-medium text-white/50 mb-1.5 block">Headline</label>
                     <Input
+                      id="store-banner-headline-input"
                       value={settings.bannerHeadline}
                       onChange={(e) => update('bannerHeadline', e.target.value)}
                       className="h-8 bg-white/[0.04] border-white/[0.08] text-sm text-white/90"
                     />
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-white/50 mb-1.5 block">Subtext</label>
+                    <label htmlFor="store-banner-subtext-input" className="text-xs font-medium text-white/50 mb-1.5 block">Subtext</label>
                     <Input
+                      id="store-banner-subtext-input"
                       value={settings.bannerSubtext}
                       onChange={(e) => update('bannerSubtext', e.target.value)}
                       className="h-8 bg-white/[0.04] border-white/[0.08] text-sm text-white/90"
                     />
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-white/50 mb-1.5 block">CTA Button</label>
+                    <label htmlFor="store-banner-cta-input" className="text-xs font-medium text-white/50 mb-1.5 block">CTA Button</label>
                     <Input
+                      id="store-banner-cta-input"
                       value={settings.bannerCta}
                       onChange={(e) => update('bannerCta', e.target.value)}
                       className="h-8 bg-white/[0.04] border-white/[0.08] text-sm text-white/90"
@@ -1318,8 +1333,9 @@ export default function StoreEditor() {
                 <Toggle label="Enable Category Nav Bar" checked={settings.enableCategoryNav} onChange={(v) => update('enableCategoryNav', v)} />
               </div>
               <div>
-                <label className="text-xs font-medium text-white/50 mb-1.5 block">Footer Text</label>
+                <label htmlFor="store-footer-text-input" className="text-xs font-medium text-white/50 mb-1.5 block">Footer Text</label>
                 <Input
+                  id="store-footer-text-input"
                   value={settings.footerText}
                   onChange={(e) => update('footerText', e.target.value)}
                   className="h-8 bg-white/[0.04] border-white/[0.08] text-xs text-white/90"
