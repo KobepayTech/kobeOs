@@ -1,10 +1,13 @@
-import { Body, Controller, Delete, Get, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { Public } from '../common/public.decorator';
 import { StoreSettingsService } from './store-settings.service';
 import { UpsertStoreSettingsDto } from './dto/store-settings.dto';
 import { PublishService } from './publish.service';
+
+const MAX_SLUG_QUERY_LENGTH = 64;
 
 @UseGuards(JwtAuthGuard)
 @Controller('store-settings')
@@ -76,12 +79,18 @@ export class StoreSettingsController {
   /**
    * Check if a slug is available before publishing.
    * GET /api/store-settings/check-slug?slug=kelvinfashion
-   * Public — no auth needed.
+   * Public — no auth needed, but rate-limited (20/min per IP) so the
+   * endpoint can't be used to enumerate registered subdomains.
    */
   @Public()
+  @Throttle({ 'public-lookup': { limit: 20, ttl: 60_000 } })
   @Get('check-slug')
   checkSlug(@Query('slug') slug: string) {
-    return this.svc.checkSlugAvailability(slug ?? '');
+    const trimmed = (slug ?? '').trim();
+    if (trimmed.length > MAX_SLUG_QUERY_LENGTH) {
+      throw new BadRequestException(`slug query is too long (max ${MAX_SLUG_QUERY_LENGTH} chars)`);
+    }
+    return this.svc.checkSlugAvailability(trimmed);
   }
 
   /**
