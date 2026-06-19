@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   Palette, Image, RotateCcw, Save, Download,
   ShoppingBag, Search, ChevronDown, ChevronRight, Check, Upload, Eye, X,
@@ -603,7 +603,7 @@ function LivePreview({ settings }: { settings: StoreSettings }) {
             </button>
           </div>
           <div className={`grid ${gridCols} gap-3`}>
-            {PREVIEW_PRODUCTS.slice(0, settings.productsPerPage > 6 ? 6 : settings.productsPerPage).map((product) => (
+            {PREVIEW_PRODUCTS.slice(0, Math.min(settings.productsPerPage, PREVIEW_PRODUCTS.length)).map((product) => (
               <PreviewProductCard key={product.id} product={product} settings={settings} />
             ))}
           </div>
@@ -658,18 +658,30 @@ export default function StoreEditor() {
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
   const [cloudflaredInstalled, setCloudflaredInstalled] = useState<boolean | null>(null);
+  const [deploymentMode, setDeploymentMode] = useState<'hosted' | 'self-hosted' | null>(null);
   const [installingCf, setInstallingCf] = useState(false);
   const [installCfMsg, setInstallCfMsg] = useState<string | null>(null);
 
-  // One-shot check of whether cloudflared is available on the backend host.
-  // Drives the "Install cloudflared" CTA below the publish controls.
-  useEffect(() => {
-    let cancelled = false;
-    api<{ installed: boolean }>('/store-settings/cloudflared-status')
-      .then((r) => { if (!cancelled) setCloudflaredInstalled(Boolean(r?.installed)); })
-      .catch(() => { /* hosted backend may not even need it — leave null */ });
-    return () => { cancelled = true; };
+  // Mount-only async work uses this flag (the install handler also flips it)
+  // so we don't setState after the editor closes mid-request.
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
+
+  // Status check of whether cloudflared is available + which deployment
+  // mode the backend is in. Hosted backends don't need a per-machine
+  // binary, so the CTA stays hidden.
+  const refreshCloudflaredStatus = useCallback(async () => {
+    try {
+      const r = await api<{ installed: boolean; deploymentMode?: 'hosted' | 'self-hosted' }>(
+        '/store-settings/cloudflared-status',
+      );
+      if (!mountedRef.current) return;
+      setCloudflaredInstalled(Boolean(r?.installed));
+      if (r?.deploymentMode) setDeploymentMode(r.deploymentMode);
+    } catch { /* leave nulls — UI hides CTA when unknown */ }
   }, []);
+
+  useEffect(() => { refreshCloudflaredStatus(); }, [refreshCloudflaredStatus]);
 
   const handleInstallCloudflared = useCallback(async () => {
     setInstallingCf(true);
@@ -679,15 +691,20 @@ export default function StoreEditor() {
         '/store-settings/install-cloudflared',
         { method: 'POST' },
       );
+      if (!mountedRef.current) return;
       setCloudflaredInstalled(Boolean(r?.installed));
       setInstallCfMsg(`cloudflared ${r?.version} installed at ${r?.path}`);
-      setTimeout(() => setInstallCfMsg(null), 5000);
+      setTimeout(() => { if (mountedRef.current) setInstallCfMsg(null); }, 5000);
+      // Re-check via the status endpoint so any future deployment-mode
+      // changes get picked up too (and so retries see fresh state).
+      void refreshCloudflaredStatus();
     } catch (e) {
+      if (!mountedRef.current) return;
       setInstallCfMsg(`Install failed: ${(e as Error).message}`);
     } finally {
-      setInstallingCf(false);
+      if (mountedRef.current) setInstallingCf(false);
     }
-  }, []);
+  }, [refreshCloudflaredStatus]);
   const [tunnelRunning, setTunnelRunning] = useState(false);
 
   // Poll tunnel status every 15 seconds while the store is published
@@ -719,16 +736,25 @@ export default function StoreEditor() {
     setSaveError(null);
   }, []);
 
+  // Latest settings snapshot — read inside async handlers to avoid the
+  // stale-closure bug when the user clicks Save twice quickly (the second
+  // request used to send the pre-update form state).
+  const settingsRef = useRef(settings);
+  useEffect(() => { settingsRef.current = settings; }, [settings]);
+
   const handleSave = useCallback(async () => {
     setSaving(true);
     setSaveError(null);
     try {
       const updated = await api<StoreSettings>('/store-settings', {
         method: 'PUT',
-        body: JSON.stringify(settings),
+        body: JSON.stringify(settingsRef.current),
       });
-      // Sync domainSlug returned by backend
-      setSettings((prev) => ({ ...prev, domainSlug: updated.domainSlug ?? prev.domainSlug }));
+      // The backend auto-publishes on save when the slug changed / was
+      // never published, so the response can include publish fields too.
+      // Merge the full payload so the UI flips to "Published" without a
+      // separate refresh.
+      setSettings((prev) => ({ ...prev, ...updated }));
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
     } catch (e) {
@@ -736,7 +762,7 @@ export default function StoreEditor() {
     } finally {
       setSaving(false);
     }
-  }, [settings]);
+  }, []);
 
   const handleReset = useCallback(() => {
     setSettings(defaultSettings);
@@ -748,22 +774,31 @@ export default function StoreEditor() {
     setPublishing(true);
     setPublishError(null);
     try {
-      // Save first so the backend has the latest store name / slug
-      await api<StoreSettings>('/store-settings', {
+      // Save first so the backend has the latest store name / slug. The
+      // PUT may already publish (backend auto-publishes on save) — if so
+      // we skip the redundant POST below to avoid double-publishing and
+      // the slug-check race that would happen between them.
+      const saved = await api<StoreSettings>('/store-settings', {
         method: 'PUT',
-        body: JSON.stringify(settings),
+        body: JSON.stringify(settingsRef.current),
       });
+      if (saved.isPublished) {
+        setSettings((prev) => ({ ...prev, ...saved }));
+        setTunnelRunning(true);
+        return;
+      }
 
-      // Check slug availability
-      if (settings.domainSlug) {
+      // Check slug availability — only relevant when the backend's
+      // auto-publish didn't already take it.
+      if (saved.domainSlug) {
         const check = await api<{ available: boolean; reason?: string }>(
-          `/store-settings/check-slug?slug=${encodeURIComponent(settings.domainSlug)}`,
+          `/store-settings/check-slug?slug=${encodeURIComponent(saved.domainSlug)}`,
         );
         if (!check.available && check.reason !== 'taken') {
           // "taken" by the same owner is fine — they're re-publishing
           setPublishError(
             check.reason === 'reserved'
-              ? `"${settings.domainSlug}" is a reserved name. Choose a different store name.`
+              ? `"${saved.domainSlug}" is a reserved name. Choose a different store name.`
               : 'That store name is already taken. Choose a different name.',
           );
           return;
@@ -781,11 +816,9 @@ export default function StoreEditor() {
     } catch (e) {
       const msg = (e as Error).message ?? 'Publish failed';
       // Surface cloudflared-not-installed error clearly
-      if (msg.includes('cloudflared is not installed')) {
+      if (msg.includes('cloudflared is not installed') || msg.includes('cloudflared binary not found')) {
         setPublishError(
-          'cloudflared is not installed on this machine. ' +
-          'Download it from https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/ ' +
-          'then restart KobeOS.',
+          'cloudflared is not installed on this machine. Click "Install cloudflared" above, then try again.',
         );
       } else {
         setPublishError(msg);
@@ -793,7 +826,7 @@ export default function StoreEditor() {
     } finally {
       setPublishing(false);
     }
-  }, [settings]);
+  }, []);
 
   const handleUnpublish = useCallback(async () => {
     setPublishing(true);
@@ -1006,7 +1039,11 @@ export default function StoreEditor() {
                   {!settings.domainSlug && (
                     <p className="text-[10px] text-amber-400/70 text-center">Save your store name first</p>
                   )}
-                  {/* cloudflared requirement notice */}
+                  {/* cloudflared requirement notice — only relevant for
+                      self-hosted deployments. Hosted backends route every
+                      store through the central wildcard tunnel and don't
+                      need a binary on the operator's machine. */}
+                  {deploymentMode !== 'hosted' && (
                   <div className={`flex items-start gap-2 px-2.5 py-2 rounded-md border text-[10px] ${
                     cloudflaredInstalled === true
                       ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-300/80'
@@ -1048,6 +1085,7 @@ export default function StoreEditor() {
                       )}
                     </div>
                   </div>
+                  )}
                 </div>
               )}
 
