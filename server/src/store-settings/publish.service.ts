@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  InternalServerErrorException,
   Logger,
   OnModuleDestroy,
 } from '@nestjs/common';
@@ -8,10 +9,28 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ChildProcess, spawn } from 'child_process';
-import { existsSync } from 'fs';
+import { chmodSync, createWriteStream, existsSync, mkdirSync, statSync, unlinkSync } from 'fs';
+import { homedir } from 'os';
 import { join } from 'path';
+import * as https from 'https';
 import { StoreSettings } from './store-settings.entity';
 import { CloudflareService } from '../store-registry/cloudflare.service';
+
+const CLOUDFLARED_RELEASE = '2026.5.2';
+const CLOUDFLARED_BINARY_NAME =
+  process.platform === 'win32' ? 'cloudflared-windows-amd64.exe'
+  : process.platform === 'darwin' ? (process.arch === 'arm64' ? 'cloudflared-darwin-arm64' : 'cloudflared-darwin-amd64')
+  : 'cloudflared-linux-amd64';
+
+/** Where we drop downloaded cloudflared binaries when the operator clicks
+ *  "Install cloudflared" in System Settings. Outside the install dir so it
+ *  survives KobeOS upgrades. */
+function userDataCloudflaredPath(): string {
+  const dataRoot = process.env.KOBEOS_DATA_PATH || join(homedir(), '.kobeos');
+  const dir = join(dataRoot, 'cloudflared');
+  const fname = process.platform === 'win32' ? 'cloudflared.exe' : 'cloudflared';
+  return join(dir, fname);
+}
 
 /**
  * Manages store publishing — two deployment modes:
@@ -245,7 +264,11 @@ export class PublishService implements OnModuleDestroy {
    *   2. Bundled binary at <resourcesPath>/cloudflared/<platform-name>.
    *      In packaged Electron this is /resources/cloudflared/ — main.cjs
    *      exports KOBEOS_RESOURCES_PATH so the Nest server can find it.
-   *   3. `cloudflared` on PATH (dev or when the user installed it manually).
+   *   3. User-data binary at ~/.kobeos/cloudflared/cloudflared — written by
+   *      installCloudflared() when the operator clicks "Install Cloudflare"
+   *      in System Settings (works for installs that didn't ship the
+   *      bundled binary, e.g. self-built docker images).
+   *   4. `cloudflared` on PATH (dev or when the user installed it manually).
    * Returns null if nothing is runnable.
    */
   private resolveCloudflaredBinary(): string | null {
@@ -262,9 +285,76 @@ export class PublishService implements OnModuleDestroy {
       if (existsSync(candidate)) return candidate;
     }
 
+    const userInstalled = userDataCloudflaredPath();
+    if (existsSync(userInstalled)) return userInstalled;
+
     // Dev fallback — server running outside Electron. `spawn('cloudflared')`
     // resolves through PATH; an error here just means the user has to install it.
     return 'cloudflared';
+  }
+
+  /** True when a runnable cloudflared exists somewhere we can spawn it from.
+   *  Used by the System Settings UI to decide whether to surface an
+   *  "Install Cloudflare" button. */
+  isCloudflaredInstalled(): { installed: boolean; source: 'env' | 'bundled' | 'user-data' | 'path' | 'none'; path: string | null } {
+    const envOverride = process.env.CLOUDFLARED_BIN;
+    if (envOverride && existsSync(envOverride)) return { installed: true, source: 'env', path: envOverride };
+
+    const resourcesRoot = process.env.KOBEOS_RESOURCES_PATH;
+    if (resourcesRoot) {
+      const platformName =
+        process.platform === 'win32' ? 'cloudflared-win-x64.exe'
+        : process.platform === 'darwin' ? (process.arch === 'arm64' ? 'cloudflared-mac-arm64' : 'cloudflared-mac-x64')
+        : 'cloudflared-linux-x64';
+      const candidate = join(resourcesRoot, 'cloudflared', platformName);
+      if (existsSync(candidate)) return { installed: true, source: 'bundled', path: candidate };
+    }
+
+    const userInstalled = userDataCloudflaredPath();
+    if (existsSync(userInstalled)) return { installed: true, source: 'user-data', path: userInstalled };
+
+    // PATH check is fire-and-forget; surface unknown rather than blocking the API.
+    return { installed: false, source: 'none', path: null };
+  }
+
+  /** Download the cloudflared binary for the current platform into the
+   *  user-data dir, make it executable, and return the install location.
+   *  Idempotent — calling twice re-downloads (so users can refresh stale
+   *  binaries). Follows GitHub release redirects to S3/CDN. */
+  async installCloudflared(): Promise<{ installed: boolean; path: string; source: 'user-data'; version: string }> {
+    const dest = userDataCloudflaredPath();
+    const dir  = join(dest, '..');
+    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+
+    const url = `https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_RELEASE}/${CLOUDFLARED_BINARY_NAME}`;
+
+    this.logger.log(`Downloading cloudflared ${CLOUDFLARED_RELEASE} from ${url}`);
+
+    // Clean up partial leftovers from a previous failed attempt.
+    if (existsSync(dest)) {
+      try { unlinkSync(dest); } catch { /* permission — best-effort */ }
+    }
+
+    await downloadFollowingRedirects(url, dest);
+
+    // Sanity check — non-empty file.
+    const stats = statSync(dest);
+    if (stats.size < 1024 * 100) {
+      try { unlinkSync(dest); } catch { /* */ }
+      throw new InternalServerErrorException(
+        `cloudflared download was too small (${stats.size} bytes) — likely an HTML error page. Check connectivity to github.com.`,
+      );
+    }
+
+    // Mark executable on unix.
+    if (process.platform !== 'win32') {
+      try { chmodSync(dest, 0o755); } catch (e) {
+        this.logger.warn(`Could not chmod ${dest}: ${(e as Error).message}`);
+      }
+    }
+
+    this.logger.log(`cloudflared installed at ${dest}`);
+    return { installed: true, path: dest, source: 'user-data', version: CLOUDFLARED_RELEASE };
   }
 
   // ── Cleanup on shutdown ──────────────────────────────────────────────────
@@ -274,4 +364,31 @@ export class PublishService implements OnModuleDestroy {
       this.stopTunnelProcess(ownerId);
     }
   }
+}
+
+/** Stream-download from `url` to `dest`, following 301/302/307 redirects.
+ *  GitHub releases redirect a few times to S3 — node's https.get won't
+ *  follow them on its own. */
+function downloadFollowingRedirects(url: string, dest: string, hops = 0): Promise<void> {
+  if (hops > 5) return Promise.reject(new Error('Too many redirects following cloudflared download'));
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { headers: { 'User-Agent': 'kobeos-installer' } }, (res) => {
+      if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        res.resume();
+        resolve(downloadFollowingRedirects(res.headers.location, dest, hops + 1));
+        return;
+      }
+      if (res.statusCode !== 200) {
+        res.resume();
+        reject(new Error(`Download failed: HTTP ${res.statusCode} for ${url}`));
+        return;
+      }
+      const file = createWriteStream(dest);
+      res.pipe(file);
+      file.on('finish', () => file.close(() => resolve()));
+      file.on('error', (err) => { try { unlinkSync(dest); } catch { /* */ } reject(err); });
+    });
+    req.on('error', reject);
+    req.setTimeout(120_000, () => req.destroy(new Error('Download timed out')));
+  });
 }
