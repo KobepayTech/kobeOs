@@ -87,7 +87,7 @@ const moduleSections = [
     title: 'Warehouse & Logistics',
     tiles: [
       { id: 'warehouse', appId: 'erp-warehouse', label: 'Warehouse', desc: 'Stock & storage management', icon: Warehouse, color: 'text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/20' },
-      { id: 'shipments', appId: 'erp-shipments', label: 'Shipments', desc: 'Track deliveries & routes', icon: Truck, color: 'text-cyan-400', bg: 'bg-cyan-500/10', border: 'border-cyan-500/20' },
+      { id: 'shipments', appId: 'erp-shipments', label: 'Shipments (demo)', desc: 'Track deliveries & routes — local-only preview', icon: Truck, color: 'text-cyan-400', bg: 'bg-cyan-500/10', border: 'border-cyan-500/20' },
       { id: 'sourcing', appId: 'erp-sourcing', label: 'Sourcing', desc: 'Supplier & procurement', icon: Globe, color: 'text-teal-400', bg: 'bg-teal-500/10', border: 'border-teal-500/20' },
     ] as ModuleTile[],
   },
@@ -104,8 +104,8 @@ const moduleSections = [
   {
     title: 'Administration',
     tiles: [
-      { id: 'admin', appId: 'erp-admin', label: 'Admin Panel', desc: 'Users, roles & permissions', icon: ShieldCheck, color: 'text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/20' },
-      { id: 'rider', appId: 'erp-rider', label: 'Rider Manager', desc: 'Delivery personnel', icon: UserCircle, color: 'text-sky-400', bg: 'bg-sky-500/10', border: 'border-sky-500/20' },
+      { id: 'admin', appId: 'erp-admin', label: 'Admin Panel (demo)', desc: 'Users, roles & permissions — local-only preview', icon: ShieldCheck, color: 'text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/20' },
+      { id: 'rider', appId: 'erp-rider', label: 'Rider Manager', desc: 'Delivery personnel — coming soon', icon: UserCircle, color: 'text-sky-400', bg: 'bg-sky-500/10', border: 'border-sky-500/20' },
     ] as ModuleTile[],
   },
 ];
