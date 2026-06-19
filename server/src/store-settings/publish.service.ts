@@ -295,10 +295,18 @@ export class PublishService implements OnModuleDestroy {
 
   /** True when a runnable cloudflared exists somewhere we can spawn it from.
    *  Used by the System Settings UI to decide whether to surface an
-   *  "Install Cloudflare" button. */
-  isCloudflaredInstalled(): { installed: boolean; source: 'env' | 'bundled' | 'user-data' | 'path' | 'none'; path: string | null } {
+   *  "Install Cloudflare" button. Also reports the deployment mode so the
+   *  UI can hide the CTA entirely on hosted backends (the wildcard tunnel
+   *  runs centrally; no per-machine binary needed). */
+  isCloudflaredInstalled(): {
+    installed: boolean;
+    source: 'env' | 'bundled' | 'user-data' | 'path' | 'none';
+    path: string | null;
+    deploymentMode: 'hosted' | 'self-hosted';
+  } {
+    const deploymentMode = this.deploymentMode;
     const envOverride = process.env.CLOUDFLARED_BIN;
-    if (envOverride && existsSync(envOverride)) return { installed: true, source: 'env', path: envOverride };
+    if (envOverride && existsSync(envOverride)) return { installed: true, source: 'env', path: envOverride, deploymentMode };
 
     const resourcesRoot = process.env.KOBEOS_RESOURCES_PATH;
     if (resourcesRoot) {
@@ -307,14 +315,14 @@ export class PublishService implements OnModuleDestroy {
         : process.platform === 'darwin' ? (process.arch === 'arm64' ? 'cloudflared-mac-arm64' : 'cloudflared-mac-x64')
         : 'cloudflared-linux-x64';
       const candidate = join(resourcesRoot, 'cloudflared', platformName);
-      if (existsSync(candidate)) return { installed: true, source: 'bundled', path: candidate };
+      if (existsSync(candidate)) return { installed: true, source: 'bundled', path: candidate, deploymentMode };
     }
 
     const userInstalled = userDataCloudflaredPath();
-    if (existsSync(userInstalled)) return { installed: true, source: 'user-data', path: userInstalled };
+    if (existsSync(userInstalled)) return { installed: true, source: 'user-data', path: userInstalled, deploymentMode };
 
     // PATH check is fire-and-forget; surface unknown rather than blocking the API.
-    return { installed: false, source: 'none', path: null };
+    return { installed: false, source: 'none', path: null, deploymentMode };
   }
 
   /** Download the cloudflared binary for the current platform into the
