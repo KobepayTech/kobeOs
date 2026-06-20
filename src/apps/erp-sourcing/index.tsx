@@ -108,24 +108,34 @@ export default function ERPSourcing() {
     setSupplierForm({ name: '', contact: '', phone: '', country: '', rating: 4 });
   };
 
-  // Roll-up for the PO form: per-line cost/revenue/profit plus a
-  // PO-level transport bucket. Net profit = revenue − cost − transport.
+  // Roll-up for the PO form: transport is allocated per-unit so a
+  // line's cost reflects "buying price + freight share" — i.e. the
+  // landed unit cost the operator actually sells against. Net profit
+  // across the whole PO comes out the same as if we just subtracted
+  // transport at the end; doing it per-unit makes per-line profit
+  // honest, which is what the operator cares about while editing.
   const poCalc = (() => {
+    const transport = Number(poForm.transport) || 0;
+    const totalQty = poForm.items.reduce((s, it) => s + (Number(it.qty) || 0), 0);
+    const freightPerUnit = totalQty > 0 ? transport / totalQty : 0;
     const lines = poForm.items.map((it) => {
       const qty = Number(it.qty) || 0;
       const price = Number(it.price) || 0;
       const sellPrice = Number(it.sellPrice) || 0;
-      const cost = qty * price;
+      const landedUnit = price + freightPerUnit;
+      const freight = qty * freightPerUnit;
+      const cost = qty * landedUnit; // goods + freight share
       const revenue = qty * sellPrice;
-      return { ...it, cost, revenue, profit: revenue - cost };
+      const profit = revenue - cost;
+      const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
+      return { ...it, landedUnit, freight, cost, revenue, profit, margin };
     });
-    const costTotal    = lines.reduce((s, l) => s + l.cost, 0);
+    const goodsTotal   = lines.reduce((s, l) => s + l.qty * l.price, 0);
+    const costTotal    = lines.reduce((s, l) => s + l.cost, 0); // includes transport
     const revenueTotal = lines.reduce((s, l) => s + l.revenue, 0);
-    const transport    = Number(poForm.transport) || 0;
-    const landedCost   = costTotal + transport;
-    const netProfit    = revenueTotal - landedCost;
+    const netProfit    = revenueTotal - costTotal;
     const netMargin    = revenueTotal > 0 ? (netProfit / revenueTotal) * 100 : 0;
-    return { lines, costTotal, revenueTotal, transport, landedCost, netProfit, netMargin };
+    return { lines, goodsTotal, costTotal, revenueTotal, transport, freightPerUnit, totalQty, landedCost: costTotal, netProfit, netMargin };
   })();
   const poTotal = poCalc.landedCost;
 
@@ -450,9 +460,12 @@ export default function ERPSourcing() {
                       </div>
                     </div>
                     {item.qty > 0 && (item.price > 0 || item.sellPrice > 0) && (
-                      <div className="flex items-center justify-between text-[10px] px-1">
+                      <div
+                        className="flex items-center justify-between text-[10px] px-1"
+                        title={`Cost ${tzs(item.cost)} (goods + ${tzs(item.freight)} freight) · revenue ${tzs(item.revenue)}`}
+                      >
                         <span className="text-slate-500">
-                          Cost {tzs(item.cost)} · Sale {tzs(item.revenue)}
+                          Landed <span className="font-bold text-slate-300">{tzs(item.landedUnit)}</span>/unit · Sale {tzs(item.revenue)}
                         </span>
                         <span className={`font-bold px-1.5 py-0.5 rounded ${
                           item.profit > 0 ? 'bg-emerald-500/15 text-emerald-300'
@@ -471,7 +484,7 @@ export default function ERPSourcing() {
                 </Button>
               </div>
 
-              {/* Transport / freight — one entry per PO. */}
+              {/* Transport / freight — one entry per PO, allocated per unit. */}
               <div className="grid grid-cols-2 gap-2 items-end pt-2 border-t border-slate-800">
                 <label className="text-xs text-slate-400">
                   Transport / freight
@@ -482,9 +495,16 @@ export default function ERPSourcing() {
                     onChange={(e) => setPoForm((f) => ({ ...f, transport: Number(e.target.value) || 0 }))}
                     className="h-8 bg-slate-800 border-slate-700 text-xs text-right mt-0.5"
                   />
+                  {poCalc.transport > 0 && poCalc.totalQty > 0 && (
+                    <p className="text-[10px] text-slate-500 mt-0.5">
+                      {tzs(poCalc.freightPerUnit)}/unit across {poCalc.totalQty}
+                    </p>
+                  )}
                 </label>
                 <div className="text-right text-[11px] text-slate-400">
-                  Goods cost <span className="font-bold text-slate-200">{tzs(poCalc.costTotal)}</span>
+                  Goods <span className="font-bold text-slate-200">{tzs(poCalc.goodsTotal)}</span>
+                  <br />
+                  Landed <span className="font-bold text-slate-200">{tzs(poCalc.costTotal)}</span>
                 </div>
               </div>
 

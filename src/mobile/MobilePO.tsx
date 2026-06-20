@@ -78,28 +78,38 @@ export default function MobilePO() {
     return () => { cancelled = true; };
   }, []);
 
-  // Per-line + roll-up calculations. Transport is treated as a single
-  // PO-level cost (not allocated per line) so the totals stay honest
-  // and the operator can see it as its own bucket. Per-line profit
-  // therefore excludes transport; the bottom summary reports the net
-  // profit AFTER transport.
+  // Per-line + roll-up calculations. Transport is allocated to each
+  // line by unit share — the per-unit cost the operator cares about
+  // is "buying price + freight share", so a line's profit reflects
+  // its real margin after freight (the simple wholesale spread is
+  // misleading when shipping ate half the gross margin).
+  //
+  // Allocation: freightPerUnit = transport / totalQty. Per-unit cost
+  // = price + freightPerUnit. Net profit across the whole PO is the
+  // same as before (revenue − goods − transport) since per-line
+  // contributions sum to the total.
   const calc = useMemo(() => {
+    const transport = Number(transportCost) || 0;
+    const totalQty = lines.reduce((s, l) => s + (Number(l.qty) || 0), 0);
+    const freightPerUnit = totalQty > 0 ? transport / totalQty : 0;
     const enriched = lines.map((l) => {
       const qty = Number(l.qty) || 0;
       const price = Number(l.price) || 0;
       const sellPrice = Number(l.sellPrice) || 0;
-      const cost = qty * price;
+      const freight = qty * freightPerUnit;
+      const landedUnit = price + freightPerUnit;
+      const cost = qty * landedUnit; // goods + freight share
       const revenue = qty * sellPrice;
       const profit = revenue - cost;
       const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
-      return { ...l, cost, revenue, profit, margin };
+      return { ...l, freight, landedUnit, cost, revenue, profit, margin };
     });
-    const costTotal    = enriched.reduce((s, l) => s + l.cost, 0);
+    const goodsTotal   = enriched.reduce((s, l) => s + l.qty * l.price, 0);
+    const costTotal    = enriched.reduce((s, l) => s + l.cost, 0); // includes transport
     const revenueTotal = enriched.reduce((s, l) => s + l.revenue, 0);
-    const transport    = Number(transportCost) || 0;
-    const netProfit    = revenueTotal - costTotal - transport;
+    const netProfit    = revenueTotal - costTotal;
     const netMargin    = revenueTotal > 0 ? (netProfit / revenueTotal) * 100 : 0;
-    return { enriched, costTotal, revenueTotal, transport, netProfit, netMargin };
+    return { enriched, goodsTotal, costTotal, revenueTotal, transport, freightPerUnit, totalQty, netProfit, netMargin };
   }, [lines, transportCost]);
 
   const supplier = suppliers.find((s) => s.id === supplierId);
@@ -144,7 +154,7 @@ export default function MobilePO() {
           // totalCny = supplier-side cost (goods + transport). Keeps
           // landed-cost accounting consistent even though the backend
           // column is still called totalCny.
-          totalCny: calc.costTotal + calc.transport,
+          totalCny: calc.costTotal,
           notes: notesPayload,
         }),
       });
@@ -321,7 +331,7 @@ export default function MobilePO() {
               </div>
               <div className="flex items-center justify-between text-[10px]">
                 <span className="text-slate-500">
-                  Cost <span className="font-extrabold text-slate-800">{fmt(l.cost)}</span>
+                  Landed <span className="font-extrabold text-slate-800">{fmt(l.landedUnit)}</span>/unit
                   <span className="mx-1.5 text-slate-300">·</span>
                   Sale <span className="font-extrabold text-slate-800">{fmt(l.revenue)}</span>
                 </span>
@@ -331,6 +341,7 @@ export default function MobilePO() {
                     l.profit < 0 ? 'bg-rose-50 text-rose-700' :
                                    'bg-slate-100 text-slate-500'
                   }`}
+                  title={`Cost ${fmt(l.cost)} (goods + ${fmt(l.freight)} freight) · revenue ${fmt(l.revenue)}`}
                 >
                   {l.profit >= 0 ? '+' : ''}{fmt(l.profit)} ({fmtPct(l.margin)})
                 </span>
@@ -362,7 +373,10 @@ export default function MobilePO() {
             className="mt-1 w-full h-11 px-3 rounded-lg border border-slate-200 bg-white text-base font-bold text-right"
           />
           <p className="text-[10px] text-slate-400 mt-1">
-            Single freight cost for the whole shipment. Subtracted from total profit.
+            Allocated to each unit so per-line profit reflects landed cost
+            {calc.totalQty > 0 && calc.freightPerUnit > 0 && (
+              <> (<span className="font-bold text-slate-600">{fmt(calc.freightPerUnit)}/unit</span> across {calc.totalQty})</>
+            )}.
           </p>
         </label>
       </div>
@@ -384,7 +398,7 @@ export default function MobilePO() {
       {/* Sticky profit summary + create button */}
       <div className="fixed bottom-16 left-2 right-2 z-20 bg-white border border-slate-200 rounded-2xl p-3 shadow-xl space-y-2">
         <div className="grid grid-cols-3 gap-2 text-center">
-          <SummaryCell label="Cost" value={fmt(calc.costTotal + calc.transport)} sub={`+ ${fmt(calc.transport)} freight`} />
+          <SummaryCell label="Cost" value={fmt(calc.costTotal)} sub={calc.transport > 0 ? `goods ${fmt(calc.goodsTotal)} + ${fmt(calc.transport)} freight` : 'goods only'} />
           <SummaryCell label="Revenue" value={fmt(calc.revenueTotal)} sub="if all sold" tone="indigo" />
           <SummaryCell
             label="Profit"
@@ -400,7 +414,7 @@ export default function MobilePO() {
           className="w-full h-12 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white font-extrabold text-sm inline-flex items-center justify-center gap-2"
         >
           {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
-          {submitting ? 'Saving…' : `Create PO · ${fmt(calc.costTotal + calc.transport)}`}
+          {submitting ? 'Saving…' : `Create PO · ${fmt(calc.costTotal)}`}
         </button>
       </div>
     </div>
