@@ -23,6 +23,7 @@ interface ParsedItem {
   matchedSku?: string | null;
   matchedName?: string | null;
   matchedPrice?: number | null;
+  matchedImageUrl?: string | null;
   confidence: number;
 }
 
@@ -34,9 +35,10 @@ interface ParseResponse {
   model?: string;
   source: 'ollama' | 'ocr-fallback' | 'none';
   receivedBytes: number;
+  catalogStats?: { total: number; withImage: number };
 }
 
-type CatalogProduct = { id: string; sku: string; name: string; price: number | string; stock?: number };
+type CatalogProduct = { id: string; sku: string; name: string; price: number | string; stock?: number; imageUrl?: string | null };
 
 const fmt = (n: number) => `TZS ${Math.round(n).toLocaleString()}`;
 
@@ -114,7 +116,8 @@ export function OrderFromImageDialog({
     if (!p) return;
     setItem(i, {
       matchedProductId: p.id, matchedSku: p.sku, matchedName: p.name,
-      matchedPrice: Number(p.price), name: p.name, confidence: 1,
+      matchedPrice: Number(p.price), matchedImageUrl: p.imageUrl ?? null,
+      name: p.name, confidence: 1,
     });
   };
 
@@ -364,21 +367,32 @@ function ReviewView({
                       <span className="ml-2 text-emerald-400 font-bold">✓ {it.matchedSku}</span>
                     )}
                   </div>
-                  <select
-                    value={it.matchedProductId ?? ''}
-                    onChange={(e) => matchToProduct(i, e.target.value)}
-                    className="w-full h-8 px-2 rounded bg-[#0a0a1a] border border-white/[0.08] text-xs text-white/90"
-                  >
-                    <option value="">— pick a product —</option>
-                    {products.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.sku} · {p.name} · {fmt(Number(p.price))}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center gap-2">
+                    {/* Catalog thumbnail — gives the operator a visual
+                     *  confirmation that the AI's pick is actually the
+                     *  item the customer marked. */}
+                    <CatalogThumb url={it.matchedImageUrl} alt={it.matchedName ?? ''} size={40} />
+                    <select
+                      value={it.matchedProductId ?? ''}
+                      onChange={(e) => matchToProduct(i, e.target.value)}
+                      className="flex-1 h-8 px-2 rounded bg-[#0a0a1a] border border-white/[0.08] text-xs text-white/90"
+                    >
+                      <option value="">— pick a product —</option>
+                      {products.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.sku} · {p.name} · {fmt(Number(p.price))}{!p.imageUrl ? ' (no img)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                   {it.matchedProductId && (
-                    <div className="text-[10px] text-white/40 mt-1">
-                      Line {fmt((Number(it.matchedPrice) || 0) * it.quantity)}
+                    <div className="text-[10px] text-white/40 mt-1 flex items-center justify-between">
+                      <span>Line {fmt((Number(it.matchedPrice) || 0) * it.quantity)}</span>
+                      {!it.matchedImageUrl && (
+                        <span className="text-amber-400/80">
+                          Bind a photo in Product Manager so this matches by sight next time
+                        </span>
+                      )}
                     </div>
                   )}
                 </div>
@@ -406,24 +420,55 @@ function ReviewView({
 }
 
 function SourceBadge({ result }: { result: ParseResponse }) {
-  if (result.source === 'ollama') {
+  const stats = result.catalogStats;
+  // Only show the coverage hint when there are actually products
+  // without images — silent when the catalog is fully bound.
+  const showCoverageHint = stats && stats.total > 0 && stats.withImage < stats.total;
+  return (
+    <div className="space-y-1">
+      {result.source === 'ollama' && (
+        <div className="text-[10px] text-emerald-400/80">
+          ✓ Parsed by vision model {result.model && <span className="text-white/40">({result.model})</span>}
+          {!result.hasAnnotations && ' · no marker annotations spotted'}
+        </div>
+      )}
+      {result.source === 'ocr-fallback' && (
+        <div className="text-[10px] text-amber-400/80">
+          ⚠ Vision model not reachable — used OCR text extraction as a fallback. Review the items carefully.
+        </div>
+      )}
+      {result.source === 'none' && (
+        <div className="text-[10px] text-amber-400/80">
+          ⚠ No AI parsing available — enter items manually. (Configure Ollama with a vision model like llava for automatic parsing.)
+        </div>
+      )}
+      {showCoverageHint && (
+        <div className="text-[10px] text-amber-300/80 bg-amber-500/10 border border-amber-500/20 rounded px-2 py-1">
+          ℹ {stats.total - stats.withImage} of {stats.total} catalog products have no image bound — open Product Manager and add photos so the AI can match by what items look like, not just by name.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CatalogThumb({ url, alt, size = 40 }: { url?: string | null; alt: string; size?: number }) {
+  if (!url) {
     return (
-      <div className="text-[10px] text-emerald-400/80">
-        ✓ Parsed by vision model {result.model && <span className="text-white/40">({result.model})</span>}
-        {!result.hasAnnotations && ' · no marker annotations spotted'}
-      </div>
-    );
-  }
-  if (result.source === 'ocr-fallback') {
-    return (
-      <div className="text-[10px] text-amber-400/80">
-        ⚠ Vision model not reachable — used OCR text extraction as a fallback. Review the items carefully.
+      <div
+        className="rounded bg-white/[0.05] border border-white/[0.06] grid place-items-center text-[8px] text-white/30 shrink-0"
+        style={{ width: size, height: size }}
+      >
+        no img
       </div>
     );
   }
   return (
-    <div className="text-[10px] text-amber-400/80">
-      ⚠ No AI parsing available — enter items manually. (Configure Ollama with a vision model like llava for automatic parsing.)
-    </div>
+    <img
+      src={url}
+      alt={alt}
+      className="rounded object-cover bg-white/[0.05] border border-white/[0.06] shrink-0"
+      style={{ width: size, height: size }}
+      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+    />
   );
 }

@@ -22,6 +22,7 @@ interface ParsedItem {
   matchedSku?: string | null;
   matchedName?: string | null;
   matchedPrice?: number | null;
+  matchedImageUrl?: string | null;
   confidence: number;
 }
 interface ParseResponse {
@@ -30,8 +31,9 @@ interface ParseResponse {
   rawSummary: string;
   source: 'ollama' | 'ocr-fallback' | 'none';
   model?: string;
+  catalogStats?: { total: number; withImage: number };
 }
-interface Product { id: string; sku: string; name: string; price: number | string; stock?: number }
+interface Product { id: string; sku: string; name: string; price: number | string; stock?: number; imageUrl?: string | null }
 
 const fmt = (n: number) => `TZS ${Math.round(n).toLocaleString()}`;
 
@@ -100,7 +102,8 @@ export default function MobileImageOrder() {
     if (!p) return;
     setItem(i, {
       matchedProductId: p.id, matchedSku: p.sku, matchedName: p.name,
-      matchedPrice: Number(p.price), name: p.name, confidence: 1,
+      matchedPrice: Number(p.price), matchedImageUrl: p.imageUrl ?? null,
+      name: p.name, confidence: 1,
     });
   };
 
@@ -243,18 +246,28 @@ export default function MobileImageOrder() {
                     <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
-                <select
-                  value={it.matchedProductId ?? ''}
-                  onChange={(e) => matchToProduct(i, e.target.value)}
-                  className={`w-full h-9 px-2 rounded-lg border bg-white text-xs ${
-                    it.matchedProductId ? 'border-emerald-300 text-emerald-700 font-bold' : 'border-slate-200 text-slate-500'
-                  }`}
-                >
-                  <option value="">— match to catalog —</option>
-                  {products.map((p) => (
-                    <option key={p.id} value={p.id}>{p.sku} · {p.name} · {fmt(Number(p.price))}</option>
-                  ))}
-                </select>
+                <div className="flex items-center gap-2">
+                  <CatalogThumb url={it.matchedImageUrl ?? null} />
+                  <select
+                    value={it.matchedProductId ?? ''}
+                    onChange={(e) => matchToProduct(i, e.target.value)}
+                    className={`flex-1 h-9 px-2 rounded-lg border bg-white text-xs ${
+                      it.matchedProductId ? 'border-emerald-300 text-emerald-700 font-bold' : 'border-slate-200 text-slate-500'
+                    }`}
+                  >
+                    <option value="">— match to catalog —</option>
+                    {products.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.sku} · {p.name} · {fmt(Number(p.price))}{p.imageUrl ? '' : ' · (no img)'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {it.matchedProductId && !it.matchedImageUrl && (
+                  <p className="text-[10px] text-amber-600">
+                    Bind a photo in Product Manager so this matches by sight next time.
+                  </p>
+                )}
                 {it.matchedProductId && (
                   <div className="text-[10px] text-slate-500 text-right">
                     Line {fmt((Number(it.matchedPrice) || 0) * it.quantity)}
@@ -309,9 +322,37 @@ function SourceBadge({ result }: { result: ParseResponse }) {
     result.source === 'ollama' ? `Parsed by vision model${result.model ? ` (${result.model})` : ''}`
     : result.source === 'ocr-fallback' ? 'Used OCR fallback — review carefully'
     : 'No AI available — review manually';
+  const stats = result.catalogStats;
+  const missing = stats ? stats.total - stats.withImage : 0;
   return (
-    <div className={`text-[11px] px-3 py-1.5 rounded-lg border ${tone}`}>
-      {label}{result.source === 'ollama' && !result.hasAnnotations ? ' · no markings detected' : ''}
+    <div className="space-y-1">
+      <div className={`text-[11px] px-3 py-1.5 rounded-lg border ${tone}`}>
+        {label}{result.source === 'ollama' && !result.hasAnnotations ? ' · no markings detected' : ''}
+      </div>
+      {stats && missing > 0 && (
+        <div className="text-[10px] px-3 py-1.5 rounded-lg border border-amber-200 bg-amber-50 text-amber-700">
+          {missing} of {stats.total} catalog products have no image bound — matching falls back to text.
+          Add product photos in Product Manager so the AI can match by sight.
+        </div>
+      )}
     </div>
+  );
+}
+
+function CatalogThumb({ url }: { url: string | null }) {
+  if (!url) {
+    return (
+      <div className="w-10 h-10 rounded-lg bg-slate-100 border border-dashed border-slate-300 grid place-items-center text-[8px] text-slate-400 shrink-0">
+        no img
+      </div>
+    );
+  }
+  return (
+    <img
+      src={url}
+      alt=""
+      className="w-10 h-10 rounded-lg object-cover border border-slate-200 shrink-0"
+      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+    />
   );
 }

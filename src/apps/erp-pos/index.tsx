@@ -1434,6 +1434,7 @@ export default function POSSystem() {
           sku: (p as { sku?: string }).sku ?? p.id.slice(0, 8),
           name: p.name,
           price: p.price,
+          imageUrl: (p as { imageUrl?: string | null }).imageUrl ?? null,
         }))}
         onOrderCreated={(orderNumber) => {
           setLastReceipt({

@@ -14,6 +14,9 @@ export interface ParsedItem {
   matchedSku?: string | null;
   matchedName?: string | null;
   matchedPrice?: number | null;
+  /** Catalog product photo URL — surfaced in the review UI so the
+   *  operator can visually confirm the AI / fuzzy match. */
+  matchedImageUrl?: string | null;
   confidence: number;
 }
 
@@ -24,6 +27,9 @@ export interface ParseResult {
   ocrText?: string;
   model?: string;
   source: 'ollama' | 'ocr-fallback' | 'none';
+  /** How much of the catalog has product images bound — drives the
+   *  "add inventory photos for better matching" hint in the UI. */
+  catalogStats?: { total: number; withImage: number };
 }
 
 /**
@@ -55,17 +61,33 @@ export class OrderFromImageService {
   ) {}
 
   /** Best-effort vision parse. Never throws; returns source='none' on
-   *  full failure so the operator can fall back to manual entry. */
+   *  full failure so the operator can fall back to manual entry.
+   *  Pulls the owner's POS catalog (name + sku + imageUrl) up-front so
+   *  the vision model can pick the matching SKU directly instead of
+   *  the service guessing from a free-text label afterwards. */
   async parseImage(ownerId: string, image: Buffer): Promise<ParseResult> {
     if (!image || image.length === 0) {
       throw new BadRequestException('Image is empty');
     }
 
+    // Catalog snapshot — used both as context for the vision prompt
+    // and for the fallback text matcher below.
+    let catalog: PosProduct[] = [];
+    try {
+      catalog = await this.products.find({ where: { ownerId }, order: { name: 'ASC' } });
+    } catch (err) {
+      this.logger.warn(`Catalog read failed: ${(err as Error).message}`);
+    }
+    const catalogStats = {
+      total: catalog.length,
+      withImage: catalog.filter((p) => Boolean(p.imageUrl?.trim())).length,
+    };
+
     // Try vision model first.
     const visionModel = this.config.get<string>('AI_VISION_MODEL') || 'llava:7b';
     let visionResult: { items: ParsedItem[]; rawSummary: string; hasAnnotations: boolean } | null = null;
     try {
-      visionResult = await this.runVision(image, visionModel);
+      visionResult = await this.runVision(image, visionModel, catalog);
     } catch (err) {
       this.logger.warn(`Vision model ${visionModel} failed: ${(err as Error).message}`);
     }
@@ -106,13 +128,10 @@ export class OrderFromImageService {
       summary = 'No annotations detected and no OCR text available — enter items manually.';
     }
 
-    // Catalog match. Doesn't fail the whole parse if the catalog is empty.
-    try {
-      const catalog = await this.products.find({ where: { ownerId } });
-      items = items.map((it) => matchProduct(it, catalog));
-    } catch (err) {
-      this.logger.warn(`Catalog match failed: ${(err as Error).message}`);
-    }
+    // Catalog match. The vision prompt already returned a `matchedSku`
+    // for each item when it could; this fills in the rest by text and
+    // resolves the SKU back to the full product row for the UI.
+    items = items.map((it) => matchProduct(it, catalog));
 
     return {
       hasAnnotations,
@@ -121,31 +140,42 @@ export class OrderFromImageService {
       ocrText: ocrText || undefined,
       model: source === 'ollama' ? visionModel : undefined,
       source,
+      catalogStats,
     };
   }
 
   private async runVision(
     image: Buffer,
     model: string,
+    catalog: PosProduct[],
   ): Promise<{ items: ParsedItem[]; rawSummary: string; hasAnnotations: boolean }> {
     const base64 = image.toString('base64');
+    // Compact catalog block — gives the model the candidate list so it
+    // can pick the matching SKU directly. Capped to 80 lines to keep
+    // the prompt small; for larger catalogs we still fall back to
+    // text matching against the full list after the model returns.
+    const catalogBlock = catalog
+      .slice(0, 80)
+      .map((p) => `- ${p.sku} | ${p.name} | TZS ${p.price}`)
+      .join('\n');
+    const userPrompt = catalog.length === 0
+      ? 'A customer has annotated this product photo to indicate what they want. Identify which items they selected and how many of each. Return ONLY the JSON in the schema.'
+      :
+`A customer has annotated this product photo to indicate what they want.
+Identify which items they selected and how many of each.
+
+CATALOG (pick the matching SKU for each detected item when you can):
+${catalogBlock}
+
+Return ONLY the JSON in the schema. Include "matchedSku" when you can confidently match a detected item to a SKU above.`;
+
     const result = await this.ai.chatCompletion({
       model,
       temperature: 0.2,
-      maxTokens: 800,
+      maxTokens: 1000,
       messages: [
-        {
-          role: 'system',
-          content: ORDER_FROM_IMAGE_SYSTEM_PROMPT,
-        },
-        {
-          role: 'user',
-          content:
-            'A customer has annotated this product photo to indicate what they want. ' +
-            'Identify which items they selected and how many of each. ' +
-            'Return ONLY valid JSON matching the schema in the system message.',
-          images: [base64],
-        },
+        { role: 'system', content: ORDER_FROM_IMAGE_SYSTEM_PROMPT },
+        { role: 'user', content: userPrompt, images: [base64] },
       ],
     });
     return parseModelJson(result.content);
@@ -164,12 +194,13 @@ they wrote next to each one. Ignore items with no markings — those weren't
 ordered.
 
 Return ONLY a JSON object on a single line with this exact schema:
-{ "hasAnnotations": boolean, "items": [ { "name": string, "quantity": number, "notes": string } ] }
+{ "hasAnnotations": boolean, "items": [ { "name": string, "quantity": number, "matchedSku": string | null, "notes": string } ] }
 
 Rules:
   - If the photo has no marker annotations at all, return { "hasAnnotations": false, "items": [] }.
   - Use the product's most distinguishing feature in "name" (e.g. "Red Adidas cap", "Blue NY cap").
   - "quantity" must be a number ≥ 1. If you can't read it, default to 1.
+  - "matchedSku" must be a SKU from the CATALOG list in the user message when you can confidently match the detected item to a catalog row by colour / brand / style. Otherwise null. Never invent a SKU that isn't in the list.
   - "notes" is a short free-text comment for the operator. Empty string if nothing to add.
   - NEVER wrap the JSON in markdown or prose. NEVER add a code fence. Output one JSON object only.
 `.trim();
@@ -187,14 +218,23 @@ function parseModelJson(raw: string): { items: ParsedItem[]; rawSummary: string;
   if (start === -1 || end === -1 || end <= start) return empty;
   body = body.slice(start, end + 1);
   try {
-    const parsed = JSON.parse(body) as { hasAnnotations?: boolean; items?: Array<{ name?: string; quantity?: number; notes?: string }> };
+    const parsed = JSON.parse(body) as {
+      hasAnnotations?: boolean;
+      items?: Array<{ name?: string; quantity?: number; notes?: string; matchedSku?: string | null }>;
+    };
     const items: ParsedItem[] = (parsed.items ?? [])
-      .filter((it): it is { name: string; quantity?: number; notes?: string } => typeof it?.name === 'string' && !!it.name.trim())
+      .filter((it): it is { name: string; quantity?: number; notes?: string; matchedSku?: string | null } =>
+        typeof it?.name === 'string' && !!it.name.trim(),
+      )
       .map((it) => ({
         name: String(it.name).trim().slice(0, 120),
         quantity: Math.max(1, Math.floor(Number(it.quantity) || 1)),
         notes: it.notes ? String(it.notes).slice(0, 200) : undefined,
-        confidence: 0.85,
+        matchedSku: typeof it.matchedSku === 'string' && it.matchedSku.trim() ? it.matchedSku.trim() : undefined,
+        // Higher confidence when the model returned its own SKU pick —
+        // it actually had the catalog to compare against rather than
+        // guessing a label.
+        confidence: typeof it.matchedSku === 'string' && it.matchedSku.trim() ? 0.95 : 0.85,
       }));
     return {
       items,
@@ -218,20 +258,43 @@ function extractQuantities(text: string): number[] {
   return out.slice(0, 20);
 }
 
-/** Fuzzy-match a parsed item against the owner's POS catalog. Looks at
- *  product name + SKU; picks the longest substring overlap. */
+/** Resolve a parsed item to a catalog row. If the vision model already
+ *  returned `matchedSku`, honour that (case-insensitive lookup against
+ *  the SKU column) — the model could see both the customer photo AND
+ *  the catalog and picked one, that's stronger evidence than text-only
+ *  matching. Otherwise fall back to token-overlap scoring on name+sku.
+ *
+ *  Always merges the resolved product's imageUrl so the review UI can
+ *  show a thumbnail next to the picked row. */
 function matchProduct(item: ParsedItem, catalog: PosProduct[]): ParsedItem {
   if (catalog.length === 0) return item;
+
+  // 1. Honour vision-model SKU pick.
+  if (item.matchedSku) {
+    const needle = item.matchedSku.toLowerCase();
+    const exact = catalog.find((p) => (p.sku || '').toLowerCase() === needle);
+    if (exact) {
+      return {
+        ...item,
+        matchedProductId: exact.id,
+        matchedSku: exact.sku,
+        matchedName: exact.name,
+        matchedPrice: Number(exact.price),
+        matchedImageUrl: exact.imageUrl || null,
+        confidence: 0.95,
+      };
+    }
+  }
+
+  // 2. Fuzzy text match.
   const needle = item.name.toLowerCase();
   let best: { score: number; product: PosProduct } | null = null;
   for (const p of catalog) {
     const name = (p.name || '').toLowerCase();
     const sku  = (p.sku  || '').toLowerCase();
     let score = 0;
-    // Direct SKU match wins outright.
     if (sku && (needle === sku || needle.includes(sku))) score = 100;
     else {
-      // Token overlap score.
       const needleTokens = needle.split(/[^a-z0-9]+/).filter((t) => t.length > 2);
       const hayTokens    = (name + ' ' + sku).split(/[^a-z0-9]+/).filter((t) => t.length > 2);
       for (const t of needleTokens) {
@@ -248,6 +311,7 @@ function matchProduct(item: ParsedItem, catalog: PosProduct[]): ParsedItem {
     matchedSku: best.product.sku,
     matchedName: best.product.name,
     matchedPrice: Number(best.product.price),
+    matchedImageUrl: best.product.imageUrl || null,
     confidence: Math.min(1, Math.max(item.confidence, best.score / 100)),
   };
 }
