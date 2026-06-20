@@ -13,6 +13,7 @@ import {
   RentIncreaseSimulation,
   RentPayment,
   Tenant,
+  TenantScreeningReport,
 } from './property.entity';
 import { PropertiesService, RentPaymentsService, TenantsService, UnitsService } from './property.service';
 import {
@@ -23,6 +24,7 @@ import {
   PropertySettingsService,
   RentChargesService,
   RentIncreaseSimulationsService,
+  TenantScreeningService,
   VendorsService,
   WorkOrdersService,
 } from './property-extra.service';
@@ -44,6 +46,7 @@ import { PropertyExtraController } from './property-extra.controller';
       PropertySetting,
       PropertyExpense,
       RentIncreaseSimulation,
+      TenantScreeningReport,
     ]),
   ],
   providers: [
@@ -60,6 +63,7 @@ import { PropertyExtraController } from './property-extra.controller';
     ExpensesService,
     RentIncreaseSimulationsService,
     PropertyDashboardService,
+    TenantScreeningService,
   ],
   controllers: [PropertyController, PropertyExtraController],
 })

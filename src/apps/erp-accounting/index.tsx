@@ -84,6 +84,8 @@ export default function ERPAccounting() {
   const [journalLines, setJournalLines] = useState([{ account: '', debit: 0, credit: 0 }]);
   const [journalEntries, setJournalEntries] = useState(transactions);
   const [summary, setSummary] = useState<{ income: number; expenses: number; profit: number } | null>(null);
+  const [journalPosting, setJournalPosting] = useState(false);
+  const [journalError, setJournalError] = useState<string | null>(null);
 
   useEffect(() => {
     api<{ summary: { income: number; expenses: number; profit: number }; transactions: typeof transactions }>('/erp/accounting')
@@ -132,21 +134,39 @@ export default function ERPAccounting() {
     setJournalLines((prev) => prev.map((l, i) => (i === idx ? { ...l, [field]: value } : l)));
   };
 
-  const postJournal = () => {
+  const postJournal = async () => {
     if (!balanced) return;
-    const baseId = `TXN-${String(journalEntries.length + 1).padStart(4, '0')}`;
-    const newEntries = journalLines.map((l, i) => ({
-      id: `${baseId}-${i}`,
-      date: journalDate,
-      account: l.account,
-      debit: l.debit,
-      credit: l.credit,
-      description: journalDesc,
-    }));
-    setJournalEntries((prev) => [...prev, ...newEntries]);
-    setJournalModalOpen(false);
-    setJournalLines([{ account: '', debit: 0, credit: 0 }]);
-    setJournalDesc('');
+    setJournalError(null);
+    setJournalPosting(true);
+    try {
+      // Backend expects an account *code* (e.g. "1000"), not the full
+      // "1000 Cash" label the dropdown shows — strip to the first token
+      // before posting. The endpoint validates account existence,
+      // rejects unbalanced entries, and persists in a transaction.
+      const inserted = await api<Array<{ id: string; date: string; account: string; debit: number; credit: number; description: string }>>(
+        '/erp/journal',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            date: journalDate,
+            description: journalDesc,
+            lines: journalLines.map((l) => ({
+              code: (l.account || '').split(/\s+/)[0] || l.account,
+              debit: l.debit || undefined,
+              credit: l.credit || undefined,
+            })),
+          }),
+        },
+      );
+      setJournalEntries((prev) => [...prev, ...((inserted ?? []) as unknown as typeof prev)]);
+      setJournalModalOpen(false);
+      setJournalLines([{ account: '', debit: 0, credit: 0 }]);
+      setJournalDesc('');
+    } catch (e) {
+      setJournalError((e as Error).message || 'Could not post the journal entry');
+    } finally {
+      setJournalPosting(false);
+    }
   };
 
   return (
@@ -424,12 +444,17 @@ export default function ERPAccounting() {
               </span>
               <span className="text-slate-400">Dr {tzs(totalDebits)} / Cr {tzs(totalCredits)}</span>
             </div>
+            {journalError && (
+              <div className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded p-2">
+                {journalError}
+              </div>
+            )}
             <div className="flex gap-2 pt-2">
               <Button variant="outline" onClick={() => setJournalModalOpen(false)} className="flex-1 border-slate-700 text-slate-300 hover:bg-slate-800">
                 Cancel
               </Button>
-              <Button onClick={postJournal} disabled={!balanced} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white">
-                <Save className="w-3 h-3 mr-1" /> Post Entry
+              <Button onClick={postJournal} disabled={!balanced || journalPosting} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white">
+                <Save className="w-3 h-3 mr-1" /> {journalPosting ? 'Posting…' : 'Post Entry'}
               </Button>
             </div>
           </div>

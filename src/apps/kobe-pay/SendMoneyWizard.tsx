@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   Loader2, X, Check, ChevronDown, ArrowRight, ArrowLeft,
-  Search, Send, ScanLine, Download,
+  Search, Send, ScanLine, Download, Calendar, Plus,
 } from 'lucide-react';
 
 /**
@@ -18,6 +18,10 @@ import {
  * FX: live from /kobepay/rates/active + /kobepay/rates/derived. Falls
  * back to an in-component USD-relative table when no rate rows exist
  * yet (fresh install), so the wizard never blocks on empty data.
+ *
+ * Layout follows the green / lime "Send Money" mockups: left-rail stepper,
+ * progress bar in the header, You-send + Recipient-get cards visible
+ * together on the Amount step, and an Anywhere/Selected-contact toggle.
  */
 
 export interface TransactWizardProps {
@@ -64,7 +68,14 @@ const METHODS = [
   { id: 'Wallet',         label: 'Wallet',         hint: 'KobePay internal' },
 ];
 
+const SEND_RAILS = [
+  { id: 'checking-6346', label: 'Checking (**** 6346)' },
+  { id: 'savings-9821',  label: 'Savings (**** 9821)' },
+  { id: 'wallet-kobe',   label: 'KobePay Wallet' },
+];
+
 type Step = 1 | 2 | 3 | 4;
+type Recipient = 'selected' | 'anywhere';
 
 interface RateRow { fromCurrency: string; toCurrency: string; salesRate: number | string }
 
@@ -86,11 +97,15 @@ export function SendMoneyWizard({
   const [step, setStep] = useState<Step>(1);
   const [search, setSearch] = useState('');
   const [contact, setContact] = useState<ContactOption | null>(initialContact);
+  const [recipientMode, setRecipientMode] = useState<Recipient>(initialContact ? 'selected' : 'selected');
+  const [freeRecipient, setFreeRecipient] = useState('');
   const [sendAmount, setSendAmount] = useState('200');
   const [sendCurrency, setSendCurrency] = useState('USD');
   const [recvCurrency, setRecvCurrency] = useState(isReceive ? 'USD' : 'NGN');
+  const [sendRail, setSendRail] = useState(SEND_RAILS[0].id);
   const [method, setMethod] = useState('Bank Transfer');
   const [schedule, setSchedule] = useState('');
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const [notes, setNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -122,7 +137,8 @@ export function SendMoneyWizard({
     if (!open) {
       setStep(1); setSearch(''); setContact(initialContact);
       setSendAmount('200'); setSendCurrency('USD'); setRecvCurrency(isReceive ? 'USD' : 'NGN');
-      setMethod('Bank Transfer'); setSchedule(''); setNotes('');
+      setMethod('Bank Transfer'); setSchedule(''); setScheduleOpen(false); setNotes('');
+      setSendRail(SEND_RAILS[0].id); setFreeRecipient(''); setRecipientMode('selected');
       setError(null); setDone(false); setScanHint(null);
     }
   }, [open, isReceive, initialContact]);
@@ -147,9 +163,16 @@ export function SendMoneyWizard({
   const fee = isReceive ? 0 : Math.max(1.20, sendUsd * 0.006);
   const totalUsd = Math.max(0, sendUsd - fee);
 
+  const recipientName = recipientMode === 'selected' ? (contact?.name ?? '') : freeRecipient.trim();
+
   const canNext = (() => {
     if (step === 1) return Boolean(contact);
-    if (step === 2) return sendNum > 0 && (isReceive || sendNum <= (availableBalance + 1e-6));
+    if (step === 2) {
+      if (sendNum <= 0) return false;
+      if (!isReceive && sendNum > (availableBalance + 1e-6)) return false;
+      if (recipientMode === 'anywhere' && !freeRecipient.trim()) return false;
+      return true;
+    }
     if (step === 3) return Boolean(recvCurrency && method);
     return true;
   })();
@@ -223,26 +246,48 @@ export function SendMoneyWizard({
 
   const stepLabels = isReceive
     ? ['Select Customer', 'Amount',     'Source',    'Review & Record']
-    : ['Select Contact',  'Amount',     'Recipient', 'Review & Confirm'];
+    : ['Select Contact',  'Amount',     'Recipient', 'Review & Confirmation'];
+
+  const stepHeadings = isReceive
+    ? ['Who deposited?',        'How much was received?',  'How was it paid?',         'Review & record']
+    : ['Who are you sending to?', 'How much do you want to send?', 'How should it arrive?', 'Review & confirm'];
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[92vh] overflow-hidden flex">
-        <aside className="w-52 shrink-0 border-r border-slate-100 p-5 flex flex-col gap-4 text-slate-700">
-          <div className="text-base font-bold">{isReceive ? 'Receive Deposit' : 'Send Money'}</div>
-          {stepLabels.map((label, i) => {
-            const n = (i + 1) as Step;
-            const active = step === n;
-            const isDone = step > n;
-            return (
-              <div key={n} className="text-sm">
-                <div className={`flex items-center gap-1.5 font-semibold ${active ? 'text-lime-600' : isDone ? 'text-slate-900' : 'text-slate-400'}`}>
-                  Step {n}/4 {isDone && <Check className="w-3.5 h-3.5 text-emerald-600" />}
-                </div>
-                <div className={`text-[13px] ${active ? 'text-slate-900' : isDone ? 'text-slate-700' : 'text-slate-400'}`}>{label}</div>
-              </div>
-            );
-          })}
+
+        {/* Left rail — stepper */}
+        <aside className="w-56 shrink-0 border-r border-slate-100 p-6 flex flex-col gap-5 bg-slate-50/40">
+          <div className="text-base font-extrabold text-slate-900">{isReceive ? 'Receive Deposit' : 'Send Money'}</div>
+          <div className="flex flex-col gap-5">
+            {stepLabels.map((label, i) => {
+              const n = (i + 1) as Step;
+              const active = step === n;
+              const isDone = step > n;
+              return (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => isDone && setStep(n)}
+                  disabled={!isDone}
+                  className="text-left"
+                >
+                  <div className={`text-xs font-bold flex items-center gap-1.5 ${
+                    active ? 'text-lime-600' : isDone ? 'text-slate-900' : 'text-slate-400'
+                  }`}>
+                    Step {n}/4 {isDone && (
+                      <span className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-emerald-100">
+                        <Check className="w-2.5 h-2.5 text-emerald-700" />
+                      </span>
+                    )}
+                  </div>
+                  <div className={`text-sm font-semibold mt-0.5 ${
+                    active ? 'text-slate-900' : isDone ? 'text-slate-700' : 'text-slate-400'
+                  }`}>{label}</div>
+                </button>
+              );
+            })}
+          </div>
           <div className="mt-auto text-[10px]">
             {!ratesLoaded ? (
               <span className="text-slate-400 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" /> Loading FX…</span>
@@ -254,19 +299,30 @@ export function SendMoneyWizard({
           </div>
         </aside>
 
+        {/* Right pane */}
         <div className="flex-1 flex flex-col min-w-0">
-          <div className="flex items-center gap-3 px-6 pt-5 pb-3 border-b border-slate-100">
-            <h2 className="text-lg font-bold text-slate-900">{stepLabels[step - 1]}</h2>
-            <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
-              <div className="h-full bg-lime-500 transition-all" style={{ width: `${(step / 4) * 100}%` }} />
+
+          {/* Header with progress + close */}
+          <div className="flex items-center gap-4 px-6 pt-5 pb-4 border-b border-slate-100">
+            <h2 className="text-base font-extrabold text-slate-900">{stepLabels[step - 1]}</h2>
+            <div className="flex-1 flex items-center gap-2">
+              <div className="flex-1 h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-lime-400 to-emerald-500 transition-all"
+                  style={{ width: `${(step / 4) * 100}%` }}
+                />
+              </div>
+              <span className="text-[11px] font-bold text-slate-600 whitespace-nowrap">{step}/4 Completed</span>
             </div>
-            <span className="text-xs text-slate-500 font-medium">{step}/4 Completed</span>
-            <button onClick={onClose} className="text-slate-400 hover:text-slate-700">
-              <X className="w-5 h-5" />
+            <button onClick={onClose} className="w-7 h-7 rounded-full border border-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-800 hover:bg-slate-50">
+              <X className="w-4 h-4" />
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto p-6 space-y-5">
+          {/* Body */}
+          <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+            <h3 className="text-xl font-extrabold text-slate-900">{stepHeadings[step - 1]}</h3>
+
             {step === 1 && (
               <>
                 <div className="relative">
@@ -278,7 +334,7 @@ export function SendMoneyWizard({
                     className="pl-9 bg-slate-50 border-slate-200 text-slate-900 placeholder:text-slate-400"
                   />
                 </div>
-                <div className="max-h-[60vh] overflow-y-auto -mx-2 px-2 space-y-1.5">
+                <div className="max-h-[55vh] overflow-y-auto -mx-2 px-2 space-y-1.5">
                   {filteredContacts.length === 0 ? (
                     <p className="text-sm text-slate-500 text-center py-6">No matching contacts.</p>
                   ) : (
@@ -290,7 +346,7 @@ export function SendMoneyWizard({
                           key={c.id}
                           onClick={() => setContact(c)}
                           className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition-colors ${
-                            selected ? 'bg-lime-50 border-lime-300' : 'bg-white border-slate-100 hover:border-slate-200'
+                            selected ? 'bg-lime-50 border-lime-400 ring-1 ring-lime-300' : 'bg-white border-slate-100 hover:border-slate-200'
                           }`}
                         >
                           <div
@@ -317,7 +373,25 @@ export function SendMoneyWizard({
 
             {step === 2 && (
               <>
-                <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-2">
+                {/* Anywhere / Selected contact toggle */}
+                {!isReceive && (
+                  <div className="grid grid-cols-2 gap-2 p-1 rounded-full border border-slate-200 bg-slate-50">
+                    <ToggleChip
+                      label="Sent to Anywhere"
+                      active={recipientMode === 'anywhere'}
+                      onClick={() => setRecipientMode('anywhere')}
+                    />
+                    <ToggleChip
+                      label="Selected contact"
+                      active={recipientMode === 'selected'}
+                      onClick={() => setRecipientMode('selected')}
+                      disabled={!contact}
+                    />
+                  </div>
+                )}
+
+                {/* You send card */}
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3 shadow-sm">
                   <div className="flex items-center justify-between">
                     <Label>{isReceive ? 'Amount received' : 'You send'}</Label>
                     {isReceive && (
@@ -340,11 +414,12 @@ export function SendMoneyWizard({
                     )}
                   </div>
                   <div className="flex items-center gap-2">
+                    <span className="text-2xl font-extrabold text-slate-900">$</span>
                     <Input
                       type="number"
                       value={sendAmount}
                       onChange={(e) => setSendAmount(e.target.value)}
-                      className="text-2xl font-bold border-none px-0 focus-visible:ring-0 text-slate-900 bg-transparent"
+                      className="text-2xl font-extrabold border-none px-0 focus-visible:ring-0 text-slate-900 bg-transparent h-auto"
                     />
                     <CurrencyPicker value={sendCurrency} onChange={setSendCurrency} />
                   </div>
@@ -353,33 +428,111 @@ export function SendMoneyWizard({
                     <>
                       <div className="text-xs text-slate-500 flex items-center justify-between">
                         <span>
-                          You've <strong className="text-slate-700">${availableBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong> available
+                          You've <strong className="text-slate-700">${availableBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong> available balance
                         </span>
-                        <span className="text-lime-700 font-medium cursor-pointer">Deposit to wallet</span>
+                        <button className="text-lime-700 font-bold hover:text-lime-800">Deposit to wallet</button>
                       </div>
                       <p className="text-[10px] text-slate-400">Fiat currency in {sendCurrency}, typically off-chain or through payment gateways.</p>
-                      <hr className="border-slate-100 my-1" />
+                      <hr className="border-slate-100" />
                       <Row label="Transfer fee"     value={`− $${fee.toFixed(2)}`} />
                       <Row label="Total amount send" value={`= $${totalUsd.toFixed(2)}`} bold />
+                      <Label className="mt-1">Rail</Label>
+                      <RailDropdown
+                        value={sendRail}
+                        options={SEND_RAILS}
+                        onChange={setSendRail}
+                      />
                     </>
                   )}
-                  <Label className="mt-2">{isReceive ? 'Payment received via' : 'Rail'}</Label>
-                  <SelectPill value={isReceive ? 'Cash / M-Pesa / Bank' : 'Checking (**** 6346)'} />
                 </div>
 
-                {contact && (
-                  <div className="rounded-xl border border-slate-200 bg-white p-3 flex items-center gap-3">
+                {/* Recipient row — selected contact card or free-text */}
+                {recipientMode === 'selected' && contact && (
+                  <div className="rounded-2xl border border-slate-200 bg-white p-3 flex items-center gap-3 shadow-sm">
                     <div
-                      className="w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold"
+                      className="w-10 h-10 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0"
                       style={{ background: contact.avatarHue ?? 'linear-gradient(135deg, #f59e0b, #f97316)' }}
                     >
                       {contact.name.split(' ').map((n) => n[0]).slice(0, 2).join('').toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm font-semibold text-slate-900 truncate">{contact.name}</div>
+                      <div className="text-sm font-extrabold text-slate-900 truncate">{contact.name}</div>
                       <div className="text-xs text-slate-500 truncate">{contact.subtitle}</div>
                     </div>
-                    <button onClick={() => setStep(1)} className="text-xs font-semibold text-slate-700 underline">Change</button>
+                    <button onClick={() => setStep(1)} className="text-xs font-bold text-slate-700 underline hover:text-lime-600">Change</button>
+                  </div>
+                )}
+                {recipientMode === 'anywhere' && (
+                  <div className="rounded-2xl border border-slate-200 bg-white p-3 space-y-2 shadow-sm">
+                    <Label>Recipient name</Label>
+                    <Input
+                      placeholder="e.g. Sarah Mwangi"
+                      value={freeRecipient}
+                      onChange={(e) => setFreeRecipient(e.target.value)}
+                      className="bg-slate-50 border-slate-200 text-slate-900 placeholder:text-slate-400"
+                    />
+                  </div>
+                )}
+
+                {/* Recipient Get card */}
+                {!isReceive && (
+                  <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <Label>Recipient Get</Label>
+                      <CurrencyPicker value={recvCurrency} onChange={setRecvCurrency} />
+                    </div>
+                    <div className="text-2xl font-extrabold text-slate-900">
+                      {recvNum.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                      <span className="text-base font-semibold text-slate-500 ml-2">{recvCurrency}</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      1 {sendCurrency} ≈ {resolvedRate.rate.toFixed(4)} {recvCurrency}
+                      <span className={`ml-2 inline-block text-[10px] px-1.5 py-0.5 rounded ${resolvedRate.source === 'live' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                        {resolvedRate.source === 'live' ? 'live rate' : 'fallback'}
+                      </span>
+                    </p>
+                    <hr className="border-slate-100" />
+                    <Label>Rail</Label>
+                    <RailDropdown
+                      value={method}
+                      options={METHODS.map((m) => ({ id: m.id, label: `${m.label} — ${m.hint}` }))}
+                      onChange={setMethod}
+                    />
+                    <button className="text-xs font-bold text-lime-700 hover:text-lime-800 underline self-start">
+                      Add Currency Account
+                    </button>
+                  </div>
+                )}
+
+                {/* Set Schedule button + popover */}
+                {!isReceive && (
+                  <div>
+                    <button
+                      onClick={() => setScheduleOpen((s) => !s)}
+                      className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border text-xs font-bold transition ${
+                        schedule
+                          ? 'border-lime-400 bg-lime-50 text-lime-700'
+                          : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'
+                      }`}
+                    >
+                      <Calendar className="w-3.5 h-3.5" />
+                      {schedule ? `Scheduled · ${new Date(schedule).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}` : 'Set Schedule'}
+                    </button>
+                    {scheduleOpen && (
+                      <div className="mt-2 inline-flex items-center gap-2 p-2 rounded-xl border border-slate-200 bg-white shadow-sm">
+                        <Input
+                          type="datetime-local"
+                          value={schedule}
+                          onChange={(e) => setSchedule(e.target.value)}
+                          className="bg-slate-50 border-slate-200 text-slate-900 h-9"
+                        />
+                        {schedule && (
+                          <button onClick={() => { setSchedule(''); setScheduleOpen(false); }} className="text-[11px] text-slate-500 hover:text-rose-600 px-1">
+                            clear
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </>
@@ -387,21 +540,8 @@ export function SendMoneyWizard({
 
             {step === 3 && (
               <>
-                <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label>{isReceive ? 'Credited as' : 'Recipient gets'}</Label>
-                    <CurrencyPicker value={recvCurrency} onChange={setRecvCurrency} />
-                  </div>
-                  <div className="text-3xl font-bold text-slate-900">
-                    {recvNum.toLocaleString(undefined, { maximumFractionDigits: 2 })} <span className="text-base font-medium text-slate-500">{recvCurrency}</span>
-                  </div>
-                  <p className="text-xs text-slate-500">
-                    Rate: 1 {sendCurrency} ≈ {resolvedRate.rate.toFixed(4)} {recvCurrency}
-                    <span className={`ml-2 inline-block text-[10px] px-1.5 py-0.5 rounded ${resolvedRate.source === 'live' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
-                      {resolvedRate.source === 'live' ? 'live rate' : 'fallback'}
-                    </span>
-                  </p>
-                  <Label className="mt-2">{isReceive ? 'Payment method' : 'Rail'}</Label>
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3 shadow-sm">
+                  <Label>{isReceive ? 'Payment method' : 'How should the recipient receive it?'}</Label>
                   <div className="grid grid-cols-2 gap-2">
                     {METHODS.map((m) => {
                       const active = method === m.id;
@@ -410,10 +550,10 @@ export function SendMoneyWizard({
                           key={m.id}
                           onClick={() => setMethod(m.id)}
                           className={`text-left p-3 rounded-xl border transition-colors ${
-                            active ? 'bg-lime-50 border-lime-300' : 'bg-white border-slate-100 hover:border-slate-200'
+                            active ? 'bg-lime-50 border-lime-400 ring-1 ring-lime-300' : 'bg-white border-slate-100 hover:border-slate-200'
                           }`}
                         >
-                          <div className="text-sm font-semibold text-slate-900">{m.label}</div>
+                          <div className="text-sm font-bold text-slate-900">{m.label}</div>
                           <div className="text-[11px] text-slate-500">{m.hint}</div>
                         </button>
                       );
@@ -421,7 +561,7 @@ export function SendMoneyWizard({
                   </div>
                 </div>
 
-                <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-2">
+                <div className="rounded-2xl border border-slate-200 bg-white p-4 space-y-2 shadow-sm">
                   <Label>{isReceive ? 'Reference (M-Pesa code, etc.)' : 'Note (optional)'}</Label>
                   <Input
                     value={notes}
@@ -430,15 +570,7 @@ export function SendMoneyWizard({
                     className="bg-slate-50 border-slate-200 text-slate-900 placeholder:text-slate-400"
                   />
                   {!isReceive && (
-                    <>
-                      <Label>Schedule</Label>
-                      <Input
-                        type="datetime-local"
-                        value={schedule}
-                        onChange={(e) => setSchedule(e.target.value)}
-                        className="bg-slate-50 border-slate-200 text-slate-900"
-                      />
-                    </>
+                    <p className="text-[11px] text-slate-400">Shown to the recipient when they receive the funds.</p>
                   )}
                 </div>
               </>
@@ -457,9 +589,9 @@ export function SendMoneyWizard({
                 ) : (
                   <>
                     <Section title={isReceive ? 'Customer' : 'Recipient'}>
-                      <Row label="Name"    value={contact?.name ?? '—'} />
+                      <Row label="Name"    value={recipientName || '—'} />
                       <Row label="Contact" value={contact?.subtitle ?? '—'} />
-                      <Row label="Kind"    value={contact?.kind ?? '—'} />
+                      <Row label="Kind"    value={contact?.kind ?? (recipientMode === 'anywhere' ? 'one-off' : '—')} />
                     </Section>
                     <Section title="Amount">
                       <Row label={isReceive ? 'Received' : 'You send'} value={`${sendNum.toLocaleString()} ${sendCurrency}`} />
@@ -481,12 +613,13 @@ export function SendMoneyWizard({
             )}
           </div>
 
+          {/* Footer actions */}
           {!done && (
             <div className="border-t border-slate-100 px-6 py-4 flex items-center justify-between gap-2">
               <Button
                 variant="outline"
                 onClick={() => (step > 1 ? setStep((step - 1) as Step) : onClose())}
-                className="border-slate-200 text-slate-700 hover:bg-slate-50"
+                className="border-slate-200 text-slate-700 hover:bg-slate-50 rounded-full px-5"
               >
                 <ArrowLeft className="w-3.5 h-3.5 mr-1" /> Back
               </Button>
@@ -495,7 +628,7 @@ export function SendMoneyWizard({
                 <Button
                   onClick={() => setStep((step + 1) as Step)}
                   disabled={!canNext}
-                  className="bg-lime-500 hover:bg-lime-600 text-white font-semibold disabled:opacity-50"
+                  className="bg-lime-500 hover:bg-lime-600 text-white font-extrabold disabled:opacity-50 rounded-full px-6 shadow-md shadow-lime-500/30"
                 >
                   Continue <ArrowRight className="w-3.5 h-3.5 ml-1" />
                 </Button>
@@ -503,7 +636,7 @@ export function SendMoneyWizard({
                 <Button
                   onClick={submit}
                   disabled={submitting}
-                  className="bg-lime-500 hover:bg-lime-600 text-white font-semibold disabled:opacity-50"
+                  className="bg-lime-500 hover:bg-lime-600 text-white font-extrabold disabled:opacity-50 rounded-full px-6 shadow-md shadow-lime-500/30"
                 >
                   {submitting ? <Loader2 className="w-3.5 h-3.5 mr-1 animate-spin" /> : isReceive ? <Download className="w-3.5 h-3.5 mr-1" /> : <Send className="w-3.5 h-3.5 mr-1" />}
                   {submitting ? (isReceive ? 'Recording…' : 'Sending…') : (isReceive ? 'Record deposit' : 'Confirm & send')}
@@ -520,64 +653,128 @@ export function SendMoneyWizard({
 /* ─────────────────────────── helpers ─────────────────────────── */
 
 function Label({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return <div className={`text-xs font-medium text-slate-500 ${className}`}>{children}</div>;
+  return <div className={`text-xs font-bold text-slate-500 uppercase tracking-wide ${className}`}>{children}</div>;
 }
 
 function Row({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
   return (
     <div className="flex items-center justify-between text-sm">
       <span className="text-slate-500">{label}</span>
-      <span className={bold ? 'font-bold text-slate-900' : 'text-slate-900'}>{value}</span>
+      <span className={bold ? 'font-extrabold text-slate-900' : 'text-slate-900 font-semibold'}>{value}</span>
     </div>
   );
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4">
-      <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">{title}</h3>
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-2">{title}</h3>
       <div className="space-y-1.5">{children}</div>
     </div>
   );
 }
 
-function SelectPill({ value }: { value: string }) {
+function ToggleChip({ label, active, onClick, disabled }: { label: string; active: boolean; onClick: () => void; disabled?: boolean }) {
   return (
-    <div className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 flex items-center justify-between">
-      {value} <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      className={`py-2 rounded-full text-xs font-extrabold transition disabled:opacity-40 disabled:cursor-not-allowed ${
+        active ? 'bg-lime-500 text-white shadow' : 'text-slate-600 hover:text-slate-900'
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+function RailDropdown({
+  value, options, onChange,
+}: {
+  value: string;
+  options: Array<{ id: string; label: string }>;
+  onChange: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const current = options.find((o) => o.id === value) ?? options[0];
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-900 font-semibold flex items-center justify-between hover:border-slate-300"
+      >
+        {current?.label ?? value}
+        <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+      </button>
+      {open && (
+        <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-10 max-h-60 overflow-y-auto">
+          {options.map((o) => (
+            <button
+              key={o.id}
+              type="button"
+              onClick={() => { onChange(o.id); setOpen(false); }}
+              className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-50 font-semibold ${value === o.id ? 'bg-lime-50 text-lime-700' : 'text-slate-700'}`}
+            >
+              {o.label}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
 function CurrencyPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
   const current = CURRENCIES.find((c) => c.code === value) ?? CURRENCIES[0];
+  const filtered = CURRENCIES.filter((c) =>
+    !q || c.code.toLowerCase().includes(q.toLowerCase()) || c.label.toLowerCase().includes(q.toLowerCase()),
+  );
   return (
     <div className="relative">
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-sm font-semibold text-slate-900"
+        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white text-sm font-extrabold text-slate-900 hover:border-slate-300"
       >
         <span className="text-base leading-none">{current.flag}</span>
         {current.code}
         <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 w-56 max-h-60 overflow-y-auto bg-white border border-slate-200 rounded-xl shadow-lg z-10">
-          {CURRENCIES.map((c) => (
-            <button
-              key={c.code}
-              type="button"
-              onClick={() => { onChange(c.code); setOpen(false); }}
-              className={`w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-50 ${value === c.code ? 'bg-lime-50' : ''}`}
-            >
-              <span className="text-base leading-none">{c.flag}</span>
-              <span className="font-semibold text-slate-900">{c.code}</span>
-              <span className="text-xs text-slate-500 ml-1">{c.label}</span>
-              {value === c.code && <Check className="w-3.5 h-3.5 text-lime-600 ml-auto" />}
-            </button>
-          ))}
+        <div className="absolute right-0 top-full mt-1 w-64 bg-white border border-slate-200 rounded-xl shadow-lg z-20 overflow-hidden">
+          <div className="p-2 border-b border-slate-100">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Type currency or country"
+                autoFocus
+                className="w-full pl-7 pr-2 py-1.5 text-xs rounded-md bg-slate-50 border border-slate-200 focus:outline-none focus:border-lime-400"
+              />
+            </div>
+          </div>
+          <div className="max-h-60 overflow-y-auto">
+            {filtered.length === 0 ? (
+              <div className="px-3 py-4 text-xs text-slate-400 text-center">No match</div>
+            ) : filtered.map((c) => (
+              <button
+                key={c.code}
+                type="button"
+                onClick={() => { onChange(c.code); setOpen(false); setQ(''); }}
+                className={`w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-50 ${value === c.code ? 'bg-lime-50' : ''}`}
+              >
+                <span className="text-base leading-none">{c.flag}</span>
+                <span className="font-extrabold text-slate-900">{c.label}</span>
+                <span className="text-xs text-slate-500 ml-auto font-bold">{c.code}</span>
+                {value === c.code && <Check className="w-3.5 h-3.5 text-lime-600" />}
+              </button>
+            ))}
+          </div>
         </div>
       )}
     </div>

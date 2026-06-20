@@ -193,8 +193,16 @@ export default function ERPWarehouse() {
   // PENDING -> PICKING. The backend doesn't track a free-text picker; we
   // record the picker locally and stamp the ticket with a pickedBy value.
   const assignTask = useCallback(async (id: string) => {
-    const names = ['John D.', 'Mary K.', 'Peter O.', 'Grace W.'];
-    const picker = names[Math.floor(Math.random() * names.length)];
+    // Stamp the ticket with the actual signed-in operator instead of a
+    // randomly-picked fake name from a hardcoded list — previously the
+    // `pickedBy` audit field carried "John D." etc. regardless of who
+    // was on shift, which destroyed any traceability the field had.
+    let picker = 'Operator';
+    try {
+      const me = await api<{ name?: string; email?: string }>('/users/me');
+      picker = me?.name?.trim() || me?.email?.trim() || 'Operator';
+    } catch { /* offline / unauthenticated — fall back to generic label */ }
+
     try {
       await api(`/warehouse/pick-tickets/${id}/status`, {
         method: 'PATCH',
@@ -225,17 +233,17 @@ export default function ERPWarehouse() {
   const activeTicket = queue.find((q) => q.id === activeTicketId);
 
   // ── Stock Estimator helpers ──────────────────────────────────────────────
-  const loadAllocations = async () => {
+  const loadAllocations = useCallback(async () => {
     try {
       await ensureSession();
       const data = await api<Allocation[]>('/shop-stock/allocations');
       setAllocations(data);
     } catch { /* leave empty */ }
-  };
+  }, []);
 
   useEffect(() => {
     if (activeTab === 'estimator') loadAllocations();
-  }, [activeTab]);
+  }, [activeTab, loadAllocations]);
 
   const handleCreateAllocation = async () => {
     if (!newAllocForm.allocationNumber || !newAllocForm.totalValue || !newAllocForm.totalPieces) return;

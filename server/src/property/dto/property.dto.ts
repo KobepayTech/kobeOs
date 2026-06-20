@@ -8,6 +8,7 @@ export class CreatePropertyDto {
   @IsOptional() @IsString() blockNo?: string;
   @IsOptional() @IsEnum(['residential', 'commercial', 'mixed']) type?: 'residential' | 'commercial' | 'mixed';
   @IsOptional() @IsInt() @Min(0) totalUnits?: number;
+  @IsOptional() @IsString() imageUrl?: string;
   @IsOptional() @IsString() notes?: string;
 }
 export class UpdatePropertyDto {
@@ -18,6 +19,7 @@ export class UpdatePropertyDto {
   @IsOptional() @IsString() blockNo?: string;
   @IsOptional() @IsEnum(['residential', 'commercial', 'mixed']) type?: 'residential' | 'commercial' | 'mixed';
   @IsOptional() @IsInt() @Min(0) totalUnits?: number;
+  @IsOptional() @IsString() imageUrl?: string;
   @IsOptional() @IsString() notes?: string;
 }
 

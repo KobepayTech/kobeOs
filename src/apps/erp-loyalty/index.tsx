@@ -78,6 +78,8 @@ export default function ERPLoyalty() {
   const [selectedCustomer, setSelectedCustomer] = useState<typeof initialCustomers[0] | null>(null);
   const [pointsAmount, setPointsAmount] = useState(100);
   const [pointsReason, setPointsReason] = useState('Manual adjustment');
+  const [pointsSaving, setPointsSaving] = useState(false);
+  const [pointsError, setPointsError] = useState<string | null>(null);
   const [promoOpen, setPromoOpen] = useState(false);
   const [promoMessage, setPromoMessage] = useState('');
   const [promoType, setPromoType] = useState<'sms' | 'email'>('sms');
@@ -93,12 +95,24 @@ export default function ERPLoyalty() {
     setPointsModalOpen(true);
   };
 
-  const applyPoints = () => {
+  const applyPoints = async () => {
     if (!selectedCustomer) return;
-    setCustomers((prev) =>
-      prev.map((c) => (c.id === selectedCustomer.id ? { ...c, points: c.points + pointsAmount } : c))
-    );
-    setPointsModalOpen(false);
+    setPointsError(null);
+    setPointsSaving(true);
+    try {
+      const updated = await api<{ id: string; points: number }>(
+        `/erp/loyalty/customers/${selectedCustomer.id}/points`,
+        { method: 'PATCH', body: JSON.stringify({ delta: pointsAmount, reason: pointsReason }) },
+      );
+      setCustomers((prev) =>
+        prev.map((c) => (c.id === selectedCustomer.id ? { ...c, points: updated?.points ?? c.points + pointsAmount } : c)),
+      );
+      setPointsModalOpen(false);
+    } catch (e) {
+      setPointsError((e as Error).message || 'Could not adjust points');
+    } finally {
+      setPointsSaving(false);
+    }
   };
 
   const sendPromo = () => {
@@ -302,9 +316,16 @@ export default function ERPLoyalty() {
               <label className="text-xs text-slate-400 block mb-1">Reason</label>
               <Input value={pointsReason} onChange={(e) => setPointsReason(e.target.value)} className="bg-slate-800 border-slate-700 text-slate-100" />
             </div>
+            {pointsError && (
+              <div className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded p-2">
+                {pointsError}
+              </div>
+            )}
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => setPointsModalOpen(false)} className="flex-1 border-slate-700 text-slate-300 hover:bg-slate-800">Cancel</Button>
-              <Button onClick={applyPoints} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white">Apply</Button>
+              <Button onClick={applyPoints} disabled={pointsSaving} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white">
+                {pointsSaving ? 'Saving…' : 'Apply'}
+              </Button>
             </div>
           </div>
         </DialogContent>

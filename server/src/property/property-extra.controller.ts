@@ -10,6 +10,7 @@ import {
   PropertySettingsService,
   RentChargesService,
   RentIncreaseSimulationsService,
+  TenantScreeningService,
   VendorsService,
   WorkOrdersService,
 } from './property-extra.service';
@@ -46,7 +47,27 @@ export class PropertyExtraController {
     private readonly dashboard: PropertyDashboardService,
     private readonly tenants: TenantsService,
     private readonly units: UnitsService,
+    private readonly screening: TenantScreeningService,
   ) {}
+
+  /* ── Tenant screening ───────────────────────────────────────────────── */
+
+  /** Lazily creates a deterministic demo report on first call; real
+   *  provider integrations overwrite the same row. */
+  @Get('tenants/:id/screening')
+  getScreening(@CurrentUser('id') uid: string, @Param('id') id: string) {
+    return this.screening.getOrCreate(uid, id);
+  }
+
+  /** Operator decision from the screening UI. */
+  @Post('tenants/:id/screening/decide')
+  decideScreening(
+    @CurrentUser('id') uid: string,
+    @Param('id') id: string,
+    @Body() body: { verdict: 'accepted' | 'rejected' },
+  ) {
+    return this.screening.decide(uid, id, body.verdict);
+  }
 
   @Get('dashboard/summary')
   dashboardSummary(@CurrentUser('id') uid: string, @Query('period') period?: string) {

@@ -1,7 +1,7 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   Palette, Image, RotateCcw, Save, Download,
-  ShoppingBag, Search, ChevronDown, ChevronRight, Check, Upload, Eye, X,
+  ShoppingBag, Search, ChevronDown, ChevronRight, Check, Eye, X,
   Store, Type as TypeIcon, Grid3X3, PanelLeft, Tag, Plus, Globe, Loader2, AlertTriangle,
   LayoutGrid, Layers,
   Wifi, WifiOff, ExternalLink, Languages,
@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Switch } from '@/components/ui/switch';
+import { PhotoUpload } from '@/components/PhotoUpload';
 import { HomepageSectionBuilder, IndustryTemplatePicker } from './StorefrontSections';
 import { JerseyDesignEditor } from './JerseyDesignEditor';
 
@@ -603,7 +604,7 @@ function LivePreview({ settings }: { settings: StoreSettings }) {
             </button>
           </div>
           <div className={`grid ${gridCols} gap-3`}>
-            {PREVIEW_PRODUCTS.slice(0, settings.productsPerPage > 6 ? 6 : settings.productsPerPage).map((product) => (
+            {PREVIEW_PRODUCTS.slice(0, Math.min(settings.productsPerPage, PREVIEW_PRODUCTS.length)).map((product) => (
               <PreviewProductCard key={product.id} product={product} settings={settings} />
             ))}
           </div>
@@ -657,6 +658,54 @@ export default function StoreEditor() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
+  const [cloudflaredInstalled, setCloudflaredInstalled] = useState<boolean | null>(null);
+  const [deploymentMode, setDeploymentMode] = useState<'hosted' | 'self-hosted' | null>(null);
+  const [installingCf, setInstallingCf] = useState(false);
+  const [installCfMsg, setInstallCfMsg] = useState<string | null>(null);
+
+  // Mount-only async work uses this flag (the install handler also flips it)
+  // so we don't setState after the editor closes mid-request.
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
+
+  // Status check of whether cloudflared is available + which deployment
+  // mode the backend is in. Hosted backends don't need a per-machine
+  // binary, so the CTA stays hidden.
+  const refreshCloudflaredStatus = useCallback(async () => {
+    try {
+      const r = await api<{ installed: boolean; deploymentMode?: 'hosted' | 'self-hosted' }>(
+        '/store-settings/cloudflared-status',
+      );
+      if (!mountedRef.current) return;
+      setCloudflaredInstalled(Boolean(r?.installed));
+      if (r?.deploymentMode) setDeploymentMode(r.deploymentMode);
+    } catch { /* leave nulls — UI hides CTA when unknown */ }
+  }, []);
+
+  useEffect(() => { refreshCloudflaredStatus(); }, [refreshCloudflaredStatus]);
+
+  const handleInstallCloudflared = useCallback(async () => {
+    setInstallingCf(true);
+    setInstallCfMsg(null);
+    try {
+      const r = await api<{ installed: boolean; path: string; version: string }>(
+        '/store-settings/install-cloudflared',
+        { method: 'POST' },
+      );
+      if (!mountedRef.current) return;
+      setCloudflaredInstalled(Boolean(r?.installed));
+      setInstallCfMsg(`cloudflared ${r?.version} installed at ${r?.path}`);
+      setTimeout(() => { if (mountedRef.current) setInstallCfMsg(null); }, 5000);
+      // Re-check via the status endpoint so any future deployment-mode
+      // changes get picked up too (and so retries see fresh state).
+      void refreshCloudflaredStatus();
+    } catch (e) {
+      if (!mountedRef.current) return;
+      setInstallCfMsg(`Install failed: ${(e as Error).message}`);
+    } finally {
+      if (mountedRef.current) setInstallingCf(false);
+    }
+  }, [refreshCloudflaredStatus]);
   const [tunnelRunning, setTunnelRunning] = useState(false);
 
   // Poll tunnel status every 15 seconds while the store is published
@@ -688,16 +737,25 @@ export default function StoreEditor() {
     setSaveError(null);
   }, []);
 
+  // Latest settings snapshot — read inside async handlers to avoid the
+  // stale-closure bug when the user clicks Save twice quickly (the second
+  // request used to send the pre-update form state).
+  const settingsRef = useRef(settings);
+  useEffect(() => { settingsRef.current = settings; }, [settings]);
+
   const handleSave = useCallback(async () => {
     setSaving(true);
     setSaveError(null);
     try {
       const updated = await api<StoreSettings>('/store-settings', {
         method: 'PUT',
-        body: JSON.stringify(settings),
+        body: JSON.stringify(settingsRef.current),
       });
-      // Sync domainSlug returned by backend
-      setSettings((prev) => ({ ...prev, domainSlug: updated.domainSlug ?? prev.domainSlug }));
+      // The backend auto-publishes on save when the slug changed / was
+      // never published, so the response can include publish fields too.
+      // Merge the full payload so the UI flips to "Published" without a
+      // separate refresh.
+      setSettings((prev) => ({ ...prev, ...updated }));
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
     } catch (e) {
@@ -705,7 +763,7 @@ export default function StoreEditor() {
     } finally {
       setSaving(false);
     }
-  }, [settings]);
+  }, []);
 
   const handleReset = useCallback(() => {
     setSettings(defaultSettings);
@@ -717,22 +775,31 @@ export default function StoreEditor() {
     setPublishing(true);
     setPublishError(null);
     try {
-      // Save first so the backend has the latest store name / slug
-      await api<StoreSettings>('/store-settings', {
+      // Save first so the backend has the latest store name / slug. The
+      // PUT may already publish (backend auto-publishes on save) — if so
+      // we skip the redundant POST below to avoid double-publishing and
+      // the slug-check race that would happen between them.
+      const saved = await api<StoreSettings>('/store-settings', {
         method: 'PUT',
-        body: JSON.stringify(settings),
+        body: JSON.stringify(settingsRef.current),
       });
+      if (saved.isPublished) {
+        setSettings((prev) => ({ ...prev, ...saved }));
+        setTunnelRunning(true);
+        return;
+      }
 
-      // Check slug availability
-      if (settings.domainSlug) {
+      // Check slug availability — only relevant when the backend's
+      // auto-publish didn't already take it.
+      if (saved.domainSlug) {
         const check = await api<{ available: boolean; reason?: string }>(
-          `/store-settings/check-slug?slug=${encodeURIComponent(settings.domainSlug)}`,
+          `/store-settings/check-slug?slug=${encodeURIComponent(saved.domainSlug)}`,
         );
         if (!check.available && check.reason !== 'taken') {
           // "taken" by the same owner is fine — they're re-publishing
           setPublishError(
             check.reason === 'reserved'
-              ? `"${settings.domainSlug}" is a reserved name. Choose a different store name.`
+              ? `"${saved.domainSlug}" is a reserved name. Choose a different store name.`
               : 'That store name is already taken. Choose a different name.',
           );
           return;
@@ -750,11 +817,9 @@ export default function StoreEditor() {
     } catch (e) {
       const msg = (e as Error).message ?? 'Publish failed';
       // Surface cloudflared-not-installed error clearly
-      if (msg.includes('cloudflared is not installed')) {
+      if (msg.includes('cloudflared is not installed') || msg.includes('cloudflared binary not found')) {
         setPublishError(
-          'cloudflared is not installed on this machine. ' +
-          'Download it from https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/ ' +
-          'then restart KobeOS.',
+          'cloudflared is not installed on this machine. Click "Install cloudflared" above, then try again.',
         );
       } else {
         setPublishError(msg);
@@ -762,7 +827,7 @@ export default function StoreEditor() {
     } finally {
       setPublishing(false);
     }
-  }, [settings]);
+  }, []);
 
   const handleUnpublish = useCallback(async () => {
     setPublishing(true);
@@ -844,8 +909,9 @@ export default function StoreEditor() {
           <Section title="Store Identity" icon={Store} defaultOpen>
             <div className="space-y-3">
               <div>
-                <label className="text-xs font-medium text-white/50 mb-1.5 block">Store Name</label>
+                <label htmlFor="store-name-input" className="text-xs font-medium text-white/50 mb-1.5 block">Store Name</label>
                 <Input
+                  id="store-name-input"
                   value={settings.storeName}
                   onChange={(e) => update('storeName', e.target.value)}
                   className="h-8 bg-white/[0.04] border-white/[0.08] text-sm text-white/90 placeholder:text-white/30"
@@ -854,10 +920,11 @@ export default function StoreEditor() {
               </div>
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-medium text-white/50">Tagline</label>
+                  <label htmlFor="store-tagline-input" className="text-xs font-medium text-white/50">Tagline</label>
                   <TranslateButton text={settings.tagline} onTranslated={(t) => update('tagline', t)} />
                 </div>
                 <Input
+                  id="store-tagline-input"
                   value={settings.tagline}
                   onChange={(e) => update('tagline', e.target.value)}
                   className="h-8 bg-white/[0.04] border-white/[0.08] text-sm text-white/90 placeholder:text-white/30"
@@ -866,18 +933,26 @@ export default function StoreEditor() {
               </div>
               <div>
                 <label className="text-xs font-medium text-white/50 mb-1.5 block">Logo</label>
-                <div className="border border-dashed border-white/[0.12] rounded-lg p-4 flex flex-col items-center gap-2 hover:border-white/20 transition-colors cursor-pointer bg-white/[0.02]">
-                  <Upload className="w-5 h-5 text-white/30" />
-                  <span className="text-[10px] text-white/40">Click to upload logo</span>
-                </div>
+                {/* Real upload — was a dead <div> before. PhotoUpload handles
+                    drag-drop, click-to-pick, paste-URL, error state, and
+                    persists via /api/media/upload. */}
+                <PhotoUpload
+                  value={settings.logoUrl}
+                  onChange={(url) => update('logoUrl', url ?? '')}
+                  aspect="square"
+                />
               </div>
               <div>
-                <label className="text-xs font-medium text-white/50 mb-1.5 block">Favicon</label>
+                <label htmlFor="store-favicon-input" className="text-xs font-medium text-white/50 mb-1.5 block">Favicon</label>
                 <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded bg-[#1a1a2e] border border-white/[0.08] flex items-center justify-center text-xs font-bold text-white/60">
+                  <div
+                    aria-hidden="true"
+                    className="w-8 h-8 rounded bg-[#1a1a2e] border border-white/[0.08] flex items-center justify-center text-xs font-bold text-white/60"
+                  >
                     {settings.storeName.charAt(0)}
                   </div>
                   <Input
+                    id="store-favicon-input"
                     value={settings.faviconUrl}
                     onChange={(e) => update('faviconUrl', e.target.value)}
                     className="flex-1 h-8 bg-white/[0.04] border-white/[0.08] text-xs text-white/70 placeholder:text-white/30"
@@ -904,8 +979,9 @@ export default function StoreEditor() {
 
               {/* Custom domain */}
               <div>
-                <label className="text-xs font-medium text-white/50 mb-1.5 block">Custom Domain (optional)</label>
+                <label htmlFor="store-custom-domain-input" className="text-xs font-medium text-white/50 mb-1.5 block">Custom Domain (optional)</label>
                 <Input
+                  id="store-custom-domain-input"
                   value={settings.customDomain}
                   onChange={(e) => update('customDomain', e.target.value)}
                   className="h-8 bg-white/[0.04] border-white/[0.08] text-sm text-white/90 placeholder:text-white/30 font-mono"
@@ -975,21 +1051,53 @@ export default function StoreEditor() {
                   {!settings.domainSlug && (
                     <p className="text-[10px] text-amber-400/70 text-center">Save your store name first</p>
                   )}
-                  {/* cloudflared requirement notice */}
-                  <div className="flex items-start gap-2 px-2.5 py-2 rounded-md bg-white/[0.03] border border-white/[0.06] text-[10px] text-white/40">
-                    <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5 text-amber-400/60" />
-                    <span>
-                      Requires <span className="font-mono text-white/60">cloudflared</span> installed on this machine.{' '}
-                      <a
-                        href="https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-blue-400/70 underline underline-offset-2 hover:text-blue-300"
-                      >
-                        Download
-                      </a>
-                    </span>
+                  {/* cloudflared requirement notice — only relevant for
+                      self-hosted deployments. Hosted backends route every
+                      store through the central wildcard tunnel and don't
+                      need a binary on the operator's machine. */}
+                  {deploymentMode !== 'hosted' && (
+                  <div className={`flex items-start gap-2 px-2.5 py-2 rounded-md border text-[10px] ${
+                    cloudflaredInstalled === true
+                      ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-300/80'
+                      : 'bg-white/[0.03] border-white/[0.06] text-white/50'
+                  }`}>
+                    <AlertTriangle className={`w-3 h-3 shrink-0 mt-0.5 ${cloudflaredInstalled === true ? 'text-emerald-400/70' : 'text-amber-400/60'}`} />
+                    <div className="flex-1 space-y-1.5">
+                      {cloudflaredInstalled === true ? (
+                        <span><span className="font-mono">cloudflared</span> is installed — publishing the subdomain will work.</span>
+                      ) : (
+                        <>
+                          <span>
+                            Publishing requires <span className="font-mono text-white/70">cloudflared</span>.
+                            {cloudflaredInstalled === false && ' It looks like it isn\'t installed on this machine.'}
+                          </span>
+                          <div className="flex items-center gap-2 pt-0.5">
+                            <button
+                              onClick={handleInstallCloudflared}
+                              disabled={installingCf}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded bg-blue-500/15 border border-blue-500/30 text-blue-300 hover:bg-blue-500/25 disabled:opacity-50 text-[10px] font-bold"
+                            >
+                              {installingCf ? 'Installing…' : 'Install cloudflared'}
+                            </button>
+                            <a
+                              href="https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-400/60 underline underline-offset-2 hover:text-blue-300"
+                            >
+                              Manual download
+                            </a>
+                          </div>
+                          {installCfMsg && (
+                            <p className={`text-[10px] mt-1 ${installCfMsg.startsWith('Install failed') ? 'text-rose-300' : 'text-emerald-300'}`}>
+                              {installCfMsg}
+                            </p>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </div>
+                  )}
                 </div>
               )}
 
@@ -1010,24 +1118,27 @@ export default function StoreEditor() {
               {settings.bannerVisible && (
                 <>
                   <div>
-                    <label className="text-xs font-medium text-white/50 mb-1.5 block">Headline</label>
+                    <label htmlFor="store-banner-headline-input" className="text-xs font-medium text-white/50 mb-1.5 block">Headline</label>
                     <Input
+                      id="store-banner-headline-input"
                       value={settings.bannerHeadline}
                       onChange={(e) => update('bannerHeadline', e.target.value)}
                       className="h-8 bg-white/[0.04] border-white/[0.08] text-sm text-white/90"
                     />
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-white/50 mb-1.5 block">Subtext</label>
+                    <label htmlFor="store-banner-subtext-input" className="text-xs font-medium text-white/50 mb-1.5 block">Subtext</label>
                     <Input
+                      id="store-banner-subtext-input"
                       value={settings.bannerSubtext}
                       onChange={(e) => update('bannerSubtext', e.target.value)}
                       className="h-8 bg-white/[0.04] border-white/[0.08] text-sm text-white/90"
                     />
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-white/50 mb-1.5 block">CTA Button</label>
+                    <label htmlFor="store-banner-cta-input" className="text-xs font-medium text-white/50 mb-1.5 block">CTA Button</label>
                     <Input
+                      id="store-banner-cta-input"
                       value={settings.bannerCta}
                       onChange={(e) => update('bannerCta', e.target.value)}
                       className="h-8 bg-white/[0.04] border-white/[0.08] text-sm text-white/90"
@@ -1222,8 +1333,9 @@ export default function StoreEditor() {
                 <Toggle label="Enable Category Nav Bar" checked={settings.enableCategoryNav} onChange={(v) => update('enableCategoryNav', v)} />
               </div>
               <div>
-                <label className="text-xs font-medium text-white/50 mb-1.5 block">Footer Text</label>
+                <label htmlFor="store-footer-text-input" className="text-xs font-medium text-white/50 mb-1.5 block">Footer Text</label>
                 <Input
+                  id="store-footer-text-input"
                   value={settings.footerText}
                   onChange={(e) => update('footerText', e.target.value)}
                   className="h-8 bg-white/[0.04] border-white/[0.08] text-xs text-white/90"

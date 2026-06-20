@@ -47,6 +47,8 @@ import { manifest as erp_warehouse_ops } from '@/apps/erp-warehouse-ops/manifest
 import { manifest as erp_kobepay_inbox } from '@/apps/erp-kobepay-inbox/manifest';
 import { manifest as erp_accounting } from '@/apps/erp-accounting/manifest';
 import { manifest as erp_reports } from '@/apps/erp-reports/manifest';
+import { manifest as erp_summary } from '@/apps/erp-summary/manifest';
+import { manifest as erp_eod } from '@/apps/erp-eod/manifest';
 import { manifest as erp_admin } from '@/apps/erp-admin/manifest';
 import { manifest as erp_sourcing } from '@/apps/erp-sourcing/manifest';
 import { manifest as erp_shipments } from '@/apps/erp-shipments/manifest';
@@ -125,6 +127,8 @@ export const appRegistry = [
   erp_kobepay_inbox,
   erp_accounting,
   erp_reports,
+  erp_summary,
+  erp_eod,
   erp_admin,
   erp_sourcing,
   erp_shipments,

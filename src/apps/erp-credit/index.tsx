@@ -300,9 +300,9 @@ export default function CreditCollectionsModule() {
       setPayError('Payment amount must be greater than zero');
       return;
     }
-    // Apply the payment to the oldest still-outstanding receivable. If
-    // the user types more than that, we just allocate what fits — the
-    // backend prevents over-payment per receivable.
+    // Allocate the payment across receivables oldest-first so an excess
+    // payment doesn't silently disappear (previously we PATCH'd only the
+    // oldest invoice and dropped the remainder on the floor).
     const outstanding = (receivableByCustomer[payCustomerId] ?? [])
       .filter((r) => r.status !== 'PAID' && r.status !== 'WRITTEN_OFF')
       .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
@@ -310,15 +310,47 @@ export default function CreditCollectionsModule() {
       setPayError('No outstanding receivables for this customer');
       return;
     }
-    const oldest = outstanding[0];
-    const dueOnOldest = Number(oldest.amount) - Number(oldest.paid);
-    const applied = Math.min(dueOnOldest, amountTotal);
+    const totalOutstanding = outstanding.reduce(
+      (s, r) => s + (Number(r.amount) - Number(r.paid)),
+      0,
+    );
+    let remaining = amountTotal;
+    const errors: string[] = [];
+    const appliedReceivables: string[] = [];
     try {
-      await api(`/credit/receivables/${oldest.id}/pay`, {
-        method: 'PATCH',
-        body: JSON.stringify({ amount: applied, reference: payNotes || undefined }),
-      });
+      for (const r of outstanding) {
+        if (remaining <= 0.0001) break;
+        const due = Number(r.amount) - Number(r.paid);
+        if (due <= 0) continue;
+        const applied = Math.min(due, remaining);
+        try {
+          await api(`/credit/receivables/${r.id}/pay`, {
+            method: 'PATCH',
+            body: JSON.stringify({ amount: applied, reference: payNotes || undefined }),
+          });
+          appliedReceivables.push(r.id);
+          remaining -= applied;
+        } catch (innerErr) {
+          // Capture and keep allocating — partial success is still better
+          // than dropping the rest of the payment.
+          errors.push(`${r.id.slice(0, 8)}: ${(innerErr as Error).message}`);
+        }
+      }
       await reloadAll();
+      // If the payment exceeded total outstanding, flag the excess so
+      // the cashier can decide what to do with it (issue a credit note,
+      // refund, or apply on next invoice).
+      if (amountTotal > totalOutstanding + 0.01) {
+        const excess = (amountTotal - totalOutstanding).toFixed(2);
+        setPayError(
+          `Allocated ${appliedReceivables.length} invoice${appliedReceivables.length === 1 ? '' : 's'}; ${excess} excess remains unallocated.`,
+        );
+        return;
+      }
+      if (errors.length > 0) {
+        setPayError(`Partial: applied to ${appliedReceivables.length} invoice(s). Errors: ${errors.join('; ')}`);
+        return;
+      }
       setPaySuccess(true);
       setTimeout(() => {
         setPaySuccess(false);

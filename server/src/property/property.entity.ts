@@ -24,8 +24,61 @@ export class Property extends OwnedEntity {
   @Column({ default: 0 })
   totalUnits!: number;
 
+  /** Photo URL for dashboard cards + listing cover. */
+  @Column({ default: '' })
+  imageUrl!: string;
+
   @Column({ type: 'text', default: '' })
   notes!: string;
+}
+
+/**
+ * Tenant screening report. One row per tenant per refresh. Each numeric
+ * field is 0..100 (history coverage / risk score in the IRES sense),
+ * `overallScore` is the FICO-style 300..850 composite. `verdict` is the
+ * operator's decision after they see the report.
+ */
+@Entity('tenant_screening_reports')
+@Index(['ownerId', 'tenantId'], { unique: false })
+export class TenantScreeningReport extends OwnedEntity {
+  @Index()
+  @Column('uuid')
+  tenantId!: string;
+
+  @Column({ type: 'int', default: 0 })
+  rentalHistoryPct!: number;
+
+  @Column({ type: 'int', default: 0 })
+  evictionHistoryPct!: number;
+
+  @Column({ type: 'int', default: 0 })
+  criminalHistoryPct!: number;
+
+  @Column({ type: 'int', default: 0 })
+  creditHistoryPct!: number;
+
+  @Column({ type: 'int', default: 0 })
+  overallScore!: number;
+
+  @Column({ default: 'pending' })
+  verdict!: 'pending' | 'accepted' | 'rejected';
+
+  /** Provider this report came from (e.g. 'smartmove', 'rentprep',
+   *  'manual', 'demo'). Lets us replace fixture rows when a real
+   *  provider integration lands without disturbing the schema. */
+  @Column({ default: 'demo' })
+  provider!: string;
+
+  /** Download URL for the full PDF report. */
+  @Column({ default: '' })
+  reportPdfUrl!: string;
+
+  /** Download URL for the identity-proof JPG bundle. */
+  @Column({ default: '' })
+  identityProofUrl!: string;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  decidedAt?: Date | null;
 }
 
 @Entity('property_units')

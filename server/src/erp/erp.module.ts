@@ -5,7 +5,7 @@ import { PosOrder, PosProduct } from '../pos/pos.entity';
 import { WarehouseItem } from '../warehouse/warehouse.entity';
 import { Contact } from '../contacts/contact.entity';
 import { PrintJob } from '../print/print.entity';
-import { ErpAccount, ErpTransaction, PurchaseOrder, Supplier } from './erp.entity';
+import { ErpAccount, ErpTransaction, LoyaltyCustomer, PurchaseOrder, Supplier } from './erp.entity';
 import { ErpKobepayInbox, ErpKobepayProvider } from './erp-kobepay-inbox.entity';
 import {
   ErpKobePayLink,
@@ -27,7 +27,7 @@ import { SupplierCapitalController } from './supplier-capital.controller';
     TypeOrmModule.forFeature([
       PaymentTransaction, PosOrder, PosProduct, WarehouseItem, Contact, PrintJob,
       ErpAccount, ErpTransaction,
-      PurchaseOrder, Supplier,
+      PurchaseOrder, Supplier, LoyaltyCustomer,
       ErpKobepayProvider, ErpKobepayInbox,
       ErpKobePayLink, ErpKobePaySupplierReceipt, ErpPurchaseOrder, ErpSupplier, ErpSupplierCapitalLedger,
     ]),

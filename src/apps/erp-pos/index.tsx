@@ -141,6 +141,14 @@ export default function POSSystem() {
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'mobile'>('cash');
   const [submitting, setSubmitting] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
+  // Surfaces backend failures for the discount-request workflow so a
+  // failed approve/reject/counter doesn't sit silently as an
+  // optimistic state that the database disagrees with.
+  const [discountSyncError, setDiscountSyncError] = useState<string | null>(null);
+  const flashDiscountError = useCallback((msg: string) => {
+    setDiscountSyncError(msg);
+    window.setTimeout(() => setDiscountSyncError((curr) => (curr === msg ? null : curr)), 4500);
+  }, []);
   // Coupon code applied at checkout. Submitted to /pos/orders; the backend
   // discount engine resolves it server-side along with active rules.
   const [couponCode, setCouponCode] = useState('');
@@ -295,8 +303,10 @@ export default function POSSystem() {
     const idx = parseInt(selectedItemIdx, 10);
     const item = cart[idx];
     if (!item || !reqPrice || !reqReason) return;
-    const price = parseInt(reqPrice, 10);
-    if (price >= item.product.price || price <= 0) return;
+    // parseFloat so a manager can negotiate to e.g. 1500.50 instead of
+    // having the cents silently rounded down to whole shillings.
+    const price = parseFloat(reqPrice);
+    if (!Number.isFinite(price) || price >= item.product.price || price <= 0) return;
 
     // Optimistic local state
     const localReq: DiscountRequest = {
@@ -342,7 +352,9 @@ export default function POSSystem() {
             : r
         )
       );
-    } catch { /* keep optimistic — will sync on next load */ }
+    } catch (err) {
+      flashDiscountError(`Could not submit discount request: ${(err as Error).message}. Showing optimistic state — refresh to re-sync.`);
+    }
   };
 
   // ── Approval Actions ──
@@ -364,7 +376,11 @@ export default function POSSystem() {
         body: JSON.stringify({ approvedPrice: req.requestedPrice }),
       });
       await loadRequests();
-    } catch { /* keep optimistic */ }
+    } catch (err) {
+      flashDiscountError(`Approve failed on server: ${(err as Error).message}. Reload to see the true state.`);
+      // Pull authoritative state so the cashier sees the real status.
+      void loadRequests();
+    }
   };
 
   const rejectRequest = async (reqId: string) => {
@@ -377,7 +393,10 @@ export default function POSSystem() {
       await ensureSession();
       await api(`/discounts/requests/${reqId}/reject`, { method: 'POST', body: JSON.stringify({}) });
       await loadRequests();
-    } catch { /* keep optimistic */ }
+    } catch (err) {
+      flashDiscountError(`Reject failed on server: ${(err as Error).message}.`);
+      void loadRequests();
+    }
   };
 
   const openCounterDialog = (reqId: string) => {
@@ -389,9 +408,9 @@ export default function POSSystem() {
   };
 
   const submitCounterOffer = async () => {
-    const price = parseInt(counterPrice, 10);
+    const price = parseFloat(counterPrice);
     const req = requests.find((r) => r.id === counterRequestId);
-    if (!req || price <= 0 || price >= req.standardPrice) return;
+    if (!req || !Number.isFinite(price) || price <= 0 || price >= req.standardPrice) return;
     // Optimistic
     setRequests((prev) =>
       prev.map((r) =>
@@ -406,7 +425,10 @@ export default function POSSystem() {
         body: JSON.stringify({ counterPrice: price }),
       });
       await loadRequests();
-    } catch { /* keep optimistic */ }
+    } catch (err) {
+      flashDiscountError(`Counter-offer failed on server: ${(err as Error).message}.`);
+      void loadRequests();
+    }
   };
 
   const acceptCounterOffer = async (reqId: string) => {
@@ -421,7 +443,10 @@ export default function POSSystem() {
       await ensureSession();
       await api(`/discounts/requests/${reqId}/accept-counter`, { method: 'POST' });
       await loadRequests();
-    } catch { /* keep optimistic */ }
+    } catch (err) {
+      flashDiscountError(`Accept-counter failed on server: ${(err as Error).message}.`);
+      void loadRequests();
+    }
   };
 
   const rejectCounterOffer = async (reqId: string) => {
@@ -434,7 +459,10 @@ export default function POSSystem() {
       await ensureSession();
       await api(`/discounts/requests/${reqId}/reject-counter`, { method: 'POST' });
       await loadRequests();
-    } catch { /* keep optimistic */ }
+    } catch (err) {
+      flashDiscountError(`Reject-counter failed on server: ${(err as Error).message}.`);
+      void loadRequests();
+    }
   };
 
   // ── Checkout ──
@@ -447,19 +475,34 @@ export default function POSSystem() {
     setCheckoutError(null);
     setSubmitting(true);
 
-    // Sum of per-line price reductions from negotiated discounts.
+    // Sum of per-line price reductions from negotiated discounts (kept as
+    // an aggregate for back-compat with older /pos/orders consumers — the
+    // authoritative per-line cut is now in `lines[].negotiatedPrice`).
     const discountAmount = cart.reduce((sum, item) => {
       const cut = (item.product.price - (item.negotiatedPrice ?? item.product.price)) * item.quantity;
       return sum + Math.max(0, cut);
     }, 0);
 
+    // True only when every cart product ID matches the local fixture
+    // pattern (e.g. 'p1'..'p20'). Used to recover gracefully when the
+    // demo dataset hits a real backend that doesn't have those rows —
+    // we DO NOT want this to fire on network errors with real products.
+    const allMockIds = cart.every((it) => /^p\d+$/.test(it.product.id));
+
     const dto = {
       orderNumber: `SO-${Date.now().toString(36).toUpperCase()}`,
-      lines: cart.map((item) => ({ productId: item.product.id, quantity: item.quantity })),
+      lines: cart.map((item) => ({
+        productId: item.product.id,
+        quantity: item.quantity,
+        // Per-line negotiated price so the backend can attribute
+        // discount, commission, and loyalty points correctly.
+        ...(item.negotiatedPrice != null && item.negotiatedPrice < item.product.price
+          ? { negotiatedPrice: item.negotiatedPrice }
+          : {}),
+      })),
       discountAmount,
       paymentMethod: paymentMethod === 'cash' ? 'CASH' : paymentMethod === 'card' ? 'CARD' : 'MOBILE',
       couponCode: couponCode.trim() || undefined,
-      customerName: cart[0]?.product ? undefined : undefined,
     };
 
     try {
@@ -487,10 +530,13 @@ export default function POSSystem() {
       setShowCheckout(false);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      // Mock-product IDs (e.g. 'p1') don't exist server-side; in that case
-      // we still clear the cart so the demo flow looks like a sale completed,
-      // but surface real backend errors otherwise.
-      if (/not found/i.test(msg) || /404/.test(msg) || /Network/i.test(msg)) {
+      // ONLY swallow when the entire cart is local demo fixtures AND the
+      // server returned a real 404 (not a network/connection failure).
+      // Previously we matched /Network/i and would silently clear a cart
+      // full of real products on a flaky connection — customer walked
+      // out with goods that were never recorded as sold.
+      const looksLikeDemoMiss = allMockIds && (/not found/i.test(msg) || /404/.test(msg));
+      if (looksLikeDemoMiss) {
         setRequests((prev) =>
           prev.map((r) => (r.status === 'APPROVED' ? { ...r, status: 'COMPLETED' } : r)),
         );
@@ -545,6 +591,15 @@ export default function POSSystem() {
       onValueChange={setActiveTab}
       className="w-full h-full bg-[#0a0a1a] text-white flex flex-col overflow-hidden"
     >
+      {/* Sync error toast — auto-dismisses after a few seconds. Lets the
+          cashier see when the backend disagrees with an optimistic
+          discount-request action instead of staring at silent UI. */}
+      {discountSyncError && (
+        <div className="fixed top-4 right-4 z-50 max-w-sm rounded-lg border border-rose-500/30 bg-rose-500/10 backdrop-blur px-3 py-2 text-xs text-rose-200 shadow-lg">
+          {discountSyncError}
+        </div>
+      )}
+
       {/* Header */}
       <header className="flex items-center justify-between px-6 py-3 bg-[#13131f] border-b border-white/[0.06]">
         <div className="flex items-center gap-3">
@@ -1457,16 +1512,31 @@ export default function POSSystem() {
               <div className="flex gap-2 pt-2">
                 <Button
                   onClick={() => {
-                    const html = document.getElementById('kobe-pos-receipt')?.outerHTML ?? '';
+                    // Backend-controlled strings (orderNumber, receipt
+                    // text) are inserted via DOM APIs that escape HTML —
+                    // not template interpolation — so a malicious or
+                    // compromised backend can't smuggle <script> tags
+                    // into the print window.
+                    const receiptText = lastReceipt.text ?? '';
+                    const orderNumber = lastReceipt.orderNumber ?? 'receipt';
                     const w = window.open('', '_blank', 'width=360,height=520');
                     if (!w) return;
-                    w.document.write(`<!doctype html><html><head><title>${lastReceipt.orderNumber}</title>
-                      <style>body{font-family:ui-monospace,monospace;background:#fff;color:#000;padding:10px;font-size:11px;white-space:pre-wrap}</style>
-                      </head><body>${html}</body></html>`);
+                    w.document.open();
+                    w.document.write('<!doctype html><html><head></head><body></body></html>');
                     w.document.close();
+                    w.document.title = orderNumber;
+                    const style = w.document.createElement('style');
+                    style.textContent = 'body{font-family:ui-monospace,monospace;background:#fff;color:#000;padding:10px;font-size:11px;white-space:pre-wrap}';
+                    w.document.head.appendChild(style);
+                    const pre = w.document.createElement('pre');
+                    pre.textContent = receiptText;
+                    w.document.body.appendChild(pre);
+                    // Close after the print dialog completes — closing
+                    // immediately after window.print() can race the native
+                    // print dialog on Chromium/Firefox and abort it.
+                    w.addEventListener('afterprint', () => w.close(), { once: true });
                     w.focus();
                     w.print();
-                    w.close();
                   }}
                   className="flex-1 bg-emerald-600 hover:bg-emerald-500"
                 >

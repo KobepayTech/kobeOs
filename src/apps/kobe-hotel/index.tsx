@@ -5,6 +5,11 @@ import { ensureSession } from '@/lib/auth';
 import { HotelAdminDashboard } from './HotelAdminDashboard';
 import { KDSDisplay } from './KDSDisplay';
 import { QRCustomerPortal } from './QRCustomerPortal';
+import HotelBookersDashboard from './HotelBookersDashboard';
+import ChannelsTab from './ChannelsTab';
+import GuestInboxTab from './GuestInboxTab';
+import RoomsBoard from './RoomsBoard';
+import FoodListBoard from './FoodListBoard';
 import type { Hotel as SharedHotel } from '@/shared/types';
 import { useHotelLive, type HotelOrder as LiveOrder } from './useHotelLive';
 import { buildPublicGuestUrl } from '@/public/api';
@@ -15,7 +20,8 @@ import {
   Banknote, Receipt, Calendar, Phone, User,
   ArrowLeft, Download, TrendingUp, AlertTriangle, Star, Lock,
   Unlock, Eye, Send, Moon, Sun, GlassWater, Beef, CakeSlice,
-  Coffee, ChefHat, Brush, ShieldCheck, CircleDollarSign
+  Coffee, ChefHat, Brush, ShieldCheck, CircleDollarSign,
+  Globe2, MessageSquare,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -715,14 +721,16 @@ export default function KobeHotel() {
     { id: 'rooms', label: 'Rooms', icon: Bed, color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' },
     { id: 'bar', label: 'Bar POS', icon: Wine, color: 'text-amber-400 bg-amber-500/10 border-amber-500/20' },
     { id: 'restaurant', label: 'Restaurant', icon: UtensilsCrossed, color: 'text-orange-400 bg-orange-500/10 border-orange-500/20' },
+    { id: 'food', label: 'Food List', icon: CakeSlice, color: 'text-rose-400 bg-rose-500/10 border-rose-500/20' },
     { id: 'inventory', label: 'Inventory', icon: Package, color: 'text-violet-400 bg-violet-500/10 border-violet-500/20' },
     { id: 'staff', label: 'Staff', icon: Users, color: 'text-sky-400 bg-sky-500/10 border-sky-500/20' },
     { id: 'accounting', label: 'Accounting', icon: Calculator, color: 'text-green-400 bg-green-500/10 border-green-500/20' },
     { id: 'menu', label: 'Menu', icon: CakeSlice, color: 'text-rose-400 bg-rose-500/10 border-rose-500/20' },
     { id: 'kds', label: 'KDS', icon: ChefHat, color: 'text-orange-400 bg-orange-500/10 border-orange-500/20' },
     { id: 'portal', label: 'Guest Portal', icon: QrCode, color: 'text-pink-400 bg-pink-500/10 border-pink-500/20' },
+    { id: 'channels', label: 'Channels', icon: Globe2, color: 'text-teal-400 bg-teal-500/10 border-teal-500/20' },
+    { id: 'inbox', label: 'Inbox', icon: MessageSquare, color: 'text-fuchsia-400 bg-fuchsia-500/10 border-fuchsia-500/20' },
     { id: 'erp', label: 'Hotel ERP', icon: LayoutDashboard, color: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20' },
-    { id: 'kds', label: 'KDS', icon: ChefHat, color: 'text-rose-400 bg-rose-500/10 border-rose-500/20' },
     { id: 'qr-portal', label: 'QR Portal', icon: QrCode, color: 'text-teal-400 bg-teal-500/10 border-teal-500/20' },
   ];
 
@@ -772,147 +780,7 @@ export default function KobeHotel() {
         {/* ════════════════════════════════════════════════════════════
             DASHBOARD
         ════════════════════════════════════════════════════════════ */}
-        {activeTab === 'dashboard' && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h1 className="text-2xl font-bold">Dashboard</h1>
-                <p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Friday, June 14, 2024</p>
-              </div>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" className={darkMode ? 'border-white/10' : ''}><Calendar className="w-4 h-4 mr-2" />Today</Button>
-                <Button size="sm" className="bg-cyan-600 hover:bg-cyan-700"><TrendingUp className="w-4 h-4 mr-2" />View Reports</Button>
-              </div>
-            </div>
-
-            {/* KPI Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-              {[
-                { label: 'Total Guests Today', value: '24', icon: Users, color: 'text-cyan-400', bg: 'bg-cyan-500/10' },
-                { label: 'Rooms Occupied', value: `${occupiedCount}/20`, icon: Bed, color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
-                { label: 'Bar Sales', value: formatTZS(450000), icon: Wine, color: 'text-amber-400', bg: 'bg-amber-500/10' },
-                { label: 'Restaurant Sales', value: formatTZS(680000), icon: UtensilsCrossed, color: 'text-orange-400', bg: 'bg-orange-500/10' },
-                { label: 'Pending Checkouts', value: String(pendingCheckouts), icon: Clock, color: 'text-red-400', bg: 'bg-red-500/10' },
-                { label: 'Staff on Duty', value: String(staff.filter(s => s.status === 'On Duty').length), icon: ShieldCheck, color: 'text-sky-400', bg: 'bg-sky-500/10' },
-              ].map((kpi, i) => {
-                const Icon = kpi.icon;
-                return (
-                  <Card key={i} className={`${darkMode ? 'bg-[#13131f] border-white/[0.06]' : 'bg-white border-gray-200'} hover:scale-[1.02] transition-transform`}>
-                    <CardContent className="p-4">
-                      <div className="flex items-center gap-2 mb-2">
-                        <div className={`w-8 h-8 rounded-lg ${kpi.bg} flex items-center justify-center`}>
-                          <Icon className={`w-4 h-4 ${kpi.color}`} />
-                        </div>
-                      </div>
-                      <p className="text-2xl font-bold">{kpi.value}</p>
-                      <p className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{kpi.label}</p>
-                    </CardContent>
-                  </Card>
-                );
-              })}
-            </div>
-
-            {/* Charts Row */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <Card className={`${darkMode ? 'bg-[#13131f] border-white/[0.06]' : 'bg-white border-gray-200'}`}>
-                <CardContent className="p-4">
-                  <h3 className="font-semibold mb-4">Daily Revenue</h3>
-                  <ResponsiveContainer width="100%" height={200}>
-                    <BarChart data={REVENUE_DATA}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? '#333' : '#eee'} />
-                      <XAxis dataKey="day" tick={{ fill: darkMode ? '#888' : '#666', fontSize: 12 }} />
-                      <YAxis tick={{ fill: darkMode ? '#888' : '#666', fontSize: 12 }} tickFormatter={v => `${v / 1000}K`} />
-                      <Tooltip contentStyle={{ background: darkMode ? '#1a1a2e' : '#fff', border: darkMode ? '1px solid #333' : '1px solid #eee', borderRadius: 8 }} formatter={(value: number) => formatTZS(value)} />
-                      <Bar dataKey="bar" fill={COLORS.amber} radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="restaurant" fill={COLORS.orange} radius={[4, 4, 0, 0]} />
-                      <Bar dataKey="rooms" fill={COLORS.emerald} radius={[4, 4, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-
-              <Card className={`${darkMode ? 'bg-[#13131f] border-white/[0.06]' : 'bg-white border-gray-200'}`}>
-                <CardContent className="p-4">
-                  <h3 className="font-semibold mb-4">Occupancy Rate (%)</h3>
-                  <ResponsiveContainer width="100%" height={200}>
-                    <AreaChart data={OCCUPANCY_DATA}>
-                      <defs><linearGradient id="occGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={COLORS.emerald} stopOpacity={0.3} /><stop offset="95%" stopColor={COLORS.emerald} stopOpacity={0} /></linearGradient></defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke={darkMode ? '#333' : '#eee'} />
-                      <XAxis dataKey="day" tick={{ fill: darkMode ? '#888' : '#666', fontSize: 12 }} />
-                      <YAxis tick={{ fill: darkMode ? '#888' : '#666', fontSize: 12 }} domain={[0, 100]} />
-                      <Tooltip contentStyle={{ background: darkMode ? '#1a1a2e' : '#fff', border: darkMode ? '1px solid #333' : '1px solid #eee', borderRadius: 8 }} />
-                      <Area type="monotone" dataKey="rate" stroke={COLORS.emerald} fill="url(#occGrad)" strokeWidth={2} />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Room Status Grid + Activity */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <Card className={`lg:col-span-2 ${darkMode ? 'bg-[#13131f] border-white/[0.06]' : 'bg-white border-gray-200'}`}>
-                <CardContent className="p-4">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="font-semibold">Room Status</h3>
-                    <div className="flex gap-3 text-xs">
-                      <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-emerald-500" />Available</span>
-                      <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-red-500" />Occupied</span>
-                      <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-amber-500" />Cleaning</span>
-                      <span className="flex items-center gap-1"><div className="w-2 h-2 rounded-full bg-slate-500" />Maintenance</span>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-5 gap-2">
-                    {rooms.map(room => (
-                      <button
-                        key={room.id}
-                        onClick={() => setSelectedRoom(room)}
-                        className={`p-2 rounded-lg border text-center transition-all hover:scale-105 ${
-                          room.status === 'available' ? 'border-emerald-500/30 bg-emerald-500/10' :
-                          room.status === 'occupied' ? 'border-red-500/30 bg-red-500/10' :
-                          room.status === 'cleaning' ? 'border-amber-500/30 bg-amber-500/10' :
-                          'border-slate-500/30 bg-slate-500/10'
-                        }`}
-                      >
-                        <p className="text-xs font-bold">{room.number}</p>
-                        <Bed className="w-3 h-3 mx-auto my-1 opacity-50" />
-                        <p className="text-[9px] opacity-70">{room.type}</p>
-                      </button>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className={`${darkMode ? 'bg-[#13131f] border-white/[0.06]' : 'bg-white border-gray-200'}`}>
-                <CardContent className="p-4">
-                  <h3 className="font-semibold mb-4">Recent Activity</h3>
-                  <div className="space-y-3 max-h-[280px] overflow-y-auto">
-                    {ACTIVITIES.map(a => (
-                      <div key={a.id} className="flex items-start gap-3 text-sm">
-                        <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${a.type === 'checkin' ? 'bg-emerald-500' : a.type === 'checkout' ? 'bg-blue-500' : a.type === 'alert' ? 'bg-red-500' : a.type === 'order' ? 'bg-amber-500' : 'bg-violet-500'}`} />
-                        <div>
-                          <p className="text-xs leading-relaxed">{a.text}</p>
-                          <p className={`text-[10px] ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>{a.time}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-
-            {/* Quick Actions */}
-            <div className="flex gap-3">
-              {['Check-in', 'Check-out', 'Room Service', 'New Order'].map((action, i) => (
-                <Button key={i} variant="outline" className={darkMode ? 'border-white/10 hover:bg-white/5' : ''} onClick={() => {
-                  if (action === 'Check-in') setActiveTab('reception');
-                  if (action === 'New Order') setActiveTab('bar');
-                }}>
-                  <Plus className="w-4 h-4 mr-2" />{action}
-                </Button>
-              ))}
-            </div>
-          </div>
-        )}
+        {activeTab === 'dashboard' && <HotelBookersDashboard />}
 
         {/* ════════════════════════════════════════════════════════════
             RECEPTION
@@ -1057,69 +925,17 @@ export default function KobeHotel() {
         )}
 
         {/* ════════════════════════════════════════════════════════════
-            ROOMS
+            ROOMS (blue/light board view)
         ════════════════════════════════════════════════════════════ */}
         {activeTab === 'rooms' && (
-          <div className="space-y-6">
-            <div className="flex items-center justify-between">
-              <div><h1 className="text-2xl font-bold">Rooms</h1><p className={`text-sm ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>Floor Plan View</p></div>
-              <div className="flex gap-2">
-                {['All', 'Available', 'Occupied', 'Cleaning', 'Maintenance'].map(f => (
-                  <Button key={f} size="sm" variant={f === 'All' ? 'default' : 'outline'} className={f === 'All' ? 'bg-emerald-600' : darkMode ? 'border-white/10' : ''}>
-                    {f}
-                  </Button>
-                ))}
-                <Button size="sm" className="bg-cyan-600"><Plus className="w-4 h-4 mr-1" />Add Room</Button>
-              </div>
-            </div>
+          <RoomsBoard rooms={rooms} onSelect={(r) => setSelectedRoom(r as Room)} />
+        )}
 
-            {/* Stats */}
-            <div className="grid grid-cols-4 gap-4">
-              {[
-                { label: 'Available', value: availableCount, color: 'text-emerald-400' },
-                { label: 'Occupied', value: occupiedCount, color: 'text-red-400' },
-                { label: 'Cleaning', value: cleaningCount, color: 'text-amber-400' },
-                { label: 'Maintenance', value: maintenanceCount, color: 'text-slate-400' },
-              ].map(s => (
-                <Card key={s.label} className={`${darkMode ? 'bg-[#13131f] border-white/[0.06]' : 'bg-white border-gray-200'}`}>
-                  <CardContent className="p-4 text-center">
-                    <p className={`text-3xl font-bold ${s.color}`}>{s.value}</p>
-                    <p className={`text-xs ${darkMode ? 'text-gray-400' : 'text-gray-500'}`}>{s.label}</p>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-
-            {/* Floor sections */}
-            {[1, 2, 3].map(floor => (
-              <div key={floor}>
-                <h3 className="text-sm font-semibold mb-3 text-gray-400">Floor {floor}</h3>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
-                  {rooms.filter(r => r.floor === floor).map(room => (
-                    <button
-                      key={room.id}
-                      onClick={() => setSelectedRoom(room)}
-                      className={`p-4 rounded-xl border text-left transition-all hover:scale-[1.03] ${
-                        room.status === 'available' ? 'border-emerald-500/30 bg-emerald-500/5' :
-                        room.status === 'occupied' ? 'border-red-500/30 bg-red-500/5' :
-                        room.status === 'cleaning' ? 'border-amber-500/30 bg-amber-500/5' :
-                        'border-slate-500/30 bg-slate-500/5'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-lg font-bold">{room.number}</span>
-                        {room.status === 'occupied' ? <Lock className="w-4 h-4 text-red-400" /> : <Unlock className="w-4 h-4 text-emerald-400" />}
-                      </div>
-                      <p className="text-xs text-gray-400">{room.type}</p>
-                      <p className="text-xs font-medium mt-1">TZS {room.price.toLocaleString()}/night</p>
-                      {room.guest && <p className="text-[10px] text-gray-500 mt-1 truncate">{room.guest}</p>}
-                      <div className="mt-2">{statusBadge(room.status)}</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
+        {/* ════════════════════════════════════════════════════════════
+            FOOD LIST (customer-facing menu catalog)
+        ════════════════════════════════════════════════════════════ */}
+        {activeTab === 'food' && (
+          <FoodListBoard />
         )}
 
         {/* ════════════════════════════════════════════════════════════
@@ -1884,6 +1700,16 @@ export default function KobeHotel() {
             </Card>
           </div>
         )}
+
+        {/* ════════════════════════════════════════════════════════════
+            CHANNELS (OTA integrations)
+        ════════════════════════════════════════════════════════════ */}
+        {activeTab === 'channels' && <ChannelsTab darkMode={darkMode} />}
+
+        {/* ════════════════════════════════════════════════════════════
+            INBOX (guest messaging)
+        ════════════════════════════════════════════════════════════ */}
+        {activeTab === 'inbox' && <GuestInboxTab darkMode={darkMode} />}
 
         {/* ════════════════════════════════════════════════════════════
             MENU EDITOR

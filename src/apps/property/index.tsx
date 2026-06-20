@@ -1,3 +1,3 @@
-import PropertyProduction from './PropertyProduction';
+import PropEasy from './PropEasy';
 
-export default PropertyProduction;
+export default PropEasy;
