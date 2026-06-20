@@ -1,0 +1,103 @@
+name: Mirror handwriting OCR model
+
+# Fully-automated mirror of the TrOCR handwriting model into YOUR
+# HuggingFace account, run by GitHub Actions. The HF token never
+# leaves GitHub's encrypted Secrets store — never appears in chat,
+# logs, or your laptop's shell history.
+#
+# One-time setup (90 seconds):
+#   1. Create a fine-grained HF token scoped to write access on the
+#      destination repo only.
+#      https://huggingface.co/settings/tokens
+#   2. Add it as a repo secret:
+#      Settings → Secrets and variables → Actions → New repository secret
+#        Name:  HF_TOKEN
+#        Value: <paste the token>
+#
+# To run:
+#   GitHub Actions → "Mirror handwriting OCR model" → Run workflow
+#     destination_owner: <your HF username or org>
+#
+# Output: model mirrored to https://huggingface.co/<owner>/<model-name>
+
+on:
+  workflow_dispatch:
+    inputs:
+      destination_owner:
+        description: 'Your HuggingFace username or organization (NOT a token!)'
+        required: true
+      source_repo:
+        description: 'Source repo to mirror from'
+        required: true
+        default: 'Xenova/trocr-base-handwritten'
+      model_name:
+        description: 'Name for the destination repo'
+        required: true
+        default: 'trocr-base-handwritten'
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Refuse accidental token-as-username
+        run: |
+          if [[ "${{ inputs.destination_owner }}" =~ ^hf_ ]]; then
+            echo "::error::First input must be your HF username, not a token."
+            exit 1
+          fi
+
+      - name: Install tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y git-lfs
+          git lfs install
+          python3 -m pip install -U "huggingface_hub[cli]"
+
+      - name: Verify HF_TOKEN secret is set
+        env:
+          HAS_TOKEN: ${{ secrets.HF_TOKEN != '' }}
+        run: |
+          if [ "$HAS_TOKEN" != "true" ]; then
+            echo "::error::HF_TOKEN secret is not set."
+            echo "Add it under Settings → Secrets and variables → Actions → New repository secret."
+            exit 1
+          fi
+
+      - name: Login to HuggingFace
+        env:
+          HF_TOKEN_VALUE: ${{ secrets.HF_TOKEN }}
+        run: |
+          # --add-to-git-credential makes the subsequent `git push` to
+          # HF use the token automatically. Token never appears in
+          # process args because it's piped via env var.
+          huggingface-cli login --token "$HF_TOKEN_VALUE" --add-to-git-credential
+
+      - name: Configure git author
+        run: |
+          git config --global user.email "ci@kobeos.local"
+          git config --global user.name "KobeOS CI"
+
+      - name: Run mirror script
+        env:
+          SOURCE_REPO: ${{ inputs.source_repo }}
+          MODEL_NAME: ${{ inputs.model_name }}
+        run: |
+          cd server
+          chmod +x scripts/mirror-handwriting-ocr.sh
+          ./scripts/mirror-handwriting-ocr.sh "${{ inputs.destination_owner }}"
+
+      - name: Summary
+        run: |
+          echo "::notice::Mirror complete: https://huggingface.co/${{ inputs.destination_owner }}/${{ inputs.model_name }}"
+          echo ""
+          echo "Now set in server/.env (or your secret manager):"
+          echo "  HANDWRITING_OCR_MODEL=${{ inputs.destination_owner }}/${{ inputs.model_name }}"
+          echo ""
+          echo "Then restart the server and run:  npm run prefetch:handwriting-ocr"
+          echo "to confirm KobeOS pulls from your mirror."
