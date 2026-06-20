@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Outlet, Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
-  ShoppingCart, ClipboardList, Calculator, NotebookPen, Boxes, Receipt, LogOut, User, Loader2,
+  ShoppingCart, ClipboardList, Calculator, NotebookPen, Boxes, Receipt, LogOut, User, Loader2, Sparkles,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { ensureSession } from '@/lib/auth';
@@ -214,8 +214,27 @@ export function MobileHome() {
     <div className="p-5 space-y-4">
       <div>
         <h2 className="text-xl font-extrabold text-slate-900">Welcome back</h2>
-        <p className="text-xs text-slate-500 mt-0.5">Pick a tool from the bottom bar to get started.</p>
+        <p className="text-xs text-slate-500 mt-0.5">Pick a tool to get started.</p>
       </div>
+
+      {/* Highlighted "from image" tile — a customer just forwarded a
+       *  marked WhatsApp photo? Tap here, the seller doesn't have to
+       *  type the order by hand. */}
+      <Link
+        to={`/m/${slug}/image-order`}
+        className="block rounded-2xl p-4 bg-gradient-to-br from-violet-600 to-indigo-600 text-white active:opacity-90 shadow-lg"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-xl bg-white/20 grid place-items-center">
+            <Sparkles className="w-5 h-5" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-extrabold">Order from image</div>
+            <div className="text-[11px] opacity-80">Forward an annotated WhatsApp photo → POS order</div>
+          </div>
+        </div>
+      </Link>
+
       <div className="grid grid-cols-2 gap-3">
         {TABS.map(({ to, label, Icon }) => (
           <Link

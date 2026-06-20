@@ -34,6 +34,7 @@ import { CreatorsModule } from './creators/creators.module';
 import { VideoGenerationModule } from './video-generation/video-generation.module';
 import { AiModule } from './ai/ai.module';
 import { OcrModule } from './ocr/ocr.module';
+import { OrderFromImageModule } from './order-from-image/order-from-image.module';
 import { TranslationModule } from './translation/translation.module';
 import { ImageEditModule } from './image-edit/image-edit.module';
 import { SystemModule } from './system/system.module';
@@ -86,6 +87,7 @@ import { SocialSchedulerModule } from './social-scheduler/social-scheduler.modul
     VideoGenerationModule,
     AiModule,
     OcrModule,
+    OrderFromImageModule,
     TranslationModule,
     ImageEditModule,
     SystemModule,

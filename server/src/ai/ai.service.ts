@@ -4,6 +4,9 @@ import { ConfigService } from '@nestjs/config';
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
+  /** Base64-encoded image bytes (no data: prefix). Ollama passes these
+   *  to vision-capable models like llava / moondream. */
+  images?: string[];
 }
 
 export interface ChatCompletionOptions {

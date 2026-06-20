@@ -7,7 +7,7 @@ import {
   Receipt, Tag, Percent, Search, Barcode, Shirt, Backpack, Coffee,
   BookOpen, PenTool, Clock, CheckCircle2, XCircle, AlertCircle,
   ArrowRight, Send, User, Phone, Package,
-  History, X, Star, Zap
+  History, X, Star, Zap, Image as ImageIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,6 +16,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { DiscountRulesManager } from './DiscountRulesManager';
 import { DiscountReports } from './DiscountReports';
+import { OrderFromImageDialog } from './OrderFromImageDialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -138,6 +139,7 @@ export default function POSSystem() {
 
   // Checkout dialog
   const [showCheckout, setShowCheckout] = useState(false);
+  const [imageOrderOpen, setImageOrderOpen] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'card' | 'mobile'>('cash');
   const [submitting, setSubmitting] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
@@ -655,12 +657,24 @@ export default function POSSystem() {
           </TabsTrigger>
         </TabsList>
 
-        <div className="flex items-center gap-2 text-sm text-white/50">
-          <User className="w-4 h-4" />
-          <span>{SELLER_NAME}</span>
-          <Badge variant="outline" className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30 text-[10px]">
-            Online
-          </Badge>
+        <div className="flex items-center gap-3 text-sm text-white/50">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setImageOrderOpen(true)}
+            className="h-8 border-violet-500/40 bg-violet-500/10 text-violet-300 hover:bg-violet-500/20 hover:text-violet-200 text-xs"
+            title="Customers forward annotated WhatsApp catalog photos — drop one in and we'll turn it into a draft order"
+          >
+            <ImageIcon className="w-3.5 h-3.5 mr-1.5" />
+            From image
+          </Button>
+          <div className="flex items-center gap-2">
+            <User className="w-4 h-4" />
+            <span>{SELLER_NAME}</span>
+            <Badge variant="outline" className="bg-emerald-500/10 text-emerald-400 border-emerald-500/30 text-[10px]">
+              Online
+            </Badge>
+          </div>
         </div>
       </header>
 
@@ -1410,6 +1424,25 @@ export default function POSSystem() {
           })()}
         </DialogContent>
       </Dialog>
+
+      {/* ─── Order-from-image Dialog ─── */}
+      <OrderFromImageDialog
+        open={imageOrderOpen}
+        onOpenChange={setImageOrderOpen}
+        products={products.map((p) => ({
+          id: p.id,
+          sku: (p as { sku?: string }).sku ?? p.id.slice(0, 8),
+          name: p.name,
+          price: p.price,
+        }))}
+        onOrderCreated={(orderNumber) => {
+          setLastReceipt({
+            text: `Order ${orderNumber} created from image — see /pos/orders for details`,
+            orderNumber,
+            pickTicketNumber: '-',
+          });
+        }}
+      />
 
       {/* ─── Checkout Dialog ─── */}
       <Dialog open={showCheckout} onOpenChange={setShowCheckout}>

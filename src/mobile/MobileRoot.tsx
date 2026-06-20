@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import MobileShell, { MobileHome } from './MobileShell';
 import MobilePOS from './MobilePOS';
 import MobilePO from './MobilePO';
+import MobileImageOrder from './MobileImageOrder';
 import MobileEod from './MobileEod';
 import MobileSummary from './MobileSummary';
 import MobileInventory from './MobileInventory';
@@ -21,6 +22,7 @@ export default function MobileRoot() {
           <Route index element={<MobileHome />} />
           <Route path="pos" element={<MobilePOS />} />
           <Route path="po" element={<MobilePO />} />
+          <Route path="image-order" element={<MobileImageOrder />} />
           <Route path="eod" element={<MobileEod />} />
           <Route path="summary" element={<MobileSummary />} />
           <Route path="inventory" element={<MobileInventory />} />

@@ -26,6 +26,7 @@ import KobeStudio from '@/modules/kobe-studio/KobeStudio';
 import MobileShell, { MobileHome } from '@/mobile/MobileShell';
 import MobilePOS from '@/mobile/MobilePOS';
 import MobilePO from '@/mobile/MobilePO';
+import MobileImageOrder from '@/mobile/MobileImageOrder';
 import MobileEod from '@/mobile/MobileEod';
 import MobileSummary from '@/mobile/MobileSummary';
 import MobileInventory from '@/mobile/MobileInventory';
@@ -64,6 +65,7 @@ export default function App() {
             <Route index element={<MobileHome />} />
             <Route path="pos" element={<MobilePOS />} />
             <Route path="po" element={<MobilePO />} />
+          <Route path="image-order" element={<MobileImageOrder />} />
             <Route path="eod" element={<MobileEod />} />
             <Route path="summary" element={<MobileSummary />} />
             <Route path="inventory" element={<MobileInventory />} />
@@ -114,6 +116,7 @@ export default function App() {
           <Route index element={<MobileHome />} />
           <Route path="pos" element={<MobilePOS />} />
           <Route path="po" element={<MobilePO />} />
+          <Route path="image-order" element={<MobileImageOrder />} />
           <Route path="eod" element={<MobileEod />} />
           <Route path="summary" element={<MobileSummary />} />
           <Route path="inventory" element={<MobileInventory />} />
