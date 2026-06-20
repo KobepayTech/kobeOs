@@ -3,9 +3,9 @@ import type { AppManifest } from '@/os/types';
 
 export const manifest: AppManifest = {
   id: 'cargo-receiver',
-  name: 'Cargo Receiver',
-  description: 'Receiver portal - Manage deliveries and pickups',
-  icon: 'Inbox',
+  name: 'Customer Portal',
+  description: 'Book shipments, track deliveries, manage documents',
+  icon: 'UserCircle',
   category: 'erp',
   version: '1.0.0',
   width: 900,
@@ -16,5 +16,5 @@ export const manifest: AppManifest = {
   requiresAuth: false,
   permissions: [],
   subscriptionTier: 'pro',
-  component: lazy(() => import('./index')),
+  component: lazy(() => import('../cargo/CustomerPortal')),
 };
