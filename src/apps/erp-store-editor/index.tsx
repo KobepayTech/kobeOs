@@ -4,8 +4,10 @@ import {
   ShoppingBag, Search, ChevronDown, ChevronRight, Check, Eye, X,
   Store, Type as TypeIcon, Grid3X3, PanelLeft, Tag, Plus, Globe, Loader2, AlertTriangle,
   LayoutGrid, Layers,
-  Wifi, WifiOff, ExternalLink, Languages,
+  Wifi, WifiOff, ExternalLink, Languages, QrCode, Smartphone, Copy,
 } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -707,6 +709,8 @@ export default function StoreEditor() {
     }
   }, [refreshCloudflaredStatus]);
   const [tunnelRunning, setTunnelRunning] = useState(false);
+  const [mobileQrOpen, setMobileQrOpen] = useState(false);
+  const [qrCopied, setQrCopied] = useState(false);
 
   // Poll tunnel status every 15 seconds while the store is published
   useEffect(() => {
@@ -1024,17 +1028,28 @@ export default function StoreEditor() {
                     </p>
                   )}
 
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="w-full h-7 text-xs border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 bg-transparent"
-                    onClick={handleUnpublish}
-                    disabled={publishing}
-                  >
-                    {publishing
-                      ? <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> Unpublishing…</>
-                      : 'Unpublish store'}
-                  </Button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs border-indigo-500/30 text-indigo-300 hover:bg-indigo-500/10 hover:text-indigo-200 bg-transparent"
+                      onClick={() => setMobileQrOpen(true)}
+                      disabled={!settings.domainSlug}
+                    >
+                      <QrCode className="w-3 h-3 mr-1" /> Mobile QR
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 bg-transparent"
+                      onClick={handleUnpublish}
+                      disabled={publishing}
+                    >
+                      {publishing
+                        ? <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> Unpublishing…</>
+                        : 'Unpublish'}
+                    </Button>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -1478,7 +1493,118 @@ export default function StoreEditor() {
           <LivePreview settings={settings} />
         </div>
       </div>
+
+      {/* Mobile QR dialog — owners scan to load the mobile webapp (POS,
+       *  PO, EOD, Sales/Expenses, stock, orders) at the same subdomain. */}
+      {mobileQrOpen && (
+        <MobileQrDialog
+          slug={settings.domainSlug}
+          publishedUrl={settings.publishedUrl ?? null}
+          onClose={() => { setMobileQrOpen(false); setQrCopied(false); }}
+          copied={qrCopied}
+          onCopy={() => { setQrCopied(true); setTimeout(() => setQrCopied(false), 2000); }}
+        />
+      )}
     </div>
+  );
+}
+
+function MobileQrDialog({
+  slug, publishedUrl, onClose, copied, onCopy,
+}: {
+  slug: string;
+  publishedUrl: string | null;
+  onClose: () => void;
+  copied: boolean;
+  onCopy: () => void;
+}) {
+  // Prefer the published HTTPS URL on the real subdomain (e.g.
+  // https://kelvinfashion.kobeapptz.com/m/kelvinfashion). Fall back to
+  // the current origin so the QR still works for an operator testing
+  // locally before publishing.
+  const base = publishedUrl
+    ? publishedUrl.replace(/\/+$/, '')
+    : (typeof window !== 'undefined' ? window.location.origin : '');
+  const mobileUrl = `${base}/m/${slug || 'store'}`;
+
+  const downloadQr = () => {
+    const svg = document.getElementById('kobe-mobile-qr')?.outerHTML;
+    if (!svg) return;
+    const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `kobeos-mobile-${slug || 'store'}.svg`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="bg-[#13131f] border-white/[0.06] text-white max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Smartphone className="w-4 h-4 text-indigo-400" /> Mobile workspace
+          </DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3">
+          <p className="text-xs text-white/60">
+            Scan with a phone to open POS, Purchase Orders, End-of-Day, Sales &amp; Expenses,
+            stock lookup, and order history — all on the same subdomain as your store.
+          </p>
+
+          <div className="bg-white rounded-xl p-4 grid place-items-center">
+            <QRCodeSVG
+              id="kobe-mobile-qr"
+              value={mobileUrl}
+              size={200}
+              level="M"
+              includeMargin
+            />
+          </div>
+
+          <div className="flex items-center gap-2 px-2 py-2 rounded-lg bg-white/[0.04] border border-white/10 text-[11px] font-mono text-white/80 break-all">
+            <span className="flex-1">{mobileUrl}</span>
+            <button
+              onClick={async () => {
+                try { await navigator.clipboard?.writeText(mobileUrl); onCopy(); }
+                catch { /* clipboard unavailable */ }
+              }}
+              className="text-indigo-300 hover:text-indigo-200"
+              title="Copy URL"
+            >
+              {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-white/15 text-white/80 hover:bg-white/5"
+              onClick={downloadQr}
+            >
+              <Download className="w-3.5 h-3.5 mr-1.5" /> Download SVG
+            </Button>
+            <Button
+              size="sm"
+              className="bg-indigo-600 hover:bg-indigo-700 text-white"
+              onClick={onClose}
+            >
+              Done
+            </Button>
+          </div>
+
+          {!publishedUrl && (
+            <p className="text-[10px] text-amber-400/70 text-center">
+              Store not yet published — QR points at this device's URL. Publish to get a real https://{slug || '<slug>'}.kobeapptz.com link.
+            </p>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

@@ -19,6 +19,18 @@ import KobeSecurity from '@/modules/kobe-security/KobeSecurity';
 import HotelSecurity from '@/modules/kobe-hotel/security/HotelSecurity';
 import KobeStudio from '@/modules/kobe-studio/KobeStudio';
 
+/* Mobile webapp — entry at /m/:slug, reachable via the QR generated in the
+ * store editor. Sellers and admin use this for POS, PO, EOD, etc. on a
+ * phone. Has its own sign-in inside MobileShell so it doesn't depend on
+ * the desktop OS login. */
+import MobileShell, { MobileHome } from '@/mobile/MobileShell';
+import MobilePOS from '@/mobile/MobilePOS';
+import MobilePO from '@/mobile/MobilePO';
+import MobileEod from '@/mobile/MobileEod';
+import MobileSummary from '@/mobile/MobileSummary';
+import MobileInventory from '@/mobile/MobileInventory';
+import MobileOrders from '@/mobile/MobileOrders';
+
 /**
  * Thin App shell that:
  *  1. Handles authentication (login screen ↔ localStorage)
@@ -37,13 +49,26 @@ export default function App() {
     localStorage.setItem('kobeos_user', username);
   };
 
-  /* ---- Public routes (no auth required) ---- */
+  /* ---- Public routes (no desktop-OS auth required) ----
+   * /m/* is the mobile webapp: gated by its own JWT sign-in inside
+   * MobileShell so a seller on their phone doesn't need to go through
+   * the desktop login first.
+   */
   if (!user) {
     return (
       <BrowserRouter>
         <Routes>
           <Route path="/install" element={<InstallLandingPage />} />
           <Route path="/install/:appId" element={<InstallLandingPage />} />
+          <Route path="/m/:slug" element={<MobileShell />}>
+            <Route index element={<MobileHome />} />
+            <Route path="pos" element={<MobilePOS />} />
+            <Route path="po" element={<MobilePO />} />
+            <Route path="eod" element={<MobileEod />} />
+            <Route path="summary" element={<MobileSummary />} />
+            <Route path="inventory" element={<MobileInventory />} />
+            <Route path="orders" element={<MobileOrders />} />
+          </Route>
           <Route path="*" element={<LoginScreen onLogin={handleLogin} />} />
         </Routes>
       </BrowserRouter>
@@ -82,6 +107,18 @@ export default function App() {
         {/* Install routes (also reachable when authenticated) */}
         <Route path="/install" element={<InstallLandingPage />} />
         <Route path="/install/:appId" element={<InstallLandingPage />} />
+
+        {/* Mobile webapp — same routes work whether or not the desktop
+         *  login has happened first. */}
+        <Route path="/m/:slug" element={<MobileShell />}>
+          <Route index element={<MobileHome />} />
+          <Route path="pos" element={<MobilePOS />} />
+          <Route path="po" element={<MobilePO />} />
+          <Route path="eod" element={<MobileEod />} />
+          <Route path="summary" element={<MobileSummary />} />
+          <Route path="inventory" element={<MobileInventory />} />
+          <Route path="orders" element={<MobileOrders />} />
+        </Route>
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

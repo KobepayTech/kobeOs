@@ -17,6 +17,10 @@ const isPrintCargoReceipt = pathname.startsWith('/print/cargo-receipt');
 const isPublicGuest =
   pathname.startsWith('/p/') ||
   (tenantSub !== null && /^\/(room|table)\//i.test(pathname));
+// Mobile webapp shell — reached via the QR code generated in the store
+// editor (https://{slug}.kobeapptz.com/m/{slug}). Lazy-loaded so the
+// desktop bundle stays lean.
+const isMobileWebapp = pathname.startsWith('/m/');
 
 if (isOverlay) {
   // Lazy-load to keep the main bundle lean
@@ -34,6 +38,10 @@ if (isOverlay) {
 } else if (isPublicGuest) {
   import('./public/GuestPortal').then(({ default: GuestPortal }) => {
     createRoot(document.getElementById('root')!).render(<GuestPortal />);
+  });
+} else if (isMobileWebapp) {
+  import('./mobile/MobileRoot').then(({ default: MobileRoot }) => {
+    createRoot(document.getElementById('root')!).render(<MobileRoot />);
   });
 } else {
   createRoot(document.getElementById('root')!).render(<Desktop />);
