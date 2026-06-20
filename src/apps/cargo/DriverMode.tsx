@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '@/lib/api';
 import {
   Truck, MapPin, Phone, CheckCircle2, X, ArrowLeft,
@@ -79,7 +79,7 @@ const STATUS_LABELS: Record<string, string> = {
   FAILED: 'Failed',
 };
 
-const STATUS_FLOW = ['ASSIGNED', 'IN_PROGRESS', 'ARRIVED', 'DELIVERED'];
+const STATUS_FLOW = ['ASSIGNED', 'IN_PROGRESS', 'ARRIVED', 'DELIVERED'] as const;
 
 /* ------------------------------------------------------------------ */
 /*  GLASS CARD                                                         */
@@ -191,7 +191,10 @@ export default function DriverMode({ onClose }: DriverModeProps) {
   );
 
   const getNextStatus = (current: Delivery['status']): Delivery['status'] | null => {
-    const idx = STATUS_FLOW.indexOf(current);
+    // STATUS_FLOW only covers the happy path (FAILED is a terminal
+    // off-ramp), so the indexOf type intentionally excludes FAILED —
+    // cast to keep callers strongly typed.
+    const idx = STATUS_FLOW.indexOf(current as Exclude<Delivery['status'], 'FAILED'>);
     return idx >= 0 && idx < STATUS_FLOW.length - 1 ? STATUS_FLOW[idx + 1] : null;
   };
 
@@ -328,7 +331,7 @@ export default function DriverMode({ onClose }: DriverModeProps) {
               <CardContent className="p-4">
                 <div className="flex items-center justify-between">
                   {STATUS_FLOW.map((s, i) => {
-                    const currentIdx = STATUS_FLOW.indexOf(activeDelivery.status);
+                    const currentIdx = STATUS_FLOW.indexOf(activeDelivery.status as Exclude<Delivery['status'], 'FAILED'>);
                     const isCompleted = i <= currentIdx;
                     const isCurrent = i === currentIdx;
                     return (

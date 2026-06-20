@@ -288,7 +288,7 @@ export default function CustomerPortal() {
     }
     // Fall back to API
     try {
-      const data = await api(`/cargo/air/events?shipmentId=${encodeURIComponent(trackId)}`);
+      const data = await api<TrackingEvent[]>(`/cargo/air/events?shipmentId=${encodeURIComponent(trackId)}`);
       if (data && data.length > 0) {
         setTrackResult({
           shipment: { ...found!, id: trackId, senderPhone: '', senderName: '', receiverName: '', receiverCountry: '', status: 'IN_TRANSIT', date: '', weight: 0, category: '', route: '', timeline: [] },

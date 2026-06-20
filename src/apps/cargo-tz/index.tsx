@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Card, CardContent } from '@/components/ui/card';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { QRCodeSVG } from 'qrcode.react';
 
 /* ------------------------------------------------------------------ */
@@ -360,7 +361,7 @@ function ParcelsTab({ parcels, auditLogs }: { parcels: TZParcel[]; auditLogs: TZ
   const [selectedParcel, setSelectedParcel] = useState<TZParcel | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [registerOpen, setRegisterOpen] = useState(false);
-  const [newParcel, setNewParcel] = useState({ senderName:'', senderPhone:'', ownerName:'', ownerPhone:'', destination:'', packageCount:1, weight:0, description:'', paymentMode:'PAY_NOW' as const });
+  const [newParcel, setNewParcel] = useState<{ senderName: string; senderPhone: string; ownerName: string; ownerPhone: string; destination: string; packageCount: number; weight: number; description: string; paymentMode: 'PAY_NOW' | 'PAY_ON_ARRIVAL' }>({ senderName:'', senderPhone:'', ownerName:'', ownerPhone:'', destination:'', packageCount:1, weight:0, description:'', paymentMode:'PAY_NOW' });
 
   const statuses = ['ALL','REGISTERED','VERIFIED','PAID','TRANSIT_PENDING','IN_TRANSIT','ARRIVED','PAYMENT_REQUIRED','DELIVERED'];
 

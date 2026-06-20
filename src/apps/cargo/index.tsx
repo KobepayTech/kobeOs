@@ -425,9 +425,13 @@ function ShipmentsTab({ search }: { search: string }) {
     finally { setEvLoading(false); }
   };
 
-  const handleCreate = async (body: Record<string, unknown>) => {
-    try { await api('/cargo/shipments', { method: 'POST', body: JSON.stringify(body) }); refresh(); setShowCreate(false); }
-    catch (e: any) { alert('Error: ' + e.message); }
+  // ShipmentCreation already POSTs /cargo/shipments and passes the
+  // created row back via onCreate. The parent's job is just to refresh
+  // the list and close the dialog — calling POST again would
+  // double-insert the shipment.
+  const handleCreate = async (_created: { id?: string }) => {
+    refresh();
+    setShowCreate(false);
   };
 
   const handleStatusUpdate = async (id: string, status: SS) => {
