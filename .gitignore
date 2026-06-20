@@ -14,6 +14,7 @@ electron/server-bundle/
 electron/.staging/
 build/vcredist/vc_redist.x64.exe
 build/cloudflared/
+tmp-screenshots/
 
 # Local AI model downloads
 models/

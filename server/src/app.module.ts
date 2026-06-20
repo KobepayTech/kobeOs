@@ -76,6 +76,9 @@ import { SocialSchedulerModule } from './social-scheduler/social-scheduler.modul
     ThrottlerModule.forRoot([
       { name: 'default', ttl: 60_000, limit: 120 },
       { name: 'auth', ttl: 60_000, limit: 10 },
+      // Tighter bucket for public lookup endpoints that expose
+      // enumerable resources (e.g. /store-settings/check-slug).
+      { name: 'public-lookup', ttl: 60_000, limit: 20 },
     ]),
     RedisCacheModule,
     AuditModule,

@@ -1069,8 +1069,9 @@ export function Footer({
                 <li key={j}>
                   {item.href ? (
                     <a
-                      href={item.href}
+                      href={safeHref(item.href)}
                       className="hover:text-white transition-colors"
+                      rel="noopener noreferrer"
                     >
                       {item.label}
                     </a>
@@ -1200,4 +1201,24 @@ export function JerseyShopChrome({
       <Footer storeName={storeName} tagline={tagline} config={config} />
     </div>
   );
+}
+
+/** Allow-list URL schemes that can be rendered as an <a href>. Anything
+ *  else (notably `javascript:` and `data:`) falls back to `#` so an
+ *  operator-controlled footer link can't smuggle script into a guest's
+ *  browser. Storefronts are rendered to anonymous visitors. */
+function safeHref(raw: string): string {
+  const trimmed = String(raw).trim();
+  if (!trimmed) return '#';
+  if (trimmed.startsWith('/') || trimmed.startsWith('#')) return trimmed;
+  const lower = trimmed.toLowerCase();
+  if (
+    lower.startsWith('http://') ||
+    lower.startsWith('https://') ||
+    lower.startsWith('mailto:') ||
+    lower.startsWith('tel:')
+  ) {
+    return trimmed;
+  }
+  return '#';
 }

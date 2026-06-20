@@ -93,7 +93,15 @@ export class SupplierCapitalController {
   @Post('kobepay/webhook')
   importKobePayReceipt(@Body() dto: KobePaySupplierReceiptWebhookDto, @Headers('x-kobepay-webhook-secret') secret?: string) {
     const expectedSecret = process.env.KOBEPAY_WEBHOOK_SECRET;
-    if (expectedSecret && secret !== expectedSecret) throw new UnauthorizedException('Invalid KobePay webhook secret');
+    // Reject when no secret is configured — accepting unsigned webhooks
+    // would let any anonymous caller mint supplier credit. Operator must
+    // set KOBEPAY_WEBHOOK_SECRET on the server to enable this endpoint.
+    if (!expectedSecret) {
+      throw new UnauthorizedException(
+        'KOBEPAY_WEBHOOK_SECRET is not configured; webhook is rejected for safety.',
+      );
+    }
+    if (secret !== expectedSecret) throw new UnauthorizedException('Invalid KobePay webhook secret');
     return this.svc.importKobePayReceipt(dto);
   }
 }

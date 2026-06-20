@@ -191,6 +191,13 @@ export class PosOrderItem extends OwnedEntity {
 
   @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
   lineTotal!: number;
+
+  /** Negotiated unit price when a manager applied a per-line discount.
+   *  Null = sold at catalog price. Stored so commission / loyalty /
+   *  per-product margin reports can attribute the discount correctly
+   *  instead of inferring from the aggregate order.discountAmount. */
+  @Column({ type: 'decimal', precision: 18, scale: 4, nullable: true })
+  negotiatedPrice?: number | null;
 }
 
 @Entity('pos_customer_credit_profiles')

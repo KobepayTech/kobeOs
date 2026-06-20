@@ -6,6 +6,7 @@ import {
   FileText, ShieldCheck, Truck, Heart, UserCircle,
   ChevronRight, Boxes, CircleDollarSign,
   Globe, LayoutDashboard, CreditCard, Percent,
+  NotebookPen, Calculator,
 } from 'lucide-react';
 import { useOSStore } from '@/os/store';
 import {
@@ -86,13 +87,15 @@ const moduleSections = [
     title: 'Warehouse & Logistics',
     tiles: [
       { id: 'warehouse', appId: 'erp-warehouse', label: 'Warehouse', desc: 'Stock & storage management', icon: Warehouse, color: 'text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/20' },
-      { id: 'shipments', appId: 'erp-shipments', label: 'Shipments', desc: 'Track deliveries & routes', icon: Truck, color: 'text-cyan-400', bg: 'bg-cyan-500/10', border: 'border-cyan-500/20' },
+      { id: 'shipments', appId: 'erp-shipments', label: 'Shipments (demo)', desc: 'Track deliveries & routes — local-only preview', icon: Truck, color: 'text-cyan-400', bg: 'bg-cyan-500/10', border: 'border-cyan-500/20' },
       { id: 'sourcing', appId: 'erp-sourcing', label: 'Sourcing', desc: 'Supplier & procurement', icon: Globe, color: 'text-teal-400', bg: 'bg-teal-500/10', border: 'border-teal-500/20' },
     ] as ModuleTile[],
   },
   {
     title: 'Finance & Reports',
     tiles: [
+      { id: 'summary', appId: 'erp-summary', label: 'Sales & Expenses', desc: 'Quick-entry summary log', icon: NotebookPen, color: 'text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/20' },
+      { id: 'eod', appId: 'erp-eod', label: 'End of Day', desc: 'Count till & close trading day', icon: Calculator, color: 'text-orange-400', bg: 'bg-orange-500/10', border: 'border-orange-500/20' },
       { id: 'accounting', appId: 'erp-accounting', label: 'Accounting', desc: 'Financial records & ledgers', icon: CircleDollarSign, color: 'text-green-400', bg: 'bg-green-500/10', border: 'border-green-500/20' },
       { id: 'reports', appId: 'erp-reports', label: 'Reports', desc: 'Analytics & business insights', icon: FileText, color: 'text-indigo-400', bg: 'bg-indigo-500/10', border: 'border-indigo-500/20' },
       { id: 'loyalty', appId: 'erp-loyalty', label: 'Loyalty Program', desc: 'Customer rewards & points', icon: Heart, color: 'text-rose-400', bg: 'bg-rose-500/10', border: 'border-rose-500/20' },
@@ -101,8 +104,8 @@ const moduleSections = [
   {
     title: 'Administration',
     tiles: [
-      { id: 'admin', appId: 'erp-admin', label: 'Admin Panel', desc: 'Users, roles & permissions', icon: ShieldCheck, color: 'text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/20' },
-      { id: 'rider', appId: 'erp-rider', label: 'Rider Manager', desc: 'Delivery personnel', icon: UserCircle, color: 'text-sky-400', bg: 'bg-sky-500/10', border: 'border-sky-500/20' },
+      { id: 'admin', appId: 'erp-admin', label: 'Admin Panel (demo)', desc: 'Users, roles & permissions — local-only preview', icon: ShieldCheck, color: 'text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/20' },
+      { id: 'rider', appId: 'erp-rider', label: 'Rider Manager', desc: 'Delivery personnel — coming soon', icon: UserCircle, color: 'text-sky-400', bg: 'bg-sky-500/10', border: 'border-sky-500/20' },
     ] as ModuleTile[],
   },
 ];

@@ -76,11 +76,36 @@ export class OrdersService {
       const itemsToInsert: PosOrderItem[] = [];
       const pickLines: { sku: string; name: string; quantity: number }[] = [];
 
+      // Sum of per-line manager-negotiated discounts. Tracked separately
+      // from the order-level discountAmount so backend has the per-line
+      // attribution downstream reports (commission, loyalty, margin) need.
+      // Kept in catalog-price terms so subtotal stays = sum(catalog*qty)
+      // and the order-level discount cleanly equals negotiated + coupon.
+      let negotiatedDiscount = 0;
+
       for (const line of dto.lines) {
         const product = await productRepo.findOne({ where: { id: line.productId, ownerId: uid } });
         if (!product) throw new NotFoundException(`Product ${line.productId} not found`);
         // TypeORM returns decimal columns as strings — parse before use.
         const productPrice = parseFloat(product.price as unknown as string);
+
+        // Per-line negotiated price: must be ≥ 0 and never above catalog
+        // price (a "negotiated" price higher than catalog would be a
+        // markup masquerading as a discount — reject so commission /
+        // margin calculations stay honest).
+        if (line.negotiatedPrice !== undefined && line.negotiatedPrice !== null) {
+          const np = Number(line.negotiatedPrice);
+          if (!Number.isFinite(np) || np < 0) {
+            throw new BadRequestException(`Invalid negotiatedPrice on ${product.name}`);
+          }
+          if (np > productPrice + 1e-6) {
+            throw new BadRequestException(
+              `negotiatedPrice ${np} exceeds catalog price ${productPrice} for ${product.name}`,
+            );
+          }
+          const lineDiscount = parseFloat(((productPrice - np) * line.quantity).toFixed(4));
+          if (lineDiscount > 0) negotiatedDiscount = parseFloat((negotiatedDiscount + lineDiscount).toFixed(4));
+        }
 
         // Atomic stock decrement: UPDATE … SET stock = stock - :qty WHERE id
         // = :id AND ownerId = :uid AND stock >= :qty. If no rows are
@@ -99,6 +124,10 @@ export class OrdersService {
           throw new BadRequestException(`Insufficient stock for ${product.name}`);
         }
 
+        // lineTotal stays = catalog price × qty so subtotal is gross of
+        // negotiated discount; the discount is recognised in the
+        // order-level discountAmount below (and per-item via the
+        // stored negotiatedPrice column).
         const lineTotal = parseFloat((productPrice * line.quantity).toFixed(4));
         subtotal = parseFloat((subtotal + lineTotal).toFixed(4));
         itemsToInsert.push(
@@ -109,6 +138,7 @@ export class OrdersService {
             unitPrice: product.price,
             quantity: line.quantity,
             lineTotal,
+            negotiatedPrice: line.negotiatedPrice ?? null,
           }),
         );
         pickLines.push({ sku: product.sku, name: product.name, quantity: line.quantity });
@@ -127,11 +157,19 @@ export class OrdersService {
           'Discount exceeds approval threshold; manager approval required (set approvedBy)',
         );
       }
-      // Engine output wins when a coupon/rule applied; otherwise honor manual override.
-      const discount =
+      // Manager-negotiated per-line discounts stack ON TOP of any
+      // coupon/rule discount the engine applied. When neither the engine
+      // nor coupon fired, honour the legacy aggregate dto.discountAmount
+      // BUT pick whichever is larger between it and the computed
+      // per-line discount so the receipt total can never be wrong.
+      const couponOrRuleDiscount =
         discountResult.discountAmount > 0 || dto.couponCode
           ? discountResult.discountAmount
-          : (dto.discountAmount ?? 0);
+          : 0;
+      const manualOverride = couponOrRuleDiscount > 0 ? 0 : (dto.discountAmount ?? 0);
+      const discount = parseFloat(
+        (couponOrRuleDiscount + negotiatedDiscount + Math.max(0, manualOverride - negotiatedDiscount)).toFixed(4),
+      );
 
       const total = parseFloat((subtotal + tax - discount).toFixed(4));
       const paymentMethod = dto.paymentMethod ?? 'CASH';

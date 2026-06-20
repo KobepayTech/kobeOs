@@ -70,6 +70,11 @@ export class UpdateProductDto {
 export class OrderLineDto {
   @IsUUID() productId!: string;
   @IsInt() @Min(1) quantity!: number;
+  /** Per-line price after manager-negotiated discount. When unset the
+   *  line is charged at the product's catalog price. Must be ≥ 0; the
+   *  service additionally enforces it can't exceed the catalog price
+   *  (since that would be a markup, not a discount). */
+  @IsOptional() @IsNumber() @Min(0) negotiatedPrice?: number;
 }
 
 export class CreateOrderDto {

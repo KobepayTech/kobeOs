@@ -1,6 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { ErpAccount, ErpTransaction } from './erp.entity';
 import { PosOrder, PosOrderItem } from '../pos/pos.entity';
 import { PaymentDeposit, PaymentPayout } from '../payments/kobepay.entity';
@@ -48,7 +48,56 @@ export class JournalService {
   constructor(
     @InjectRepository(ErpAccount) private readonly accounts: Repository<ErpAccount>,
     @InjectRepository(ErpTransaction) private readonly transactions: Repository<ErpTransaction>,
+    private readonly dataSource: DataSource,
   ) {}
+
+  /**
+   * Post a manually-entered journal entry from the Accounting UI. Accepts
+   * a balanced set of debit/credit lines keyed by GL account code. Wraps
+   * in a transaction so a half-posted entry can't corrupt the ledger.
+   */
+  async postManual(
+    uid: string,
+    input: { date: string; description: string; lines: Array<{ code: string; debit?: number; credit?: number }> },
+  ): Promise<ErpTransaction[]> {
+    if (!input.lines || input.lines.length === 0) {
+      throw new BadRequestException('At least one journal line is required');
+    }
+    const normalised: JournalLine[] = input.lines.map((l) => ({
+      code: String(l.code || '').trim(),
+      debit: Number(l.debit) || 0,
+      credit: Number(l.credit) || 0,
+      description: input.description || '(manual entry)',
+    }));
+    for (const l of normalised) {
+      if (!l.code) throw new BadRequestException('Each line must specify an account code');
+      if ((l.debit ?? 0) < 0 || (l.credit ?? 0) < 0) {
+        throw new BadRequestException('Debit and credit must be non-negative');
+      }
+      if ((l.debit ?? 0) === 0 && (l.credit ?? 0) === 0) {
+        throw new BadRequestException(`Line ${l.code} has no debit or credit`);
+      }
+      if ((l.debit ?? 0) > 0 && (l.credit ?? 0) > 0) {
+        throw new BadRequestException(`Line ${l.code} cannot have both debit and credit on the same row`);
+      }
+    }
+    const totalDebits  = normalised.reduce((s, l) => s + (l.debit ?? 0), 0);
+    const totalCredits = normalised.reduce((s, l) => s + (l.credit ?? 0), 0);
+    if (Math.abs(totalDebits - totalCredits) > 0.01) {
+      throw new BadRequestException(`Journal entry is unbalanced: DR=${totalDebits} CR=${totalCredits}`);
+    }
+    const date = (input.date || new Date().toISOString().slice(0, 10)).slice(0, 10);
+    return this.dataSource.transaction(async (tx) => {
+      await this.ensureChartOfAccounts(tx, uid);
+      // Validate every referenced account exists before posting.
+      const accountRepo = tx.getRepository(ErpAccount);
+      for (const l of normalised) {
+        const account = await accountRepo.findOne({ where: { ownerId: uid, code: l.code } });
+        if (!account) throw new BadRequestException(`Unknown account code: ${l.code}`);
+      }
+      return this.postLines(tx, uid, date, normalised);
+    });
+  }
 
   /**
    * Post a balanced journal entry for a POS sale inside the order's tx.

@@ -42,14 +42,14 @@ export const TitleBar = memo(function TitleBar({
       style={{ background: 'transparent' }}
       onMouseDown={onMouseDown}
     >
-      {/* ── Traffic lights (LEFT, macOS style) ── */}
+      {/* ── Traffic lights (LEFT, macOS-style with always-visible glyphs) ── */}
       <div className="flex items-center gap-2 pl-4 pr-3 z-10">
         {/* Close */}
         <button
-          className="group relative flex items-center justify-center rounded-full transition-all duration-150"
+          className="group relative flex items-center justify-center rounded-full transition-all duration-150 hover:scale-110"
           style={{
-            width: 12,
-            height: 12,
+            width: 14,
+            height: 14,
             background: dim ? '#D3D3D3' : TRAFFIC_LIGHT.close.bg,
             border: `0.5px solid ${dim ? '#B0B0B0' : TRAFFIC_LIGHT.close.border}`,
           }}
@@ -57,11 +57,10 @@ export const TitleBar = memo(function TitleBar({
           aria-label="Close"
         >
           <X
-            className="opacity-0 group-hover:opacity-100 transition-opacity duration-150"
             style={{
-              width: 8,
-              height: 8,
-              color: '#4D0000',
+              width: 10,
+              height: 10,
+              color: dim ? 'rgba(0,0,0,0.45)' : '#4D0000',
               strokeWidth: 3,
             }}
           />
@@ -69,10 +68,10 @@ export const TitleBar = memo(function TitleBar({
 
         {/* Minimize */}
         <button
-          className="group relative flex items-center justify-center rounded-full transition-all duration-150"
+          className="group relative flex items-center justify-center rounded-full transition-all duration-150 hover:scale-110"
           style={{
-            width: 12,
-            height: 12,
+            width: 14,
+            height: 14,
             background: dim ? '#D3D3D3' : TRAFFIC_LIGHT.minimize.bg,
             border: `0.5px solid ${dim ? '#B0B0B0' : TRAFFIC_LIGHT.minimize.border}`,
           }}
@@ -80,11 +79,10 @@ export const TitleBar = memo(function TitleBar({
           aria-label="Minimize"
         >
           <Minus
-            className="opacity-0 group-hover:opacity-100 transition-opacity duration-150"
             style={{
-              width: 8,
-              height: 8,
-              color: '#995700',
+              width: 10,
+              height: 10,
+              color: dim ? 'rgba(0,0,0,0.45)' : '#995700',
               strokeWidth: 3,
             }}
           />
@@ -92,10 +90,10 @@ export const TitleBar = memo(function TitleBar({
 
         {/* Maximize */}
         <button
-          className="group relative flex items-center justify-center rounded-full transition-all duration-150"
+          className="group relative flex items-center justify-center rounded-full transition-all duration-150 hover:scale-110"
           style={{
-            width: 12,
-            height: 12,
+            width: 14,
+            height: 14,
             background: dim ? '#D3D3D3' : TRAFFIC_LIGHT.maximize.bg,
             border: `0.5px solid ${dim ? '#B0B0B0' : TRAFFIC_LIGHT.maximize.border}`,
           }}
@@ -103,11 +101,10 @@ export const TitleBar = memo(function TitleBar({
           aria-label="Maximize"
         >
           <Maximize2
-            className="opacity-0 group-hover:opacity-100 transition-opacity duration-150"
             style={{
-              width: 8,
-              height: 8,
-              color: '#006500',
+              width: 9,
+              height: 9,
+              color: dim ? 'rgba(0,0,0,0.45)' : '#006500',
               strokeWidth: 3,
             }}
           />
