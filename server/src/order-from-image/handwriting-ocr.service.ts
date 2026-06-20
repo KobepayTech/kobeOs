@@ -1,9 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import sharp from 'sharp';
 
 /**
  * Dedicated handwritten-digit OCR via Microsoft TrOCR
- * (Xenova/trocr-base-handwritten, MIT licensed, ~334 MB ONNX, runs fully
+ * (Xenova/trocr-base-handwritten, MIT licensed, ~1.3 GB ONNX, runs fully
  *  offline once downloaded). Wraps @huggingface/transformers so the rest
  * of the codebase stays free of model-loading details.
  *
@@ -22,11 +22,24 @@ import sharp from 'sharp';
 type Pipeline = (input: unknown) => Promise<Array<{ generated_text?: string }>>;
 
 @Injectable()
-export class HandwritingOcrService {
+export class HandwritingOcrService implements OnModuleInit {
   private readonly logger = new Logger(HandwritingOcrService.name);
   private pipelineLoad: Promise<Pipeline | null> | null = null;
 
-  /** Lazy-load TrOCR. The model is ~334 MB and is cached after first
+  /** Background-prefetch the model on server boot so the first customer
+   *  request doesn't pay the 334 MB download cost. Non-blocking — startup
+   *  continues immediately; the download warms the on-disk cache in the
+   *  background. Set HANDWRITING_OCR_PREFETCH=false to skip (e.g. local
+   *  dev where you don't want the network hit on every nest start). */
+  onModuleInit() {
+    const enabled = (process.env.HANDWRITING_OCR_ENABLED ?? 'true').toLowerCase() !== 'false';
+    const prefetch = (process.env.HANDWRITING_OCR_PREFETCH ?? 'true').toLowerCase() !== 'false';
+    if (!enabled || !prefetch) return;
+    // Fire and forget. Errors are swallowed inside getPipeline().
+    void this.getPipeline();
+  }
+
+  /** Lazy-load TrOCR. The model is ~1.3 GB and is cached after first
    *  download, so subsequent boots reuse the local copy. */
   private getPipeline(): Promise<Pipeline | null> {
     if (this.pipelineLoad) return this.pipelineLoad;
@@ -38,7 +51,7 @@ export class HandwritingOcrService {
           pipeline: (task: string, model: string) => Promise<Pipeline>;
         };
         if (!mod?.pipeline) throw new Error('@huggingface/transformers is not installed');
-        this.logger.log(`Loading ${modelId} — first run downloads ~334 MB and may take several minutes`);
+        this.logger.log(`Loading ${modelId} — first run downloads ~1.3 GB and may take several minutes`);
         const p = await mod.pipeline('image-to-text', modelId);
         this.logger.log('TrOCR ready');
         return p;

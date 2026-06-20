@@ -31,6 +31,14 @@ ollama pull llama3.2
 echo "Downloading nomic-embed-text (274MB)..."
 ollama pull nomic-embed-text
 
+echo "Downloading TrOCR handwriting model (~1.3 GB)..."
+# Pre-warm the Microsoft TrOCR model used by OrderFromImageService for
+# reading handwritten quantities on customer-annotated catalog photos.
+# Cached under server/node_modules/@huggingface/transformers/.cache/.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+( cd "$SCRIPT_DIR/.." && npm run --silent prefetch:handwriting-ocr ) || \
+    echo "⚠ TrOCR prefetch skipped — server will download lazily on first image parse."
+
 echo ""
 echo "========================================"
 echo "✅ All models downloaded!"
