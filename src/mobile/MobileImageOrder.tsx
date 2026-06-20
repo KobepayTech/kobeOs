@@ -23,6 +23,9 @@ interface ParsedItem {
   matchedName?: string | null;
   matchedPrice?: number | null;
   matchedImageUrl?: string | null;
+  /** True when the dedicated handwriting OCR (TrOCR) re-read the
+   *  digit — shown as a small ✓ on the qty field. */
+  quantityConfirmed?: boolean;
   confidence: number;
 }
 interface ParseResponse {
@@ -235,13 +238,25 @@ export default function MobileImageOrder() {
                     placeholder="Detected name"
                     className="flex-1 h-9 px-2 rounded-lg border border-slate-200 bg-white text-sm"
                   />
-                  <input
-                    type="number"
-                    min={1}
-                    value={it.quantity}
-                    onChange={(e) => setItem(i, { quantity: Math.max(1, Number(e.target.value) || 1) })}
-                    className="w-16 h-9 px-2 rounded-lg border border-slate-200 bg-white text-sm font-bold text-right"
-                  />
+                  <div className="relative w-16">
+                    <input
+                      type="number"
+                      min={1}
+                      value={it.quantity}
+                      onChange={(e) => setItem(i, { quantity: Math.max(1, Number(e.target.value) || 1), quantityConfirmed: false })}
+                      className={`w-full h-9 px-2 rounded-lg border bg-white text-sm font-bold text-right ${
+                        it.quantityConfirmed ? 'border-emerald-400' : 'border-slate-200'
+                      }`}
+                    />
+                    {it.quantityConfirmed && (
+                      <span
+                        title="Re-read by handwriting OCR"
+                        className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-emerald-500 text-white text-[10px] grid place-items-center font-bold"
+                      >
+                        ✓
+                      </span>
+                    )}
+                  </div>
                   <button onClick={() => removeItem(i)} className="text-rose-500 active:text-rose-700 px-1">
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -324,11 +339,17 @@ function SourceBadge({ result }: { result: ParseResponse }) {
     : 'No AI available — review manually';
   const stats = result.catalogStats;
   const missing = stats ? stats.total - stats.withImage : 0;
+  const confirmedCount = result.items.filter((it) => it.quantityConfirmed).length;
   return (
     <div className="space-y-1">
       <div className={`text-[11px] px-3 py-1.5 rounded-lg border ${tone}`}>
         {label}{result.source === 'ollama' && !result.hasAnnotations ? ' · no markings detected' : ''}
       </div>
+      {confirmedCount > 0 && (
+        <div className="text-[10px] px-3 py-1.5 rounded-lg border border-emerald-200 bg-emerald-50 text-emerald-700">
+          ✓ {confirmedCount} of {result.items.length} quantit{confirmedCount === 1 ? 'y' : 'ies'} re-read by handwriting OCR
+        </div>
+      )}
       {stats && missing > 0 && (
         <div className="text-[10px] px-3 py-1.5 rounded-lg border border-amber-200 bg-amber-50 text-amber-700">
           {missing} of {stats.total} catalog products have no image bound — matching falls back to text.

@@ -5,10 +5,11 @@ import { OcrModule } from '../ocr/ocr.module';
 import { PosProduct } from '../pos/pos.entity';
 import { OrderFromImageService } from './order-from-image.service';
 import { OrderFromImageController } from './order-from-image.controller';
+import { HandwritingOcrService } from './handwriting-ocr.service';
 
 @Module({
   imports: [AiModule, OcrModule, TypeOrmModule.forFeature([PosProduct])],
-  providers: [OrderFromImageService],
+  providers: [OrderFromImageService, HandwritingOcrService],
   controllers: [OrderFromImageController],
 })
 export class OrderFromImageModule {}

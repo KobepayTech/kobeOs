@@ -5,6 +5,7 @@ import { Repository } from 'typeorm';
 import { AiService } from '../ai/ai.service';
 import { OcrService } from '../ocr/ocr.service';
 import { PosProduct } from '../pos/pos.entity';
+import { HandwritingOcrService } from './handwriting-ocr.service';
 
 export interface ParsedItem {
   name: string;
@@ -17,6 +18,14 @@ export interface ParsedItem {
   /** Catalog product photo URL — surfaced in the review UI so the
    *  operator can visually confirm the AI / fuzzy match. */
   matchedImageUrl?: string | null;
+  /** Normalized 0..1 bounding box of the handwritten quantity, when the
+   *  vision model returned one. Used to crop the region for a dedicated
+   *  handwriting OCR re-read. */
+  numberBox?: { x: number; y: number; w: number; h: number } | null;
+  /** True when the dedicated handwriting OCR (TrOCR) successfully
+   *  re-read the digit — gives the operator extra confidence in the
+   *  quantity before they tap submit. */
+  quantityConfirmed?: boolean;
   confidence: number;
 }
 
@@ -56,6 +65,7 @@ export class OrderFromImageService {
   constructor(
     private readonly ai: AiService,
     private readonly ocr: OcrService,
+    private readonly handwriting: HandwritingOcrService,
     private readonly config: ConfigService,
     @InjectRepository(PosProduct) private readonly products: Repository<PosProduct>,
   ) {}
@@ -111,6 +121,25 @@ export class OrderFromImageService {
       summary = visionResult.rawSummary;
       hasAnnotations = visionResult.hasAnnotations;
       source = 'ollama';
+
+      // Dedicated handwriting OCR re-read. TrOCR is much stronger on
+      // loopy digits ("30" vs "3") than a general VLM — when the vision
+      // model returned a bounding box, we crop and re-read each one.
+      // Skipped entirely if HANDWRITING_OCR_ENABLED is set to "false".
+      const enabled = (this.config.get<string>('HANDWRITING_OCR_ENABLED') ?? 'true').toLowerCase() !== 'false';
+      if (enabled && items.some((it) => it.numberBox)) {
+        items = await Promise.all(items.map(async (it) => {
+          if (!it.numberBox) return it;
+          const trocr = await this.handwriting.readNumber(image, it.numberBox);
+          if (!trocr || trocr.integer == null) return it;
+          if (trocr.integer !== it.quantity) {
+            this.logger.log(
+              `TrOCR re-read for "${it.name}": ${it.quantity} -> ${trocr.integer} (raw "${trocr.text}")`,
+            );
+          }
+          return { ...it, quantity: trocr.integer, quantityConfirmed: true };
+        }));
+      }
     } else if (ocrText) {
       // Build placeholder items from quantities found in OCR text. The
       // operator will rename / match them in the review UI.
@@ -194,7 +223,7 @@ they wrote next to each one. Ignore items with no markings — those weren't
 ordered.
 
 Return ONLY a JSON object on a single line with this exact schema:
-{ "hasAnnotations": boolean, "items": [ { "name": string, "quantity": number, "matchedSku": string | null, "notes": string } ] }
+{ "hasAnnotations": boolean, "items": [ { "name": string, "quantity": number, "matchedSku": string | null, "notes": string, "numberBox": { "x": number, "y": number, "w": number, "h": number } | null } ] }
 
 Rules:
   - If the photo has no marker annotations at all, return { "hasAnnotations": false, "items": [] }.
@@ -202,6 +231,7 @@ Rules:
   - "quantity" must be a number ≥ 1. If you can't read it, default to 1.
   - "matchedSku" must be a SKU from the CATALOG list in the user message when you can confidently match the detected item to a catalog row by colour / brand / style. Otherwise null. Never invent a SKU that isn't in the list.
   - "notes" is a short free-text comment for the operator. Empty string if nothing to add.
+  - "numberBox" is the normalized (0..1) bounding box of the handwritten quantity ONLY — not the whole product. x and y are the top-left corner, w and h are width / height as fractions of the image. Tight crop. Set to null if you can't locate the digits.
   - NEVER wrap the JSON in markdown or prose. NEVER add a code fence. Output one JSON object only.
 `.trim();
 
@@ -220,10 +250,22 @@ function parseModelJson(raw: string): { items: ParsedItem[]; rawSummary: string;
   try {
     const parsed = JSON.parse(body) as {
       hasAnnotations?: boolean;
-      items?: Array<{ name?: string; quantity?: number; notes?: string; matchedSku?: string | null }>;
+      items?: Array<{
+        name?: string;
+        quantity?: number;
+        notes?: string;
+        matchedSku?: string | null;
+        numberBox?: { x?: number; y?: number; w?: number; h?: number } | null;
+      }>;
     };
     const items: ParsedItem[] = (parsed.items ?? [])
-      .filter((it): it is { name: string; quantity?: number; notes?: string; matchedSku?: string | null } =>
+      .filter((it): it is {
+        name: string;
+        quantity?: number;
+        notes?: string;
+        matchedSku?: string | null;
+        numberBox?: { x?: number; y?: number; w?: number; h?: number } | null;
+      } =>
         typeof it?.name === 'string' && !!it.name.trim(),
       )
       .map((it) => ({
@@ -231,6 +273,7 @@ function parseModelJson(raw: string): { items: ParsedItem[]; rawSummary: string;
         quantity: Math.max(1, Math.floor(Number(it.quantity) || 1)),
         notes: it.notes ? String(it.notes).slice(0, 200) : undefined,
         matchedSku: typeof it.matchedSku === 'string' && it.matchedSku.trim() ? it.matchedSku.trim() : undefined,
+        numberBox: normalizeBox(it.numberBox),
         // Higher confidence when the model returned its own SKU pick —
         // it actually had the catalog to compare against rather than
         // guessing a label.
@@ -244,6 +287,24 @@ function parseModelJson(raw: string): { items: ParsedItem[]; rawSummary: string;
   } catch {
     return empty;
   }
+}
+
+/** Coerce a possibly-malformed bounding box into a clean 0..1 rect, or
+ *  null when it's missing, non-numeric, or zero-sized. The handwriting
+ *  OCR step skips items without a usable box. */
+function normalizeBox(
+  raw: { x?: number; y?: number; w?: number; h?: number } | null | undefined,
+): { x: number; y: number; w: number; h: number } | null {
+  if (!raw) return null;
+  const x = Number(raw.x), y = Number(raw.y), w = Number(raw.w), h = Number(raw.h);
+  if (![x, y, w, h].every((v) => Number.isFinite(v))) return null;
+  if (w <= 0 || h <= 0) return null;
+  const cx = Math.max(0, Math.min(1, x));
+  const cy = Math.max(0, Math.min(1, y));
+  const cw = Math.max(0, Math.min(1 - cx, w));
+  const ch = Math.max(0, Math.min(1 - cy, h));
+  if (cw <= 0 || ch <= 0) return null;
+  return { x: cx, y: cy, w: cw, h: ch };
 }
 
 /** Pull plausible quantity numbers out of OCR text. Picks integers
