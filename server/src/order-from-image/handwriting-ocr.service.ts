@@ -40,17 +40,38 @@ export class HandwritingOcrService implements OnModuleInit {
   }
 
   /** Lazy-load TrOCR. The model is ~1.3 GB and is cached after first
-   *  download, so subsequent boots reuse the local copy. */
+   *  download, so subsequent boots reuse the local copy.
+   *
+   *  Sources, in order of independence from third parties:
+   *    HANDWRITING_OCR_HOST   custom CDN — point at your own S3 / R2 /
+   *                           MinIO bucket and KobeOS pulls the model
+   *                           files from there. Zero HuggingFace
+   *                           dependency. (Bucket must mirror the HF
+   *                           directory layout under {model}/resolve/main/.)
+   *    HANDWRITING_OCR_MODEL  HF repo id — defaults to the public Xenova
+   *                           mirror; switch to your-username/...
+   *                           after running scripts/mirror-handwriting-ocr.sh
+   *                           so the source can only be changed by you. */
   private getPipeline(): Promise<Pipeline | null> {
     if (this.pipelineLoad) return this.pipelineLoad;
     const modelId = process.env.HANDWRITING_OCR_MODEL || 'Xenova/trocr-base-handwritten';
+    const customHost = process.env.HANDWRITING_OCR_HOST?.trim();
     this.pipelineLoad = (async () => {
       try {
         const pkg = '@huggingface/transformers';
         const mod = (await import(pkg)) as unknown as {
           pipeline: (task: string, model: string) => Promise<Pipeline>;
+          env: { remoteHost?: string; remotePathTemplate?: string; allowRemoteModels?: boolean };
         };
         if (!mod?.pipeline) throw new Error('@huggingface/transformers is not installed');
+        if (customHost) {
+          // Point transformers.js at your own bucket / mirror. The path
+          // template is the standard HF layout so existing model dirs
+          // copied verbatim into the bucket "just work".
+          mod.env.remoteHost = customHost.endsWith('/') ? customHost : customHost + '/';
+          mod.env.remotePathTemplate = '{model}/resolve/{revision}/';
+          this.logger.log(`Handwriting OCR remote host overridden to ${mod.env.remoteHost}`);
+        }
         this.logger.log(`Loading ${modelId} — first run downloads ~1.3 GB and may take several minutes`);
         const p = await mod.pipeline('image-to-text', modelId);
         this.logger.log('TrOCR ready');
