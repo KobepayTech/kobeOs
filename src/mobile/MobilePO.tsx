@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
-import { Plus, Trash2, Loader2, CheckCircle2, X, ClipboardList, TrendingUp } from 'lucide-react';
+import { Plus, Trash2, Loader2, CheckCircle2, X, ClipboardList, TrendingUp, UserPlus } from 'lucide-react';
 
 /**
  * Phone-first Purchase Order creation. Admin scans the QR code with
@@ -29,6 +29,41 @@ export default function MobilePO() {
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+
+  // Inline supplier creator — admin in China without desktop access
+  // needs to add a supplier as they're standing in the warehouse,
+  // not later from home.
+  const [creatingSupplier, setCreatingSupplier] = useState(false);
+  const [supplierForm, setSupplierForm] = useState({ name: '', country: '', contact: '', phone: '' });
+  const [savingSupplier, setSavingSupplier] = useState(false);
+  const [supplierErr, setSupplierErr] = useState<string | null>(null);
+
+  const saveNewSupplier = async () => {
+    if (!supplierForm.name.trim()) return;
+    setSupplierErr(null);
+    setSavingSupplier(true);
+    try {
+      const created = await api<Supplier>('/erp/sourcing/suppliers', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: supplierForm.name.trim(),
+          country: supplierForm.country.trim() || undefined,
+          contact: supplierForm.contact.trim() || undefined,
+          phone: supplierForm.phone.trim() || undefined,
+        }),
+      });
+      // Add to local list + auto-select so the operator can continue
+      // straight to line items.
+      setSuppliers((prev) => [...prev, created]);
+      setSupplierId(created.id);
+      setCreatingSupplier(false);
+      setSupplierForm({ name: '', country: '', contact: '', phone: '' });
+    } catch (e) {
+      setSupplierErr((e as Error).message);
+    } finally {
+      setSavingSupplier(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -155,20 +190,90 @@ export default function MobilePO() {
       )}
 
       <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3">
-        <label className="block">
-          <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wide">Supplier</span>
-          <select
-            value={supplierId}
-            onChange={(e) => setSupplierId(e.target.value)}
-            className="mt-1 w-full h-11 px-3 rounded-lg border border-slate-200 bg-white text-sm font-semibold text-slate-900 focus:outline-none focus:border-indigo-400"
-          >
-            <option value="">Pick a supplier…</option>
-            {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-          {suppliers.length === 0 && (
-            <p className="text-[10px] text-amber-600 mt-1">No suppliers yet — create one on the desktop ERP first.</p>
-          )}
-        </label>
+        {!creatingSupplier ? (
+          <>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wide">Supplier</span>
+              <button
+                onClick={() => { setCreatingSupplier(true); setSupplierErr(null); }}
+                className="inline-flex items-center gap-1 text-[11px] font-bold text-indigo-600 active:text-indigo-800"
+              >
+                <UserPlus className="w-3 h-3" /> New
+              </button>
+            </div>
+            <select
+              value={supplierId}
+              onChange={(e) => setSupplierId(e.target.value)}
+              className="w-full h-11 px-3 rounded-lg border border-slate-200 bg-white text-sm font-semibold text-slate-900 focus:outline-none focus:border-indigo-400"
+            >
+              <option value="">{suppliers.length === 0 ? 'No suppliers yet — tap New →' : 'Pick a supplier…'}</option>
+              {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+            {suppliers.length === 0 && (
+              <p className="text-[10px] text-slate-400">No connection to the desktop ERP needed — tap "New" above and add the supplier you're standing in front of.</p>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wide">New supplier</span>
+              <button
+                onClick={() => { setCreatingSupplier(false); setSupplierErr(null); }}
+                className="text-slate-400 active:text-slate-700"
+                aria-label="Cancel"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <input
+              value={supplierForm.name}
+              onChange={(e) => setSupplierForm((f) => ({ ...f, name: e.target.value }))}
+              placeholder="Supplier name *"
+              autoFocus
+              className="w-full h-11 px-3 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:border-indigo-400"
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <input
+                value={supplierForm.country}
+                onChange={(e) => setSupplierForm((f) => ({ ...f, country: e.target.value }))}
+                placeholder="Country"
+                className="w-full h-11 px-3 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:border-indigo-400"
+              />
+              <input
+                value={supplierForm.contact}
+                onChange={(e) => setSupplierForm((f) => ({ ...f, contact: e.target.value }))}
+                placeholder="Contact person"
+                className="w-full h-11 px-3 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:border-indigo-400"
+              />
+            </div>
+            <input
+              value={supplierForm.phone}
+              onChange={(e) => setSupplierForm((f) => ({ ...f, phone: e.target.value }))}
+              placeholder="Phone (with country code)"
+              inputMode="tel"
+              className="w-full h-11 px-3 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:border-indigo-400"
+            />
+            {supplierErr && (
+              <p className="text-[11px] text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-2 py-1.5">{supplierErr}</p>
+            )}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => { setCreatingSupplier(false); setSupplierErr(null); }}
+                className="h-11 rounded-lg border border-slate-200 bg-white text-sm font-bold text-slate-700 active:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveNewSupplier}
+                disabled={!supplierForm.name.trim() || savingSupplier}
+                className="h-11 rounded-lg bg-indigo-600 text-white text-sm font-extrabold inline-flex items-center justify-center gap-1.5 disabled:opacity-40"
+              >
+                {savingSupplier && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                {savingSupplier ? 'Saving…' : 'Save & select'}
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3">

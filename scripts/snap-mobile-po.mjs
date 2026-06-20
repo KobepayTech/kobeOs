@@ -66,4 +66,15 @@ await page.waitForTimeout(300);
 await page.screenshot({ path: path.join(outDir, '04-po.png'), fullPage: true });
 console.log('Saved 04-po.png');
 
+// Open the inline "+ New supplier" form and snap it too.
+await page.locator('button:has-text("New")').first().click({ timeout: 4000 }).catch(() => {});
+await page.waitForTimeout(400);
+await page.locator('input[placeholder="Supplier name *"]').fill('Guangzhou Trade Co.').catch(() => {});
+await page.locator('input[placeholder="Country"]').fill('China').catch(() => {});
+await page.locator('input[placeholder="Contact person"]').fill('Mr. Chen').catch(() => {});
+await page.locator('input[placeholder="Phone (with country code)"]').fill('+86 138 0000 1111').catch(() => {});
+await page.waitForTimeout(200);
+await page.screenshot({ path: path.join(outDir, '04b-po-new-supplier.png'), fullPage: true });
+console.log('Saved 04b-po-new-supplier.png');
+
 await browser.close();

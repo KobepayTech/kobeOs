@@ -70,7 +70,15 @@ export default function ERPSourcing() {
   const [poModalOpen, setPoModalOpen] = useState(false);
   const [poDetail, setPoDetail] = useState<typeof initialPOs[0] | null>(null);
   const [supplierForm, setSupplierForm] = useState({ name: '', contact: '', phone: '', country: '', rating: 4 });
-  const [poForm, setPoForm] = useState({ supplier: '', items: [{ name: '', qty: 1, price: 0 }] });
+  const [poForm, setPoForm] = useState<{
+    supplier: string;
+    transport: number;
+    items: Array<{ name: string; qty: number; price: number; sellPrice: number }>;
+  }>({
+    supplier: '',
+    transport: 0,
+    items: [{ name: '', qty: 1, price: 0, sellPrice: 0 }],
+  });
 
   const filteredSuppliers = suppliers.filter((s) => s.name.toLowerCase().includes(search.toLowerCase()));
 
@@ -100,26 +108,60 @@ export default function ERPSourcing() {
     setSupplierForm({ name: '', contact: '', phone: '', country: '', rating: 4 });
   };
 
-  const poTotal = poForm.items.reduce((s, i) => s + i.qty * i.price, 0);
+  // Roll-up for the PO form: per-line cost/revenue/profit plus a
+  // PO-level transport bucket. Net profit = revenue − cost − transport.
+  const poCalc = (() => {
+    const lines = poForm.items.map((it) => {
+      const qty = Number(it.qty) || 0;
+      const price = Number(it.price) || 0;
+      const sellPrice = Number(it.sellPrice) || 0;
+      const cost = qty * price;
+      const revenue = qty * sellPrice;
+      return { ...it, cost, revenue, profit: revenue - cost };
+    });
+    const costTotal    = lines.reduce((s, l) => s + l.cost, 0);
+    const revenueTotal = lines.reduce((s, l) => s + l.revenue, 0);
+    const transport    = Number(poForm.transport) || 0;
+    const landedCost   = costTotal + transport;
+    const netProfit    = revenueTotal - landedCost;
+    const netMargin    = revenueTotal > 0 ? (netProfit / revenueTotal) * 100 : 0;
+    return { lines, costTotal, revenueTotal, transport, landedCost, netProfit, netMargin };
+  })();
+  const poTotal = poCalc.landedCost;
 
   // Persist a purchase order via /erp/supplier-capital/purchase-orders.
   // Previously the "Create PO" button only closed the modal — the form
   // looked functional but nothing was ever saved. Falls back to a local
   // insert when offline so the operator's keystrokes aren't lost.
   const createPO = async () => {
-    if (!poForm.supplier || poForm.items.length === 0 || poTotal <= 0) return;
+    if (!poForm.supplier || poForm.items.length === 0 || poCalc.costTotal <= 0) return;
     const supplierMatch = suppliers.find((s) => s.name === poForm.supplier);
     const poNumber = `PO-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
     const isUuid = supplierMatch && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(supplierMatch.id));
     if (isUuid) {
       try {
+        // Backend DTO doesn't yet have columns for sellPrice / transport;
+        // pack them into notes as kobeos-po-meta:<json> so a future
+        // migration can grep + backfill into proper columns. Format
+        // matches the mobile PO encoding so both clients round-trip
+        // the same way.
+        const meta = {
+          transportCost: poCalc.transport,
+          revenueTotal: poCalc.revenueTotal,
+          netProfit: poCalc.netProfit,
+          lines: poForm.items.map((l) => ({ name: l.name, qty: l.qty, price: l.price, sellPrice: l.sellPrice })),
+        };
+        const summary = `${poForm.items.length} line${poForm.items.length === 1 ? '' : 's'}: ${poForm.items.map((i) => `${i.name} x${i.qty}`).join(', ')}`;
+        const notes = `kobeos-po-meta:${JSON.stringify(meta)}\n${summary}`.slice(0, 2000);
         await api('/erp/supplier-capital/purchase-orders', {
           method: 'POST',
           body: JSON.stringify({
             poNumber,
             supplierId: String(supplierMatch.id),
-            totalCny: poTotal,
-            notes: `${poForm.items.length} line${poForm.items.length === 1 ? '' : 's'}: ${poForm.items.map((i) => `${i.name} x${i.qty}`).join(', ')}`.slice(0, 500),
+            // totalCny = landed cost (goods + transport) so accounting
+            // sees the all-in figure, not just goods.
+            totalCny: poCalc.landedCost,
+            notes,
           }),
         });
       } catch (err) {
@@ -130,7 +172,7 @@ export default function ERPSourcing() {
       {
         id: poNumber,
         supplier: poForm.supplier,
-        total: poTotal,
+        total: poCalc.landedCost,
         status: 'Pending',
         date: new Date().toISOString().slice(0, 10),
         items: poForm.items,
@@ -139,7 +181,7 @@ export default function ERPSourcing() {
       ...prev,
     ]);
     setPoModalOpen(false);
-    setPoForm({ supplier: '', items: [{ name: '', qty: 1, price: 0 }] });
+    setPoForm({ supplier: '', transport: 0, items: [{ name: '', qty: 1, price: 0, sellPrice: 0 }] });
   };
 
   return (
@@ -342,49 +384,145 @@ export default function ERPSourcing() {
             </div>
           ) : (
             <div className="space-y-3">
-              <select
-                value={poForm.supplier}
-                onChange={(e) => setPoForm((f) => ({ ...f, supplier: e.target.value }))}
-                className="w-full h-9 px-2 rounded-md bg-slate-800 border border-slate-700 text-xs text-slate-300"
-              >
-                <option value="">Select supplier</option>
-                {suppliers.filter((s) => s.status === 'Active').map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
-              </select>
-              <div className="space-y-2">
-                {poForm.items.map((item, idx) => (
-                  <div key={idx} className="grid grid-cols-12 gap-2">
-                    <div className="col-span-5">
-                      <Input placeholder="Item name" value={item.name} onChange={(e) => { const items = [...poForm.items]; items[idx].name = e.target.value; setPoForm((f) => ({ ...f, items })); }} className="h-8 bg-slate-800 border-slate-700 text-xs" />
+              <div className="flex items-center gap-2">
+                <select
+                  value={poForm.supplier}
+                  onChange={(e) => setPoForm((f) => ({ ...f, supplier: e.target.value }))}
+                  className="flex-1 h-9 px-2 rounded-md bg-slate-800 border border-slate-700 text-xs text-slate-300"
+                >
+                  <option value="">{suppliers.length === 0 ? 'No suppliers — click + to add' : 'Select supplier'}</option>
+                  {suppliers.filter((s) => s.status === 'Active').map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Close the PO modal and open the supplier-add modal.
+                    // The supplier modal already POSTs to the backend and
+                    // updates the suppliers list — when the operator
+                    // returns to the PO modal the new supplier is
+                    // selectable in the dropdown.
+                    setPoModalOpen(false);
+                    setSupplierModalOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1 h-9 px-3 rounded-md bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold whitespace-nowrap"
+                  title="Add a new supplier"
+                >
+                  <Plus className="w-3 h-3" /> New
+                </button>
+              </div>
+              <div className="space-y-1.5">
+                <div className="grid grid-cols-12 gap-2 text-[9px] uppercase font-bold text-slate-500 tracking-wide px-1">
+                  <div className="col-span-4">Item</div>
+                  <div className="col-span-2 text-right">Qty</div>
+                  <div className="col-span-2 text-right">Unit cost</div>
+                  <div className="col-span-3 text-right">Sell @</div>
+                  <div className="col-span-1" />
+                </div>
+                {poCalc.lines.map((item, idx) => (
+                  <div key={idx} className="space-y-1">
+                    <div className="grid grid-cols-12 gap-2">
+                      <div className="col-span-4">
+                        <Input placeholder="Item name" value={item.name} onChange={(e) => { const items = [...poForm.items]; items[idx].name = e.target.value; setPoForm((f) => ({ ...f, items })); }} className="h-8 bg-slate-800 border-slate-700 text-xs" />
+                      </div>
+                      <div className="col-span-2">
+                        <Input type="number" placeholder="0" value={item.qty || ''} onChange={(e) => { const items = [...poForm.items]; items[idx].qty = Number(e.target.value); setPoForm((f) => ({ ...f, items })); }} className="h-8 bg-slate-800 border-slate-700 text-xs text-right" />
+                      </div>
+                      <div className="col-span-2">
+                        <Input type="number" placeholder="0" value={item.price || ''} onChange={(e) => { const items = [...poForm.items]; items[idx].price = Number(e.target.value); setPoForm((f) => ({ ...f, items })); }} className="h-8 bg-slate-800 border-slate-700 text-xs text-right" />
+                      </div>
+                      <div className="col-span-3">
+                        <Input
+                          type="number"
+                          placeholder="0"
+                          value={item.sellPrice || ''}
+                          onChange={(e) => { const items = [...poForm.items]; items[idx].sellPrice = Number(e.target.value); setPoForm((f) => ({ ...f, items })); }}
+                          className={`h-8 bg-slate-800 text-xs text-right ${
+                            item.sellPrice > 0 && item.sellPrice < item.price ? 'border-rose-500/50'
+                            : item.sellPrice > 0 ? 'border-emerald-500/40'
+                            : 'border-slate-700'
+                          }`}
+                        />
+                      </div>
+                      <div className="col-span-1">
+                        <button onClick={() => setPoForm((f) => ({ ...f, items: f.items.filter((_, i) => i !== idx) }))} className="text-slate-500 hover:text-red-400 h-8 flex items-center">
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
-                    <div className="col-span-3">
-                      <Input type="number" placeholder="Qty" value={item.qty} onChange={(e) => { const items = [...poForm.items]; items[idx].qty = Number(e.target.value); setPoForm((f) => ({ ...f, items })); }} className="h-8 bg-slate-800 border-slate-700 text-xs" />
-                    </div>
-                    <div className="col-span-3">
-                      <Input type="number" placeholder="Price" value={item.price} onChange={(e) => { const items = [...poForm.items]; items[idx].price = Number(e.target.value); setPoForm((f) => ({ ...f, items })); }} className="h-8 bg-slate-800 border-slate-700 text-xs" />
-                    </div>
-                    <div className="col-span-1">
-                      <button onClick={() => setPoForm((f) => ({ ...f, items: f.items.filter((_, i) => i !== idx) }))} className="text-slate-500 hover:text-red-400">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
+                    {item.qty > 0 && (item.price > 0 || item.sellPrice > 0) && (
+                      <div className="flex items-center justify-between text-[10px] px-1">
+                        <span className="text-slate-500">
+                          Cost {tzs(item.cost)} · Sale {tzs(item.revenue)}
+                        </span>
+                        <span className={`font-bold px-1.5 py-0.5 rounded ${
+                          item.profit > 0 ? 'bg-emerald-500/15 text-emerald-300'
+                          : item.profit < 0 ? 'bg-rose-500/15 text-rose-300'
+                          : 'bg-slate-700/40 text-slate-400'
+                        }`}>
+                          {item.profit >= 0 ? '+' : ''}{tzs(item.profit)}
+                          {item.revenue > 0 && ` (${((item.profit / item.revenue) * 100).toFixed(1)}%)`}
+                        </span>
+                      </div>
+                    )}
                   </div>
                 ))}
-                <Button variant="outline" onClick={() => setPoForm((f) => ({ ...f, items: [...f.items, { name: '', qty: 1, price: 0 }] }))} className="w-full border-slate-700 text-slate-300 hover:bg-slate-800 text-xs">
+                <Button variant="outline" onClick={() => setPoForm((f) => ({ ...f, items: [...f.items, { name: '', qty: 1, price: 0, sellPrice: 0 }] }))} className="w-full border-slate-700 text-slate-300 hover:bg-slate-800 text-xs">
                   <Plus className="w-3 h-3 mr-1" /> Add Item
                 </Button>
               </div>
-              <div className="flex justify-between text-xs pt-2">
-                <span className="text-slate-400">Total</span>
-                <span className="font-bold text-slate-200">{tzs(poTotal)}</span>
+
+              {/* Transport / freight — one entry per PO. */}
+              <div className="grid grid-cols-2 gap-2 items-end pt-2 border-t border-slate-800">
+                <label className="text-xs text-slate-400">
+                  Transport / freight
+                  <Input
+                    type="number"
+                    placeholder="0"
+                    value={poForm.transport || ''}
+                    onChange={(e) => setPoForm((f) => ({ ...f, transport: Number(e.target.value) || 0 }))}
+                    className="h-8 bg-slate-800 border-slate-700 text-xs text-right mt-0.5"
+                  />
+                </label>
+                <div className="text-right text-[11px] text-slate-400">
+                  Goods cost <span className="font-bold text-slate-200">{tzs(poCalc.costTotal)}</span>
+                </div>
               </div>
+
+              {/* Roll-up profit summary. */}
+              <div className="grid grid-cols-3 gap-2 rounded-lg border border-slate-800 bg-slate-900/40 p-2">
+                <div>
+                  <div className="text-[9px] uppercase tracking-wide text-slate-500 font-bold">Landed cost</div>
+                  <div className="text-sm font-extrabold text-slate-200">{tzs(poCalc.landedCost)}</div>
+                </div>
+                <div>
+                  <div className="text-[9px] uppercase tracking-wide text-indigo-400 font-bold">Revenue</div>
+                  <div className="text-sm font-extrabold text-indigo-300">{tzs(poCalc.revenueTotal)}</div>
+                </div>
+                <div>
+                  <div className={`text-[9px] uppercase tracking-wide font-bold ${
+                    poCalc.netProfit > 0 ? 'text-emerald-400'
+                    : poCalc.netProfit < 0 ? 'text-rose-400'
+                    : 'text-slate-500'
+                  }`}>Profit</div>
+                  <div className={`text-sm font-extrabold ${
+                    poCalc.netProfit > 0 ? 'text-emerald-300'
+                    : poCalc.netProfit < 0 ? 'text-rose-300'
+                    : 'text-slate-300'
+                  }`}>
+                    {tzs(poCalc.netProfit)}
+                    {poCalc.revenueTotal > 0 && <span className="text-[10px] ml-1">({poCalc.netMargin.toFixed(1)}%)</span>}
+                  </div>
+                </div>
+              </div>
+
               <div className="flex gap-2">
                 <Button variant="outline" onClick={() => setPoModalOpen(false)} className="flex-1 border-slate-700 text-slate-300 hover:bg-slate-800">Cancel</Button>
                 <Button
                   onClick={createPO}
-                  disabled={!poForm.supplier || poTotal <= 0 || poForm.items.some((i) => !i.name.trim())}
+                  disabled={!poForm.supplier || poCalc.costTotal <= 0 || poForm.items.some((i) => !i.name.trim())}
                   className="flex-1 bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40"
                 >
-                  Create PO
+                  Create PO · {tzs(poCalc.landedCost)}
                 </Button>
               </div>
             </div>
