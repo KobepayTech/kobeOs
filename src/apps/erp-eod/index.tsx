@@ -10,6 +10,7 @@ import {
   Calendar, Smartphone, Banknote, CreditCard, ArrowRight, Sun, Moon,
 } from 'lucide-react';
 import { PhotoUpload } from '@/components/PhotoUpload';
+import { ShopSwitcher } from '@/components/ShopSwitcher';
 
 /**
  * End-of-day cashier console — PWA-friendly. Three jobs in one screen:
@@ -124,10 +125,19 @@ export default function EodApp() {
     return <div className="p-8 text-center text-white/50"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></div>;
   }
   if (!activeShop) {
+    // Embed the ShopSwitcher directly — the original empty state pointed
+    // at a "switcher in the top-right corner" that nothing actually
+    // mounts, so users had no way to pick a shop without leaving EOD.
     return (
-      <div className="p-8 text-center text-white/60">
-        <Wallet className="w-8 h-8 mx-auto mb-2 text-white/30" />
-        <p>Pick a shop from the switcher in the top-right corner before recording end-of-day.</p>
+      <div className="h-full bg-[#0a0a1a] text-white flex items-center justify-center">
+        <div className="text-center max-w-md">
+          <Wallet className="w-8 h-8 mx-auto mb-3 text-white/30" />
+          <p className="text-white/70 mb-1">No shop selected</p>
+          <p className="text-xs text-white/40 mb-5">Pick or create a shop to start recording end-of-day.</p>
+          <div className="inline-block">
+            <ShopSwitcher />
+          </div>
+        </div>
       </div>
     );
   }
