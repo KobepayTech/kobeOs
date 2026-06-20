@@ -47,8 +47,29 @@ echo "Working dir: ${WORK_DIR}"
 echo "================================================"
 
 # 1. Make sure you're authenticated as the destination owner.
+#    Two acceptable auth modes — anything that puts a token on this
+#    machine WITHOUT it appearing in shell history / process args:
+#      a) huggingface-cli login   (token typed at the interactive prompt)
+#      b) HF_TOKEN=hf_xxx ./scripts/mirror-handwriting-ocr.sh <owner>
+#    Passing the token as an argv is forbidden — argv ends up in
+#    `ps`, shell history, and audit logs.
+if [[ "${DEST_OWNER:0:3}" == "hf_" ]]; then
+  echo "❌ Refusing to run: it looks like you passed an access token as the"
+  echo "   first argument. Tokens in argv leak to ps / shell history / audit"
+  echo "   logs. Pass your HF USERNAME or ORG as the first arg, and supply"
+  echo "   the token via 'huggingface-cli login' or HF_TOKEN env var."
+  exit 1
+fi
+if [[ -n "${HF_TOKEN:-}" ]]; then
+  echo "Using HF_TOKEN from the environment."
+  export HUGGINGFACE_HUB_TOKEN="$HF_TOKEN"
+fi
 if ! huggingface-cli whoami >/dev/null 2>&1; then
-  echo "❌ Not logged in. Run: huggingface-cli login"
+  echo "❌ Not logged in. Either run:"
+  echo "     huggingface-cli login   (paste token at the prompt — terminal"
+  echo "                              input is not recorded)"
+  echo "   or invoke this script with:"
+  echo "     HF_TOKEN=hf_xxx $0 $DEST_OWNER"
   exit 1
 fi
 HF_USER="$(huggingface-cli whoami | head -1)"

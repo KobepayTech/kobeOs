@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Block commits that contain common secret formats. Runs against the
+# staged diff so it catches "git add file-with-token && git commit"
+# before the secret reaches the local repo (let alone the remote).
+#
+# Patterns:
+#   hf_<40+ chars>           HuggingFace tokens
+#   sk-ant-<...>             Anthropic API keys
+#   sk-proj-<...> / sk-<48>  OpenAI keys
+#   AKIA / AGPA / ASIA       AWS access key IDs
+#   ghp_ / github_pat_       GitHub personal access tokens
+#   xoxb-/xoxp-              Slack bot/user tokens
+#   AIza<35>                 Google API keys
+#   eyJ<...long...>          JWTs longer than 200 chars (very long
+#                            base64 strings rarely belong in code)
+#
+# Skip with KOBE_ALLOW_SECRET=1 git commit -m '...' if you're absolutely
+# sure (e.g. a fixture documenting the *format* but not a real value).
+
+set -e
+
+if [[ "${KOBE_ALLOW_SECRET:-}" == "1" ]]; then
+  exit 0
+fi
+
+# `git diff --cached -U0 -G…` gives staged additions only.
+ADDED="$(git diff --cached -U0 --no-color | grep -E '^\+[^+]' || true)"
+if [[ -z "$ADDED" ]]; then
+  exit 0
+fi
+
+declare -A PATTERNS=(
+  [hf_]='hf_[a-zA-Z0-9]{30,}'
+  [sk-ant-]='sk-ant-[a-zA-Z0-9_-]{20,}'
+  [sk-openai]='sk-(proj-)?[a-zA-Z0-9_-]{40,}'
+  [aws-key]='\b(AKIA|AGPA|ASIA|AROA|AIPA|ANPA|ANVA)[A-Z0-9]{16}\b'
+  [github-pat]='\b(ghp_|github_pat_)[a-zA-Z0-9_]{30,}\b'
+  [slack]='\bxox[baprs]-[a-zA-Z0-9-]{10,}\b'
+  [google]='\bAIza[0-9A-Za-z_-]{35}\b'
+)
+
+found=0
+for label in "${!PATTERNS[@]}"; do
+  pattern="${PATTERNS[$label]}"
+  hits="$(echo "$ADDED" | grep -E "$pattern" || true)"
+  if [[ -n "$hits" ]]; then
+    echo "❌ Blocked: staged diff contains a value matching the ${label} pattern."
+    echo "   Lines:"
+    echo "$hits" | head -5 | sed 's/^/     /'
+    echo ""
+    found=1
+  fi
+done
+
+if [[ $found -eq 1 ]]; then
+  echo "Remove the secret, then re-stage. If this is a documented format"
+  echo "(not a real value), commit with:  KOBE_ALLOW_SECRET=1 git commit ..."
+  exit 1
+fi
