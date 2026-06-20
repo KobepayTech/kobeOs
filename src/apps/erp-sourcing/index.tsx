@@ -52,7 +52,7 @@ const statusBadge = (status: string) => {
 export default function ERPSourcing() {
   const [tab, setTab] = useState('suppliers');
   const [suppliers, setSuppliers] = useState(initialSuppliers);
-  const [pos] = useState(initialPOs);
+  const [pos, setPos] = useState(initialPOs);
   const [liveSummary, setLiveSummary] = useState<{ suppliers: number; totalItems: number; lowStock: number; totalValue: number } | null>(null);
   const [lowStockItems, setLowStockItems] = useState<{ id: string; name: string; sku: string; quantity: number; reorderLevel: number }[]>([]);
 
@@ -101,6 +101,46 @@ export default function ERPSourcing() {
   };
 
   const poTotal = poForm.items.reduce((s, i) => s + i.qty * i.price, 0);
+
+  // Persist a purchase order via /erp/supplier-capital/purchase-orders.
+  // Previously the "Create PO" button only closed the modal — the form
+  // looked functional but nothing was ever saved. Falls back to a local
+  // insert when offline so the operator's keystrokes aren't lost.
+  const createPO = async () => {
+    if (!poForm.supplier || poForm.items.length === 0 || poTotal <= 0) return;
+    const supplierMatch = suppliers.find((s) => s.name === poForm.supplier);
+    const poNumber = `PO-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
+    const isUuid = supplierMatch && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(supplierMatch.id));
+    if (isUuid) {
+      try {
+        await api('/erp/supplier-capital/purchase-orders', {
+          method: 'POST',
+          body: JSON.stringify({
+            poNumber,
+            supplierId: String(supplierMatch.id),
+            totalCny: poTotal,
+            notes: `${poForm.items.length} line${poForm.items.length === 1 ? '' : 's'}: ${poForm.items.map((i) => `${i.name} x${i.qty}`).join(', ')}`.slice(0, 500),
+          }),
+        });
+      } catch (err) {
+        console.warn('[sourcing] PO persist failed, keeping local entry only:', (err as Error).message);
+      }
+    }
+    setPos((prev) => [
+      {
+        id: poNumber,
+        supplier: poForm.supplier,
+        total: poTotal,
+        status: 'Pending',
+        date: new Date().toISOString().slice(0, 10),
+        items: poForm.items,
+        deliveryDate: '',
+      },
+      ...prev,
+    ]);
+    setPoModalOpen(false);
+    setPoForm({ supplier: '', items: [{ name: '', qty: 1, price: 0 }] });
+  };
 
   return (
     <div className="h-full bg-slate-950 text-slate-100 overflow-auto">
@@ -339,7 +379,13 @@ export default function ERPSourcing() {
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" onClick={() => setPoModalOpen(false)} className="flex-1 border-slate-700 text-slate-300 hover:bg-slate-800">Cancel</Button>
-                <Button onClick={() => setPoModalOpen(false)} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white">Create PO</Button>
+                <Button
+                  onClick={createPO}
+                  disabled={!poForm.supplier || poTotal <= 0 || poForm.items.some((i) => !i.name.trim())}
+                  className="flex-1 bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40"
+                >
+                  Create PO
+                </Button>
               </div>
             </div>
           )}
