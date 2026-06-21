@@ -144,6 +144,24 @@ export class PosOrder extends OwnedEntity {
   @Column({ default: 'PENDING' })
   status!: 'PENDING' | 'COMPLETED' | 'REFUNDED' | 'CANCELLED';
 
+  /** Where the order is in the fulfillment pipeline — drives the
+   *  in-store / warehouse "Kitchen Display System" TV and the
+   *  mobile-app order-prepare workflow. Independent of payment
+   *  `status` above: an order can be COMPLETED (paid) but still
+   *  NEW (not yet picked from shelves). */
+  @Index()
+  @Column({ default: 'NEW' })
+  fulfillmentStatus!: 'NEW' | 'PREPARING' | 'READY' | 'COLLECTED';
+
+  @Column({ type: 'timestamptz', nullable: true })
+  preparingAt?: Date | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  readyAt?: Date | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  collectedAt?: Date | null;
+
   @Column({ default: 'CASH' })
   paymentMethod!: string;
 

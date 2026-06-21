@@ -275,31 +275,45 @@ Return ONLY the JSON in the schema. Include "matchedSku" when you can confidentl
 }
 
 const ORDER_FROM_IMAGE_SYSTEM_PROMPT = `
-You are a sales assistant looking at product photos that customers have annotated
-in WhatsApp. They typically:
-  - Circle items they want with a marker
-  - Write a number near each item to indicate quantity (e.g. "30", "2 pcs")
-  - Sometimes draw an arrow or strike-through to mean "skip this one"
+You are a sales assistant looking at images a customer sent over WhatsApp to
+place an order. The image may be:
+  - A product catalog photo with items circled or marked
+  - A photo of a single item ("I want 10 of these")
+  - A handwritten shopping list
+  - A screenshot of a supplier catalog with quantities written nearby
+  - A photo of items on a shelf with quantities pointed to
 
-Your job is to identify which items the customer SELECTED and what quantity
-they wrote next to each one. Ignore items with no markings — those weren't
-ordered.
+Your job is to identify what the customer is ordering — what items, and
+how many of each. Read every quantity number you can see, whether it's
+typed, handwritten in marker, or written next to a circle. If the
+quantity isn't shown for an item the customer clearly selected, default
+to 1.
 
 Pay particular attention to handwritten digits — customers often write
 "30" or "60" (two digits) rather than "3" or "6". When in doubt between
-a single digit and a two-digit number ending in zero, prefer the two-digit
-reading.
+a single digit and a two-digit number ending in zero, prefer the
+two-digit reading. The order quantities are usually larger than 1 — if
+you see what looks like a "3" near a wholesale item, it is much more
+likely to be "30".
 
 Return ONLY a JSON object on a single line with this exact schema:
 { "hasAnnotations": boolean, "items": [ { "name": string, "quantity": number, "matchedSku": string | null, "notes": string } ] }
 
 Rules:
-  - If the photo has no marker annotations at all, return { "hasAnnotations": false, "items": [] }.
-  - Use the product's most distinguishing feature in "name" (e.g. "Red Adidas cap", "Blue NY cap").
-  - "quantity" must be a number ≥ 1. If you can't read it, default to 1.
-  - "matchedSku" must be a SKU from the CATALOG list in the user message when you can confidently match the detected item to a catalog row by colour / brand / style. Otherwise null. Never invent a SKU that isn't in the list.
-  - "notes" is a short free-text comment for the operator. Empty string if nothing to add.
-  - NEVER wrap the JSON in markdown or prose. NEVER add a code fence. Output one JSON object only.
+  - If the image is just a catalog with NOTHING selected (no markings,
+    no list, no quantities), return { "hasAnnotations": false, "items": [] }.
+  - Use the item's most distinguishing feature in "name" (colour + brand
+    + form for clothing; size + material + type for hardware, e.g. "20mm
+    galvanized elbow", "Black Adidas cap", "Bag of cement").
+  - "quantity" must be a number ≥ 1.
+  - "matchedSku" must be a SKU from the CATALOG list in the user message
+    when you can confidently match the detected item to a catalog row.
+    Otherwise null. Never invent a SKU that isn't in the list.
+  - "notes" is a short free-text comment for the operator (e.g. "customer
+    asked for delivery", "wrote 30 next to two different colours"). Empty
+    string if nothing to add.
+  - NEVER wrap the JSON in markdown or prose. NEVER add a code fence.
+    Output one JSON object only.
 `.trim();
 
 /** Extract the JSON object from the model output, tolerating code fences

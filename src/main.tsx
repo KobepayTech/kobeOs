@@ -21,6 +21,10 @@ const isPublicGuest =
 // editor (https://{slug}.kobeapptz.com/m/{slug}). Lazy-loaded so the
 // desktop bundle stays lean.
 const isMobileWebapp = pathname.startsWith('/m/');
+// Kitchen Display System — full-screen TV view of incoming POS orders
+// for the warehouse / kitchen / back-of-house. No OS shell, big fonts,
+// dark background, designed for a 1080p TV viewed from 3 m.
+const isKdsDisplay = pathname.startsWith('/display/orders');
 
 if (isOverlay) {
   // Lazy-load to keep the main bundle lean
@@ -42,6 +46,10 @@ if (isOverlay) {
 } else if (isMobileWebapp) {
   import('./mobile/MobileRoot').then(({ default: MobileRoot }) => {
     createRoot(document.getElementById('root')!).render(<MobileRoot />);
+  });
+} else if (isKdsDisplay) {
+  import('./apps/pos-kds/KdsDisplay').then(({ default: KdsDisplay }) => {
+    createRoot(document.getElementById('root')!).render(<KdsDisplay />);
   });
 } else {
   createRoot(document.getElementById('root')!).render(<Desktop />);
