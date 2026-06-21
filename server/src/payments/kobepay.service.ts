@@ -25,6 +25,7 @@ import { KobePayRatesService } from './kobepay-rate.service';
 import { KobepayDispatcherService } from './kobepay-dispatcher.service';
 import { KobepayRetryQueueService } from './kobepay-retry.service';
 import { JournalService } from '../erp/journal.service';
+import { SupplierPaymentsService } from '../erp/supplier-payments.service';
 
 /** Anything within ±0.5% of the house rate counts as "matching" — small
  *  rounding differences from typing a rounded UI value shouldn't trip
@@ -377,6 +378,7 @@ export class KobePayPayoutsService {
     private readonly rbac: KobePayRbacService,
     private readonly rates: KobePayRatesService,
     private readonly journal: JournalService,
+    private readonly erpReconcile: SupplierPaymentsService,
   ) {}
 
   list(uid: string) {
@@ -414,7 +416,28 @@ export class KobePayPayoutsService {
       await this.rbac.record(uid, ctx, 'payout.create', 'payout', saved.id, {
         supplierId: supplier.id, amount: dto.amount, currency: dto.currency, depositId: dto.depositId,
       });
-      return saved;
+
+      // Phone-match this KobePay supplier against the operator's ERP
+      // supplier roster. When we find a match, the response carries an
+      // `erpMatch` hint that the frontend uses to pop up the "what was
+      // this payment for?" reconciliation modal. No match = no hint =
+      // existing payout flow continues unchanged.
+      let erpMatch: {
+        supplierId: string;
+        supplierName: string;
+        openPos: Awaited<ReturnType<SupplierPaymentsService['listOpenPos']>>;
+      } | null = null;
+      try {
+        const erpSupplier = await this.erpReconcile.findByPhone(uid, supplier.phone);
+        if (erpSupplier) {
+          erpMatch = {
+            supplierId: erpSupplier.id,
+            supplierName: erpSupplier.name,
+            openPos: await this.erpReconcile.listOpenPos(uid, erpSupplier.id),
+          };
+        }
+      } catch { /* never let an ERP lookup poison a successful payout */ }
+      return Object.assign(saved, { erpMatch });
     });
   }
 

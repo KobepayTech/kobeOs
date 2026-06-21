@@ -6,6 +6,7 @@ import {
   Loader2, X, Check, ChevronDown, ArrowRight, ArrowLeft,
   Search, Send, ScanLine, Download, Calendar, Plus,
 } from 'lucide-react';
+import { SupplierPaymentReconcileDialog } from './SupplierPaymentReconcileDialog';
 
 /**
  * Unified KobePay transact wizard. Same shell, two intents:
@@ -110,6 +111,21 @@ export function SendMoneyWizard({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+
+  // Reconciliation handoff — when the just-sent payout matched an ERP
+  // supplier by phone, we pop SupplierPaymentReconcileDialog so the
+  // operator can mark this as a PO payment, new-goods delivery, or
+  // general supplier payment. Cleared once they save or skip.
+  const [reconcile, setReconcile] = useState<{
+    payoutId: string;
+    amount: number;
+    currency: string;
+    erpMatch: {
+      supplierId: string;
+      supplierName: string;
+      openPos: Array<{ id: string; poNumber: string; total: number; paidAmount: number; outstanding: number; status: string }>;
+    };
+  } | null>(null);
 
   const [rates, setRates] = useState<RateRow[]>([]);
   const [ratesLoaded, setRatesLoaded] = useState(false);
@@ -231,7 +247,28 @@ export function SendMoneyWizard({
         const body = contact.kind === 'supplier'
           ? { supplierId: contact.id, amount: sendNum, currency: sendCurrency, method, notes }
           : { customerId: contact.id, amount: sendNum, currency: sendCurrency, method, notes };
-        await api('/kobepay/payouts', { method: 'POST', body: JSON.stringify(body) });
+        const payout = await api<{
+          id: string;
+          erpMatch?: {
+            supplierId: string;
+            supplierName: string;
+            openPos: Array<{ id: string; poNumber: string; total: number; paidAmount: number; outstanding: number; status: string }>;
+          } | null;
+        }>('/kobepay/payouts', { method: 'POST', body: JSON.stringify(body) });
+
+        // If the phone matched an ERP supplier, hand off to the
+        // reconciliation modal instead of closing — the operator gets
+        // a chance to mark this payout against an open PO or log it
+        // as a NEW_GOODS / GENERAL payment so the books stay tidy.
+        if (payout.erpMatch) {
+          setReconcile({
+            payoutId: payout.id,
+            amount: sendNum,
+            currency: sendCurrency,
+            erpMatch: payout.erpMatch,
+          });
+          return;
+        }
       }
       setDone(true);
       setTimeout(() => { onClose(); onSent?.(); }, 1400);
@@ -646,6 +683,20 @@ export function SendMoneyWizard({
           )}
         </div>
       </div>
+
+      {reconcile && (
+        <SupplierPaymentReconcileDialog
+          payoutId={reconcile.payoutId}
+          amount={reconcile.amount}
+          currency={reconcile.currency}
+          erpMatch={reconcile.erpMatch}
+          onClose={() => {
+            setReconcile(null);
+            setDone(true);
+            setTimeout(() => { onClose(); onSent?.(); }, 800);
+          }}
+        />
+      )}
     </div>
   );
 }
