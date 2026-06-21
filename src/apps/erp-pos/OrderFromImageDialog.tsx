@@ -24,10 +24,6 @@ interface ParsedItem {
   matchedName?: string | null;
   matchedPrice?: number | null;
   matchedImageUrl?: string | null;
-  /** True when the dedicated handwriting OCR (TrOCR) confirmed the
-   *  digit — surfaced as a small ✓ next to the qty so the operator
-   *  knows the number wasn't a guess from the general vision model. */
-  quantityConfirmed?: boolean;
   confidence: number;
 }
 
@@ -346,20 +342,13 @@ function ReviewView({
                     />
                   </div>
                   <div className="w-20 shrink-0">
-                    <div className="text-xs text-white/40 mb-0.5 flex items-center gap-1">
-                      Qty
-                      {it.quantityConfirmed && (
-                        <span title="Re-read by handwriting OCR (TrOCR)" className="text-emerald-400 font-bold">✓</span>
-                      )}
-                    </div>
+                    <div className="text-xs text-white/40 mb-0.5">Qty</div>
                     <input
                       type="number"
                       min={1}
                       value={it.quantity}
-                      onChange={(e) => setItem(i, { quantity: Math.max(1, Number(e.target.value) || 1), quantityConfirmed: false })}
-                      className={`w-full h-8 px-2 rounded bg-[#0a0a1a] border text-xs font-bold text-white text-right ${
-                        it.quantityConfirmed ? 'border-emerald-500/40' : 'border-white/[0.08]'
-                      }`}
+                      onChange={(e) => setItem(i, { quantity: Math.max(1, Number(e.target.value) || 1) })}
+                      className="w-full h-8 px-2 rounded bg-[#0a0a1a] border border-white/[0.08] text-xs font-bold text-white text-right"
                     />
                   </div>
                   <button
@@ -435,18 +424,12 @@ function SourceBadge({ result }: { result: ParseResponse }) {
   // Only show the coverage hint when there are actually products
   // without images — silent when the catalog is fully bound.
   const showCoverageHint = stats && stats.total > 0 && stats.withImage < stats.total;
-  const confirmedCount = result.items.filter((it) => it.quantityConfirmed).length;
   return (
     <div className="space-y-1">
       {result.source === 'ollama' && (
         <div className="text-[10px] text-emerald-400/80">
           ✓ Parsed by vision model {result.model && <span className="text-white/40">({result.model})</span>}
           {!result.hasAnnotations && ' · no marker annotations spotted'}
-        </div>
-      )}
-      {confirmedCount > 0 && (
-        <div className="text-[10px] text-emerald-400/80">
-          ✓ {confirmedCount} of {result.items.length} quantit{confirmedCount === 1 ? 'y' : 'ies'} re-read by handwriting OCR (TrOCR)
         </div>
       )}
       {result.source === 'ocr-fallback' && (

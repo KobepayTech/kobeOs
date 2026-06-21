@@ -28,8 +28,7 @@ tmp-screenshots/
 .huggingface/
 **/.cache/huggingface/
 
-# Local handwriting-OCR model cache (1.3 GB — pulled by prefetch script,
-# not part of the source tree). Keep the path explicit so a stray
-# `git add .` can't accidentally commit it.
+# transformers.js on-disk model cache — populated by translation /
+# image-edit services that pull ONNX weights at runtime.
 server/node_modules/@huggingface/transformers/.cache/
 
