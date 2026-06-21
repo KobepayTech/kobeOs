@@ -96,6 +96,20 @@ export class ErpController {
     return this.supplierPayments.record(uid, dto);
   }
 
+  /** Promote a NEW_GOODS payment into a formal PurchaseOrder.
+   *  Lets the operator turn a quick "I paid for 30 bags of cement"
+   *  log into a proper PO entry that the warehouse picklist and
+   *  supplier-side audit will see. Returns the new PO and the
+   *  updated payment row (now linked to the PO). */
+  @Post('sourcing/supplier-payments/:id/promote-to-po')
+  promoteSupplierPaymentToPo(
+    @CurrentUser('id') uid: string,
+    @Param('id') id: string,
+    @Body() overrides?: { poNumber?: string; status?: 'Delivered' | 'In Transit' | 'Pending' | 'Cancelled'; date?: string; deliveryDate?: string },
+  ) {
+    return this.supplierPayments.promoteToPo(uid, id, overrides);
+  }
+
   /**
    * Adjust a loyalty customer's points (positive = earned, negative =
    * redeemed). Persists across reloads so the Loyalty Program tab

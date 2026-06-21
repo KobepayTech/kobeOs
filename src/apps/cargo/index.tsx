@@ -1220,8 +1220,8 @@ function AnalyticsTab() {
                 <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => tzs(v as number)} />
                 <Tooltip content={<CTooltip />} />
                 <Legend iconType="circle" iconSize={8} formatter={(v: string) => <span className="text-[10px] text-slate-500">{v}</span>} />
-                <Bar dataKey="debit" name="Debit" fill="#ef4444" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="credit" name="Credit" fill="#10b981" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="debit" name="Money Out" fill="#ef4444" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="credit" name="Money In" fill="#10b981" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </CardContent></Card>

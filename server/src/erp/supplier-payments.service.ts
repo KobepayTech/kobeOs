@@ -152,4 +152,66 @@ export class SupplierPaymentsService {
     }
     return saved;
   }
+
+  /** Promote a NEW_GOODS SupplierPayment into a formal PurchaseOrder.
+   *  Convenient when an operator records a quick payment for goods
+   *  bought ad-hoc and later wants to back-fill a proper PO (e.g.
+   *  for the warehouse picklist or supplier-side audit). The
+   *  resulting PO inherits the payment's items + amount and is
+   *  immediately marked fully paid by linking the original payment
+   *  to it. Idempotent: a payment that's already PO-linked just
+   *  returns the existing PO. */
+  async promoteToPo(
+    uid: string,
+    paymentId: string,
+    overrides?: { poNumber?: string; status?: PurchaseOrder['status']; date?: string; deliveryDate?: string },
+  ): Promise<{ payment: SupplierPayment; po: PurchaseOrder; created: boolean }> {
+    const payment = await this.payments.findOne({ where: { id: paymentId, ownerId: uid } });
+    if (!payment) throw new NotFoundException('Supplier payment not found');
+
+    if (payment.purchaseOrderId) {
+      const existing = await this.pos.findOne({ where: { id: payment.purchaseOrderId, ownerId: uid } });
+      if (existing) return { payment, po: existing, created: false };
+    }
+
+    if (payment.kind !== 'NEW_GOODS') {
+      throw new BadRequestException(
+        `Only NEW_GOODS payments can be promoted to a PO (this one is ${payment.kind})`,
+      );
+    }
+    const items = payment.itemsSnapshot ?? [];
+    if (items.length === 0) {
+      throw new BadRequestException('Payment has no item snapshot — nothing to promote');
+    }
+    const supplier = await this.suppliers.findOne({ where: { id: payment.supplierId, ownerId: uid } });
+    if (!supplier) throw new NotFoundException('Supplier no longer exists');
+
+    const poNumber = overrides?.poNumber?.trim()
+      || `PO-${new Date().toISOString().slice(2, 10).replace(/-/g, '')}-${paymentId.slice(0, 6).toUpperCase()}`;
+    const total = items.reduce((s, l) => s + Number(l.quantity) * Number(l.unitPrice || 0), 0);
+    const po = await this.pos.save(this.pos.create({
+      ownerId: uid,
+      poNumber,
+      supplier: supplier.name,
+      total: parseFloat(total.toFixed(4)),
+      paidAmount: Number(payment.amount),
+      status: overrides?.status ?? 'Delivered',
+      date: overrides?.date ?? new Date().toISOString().slice(0, 10),
+      deliveryDate: overrides?.deliveryDate ?? null,
+      items: items.map((l) => ({
+        name: l.description,
+        qty: Number(l.quantity),
+        price: Number(l.unitPrice || 0),
+      })),
+    }));
+
+    payment.kind = 'PO_PAYMENT';
+    payment.purchaseOrderId = po.id;
+    await this.payments.save(payment);
+
+    this.logger.log(
+      `Promoted SupplierPayment ${payment.id} → ${po.poNumber} (${items.length} item${items.length === 1 ? '' : 's'}, total ${po.total})`,
+    );
+    return { payment, po, created: true };
+  }
 }

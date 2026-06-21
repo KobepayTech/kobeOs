@@ -269,8 +269,8 @@ export default function ERPAccounting() {
                       <TableHead className="text-slate-400 text-xs">Date</TableHead>
                       <TableHead className="text-slate-400 text-xs">Account</TableHead>
                       <TableHead className="text-slate-400 text-xs">Description</TableHead>
-                      <TableHead className="text-slate-400 text-xs text-right">Debit</TableHead>
-                      <TableHead className="text-slate-400 text-xs text-right">Credit</TableHead>
+                      <TableHead className="text-slate-400 text-xs text-right">Money In</TableHead>
+                      <TableHead className="text-slate-400 text-xs text-right">Money Out</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -310,8 +310,8 @@ export default function ERPAccounting() {
                       <TableHead className="text-slate-400 text-xs">ID</TableHead>
                       <TableHead className="text-slate-400 text-xs">Date</TableHead>
                       <TableHead className="text-slate-400 text-xs">Description</TableHead>
-                      <TableHead className="text-slate-400 text-xs text-right">Debit</TableHead>
-                      <TableHead className="text-slate-400 text-xs text-right">Credit</TableHead>
+                      <TableHead className="text-slate-400 text-xs text-right">Money In</TableHead>
+                      <TableHead className="text-slate-400 text-xs text-right">Money Out</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -344,8 +344,8 @@ export default function ERPAccounting() {
                       <TableHead className="text-slate-400 text-xs">Code</TableHead>
                       <TableHead className="text-slate-400 text-xs">Account</TableHead>
                       <TableHead className="text-slate-400 text-xs">Type</TableHead>
-                      <TableHead className="text-slate-400 text-xs text-right">Debit</TableHead>
-                      <TableHead className="text-slate-400 text-xs text-right">Credit</TableHead>
+                      <TableHead className="text-slate-400 text-xs text-right">Money In</TableHead>
+                      <TableHead className="text-slate-400 text-xs text-right">Money Out</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -422,10 +422,10 @@ export default function ERPAccounting() {
                     </select>
                   </div>
                   <div className="col-span-3">
-                    <Input type="number" placeholder="Debit" value={line.debit || ''} onChange={(e) => updateJournalLine(idx, 'debit', Number(e.target.value))} className="h-8 bg-slate-800 border-slate-700 text-xs" />
+                    <Input type="number" placeholder="Money In" value={line.debit || ''} onChange={(e) => updateJournalLine(idx, 'debit', Number(e.target.value))} className="h-8 bg-slate-800 border-slate-700 text-xs" />
                   </div>
                   <div className="col-span-3">
-                    <Input type="number" placeholder="Credit" value={line.credit || ''} onChange={(e) => updateJournalLine(idx, 'credit', Number(e.target.value))} className="h-8 bg-slate-800 border-slate-700 text-xs" />
+                    <Input type="number" placeholder="Money Out" value={line.credit || ''} onChange={(e) => updateJournalLine(idx, 'credit', Number(e.target.value))} className="h-8 bg-slate-800 border-slate-700 text-xs" />
                   </div>
                   <div className="col-span-1">
                     <button onClick={() => removeJournalLine(idx)} className="text-slate-500 hover:text-red-400">
@@ -442,7 +442,7 @@ export default function ERPAccounting() {
               <span className={balanced ? 'text-green-400' : 'text-red-400'}>
                 {balanced ? 'Balanced' : `Diff: ${tzs(Math.abs(totalDebits - totalCredits))}`}
               </span>
-              <span className="text-slate-400">Dr {tzs(totalDebits)} / Cr {tzs(totalCredits)}</span>
+              <span className="text-slate-400">In {tzs(totalDebits)} / Out {tzs(totalCredits)}</span>
             </div>
             {journalError && (
               <div className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded p-2">
