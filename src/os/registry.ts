@@ -41,6 +41,7 @@ import { manifest as chess } from '@/apps/chess/manifest';
 import { manifest as solitaire } from '@/apps/solitaire/manifest';
 import { manifest as erp_dashboard } from '@/apps/erp-dashboard/manifest';
 import { manifest as erp_pos } from '@/apps/erp-pos/manifest';
+import { manifest as erp_messaging } from '@/apps/erp-messaging/manifest';
 import { manifest as erp_store } from '@/apps/erp-store/manifest';
 import { manifest as erp_warehouse } from '@/apps/erp-warehouse/manifest';
 import { manifest as erp_warehouse_ops } from '@/apps/erp-warehouse-ops/manifest';
@@ -121,6 +122,7 @@ export const appRegistry = [
   solitaire,
   erp_dashboard,
   erp_pos,
+  erp_messaging,
   erp_store,
   erp_warehouse,
   erp_warehouse_ops,

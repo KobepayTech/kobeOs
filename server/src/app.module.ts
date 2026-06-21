@@ -25,6 +25,7 @@ import { ShopsModule } from './shops/shops.module';
 import { EodModule } from './eod/eod.module';
 import { PropertyModule } from './property/property.module';
 import { PosModule } from './pos/pos.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { WarehouseModule } from './warehouse/warehouse.module';
 import { DiscountsModule } from './discounts/discount.module';
 import { PaymentsModule } from './payments/payments.module';
@@ -109,6 +110,7 @@ import { SocialSchedulerModule } from './social-scheduler/social-scheduler.modul
     EodModule,
     PropertyModule,
     PosModule,
+    NotificationsModule,
     WarehouseModule,
     DiscountsModule,
     PaymentsModule,

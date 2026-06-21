@@ -1,9 +1,16 @@
 import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { BeemService } from './beem.service';
 import { NotificationsService } from './notifications.service';
+import { CampaignsService } from './campaigns.service';
+import { NotificationsController } from './notifications.controller';
+import { OutboundCampaign, OutboundMessage } from './outbound.entity';
+import { PosOrder } from '../pos/pos.entity';
 
 @Module({
-  providers: [BeemService, NotificationsService],
+  imports: [TypeOrmModule.forFeature([OutboundCampaign, OutboundMessage, PosOrder])],
+  providers: [BeemService, NotificationsService, CampaignsService],
+  controllers: [NotificationsController],
   exports: [NotificationsService],
 })
 export class NotificationsModule {}
