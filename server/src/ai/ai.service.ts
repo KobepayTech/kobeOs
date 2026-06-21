@@ -58,6 +58,7 @@ export const MODEL_CATALOGUE: ModelInfo[] = [
   { id: 'codellama:7b',        name: 'Code Llama 7B',     category: 'coding',    description: 'Meta code generation, supports 20+ languages',                     sizeGb: 3.8,  recommended: false },
   { id: 'starcoder2:7b',       name: 'StarCoder 2 7B',    category: 'coding',    description: 'HuggingFace code model, strong Python/TypeScript',                  sizeGb: 4.0,  recommended: false },
   // ── Multimodal / Vision ───────────────────────────────────────────────────
+  { id: 'qwen2.5vl:7b',        name: 'Qwen 2.5-VL 7B',    category: 'multimodal', description: 'Alibaba vision-language model — best for reading handwritten quantities on customer-annotated catalog photos (Order from image)', sizeGb: 5.5,  recommended: true  },
   { id: 'llava:7b',            name: 'LLaVA 7B',          category: 'multimodal', description: 'Vision + language — analyse images, football frames',             sizeGb: 4.5,  recommended: true  },
   { id: 'moondream:1.8b',      name: 'Moondream 1.8B',    category: 'vision',    description: 'Tiny vision model for edge devices',                               sizeGb: 1.1,  recommended: false },
   // ── Embeddings ────────────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { API_BASE, api } from '@/lib/api';
 import {
-  Image as ImageIcon, Camera, Sparkles, Loader2, CheckCircle2, X, Trash2, Plus,
+  Image as ImageIcon, Camera, Sparkles, Loader2, CheckCircle2, X, Trash2, Plus, Download, AlertTriangle,
 } from 'lucide-react';
 
 /**
@@ -49,6 +49,33 @@ export default function MobileImageOrder() {
   const [done, setDone] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [products, setProducts] = useState<Product[]>([]);
+  const [modelStatus, setModelStatus] = useState<{ model: string; installed: boolean; pulling: boolean; ollamaRunning: boolean } | null>(null);
+
+  // Check vision model availability up-front and poll while a pull is
+  // in progress — sellers shouldn't have to refresh the page to see
+  // that the install finished in the background.
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const s = await api<{ model: string; installed: boolean; pulling: boolean; ollamaRunning: boolean }>('/order-from-image/vision-model/status');
+        if (cancelled) return;
+        setModelStatus(s);
+      } catch { /* ignore */ }
+    };
+    void tick();
+    const id = setInterval(tick, modelStatus?.pulling ? 15_000 : 60_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [modelStatus?.pulling]);
+
+  const installModel = async () => {
+    try {
+      await api('/order-from-image/vision-model/install', { method: 'POST' });
+      setModelStatus((s) => (s ? { ...s, pulling: true } : s));
+    } catch (e) {
+      setErr(`Install failed: ${(e as Error).message}`);
+    }
+  };
 
   const pickFile = async (f: File) => {
     setErr(null); setResult(null); setItems([]);
@@ -145,6 +172,10 @@ export default function MobileImageOrder() {
           <p className="text-[11px] text-slate-500">Forward a customer's marked-up WhatsApp photo to make an order</p>
         </div>
       </div>
+
+      {modelStatus && !modelStatus.installed && (
+        <MobileVisionModelBanner status={modelStatus} onInstall={installModel} />
+      )}
 
       {done && (
         <div className="rounded-xl border border-emerald-300 bg-emerald-50 text-emerald-800 p-3 flex items-start gap-2">
@@ -335,6 +366,55 @@ function SourceBadge({ result }: { result: ParseResponse }) {
           Add product photos in Product Manager so the AI can match by sight.
         </div>
       )}
+    </div>
+  );
+}
+
+function MobileVisionModelBanner({
+  status, onInstall,
+}: {
+  status: { model: string; installed: boolean; pulling: boolean; ollamaRunning: boolean };
+  onInstall: () => void;
+}) {
+  if (!status.ollamaRunning) {
+    return (
+      <div className="rounded-xl border border-rose-300 bg-rose-50 text-rose-800 p-3 flex items-start gap-2">
+        <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+        <div className="flex-1 text-[11px]">
+          <div className="font-bold">Ollama not reachable</div>
+          <div className="opacity-80">Image parsing will fall back to basic OCR. Ask your admin to start Ollama on the server.</div>
+        </div>
+      </div>
+    );
+  }
+  if (status.pulling) {
+    return (
+      <div className="rounded-xl border border-violet-300 bg-violet-50 text-violet-800 p-3 flex items-start gap-2">
+        <Loader2 className="w-4 h-4 mt-0.5 animate-spin shrink-0" />
+        <div className="flex-1 text-[11px]">
+          <div className="font-bold">Installing AI vision model…</div>
+          <div className="opacity-80">~5 GB downloading on the server (5–30 min). You can leave this page — it continues in the background.</div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-xl border border-amber-300 bg-amber-50 text-amber-800 p-3 space-y-2">
+      <div className="flex items-start gap-2">
+        <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+        <div className="flex-1 text-[11px]">
+          <div className="font-bold">Vision model not installed</div>
+          <div className="opacity-80">
+            {status.model} — image parsing will fall back to basic OCR (poor accuracy on handwriting) until it's installed.
+          </div>
+        </div>
+      </div>
+      <button
+        onClick={onInstall}
+        className="w-full h-10 rounded-lg bg-amber-500 active:bg-amber-600 text-white text-xs font-extrabold inline-flex items-center justify-center gap-2"
+      >
+        <Download className="w-4 h-4" /> Install vision model (~5 GB)
+      </button>
     </div>
   );
 }

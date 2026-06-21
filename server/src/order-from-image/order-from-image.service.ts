@@ -1,10 +1,17 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AiService } from '../ai/ai.service';
 import { OcrService } from '../ocr/ocr.service';
 import { PosProduct } from '../pos/pos.entity';
+
+export interface VisionModelStatus {
+  model: string;
+  installed: boolean;
+  pulling: boolean;
+  ollamaRunning: boolean;
+}
 
 export interface ParsedItem {
   name: string;
@@ -57,8 +64,11 @@ export interface ParseResult {
  * vision model + operator review at the till.
  */
 @Injectable()
-export class OrderFromImageService {
+export class OrderFromImageService implements OnModuleInit {
   private readonly logger = new Logger(OrderFromImageService.name);
+  /** True while an Ollama pull is in flight — keeps duplicate clicks
+   *  from queueing parallel downloads. */
+  private pulling = false;
 
   constructor(
     private readonly ai: AiService,
@@ -66,6 +76,79 @@ export class OrderFromImageService {
     private readonly config: ConfigService,
     @InjectRepository(PosProduct) private readonly products: Repository<PosProduct>,
   ) {}
+
+  /** Check on boot that the configured vision model is actually present
+   *  in Ollama. Logs a clear warning + the exact remediation steps if
+   *  it's missing. Optionally auto-pulls in the background when
+   *  AI_VISION_AUTO_PULL=true (off by default — pulling a 5 GB model
+   *  on every dev restart would be surprising). */
+  async onModuleInit() {
+    const model = this.config.get<string>('AI_VISION_MODEL') || 'qwen2.5vl:7b';
+    const autoPull = (this.config.get<string>('AI_VISION_AUTO_PULL') ?? 'false').toLowerCase() === 'true';
+    try {
+      const status = await this.ai.health();
+      if (!status.running) {
+        this.logger.warn(
+          `Ollama is not reachable at ${this.config.get('OLLAMA_URL', 'http://localhost:11434')}. ` +
+          `Order-from-image will fall back to Tesseract OCR until Ollama is started.`,
+        );
+        return;
+      }
+      if (status.models.includes(model)) {
+        this.logger.log(`Vision model "${model}" is installed and ready.`);
+        return;
+      }
+      this.logger.warn(`Vision model "${model}" is NOT installed in Ollama.`);
+      this.logger.warn(
+        `Order-from-image accuracy will be poor until the model is pulled. Three ways to install:`,
+      );
+      this.logger.warn(`  (a) on the server:  ollama pull ${model}`);
+      this.logger.warn(`  (b) one-click from the UI: open Order from image and click "Install model"`);
+      this.logger.warn(`  (c) auto-pull on boot: set AI_VISION_AUTO_PULL=true in .env and restart`);
+      if (autoPull) {
+        this.logger.log(`AI_VISION_AUTO_PULL=true — pulling ${model} in the background...`);
+        void this.installVisionModel();
+      }
+    } catch (err) {
+      this.logger.warn(`Vision model status check failed: ${(err as Error).message}`);
+    }
+  }
+
+  /** Snapshot of the vision model's install state — drives the install
+   *  banner in the desktop dialog and mobile screen. */
+  async getVisionModelStatus(): Promise<VisionModelStatus> {
+    const model = this.config.get<string>('AI_VISION_MODEL') || 'qwen2.5vl:7b';
+    const status = await this.ai.health();
+    return {
+      model,
+      installed: status.models.includes(model),
+      pulling: this.pulling,
+      ollamaRunning: status.running,
+    };
+  }
+
+  /** Kick off an Ollama pull for the configured vision model. Returns
+   *  immediately — the actual download (~5 GB, can take 5–30 min)
+   *  continues in the background. Frontend polls getVisionModelStatus()
+   *  to know when it's ready. */
+  installVisionModel(): { started: boolean; alreadyPulling: boolean; model: string } {
+    const model = this.config.get<string>('AI_VISION_MODEL') || 'qwen2.5vl:7b';
+    if (this.pulling) return { started: false, alreadyPulling: true, model };
+    this.pulling = true;
+    this.logger.log(`Pulling vision model ${model} in the background (5–30 min for ~5 GB)...`);
+    void (async () => {
+      try {
+        const result = await this.ai.pullModel(model);
+        if (result.success) this.logger.log(`Vision model ${model} pulled successfully.`);
+        else this.logger.warn(`Vision model pull failed: ${result.message}`);
+      } catch (err) {
+        this.logger.warn(`Vision model pull threw: ${(err as Error).message}`);
+      } finally {
+        this.pulling = false;
+      }
+    })();
+    return { started: true, alreadyPulling: false, model };
+  }
 
   /** Best-effort vision parse. Never throws; returns source='none' on
    *  full failure so the operator can fall back to manual entry.

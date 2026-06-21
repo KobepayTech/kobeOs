@@ -1,11 +1,11 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { API_BASE } from '@/lib/api';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import {
-  Image as ImageIcon, Upload, Loader2, Sparkles, CheckCircle2, X, Trash2, Plus,
+  Image as ImageIcon, Upload, Loader2, Sparkles, CheckCircle2, X, Trash2, Plus, Download, AlertTriangle,
 } from 'lucide-react';
 
 /**
@@ -58,7 +58,34 @@ export function OrderFromImageDialog({
   const [items, setItems] = useState<ParsedItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [customerName, setCustomerName] = useState('');
+  const [modelStatus, setModelStatus] = useState<{ model: string; installed: boolean; pulling: boolean; ollamaRunning: boolean } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Check vision model availability whenever the dialog opens, then
+  // poll while a pull is in flight so the banner updates on its own.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const s = await api<{ model: string; installed: boolean; pulling: boolean; ollamaRunning: boolean }>('/order-from-image/vision-model/status');
+        if (cancelled) return;
+        setModelStatus(s);
+      } catch { /* ignore — banner just stays hidden */ }
+    };
+    void tick();
+    const id = setInterval(tick, modelStatus?.pulling ? 15_000 : 60_000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [open, modelStatus?.pulling]);
+
+  const installModel = async () => {
+    try {
+      await api('/order-from-image/vision-model/install', { method: 'POST' });
+      setModelStatus((s) => (s ? { ...s, pulling: true } : s));
+    } catch (e) {
+      setErr(`Install failed: ${(e as Error).message}`);
+    }
+  };
 
   const reset = useCallback(() => {
     setFile(null); setPreview(null); setResult(null); setErr(null);
@@ -159,6 +186,10 @@ export function OrderFromImageDialog({
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto -mx-6 px-6 space-y-4">
+
+          {modelStatus && !modelStatus.installed && (
+            <VisionModelBanner status={modelStatus} onInstall={installModel} />
+          )}
 
           {!preview ? (
             <ImageDropZone fileRef={fileRef} onPick={pickFile} />
@@ -447,6 +478,61 @@ function SourceBadge({ result }: { result: ParseResponse }) {
           ℹ {stats.total - stats.withImage} of {stats.total} catalog products have no image bound — open Product Manager and add photos so the AI can match by what items look like, not just by name.
         </div>
       )}
+    </div>
+  );
+}
+
+function VisionModelBanner({
+  status, onInstall,
+}: {
+  status: { model: string; installed: boolean; pulling: boolean; ollamaRunning: boolean };
+  onInstall: () => void;
+}) {
+  if (!status.ollamaRunning) {
+    return (
+      <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 flex items-start gap-2">
+        <AlertTriangle className="w-4 h-4 text-rose-400 mt-0.5 shrink-0" />
+        <div className="flex-1 text-xs text-rose-200">
+          <div className="font-bold">Ollama not reachable</div>
+          <div className="text-rose-300/80 mt-0.5">
+            Image parsing will fall back to Tesseract OCR (poor accuracy on handwriting).
+            Start Ollama on the server, then refresh.
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (status.pulling) {
+    return (
+      <div className="rounded-lg border border-violet-500/30 bg-violet-500/10 p-3 flex items-start gap-2">
+        <Loader2 className="w-4 h-4 text-violet-300 mt-0.5 animate-spin shrink-0" />
+        <div className="flex-1 text-xs text-violet-100">
+          <div className="font-bold">Installing {status.model}…</div>
+          <div className="text-violet-200/80 mt-0.5">
+            ~5 GB download in progress on the server (5–30 min depending on bandwidth).
+            You can close this dialog — the install continues in the background.
+          </div>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 flex items-start gap-2">
+      <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
+      <div className="flex-1 text-xs text-amber-100">
+        <div className="font-bold">Vision model not installed: {status.model}</div>
+        <div className="text-amber-200/80 mt-0.5">
+          Image parsing will fall back to Tesseract OCR (poor accuracy on handwriting).
+          Install the recommended vision model to enable AI parsing.
+        </div>
+      </div>
+      <Button
+        size="sm"
+        onClick={onInstall}
+        className="bg-amber-500 hover:bg-amber-400 text-amber-950 font-bold shrink-0"
+      >
+        <Download className="w-3.5 h-3.5 mr-1.5" /> Install (~5 GB)
+      </Button>
     </div>
   );
 }

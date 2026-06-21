@@ -1,8 +1,8 @@
-import { BadRequestException, Body, Controller, Post, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Post, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
-import { OrderFromImageService, ParseResult } from './order-from-image.service';
+import { OrderFromImageService, ParseResult, VisionModelStatus } from './order-from-image.service';
 
 interface UploadedImage {
   buffer: Buffer;
@@ -39,5 +39,21 @@ export class OrderFromImageController {
     }
     const result = await this.svc.parseImage(uid, image.buffer);
     return { ...result, receivedBytes: image.size };
+  }
+
+  /** Check whether the configured vision model is installed in Ollama.
+   *  Drives the "Install vision model" banner in the dialog UIs. */
+  @Get('vision-model/status')
+  status(): Promise<VisionModelStatus> {
+    return this.svc.getVisionModelStatus();
+  }
+
+  /** Kick off a background pull of the configured vision model (the
+   *  Ollama download itself can take 5–30 min for ~5 GB). Returns
+   *  immediately; the frontend polls /vision-model/status to know
+   *  when the model becomes available. */
+  @Post('vision-model/install')
+  install(): { started: boolean; alreadyPulling: boolean; model: string } {
+    return this.svc.installVisionModel();
   }
 }
