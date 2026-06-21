@@ -139,6 +139,7 @@ export class OrdersService {
             productName: product.name,
             unitPrice: product.price,
             quantity: line.quantity,
+            unit: product.unit || 'piece',
             lineTotal,
             negotiatedPrice: line.negotiatedPrice ?? null,
           }),

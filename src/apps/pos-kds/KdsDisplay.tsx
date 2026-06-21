@@ -25,6 +25,7 @@ interface OrderItem {
   productName: string;
   quantity: number;
   unitPrice: number;
+  unit?: string;
 }
 
 interface Order {
@@ -230,7 +231,9 @@ function OrderCard({ order, accent, now }: { order: Order; accent: 'amber' | 'em
       <ul className="space-y-1">
         {order.items.map((it) => (
           <li key={it.id} className="flex items-baseline gap-3 text-lg">
-            <span className="font-extrabold text-white tabular-nums w-10 text-right">{it.quantity}×</span>
+            <span className="font-extrabold text-white tabular-nums w-16 text-right">
+              {formatQty(it.quantity, it.unit)}
+            </span>
             <span className="flex-1 truncate">{it.productName}</span>
           </li>
         ))}
@@ -257,6 +260,16 @@ function splitOrders(all: Order[], now: number): { preparing: Order[]; ready: Or
   // Oldest-ready at top so staff hand them out FIFO.
   ready.sort((a, b) => new Date(a.readyAt ?? a.createdAt).getTime() - new Date(b.readyAt ?? b.createdAt).getTime());
   return { preparing, ready };
+}
+
+/** Render a qty with its unit. "1" / "2 m" / "2.5 kg". The "×" suffix
+ *  is appended only for piece counts so hardware-shop receipts read
+ *  naturally ("2.5 kg cement" not "2.5 kg × cement"). */
+function formatQty(q: number, unit?: string): string {
+  const n = Number(q);
+  const num = Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, '');
+  if (!unit || unit === 'piece' || unit === 'pcs') return `${num}×`;
+  return `${num} ${unit}`;
 }
 
 function formatElapsed(ms: number): string {

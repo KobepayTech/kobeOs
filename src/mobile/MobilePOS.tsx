@@ -18,9 +18,17 @@ interface Product {
   category: string;
   price: number | string;
   stock: number;
+  unit?: string;
+  decimalQuantity?: boolean;
 }
 
 interface CartItem { product: Product; quantity: number }
+
+/** Render qty + unit naturally — "3", "2.5 m", "0.75 kg". */
+function fmtQty(q: number, unit?: string): string {
+  const num = Number.isInteger(q) ? String(q) : Number(q).toFixed(2).replace(/\.?0+$/, '');
+  return unit && unit !== 'piece' && unit !== 'pcs' ? `${num} ${unit}` : num;
+}
 
 const fmt = (n: number) => `TZS ${Math.round(n).toLocaleString()}`;
 
@@ -150,12 +158,18 @@ export default function MobilePOS() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-bold text-slate-900 truncate">{p.name}</div>
-                  <div className="text-[10px] text-slate-500">{p.sku} · {p.stock} in stock</div>
+                  <div className="text-[10px] text-slate-500">
+                    {p.sku} · {p.stock} {p.unit && p.unit !== 'piece' ? p.unit : 'in stock'}
+                  </div>
                 </div>
                 <div className="text-right">
-                  <div className="text-sm font-extrabold text-slate-900">{fmt(parseFloat(String(p.price)))}</div>
+                  <div className="text-sm font-extrabold text-slate-900">
+                    {fmt(parseFloat(String(p.price)))}{p.unit && p.unit !== 'piece' ? ` / ${p.unit}` : ''}
+                  </div>
                   {inCart && (
-                    <div className="text-[10px] font-bold text-indigo-600 mt-0.5">×{inCart.quantity}</div>
+                    <div className="text-[10px] font-bold text-indigo-600 mt-0.5">
+                      {fmtQty(inCart.quantity, p.unit)}
+                    </div>
                   )}
                 </div>
               </button>
@@ -215,16 +229,43 @@ export default function MobilePOS() {
                 <div key={c.product.id} className="flex items-center gap-3 py-2.5">
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-bold text-slate-900 truncate">{c.product.name}</div>
-                    <div className="text-[10px] text-slate-500">{fmt(parseFloat(String(c.product.price)))} each</div>
+                    <div className="text-[10px] text-slate-500">
+                      {fmt(parseFloat(String(c.product.price)))}{c.product.unit && c.product.unit !== 'piece' ? ` / ${c.product.unit}` : ' each'}
+                    </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button onClick={() => updateQty(c.product.id, -1)} className="w-8 h-8 rounded-full bg-slate-100 grid place-items-center text-slate-700">
-                      <Minus className="w-3.5 h-3.5" />
-                    </button>
-                    <span className="w-6 text-center font-extrabold text-sm">{c.quantity}</span>
-                    <button onClick={() => updateQty(c.product.id, 1)} className="w-8 h-8 rounded-full bg-slate-100 grid place-items-center text-slate-700">
-                      <Plus className="w-3.5 h-3.5" />
-                    </button>
+                    {c.product.decimalQuantity ? (
+                      // Cut-to-length / weight-priced SKU — accept any
+                      // positive decimal directly so 2.5 / 0.75 / 12.4
+                      // all work without tap-mashing the increment button.
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        min="0"
+                        step="0.01"
+                        value={c.quantity}
+                        onChange={(e) => {
+                          const v = Math.max(0, Number(e.target.value) || 0);
+                          setCart((prev) => prev
+                            .map((it) => (it.product.id === c.product.id ? { ...it, quantity: v } : it))
+                            .filter((it) => it.quantity > 0));
+                        }}
+                        className="w-20 h-8 rounded-lg border border-slate-200 px-2 text-sm font-bold text-right"
+                      />
+                    ) : (
+                      <>
+                        <button onClick={() => updateQty(c.product.id, -1)} className="w-8 h-8 rounded-full bg-slate-100 grid place-items-center text-slate-700">
+                          <Minus className="w-3.5 h-3.5" />
+                        </button>
+                        <span className="w-6 text-center font-extrabold text-sm">{c.quantity}</span>
+                        <button onClick={() => updateQty(c.product.id, 1)} className="w-8 h-8 rounded-full bg-slate-100 grid place-items-center text-slate-700">
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                      </>
+                    )}
+                    {c.product.unit && c.product.unit !== 'piece' && (
+                      <span className="text-[10px] text-slate-500 ml-1 w-8">{c.product.unit}</span>
+                    )}
                   </div>
                   <button onClick={() => removeFrom(c.product.id)} className="text-rose-500 ml-1">
                     <Trash2 className="w-4 h-4" />

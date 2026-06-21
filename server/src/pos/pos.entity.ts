@@ -53,6 +53,21 @@ export class PosProduct extends OwnedEntity {
   @Column({ default: 'TZS' })
   currency!: string;
 
+  /** Unit of sale — drives how quantities are presented and entered.
+   *  "piece" / "pcs" for everyday SKUs; "m", "kg", "litre", "bag",
+   *  "sheet" for hardware where customers ask for fractional amounts
+   *  ("2.5 m of cable"). Stored as a free-string so any vertical can
+   *  add its own without a schema migration. */
+  @Column({ default: 'piece' })
+  unit!: string;
+
+  /** Whether this SKU allows fractional quantities (decimal). False by
+   *  default — most retail items are whole-count. Set true for cut-to-
+   *  length cable, weight-priced cement, bulk fluids, etc. The mobile
+   *  POS uses this to decide whether the qty input accepts decimals. */
+  @Column({ default: false })
+  decimalQuantity!: boolean;
+
   @Column({ type: 'decimal', precision: 6, scale: 4, default: 0 })
   taxRate!: number;
 
@@ -201,8 +216,17 @@ export class PosOrderItem extends OwnedEntity {
   @Column({ type: 'decimal', precision: 18, scale: 4 })
   unitPrice!: number;
 
-  @Column({ default: 1 })
+  /** Quantity sold on this line. Decimal so cut-to-length / weight-based
+   *  SKUs (cable in metres, cement in kg) work. Whole-number SKUs still
+   *  store integers — the column type just doesn't prevent decimals. */
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 1 })
   quantity!: number;
+
+  /** Snapshot of the product's unit at order time ("piece", "m", "kg",
+   *  etc). Stored on the line so receipts + reports render correctly
+   *  even if the catalog unit changes later. */
+  @Column({ default: 'piece' })
+  unit!: string;
 
   @Column({ nullable: true, type: 'varchar' })
   shelf?: string | null;

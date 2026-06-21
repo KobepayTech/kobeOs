@@ -12,6 +12,10 @@ export class CreateProductDto {
   @IsOptional() @IsNumber() @Min(0) compareAtPrice?: number;
   @IsOptional() @IsNumber() @Min(0) cost?: number;
   @IsOptional() @IsString() @MaxLength(8) currency?: string;
+  /** Unit of sale (piece, m, kg, bag, sheet, litre). Free string. */
+  @IsOptional() @IsString() @MaxLength(20) unit?: string;
+  /** Allow fractional quantities (cut-to-length cable, weighed cement). */
+  @IsOptional() @IsBoolean() decimalQuantity?: boolean;
   @IsOptional() @IsInt() @Min(0) stock?: number;
   @IsOptional() @IsInt() @Min(0) reservedStock?: number;
   @IsOptional() @IsString() @MaxLength(80) shelf?: string;
@@ -44,6 +48,8 @@ export class UpdateProductDto {
   @IsOptional() @IsNumber() @Min(0) compareAtPrice?: number;
   @IsOptional() @IsNumber() @Min(0) cost?: number;
   @IsOptional() @IsString() @MaxLength(8) currency?: string;
+  @IsOptional() @IsString() @MaxLength(20) unit?: string;
+  @IsOptional() @IsBoolean() decimalQuantity?: boolean;
   @IsOptional() @IsInt() @Min(0) stock?: number;
   @IsOptional() @IsInt() @Min(0) reservedStock?: number;
   @IsOptional() @IsString() @MaxLength(80) shelf?: string;
@@ -69,7 +75,10 @@ export class UpdateProductDto {
 
 export class OrderLineDto {
   @IsUUID() productId!: string;
-  @IsInt() @Min(1) quantity!: number;
+  /** Decimal quantity — fractional values allowed for SKUs marked
+   *  decimalQuantity = true (cut-to-length cable, weighed cement).
+   *  Whole-number SKUs typically send integers. */
+  @IsNumber() @Min(0.0001) quantity!: number;
   /** Per-line price after manager-negotiated discount. When unset the
    *  line is charged at the product's catalog price. Must be ≥ 0; the
    *  service additionally enforces it can't exceed the catalog price

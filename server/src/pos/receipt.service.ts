@@ -52,7 +52,14 @@ export class ReceiptService {
 
     for (const it of items) {
       lines.push(it.productName);
-      const qtyPrice = `${it.quantity} x ${money(it.unitPrice, order.currency)}`;
+      // Format qty with the line's unit. Show 2 decimals only when the
+      // value actually has them — "2 m" stays "2 m", "2.5 m" stays
+      // "2.5 m" — and skip the unit suffix for plain "piece" so we
+      // don't litter receipts with "1 piece x …".
+      const qtyNum = Number(it.quantity);
+      const qtyStr = Number.isInteger(qtyNum) ? String(qtyNum) : qtyNum.toFixed(2).replace(/\.?0+$/, '');
+      const unit = it.unit && it.unit !== 'piece' ? ` ${it.unit}` : '';
+      const qtyPrice = `${qtyStr}${unit} x ${money(it.unitPrice, order.currency)}`;
       lines.push(pad(`  ${qtyPrice}`, money(it.lineTotal, order.currency)));
     }
 

@@ -23,6 +23,7 @@ interface OrderItem {
   id: string;
   productName: string;
   quantity: number;
+  unit?: string;
 }
 
 interface Order {
@@ -156,6 +157,13 @@ export default function MobilePrepare() {
   );
 }
 
+function formatQty(q: number, unit?: string): string {
+  const n = Number(q);
+  const num = Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/\.?0+$/, '');
+  if (!unit || unit === 'piece' || unit === 'pcs') return `${num}×`;
+  return `${num} ${unit}`;
+}
+
 function OrderRow({
   order, now, pending, onAction,
 }: {
@@ -192,7 +200,7 @@ function OrderRow({
       <ul className="space-y-0.5 mb-3">
         {order.items.map((it) => (
           <li key={it.id} className="flex items-baseline gap-2 text-sm text-slate-800">
-            <span className="font-bold tabular-nums w-8 text-right">{it.quantity}×</span>
+            <span className="font-bold tabular-nums w-14 text-right">{formatQty(it.quantity, it.unit)}</span>
             <span className="flex-1 truncate">{it.productName}</span>
           </li>
         ))}
