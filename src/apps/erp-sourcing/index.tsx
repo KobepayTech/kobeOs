@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
 import {
   Globe, Truck, Plus, Search, Eye, Trash2, FileText,
-  Star,
+  Star, Wallet, ArrowRight, Loader2, CheckCircle2, Package,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -210,6 +210,9 @@ export default function ERPSourcing() {
               <TabsTrigger value="po" className="text-xs data-[state=active]:bg-blue-600 data-[state=active]:text-white">
                 <FileText className="w-3 h-3 mr-1" /> Purchase Orders
               </TabsTrigger>
+              <TabsTrigger value="payments" className="text-xs data-[state=active]:bg-blue-600 data-[state=active]:text-white">
+                <Wallet className="w-3 h-3 mr-1" /> Payments
+              </TabsTrigger>
             </TabsList>
           </Tabs>
         </div>
@@ -338,6 +341,10 @@ export default function ERPSourcing() {
               </CardContent>
             </Card>
           </>
+        )}
+
+        {tab === 'payments' && (
+          <PaymentsTab suppliers={suppliers.map((s) => ({ id: String(s.id), name: s.name }))} />
         )}
       </div>
 
@@ -549,6 +556,197 @@ export default function ERPSourcing() {
           )}
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+/* ─────────────────────────── Payments tab ────────────────────────────
+ * Lists supplier payments recorded against this owner — primarily
+ * those created from the KobePay reconciliation modal (kind=PO_PAYMENT
+ * or NEW_GOODS or GENERAL). Each NEW_GOODS row gets a "Promote to PO"
+ * button that calls the backend method to turn the snapshot into a
+ * formal PurchaseOrder.
+ */
+
+interface SupplierPaymentRow {
+  id: string;
+  supplierId: string;
+  supplierName: string;
+  amount: number | string;
+  currency: string;
+  kind: 'PO_PAYMENT' | 'NEW_GOODS' | 'GENERAL';
+  purchaseOrderId?: string | null;
+  payoutId?: string | null;
+  itemsSnapshot?: Array<{ description: string; quantity: number; unitPrice?: number }> | null;
+  notes?: string;
+  paidAt?: string | null;
+  createdAt?: string;
+}
+
+interface SupplierLite { id: string; name: string }
+
+function PaymentsTab({ suppliers }: { suppliers: SupplierLite[] }) {
+  const [activeSupplierId, setActiveSupplierId] = useState<string>('');
+  const [payments, setPayments] = useState<SupplierPaymentRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [promoting, setPromoting] = useState<Record<string, boolean>>({});
+  const [err, setErr] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  // Default to the first supplier so the tab isn't empty on open.
+  useEffect(() => {
+    if (!activeSupplierId && suppliers.length > 0) {
+      setActiveSupplierId(suppliers[0].id);
+    }
+  }, [suppliers, activeSupplierId]);
+
+  useEffect(() => {
+    if (!activeSupplierId) return;
+    let cancelled = false;
+    setLoading(true);
+    setErr(null);
+    api<SupplierPaymentRow[]>(`/erp/sourcing/suppliers/${activeSupplierId}/payments`)
+      .then((rows) => { if (!cancelled) setPayments(Array.isArray(rows) ? rows : []); })
+      .catch((e) => { if (!cancelled) setErr((e as Error).message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [activeSupplierId]);
+
+  const reload = async () => {
+    if (!activeSupplierId) return;
+    try {
+      const rows = await api<SupplierPaymentRow[]>(`/erp/sourcing/suppliers/${activeSupplierId}/payments`);
+      setPayments(Array.isArray(rows) ? rows : []);
+    } catch (e) { setErr((e as Error).message); }
+  };
+
+  const promote = async (payment: SupplierPaymentRow) => {
+    setPromoting((p) => ({ ...p, [payment.id]: true }));
+    setErr(null);
+    try {
+      const res = await api<{ payment: SupplierPaymentRow; po: { poNumber: string }; created: boolean }>(
+        `/erp/sourcing/supplier-payments/${payment.id}/promote-to-po`,
+        { method: 'POST', body: '{}' },
+      );
+      setToast(res.created ? `Created ${res.po.poNumber}` : `Already linked to ${res.po.poNumber}`);
+      setTimeout(() => setToast(null), 3500);
+      await reload();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setPromoting((p) => ({ ...p, [payment.id]: false }));
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Wallet className="w-4 h-4 text-blue-400" />
+          <span className="text-sm font-semibold text-slate-200">Supplier payments</span>
+        </div>
+        <select
+          value={activeSupplierId}
+          onChange={(e) => setActiveSupplierId(e.target.value)}
+          className="h-8 px-2 rounded bg-slate-900 border border-slate-700 text-xs text-slate-200"
+        >
+          <option value="">— pick a supplier —</option>
+          {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+      </div>
+
+      {err && (
+        <div className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded p-2">
+          {err}
+        </div>
+      )}
+      {toast && (
+        <div className="text-xs text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 rounded p-2 inline-flex items-center gap-2">
+          <CheckCircle2 className="w-3.5 h-3.5" /> {toast}
+        </div>
+      )}
+
+      <Card className="bg-slate-900 border-slate-800">
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="p-8 text-center text-slate-400 text-xs">
+              <Loader2 className="w-4 h-4 animate-spin mx-auto mb-2" /> Loading…
+            </div>
+          ) : payments.length === 0 ? (
+            <div className="p-8 text-center text-slate-500 text-xs italic">
+              {activeSupplierId
+                ? 'No payments recorded for this supplier yet. They appear here automatically when you reconcile a KobePay payout against this supplier\'s phone number.'
+                : 'Pick a supplier above to see payments.'}
+            </div>
+          ) : (
+            <ScrollArea className="h-[420px]">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-slate-800">
+                    <TableHead className="text-slate-400 text-xs">Date</TableHead>
+                    <TableHead className="text-slate-400 text-xs">Type</TableHead>
+                    <TableHead className="text-slate-400 text-xs text-right">Amount</TableHead>
+                    <TableHead className="text-slate-400 text-xs">Linked to</TableHead>
+                    <TableHead className="text-slate-400 text-xs">Notes</TableHead>
+                    <TableHead className="text-slate-400 text-xs text-right">Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {payments.map((p) => {
+                    const items = p.itemsSnapshot ?? [];
+                    const itemSummary = items.length === 0
+                      ? '—'
+                      : items.map((l) => `${l.quantity}× ${l.description}`).join(', ');
+                    return (
+                      <TableRow key={p.id} className="border-slate-800 hover:bg-slate-800/30">
+                        <TableCell className="text-xs text-slate-300">
+                          {new Date(p.paidAt ?? p.createdAt ?? Date.now()).toLocaleDateString(undefined, { day: '2-digit', month: 'short' })}
+                        </TableCell>
+                        <TableCell className="text-xs">
+                          <Badge variant="outline" className={
+                            p.kind === 'PO_PAYMENT' ? 'border-emerald-500/40 text-emerald-300' :
+                            p.kind === 'NEW_GOODS'  ? 'border-amber-500/40 text-amber-300'   :
+                                                      'border-slate-500/40 text-slate-300'
+                          }>
+                            {p.kind === 'PO_PAYMENT' ? 'PO payment' : p.kind === 'NEW_GOODS' ? 'New goods' : 'General'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell className="text-xs text-right font-bold text-slate-200">
+                          {p.currency} {Math.round(Number(p.amount)).toLocaleString()}
+                        </TableCell>
+                        <TableCell className="text-xs text-slate-400 max-w-[200px] truncate" title={itemSummary}>
+                          {p.purchaseOrderId
+                            ? <span className="inline-flex items-center gap-1 text-emerald-300"><FileText className="w-3 h-3" /> PO linked</span>
+                            : items.length > 0
+                              ? <span className="inline-flex items-center gap-1"><Package className="w-3 h-3" /> {items.length} item{items.length === 1 ? '' : 's'}</span>
+                              : '—'}
+                        </TableCell>
+                        <TableCell className="text-xs text-slate-400 max-w-[180px] truncate" title={p.notes}>
+                          {p.notes || '—'}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          {p.kind === 'NEW_GOODS' && !p.purchaseOrderId && items.length > 0 && (
+                            <Button
+                              size="sm"
+                              onClick={() => promote(p)}
+                              disabled={!!promoting[p.id]}
+                              className="h-7 bg-amber-500 hover:bg-amber-400 text-amber-950 text-[10px] font-bold"
+                            >
+                              {promoting[p.id]
+                                ? <Loader2 className="w-3 h-3 animate-spin" />
+                                : <><ArrowRight className="w-3 h-3 mr-1" /> Promote to PO</>}
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </ScrollArea>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
