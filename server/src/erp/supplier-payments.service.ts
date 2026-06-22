@@ -214,4 +214,26 @@ export class SupplierPaymentsService {
     );
     return { payment, po, created: true };
   }
+
+  /** Bulk-promote multiple NEW_GOODS payments in a single call. Skips
+   *  rows that aren't eligible (already linked, wrong kind, no
+   *  snapshot) and reports a per-row result so the UI can show a
+   *  "created X, skipped Y" summary. Doesn't bail on the first
+   *  error — each row is independent. */
+  async promoteManyToPos(
+    uid: string,
+    paymentIds: string[],
+    overrides?: { status?: PurchaseOrder['status']; date?: string },
+  ): Promise<Array<{ paymentId: string; ok: boolean; po?: PurchaseOrder; created?: boolean; error?: string }>> {
+    const results: Array<{ paymentId: string; ok: boolean; po?: PurchaseOrder; created?: boolean; error?: string }> = [];
+    for (const id of paymentIds) {
+      try {
+        const { po, created } = await this.promoteToPo(uid, id, overrides);
+        results.push({ paymentId: id, ok: true, po, created });
+      } catch (err) {
+        results.push({ paymentId: id, ok: false, error: (err as Error).message });
+      }
+    }
+    return results;
+  }
 }

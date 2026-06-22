@@ -110,6 +110,23 @@ export class ErpController {
     return this.supplierPayments.promoteToPo(uid, id, overrides);
   }
 
+  /** Bulk-promote — same as promote-to-po but takes an array. Skips
+   *  ineligible rows; per-row result lets the UI show
+   *  "Created 3 POs, 1 already linked, 1 not eligible". */
+  @Post('sourcing/supplier-payments/promote-to-po/bulk')
+  promoteManySupplierPaymentsToPos(
+    @CurrentUser('id') uid: string,
+    @Body() dto: { paymentIds: string[]; status?: 'Delivered' | 'In Transit' | 'Pending' | 'Cancelled'; date?: string },
+  ) {
+    if (!Array.isArray(dto?.paymentIds) || dto.paymentIds.length === 0) {
+      throw new BadRequestException('paymentIds must be a non-empty array');
+    }
+    return this.supplierPayments.promoteManyToPos(uid, dto.paymentIds, {
+      status: dto.status,
+      date: dto.date,
+    });
+  }
+
   /**
    * Adjust a loyalty customer's points (positive = earned, negative =
    * redeemed). Persists across reloads so the Loyalty Program tab

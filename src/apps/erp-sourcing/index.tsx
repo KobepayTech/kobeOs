@@ -592,6 +592,15 @@ function PaymentsTab({ suppliers }: { suppliers: SupplierLite[] }) {
   const [promoting, setPromoting] = useState<Record<string, boolean>>({});
   const [err, setErr] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkRunning, setBulkRunning] = useState(false);
+
+  /** A row is eligible for promotion when it's a NEW_GOODS payment that
+   *  isn't already linked to a PO and has an item snapshot. Mirrors the
+   *  backend's refusal conditions so the checkboxes only appear where
+   *  the action would actually succeed. */
+  const eligible = (p: SupplierPaymentRow) =>
+    p.kind === 'NEW_GOODS' && !p.purchaseOrderId && (p.itemsSnapshot?.length ?? 0) > 0;
 
   // Default to the first supplier so the tab isn't empty on open.
   useEffect(() => {
@@ -605,12 +614,55 @@ function PaymentsTab({ suppliers }: { suppliers: SupplierLite[] }) {
     let cancelled = false;
     setLoading(true);
     setErr(null);
+    setSelected(new Set());     // reset selection when supplier changes
     api<SupplierPaymentRow[]>(`/erp/sourcing/suppliers/${activeSupplierId}/payments`)
       .then((rows) => { if (!cancelled) setPayments(Array.isArray(rows) ? rows : []); })
       .catch((e) => { if (!cancelled) setErr((e as Error).message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [activeSupplierId]);
+
+  const eligibleRows = payments.filter(eligible);
+  const allSelected = eligibleRows.length > 0 && eligibleRows.every((r) => selected.has(r.id));
+
+  const toggleOne = (id: string, on: boolean) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id); else next.delete(id);
+      return next;
+    });
+  };
+  const toggleAll = () => {
+    setSelected(allSelected ? new Set() : new Set(eligibleRows.map((r) => r.id)));
+  };
+
+  const bulkPromote = async () => {
+    if (selected.size === 0) return;
+    setBulkRunning(true);
+    setErr(null);
+    try {
+      const results = await api<Array<{ paymentId: string; ok: boolean; created?: boolean; po?: { poNumber: string }; error?: string }>>(
+        '/erp/sourcing/supplier-payments/promote-to-po/bulk',
+        { method: 'POST', body: JSON.stringify({ paymentIds: Array.from(selected) }) },
+      );
+      const created = results.filter((r) => r.ok && r.created).length;
+      const already = results.filter((r) => r.ok && !r.created).length;
+      const failed = results.filter((r) => !r.ok).length;
+      const parts = [
+        created > 0 && `created ${created}`,
+        already > 0 && `${already} already linked`,
+        failed > 0 && `${failed} failed`,
+      ].filter(Boolean);
+      setToast(`Bulk promote — ${parts.join(', ')}`);
+      setTimeout(() => setToast(null), 4500);
+      setSelected(new Set());
+      await reload();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBulkRunning(false);
+    }
+  };
 
   const reload = async () => {
     if (!activeSupplierId) return;
@@ -640,19 +692,34 @@ function PaymentsTab({ suppliers }: { suppliers: SupplierLite[] }) {
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <div className="flex items-center gap-2">
           <Wallet className="w-4 h-4 text-blue-400" />
           <span className="text-sm font-semibold text-slate-200">Supplier payments</span>
         </div>
-        <select
-          value={activeSupplierId}
-          onChange={(e) => setActiveSupplierId(e.target.value)}
-          className="h-8 px-2 rounded bg-slate-900 border border-slate-700 text-xs text-slate-200"
-        >
-          <option value="">— pick a supplier —</option>
-          {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-        </select>
+        <div className="flex items-center gap-2">
+          {selected.size > 0 && (
+            <Button
+              size="sm"
+              onClick={bulkPromote}
+              disabled={bulkRunning}
+              className="h-8 bg-amber-500 hover:bg-amber-400 text-amber-950 text-xs font-bold"
+            >
+              {bulkRunning
+                ? <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                : <ArrowRight className="w-3 h-3 mr-1" />}
+              Promote {selected.size} to PO{selected.size === 1 ? '' : 's'}
+            </Button>
+          )}
+          <select
+            value={activeSupplierId}
+            onChange={(e) => setActiveSupplierId(e.target.value)}
+            className="h-8 px-2 rounded bg-slate-900 border border-slate-700 text-xs text-slate-200"
+          >
+            <option value="">— pick a supplier —</option>
+            {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+        </div>
       </div>
 
       {err && (
@@ -683,6 +750,17 @@ function PaymentsTab({ suppliers }: { suppliers: SupplierLite[] }) {
               <Table>
                 <TableHeader>
                   <TableRow className="border-slate-800">
+                    <TableHead className="w-8 text-center">
+                      {eligibleRows.length > 0 && (
+                        <input
+                          type="checkbox"
+                          checked={allSelected}
+                          onChange={toggleAll}
+                          className="accent-amber-500"
+                          title="Select all NEW_GOODS rows"
+                        />
+                      )}
+                    </TableHead>
                     <TableHead className="text-slate-400 text-xs">Date</TableHead>
                     <TableHead className="text-slate-400 text-xs">Type</TableHead>
                     <TableHead className="text-slate-400 text-xs text-right">Amount</TableHead>
@@ -697,8 +775,20 @@ function PaymentsTab({ suppliers }: { suppliers: SupplierLite[] }) {
                     const itemSummary = items.length === 0
                       ? '—'
                       : items.map((l) => `${l.quantity}× ${l.description}`).join(', ');
+                    const canPromote = eligible(p);
                     return (
-                      <TableRow key={p.id} className="border-slate-800 hover:bg-slate-800/30">
+                      <TableRow key={p.id} className={`border-slate-800 hover:bg-slate-800/30 ${selected.has(p.id) ? 'bg-amber-500/[0.05]' : ''}`}>
+                        <TableCell className="text-center">
+                          {canPromote && (
+                            <input
+                              type="checkbox"
+                              checked={selected.has(p.id)}
+                              onChange={(e) => toggleOne(p.id, e.target.checked)}
+                              className="accent-amber-500"
+                              disabled={!!promoting[p.id] || bulkRunning}
+                            />
+                          )}
+                        </TableCell>
                         <TableCell className="text-xs text-slate-300">
                           {new Date(p.paidAt ?? p.createdAt ?? Date.now()).toLocaleDateString(undefined, { day: '2-digit', month: 'short' })}
                         </TableCell>
@@ -725,11 +815,11 @@ function PaymentsTab({ suppliers }: { suppliers: SupplierLite[] }) {
                           {p.notes || '—'}
                         </TableCell>
                         <TableCell className="text-right">
-                          {p.kind === 'NEW_GOODS' && !p.purchaseOrderId && items.length > 0 && (
+                          {canPromote && (
                             <Button
                               size="sm"
                               onClick={() => promote(p)}
-                              disabled={!!promoting[p.id]}
+                              disabled={!!promoting[p.id] || bulkRunning}
                               className="h-7 bg-amber-500 hover:bg-amber-400 text-amber-950 text-[10px] font-bold"
                             >
                               {promoting[p.id]
