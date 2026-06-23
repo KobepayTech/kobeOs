@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Outlet, Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
-  ShoppingCart, ClipboardList, Calculator, NotebookPen, Boxes, Receipt, LogOut, User, Loader2, Sparkles, ChefHat,
+  ShoppingCart, ClipboardList, Calculator, NotebookPen, Boxes, Receipt, LogOut, User, Loader2, Sparkles, ChefHat, Plane,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { ensureSession } from '@/lib/auth';
@@ -24,6 +24,7 @@ const TABS: Array<{ to: string; label: string; Icon: typeof ShoppingCart }> = [
   { to: 'inventory', label: 'Stock',     Icon: Boxes },
   { to: 'orders',    label: 'Orders',    Icon: Receipt },
   { to: 'prepare',   label: 'Prepare',   Icon: ChefHat },
+  { to: 'cargo',     label: 'Cargo',     Icon: Plane },
 ];
 
 export default function MobileShell() {

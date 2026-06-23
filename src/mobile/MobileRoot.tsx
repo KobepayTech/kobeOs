@@ -8,6 +8,7 @@ import MobileSummary from './MobileSummary';
 import MobileInventory from './MobileInventory';
 import MobileOrders from './MobileOrders';
 import MobilePrepare from './MobilePrepare';
+import MobileCargo from './MobileCargo';
 
 /**
  * Self-contained router for the /m/:slug mobile webapp. main.tsx dispatches
@@ -29,6 +30,7 @@ export default function MobileRoot() {
           <Route path="inventory" element={<MobileInventory />} />
           <Route path="orders" element={<MobileOrders />} />
           <Route path="prepare" element={<MobilePrepare />} />
+          <Route path="cargo" element={<MobileCargo />} />
         </Route>
       </Routes>
     </BrowserRouter>

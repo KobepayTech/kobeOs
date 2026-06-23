@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { CargoTrackingService, PublicTrackResult } from './cargo-tracking.service';
+import { CargoBookingService, Quote, QuoteInput } from './cargo-booking.service';
 
 /**
  * Public tracking lookup — auth-free, called by the /track/{ref}
@@ -54,5 +55,24 @@ export class CargoPreAlertsController {
     @Body() dto: { weight?: number; packageCount?: number },
   ) {
     return this.svc.receivePreAlert(uid, tracking, dto);
+  }
+}
+
+/**
+ * Quote endpoint — given a lane + weight (+ optional dims), returns
+ * total price + next dispatch date. Drives the mobile booking screen
+ * and shows the customer cost before they commit.
+ */
+@UseGuards(JwtAuthGuard)
+@Controller('cargo/booking')
+export class CargoBookingController {
+  constructor(private readonly svc: CargoBookingService) {}
+
+  @Post('quote')
+  quote(
+    @CurrentUser('id') uid: string,
+    @Body() dto: QuoteInput,
+  ): Promise<Quote> {
+    return this.svc.quote(uid, dto);
   }
 }
