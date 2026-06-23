@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ConsolidationBox, Parcel, ParcelLifecycleStatus, Shipment } from './cargo.entity';
+import { Fr24Service } from './fr24.service';
 
 /**
  * Public-facing tracking lookup — no auth, accepts any of:
@@ -27,6 +28,10 @@ export interface PublicTrackResult {
   etd?: string | null;
   eta?: string | null;
   shipmentStatus?: string | null;
+  /** Live flight position when IN_TRANSIT — null when there's no
+   *  flight attached, no FR24 plan, or the upstream call failed.
+   *  The tracking page uses this to embed an OpenStreetMap marker. */
+  livePosition?: { latitude: number; longitude: number; altitude?: number | null; speedKts?: number | null } | null;
   /** Human-readable timeline derived from status + timestamps for the
    *  customer-facing UI. */
   timeline: Array<{ stage: string; at?: string | null; current: boolean }>;
@@ -43,7 +48,25 @@ export class CargoTrackingService {
     @InjectRepository(Parcel)            private readonly parcels: Repository<Parcel>,
     @InjectRepository(ConsolidationBox)  private readonly boxes:   Repository<ConsolidationBox>,
     @InjectRepository(Shipment)          private readonly shipments: Repository<Shipment>,
+    private readonly fr24: Fr24Service,
   ) {}
+
+  /** Best-effort live flight position from FR24. Returns null when
+   *  FR24 isn't configured, the flight isn't found, or anything
+   *  upstream fails. */
+  private async livePosition(flightNumber: string | null | undefined) {
+    if (!flightNumber) return null;
+    try {
+      const flight = await this.fr24.flightByNumber(flightNumber);
+      if (!flight || flight.latitude == null || flight.longitude == null) return null;
+      return {
+        latitude: Number(flight.latitude),
+        longitude: Number(flight.longitude),
+        altitude: flight.altitude ?? null,
+        speedKts: flight.groundSpeed ?? null,
+      };
+    } catch { return null; }
+  }
 
   async lookup(reference: string): Promise<PublicTrackResult> {
     const ref = (reference ?? '').trim();
@@ -73,6 +96,7 @@ export class CargoTrackingService {
         etd: shipment.etd?.toISOString?.() ?? null,
         eta: shipment.eta?.toISOString?.() ?? null,
         shipmentStatus: shipment.status,
+        livePosition: await this.livePosition(shipment.flightNumber),
         timeline: this.buildTimeline('IN_TRANSIT'),
       };
     }
@@ -88,6 +112,12 @@ export class CargoTrackingService {
         shipment = await this.shipments.findOne({ where: { id: box.shipmentId } });
       }
     }
+    // Only fetch live position when the parcel is in flight — saves an
+    // FR24 quota hit on every refresh of a parcel that's still in
+    // storage or already delivered.
+    const livePosition = p.lifecycleStatus === 'IN_TRANSIT'
+      ? await this.livePosition(shipment?.flightNumber ?? null)
+      : null;
     return {
       reference: p.parcelId,
       status: p.lifecycleStatus,
@@ -101,6 +131,7 @@ export class CargoTrackingService {
       etd: shipment?.etd?.toISOString?.() ?? null,
       eta: shipment?.eta?.toISOString?.() ?? null,
       shipmentStatus: shipment?.status ?? null,
+      livePosition,
       timeline: this.buildTimeline(p.lifecycleStatus, {
         PRE_ALERTED: p.preAlertedAt?.toISOString?.() ?? null,
       }),

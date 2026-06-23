@@ -11,6 +11,7 @@ import {
   Shipment,
 } from './cargo.entity';
 import { CargoGateway } from './cargo.gateway';
+import { NotificationsService } from '../notifications/notifications.service';
 
 /**
  * Operator-facing workflow for the upgraded cargo flow:
@@ -42,7 +43,18 @@ export class CargoConsolidationService {
     @InjectRepository(Parcel)            private readonly parcels:   Repository<Parcel>,
     @InjectRepository(Shipment)          private readonly shipments: Repository<Shipment>,
     private readonly gateway: CargoGateway,
+    private readonly notifications: NotificationsService,
   ) {}
+
+  /** Best-effort fan-out: load every parcel in a box and fire the
+   *  customer-facing SMS+WhatsApp on the new status. Swallows errors
+   *  so a Beem outage never blocks a warehouse transition. */
+  private async notifyBoxParcels(uid: string, boxId: string, status: ParcelLifecycleStatus) {
+    try {
+      const parcels = await this.parcels.find({ where: { ownerId: uid, boxId } });
+      await Promise.allSettled(parcels.map((p) => this.notifications.notifyParcelLifecycle(p, status)));
+    } catch { /* notifications are best-effort */ }
+  }
 
   // ── Customers ─────────────────────────────────────────────────────────────
 
@@ -218,6 +230,7 @@ export class CargoConsolidationService {
       { ownerId: uid, boxId: box.id, lifecycleStatus: 'FOR_CONSOLIDATION' },
       { lifecycleStatus: 'CONSOLIDATED' },
     );
+    void this.notifyBoxParcels(uid, box.id, 'CONSOLIDATED');
     return box;
   }
 
@@ -250,6 +263,7 @@ export class CargoConsolidationService {
       { lifecycleStatus: 'IN_TRANSIT' },
     );
     try { this.gateway.emitShipment(uid, shipment, 'created'); } catch { /* socket — best effort */ }
+    void this.notifyBoxParcels(uid, box.id, 'IN_TRANSIT');
     return { box, shipment };
   }
 
@@ -267,7 +281,41 @@ export class CargoConsolidationService {
       { ownerId: uid, boxId: box.id, lifecycleStatus: 'IN_TRANSIT' },
       { lifecycleStatus: 'OVERSEAS_RECEIVED' },
     );
+    void this.notifyBoxParcels(uid, box.id, 'OVERSEAS_RECEIVED');
     return box;
+  }
+
+  // ── Customer wallet (top-up + debit) ─────────────────────────────────────
+
+  /** Add credit to a customer's wallet — typically called after a
+   *  KobePay deposit clears. notes records the source so the audit
+   *  trail shows where each credit came from. */
+  async creditCustomer(uid: string, customerId: string, amount: number, notes?: string): Promise<CargoCustomer> {
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException('amount must be > 0');
+    }
+    const customer = await this.customers.findOne({ where: { id: customerId, ownerId: uid } });
+    if (!customer) throw new NotFoundException('Customer not found');
+    customer.balance = parseFloat((Number(customer.balance) + amount).toFixed(4));
+    if (notes) customer.notes = `${customer.notes ? customer.notes + '\n' : ''}+${amount} ${customer.currency}: ${notes}`;
+    return this.customers.save(customer);
+  }
+
+  /** Debit the wallet — refuses to go below zero (use a separate
+   *  GENERAL supplier payment for credit-on-account flows). */
+  async debitCustomer(uid: string, customerId: string, amount: number, notes?: string): Promise<CargoCustomer> {
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException('amount must be > 0');
+    }
+    const customer = await this.customers.findOne({ where: { id: customerId, ownerId: uid } });
+    if (!customer) throw new NotFoundException('Customer not found');
+    const next = parseFloat((Number(customer.balance) - amount).toFixed(4));
+    if (next < 0) {
+      throw new BadRequestException(`Insufficient balance (have ${customer.balance}, need ${amount})`);
+    }
+    customer.balance = next;
+    if (notes) customer.notes = `${customer.notes ? customer.notes + '\n' : ''}-${amount} ${customer.currency}: ${notes}`;
+    return this.customers.save(customer);
   }
 
   private async recountBox(uid: string, boxId: string) {

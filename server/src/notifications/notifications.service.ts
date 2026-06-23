@@ -44,20 +44,75 @@ export class NotificationsService {
     void shipment; void kind; void previousStatus;
   }
 
+  /**
+   * Customer-facing lifecycle nudge — fires SMS + WhatsApp on each
+   * parcel state change (CONSOLIDATED, IN_TRANSIT, OVERSEAS_RECEIVED,
+   * READY_FOR_PICKUP, DELIVERED). Kept separate from notifyParcelEvent
+   * above (which is cargo-internal "created/status/assignment") so the
+   * copy reads natural to a non-technical customer.
+   */
+  async notifyParcelLifecycle(
+    parcel: Parcel,
+    newStatus: string,
+  ): Promise<void> {
+    const phone = parcel.ownerPhone?.trim();
+    if (!phone) return;
+    const ref = parcel.parcelId || parcel.id;
+    const trackUrl = process.env.APP_PUBLIC_URL
+      ? `${process.env.APP_PUBLIC_URL.replace(/\/$/, '')}/track/${ref}`
+      : `/track/${ref}`;
+    const msg = lifecycleMessage(newStatus, ref, trackUrl);
+    if (!msg) return;
+    await Promise.allSettled([
+      this.beem.sendSms(phone, msg),
+      this.beem.sendWhatsApp(phone, msg),
+    ]);
+  }
+
   private formatParcelMessage(
     parcel: Parcel,
     kind: CargoEventKind,
     previousStatus?: string,
   ): string {
-    if (kind === 'created') {
-      return `KobeCargo: Parcel ${parcel.parcelId} registered for ${parcel.ownerName}. Destination: ${parcel.destination}.`;
-    }
-    if (kind === 'status') {
-      const human = parcel.status.replace(/_/g, ' ').toLowerCase();
-      return `KobeCargo: Parcel ${parcel.parcelId} update — now ${human}${
-        previousStatus ? ` (was ${previousStatus.replace(/_/g, ' ').toLowerCase()})` : ''
-      }.`;
-    }
-    return `KobeCargo: Parcel ${parcel.parcelId} updated.`;
+    void this; // see lifecycleMessage below for the customer-facing copy
+    return formatInternalMessage(parcel, kind, previousStatus);
   }
+}
+
+/** Customer-facing copy keyed by lifecycle status. Returns null for
+ *  stages that don't warrant a notification (e.g. AWAITING_STORAGE
+ *  fires too often; ON_HOLD is operator-only). Each message ends
+ *  with the public tracking URL so the customer can deep-link. */
+function lifecycleMessage(status: string, ref: string, trackUrl: string): string | null {
+  switch (status) {
+    case 'PRE_ALERTED':
+      return `KobeCargo: We're expecting your parcel (${ref}). We'll notify you when it reaches our warehouse. Track: ${trackUrl}`;
+    case 'STORED':
+      return `KobeCargo: Your parcel ${ref} has arrived at our warehouse and is in storage. ${trackUrl}`;
+    case 'CONSOLIDATED':
+      return `KobeCargo: Your parcel ${ref} has been packed and is ready to ship. ${trackUrl}`;
+    case 'IN_TRANSIT':
+      return `KobeCargo: Your parcel ${ref} has been dispatched. Track it live: ${trackUrl}`;
+    case 'OVERSEAS_RECEIVED':
+      return `KobeCargo: Your parcel ${ref} has arrived at the destination. Customs clearance in progress. ${trackUrl}`;
+    case 'READY_FOR_PICKUP':
+      return `KobeCargo: Your parcel ${ref} is ready for pickup. Bring this reference + ID. ${trackUrl}`;
+    case 'DELIVERED':
+      return `KobeCargo: Your parcel ${ref} has been delivered. Thank you! ${trackUrl}`;
+    default:
+      return null;
+  }
+}
+
+function formatInternalMessage(parcel: Parcel, kind: CargoEventKind, previousStatus?: string): string {
+  if (kind === 'created') {
+    return `KobeCargo: Parcel ${parcel.parcelId} registered for ${parcel.ownerName}. Destination: ${parcel.destination}.`;
+  }
+  if (kind === 'status') {
+    const human = parcel.status.replace(/_/g, ' ').toLowerCase();
+    return `KobeCargo: Parcel ${parcel.parcelId} update — now ${human}${
+      previousStatus ? ` (was ${previousStatus.replace(/_/g, ' ').toLowerCase()})` : ''
+    }.`;
+  }
+  return `KobeCargo: Parcel ${parcel.parcelId} updated.`;
 }

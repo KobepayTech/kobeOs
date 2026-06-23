@@ -27,6 +27,7 @@ interface TrackResult {
   etd?: string | null;
   eta?: string | null;
   shipmentStatus?: string | null;
+  livePosition?: { latitude: number; longitude: number; altitude?: number | null; speedKts?: number | null } | null;
   timeline: Array<{ stage: string; at?: string | null; current: boolean }>;
 }
 
@@ -154,6 +155,29 @@ export default function CargoTrack() {
               </div>
             </div>
 
+            {/* Live flight map — only when FR24 returned a position. */}
+            {result.livePosition && (
+              <div className="rounded-2xl bg-white/[0.03] border border-white/[0.06] overflow-hidden">
+                <div className="px-5 pt-4 pb-2 flex items-baseline justify-between">
+                  <div className="text-xs font-bold text-white/60 uppercase tracking-wide inline-flex items-center gap-1.5">
+                    <Plane className="w-3.5 h-3.5" /> Live flight position
+                  </div>
+                  <div className="text-[10px] text-white/50 tabular-nums">
+                    {result.livePosition.altitude != null && <>alt {Math.round(result.livePosition.altitude).toLocaleString()} ft · </>}
+                    {result.livePosition.speedKts != null && <>{Math.round(result.livePosition.speedKts)} kts</>}
+                  </div>
+                </div>
+                <iframe
+                  title="Flight position"
+                  className="w-full h-64 border-0"
+                  src={openStreetMapEmbed(result.livePosition.latitude, result.livePosition.longitude)}
+                />
+                <div className="px-5 py-2 text-[10px] text-white/40">
+                  © OpenStreetMap contributors · Position via FR24 (cached ~5 min)
+                </div>
+              </div>
+            )}
+
             {/* Timeline */}
             <div className="rounded-2xl bg-white/[0.03] border border-white/[0.06] p-5">
               <div className="text-xs font-bold text-white/60 uppercase tracking-wide mb-3">Journey</div>
@@ -220,4 +244,12 @@ function formatDate(iso: string): string {
   } catch {
     return iso;
   }
+}
+
+/** OpenStreetMap embed URL with a centred marker. Free, no API key,
+ *  works offline if the customer has cached the iframe before. */
+function openStreetMapEmbed(lat: number, lon: number): string {
+  const span = 4; // degrees — comfortable view of the surrounding region
+  const bbox = `${lon - span},${lat - span},${lon + span},${lat + span}`;
+  return `https://www.openstreetmap.org/export/embed.html?bbox=${encodeURIComponent(bbox)}&layer=mapnik&marker=${lat},${lon}`;
 }

@@ -17,6 +17,7 @@ import { CargoConsolidationController } from './cargo-consolidation.controller';
 import { CargoBookingController, CargoPreAlertsController, CargoPublicTrackingController } from './cargo-tracking.controller';
 import { CargoGateway } from './cargo.gateway';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { AirCargoModule } from './air-cargo.module';
 
 @Module({
   imports: [
@@ -32,6 +33,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
       }),
     }),
     NotificationsModule,
+    AirCargoModule,
   ],
   providers: [
     ParcelsService, ShipmentsService, DriversService, FlightsService,

@@ -26,6 +26,20 @@ export class CargoConsolidationController {
     @Body() dto: { name: string; phone: string; country?: string; notes?: string },
   ) { return this.svc.createCustomer(uid, dto); }
 
+  @Post('customers/:id/credit')
+  creditCustomer(
+    @CurrentUser('id') uid: string,
+    @Param('id') id: string,
+    @Body() dto: { amount: number; notes?: string },
+  ) { return this.svc.creditCustomer(uid, id, dto.amount, dto.notes); }
+
+  @Post('customers/:id/debit')
+  debitCustomer(
+    @CurrentUser('id') uid: string,
+    @Param('id') id: string,
+    @Body() dto: { amount: number; notes?: string },
+  ) { return this.svc.debitCustomer(uid, id, dto.amount, dto.notes); }
+
   // ── Lanes ───────────────────────────────────────────────────────────────
   @Get('lanes')
   listLanes(@CurrentUser('id') uid: string) { return this.svc.listLanes(uid); }
