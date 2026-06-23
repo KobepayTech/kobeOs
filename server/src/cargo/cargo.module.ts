@@ -10,8 +10,10 @@ import {
   CargoPaymentsService, DriversService, FlightsService, ParcelsService, ShipmentsService,
 } from './cargo.service';
 import { CargoConsolidationService } from './cargo-consolidation.service';
+import { CargoTrackingService } from './cargo-tracking.service';
 import { CargoController } from './cargo.controller';
 import { CargoConsolidationController } from './cargo-consolidation.controller';
+import { CargoPreAlertsController, CargoPublicTrackingController } from './cargo-tracking.controller';
 import { CargoGateway } from './cargo.gateway';
 import { NotificationsModule } from '../notifications/notifications.module';
 
@@ -33,11 +35,15 @@ import { NotificationsModule } from '../notifications/notifications.module';
   providers: [
     ParcelsService, ShipmentsService, DriversService, FlightsService,
     CargoPaymentsService, CargoGateway, CargoConsolidationService,
+    CargoTrackingService,
   ],
-  controllers: [CargoController, CargoConsolidationController],
+  controllers: [
+    CargoController, CargoConsolidationController,
+    CargoPublicTrackingController, CargoPreAlertsController,
+  ],
   exports: [
     ParcelsService, ShipmentsService, DriversService, FlightsService, CargoPaymentsService,
-    CargoConsolidationService,
+    CargoConsolidationService, CargoTrackingService,
   ],
 })
 export class CargoModule {}

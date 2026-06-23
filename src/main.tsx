@@ -25,6 +25,10 @@ const isMobileWebapp = pathname.startsWith('/m/');
 // for the warehouse / kitchen / back-of-house. No OS shell, big fonts,
 // dark background, designed for a 1080p TV viewed from 3 m.
 const isKdsDisplay = pathname.startsWith('/display/orders');
+// Public cargo tracking page — no auth, anyone with a parcel/shipment
+// reference number can see the lifecycle status. Designed to be
+// shareable over WhatsApp (https://app.kobeapptz.com/track/PA-XXXXXX).
+const isPublicTracking = pathname.startsWith('/track/');
 
 if (isOverlay) {
   // Lazy-load to keep the main bundle lean
@@ -50,6 +54,10 @@ if (isOverlay) {
 } else if (isKdsDisplay) {
   import('./apps/pos-kds/KdsDisplay').then(({ default: KdsDisplay }) => {
     createRoot(document.getElementById('root')!).render(<KdsDisplay />);
+  });
+} else if (isPublicTracking) {
+  import('./public/CargoTrack').then(({ default: CargoTrack }) => {
+    createRoot(document.getElementById('root')!).render(<CargoTrack />);
   });
 } else {
   createRoot(document.getElementById('root')!).render(<Desktop />);
