@@ -29,6 +29,9 @@ const isKdsDisplay = pathname.startsWith('/display/orders');
 // reference number can see the lifecycle status. Designed to be
 // shareable over WhatsApp (https://app.kobeapptz.com/track/PA-XXXXXX).
 const isPublicTracking = pathname.startsWith('/track/');
+// Customer self-serve portal — phone + OTP login, then dashboard of
+// own parcels, POS purchases, loyalty points, and cargo wallet.
+const isCustomerPortal = pathname.startsWith('/me');
 
 if (isOverlay) {
   // Lazy-load to keep the main bundle lean
@@ -58,6 +61,10 @@ if (isOverlay) {
 } else if (isPublicTracking) {
   import('./public/CargoTrack').then(({ default: CargoTrack }) => {
     createRoot(document.getElementById('root')!).render(<CargoTrack />);
+  });
+} else if (isCustomerPortal) {
+  import('./public/CustomerPortal').then(({ default: CustomerPortal }) => {
+    createRoot(document.getElementById('root')!).render(<CustomerPortal />);
   });
 } else {
   createRoot(document.getElementById('root')!).render(<Desktop />);
