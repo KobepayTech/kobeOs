@@ -129,6 +129,10 @@ export function SendMoneyWizard({
 
   const [rates, setRates] = useState<RateRow[]>([]);
   const [ratesLoaded, setRatesLoaded] = useState(false);
+  /** Live FX from /api/fx/current — used when the operator hasn't set
+   *  a house rate for the (send, recv) pair. Source tells the UI
+   *  whether to display a "fallback rate" warning. */
+  const [liveFx, setLiveFx] = useState<{ rate: number; source: 'live' | 'cached' | 'fallback'; fetchedAt: string } | null>(null);
   const [scanning, setScanning] = useState(false);
   const [scanHint, setScanHint] = useState<string | null>(null);
 
@@ -166,12 +170,35 @@ export function SendMoneyWizard({
     return base.filter((c) => c.name.toLowerCase().includes(q) || c.subtitle.toLowerCase().includes(q));
   }, [contacts, search, isReceive]);
 
+  // Resolution order:
+  //   1. Operator-set "house rate" (KobePayRatesService)
+  //   2. Live FX from /api/fx/current (ECB-backed, cached 6h server-side)
+  //   3. Hardcoded FX_FALLBACK (last-resort, displays a warning)
   const resolvedRate = useMemo(() => {
     const real = lookupRate(rates, sendCurrency, recvCurrency);
-    if (real != null && Number.isFinite(real) && real > 0) return { rate: real, source: 'live' as const };
+    if (real != null && Number.isFinite(real) && real > 0) return { rate: real, source: 'house' as const };
+    if (liveFx && liveFx.rate > 0) return { rate: liveFx.rate, source: liveFx.source };
     const fall = (FX_FALLBACK[recvCurrency] ?? 1) / (FX_FALLBACK[sendCurrency] ?? 1);
-    return { rate: fall, source: 'fallback' as const };
-  }, [rates, sendCurrency, recvCurrency]);
+    return { rate: fall, source: 'frontend-fallback' as const };
+  }, [rates, sendCurrency, recvCurrency, liveFx]);
+
+  // Pull a fresh live rate whenever the pair changes. Skipped if the
+  // operator has already set a house rate for this exact pair.
+  useEffect(() => {
+    if (!open) return;
+    if (sendCurrency === recvCurrency) { setLiveFx({ rate: 1, source: 'live', fetchedAt: new Date().toISOString() }); return; }
+    if (lookupRate(rates, sendCurrency, recvCurrency) != null) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await api<{ rate: number; source: 'live' | 'cached' | 'fallback'; fetchedAt: string }>(
+          `/fx/current?from=${encodeURIComponent(sendCurrency)}&to=${encodeURIComponent(recvCurrency)}`,
+        );
+        if (!cancelled) setLiveFx(data);
+      } catch { /* keep prior liveFx; UI falls through to hardcoded */ }
+    })();
+    return () => { cancelled = true; };
+  }, [open, sendCurrency, recvCurrency, rates]);
 
   const sendNum = Number.parseFloat(sendAmount) || 0;
   const recvNum = sendNum * resolvedRate.rate;
@@ -524,8 +551,16 @@ export function SendMoneyWizard({
                     </div>
                     <p className="text-[11px] text-slate-500">
                       1 {sendCurrency} ≈ {resolvedRate.rate.toFixed(4)} {recvCurrency}
-                      <span className={`ml-2 inline-block text-[10px] px-1.5 py-0.5 rounded ${resolvedRate.source === 'live' ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
-                        {resolvedRate.source === 'live' ? 'live rate' : 'fallback'}
+                      <span className={`ml-2 inline-block text-[10px] px-1.5 py-0.5 rounded ${
+                        resolvedRate.source === 'house' || resolvedRate.source === 'live' ? 'bg-emerald-50 text-emerald-700' :
+                        resolvedRate.source === 'cached'   ? 'bg-blue-50 text-blue-700'      :
+                                                             'bg-amber-50 text-amber-700'
+                      }`}>
+                        {resolvedRate.source === 'house'             ? 'house rate'    :
+                         resolvedRate.source === 'live'              ? 'live'          :
+                         resolvedRate.source === 'cached'            ? 'cached (6h)'   :
+                         resolvedRate.source === 'fallback'          ? 'fallback'      :
+                                                                       'fallback (stale)'}
                       </span>
                     </p>
                     <hr className="border-slate-100" />

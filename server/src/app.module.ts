@@ -26,6 +26,7 @@ import { EodModule } from './eod/eod.module';
 import { PropertyModule } from './property/property.module';
 import { PosModule } from './pos/pos.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { FxModule } from './fx/fx.module';
 import { WarehouseModule } from './warehouse/warehouse.module';
 import { DiscountsModule } from './discounts/discount.module';
 import { PaymentsModule } from './payments/payments.module';
@@ -111,6 +112,7 @@ import { SocialSchedulerModule } from './social-scheduler/social-scheduler.modul
     PropertyModule,
     PosModule,
     NotificationsModule,
+    FxModule,
     WarehouseModule,
     DiscountsModule,
     PaymentsModule,
