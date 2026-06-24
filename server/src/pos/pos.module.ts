@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { PosOrder, PosOrderItem, PosProduct } from './pos.entity';
 import { OrdersService, ProductsService } from './pos.service';
+import { ReorderService } from './reorder.service';
 import { PosController } from './pos.controller';
 import { ReceiptService } from './receipt.service';
 import { PosGateway } from './pos.gateway';
@@ -29,7 +30,7 @@ import { ErpModule } from '../erp/erp.module';
     CreditModule,
     ErpModule,
   ],
-  providers: [ProductsService, OrdersService, ReceiptService, PosGateway],
+  providers: [ProductsService, OrdersService, ReceiptService, PosGateway, ReorderService],
   controllers: [PosController],
   exports: [OrdersService],
 })

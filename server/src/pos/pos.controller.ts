@@ -1,7 +1,8 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { OrdersService, ProductsService } from './pos.service';
+import { ReorderService } from './reorder.service';
 import { CreateOrderDto, CreateProductDto, UpdateOrderDto, UpdateProductDto } from './dto/pos.dto';
 
 @UseGuards(JwtAuthGuard)
@@ -10,7 +11,24 @@ export class PosController {
   constructor(
     private readonly products: ProductsService,
     private readonly orders: OrdersService,
+    private readonly reorder: ReorderService,
   ) {}
+
+  /** Reorder suggestions — feeds the "what should I restock" widget.
+   *  Tunable via query params for stock-experiment runs. */
+  @Get('reorder-suggestions')
+  reorderSuggestions(
+    @CurrentUser('id') uid: string,
+    @Query('windowDays')    windowDays?: string,
+    @Query('leadTimeDays')  leadTimeDays?: string,
+    @Query('targetCoverDays') targetCoverDays?: string,
+  ) {
+    return this.reorder.suggestions(uid, {
+      windowDays:    windowDays    ? Number(windowDays)    : undefined,
+      leadTimeDays:  leadTimeDays  ? Number(leadTimeDays)  : undefined,
+      targetCoverDays: targetCoverDays ? Number(targetCoverDays) : undefined,
+    });
+  }
 
   @Get('products') listProducts(@CurrentUser('id') uid: string) { return this.products.list(uid); }
   @Get('products/:id') getProduct(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.products.get(uid, id); }

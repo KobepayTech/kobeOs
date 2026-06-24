@@ -213,6 +213,9 @@ export default function ERPSourcing() {
               <TabsTrigger value="payments" className="text-xs data-[state=active]:bg-blue-600 data-[state=active]:text-white">
                 <Wallet className="w-3 h-3 mr-1" /> Payments
               </TabsTrigger>
+              <TabsTrigger value="reorder" className="text-xs data-[state=active]:bg-blue-600 data-[state=active]:text-white">
+                <Package className="w-3 h-3 mr-1" /> Restock
+              </TabsTrigger>
             </TabsList>
           </Tabs>
         </div>
@@ -346,6 +349,7 @@ export default function ERPSourcing() {
         {tab === 'payments' && (
           <PaymentsTab suppliers={suppliers.map((s) => ({ id: String(s.id), name: s.name }))} />
         )}
+        {tab === 'reorder' && <ReorderTab />}
       </div>
 
       <Dialog open={supplierModalOpen} onOpenChange={setSupplierModalOpen}>
@@ -831,6 +835,157 @@ function PaymentsTab({ suppliers }: { suppliers: SupplierLite[] }) {
                       </TableRow>
                     );
                   })}
+                </TableBody>
+              </Table>
+            </ScrollArea>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+/* ─────────────────────────── Reorder tab ────────────────────────────
+ * Surfaces SKUs that need restocking based on the last 30 days of POS
+ * sales velocity, current stock, and a typical 14-day lead time.
+ * Operator can tweak the window / lead time and tap "Draft PO" on
+ * the urgent rows to pre-fill the existing PO creator.
+ */
+
+interface ReorderSuggestion {
+  productId: string;
+  sku: string;
+  name: string;
+  stock: number;
+  unit: string;
+  velocity: number;
+  unitsSoldInWindow: number;
+  daysOfCover: number | null;
+  reorderByIso: string | null;
+  suggestedReorderQty: number;
+  urgency: 'CRITICAL' | 'URGENT' | 'SOON' | 'OK' | 'NO_SALES';
+}
+
+function ReorderTab() {
+  const [rows, setRows] = useState<ReorderSuggestion[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  const [windowDays, setWindowDays] = useState(30);
+  const [leadTimeDays, setLeadTimeDays] = useState(14);
+  const [hideOk, setHideOk] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setErr(null);
+    api<ReorderSuggestion[]>(`/pos/reorder-suggestions?windowDays=${windowDays}&leadTimeDays=${leadTimeDays}`)
+      .then((r) => { if (!cancelled && Array.isArray(r)) setRows(r); })
+      .catch((e) => { if (!cancelled) setErr((e as Error).message); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [windowDays, leadTimeDays]);
+
+  const visible = hideOk ? rows.filter((r) => r.urgency !== 'OK' && r.urgency !== 'NO_SALES') : rows;
+  const counts = {
+    CRITICAL: rows.filter((r) => r.urgency === 'CRITICAL').length,
+    URGENT:   rows.filter((r) => r.urgency === 'URGENT').length,
+    SOON:     rows.filter((r) => r.urgency === 'SOON').length,
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
+          <Package className="w-4 h-4 text-blue-400" />
+          <span className="text-sm font-semibold text-slate-200">Restock suggestions</span>
+          <div className="flex gap-1 text-[10px]">
+            {counts.CRITICAL > 0 && <Badge variant="outline" className="border-rose-500/40 text-rose-300 h-5 px-1.5">{counts.CRITICAL} critical</Badge>}
+            {counts.URGENT > 0   && <Badge variant="outline" className="border-amber-500/40 text-amber-300 h-5 px-1.5">{counts.URGENT} urgent</Badge>}
+            {counts.SOON > 0     && <Badge variant="outline" className="border-blue-500/40 text-blue-300 h-5 px-1.5">{counts.SOON} soon</Badge>}
+          </div>
+        </div>
+        <div className="flex items-center gap-2 text-xs">
+          <label className="text-slate-400">Window
+            <select value={windowDays} onChange={(e) => setWindowDays(Number(e.target.value))} className="ml-1 h-7 px-2 rounded bg-slate-900 border border-slate-700 text-slate-200">
+              <option value={7}>7d</option>
+              <option value={14}>14d</option>
+              <option value={30}>30d</option>
+              <option value={60}>60d</option>
+              <option value={90}>90d</option>
+            </select>
+          </label>
+          <label className="text-slate-400">Lead time
+            <select value={leadTimeDays} onChange={(e) => setLeadTimeDays(Number(e.target.value))} className="ml-1 h-7 px-2 rounded bg-slate-900 border border-slate-700 text-slate-200">
+              <option value={3}>3d</option>
+              <option value={7}>7d</option>
+              <option value={14}>14d</option>
+              <option value={21}>21d</option>
+              <option value={30}>30d</option>
+            </select>
+          </label>
+          <label className="text-slate-400 inline-flex items-center gap-1">
+            <input type="checkbox" checked={hideOk} onChange={(e) => setHideOk(e.target.checked)} className="accent-amber-500" />
+            Hide OK
+          </label>
+        </div>
+      </div>
+
+      {err && (
+        <div className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded p-2">{err}</div>
+      )}
+
+      <Card className="bg-slate-900 border-slate-800">
+        <CardContent className="p-0">
+          {loading ? (
+            <div className="p-8 text-center text-slate-400 text-xs">
+              <Loader2 className="w-4 h-4 animate-spin mx-auto mb-2" /> Crunching {windowDays}d of sales…
+            </div>
+          ) : visible.length === 0 ? (
+            <div className="p-8 text-center text-slate-500 text-xs italic">
+              {rows.length === 0
+                ? 'No products on file yet — add some in POS first.'
+                : 'Nothing urgent — every SKU has plenty of cover.'}
+            </div>
+          ) : (
+            <ScrollArea className="h-[440px]">
+              <Table>
+                <TableHeader>
+                  <TableRow className="border-slate-800">
+                    <TableHead className="text-slate-400 text-xs">SKU</TableHead>
+                    <TableHead className="text-slate-400 text-xs">Name</TableHead>
+                    <TableHead className="text-slate-400 text-xs text-right">Stock</TableHead>
+                    <TableHead className="text-slate-400 text-xs text-right">Velocity</TableHead>
+                    <TableHead className="text-slate-400 text-xs text-right">Cover</TableHead>
+                    <TableHead className="text-slate-400 text-xs">Reorder by</TableHead>
+                    <TableHead className="text-slate-400 text-xs text-right">Suggested</TableHead>
+                    <TableHead className="text-slate-400 text-xs">Urgency</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {visible.map((r) => (
+                    <TableRow key={r.productId} className="border-slate-800 hover:bg-slate-800/30">
+                      <TableCell className="text-xs text-slate-300 font-mono">{r.sku}</TableCell>
+                      <TableCell className="text-xs font-bold">{r.name}</TableCell>
+                      <TableCell className="text-xs text-right tabular-nums">{r.stock} {r.unit !== 'piece' ? r.unit : ''}</TableCell>
+                      <TableCell className="text-xs text-right tabular-nums">{r.velocity}/d</TableCell>
+                      <TableCell className="text-xs text-right tabular-nums">{r.daysOfCover != null ? `${r.daysOfCover}d` : '—'}</TableCell>
+                      <TableCell className="text-xs text-slate-400">{r.reorderByIso ?? '—'}</TableCell>
+                      <TableCell className="text-xs text-right font-bold tabular-nums">
+                        {r.suggestedReorderQty > 0 ? `${r.suggestedReorderQty} ${r.unit !== 'piece' ? r.unit : ''}` : '—'}
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        <Badge variant="outline" className={
+                          r.urgency === 'CRITICAL' ? 'border-rose-500/40 text-rose-300' :
+                          r.urgency === 'URGENT'   ? 'border-amber-500/40 text-amber-300' :
+                          r.urgency === 'SOON'     ? 'border-blue-500/40 text-blue-300' :
+                          r.urgency === 'OK'       ? 'border-emerald-500/40 text-emerald-300' :
+                                                     'border-slate-500/40 text-slate-400'
+                        }>
+                          {r.urgency.toLowerCase()}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  ))}
                 </TableBody>
               </Table>
             </ScrollArea>
