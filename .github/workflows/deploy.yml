@@ -27,6 +27,19 @@ jobs:
             # Pull latest images
             docker compose -f docker-compose.prod.yml pull api
 
+            # Auto-generate VAPID keys for Web Push on the first deploy
+            # that introduces them. Idempotent — the script refuses to
+            # overwrite existing VAPID_* lines, so re-runs are safe.
+            # Mounts the host .env into the container so the keys
+            # persist across image rebuilds.
+            if [ -f .env ] && ! grep -q "^VAPID_PUBLIC_KEY=" .env; then
+              echo "→ VAPID keys missing — generating now…"
+              docker compose -f docker-compose.prod.yml run --rm \
+                -v "$PWD/.env:/app/.env" \
+                api npm run vapid:generate || \
+                echo "⚠ vapid:generate failed — push will stay disabled. Run manually: docker compose run --rm api npm run vapid:generate"
+            fi
+
             # Run migrations before swapping containers
             docker compose -f docker-compose.prod.yml run --rm api \
               node dist/main --migrate-only || true

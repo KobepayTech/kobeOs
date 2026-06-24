@@ -21,6 +21,9 @@ RUN addgroup -S kobe && adduser -S kobe -G kobe
 COPY --from=builder --chown=kobe:kobe /app/dist ./dist
 COPY --from=builder --chown=kobe:kobe /app/node_modules ./node_modules
 COPY --from=builder --chown=kobe:kobe /app/package.json ./package.json
+# Ops scripts (e.g. npm run vapid:generate) — needed for the deploy
+# workflow's one-time VAPID-key generation step.
+COPY --from=builder --chown=kobe:kobe /app/scripts ./scripts
 
 USER kobe
 
