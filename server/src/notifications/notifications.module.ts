@@ -6,9 +6,13 @@ import { CampaignsService } from './campaigns.service';
 import { NotificationsController } from './notifications.controller';
 import { OutboundCampaign, OutboundMessage } from './outbound.entity';
 import { PosOrder } from '../pos/pos.entity';
+import { PushModule } from '../push/push.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([OutboundCampaign, OutboundMessage, PosOrder])],
+  imports: [
+    TypeOrmModule.forFeature([OutboundCampaign, OutboundMessage, PosOrder]),
+    PushModule,
+  ],
   providers: [BeemService, NotificationsService, CampaignsService],
   controllers: [NotificationsController],
   exports: [NotificationsService],

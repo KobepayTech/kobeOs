@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { BeemService } from './beem.service';
 import type { Parcel, Shipment } from '../cargo/cargo.entity';
 import type { CargoEventKind } from '../cargo/cargo.gateway';
+import { PushService } from '../push/push.service';
 
 /**
  * Dispatches cargo events to external notification channels (SMS, WhatsApp).
@@ -12,7 +13,12 @@ import type { CargoEventKind } from '../cargo/cargo.gateway';
 export class NotificationsService {
   private readonly logger = new Logger('NotificationsService');
 
-  constructor(private readonly beem: BeemService) {}
+  constructor(
+    private readonly beem: BeemService,
+    /** Optional so NotificationsModule loads cleanly when PushModule
+     *  isn't imported (used standalone by older callers). */
+    @Optional() private readonly push?: PushService,
+  ) {}
 
   async notifyParcelEvent(
     parcel: Parcel,
@@ -66,6 +72,12 @@ export class NotificationsService {
     await Promise.allSettled([
       this.beem.sendSms(phone, msg),
       this.beem.sendWhatsApp(phone, msg),
+      this.push?.sendToPhone(phone, {
+        title: lifecycleTitle(newStatus),
+        body: msg,
+        url: `/track/${ref}`,
+        tag: `parcel-${ref}`,
+      }) ?? Promise.resolve(),
     ]);
   }
 
@@ -83,6 +95,21 @@ export class NotificationsService {
  *  stages that don't warrant a notification (e.g. AWAITING_STORAGE
  *  fires too often; ON_HOLD is operator-only). Each message ends
  *  with the public tracking URL so the customer can deep-link. */
+/** Short notification title per lifecycle stage — shows up bold in
+ *  the OS notification (above the body). */
+function lifecycleTitle(status: string): string {
+  switch (status) {
+    case 'PRE_ALERTED':       return 'Pre-alert registered';
+    case 'STORED':            return 'Parcel arrived at warehouse';
+    case 'CONSOLIDATED':      return 'Parcel packed';
+    case 'IN_TRANSIT':        return 'Parcel in transit';
+    case 'OVERSEAS_RECEIVED': return 'Parcel arrived at destination';
+    case 'READY_FOR_PICKUP':  return 'Ready for pickup';
+    case 'DELIVERED':         return 'Parcel delivered';
+    default:                  return 'KobeCargo update';
+  }
+}
+
 function lifecycleMessage(status: string, ref: string, trackUrl: string): string | null {
   switch (status) {
     case 'PRE_ALERTED':

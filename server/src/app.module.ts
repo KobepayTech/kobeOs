@@ -28,6 +28,7 @@ import { PosModule } from './pos/pos.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { FxModule } from './fx/fx.module';
 import { CustomerPortalModule } from './customer-portal/customer-portal.module';
+import { PushModule } from './push/push.module';
 import { WarehouseModule } from './warehouse/warehouse.module';
 import { DiscountsModule } from './discounts/discount.module';
 import { PaymentsModule } from './payments/payments.module';
@@ -115,6 +116,7 @@ import { SocialSchedulerModule } from './social-scheduler/social-scheduler.modul
     NotificationsModule,
     FxModule,
     CustomerPortalModule,
+    PushModule,
     WarehouseModule,
     DiscountsModule,
     PaymentsModule,

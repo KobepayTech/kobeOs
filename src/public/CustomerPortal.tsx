@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { API_BASE } from '@/lib/api';
 import {
   Phone, KeySquare, Loader2, LogOut, Package, Receipt, Wallet, Star,
-  AlertTriangle, ExternalLink, CheckCircle2,
+  AlertTriangle, ExternalLink, CheckCircle2, Bell, BellOff,
 } from 'lucide-react';
 
 /**
@@ -238,6 +238,7 @@ function DashboardView({ data }: { data: Dashboard }) {
   const noData = !data.cargoCustomer && !data.loyalty && data.parcels.length === 0 && data.recentOrders.length === 0;
   return (
     <div className="space-y-4">
+      <PushOptIn phone={data.phone} />
       {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         {data.cargoCustomer && (
@@ -360,4 +361,108 @@ function SummaryCard({
       {sub && <div className="text-[10px] opacity-60 mt-0.5 truncate">{sub}</div>}
     </div>
   );
+}
+
+/* ─────────────────────────── Push opt-in ───────────────────────────
+ * Web Push subscription chip. Renders nothing when the server hasn't
+ * configured VAPID keys or the browser doesn't support push (older
+ * iOS Safari, etc). Otherwise shows "Get notifications on this
+ * device" → asks for permission → registers SW → subscribes →
+ * POSTs to /push/subscribe.
+ */
+
+interface PushInfo { configured: boolean; publicKey: string }
+
+function PushOptIn({ phone }: { phone: string }) {
+  const [info, setInfo] = useState<PushInfo | null>(null);
+  const [state, setState] = useState<'idle' | 'subscribing' | 'subscribed' | 'denied' | 'unsupported'>('idle');
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      setState('unsupported');
+      return;
+    }
+    fetch(`${API_BASE}/push/info`).then((r) => r.json()).then((d: PushInfo) => {
+      setInfo(d);
+      // Probe current state — already subscribed on this device?
+      navigator.serviceWorker.ready.then((reg) => reg.pushManager.getSubscription())
+        .then((sub) => { if (sub) setState('subscribed'); })
+        .catch(() => { /* not registered yet, leave idle */ });
+    }).catch(() => { /* server down — hide button */ });
+  }, []);
+
+  if (state === 'unsupported' || !info || !info.configured) return null;
+
+  const subscribe = async () => {
+    setState('subscribing');
+    setErr(null);
+    try {
+      // Register SW if not already.
+      const reg = await navigator.serviceWorker.register('/sw.js');
+      await navigator.serviceWorker.ready;
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        setState('denied');
+        return;
+      }
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(info.publicKey),
+      });
+      const json = sub.toJSON() as { endpoint?: string; keys?: { p256dh?: string; auth?: string } };
+      const res = await fetch(`${API_BASE}/push/subscribe`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone,
+          endpoint: json.endpoint,
+          p256dh: json.keys?.p256dh,
+          auth: json.keys?.auth,
+        }),
+      });
+      if (!res.ok) throw new Error(`Server refused (${res.status})`);
+      setState('subscribed');
+    } catch (e) {
+      setState('idle');
+      setErr((e as Error).message);
+    }
+  };
+
+  if (state === 'subscribed') {
+    return (
+      <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/[0.05] p-3 text-emerald-200 text-xs inline-flex items-center gap-2">
+        <Bell className="w-3.5 h-3.5" /> Push notifications on for this device.
+      </div>
+    );
+  }
+  if (state === 'denied') {
+    return (
+      <div className="rounded-xl border border-amber-500/30 bg-amber-500/[0.05] p-3 text-amber-200 text-xs inline-flex items-center gap-2">
+        <BellOff className="w-3.5 h-3.5" /> Notifications blocked in your browser. Enable in browser settings to receive parcel updates.
+      </div>
+    );
+  }
+  return (
+    <button
+      onClick={subscribe}
+      disabled={state === 'subscribing'}
+      className="w-full rounded-xl border border-violet-500/30 bg-violet-500/[0.05] hover:bg-violet-500/[0.1] p-3 text-violet-200 text-xs inline-flex items-center justify-center gap-2 disabled:opacity-50"
+    >
+      {state === 'subscribing' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Bell className="w-3.5 h-3.5" />}
+      Get parcel updates on this device
+      {err && <span className="ml-2 text-rose-300">· {err}</span>}
+    </button>
+  );
+}
+
+/** Convert a base64-encoded VAPID public key into the Uint8Array the
+ *  PushManager.subscribe() applicationServerKey field requires. */
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(base64);
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
 }
