@@ -32,6 +32,9 @@ const isPublicTracking = pathname.startsWith('/track/');
 // Customer self-serve portal — phone + OTP login, then dashboard of
 // own parcels, POS purchases, loyalty points, and cargo wallet.
 const isCustomerPortal = pathname.startsWith('/me');
+// KobeOS · Tuma — paper-voucher-replacement money transfer. Standalone
+// public page at /tuma; uses localStorage for now, no auth required.
+const isTuma = pathname.startsWith('/tuma');
 
 if (isOverlay) {
   // Lazy-load to keep the main bundle lean
@@ -65,6 +68,10 @@ if (isOverlay) {
 } else if (isCustomerPortal) {
   import('./public/CustomerPortal').then(({ default: CustomerPortal }) => {
     createRoot(document.getElementById('root')!).render(<CustomerPortal />);
+  });
+} else if (isTuma) {
+  import('./public/Tuma').then(({ default: Tuma }) => {
+    createRoot(document.getElementById('root')!).render(<Tuma />);
   });
 } else {
   createRoot(document.getElementById('root')!).render(<Desktop />);
