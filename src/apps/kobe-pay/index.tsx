@@ -14,7 +14,7 @@ import {
   Plus, Search, CheckCircle2, Clock, XCircle, Phone, User, Mail, CreditCard, Banknote,
   Smartphone, Landmark, DollarSign, ChevronRight, X, Check, Download, Printer, QrCode,
   Trash2, Edit, Eye, Filter, BadgeCheck, AlertTriangle, TrendingUp, ShieldCheck, Activity, FileText, KeyRound,
-  ArrowRightLeft, ScanLine, Loader2
+  ArrowRightLeft, ScanLine, Loader2, Ticket,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,6 +25,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { QRCodeSVG } from 'qrcode.react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { SendMoneyWizard, type ContactOption } from './SendMoneyWizard';
+import { TumaDialog } from './TumaDialog';
 
 type Role = 'Admin' | 'Cashier TZ' | 'Cashier China';
 type Module = 'dashboard' | 'owner' | 'customers' | 'deposits' | 'payouts' | 'suppliers' | 'allocations' | 'receipts' | 'users' | 'cashierPerf' | 'risk' | 'audit' | 'rates' | 'settings';
@@ -488,6 +489,10 @@ export default function KobePay() {
 
   // Payout form state
   const [sendOpen, setSendOpen] = useState(false);
+  /** Tuma voucher dialog — paper-replacement wakala flow embedded
+   *  inside KobePay so the operator can issue + redeem from the
+   *  same window as their normal payouts. */
+  const [tumaOpen, setTumaOpen] = useState(false);
   const [customerSaveError, setCustomerSaveError] = useState<string | null>(null);
   const [transactIntent, setTransactIntent] = useState<'send' | 'receive'>('send');
   const [payoutSupplier, setPayoutSupplier] = useState('');
@@ -1246,6 +1251,7 @@ ${cashLine}${usdLine}
         {role !== 'Cashier China' && <Button onClick={() => setModule('deposits')} className="bg-cyan-600 hover:bg-cyan-700 text-white"><Plus className="w-4 h-4 mr-2" />New Deposit</Button>}
         {role !== 'Cashier China' && <Button onClick={() => { setTransactIntent('send'); setSendOpen(true); }} className="bg-lime-500 hover:bg-lime-600 text-white"><Send className="w-4 h-4 mr-2" />Send Money</Button>}
         {role !== 'Cashier China' && <Button onClick={() => { setTransactIntent('receive'); setSendOpen(true); }} variant="outline" className="border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"><Download className="w-4 h-4 mr-2" />Receive (Scan)</Button>}
+        {role !== 'Cashier China' && <Button onClick={() => setTumaOpen(true)} variant="outline" className="border-violet-500/40 bg-violet-500/10 text-violet-200 hover:bg-violet-500/20"><Ticket className="w-4 h-4 mr-2" />Tuma Voucher</Button>}
         <Button onClick={() => setModule('customers')} variant="outline" className="border-white/10 text-white hover:bg-white/5"><Search className="w-4 h-4 mr-2" />Search Customer</Button>
         {role !== 'Cashier China' && <Button onClick={() => setModule('payouts')} variant="outline" className="border-white/10 text-white hover:bg-white/5"><Send className="w-4 h-4 mr-2" />Initiate Payout</Button>}
       </div>
@@ -2637,6 +2643,9 @@ ${cashLine}${usdLine}
         contacts={sendMoneyContacts}
         intent={transactIntent}
       />
+
+      {/* Tuma voucher dialog — embedded /tuma flow */}
+      <TumaDialog open={tumaOpen} onClose={() => setTumaOpen(false)} />
     </div>
   );
 }
