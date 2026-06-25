@@ -7,15 +7,25 @@ import {
 } from "lucide-react";
 
 /**
- * KobeOS · Tuma — paper-voucher-replacement money transfer for street
- * agents. Sender creates a voucher (QR + transaction code + collection
- * PIN), receiver takes the code + QR to an agent, agent verifies with
- * PIN, hands over cash, marks paid in the ledger.
+ * KobeOS · Tuma — Kobe Token payouts.
+ *
+ * Customer pays cash at the KobePay office (TZ or China) and is
+ * issued a "Kobe Token": a 6-char transaction code + QR + 4-digit
+ * collection PIN. They forward the QR/code to the receiver (e.g.
+ * a Chinese supplier), who walks into a KobePay office on the
+ * other side. The receiving cashier scans, verifies the PIN, and
+ * pays out in local currency. The token itself never carries the
+ * cash — it's just a verification artifact that two offices can
+ * trust without phoning each other.
+ *
+ * Replaces the paper "wakala book" at TZ street-agent offices and
+ * the receipt-screenshot dance used by Chinese supplier offices.
  *
  * Storage: persists to localStorage by default; falls back to an
  * in-memory map when storage is unavailable (e.g. private mode).
- * Vouchers don't roam across devices yet — that's a backend wiring
- * for a follow-up commit.
+ * Tokens don't roam across devices yet — server-side persistence
+ * is the planned follow-up so a token issued in Dar can be redeemed
+ * in Guangzhou.
  */
 
 /* ------------------------------------------------------------------ */
@@ -324,16 +334,16 @@ function downloadBlob(blob, name) {
 /* ------------------------------------------------------------------ */
 const STR = {
   sw: {
-    brand: "KobeOS · Tuma", tagline: "Hati za pesa zinazothibitishwa",
+    brand: "KobeOS · Tuma", tagline: "Tokeni za pesa zinazothibitishwa",
     tSend: "Tuma", tPay: "Lipa", tBook: "Kitabu",
-    newTitle: "Tengeneza hati ya malipo",
+    newTitle: "Tengeneza Kobe Token",
     senderName: "Jina la mtumaji", senderPhone: "Simu ya mtumaji",
     receiverName: "Jina la mpokeaji", receiverPhone: "Simu ya mpokeaji",
     amount: "Kiasi (TZS)", purpose: "Sababu / Madhumuni",
-    agent: "Wakala / Mahali pa kuchukua",
-    create: "Tengeneza hati",
+    agent: "Ofisi / Wakala (TZ au China)",
+    create: "Tengeneza tokeni",
     missing: "Jaza sehemu zinazohitajika:",
-    voucher: "HATI YA MALIPO", txCode: "Namba ya muamala",
+    voucher: "KOBE TOKEN", txCode: "Namba ya muamala",
     pending: "INASUBIRI", paid: "IMELIPWA",
     copyMsg: "Nakili ujumbe", copied: "Imenakiliwa",
     shareReceiver: "Tuma kwa mpokeaji", copyCode: "Nakili namba", saveQr: "Hifadhi QR",
@@ -341,14 +351,14 @@ const STR = {
     shareHint: "Mpe mpokeaji QR na namba ya muamala. PIN itume kando.",
     pinTitle: "PIN ya kuchukua", copyPin: "Nakili PIN",
     pinWarn: "Mtumie mpokeaji PIN hii kwa SMS au simu TOFAUTI — usiiweke kwenye ujumbe ule ule.",
-    another: "Hati nyingine", from: "Kutoka", to: "Kwenda", on: "Tarehe",
+    another: "Tokeni nyingine", from: "Kutoka", to: "Kwenda", on: "Tarehe",
     payTitle: "Thibitisha na lipa",
     paySub: "Ingiza namba ya muamala kuthibitisha kabla ya kutoa pesa.",
     enterCode: "Namba ya muamala", find: "Tafuta",
     notFound: "HAIPO — USILIPE",
-    notFoundSub: "Hakuna hati yenye namba hii. Inaweza kuwa ya kughushi.",
+    notFoundSub: "Hakuna tokeni yenye namba hii. Inaweza kuwa ya kughushi.",
     already: "TAYARI IMELIPWA",
-    alreadySub: "Hati hii ilishalipwa. Usitoe pesa tena.",
+    alreadySub: "Tokeni hii ilishalipwa. Usitoe pesa tena.",
     paidByLbl: "Imelipwa na", paidOnLbl: "Tarehe ya malipo",
     verifyTitle: "Thibitisha mpokeaji", enterPin: "PIN ya kuchukua (tarakimu 4)",
     agentName: "Jina lako (wakala)", confirm: "Thibitisha na lipa",
@@ -358,24 +368,24 @@ const STR = {
     payAnother: "Lipa mwingine",
     scan: "Changanua QR", scanHint: "Elekeza msimbo wa QR ndani ya fremu",
     scanFail: "Kamera haipatikani hapa. Andika namba kwa mkono.", cancel: "Ghairi",
-    bookTitle: "Kitabu cha malipo", bookSub: "Kumbukumbu za kidijitali — badala ya kitabu cha karatasi.",
+    bookTitle: "Kitabu cha tokeni", bookSub: "Kumbukumbu za kidijitali — badala ya kitabu cha karatasi.",
     searchPh: "Tafuta namba, jina au simu",
-    empty: "Bado hakuna hati. Tengeneza ya kwanza kwenye Tuma.",
+    empty: "Bado hakuna tokeni. Tengeneza ya kwanza kwenye Tuma.",
     noRes: "Hakuna matokeo.",
     cToday: "Leo", cPending: "Zinasubiri", cPaid: "Zimelipwa",
     footer: "Malipo huthibitishwa kwa namba + PIN, si kwa kuangalia ujumbe.",
   },
   en: {
-    brand: "KobeOS · Tuma", tagline: "Verifiable money vouchers",
+    brand: "KobeOS · Tuma", tagline: "Kobe Token — cross-border payouts",
     tSend: "Send", tPay: "Pay out", tBook: "Ledger",
-    newTitle: "Create a payout voucher",
+    newTitle: "Issue a Kobe Token",
     senderName: "Sender name", senderPhone: "Sender phone",
     receiverName: "Receiver name", receiverPhone: "Receiver phone",
     amount: "Amount (TZS)", purpose: "Reason / Purpose",
-    agent: "Agent / Pickup location",
-    create: "Create voucher",
+    agent: "Office / Agent (TZ or China)",
+    create: "Issue token",
     missing: "Please fill the required fields:",
-    voucher: "PAYOUT VOUCHER", txCode: "Transaction code",
+    voucher: "KOBE TOKEN", txCode: "Transaction code",
     pending: "PENDING", paid: "PAID",
     copyMsg: "Copy message", copied: "Copied",
     shareReceiver: "Share to receiver", copyCode: "Copy code", saveQr: "Save QR",
@@ -383,26 +393,26 @@ const STR = {
     shareHint: "Give the receiver the QR and the transaction code. Send the PIN separately.",
     pinTitle: "Collection PIN", copyPin: "Copy PIN",
     pinWarn: "Send this PIN to the receiver by a SEPARATE SMS or call — never in the same message.",
-    another: "New voucher", from: "From", to: "To", on: "Date",
+    another: "New token", from: "From", to: "To", on: "Date",
     payTitle: "Verify & pay out",
     paySub: "Enter the transaction code to verify before handing over cash.",
     enterCode: "Transaction code", find: "Find",
     notFound: "NOT FOUND — DO NOT PAY",
-    notFoundSub: "No voucher with this code. It may be fake.",
+    notFoundSub: "No token with this code. It may be fake.",
     already: "ALREADY PAID",
-    alreadySub: "This voucher was already paid. Do not hand over cash again.",
+    alreadySub: "This token was already paid. Do not hand over cash again.",
     paidByLbl: "Paid by", paidOnLbl: "Paid on",
     verifyTitle: "Verify the receiver", enterPin: "Collection PIN (4 digits)",
-    agentName: "Your name (agent)", confirm: "Confirm & pay out",
+    agentName: "Your name (cashier)", confirm: "Confirm & pay out",
     wrongPin: "Wrong PIN. Do not pay.",
     needAgent: "Enter your name first.",
     paidNow: "PAID", paidNowSub: "Payment complete and recorded in the ledger.",
     payAnother: "Pay another",
     scan: "Scan QR", scanHint: "Point the QR code inside the frame",
     scanFail: "Camera unavailable here. Type the code by hand.", cancel: "Cancel",
-    bookTitle: "Payout ledger", bookSub: "A digital record — replaces the paper book.",
+    bookTitle: "Token ledger", bookSub: "A digital record — replaces the paper book.",
     searchPh: "Search code, name or phone",
-    empty: "No vouchers yet. Create your first one under Send.",
+    empty: "No tokens yet. Issue your first one under Send.",
     noRes: "No results.",
     cToday: "Today", cPending: "Pending", cPaid: "Paid",
     footer: "Payouts are verified by code + PIN, not by looking at a message.",
@@ -650,7 +660,7 @@ function SendView({ t, lang, onCreated }) {
   const buildMessage = (v) => {
     const L = (sw, en) => (lang === "sw" ? sw : en);
     return [
-      `🔐 KobeOS — ${L("HATI YA MALIPO", "PAYOUT VOUCHER")}`, "",
+      `🔐 KobeOS — ${L("KOBE TOKEN", "KOBE TOKEN")}`, "",
       `${L("Namba ya muamala", "Transaction code")}: ${v.code}`,
       `${L("Mtumaji", "Sender")}: ${v.senderName}${v.senderPhone ? " (" + v.senderPhone + ")" : ""}`,
       `${L("Mpokeaji", "Receiver")}: ${v.receiverName}${v.receiverPhone ? " (" + v.receiverPhone + ")" : ""}`,
@@ -681,7 +691,7 @@ function SendView({ t, lang, onCreated }) {
   };
 
   const vLabels = () => ({
-    header: lang === "sw" ? "KobeOS · Hati ya Malipo" : "KobeOS · Payout Voucher",
+    header: lang === "sw" ? "KobeOS · Kobe Token" : "KobeOS · Kobe Token",
     codeLabel: lang === "sw" ? "Namba ya muamala" : "Transaction code",
     to: lang === "sw" ? "Kwa" : "To",
   });

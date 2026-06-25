@@ -3,10 +3,13 @@ import { X } from 'lucide-react';
 import Tuma from '@/public/Tuma';
 
 /**
- * Fullscreen dialog wrapper that mounts the existing /tuma page
- * inside KobePay so the operator can create + redeem vouchers
- * without navigating away. Re-uses everything from src/public/Tuma
- * (QR encoder, scanner, localStorage adapter, bilingual strings).
+ * Fullscreen Kobe Token dialog — mounts the existing /tuma page
+ * inside KobePay so the operator can issue + redeem tokens without
+ * navigating away. Designed to work both ends of a cross-border
+ * payout: TZ cashier issues, Chinese supplier walks into a Cashier
+ * China office, presents the QR, that office scans + redeems.
+ * Re-uses everything from src/public/Tuma (QR encoder, scanner,
+ * localStorage adapter, bilingual strings).
  */
 export function TumaDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   useEffect(() => {
