@@ -29,8 +29,11 @@ import {
  */
 
 /* ------------------------------------------------------------------ */
-/* Storage — localStorage with in-memory fallback                      */
+/* API client — talks to /api/tokens for cross-device persistence.    */
+/* Falls back to localStorage when the server is unreachable so a     */
+/* cashier on a flaky link can still issue + read their own tokens.   */
 /* ------------------------------------------------------------------ */
+const API_BASE = (typeof window !== "undefined" && import.meta.env && import.meta.env.VITE_API_BASE) || "/api";
 const _mem = {};
 const hasLocal = (() => {
   try {
@@ -41,36 +44,106 @@ const hasLocal = (() => {
     return true;
   } catch { return false; }
 })();
-const store = {
-  async get(k) {
-    if (typeof window !== "undefined" && window.storage) return window.storage.get(k);
-    if (hasLocal) {
-      const v = window.localStorage.getItem(k);
-      if (v != null) return { key: k, value: v };
+const KEY = (code) => `kobeos:transfer:${code}`;
+const localGet = (k) => {
+  if (hasLocal) {
+    const v = window.localStorage.getItem(k);
+    if (v != null) return v;
+  }
+  return _mem[k] ?? null;
+};
+const localSet = (k, v) => { if (hasLocal) window.localStorage.setItem(k, v); _mem[k] = v; };
+const localList = (p) => {
+  if (hasLocal) {
+    const out = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i);
+      if (key && key.startsWith(p)) out.push(key);
     }
-    if (k in _mem) return { key: k, value: _mem[k] };
-    throw new Error("not found");
-  },
-  async set(k, v) {
-    if (typeof window !== "undefined" && window.storage) return window.storage.set(k, v);
-    if (hasLocal) window.localStorage.setItem(k, v);
-    _mem[k] = v;
-    return { key: k, value: v };
-  },
-  async list(p) {
-    if (typeof window !== "undefined" && window.storage) return window.storage.list(p);
-    if (hasLocal) {
-      const keys = [];
-      for (let i = 0; i < window.localStorage.length; i++) {
-        const key = window.localStorage.key(i);
-        if (key && key.startsWith(p)) keys.push(key);
-      }
-      return { keys };
+    return out;
+  }
+  return Object.keys(_mem).filter((x) => x.startsWith(p));
+};
+const authHeader = () => {
+  const tok = (hasLocal && window.localStorage.getItem("access_token")) || "";
+  return tok ? { Authorization: "Bearer " + tok } : {};
+};
+
+const api = {
+  /** Issue a new token. Server returns code + plain PIN once; we
+   *  cache the full record in localStorage so the issuer's device
+   *  can still see it offline. */
+  async issue(payload) {
+    try {
+      const r = await fetch(`${API_BASE}/tokens`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeader() },
+        body: JSON.stringify(payload),
+      });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const data = await r.json();           // { token: PublicTokenView, pin }
+      const merged = { ...data.token, pin: data.pin, createdAt: new Date().toISOString(),
+        senderPhone: payload.senderPhone || "", purpose: payload.purpose || "" };
+      localSet(KEY(merged.code), JSON.stringify(merged));
+      return merged;
+    } catch (e) {
+      // Offline: forge a local-only token. Will be visible only on
+      // this device until connectivity is restored.
+      const code = "KOB-" + String(Math.random()).slice(2, 8).toUpperCase().padEnd(6, "X");
+      const pin = String(Math.floor(1000 + Math.random() * 9000));
+      const localOnly = {
+        ...payload, code, pin, status: "PENDING",
+        createdAt: new Date().toISOString(), paidAt: null, paidByName: "",
+        _localOnly: true,
+      };
+      localSet(KEY(code), JSON.stringify(localOnly));
+      return localOnly;
     }
-    return { keys: Object.keys(_mem).filter((x) => x.startsWith(p)) };
+  },
+  /** Lookup by code. Tries the server first so a token issued on
+   *  one device can be redeemed at another office. */
+  async lookup(code) {
+    try {
+      const r = await fetch(`${API_BASE}/tokens/${encodeURIComponent(code)}`);
+      if (r.status === 404) return null;
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const t = await r.json();
+      // Reflect server truth into local cache so the Kitabu shows it.
+      const existing = localGet(KEY(code));
+      const merged = existing ? { ...JSON.parse(existing), ...t } : { ...t, createdAt: new Date().toISOString() };
+      localSet(KEY(code), JSON.stringify(merged));
+      return merged;
+    } catch {
+      const v = localGet(KEY(code));
+      return v ? JSON.parse(v) : null;
+    }
+  },
+  /** Redeem. Server validates PIN + flips to PAID. */
+  async redeem(code, pin, paidByName) {
+    const r = await fetch(`${API_BASE}/tokens/${encodeURIComponent(code)}/redeem`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeader() },
+      body: JSON.stringify({ pin, paidByName }),
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(body?.message || ("HTTP " + r.status));
+    const existing = localGet(KEY(code));
+    const merged = existing ? { ...JSON.parse(existing), ...body } : body;
+    localSet(KEY(code), JSON.stringify(merged));
+    return merged;
+  },
+  /** Local-cached ledger — every token the device has seen. The
+   *  Kitabu tab reads from here so it works offline. */
+  async listLocal() {
+    const out = [];
+    for (const k of localList("kobeos:transfer:")) {
+      const v = localGet(k);
+      if (v) { try { out.push(JSON.parse(v)); } catch { /* skip corrupt row */ } }
+    }
+    out.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    return out;
   },
 };
-const KEY = (code) => `kobeos:transfer:${code}`;
 
 const ALPHA = "ACDEFGHJKMNPQRSTUVWXYZ23456789";
 const genCode = () => {
@@ -596,13 +669,7 @@ export default function Tuma() {
 
   const loadAll = async () => {
     try {
-      const res = await store.list("kobeos:transfer:");
-      const keys = (res && res.keys) || [];
-      const items = [];
-      for (const k of keys) {
-        try { const r = await store.get(k); if (r && r.value) items.push(JSON.parse(r.value)); } catch { /* skip corrupt row */ }
-      }
-      items.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      const items = await api.listLocal();
       setTransfers(items);
     } catch { setTransfers([]); }
   };
@@ -722,14 +789,20 @@ function SendView({ t, lang, onCreated }) {
     if (!f.agent.trim()) need.push(t("agent"));
     if (need.length) { setMissing(need); return; }
     setMissing([]);
-    const v = {
-      ...f,
-      amount: Number(String(f.amount).replace(/[^\d.]/g, "")),
-      code: genCode(), pin: genPin(),
-      status: "PENDING", createdAt: new Date().toISOString(),
-      paidAt: null, paidBy: null,
-    };
-    try { await store.set(KEY(v.code), JSON.stringify(v)); } catch { /* offline */ }
+    const amount = Number(String(f.amount).replace(/[^\d.]/g, ""));
+    // Server issues the token + PIN so the row persists across
+    // devices. Offline path inside api.issue() falls back to a
+    // local-only token that only this device can redeem.
+    const v = await api.issue({
+      amount, currency: "TZS",
+      senderName: f.senderName.trim(),
+      senderPhone: f.senderPhone.trim(),
+      receiverName: f.receiverName.trim(),
+      receiverPhone: f.receiverPhone.trim(),
+      purpose: f.purpose,
+      agent: f.agent,
+      issuedByName: f.agent,
+    });
     setVoucher(v); onCreated();
   };
 
@@ -852,8 +925,9 @@ function PayView({ t, onPaid }) {
   const find = async (raw) => {
     const c = normalize(raw != null ? raw : code);
     if (!c) return;
-    let v = null;
-    try { const r = await store.get(KEY(c)); if (r && r.value) v = JSON.parse(r.value); } catch { /* not found */ }
+    // api.lookup hits the server first (cross-device), falls back
+    // to localStorage when offline. Returns null on 404.
+    const v = await api.lookup(c).catch(() => null);
     if (!v) { setCode(c); setPhase("notfound"); return; }
     setCode(c); setCur(v);
     setPhase(v.status === "PAID" ? "already" : "found");
@@ -891,12 +965,28 @@ function PayView({ t, onPaid }) {
   const confirm = async () => {
     setErr("");
     if (!agent.trim()) { setErr(t("needAgent")); return; }
-    if (pin.trim() !== cur.pin) {
-      setErr(t("wrongPin")); setShake(true); setTimeout(() => setShake(false), 450); return;
+    // Local-only token (issued offline) — PIN check happens client-
+    // side because the server never saw it. Once back online the
+    // sender could re-issue, but for now we honour the cached PIN.
+    if (cur._localOnly) {
+      if (pin.trim() !== cur.pin) {
+        setErr(t("wrongPin")); setShake(true); setTimeout(() => setShake(false), 450); return;
+      }
+      const updated = { ...cur, status: "PAID", paidAt: new Date().toISOString(), paidByName: agent.trim() };
+      try { localSet(KEY(updated.code), JSON.stringify(updated)); } catch { /* offline */ }
+      setCur(updated); setPhase("paidnow"); onPaid();
+      return;
     }
-    const updated = { ...cur, status: "PAID", paidAt: new Date().toISOString(), paidBy: agent.trim() };
-    try { await store.set(KEY(updated.code), JSON.stringify(updated)); } catch { /* offline */ }
-    setCur(updated); setPhase("paidnow"); onPaid();
+    // Server-issued token — let the backend verify the PIN. It
+    // returns 401 with attempts-remaining on a wrong PIN and
+    // auto-cancels after 5 failures.
+    try {
+      const updated = await api.redeem(cur.code, pin.trim(), agent.trim());
+      setCur(updated); setPhase("paidnow"); onPaid();
+    } catch (e) {
+      setErr(e.message || t("wrongPin"));
+      setShake(true); setTimeout(() => setShake(false), 450);
+    }
   };
 
   if (phase === "notfound")
@@ -921,7 +1011,7 @@ function PayView({ t, onPaid }) {
           <div className="vcard">
             <div className="ln"><span className="k">{t("txCode")}</span><span className="v mono">{cur.code}</span></div>
             <div className="ln"><span className="k">{t("amount")}</span><span className="v amt">{fmtAmt(cur.amount)} TZS</span></div>
-            <div className="ln"><span className="k">{t("paidByLbl")}</span><span className="v">{cur.paidBy || "—"}</span></div>
+            <div className="ln"><span className="k">{t("paidByLbl")}</span><span className="v">{(cur.paidByName || cur.paidBy) || "—"}</span></div>
             <div className="ln"><span className="k">{t("paidOnLbl")}</span><span className="v">{cur.paidAt ? fmtDate(cur.paidAt) : "—"}</span></div>
           </div>
         </div>
@@ -940,7 +1030,7 @@ function PayView({ t, onPaid }) {
             <div className="ln"><span className="k">{t("txCode")}</span><span className="v mono">{cur.code}</span></div>
             <div className="ln"><span className="k">{t("to")}</span><span className="v">{cur.receiverName}</span></div>
             <div className="ln"><span className="k">{t("amount")}</span><span className="v amt">{fmtAmt(cur.amount)} TZS</span></div>
-            <div className="ln"><span className="k">{t("paidByLbl")}</span><span className="v">{cur.paidBy}</span></div>
+            <div className="ln"><span className="k">{t("paidByLbl")}</span><span className="v">{(cur.paidByName || cur.paidBy)}</span></div>
             <div className="ln"><span className="k">{t("paidOnLbl")}</span><span className="v">{fmtDate(cur.paidAt)}</span></div>
           </div>
         </div>
@@ -1061,7 +1151,7 @@ function BookView({ t, transfers, reload }) {
           </div>
           <div className="meta">
             <span className="eamt">{fmtAmt(x.amount)} TZS</span>
-            <span>{x.status === "PAID" && x.paidBy ? `${t("paidByLbl")}: ${x.paidBy}` : fmtDate(x.createdAt)}</span>
+            <span>{x.status === "PAID" && (x.paidByName || x.paidBy) ? `${t("paidByLbl")}: ${x.paidByName || x.paidBy}` : fmtDate(x.createdAt)}</span>
           </div>
         </div>
       ))}
