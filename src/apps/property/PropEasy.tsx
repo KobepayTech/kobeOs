@@ -197,21 +197,18 @@ export default function PropEasyApp() {
           {view === 'documents'   && <EmptyState title="Documents" subtitle="Leases, IDs, insurance, inspections." />}
           {view === 'settings'    && <EmptyState title="Settings" subtitle="Reminders, late-fee policy, integrations." />}
           {view === 'building-map' && (
-            <BuildingMapView propertyName="Tavares Cliffs · Plot 089" floors={demoBuildingFloors(tenants)} onPickUnit={(id) => {
-              const t = tenants.find((tt) => tt.id === id);
-              if (t) openTenant(t);
-            }} />
+            <BuildingMapLive
+              propertyId={properties[0]?.id}
+              propertyName={properties[0]?.name ?? 'Tavares Cliffs · Plot 089'}
+              fallbackTenants={tenants}
+              onPickTenant={(id) => {
+                const t = tenants.find((tt) => tt.id === id);
+                if (t) openTenant(t);
+              }}
+            />
           )}
           {view === 'insights' && (
-            <InsightsView
-              insights={demoInsights}
-              unitCount={tenants.length || 20}
-              currentMonthlyRevenue={(tenants.length || 20) * 5000}
-              portfolioHealthScore={78}
-              collectionRate={86}
-              occupancyRate={90}
-              expenseRatio={32}
-            />
+            <InsightsLive fallbackTenantCount={tenants.length || 20} />
           )}
           {view === 'tokens' && (
             <TokensView tenants={tenants} />
@@ -1347,3 +1344,99 @@ function TokensView({ tenants }: { tenants: ApiTenant[] }) {
   );
 }
 
+/* ────────────────────────────── Live wrappers ────────────────────────────── */
+
+interface ServerInsight {
+  id: string;
+  severity: Insight['severity'];
+  title: string;
+  description: string;
+  actionLabel?: string;
+}
+
+interface ServerHealth {
+  healthScore: number;
+  collectionRate: number;
+  occupancyRate: number;
+  expenseRatio: number;
+  monthlyExpected: number;
+  totalUnits: number;
+}
+
+/** Hits /property/posys/properties/:id/map; on 404/empty falls back to fixtures. */
+function BuildingMapLive({
+  propertyId, propertyName, fallbackTenants, onPickTenant,
+}: {
+  propertyId?: string;
+  propertyName: string;
+  fallbackTenants: ApiTenant[];
+  onPickTenant: (id: string) => void;
+}) {
+  const [floors, setFloors] = useState<FloorBlock[]>(() => demoBuildingFloors(fallbackTenants));
+  const [serverName, setServerName] = useState(propertyName);
+
+  useEffect(() => {
+    if (!propertyId) return;
+    let cancelled = false;
+    api<{ propertyId: string; propertyName: string; floors: FloorBlock[] }>(`/property/posys/properties/${propertyId}/map`)
+      .then((r) => {
+        if (cancelled) return;
+        if (r && Array.isArray(r.floors) && r.floors.length > 0) {
+          setFloors(r.floors);
+          setServerName(r.propertyName);
+        }
+      })
+      .catch(() => { /* keep fixtures */ });
+    return () => { cancelled = true; };
+  }, [propertyId]);
+
+  return (
+    <BuildingMapView
+      propertyName={serverName}
+      floors={floors}
+      onPickUnit={onPickTenant}
+    />
+  );
+}
+
+/** Hits /property/posys/portfolio-health + /property/posys/insights with fallback. */
+function InsightsLive({ fallbackTenantCount }: { fallbackTenantCount: number }) {
+  const [insights, setInsights] = useState<Insight[]>(demoInsights);
+  const [health, setHealth] = useState<ServerHealth>({
+    healthScore: 78,
+    collectionRate: 86,
+    occupancyRate: 90,
+    expenseRatio: 32,
+    monthlyExpected: fallbackTenantCount * 5000,
+    totalUnits: fallbackTenantCount,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.allSettled([
+      api<ServerHealth>('/property/posys/portfolio-health'),
+      api<ServerInsight[]>('/property/posys/insights'),
+    ]).then(([h, i]) => {
+      if (cancelled) return;
+      if (h.status === 'fulfilled' && h.value && typeof h.value.healthScore === 'number') {
+        setHealth(h.value);
+      }
+      if (i.status === 'fulfilled' && Array.isArray(i.value) && i.value.length > 0) {
+        setInsights(i.value);
+      }
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  return (
+    <InsightsView
+      insights={insights}
+      unitCount={health.totalUnits || fallbackTenantCount}
+      currentMonthlyRevenue={health.monthlyExpected || fallbackTenantCount * 5000}
+      portfolioHealthScore={health.healthScore}
+      collectionRate={health.collectionRate}
+      occupancyRate={health.occupancyRate}
+      expenseRatio={health.expenseRatio}
+    />
+  );
+}

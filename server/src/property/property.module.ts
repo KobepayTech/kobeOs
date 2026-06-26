@@ -15,6 +15,9 @@ import {
   Tenant,
   TenantScreeningReport,
 } from './property.entity';
+import { PropertyPaymentToken } from './posys.entity';
+import { PosysService } from './posys.service';
+import { PosysController, PosysTokensController } from './posys.controller';
 import { PropertiesService, RentPaymentsService, TenantsService, UnitsService } from './property.service';
 import {
   ApplicationsService,
@@ -47,6 +50,7 @@ import { PropertyExtraController } from './property-extra.controller';
       PropertyExpense,
       RentIncreaseSimulation,
       TenantScreeningReport,
+      PropertyPaymentToken,
     ]),
   ],
   providers: [
@@ -64,7 +68,13 @@ import { PropertyExtraController } from './property-extra.controller';
     RentIncreaseSimulationsService,
     PropertyDashboardService,
     TenantScreeningService,
+    PosysService,
   ],
-  controllers: [PropertyController, PropertyExtraController],
+  controllers: [
+    PropertyController,
+    PropertyExtraController,
+    PosysController,
+    PosysTokensController,
+  ],
 })
 export class PropertyModule {}
