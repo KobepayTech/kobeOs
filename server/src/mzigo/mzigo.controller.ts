@@ -1,7 +1,12 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { CurrentUser } from '../auth/current-user.decorator';
+import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { MzigoService } from './mzigo.service';
+
+/** Synthetic ownerId used to attribute manifests submitted via the
+ *  public /mzigo page (warehouse clerks don't have JWT logins, by
+ *  design). Group all anonymous submissions under one bucket so they
+ *  can be filtered later if a back-office wants to claim them. */
+const PUBLIC_OWNER_ID = '00000000-0000-0000-0000-00000000mzg0';
 
 /**
  * Mostly-public Kobe Mzigo endpoints. The packager + agent +
@@ -13,12 +18,16 @@ import { MzigoService } from './mzigo.service';
 export class MzigoController {
   constructor(private readonly svc: MzigoService) {}
 
-  // ── Companies + Agents (public read) ───────────────────────────
+  // ── Companies + Agents (public read; throttled writes) ─────────
   @Get('companies') listCompanies() { return this.svc.listCompanies(); }
+  // Rate-limit creation so a bad actor can't spam-register thousands
+  // of phantom cargo companies from the public admin page.
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('companies') createCompany(@Body() dto: { name: string; phone?: string; headOffice?: string }) {
     return this.svc.createCompany(dto);
   }
   @Get('agents') listAgents(@Query('companyId') companyId?: string) { return this.svc.listAgents(companyId); }
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   @Post('agents') createAgent(@Body() dto: { companyId: string; name: string; phone: string; area?: string }) {
     return this.svc.createAgent(dto);
   }
@@ -51,18 +60,19 @@ export class MzigoController {
   }
 }
 
-/** Operator-authed truck operations — loading, dispatching, and
- *  the destination scan-plate receive. */
-@UseGuards(JwtAuthGuard)
+/** Public truck operations — loading, dispatching, and the
+ *  destination scan-plate receive. The /mzigo public page is the
+ *  intended UI and warehouse clerks do not have JWT logins by
+ *  design; manifests are attributed to a synthetic PUBLIC_OWNER_ID
+ *  bucket so a back-office can claim them later. */
 @Controller('mzigo/trucks')
 export class MzigoTrucksController {
   constructor(private readonly svc: MzigoService) {}
 
   @Post('load')
   load(
-    @CurrentUser('id') uid: string,
     @Body() dto: { waybills: string[]; truckPlate: string; driverName: string; driverPhone: string; origin: string; destination: string },
-  ) { return this.svc.loadOntoTruck(uid, dto); }
+  ) { return this.svc.loadOntoTruck(PUBLIC_OWNER_ID, dto); }
 
   @Post(':plate/dispatch')
   dispatch(@Param('plate') plate: string) { return this.svc.dispatchTruck(plate); }

@@ -14,10 +14,11 @@
 const TOKEN_KEY   = 'kobe_auth_token';
 const REFRESH_KEY = 'kobe_refresh_token';
 
-// Legacy / alternate keys other parts of the codebase write to.
-// Three different login flows historically saved the JWT under three
-// different names; getToken() reads all of them so a session created
-// by any of them works with api().
+// Legacy keys an older login flow + several file-upload sites used to
+// read directly. The five dead lib/kobeos-*.tsx modules that wrote to
+// these were deleted in this branch; the fallback stays so any session
+// stored before the deploy still resolves on first load — once the
+// canonical TOKEN_KEY is populated the legacy keys are unused.
 const LEGACY_TOKEN_KEYS = ['kobe_access_token', 'kobeos_access_token', 'access_token'] as const;
 const LEGACY_REFRESH_KEYS = ['kobe_refresh_token', 'kobeos_refresh_token'] as const;
 
@@ -126,6 +127,7 @@ const PATH_TABLE_MAP: Record<string, string> = {
   '/studio/media/projects': 'studio_media_projects',
   '/studio/media/jobs': 'studio_media_jobs',
   '/calendar/events': 'calendar_events',
+  '/erp/summary-entries': 'erp_summary_entries',
   '/calendar': 'calendar_events',
 };
 
