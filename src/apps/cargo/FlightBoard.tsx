@@ -75,7 +75,7 @@ export default function FlightBoard() {
             </div>
             <div>
               <h2 className="text-base font-semibold text-slate-700">Flight Board</h2>
-              <p className="text-[11px] text-slate-400">Powered by Flightradar24 — official API</p>
+              <p className="text-[11px] text-slate-600">Powered by Flightradar24 — official API</p>
             </div>
           </div>
           {configured === false && (
@@ -96,7 +96,7 @@ export default function FlightBoard() {
                 className={`flex items-center gap-1.5 px-3 py-1.5 text-[12px] rounded-t-md border-b-2 transition-colors ${
                   active
                     ? 'text-blue-600 border-blue-500 bg-blue-500/5'
-                    : 'text-slate-500 border-transparent hover:text-slate-700 hover:bg-white/[0.20]'
+                    : 'text-slate-700 border-transparent hover:text-slate-700 hover:bg-white/[0.20]'
                 }`}
               >
                 <Icon className="w-3.5 h-3.5" />
@@ -196,7 +196,7 @@ function ChinaDeparturesPanel() {
           value={newCode}
           onChange={(e) => setNewCode(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && addCode()}
-          className="max-w-xs h-8 text-xs bg-white/50 border-white/[0.40] rounded-xl text-slate-700 placeholder:text-slate-400"
+          className="max-w-xs h-8 text-xs bg-white/50 border-white/[0.40] rounded-xl text-slate-700 placeholder:text-slate-600"
         />
         <Button size="sm" onClick={addCode} className="h-8 text-xs bg-blue-500 hover:bg-blue-600 text-white rounded-xl">Add</Button>
       </div>
@@ -208,7 +208,7 @@ function ChinaDeparturesPanel() {
               variant="ghost"
               size="sm"
               onClick={() => setCodes(codes.filter((c) => c !== code))}
-              className="text-[11px] h-6 text-slate-400 hover:text-red-500"
+              className="text-[11px] h-6 text-slate-600 hover:text-red-500"
             >
               Remove
             </Button>
@@ -245,7 +245,7 @@ function TransitHubsPanel() {
               <div className="text-sm font-medium text-slate-700">
                 {hub.code} — {hub.name}
               </div>
-              <div className="text-[11px] text-slate-400">
+              <div className="text-[11px] text-slate-600">
                 {hub.city ? `${hub.city}, ` : ''}{hub.country} · {hub.type ?? 'PRIMARY'}
               </div>
             </div>
@@ -298,7 +298,7 @@ function AssignedFlightsPanel() {
           placeholder="Filter by shipment, flight or carrier"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          className="max-w-xs h-8 text-xs bg-white/50 border-white/[0.40] rounded-xl text-slate-700 placeholder:text-slate-400"
+          className="max-w-xs h-8 text-xs bg-white/50 border-white/[0.40] rounded-xl text-slate-700 placeholder:text-slate-600"
         />
         <Button size="sm" variant="ghost" onClick={load} disabled={loading} className="text-xs h-7 text-slate-600 hover:bg-white/30">
           <RefreshCw className={`w-3 h-3 mr-1 ${loading ? 'animate-spin' : ''}`} />
@@ -311,15 +311,15 @@ function AssignedFlightsPanel() {
         <Card className="bg-white/[0.30] backdrop-blur-xl border-white/[0.40] rounded-2xl shadow-lg">
           <CardContent className="p-0">
             <table className="w-full text-[12px]">
-              <thead className="text-slate-400 text-[10px] uppercase tracking-wider border-b border-white/[0.30]">
+              <thead className="text-slate-600 text-[10px] uppercase tracking-wider border-b border-white/[0.30]">
                 <tr>
-                  <th className="px-4 py-2.5 text-left text-slate-500">Shipment</th>
-                  <th className="px-4 py-2.5 text-left text-slate-500">Flight</th>
-                  <th className="px-4 py-2.5 text-left text-slate-500">Carrier</th>
-                  <th className="px-4 py-2.5 text-left text-slate-500">Route</th>
-                  <th className="px-4 py-2.5 text-left text-slate-500">ETD</th>
-                  <th className="px-4 py-2.5 text-left text-slate-500">ETA</th>
-                  <th className="px-4 py-2.5 text-left text-slate-500">Status</th>
+                  <th className="px-4 py-2.5 text-left text-slate-700">Shipment</th>
+                  <th className="px-4 py-2.5 text-left text-slate-700">Flight</th>
+                  <th className="px-4 py-2.5 text-left text-slate-700">Carrier</th>
+                  <th className="px-4 py-2.5 text-left text-slate-700">Route</th>
+                  <th className="px-4 py-2.5 text-left text-slate-700">ETD</th>
+                  <th className="px-4 py-2.5 text-left text-slate-700">ETA</th>
+                  <th className="px-4 py-2.5 text-left text-slate-700">Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -328,11 +328,11 @@ function AssignedFlightsPanel() {
                     <td className="px-4 py-2.5 font-mono text-slate-700">{s.shipmentId}</td>
                     <td className="px-4 py-2.5 font-mono text-blue-600">{s.flightNumber}</td>
                     <td className="px-4 py-2.5 text-slate-600">{s.carrier ?? '—'}</td>
-                    <td className="px-4 py-2.5 text-slate-500">
+                    <td className="px-4 py-2.5 text-slate-700">
                       {s.origin} → {s.destination}
                     </td>
-                    <td className="px-4 py-2.5 text-slate-500">{fmtDate(s.etd)}</td>
-                    <td className="px-4 py-2.5 text-slate-500">{fmtDate(s.eta)}</td>
+                    <td className="px-4 py-2.5 text-slate-700">{fmtDate(s.etd)}</td>
+                    <td className="px-4 py-2.5 text-slate-700">{fmtDate(s.eta)}</td>
                     <td className="px-4 py-2.5">
                       <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-500/10 text-slate-600 border border-slate-500/20">
                         {s.status}
@@ -342,7 +342,7 @@ function AssignedFlightsPanel() {
                 ))}
                 {!filtered.length && (
                   <tr>
-                    <td colSpan={7} className="px-4 py-6 text-center text-slate-400 text-[12px]">
+                    <td colSpan={7} className="px-4 py-6 text-center text-slate-600 text-[12px]">
                       No assigned flights match the filter.
                     </td>
                   </tr>
@@ -397,26 +397,26 @@ function FlightTable({
   return (
     <div>
       <div className="flex items-center gap-2 mb-3 text-[11px]">
-        <span className="text-slate-500">Assign to shipment:</span>
+        <span className="text-slate-700">Assign to shipment:</span>
         <Input
           placeholder="shipment id"
           value={shipmentId}
           onChange={(e) => setShipmentId(e.target.value)}
-          className="max-w-xs h-7 text-xs bg-white/50 border-white/[0.40] rounded-xl text-slate-700 placeholder:text-slate-400"
+          className="max-w-xs h-7 text-xs bg-white/50 border-white/[0.40] rounded-xl text-slate-700 placeholder:text-slate-600"
         />
       </div>
       <Card className="bg-white/[0.30] backdrop-blur-xl border-white/[0.40] rounded-2xl shadow-lg">
         <CardContent className="p-0">
           <table className="w-full text-[12px]">
-            <thead className="text-slate-400 text-[10px] uppercase tracking-wider border-b border-white/[0.30]">
+            <thead className="text-slate-600 text-[10px] uppercase tracking-wider border-b border-white/[0.30]">
               <tr>
-                <th className="px-4 py-2.5 text-left text-slate-500">Flight</th>
-                <th className="px-4 py-2.5 text-left text-slate-500">Airline</th>
-                <th className="px-4 py-2.5 text-left text-slate-500">Aircraft</th>
-                <th className="px-4 py-2.5 text-left text-slate-500">Route</th>
-                <th className="px-4 py-2.5 text-left text-slate-500">Scheduled Dep</th>
-                <th className="px-4 py-2.5 text-left text-slate-500">Scheduled Arr</th>
-                <th className="px-4 py-2.5 text-left text-slate-500">Status</th>
+                <th className="px-4 py-2.5 text-left text-slate-700">Flight</th>
+                <th className="px-4 py-2.5 text-left text-slate-700">Airline</th>
+                <th className="px-4 py-2.5 text-left text-slate-700">Aircraft</th>
+                <th className="px-4 py-2.5 text-left text-slate-700">Route</th>
+                <th className="px-4 py-2.5 text-left text-slate-700">Scheduled Dep</th>
+                <th className="px-4 py-2.5 text-left text-slate-700">Scheduled Arr</th>
+                <th className="px-4 py-2.5 text-left text-slate-700">Status</th>
                 <th className="px-4 py-2.5"></th>
               </tr>
             </thead>
@@ -425,12 +425,12 @@ function FlightTable({
                 <tr key={(f.fr24Id ?? f.callsign) + f.flightNumber} className="border-b border-white/[0.20] hover:bg-white/[0.20]">
                   <td className="px-4 py-2.5 font-mono text-blue-600">{f.flightNumber || f.callsign}</td>
                   <td className="px-4 py-2.5 text-slate-700">{f.airline ?? '—'}</td>
-                  <td className="px-4 py-2.5 text-slate-500">{f.aircraftType ?? '—'}</td>
+                  <td className="px-4 py-2.5 text-slate-700">{f.aircraftType ?? '—'}</td>
                   <td className="px-4 py-2.5 text-slate-600">
                     {f.origin} → {f.destination}
                   </td>
-                  <td className="px-4 py-2.5 text-slate-500">{fmtDate(f.scheduledDeparture)}</td>
-                  <td className="px-4 py-2.5 text-slate-500">{fmtDate(f.scheduledArrival ?? f.estimatedArrival)}</td>
+                  <td className="px-4 py-2.5 text-slate-700">{fmtDate(f.scheduledDeparture)}</td>
+                  <td className="px-4 py-2.5 text-slate-700">{fmtDate(f.scheduledArrival ?? f.estimatedArrival)}</td>
                   <td className="px-4 py-2.5">
                     <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-500/10 text-slate-600 border border-slate-500/20">
                       {f.status ?? 'LIVE'}
@@ -459,7 +459,7 @@ function FlightTable({
 
 function Loading() {
   return (
-    <div className="flex items-center justify-center py-12 text-slate-400 text-sm">
+    <div className="flex items-center justify-center py-12 text-slate-600 text-sm">
       <Loader2 className="w-4 h-4 animate-spin mr-2" />
       Loading...
     </div>
@@ -476,7 +476,7 @@ function ErrorMsg({ msg }: { msg: string }) {
 }
 
 function EmptyState({ msg }: { msg: string }) {
-  return <div className="text-center py-12 text-slate-400 text-sm">{msg}</div>;
+  return <div className="text-center py-12 text-slate-600 text-sm">{msg}</div>;
 }
 
 function fmtDate(iso?: string | null) {

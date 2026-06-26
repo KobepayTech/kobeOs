@@ -162,7 +162,7 @@ const txColor = (type: string) => {
     case 'allocate': return 'text-blue-400';
     case 'cancel': return 'text-amber-400';
     case 'order': return 'text-violet-400';
-    default: return 'text-slate-400';
+    default: return 'text-slate-600';
   }
 };
 
@@ -172,7 +172,7 @@ const statusBadge = (status: string) => {
     case 'pending': return <Badge className="bg-amber-500/20 text-amber-400 border-amber-500/30">Pending</Badge>;
     case 'cancelled': return <Badge className="bg-red-500/20 text-red-400 border-red-500/30">Cancelled</Badge>;
     case 'rejected': return <Badge className="bg-red-500/20 text-red-400 border-red-500/30">Rejected</Badge>;
-    case 'inactive': return <Badge className="bg-slate-500/20 text-slate-400 border-slate-500/30">Inactive</Badge>;
+    case 'inactive': return <Badge className="bg-slate-500/20 text-slate-600 border-slate-500/30">Inactive</Badge>;
     default: return <Badge variant="secondary">{status}</Badge>;
   }
 };
@@ -427,12 +427,12 @@ export default function KobePay() {
             </div>
             <div>
               <h1 className="text-lg font-bold tracking-tight">KOBE Pay</h1>
-              <p className="text-xs text-slate-400">Trade Finance Wallet</p>
+              <p className="text-xs text-slate-600">Trade Finance Wallet</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
             <div className="text-right hidden sm:block">
-              <p className="text-xs text-slate-400">Customer</p>
+              <p className="text-xs text-slate-600">Customer</p>
               <p className="text-sm font-medium">Stephene Sosteri</p>
             </div>
             <div className="w-9 h-9 rounded-full bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center">
@@ -538,17 +538,17 @@ export default function KobePay() {
                   </div>
                   <div className="flex items-baseline gap-3">
                     <span className="text-4xl font-bold">${fmt(totalBalance)}</span>
-                    <span className="text-lg text-slate-400">TZS {(totalBalance * 2500).toLocaleString()}</span>
+                    <span className="text-lg text-slate-600">TZS {(totalBalance * 2500).toLocaleString()}</span>
                   </div>
                   <div className="flex gap-6 text-sm">
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-3 rounded-full bg-amber-400" />
-                      <span className="text-slate-400">Unassigned:</span>
+                      <span className="text-slate-600">Unassigned:</span>
                       <span className="text-amber-400 font-semibold">${fmt(unassigned)}</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-3 rounded-full bg-blue-400" />
-                      <span className="text-slate-400">Allocated:</span>
+                      <span className="text-slate-600">Allocated:</span>
                       <span className="text-blue-400 font-semibold">${fmt(allocated)}</span>
                     </div>
                   </div>
@@ -570,7 +570,7 @@ export default function KobePay() {
 
           {/* Supplier Cards - Horizontal */}
           <div>
-            <h2 className="text-sm font-semibold text-slate-400 mb-3 flex items-center gap-2">
+            <h2 className="text-sm font-semibold text-slate-600 mb-3 flex items-center gap-2">
               <Building2 className="w-4 h-4" /> Supplier Balances
             </h2>
             <div className="flex gap-3 overflow-x-auto pb-2">
@@ -586,7 +586,7 @@ export default function KobePay() {
                       <BadgeCheck className={cn('w-4 h-4', sup.status === 'active' ? 'text-emerald-400' : 'text-slate-600')} />
                     </div>
                     <div className="space-y-1.5">
-                      <div className="flex justify-between text-xs text-slate-400">
+                      <div className="flex justify-between text-xs text-slate-600">
                         <span>Available: ${fmt(sup.balance - sup.reserved)}</span>
                         <span>Reserved: ${fmt(sup.reserved)}</span>
                       </div>
@@ -611,10 +611,10 @@ export default function KobePay() {
           <Card className="bg-[#13131f] border-white/[0.06]">
             <CardContent className="p-4">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-sm font-semibold text-slate-400 flex items-center gap-2">
+                <h2 className="text-sm font-semibold text-slate-600 flex items-center gap-2">
                   <HistoryIcon className="w-4 h-4" /> Recent Transactions
                 </h2>
-                <Button variant="ghost" size="sm" className="text-xs text-slate-400 hover:text-white" onClick={() => setActiveTab('history')}>
+                <Button variant="ghost" size="sm" className="text-xs text-slate-600 hover:text-white" onClick={() => setActiveTab('history')}>
                   View All <ChevronRight className="w-3 h-3 ml-1" />
                 </Button>
               </div>
@@ -627,7 +627,7 @@ export default function KobePay() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium truncate">{tx.description}</p>
-                      <p className="text-xs text-slate-400">{tx.date} &bull; {tx.txRef}</p>
+                      <p className="text-xs text-slate-600">{tx.date} &bull; {tx.txRef}</p>
                     </div>
                     <div className="text-right flex-shrink-0">
                       <p className={cn('text-sm font-semibold', tx.type === 'deposit' || tx.type === 'cancel' ? 'text-emerald-400' : 'text-blue-400')}>
@@ -660,7 +660,7 @@ export default function KobePay() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-white/[0.06] text-slate-400 text-left">
+                    <tr className="border-b border-white/[0.06] text-slate-600 text-left">
                       <th className="px-4 py-3 font-medium">Name</th>
                       <th className="px-4 py-3 font-medium">Country</th>
                       <th className="px-4 py-3 font-medium">Contact</th>
@@ -682,8 +682,8 @@ export default function KobePay() {
                             <span className="font-medium">{sup.name}</span>
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-slate-400">{sup.country}</td>
-                        <td className="px-4 py-3 text-slate-400">{sup.contact}</td>
+                        <td className="px-4 py-3 text-slate-600">{sup.country}</td>
+                        <td className="px-4 py-3 text-slate-600">{sup.contact}</td>
                         <td className="px-4 py-3 text-right font-medium">${fmt(sup.balance)}</td>
                         <td className="px-4 py-3 text-right text-amber-400">${fmt(sup.reserved)}</td>
                         <td className="px-4 py-3 text-right text-emerald-400">${fmt(sup.balance - sup.reserved)}</td>
@@ -691,14 +691,14 @@ export default function KobePay() {
                         <td className="px-4 py-3">{statusBadge(sup.status)}</td>
                         <td className="px-4 py-3">
                           <div className="flex items-center justify-end gap-1">
-                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-slate-400 hover:text-blue-400"
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-slate-600 hover:text-blue-400"
                               onClick={(e) => { e.stopPropagation(); viewSupplier(sup); }}>
                               <Eye className="w-3.5 h-3.5" />
                             </Button>
-                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-slate-400 hover:text-amber-400">
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-slate-600 hover:text-amber-400">
                               <Edit className="w-3.5 h-3.5" />
                             </Button>
-                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-slate-400 hover:text-red-400">
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-slate-600 hover:text-red-400">
                               <Trash2 className="w-3.5 h-3.5" />
                             </Button>
                           </div>
@@ -732,7 +732,7 @@ export default function KobePay() {
 
                 {/* Select Supplier */}
                 <div className="space-y-1.5">
-                  <label className="text-xs text-slate-400">Select Supplier</label>
+                  <label className="text-xs text-slate-600">Select Supplier</label>
                   <Select value={allocSupplier} onValueChange={setAllocSupplier}>
                     <SelectTrigger className="bg-white/[0.05] border-white/[0.1] text-white">
                       <SelectValue placeholder="Choose supplier..." />
@@ -749,21 +749,21 @@ export default function KobePay() {
 
                 {/* Order Reference */}
                 <div className="space-y-1.5">
-                  <label className="text-xs text-slate-400">Order Reference</label>
+                  <label className="text-xs text-slate-600">Order Reference</label>
                   <Input value={allocOrderRef} onChange={e => setAllocOrderRef(e.target.value)}
                     placeholder="e.g., ORD-2025-042" className="bg-white/[0.05] border-white/[0.1] text-white" />
                 </div>
 
                 {/* Order Amount */}
                 <div className="space-y-1.5">
-                  <label className="text-xs text-slate-400">Order Amount ($)</label>
+                  <label className="text-xs text-slate-600">Order Amount ($)</label>
                   <Input type="number" value={allocOrderAmount} onChange={e => setAllocOrderAmount(e.target.value)}
                     placeholder="Total order cost e.g., 2000" className="bg-white/[0.05] border-white/[0.1] text-white" />
                 </div>
 
                 {/* Payment Type */}
                 <div className="space-y-2">
-                  <label className="text-xs text-slate-400">Payment Type</label>
+                  <label className="text-xs text-slate-600">Payment Type</label>
                   <div className="flex gap-3">
                     <label className="flex items-center gap-2 p-3 rounded-lg border border-white/[0.1] bg-white/[0.02] cursor-pointer hover:bg-white/[0.04] flex-1"
                       onClick={() => setAllocPaymentType('deposit')}>
@@ -772,7 +772,7 @@ export default function KobePay() {
                       </div>
                       <div>
                         <p className="text-sm font-medium">Deposit</p>
-                        <p className="text-xs text-slate-400">Partial payment</p>
+                        <p className="text-xs text-slate-600">Partial payment</p>
                       </div>
                     </label>
                     <label className="flex items-center gap-2 p-3 rounded-lg border border-white/[0.1] bg-white/[0.02] cursor-pointer hover:bg-white/[0.04] flex-1"
@@ -782,7 +782,7 @@ export default function KobePay() {
                       </div>
                       <div>
                         <p className="text-sm font-medium">Full Payment</p>
-                        <p className="text-xs text-slate-400">Pay entire order</p>
+                        <p className="text-xs text-slate-600">Pay entire order</p>
                       </div>
                     </label>
                   </div>
@@ -790,7 +790,7 @@ export default function KobePay() {
 
                 {/* Amount */}
                 <div className="space-y-1.5">
-                  <label className="text-xs text-slate-400">Allocation Amount ($)</label>
+                  <label className="text-xs text-slate-600">Allocation Amount ($)</label>
                   <Input type="number" value={allocAmount} onChange={e => setAllocAmount(e.target.value)}
                     placeholder={isFullPayment && allocOrderAmount ? `Auto: $${fmt(allocOrderAmtNum)}` : 'Enter amount'}
                     className="bg-white/[0.05] border-white/[0.1] text-white" />
@@ -807,11 +807,11 @@ export default function KobePay() {
                       Paying <span className="text-white font-semibold">${fmt(allocAmtNum)}</span> of{' '}
                       <span className="text-white font-semibold">${fmt(allocOrderAmtNum)}</span> remaining
                     </p>
-                    <p className="text-xs text-slate-400">
+                    <p className="text-xs text-slate-600">
                       New unassigned balance: <span className="text-amber-400">${fmt(Math.max(0, unassigned - allocAmtNum))}</span>
                     </p>
                     {remainingForOrder > 0 && (
-                      <p className="text-xs text-slate-400">
+                      <p className="text-xs text-slate-600">
                         Order remaining after payment: <span className="text-violet-400">${fmt(remainingForOrder)}</span>
                       </p>
                     )}
@@ -834,7 +834,7 @@ export default function KobePay() {
             <div className="space-y-4">
               <Card className="bg-[#13131f] border-white/[0.06]">
                 <CardContent className="p-5 space-y-4">
-                  <h3 className="text-sm font-semibold text-slate-400">Allocation Summary</h3>
+                  <h3 className="text-sm font-semibold text-slate-600">Allocation Summary</h3>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
                       <p className="text-xs text-emerald-400">Total Allocated</p>
@@ -859,14 +859,14 @@ export default function KobePay() {
               {/* Top Suppliers */}
               <Card className="bg-[#13131f] border-white/[0.06]">
                 <CardContent className="p-5 space-y-3">
-                  <h3 className="text-sm font-semibold text-slate-400">Top Suppliers by Balance</h3>
+                  <h3 className="text-sm font-semibold text-slate-600">Top Suppliers by Balance</h3>
                   {suppliers.filter(s => s.balance > 0).sort((a, b) => b.balance - a.balance).map(sup => (
                     <div key={sup.id} className="flex items-center gap-3">
                       <span className="text-base">{sup.flag}</span>
                       <div className="flex-1">
                         <div className="flex justify-between text-sm">
                           <span>{sup.name}</span>
-                          <span className="text-slate-400">${fmt(sup.balance)}</span>
+                          <span className="text-slate-600">${fmt(sup.balance)}</span>
                         </div>
                         <div className="h-1.5 rounded-full bg-slate-800 mt-1">
                           <div className="h-full rounded-full bg-emerald-500" style={{ width: `${Math.min(100, (sup.balance / 8000) * 100)}%` }} />
@@ -888,7 +888,7 @@ export default function KobePay() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-white/[0.06] text-slate-400 text-left">
+                    <tr className="border-b border-white/[0.06] text-slate-600 text-left">
                       <th className="px-3 py-2.5 font-medium">Date</th>
                       <th className="px-3 py-2.5 font-medium">Supplier</th>
                       <th className="px-3 py-2.5 font-medium">Order #</th>
@@ -903,7 +903,7 @@ export default function KobePay() {
                   <tbody>
                     {allocations.map(alloc => (
                       <tr key={alloc.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
-                        <td className="px-3 py-2.5 text-slate-400">{alloc.date}</td>
+                        <td className="px-3 py-2.5 text-slate-600">{alloc.date}</td>
                         <td className="px-3 py-2.5">
                           <div className="flex items-center gap-1.5">
                             <span>{suppliers.find(s => s.id === alloc.supplierId)?.flag}</span>
@@ -917,17 +917,17 @@ export default function KobePay() {
                           </Badge>
                         </td>
                         <td className="px-3 py-2.5 text-right font-semibold">${fmt(alloc.amount)}</td>
-                        <td className="px-3 py-2.5 text-right text-slate-400">${fmt(alloc.orderAmount)}</td>
-                        <td className="px-3 py-2.5 text-slate-400">${fmt(alloc.remaining)}</td>
+                        <td className="px-3 py-2.5 text-right text-slate-600">${fmt(alloc.orderAmount)}</td>
+                        <td className="px-3 py-2.5 text-slate-600">${fmt(alloc.remaining)}</td>
                         <td className="px-3 py-2.5">{statusBadge(alloc.status)}</td>
                         <td className="px-3 py-2.5">
                           <div className="flex items-center justify-end gap-1">
-                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-slate-400 hover:text-violet-400"
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-slate-600 hover:text-violet-400"
                               onClick={() => openAllocReceipt(alloc)}>
                               <Receipt className="w-3.5 h-3.5" />
                             </Button>
                             {alloc.status === 'active' && (
-                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-slate-400 hover:text-red-400"
+                              <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-slate-600 hover:text-red-400"
                                 onClick={() => handleCancelAllocation(alloc)}>
                                 <XCircle className="w-3.5 h-3.5" />
                               </Button>
@@ -976,7 +976,7 @@ export default function KobePay() {
                         </div>
                         <div>
                           <p className="text-sm font-semibold">{tx?.txRef || 'N/A'}</p>
-                          <p className="text-xs text-slate-400">{alloc.date}</p>
+                          <p className="text-xs text-slate-600">{alloc.date}</p>
                         </div>
                       </div>
                       <Badge className={alloc.paymentType === 'full' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-amber-500/20 text-amber-400 border-amber-500/30'}>
@@ -985,23 +985,23 @@ export default function KobePay() {
                     </div>
                     <div className="space-y-1 text-sm">
                       <div className="flex justify-between">
-                        <span className="text-slate-400">Supplier</span>
+                        <span className="text-slate-600">Supplier</span>
                         <span className="font-medium">{alloc.supplierName}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-slate-400">Order</span>
+                        <span className="text-slate-600">Order</span>
                         <span className="font-mono text-xs">{alloc.orderRef}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-slate-400">Amount Paid</span>
+                        <span className="text-slate-600">Amount Paid</span>
                         <span className="font-bold text-emerald-400">${fmt(alloc.amount)}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-slate-400">Order Total</span>
+                        <span className="text-slate-600">Order Total</span>
                         <span>${fmt(alloc.orderAmount)}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-slate-400">Remaining</span>
+                        <span className="text-slate-600">Remaining</span>
                         <span className={alloc.remaining === 0 ? 'text-emerald-400' : 'text-amber-400'}>${fmt(alloc.remaining)}</span>
                       </div>
                     </div>
@@ -1028,7 +1028,7 @@ export default function KobePay() {
         <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
           <div className="flex items-center justify-between flex-wrap gap-3">
             <h2 className="text-lg font-bold flex items-center gap-2">
-              <HistoryIcon className="w-5 h-5 text-slate-400" /> Transaction History
+              <HistoryIcon className="w-5 h-5 text-slate-600" /> Transaction History
             </h2>
             <div className="flex gap-2">
               {['all', 'deposit', 'allocate', 'cancel', 'order'].map(f => (
@@ -1046,7 +1046,7 @@ export default function KobePay() {
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="border-b border-white/[0.06] text-slate-400 text-left">
+                    <tr className="border-b border-white/[0.06] text-slate-600 text-left">
                       <th className="px-4 py-3 font-medium">Date</th>
                       <th className="px-4 py-3 font-medium">Type</th>
                       <th className="px-4 py-3 font-medium">Description</th>
@@ -1060,7 +1060,7 @@ export default function KobePay() {
                   <tbody>
                     {filteredHistory.map(tx => (
                       <tr key={tx.id} className="border-b border-white/[0.03] hover:bg-white/[0.02] transition-colors">
-                        <td className="px-4 py-3 text-slate-400">{tx.date}</td>
+                        <td className="px-4 py-3 text-slate-600">{tx.date}</td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1.5">
                             {txIcon(tx.type)}
@@ -1068,15 +1068,15 @@ export default function KobePay() {
                           </div>
                         </td>
                         <td className="px-4 py-3">{tx.description}</td>
-                        <td className="px-4 py-3 font-mono text-xs text-slate-400">{tx.txRef}</td>
+                        <td className="px-4 py-3 font-mono text-xs text-slate-600">{tx.txRef}</td>
                         <td className={cn('px-4 py-3 text-right font-semibold', tx.type === 'deposit' || tx.type === 'cancel' ? 'text-emerald-400' : 'text-blue-400')}>
                           {tx.type === 'deposit' || tx.type === 'cancel' ? '+' : '-'}${fmt(tx.amount)}
                         </td>
-                        <td className="px-4 py-3 text-right text-slate-400">${fmt(tx.balanceAfter)}</td>
+                        <td className="px-4 py-3 text-right text-slate-600">${fmt(tx.balanceAfter)}</td>
                         <td className="px-4 py-3">{statusBadge(tx.status)}</td>
                         <td className="px-4 py-3">
                           <div className="flex items-center justify-end gap-1">
-                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-slate-400 hover:text-violet-400"
+                            <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-slate-600 hover:text-violet-400"
                               onClick={() => openReceipt(tx)}>
                               <Receipt className="w-3.5 h-3.5" />
                             </Button>
@@ -1110,7 +1110,7 @@ export default function KobePay() {
               <p className="text-xl font-bold text-emerald-400">${fmt(totalBalance)}</p>
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs text-slate-400">Customer <span className="text-red-400">*</span></label>
+              <label className="text-xs text-slate-600">Customer <span className="text-red-400">*</span></label>
               <Select value={depCustomerId} onValueChange={setDepCustomerId}>
                 <SelectTrigger className="bg-white/[0.05] border-white/[0.1] text-white">
                   <SelectValue />
@@ -1134,12 +1134,12 @@ export default function KobePay() {
               </div>
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs text-slate-400">Amount</label>
+              <label className="text-xs text-slate-600">Amount</label>
               <Input type="number" value={depAmount} onChange={e => setDepAmount(e.target.value)}
                 placeholder="Enter amount" className="bg-white/[0.05] border-white/[0.1] text-white" />
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs text-slate-400">Currency</label>
+              <label className="text-xs text-slate-600">Currency</label>
               <Select value={depCurrency} onValueChange={setDepCurrency}>
                 <SelectTrigger className="bg-white/[0.05] border-white/[0.1] text-white">
                   <SelectValue />
@@ -1152,7 +1152,7 @@ export default function KobePay() {
               </Select>
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs text-slate-400">Method</label>
+              <label className="text-xs text-slate-600">Method</label>
               <Select value={depMethod} onValueChange={setDepMethod}>
                 <SelectTrigger className="bg-white/[0.05] border-white/[0.1] text-white">
                   <SelectValue />
@@ -1166,7 +1166,7 @@ export default function KobePay() {
               </Select>
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs text-slate-400">Notes</label>
+              <label className="text-xs text-slate-600">Notes</label>
               <Input value={depNotes} onChange={e => setDepNotes(e.target.value)}
                 placeholder="Optional notes..." className="bg-white/[0.05] border-white/[0.1] text-white" />
             </div>
@@ -1187,17 +1187,17 @@ export default function KobePay() {
           </DialogHeader>
           <div className="space-y-4 pt-2">
             <div className="space-y-1.5">
-              <label className="text-xs text-slate-400">Full Name <span className="text-red-400">*</span></label>
+              <label className="text-xs text-slate-600">Full Name <span className="text-red-400">*</span></label>
               <Input value={newCustName} onChange={e => setNewCustName(e.target.value)}
                 placeholder="e.g., Stephene Sosteri" className="bg-white/[0.05] border-white/[0.1] text-white" />
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs text-slate-400">Phone Number <span className="text-red-400">*</span></label>
+              <label className="text-xs text-slate-600">Phone Number <span className="text-red-400">*</span></label>
               <Input value={newCustPhone} onChange={e => setNewCustPhone(e.target.value)}
                 placeholder="+255 713 456 789" className="bg-white/[0.05] border-white/[0.1] text-white" />
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs text-slate-400">Email</label>
+              <label className="text-xs text-slate-600">Email</label>
               <Input value={newCustEmail} onChange={e => setNewCustEmail(e.target.value)}
                 placeholder="customer@email.com" className="bg-white/[0.05] border-white/[0.1] text-white" />
             </div>
@@ -1234,22 +1234,22 @@ export default function KobePay() {
           </DialogHeader>
           <div className="space-y-4 pt-2">
             <div className="space-y-1.5">
-              <label className="text-xs text-slate-400">Supplier Name</label>
+              <label className="text-xs text-slate-600">Supplier Name</label>
               <Input value={newSupName} onChange={e => setNewSupName(e.target.value)}
                 placeholder="e.g., Shanghai Cargo Co." className="bg-white/[0.05] border-white/[0.1] text-white" />
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs text-slate-400">Country</label>
+              <label className="text-xs text-slate-600">Country</label>
               <Input value={newSupCountry} onChange={e => setNewSupCountry(e.target.value)}
                 placeholder="e.g., China" className="bg-white/[0.05] border-white/[0.1] text-white" />
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs text-slate-400">Contact Phone</label>
+              <label className="text-xs text-slate-600">Contact Phone</label>
               <Input value={newSupContact} onChange={e => setNewSupContact(e.target.value)}
                 placeholder="+86 138-0000-0000" className="bg-white/[0.05] border-white/[0.1] text-white" />
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs text-slate-400">Email</label>
+              <label className="text-xs text-slate-600">Email</label>
               <Input value={newSupEmail} onChange={e => setNewSupEmail(e.target.value)}
                 placeholder="supplier@example.com" className="bg-white/[0.05] border-white/[0.1] text-white" />
             </div>
@@ -1274,7 +1274,7 @@ export default function KobePay() {
               <p className="text-xl font-bold text-amber-400">${fmt(unassigned)}</p>
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs text-slate-400">Customer <span className="text-red-400">*</span></label>
+              <label className="text-xs text-slate-600">Customer <span className="text-red-400">*</span></label>
               <Select value={depCustomerId} onValueChange={setDepCustomerId}>
                 <SelectTrigger className="bg-white/[0.05] border-white/[0.1] text-white">
                   <SelectValue />
@@ -1292,7 +1292,7 @@ export default function KobePay() {
               </Select>
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs text-slate-400">Supplier</label>
+              <label className="text-xs text-slate-600">Supplier</label>
               <Select value={allocSupplier} onValueChange={setAllocSupplier}>
                 <SelectTrigger className="bg-white/[0.05] border-white/[0.1] text-white">
                   <SelectValue placeholder="Select supplier..." />
@@ -1305,17 +1305,17 @@ export default function KobePay() {
               </Select>
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs text-slate-400">Order Reference</label>
+              <label className="text-xs text-slate-600">Order Reference</label>
               <Input value={allocOrderRef} onChange={e => setAllocOrderRef(e.target.value)}
                 placeholder="ORD-2025-042" className="bg-white/[0.05] border-white/[0.1] text-white" />
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs text-slate-400">Order Amount ($)</label>
+              <label className="text-xs text-slate-600">Order Amount ($)</label>
               <Input type="number" value={allocOrderAmount} onChange={e => setAllocOrderAmount(e.target.value)}
                 placeholder="Total cost" className="bg-white/[0.05] border-white/[0.1] text-white" />
             </div>
             <div className="space-y-2">
-              <label className="text-xs text-slate-400">Payment Type</label>
+              <label className="text-xs text-slate-600">Payment Type</label>
               <div className="flex gap-2">
                 <Button type="button" variant={allocPaymentType === 'deposit' ? 'default' : 'outline'}
                   className={allocPaymentType === 'deposit' ? 'bg-amber-500 hover:bg-amber-600 text-white flex-1' : 'border-white/[0.1] bg-white/[0.05] hover:bg-white/[0.1] text-white flex-1'}
@@ -1330,7 +1330,7 @@ export default function KobePay() {
               </div>
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs text-slate-400">Amount ($)</label>
+              <label className="text-xs text-slate-600">Amount ($)</label>
               <Input type="number" value={allocAmount} onChange={e => setAllocAmount(e.target.value)}
                 placeholder={isFullPayment && allocOrderAmount ? String(allocOrderAmtNum) : 'Enter amount'}
                 className="bg-white/[0.05] border-white/[0.1] text-white" />
@@ -1340,7 +1340,7 @@ export default function KobePay() {
               <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20 text-sm space-y-1">
                 <p className="text-xs text-blue-400 font-medium">Preview</p>
                 <p className="text-slate-300">Paying <span className="text-white font-semibold">${fmt(allocAmtNum)}</span> of <span className="text-white font-semibold">${fmt(allocOrderAmtNum)}</span></p>
-                <p className="text-xs text-slate-400">New balance: ${fmt(Math.max(0, unassigned - allocAmtNum))}</p>
+                <p className="text-xs text-slate-600">New balance: ${fmt(Math.max(0, unassigned - allocAmtNum))}</p>
                 {showFullPaymentWarning && (
                   <p className="text-xs text-amber-400 flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> Not full payment</p>
                 )}
@@ -1376,7 +1376,7 @@ export default function KobePay() {
                     <Wallet className="w-6 h-6 text-white" />
                   </div>
                   <h3 className="text-lg font-bold tracking-wide">KOBE PAY</h3>
-                  <p className="text-xs text-slate-400 uppercase tracking-widest">Payment Confirmation</p>
+                  <p className="text-xs text-slate-600 uppercase tracking-widest">Payment Confirmation</p>
                 </div>
 
                 {/* Divider */}
@@ -1385,31 +1385,31 @@ export default function KobePay() {
                 {/* Transaction Details */}
                 <div className="space-y-3 text-sm relative">
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Transaction ID</span>
+                    <span className="text-slate-600">Transaction ID</span>
                     <span className="font-mono text-xs">{selectedTx.txRef}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Date</span>
+                    <span className="text-slate-600">Date</span>
                     <span>{selectedTx.date}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Customer</span>
+                    <span className="text-slate-600">Customer</span>
                     <span className="font-medium">Stephene Sosteri</span>
                   </div>
                   {selectedTx.supplierName && (
                     <div className="flex justify-between">
-                      <span className="text-slate-400">Supplier</span>
+                      <span className="text-slate-600">Supplier</span>
                       <span className="font-medium">{selectedTx.supplierName}</span>
                     </div>
                   )}
                   {selectedTx.orderRef && (
                     <div className="flex justify-between">
-                      <span className="text-slate-400">Order Reference</span>
+                      <span className="text-slate-600">Order Reference</span>
                       <span className="font-mono text-xs">{selectedTx.orderRef}</span>
                     </div>
                   )}
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Payment Type</span>
+                    <span className="text-slate-600">Payment Type</span>
                     <Badge className={selectedTx.paymentType === 'full' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' : 'bg-amber-500/20 text-amber-400 border-amber-500/30'}>
                       {selectedTx.paymentType === 'full' ? 'FULL PAYMENT' : 'DEPOSIT'}
                     </Badge>
@@ -1419,12 +1419,12 @@ export default function KobePay() {
                   <div className="border-t border-dashed border-white/[0.1]" />
 
                   <div className="flex justify-between">
-                    <span className="text-slate-400">Amount Paid</span>
+                    <span className="text-slate-600">Amount Paid</span>
                     <span className="text-xl font-bold text-emerald-400">${fmt(selectedTx.amount)}</span>
                   </div>
                   {selectedTx.paymentType === 'deposit' && selectedTx.orderRef && (
                     <div className="flex justify-between">
-                      <span className="text-slate-400">Remaining</span>
+                      <span className="text-slate-600">Remaining</span>
                       <span className="text-amber-400 font-medium">
                         ${fmt(allocations.find(a => a.orderRef === selectedTx.orderRef)?.remaining || 0)}
                       </span>
@@ -1439,7 +1439,7 @@ export default function KobePay() {
 
                   {selectedTx.confirmedBy && (
                     <div className="flex justify-between text-xs">
-                      <span className="text-slate-400">Confirmed by</span>
+                      <span className="text-slate-600">Confirmed by</span>
                       <span>{selectedTx.confirmedBy}</span>
                     </div>
                   )}
@@ -1449,7 +1449,7 @@ export default function KobePay() {
                     <div className="p-3 rounded-xl bg-white shadow-lg">
                       <QRCodeSVG value={`https://kobe.app/tx/${selectedTx.txRef.replace('KBE-TX-', '')}`} size={120} bgColor="#ffffff" fgColor="#0a0a1a" level="M" />
                     </div>
-                    <p className="text-xs text-slate-400">Scan to verify transaction</p>
+                    <p className="text-xs text-slate-600">Scan to verify transaction</p>
                   </div>
                 </div>
               </div>
@@ -1504,23 +1504,23 @@ export default function KobePay() {
 
                 {/* Info */}
                 <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div className="flex items-center gap-2 text-slate-400">
+                  <div className="flex items-center gap-2 text-slate-600">
                     <Globe className="w-4 h-4" /> {selectedSupplier.country}
                   </div>
-                  <div className="flex items-center gap-2 text-slate-400">
+                  <div className="flex items-center gap-2 text-slate-600">
                     <Phone className="w-4 h-4" /> {selectedSupplier.contact}
                   </div>
-                  <div className="flex items-center gap-2 text-slate-400">
+                  <div className="flex items-center gap-2 text-slate-600">
                     <Mail className="w-4 h-4" /> {selectedSupplier.email}
                   </div>
-                  <div className="flex items-center gap-2 text-slate-400">
+                  <div className="flex items-center gap-2 text-slate-600">
                     <Package className="w-4 h-4" /> {selectedSupplier.orders} orders
                   </div>
                 </div>
 
                 {/* Allocations for this supplier */}
                 <div>
-                  <h4 className="text-sm font-semibold text-slate-400 mb-2">Allocation History</h4>
+                  <h4 className="text-sm font-semibold text-slate-600 mb-2">Allocation History</h4>
                   <div className="space-y-2">
                     {allocations.filter(a => a.supplierId === selectedSupplier.id).slice(0, 5).map(alloc => (
                       <div key={alloc.id} className="flex items-center justify-between p-2.5 rounded-lg bg-white/[0.02]">
@@ -1528,7 +1528,7 @@ export default function KobePay() {
                           {alloc.paymentType === 'full' ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <Clock className="w-4 h-4 text-amber-400" />}
                           <div>
                             <p className="text-sm">{alloc.orderRef}</p>
-                            <p className="text-xs text-slate-400">{alloc.date}</p>
+                            <p className="text-xs text-slate-600">{alloc.date}</p>
                           </div>
                         </div>
                         <div className="text-right">
@@ -1538,14 +1538,14 @@ export default function KobePay() {
                       </div>
                     ))}
                     {allocations.filter(a => a.supplierId === selectedSupplier.id).length === 0 && (
-                      <p className="text-sm text-slate-400 text-center py-4">No allocations yet</p>
+                      <p className="text-sm text-slate-600 text-center py-4">No allocations yet</p>
                     )}
                   </div>
                 </div>
 
                 {/* Transactions for this supplier */}
                 <div>
-                  <h4 className="text-sm font-semibold text-slate-400 mb-2">Transaction History</h4>
+                  <h4 className="text-sm font-semibold text-slate-600 mb-2">Transaction History</h4>
                   <div className="space-y-2">
                     {transactions.filter(t => t.supplierId === selectedSupplier.id).slice(0, 5).map(tx => (
                       <div key={tx.id} className="flex items-center gap-2 p-2.5 rounded-lg bg-white/[0.02] cursor-pointer hover:bg-white/[0.04]"
@@ -1553,7 +1553,7 @@ export default function KobePay() {
                         {txIcon(tx.type)}
                         <div className="flex-1 min-w-0">
                           <p className="text-sm truncate">{tx.description}</p>
-                          <p className="text-xs text-slate-400">{tx.date}</p>
+                          <p className="text-xs text-slate-600">{tx.date}</p>
                         </div>
                         <span className={cn('text-sm font-semibold', tx.type === 'deposit' || tx.type === 'cancel' ? 'text-emerald-400' : 'text-blue-400')}>
                           {tx.type === 'deposit' || tx.type === 'cancel' ? '+' : '-'}${fmt(tx.amount)}
@@ -1561,7 +1561,7 @@ export default function KobePay() {
                       </div>
                     ))}
                     {transactions.filter(t => t.supplierId === selectedSupplier.id).length === 0 && (
-                      <p className="text-sm text-slate-400 text-center py-4">No transactions yet</p>
+                      <p className="text-sm text-slate-600 text-center py-4">No transactions yet</p>
                     )}
                   </div>
                 </div>

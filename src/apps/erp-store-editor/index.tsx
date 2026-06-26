@@ -15,6 +15,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Switch } from '@/components/ui/switch';
 import { PhotoUpload } from '@/components/PhotoUpload';
 import { HomepageSectionBuilder, IndustryTemplatePicker } from './StorefrontSections';
+import { JerseyStorefrontPreview } from './JerseyStorefrontPreview';
 import { JerseyDesignEditor } from './JerseyDesignEditor';
 
 
@@ -66,6 +67,10 @@ interface StoreSettings {
   isPublished?: boolean;
   publishedUrl?: string | null;
   publishedAt?: string | null;
+  // Storefront template — 'generic' = original mockup; 'jerseys' uses
+  // the projerseyshop.es-style preview (clubs grid, kit cards,
+  // customizer CTA, trust strip).
+  template?: 'generic' | 'jerseys';
 }
 
 interface PreviewProduct {
@@ -551,6 +556,15 @@ function PreviewFooter({ settings }: { settings: StoreSettings }) {
    ═══════════════════════════════════════════════════════════ */
 
 function LivePreview({ settings }: { settings: StoreSettings }) {
+  if (settings.template === 'jerseys') {
+    return (
+      <JerseyStorefrontPreview
+        primaryColor={settings.primaryColor}
+        storeName={settings.storeName}
+        tagline={settings.tagline}
+      />
+    );
+  }
   const gridCols =
     settings.gridColumns === 2
       ? 'grid-cols-2'
@@ -894,8 +908,40 @@ export default function StoreEditor() {
 
         {/* Sections */}
         <ScrollArea className="flex-1 min-h-0">
+          {/* ─── Preview Template ─── */}
+          <Section title="Preview Template" icon={LayoutGrid} defaultOpen>
+            <div className="space-y-2">
+              <p className="text-[10px] text-white/50">
+                Pick the storefront layout used by the live preview on the right.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { id: 'generic', label: 'Generic', sub: 'Single hero + product grid' },
+                  { id: 'jerseys', label: 'Jersey Shop', sub: 'projerseyshop.es style' },
+                ].map((opt) => {
+                  const active = (settings.template ?? 'generic') === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => update('template', opt.id as 'generic' | 'jerseys')}
+                      className={`text-left p-2.5 rounded-lg border transition-all ${
+                        active
+                          ? 'border-amber-500/60 bg-amber-500/10'
+                          : 'border-white/[0.08] bg-white/[0.03] hover:border-white/20'
+                      }`}
+                    >
+                      <div className={`text-xs font-bold ${active ? 'text-amber-300' : 'text-white/80'}`}>{opt.label}</div>
+                      <div className="text-[10px] text-white/50 mt-0.5">{opt.sub}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </Section>
+
           {/* ─── Industry Template ─── */}
-          <Section title="Industry Template" icon={LayoutGrid} defaultOpen>
+          <Section title="Industry Template" icon={LayoutGrid}>
             <IndustryTemplatePicker />
           </Section>
 

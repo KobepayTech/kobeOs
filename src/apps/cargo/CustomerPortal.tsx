@@ -312,11 +312,11 @@ export default function CustomerPortal() {
         <div key={s} className="flex items-center flex-1 last:flex-none">
           <div className="flex flex-col items-center gap-1">
             <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
-              step >= s ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30' : 'bg-white/40 text-slate-400 border border-white/50'
+              step >= s ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/30' : 'bg-white/40 text-slate-600 border border-white/50'
             }`}>
               {step > s ? <CheckCircle2 size={14} /> : s}
             </div>
-            <span className={`text-[10px] hidden sm:block ${step >= s ? 'text-emerald-600' : 'text-slate-400'}`}>
+            <span className={`text-[10px] hidden sm:block ${step >= s ? 'text-emerald-600' : 'text-slate-600'}`}>
               {['Sender', 'Receiver', 'Package', 'Shipping', 'Payment', 'Review'][i]}
             </span>
           </div>
@@ -333,31 +333,31 @@ export default function CustomerPortal() {
       </h3>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="sm:col-span-2">
-          <label className="text-xs text-slate-500 mb-1 block">Full Name *</label>
+          <label className="text-xs text-slate-700 mb-1 block">Full Name *</label>
           <Input placeholder="Enter your full name" value={sender.name}
             onChange={e => setSender({ ...sender, name: e.target.value })}
-            className="bg-white/40 border-white/50 text-slate-700 placeholder:text-slate-400 focus:border-emerald-400 rounded-xl" />
+            className="bg-white/40 border-white/50 text-slate-700 placeholder:text-slate-600 focus:border-emerald-400 rounded-xl" />
         </div>
         <div>
-          <label className="text-xs text-slate-500 mb-1 block">Phone Number *</label>
+          <label className="text-xs text-slate-700 mb-1 block">Phone Number *</label>
           <Input placeholder="+255..." value={sender.phone}
             onChange={e => setSender({ ...sender, phone: e.target.value })}
-            className="bg-white/40 border-white/50 text-slate-700 placeholder:text-slate-400 focus:border-emerald-400 rounded-xl" />
+            className="bg-white/40 border-white/50 text-slate-700 placeholder:text-slate-600 focus:border-emerald-400 rounded-xl" />
         </div>
         <div>
-          <label className="text-xs text-slate-500 mb-1 block">Email</label>
+          <label className="text-xs text-slate-700 mb-1 block">Email</label>
           <Input placeholder="email@example.com" value={sender.email}
             onChange={e => setSender({ ...sender, email: e.target.value })}
-            className="bg-white/40 border-white/50 text-slate-700 placeholder:text-slate-400 focus:border-emerald-400 rounded-xl" />
+            className="bg-white/40 border-white/50 text-slate-700 placeholder:text-slate-600 focus:border-emerald-400 rounded-xl" />
         </div>
         <div className="sm:col-span-2">
-          <label className="text-xs text-slate-500 mb-1 block">Address *</label>
+          <label className="text-xs text-slate-700 mb-1 block">Address *</label>
           <Input placeholder="Street address, city" value={sender.address}
             onChange={e => setSender({ ...sender, address: e.target.value })}
-            className="bg-white/40 border-white/50 text-slate-700 placeholder:text-slate-400 focus:border-emerald-400 rounded-xl" />
+            className="bg-white/40 border-white/50 text-slate-700 placeholder:text-slate-600 focus:border-emerald-400 rounded-xl" />
         </div>
         <div className="sm:col-span-2">
-          <label className="text-xs text-slate-500 mb-1 block">Country *</label>
+          <label className="text-xs text-slate-700 mb-1 block">Country *</label>
           <select value={sender.country}
             onChange={e => setSender({ ...sender, country: e.target.value })}
             className="w-full rounded-xl border border-white/50 bg-white/40 text-slate-700 px-3 py-2.5 text-sm focus:border-emerald-400 focus:outline-none">
@@ -375,31 +375,31 @@ export default function CustomerPortal() {
       </h3>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="sm:col-span-2">
-          <label className="text-xs text-slate-500 mb-1 block">Full Name *</label>
+          <label className="text-xs text-slate-700 mb-1 block">Full Name *</label>
           <Input placeholder="Receiver's full name" value={receiver.name}
             onChange={e => setReceiver({ ...receiver, name: e.target.value })}
-            className="bg-white/40 border-white/50 text-slate-700 placeholder:text-slate-400 focus:border-emerald-400 rounded-xl" />
+            className="bg-white/40 border-white/50 text-slate-700 placeholder:text-slate-600 focus:border-emerald-400 rounded-xl" />
         </div>
         <div>
-          <label className="text-xs text-slate-500 mb-1 block">Phone Number *</label>
+          <label className="text-xs text-slate-700 mb-1 block">Phone Number *</label>
           <Input placeholder="+255..." value={receiver.phone}
             onChange={e => setReceiver({ ...receiver, phone: e.target.value })}
-            className="bg-white/40 border-white/50 text-slate-700 placeholder:text-slate-400 focus:border-emerald-400 rounded-xl" />
+            className="bg-white/40 border-white/50 text-slate-700 placeholder:text-slate-600 focus:border-emerald-400 rounded-xl" />
         </div>
         <div>
-          <label className="text-xs text-slate-500 mb-1 block">Email</label>
+          <label className="text-xs text-slate-700 mb-1 block">Email</label>
           <Input placeholder="email@example.com" value={receiver.email}
             onChange={e => setReceiver({ ...receiver, email: e.target.value })}
-            className="bg-white/40 border-white/50 text-slate-700 placeholder:text-slate-400 focus:border-emerald-400 rounded-xl" />
+            className="bg-white/40 border-white/50 text-slate-700 placeholder:text-slate-600 focus:border-emerald-400 rounded-xl" />
         </div>
         <div className="sm:col-span-2">
-          <label className="text-xs text-slate-500 mb-1 block">Address *</label>
+          <label className="text-xs text-slate-700 mb-1 block">Address *</label>
           <Input placeholder="Street address, city" value={receiver.address}
             onChange={e => setReceiver({ ...receiver, address: e.target.value })}
-            className="bg-white/40 border-white/50 text-slate-700 placeholder:text-slate-400 focus:border-emerald-400 rounded-xl" />
+            className="bg-white/40 border-white/50 text-slate-700 placeholder:text-slate-600 focus:border-emerald-400 rounded-xl" />
         </div>
         <div className="sm:col-span-2">
-          <label className="text-xs text-slate-500 mb-1 block">Country *</label>
+          <label className="text-xs text-slate-700 mb-1 block">Country *</label>
           <select value={receiver.country}
             onChange={e => setReceiver({ ...receiver, country: e.target.value })}
             className="w-full rounded-xl border border-white/50 bg-white/40 text-slate-700 px-3 py-2.5 text-sm focus:border-emerald-400 focus:outline-none">
@@ -417,13 +417,13 @@ export default function CustomerPortal() {
       </h3>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="sm:col-span-2">
-          <label className="text-xs text-slate-500 mb-1 block">Description *</label>
+          <label className="text-xs text-slate-700 mb-1 block">Description *</label>
           <Input placeholder="What's inside the package?" value={pkg.description}
             onChange={e => setPkg({ ...pkg, description: e.target.value })}
-            className="bg-white/40 border-white/50 text-slate-700 placeholder:text-slate-400 focus:border-emerald-400 rounded-xl" />
+            className="bg-white/40 border-white/50 text-slate-700 placeholder:text-slate-600 focus:border-emerald-400 rounded-xl" />
         </div>
         <div>
-          <label className="text-xs text-slate-500 mb-1 block">Category *</label>
+          <label className="text-xs text-slate-700 mb-1 block">Category *</label>
           <select value={pkg.category}
             onChange={e => setPkg({ ...pkg, category: e.target.value })}
             className="w-full rounded-xl border border-white/50 bg-white/40 text-slate-700 px-3 py-2.5 text-sm focus:border-emerald-400 focus:outline-none">
@@ -431,13 +431,13 @@ export default function CustomerPortal() {
           </select>
         </div>
         <div>
-          <label className="text-xs text-slate-500 mb-1 block">Quantity *</label>
+          <label className="text-xs text-slate-700 mb-1 block">Quantity *</label>
           <Input type="number" min={1} value={pkg.quantity}
             onChange={e => setPkg({ ...pkg, quantity: Number(e.target.value) })}
             className="bg-white/40 border-white/50 text-slate-700 focus:border-emerald-400 rounded-xl" />
         </div>
         <div>
-          <label className="text-xs text-slate-500 mb-1 flex items-center gap-1">
+          <label className="text-xs text-slate-700 mb-1 flex items-center gap-1">
             <Weight size={12} /> Weight (kg) *
           </label>
           <Input type="number" min={0.1} step={0.1} value={pkg.weight}
@@ -445,25 +445,25 @@ export default function CustomerPortal() {
             className="bg-white/40 border-white/50 text-slate-700 focus:border-emerald-400 rounded-xl" />
         </div>
         <div>
-          <label className="text-xs text-slate-500 mb-1 block">Declared Value ($)</label>
+          <label className="text-xs text-slate-700 mb-1 block">Declared Value ($)</label>
           <Input type="number" min={0} value={pkg.declaredValue}
             onChange={e => setPkg({ ...pkg, declaredValue: Number(e.target.value) })}
             className="bg-white/40 border-white/50 text-slate-700 focus:border-emerald-400 rounded-xl" />
         </div>
         <div className="sm:col-span-2">
-          <label className="text-xs text-slate-500 mb-1 flex items-center gap-1">
+          <label className="text-xs text-slate-700 mb-1 flex items-center gap-1">
             <Ruler size={12} /> Dimensions (cm)
           </label>
           <div className="grid grid-cols-3 gap-2">
             <Input type="number" placeholder="Length" value={pkg.length}
               onChange={e => setPkg({ ...pkg, length: Number(e.target.value) })}
-              className="bg-white/40 border-white/50 text-slate-700 placeholder:text-slate-400 focus:border-emerald-400 rounded-xl" />
+              className="bg-white/40 border-white/50 text-slate-700 placeholder:text-slate-600 focus:border-emerald-400 rounded-xl" />
             <Input type="number" placeholder="Width" value={pkg.width}
               onChange={e => setPkg({ ...pkg, width: Number(e.target.value) })}
-              className="bg-white/40 border-white/50 text-slate-700 placeholder:text-slate-400 focus:border-emerald-400 rounded-xl" />
+              className="bg-white/40 border-white/50 text-slate-700 placeholder:text-slate-600 focus:border-emerald-400 rounded-xl" />
             <Input type="number" placeholder="Height" value={pkg.height}
               onChange={e => setPkg({ ...pkg, height: Number(e.target.value) })}
-              className="bg-white/40 border-white/50 text-slate-700 placeholder:text-slate-400 focus:border-emerald-400 rounded-xl" />
+              className="bg-white/40 border-white/50 text-slate-700 placeholder:text-slate-600 focus:border-emerald-400 rounded-xl" />
           </div>
         </div>
       </div>
@@ -477,7 +477,7 @@ export default function CustomerPortal() {
       </h3>
       <div className="space-y-4">
         <div>
-          <label className="text-xs text-slate-500 mb-2 block">Select Route *</label>
+          <label className="text-xs text-slate-700 mb-2 block">Select Route *</label>
           <div className="grid grid-cols-1 gap-2">
             {ROUTES.map(r => (
               <button key={r.label}
@@ -488,7 +488,7 @@ export default function CustomerPortal() {
                     : 'border-white/50 bg-white/20 hover:bg-white/30'
                 }`}>
                 <div className="flex items-center gap-2">
-                  <MapPin size={16} className={shipping.route === r.label ? 'text-emerald-600' : 'text-slate-400'} />
+                  <MapPin size={16} className={shipping.route === r.label ? 'text-emerald-600' : 'text-slate-600'} />
                   <span className="text-sm text-slate-700">{r.label}</span>
                 </div>
                 {shipping.route === r.label && <CheckCircle2 size={16} className="text-emerald-600" />}
@@ -497,7 +497,7 @@ export default function CustomerPortal() {
           </div>
         </div>
         <div>
-          <label className="text-xs text-slate-500 mb-2 block">Shipping Speed *</label>
+          <label className="text-xs text-slate-700 mb-2 block">Shipping Speed *</label>
           <div className="grid grid-cols-3 gap-2">
             {SPEEDS.map(s => (
               <button key={s.label}
@@ -508,7 +508,7 @@ export default function CustomerPortal() {
                     : 'border-white/50 bg-white/20 hover:bg-white/30'
                 }`}>
                 <div className="text-sm font-medium text-slate-700">{s.label}</div>
-                <div className="text-xs text-slate-500 mt-1 flex items-center justify-center gap-1">
+                <div className="text-xs text-slate-700 mt-1 flex items-center justify-center gap-1">
                   <Clock size={10} />{s.days}
                 </div>
               </button>
@@ -519,7 +519,7 @@ export default function CustomerPortal() {
           <Shield size={18} className="text-emerald-600" />
           <div className="flex-1">
             <div className="text-sm text-slate-700">Insurance Coverage</div>
-            <div className="text-xs text-slate-500">3% of transport fee - covers loss &amp; damage</div>
+            <div className="text-xs text-slate-700">3% of transport fee - covers loss &amp; damage</div>
           </div>
           <button onClick={() => setShipping({ ...shipping, insurance: !shipping.insurance })}
             className={`w-10 h-6 rounded-full transition-all ${shipping.insurance ? 'bg-emerald-500' : 'bg-slate-300'}`}>
@@ -551,7 +551,7 @@ export default function CustomerPortal() {
         </CardContent>
       </GlassCard>
       <div>
-        <label className="text-xs text-slate-500 mb-2 block">Payment Mode</label>
+        <label className="text-xs text-slate-700 mb-2 block">Payment Mode</label>
         <div className="flex gap-2 mb-3">
           {['PAY_NOW', 'PAY_ON_ARRIVAL'].map(m => (
             <button key={m}
@@ -559,13 +559,13 @@ export default function CustomerPortal() {
               className={`flex-1 py-2.5 rounded-xl border text-sm font-medium transition-all ${
                 payment.mode === m
                   ? 'border-emerald-400 bg-emerald-50/50 text-emerald-700'
-                  : 'border-white/50 bg-white/20 text-slate-500 hover:bg-white/30'
+                  : 'border-white/50 bg-white/20 text-slate-700 hover:bg-white/30'
               }`}>
               {m === 'PAY_NOW' ? 'Pay Now' : 'Pay on Arrival'}
             </button>
           ))}
         </div>
-        <label className="text-xs text-slate-500 mb-2 block">Payment Method</label>
+        <label className="text-xs text-slate-700 mb-2 block">Payment Method</label>
         <div className="grid grid-cols-2 gap-2">
           {(payment.mode === 'PAY_NOW' ? PAYMENT_METHODS.PAY_NOW : PAYMENT_METHODS.PAY_ON_ARRIVAL).map(m => {
             const Icon = m.icon;
@@ -577,7 +577,7 @@ export default function CustomerPortal() {
                     ? 'border-emerald-400 bg-emerald-50/50'
                     : 'border-white/50 bg-white/20 hover:bg-white/30'
                 }`}>
-                <Icon size={16} className={payment.method === m.key ? 'text-emerald-600' : 'text-slate-400'} />
+                <Icon size={16} className={payment.method === m.key ? 'text-emerald-600' : 'text-slate-600'} />
                 <span className="text-xs text-slate-700">{m.label}</span>
               </button>
             );
@@ -596,22 +596,22 @@ export default function CustomerPortal() {
         <GlassCard><CardContent className="p-3 space-y-2">
           <div className="flex items-center gap-2 text-sm font-semibold text-emerald-700"><User size={14} /> Sender</div>
           <div className="text-xs text-slate-600">{sender.name} | {sender.phone}</div>
-          <div className="text-xs text-slate-500">{sender.address}, {sender.country}</div>
+          <div className="text-xs text-slate-700">{sender.address}, {sender.country}</div>
         </CardContent></GlassCard>
         <GlassCard><CardContent className="p-3 space-y-2">
           <div className="flex items-center gap-2 text-sm font-semibold text-emerald-700"><MapPin size={14} /> Receiver</div>
           <div className="text-xs text-slate-600">{receiver.name} | {receiver.phone}</div>
-          <div className="text-xs text-slate-500">{receiver.address}, {receiver.country}</div>
+          <div className="text-xs text-slate-700">{receiver.address}, {receiver.country}</div>
         </CardContent></GlassCard>
         <GlassCard><CardContent className="p-3 space-y-2">
           <div className="flex items-center gap-2 text-sm font-semibold text-emerald-700"><Box size={14} /> Package</div>
           <div className="text-xs text-slate-600">{pkg.category} - {pkg.description}</div>
-          <div className="text-xs text-slate-500">{pkg.quantity} pcs | {pkg.weight}kg | {pkg.length}x{pkg.width}x{pkg.height}cm | ${pkg.declaredValue}</div>
+          <div className="text-xs text-slate-700">{pkg.quantity} pcs | {pkg.weight}kg | {pkg.length}x{pkg.width}x{pkg.height}cm | ${pkg.declaredValue}</div>
         </CardContent></GlassCard>
         <GlassCard><CardContent className="p-3 space-y-2">
           <div className="flex items-center gap-2 text-sm font-semibold text-emerald-700"><Truck size={14} /> Shipping</div>
           <div className="text-xs text-slate-600">{shipping.route} - {shipping.speed}</div>
-          <div className="text-xs text-slate-500">Insurance: {shipping.insurance ? 'Yes' : 'No'} | Payment: {payment.mode === 'PAY_NOW' ? 'Pay Now' : 'Pay on Arrival'}</div>
+          <div className="text-xs text-slate-700">Insurance: {shipping.insurance ? 'Yes' : 'No'} | Payment: {payment.mode === 'PAY_NOW' ? 'Pay Now' : 'Pay on Arrival'}</div>
         </CardContent></GlassCard>
         <div className="p-3 rounded-xl border border-emerald-300 bg-emerald-50/50">
           <div className="flex justify-between items-center">
@@ -623,7 +623,7 @@ export default function CustomerPortal() {
           <input type="checkbox" checked={agreed}
             onChange={e => setAgreed(e.target.checked)}
             className="rounded border-white/40 bg-white/30 accent-emerald-500" />
-          <span className="text-xs text-slate-500">I agree to the terms and conditions of KOBECARGO shipping services.</span>
+          <span className="text-xs text-slate-700">I agree to the terms and conditions of KOBECARGO shipping services.</span>
         </label>
       </div>
     </div>
@@ -636,13 +636,13 @@ export default function CustomerPortal() {
       </div>
       <div>
         <h3 className="text-2xl font-bold text-slate-700 mb-2">Shipment Created!</h3>
-        <p className="text-slate-500 text-sm">Your parcel has been registered successfully.</p>
+        <p className="text-slate-700 text-sm">Your parcel has been registered successfully.</p>
       </div>
       <GlassCard className="w-full max-w-sm">
         <CardContent className="p-4 flex flex-col items-center gap-3">
           <QRCodeSVG value={`https://kobecargo.com/track/${parcelId}`} size={128} bgColor="transparent" fgColor="#059669" />
           <div className="text-center">
-            <div className="text-xs text-slate-500">Parcel ID</div>
+            <div className="text-xs text-slate-700">Parcel ID</div>
             <div className="text-lg font-bold text-emerald-700 font-mono">{parcelId}</div>
           </div>
         </CardContent>
@@ -669,18 +669,18 @@ export default function CustomerPortal() {
           <div className="flex gap-2">
             <Input placeholder="Enter sender phone number..." value={searchPhone}
               onChange={e => setSearchPhone(e.target.value)}
-              className="bg-white/40 border-white/50 text-slate-700 placeholder:text-slate-400 focus:border-emerald-400 rounded-xl" />
+              className="bg-white/40 border-white/50 text-slate-700 placeholder:text-slate-600 focus:border-emerald-400 rounded-xl" />
             <Button onClick={() => setSearched(true)}
               className="bg-emerald-600 hover:bg-emerald-700 text-white shrink-0 rounded-xl">
               <Search size={16} />
             </Button>
           </div>
-          <p className="text-xs text-slate-500 mt-2">Search by the sender phone used at registration.</p>
+          <p className="text-xs text-slate-700 mt-2">Search by the sender phone used at registration.</p>
         </CardContent>
       </GlassCard>
 
       {searched && filteredShipments.length === 0 && (
-        <div className="text-center py-8 text-slate-400 text-sm">No shipments found for this phone number.</div>
+        <div className="text-center py-8 text-slate-600 text-sm">No shipments found for this phone number.</div>
       )}
 
       <div className="space-y-3">
@@ -696,14 +696,14 @@ export default function CustomerPortal() {
                     </Badge>
                   </div>
                   <div className="text-sm text-slate-700 font-medium">{s.receiverName}</div>
-                  <div className="flex items-center gap-3 text-xs text-slate-500">
+                  <div className="flex items-center gap-3 text-xs text-slate-700">
                     <span className="flex items-center gap-1"><MapPin size={10} />{s.receiverCountry}</span>
                     <span className="flex items-center gap-1"><Weight size={10} />{s.weight}kg</span>
                     <span className="flex items-center gap-1"><Clock size={10} />{s.date}</span>
                   </div>
-                  <div className="text-xs text-slate-400">{s.route}</div>
+                  <div className="text-xs text-slate-600">{s.route}</div>
                 </div>
-                <ChevronRight size={16} className="text-slate-400 mt-1" />
+                <ChevronRight size={16} className="text-slate-600 mt-1" />
               </div>
             </CardContent>
           </GlassCard>
@@ -726,13 +726,13 @@ export default function CustomerPortal() {
             <Input placeholder="Enter AWB / Parcel ID / Tracking number..." value={trackId}
               onChange={e => setTrackId(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleTrack()}
-              className="bg-white/40 border-white/50 text-slate-700 placeholder:text-slate-400 focus:border-emerald-400 rounded-xl" />
+              className="bg-white/40 border-white/50 text-slate-700 placeholder:text-slate-600 focus:border-emerald-400 rounded-xl" />
             <Button onClick={handleTrack} disabled={trackLoading}
               className="bg-emerald-600 hover:bg-emerald-700 text-white shrink-0 rounded-xl min-w-[80px]">
               {trackLoading ? <Loader2 size={16} className="animate-spin" /> : <Search size={16} />}
             </Button>
           </div>
-          <p className="text-xs text-slate-500 mt-2">Enter your parcel ID or AWB number to track.</p>
+          <p className="text-xs text-slate-700 mt-2">Enter your parcel ID or AWB number to track.</p>
         </CardContent>
       </GlassCard>
 
@@ -751,7 +751,7 @@ export default function CustomerPortal() {
                     <Badge variant="outline" className={`${STATUS_COLORS[trackResult.shipment.status]} text-xs`}>
                       {trackResult.shipment.status.replace('_', ' ')}
                     </Badge>
-                    <span className="text-xs text-slate-500">{trackResult.shipment.weight}kg | {trackResult.shipment.category}</span>
+                    <span className="text-xs text-slate-700">{trackResult.shipment.weight}kg | {trackResult.shipment.category}</span>
                   </div>
                 </div>
               </div>
@@ -767,8 +767,8 @@ export default function CustomerPortal() {
                       t.completed ? 'bg-emerald-500 border-emerald-500' : 'bg-white/40 border-white/60'
                     }`} />
                     <div className="pb-5">
-                      <div className={`text-sm font-medium ${t.completed ? 'text-slate-700' : 'text-slate-400'}`}>{t.status}</div>
-                      <div className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
+                      <div className={`text-sm font-medium ${t.completed ? 'text-slate-700' : 'text-slate-600'}`}>{t.status}</div>
+                      <div className="text-xs text-slate-700 flex items-center gap-1 mt-0.5">
                         <MapPin size={10} />{t.location}
                       </div>
                     </div>
@@ -781,7 +781,7 @@ export default function CustomerPortal() {
       )}
 
       {!trackResult && !trackLoading && trackId && (
-        <div className="text-center py-8 text-slate-400 text-sm">
+        <div className="text-center py-8 text-slate-600 text-sm">
           No results found for &quot;{trackId}&quot;. Try a different tracking number.
         </div>
       )}
@@ -813,7 +813,7 @@ export default function CustomerPortal() {
                   </div>
                   <div>
                     <div className="text-sm text-slate-700 font-medium">{doc.label}</div>
-                    <div className="text-xs text-slate-500">PDF \u2022 Available for download</div>
+                    <div className="text-xs text-slate-700">PDF \u2022 Available for download</div>
                   </div>
                 </div>
                 <Button size="sm" variant="outline"
@@ -835,9 +835,9 @@ export default function CustomerPortal() {
           <div
             className="border-2 border-dashed border-white/50 rounded-2xl p-6 text-center hover:bg-white/10 transition-all cursor-pointer"
             onClick={() => setUploadOpen(true)}>
-            <Upload size={32} className="text-slate-400 mx-auto mb-2" />
+            <Upload size={32} className="text-slate-600 mx-auto mb-2" />
             <p className="text-sm text-slate-600 font-medium">Click to upload documents</p>
-            <p className="text-xs text-slate-400 mt-1">Supports PDF, JPG, PNG (max 10MB)</p>
+            <p className="text-xs text-slate-600 mt-1">Supports PDF, JPG, PNG (max 10MB)</p>
           </div>
           <div className="mt-4 space-y-2">
             {[
@@ -846,9 +846,9 @@ export default function CustomerPortal() {
             ].map((f, i) => (
               <div key={i} className="flex items-center justify-between p-2 rounded-lg bg-white/20 border border-white/30">
                 <div className="flex items-center gap-2">
-                  <FileText size={14} className="text-slate-500" />
+                  <FileText size={14} className="text-slate-700" />
                   <span className="text-xs text-slate-700">{f.name}</span>
-                  <span className="text-[10px] text-slate-400">{f.size}</span>
+                  <span className="text-[10px] text-slate-600">{f.size}</span>
                 </div>
                 <Badge variant="outline" className={f.status === 'verified'
                   ? 'bg-emerald-100 text-emerald-700 border-emerald-300 text-[10px]'
@@ -875,14 +875,14 @@ export default function CustomerPortal() {
         {selectedShipment && (
           <div className="space-y-4 mt-2">
             <div>
-              <div className="text-xs text-slate-500">Parcel ID</div>
+              <div className="text-xs text-slate-700">Parcel ID</div>
               <div className="text-sm font-mono text-emerald-700">{selectedShipment.id}</div>
             </div>
             <div className="flex items-center gap-2">
               <Badge variant="outline" className={`${STATUS_COLORS[selectedShipment.status]}`}>
                 {selectedShipment.status.replace('_', ' ')}
               </Badge>
-              <span className="text-xs text-slate-500">{selectedShipment.weight}kg | {selectedShipment.category}</span>
+              <span className="text-xs text-slate-700">{selectedShipment.weight}kg | {selectedShipment.category}</span>
             </div>
             <div className="space-y-0">
               {selectedShipment.timeline.map((t, i) => (
@@ -894,11 +894,11 @@ export default function CustomerPortal() {
                     t.completed ? 'bg-emerald-500 border-emerald-500' : 'bg-white border-slate-300'
                   }`} />
                   <div className="pb-5">
-                    <div className={`text-sm font-medium ${t.completed ? 'text-slate-700' : 'text-slate-400'}`}>{t.status}</div>
-                    <div className="text-xs text-slate-500 flex items-center gap-1 mt-0.5">
+                    <div className={`text-sm font-medium ${t.completed ? 'text-slate-700' : 'text-slate-600'}`}>{t.status}</div>
+                    <div className="text-xs text-slate-700 flex items-center gap-1 mt-0.5">
                       <MapPin size={10} />{t.location}
                     </div>
-                    <div className="text-xs text-slate-400 mt-0.5">{t.date}</div>
+                    <div className="text-xs text-slate-600 mt-0.5">{t.date}</div>
                   </div>
                 </div>
               ))}
@@ -922,12 +922,12 @@ export default function CustomerPortal() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-slate-700 tracking-tight">Customer Portal</h1>
-            <p className="text-xs text-slate-500">Book, track &amp; manage your shipments</p>
+            <p className="text-xs text-slate-700">Book, track &amp; manage your shipments</p>
           </div>
           <Badge variant="outline"
             className={connected
               ? 'ml-auto gap-1 bg-emerald-100 text-emerald-700 border-emerald-300'
-              : 'ml-auto gap-1 bg-white/40 text-slate-500 border-white/50'}>
+              : 'ml-auto gap-1 bg-white/40 text-slate-700 border-white/50'}>
             {connected ? <Wifi size={12} /> : <WifiOff size={12} />}
             {connected ? 'Live' : 'Offline'}
           </Badge>
@@ -948,7 +948,7 @@ export default function CustomerPortal() {
               className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-medium transition-all whitespace-nowrap min-w-0 ${
                 activeTab === tab.key
                   ? 'bg-emerald-600 text-white shadow-md'
-                  : 'text-slate-500 hover:bg-white/30'
+                  : 'text-slate-700 hover:bg-white/30'
               }`}>
               <tab.icon size={14} />
               <span className="hidden sm:inline">{tab.label}</span>

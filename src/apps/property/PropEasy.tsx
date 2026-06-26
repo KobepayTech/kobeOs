@@ -121,7 +121,7 @@ function priorityChip(p: MaintenanceRequest['priority']) {
   const cls =
     p === 'High'   ? 'text-rose-600'    :
     p === 'Normal' ? 'text-slate-700'   :
-                     'text-slate-400';
+                     'text-slate-600';
   return <span className={`text-xs font-semibold ${cls}`}>{p}</span>;
 }
 
@@ -297,7 +297,7 @@ function TopBar({ title }: { title: string }) {
     <div className="flex items-center justify-between gap-4 px-6 pt-5 pb-3">
       <h1 className="text-xl font-bold text-slate-900">{title}</h1>
       <div className="flex items-center gap-3">
-        <button className="relative w-10 h-10 bg-white rounded-full flex items-center justify-center text-slate-500 shadow-sm border border-slate-200">
+        <button className="relative w-10 h-10 bg-white rounded-full flex items-center justify-center text-slate-700 shadow-sm border border-slate-200">
           <Bell className="w-4 h-4" />
           <span className="absolute top-2 right-2.5 w-2 h-2 bg-rose-500 rounded-full ring-2 ring-white" />
         </button>
@@ -305,7 +305,7 @@ function TopBar({ title }: { title: string }) {
           <div className="w-9 h-9 rounded-full bg-gradient-to-br from-amber-400 to-orange-500" />
           <div className="text-xs leading-tight">
             <div className="font-semibold">Courtney Henry</div>
-            <div className="text-slate-400 text-[10px]">courtney@example.com</div>
+            <div className="text-slate-600 text-[10px]">courtney@example.com</div>
           </div>
         </div>
       </div>
@@ -341,25 +341,25 @@ function TenantsView({ tenants, onPick }: { tenants: ApiTenant[]; onPick: (t: Ap
       {/* Header row */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-600" />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search tenants"
-            className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 bg-white text-sm placeholder:text-slate-400 focus:outline-none focus:border-blue-400"
+            className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 bg-white text-sm placeholder:text-slate-600 focus:outline-none focus:border-blue-400"
           />
         </div>
         <div className="ml-auto flex items-center gap-2">
           <div className="flex items-center bg-white border border-slate-200 rounded-xl p-1">
             <button
               onClick={() => setTab('all')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 ${tab === 'all' ? 'bg-slate-50 text-slate-900' : 'text-slate-500'}`}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 ${tab === 'all' ? 'bg-slate-50 text-slate-900' : 'text-slate-700'}`}
             >
               <Users className="w-3.5 h-3.5" /> All Tenants
             </button>
             <button
               onClick={() => setTab('requests')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 ${tab === 'requests' ? 'bg-slate-50 text-slate-900' : 'text-slate-500'}`}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 ${tab === 'requests' ? 'bg-slate-50 text-slate-900' : 'text-slate-700'}`}
             >
               <Plus className="w-3.5 h-3.5" /> Tenant Requests
             </button>
@@ -367,10 +367,10 @@ function TenantsView({ tenants, onPick }: { tenants: ApiTenant[]; onPick: (t: Ap
           <button className="px-3.5 py-2 rounded-xl bg-blue-600 text-white font-semibold text-xs hover:bg-blue-500 flex items-center gap-1.5">
             <Plus className="w-3.5 h-3.5" /> Add Tenant
           </button>
-          <button className="w-9 h-9 bg-white border border-slate-200 rounded-xl flex items-center justify-center text-slate-500 hover:text-slate-900">
+          <button className="w-9 h-9 bg-white border border-slate-200 rounded-xl flex items-center justify-center text-slate-700 hover:text-slate-900">
             <Filter className="w-4 h-4" />
           </button>
-          <button className="w-9 h-9 bg-white border border-slate-200 rounded-xl flex items-center justify-center text-slate-500 hover:text-slate-900">
+          <button className="w-9 h-9 bg-white border border-slate-200 rounded-xl flex items-center justify-center text-slate-700 hover:text-slate-900">
             <Columns3 className="w-4 h-4" />
           </button>
         </div>
@@ -380,7 +380,7 @@ function TenantsView({ tenants, onPick }: { tenants: ApiTenant[]; onPick: (t: Ap
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         <table className="w-full text-sm">
           <thead>
-            <tr className="text-slate-500 text-xs">
+            <tr className="text-slate-700 text-xs">
               <Th>No</Th>
               <Th>Image</Th>
               <Th sortable>Name</Th>
@@ -395,7 +395,7 @@ function TenantsView({ tenants, onPick }: { tenants: ApiTenant[]; onPick: (t: Ap
           <tbody>
             {visible.map((t, i) => (
               <tr key={t.id} className="border-t border-slate-100 hover:bg-slate-50/60 cursor-pointer" onClick={() => onPick(t)}>
-                <Td className="text-slate-400">{(page - 1) * pageSize + i + 1}</Td>
+                <Td className="text-slate-600">{(page - 1) * pageSize + i + 1}</Td>
                 <Td>
                   {t.avatarUrl ? (
                     <img src={t.avatarUrl} alt="" className="w-9 h-9 rounded-full object-cover" />
@@ -412,7 +412,7 @@ function TenantsView({ tenants, onPick }: { tenants: ApiTenant[]; onPick: (t: Ap
                 <Td>${(t.rent ?? 0).toLocaleString()}/month</Td>
                 <Td>{t.status ? statusPill(t.status) : null}</Td>
                 <Td>
-                  <div className="flex items-center gap-2 text-slate-400">
+                  <div className="flex items-center gap-2 text-slate-600">
                     <Info     className="w-4 h-4 hover:text-blue-600"   onClick={(e) => { e.stopPropagation(); onPick(t); }} />
                     <Pencil   className="w-4 h-4 hover:text-emerald-600" onClick={(e) => e.stopPropagation()} />
                     <Trash2   className="w-4 h-4 hover:text-rose-600"    onClick={(e) => e.stopPropagation()} />
@@ -421,13 +421,13 @@ function TenantsView({ tenants, onPick }: { tenants: ApiTenant[]; onPick: (t: Ap
               </tr>
             ))}
             {visible.length === 0 && (
-              <tr><td colSpan={9} className="text-center text-slate-400 py-8 text-sm">No tenants match that search.</td></tr>
+              <tr><td colSpan={9} className="text-center text-slate-600 py-8 text-sm">No tenants match that search.</td></tr>
             )}
           </tbody>
         </table>
 
         <div className="flex items-center justify-between px-4 py-3 border-t border-slate-100 text-xs">
-          <div className="flex items-center gap-2 text-slate-500">
+          <div className="flex items-center gap-2 text-slate-700">
             Rows Per Page
             <div className="flex items-center gap-1 bg-slate-50 rounded-md px-2 py-1 font-semibold text-slate-700">
               {pageSize} <ChevronDown className="w-3 h-3" />
@@ -450,23 +450,23 @@ function Pagination({ current, total, onChange }: { current: number; total: numb
   }
   return (
     <div className="flex items-center gap-1">
-      <button onClick={() => onChange(Math.max(1, current - 1))} className="w-7 h-7 rounded-md border border-slate-200 flex items-center justify-center text-slate-400 hover:text-slate-900">
+      <button onClick={() => onChange(Math.max(1, current - 1))} className="w-7 h-7 rounded-md border border-slate-200 flex items-center justify-center text-slate-600 hover:text-slate-900">
         <ArrowLeft className="w-3 h-3" />
       </button>
       {cells.map((c, i) =>
         c === '…' ? (
-          <span key={`d${i}`} className="px-1 text-slate-400">…</span>
+          <span key={`d${i}`} className="px-1 text-slate-600">…</span>
         ) : (
           <button
             key={c}
             onClick={() => onChange(c)}
-            className={`w-7 h-7 rounded-md text-xs font-semibold ${current === c ? 'bg-blue-600 text-white' : 'border border-slate-200 text-slate-500 hover:text-slate-900'}`}
+            className={`w-7 h-7 rounded-md text-xs font-semibold ${current === c ? 'bg-blue-600 text-white' : 'border border-slate-200 text-slate-700 hover:text-slate-900'}`}
           >
             {c}
           </button>
         ),
       )}
-      <button onClick={() => onChange(Math.min(total, current + 1))} className="w-7 h-7 rounded-md border border-slate-200 flex items-center justify-center text-slate-400 hover:text-slate-900">
+      <button onClick={() => onChange(Math.min(total, current + 1))} className="w-7 h-7 rounded-md border border-slate-200 flex items-center justify-center text-slate-600 hover:text-slate-900">
         <ArrowRight className="w-3 h-3" />
       </button>
     </div>
@@ -488,10 +488,10 @@ function TenantDetailView({
         <button onClick={onBack} className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-white border border-slate-200 text-slate-700 hover:bg-slate-50">
           <ArrowLeft className="w-3.5 h-3.5" /> Back
         </button>
-        <button onClick={onBack} className="flex items-center gap-1.5 text-slate-500 hover:text-slate-900">
+        <button onClick={onBack} className="flex items-center gap-1.5 text-slate-700 hover:text-slate-900">
           <Home className="w-3.5 h-3.5" /> Tenants
         </button>
-        <ChevronRight className="w-3 h-3 text-slate-400" />
+        <ChevronRight className="w-3 h-3 text-slate-600" />
         <span className="flex items-center gap-1.5 text-blue-600 font-semibold">
           <Home className="w-3.5 h-3.5" /> Tenant Details
         </span>
@@ -523,8 +523,8 @@ function TenantDetailView({
             </div>
           </div>
           <div className="flex items-center gap-3 text-sm">
-            <span className="text-slate-500">Rent Details</span>
-            <span className="text-2xl font-extrabold">${(tenant.rent ?? 0).toLocaleString()}<span className="text-sm text-slate-400 font-medium">/month</span></span>
+            <span className="text-slate-700">Rent Details</span>
+            <span className="text-2xl font-extrabold">${(tenant.rent ?? 0).toLocaleString()}<span className="text-sm text-slate-600 font-medium">/month</span></span>
             {rentPaid
               ? <span className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700">Paid</span>
               : <span className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-700">Overdue</span>}
@@ -550,12 +550,12 @@ function TenantDetailView({
                   <KeyValuePair label="Payment terms">{tenant.paymentTerms || 'Monthly'}</KeyValuePair>
                 </div>
                 <div>
-                  <div className="text-[11px] text-slate-500 mb-1.5">Lease document :</div>
+                  <div className="text-[11px] text-slate-700 mb-1.5">Lease document :</div>
                   <a href={tenant.leaseDocUrl || '#'} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 hover:border-blue-300">
                     <span className="px-1.5 py-0.5 rounded bg-rose-500 text-white text-[9px] font-bold">PDF</span>
                     <div className="text-xs">
                       <div className="font-semibold text-slate-700">Lease_document_{tenant.name.split(' ')[0]}.pdf</div>
-                      <div className="text-[10px] text-slate-400">20 MB</div>
+                      <div className="text-[10px] text-slate-600">20 MB</div>
                     </div>
                   </a>
                 </div>
@@ -587,7 +587,7 @@ function TenantDetailView({
               <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                 <table className="w-full text-xs">
                   <thead>
-                    <tr className="text-slate-400">
+                    <tr className="text-slate-600">
                       <Th tight>Date</Th>
                       <Th tight>Issue Description</Th>
                       <Th tight>Status</Th>
@@ -603,7 +603,7 @@ function TenantDetailView({
                         <Td tight>{maintenanceStatusPill(m.status)}</Td>
                         <Td tight>{priorityChip(m.priority)}</Td>
                         <Td tight>
-                          <div className="flex items-center gap-1 text-slate-400">
+                          <div className="flex items-center gap-1 text-slate-600">
                             <MoreHorizontal className="w-3.5 h-3.5" />
                             <ArrowRight className="w-3.5 h-3.5" />
                           </div>
@@ -623,7 +623,7 @@ function TenantDetailView({
               <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
                 <table className="w-full text-xs">
                   <thead>
-                    <tr className="text-slate-400">
+                    <tr className="text-slate-600">
                       <Th tight>Date</Th>
                       <Th tight>Amount</Th>
                       <Th tight>Payment Method</Th>
@@ -691,7 +691,7 @@ function DashboardView({ tenants, payments, properties, onOpenTenant }: { tenant
     <div className="space-y-5">
       <div>
         <h2 className="text-2xl font-extrabold text-slate-900">Dashboard Overview</h2>
-        <p className="text-sm text-slate-500 mt-0.5">Welcome back! Here's what's happening with your properties.</p>
+        <p className="text-sm text-slate-700 mt-0.5">Welcome back! Here's what's happening with your properties.</p>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -732,7 +732,7 @@ function DashboardView({ tenants, payments, properties, onOpenTenant }: { tenant
                   <ActivityIcon kind={a.kind} />
                   <div className="flex-1 min-w-0">
                     <div className="text-xs text-slate-700 leading-snug">{a.title}</div>
-                    <div className="text-[11px] text-slate-400 mt-0.5">{a.when}</div>
+                    <div className="text-[11px] text-slate-600 mt-0.5">{a.when}</div>
                   </div>
                 </li>
               ))}
@@ -760,7 +760,7 @@ function PpKpi({ title, value, delta, tone, icon, deltaNeg }: { title: string; v
   return (
     <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm flex items-start justify-between gap-3">
       <div>
-        <div className="text-xs font-semibold text-slate-500">{title}</div>
+        <div className="text-xs font-semibold text-slate-700">{title}</div>
         <div className="text-2xl font-extrabold text-slate-900 mt-1">{value}</div>
         <div className={`text-[11px] font-semibold mt-1 ${deltaNeg ? 'text-rose-500' : 'text-emerald-600'}`}>{delta}</div>
       </div>
@@ -785,17 +785,17 @@ function PropertyCard({ card, onView }: {
       </div>
       <div className="p-4 space-y-1.5">
         <div className="font-bold text-sm text-slate-900">{card.name}</div>
-        <div className="flex items-center gap-1 text-[11px] text-slate-500">
+        <div className="flex items-center gap-1 text-[11px] text-slate-700">
           <MapPin className="w-3 h-3" /> {card.address}
         </div>
         <div className="flex items-center justify-between pt-1">
-          <div className="flex items-center gap-1 text-[11px] text-slate-500">
+          <div className="flex items-center gap-1 text-[11px] text-slate-700">
             <Users className="w-3 h-3" /> {card.tenants} tenants
           </div>
-          <div className="text-sm font-extrabold text-blue-600">${card.rent.toLocaleString()}<span className="text-[10px] font-semibold text-slate-400">/mo</span></div>
+          <div className="text-sm font-extrabold text-blue-600">${card.rent.toLocaleString()}<span className="text-[10px] font-semibold text-slate-600">/mo</span></div>
         </div>
         {card.nextPayment && (
-          <div className="flex items-center gap-1 text-[11px] text-slate-500 pt-1 border-t border-slate-100 mt-2">
+          <div className="flex items-center gap-1 text-[11px] text-slate-700 pt-1 border-t border-slate-100 mt-2">
             <Calendar className="w-3 h-3" /> Next payment: {card.nextPayment}
           </div>
         )}
@@ -902,10 +902,10 @@ function ScreeningView({ tenant, onBack }: { tenant: ApiTenant; onBack: () => vo
         <button onClick={onBack} className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-white border border-slate-200 text-slate-700 hover:bg-slate-50">
           <ArrowLeft className="w-3.5 h-3.5" /> Back
         </button>
-        <span className="text-slate-500">Tenants</span>
-        <ChevronRight className="w-3 h-3 text-slate-400" />
-        <span className="text-slate-500">{tenant.name}</span>
-        <ChevronRight className="w-3 h-3 text-slate-400" />
+        <span className="text-slate-700">Tenants</span>
+        <ChevronRight className="w-3 h-3 text-slate-600" />
+        <span className="text-slate-700">{tenant.name}</span>
+        <ChevronRight className="w-3 h-3 text-slate-600" />
         <span className="text-blue-600 font-semibold">Screening Report</span>
       </div>
 
@@ -914,7 +914,7 @@ function ScreeningView({ tenant, onBack }: { tenant: ApiTenant; onBack: () => vo
           {/* Header */}
           <div>
             <h2 className="text-lg font-bold mb-1">Overview</h2>
-            <div className="text-xs text-slate-500">Tenant screening across four risk categories.</div>
+            <div className="text-xs text-slate-700">Tenant screening across four risk categories.</div>
           </div>
 
           {/* Score circles */}
@@ -955,7 +955,7 @@ function ScreeningView({ tenant, onBack }: { tenant: ApiTenant; onBack: () => vo
         <div className="space-y-4">
           <div className="bg-white rounded-2xl border border-slate-100 p-5 text-center">
             <div className="text-sm font-bold mb-1">Overall Score</div>
-            <div className="text-[10px] text-slate-400 mb-3">Score Range 300-850</div>
+            <div className="text-[10px] text-slate-600 mb-3">Score Range 300-850</div>
 
             <div className="relative w-40 h-40 mx-auto">
               <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
@@ -978,7 +978,7 @@ function ScreeningView({ tenant, onBack }: { tenant: ApiTenant; onBack: () => vo
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center">
                 <div className="text-3xl font-extrabold">{overall}</div>
-                <div className="text-[10px] tracking-wider text-slate-500 mt-0.5">{overallLabel}</div>
+                <div className="text-[10px] tracking-wider text-slate-700 mt-0.5">{overallLabel}</div>
               </div>
             </div>
 
@@ -1017,7 +1017,7 @@ function ScreeningView({ tenant, onBack }: { tenant: ApiTenant; onBack: () => vo
                   <div className="w-9 h-9 rounded-lg bg-cover bg-center bg-slate-200" style={{ backgroundImage: `url('${r.image}')` }} />
                   <div className="min-w-0">
                     <div className="font-semibold truncate">{r.name}</div>
-                    <div className="text-[10px] text-slate-400">{r.date}</div>
+                    <div className="text-[10px] text-slate-600">{r.date}</div>
                   </div>
                 </div>
               ))}
@@ -1042,7 +1042,7 @@ function ScoreCircle({ pct, label, sub, tone }: { pct: number; label: string; su
         <div className="absolute inset-0 flex items-center justify-center text-sm font-bold">{pct}%</div>
       </div>
       <div className="mt-2 text-sm font-bold">{label}</div>
-      <div className="text-[11px] text-slate-400">{sub}</div>
+      <div className="text-[11px] text-slate-600">{sub}</div>
       <button className="mt-2 w-7 h-7 rounded-full bg-amber-400 hover:bg-amber-300 text-amber-900 inline-flex items-center justify-center mx-auto">
         <ArrowRight className="w-3.5 h-3.5" />
       </button>
@@ -1054,7 +1054,7 @@ function ScreeningField({ label, value }: { label: string; value: string }) {
   return (
     <div>
       <div className="text-sm font-semibold text-slate-900 leading-tight">{value}</div>
-      <div className="text-[10px] text-slate-400 tracking-wider mt-0.5">{label}</div>
+      <div className="text-[10px] text-slate-600 tracking-wider mt-0.5">{label}</div>
     </div>
   );
 }
@@ -1069,7 +1069,7 @@ function DocumentRow({ kind, name, size, href }: { kind: 'PDF' | 'JPG'; name: st
       {kind === 'PDF' ? <FileText className="w-5 h-5 text-rose-500" /> : <ImageIcon className="w-5 h-5 text-sky-500" />}
       <div className="flex-1 min-w-0">
         <div className="text-sm font-semibold flex items-center gap-2">{name} {badge}</div>
-        <div className="text-[10px] text-slate-400">{size}</div>
+        <div className="text-[10px] text-slate-600">{size}</div>
       </div>
       <a
         href={href || '#'}
@@ -1106,7 +1106,7 @@ function KpiCard({ label, value, tone }: { label: string; value: string; tone: '
                          'text-amber-600';
   return (
     <div className={`rounded-2xl border ${ring} p-4`}>
-      <div className="text-[11px] text-slate-500 uppercase tracking-wide font-semibold">{label}</div>
+      <div className="text-[11px] text-slate-700 uppercase tracking-wide font-semibold">{label}</div>
       <div className={`text-2xl font-extrabold mt-1 ${text}`}>{value}</div>
     </div>
   );
@@ -1126,7 +1126,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function KeyValuePair({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-start gap-3 py-1.5">
-      <span className="text-[11px] text-slate-500 w-32 shrink-0">{label} :</span>
+      <span className="text-[11px] text-slate-700 w-32 shrink-0">{label} :</span>
       <span className="text-sm text-slate-900">{children}</span>
     </div>
   );
@@ -1152,7 +1152,7 @@ function EmptyState({ title, subtitle }: { title: string; subtitle: string }) {
     <div className="bg-white rounded-2xl border border-slate-100 p-12 text-center">
       <FileDown className="w-8 h-8 text-slate-300 mx-auto mb-3" />
       <h2 className="text-base font-bold mb-1">{title}</h2>
-      <p className="text-xs text-slate-500">{subtitle}</p>
+      <p className="text-xs text-slate-700">{subtitle}</p>
     </div>
   );
 }

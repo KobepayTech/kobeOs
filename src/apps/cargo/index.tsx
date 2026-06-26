@@ -77,7 +77,7 @@ const cargoSections = [
   {
     title: 'System',
     tiles: [
-      { key: 'settings' as Tab, label: 'Settings', icon: Settings, color: 'text-slate-500', bg: 'bg-slate-500/10', border: 'border-slate-500/20' },
+      { key: 'settings' as Tab, label: 'Settings', icon: Settings, color: 'text-slate-700', bg: 'bg-slate-500/10', border: 'border-slate-500/20' },
     ],
   },
 ];
@@ -85,21 +85,24 @@ const cargoSections = [
 /* ─── GLASSMORPHISM STYLES (constants) ─── */
 const G = {
   page: 'h-full flex bg-gradient-to-br from-slate-100 via-purple-50 to-indigo-100',
-  card: 'bg-white/[0.30] backdrop-blur-xl border border-white/[0.40] rounded-2xl shadow-lg',
-  cardHeader: 'text-xs font-semibold text-slate-700',
-  text: 'text-slate-600',
-  muted: 'text-slate-400',
-  sidebar: 'w-60 h-full flex flex-col bg-white/[0.25] backdrop-blur-2xl border-r border-white/[0.40]',
-  input: 'bg-white/40 border-white/[0.40] text-slate-700 placeholder:text-slate-400 rounded-xl',
+  // Bumped contrast: cards now have a solider white so dark text shows,
+  // and every text tone shifts one step darker (slate-400 was nearly
+  // invisible on the previous translucent surface).
+  card: 'bg-white/80 backdrop-blur-xl border border-slate-200 rounded-2xl shadow-lg',
+  cardHeader: 'text-xs font-semibold text-slate-900',
+  text: 'text-slate-800',
+  muted: 'text-slate-600',
+  sidebar: 'w-60 h-full flex flex-col bg-white/85 backdrop-blur-2xl border-r border-slate-200',
+  input: 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-700 rounded-xl',
   kpiGrid: 'grid grid-cols-2 lg:grid-cols-4 gap-3',
   chartGrid: 'grid grid-cols-1 lg:grid-cols-2 gap-3',
-  btnPrimary: 'bg-blue-500 hover:bg-blue-600 text-white rounded-xl',
-  btnOutline: 'border-white/[0.40] text-slate-600 hover:bg-white/40 rounded-xl',
+  btnPrimary: 'bg-blue-600 hover:bg-blue-700 text-white rounded-xl',
+  btnOutline: 'border-slate-300 text-slate-800 hover:bg-white rounded-xl',
   badge: (color: string) => `inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border ${color}`,
   sectionPad: 'p-4 space-y-4',
   scrollArea: 'h-full overflow-y-auto',
-  emptyState: 'text-center py-8 text-slate-400 text-sm',
-  errorState: 'text-center py-8 text-red-500 text-sm',
+  emptyState: 'text-center py-8 text-slate-600 text-sm',
+  errorState: 'text-center py-8 text-red-600 text-sm',
 };
 
 /* ─── HELPERS ─── */
@@ -156,8 +159,8 @@ const KPI = ({ t, v, i: I, c = 'blue' }: { t: string; v: string; i: React.Compon
   return (
     <Card className={G.card}><CardContent className="p-3">
       <div className="flex items-start justify-between mb-2">
-        <span className="text-[10px] text-slate-400 font-medium">{t}</span>
-        <I className={`w-4 h-4 ${cm[c] || 'text-slate-400'}`} />
+        <span className="text-[10px] text-slate-600 font-medium">{t}</span>
+        <I className={`w-4 h-4 ${cm[c] || 'text-slate-600'}`} />
       </div>
       <div className="text-sm font-bold text-slate-700">{v}</div>
     </CardContent></Card>
@@ -193,7 +196,7 @@ function CTooltip({ active, payload, label }: { active?: boolean; payload?: Arra
   if (!active || !payload?.length) return null;
   return (
     <div className="bg-white/90 backdrop-blur-xl border border-white/[0.40] rounded-lg px-3 py-2 shadow-xl">
-      <p className="text-[10px] text-slate-400 mb-1">{label}</p>
+      <p className="text-[10px] text-slate-600 mb-1">{label}</p>
       {payload.map((p, i) => (
         <p key={i} className="text-[11px] font-medium" style={{ color: p.color }}>
           {p.name}: {typeof p.value === 'number' && p.value > 1000 ? p.value.toLocaleString() : p.value}
@@ -237,7 +240,7 @@ function CargoSidebar({ activeTab, onTabChange }: { activeTab: Tab; onTabChange:
           </div>
           <div>
             <h1 className="text-sm font-bold text-slate-700">KOBECARGO</h1>
-            <p className="text-[9px] text-slate-400">Enterprise Cargo System</p>
+            <p className="text-[9px] text-slate-600">Enterprise Cargo System</p>
           </div>
         </div>
       </div>
@@ -245,7 +248,7 @@ function CargoSidebar({ activeTab, onTabChange }: { activeTab: Tab; onTabChange:
         <div className="px-3 space-y-4">
           {cargoSections.map((section) => (
             <div key={section.title}>
-              <div className="px-2 mb-1.5 text-[10px] font-semibold text-slate-400 uppercase tracking-widest">{section.title}</div>
+              <div className="px-2 mb-1.5 text-[10px] font-semibold text-slate-600 uppercase tracking-widest">{section.title}</div>
               <div className="grid grid-cols-1 gap-1">
                 {section.tiles.map((tile) => {
                   const isActive = activeTab === tile.key;
@@ -348,7 +351,7 @@ function DashboardTab() {
                 {['#3b82f6', '#10b981', '#f59e0b', '#6366f1', '#ec4899', '#06b6d4', '#8b5cf6', '#14b8a6', '#f43f5e'].map((c, i) => <Cell key={i} fill={c} />)}
               </Pie>
               <Tooltip content={<CTooltip />} />
-              <Legend iconType="circle" iconSize={8} formatter={(v: string) => <span className="text-[10px] text-slate-500">{v}</span>} />
+              <Legend iconType="circle" iconSize={8} formatter={(v: string) => <span className="text-[10px] text-slate-700">{v}</span>} />
             </PieChart>
           </ResponsiveContainer>
         </CardContent></Card>
@@ -375,7 +378,7 @@ function DashboardTab() {
               {alerts.slice(0, 6).map(a => (
                 <div key={a.id} className={`flex items-start gap-2 p-2 rounded-lg ${a.severity === 'critical' ? 'bg-rose-500/10' : a.severity === 'warning' ? 'bg-amber-500/10' : 'bg-blue-500/10'}`}>
                   {a.severity === 'critical' ? <AlertTriangle className="w-3.5 h-3.5 text-rose-500 shrink-0" /> : <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0" />}
-                  <div className="flex-1 min-w-0"><div className="text-[11px] font-medium text-slate-700">{a.title}</div><div className="text-[10px] text-slate-400">{a.message}</div></div>
+                  <div className="flex-1 min-w-0"><div className="text-[11px] font-medium text-slate-700">{a.title}</div><div className="text-[10px] text-slate-600">{a.message}</div></div>
                 </div>
               ))}
             </div>
@@ -387,8 +390,8 @@ function DashboardTab() {
             <div className="space-y-2">
               {sh.slice(0, 5).map(s => (
                 <div key={s.id} className="flex items-center justify-between p-2 rounded-lg bg-white/20">
-                  <div><div className="text-[11px] font-medium text-slate-700">{s.number}</div><div className="text-[10px] text-slate-400">{s.customer}</div></div>
-                  <div className="flex items-center gap-2"><SB s={s.status} /><span className="text-[10px] text-slate-400">{s.origin}→{s.destination}</span></div>
+                  <div><div className="text-[11px] font-medium text-slate-700">{s.number}</div><div className="text-[10px] text-slate-600">{s.customer}</div></div>
+                  <div className="flex items-center gap-2"><SB s={s.status} /><span className="text-[10px] text-slate-600">{s.origin}→{s.destination}</span></div>
                 </div>
               ))}
             </div>
@@ -445,15 +448,15 @@ function ShipmentsTab({ search }: { search: string }) {
   return (
     <div className={G.scrollArea}><div className={G.sectionPad}>
       <div className="flex items-center justify-between">
-        <div><h2 className="text-sm font-bold text-slate-700">Shipments</h2><p className="text-[10px] text-slate-400">{sh.length} total</p></div>
+        <div><h2 className="text-sm font-bold text-slate-700">Shipments</h2><p className="text-[10px] text-slate-600">{sh.length} total</p></div>
         <Button onClick={() => setShowCreate(true)} className={G.btnPrimary + ' text-xs h-8'}><Plus className="w-3.5 h-3.5 mr-1" />New Shipment</Button>
       </div>
 
       {/* Filters */}
       <div className="flex gap-1 overflow-x-auto scrollbar-hide">
-        <button onClick={() => setFilter('ALL')} className={`px-2.5 py-1 rounded-lg text-[10px] font-medium whitespace-nowrap transition-all border ${filter === 'ALL' ? 'bg-blue-500/10 text-blue-600 border-blue-500/20' : 'text-slate-400 hover:text-slate-600 border-transparent'}`}>All</button>
+        <button onClick={() => setFilter('ALL')} className={`px-2.5 py-1 rounded-lg text-[10px] font-medium whitespace-nowrap transition-all border ${filter === 'ALL' ? 'bg-blue-500/10 text-blue-600 border-blue-500/20' : 'text-slate-600 hover:text-slate-600 border-transparent'}`}>All</button>
         {filters.map(f => (
-          <button key={f} onClick={() => setFilter(f)} className={`px-2.5 py-1 rounded-lg text-[10px] font-medium whitespace-nowrap transition-all border ${filter === f ? 'bg-blue-500/10 text-blue-600 border-blue-500/20' : 'text-slate-400 hover:text-slate-600 border-transparent'}`}>{f.replace(/_/g, ' ')}</button>
+          <button key={f} onClick={() => setFilter(f)} className={`px-2.5 py-1 rounded-lg text-[10px] font-medium whitespace-nowrap transition-all border ${filter === f ? 'bg-blue-500/10 text-blue-600 border-blue-500/20' : 'text-slate-600 hover:text-slate-600 border-transparent'}`}>{f.replace(/_/g, ' ')}</button>
         ))}
       </div>
 
@@ -463,11 +466,11 @@ function ShipmentsTab({ search }: { search: string }) {
             <Card key={s.id} className={G.card + ' hover:bg-white/40 transition-all cursor-pointer'} onClick={() => { setView(s); loadEvents(s.id); }}>
               <CardContent className="p-3">
                 <div className="flex items-start justify-between mb-2">
-                  <div><div className="flex items-center gap-2"><span className="text-xs font-semibold text-slate-700">{s.number}</span><SB s={s.priority} /></div><div className="text-[10px] text-slate-400 mt-0.5">{s.customer}</div></div>
+                  <div><div className="flex items-center gap-2"><span className="text-xs font-semibold text-slate-700">{s.number}</span><SB s={s.priority} /></div><div className="text-[10px] text-slate-600 mt-0.5">{s.customer}</div></div>
                   <SB s={s.status} />
                 </div>
-                <div className="flex items-center gap-2 mb-2"><span className="text-[11px] text-slate-500">{s.origin}</span><ArrowRight className="w-3 h-3 text-slate-300" /><span className="text-[11px] text-slate-500">{s.destination}</span></div>
-                <div className="flex items-center gap-3 text-[10px] text-slate-400">
+                <div className="flex items-center gap-2 mb-2"><span className="text-[11px] text-slate-700">{s.origin}</span><ArrowRight className="w-3 h-3 text-slate-300" /><span className="text-[11px] text-slate-700">{s.destination}</span></div>
+                <div className="flex items-center gap-3 text-[10px] text-slate-600">
                   <span>{s.cargoType}</span><span>{s.packages} pkgs</span><span>{s.actualWeight}kg</span><span>{usd(s.value)}</span>
                 </div>
               </CardContent>
@@ -494,13 +497,13 @@ function ShipmentsTab({ search }: { search: string }) {
               <DialogHeader><DialogTitle className="text-sm text-slate-700">Shipment {view.number}</DialogTitle></DialogHeader>
               <div className="space-y-3 text-[11px]">
                 <div className="grid grid-cols-2 gap-2">
-                  <div className="bg-white/30 rounded-lg p-2 border border-white/[0.30]"><div className="text-slate-400">Customer</div><div className="text-slate-700 font-medium">{view.customer}</div></div>
-                  <div className="bg-white/30 rounded-lg p-2 border border-white/[0.30]"><div className="text-slate-400">Supplier</div><div className="text-slate-700 font-medium">{view.supplier}</div></div>
-                  <div className="bg-white/30 rounded-lg p-2 border border-white/[0.30]"><div className="text-slate-400">Route</div><div className="text-slate-700">{view.origin}→{view.destination}</div></div>
-                  <div className="bg-white/30 rounded-lg p-2 border border-white/[0.30]"><div className="text-slate-400">Weight</div><div className="text-slate-700">{view.actualWeight}kg</div></div>
+                  <div className="bg-white/30 rounded-lg p-2 border border-white/[0.30]"><div className="text-slate-600">Customer</div><div className="text-slate-700 font-medium">{view.customer}</div></div>
+                  <div className="bg-white/30 rounded-lg p-2 border border-white/[0.30]"><div className="text-slate-600">Supplier</div><div className="text-slate-700 font-medium">{view.supplier}</div></div>
+                  <div className="bg-white/30 rounded-lg p-2 border border-white/[0.30]"><div className="text-slate-600">Route</div><div className="text-slate-700">{view.origin}→{view.destination}</div></div>
+                  <div className="bg-white/30 rounded-lg p-2 border border-white/[0.30]"><div className="text-slate-600">Weight</div><div className="text-slate-700">{view.actualWeight}kg</div></div>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-slate-500">Update status:</span>
+                  <span className="text-slate-700">Update status:</span>
                   {filters.map(f => (
                     <button key={f} onClick={() => handleStatusUpdate(view.id, f)} className="px-2 py-0.5 rounded-lg text-[10px] bg-white/30 border border-white/[0.30] text-slate-600 hover:bg-blue-500/10 hover:text-blue-600 transition-all">
                       {f.replace(/_/g, ' ')}
@@ -514,15 +517,15 @@ function ShipmentsTab({ search }: { search: string }) {
                       <div key={ev.id} className="flex items-center gap-2 p-2 rounded-lg bg-white/20">
                         <CircleDot className="w-3 h-3 text-blue-500 shrink-0" />
                         <span className="text-slate-600">{ev.type.replace(/_/g, ' ')}</span>
-                        <span className="text-slate-400 ml-auto">{ev.location} · {ev.timestamp}</span>
+                        <span className="text-slate-600 ml-auto">{ev.location} · {ev.timestamp}</span>
                       </div>
                     ))}
                   </div>
                 )}
                 <div className="grid grid-cols-3 gap-2 text-center">
-                  <div className="bg-white/30 rounded-lg p-2 border border-white/[0.30]"><div className="text-[9px] text-slate-400">Value</div><div className="text-emerald-600 font-medium">{usd(view.value)}</div></div>
-                  <div className="bg-white/30 rounded-lg p-2 border border-white/[0.30]"><div className="text-[9px] text-slate-400">Cost</div><div className="text-rose-500 font-medium">{usd(view.cost)}</div></div>
-                  <div className="bg-white/30 rounded-lg p-2 border border-white/[0.30]"><div className="text-[9px] text-slate-400">Margin</div><div className="text-blue-600 font-medium">{view.value > 0 ? (((view.value - view.cost) / view.value) * 100).toFixed(1) : '0.0'}%</div></div>
+                  <div className="bg-white/30 rounded-lg p-2 border border-white/[0.30]"><div className="text-[9px] text-slate-600">Value</div><div className="text-emerald-600 font-medium">{usd(view.value)}</div></div>
+                  <div className="bg-white/30 rounded-lg p-2 border border-white/[0.30]"><div className="text-[9px] text-slate-600">Cost</div><div className="text-rose-500 font-medium">{usd(view.cost)}</div></div>
+                  <div className="bg-white/30 rounded-lg p-2 border border-white/[0.30]"><div className="text-[9px] text-slate-600">Margin</div><div className="text-blue-600 font-medium">{view.value > 0 ? (((view.value - view.cost) / view.value) * 100).toFixed(1) : '0.0'}%</div></div>
                 </div>
               </div>
             </>
@@ -561,8 +564,8 @@ function CustomsTab({ search }: { search: string }) {
   return (
     <div className={G.scrollArea}><div className={G.sectionPad}>
       <div className="flex gap-1">
-        <button onClick={() => setJurisdiction('EXPORT')} className={`flex-1 py-2 rounded-xl text-[11px] font-medium transition-all border ${jurisdiction === 'EXPORT' ? 'bg-blue-500/10 text-blue-600 border-blue-500/20' : 'text-slate-400 border-transparent hover:bg-white/20'}`}>China Export</button>
-        <button onClick={() => setJurisdiction('IMPORT')} className={`flex-1 py-2 rounded-xl text-[11px] font-medium transition-all border ${jurisdiction === 'IMPORT' ? 'bg-amber-500/10 text-amber-600 border-amber-500/20' : 'text-slate-400 border-transparent hover:bg-white/20'}`}>Tanzania Import</button>
+        <button onClick={() => setJurisdiction('EXPORT')} className={`flex-1 py-2 rounded-xl text-[11px] font-medium transition-all border ${jurisdiction === 'EXPORT' ? 'bg-blue-500/10 text-blue-600 border-blue-500/20' : 'text-slate-600 border-transparent hover:bg-white/20'}`}>China Export</button>
+        <button onClick={() => setJurisdiction('IMPORT')} className={`flex-1 py-2 rounded-xl text-[11px] font-medium transition-all border ${jurisdiction === 'IMPORT' ? 'bg-amber-500/10 text-amber-600 border-amber-500/20' : 'text-slate-600 border-transparent hover:bg-white/20'}`}>Tanzania Import</button>
       </div>
 
       {filtered.map(s => {
@@ -574,7 +577,7 @@ function CustomsTab({ search }: { search: string }) {
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-xs font-semibold text-slate-700">{s.number}</div>
-                <div className="text-[10px] text-slate-400">{s.customer} · Port: {cc.portCode}</div>
+                <div className="text-[10px] text-slate-600">{s.customer} · Port: {cc.portCode}</div>
               </div>
               <SB s={cc.lane} />
             </div>
@@ -582,7 +585,7 @@ function CustomsTab({ search }: { search: string }) {
             {/* Risk Score */}
             <div>
               <div className="flex items-center justify-between mb-1">
-                <span className="text-[10px] text-slate-400">Risk Score</span>
+                <span className="text-[10px] text-slate-600">Risk Score</span>
                 <span className={`text-[10px] font-medium ${cc.riskScore > 65 ? 'text-rose-500' : cc.riskScore > 35 ? 'text-amber-500' : 'text-emerald-500'}`}>{cc.riskScore}/100</span>
               </div>
               <div className="h-2 rounded-full bg-white/30 overflow-hidden">
@@ -597,8 +600,8 @@ function CustomsTab({ search }: { search: string }) {
             </div>
 
             <div className="grid grid-cols-2 gap-2 text-[10px]">
-              <div className="bg-white/30 rounded-lg p-2 border border-white/[0.30]"><div className="text-slate-400">Duties Est.</div><div className="text-slate-700 font-medium">{usd(cc.dutiesEstimated)}</div></div>
-              <div className="bg-white/30 rounded-lg p-2 border border-white/[0.30]"><div className="text-slate-400">Duties Paid</div><div className={cc.dutiesPaid >= cc.dutiesEstimated ? 'text-emerald-600' : 'text-amber-600'}>{usd(cc.dutiesPaid)}</div></div>
+              <div className="bg-white/30 rounded-lg p-2 border border-white/[0.30]"><div className="text-slate-600">Duties Est.</div><div className="text-slate-700 font-medium">{usd(cc.dutiesEstimated)}</div></div>
+              <div className="bg-white/30 rounded-lg p-2 border border-white/[0.30]"><div className="text-slate-600">Duties Paid</div><div className={cc.dutiesPaid >= cc.dutiesEstimated ? 'text-emerald-600' : 'text-amber-600'}>{usd(cc.dutiesPaid)}</div></div>
             </div>
 
             <div className="flex gap-2">
@@ -648,8 +651,8 @@ function WarehouseTab() {
         {found && (
           <div className="bg-blue-500/10 rounded-lg p-3 space-y-2 border border-blue-500/20">
             <div className="text-xs font-medium text-slate-700">{found.qrCode}</div>
-            <div className="text-[11px] text-slate-500">{found.description}</div>
-            <div className="flex items-center gap-3 text-[10px] text-slate-400">
+            <div className="text-[11px] text-slate-700">{found.description}</div>
+            <div className="flex items-center gap-3 text-[10px] text-slate-600">
               <span className="flex items-center gap-1"><Weight className="w-3 h-3" />{found.weight}kg</span>
               <span className="flex items-center gap-1"><Ruler className="w-3 h-3" />{found.dims}cm</span>
             </div>
@@ -667,10 +670,10 @@ function WarehouseTab() {
             {safeBins.map(b => (
               <div key={b.id} className="bg-white/30 rounded-xl p-2.5 border border-white/[0.30]">
                 <div className="text-[11px] font-medium text-slate-700">{b.number}</div>
-                <div className="text-[10px] text-slate-400">{b.warehouse}</div>
+                <div className="text-[10px] text-slate-600">{b.warehouse}</div>
                 <div className="flex items-center gap-2 mt-1">
-                  <span className="text-[10px] text-slate-400">{b.packages} pkgs</span>
-                  <span className="text-[10px] text-slate-400">{b.weight}kg</span>
+                  <span className="text-[10px] text-slate-600">{b.packages} pkgs</span>
+                  <span className="text-[10px] text-slate-600">{b.weight}kg</span>
                 </div>
                 <SB s={b.status} />
               </div>
@@ -688,13 +691,13 @@ function WarehouseTab() {
               <div key={u.id} className="bg-white/30 rounded-xl p-2.5 border border-white/[0.30]">
                 <div className="flex items-center justify-between">
                   <div>
-                    <div className="text-[11px] font-medium text-slate-700">{u.number}<span className="text-slate-400"> ({u.uldType})</span></div>
-                    <div className="text-[10px] text-slate-400">Flight: {u.flight}</div>
+                    <div className="text-[11px] font-medium text-slate-700">{u.number}<span className="text-slate-600"> ({u.uldType})</span></div>
+                    <div className="text-[10px] text-slate-600">Flight: {u.flight}</div>
                   </div>
                   <SB s={u.status} />
                 </div>
                 <div className="mt-1">
-                  <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
+                  <div className="flex items-center justify-between text-[10px] text-slate-600 mb-1">
                     <span>{u.weight}kg / {u.capacity}kg</span>
                     <span>{u.capacity > 0 ? Math.round((u.weight / u.capacity) * 100) : 0}%</span>
                   </div>
@@ -739,7 +742,7 @@ function FlightsTab({ search }: { search: string }) {
   return (
     <div className={G.scrollArea}><div className={G.sectionPad}>
       <div className="flex items-center justify-between">
-        <div><h2 className="text-sm font-bold text-slate-700">Flight Schedule</h2><p className="text-[10px] text-slate-400">{fl.length} flights</p></div>
+        <div><h2 className="text-sm font-bold text-slate-700">Flight Schedule</h2><p className="text-[10px] text-slate-600">{fl.length} flights</p></div>
         <Button onClick={() => setShowBoard(true)} size="sm" className={G.btnPrimary + ' text-xs h-8'}><Navigation className="w-3.5 h-3.5 mr-1" />Live Board</Button>
       </div>
 
@@ -753,22 +756,22 @@ function FlightsTab({ search }: { search: string }) {
                     <Plane className="w-4 h-4 text-sky-500" />
                     <div>
                       <div className="text-xs font-semibold text-slate-700">{f.number} · {f.airline}</div>
-                      <div className="text-[10px] text-slate-400">{f.ulds} ULDs · ${f.costPerKg}/kg</div>
+                      <div className="text-[10px] text-slate-600">{f.ulds} ULDs · ${f.costPerKg}/kg</div>
                     </div>
                   </div>
                   <SB s={f.status} />
                 </div>
                 <div className="flex items-center gap-2 mb-2">
                   <span className="text-[11px] text-slate-600 font-medium">{f.origin}</span>
-                  {f.transit && <><ArrowRight className="w-3 h-3 text-slate-300" /><span className="text-[10px] text-slate-400">{f.transit}</span></>}
+                  {f.transit && <><ArrowRight className="w-3 h-3 text-slate-300" /><span className="text-[10px] text-slate-600">{f.transit}</span></>}
                   <ArrowRight className="w-3 h-3 text-slate-300" />
                   <span className="text-[11px] text-slate-600 font-medium">{f.destination}</span>
                 </div>
-                <div className="flex items-center gap-3 text-[10px] text-slate-400">
+                <div className="flex items-center gap-3 text-[10px] text-slate-600">
                   <span>ETD: {f.etd}</span><span>ETA: {f.eta}</span>
                 </div>
                 <div className="mt-2">
-                  <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
+                  <div className="flex items-center justify-between text-[10px] text-slate-600 mb-1">
                     <span>Cargo: {f.weight}kg / {f.capacity}kg</span>
                     <span>{f.capacity > 0 ? Math.round((f.weight / f.capacity) * 100) : 0}%</span>
                   </div>
@@ -790,21 +793,21 @@ function FlightsTab({ search }: { search: string }) {
               <DialogHeader><DialogTitle className="text-sm text-slate-700">Flight {view.number}</DialogTitle></DialogHeader>
               <div className="space-y-3 text-[11px]">
                 <div className="grid grid-cols-2 gap-2">
-                  <div className="bg-white/30 rounded-lg p-2 border border-white/[0.30]"><div className="text-slate-400">Airline</div><div className="text-slate-700">{view.airline}</div></div>
-                  <div className="bg-white/30 rounded-lg p-2 border border-white/[0.30]"><div className="text-slate-400">Status</div><SB s={view.status} /></div>
+                  <div className="bg-white/30 rounded-lg p-2 border border-white/[0.30]"><div className="text-slate-600">Airline</div><div className="text-slate-700">{view.airline}</div></div>
+                  <div className="bg-white/30 rounded-lg p-2 border border-white/[0.30]"><div className="text-slate-600">Status</div><SB s={view.status} /></div>
                 </div>
                 <div className="bg-white/30 rounded-lg p-2 text-center border border-white/[0.30]">
                   <div className="text-slate-700 text-sm font-medium">{view.origin}→{view.transit ? `${view.transit}→` : ''}{view.destination}</div>
-                  <div className="text-slate-400">{view.etd} → {view.eta}</div>
+                  <div className="text-slate-600">{view.etd} → {view.eta}</div>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
-                  <div className="bg-white/30 rounded-lg p-2 border border-white/[0.30]"><div className="text-slate-400">Rate</div><div className="text-emerald-600 font-medium">${view.costPerKg}/kg</div></div>
-                  <div className="bg-white/30 rounded-lg p-2 border border-white/[0.30]"><div className="text-slate-400">Utilization</div><div className="text-slate-700">{view.capacity > 0 ? Math.round((view.weight / view.capacity) * 100) : 0}%</div></div>
+                  <div className="bg-white/30 rounded-lg p-2 border border-white/[0.30]"><div className="text-slate-600">Rate</div><div className="text-emerald-600 font-medium">${view.costPerKg}/kg</div></div>
+                  <div className="bg-white/30 rounded-lg p-2 border border-white/[0.30]"><div className="text-slate-600">Utilization</div><div className="text-slate-700">{view.capacity > 0 ? Math.round((view.weight / view.capacity) * 100) : 0}%</div></div>
                 </div>
                 <h4 className="text-xs font-medium text-slate-600">ULDs</h4>
                 {(ulds || []).filter((u: ULD) => u.flight === view.number).map((u: ULD) => (
                   <div key={u.id} className="flex items-center gap-2 p-2 bg-white/20 rounded-lg">
-                    <Container className="w-4 h-4 text-indigo-500" /><span className="text-slate-600">{u.number}</span><span className="text-slate-400 ml-auto">{u.weight}kg</span>
+                    <Container className="w-4 h-4 text-indigo-500" /><span className="text-slate-600">{u.number}</span><span className="text-slate-600 ml-auto">{u.weight}kg</span>
                   </div>
                 ))}
               </div>
@@ -850,7 +853,7 @@ function DeliveryTab({ search }: { search: string }) {
 
   return (
     <div className={G.scrollArea}><div className={G.sectionPad}>
-      <div><h2 className="text-sm font-bold text-slate-700">Last-Mile Delivery</h2><p className="text-[10px] text-slate-400">{del.length} deliveries</p></div>
+      <div><h2 className="text-sm font-bold text-slate-700">Last-Mile Delivery</h2><p className="text-[10px] text-slate-600">{del.length} deliveries</p></div>
 
       {filtered.length === 0 ? <Empty m="No deliveries yet" action={<Button className={G.btnPrimary + ' text-xs mt-2 h-7'}><Plus className="w-3 h-3 mr-1" />Create Delivery</Button>} /> : (
         <div className="space-y-3">
@@ -864,12 +867,12 @@ function DeliveryTab({ search }: { search: string }) {
                     <Truck className="w-5 h-5 text-violet-500" />
                     <div>
                       <div className="text-xs font-semibold text-slate-700">{s?.number || d.shipmentId.slice(0, 8)}</div>
-                      <div className="text-[10px] text-slate-400">{d.driver} · {d.vehicle}</div>
+                      <div className="text-[10px] text-slate-600">{d.driver} · {d.vehicle}</div>
                     </div>
                   </div>
                   <SB s={d.status} />
                 </div>
-                <div className="text-[11px] text-slate-500">{d.address}</div>
+                <div className="text-[11px] text-slate-700">{d.address}</div>
                 {d.recipient && <div className="text-[10px] text-emerald-600">Received by: {d.recipient}</div>}
 
                 {/* Progress Steps */}
@@ -879,12 +882,12 @@ function DeliveryTab({ search }: { search: string }) {
                       <div className={`w-5 h-5 rounded-full flex items-center justify-center ${si <= idx ? 'bg-blue-500' : 'bg-white/40'}`}>
                         {si <= idx ? <CheckCircle2 className="w-3 h-3 text-white" /> : <Circle className="w-3 h-3 text-slate-300" />}
                       </div>
-                      <span className="text-[8px] text-slate-400 mt-1 hidden sm:block">{step.replace(/_/g, ' ')}</span>
+                      <span className="text-[8px] text-slate-600 mt-1 hidden sm:block">{step.replace(/_/g, ' ')}</span>
                     </div>
                   ))}
                 </div>
 
-                <div className="flex items-center gap-3 text-[10px] text-slate-400">
+                <div className="flex items-center gap-3 text-[10px] text-slate-600">
                   <span className="flex items-center gap-1"><Phone className="w-3 h-3" />{d.phone}</span>
                   <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{d.started}</span>
                   {d.delivered && <span className="flex items-center gap-1 text-emerald-600"><CheckCircle2 className="w-3 h-3" />{d.delivered}</span>}
@@ -942,7 +945,7 @@ function PaymentsTab() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-sm font-bold text-slate-700">Payments</h2>
-          <p className="text-[11px] text-slate-400">{tx.length} transactions</p>
+          <p className="text-[11px] text-slate-600">{tx.length} transactions</p>
         </div>
         <Button size="sm" onClick={() => setDialogOpen(true)} className={G.btnPrimary + ' text-xs h-8'}>
           <Plus className="w-4 h-4 mr-1.5" /> Record Payment
@@ -980,21 +983,21 @@ function PaymentsTab() {
           {tx.length === 0 ? (
             <div className="p-8 text-center">
               <Receipt className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-              <p className="text-[11px] text-slate-400">No payments recorded yet.</p>
+              <p className="text-[11px] text-slate-600">No payments recorded yet.</p>
               <Button size="sm" onClick={() => setDialogOpen(true)} className={G.btnPrimary + ' mt-3 text-xs'}>
                 <Plus className="w-4 h-4 mr-1.5" /> Record first payment
               </Button>
             </div>
           ) : (
             <div className="divide-y divide-white/[0.30]">
-              <div className="grid grid-cols-5 gap-2 px-4 py-2 text-[10px] font-semibold text-slate-500 bg-white/20">
+              <div className="grid grid-cols-5 gap-2 px-4 py-2 text-[10px] font-semibold text-slate-700 bg-white/20">
                 <span>Description</span><span>Type</span><span>Method</span><span>Status</span><span className="text-right">Amount</span>
               </div>
               {tx.map(t => (
                 <div key={t.id} className="grid grid-cols-5 gap-2 px-4 py-2.5 text-[11px] items-center hover:bg-white/20 transition-colors">
                   <span className="text-slate-700 truncate">{t.description}</span>
                   <span className={t.type === 'CREDIT' ? 'text-emerald-600' : 'text-rose-600'}>{t.type}</span>
-                  <span className="text-slate-400">{t.method}</span>
+                  <span className="text-slate-600">{t.method}</span>
                   <span><SB s={t.status} /></span>
                   <span className={`text-right font-medium ${t.type === 'CREDIT' ? 'text-emerald-600' : 'text-rose-600'}`}>
                     {t.type === 'CREDIT' ? '+' : '-'}{tzs(t.amount)}
@@ -1040,13 +1043,13 @@ function TrackingTab({ search: initialSearch }: { search: string }) {
     if (type.includes('CUSTOMS')) return <ShieldCheck className="w-4 h-4 text-amber-500" />;
     if (type.includes('FLIGHT') || type.includes('TRANSIT')) return <Plane className="w-4 h-4 text-indigo-500" />;
     if (type.includes('DELIVER') || type.includes('COMPLETED')) return <CheckCircle2 className="w-4 h-4 text-emerald-500" />;
-    return <Circle className="w-4 h-4 text-slate-400" />;
+    return <Circle className="w-4 h-4 text-slate-600" />;
   };
 
   return (
     <div className={G.scrollArea}><div className={G.sectionPad}>
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-600" />
         <Input value={search} onChange={e => setSearch(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearch()} placeholder="Enter AWB, House AWB, or Shipment Number" className={G.input + ' h-10 pl-10'} />
       </div>
       <Button onClick={handleSearch} className={G.btnPrimary + ' w-full mt-2'} disabled={!search}>
@@ -1061,9 +1064,9 @@ function TrackingTab({ search: initialSearch }: { search: string }) {
                 <span className="text-xs font-semibold text-slate-700">{found.number}</span>
                 <SB s={found.status} />
               </div>
-              <div className="text-[11px] text-slate-500">{found.origin} → {found.destination}</div>
-              <div className="text-[10px] text-slate-400">{found.customer} · {found.packages}pkgs · ETA: {found.eta}</div>
-              <div className="flex items-center gap-3 text-[10px] text-slate-400">
+              <div className="text-[11px] text-slate-700">{found.origin} → {found.destination}</div>
+              <div className="text-[10px] text-slate-600">{found.customer} · {found.packages}pkgs · ETA: {found.eta}</div>
+              <div className="flex items-center gap-3 text-[10px] text-slate-600">
                 <span>Master AWB: <span className="font-mono text-slate-600">{found.masterAWB}</span></span>
                 <span>House AWB: <span className="font-mono text-slate-600">{found.houseAWB}</span></span>
               </div>
@@ -1086,7 +1089,7 @@ function TrackingTab({ search: initialSearch }: { search: string }) {
                   </div>
                   <div className="bg-white/30 backdrop-blur-xl rounded-xl p-2.5 ml-2 border border-white/[0.30]">
                     <div className="text-[11px] font-medium text-slate-700">{ev.type.replace(/_/g, ' ')}</div>
-                    <div className="text-[10px] text-slate-400">{ev.location} · {ev.timestamp}</div>
+                    <div className="text-[10px] text-slate-600">{ev.location} · {ev.timestamp}</div>
                   </div>
                 </div>
               ))}
@@ -1157,12 +1160,12 @@ function AnalyticsTab() {
 
   return (
     <div className={G.scrollArea}><div className={G.sectionPad}>
-      <div><h2 className="text-sm font-bold text-slate-700">Analytics</h2><p className="text-[10px] text-slate-400">{sh.length} shipments · {tx.length} transactions</p></div>
+      <div><h2 className="text-sm font-bold text-slate-700">Analytics</h2><p className="text-[10px] text-slate-600">{sh.length} shipments · {tx.length} transactions</p></div>
 
       {/* Chart Tabs */}
       <div className="flex gap-1">
         {[{ k: 'volume' as const, l: 'Volume', i: BarChart3 }, { k: 'cost' as const, l: 'Cost', i: DollarSign }, { k: 'customers' as const, l: 'Customers', i: Package }].map(t => (
-          <button key={t.k} onClick={() => setChartView(t.k)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-medium transition-all border ${chartView === t.k ? 'bg-blue-500/10 text-blue-600 border-blue-500/20' : 'text-slate-400 hover:text-slate-600 border-transparent hover:bg-white/20'}`}>
+          <button key={t.k} onClick={() => setChartView(t.k)} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-medium transition-all border ${chartView === t.k ? 'bg-blue-500/10 text-blue-600 border-blue-500/20' : 'text-slate-600 hover:text-slate-600 border-transparent hover:bg-white/20'}`}>
             <t.i className="w-3.5 h-3.5" />{t.l}
           </button>
         ))}
@@ -1190,7 +1193,7 @@ function AnalyticsTab() {
                   {(statusDist.length > 0 ? statusDist : [{ name: 'No Data', value: 1, color: '#cbd5e1' }]).map((entry, i) => <Cell key={i} fill={entry.color} />)}
                 </Pie>
                 <Tooltip content={<CTooltip />} />
-                <Legend iconType="circle" iconSize={8} formatter={(v: string) => <span className="text-[10px] text-slate-500">{v}</span>} />
+                <Legend iconType="circle" iconSize={8} formatter={(v: string) => <span className="text-[10px] text-slate-700">{v}</span>} />
               </PieChart>
             </ResponsiveContainer>
           </CardContent></Card>
@@ -1219,7 +1222,7 @@ function AnalyticsTab() {
                 <XAxis dataKey="month" tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => tzs(v as number)} />
                 <Tooltip content={<CTooltip />} />
-                <Legend iconType="circle" iconSize={8} formatter={(v: string) => <span className="text-[10px] text-slate-500">{v}</span>} />
+                <Legend iconType="circle" iconSize={8} formatter={(v: string) => <span className="text-[10px] text-slate-700">{v}</span>} />
                 <Bar dataKey="debit" name="Money Out" fill="#ef4444" radius={[4, 4, 0, 0]} />
                 <Bar dataKey="credit" name="Money In" fill="#10b981" radius={[4, 4, 0, 0]} />
               </BarChart>
@@ -1237,7 +1240,7 @@ function AnalyticsTab() {
               <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={v => `$${(v as number / 1000).toFixed(0)}k`} />
               <YAxis dataKey="name" type="category" width={120} tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} />
               <Tooltip content={<CTooltip />} />
-              <Legend iconType="circle" iconSize={8} formatter={(v: string) => <span className="text-[10px] text-slate-500">{v}</span>} />
+              <Legend iconType="circle" iconSize={8} formatter={(v: string) => <span className="text-[10px] text-slate-700">{v}</span>} />
               <Bar dataKey="value" name="Revenue" fill="#f59e0b" radius={[0, 4, 4, 0]} />
               <Bar dataKey="profit" name="Profit" fill="#10b981" radius={[0, 4, 4, 0]} />
             </BarChart>
@@ -1271,14 +1274,14 @@ function SettingsTab() {
 
   return (
     <div className={G.scrollArea}><div className={G.sectionPad}>
-      <div><h2 className="text-sm font-bold text-slate-700">Settings</h2><p className="text-[10px] text-slate-400">Configure KOBECARGO preferences</p></div>
+      <div><h2 className="text-sm font-bold text-slate-700">Settings</h2><p className="text-[10px] text-slate-600">Configure KOBECARGO preferences</p></div>
 
       <Card className={G.card}><CardContent className="p-4 space-y-4">
         <h3 className={G.cardHeader + ' flex items-center gap-2'}><Navigation className="w-4 h-4 text-sky-500" />FlightRadar24 Integration</h3>
         <div className="flex items-center justify-between p-3 bg-white/20 rounded-xl">
           <div>
             <div className="text-[11px] font-medium text-slate-700">Enable FlightRadar24</div>
-            <div className="text-[10px] text-slate-400">Live flight tracking data</div>
+            <div className="text-[10px] text-slate-600">Live flight tracking data</div>
           </div>
           <button onClick={() => setFr24Enabled(!fr24Enabled)} className={`w-10 h-5 rounded-full transition-all ${fr24Enabled ? 'bg-blue-500' : 'bg-slate-300'}`}>
             <div className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${fr24Enabled ? 'translate-x-5' : 'translate-x-0.5'}`} />
@@ -1289,7 +1292,7 @@ function SettingsTab() {
             <div className="text-[10px] text-blue-600 font-medium mb-1">API Status</div>
             <div className="flex items-center gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-              <span className="text-[10px] text-slate-500">Connected — fetching live data</span>
+              <span className="text-[10px] text-slate-700">Connected — fetching live data</span>
             </div>
           </div>
         )}
@@ -1299,12 +1302,12 @@ function SettingsTab() {
         <h3 className={G.cardHeader + ' flex items-center gap-2'}><DollarSign className="w-4 h-4 text-emerald-500" />Currency Display</h3>
         <div className="flex gap-2">
           {(['TZS', 'USD', 'BOTH'] as const).map(c => (
-            <button key={c} onClick={() => setCurrency(c)} className={`flex-1 py-2 rounded-xl text-[11px] font-medium transition-all border ${currency === c ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' : 'text-slate-400 border-transparent hover:bg-white/20'}`}>
+            <button key={c} onClick={() => setCurrency(c)} className={`flex-1 py-2 rounded-xl text-[11px] font-medium transition-all border ${currency === c ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' : 'text-slate-600 border-transparent hover:bg-white/20'}`}>
               {c}
             </button>
           ))}
         </div>
-        <p className="text-[10px] text-slate-400">Select how currency values are displayed throughout the app.</p>
+        <p className="text-[10px] text-slate-600">Select how currency values are displayed throughout the app.</p>
       </CardContent></Card>
 
       <Card className={G.card}><CardContent className="p-4 space-y-4">
@@ -1312,7 +1315,7 @@ function SettingsTab() {
         <div className="flex items-center justify-between p-3 bg-white/20 rounded-xl">
           <div>
             <div className="text-[11px] font-medium text-slate-700">Email Notifications</div>
-            <div className="text-[10px] text-slate-400">Receive alerts for customs holds, delays, payments</div>
+            <div className="text-[10px] text-slate-600">Receive alerts for customs holds, delays, payments</div>
           </div>
           <button onClick={() => setEmailNotif(!emailNotif)} className={`w-10 h-5 rounded-full transition-all ${emailNotif ? 'bg-blue-500' : 'bg-slate-300'}`}>
             <div className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${emailNotif ? 'translate-x-5' : 'translate-x-0.5'}`} />
@@ -1321,18 +1324,18 @@ function SettingsTab() {
       </CardContent></Card>
 
       <Card className={G.card}><CardContent className="p-4 space-y-4">
-        <h3 className={G.cardHeader + ' flex items-center gap-2'}><Settings className="w-4 h-4 text-slate-500" />Company Information</h3>
+        <h3 className={G.cardHeader + ' flex items-center gap-2'}><Settings className="w-4 h-4 text-slate-700" />Company Information</h3>
         <div className="space-y-3">
           <div>
-            <label className="text-[10px] text-slate-400 block mb-1">Company Name</label>
+            <label className="text-[10px] text-slate-600 block mb-1">Company Name</label>
             <Input defaultValue="KOBECARGO Logistics" className={G.input + ' h-8 text-xs'} />
           </div>
           <div>
-            <label className="text-[10px] text-slate-400 block mb-1">Default Origin</label>
+            <label className="text-[10px] text-slate-600 block mb-1">Default Origin</label>
             <Input defaultValue="Guangzhou (CAN)" className={G.input + ' h-8 text-xs'} />
           </div>
           <div>
-            <label className="text-[10px] text-slate-400 block mb-1">Default Destination</label>
+            <label className="text-[10px] text-slate-600 block mb-1">Default Destination</label>
             <Input defaultValue="Dar es Salaam (DAR)" className={G.input + ' h-8 text-xs'} />
           </div>
         </div>
@@ -1386,7 +1389,7 @@ export default function KOBECARGO() {
             </div>
           </div>
           <div className="relative w-48 sm:w-56">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-600" />
             <Input placeholder="Search shipments, AWBs..." value={search} onChange={e => setSearch(e.target.value)} className={G.input + ' h-8 pl-8 text-xs'} />
           </div>
         </div>

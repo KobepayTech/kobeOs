@@ -230,7 +230,7 @@ export default function CargoPaymentWorkflow({
 
             <Section title="Payment">
               <div>
-                <label className="text-[10px] uppercase tracking-wider text-slate-400 block mb-1.5">Purpose</label>
+                <label className="text-[10px] uppercase tracking-wider text-slate-600 block mb-1.5">Purpose</label>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                   {PURPOSES.map(p => (
                     <Button
@@ -247,19 +247,19 @@ export default function CargoPaymentWorkflow({
               </div>
               <div className="grid grid-cols-3 gap-2">
                 <div className="col-span-2">
-                  <label className="text-[10px] uppercase tracking-wider text-slate-400 block mb-1.5">Amount *</label>
+                  <label className="text-[10px] uppercase tracking-wider text-slate-600 block mb-1.5">Amount *</label>
                   <Input
                     type="number"
                     min="0"
                     step="0.01"
                     value={amount}
                     onChange={e => setAmount(e.target.value)}
-                    className="bg-white/50 border-white/[0.40] rounded-xl text-slate-700 text-xs h-9 placeholder:text-slate-400"
+                    className="bg-white/50 border-white/[0.40] rounded-xl text-slate-700 text-xs h-9 placeholder:text-slate-600"
                     placeholder="100000"
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] uppercase tracking-wider text-slate-400 block mb-1.5">Currency</label>
+                  <label className="text-[10px] uppercase tracking-wider text-slate-600 block mb-1.5">Currency</label>
                   <Input
                     value={currency}
                     onChange={e => setCurrency(e.target.value.toUpperCase())}
@@ -269,7 +269,7 @@ export default function CargoPaymentWorkflow({
                 </div>
               </div>
               <div>
-                <label className="text-[10px] uppercase tracking-wider text-slate-400 block mb-1.5">Method</label>
+                <label className="text-[10px] uppercase tracking-wider text-slate-600 block mb-1.5">Method</label>
                 <Select value={method} onValueChange={(v) => setMethod(v as Method)}>
                   <SelectTrigger className="bg-white/50 border-white/[0.40] rounded-xl text-slate-700 text-xs h-9"><SelectValue /></SelectTrigger>
                   <SelectContent>
@@ -287,7 +287,7 @@ export default function CargoPaymentWorkflow({
           <div className="space-y-3">
             <div className="flex flex-col items-center text-center py-2">
               <AlertTriangle className="w-9 h-9 text-amber-500 mb-2" />
-              <p className="text-sm text-slate-500">Review before confirming — receipts will be generated.</p>
+              <p className="text-sm text-slate-700">Review before confirming — receipts will be generated.</p>
             </div>
             <div className="border border-white/[0.40] rounded-xl divide-y divide-white/[0.30] bg-white/30 backdrop-blur-lg">
               <Row label="Subject" value={`${subjectKind[0].toUpperCase()}${subjectKind.slice(1)} ${subjectId.slice(0, 8)}`} />
@@ -310,7 +310,7 @@ export default function CargoPaymentWorkflow({
             <div className="text-center py-2">
               <CheckCircle2 className="w-10 h-10 text-emerald-500 mx-auto mb-2" />
               <h3 className="font-semibold text-slate-700">Payment recorded</h3>
-              <p className="text-xs text-slate-400 mt-1">
+              <p className="text-xs text-slate-600 mt-1">
                 {Number(saved.amount).toLocaleString()} {saved.currency} · {saved.id.slice(0, 8).toUpperCase()}
               </p>
             </div>
@@ -364,7 +364,7 @@ export default function CargoPaymentWorkflow({
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="border border-white/[0.40] rounded-xl p-3 space-y-2 bg-white/30 backdrop-blur-lg">
-      <h4 className="text-[10px] uppercase tracking-wider text-slate-400 font-semibold">{title}</h4>
+      <h4 className="text-[10px] uppercase tracking-wider text-slate-600 font-semibold">{title}</h4>
       {children}
     </div>
   );
@@ -375,13 +375,13 @@ function LabeledInput({
 }: { label: string; value: string; onChange: (v: string) => void; icon?: React.ReactNode }) {
   return (
     <div>
-      <label className="text-[10px] uppercase tracking-wider text-slate-400 flex items-center gap-1.5 mb-1.5">
+      <label className="text-[10px] uppercase tracking-wider text-slate-600 flex items-center gap-1.5 mb-1.5">
         {icon}{label}
       </label>
       <Input
         value={value}
         onChange={e => onChange(e.target.value)}
-        className="bg-white/50 border-white/[0.40] rounded-xl text-slate-700 text-xs h-9 placeholder:text-slate-400"
+        className="bg-white/50 border-white/[0.40] rounded-xl text-slate-700 text-xs h-9 placeholder:text-slate-600"
       />
     </div>
   );
@@ -390,7 +390,7 @@ function LabeledInput({
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-center justify-between px-3 py-2 text-xs">
-      <span className="text-slate-500">{label}</span>
+      <span className="text-slate-700">{label}</span>
       <span className="text-slate-700 font-medium text-right max-w-[60%] truncate">{value}</span>
     </div>
   );
@@ -407,7 +407,7 @@ function ReceiptPreview({ label, payment }: { label: string; payment: CargoPayme
     <div className="bg-white text-slate-900 rounded-xl p-3 font-mono text-[11px] shadow-sm border border-slate-200">
       <div className="flex items-center justify-between mb-2">
         <span className="font-bold uppercase tracking-wide">{label}</span>
-        <span className="text-[10px] text-slate-500">{payment.id.slice(0, 8).toUpperCase()}</span>
+        <span className="text-[10px] text-slate-700">{payment.id.slice(0, 8).toUpperCase()}</span>
       </div>
       <div className="space-y-0.5">
         <Line k="Customer" v={payment.customerName} />
@@ -440,7 +440,7 @@ function ReceiptPreview({ label, payment }: { label: string; payment: CargoPayme
 function Line({ k, v, bold }: { k: string; v: string; bold?: boolean }) {
   return (
     <div className="flex justify-between gap-2">
-      <span className="text-slate-500">{k}</span>
+      <span className="text-slate-700">{k}</span>
       <span className={bold ? 'font-bold' : ''}>{v}</span>
     </div>
   );

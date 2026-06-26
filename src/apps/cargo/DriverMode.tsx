@@ -219,10 +219,10 @@ export default function DriverMode({ onClose }: DriverModeProps) {
               </div>
               <div>
                 <h1 className="text-lg font-bold text-slate-700 leading-tight">Driver Mode</h1>
-                <p className="text-xs text-slate-500">KOBECARGO Delivery</p>
+                <p className="text-xs text-slate-700">KOBECARGO Delivery</p>
               </div>
             </div>
-            <Button variant="ghost" size="sm" onClick={onClose} className="text-slate-500 rounded-xl">
+            <Button variant="ghost" size="sm" onClick={onClose} className="text-slate-700 rounded-xl">
               <X size={18} />
             </Button>
           </div>
@@ -235,7 +235,7 @@ export default function DriverMode({ onClose }: DriverModeProps) {
                 <User size={32} className="text-emerald-600" />
               </div>
               <h2 className="text-lg font-bold text-slate-700">Select Driver</h2>
-              <p className="text-xs text-slate-500 mt-1">Choose your profile to continue</p>
+              <p className="text-xs text-slate-700 mt-1">Choose your profile to continue</p>
             </div>
 
             {drivers.map(driver => (
@@ -247,14 +247,14 @@ export default function DriverMode({ onClose }: DriverModeProps) {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="text-base font-semibold text-slate-700">{driver.name}</div>
-                      <div className="flex items-center gap-2 text-xs text-slate-500">
+                      <div className="flex items-center gap-2 text-xs text-slate-700">
                         <Phone size={10} /> {driver.phone}
                         <span className="flex items-center gap-0.5">
                           <Star size={10} className="text-amber-500 fill-amber-500" /> {driver.rating}
                         </span>
                       </div>
                     </div>
-                    <ChevronRight size={18} className="text-slate-400" />
+                    <ChevronRight size={18} className="text-slate-600" />
                   </div>
                 </CardContent>
               </GlassCard>
@@ -281,7 +281,7 @@ export default function DriverMode({ onClose }: DriverModeProps) {
             </Button>
             <div className="flex-1 min-w-0">
               <h1 className="text-base font-bold text-slate-700 truncate">{activeDelivery.parcelId}</h1>
-              <p className="text-xs text-slate-500 truncate">{activeDelivery.recipientName}</p>
+              <p className="text-xs text-slate-700 truncate">{activeDelivery.recipientName}</p>
             </div>
             <Badge variant="outline" className={`${STATUS_COLORS[activeDelivery.status]} text-xs`}>
               {STATUS_LABELS[activeDelivery.status]}
@@ -299,7 +299,7 @@ export default function DriverMode({ onClose }: DriverModeProps) {
                     <MapPin size={24} className="text-emerald-600" />
                   </div>
                   <div className="flex-1">
-                    <div className="text-xs text-slate-500 mb-0.5">Delivery Address</div>
+                    <div className="text-xs text-slate-700 mb-0.5">Delivery Address</div>
                     <div className="text-xl font-bold text-slate-800 leading-tight">{activeDelivery.address}</div>
                     <div className="text-sm text-slate-600 mt-0.5">{activeDelivery.city}</div>
                   </div>
@@ -310,7 +310,7 @@ export default function DriverMode({ onClose }: DriverModeProps) {
             {/* Contact Card */}
             <GlassCard>
               <CardContent className="p-4">
-                <div className="text-xs text-slate-500 mb-2">Recipient Contact</div>
+                <div className="text-xs text-slate-700 mb-2">Recipient Contact</div>
                 <div className="flex items-center justify-between">
                   <div>
                     <div className="text-lg font-semibold text-slate-700">{activeDelivery.recipientName}</div>
@@ -344,12 +344,12 @@ export default function DriverMode({ onClose }: DriverModeProps) {
                         <div className={`w-6 h-6 rounded-full flex items-center justify-center border-2 z-10 ${
                           isCompleted ? 'bg-emerald-500 border-emerald-500 text-white'
                           : isCurrent ? 'bg-amber-400 border-amber-400 text-white'
-                          : 'bg-white/50 border-slate-300 text-slate-400'
+                          : 'bg-white/50 border-slate-300 text-slate-600'
                         }`}>
                           {isCompleted ? <CheckCircle2 size={14} /> : <CircleDot size={14} />}
                         </div>
                         <span className={`text-[10px] font-medium ${
-                          isCurrent ? 'text-amber-700' : isCompleted ? 'text-emerald-700' : 'text-slate-400'
+                          isCurrent ? 'text-amber-700' : isCompleted ? 'text-emerald-700' : 'text-slate-600'
                         }`}>{STATUS_LABELS[s]}</span>
                       </div>
                     );
@@ -364,7 +364,7 @@ export default function DriverMode({ onClose }: DriverModeProps) {
                 {/* Recipient Name Input */}
                 <GlassCard>
                   <CardContent className="p-4 space-y-3">
-                    <div className="text-xs text-slate-500 font-medium flex items-center gap-1">
+                    <div className="text-xs text-slate-700 font-medium flex items-center gap-1">
                       <User size={12} /> Actual Recipient Name
                     </div>
                     <input
@@ -372,7 +372,7 @@ export default function DriverMode({ onClose }: DriverModeProps) {
                       placeholder="Enter name of person who received"
                       value={actualRecipient}
                       onChange={e => setActualRecipient(e.target.value)}
-                      className="w-full rounded-xl border border-white/50 bg-white/40 text-slate-700 px-3 py-3 text-base placeholder:text-slate-400 focus:border-emerald-400 focus:outline-none"
+                      className="w-full rounded-xl border border-white/50 bg-white/40 text-slate-700 px-3 py-3 text-base placeholder:text-slate-600 focus:border-emerald-400 focus:outline-none"
                     />
                   </CardContent>
                 </GlassCard>
@@ -380,7 +380,7 @@ export default function DriverMode({ onClose }: DriverModeProps) {
                 {/* Photo Upload */}
                 <GlassCard>
                   <CardContent className="p-4 space-y-3">
-                    <div className="text-xs text-slate-500 font-medium flex items-center gap-1">
+                    <div className="text-xs text-slate-700 font-medium flex items-center gap-1">
                       <Camera size={12} /> Photo Proof of Delivery
                     </div>
                     {photoPreview ? (
@@ -397,8 +397,8 @@ export default function DriverMode({ onClose }: DriverModeProps) {
                         setPhotoPreview('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iNDAwIiBoZWlnaHQ9IjIwMCIgZmlsbD0iI2YxZjFmMSIvPjx0ZXh0IHg9IjIwMCIgeT0iMTAwIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjOTk5IiBmb250LXNpemU9IjE0Ij5QaG90byBQcmV2aWV3PC90ZXh0Pjwvc3ZnPg==');
                       }}
                         className="w-full h-32 rounded-xl border-2 border-dashed border-white/50 bg-white/20 flex flex-col items-center justify-center gap-2 active:bg-white/30 transition-colors">
-                        <Camera size={28} className="text-slate-400" />
-                        <span className="text-xs text-slate-500">Tap to capture photo</span>
+                        <Camera size={28} className="text-slate-600" />
+                        <span className="text-xs text-slate-700">Tap to capture photo</span>
                       </button>
                     )}
                   </CardContent>
@@ -407,7 +407,7 @@ export default function DriverMode({ onClose }: DriverModeProps) {
                 {/* Signature Capture */}
                 <GlassCard>
                   <CardContent className="p-4 space-y-3">
-                    <div className="text-xs text-slate-500 font-medium flex items-center gap-1">
+                    <div className="text-xs text-slate-700 font-medium flex items-center gap-1">
                       <PenLine size={12} /> Signature
                     </div>
                     {signatureCaptured ? (
@@ -416,13 +416,13 @@ export default function DriverMode({ onClose }: DriverModeProps) {
                           <Signature size={16} /> Signature captured
                         </div>
                         <button onClick={() => setSignatureCaptured(false)}
-                          className="absolute top-2 right-2 text-xs text-slate-500 underline">Clear</button>
+                          className="absolute top-2 right-2 text-xs text-slate-700 underline">Clear</button>
                       </div>
                     ) : (
                       <button onClick={() => setSignatureCaptured(true)}
                         className="w-full h-24 rounded-xl border-2 border-dashed border-white/50 bg-white/20 flex flex-col items-center justify-center gap-2 active:bg-white/30 transition-colors">
-                        <PenLine size={28} className="text-slate-400" />
-                        <span className="text-xs text-slate-500">Tap to capture signature</span>
+                        <PenLine size={28} className="text-slate-600" />
+                        <span className="text-xs text-slate-700">Tap to capture signature</span>
                       </button>
                     )}
                   </CardContent>
@@ -466,7 +466,7 @@ export default function DriverMode({ onClose }: DriverModeProps) {
               <AlertTriangle size={18} className="text-red-500" /> Delivery Failed
             </DialogTitle></DialogHeader>
             <div className="space-y-3 mt-2">
-              <p className="text-sm text-slate-500">Why could this delivery not be completed?</p>
+              <p className="text-sm text-slate-700">Why could this delivery not be completed?</p>
               {[
                 'Recipient not available',
                 'Wrong address',
@@ -523,7 +523,7 @@ export default function DriverMode({ onClose }: DriverModeProps) {
                     <CheckCircle2 size={20} className="text-emerald-600" />
                   </div>
                   <div className="text-2xl font-bold text-slate-700">{completedToday.length}</div>
-                  <div className="text-xs text-slate-500">Delivered Today</div>
+                  <div className="text-xs text-slate-700">Delivered Today</div>
                 </CardContent>
               </GlassCard>
               <GlassCard>
@@ -532,7 +532,7 @@ export default function DriverMode({ onClose }: DriverModeProps) {
                     <Clock size={20} className="text-amber-600" />
                   </div>
                   <div className="text-2xl font-bold text-slate-700">{myDeliveries.length}</div>
-                  <div className="text-xs text-slate-500">Pending</div>
+                  <div className="text-xs text-slate-700">Pending</div>
                 </CardContent>
               </GlassCard>
             </div>
@@ -590,9 +590,9 @@ export default function DriverMode({ onClose }: DriverModeProps) {
                 <CardContent className="p-3">
                   <div className="flex items-center justify-between">
                     <div>
-                      <div className="text-xs font-mono text-slate-500">{d.parcelId}</div>
+                      <div className="text-xs font-mono text-slate-700">{d.parcelId}</div>
                       <div className="text-sm font-medium text-slate-700">{d.recipientName}</div>
-                      {d.notes && <div className="text-xs text-slate-500">{d.notes}</div>}
+                      {d.notes && <div className="text-xs text-slate-700">{d.notes}</div>}
                     </div>
                     <Badge variant="outline" className={`${STATUS_COLORS[d.status]} text-xs`}>
                       {STATUS_LABELS[d.status]}
@@ -623,7 +623,7 @@ export default function DriverMode({ onClose }: DriverModeProps) {
             <h1 className="text-base font-bold text-slate-700 leading-tight">
               {selectedDriver ? `Hi, ${selectedDriver.name}` : 'My Deliveries'}
             </h1>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-slate-700">
               {completedToday.length} done &middot; {myDeliveries.length} pending &middot; {failedToday.length} failed
             </p>
           </div>
@@ -644,8 +644,8 @@ export default function DriverMode({ onClose }: DriverModeProps) {
           {myDeliveries.length === 0 && (
             <div className="text-center py-12">
               <CheckCircle2 size={48} className="text-emerald-300 mx-auto mb-3" />
-              <p className="text-slate-500 font-medium">All caught up!</p>
-              <p className="text-xs text-slate-400 mt-1">No pending deliveries</p>
+              <p className="text-slate-700 font-medium">All caught up!</p>
+              <p className="text-xs text-slate-600 mt-1">No pending deliveries</p>
             </div>
           )}
 
@@ -662,14 +662,14 @@ export default function DriverMode({ onClose }: DriverModeProps) {
                       </Badge>
                     </div>
                     <div className="flex items-center gap-2">
-                      <User size={12} className="text-slate-400" />
+                      <User size={12} className="text-slate-600" />
                       <span className="text-sm font-semibold text-slate-700">{delivery.recipientName}</span>
                     </div>
-                    <div className="flex items-center gap-1 text-xs text-slate-500">
+                    <div className="flex items-center gap-1 text-xs text-slate-700">
                       <MapPin size={10} />
                       <span className="truncate">{delivery.address}</span>
                     </div>
-                    <div className="flex items-center gap-3 text-xs text-slate-400">
+                    <div className="flex items-center gap-3 text-xs text-slate-600">
                       <span className="flex items-center gap-1">
                         <Phone size={10} /> {delivery.recipientPhone}
                       </span>
@@ -712,7 +712,7 @@ export default function DriverMode({ onClose }: DriverModeProps) {
           {/* Completed Today Section */}
           {completedToday.length > 0 && (
             <>
-              <div className="text-xs font-semibold text-slate-500 px-1 pt-2 uppercase tracking-wider">
+              <div className="text-xs font-semibold text-slate-700 px-1 pt-2 uppercase tracking-wider">
                 Completed Today
               </div>
               {completedToday.map(d => (
@@ -720,7 +720,7 @@ export default function DriverMode({ onClose }: DriverModeProps) {
                   <CardContent className="p-3 opacity-60">
                     <div className="flex items-center justify-between">
                       <div>
-                        <div className="text-xs font-mono text-slate-500">{d.parcelId}</div>
+                        <div className="text-xs font-mono text-slate-700">{d.parcelId}</div>
                         <div className="text-sm text-slate-600">{d.recipientName}</div>
                       </div>
                       <Badge variant="outline" className="bg-emerald-100 text-emerald-700 border-emerald-300 text-[10px]">
