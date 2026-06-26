@@ -11,7 +11,7 @@ import { Package, MapPin, Phone, Loader2, Check, AlertTriangle, ArrowRight, Chec
  * URL: https://app.kobeapptz.com/mzigo/track/{waybill}
  */
 
-const API_BASE = (typeof window !== "undefined" && import.meta.env && import.meta.env.VITE_API_BASE) || "/api";
+const API_BASE = (import.meta.env && import.meta.env.VITE_API_BASE) || "/api";
 
 const STATUS = {
   REGISTERED:     { label: "Awaiting agent",       color: "bg-amber-100 text-amber-800",     idx: 0 },
@@ -48,7 +48,7 @@ export default function MzigoTrack() {
     setLoading(true); setErr("");
     try {
       const r = await fetch(`${API_BASE}/mzigo-track/${encodeURIComponent(waybill)}`);
-      const body = await r.json();
+      const body = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(body.message || `HTTP ${r.status}`);
       setParcel(body);
     } catch (e) { setErr(e.message); }
@@ -64,14 +64,16 @@ export default function MzigoTrack() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ collectedByName: name.trim() || undefined }),
       });
-      const body = await r.json();
+      const body = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(body.message || `HTTP ${r.status}`);
       setParcel(body);
     } catch (e) { setErr(e.message); }
     setCollecting(false);
   };
 
-  const currentIdx = parcel ? (STATUS[parcel.status]?.idx ?? 0) : -1;
+  // -1 for unknown/missing statuses so the timeline isn't falsely
+  // anchored at REGISTERED; the raw status is still shown in the badge.
+  const currentIdx = parcel ? (STATUS[parcel.status]?.idx ?? -1) : -1;
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-amber-50 to-amber-100 text-slate-900">

@@ -178,7 +178,7 @@ export default function ErpSummary() {
         writeMirror(next);
         return next;
       });
-      if (syncState !== 'idle') setSyncState('idle');
+      setSyncState((s) => (s === 'idle' ? s : 'idle'));
     } catch (err) {
       if (err instanceof OfflineWriteQueuedError) setSyncState('offline');
       // optimistic row stays — queued for sync by api()
@@ -187,9 +187,16 @@ export default function ErpSummary() {
 
   const removeEntry = async (id: string) => {
     if (!window.confirm('Remove this entry?')) return;
-    const prev = entries;
-    const next = prev.filter((row) => row.id !== id);
-    setEntries(next); writeMirror(next);
+    // Capture the row from the live state at delete-time (not from the
+    // render-closure) so two rapid deletes don't roll back to a stale
+    // snapshot that still contains the previously-deleted row.
+    let removed: SummaryEntry | undefined;
+    setEntries((prev) => {
+      removed = prev.find((row) => row.id === id);
+      const next = prev.filter((row) => row.id !== id);
+      writeMirror(next);
+      return next;
+    });
 
     if (id.startsWith('local_')) return;
 
@@ -197,7 +204,14 @@ export default function ErpSummary() {
       await api(`/erp/summary-entries/${id}`, { method: 'DELETE' });
     } catch (err) {
       if (err instanceof OfflineWriteQueuedError) { setSyncState('offline'); return; }
-      setEntries(prev); writeMirror(prev);
+      if (removed) {
+        setEntries((cur) => {
+          const next = [removed!, ...cur].sort((a, b) =>
+            a.date < b.date ? 1 : a.date > b.date ? -1 : (a.createdAt < b.createdAt ? 1 : -1));
+          writeMirror(next);
+          return next;
+        });
+      }
       setErrMsg((err as Error).message || 'Delete failed');
     }
   };

@@ -15,7 +15,13 @@ export class ErpSummaryEntry extends OwnedEntity {
   @Column({ type: 'date' })
   date!: string;
 
-  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
+  // pg returns decimal as string; transform back to a JS number on read
+  // so list() and create() agree on the shape (and the frontend doesn't
+  // have to defend with Number() everywhere).
+  @Column({
+    type: 'decimal', precision: 18, scale: 4, default: 0,
+    transformer: { to: (v: number) => v, from: (v: string | number) => Number(v) },
+  })
   amount!: number;
 
   @Column({ type: 'text', default: '' })

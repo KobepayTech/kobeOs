@@ -667,7 +667,6 @@ function DispatchedManifest({ data, onContinue }) {
         @media print {
           @page { size: A4; margin: 12mm; }
           body { background: white !important; }
-          .no-print { display: none !important; }
           .print-sheet { box-shadow: none !important; border: none !important; }
         }
       `}</style>
@@ -717,7 +716,7 @@ function DispatchedManifest({ data, onContinue }) {
                 <td className="border border-slate-300 px-2 py-1.5 font-mono font-bold">{p.waybill}</td>
                 <td className="border border-slate-300 px-2 py-1.5">{p.ownerName}</td>
                 <td className="border border-slate-300 px-2 py-1.5">{p.recipientName} · {p.recipientPhone}</td>
-                <td className="border border-slate-300 px-2 py-1.5 text-right">{p.weightKg || "—"}</td>
+                <td className="border border-slate-300 px-2 py-1.5 text-right">{p.weightKg > 0 ? p.weightKg : "—"}</td>
                 <td className="border border-slate-300 px-2 py-1.5 w-20"></td>
               </tr>
             ))}
