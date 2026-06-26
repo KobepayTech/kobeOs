@@ -29,7 +29,7 @@ import {
   Wifi, Bluetooth, PlaneTakeoff, Moon, User as UserIcon, type LucideIcon,
 } from 'lucide-react';
 import { useOSStore } from './store';
-import { API_BASE } from '@/lib/api';
+import { API_BASE, getToken } from '@/lib/api';
 import { ContextMenu } from './ContextMenu';
 import { WindowManager } from './WindowManager';
 import { Taskbar } from './Taskbar';
@@ -390,7 +390,7 @@ export function Desktop() {
       const status = useOSStore.getState().licenseStatus;
       if (status === 'none') {
         try {
-          const token = localStorage.getItem('access_token');
+          const token = getToken();
           if (!token) return; // not signed in — paywall handles it later
           const res = await fetch(`${API_BASE}/license/start-trial`, {
             method: 'POST',

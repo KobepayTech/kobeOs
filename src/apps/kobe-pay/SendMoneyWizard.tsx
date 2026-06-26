@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api } from '@/lib/api';
+import { api, getToken } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -227,7 +227,7 @@ export function SendMoneyWizard({
     try {
       const fd = new FormData();
       fd.append('image', file);
-      const token = localStorage.getItem('access_token');
+      const token = getToken();
       const res = await fetch('/api/ocr/extract-receipt', {
         method: 'POST',
         headers: token ? { Authorization: `Bearer ${token}` } : {},

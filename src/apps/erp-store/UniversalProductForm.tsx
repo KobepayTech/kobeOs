@@ -4,6 +4,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Plus, Trash2, Scissors, Loader2 } from 'lucide-react';
+import { getToken } from '@/lib/api';
 
 /**
  * Universal product shape — matches PosProduct on the backend. Used by both
@@ -552,7 +553,7 @@ function RemoveBackgroundButton({ imageUrl, onResult }: { imageUrl: string; onRe
       const blob = await src.blob();
       const fd = new FormData();
       fd.append('image', blob, 'src.png');
-      const token = localStorage.getItem('access_token');
+      const token = getToken();
       const res = await fetch('/api/image-edit/remove-background', {
         method: 'POST',
         headers: token ? { Authorization: `Bearer ${token}` } : {},

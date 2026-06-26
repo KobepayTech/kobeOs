@@ -1,7 +1,9 @@
+import { getToken } from '@/lib/api';
+
 const BASE = '/api';
 
 async function req<T>(path: string, options?: RequestInit): Promise<T> {
-  const token = localStorage.getItem('access_token');
+  const token = getToken();
   const res = await fetch(`${BASE}${path}`, {
     headers: {
       'Content-Type': 'application/json',

@@ -14,6 +14,7 @@ import {
   Loader2,
   Cloud,
 } from 'lucide-react';
+import { getToken } from '@/lib/api';
 
 /* ───────────────────────────── types ───────────────────────────── */
 
@@ -595,7 +596,7 @@ function TunnelSection() {
     setBootstrapping(true);
     setError(null);
     try {
-      const token = localStorage.getItem('access_token');
+      const token = getToken();
       const res = await fetch('/api/store-settings/admin/bootstrap-wildcard', {
         method: 'POST',
         headers: {

@@ -14,12 +14,27 @@
 const TOKEN_KEY   = 'kobe_auth_token';
 const REFRESH_KEY = 'kobe_refresh_token';
 
+// Legacy / alternate keys other parts of the codebase write to.
+// Three different login flows historically saved the JWT under three
+// different names; getToken() reads all of them so a session created
+// by any of them works with api().
+const LEGACY_TOKEN_KEYS = ['kobe_access_token', 'kobeos_access_token', 'access_token'] as const;
+const LEGACY_REFRESH_KEYS = ['kobe_refresh_token', 'kobeos_refresh_token'] as const;
+
 function db() {
   return (window as any).kobeOS?.db ?? null;
 }
 
 export function getToken(): string | null {
-  try { return localStorage.getItem(TOKEN_KEY); } catch { return null; }
+  try {
+    const primary = localStorage.getItem(TOKEN_KEY);
+    if (primary) return primary;
+    for (const k of LEGACY_TOKEN_KEYS) {
+      const v = localStorage.getItem(k);
+      if (v) return v;
+    }
+    return null;
+  } catch { return null; }
 }
 
 export function setToken(token: string | null) {
@@ -35,7 +50,15 @@ export function setToken(token: string | null) {
 }
 
 export function getRefreshToken(): string | null {
-  try { return localStorage.getItem(REFRESH_KEY); } catch { return null; }
+  try {
+    const primary = localStorage.getItem(REFRESH_KEY);
+    if (primary) return primary;
+    for (const k of LEGACY_REFRESH_KEYS) {
+      const v = localStorage.getItem(k);
+      if (v) return v;
+    }
+    return null;
+  } catch { return null; }
 }
 
 export function setRefreshToken(token: string | null) {

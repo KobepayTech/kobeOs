@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { API_BASE, api } from '@/lib/api';
+import { API_BASE, api, getToken } from '@/lib/api';
 import {
   Image as ImageIcon, Camera, Sparkles, Loader2, CheckCircle2, X, Trash2, Plus, Download, AlertTriangle,
 } from 'lucide-react';
@@ -96,7 +96,7 @@ export default function MobileImageOrder() {
     setParsing(true);
     setErr(null);
     try {
-      const token = localStorage.getItem('access_token');
+      const token = getToken();
       const fd = new FormData();
       fd.append('image', file);
       const res = await fetch(`${API_BASE}/order-from-image/parse`, {

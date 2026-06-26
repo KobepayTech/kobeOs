@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import { api } from '@/lib/api';
+import { api, getToken } from '@/lib/api';
 import { ensureSession } from '@/lib/auth';
 
 interface BackendCustomer { id: string; name: string; phone: string; email: string; idNumber: string; company: string; notes: string; balance: string | number; createdAt: string; }
@@ -2673,7 +2673,7 @@ function ReceiptScanButton({ onParsed }: { onParsed: (r: OcrReceipt) => void }) 
     try {
       const fd = new FormData();
       fd.append('image', file);
-      const token = localStorage.getItem('access_token');
+      const token = getToken();
       const res = await fetch('/api/ocr/extract-receipt', {
         method: 'POST',
         headers: token ? { Authorization: `Bearer ${token}` } : {},

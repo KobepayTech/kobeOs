@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { API_BASE } from '@/lib/api';
-import { api } from '@/lib/api';
+import { API_BASE, api, getToken } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -109,7 +108,7 @@ export function OrderFromImageDialog({
     setParsing(true);
     setErr(null);
     try {
-      const token = localStorage.getItem('access_token');
+      const token = getToken();
       const fd = new FormData();
       fd.append('image', file);
       const res = await fetch(`${API_BASE}/order-from-image/parse`, {
