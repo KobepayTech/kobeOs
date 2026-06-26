@@ -14,14 +14,17 @@ import {
   ErpSupplier,
   ErpSupplierCapitalLedger,
 } from './supplier-capital.entity';
+import { ErpSummaryEntry } from './erp-summary-entry.entity';
 import { ErpService } from './erp.service';
 import { JournalService } from './journal.service';
 import { ErpKobepayInboxService } from './erp-kobepay-inbox.service';
 import { SupplierCapitalService } from './supplier-capital.service';
 import { SupplierPaymentsService } from './supplier-payments.service';
+import { ErpSummaryEntryService } from './erp-summary-entry.service';
 import { ErpController } from './erp.controller';
 import { ErpKobepayInboxController } from './erp-kobepay-inbox.controller';
 import { SupplierCapitalController } from './supplier-capital.controller';
+import { ErpSummaryEntryController } from './erp-summary-entry.controller';
 
 @Module({
   imports: [
@@ -31,10 +34,11 @@ import { SupplierCapitalController } from './supplier-capital.controller';
       PurchaseOrder, Supplier, SupplierPayment, LoyaltyCustomer,
       ErpKobepayProvider, ErpKobepayInbox,
       ErpKobePayLink, ErpKobePaySupplierReceipt, ErpPurchaseOrder, ErpSupplier, ErpSupplierCapitalLedger,
+      ErpSummaryEntry,
     ]),
   ],
-  providers: [ErpService, JournalService, ErpKobepayInboxService, SupplierCapitalService, SupplierPaymentsService],
-  controllers: [ErpController, ErpKobepayInboxController, SupplierCapitalController],
+  providers: [ErpService, JournalService, ErpKobepayInboxService, SupplierCapitalService, SupplierPaymentsService, ErpSummaryEntryService],
+  controllers: [ErpController, ErpKobepayInboxController, SupplierCapitalController, ErpSummaryEntryController],
   exports: [JournalService, SupplierCapitalService, SupplierPaymentsService],
 })
 export class ErpModule {}

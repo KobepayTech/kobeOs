@@ -4,8 +4,9 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import {
   NotebookPen, TrendingUp, TrendingDown, Plus, Trash2,
-  Download, Calendar, Wallet, Receipt,
+  Download, Calendar, Wallet, Receipt, CloudOff, RefreshCw,
 } from 'lucide-react';
+import { api, ApiError, OfflineError, OfflineWriteQueuedError } from '@/lib/api';
 
 /**
  * Sales & Expenses — quick-entry book.
@@ -14,16 +15,14 @@ import {
  *   • Expenses → date, reason, amount
  *   • Sales    → date, amount
  *
- * Persists to localStorage so it works offline. The top KPI row totals
- * the current filter range (default: all-time). Export-to-CSV exists
- * for accountants who want to lift entries into a spreadsheet.
- *
- * Designed as a friendlier alternative to the full End-of-Day flow when
- * the operator just wants to jot a number down without till counting
- * or shop selection.
+ * Persists to /api/erp/summary-entries (JWT-scoped per tenant) so the
+ * books survive a browser cache clear and roam across till + manager
+ * devices. Falls back to localStorage when the backend is unreachable;
+ * legacy local entries are bulk-imported on first successful sync.
  */
 
-const STORAGE_KEY = 'kobe.erp.summary.entries.v1';
+const LEGACY_STORAGE_KEY = 'kobe.erp.summary.entries.v1';
+const MIRROR_STORAGE_KEY = 'kobe.erp.summary.entries.mirror.v1';
 const CURRENCY = 'TZS';
 
 type Tab = 'expenses' | 'sales';
@@ -33,13 +32,50 @@ interface SummaryEntry {
   kind: Tab;
   date: string;        // YYYY-MM-DD
   amount: number;
-  reason?: string;     // expenses only
+  reason?: string;
   createdAt: string;   // ISO
 }
 
-function loadEntries(): SummaryEntry[] {
+interface ServerEntry {
+  id: string;
+  kind: Tab;
+  date: string;
+  amount: string | number;
+  reason: string;
+  createdAt: string;
+}
+
+const todayStr = () => new Date().toISOString().slice(0, 10);
+const fmt = (n: number) => `${CURRENCY} ${Math.round(n).toLocaleString()}`;
+
+function fromServer(e: ServerEntry): SummaryEntry {
+  return {
+    id: e.id,
+    kind: e.kind,
+    date: e.date,
+    amount: Number(e.amount),
+    reason: e.reason || undefined,
+    createdAt: e.createdAt,
+  };
+}
+
+function readMirror(): SummaryEntry[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(MIRROR_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
+}
+
+function writeMirror(entries: SummaryEntry[]) {
+  try { localStorage.setItem(MIRROR_STORAGE_KEY, JSON.stringify(entries)); }
+  catch { /* quota / private mode — in-memory only */ }
+}
+
+function readLegacy(): SummaryEntry[] {
+  try {
+    const raw = localStorage.getItem(LEGACY_STORAGE_KEY);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
@@ -50,25 +86,59 @@ function loadEntries(): SummaryEntry[] {
       typeof e.date === 'string' &&
       typeof e.amount === 'number',
     );
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
-
-function saveEntries(entries: SummaryEntry[]) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(entries)); }
-  catch { /* quota / private mode — keep in memory only */ }
-}
-
-const todayStr = () => new Date().toISOString().slice(0, 10);
-
-const fmt = (n: number) => `${CURRENCY} ${Math.round(n).toLocaleString()}`;
 
 export default function ErpSummary() {
   const [tab, setTab] = useState<Tab>('expenses');
-  const [entries, setEntries] = useState<SummaryEntry[]>(() => loadEntries());
+  const [entries, setEntries] = useState<SummaryEntry[]>(() => readMirror());
+  const [syncState, setSyncState] = useState<'idle' | 'loading' | 'offline' | 'error'>('loading');
+  const [errMsg, setErrMsg] = useState('');
 
-  useEffect(() => { saveEntries(entries); }, [entries]);
+  const reload = async () => {
+    setSyncState('loading'); setErrMsg('');
+    try {
+      const server = await api<ServerEntry[]>('/erp/summary-entries');
+      let next = (server ?? []).map(fromServer);
+
+      const legacy = readLegacy();
+      if (next.length === 0 && legacy.length > 0) {
+        try {
+          await api('/erp/summary-entries/bulk-import', {
+            method: 'POST',
+            body: JSON.stringify({
+              entries: legacy.map((e) => ({
+                kind: e.kind, date: e.date, amount: e.amount, reason: e.reason ?? '',
+              })),
+            }),
+          });
+          const after = await api<ServerEntry[]>('/erp/summary-entries');
+          next = (after ?? []).map(fromServer);
+          try { localStorage.removeItem(LEGACY_STORAGE_KEY); } catch { /* ignore */ }
+        } catch { /* leave legacy in place; next reload will retry */ }
+      }
+
+      setEntries(next);
+      writeMirror(next);
+      setSyncState('idle');
+    } catch (err) {
+      if (err instanceof OfflineError || (err as Error)?.name === 'TypeError') {
+        setSyncState('offline');
+        const mirror = readMirror();
+        const legacy = readLegacy();
+        if (mirror.length === 0 && legacy.length > 0) setEntries(legacy);
+        else setEntries(mirror);
+      } else if (err instanceof ApiError) {
+        setSyncState('error');
+        setErrMsg(err.message);
+      } else {
+        setSyncState('error');
+        setErrMsg((err as Error).message || 'Failed to load');
+      }
+    }
+  };
+
+  useEffect(() => { void reload(); }, []);
 
   const totals = useMemo(() => {
     let expenses = 0, sales = 0;
@@ -85,19 +155,51 @@ export default function ErpSummary() {
       .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : (a.createdAt < b.createdAt ? 1 : -1))),
   [entries, tab]);
 
-  const addEntry = (e: Omit<SummaryEntry, 'id' | 'createdAt' | 'kind'>) => {
-    const entry: SummaryEntry = {
-      id: `s_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+  const addEntry = async (e: { date: string; amount: number; reason?: string }) => {
+    const optimistic: SummaryEntry = {
+      id: `local_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
       kind: tab,
       createdAt: new Date().toISOString(),
       ...e,
     };
-    setEntries((prev) => [entry, ...prev]);
+    setEntries((prev) => {
+      const next = [optimistic, ...prev];
+      writeMirror(next);
+      return next;
+    });
+
+    try {
+      const saved = await api<ServerEntry>('/erp/summary-entries', {
+        method: 'POST',
+        body: JSON.stringify({ kind: tab, date: e.date, amount: e.amount, reason: e.reason ?? '' }),
+      });
+      setEntries((prev) => {
+        const next = prev.map((row) => row.id === optimistic.id ? fromServer(saved) : row);
+        writeMirror(next);
+        return next;
+      });
+      if (syncState !== 'idle') setSyncState('idle');
+    } catch (err) {
+      if (err instanceof OfflineWriteQueuedError) setSyncState('offline');
+      // optimistic row stays — queued for sync by api()
+    }
   };
 
-  const removeEntry = (id: string) => {
+  const removeEntry = async (id: string) => {
     if (!window.confirm('Remove this entry?')) return;
-    setEntries((prev) => prev.filter((e) => e.id !== id));
+    const prev = entries;
+    const next = prev.filter((row) => row.id !== id);
+    setEntries(next); writeMirror(next);
+
+    if (id.startsWith('local_')) return;
+
+    try {
+      await api(`/erp/summary-entries/${id}`, { method: 'DELETE' });
+    } catch (err) {
+      if (err instanceof OfflineWriteQueuedError) { setSyncState('offline'); return; }
+      setEntries(prev); writeMirror(prev);
+      setErrMsg((err as Error).message || 'Delete failed');
+    }
   };
 
   const exportCsv = () => {
@@ -131,19 +233,28 @@ export default function ErpSummary() {
               Sales &amp; Expenses
             </h1>
             <p className="text-[11px] text-white/40">
-              Quick log for daily sales totals and expenses. Offline-first &mdash; entries stay on this device.
+              Quick log for daily sales totals and expenses. Synced to your account &mdash; same numbers on every device.
             </p>
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={exportCsv}
-            disabled={entries.length === 0}
-            className="border-white/15 text-white/80 hover:bg-white/5"
-          >
-            <Download className="w-3.5 h-3.5 mr-1" />Export CSV
-          </Button>
+          <div className="flex items-center gap-2">
+            <SyncBadge state={syncState} onRetry={reload} />
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={exportCsv}
+              disabled={entries.length === 0}
+              className="border-white/15 text-white/80 hover:bg-white/5"
+            >
+              <Download className="w-3.5 h-3.5 mr-1" />Export CSV
+            </Button>
+          </div>
         </div>
+
+        {errMsg && syncState === 'error' && (
+          <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-200 text-xs px-3 py-2">
+            {errMsg}
+          </div>
+        )}
 
         {/* KPI row */}
         <div className="grid grid-cols-3 gap-3">
@@ -213,6 +324,9 @@ export default function ErpSummary() {
                     <div className="flex-1 min-w-0">
                       <div className={`text-sm font-bold ${tab === 'expenses' ? 'text-rose-200' : 'text-emerald-200'}`}>
                         {tab === 'expenses' ? '−' : '+'}{fmt(e.amount)}
+                        {e.id.startsWith('local_') && (
+                          <span className="ml-2 text-[9px] uppercase tracking-wide text-amber-300/70">pending sync</span>
+                        )}
                       </div>
                       {e.reason && (
                         <div className="text-xs text-white/60 mt-0.5 break-words">{e.reason}</div>
@@ -233,6 +347,29 @@ export default function ErpSummary() {
         </Card>
       </div>
     </div>
+  );
+}
+
+function SyncBadge({ state, onRetry }: { state: 'idle' | 'loading' | 'offline' | 'error'; onRetry: () => void }) {
+  if (state === 'idle') return null;
+  if (state === 'loading') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] text-white/40">
+        <RefreshCw className="w-3 h-3 animate-spin" /> Syncing
+      </span>
+    );
+  }
+  if (state === 'offline') {
+    return (
+      <button onClick={onRetry} className="inline-flex items-center gap-1 text-[10px] text-amber-300/80 hover:text-amber-200">
+        <CloudOff className="w-3 h-3" /> Offline · tap to retry
+      </button>
+    );
+  }
+  return (
+    <button onClick={onRetry} className="inline-flex items-center gap-1 text-[10px] text-rose-300/80 hover:text-rose-200">
+      <RefreshCw className="w-3 h-3" /> Sync failed · retry
+    </button>
   );
 }
 
