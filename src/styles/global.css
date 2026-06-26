@@ -395,3 +395,28 @@ tr:hover td {
     display: none !important;
   }
 }
+
+/* --- Contrast safety net ------------------------------------------------ */
+/* Many apps were designed dark-on-dark, using text-slate-400/500 as their  */
+/* "muted" tone. The cargo + property modules render on light glass        */
+/* surfaces where those tones become unreadable (AAA-fail contrast). Apps  */
+/* that opt-in by setting `data-surface="light"` on their root container   */
+/* get every faint text class bumped to a readable mid-slate, without      */
+/* needing to hand-edit thousands of inline className strings.            */
+/*                                                                          */
+/* Targeted-with-class so we don't override intentional uses on dark        */
+/* badges (`.bg-slate-500/10 .text-slate-400`) — only when the class       */
+/* sits at top text level. Use `[data-keep-muted]` to opt back out on a    */
+/* per-element basis if a specific badge needs the original tone.          */
+[data-surface='light'] :is(.text-slate-400, .text-slate-500):not([data-keep-muted]) {
+  color: rgb(71 85 105);    /* slate-600: 7:1 against white surfaces */
+}
+[data-surface='light'] :is(.text-white\/40, .text-white\/50):not([data-keep-muted]) {
+  color: rgb(71 85 105);
+}
+[data-surface='light'] :is(.text-white\/60, .text-white\/70):not([data-keep-muted]) {
+  color: rgb(51 65 85);     /* slate-700 */
+}
+[data-surface='light'] :is(.text-white\/80, .text-white\/90, .text-white):not([data-keep-muted]) {
+  color: rgb(15 23 42);     /* slate-900 */
+}

@@ -1374,7 +1374,7 @@ export default function KOBECARGO() {
   };
 
   return (
-    <div className={G.page}>
+    <div className={G.page} data-surface="light">
       {/* Sidebar */}
       <CargoSidebar activeTab={tab} onTabChange={setTab} />
 

@@ -7,7 +7,12 @@ import {
   FileDown, ShieldCheck, X,
   Image as ImageIcon,
   Calendar, Activity, MapPin, MessageCircle,
+  LayoutGrid, Sparkles, Ticket,
 } from 'lucide-react';
+import {
+  BuildingMapView, PaymentCycleRing, TokenDisplay, InsightsView,
+  type FloorBlock, type Insight, type CycleMonthStatus,
+} from './PosysFeatures';
 
 /**
  * PropEasy — property-management UI for KobeOS, matching the requested
@@ -28,7 +33,7 @@ import {
 
 /* ────────────────────────────── Types ────────────────────────────── */
 
-type View = 'dashboard' | 'properties' | 'tenants' | 'tenant-detail' | 'screening' | 'financials' | 'maintenance' | 'documents' | 'settings';
+type View = 'dashboard' | 'properties' | 'tenants' | 'tenant-detail' | 'screening' | 'financials' | 'maintenance' | 'documents' | 'settings' | 'building-map' | 'insights' | 'tokens';
 type TenantStatus = 'rent_paid' | 'overdue' | 'late_fees' | 'in_proceed';
 type UnitKind = 'House' | 'Apartment' | 'Duplex' | 'Studio';
 
@@ -167,7 +172,7 @@ export default function PropEasyApp() {
   const openScreening = (t: ApiTenant) => { setSelectedTenant(t); setView('screening'); };
 
   return (
-    <div className="flex h-full w-full bg-slate-50 text-slate-900" style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
+    <div className="flex h-full w-full bg-slate-50 text-slate-900" data-surface="light" style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
       <Sidebar view={view} onChange={setView} onInviteTenant={() => setView('tenants')} />
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar title={titleFor(view)} />
@@ -191,6 +196,26 @@ export default function PropEasyApp() {
           {view === 'maintenance' && <EmptyState title="Maintenance" subtitle="Work orders across every unit." />}
           {view === 'documents'   && <EmptyState title="Documents" subtitle="Leases, IDs, insurance, inspections." />}
           {view === 'settings'    && <EmptyState title="Settings" subtitle="Reminders, late-fee policy, integrations." />}
+          {view === 'building-map' && (
+            <BuildingMapView propertyName="Tavares Cliffs · Plot 089" floors={demoBuildingFloors(tenants)} onPickUnit={(id) => {
+              const t = tenants.find((tt) => tt.id === id);
+              if (t) openTenant(t);
+            }} />
+          )}
+          {view === 'insights' && (
+            <InsightsView
+              insights={demoInsights}
+              unitCount={tenants.length || 20}
+              currentMonthlyRevenue={(tenants.length || 20) * 5000}
+              portfolioHealthScore={78}
+              collectionRate={86}
+              occupancyRate={90}
+              expenseRatio={32}
+            />
+          )}
+          {view === 'tokens' && (
+            <TokensView tenants={tenants} />
+          )}
         </div>
       </div>
     </div>
@@ -208,6 +233,9 @@ function titleFor(v: View): string {
     case 'maintenance':   return 'Maintenance';
     case 'documents':     return 'Documents';
     case 'settings':      return 'Settings';
+    case 'building-map':  return 'Building Map';
+    case 'insights':      return 'Insights';
+    case 'tokens':        return 'Payment Tokens';
   }
 }
 
@@ -215,13 +243,16 @@ function titleFor(v: View): string {
 
 function Sidebar({ view, onChange, onInviteTenant }: { view: View; onChange: (v: View) => void; onInviteTenant: () => void }) {
   const items: Array<{ id: View; label: string; icon: React.ComponentType<{ className?: string }> }> = [
-    { id: 'dashboard',   label: 'Dashboard',   icon: Home },
-    { id: 'properties',  label: 'Properties',  icon: Building2 },
-    { id: 'tenants',     label: 'Tenants',     icon: Users },
-    { id: 'financials',  label: 'Financials',  icon: DollarSign },
-    { id: 'maintenance', label: 'Maintenance', icon: Wrench },
-    { id: 'documents',   label: 'Documents',   icon: FileText },
-    { id: 'settings',    label: 'Settings',    icon: Settings },
+    { id: 'dashboard',    label: 'Dashboard',    icon: Home },
+    { id: 'building-map', label: 'Building Map', icon: LayoutGrid },
+    { id: 'properties',   label: 'Properties',   icon: Building2 },
+    { id: 'tenants',      label: 'Tenants',      icon: Users },
+    { id: 'tokens',       label: 'Payment Tokens', icon: Ticket },
+    { id: 'financials',   label: 'Financials',   icon: DollarSign },
+    { id: 'maintenance',  label: 'Maintenance',  icon: Wrench },
+    { id: 'insights',     label: 'Insights',     icon: Sparkles },
+    { id: 'documents',    label: 'Documents',    icon: FileText },
+    { id: 'settings',     label: 'Settings',     icon: Settings },
   ];
   return (
     <aside className="w-56 shrink-0 bg-white m-4 mr-0 rounded-2xl p-4 flex flex-col">
@@ -575,6 +606,18 @@ function TenantDetailView({
                 </div>
               </div>
             </Section>
+
+            {/* 12-month payment cycle ring — replaces a wall-of-numbers
+                with one glance at how the tenant is tracking against
+                their annual rent obligation. */}
+            <PaymentCycleRing
+              months={buildPaymentCycle(payments)}
+              currentIdx={new Date().getMonth()}
+              monthlyRent={tenant.rent ?? 0}
+              paidThisCycle={payments
+                .filter((p) => p.status === 'Paid')
+                .reduce((s, p) => s + p.amount, 0)}
+            />
           </div>
 
           {/* Right column — Maintenance + Payments */}
@@ -1156,3 +1199,151 @@ function EmptyState({ title, subtitle }: { title: string; subtitle: string }) {
     </div>
   );
 }
+
+/* ────────────────────────────── POSys glue ────────────────────────────── */
+
+const MONTH_NAMES = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+/**
+ * Turn a tenant's payment history into 12 month slots for the cycle ring.
+ * Months in the future render as `future`, past months without a paid
+ * record render as `overdue`, partial payments map to `partial`.
+ */
+function buildPaymentCycle(payments: ApiPayment[]): Array<{ month: string; year: number; status: CycleMonthStatus }> {
+  const now = new Date();
+  const thisYear = now.getFullYear();
+  const thisMonth = now.getMonth();
+  // Map month index → status from payment history.
+  const paidMonths = new Set<number>();
+  const partialMonths = new Set<number>();
+  for (const p of payments) {
+    if (!p.paidAt) continue;
+    const d = new Date(p.paidAt);
+    if (d.getFullYear() !== thisYear) continue;
+    if (p.status === 'Paid') paidMonths.add(d.getMonth());
+    else if (p.status === 'Pending') partialMonths.add(d.getMonth());
+  }
+  return Array.from({ length: 12 }, (_, i) => {
+    let status: CycleMonthStatus;
+    if (paidMonths.has(i))         status = 'paid';
+    else if (partialMonths.has(i)) status = 'partial';
+    else if (i < thisMonth)        status = 'overdue';
+    else if (i === thisMonth)      status = 'pending';
+    else                            status = 'future';
+    return { month: MONTH_NAMES[i], year: thisYear, status };
+  });
+}
+
+/**
+ * Build a fake floor/corridor/unit grid from the tenant list so the
+ * Building Map renders cleanly with demo fixtures. Real wiring would
+ * hit /property/properties/:id/map and skip this helper entirely.
+ */
+function demoBuildingFloors(tenants: ApiTenant[]): FloorBlock[] {
+  const statusFromTenant = (t: ApiTenant) => {
+    const balance = t.balance ?? 0;
+    if (balance === 0) return 'paid' as const;
+    if (t.status === 'overdue') return 'overdue' as const;
+    if (t.status === 'late_fees') return 'overdue' as const;
+    if (t.status === 'in_proceed') return 'partial' as const;
+    return 'pending' as const;
+  };
+  const corridorASize = 8;
+  const corridorBSize = 6;
+  const list = tenants.slice(0, corridorASize + corridorBSize);
+  const corridorA = {
+    id: 'cA', name: 'Corridor A · Front Shops',
+    units: Array.from({ length: corridorASize }, (_, i) => {
+      const t = list[i];
+      return {
+        id: t?.id ?? `va-${i}`,
+        label: `A${i + 1}`,
+        tenantName: t?.name,
+        unitKind: t?.unitKind,
+        status: t ? statusFromTenant(t) : ('vacant' as const),
+      };
+    }),
+  };
+  const corridorB = {
+    id: 'cB', name: 'Corridor B · Interior Shops',
+    units: Array.from({ length: corridorBSize }, (_, i) => {
+      const t = list[corridorASize + i];
+      return {
+        id: t?.id ?? `vb-${i}`,
+        label: `B${i + 1}`,
+        tenantName: t?.name,
+        unitKind: t?.unitKind,
+        status: t ? statusFromTenant(t) : ('vacant' as const),
+      };
+    }),
+  };
+  // Sprinkle a single maintenance flag to make the status legend matter.
+  if (corridorA.units[2]) corridorA.units[2].status = 'maintenance';
+  return [
+    { id: 'g', label: 'Ground Floor', corridors: [corridorA, corridorB] },
+  ];
+}
+
+/** Hand-tuned demo insight cards — swap for /api/v1/analytics/insights. */
+const demoInsights: Insight[] = [
+  { id: 'i1', severity: 'high', title: 'Collection lag in Block B',
+    description: 'Block B collection 74% vs portfolio avg 86%. 3 tenants are 7+ days late.',
+    actionLabel: 'Open Block B' },
+  { id: 'i2', severity: 'medium', title: 'Maintenance recurrence: A3',
+    description: 'Unit A3 raised 4 plumbing tickets in the last 90 days. Worth a full inspection.',
+    actionLabel: 'Schedule visit' },
+  { id: 'i3', severity: 'opportunity', title: 'Below-market rent: A4 + A6',
+    description: 'These two cafes are 18% under local market. Renewal window opens in 30 days.',
+    actionLabel: 'Run simulation' },
+  { id: 'i4', severity: 'low', title: 'Contract expiry approaching · B2',
+    description: 'Tailor lease (Fatima Rahman) expires in 47 days. Auto-renewal not set.',
+    actionLabel: 'Renew' },
+  { id: 'i5', severity: 'info', title: 'Electricity bill due Friday',
+    description: 'Block A utility account · TZS 480,000.',
+    actionLabel: 'Mark paid' },
+];
+
+/* ────────────────────────────── Tokens View ────────────────────────────── */
+
+function TokensView({ tenants }: { tenants: ApiTenant[] }) {
+  // Single demo active token + a short history. Real wiring fetches
+  // /api/v1/payments/token/* and ticks the countdown via setInterval.
+  const featured = tenants[0];
+  const code = '842901';
+  const expiresInSec = 28 * 60 + 43;
+  return (
+    <div className="px-6 pb-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div>
+        {featured && (
+          <TokenDisplay
+            code={code}
+            expiresInSec={expiresInSec}
+            amount={featured.rent ?? 0}
+            tenantName={featured.name}
+            unitLabel={featured.unitKind ?? 'Unit'}
+            onCopy={() => navigator.clipboard?.writeText(code).catch(() => {})}
+          />
+        )}
+      </div>
+      <div className="rounded-2xl bg-white border border-slate-200 p-5 shadow-sm">
+        <h3 className="text-sm font-bold text-slate-900 mb-1">Recent tokens</h3>
+        <p className="text-xs text-slate-700 mb-3">Last issued · auto-expire 30 min after issue</p>
+        <ul className="space-y-1.5">
+          {tenants.slice(0, 8).map((t, i) => (
+            <li key={t.id} className="flex items-center justify-between border-b border-slate-100 last:border-0 pb-1.5">
+              <div className="min-w-0">
+                <div className="font-mono font-extrabold text-sm text-slate-900">{(123456 + i * 71).toString().slice(-6)}</div>
+                <div className="text-[11px] text-slate-700 truncate">{t.name} · {t.unitKind ?? 'Unit'}</div>
+              </div>
+              <div className="text-right">
+                <div className="text-xs font-bold text-slate-900">TZS {(t.rent ?? 0).toLocaleString()}</div>
+                <div className="text-[10px] text-slate-700">{i === 0 ? 'Active' : i < 3 ? 'Used' : 'Expired'}</div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
