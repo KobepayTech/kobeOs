@@ -8,6 +8,7 @@ import { Parcel } from '../cargo/cargo.entity';
 import { PosOrder, PosOrderItem } from '../pos/pos.entity';
 import { CargoCustomer } from '../cargo/cargo.entity';
 import { LoyaltyCustomer } from '../erp/erp.entity';
+import { MzigoParcel } from '../mzigo/mzigo.entity';
 
 /**
  * Customer-facing self-serve portal. Phone-based, OTP-only auth.
@@ -43,6 +44,20 @@ export interface PortalDashboard {
     externalTracking?: string | null;
     createdAt: string;
   }>;
+  /** Kobe Mzigo (TZ ground cargo) parcels — surfaces here when the
+   *  customer's phone matches an owner OR recipient on a waybill. */
+  mzigoParcels: Array<{
+    waybill: string;
+    role: 'owner' | 'recipient' | 'packager';
+    ownerName: string;
+    recipientName: string;
+    origin: string;
+    destination: string;
+    status: string;
+    goodsType: string;
+    weightKg: number;
+    createdAt: string;
+  }>;
   recentOrders: Array<{
     orderNumber: string;
     total: number;
@@ -64,6 +79,7 @@ export class CustomerPortalService {
     @InjectRepository(PosOrderItem)   private readonly orderItems:     Repository<PosOrderItem>,
     @InjectRepository(CargoCustomer)  private readonly cargoCustomers: Repository<CargoCustomer>,
     @InjectRepository(LoyaltyCustomer) private readonly loyaltyCustomers: Repository<LoyaltyCustomer>,
+    @InjectRepository(MzigoParcel)    private readonly mzigoParcels: Repository<MzigoParcel>,
     private readonly beem: BeemService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
@@ -132,7 +148,7 @@ export class CustomerPortalService {
     // Look up the customer across every owner that has them — a phone
     // is the natural cross-tenant key for the self-serve view since
     // one customer might shop at multiple KobeOS-using stores.
-    const [cargoCustomers, loyaltyRows, parcels, orders] = await Promise.all([
+    const [cargoCustomers, loyaltyRows, parcels, orders, mzigoRows] = await Promise.all([
       this.cargoCustomers.createQueryBuilder('c')
         .where('c.phone IS NOT NULL')
         .getMany()
@@ -153,6 +169,21 @@ export class CustomerPortalService {
         .limit(20)
         .getMany()
         .then((rows) => rows.filter((o) => BeemService.normalizePhone(o.customerPhone ?? '') === dest)),
+      // Mzigo parcels — the phone may match as owner, recipient, OR
+      // packager. We tag the role on each row so the UI can label
+      // them ("Yours" vs "Coming to you" vs "You packed this").
+      this.mzigoParcels.createQueryBuilder('m')
+        .orderBy('m.createdAt', 'DESC')
+        .limit(100)
+        .getMany()
+        .then((rows) => rows
+          .map((m) => {
+            if (BeemService.normalizePhone(m.ownerPhone) === dest)     return { m, role: 'owner' as const };
+            if (BeemService.normalizePhone(m.recipientPhone) === dest) return { m, role: 'recipient' as const };
+            if (BeemService.normalizePhone(m.packagerPhone) === dest)  return { m, role: 'packager' as const };
+            return null;
+          })
+          .filter((x): x is { m: MzigoParcel; role: 'owner' | 'recipient' | 'packager' } => x !== null)),
     ]);
 
     const cargoCustomer = cargoCustomers[0]
@@ -197,6 +228,18 @@ export class CustomerPortalService {
         preAlertedAt: p.preAlertedAt?.toISOString?.() ?? null,
         externalTracking: p.externalTracking ?? null,
         createdAt: p.createdAt?.toISOString?.() ?? new Date().toISOString(),
+      })),
+      mzigoParcels: mzigoRows.map(({ m, role }) => ({
+        waybill: m.waybill,
+        role,
+        ownerName: m.ownerName,
+        recipientName: m.recipientName,
+        origin: m.origin,
+        destination: m.destination,
+        status: m.status,
+        goodsType: m.goodsType,
+        weightKg: Number(m.weightKg),
+        createdAt: m.createdAt?.toISOString?.() ?? new Date().toISOString(),
       })),
       recentOrders: orders.map((o) => {
         const its = itemsByOrder.get(o.id) ?? [];

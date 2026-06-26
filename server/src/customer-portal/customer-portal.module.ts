@@ -7,12 +7,13 @@ import { CustomerPortalController } from './customer-portal.controller';
 import { CargoCustomer, Parcel } from '../cargo/cargo.entity';
 import { PosOrder, PosOrderItem } from '../pos/pos.entity';
 import { LoyaltyCustomer } from '../erp/erp.entity';
+import { MzigoParcel } from '../mzigo/mzigo.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { BeemService } from '../notifications/beem.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Parcel, PosOrder, PosOrderItem, CargoCustomer, LoyaltyCustomer]),
+    TypeOrmModule.forFeature([Parcel, PosOrder, PosOrderItem, CargoCustomer, LoyaltyCustomer, MzigoParcel]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

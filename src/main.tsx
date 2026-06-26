@@ -36,7 +36,8 @@ const isCustomerPortal = pathname.startsWith('/me');
 // public page at /tuma; uses localStorage for now, no auth required.
 const isTuma = pathname.startsWith('/tuma');
 // KobeOS · Mzigo — TZ ground-cargo 4-role flow. Public, no auth.
-const isMzigo = pathname.startsWith('/mzigo');
+const isMzigoTrack = pathname.startsWith('/mzigo/track/');
+const isMzigo = !isMzigoTrack && pathname.startsWith('/mzigo');
 
 if (isOverlay) {
   // Lazy-load to keep the main bundle lean
@@ -74,6 +75,10 @@ if (isOverlay) {
 } else if (isTuma) {
   import('./public/Tuma').then(({ default: Tuma }) => {
     createRoot(document.getElementById('root')!).render(<Tuma />);
+  });
+} else if (isMzigoTrack) {
+  import('./public/MzigoTrack').then(({ default: MzigoTrack }) => {
+    createRoot(document.getElementById('root')!).render(<MzigoTrack />);
   });
 } else if (isMzigo) {
   import('./public/Mzigo').then(({ default: Mzigo }) => {

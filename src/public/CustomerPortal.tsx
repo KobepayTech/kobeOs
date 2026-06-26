@@ -28,6 +28,13 @@ interface Dashboard {
     weight: number; lifecycleStatus: string; preAlertedAt?: string | null;
     externalTracking?: string | null; createdAt: string;
   }>;
+  mzigoParcels?: Array<{
+    waybill: string; role: 'owner' | 'recipient' | 'packager';
+    ownerName: string; recipientName: string;
+    origin: string; destination: string;
+    status: string; goodsType: string; weightKg: number;
+    createdAt: string;
+  }>;
   recentOrders: Array<{
     orderNumber: string; total: number; currency: string;
     createdAt: string; itemCount: number;
@@ -293,6 +300,38 @@ function DashboardView({ data }: { data: Dashboard }) {
                 <div className="text-xs text-white/70 mt-0.5">{p.description || '—'}</div>
                 <div className="text-[10px] text-white/40 mt-1 inline-flex items-center gap-1">
                   → {p.destination} · {Number(p.weight).toFixed(2)} kg
+                  <ExternalLink className="w-2.5 h-2.5" />
+                </div>
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Mzigo (TZ ground cargo) — owner, recipient, or packager */}
+      {data.mzigoParcels && data.mzigoParcels.length > 0 && (
+        <section>
+          <h2 className="text-xs font-bold text-white/60 uppercase tracking-wide mb-2 inline-flex items-center gap-1.5">
+            <Package className="w-3.5 h-3.5" /> Mzigo cargo ({data.mzigoParcels.length})
+          </h2>
+          <div className="space-y-2">
+            {data.mzigoParcels.map((m) => (
+              <a
+                key={m.waybill}
+                href={`/mzigo/track/${m.waybill}`}
+                target="_blank"
+                rel="noreferrer"
+                className="block rounded-xl bg-white/[0.03] border border-white/[0.06] p-3 hover:bg-white/[0.05]"
+              >
+                <div className="flex items-baseline justify-between">
+                  <span className="font-mono font-bold text-amber-300">{m.waybill}</span>
+                  <span className="text-[9px] uppercase font-bold opacity-70">{m.status.replace(/_/g, ' ')}</span>
+                </div>
+                <div className="text-xs text-white/70 mt-0.5">
+                  {m.role === 'owner' ? 'Your goods' : m.role === 'recipient' ? `From ${m.ownerName}` : `You packed for ${m.ownerName}`}
+                </div>
+                <div className="text-[10px] text-white/40 mt-1 inline-flex items-center gap-1">
+                  {m.origin} → {m.destination}{m.weightKg > 0 ? ` · ${m.weightKg} kg` : ''}
                   <ExternalLink className="w-2.5 h-2.5" />
                 </div>
               </a>

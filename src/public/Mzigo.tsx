@@ -3,6 +3,7 @@ import { useEffect, useState, useRef } from "react";
 import {
   Package, Truck, Warehouse, MapPin, Phone, Loader2, Check, AlertTriangle,
   Send, ScanLine, RefreshCw, ChevronRight, Copy, ArrowRight, User, Building2,
+  Plus, Printer, Settings,
 } from "lucide-react";
 
 /**
@@ -80,7 +81,8 @@ export default function Mzigo() {
           role === "packager"    ? <PackagerView /> :
           role === "agent"       ? <AgentView /> :
           role === "warehouse"   ? <WarehouseView /> :
-          role === "destination" ? <DestinationView /> : null}
+          role === "destination" ? <DestinationView /> :
+          role === "admin"       ? <AdminView /> : null}
       </main>
     </div>
   );
@@ -92,6 +94,7 @@ function RolePicker({ onPick }) {
     { id: "agent", icon: User, label: "Pickup Agent", desc: "I collect goods from packagers and bring them to the cargo office.", tone: "from-blue-400 to-cyan-400" },
     { id: "warehouse", icon: Warehouse, label: "Warehouse / Office", desc: "I receive goods, load trucks, dispatch.", tone: "from-violet-400 to-indigo-400" },
     { id: "destination", icon: MapPin, label: "Destination Hub", desc: "I receive trucks at the destination and notify recipients.", tone: "from-emerald-400 to-teal-400" },
+    { id: "admin", icon: Settings, label: "Admin / Setup", desc: "Register cargo companies and add agents.", tone: "from-rose-400 to-pink-400" },
   ];
   return (
     <div className="space-y-3">
@@ -329,6 +332,7 @@ function WarehouseView() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [done, setDone] = useState("");
+  const [dispatched, setDispatched] = useState(null);
 
   const reload = async () => { try { setQueue(await call("/mzigo/warehouse/queue")); } catch { /* ignore */ } };
   useEffect(() => { void reload(); }, []);
@@ -349,6 +353,8 @@ function WarehouseView() {
     try {
       await call("/mzigo/trucks/load", { method: "POST", body: JSON.stringify({ ...truck, waybills: Array.from(selected) }) });
       await call(`/mzigo/trucks/${encodeURIComponent(truck.truckPlate)}/dispatch`, { method: "POST", body: "{}" });
+      const loadedParcels = queue.filter((p) => selected.has(p.waybill));
+      setDispatched({ truck: { ...truck, truckPlate: truck.truckPlate.toUpperCase() }, parcels: loadedParcels, dispatchedAt: new Date().toISOString() });
       setDone(`Truck ${truck.truckPlate.toUpperCase()} dispatched with ${selected.size} parcels`);
       setSelected(new Set());
       setTruck({ truckPlate: "", driverName: "", driverPhone: "", origin: "", destination: "" });
@@ -356,6 +362,8 @@ function WarehouseView() {
     } catch (e) { setErr(e.message); }
     setBusy(false);
   };
+
+  if (dispatched) return <DispatchedManifest data={dispatched} onContinue={() => setDispatched(null)} />;
 
   return (
     <div className="space-y-3">
@@ -507,6 +515,233 @@ function DestinationView() {
           <button onClick={stopScan} className="relative z-10 mt-4 px-5 py-2 bg-white/20 text-white rounded-lg border border-white/40">Cancel</button>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ─────────────────────────── ADMIN ─────────────────────────── */
+
+function AdminView() {
+  const [companies, setCompanies] = useState([]);
+  const [agentsByCompany, setAgentsByCompany] = useState({});
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [showCompanyForm, setShowCompanyForm] = useState(false);
+  const [newCompany, setNewCompany] = useState({ name: "", phone: "", headOffice: "" });
+  const [showAgentFor, setShowAgentFor] = useState("");
+  const [newAgent, setNewAgent] = useState({ name: "", phone: "", area: "" });
+
+  const reload = async () => {
+    try {
+      const cos = await call("/mzigo/companies");
+      setCompanies(cos);
+      const map = {};
+      await Promise.all(cos.map(async (c) => {
+        try { map[c.id] = await call(`/mzigo/agents?companyId=${encodeURIComponent(c.id)}`); }
+        catch { map[c.id] = []; }
+      }));
+      setAgentsByCompany(map);
+    } catch (e) { setErr(e.message); }
+  };
+  useEffect(() => { void reload(); }, []);
+
+  const submitCompany = async () => {
+    if (!newCompany.name.trim()) return;
+    setBusy(true); setErr("");
+    try {
+      await call("/mzigo/companies", { method: "POST", body: JSON.stringify(newCompany) });
+      setNewCompany({ name: "", phone: "", headOffice: "" });
+      setShowCompanyForm(false);
+      await reload();
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  const submitAgent = async (companyId) => {
+    if (!newAgent.name.trim() || !newAgent.phone.trim()) return;
+    setBusy(true); setErr("");
+    try {
+      await call("/mzigo/agents", { method: "POST", body: JSON.stringify({ ...newAgent, companyId }) });
+      setNewAgent({ name: "", phone: "", area: "" });
+      setShowAgentFor("");
+      await reload();
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  return (
+    <div className="space-y-3">
+      <h1 className="text-xl font-extrabold inline-flex items-center gap-2">
+        Cargo companies <RefreshCw className="w-4 h-4 cursor-pointer text-slate-500" onClick={reload} />
+      </h1>
+      <p className="text-sm text-slate-600">Register a company and its pickup agents. Agents show up in the packager's pick list.</p>
+
+      {err && <div className="rounded-lg border border-rose-300 bg-rose-50 text-rose-800 text-xs p-2 inline-flex items-start gap-2"><AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />{err}</div>}
+
+      {!showCompanyForm ? (
+        <button onClick={() => setShowCompanyForm(true)} className="w-full h-10 rounded-xl bg-rose-500 text-white font-bold text-sm inline-flex items-center justify-center gap-2">
+          <Plus className="w-4 h-4" /> Add company
+        </button>
+      ) : (
+        <div className="rounded-xl bg-white border-2 border-rose-300 p-3 space-y-2">
+          <div className="text-[10px] uppercase font-bold tracking-wide text-rose-700">New cargo company</div>
+          <Field label="Company name" value={newCompany.name} onChange={(e) => setNewCompany({ ...newCompany, name: e.target.value })} required />
+          <Row2>
+            <Field label="Phone (office)" value={newCompany.phone} onChange={(e) => setNewCompany({ ...newCompany, phone: e.target.value })} inputMode="tel" />
+            <Field label="Head office" value={newCompany.headOffice} onChange={(e) => setNewCompany({ ...newCompany, headOffice: e.target.value })} placeholder="Dar es Salaam" />
+          </Row2>
+          <div className="flex gap-2 pt-1">
+            <button onClick={() => { setShowCompanyForm(false); setNewCompany({ name: "", phone: "", headOffice: "" }); }} className="flex-1 h-9 rounded-lg bg-slate-100 text-slate-700 text-xs font-bold">Cancel</button>
+            <button onClick={submitCompany} disabled={busy || !newCompany.name.trim()} className="flex-1 h-9 rounded-lg bg-rose-500 text-white text-xs font-bold disabled:opacity-50">
+              {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin inline" /> : "Save company"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {companies.length === 0 ? (
+        <p className="text-xs text-slate-500 italic">No companies yet. Add the first one.</p>
+      ) : companies.map((c) => {
+        const agents = agentsByCompany[c.id] || [];
+        const isAdding = showAgentFor === c.id;
+        return (
+          <div key={c.id} className="rounded-xl bg-white border border-rose-200 p-3">
+            <div className="flex items-center justify-between mb-2">
+              <div className="min-w-0">
+                <div className="font-bold text-sm flex items-center gap-1.5"><Building2 className="w-4 h-4 text-rose-500" />{c.name}</div>
+                <div className="text-[11px] text-slate-500">{c.headOffice || "—"}{c.phone ? ` · ${c.phone}` : ""}</div>
+              </div>
+              <span className="text-[10px] bg-rose-100 text-rose-700 rounded px-1.5 py-0.5 font-bold">{agents.length} agents</span>
+            </div>
+            {agents.length > 0 && (
+              <div className="space-y-1 mb-2">
+                {agents.map((a) => (
+                  <div key={a.id} className="text-[11px] flex items-center justify-between border-t border-rose-100 pt-1.5">
+                    <div className="min-w-0">
+                      <span className="font-bold">{a.name}</span>
+                      <span className="text-slate-500"> · {a.phone}{a.area ? ` · ${a.area}` : ""}</span>
+                    </div>
+                    <span className="text-[10px] bg-emerald-100 text-emerald-700 rounded px-1.5 py-0.5 font-bold">{a.commissionPoints} pts</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {!isAdding ? (
+              <button onClick={() => setShowAgentFor(c.id)} className="w-full h-8 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs font-bold inline-flex items-center justify-center gap-1">
+                <Plus className="w-3.5 h-3.5" /> Add agent
+              </button>
+            ) : (
+              <div className="rounded-lg border border-rose-200 p-2 space-y-1.5 mt-1">
+                <Row2>
+                  <Field label="Agent name" value={newAgent.name} onChange={(e) => setNewAgent({ ...newAgent, name: e.target.value })} required />
+                  <Field label="Phone" value={newAgent.phone} onChange={(e) => setNewAgent({ ...newAgent, phone: e.target.value })} required inputMode="tel" />
+                </Row2>
+                <Field label="Area / stand (optional)" value={newAgent.area} onChange={(e) => setNewAgent({ ...newAgent, area: e.target.value })} placeholder="Stand 14, Tabata" />
+                <div className="flex gap-2 pt-1">
+                  <button onClick={() => { setShowAgentFor(""); setNewAgent({ name: "", phone: "", area: "" }); }} className="flex-1 h-8 rounded-lg bg-slate-100 text-slate-700 text-xs font-bold">Cancel</button>
+                  <button onClick={() => submitAgent(c.id)} disabled={busy || !newAgent.name.trim() || !newAgent.phone.trim()} className="flex-1 h-8 rounded-lg bg-rose-500 text-white text-xs font-bold disabled:opacity-50">
+                    {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin inline" /> : "Save agent"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ─────────────────── DISPATCHED MANIFEST (printable) ─────────────────── */
+
+function DispatchedManifest({ data, onContinue }) {
+  useEffect(() => {
+    const prev = document.title;
+    document.title = `Manifest — ${data.truck.truckPlate}`;
+    return () => { document.title = prev; };
+  }, [data.truck.truckPlate]);
+
+  return (
+    <div className="space-y-3">
+      <style>{`
+        @media print {
+          @page { size: A4; margin: 12mm; }
+          body { background: white !important; }
+          .no-print { display: none !important; }
+          .print-sheet { box-shadow: none !important; border: none !important; }
+        }
+      `}</style>
+
+      <div className="no-print rounded-2xl bg-emerald-500 text-white p-4 text-center">
+        <Check className="w-10 h-10 mx-auto mb-1" />
+        <div className="text-base font-extrabold">Truck dispatched</div>
+        <div className="text-xs opacity-90 mt-0.5">Print the manifest and give a copy to the driver.</div>
+      </div>
+
+      <div className="print-sheet rounded-xl bg-white border-2 border-slate-300 p-5 shadow-md text-slate-900">
+        <div className="flex items-start justify-between border-b-2 border-slate-300 pb-3 mb-3">
+          <div>
+            <div className="text-[10px] uppercase font-bold text-slate-500 tracking-widest">KobeOS · Mzigo</div>
+            <div className="text-xl font-extrabold mt-0.5">Truck Manifest</div>
+          </div>
+          <div className="text-right">
+            <div className="text-[10px] uppercase font-bold text-slate-500">Dispatched</div>
+            <div className="text-xs font-bold">{fmtDate(data.dispatchedAt)}</div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-y-1.5 gap-x-4 text-xs mb-4">
+          <Pair k="Truck plate" v={<span className="font-mono text-base">{data.truck.truckPlate}</span>} />
+          <Pair k="Parcels" v={`${data.parcels.length}`} />
+          <Pair k="Driver" v={data.truck.driverName} />
+          <Pair k="Driver phone" v={data.truck.driverPhone || "—"} />
+          <Pair k="Origin" v={data.truck.origin || "—"} />
+          <Pair k="Destination" v={data.truck.destination || "—"} />
+        </div>
+
+        <table className="w-full text-[11px] border-collapse">
+          <thead>
+            <tr className="bg-slate-100 text-left">
+              <th className="border border-slate-300 px-2 py-1 font-bold">#</th>
+              <th className="border border-slate-300 px-2 py-1 font-bold">Waybill</th>
+              <th className="border border-slate-300 px-2 py-1 font-bold">Owner</th>
+              <th className="border border-slate-300 px-2 py-1 font-bold">Recipient · Phone</th>
+              <th className="border border-slate-300 px-2 py-1 font-bold text-right">Wt (kg)</th>
+              <th className="border border-slate-300 px-2 py-1 font-bold">Signature</th>
+            </tr>
+          </thead>
+          <tbody>
+            {data.parcels.map((p, i) => (
+              <tr key={p.waybill}>
+                <td className="border border-slate-300 px-2 py-1.5">{i + 1}</td>
+                <td className="border border-slate-300 px-2 py-1.5 font-mono font-bold">{p.waybill}</td>
+                <td className="border border-slate-300 px-2 py-1.5">{p.ownerName}</td>
+                <td className="border border-slate-300 px-2 py-1.5">{p.recipientName} · {p.recipientPhone}</td>
+                <td className="border border-slate-300 px-2 py-1.5 text-right">{p.weightKg || "—"}</td>
+                <td className="border border-slate-300 px-2 py-1.5 w-20"></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        <div className="grid grid-cols-2 gap-6 mt-8 text-xs">
+          <div>
+            <div className="border-t border-slate-400 pt-1 text-center">Warehouse officer</div>
+          </div>
+          <div>
+            <div className="border-t border-slate-400 pt-1 text-center">Driver — {data.truck.driverName}</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="no-print flex gap-2">
+        <button onClick={() => window.print()} className="flex-1 h-11 rounded-xl bg-violet-600 text-white font-extrabold text-sm inline-flex items-center justify-center gap-2">
+          <Printer className="w-4 h-4" /> Print manifest
+        </button>
+        <button onClick={onContinue} className="flex-1 h-11 rounded-xl bg-white border-2 border-violet-300 text-violet-700 font-extrabold text-sm">
+          Done
+        </button>
+      </div>
     </div>
   );
 }
