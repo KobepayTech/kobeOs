@@ -35,6 +35,8 @@ const isCustomerPortal = pathname.startsWith('/me');
 // KobeOS · Tuma — paper-voucher-replacement money transfer. Standalone
 // public page at /tuma; uses localStorage for now, no auth required.
 const isTuma = pathname.startsWith('/tuma');
+// KobeOS · Mzigo — TZ ground-cargo 4-role flow. Public, no auth.
+const isMzigo = pathname.startsWith('/mzigo');
 
 if (isOverlay) {
   // Lazy-load to keep the main bundle lean
@@ -72,6 +74,10 @@ if (isOverlay) {
 } else if (isTuma) {
   import('./public/Tuma').then(({ default: Tuma }) => {
     createRoot(document.getElementById('root')!).render(<Tuma />);
+  });
+} else if (isMzigo) {
+  import('./public/Mzigo').then(({ default: Mzigo }) => {
+    createRoot(document.getElementById('root')!).render(<Mzigo />);
   });
 } else {
   createRoot(document.getElementById('root')!).render(<Desktop />);
