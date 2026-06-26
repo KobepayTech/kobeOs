@@ -52,6 +52,28 @@ export class AuthService {
   }
 
   /**
+   * Verify a manager's credentials without issuing JWTs. Used by the POS
+   * "inline approve" flow when a discount exceeds the auto-approval
+   * threshold and a manager needs to authorise the cashier's checkout
+   * without switching the logged-in user on the till.
+   */
+  async verifyManager(
+    email: string,
+    password: string,
+  ): Promise<{ id: string; email: string; displayName: string; role: string }> {
+    const user = await this.users.findByEmail(email);
+    if (!user) throw new UnauthorizedException('Invalid manager credentials');
+    const ok = await bcrypt.compare(password, user.passwordHash);
+    if (!ok) throw new UnauthorizedException('Invalid manager credentials');
+    return {
+      id: user.id,
+      email: user.email,
+      displayName: user.displayName,
+      role: user.role,
+    };
+  }
+
+  /**
    * Exchange a refresh token for a new access + refresh pair. The presented
    * token is revoked atomically so a leaked refresh token is single-use.
    */

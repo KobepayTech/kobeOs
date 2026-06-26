@@ -481,7 +481,14 @@ export default function POSSystem() {
     setShowCheckout(true);
   };
 
-  const finalizeCheckout = async () => {
+  // Manager-approve dialog state — opened when the backend returns
+  // "Discount exceeds approval threshold" so a manager can authorise
+  // the cashier's checkout inline without switching the logged-in user
+  // on the till.
+  const [showManagerApprove, setShowManagerApprove] = useState(false);
+  const [pendingApproverId, setPendingApproverId] = useState<string | null>(null);
+
+  const finalizeCheckout = async (approvedBy?: string) => {
     if (cart.length === 0) return;
     setCheckoutError(null);
     setSubmitting(true);
@@ -514,6 +521,9 @@ export default function POSSystem() {
       discountAmount,
       paymentMethod: paymentMethod === 'cash' ? 'CASH' : paymentMethod === 'card' ? 'CARD' : 'MOBILE',
       couponCode: couponCode.trim() || undefined,
+      // Set only when a manager authorised an over-threshold discount
+      // via the inline approve dialog.
+      ...(approvedBy ? { approvedBy } : {}),
     };
 
     try {
@@ -539,6 +549,7 @@ export default function POSSystem() {
       );
       setCart([]);
       setShowCheckout(false);
+      setPendingApproverId(null);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       // ONLY swallow when the entire cart is local demo fixtures AND the
@@ -547,12 +558,19 @@ export default function POSSystem() {
       // full of real products on a flaky connection — customer walked
       // out with goods that were never recorded as sold.
       const looksLikeDemoMiss = allMockIds && (/not found/i.test(msg) || /404/.test(msg));
+      // Backend returns "Discount exceeds approval threshold; manager
+      // approval required (set approvedBy)" — open the inline approve
+      // dialog so the manager can authorise without a re-login.
+      const needsApproval = /approval threshold/i.test(msg) && !approvedBy;
       if (looksLikeDemoMiss) {
         setRequests((prev) =>
           prev.map((r) => (r.status === 'APPROVED' ? { ...r, status: 'COMPLETED' } : r)),
         );
         setCart([]);
         setShowCheckout(false);
+      } else if (needsApproval) {
+        setShowManagerApprove(true);
+        setCheckoutError(null);
       } else {
         setCheckoutError(msg);
       }
@@ -1512,7 +1530,7 @@ export default function POSSystem() {
             )}
             <Button
               className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold h-11 disabled:opacity-60"
-              onClick={finalizeCheckout}
+              onClick={() => finalizeCheckout()}
               disabled={submitting || cart.length === 0}
             >
               <Receipt className="w-4 h-4 mr-2" />
@@ -1521,6 +1539,26 @@ export default function POSSystem() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* ─── Manager Approval Dialog ─── */}
+      {/* Opened when /pos/orders 403s with "Discount exceeds approval
+          threshold". The manager types their KobeOS credentials, we
+          POST /pos/manager-approve to validate without minting a JWT,
+          and on success we retry finalizeCheckout with approvedBy set
+          to the manager's user id. */}
+      <ManagerApproveDialog
+        open={showManagerApprove}
+        onClose={() => setShowManagerApprove(false)}
+        onApproved={(approverId, displayName) => {
+          setPendingApproverId(approverId);
+          setShowManagerApprove(false);
+          flashDiscountError(`Approved by ${displayName} — completing sale…`);
+          // retry checkout with the manager's id
+          void finalizeCheckout(approverId);
+        }}
+        cartTotal={fmt(total)}
+        previouslyApprovedBy={pendingApproverId}
+      />
 
       {/* Sale receipt — shown after a successful order POST. */}
       <Dialog open={!!lastReceipt} onOpenChange={(o) => !o && setLastReceipt(null)}>
@@ -1594,5 +1632,121 @@ export default function POSSystem() {
         </DialogContent>
       </Dialog>
     </Tabs>
+  );
+}
+
+/* ─── Manager Approval Dialog ───────────────────────────────────── */
+
+interface ManagerApproveDialogProps {
+  open: boolean;
+  onClose: () => void;
+  onApproved: (approverId: string, displayName: string) => void;
+  cartTotal: string;
+  previouslyApprovedBy: string | null;
+}
+
+function ManagerApproveDialog({
+  open, onClose, onApproved, cartTotal, previouslyApprovedBy,
+}: ManagerApproveDialogProps) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (open) { setEmail(''); setPassword(''); setErr(null); }
+  }, [open]);
+
+  const submit = async () => {
+    if (!email.trim() || !password) return;
+    setBusy(true); setErr(null);
+    try {
+      const res = await api<{ id: string; email: string; displayName: string; role: string }>(
+        '/pos/manager-approve',
+        { method: 'POST', body: JSON.stringify({ email: email.trim(), password }) },
+      );
+      onApproved(res.id, res.displayName || res.email);
+    } catch (e) {
+      setErr((e as Error).message || 'Invalid manager credentials');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="bg-[#13131f] border border-amber-500/30 text-white max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <AlertCircle className="w-5 h-5 text-amber-400" />
+            Manager approval required
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-3 mt-2">
+          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+            This sale carries a discount over the auto-approval threshold.
+            Have a manager sign here to authorise — <span className="font-bold">{cartTotal}</span> total.
+            {previouslyApprovedBy && (
+              <div className="mt-1 text-amber-300/70">
+                A prior approver was set but the retry still tripped; ask a different manager.
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label htmlFor="mgr-email" className="text-xs text-white/60 mb-1 block">Manager email</label>
+            <Input
+              id="mgr-email"
+              type="email"
+              autoComplete="off"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') document.getElementById('mgr-password')?.focus(); }}
+              className="bg-[#0a0a1a] border-white/[0.08] text-white"
+              placeholder="manager@yourbusiness.com"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="mgr-password" className="text-xs text-white/60 mb-1 block">Password</label>
+            <Input
+              id="mgr-password"
+              type="password"
+              autoComplete="off"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
+              className="bg-[#0a0a1a] border-white/[0.08] text-white"
+              placeholder="•••••••"
+            />
+          </div>
+
+          {err && (
+            <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+              {err}
+            </div>
+          )}
+
+          <div className="flex gap-2 pt-1">
+            <Button
+              variant="outline"
+              onClick={onClose}
+              disabled={busy}
+              className="flex-1 border-white/15 text-white/80 hover:bg-white/5"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={submit}
+              disabled={busy || !email.trim() || !password}
+              className="flex-1 bg-amber-500 hover:bg-amber-600 text-black font-bold disabled:opacity-40"
+            >
+              {busy ? 'Verifying…' : 'Approve & complete'}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

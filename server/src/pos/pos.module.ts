@@ -12,6 +12,7 @@ import { WarehouseModule } from '../warehouse/warehouse.module';
 import { DiscountsModule } from '../discounts/discount.module';
 import { CreditModule } from '../credit/credit.module';
 import { ErpModule } from '../erp/erp.module';
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
   imports: [
@@ -29,6 +30,9 @@ import { ErpModule } from '../erp/erp.module';
     DiscountsModule,
     CreditModule,
     ErpModule,
+    // Needed by the POS inline manager-approve endpoint, which calls
+    // AuthService.verifyManager to bcrypt-compare without issuing JWTs.
+    AuthModule,
   ],
   providers: [ProductsService, OrdersService, ReceiptService, PosGateway, ReorderService],
   controllers: [PosController],

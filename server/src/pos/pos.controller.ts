@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
+import { AuthService } from '../auth/auth.service';
 import { OrdersService, ProductsService } from './pos.service';
 import { ReorderService } from './reorder.service';
 import { CreateOrderDto, CreateProductDto, UpdateOrderDto, UpdateProductDto } from './dto/pos.dto';
@@ -12,7 +13,20 @@ export class PosController {
     private readonly products: ProductsService,
     private readonly orders: OrdersService,
     private readonly reorder: ReorderService,
+    private readonly auth: AuthService,
   ) {}
+
+  /**
+   * Validate a manager's email + password without issuing JWTs. Used by
+   * the POS checkout flow when a discount exceeds the auto-approval
+   * threshold: the cashier sees an inline approve dialog, the manager
+   * types credentials, and the returned approverId is passed back as
+   * `approvedBy` on the retried POST /pos/orders.
+   */
+  @Post('manager-approve')
+  managerApprove(@Body() dto: { email: string; password: string }) {
+    return this.auth.verifyManager(dto.email, dto.password);
+  }
 
   /** Reorder suggestions — feeds the "what should I restock" widget.
    *  Tunable via query params for stock-experiment runs. */
