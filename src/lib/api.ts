@@ -319,8 +319,19 @@ export async function api<T = unknown>(
 
     const text = await res.text();
     const body = text ? safeJson(text) : undefined;
-    const errField = body && typeof body === 'object' && 'error' in body ? (body as { error?: unknown }).error : undefined;
-    const msg = (typeof errField === 'string' && errField) || res.statusText || `HTTP ${res.status}`;
+    // Prefer NestJS-style `message` (detail like "Discount exceeds approval
+    // threshold; manager approval required") over `error` (which is the
+    // bare status name, e.g. "Forbidden") so the user sees something
+    // actionable instead of a generic "HTTP 403".
+    const bag = (body && typeof body === 'object' ? (body as Record<string, unknown>) : undefined);
+    const msgField = bag?.message;
+    const errField = bag?.error;
+    const msg =
+      (typeof msgField === 'string' && msgField) ||
+      (Array.isArray(msgField) && msgField.length && typeof msgField[0] === 'string' && msgField.join(', ')) ||
+      (typeof errField === 'string' && errField) ||
+      res.statusText ||
+      `HTTP ${res.status}`;
     throw new ApiError(res.status, msg, body);
 
   } catch (err) {

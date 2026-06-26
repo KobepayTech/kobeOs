@@ -61,7 +61,11 @@ export function DiscountReports() {
     load();
   }, [load]);
 
-  const profitLost = report?.totals.profitLostPct ?? 0;
+  // Backends from older deploys can return a partial report (missing
+  // `totals` entirely when the period has no logs). Guard every nested
+  // access so the page renders zeros instead of crashing the whole app.
+  const t = report?.totals;
+  const profitLost = t?.profitLostPct ?? 0;
   const healthy = profitLost < 10;
 
   const sellersMax = useMemo(() => Math.max(1, ...(report?.bySeller ?? []).map((s) => s.discountAmount)), [report]);
@@ -102,20 +106,20 @@ export function DiscountReports() {
             <KpiCard
               icon={<TrendingDown className="w-4 h-4 text-rose-300" />}
               label="Total discounts"
-              value={fmt(report.totals.discountAmount)}
-              hint={`${pct(report.totals.discountRate)} of standard value`}
+              value={fmt(t?.discountAmount ?? 0)}
+              hint={`${pct(t?.discountRate ?? 0)} of standard value`}
             />
             <KpiCard
               icon={<Wallet className="w-4 h-4 text-emerald-300" />}
               label="Actual profit"
-              value={fmt(report.totals.profit)}
-              hint={`vs potential ${fmt(report.totals.potentialProfit)}`}
+              value={fmt(t?.profit ?? 0)}
+              hint={`vs potential ${fmt(t?.potentialProfit ?? 0)}`}
             />
             <KpiCard
               icon={<BarChart3 className="w-4 h-4 text-amber-300" />}
               label="Approved sales"
-              value={String(report.totals.approvedRequests)}
-              hint={`worth ${fmt(report.totals.actualValue)}`}
+              value={String(t?.approvedRequests ?? 0)}
+              hint={`worth ${fmt(t?.actualValue ?? 0)}`}
             />
             <KpiCard
               icon={<TrendingDown className={`w-4 h-4 ${healthy ? 'text-emerald-300' : 'text-rose-300'}`} />}
@@ -131,11 +135,11 @@ export function DiscountReports() {
               <div className="flex items-center gap-2 text-sm font-medium">
                 <Users className="w-4 h-4 text-amber-300" /> By seller
               </div>
-              {report.bySeller.length === 0 ? (
+              {(report.bySeller ?? []).length === 0 ? (
                 <p className="text-xs text-white/40 py-2">No approved discounts in this window.</p>
               ) : (
                 <div className="space-y-2">
-                  {report.bySeller.map((s) => (
+                  {(report.bySeller ?? []).map((s) => (
                     <div key={s.sellerId}>
                       <div className="flex justify-between text-xs">
                         <span className="font-mono text-white/70">{s.sellerId.slice(0, 8)}</span>
@@ -162,7 +166,7 @@ export function DiscountReports() {
               <div className="flex items-center gap-2 text-sm font-medium">
                 <Package className="w-4 h-4 text-amber-300" /> Top discounted products
               </div>
-              {report.byProduct.length === 0 ? (
+              {(report.byProduct ?? []).length === 0 ? (
                 <p className="text-xs text-white/40 py-2">Nothing to show yet.</p>
               ) : (
                 <table className="w-full text-xs">
@@ -170,7 +174,7 @@ export function DiscountReports() {
                     <tr><th className="text-left py-1">Product</th><th className="text-right py-1">Qty</th><th className="text-right py-1">Avg disc.</th><th className="text-right py-1">Discount $</th></tr>
                   </thead>
                   <tbody>
-                    {report.byProduct.map((p) => (
+                    {(report.byProduct ?? []).map((p) => (
                       <tr key={p.productId} className="border-t border-white/[0.04]">
                         <td className="py-1 font-mono text-white/80">{p.productId.slice(0, 8)}</td>
                         <td className="py-1 text-right">{p.quantity}</td>

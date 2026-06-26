@@ -38,7 +38,7 @@ export const TitleBar = memo(function TitleBar({
 
   return (
     <div
-      className="h-9 flex items-center select-none cursor-default rounded-t-3xl overflow-hidden relative"
+      className="h-9 flex items-center select-none cursor-grab active:cursor-grabbing rounded-t-3xl overflow-hidden relative"
       style={{ background: 'transparent' }}
       onMouseDown={onMouseDown}
     >

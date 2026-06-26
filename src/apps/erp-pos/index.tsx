@@ -304,11 +304,20 @@ export default function POSSystem() {
   const submitDiscountRequest = async () => {
     const idx = parseInt(selectedItemIdx, 10);
     const item = cart[idx];
-    if (!item || !reqPrice || !reqReason) return;
+    if (!item) { flashDiscountError('Pick an item before submitting.'); return; }
+    if (!reqPrice) { flashDiscountError('Enter a requested price.'); return; }
+    if (!reqReason) { flashDiscountError('Pick a reason for the discount.'); return; }
     // parseFloat so a manager can negotiate to e.g. 1500.50 instead of
     // having the cents silently rounded down to whole shillings.
     const price = parseFloat(reqPrice);
-    if (!Number.isFinite(price) || price >= item.product.price || price <= 0) return;
+    if (!Number.isFinite(price) || price <= 0) {
+      flashDiscountError('Requested price must be a positive number.');
+      return;
+    }
+    if (price >= item.product.price) {
+      flashDiscountError(`Requested price (${fmt(price)}) must be lower than the standard price (${fmt(item.product.price)}).`);
+      return;
+    }
 
     // Optimistic local state
     const localReq: DiscountRequest = {
@@ -1502,7 +1511,7 @@ export default function POSSystem() {
               </div>
             )}
             <Button
-              className="w-full bg-gradient-to-r from-emerald-500 to-green-500 hover:from-emerald-600 hover:to-green-600 text-white font-bold h-11 disabled:opacity-60"
+              className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold h-11 disabled:opacity-60"
               onClick={finalizeCheckout}
               disabled={submitting || cart.length === 0}
             >
