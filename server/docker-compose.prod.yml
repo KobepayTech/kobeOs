@@ -93,7 +93,32 @@ services:
     expose:
       - "6379"
 
-  # ── Nginx reverse proxy ───────────────────────────────────────────────────────
+  # ── SPA web container ─────────────────────────────────────────────────────────
+  # Multi-stage build (Dockerfile.web at repo root) that runs vite to
+  # produce dist/ then serves it via a minimal nginx on :80. The
+  # reverse-proxy nginx below terminates TLS and forwards every non-API
+  # host (kobeapptz.com + every subdomain) here.
+  web:
+    build:
+      context: ..              # repo root — Dockerfile.web needs package.json, src/, etc.
+      dockerfile: Dockerfile.web
+      args:
+        VITE_API_BASE: ${VITE_API_BASE:-https://api.kobeapptz.com/api}
+        VITE_TENANT_BASE_DOMAIN: ${VITE_TENANT_BASE_DOMAIN:-kobeapptz.com}
+    image: kobepay/kobe-web:latest
+    container_name: kobe-web
+    restart: unless-stopped
+    expose:
+      - "80"
+    networks:
+      - kobe-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ── Nginx reverse proxy (TLS termination + routing) ───────────────────────────
   nginx:
     image: nginx:alpine
     container_name: kobe-nginx
@@ -107,6 +132,7 @@ services:
       - kobe-nginx-logs:/var/log/nginx
     depends_on:
       - api
+      - web
     networks:
       - kobe-net
 

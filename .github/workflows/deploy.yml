@@ -24,14 +24,24 @@ jobs:
             set -e
             cd /opt/kobe-studio
 
-            # Pull latest images
+            # Pull the latest registry-built API image; the web image
+            # is rebuilt locally from the source tree (next step).
             docker compose -f docker-compose.prod.yml pull api
+
+            # Pull latest source so Dockerfile.web sees fresh code, then
+            # rebuild + tag the web image. `--pull` keeps the node:20-alpine
+            # base layer current.
+            if [ -d .git ]; then
+              git pull --ff-only
+              docker compose -f docker-compose.prod.yml build --pull web
+            else
+              echo "⚠ /opt/kobe-studio is not a git checkout — skipping web rebuild."
+              echo "  Provision a clone with: git clone <repo> /opt/kobe-studio"
+            fi
 
             # Auto-generate VAPID keys for Web Push on the first deploy
             # that introduces them. Idempotent — the script refuses to
             # overwrite existing VAPID_* lines, so re-runs are safe.
-            # Mounts the host .env into the container so the keys
-            # persist across image rebuilds.
             if [ -f .env ] && ! grep -q "^VAPID_PUBLIC_KEY=" .env; then
               echo "→ VAPID keys missing — generating now…"
               docker compose -f docker-compose.prod.yml run --rm \
@@ -44,11 +54,18 @@ jobs:
             docker compose -f docker-compose.prod.yml run --rm api \
               node dist/main --migrate-only || true
 
-            # Rolling restart — zero downtime
-            docker compose -f docker-compose.prod.yml up -d --no-deps api
+            # Rolling restart — zero downtime. nginx depends on both api +
+            # web so omitting --no-deps lets it pick up new container IPs
+            # if either backend service was rebuilt.
+            docker compose -f docker-compose.prod.yml up -d api web
+            docker compose -f docker-compose.prod.yml exec -T nginx nginx -s reload || \
+              docker compose -f docker-compose.prod.yml up -d --no-deps nginx
 
-            # Health check
+            # Health checks: API + a HEAD on the SPA so we catch a broken
+            # build artifact before customer traffic hits a 502.
             sleep 10
             curl -sf http://localhost:3000/health || (docker compose -f docker-compose.prod.yml logs api --tail=50 && exit 1)
+            curl -sfI http://localhost/ -H 'Host: kobeapptz.com' >/dev/null || \
+              (docker compose -f docker-compose.prod.yml logs web nginx --tail=50 && exit 1)
 
             echo "Deploy complete: $(date)"
