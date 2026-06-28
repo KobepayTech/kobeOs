@@ -15,7 +15,37 @@ const PUBLIC_API_BASE =
  */
 const RESERVED_SUBDOMAINS = new Set([
   'www', 'api', 'app', 'admin', 'desktop', 'staff', 'kobeos', 'docs', 'help', 'status',
+  // Public app subdomains — see APP_SUBDOMAINS below. Listed here too
+  // so the tenant detector doesn't treat them as a customer slug.
+  'tuma', 'mzigo', 'me', 'track', 'posys', 'cargo',
 ]);
+
+/**
+ * Public apps that are reachable directly via a subdomain
+ * (e.g. `tuma.kobeapptz.com`) in addition to their path form
+ * (`/tuma`). `detectAppSubdomain()` resolves the first host label
+ * against this set; the router in main.tsx uses the returned id
+ * to lazy-load the matching component.
+ */
+export const APP_SUBDOMAINS = {
+  tuma:   'tuma',     // KobeOS · Tuma money tokens
+  mzigo:  'mzigo',    // KobeOS · Mzigo ground cargo (4-role flow)
+  me:     'me',       // Customer self-serve portal
+  track:  'track',    // Public cargo tracking
+  posys:  'posys',    // POSys property + hotel ops (bilingual)
+  cargo:  'mzigo',    // Friendly alias → Mzigo
+} as const;
+
+export type PublicAppId = (typeof APP_SUBDOMAINS)[keyof typeof APP_SUBDOMAINS];
+
+export function detectAppSubdomain(): PublicAppId | null {
+  const host = window.location.hostname.toLowerCase();
+  if (host === 'localhost' || /^[0-9.]+$/.test(host)) return null;
+  const parts = host.split('.');
+  if (parts.length < 3) return null;
+  const sub = parts[0];
+  return (APP_SUBDOMAINS as Record<string, PublicAppId>)[sub] ?? null;
+}
 
 export function detectTenantSubdomain(): string | null {
   const host = window.location.hostname.toLowerCase();

@@ -2,88 +2,91 @@ import { createRoot } from 'react-dom/client';
 import './index.css';
 import './styles/global.css';
 import { Desktop } from './os/Desktop';
-import { detectTenantSubdomain } from './public/api';
+import { detectAppSubdomain, detectTenantSubdomain } from './public/api';
 
-// /sports/overlay  → standalone transparent OBS browser source page.
-// /p/{slug}/(room|table)/{n} → path-form guest portal (works on apex domain).
-// {slug}.{base}/(room|table)/{n} → subdomain-form guest portal (wildcard DNS).
-// /print/qr-card?slug=…&type=…&n=… → printable room/table QR card sheet.
-// All other paths mount the full OS shell.
+/**
+ * Routing for the standalone web bundle.
+ *
+ * Apps are reachable two ways:
+ *
+ *   Path form (works on the apex)        Subdomain form (wildcard DNS)
+ *   ────────────────────────────────     ──────────────────────────────
+ *   /tuma                                tuma.kobeapptz.com
+ *   /mzigo                               mzigo.kobeapptz.com  (alias: cargo.)
+ *   /mzigo/track/{waybill}               mzigo.kobeapptz.com/track/{waybill}
+ *   /me                                  me.kobeapptz.com
+ *   /track/{ref}                         track.kobeapptz.com/{ref}
+ *   /posys                               posys.kobeapptz.com
+ *
+ * Special routes that don't follow the pattern:
+ *   /sports/overlay         standalone OBS browser source
+ *   /print/qr-card          printable room/table QR card
+ *   /print/cargo-receipt    printable cargo receipt
+ *   /p/{slug}/(room|table)  guest portal (also reached as {slug}.{base}/…)
+ *   /m/{slug}               mobile webapp shell
+ *   /display/orders         kitchen display system
+ *
+ * Everything else mounts the full OS shell.
+ */
 const pathname = window.location.pathname;
 const tenantSub = detectTenantSubdomain();
-const isOverlay = pathname.startsWith('/sports/overlay');
-const isPrintCard = pathname.startsWith('/print/qr-card');
+const appSub = detectAppSubdomain();
+
+// Subdomain-mapped routes — these short-circuit the path checks below
+// so e.g. https://tuma.kobeapptz.com/anything renders Tuma.
+const subTuma  = appSub === 'tuma';
+const subMzigo = appSub === 'mzigo';
+const subMe    = appSub === 'me';
+const subTrack = appSub === 'track';
+const subPosys = appSub === 'posys';
+
+const isOverlay           = pathname.startsWith('/sports/overlay');
+const isPrintCard         = pathname.startsWith('/print/qr-card');
 const isPrintCargoReceipt = pathname.startsWith('/print/cargo-receipt');
 const isPublicGuest =
   pathname.startsWith('/p/') ||
   (tenantSub !== null && /^\/(room|table)\//i.test(pathname));
-// Mobile webapp shell — reached via the QR code generated in the store
-// editor (https://{slug}.kobeapptz.com/m/{slug}). Lazy-loaded so the
-// desktop bundle stays lean.
-const isMobileWebapp = pathname.startsWith('/m/');
-// Kitchen Display System — full-screen TV view of incoming POS orders
-// for the warehouse / kitchen / back-of-house. No OS shell, big fonts,
-// dark background, designed for a 1080p TV viewed from 3 m.
-const isKdsDisplay = pathname.startsWith('/display/orders');
-// Public cargo tracking page — no auth, anyone with a parcel/shipment
-// reference number can see the lifecycle status. Designed to be
-// shareable over WhatsApp (https://app.kobeapptz.com/track/PA-XXXXXX).
-const isPublicTracking = pathname.startsWith('/track/');
-// Customer self-serve portal — phone + OTP login, then dashboard of
-// own parcels, POS purchases, loyalty points, and cargo wallet.
-const isCustomerPortal = pathname.startsWith('/me');
-// KobeOS · Tuma — paper-voucher-replacement money transfer. Standalone
-// public page at /tuma; uses localStorage for now, no auth required.
-const isTuma = pathname.startsWith('/tuma');
-// KobeOS · Mzigo — TZ ground-cargo 4-role flow. Public, no auth.
-const isMzigoTrack = pathname.startsWith('/mzigo/track/');
-const isMzigo = !isMzigoTrack && pathname.startsWith('/mzigo');
+const isMobileWebapp    = pathname.startsWith('/m/');
+const isKdsDisplay      = pathname.startsWith('/display/orders');
+const isPublicTracking  = subTrack || pathname.startsWith('/track/');
+const isCustomerPortal  = subMe    || pathname.startsWith('/me');
+const isTuma            = subTuma  || pathname.startsWith('/tuma');
+// Mzigo subdomain hosts both the public Mzigo console and the waybill
+// tracker at /track/{waybill} → keep both behaviors.
+const isMzigoTrack = (subMzigo && /^\/track\//i.test(pathname)) ||
+                     pathname.startsWith('/mzigo/track/');
+const isMzigo = !isMzigoTrack && (subMzigo || pathname.startsWith('/mzigo'));
+const isPosys = subPosys || pathname.startsWith('/posys');
+
+const mount = (node: React.ReactNode) =>
+  createRoot(document.getElementById('root')!).render(node);
 
 if (isOverlay) {
-  // Lazy-load to keep the main bundle lean
-  import('./apps/kobe-sports/OverlayPage').then(({ default: OverlayPage }) => {
-    createRoot(document.getElementById('root')!).render(<OverlayPage />);
-  });
+  import('./apps/kobe-sports/OverlayPage').then(({ default: OverlayPage }) => mount(<OverlayPage />));
 } else if (isPrintCard) {
-  import('./public/QrCard').then(({ default: QrCard }) => {
-    createRoot(document.getElementById('root')!).render(<QrCard />);
-  });
+  import('./public/QrCard').then(({ default: QrCard }) => mount(<QrCard />));
 } else if (isPrintCargoReceipt) {
-  import('./public/CargoReceipts').then(({ default: CargoReceipts }) => {
-    createRoot(document.getElementById('root')!).render(<CargoReceipts />);
-  });
+  import('./public/CargoReceipts').then(({ default: CargoReceipts }) => mount(<CargoReceipts />));
 } else if (isPublicGuest) {
-  import('./public/GuestPortal').then(({ default: GuestPortal }) => {
-    createRoot(document.getElementById('root')!).render(<GuestPortal />);
-  });
+  import('./public/GuestPortal').then(({ default: GuestPortal }) => mount(<GuestPortal />));
 } else if (isMobileWebapp) {
-  import('./mobile/MobileRoot').then(({ default: MobileRoot }) => {
-    createRoot(document.getElementById('root')!).render(<MobileRoot />);
-  });
+  import('./mobile/MobileRoot').then(({ default: MobileRoot }) => mount(<MobileRoot />));
 } else if (isKdsDisplay) {
-  import('./apps/pos-kds/KdsDisplay').then(({ default: KdsDisplay }) => {
-    createRoot(document.getElementById('root')!).render(<KdsDisplay />);
-  });
+  import('./apps/pos-kds/KdsDisplay').then(({ default: KdsDisplay }) => mount(<KdsDisplay />));
 } else if (isPublicTracking) {
-  import('./public/CargoTrack').then(({ default: CargoTrack }) => {
-    createRoot(document.getElementById('root')!).render(<CargoTrack />);
-  });
+  import('./public/CargoTrack').then(({ default: CargoTrack }) => mount(<CargoTrack />));
 } else if (isCustomerPortal) {
-  import('./public/CustomerPortal').then(({ default: CustomerPortal }) => {
-    createRoot(document.getElementById('root')!).render(<CustomerPortal />);
-  });
+  import('./public/CustomerPortal').then(({ default: CustomerPortal }) => mount(<CustomerPortal />));
 } else if (isTuma) {
-  import('./public/Tuma').then(({ default: Tuma }) => {
-    createRoot(document.getElementById('root')!).render(<Tuma />);
-  });
+  import('./public/Tuma').then(({ default: Tuma }) => mount(<Tuma />));
 } else if (isMzigoTrack) {
-  import('./public/MzigoTrack').then(({ default: MzigoTrack }) => {
-    createRoot(document.getElementById('root')!).render(<MzigoTrack />);
-  });
+  import('./public/MzigoTrack').then(({ default: MzigoTrack }) => mount(<MzigoTrack />));
 } else if (isMzigo) {
-  import('./public/Mzigo').then(({ default: Mzigo }) => {
-    createRoot(document.getElementById('root')!).render(<Mzigo />);
-  });
+  import('./public/Mzigo').then(({ default: Mzigo }) => mount(<Mzigo />));
+} else if (isPosys) {
+  // POSys lives as a desktop OS app but is also reachable standalone
+  // via posys.kobeapptz.com / /posys. Same module, no wrapper needed.
+  import('./apps/posys/index').then(({ default: Posys }) => mount(<Posys />));
 } else {
-  createRoot(document.getElementById('root')!).render(<Desktop />);
+  mount(<Desktop />);
 }

@@ -45,8 +45,14 @@ const STAGE_LABELS: Record<string, string> = {
 };
 
 export default function CargoTrack() {
+  // Reachable two ways:
+  //   /track/{ref}          (apex / path form)
+  //   track.kobeapptz.com/{ref}   (track subdomain)
+  // Strip whichever prefix is present + the leading slash.
   const path = window.location.pathname;
-  const initialRef = decodeURIComponent(path.replace(/^\/track\//, '').trim());
+  const initialRef = decodeURIComponent(
+    path.replace(/^\/track\//, '').replace(/^\//, '').trim(),
+  );
   const [reference, setReference] = useState(initialRef);
   const [result, setResult] = useState<TrackResult | null>(null);
   const [loading, setLoading] = useState(false);

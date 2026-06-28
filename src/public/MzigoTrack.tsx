@@ -37,7 +37,15 @@ const TIMELINE = [
 const fmtDate = (iso) => iso ? new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "—";
 
 export default function MzigoTrack() {
-  const waybill = window.location.pathname.replace(/^\/mzigo\/track\//, "").replace(/\/$/, "").toUpperCase();
+  // Reachable two ways:
+  //   /mzigo/track/{waybill}            (apex / path form)
+  //   mzigo.kobeapptz.com/track/{waybill} (mzigo subdomain)
+  // Strip whichever prefix matches.
+  const waybill = window.location.pathname
+    .replace(/^\/mzigo\/track\//, "")
+    .replace(/^\/track\//, "")
+    .replace(/\/$/, "")
+    .toUpperCase();
   const [parcel, setParcel] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
