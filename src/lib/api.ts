@@ -81,9 +81,15 @@ export function clearTokens() {
 
 // ── API base URL ──────────────────────────────────────────────────────────────
 
+function isElectronRenderer(): boolean {
+  return typeof window !== 'undefined' && Boolean((window as any).kobeOS);
+}
+
 export const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined) ??
-  (import.meta.env.DEV ? 'http://localhost:3000/api' : 'https://api.kobeapptz.com/api');
+  (isElectronRenderer()
+    ? 'http://127.0.0.1:3000/api'
+    : import.meta.env.DEV ? 'http://localhost:3000/api' : 'https://api.kobeapptz.com/api');
 
 // ── Backend reachability ──────────────────────────────────────────────────────
 
