@@ -17,6 +17,7 @@ import { detectAppSubdomain, detectTenantSubdomain } from './public/api';
  *   /me                                  me.kobeapptz.com
  *   /track/{ref}                         track.kobeapptz.com/{ref}
  *   /posys                               posys.kobeapptz.com
+ *   /shop/{slug}                         {slug}.kobeapptz.com
  *
  * Special routes that don't follow the pattern:
  *   /sports/overlay         standalone OBS browser source
@@ -57,6 +58,8 @@ const isMzigoTrack = (subMzigo && /^\/track\//i.test(pathname)) ||
                      pathname.startsWith('/mzigo/track/');
 const isMzigo = !isMzigoTrack && (subMzigo || pathname.startsWith('/mzigo'));
 const isPosys = subPosys || pathname.startsWith('/posys');
+const shopPathMatch = pathname.match(/^\/shop\/([a-z0-9][a-z0-9-]{0,61}[a-z0-9]|[a-z0-9])\/?/i);
+const shopSlug = tenantSub ?? (shopPathMatch?.[1]?.toLowerCase() ?? null);
 
 const mount = (node: React.ReactNode) =>
   createRoot(document.getElementById('root')!).render(node);
@@ -87,6 +90,12 @@ if (isOverlay) {
   // POSys lives as a desktop OS app but is also reachable standalone
   // via posys.kobeapptz.com / /posys. Same module, no wrapper needed.
   import('./apps/posys/index').then(({ default: Posys }) => mount(<Posys />));
+} else if (shopSlug) {
+  // Any non-reserved wildcard subdomain is a public shop storefront:
+  //   https://kelvinfashion.kobeapptz.com
+  // Apex fallback for testing/admin links:
+  //   https://kobeapptz.com/shop/kelvinfashion
+  import('./apps/erp-shop/index').then(({ default: ErpShop }) => mount(<ErpShop data={{ slug: shopSlug }} />));
 } else {
   mount(<Desktop />);
 }
