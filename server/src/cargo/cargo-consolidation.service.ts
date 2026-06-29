@@ -296,7 +296,7 @@ export class CargoConsolidationService {
     }
     const customer = await this.customers.findOne({ where: { id: customerId, ownerId: uid } });
     if (!customer) throw new NotFoundException('Customer not found');
-    customer.balance = parseFloat((Number(customer.balance) + amount).toFixed(4));
+    customer.balance = Math.round((Number(customer.balance) + amount) * 10000) / 10000;
     if (notes) customer.notes = `${customer.notes ? customer.notes + '\n' : ''}+${amount} ${customer.currency}: ${notes}`;
     return this.customers.save(customer);
   }
@@ -309,7 +309,7 @@ export class CargoConsolidationService {
     }
     const customer = await this.customers.findOne({ where: { id: customerId, ownerId: uid } });
     if (!customer) throw new NotFoundException('Customer not found');
-    const next = parseFloat((Number(customer.balance) - amount).toFixed(4));
+    const next = Math.round((Number(customer.balance) - amount) * 10000) / 10000;
     if (next < 0) {
       throw new BadRequestException(`Insufficient balance (have ${customer.balance}, need ${amount})`);
     }
@@ -323,7 +323,7 @@ export class CargoConsolidationService {
     const box = await this.boxes.findOne({ where: { id: boxId, ownerId: uid } });
     if (!box) return;
     box.parcelCount = parcels.length;
-    box.totalWeight = parseFloat(parcels.reduce((s, p) => s + Number(p.weight), 0).toFixed(2));
+    box.totalWeight = Math.round(parcels.reduce((s, p) => s + Number(p.weight), 0) * 100) / 100;
     await this.boxes.save(box);
   }
 }
