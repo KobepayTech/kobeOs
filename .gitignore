@@ -32,3 +32,6 @@ tmp-screenshots/
 # image-edit services that pull ONNX weights at runtime.
 server/node_modules/@huggingface/transformers/.cache/
 
+# Local AI model downloads
+models/
+tools/locateanything/.tmp_input.png
