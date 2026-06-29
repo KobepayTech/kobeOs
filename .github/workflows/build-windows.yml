@@ -46,6 +46,9 @@ jobs:
         # Note: npm install (not ci) because --legacy-peer-deps is needed for
         # @nestjs/swagger peer dependency conflicts with @nestjs/common versions.
 
+      - name: Check Windows build scripts
+        run: node scripts/check-windows-build-scripts.mjs
+
       - name: Build frontend with TypeScript check
         run: npm run build
 
