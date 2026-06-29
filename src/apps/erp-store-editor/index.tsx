@@ -706,7 +706,10 @@ export default function StoreEditor() {
     try {
       const r = await api<{ installed: boolean; path: string; version: string }>(
         '/store-settings/install-cloudflared',
-        { method: 'POST' },
+        // Disable offline fallback: downloading and installing a binary
+        // cannot be meaningfully queued for later replay, and we want a
+        // clear "backend is offline" error rather than a queued-write notice.
+        { method: 'POST', offlineFallback: false },
       );
       if (!mountedRef.current) return;
       setCloudflaredInstalled(Boolean(r?.installed));
@@ -717,7 +720,16 @@ export default function StoreEditor() {
       void refreshCloudflaredStatus();
     } catch (e) {
       if (!mountedRef.current) return;
-      setInstallCfMsg(`Install failed: ${(e as Error).message}`);
+      const raw = (e as Error).message ?? '';
+      // Translate low-level network errors into something actionable.
+      const isNetworkError =
+        raw.toLowerCase().includes('failed to fetch') ||
+        raw.toLowerCase().includes('networkerror') ||
+        raw.toLowerCase().includes('load failed');
+      const displayMsg = isNetworkError
+        ? 'Backend is offline. Make sure the KobeOS backend is running, then try again.'
+        : raw;
+      setInstallCfMsg(`Install failed: ${displayMsg}`);
     } finally {
       if (mountedRef.current) setInstallingCf(false);
     }
