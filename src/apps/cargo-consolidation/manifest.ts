@@ -6,7 +6,7 @@ export const manifest: AppManifest = {
   name: 'Cargo Pack',
   description: 'Customers, lanes, and consolidation boxes',
   icon: 'PackageOpen',
-  category: 'cargo',
+  category: 'erp',
   version: '1.0.0',
   width: 1100,
   height: 720,

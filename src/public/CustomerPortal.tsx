@@ -486,7 +486,7 @@ function PushOptIn({ phone }: { phone: string }) {
     <button
       onClick={subscribe}
       disabled={state === 'subscribing'}
-      className="w-full rounded-xl border border-violet-500/30 bg-violet-500/[0.05] hover:bg-violet-500/[0.1] p-3 text-violet-200 text-xs inline-flex items-center justify-center gap-2 disabled:opacity-50"
+      className="w-full rounded-xl border border-violet-500/30 bg-violet-500/[0.05] hover:bg-violet-500/[0.1] p-3 text-violet-200 text-xs inline-flex items-center justify-center gap-2 disabled:opacity-40"
     >
       {state === 'subscribing' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Bell className="w-3.5 h-3.5" />}
       Get parcel updates on this device
@@ -497,7 +497,7 @@ function PushOptIn({ phone }: { phone: string }) {
 
 /** Convert a base64-encoded VAPID public key into the Uint8Array the
  *  PushManager.subscribe() applicationServerKey field requires. */
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
+function urlBase64ToUint8Array(base64String: string): Uint8Array<ArrayBuffer> {
   const padding = '='.repeat((4 - base64String.length % 4) % 4);
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
   const raw = atob(base64);
