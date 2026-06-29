@@ -304,11 +304,11 @@ export class CloudflareService {
   // raw DNS API so the registry module compiles until it's actually deleted.
 
   async createARecord(slug: string, ip: string): Promise<string> {
-    const res = await this.cfFetch<{ result: { id: string } }>(`/zones/${this.zoneId}/dns_records`, {
+    const res = await this.cfFetch<{ id: string }>(`/zones/${this.zoneId}/dns_records`, {
       method: 'POST',
       body: JSON.stringify({ type: 'A', name: slug, content: ip, ttl: 1, proxied: true }),
     });
-    return res.result.id;
+    return res.id;
   }
 
   async updateARecord(recordId: string, slug: string, ip: string): Promise<void> {
