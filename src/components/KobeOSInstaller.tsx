@@ -5,6 +5,7 @@ import { Progress } from '@/components/ui/progress';
 import { Card } from '@/components/ui/card';
 
 interface Disk { name: string; size: string; model: string; path: string; }
+interface InstallResult { success?: boolean; output?: string; error?: string; }
 
 export default function KobeOSInstaller() {
   const [step, setStep] = useState(1);
@@ -12,19 +13,44 @@ export default function KobeOSInstaller() {
   const [selectedDisk, setSelectedDisk] = useState<string | null>(null);
   const [installProgress, setInstallProgress] = useState(0);
   const [installComplete, setInstallComplete] = useState(false);
+  const [installing, setInstalling] = useState(false);
+  const [installError, setInstallError] = useState<string | null>(null);
 
   useEffect(() => {
     if (step === 3) window.kobeOS?.system?.scanDisks?.().then(setDisks);
   }, [step]);
 
   const startInstall = async () => {
-    if (!selectedDisk) return;
+    if (!selectedDisk || installing) return;
+    setInstallError(null);
+    setInstallComplete(false);
+    setInstallProgress(0);
+    setInstalling(true);
+
     const interval = setInterval(() => {
-      setInstallProgress(prev => { if (prev >= 100) { clearInterval(interval); setInstallComplete(true); return 100; } return prev + Math.random() * 5; });
-    }, 500);
-    const result = await window.kobeOS?.system?.installToDisk?.(selectedDisk);
-    clearInterval(interval);
-    if (result?.success) { setInstallProgress(100); setInstallComplete(true); }
+      setInstallProgress(prev => Math.min(95, prev + Math.random() * 4));
+    }, 700);
+
+    try {
+      const result = await window.kobeOS?.system?.installToDisk?.(selectedDisk) as InstallResult | undefined;
+      clearInterval(interval);
+
+      if (result?.success) {
+        setInstallProgress(100);
+        setInstallComplete(true);
+        return;
+      }
+
+      const detail = result?.error || result?.output || 'Installation failed. Please check the installer logs and try again.';
+      setInstallProgress(0);
+      setInstallError(detail);
+    } catch (err) {
+      clearInterval(interval);
+      setInstallProgress(0);
+      setInstallError((err as Error).message || 'Installation failed.');
+    } finally {
+      setInstalling(false);
+    }
   };
 
   const renderStepIndicator = () => (
@@ -112,13 +138,23 @@ export default function KobeOSInstaller() {
               </div>
               <div className="flex justify-between">
                 <Button variant="outline" onClick={() => setStep(3)} className="border-gray-600"><ChevronLeft size={18} /> Back</Button>
-                <Button onClick={() => { setStep(5); startInstall(); }} className="bg-red-600 hover:bg-red-700 text-white"><Download size={18} className="mr-2" /> Install Now</Button>
+                <Button onClick={() => { setStep(5); startInstall(); }} disabled={installing} className="bg-red-600 hover:bg-red-700 text-white disabled:opacity-50"><Download size={18} className="mr-2" /> Install Now</Button>
               </div>
             </div>
           )}
           {step === 5 && (
             <div className="space-y-8 text-center">
-              {!installComplete ? (
+              {installError ? (
+                <>
+                  <div className="w-20 h-20 bg-red-500 rounded-full mx-auto flex items-center justify-center"><AlertCircle size={40} className="text-white" /></div>
+                  <div><h2 className="text-3xl font-bold text-white mb-2">Installation Failed</h2><p className="text-gray-400">KobeOS was not installed.</p></div>
+                  <pre className="max-h-48 overflow-auto text-left whitespace-pre-wrap rounded-xl bg-black/40 border border-red-500/30 p-4 text-xs text-red-200">{installError}</pre>
+                  <div className="flex gap-4 justify-center">
+                    <Button onClick={startInstall} disabled={installing} className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50"><RefreshCw size={18} className="mr-2" /> Try Again</Button>
+                    <Button variant="outline" onClick={() => setStep(3)} className="border-gray-600"><ChevronLeft size={18} className="mr-2" /> Choose Drive</Button>
+                  </div>
+                </>
+              ) : !installComplete ? (
                 <>
                   <div className="space-y-4"><h2 className="text-2xl font-bold text-white">Installing KobeOS...</h2><p className="text-gray-400">This may take a few minutes. Do not turn off your computer.</p></div>
                   <div className="max-w-md mx-auto space-y-4"><Progress value={installProgress} className="h-3" /><p className="text-3xl font-bold text-blue-400">{Math.round(installProgress)}%</p></div>
