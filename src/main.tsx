@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './index.css';
 import './styles/global.css';
@@ -61,7 +62,7 @@ const isPosys = subPosys || pathname.startsWith('/posys');
 const shopPathMatch = pathname.match(/^\/shop\/([a-z0-9][a-z0-9-]{0,61}[a-z0-9]|[a-z0-9])\/?/i);
 const shopSlug = tenantSub ?? (shopPathMatch?.[1]?.toLowerCase() ?? null);
 
-const mount = (node: React.ReactNode) =>
+const mount = (node: ReactNode) =>
   createRoot(document.getElementById('root')!).render(node);
 
 if (isOverlay) {
