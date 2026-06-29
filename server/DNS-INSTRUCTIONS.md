@@ -53,26 +53,63 @@ slightly between providers; the records themselves are identical.
 
 ### Cloudflare
 
+> **Set BOTH records to DNS-only (grey cloud).** Mixing — apex
+> proxied + wildcard direct, or the reverse — works but is fragile:
+> two cert chains to maintain (Cloudflare edge cert + origin cert),
+> easy to forget which mode the next record needs, and you can hit
+> a `526` cert-validation error if the two diverge. KobeOS already
+> handles TLS at the origin via certbot DNS-01 and assumes direct
+> client IPs for rate limiting, so DNS-only end-to-end is the
+> simplest correct setup. See the "Proxied mode" section below if
+> you specifically need Cloudflare's DDoS/WAF/caching.
+
 1. Dashboard → `kobeapptz.com` zone → **DNS** → **Records**.
 2. Click **Add record**.
 3. Set:
    - **Type**: `A`
    - **Name**: `*` (just the asterisk — Cloudflare expands it)
    - **IPv4 address**: your server's public IP
-   - **Proxy status**: **DNS only** (grey cloud). Turn the orange
-     cloud OFF — the proxy interferes with the wildcard cert and
-     hides the real client IP from rate-limiting.
+   - **Proxy status**: **DNS only** (grey cloud, NOT orange)
    - **TTL**: Auto
 4. **Save**.
-5. Add a second record:
-   - **Type**: `A`
+5. Add a second record with everything the same except:
    - **Name**: `@` (the apex)
-   - **IPv4**: same server IP
-   - **Proxy status**: **DNS only**
+   - **Proxy status**: **DNS only** (grey cloud)
 6. **Save**.
 
 If you've also got IPv6, add two more records with `Type: AAAA`
-pointing at the IPv6 address, same Name (`*` and `@`).
+pointing at the IPv6 address, same Name (`*` and `@`), both
+DNS-only.
+
+#### Proxied mode (only if you need DDoS / WAF / caching)
+
+If you do want Cloudflare in front — apex AND wildcard both orange
+cloud, no mixing — you must also do all four of these or the apps
+break in subtle ways:
+
+1. **SSL/TLS → Overview** → set encryption mode to **Full
+   (strict)**. Anything less than Full will downgrade or proxy
+   plaintext.
+2. **Network** → enable **WebSockets**. Required for Socket.io
+   (POS realtime, Cargo dispatch board, Kanban). Off by default
+   on the free plan in some zones.
+3. **Rules → Transform Rules** → add a request header rewrite
+   that sets `X-Real-IP` from `cf.connecting_ip`. The
+   `ThrottlerGuard` rate limiter (and the FX cache, and the
+   Mzigo throttler) keys on `X-Real-IP`; without this every
+   request appears to come from the Cloudflare edge IP and your
+   limits collapse to one bucket for the whole internet.
+4. **Caching → Cache Rules** → add a bypass-cache rule for
+   `/api/*`, `/sw.js`, `/manifest.json`, and `/socket.io/*`. The
+   origin already sends the right `Cache-Control` headers but
+   Cloudflare's defaults can override them, which staleness-locks
+   PWA updates and 504s websocket upgrades.
+
+The QR scanner in Mzigo (BarcodeDetector + `getUserMedia`) can
+also trip Cloudflare's bot-fight mode and get challenged with a
+captcha on the initial fetch, which kills the scanner UX. If you
+see this, **Security → Bots** → set Bot Fight Mode to **Off** for
+the public-app subdomains.
 
 ### AWS Route 53
 
