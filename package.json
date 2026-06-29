@@ -6,7 +6,9 @@
   "scripts": {
     "prepare": "git config core.hooksPath .githooks 2>/dev/null || true",
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "typecheck": "tsc -b",
+    "build:frontend": "vite build",
+    "build": "npm run typecheck && npm run build:frontend",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint": "eslint .",
@@ -19,6 +21,7 @@
     "electron:build": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && electron-builder",
     "electron:build:linux": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && electron-builder --linux",
     "electron:build:win": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && electron-builder --win",
+    "electron:build:win:fast": "npm run build:frontend && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && electron-builder --win --publish never",
     "electron:build:mac": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && electron-builder --mac",
     "iso:build": "npm run electron:build:linux && node scripts/build-iso.cjs",
     "iso:package": "node scripts/build-iso.cjs",
