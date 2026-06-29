@@ -46,12 +46,8 @@ jobs:
         # Note: npm install (not ci) because --legacy-peer-deps is needed for
         # @nestjs/swagger peer dependency conflicts with @nestjs/common versions.
 
-      - name: TypeScript check (non-blocking for installer build)
-        run: npm run typecheck
-        continue-on-error: true
-
-      - name: Build frontend bundle
-        run: npm run build:frontend
+      - name: Build frontend with TypeScript check
+        run: npm run build
 
       # ── Backend ─────────────────────────────────────────────────────────────
       - name: Install server dependencies
