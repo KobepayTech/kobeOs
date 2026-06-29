@@ -1248,7 +1248,7 @@ function demoBuildingFloors(tenants: ApiTenant[]): FloorBlock[] {
   const corridorASize = 8;
   const corridorBSize = 6;
   const list = tenants.slice(0, corridorASize + corridorBSize);
-  const corridorA = {
+  const corridorA: FloorBlock['corridors'][number] = {
     id: 'cA', name: 'Corridor A · Front Shops',
     units: Array.from({ length: corridorASize }, (_, i) => {
       const t = list[i];
@@ -1261,7 +1261,7 @@ function demoBuildingFloors(tenants: ApiTenant[]): FloorBlock[] {
       };
     }),
   };
-  const corridorB = {
+  const corridorB: FloorBlock['corridors'][number] = {
     id: 'cB', name: 'Corridor B · Interior Shops',
     units: Array.from({ length: corridorBSize }, (_, i) => {
       const t = list[corridorASize + i];

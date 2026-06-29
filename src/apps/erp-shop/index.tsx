@@ -534,40 +534,55 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
           {view === 'wishlist' ? (
             <WishlistPage
               products={wishlistProducts}
-              currency={products[0]?.currency ?? 'TZS'}
-              onAdd={(p) => addToCart(p)}
-              onToggleWishlist={toggleWishlist}
-              wishlistIds={wishlistIds}
+              onAddToCart={addToCart}
+              onRemove={toggleWishlist}
             />
-          ) : view === 'track' ? (
-            <TrackOrderPage
-              orderNumber={trackOrderNumber}
-              phone={trackPhone}
-              result={trackResult}
-              error={trackError}
-              loading={tracking}
-              onOrderNumberChange={setTrackOrderNumber}
-              onPhoneChange={setTrackPhone}
-              onTrack={handleTrackOrder}
-            />
+          ) : view === 'track-order' ? (
+            <TrackOrderPage slug={slug} />
           ) : view === 'bnpl' ? (
-            <BnplPage currency={products[0]?.currency ?? 'TZS'} />
+            <BnplPage slug={slug} />
           ) : view === 'brands' ? (
-            <BrandsPage products={products} />
+            <BrandsPage
+              slug={slug}
+              onPickBrand={(brand) => {
+                setSearchQuery(brand);
+                setView('home');
+              }}
+            />
           ) : view === 'loyalty' ? (
             <LoyaltyPage
               phone={loyaltyPhone}
-              onPhoneChange={setLoyaltyPhone}
-              currency={products[0]?.currency ?? 'TZS'}
+              setPhone={setLoyaltyPhone}
             />
-          ) : view === 'collection' ? (
+          ) : view === 'new-arrivals' ? (
             <CollectionPage
-              title="All Collections"
-              products={filteredProducts}
-              currency={products[0]?.currency ?? 'TZS'}
-              wishlistIds={wishlistIds}
-              onAdd={(p) => addToCart(p)}
-              onToggleWishlist={toggleWishlist}
+              slug={slug}
+              collectionSlug="new-arrivals"
+              title="New Arrivals"
+              empty="No new arrivals right now."
+              wishlist={wishlistIds}
+              onAddToCart={addToCart}
+              onAddToWishlist={(p) => toggleWishlist(p.id)}
+            />
+          ) : view === 'best-sellers' ? (
+            <CollectionPage
+              slug={slug}
+              collectionSlug="best-sellers"
+              title="Best Sellers"
+              empty="No best sellers yet."
+              wishlist={wishlistIds}
+              onAddToCart={addToCart}
+              onAddToWishlist={(p) => toggleWishlist(p.id)}
+            />
+          ) : view === 'offers' ? (
+            <CollectionPage
+              slug={slug}
+              collectionSlug="offers"
+              title="Offers"
+              empty="No active offers right now."
+              wishlist={wishlistIds}
+              onAddToCart={addToCart}
+              onAddToWishlist={(p) => toggleWishlist(p.id)}
             />
           ) : (
             <>
@@ -576,11 +591,10 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
                   <JerseyProductCard
                     key={p.id}
                     product={p}
-                    currency={p.currency ?? 'TZS'}
                     wished={wishlistIds.includes(p.id)}
-                    onOpen={() => setSelectedProduct(p)}
-                    onAdd={() => addToCart(p)}
-                    onToggleWishlist={() => toggleWishlist(p.id)}
+                    onOpen={setSelectedProduct}
+                    onAddToCart={addToCart}
+                    onAddToWishlist={(product) => toggleWishlist(product.id)}
                   />
                 ))}
               </div>
