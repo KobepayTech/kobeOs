@@ -1122,7 +1122,17 @@ export default function StoreEditor() {
                       : <><Globe className="w-3 h-3 mr-1.5" /> Publish to kobeapptz.com</>}
                   </Button>
                   {!settings.domainSlug && (
-                    <p className="text-[10px] text-amber-400/70 text-center">Save your store name first</p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-full h-7 text-[10px] border-amber-500/30 text-amber-400/80 hover:bg-amber-500/10 hover:text-amber-300"
+                      onClick={handleSave}
+                      disabled={saving || !settings.storeName.trim()}
+                    >
+                      {saving
+                        ? <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> Saving…</>
+                        : <><Save className="w-3 h-3 mr-1.5" /> Save store name first</>}
+                    </Button>
                   )}
                   {/* cloudflared requirement notice — only relevant for
                       self-hosted deployments. Hosted backends route every
