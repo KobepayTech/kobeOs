@@ -21,11 +21,19 @@ export function Taskbar() {
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [volumeOpen, setVolumeOpen] = useState(false);
   const [time, setTime] = useState(new Date());
+  const [updateDismissed, setUpdateDismissed] = useState(false);
 
   useEffect(() => {
     const t = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
+
+  // Re-show the banner whenever a new update version arrives
+  useEffect(() => {
+    if (updaterState.status === 'available' || updaterState.status === 'ready') {
+      setUpdateDismissed(false);
+    }
+  }, [updaterState.status]);
 
   const isBottom = settings.taskbarPosition !== 'top';
   const posClass = isBottom ? 'bottom-4' : 'top-4';
@@ -199,17 +207,22 @@ export function Taskbar() {
               onClick={() => {
                 setCalendarOpen(false);
                 setVolumeOpen(false);
+                // Re-show update banner if dismissed
+                if (updateDismissed && (updaterState.status === 'available' || updaterState.status === 'ready' || updaterState.status === 'downloading')) {
+                  setUpdateDismissed(false);
+                }
               }}
               onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(123,140,222,0.12)')}
               onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+              title={updaterState.status === 'available' ? `Update available — v${(updaterState as any).version}` : 'Notifications'}
             >
               <icons.Bell className="w-4 h-4" style={{ color: 'var(--os-text-primary)' }} />
-              {unreadCount > 0 && (
+              {(unreadCount > 0 || updaterState.status === 'available' || updaterState.status === 'ready') && (
                 <span
                   className="absolute top-0.5 right-0.5 w-4 h-4 flex items-center justify-center rounded-full text-[9px] font-bold text-white"
-                  style={{ background: 'var(--os-danger)' }}
+                  style={{ background: updaterState.status === 'available' || updaterState.status === 'ready' ? 'var(--os-accent)' : 'var(--os-danger)' }}
                 >
-                  {unreadCount}
+                  {updaterState.status === 'available' || updaterState.status === 'ready' ? '↑' : unreadCount}
                 </span>
               )}
             </button>
@@ -262,7 +275,7 @@ export function Taskbar() {
 
       {/* Auto-updater notification banner */}
       <AnimatePresence>
-        {(updaterState.status === 'available' || updaterState.status === 'ready' || updaterState.status === 'downloading') && (
+        {!updateDismissed && (updaterState.status === 'available' || updaterState.status === 'ready' || updaterState.status === 'downloading') && (
           <motion.div
             initial={{ opacity: 0, y: 60 }}
             animate={{ opacity: 1, y: 0 }}
@@ -319,6 +332,19 @@ export function Taskbar() {
                 onMouseLeave={(e) => (e.currentTarget.style.background = '#5DBE7A')}
               >
                 Restart
+              </button>
+            )}
+            {/* Dismiss — hides banner; Bell icon badge persists until installed */}
+            {updaterState.status !== 'downloading' && (
+              <button
+                onClick={() => setUpdateDismissed(true)}
+                className="w-6 h-6 flex items-center justify-center rounded-full transition-colors shrink-0 ml-1"
+                style={{ color: 'var(--os-text-secondary)' }}
+                onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(45,43,85,0.10)')}
+                onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+                title="Dismiss (update indicator stays on bell)"
+              >
+                <icons.X className="w-3.5 h-3.5" />
               </button>
             )}
           </motion.div>

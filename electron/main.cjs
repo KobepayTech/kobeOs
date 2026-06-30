@@ -116,15 +116,27 @@ async function startEmbeddedPostgres() {
 
 // ── System PostgreSQL (installed mode) ────────────────────────────────────────
 
+function getOrCreateDbPassword() {
+  const pwFile = path.join(USER_DATA, '.db_password');
+  if (fs.existsSync(pwFile)) return fs.readFileSync(pwFile, 'utf8').trim();
+  const pw = require('crypto').randomBytes(24).toString('hex');
+  fs.mkdirSync(USER_DATA, { recursive: true });
+  fs.writeFileSync(pwFile, pw, { mode: 0o600 });
+  return pw;
+}
+
 async function ensureSystemPostgres() {
+  const dbPassword = getOrCreateDbPassword();
   return new Promise((resolve) => {
-    const setup = [
-      `sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='kobeos'" | grep -q 1 || sudo -u postgres psql -c "CREATE USER kobeos WITH PASSWORD 'kobeos_prod' CREATEDB"`,
-      `sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='kobeos'" | grep -q 1 || sudo -u postgres createdb -O kobeos kobeos`,
-    ].join(' && ');
+    // Use execFile to avoid shell injection; pass SQL via stdin through psql -c
+    const checkUser = `sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='kobeos'" | grep -q 1`;
+    const createUser = `sudo -u postgres psql -c "CREATE USER kobeos WITH PASSWORD '${dbPassword.replace(/'/g, "''")}' CREATEDB"`;
+    const checkDb = `sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='kobeos'" | grep -q 1`;
+    const createDb = `sudo -u postgres createdb -O kobeos kobeos`;
+    const setup = `${checkUser} || ${createUser} && ${checkDb} || ${createDb}`;
     exec(setup, (err) => {
       if (err) console.warn('[KobeOS] PG setup warning:', err.message);
-      resolve({ host: '127.0.0.1', port: 5432, user: 'kobeos', password: 'kobeos_prod', database: 'kobeos' });
+      resolve({ host: '127.0.0.1', port: 5432, user: 'kobeos', password: dbPassword, database: 'kobeos' });
     });
   });
 }
@@ -536,7 +548,9 @@ ipcMain.handle('system-shutdown', async () => {
     actionLabel: 'Shut Down',
   });
   if (!ok) return { confirmed: false };
-  exec(process.platform === 'win32' ? 'shutdown /s /t 0' : 'poweroff');
+  exec(process.platform === 'win32' ? 'shutdown /s /t 0' : 'poweroff', (err) => {
+    if (err) console.error('[KobeOS] Shutdown failed:', err.message);
+  });
   return { confirmed: true };
 });
 ipcMain.handle('system-reboot', async () => {
@@ -547,7 +561,9 @@ ipcMain.handle('system-reboot', async () => {
     actionLabel: 'Restart',
   });
   if (!ok) return { confirmed: false };
-  exec(process.platform === 'win32' ? 'shutdown /r /t 0' : 'reboot');
+  exec(process.platform === 'win32' ? 'shutdown /r /t 0' : 'reboot', (err) => {
+    if (err) console.error('[KobeOS] Reboot failed:', err.message);
+  });
   return { confirmed: true };
 });
 ipcMain.handle('get-system-mode', () => getSystemMode());
@@ -571,6 +587,11 @@ ipcMain.handle('get-backend-status', () => ({
 // ── Disk install ──────────────────────────────────────────────────────────────
 
 const DISK_PATH_RE = /^\/dev\/(sd[a-z]|hd[a-z]|vd[a-z]|nvme\d+n\d+|mmcblk\d+)$/;
+
+/** Safely wrap a string for use in a single-quoted shell argument. */
+function shellEscapeSingleQuote(str) {
+  return "'" + String(str).replace(/'/g, "'\\''") + "'";
+}
 
 ipcMain.handle('install-to-disk', async (event, diskPath, options = {}) => {
   if (typeof diskPath !== 'string' || !DISK_PATH_RE.test(diskPath)) {
@@ -634,8 +655,8 @@ mkfs.ext4 -F -L KOBEOS_REC "$PART_REC"
 ${useLuks ? `
 echo "Setting up LUKS encryption on root partition..."
 apt-get install -y --no-install-recommends cryptsetup 2>/dev/null || true
-echo -n "${luksPassphrase}" | cryptsetup luksFormat --type luks2 --batch-mode "$PART_ROOT" -
-echo -n "${luksPassphrase}" | cryptsetup open "$PART_ROOT" kobeos_root -
+printf '%s' ${shellEscapeSingleQuote(luksPassphrase)} | cryptsetup luksFormat --type luks2 --batch-mode "$PART_ROOT" -
+printf '%s' ${shellEscapeSingleQuote(luksPassphrase)} | cryptsetup open "$PART_ROOT" kobeos_root -
 mkfs.ext4 -F -L KOBEOS_ROOT /dev/mapper/kobeos_root
 ROOT_DEV=/dev/mapper/kobeos_root
 ` : `
@@ -677,8 +698,14 @@ apt-get install -y --no-install-recommends \
 # ── Configure PostgreSQL ───────────────────────────────────────────────────────
 echo "Configuring PostgreSQL..."
 systemctl enable postgresql || true
-sudo -u postgres psql -c "CREATE USER kobeos WITH PASSWORD 'kobeos_prod' CREATEDB" 2>/dev/null || true
+KOBEOS_DB_PASS=$(openssl rand -hex 24 2>/dev/null || tr -dc 'a-f0-9' < /dev/urandom | head -c 48)
+sudo -u postgres psql -c "CREATE USER kobeos WITH PASSWORD '$KOBEOS_DB_PASS' CREATEDB" 2>/dev/null || true
 sudo -u postgres createdb -O kobeos kobeos 2>/dev/null || true
+
+# Write the generated password to the EnvironmentFile so the backend picks it up.
+mkdir -p /mnt/kobeos/opt/kobeos/resources
+printf 'DB_PASSWORD=%s\n' "$KOBEOS_DB_PASS" >> /mnt/kobeos/opt/kobeos/resources/.env
+chmod 600 /mnt/kobeos/opt/kobeos/resources/.env
 
 # ── Symlink userdata dirs ──────────────────────────────────────────────────────
 # PostgreSQL data and KobeOS user data live on the persistent partition
@@ -703,8 +730,8 @@ Environment=PORT=3000
 Environment=DB_HOST=127.0.0.1
 Environment=DB_PORT=5432
 Environment=DB_USERNAME=kobeos
-Environment=DB_PASSWORD=kobeos_prod
 Environment=DB_DATABASE=kobeos
+# DB_PASSWORD is written to the EnvironmentFile below during install.
 # DB_SYNCHRONIZE intentionally unset: migrations run automatically in
 # production; setting both NODE_ENV=production and DB_SYNCHRONIZE=true
 # is rejected by the server bootstrap.

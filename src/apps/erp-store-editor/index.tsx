@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { api } from '@/lib/api';
+import { api, OfflineWriteQueuedError } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -668,6 +668,7 @@ function LivePreview({ settings }: { settings: StoreSettings }) {
 export default function StoreEditor() {
   const [settings, setSettings] = useState<StoreSettings>(defaultSettings);
   const [saved, setSaved] = useState(false);
+  const [savedOffline, setSavedOffline] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -706,7 +707,10 @@ export default function StoreEditor() {
     try {
       const r = await api<{ installed: boolean; path: string; version: string }>(
         '/store-settings/install-cloudflared',
-        { method: 'POST' },
+        // Disable offline fallback: downloading and installing a binary
+        // cannot be meaningfully queued for later replay, and we want a
+        // clear "backend is offline" error rather than a queued-write notice.
+        { method: 'POST', offlineFallback: false },
       );
       if (!mountedRef.current) return;
       setCloudflaredInstalled(Boolean(r?.installed));
@@ -717,7 +721,16 @@ export default function StoreEditor() {
       void refreshCloudflaredStatus();
     } catch (e) {
       if (!mountedRef.current) return;
-      setInstallCfMsg(`Install failed: ${(e as Error).message}`);
+      const raw = (e as Error).message ?? '';
+      // Translate low-level network errors into something actionable.
+      const isNetworkError =
+        raw.toLowerCase().includes('failed to fetch') ||
+        raw.toLowerCase().includes('networkerror') ||
+        raw.toLowerCase().includes('load failed');
+      const displayMsg = isNetworkError
+        ? 'Backend is offline. Make sure the KobeOS backend is running, then try again.'
+        : raw;
+      setInstallCfMsg(`Install failed: ${displayMsg}`);
     } finally {
       if (mountedRef.current) setInstallingCf(false);
     }
@@ -764,6 +777,7 @@ export default function StoreEditor() {
   const handleSave = useCallback(async () => {
     setSaving(true);
     setSaveError(null);
+    setSavedOffline(false);
     try {
       const updated = await api<StoreSettings>('/store-settings', {
         method: 'PUT',
@@ -777,7 +791,13 @@ export default function StoreEditor() {
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
     } catch (e) {
-      setSaveError((e as Error).message);
+      if (e instanceof OfflineWriteQueuedError) {
+        // Data is saved locally — this is not a failure, just a sync delay.
+        setSavedOffline(true);
+        setTimeout(() => setSavedOffline(false), 5000);
+      } else {
+        setSaveError((e as Error).message);
+      }
     } finally {
       setSaving(false);
     }
@@ -1110,7 +1130,17 @@ export default function StoreEditor() {
                       : <><Globe className="w-3 h-3 mr-1.5" /> Publish to kobeapptz.com</>}
                   </Button>
                   {!settings.domainSlug && (
-                    <p className="text-[10px] text-amber-400/70 text-center">Save your store name first</p>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="w-full h-7 text-[10px] border-amber-500/30 text-amber-400/80 hover:bg-amber-500/10 hover:text-amber-300"
+                      onClick={handleSave}
+                      disabled={saving || !settings.storeName.trim()}
+                    >
+                      {saving
+                        ? <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> Saving…</>
+                        : <><Save className="w-3 h-3 mr-1.5" /> Save store name first</>}
+                    </Button>
                   )}
                   {/* cloudflared requirement notice — only relevant for
                       self-hosted deployments. Hosted backends route every
@@ -1504,6 +1534,11 @@ export default function StoreEditor() {
               {saved && (
                 <span className="text-[10px] text-emerald-400 font-medium px-2 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/20 flex items-center gap-1">
                   <Check className="w-3 h-3" /> Saved
+                </span>
+              )}
+              {savedOffline && (
+                <span className="text-[10px] text-amber-400 font-medium px-2 py-1 rounded-md bg-amber-500/10 border border-amber-500/20 flex items-center gap-1">
+                  <WifiOff className="w-3 h-3" /> Saved offline — syncs when reconnected
                 </span>
               )}
               <Button

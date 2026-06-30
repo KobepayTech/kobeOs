@@ -403,7 +403,7 @@ export function Desktop() {
           }
         } catch { /* offline / network — paywall will kick in when needed */ }
       }
-    })();
+    })().catch(err => console.error('[KobeOS] License boot error:', err));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const [searchQuery, setSearchQuery] = useState('');
