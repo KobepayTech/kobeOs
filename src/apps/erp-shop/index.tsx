@@ -534,26 +534,55 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
           {view === 'wishlist' ? (
             <WishlistPage
               products={wishlistProducts}
-              onAddToCart={(p) => addToCart(p)}
-              onRemove={(id) => toggleWishlist(id)}
+              onAddToCart={addToCart}
+              onRemove={toggleWishlist}
             />
           ) : view === 'track-order' ? (
             <TrackOrderPage slug={slug} />
           ) : view === 'bnpl' ? (
             <BnplPage slug={slug} />
           ) : view === 'brands' ? (
-            <BrandsPage slug={slug} onPickBrand={(brand) => setSelectedCategory(brand)} />
+            <BrandsPage
+              slug={slug}
+              onPickBrand={(brand) => {
+                setSearchQuery(brand);
+                setView('home');
+              }}
+            />
           ) : view === 'loyalty' ? (
-            <LoyaltyPage phone={loyaltyPhone} setPhone={setLoyaltyPhone} />
-          ) : (view === 'new-arrivals' || view === 'best-sellers' || view === 'offers') ? (
+            <LoyaltyPage
+              phone={loyaltyPhone}
+              setPhone={setLoyaltyPhone}
+            />
+          ) : view === 'new-arrivals' ? (
             <CollectionPage
               slug={slug}
-              collectionSlug={view}
-              title={view === 'new-arrivals' ? 'New Arrivals' : view === 'best-sellers' ? 'Best Sellers' : 'Offers'}
-              empty={view === 'new-arrivals' ? 'No new arrivals yet.' : view === 'best-sellers' ? 'No best sellers yet.' : 'No offers yet.'}
-              onAddToCart={(p) => addToCart(p)}
-              onAddToWishlist={(p) => toggleWishlist(p.id)}
+              collectionSlug="new-arrivals"
+              title="New Arrivals"
+              empty="No new arrivals right now."
               wishlist={wishlistIds}
+              onAddToCart={addToCart}
+              onAddToWishlist={(p) => toggleWishlist(p.id)}
+            />
+          ) : view === 'best-sellers' ? (
+            <CollectionPage
+              slug={slug}
+              collectionSlug="best-sellers"
+              title="Best Sellers"
+              empty="No best sellers yet."
+              wishlist={wishlistIds}
+              onAddToCart={addToCart}
+              onAddToWishlist={(p) => toggleWishlist(p.id)}
+            />
+          ) : view === 'offers' ? (
+            <CollectionPage
+              slug={slug}
+              collectionSlug="offers"
+              title="Offers"
+              empty="No active offers right now."
+              wishlist={wishlistIds}
+              onAddToCart={addToCart}
+              onAddToWishlist={(p) => toggleWishlist(p.id)}
             />
           ) : (
             <>
@@ -563,9 +592,9 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
                     key={p.id}
                     product={p}
                     wished={wishlistIds.includes(p.id)}
-                    onOpen={(prod) => setSelectedProduct(prod)}
-                    onAddToCart={(prod) => addToCart(prod)}
-                    onAddToWishlist={(prod) => toggleWishlist(prod.id)}
+                    onOpen={setSelectedProduct}
+                    onAddToCart={addToCart}
+                    onAddToWishlist={(product) => toggleWishlist(product.id)}
                   />
                 ))}
               </div>
