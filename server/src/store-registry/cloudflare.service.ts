@@ -229,7 +229,7 @@ export class CloudflareService {
    *   Account → Cloudflare Tunnel → Edit
    *   Zone    → DNS → Edit         (on the kobeapptz.com zone)
    */
-  async bootstrapWildcardTunnel(localPort: number, ingressTarget?: string): Promise<{
+  async bootstrapWildcardTunnel(localPort: number): Promise<{
     tunnelId: string;
     tunnelToken: string;
     wildcardRecordId: string;
@@ -284,22 +284,19 @@ export class CloudflareService {
     }
 
     // 4. Push a catch-all ingress rule (no per-store rules needed).
-    // In Docker deployments ingressTarget MUST be the nginx reverse proxy
-    // (e.g. "http://nginx:80") so *.kobeapptz.com hits the web container
-    // that serves the storefront SPA. Routing to localhost:3000 (API only)
-    // breaks published stores because the SPA never loads.
-    const target = ingressTarget?.trim() || `http://localhost:${localPort}`;
+    // *.kobeapptz.com → this NestJS server which serves both the API
+    // and the storefront SPA (static files + index.html fallback).
     await this.cfFetch(`/accounts/${this.accountId}/cfd_tunnel/${tunnelId}/configurations`, {
       method: 'PUT',
       body: JSON.stringify({
         config: {
           ingress: [
-            { service: target },  // catch-all → entry point (nginx or backend)
+            { service: `http://localhost:${localPort}` },
           ],
         },
       }),
     });
-    this.logger.log(`Wildcard tunnel ${tunnelId} ingress → ${target} (catch-all)`);
+    this.logger.log(`Wildcard tunnel ${tunnelId} ingress → http://localhost:${localPort} (catch-all)`);
 
     return {
       tunnelId,
