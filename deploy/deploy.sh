@@ -55,15 +55,13 @@ fi
 
 echo "✓ Wrangler CLI ready"
 
-# ══ Set API base URL based on environment ════════════════════════════════════
+# ══ Set project name based on environment ═════════════════════════════════════
 
 case "$ENV" in
   production)
-    API_BASE="https://api.kobeapptz.com/api"
     PAGES_PROJECT="kobeos-app"
     ;;
   staging)
-    API_BASE="https://api-staging.kobeapptz.com/api"
     PAGES_PROJECT="kobeos-app-staging"
     ;;
   *)
@@ -73,8 +71,8 @@ case "$ENV" in
     ;;
 esac
 
-echo "  API Base:    $API_BASE"
 echo "  Project:     $PAGES_PROJECT"
+echo "  API routing: /api/* → proxied to backend via _redirects"
 echo ""
 
 # ══ Install dependencies ══════════════════════════════════════════════════════
@@ -87,9 +85,9 @@ echo ""
 
 # ══ Build the frontend ════════════════════════════════════════════════════════
 
-echo "🔨 Building frontend for $ENV..."
-echo "   VITE_API_BASE=$API_BASE"
-VITE_API_BASE="$API_BASE" npm run build 2>&1 | tail -10
+echo "🔨 Building frontend..."
+echo "   (API_BASE defaults to /api — relative, proxied via _redirects)"
+npm run build 2>&1 | tail -10
 echo ""
 
 if [ ! -f "$REPO_ROOT/dist/index.html" ]; then
@@ -103,10 +101,6 @@ echo "✓ Build complete"
 echo "📋 Copying deployment config files..."
 cp "$SCRIPT_DIR/_redirects" "$REPO_ROOT/dist/_redirects"
 cp "$SCRIPT_DIR/_headers" "$REPO_ROOT/dist/_headers"
-
-# Replace placeholder API domain in _redirects with actual domain
-sed -i "s|api.kobeapptz.com|${API_BASE#https://}|g" "$REPO_ROOT/dist/_redirects"
-sed -i "s|api.kobeapptz.com|${API_BASE#https://}|g" "$REPO_ROOT/dist/_headers"
 
 echo "✓ Config files copied"
 echo ""
@@ -140,11 +134,11 @@ echo ""
 echo "  1. Add DNS CNAME record in Cloudflare dashboard:"
 echo "       Type: CNAME | Name: app | Target: <pages-domain>.pages.dev"
 echo ""
-echo "  2. Ensure your backend is running and accessible via:"
-echo "       $API_BASE"
+echo "  2. Ensure your backend server is running and the tunnel is active:"
+echo "       api.kobeapptz.com must route to your server"
 echo ""
 echo "  3. Update backend CORS to allow the frontend domain:"
-echo "       CORS_ORIGIN=https://app.kobeapptz.com"
+echo "       CORS_ORIGIN=https://app.kobeapptz.com,https://kobeos-app.pages.dev"
 echo ""
 echo "  4. Test by visiting the URL and signing in"
 echo ""

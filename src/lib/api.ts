@@ -85,11 +85,21 @@ function isElectronRenderer(): boolean {
   return typeof window !== 'undefined' && Boolean((window as any).kobeOS);
 }
 
+/**
+ * API base URL. Resolution order:
+ *   1. VITE_API_BASE env var (set at build time) — use this for explicit control
+ *   2. Electron desktop app → localhost:3000/api
+ *   3. Local dev → localhost:3000/api
+ *   4. Production (Cloudflare Pages, etc.) → '' (relative /api/* is proxied)
+ *
+ * When hosted on Cloudflare Pages, /api/* is rewritten to the backend
+ * via _redirects, so relative paths work without hardcoding a domain.
+ */
 export const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined) ??
   (isElectronRenderer()
     ? 'http://127.0.0.1:3000/api'
-    : import.meta.env.DEV ? 'http://localhost:3000/api' : 'https://api.kobeapptz.com/api');
+    : import.meta.env.DEV ? 'http://localhost:3000/api' : '/api');
 
 // ── Backend reachability ──────────────────────────────────────────────────────
 
