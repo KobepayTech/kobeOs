@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
+import { useQRScanner } from '@/hooks/useQRScanner';
 import {
-  Search, Minus, Plus, ShoppingCart, X, Trash2, Loader2, CheckCircle2,
+  Search, Minus, Plus, ShoppingCart, X, Trash2, Loader2, CheckCircle2, QrCode,
 } from 'lucide-react';
 
 /**
@@ -20,6 +21,7 @@ interface Product {
   stock: number;
   unit?: string;
   decimalQuantity?: boolean;
+  barcode?: string;
 }
 
 interface CartItem { product: Product; quantity: number }
@@ -41,6 +43,8 @@ export default function MobilePOS() {
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [showScanner, setShowScanner] = useState(false);
+  const { videoRef, result, start: startScan, stop: stopScan } = useQRScanner();
 
   useEffect(() => {
     let cancelled = false;
@@ -56,6 +60,25 @@ export default function MobilePOS() {
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // ── QR scan: auto-add scanned product to cart ──────────────────────────────
+  useEffect(() => {
+    if (!result) return;
+    const scanned = result.rawValue.trim();
+    const match = products.find(
+      (p) => p.sku === scanned || p.id === scanned || p.barcode === scanned,
+    );
+    if (match) {
+      addToCart(match);
+      setShowScanner(false);
+      stopScan();
+      setDone(`${match.name} added from scan`);
+      setTimeout(() => setDone(null), 2000);
+    } else {
+      setErr(`No product found for barcode: ${scanned}`);
+      setTimeout(() => setErr(null), 3000);
+    }
+  }, [result]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -122,16 +145,25 @@ export default function MobilePOS() {
 
   return (
     <div className="relative h-full flex flex-col">
-      {/* Search */}
-      <div className="px-4 pt-4 pb-2 sticky top-0 bg-slate-50 z-10">
-        <div className="relative">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search products…"
-            className="w-full h-11 pl-10 pr-3 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:border-indigo-400"
-          />
+      {/* Search + QR scan */}
+      <div className="px-4 pt-4 pb-2 sticky top-0 bg-slate-50 z-10 space-y-2">
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search products…"
+              className="w-full h-11 pl-10 pr-3 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:border-indigo-400"
+            />
+          </div>
+          <button
+            onClick={() => { setShowScanner(true); startScan(); }}
+            className="shrink-0 w-11 h-11 rounded-xl bg-indigo-600 text-white grid place-items-center active:bg-indigo-700"
+            title="Scan barcode"
+          >
+            <QrCode className="w-5 h-5" />
+          </button>
         </div>
       </div>
 
@@ -286,6 +318,45 @@ export default function MobilePOS() {
                 {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
                 {submitting ? 'Processing…' : `Charge ${fmt(total)} (Cash)`}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* QR Scanner overlay */}
+      {showScanner && (
+        <div className="fixed inset-0 z-50 bg-black flex flex-col">
+          <div className="shrink-0 flex items-center justify-between px-4 py-3 bg-black/80">
+            <button
+              onClick={() => { setShowScanner(false); stopScan(); }}
+              className="inline-flex items-center gap-1 text-white text-sm font-bold"
+            >
+              <X className="w-5 h-5" /> Cancel
+            </button>
+            <span className="text-white text-xs font-bold">Scan product barcode</span>
+            <div className="w-16" />
+          </div>
+          <div className="flex-1 relative">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="w-56 h-32 border-2 border-white/60 rounded-xl relative">
+                <div className="absolute -top-1 -left-1 w-6 h-6 border-t-4 border-l-4 border-indigo-400 rounded-tl-lg" />
+                <div className="absolute -top-1 -right-1 w-6 h-6 border-t-4 border-r-4 border-indigo-400 rounded-tr-lg" />
+                <div className="absolute -bottom-1 -left-1 w-6 h-6 border-b-4 border-l-4 border-indigo-400 rounded-bl-lg" />
+                <div className="absolute -bottom-1 -right-1 w-6 h-6 border-b-4 border-r-4 border-indigo-400 rounded-br-lg" />
+                <div className="absolute inset-x-0 top-1/2 h-0.5 bg-indigo-400/30 -translate-y-1/2" />
+              </div>
+            </div>
+            <div className="absolute bottom-8 left-0 right-0 text-center pointer-events-none">
+              <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-black/60 text-white text-xs font-bold">
+                <QrCode className="w-4 h-4 animate-pulse" /> Point camera at product barcode
+              </span>
             </div>
           </div>
         </div>

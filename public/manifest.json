@@ -1,25 +1,51 @@
 {
-  "name": "Kobe Studio",
-  "short_name": "Kobe Studio",
-  "description": "Kobe Studio — AI-powered desktop platform with 70+ apps covering ERP, cargo, hotel, payments, sports analytics, and local AI inference. Runs offline on any device.",
-  "start_url": "/",
-  "display": "fullscreen",
-  "background_color": "#0f172a",
-  "theme_color": "#0f172a",
-  "orientation": "any",
+  "name": "KobeOS Mobile",
+  "short_name": "KobeOS",
+  "description": "KobeOS Mobile — POS, warehouse dispatch, daily sales & expenses. Scan QR codes, track orders, manage inventory from your phone. Connects to your desktop KobeOS.",
+  "start_url": "/m/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#6366f1",
+  "orientation": "portrait-primary",
+  "scope": "/",
   "icons": [
     {
       "src": "/icon-192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     },
     {
       "src": "/icon-512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ],
-  "categories": ["business", "productivity", "utilities"],
+  "categories": ["business", "productivity", "finance"],
+  "shortcuts": [
+    {
+      "name": "POS",
+      "short_name": "POS",
+      "description": "Point of Sale — scan products and checkout",
+      "url": "/m/pos",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Dispatch",
+      "short_name": "Dispatch",
+      "description": "Warehouse dispatch — scan QR to track orders",
+      "url": "/m/dispatch",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Daily Summary",
+      "short_name": "Summary",
+      "description": "Daily sales and expenses summary",
+      "url": "/m/summary",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
+  ],
   "screenshots": [
     {
       "src": "/screenshot-wide.png",
