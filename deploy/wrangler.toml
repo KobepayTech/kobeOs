@@ -1,0 +1,45 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Cloudflare Pages Configuration for KobeOS
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# Usage:
+#   1. Install Wrangler: npm install -g wrangler
+#   2. Login: wrangler login
+#   3. Deploy: wrangler pages deploy ../dist
+#
+# Or use the deploy.sh script which does everything for you.
+
+name = "kobeos-app"
+compatibility_date = "2024-01-01"
+
+# ══ Build Settings ════════════════════════════════════════════════════════════
+[build]
+  # The build command (run at repo root)
+  command = "npm install --legacy-peer-deps && npm run build"
+  # Directory containing the built files
+  cwd = ".."
+  # The output directory
+  upload_dir = "../dist"
+
+# ══ Environment Variables ═════════════════════════════════════════════════════
+# These are baked into the build at build time via Vite.
+# Set them in Cloudflare Pages dashboard → Settings → Environment Variables
+# or pass them when deploying.
+
+[vars]
+  # The backend API URL that the frontend calls
+  # In production: your backend via Cloudflare Tunnel
+  # In development: localhost
+  VITE_API_BASE = "https://api.kobeapptz.com/api"
+
+# ══ Functions (optional serverless backend) ══════════════════════════════════
+# If you want to run small serverless functions on Cloudflare Pages
+# (e.g., for API proxying, authentication helpers), uncomment below:
+#
+# [[env.production.functions]]
+#   directory = "functions"
+
+# ══ Routes ═══════════════════════════════════════════════════════════════════
+# These are handled by the _redirects file in dist/.
+# The wrangler.toml itself doesn't define routes for Pages —
+# _redirects and _headers are the mechanism.
