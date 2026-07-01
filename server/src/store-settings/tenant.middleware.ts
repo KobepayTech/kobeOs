@@ -40,13 +40,13 @@ export class TenantMiddleware implements NestMiddleware {
       const slug = subdomainMatch[1];
       // Skip reserved / infrastructure subdomains
       if (!RESERVED.has(slug)) {
-        req.tenant = await this.repo.findOne({ where: { domainSlug: slug } }) ?? undefined;
+        req.tenant = await this.repo.findOne({ where: { domainSlug: slug, isPublished: true } }) ?? undefined;
       }
     } else {
       // Try custom domain lookup (e.g. shop.mycompany.com)
       const isApexOrKobe = hostname === 'kobeapptz.com' || hostname.endsWith('.kobeapptz.com');
       if (!isApexOrKobe && hostname !== 'localhost') {
-        req.tenant = await this.repo.findOne({ where: { customDomain: hostname } }) ?? undefined;
+        req.tenant = await this.repo.findOne({ where: { customDomain: hostname, isPublished: true } }) ?? undefined;
       }
     }
 

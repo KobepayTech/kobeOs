@@ -163,7 +163,8 @@ export class PublishService implements OnModuleDestroy {
         'Cloudflare credentials not configured. Set CF_API_TOKEN and CF_ACCOUNT_ID on the server first.',
       );
     }
-    return this.cf.bootstrapWildcardTunnel(this.localPort);
+    const ingressTarget = this.config.get<string>('KOBEOS_TUNNEL_TARGET', '');
+    return this.cf.bootstrapWildcardTunnel(this.localPort, ingressTarget || undefined);
   }
 
   // ── Unpublish ────────────────────────────────────────────────────────────

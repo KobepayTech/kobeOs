@@ -209,7 +209,7 @@ export class CloudflareService {
    * Creates (or reuses):
    *   • a single shared tunnel "kobeos-storefronts"
    *   • a wildcard CNAME "*.kobeapptz.com" → <tunnelId>.cfargotunnel.com
-   *   • ingress: catch-all → http://localhost:<port>
+   *   • ingress: catch-all → <ingressTarget> (default: http://localhost:<port>)
    *
    * After this runs once, ANY new store slug works instantly — publishing
    * becomes a database flag flip with zero Cloudflare API calls. Returns
@@ -217,13 +217,19 @@ export class CloudflareService {
    * env var) and run `cloudflared tunnel run --token <...>` as a system
    * service.
    *
+   * The ingressTarget should be the ENTRY POINT of your stack — the nginx
+   * reverse proxy in Docker deployments (e.g. "http://nginx:80"), or the
+   * backend directly in single-process deployments ("http://localhost:3000").
+   * Routing `*.kobeapptz.com` to the API backend directly breaks storefronts
+   * because the SPA lives in a separate web container.
+   *
    * Idempotent — safe to re-run; reuses the existing tunnel + record.
    *
    * REQUIRED Cloudflare API token scopes:
    *   Account → Cloudflare Tunnel → Edit
    *   Zone    → DNS → Edit         (on the kobeapptz.com zone)
    */
-  async bootstrapWildcardTunnel(localPort: number): Promise<{
+  async bootstrapWildcardTunnel(localPort: number, ingressTarget?: string): Promise<{
     tunnelId: string;
     tunnelToken: string;
     wildcardRecordId: string;
@@ -278,17 +284,22 @@ export class CloudflareService {
     }
 
     // 4. Push a catch-all ingress rule (no per-store rules needed).
+    // In Docker deployments ingressTarget MUST be the nginx reverse proxy
+    // (e.g. "http://nginx:80") so *.kobeapptz.com hits the web container
+    // that serves the storefront SPA. Routing to localhost:3000 (API only)
+    // breaks published stores because the SPA never loads.
+    const target = ingressTarget?.trim() || `http://localhost:${localPort}`;
     await this.cfFetch(`/accounts/${this.accountId}/cfd_tunnel/${tunnelId}/configurations`, {
       method: 'PUT',
       body: JSON.stringify({
         config: {
           ingress: [
-            { service: `http://localhost:${localPort}` },  // catch-all → backend
+            { service: target },  // catch-all → entry point (nginx or backend)
           ],
         },
       }),
     });
-    this.logger.log(`Wildcard tunnel ${tunnelId} ingress → http://localhost:${localPort} (catch-all)`);
+    this.logger.log(`Wildcard tunnel ${tunnelId} ingress → ${target} (catch-all)`);
 
     return {
       tunnelId,
