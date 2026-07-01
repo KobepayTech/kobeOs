@@ -109,6 +109,7 @@ export function isOnline(): boolean {
 // ── Path → SQLite table mapping ───────────────────────────────────────────────
 
 const PATH_TABLE_MAP: Record<string, string> = {
+  '/store-settings': 'store_settings',
   '/notes': 'notes',
   '/contacts': 'contacts',
   '/todo': 'todo_items',
