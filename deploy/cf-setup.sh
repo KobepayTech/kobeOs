@@ -182,13 +182,26 @@ upsert_cname "${CF_DOMAIN}"
 upsert_cname "www.${CF_DOMAIN}"
 
 # ── 6. catch-all ingress ─────────────────────────────────────────────────────
-note "Tunnel ingress → http://localhost:${KOBE_LOCAL_PORT} (catch-all)"
+# Where the tunnel forwards traffic. Override for your topology:
+#   Host install (app on the host, port ${KOBE_LOCAL_PORT} mapped):
+#       KOBE_INGRESS_URL=http://localhost:${KOBE_LOCAL_PORT}   (default)
+#   Docker compose (cloudflared runs as a container on kobe-net):
+#       KOBE_INGRESS_URL=https://nginx:443 KOBE_INGRESS_NO_TLS_VERIFY=1
+#       — routes through nginx so api.* → api and everything else → the
+#         web/SPA container, exactly as the 443 server blocks intend.
+INGRESS_URL="${KOBE_INGRESS_URL:-http://localhost:${KOBE_LOCAL_PORT}}"
+NO_TLS="${KOBE_INGRESS_NO_TLS_VERIFY:-}"
+note "Tunnel ingress → ${INGRESS_URL} (catch-all)${NO_TLS:+ [noTLSVerify]}"
 if [ "$APPLY" -eq 1 ] && [ -n "$TUNNEL_ID" ]; then
-  ING=$(jq -nc --arg svc "http://localhost:${KOBE_LOCAL_PORT}" '{config:{ingress:[{service:$svc}]}}')
+  if [ -n "$NO_TLS" ]; then
+    ING=$(jq -nc --arg svc "$INGRESS_URL" '{config:{ingress:[{service:$svc, originRequest:{noTLSVerify:true}}]}}')
+  else
+    ING=$(jq -nc --arg svc "$INGRESS_URL" '{config:{ingress:[{service:$svc}]}}')
+  fi
   cf PUT "/accounts/${ACCOUNT_ID}/cfd_tunnel/${TUNNEL_ID}/configurations" "$ING" >/dev/null
   ok "Ingress configured"
 else
-  warn "Would set catch-all ingress → http://localhost:${KOBE_LOCAL_PORT}"
+  warn "Would set catch-all ingress → ${INGRESS_URL}${NO_TLS:+ [noTLSVerify]}"
 fi
 
 # ── 7. run token + next steps ────────────────────────────────────────────────

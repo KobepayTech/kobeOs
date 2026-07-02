@@ -118,6 +118,36 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # ── Cloudflare Tunnel ─────────────────────────────────────────────────────────
+  # Connects OUTBOUND to Cloudflare's edge (no inbound ports) and forwards
+  # *.kobeapptz.com traffic to nginx inside this network. The tunnel's
+  # ingress config is managed remotely by the token — point it at
+  # https://nginx:443 by running:
+  #   KOBE_INGRESS_URL=https://nginx:443 KOBE_INGRESS_NO_TLS_VERIFY=1 \
+  #     ./deploy/cf-setup.sh --apply
+  #
+  # `--protocol http2` forces TCP/443 instead of the default QUIC (UDP
+  # 7844), which many host firewalls block — the usual cause of a tunnel
+  # that installs fine but shows "0 active connections".
+  #
+  # Put the run token in server/.env as CLOUDFLARED_TOKEN (never commit it).
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: kobe-cloudflared
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --protocol http2 run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARED_TOKEN:?CLOUDFLARED_TOKEN is required — from deploy/cf-setup.sh}
+    depends_on:
+      - nginx
+    networks:
+      - kobe-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   # ── Nginx reverse proxy (TLS termination + routing) ───────────────────────────
   nginx:
     image: nginx:alpine
