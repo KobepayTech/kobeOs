@@ -61,6 +61,20 @@ export class CloudflareService {
         && Boolean(this.config.get<string>('CF_ACCOUNT_ID', ''));
   }
 
+  /**
+   * Non-throwing, secret-free view of the Cloudflare config for the
+   * publish-readiness preflight. Reports only presence booleans + the
+   * (non-secret) zone/domain, never the token or account id.
+   */
+  readiness() {
+    return {
+      apiTokenSet:  Boolean(this.config.get<string>('CF_API_TOKEN', '')),
+      accountIdSet: Boolean(this.config.get<string>('CF_ACCOUNT_ID', '')),
+      zoneId: this.zoneId,
+      domain: this.domain,
+    };
+  }
+
   private get accountId(): string {
     const a = this.config.get<string>('CF_ACCOUNT_ID', '');
     if (!a) throw new InternalServerErrorException('CF_ACCOUNT_ID is not set in server/.env');

@@ -678,6 +678,12 @@ export default function StoreEditor() {
   const [deploymentMode, setDeploymentMode] = useState<'hosted' | 'self-hosted' | null>(null);
   const [installingCf, setInstallingCf] = useState(false);
   const [installCfMsg, setInstallCfMsg] = useState<string | null>(null);
+  const [readiness, setReadiness] = useState<{
+    ready: boolean;
+    deploymentMode: 'hosted' | 'self-hosted';
+    domain: string;
+    checks: Array<{ id: string; label: string; ok: boolean; detail: string }>;
+  } | null>(null);
 
   // Mount-only async work uses this flag (the install handler also flips it)
   // so we don't setState after the editor closes mid-request.
@@ -698,7 +704,21 @@ export default function StoreEditor() {
     } catch { /* leave nulls — UI hides CTA when unknown */ }
   }, []);
 
-  useEffect(() => { refreshCloudflaredStatus(); }, [refreshCloudflaredStatus]);
+  // Publish-readiness preflight — one checklist of what's configured vs
+  // missing for go-live, so the operator isn't guessing.
+  const refreshReadiness = useCallback(async () => {
+    try {
+      const r = await api<{
+        ready: boolean;
+        deploymentMode: 'hosted' | 'self-hosted';
+        domain: string;
+        checks: Array<{ id: string; label: string; ok: boolean; detail: string }>;
+      }>('/store-settings/publish-readiness');
+      if (mountedRef.current) setReadiness(r);
+    } catch { /* leave null — panel hidden when unknown */ }
+  }, []);
+
+  useEffect(() => { refreshCloudflaredStatus(); void refreshReadiness(); }, [refreshCloudflaredStatus, refreshReadiness]);
 
   const handleInstallCloudflared = useCallback(async () => {
     setInstallingCf(true);
@@ -1111,6 +1131,32 @@ export default function StoreEditor() {
                   </Button>
                   {!settings.domainSlug && (
                     <p className="text-[10px] text-amber-400/70 text-center">Save your store name first</p>
+                  )}
+                  {/* Publish-readiness preflight — shows the operator exactly
+                      what's configured vs missing for go-live. Only rendered
+                      when something is NOT ready, so a healthy install stays
+                      clean. */}
+                  {readiness && !readiness.ready && (
+                    <div className="rounded-md border border-amber-500/25 bg-amber-500/[0.06] p-2.5 space-y-1.5">
+                      <div className="text-[10px] font-bold text-amber-300/90 uppercase tracking-wide">
+                        Publish setup ({readiness.deploymentMode})
+                      </div>
+                      {readiness.checks.map((c) => (
+                        <div key={c.id} className="flex items-start gap-1.5 text-[10px]">
+                          <span className={`mt-0.5 shrink-0 ${c.ok ? 'text-emerald-400' : 'text-amber-400'}`}>
+                            {c.ok ? '✓' : '•'}
+                          </span>
+                          <span className={c.ok ? 'text-white/60' : 'text-white/80'}>
+                            <span className="font-semibold">{c.label}:</span> {c.detail}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {readiness?.ready && (
+                    <p className="text-[10px] text-emerald-400/80 text-center inline-flex items-center justify-center gap-1 w-full">
+                      <Globe className="w-3 h-3" /> Ready to publish on {readiness.domain}
+                    </p>
                   )}
                   {/* cloudflared requirement notice — only relevant for
                       self-hosted deployments. Hosted backends route every

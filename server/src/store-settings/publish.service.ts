@@ -325,6 +325,83 @@ export class PublishService implements OnModuleDestroy {
     return { installed: false, source: 'none', path: null, deploymentMode };
   }
 
+  /**
+   * Publish-readiness preflight — a single "can this install put a store
+   * live at {slug}.kobeapptz.com?" answer for the Store Editor.
+   *
+   * Returns a checklist of the runtime conditions that actually gate
+   * publishing, so an operator sees exactly what's missing instead of
+   * hitting a silent failure or a "Backend unreachable" toast. Contains
+   * no secrets — only presence booleans + the (public) domain.
+   *
+   * `ready` is true when the current deployment mode has everything it
+   * needs; the `checks` array explains each line for the UI.
+   */
+  publishReadiness(): {
+    ready: boolean;
+    deploymentMode: 'hosted' | 'self-hosted';
+    domain: string;
+    checks: Array<{ id: string; label: string; ok: boolean; detail: string }>;
+  } {
+    const mode = this.deploymentMode;
+    const cf = this.cf.readiness();
+    const cfd = this.isCloudflaredInstalled();
+    const checks: Array<{ id: string; label: string; ok: boolean; detail: string }> = [];
+
+    checks.push({
+      id: 'deployment-mode',
+      label: 'Deployment mode',
+      ok: true,
+      detail: mode === 'hosted'
+        ? 'hosted — stores publish via the shared wildcard (recommended for the platform)'
+        : 'self-hosted — each store gets its own Cloudflare tunnel on this machine',
+    });
+
+    if (mode === 'hosted') {
+      // Hosted: a store goes live by a DB flip once the shared wildcard
+      // tunnel + *.kobeapptz.com exist. CF creds are needed to bootstrap
+      // that once; after bootstrap the run token lives in CLOUDFLARED_TOKEN.
+      checks.push({
+        id: 'cf-credentials',
+        label: 'Cloudflare credentials',
+        ok: cf.apiTokenSet && cf.accountIdSet,
+        detail: cf.apiTokenSet && cf.accountIdSet
+          ? `CF_API_TOKEN + CF_ACCOUNT_ID set · zone for ${cf.domain}`
+          : `Missing ${!cf.apiTokenSet ? 'CF_API_TOKEN' : ''}${!cf.apiTokenSet && !cf.accountIdSet ? ' + ' : ''}${!cf.accountIdSet ? 'CF_ACCOUNT_ID' : ''} in server/.env — needed once to bootstrap the wildcard`,
+      });
+      const wildcardTokenSet = Boolean(process.env.CLOUDFLARED_TOKEN);
+      checks.push({
+        id: 'wildcard-bootstrap',
+        label: 'Wildcard tunnel bootstrapped',
+        ok: wildcardTokenSet,
+        detail: wildcardTokenSet
+          ? 'CLOUDFLARED_TOKEN present — shared *.kobeapptz.com tunnel is configured'
+          : 'Run POST /api/store-settings/admin/bootstrap-wildcard once, then persist the returned token as CLOUDFLARED_TOKEN and run cloudflared as a service',
+      });
+    } else {
+      // Self-hosted: needs CF creds AND a runnable cloudflared binary.
+      checks.push({
+        id: 'cf-credentials',
+        label: 'Cloudflare credentials',
+        ok: cf.apiTokenSet && cf.accountIdSet,
+        detail: cf.apiTokenSet && cf.accountIdSet
+          ? `CF_API_TOKEN + CF_ACCOUNT_ID set · zone for ${cf.domain}`
+          : 'Set CF_API_TOKEN + CF_ACCOUNT_ID in server/.env to create per-store tunnels',
+      });
+      checks.push({
+        id: 'cloudflared-binary',
+        label: 'cloudflared installed',
+        ok: cfd.installed,
+        detail: cfd.installed
+          ? `Found (${cfd.source})`
+          : 'No cloudflared binary — click Install cloudflared in the Store Editor',
+      });
+    }
+
+    const ready = checks.every((c) => c.ok);
+    return { ready, deploymentMode: mode, domain: cf.domain, checks };
+  }
+
   /** Download the cloudflared binary for the current platform into the
    *  user-data dir, make it executable, and return the install location.
    *  Idempotent — calling twice re-downloads (so users can refresh stale

@@ -136,4 +136,17 @@ export class StoreSettingsController {
   installCloudflared() {
     return this.publishSvc.installCloudflared();
   }
+
+  /**
+   * Publish-readiness preflight — a single checklist answering "can this
+   * install put a store live at {slug}.kobeapptz.com?". Lets the Store
+   * Editor show exactly what's missing (deployment mode, Cloudflare
+   * credentials, wildcard bootstrap, cloudflared binary) instead of a
+   * silent failure. Secret-free — presence booleans only.
+   * GET /api/store-settings/publish-readiness
+   */
+  @Get('publish-readiness')
+  publishReadiness() {
+    return this.publishSvc.publishReadiness();
+  }
 }
