@@ -124,4 +124,9 @@ export class UpsertStoreSettingsDto {
   /** Storefront design config — fully validated (see JerseyConfigDto). */
   @IsOptional() @IsObject() @ValidateNested() @Type(() => JerseyConfigDto)
   jerseyConfig?: JerseyConfigDto;
+
+  /** Storefront preview template — 'generic' or 'jerseys'. Controls which
+   *  live-preview layout the store editor renders on the right panel. */
+  @IsOptional() @IsString() @IsIn(['generic', 'jerseys']) @MaxLength(40)
+  template?: 'generic' | 'jerseys';
 }

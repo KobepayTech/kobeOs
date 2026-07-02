@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import {
   BuildingMapView, PaymentCycleRing, TokenDisplay, InsightsView,
-  type FloorBlock, type Insight, type CycleMonthStatus,
+  type FloorBlock, type Insight, type CycleMonthStatus, type UnitStatus,
 } from './PosysFeatures';
 
 /**
@@ -1275,7 +1275,7 @@ function demoBuildingFloors(tenants: ApiTenant[]): FloorBlock[] {
     }),
   };
   // Sprinkle a single maintenance flag to make the status legend matter.
-  if (corridorA.units[2]) corridorA.units[2].status = 'maintenance';
+  if (corridorA.units[2]) (corridorA.units[2] as { status: UnitStatus }).status = 'maintenance';
   return [
     { id: 'g', label: 'Ground Floor', corridors: [corridorA, corridorB] },
   ];

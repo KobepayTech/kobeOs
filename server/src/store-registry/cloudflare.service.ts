@@ -209,13 +209,19 @@ export class CloudflareService {
    * Creates (or reuses):
    *   • a single shared tunnel "kobeos-storefronts"
    *   • a wildcard CNAME "*.kobeapptz.com" → <tunnelId>.cfargotunnel.com
-   *   • ingress: catch-all → http://localhost:<port>
+   *   • ingress: catch-all → <ingressTarget> (default: http://localhost:<port>)
    *
    * After this runs once, ANY new store slug works instantly — publishing
    * becomes a database flag flip with zero Cloudflare API calls. Returns
    * the run token so the operator can persist it (e.g. CLOUDFLARED_TOKEN
    * env var) and run `cloudflared tunnel run --token <...>` as a system
    * service.
+   *
+   * The ingressTarget should be the ENTRY POINT of your stack — the nginx
+   * reverse proxy in Docker deployments (e.g. "http://nginx:80"), or the
+   * backend directly in single-process deployments ("http://localhost:3000").
+   * Routing `*.kobeapptz.com` to the API backend directly breaks storefronts
+   * because the SPA lives in a separate web container.
    *
    * Idempotent — safe to re-run; reuses the existing tunnel + record.
    *
@@ -278,12 +284,14 @@ export class CloudflareService {
     }
 
     // 4. Push a catch-all ingress rule (no per-store rules needed).
+    // *.kobeapptz.com → this NestJS server which serves both the API
+    // and the storefront SPA (static files + index.html fallback).
     await this.cfFetch(`/accounts/${this.accountId}/cfd_tunnel/${tunnelId}/configurations`, {
       method: 'PUT',
       body: JSON.stringify({
         config: {
           ingress: [
-            { service: `http://localhost:${localPort}` },  // catch-all → backend
+            { service: `http://localhost:${localPort}` },
           ],
         },
       }),
@@ -304,11 +312,11 @@ export class CloudflareService {
   // raw DNS API so the registry module compiles until it's actually deleted.
 
   async createARecord(slug: string, ip: string): Promise<string> {
-    const res = await this.cfFetch<{ result: { id: string } }>(`/zones/${this.zoneId}/dns_records`, {
+    const res = await this.cfFetch<{ id: string }>(`/zones/${this.zoneId}/dns_records`, {
       method: 'POST',
       body: JSON.stringify({ type: 'A', name: slug, content: ip, ttl: 1, proxied: true }),
     });
-    return res.result.id;
+    return res.id;
   }
 
   async updateARecord(recordId: string, slug: string, ip: string): Promise<void> {

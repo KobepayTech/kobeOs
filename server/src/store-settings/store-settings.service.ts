@@ -34,13 +34,25 @@ export class StoreSettingsService {
     return this.repo.save(defaults);
   }
 
-  /** Check whether a slug is available (not reserved, not taken by another owner). */
-  async checkSlugAvailability(slug: string): Promise<{ available: boolean; reason?: string }> {
+  /**
+   * Check whether a slug is available (not reserved, not taken).
+   * If an ownerId is provided, the slug is considered available if it
+   * belongs to that same owner — this lets operators re-publish or
+   * check their own slug without getting a false "taken" response.
+   */
+  async checkSlugAvailability(
+    slug: string,
+    ownerId?: string,
+  ): Promise<{ available: boolean; reason?: string }> {
     const normalised = toSlug(slug);
     if (!normalised) return { available: false, reason: 'invalid' };
     if (RESERVED_SLUGS.has(normalised)) return { available: false, reason: 'reserved' };
     const conflict = await this.repo.findOne({ where: { domainSlug: normalised } });
-    if (conflict) return { available: false, reason: 'taken' };
+    if (conflict) {
+      // Same owner → effectively available (they already own it)
+      if (ownerId && conflict.ownerId === ownerId) return { available: true };
+      return { available: false, reason: 'taken' };
+    }
     return { available: true };
   }
 

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 
 /* Real OS shell — delegates to the full Desktop environment */
 import { Desktop } from '@/os/Desktop';
@@ -32,6 +32,10 @@ import MobileSummary from '@/mobile/MobileSummary';
 import MobileInventory from '@/mobile/MobileInventory';
 import MobileOrders from '@/mobile/MobileOrders';
 
+const Router = typeof window !== 'undefined' && (window as any).kobeOS
+  ? HashRouter
+  : BrowserRouter;
+
 /**
  * Thin App shell that:
  *  1. Handles authentication (login screen ↔ localStorage)
@@ -57,7 +61,7 @@ export default function App() {
    */
   if (!user) {
     return (
-      <BrowserRouter>
+      <Router>
         <Routes>
           <Route path="/install" element={<InstallLandingPage />} />
           <Route path="/install/:appId" element={<InstallLandingPage />} />
@@ -65,7 +69,7 @@ export default function App() {
             <Route index element={<MobileHome />} />
             <Route path="pos" element={<MobilePOS />} />
             <Route path="po" element={<MobilePO />} />
-          <Route path="image-order" element={<MobileImageOrder />} />
+            <Route path="image-order" element={<MobileImageOrder />} />
             <Route path="eod" element={<MobileEod />} />
             <Route path="summary" element={<MobileSummary />} />
             <Route path="inventory" element={<MobileInventory />} />
@@ -73,13 +77,13 @@ export default function App() {
           </Route>
           <Route path="*" element={<LoginScreen onLogin={handleLogin} />} />
         </Routes>
-      </BrowserRouter>
+      </Router>
     );
   }
 
   /* ---- Authenticated shell ---- */
   return (
-    <BrowserRouter>
+    <Router>
       <LiveModeBanner />
 
       <div className="fixed top-1 right-2 z-50">
@@ -125,6 +129,6 @@ export default function App() {
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </BrowserRouter>
+    </Router>
   );
 }

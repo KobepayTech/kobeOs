@@ -1,9 +1,9 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Outlet, Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
-  ShoppingCart, ClipboardList, Calculator, NotebookPen, Boxes, Receipt, LogOut, User, Loader2, Sparkles, ChefHat, Plane, Box as BoxIcon,
+  ShoppingCart, ClipboardList, Calculator, NotebookPen, Boxes, Receipt, LogOut, User, Loader2, Sparkles, Truck,
 } from 'lucide-react';
-import { api } from '@/lib/api';
+import { api, clearTokens, setRefreshToken, setToken } from '@/lib/api';
 import { ensureSession } from '@/lib/auth';
 
 /**
@@ -19,13 +19,11 @@ import { ensureSession } from '@/lib/auth';
 const TABS: Array<{ to: string; label: string; Icon: typeof ShoppingCart }> = [
   { to: 'pos',       label: 'POS',       Icon: ShoppingCart },
   { to: 'po',        label: 'Purchase',  Icon: ClipboardList },
+  { to: 'dispatch',  label: 'Dispatch',  Icon: Truck },
   { to: 'eod',       label: 'Till',      Icon: Calculator },
   { to: 'summary',   label: 'Summary',   Icon: NotebookPen },
   { to: 'inventory', label: 'Stock',     Icon: Boxes },
   { to: 'orders',    label: 'Orders',    Icon: Receipt },
-  { to: 'prepare',   label: 'Prepare',   Icon: ChefHat },
-  { to: 'cargo',     label: 'Cargo',     Icon: Plane },
-  { to: 'cargo-pack', label: 'Pack',     Icon: BoxIcon },
 ];
 
 export default function MobileShell() {
@@ -83,8 +81,9 @@ export default function MobileShell() {
         <button
           onClick={() => {
             try {
+              clearTokens();
               localStorage.removeItem('access_token');
-              localStorage.removeItem('kobe_session_phone');
+              localStorage.removeItem('kobe_session_email');
             } catch { /* private mode */ }
             setSignedIn(false);
             navigate(`/m/${slug}`);
@@ -102,7 +101,7 @@ export default function MobileShell() {
       </main>
 
       {/* Bottom tab nav */}
-      <nav className="h-16 border-t border-slate-200 bg-white grid grid-cols-6">
+      <nav className="h-16 border-t border-slate-200 bg-white grid grid-cols-7">
         {TABS.map(({ to, label, Icon }) => {
           const path = `/m/${slug}/${to}`;
           const active = location.pathname.startsWith(path);
@@ -124,10 +123,10 @@ export default function MobileShell() {
   );
 }
 
-/* ─── Sign-in (phone + PIN) ──────────────────────────────────────── */
+/* ─── Sign-in (email + password) ──────────────────────────────────────── */
 
 function MobileSignIn({ slug, onSignedIn }: { slug: string; onSignedIn: () => void }) {
-  const [phone, setPhone] = useState(() => localStorage.getItem('kobe_session_phone') || '');
+  const [email, setEmail] = useState(() => localStorage.getItem('kobe_session_email') || '');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -135,17 +134,25 @@ function MobileSignIn({ slug, onSignedIn }: { slug: string; onSignedIn: () => vo
   const submit = async (e: { preventDefault?: () => void }) => {
     e.preventDefault?.();
     setErr(null);
-    if (!phone.trim() || !password) return;
+    if (!email.trim() || !password) return;
     setSubmitting(true);
     try {
-      const res = await api<{ access_token?: string; accessToken?: string }>('/auth/login', {
+      const res = await api<{
+        access_token?: string;
+        accessToken?: string;
+        refresh_token?: string;
+        refreshToken?: string;
+      }>('/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ phone: phone.trim(), password }),
+        auth: false,
+        body: JSON.stringify({ email: email.trim(), password }),
       });
-      const token = res?.access_token ?? res?.accessToken;
+      const token = res?.accessToken ?? res?.access_token;
+      const refresh = res?.refreshToken ?? res?.refresh_token;
       if (!token) throw new Error('No token returned');
-      localStorage.setItem('access_token', token);
-      localStorage.setItem('kobe_session_phone', phone.trim());
+      setToken(token);
+      if (refresh) setRefreshToken(refresh);
+      localStorage.setItem('kobe_session_email', email.trim());
       onSignedIn();
     } catch (e2) {
       setErr((e2 as Error).message || 'Sign-in failed');
@@ -164,20 +171,20 @@ function MobileSignIn({ slug, onSignedIn }: { slug: string; onSignedIn: () => vo
         </div>
 
         <label className="block">
-          <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wide">Phone</span>
+          <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wide">Email</span>
           <input
-            type="tel"
+            type="email"
             autoComplete="username"
-            inputMode="tel"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="+255 712 345 678"
+            inputMode="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="admin@example.com"
             className="mt-1 w-full h-11 px-3 rounded-lg border border-slate-200 bg-white text-base text-slate-900 focus:outline-none focus:border-indigo-400"
           />
         </label>
 
         <label className="block">
-          <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wide">Password / PIN</span>
+          <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wide">Password</span>
           <input
             type="password"
             autoComplete="current-password"
@@ -193,7 +200,7 @@ function MobileSignIn({ slug, onSignedIn }: { slug: string; onSignedIn: () => vo
 
         <button
           type="submit"
-          disabled={submitting || !phone.trim() || !password}
+          disabled={submitting || !email.trim() || !password}
           className="w-full h-11 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white font-extrabold text-sm inline-flex items-center justify-center gap-2"
         >
           {submitting && <Loader2 className="w-4 h-4 animate-spin" />}

@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './index.css';
 import './styles/global.css';
@@ -17,6 +18,7 @@ import { detectAppSubdomain, detectTenantSubdomain } from './public/api';
  *   /me                                  me.kobeapptz.com
  *   /track/{ref}                         track.kobeapptz.com/{ref}
  *   /posys                               posys.kobeapptz.com
+ *   /shop/{slug}                         {slug}.kobeapptz.com
  *
  * Special routes that don't follow the pattern:
  *   /sports/overlay         standalone OBS browser source
@@ -62,12 +64,20 @@ const isMzigoTrack = (subMzigo && /^\/track\//i.test(pathname)) ||
 // path. Explicitly NOT when we're already on the mzigo subdomain,
 // so mzigo.kobeapptz.com/track/… falls through to MzigoTrack.
 const isPublicTracking  = !isMzigoTrack && (subTrack || pathname.startsWith('/track/'));
+// Use `seg(…)` (whole-segment match) so /me doesn't eat /menu / /medical
+// / /membership etc., and same for /tuma → /tumar, /posys → /posyss.
 const isCustomerPortal  = subMe    || seg('/me');
 const isTuma            = subTuma  || seg('/tuma');
 const isMzigo = !isMzigoTrack && (subMzigo || seg('/mzigo'));
 const isPosys = subPosys || seg('/posys');
+// Public tenant storefront: subdomain slug (kelvinfashion.kobeapptz.com)
+// or apex fallback (/shop/kelvinfashion). Regex validates that the slug
+// looks like a valid DNS label so a hand-crafted URL can't route
+// arbitrary strings into the ErpShop query.
+const shopPathMatch = pathname.match(/^\/shop\/([a-z0-9][a-z0-9-]{0,61}[a-z0-9]|[a-z0-9])\/?/i);
+const shopSlug = tenantSub ?? (shopPathMatch?.[1]?.toLowerCase() ?? null);
 
-const mount = (node: React.ReactNode) =>
+const mount = (node: ReactNode) =>
   createRoot(document.getElementById('root')!).render(node);
 
 if (isOverlay) {
@@ -96,6 +106,12 @@ if (isOverlay) {
   // POSys lives as a desktop OS app but is also reachable standalone
   // via posys.kobeapptz.com / /posys. Same module, no wrapper needed.
   import('./apps/posys/index').then(({ default: Posys }) => mount(<Posys />));
+} else if (shopSlug) {
+  // Any non-reserved wildcard subdomain is a public shop storefront:
+  //   https://kelvinfashion.kobeapptz.com
+  // Apex fallback for testing/admin links:
+  //   https://kobeapptz.com/shop/kelvinfashion
+  import('./apps/erp-shop/index').then(({ default: ErpShop }) => mount(<ErpShop data={{ slug: shopSlug }} />));
 } else {
   mount(<Desktop />);
 }

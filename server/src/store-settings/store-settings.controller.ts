@@ -85,12 +85,15 @@ export class StoreSettingsController {
   @Public()
   @Throttle({ 'public-lookup': { limit: 20, ttl: 60_000 } })
   @Get('check-slug')
-  checkSlug(@Query('slug') slug: string) {
+  checkSlug(
+    @Query('slug') slug: string,
+    @Query('ownerId') ownerId?: string,
+  ) {
     const trimmed = (slug ?? '').trim();
     if (trimmed.length > MAX_SLUG_QUERY_LENGTH) {
       throw new BadRequestException(`slug query is too long (max ${MAX_SLUG_QUERY_LENGTH} chars)`);
     }
-    return this.svc.checkSlugAvailability(trimmed);
+    return this.svc.checkSlugAvailability(trimmed, ownerId);
   }
 
   /**

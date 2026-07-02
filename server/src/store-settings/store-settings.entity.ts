@@ -114,6 +114,14 @@ export class StoreSettings extends BaseEntity {
   bodySize!: string;
 
   /**
+   * Storefront preview template — 'generic' = original mockup; 'jerseys' uses
+   * the projerseyshop.es-style preview (clubs grid, kit cards,
+   * customizer CTA, trust strip).
+   */
+  @Column({ default: 'generic' })
+  template!: string;
+
+  /**
    * Jersey-shop layout config — top promo bar, hero, trust strip, footer
    * columns. Stored as JSON so the editor can iterate without a migration
    * per new field. Defaults applied client-side in JerseyShopChrome when

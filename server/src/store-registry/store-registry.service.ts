@@ -5,6 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
@@ -27,12 +28,25 @@ const STALE_MINUTES = 10;
 @Injectable()
 export class StoreRegistryService {
   private readonly logger = new Logger(StoreRegistryService.name);
+  private readonly deploymentMode: 'hosted' | 'self-hosted';
 
   constructor(
     @InjectRepository(StoreRegistration)
     private readonly repo: Repository<StoreRegistration>,
     private readonly cf: CloudflareService,
-  ) {}
+    private readonly config: ConfigService,
+  ) {
+    const raw = (this.config.get<string>('KOBEOS_DEPLOYMENT') ?? 'hosted').toLowerCase();
+    this.deploymentMode = raw === 'self-hosted' ? 'self-hosted' : 'hosted';
+  }
+
+  private assertLegacyRegistryWritable(): void {
+    if (this.deploymentMode === 'hosted') {
+      throw new BadRequestException(
+        'Legacy /store-registry writes are disabled in hosted mode. Use /store-settings/publish (wildcard tunnel flow).',
+      );
+    }
+  }
 
   /** Check whether a slug is available (not taken, not reserved). */
   async checkAvailability(slug: string): Promise<{ available: boolean; reason?: string }> {
@@ -54,6 +68,7 @@ export class StoreRegistryService {
    * - Persists the registration
    */
   async claim(ownerId: string, dto: ClaimSubdomainDto): Promise<StoreRegistration> {
+    this.assertLegacyRegistryWritable();
     const slug = dto.slug.toLowerCase();
 
     if (RESERVED.has(slug)) {
@@ -107,6 +122,7 @@ export class StoreRegistryService {
    * Unpublish a store — deletes the DNS record and marks the registration inactive.
    */
   async unpublish(ownerId: string, slug: string): Promise<void> {
+    this.assertLegacyRegistryWritable();
     const reg = await this.repo.findOne({ where: { slug, ownerId } });
     if (!reg) throw new NotFoundException('Registration not found');
 
@@ -124,6 +140,7 @@ export class StoreRegistryService {
    * Updates lastSeenAt and re-activates if previously marked inactive.
    */
   async heartbeat(ownerId: string, dto: HeartbeatDto): Promise<{ ok: boolean }> {
+    this.assertLegacyRegistryWritable();
     const reg = await this.repo.findOne({ where: { slug: dto.slug, ownerId } });
     if (!reg) return { ok: false };
 
@@ -141,6 +158,7 @@ export class StoreRegistryService {
 
   /** Get all registrations for an owner. */
   listByOwner(ownerId: string): Promise<StoreRegistration[]> {
+    this.assertLegacyRegistryWritable();
     return this.repo.find({ where: { ownerId }, order: { createdAt: 'DESC' } });
   }
 

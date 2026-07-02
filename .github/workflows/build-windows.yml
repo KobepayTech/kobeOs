@@ -10,6 +10,7 @@ on:
       - 'src/**'
       - 'server/**'
       - 'package.json'
+      - 'package-lock.json'
       - 'server/package.json'
       - 'vite.config.*'
       - '.github/workflows/build-windows.yml'
@@ -20,6 +21,7 @@ on:
       - 'src/**'
       - 'server/**'
       - 'package.json'
+      - 'package-lock.json'
       - 'server/package.json'
       - 'vite.config.*'
       - '.github/workflows/build-windows.yml'
@@ -44,7 +46,10 @@ jobs:
         # Note: npm install (not ci) because --legacy-peer-deps is needed for
         # @nestjs/swagger peer dependency conflicts with @nestjs/common versions.
 
-      - name: Build frontend
+      - name: Check Windows build scripts
+        run: node scripts/check-windows-build-scripts.mjs
+
+      - name: Build frontend with TypeScript check
         run: npm run build
 
       # ── Backend ─────────────────────────────────────────────────────────────

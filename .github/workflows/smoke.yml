@@ -1,0 +1,45 @@
+name: Smoke Test
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  strict-build-smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install frontend dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Verify Windows build scripts are strict
+        run: node scripts/check-windows-build-scripts.mjs
+
+      - name: Typecheck and build frontend
+        run: npm run build
+
+      - name: Install server dependencies
+        run: npm install --legacy-peer-deps
+        working-directory: server
+
+      - name: Bundle backend for Electron
+        run: npm run build:bundle
+
+      - name: Generate core manifest
+        run: npm run core:manifest
+
+      - name: Verify smoke outputs
+        run: |
+          test -f dist/index.html
+          test -d electron/server-bundle
+          test -f build/core-manifest.json

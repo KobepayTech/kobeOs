@@ -10,6 +10,53 @@ const { app } = require('electron');
 
 let db = null;
 
+const TABLE_COLUMNS = {
+  notes: new Set(['id', 'title', 'content', 'updated_at', 'synced', 'deleted']),
+  contacts: new Set(['id', 'name', 'email', 'phone', 'data', 'updated_at', 'synced', 'deleted']),
+  todo_lists: new Set(['id', 'name', 'updated_at', 'synced', 'deleted']),
+  todo_items: new Set(['id', 'list_id', 'title', 'completed', 'updated_at', 'synced', 'deleted']),
+  pos_products: new Set(['id', 'name', 'price', 'stock', 'category', 'data', 'updated_at', 'synced']),
+  pos_orders: new Set(['id', 'data', 'total', 'created_at', 'synced']),
+  cargo_shipments: new Set(['id', 'tracking_number', 'origin', 'destination', 'weight', 'status', 'data', 'updated_at', 'synced']),
+  hotel_rooms: new Set(['id', 'room_number', 'type', 'price_per_night', 'status', 'data', 'updated_at', 'synced']),
+  hotel_bookings: new Set(['id', 'room_id', 'data', 'check_in', 'check_out', 'created_at', 'synced']),
+  calendar_events: new Set(['id', 'title', 'start_date', 'end_date', 'data', 'updated_at', 'synced', 'deleted']),
+  app_cache: new Set(['app', 'key', 'value', 'updated_at']),
+};
+
+function getAllowedColumns(table) {
+  const columns = TABLE_COLUMNS[table];
+  if (!columns) throw new Error(`Unknown table: ${table}`);
+  return columns;
+}
+
+function cleanRecord(table, record) {
+  if (!record || typeof record !== 'object' || Array.isArray(record)) {
+    throw new Error('Record must be an object');
+  }
+  const allowed = getAllowedColumns(table);
+  const clean = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (allowed.has(key)) clean[key] = value;
+  }
+  if (Object.keys(clean).length === 0) {
+    throw new Error(`No allowed columns supplied for ${table}`);
+  }
+  return clean;
+}
+
+function validateFilters(table, filters = {}) {
+  if (!filters || typeof filters !== 'object' || Array.isArray(filters)) {
+    throw new Error('Filters must be an object');
+  }
+  const allowed = getAllowedColumns(table);
+  const keys = Object.keys(filters);
+  for (const key of keys) {
+    if (!allowed.has(key)) throw new Error(`Unknown column '${key}' for ${table}`);
+  }
+  return keys;
+}
+
 function getDb() {
   if (db) return db;
   const Database = require('better-sqlite3');
@@ -220,21 +267,29 @@ function getQueueDepth() {
 // ── Generic table operations ───────────────────────────────────────────────
 
 function upsertRecord(table, record) {
-  const keys = Object.keys(record);
+  const clean = cleanRecord(table, record);
+  const keys = Object.keys(clean);
   const placeholders = keys.map(() => '?').join(', ');
   const updates = keys.map(k => `${k} = excluded.${k}`).join(', ');
+  const conflictTarget = table === 'app_cache' ? '(app, key)' : '(id)';
   getDb().prepare(`
     INSERT INTO ${table} (${keys.join(', ')}) VALUES (${placeholders})
-    ON CONFLICT(id) DO UPDATE SET ${updates}
-  `).run(...Object.values(record));
+    ON CONFLICT${conflictTarget} DO UPDATE SET ${updates}
+  `).run(...Object.values(clean));
 }
 
 function getRecords(table, where = '', params = []) {
+  getAllowedColumns(table);
   return getDb().prepare(`SELECT * FROM ${table} ${where}`).all(...params);
 }
 
 function deleteRecord(table, id) {
-  getDb().prepare(`UPDATE ${table} SET deleted = 1, synced = 0 WHERE id = ?`).run(id);
+  const allowed = getAllowedColumns(table);
+  if (allowed.has('deleted')) {
+    getDb().prepare(`UPDATE ${table} SET deleted = 1, synced = 0 WHERE id = ?`).run(id);
+  } else {
+    getDb().prepare(`DELETE FROM ${table} WHERE id = ?`).run(id);
+  }
 }
 
 function cacheSet(app, key, value) {
@@ -271,14 +326,14 @@ function kvDel(key) { return kvDelete(key); }
 
 // query: returns rows from a table, optionally filtered by column equality
 function query(table, filters = {}) {
-  const ALLOWED_TABLES = [
-    'notes', 'contacts', 'todo_lists', 'todo_items',
-    'pos_products', 'pos_orders', 'cargo_shipments',
-    'hotel_rooms', 'hotel_bookings', 'calendar_events', 'app_cache',
-  ];
-  if (!ALLOWED_TABLES.includes(table)) throw new Error(`Unknown table: ${table}`);
-  const keys = Object.keys(filters);
-  if (keys.length === 0) return getDb().prepare(`SELECT * FROM ${table} WHERE deleted = 0 OR deleted IS NULL`).all();
+  const allowed = getAllowedColumns(table);
+  const keys = validateFilters(table, filters);
+  if (keys.length === 0) {
+    if (allowed.has('deleted')) {
+      return getDb().prepare(`SELECT * FROM ${table} WHERE deleted = 0 OR deleted IS NULL`).all();
+    }
+    return getDb().prepare(`SELECT * FROM ${table}`).all();
+  }
   const where = keys.map(k => `${k} = ?`).join(' AND ');
   return getDb().prepare(`SELECT * FROM ${table} WHERE ${where}`).all(...Object.values(filters));
 }
@@ -290,20 +345,18 @@ function insert(table, record) {
 
 // update: patch specific columns on a row by id
 function update(table, id, changes) {
-  const ALLOWED_TABLES = [
-    'notes', 'contacts', 'todo_lists', 'todo_items',
-    'pos_products', 'pos_orders', 'cargo_shipments',
-    'hotel_rooms', 'hotel_bookings', 'calendar_events',
-  ];
-  if (!ALLOWED_TABLES.includes(table)) throw new Error(`Unknown table: ${table}`);
-  const keys = Object.keys(changes);
+  const clean = cleanRecord(table, changes);
+  const allowed = getAllowedColumns(table);
+  if (!allowed.has('id')) throw new Error(`Table ${table} cannot be updated by id`);
+  const keys = Object.keys(clean).filter(k => k !== 'id');
   if (keys.length === 0) return;
   const set = keys.map(k => `${k} = ?`).join(', ');
-  getDb().prepare(`UPDATE ${table} SET ${set}, updated_at = unixepoch() WHERE id = ?`)
-    .run(...Object.values(changes), id);
+  const timestamp = allowed.has('updated_at') ? ', updated_at = unixepoch()' : '';
+  getDb().prepare(`UPDATE ${table} SET ${set}${timestamp} WHERE id = ?`)
+    .run(...keys.map(k => clean[k]), id);
 }
 
-// delete: soft-delete by id (sets deleted = 1)
+// delete: soft-delete by id (sets deleted = 1 where available)
 function softDelete(table, id) { return deleteRecord(table, id); }
 
 // enqueue overload: accepts either (method, path, body, headers) or a single operation object

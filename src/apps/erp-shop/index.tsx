@@ -102,7 +102,9 @@ interface TrackedOrder {
 /*  HELPERS                                                             */
 /* ------------------------------------------------------------------ */
 
-const API = (import.meta as any).env?.VITE_API_URL ?? 'http://localhost:3000/api';
+const API =
+  (import.meta.env.VITE_API_BASE as string | undefined) ??
+  (import.meta.env.DEV ? 'http://localhost:3000/api' : 'https://api.kobeapptz.com/api');
 const SHIPPING_COST = 5000;
 
 function formatPrice(price: number, currency = 'TZS'): string {
@@ -520,465 +522,236 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
           <Button
             variant="ghost" size="sm"
             onClick={() => setSlug('')}
-            className="h-7 px-2 text-xs text-slate-400 hover:text-white hover:bg-white/10"
+            className="h-8 px-2 text-xs hover:bg-white/10"
           >
-            ← Stores
+            Stores
           </Button>
         </div>
       </div>
 
-      {/* StorefrontNav (collections + portals) — kept inside chrome so
-          customers can switch between New Arrivals / BNPL / Wishlist etc.
-          The page-level chrome (header / hero / footer) comes from
-          JerseyShopChrome above. */}
-      <StorefrontNav current={view} onChange={setView} />
-
-      {/* COLLECTION & PORTAL VIEWS */}
-      {view !== 'home' && (
-        <ScrollArea className="flex-1">
-          {view === 'new-arrivals' && (
-            <CollectionPage
-              slug={slug}
-              collectionSlug="new-arrivals"
-              title="New Arrivals"
-              empty="Nothing new yet — check back soon."
-              onAddToCart={addToCart}
-              onAddToWishlist={(p) => toggleWishlist(p.id)}
-              wishlist={wishlistIds}
-            />
-          )}
-          {view === 'best-sellers' && (
-            <CollectionPage
-              slug={slug}
-              collectionSlug="best-sellers"
-              title="Best Sellers"
-              empty="Top sellers will appear once orders start rolling in."
-              onAddToCart={addToCart}
-              onAddToWishlist={(p) => toggleWishlist(p.id)}
-              wishlist={wishlistIds}
-            />
-          )}
-          {view === 'offers' && (
-            <CollectionPage
-              slug={slug}
-              collectionSlug="promotions"
-              title="Offers"
-              empty="No active offers — keep an eye out for deals."
-              onAddToCart={addToCart}
-              onAddToWishlist={(p) => toggleWishlist(p.id)}
-              wishlist={wishlistIds}
-            />
-          )}
-          {view === 'brands' && (
-            <BrandsPage
-              slug={slug}
-              onPickBrand={(brand) => {
-                setSearchQuery(brand);
-                setView('home');
-              }}
-            />
-          )}
-          {view === 'wishlist' && (
+      <div className="flex-1 overflow-auto">
+        <ScrollArea className="h-full">
+          {view === 'wishlist' ? (
             <WishlistPage
               products={wishlistProducts}
-              onAddToCart={addToCart}
-              onRemove={(id) => setWishlistIds((p) => p.filter((x) => x !== id))}
+              onAddToCart={(p) => addToCart(p)}
+              onRemove={(id) => toggleWishlist(id)}
             />
-          )}
-          {view === 'track-order' && <TrackOrderPage slug={slug} />}
-          {view === 'loyalty' && <LoyaltyPage phone={loyaltyPhone} setPhone={setLoyaltyPhone} />}
-          {view === 'bnpl' && <BnplPage slug={slug} />}
-        </ScrollArea>
-      )}
-
-      {/* PRODUCT GRID — home view, projerseyshop.es-style cards */}
-      {view === 'home' && (
-        <ScrollArea className="flex-1 bg-slate-50">
-          <div className="max-w-7xl mx-auto px-4 py-6">
-            {filteredProducts.length === 0 ? (
-              <div className="py-16 text-center text-slate-500">
-                <Package className="w-10 h-10 mx-auto mb-2" />
-                <p className="text-sm">No products found</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-                {filteredProducts.map((product) => (
+          ) : view === 'track-order' ? (
+            <TrackOrderPage slug={slug} />
+          ) : view === 'bnpl' ? (
+            <BnplPage slug={slug} />
+          ) : view === 'brands' ? (
+            <BrandsPage slug={slug} onPickBrand={(brand) => setSelectedCategory(brand)} />
+          ) : view === 'loyalty' ? (
+            <LoyaltyPage phone={loyaltyPhone} setPhone={setLoyaltyPhone} />
+          ) : (view === 'new-arrivals' || view === 'best-sellers' || view === 'offers') ? (
+            <CollectionPage
+              slug={slug}
+              collectionSlug={view}
+              title={view === 'new-arrivals' ? 'New Arrivals' : view === 'best-sellers' ? 'Best Sellers' : 'Offers'}
+              empty={view === 'new-arrivals' ? 'No new arrivals yet.' : view === 'best-sellers' ? 'No best sellers yet.' : 'No offers yet.'}
+              onAddToCart={(p) => addToCart(p)}
+              onAddToWishlist={(p) => toggleWishlist(p.id)}
+              wishlist={wishlistIds}
+            />
+          ) : (
+            <>
+              <div className={`grid gap-4 p-6 ${gridClass}`}>
+                {filteredProducts.map((p) => (
                   <JerseyProductCard
-                    key={product.id}
-                    product={{
-                      ...product,
-                      brand: (product as unknown as { brand?: string | null }).brand ?? null,
-                      tags: (product as unknown as { tags?: string[] }).tags ?? [],
-                      publishedAt: (product as unknown as { publishedAt?: string | null }).publishedAt ?? null,
-                      priceMin: (product as unknown as { priceMin?: number | null }).priceMin ?? null,
-                      priceMax: (product as unknown as { priceMax?: number | null }).priceMax ?? null,
-                      compareAtPrice: (product as unknown as { compareAtPrice?: number | null }).compareAtPrice ?? null,
-                      featured: (product as unknown as { featured?: boolean }).featured ?? false,
-                    }}
-                    onAddToCart={(p) => addToCart(p as unknown as Product)}
-                    onAddToWishlist={(p) => toggleWishlist(p.id)}
-                    onOpen={(p) => setSelectedProduct(p as unknown as Product)}
-                    wished={wishlistIds.includes(product.id)}
+                    key={p.id}
+                    product={p}
+                    wished={wishlistIds.includes(p.id)}
+                    onOpen={(prod) => setSelectedProduct(prod)}
+                    onAddToCart={(prod) => addToCart(prod)}
+                    onAddToWishlist={(prod) => toggleWishlist(prod.id)}
                   />
                 ))}
               </div>
-            )}
-            {settings.footerText && (
-              <p className="text-center text-xs text-slate-500 py-6">{settings.footerText}</p>
-            )}
-          </div>
+              {filteredProducts.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-16 text-slate-500">
+                  <ShoppingBag className="w-10 h-10 mb-3 opacity-40" />
+                  <p className="font-medium">No products found</p>
+                </div>
+              )}
+            </>
+          )}
         </ScrollArea>
-      )}
+      </div>
       </JerseyShopChrome>
 
-      {/* PRODUCT DETAIL DIALOG */}
+      {/* Product Detail Dialog */}
       <Dialog open={!!selectedProduct} onOpenChange={() => setSelectedProduct(null)}>
-        <DialogContent className="bg-slate-800 border-white/10 text-white max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="text-base">{selectedProduct?.name}</DialogTitle>
-          </DialogHeader>
+        <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-md">
           {selectedProduct && (
-            <div className="space-y-3">
-              <div className={`h-36 rounded-lg bg-gradient-to-br ${productGradient(selectedProduct.category)} flex items-center justify-center overflow-hidden`}>
-                {selectedProduct.imageUrl
-                  ? <img src={selectedProduct.imageUrl} alt={selectedProduct.name} className="w-full h-full object-cover" />
-                  : <Package className="w-12 h-12 text-white/40" />}
+            <>
+              <DialogHeader><DialogTitle>{selectedProduct.name}</DialogTitle></DialogHeader>
+              <div className={`h-40 rounded-lg bg-gradient-to-br ${productGradient(selectedProduct.category)} flex items-center justify-center mb-4`}>
+                {selectedProduct.imageUrl ? <img src={selectedProduct.imageUrl} alt="" className="h-full w-full object-cover rounded-lg" /> : <Package className="w-16 h-16 text-white/50" />}
               </div>
-              <div className="flex justify-between items-center">
-                <span className="text-lg font-bold text-blue-300">
-                  {formatPrice(selectedProduct.price, selectedProduct.currency)}
-                </span>
-                <span className={`text-xs px-2 py-1 rounded-full text-white ${getStockColor(selectedProduct.stock)}`}>
-                  {getStockLabel(selectedProduct.stock)} ({selectedProduct.stock})
-                </span>
+              <div className="space-y-2 text-sm">
+                <p><span className="text-slate-400">SKU:</span> {selectedProduct.sku}</p>
+                <p><span className="text-slate-400">Category:</span> {selectedProduct.category}</p>
+                <p className="text-2xl font-bold text-blue-400">{formatPrice(selectedProduct.price, selectedProduct.currency)}</p>
+                <div className="flex items-center gap-2">
+                  <span className={`w-2 h-2 rounded-full ${getStockColor(selectedProduct.stock)}`} />
+                  <span>{getStockLabel(selectedProduct.stock)} ({selectedProduct.stock} available)</span>
+                </div>
               </div>
-              <p className="text-xs text-slate-400">SKU: {selectedProduct.sku}</p>
               <Button
-                className="w-full bg-blue-600 hover:bg-blue-700"
                 onClick={() => { addToCart(selectedProduct); setSelectedProduct(null); }}
-                disabled={selectedProduct.stock === 0}
+                disabled={selectedProduct.stock <= 0}
+                className="w-full mt-4 bg-blue-600 hover:bg-blue-700"
               >
-                <ShoppingCart className="w-4 h-4 mr-2" /> Add to Cart
+                Add to Cart
               </Button>
-            </div>
+            </>
           )}
         </DialogContent>
       </Dialog>
 
-      {/* CART DIALOG */}
+      {/* Cart Dialog */}
       <Dialog open={isCartOpen} onOpenChange={setIsCartOpen}>
-        <DialogContent className="bg-slate-800 border-white/10 text-white max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ShoppingCart className="w-4 h-4" /> Cart ({cartCount})
-            </DialogTitle>
-          </DialogHeader>
+        <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-md">
+          <DialogHeader><DialogTitle>Shopping Cart</DialogTitle></DialogHeader>
           {cart.length === 0 ? (
-            <div className="text-center py-8 text-slate-400">
-              <ShoppingBag className="w-8 h-8 mx-auto mb-2 opacity-40" />
-              <p className="text-sm">Your cart is empty</p>
+            <div className="py-8 text-center text-slate-400">
+              <ShoppingCart className="w-10 h-10 mx-auto mb-2 opacity-40" />
+              Your cart is empty
             </div>
           ) : (
-            <div className="space-y-3">
-              <ScrollArea className="max-h-56">
-                <div className="space-y-2 pr-2">
-                  {cart.map((item) => (
-                    <div key={item.product.id} className="flex items-center gap-2 bg-white/5 rounded-lg p-2">
-                      <div className={`w-8 h-8 rounded bg-gradient-to-br ${productGradient(item.product.category)} flex items-center justify-center shrink-0`}>
-                        <Package className="w-4 h-4 text-white/60" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium truncate">{item.product.name}</p>
-                        <p className="text-xs text-slate-400">{formatPrice(item.product.price, item.product.currency)}</p>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => updateQuantity(item.product.id, -1)} className="w-5 h-5 rounded bg-white/10 flex items-center justify-center hover:bg-white/20">
-                          <Minus className="w-3 h-3" />
-                        </button>
-                        <span className="text-xs w-5 text-center">{item.quantity}</span>
-                        <button onClick={() => updateQuantity(item.product.id, 1)} className="w-5 h-5 rounded bg-white/10 flex items-center justify-center hover:bg-white/20">
-                          <Plus className="w-3 h-3" />
-                        </button>
-                        <button onClick={() => removeFromCart(item.product.id)} className="w-5 h-5 rounded bg-red-500/20 flex items-center justify-center hover:bg-red-500/40 ml-1">
-                          <Trash2 className="w-3 h-3 text-red-400" />
-                        </button>
-                      </div>
+            <div className="space-y-3 max-h-80 overflow-y-auto">
+              {cart.map((item) => (
+                <Card key={item.product.id} className="bg-white/5 border-white/10">
+                  <CardContent className="p-3 flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-white truncate">{item.product.name}</p>
+                      <p className="text-sm text-blue-400">{formatPrice(item.product.price, item.product.currency)}</p>
                     </div>
-                  ))}
-                </div>
-              </ScrollArea>
-              <div className="border-t border-white/10 pt-2 space-y-1 text-sm">
-                <div className="flex justify-between text-slate-400">
-                  <span>Subtotal</span><span>{formatPrice(cartTotal)}</span>
-                </div>
-                <div className="flex justify-between text-slate-400">
-                  <span>Shipping</span><span>{formatPrice(SHIPPING_COST)}</span>
-                </div>
-                <div className="flex justify-between font-bold text-white">
-                  <span>Total</span><span>{formatPrice(cartTotal + SHIPPING_COST)}</span>
-                </div>
-              </div>
-              <Button className="w-full bg-blue-600 hover:bg-blue-700" onClick={handleCheckout}>
-                <CreditCard className="w-4 h-4 mr-2" /> Checkout
-              </Button>
+                    <div className="flex items-center gap-1">
+                      <Button size="icon" variant="ghost" onClick={() => updateQuantity(item.product.id, -1)} className="h-7 w-7">
+                        <Minus className="w-3 h-3" />
+                      </Button>
+                      <span className="w-6 text-center text-sm">{item.quantity}</span>
+                      <Button size="icon" variant="ghost" onClick={() => updateQuantity(item.product.id, 1)} className="h-7 w-7">
+                        <Plus className="w-3 h-3" />
+                      </Button>
+                      <Button size="icon" variant="ghost" onClick={() => removeFromCart(item.product.id)} className="h-7 w-7 text-red-400">
+                        <Trash2 className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+          {cart.length > 0 && (
+            <div className="border-t border-white/10 pt-4 space-y-3">
+              <div className="flex justify-between text-sm"><span>Subtotal</span><span>{formatPrice(cartTotal, products[0]?.currency ?? 'TZS')}</span></div>
+              <div className="flex justify-between text-sm"><span>Shipping</span><span>{formatPrice(SHIPPING_COST, products[0]?.currency ?? 'TZS')}</span></div>
+              <div className="flex justify-between text-lg font-bold"><span>Total</span><span>{formatPrice(cartTotal + SHIPPING_COST, products[0]?.currency ?? 'TZS')}</span></div>
+              <Button onClick={handleCheckout} className="w-full bg-blue-600 hover:bg-blue-700">Checkout</Button>
             </div>
           )}
         </DialogContent>
       </Dialog>
 
-      {/* CHECKOUT DIALOG */}
+      {/* Checkout Dialog */}
       <Dialog open={isCheckout} onOpenChange={setIsCheckout}>
-        <DialogContent className="bg-slate-800 border-white/10 text-white max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Truck className="w-4 h-4" /> Checkout
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <Input
-              placeholder="Full name *"
-              value={checkoutForm.name}
-              onChange={(e) => setCheckoutForm((f) => ({ ...f, name: e.target.value }))}
-              className="bg-white/10 border-white/20 text-white placeholder:text-slate-500"
-            />
-            <Input
-              placeholder="Phone number *"
-              value={checkoutForm.phone}
-              onChange={(e) => setCheckoutForm((f) => ({ ...f, phone: e.target.value }))}
-              className="bg-white/10 border-white/20 text-white placeholder:text-slate-500"
-            />
-            <Input
-              placeholder="Delivery address *"
-              value={checkoutForm.address}
-              onChange={(e) => setCheckoutForm((f) => ({ ...f, address: e.target.value }))}
-              className="bg-white/10 border-white/20 text-white placeholder:text-slate-500"
-            />
-            <div className="space-y-1">
-              <p className="text-xs text-slate-400 font-medium">Payment method</p>
-              <div className="grid grid-cols-4 gap-2">
-                {([
-                  { value: 'cod', label: 'Cash', Icon: Banknote },
-                  { value: 'mobile', label: 'Mobile', Icon: Smartphone },
-                  { value: 'bank', label: 'Bank', Icon: Building2 },
-                  { value: 'bnpl', label: 'Pay Later', Icon: CreditCard },
-                ] as const).map(({ value, label, Icon }) => (
-                  <button
-                    key={value}
-                    onClick={() => setCheckoutForm((f) => ({ ...f, paymentMethod: value }))}
-                    className={`flex flex-col items-center gap-1 p-2 rounded-lg border text-xs transition-colors ${
-                      checkoutForm.paymentMethod === value
-                        ? 'border-blue-500 bg-blue-500/20 text-blue-300'
-                        : 'border-white/10 bg-white/5 text-slate-400 hover:bg-white/10'
-                    }`}
+        <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-md">
+          <DialogHeader><DialogTitle>Checkout</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <Input placeholder="Full Name" value={checkoutForm.name} onChange={(e) => setCheckoutForm({ ...checkoutForm, name: e.target.value })} className="bg-white/10 border-white/20 text-white" />
+            <Input placeholder="Phone Number" value={checkoutForm.phone} onChange={(e) => setCheckoutForm({ ...checkoutForm, phone: e.target.value })} className="bg-white/10 border-white/20 text-white" />
+            <Input placeholder="Delivery Address" value={checkoutForm.address} onChange={(e) => setCheckoutForm({ ...checkoutForm, address: e.target.value })} className="bg-white/10 border-white/20 text-white" />
+            <Input placeholder="Coupon code (optional)" value={couponCode} onChange={(e) => setCouponCode(e.target.value)} className="bg-white/10 border-white/20 text-white" />
+            <div>
+              <p className="text-sm text-slate-400 mb-2">Payment Method</p>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { id: 'cod', label: 'Cash on Delivery', icon: Banknote },
+                  { id: 'mobile', label: 'Mobile Money', icon: Smartphone },
+                  { id: 'bank', label: 'Bank Transfer', icon: Building2 },
+                  { id: 'bnpl', label: 'Buy Now Pay Later', icon: CreditCard },
+                ].map((m) => (
+                  <Button
+                    key={m.id}
+                    variant={checkoutForm.paymentMethod === m.id ? 'default' : 'outline'}
+                    onClick={() => setCheckoutForm({ ...checkoutForm, paymentMethod: m.id as CheckoutForm['paymentMethod'] })}
+                    className={checkoutForm.paymentMethod === m.id ? 'bg-blue-600' : 'border-white/20 text-white'}
                   >
-                    <Icon className="w-4 h-4" />
-                    {label}
-                  </button>
+                    <m.icon className="w-4 h-4 mr-1" />
+                    <span className="text-xs">{m.label}</span>
+                  </Button>
                 ))}
               </div>
             </div>
+
             {checkoutForm.paymentMethod === 'bnpl' && (
-              <div className={`rounded-md border p-2 text-xs space-y-2 ${
-                bnplLoading ? 'border-blue-500/30 bg-blue-500/10 text-blue-200'
-                : bnplEligibility?.eligible ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
-                : 'border-amber-500/30 bg-amber-500/10 text-amber-200'
-              }`}>
-                {bnplLoading ? 'Checking your credit…'
-                  : !checkoutForm.phone.trim() ? 'Enter your phone above to check BNPL eligibility.'
-                  : !bnplEligibility ? 'Checking…'
-                  : bnplEligibility.reason === 'no_profile'
-                    ? 'No BNPL profile found for this phone. Contact the store to open one, or pick another payment method.'
-                  : bnplEligibility.reason === 'inactive'
-                    ? 'BNPL is currently disabled on this account.'
-                  : !bnplEligibility.eligible
-                    ? `BNPL not available — you've used your full credit limit (${bnplEligibility.creditLimit.toLocaleString()} ${bnplEligibility.currency}).`
-                    : (
-                      <>
-                        <div>
-                          <span className="font-medium">Available credit:</span>{' '}
-                          {bnplEligibility.availableCredit.toLocaleString()} {bnplEligibility.currency}
-                          {' '}(limit {bnplEligibility.creditLimit.toLocaleString()})
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className="opacity-80">Pay over</span>
-                          <select
-                            value={installmentMonths}
-                            onChange={(e) => setInstallmentMonths(Number(e.target.value))}
-                            className="h-7 px-2 rounded bg-emerald-950/40 border border-emerald-500/30 text-emerald-100"
-                          >
-                            {[1, 3, 6, 12].map((n) => <option key={n} value={n}>{n} month{n === 1 ? '' : 's'}</option>)}
-                          </select>
-                          <span className="opacity-80">
-                            ≈ {Math.round((cartTotal + SHIPPING_COST) / installmentMonths).toLocaleString()} {bnplEligibility.currency}/month
-                          </span>
-                        </div>
-                      </>
-                    )}
+              <div className="rounded-lg border border-white/10 bg-white/5 p-3 space-y-2 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-slate-300 font-medium">BNPL eligibility</span>
+                  {bnplLoading && <Loader2 className="w-4 h-4 animate-spin text-blue-300" />}
+                </div>
+                {!checkoutForm.phone.trim() ? (
+                  <p className="text-slate-400">Enter buyer phone to check available credit.</p>
+                ) : bnplEligibility?.eligible ? (
+                  <div className="text-emerald-300 flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 mt-0.5" />
+                    <span>Eligible — available credit {formatPrice(Number(bnplEligibility.availableCredit), bnplEligibility.currency)}</span>
+                  </div>
+                ) : (
+                  <div className="text-amber-300 flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 mt-0.5" />
+                    <span>Not eligible yet{bnplEligibility?.reason ? ` (${bnplEligibility.reason})` : ''}. Choose another payment method or create a credit profile.</span>
+                  </div>
+                )}
+                <label className="block text-xs text-slate-400">
+                  Installment months
+                  <select
+                    value={installmentMonths}
+                    onChange={(e) => setInstallmentMonths(Number(e.target.value))}
+                    className="mt-1 w-full rounded bg-slate-800 border border-white/10 p-2 text-white"
+                  >
+                    {[1, 2, 3, 6, 12].map((m) => <option key={m} value={m}>{m} month{m > 1 ? 's' : ''}</option>)}
+                  </select>
+                </label>
               </div>
             )}
-            <Input
-              placeholder="Coupon code (optional)"
-              value={couponCode}
-              onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
-              className="bg-white/10 border-white/20 text-white placeholder:text-slate-500 font-mono uppercase"
-            />
-            <div className="flex justify-between text-sm font-bold border-t border-white/10 pt-2">
-              <span>Total</span>
-              <span>{formatPrice(cartTotal + SHIPPING_COST)}</span>
+
+            <div className="border-t border-white/10 pt-3">
+              <div className="flex justify-between font-bold"><span>Total</span><span>{formatPrice(cartTotal + SHIPPING_COST, products[0]?.currency ?? 'TZS')}</span></div>
+              {orderDiscount && orderDiscount.discountAmount > 0 && (
+                <div className="text-xs text-emerald-300 mt-1">Discount applied: {formatPrice(orderDiscount.discountAmount, products[0]?.currency ?? 'TZS')}</div>
+              )}
+              {orderError && <div className="text-xs text-red-300 mt-2">{orderError}</div>}
             </div>
-            {orderError && (
-              <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-red-500/15 border border-red-500/30 text-xs text-red-200">
-                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>{orderError}</span>
-              </div>
-            )}
             <Button
-              className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-60"
               onClick={handlePlaceOrder}
-              disabled={
-                placingOrder
-                || !checkoutForm.name
-                || !checkoutForm.phone
-                || !checkoutForm.address
-                || (checkoutForm.paymentMethod === 'bnpl' && (
-                  !bnplEligibility?.eligible || (cartTotal + SHIPPING_COST) > bnplEligibility.availableCredit
-                ))
-              }
+              disabled={!checkoutForm.name || !checkoutForm.phone || !checkoutForm.address || placingOrder || (checkoutForm.paymentMethod === 'bnpl' && bnplEligibility?.eligible === false)}
+              className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-50"
             >
-              {placingOrder ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Placing…</>) : 'Place Order'}
+              {placingOrder && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
+              Place Order
             </Button>
           </div>
         </DialogContent>
       </Dialog>
 
-      {/* ORDER CONFIRMED DIALOG */}
+      {/* Success Dialog */}
       <Dialog open={orderConfirmed} onOpenChange={setOrderConfirmed}>
-        <DialogContent className="bg-slate-800 border-white/10 text-white max-w-md text-center">
-          <div className="flex flex-col items-center gap-3 py-4">
-            <CheckCircle2 className="w-12 h-12 text-emerald-400" />
-            <h3 className="text-lg font-bold">Order Placed!</h3>
-            <p className="text-slate-400 text-sm">Your order has been received and is being prepared.</p>
-            <div className="bg-white/10 rounded-lg px-4 py-2">
-              <p className="text-xs text-slate-400">Order number</p>
-              <p className="font-mono font-bold text-blue-300">{orderNumber}</p>
-            </div>
-            {orderDiscount && orderDiscount.breakdown.length > 0 && (
-              <div className="w-full rounded-md border border-emerald-500/30 bg-emerald-500/10 p-2 text-left">
-                <p className="text-emerald-300 text-xs font-semibold">Discount applied: {formatPrice(orderDiscount.discountAmount)}</p>
-                <ul className="mt-1 space-y-0.5 text-[11px] text-emerald-200">
-                  {orderDiscount.breakdown.map((b, i) => (
-                    <li key={i} className="flex justify-between">
-                      <span>{b.source === 'coupon' ? '🎟' : '·'} {b.label}</span>
-                      <span className="font-mono">−{formatPrice(b.amount)}</span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
+        <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-md">
+          <div className="text-center py-6">
+            <CheckCircle2 className="w-16 h-16 text-green-400 mx-auto mb-4" />
+            <h2 className="text-xl font-bold mb-2">Order Confirmed!</h2>
+            <p className="text-slate-400 mb-2">Your order number is</p>
+            <p className="text-2xl font-mono font-bold text-blue-400 mb-4">{orderNumber}</p>
             {orderReceipt && (
-              <details className="w-full text-left">
-                <summary className="cursor-pointer text-xs text-slate-300 hover:text-white">View receipt</summary>
-                <pre className="mt-2 max-h-64 overflow-auto rounded-md border border-white/10 bg-black/30 p-2 font-mono text-[11px] leading-relaxed text-slate-200 whitespace-pre-wrap">
-{orderReceipt}
-                </pre>
-              </details>
+              <pre className="text-left text-xs bg-black/40 rounded-lg p-3 overflow-auto max-h-40 whitespace-pre-wrap mb-4">{orderReceipt}</pre>
             )}
-            <Button
-              className="w-full bg-blue-600 hover:bg-blue-700 mt-2"
-              onClick={() => { setOrderConfirmed(false); setOrderReceipt(null); setOrderDiscount(null); }}
-            >
-              Continue Shopping
-            </Button>
+            <p className="text-sm text-slate-500">We will contact you shortly to confirm delivery.</p>
           </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* TRACK ORDER DIALOG */}
-      <Dialog open={trackOpen} onOpenChange={(o) => { setTrackOpen(o); if (!o) { setTrackResult(null); setTrackError(null); } }}>
-        <DialogContent className="bg-slate-800 border-white/10 text-white max-w-md">
-          <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
-            <Package className="w-5 h-5 text-blue-400" /> Track your order
-          </h3>
-          {!trackResult && (
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Order number</label>
-                <Input
-                  placeholder="SHOP-XXXXXX"
-                  value={trackOrderNumber}
-                  onChange={(e) => setTrackOrderNumber(e.target.value.toUpperCase())}
-                  className="bg-white/10 border-white/20 text-white placeholder:text-slate-500 font-mono"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Phone number used at checkout</label>
-                <Input
-                  placeholder="+255…"
-                  value={trackPhone}
-                  onChange={(e) => setTrackPhone(e.target.value)}
-                  className="bg-white/10 border-white/20 text-white placeholder:text-slate-500"
-                />
-              </div>
-              {trackError && (
-                <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-red-500/15 border border-red-500/30 text-xs text-red-200">
-                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <span>{trackError}</span>
-                </div>
-              )}
-              <Button
-                className="w-full bg-blue-600 hover:bg-blue-700"
-                onClick={handleTrackOrder}
-                disabled={tracking || !trackOrderNumber.trim() || !trackPhone.trim()}
-              >
-                {tracking ? (<><Loader2 className="w-4 h-4 mr-2 animate-spin" />Looking up…</>) : 'Look up order'}
-              </Button>
-            </div>
-          )}
-          {trackResult && (
-            <div className="space-y-3 text-sm">
-              <div className="flex items-center justify-between">
-                <span className="font-mono text-blue-300">{trackResult.orderNumber}</span>
-                <span className="text-xs px-2 py-0.5 rounded border border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
-                  {trackResult.status}
-                </span>
-              </div>
-              <div className="text-xs text-slate-400">
-                Placed {new Date(trackResult.placedAt).toLocaleString()}
-                {trackResult.customerName ? ` · ${trackResult.customerName}` : ''}
-              </div>
-              <div className="rounded-md border border-white/10 bg-black/20 p-2 space-y-1">
-                <p className="text-[11px] text-slate-400">Items</p>
-                {trackResult.items.map((it, i) => (
-                  <div key={i} className="flex justify-between text-xs">
-                    <span>{it.productName} × {it.quantity}</span>
-                    <span className="font-mono text-slate-300">{Number(it.lineTotal).toLocaleString()}</span>
-                  </div>
-                ))}
-                <div className="flex justify-between border-t border-white/10 pt-1 mt-1 text-xs font-semibold">
-                  <span>Total ({trackResult.paymentMethod})</span>
-                  <span className="font-mono">{Number(trackResult.total).toLocaleString()} {trackResult.currency}</span>
-                </div>
-              </div>
-              {trackResult.pickTicket ? (
-                <div className="rounded-md border border-blue-500/20 bg-blue-500/10 p-2 text-xs">
-                  <div className="flex justify-between">
-                    <span className="text-slate-300">Warehouse</span>
-                    <span className="font-mono text-blue-300">{trackResult.pickTicket.ticketNumber}</span>
-                  </div>
-                  <div className="text-blue-200 mt-1">{trackResult.pickTicket.status}</div>
-                </div>
-              ) : (
-                <p className="text-xs text-slate-400">Warehouse pick ticket not created yet.</p>
-              )}
-              <Button
-                onClick={() => { setTrackResult(null); setTrackOrderNumber(''); setTrackPhone(''); }}
-                variant="outline"
-                className="w-full border-white/20 text-white hover:bg-white/10"
-              >
-                Look up another order
-              </Button>
-            </div>
-          )}
         </DialogContent>
       </Dialog>
     </div>
