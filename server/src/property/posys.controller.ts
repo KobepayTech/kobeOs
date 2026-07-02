@@ -1,6 +1,7 @@
 import {
   Body, Controller, Delete, Get, Param, Post, Query, UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { PosysService } from './posys.service';
@@ -66,19 +67,28 @@ export class PosysController {
 }
 
 /**
- * Token lookup + redeem live on a separate, optionally-authed
- * controller so an agent terminal can verify a token without holding
- * the landlord's session.
+ * Token lookup + redeem for an agent terminal that doesn't hold the
+ * landlord's JWT session. Rate-limited hard so the 6-digit code space
+ * (1M entries) can't be brute-forced: 20 lookups per minute per IP,
+ * 5 redeems per minute per IP.
+ *
+ * `lookup` intentionally does NOT mutate — expiry sweeps happen in
+ * `listTokens` and are also checked at `redeem` time. That keeps
+ * GET idempotent so prefetchers, link-preview crawlers, or generic
+ * at-least-once retry middleware can't flip a token to EXPIRED before
+ * the cashier's real scan reads it.
  */
 @Controller('property/tokens')
 export class PosysTokensController {
   constructor(private readonly svc: PosysService) {}
 
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Get(':code')
   lookup(@Param('code') code: string) {
-    return this.svc.lookupToken(code.trim().toUpperCase());
+    return this.svc.lookupTokenReadOnly(code.trim().toUpperCase());
   }
 
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post(':code/redeem')
   redeem(
     @Param('code') code: string,

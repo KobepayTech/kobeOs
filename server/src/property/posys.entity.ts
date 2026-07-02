@@ -1,6 +1,15 @@
 import { Column, Entity, Index } from 'typeorm';
 import { OwnedEntity } from '../common/owned.entity';
 
+// pg's node driver returns numeric/decimal as string to preserve
+// precision. Coerce back to number on read so downstream consumers
+// (the frontend QR builder in particular, which concatenates amount
+// into the token payload) don't accidentally serialise "5000.0000".
+const numeric = {
+  to:   (v: number | string) => v,
+  from: (v: string | number | null | undefined) => v == null ? 0 : Number(v),
+};
+
 /**
  * POSys 6-digit payment token a tenant generates from their app and a
  * cashier / cargo-office agent enters into theirs. Roams across the
@@ -29,7 +38,7 @@ export class PropertyPaymentToken extends OwnedEntity {
   @Column('uuid', { nullable: true })
   leaseId?: string | null;
 
-  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0, transformer: numeric })
   amount!: number;
 
   @Column({ default: 'TZS' })
@@ -44,7 +53,7 @@ export class PropertyPaymentToken extends OwnedEntity {
   @Column({ type: 'timestamptz', nullable: true })
   usedAt?: Date | null;
 
-  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0, transformer: numeric })
   usedAmount!: number;
 
   @Column('uuid', { nullable: true })

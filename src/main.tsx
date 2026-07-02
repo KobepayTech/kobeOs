@@ -40,6 +40,11 @@ const subMe    = appSub === 'me';
 const subTrack = appSub === 'track';
 const subPosys = appSub === 'posys';
 
+// Path helper — match a URL segment exactly (either the whole path is
+// the segment, or the segment is followed by `/`). Prevents /me from
+// eating /menu, /medical, /membership etc.
+const seg = (p: string) => pathname === p || pathname.startsWith(p + '/');
+
 const isOverlay           = pathname.startsWith('/sports/overlay');
 const isPrintCard         = pathname.startsWith('/print/qr-card');
 const isPrintCargoReceipt = pathname.startsWith('/print/cargo-receipt');
@@ -48,15 +53,19 @@ const isPublicGuest =
   (tenantSub !== null && /^\/(room|table)\//i.test(pathname));
 const isMobileWebapp    = pathname.startsWith('/m/');
 const isKdsDisplay      = pathname.startsWith('/display/orders');
-const isPublicTracking  = subTrack || pathname.startsWith('/track/');
-const isCustomerPortal  = subMe    || pathname.startsWith('/me');
-const isTuma            = subTuma  || pathname.startsWith('/tuma');
-// Mzigo subdomain hosts both the public Mzigo console and the waybill
-// tracker at /track/{waybill} → keep both behaviors.
+// Mzigo subdomain hosts both the public Mzigo console AND the waybill
+// tracker at /track/{waybill}. Compute isMzigoTrack FIRST so its
+// dispatch order in the if/else chain wins on mzigo.kobeapptz.com/track/…
 const isMzigoTrack = (subMzigo && /^\/track\//i.test(pathname)) ||
                      pathname.startsWith('/mzigo/track/');
-const isMzigo = !isMzigoTrack && (subMzigo || pathname.startsWith('/mzigo'));
-const isPosys = subPosys || pathname.startsWith('/posys');
+// Cargo tracking — only on the track subdomain or the /track/ apex
+// path. Explicitly NOT when we're already on the mzigo subdomain,
+// so mzigo.kobeapptz.com/track/… falls through to MzigoTrack.
+const isPublicTracking  = !isMzigoTrack && (subTrack || pathname.startsWith('/track/'));
+const isCustomerPortal  = subMe    || seg('/me');
+const isTuma            = subTuma  || seg('/tuma');
+const isMzigo = !isMzigoTrack && (subMzigo || seg('/mzigo'));
+const isPosys = subPosys || seg('/posys');
 
 const mount = (node: React.ReactNode) =>
   createRoot(document.getElementById('root')!).render(node);

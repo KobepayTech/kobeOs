@@ -56,15 +56,31 @@ export class AuthService {
    * "inline approve" flow when a discount exceeds the auto-approval
    * threshold and a manager needs to authorise the cashier's checkout
    * without switching the logged-in user on the till.
+   *
+   * Enforces role ∈ {admin, manager, owner} — a cashier cannot
+   * self-approve their own over-threshold discount even if they know
+   * their own credentials.
+   *
+   * Runs bcrypt.compare against a fixed dummy hash on the miss path
+   * so the response time doesn't reveal whether the email exists.
    */
   async verifyManager(
     email: string,
     password: string,
   ): Promise<{ id: string; email: string; displayName: string; role: string }> {
     const user = await this.users.findByEmail(email);
-    if (!user) throw new UnauthorizedException('Invalid manager credentials');
-    const ok = await bcrypt.compare(password, user.passwordHash);
-    if (!ok) throw new UnauthorizedException('Invalid manager credentials');
+    // Compare against a fixed hash when the email doesn't exist so the
+    // timing profile matches the real-user path (~100ms bcrypt cost).
+    // Prevents email enumeration via response-time analysis.
+    const passwordHash = user?.passwordHash ?? AuthService.DUMMY_HASH;
+    const ok = await bcrypt.compare(password, passwordHash);
+    if (!user || !ok) throw new UnauthorizedException('Invalid manager credentials');
+    const APPROVER_ROLES = new Set(['admin', 'manager', 'owner']);
+    if (!APPROVER_ROLES.has(user.role)) {
+      throw new UnauthorizedException(
+        'This account cannot authorise discounts — a manager or owner must sign in',
+      );
+    }
     return {
       id: user.id,
       email: user.email,
@@ -72,6 +88,14 @@ export class AuthService {
       role: user.role,
     };
   }
+
+  /**
+   * Precomputed bcrypt hash of a random 32-byte secret. Never matches
+   * any real password. Used to normalise the timing of verifyManager
+   * on cache-miss so email existence isn't leaked via response time.
+   */
+  private static readonly DUMMY_HASH =
+    '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy';
 
   /**
    * Exchange a refresh token for a new access + refresh pair. The presented

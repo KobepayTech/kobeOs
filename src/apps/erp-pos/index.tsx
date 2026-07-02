@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import { ensureSession } from '@/lib/auth';
 import { useOfflineData } from '@/hooks/useOfflineData';
 import {
@@ -558,10 +558,14 @@ export default function POSSystem() {
       // full of real products on a flaky connection — customer walked
       // out with goods that were never recorded as sold.
       const looksLikeDemoMiss = allMockIds && (/not found/i.test(msg) || /404/.test(msg));
-      // Backend returns "Discount exceeds approval threshold; manager
-      // approval required (set approvedBy)" — open the inline approve
-      // dialog so the manager can authorise without a re-login.
-      const needsApproval = /approval threshold/i.test(msg) && !approvedBy;
+      // Backend returns 403 with a message containing "approval threshold"
+      // ONLY when the discount engine trips the auto-approval gate. Key on
+      // (status === 403 && specific phrase) rather than a bare message
+      // regex so a reworded copy line elsewhere doesn't accidentally
+      // re-open the manager dialog for unrelated 403s (e.g. RBAC deny).
+      const isThreshold403 =
+        err instanceof ApiError && err.status === 403 && /approval threshold/i.test(msg);
+      const needsApproval = isThreshold403 && !approvedBy;
       if (looksLikeDemoMiss) {
         setRequests((prev) =>
           prev.map((r) => (r.status === 'APPROVED' ? { ...r, status: 'COMPLETED' } : r)),
@@ -572,6 +576,11 @@ export default function POSSystem() {
         setShowManagerApprove(true);
         setCheckoutError(null);
       } else {
+        // Any retry failure that isn't another threshold error means
+        // the previous approval is no longer relevant to the current
+        // problem. Clear it so the next Complete-sale attempt doesn't
+        // silently re-use a stale approverId.
+        if (approvedBy) setPendingApproverId(null);
         setCheckoutError(msg);
       }
     } finally {
@@ -1552,8 +1561,13 @@ export default function POSSystem() {
         onApproved={(approverId, displayName) => {
           setPendingApproverId(approverId);
           setShowManagerApprove(false);
-          flashDiscountError(`Approved by ${displayName} — completing sale…`);
-          // retry checkout with the manager's id
+          // Don't announce "Approved by … — completing sale" here:
+          // the retry may still fail (out-of-stock, credit-limit, or
+          // a stricter threshold tier) and the misleading toast would
+          // render alongside the real error, tempting the cashier to
+          // walk away. The receipt dialog (setLastReceipt) is the
+          // authoritative success signal — the manager id is captured
+          // there as `approvedBy` on the receipt row.
           void finalizeCheckout(approverId);
         }}
         cartTotal={fmt(total)}

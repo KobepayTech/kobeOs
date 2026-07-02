@@ -79,7 +79,11 @@ function QRCode({value,size=150}){
 const fmtAmt=(n)=>new Intl.NumberFormat("en-US").format(Math.round(Number(n)||0));
 const pad2=(n)=>String(n).padStart(2,"0");
 const monthKeyOf=(d)=>`${d.getFullYear()}-${pad2(d.getMonth()+1)}`;
-const CUR_MONTH=monthKeyOf(new Date());
+// Computed at call site (not module-load) so a till left open across
+// the 1st of the month writes into the correct month instead of the
+// snapshot captured at first import. Exposed as a getter so all
+// call sites reflect the same wall-clock month.
+const curMonth=()=>monthKeyOf(new Date());
 const GRACE_DAY=7, TOKEN_TTL_MIN=30;
 const rid=(p)=>p+Math.random().toString(36).slice(2,8);
 const genToken=()=>String(Math.floor(100000+Math.random()*900000));
@@ -94,25 +98,25 @@ const waNum=(phone)=>{let d=String(phone||"").replace(/\D/g,"");if(d.startsWith(
 function unitStatus(u,monthKey){
   if(u.vacant||!u.tenantName)return"vacant";
   if(u.paid&&u.paid[monthKey])return"paid";
-  if(monthKey<CUR_MONTH)return"overdue";
-  if(monthKey===CUR_MONTH)return new Date().getDate()>GRACE_DAY?"overdue":"due";
+  if(monthKey<curMonth())return"overdue";
+  if(monthKey===curMonth())return new Date().getDate()>GRACE_DAY?"overdue":"due";
   return"due";
 }
 function findUnit(db,unitId){for(const p of db.properties){const u=p.units.find(x=>x.id===unitId);if(u)return{property:p,unit:u};}return null;}
-function remindedThisMonth(db,unitId){return db.reminders.some(r=>r.unitId===unitId&&r.monthKey===CUR_MONTH);}
+function remindedThisMonth(db,unitId){return db.reminders.some(r=>r.unitId===unitId&&r.monthKey===curMonth());}
 
 /* mutations */
 function applyPayment(db,unitId,amount,method,code){
   const at=new Date().toISOString();
-  const properties=db.properties.map(p=>({...p,units:p.units.map(u=>u.id===unitId?{...u,paid:{...u.paid,[CUR_MONTH]:{amount,method,at,code:code||undefined}}}:u)}));
+  const properties=db.properties.map(p=>({...p,units:p.units.map(u=>u.id===unitId?{...u,paid:{...u.paid,[curMonth()]:{amount,method,at,code:code||undefined}}}:u)}));
   const f=findUnit(db,unitId);
-  const payment={id:rid("p_"),unitId,propertyName:f.property.name,label:f.unit.label,tenantName:f.unit.tenantName,amount,method,code:code||null,monthKey:CUR_MONTH,at};
+  const payment={id:rid("p_"),unitId,propertyName:f.property.name,label:f.unit.label,tenantName:f.unit.tenantName,amount,method,code:code||null,monthKey:curMonth(),at};
   return{...db,properties,payments:[...db.payments,payment]};
 }
 function logReminder(db,unitId){
   const f=findUnit(db,unitId); if(!f)return db;
   if(remindedThisMonth(db,unitId))return db;
-  const rem={id:rid("rem_"),unitId,label:f.unit.label,tenantName:f.unit.tenantName,monthKey:CUR_MONTH,at:new Date().toISOString()};
+  const rem={id:rid("rem_"),unitId,label:f.unit.label,tenantName:f.unit.tenantName,monthKey:curMonth(),at:new Date().toISOString()};
   return{...db,reminders:[...db.reminders,rem]};
 }
 function addProperty(db,name,location){return{...db,properties:[...db.properties,{id:rid("prop_"),name,location,floors:[{id:rid("fl_"),name:"G",corridors:1}],units:[]}]};}
@@ -504,8 +508,8 @@ function UnitsView({db,lang,t,save,pid,setPid}){
 
   if(unit){
     const y=new Date().getFullYear();
-    const months=MONTHS[lang].map((_,i)=>{const key=`${y}-${pad2(i+1)}`;if(unit.paid[key])return"paid";if(key<CUR_MONTH)return"overdue";if(key===CUR_MONTH)return new Date().getDate()>GRACE_DAY?"overdue":"due";return"future";});
-    const st=unitStatus(unit,CUR_MONTH); const unpaid=st!=="paid"&&st!=="vacant";
+    const months=MONTHS[lang].map((_,i)=>{const key=`${y}-${pad2(i+1)}`;if(unit.paid[key])return"paid";if(key<curMonth())return"overdue";if(key===curMonth())return new Date().getDate()>GRACE_DAY?"overdue":"due";return"future";});
+    const st=unitStatus(unit,curMonth()); const unpaid=st!=="paid"&&st!=="vacant";
     return(
       <div className="page">
         <button className="backbtn" onClick={()=>{setSelId(null);setView("board");}}><ArrowLeft strokeWidth={2.2}/>{t("back")}</button>
@@ -517,7 +521,7 @@ function UnitsView({db,lang,t,save,pid,setPid}){
               <div className="drow"><span className="k">{t("tenant")}</span><span className="v">{unit.tenantName}</span></div>
               <div className="drow"><span className="k">{t("phone")}</span><span className="v">{unit.tenantPhone}</span></div>
               <div className="drow"><span className="k">{t("rent")}</span><span className="v amt">{fmtAmt(unit.monthlyRent)} / {t("perMonth")}</span></div>
-              <div className="drow"><span className="k">{monthName(CUR_MONTH,lang)}</span><span className="v">{statusLabel(st)}</span></div>
+              <div className="drow"><span className="k">{monthName(curMonth(),lang)}</span><span className="v">{statusLabel(st)}</span></div>
             </div>)}
         </div>
         {!unit.vacant&&(<>
@@ -547,8 +551,8 @@ function UnitsView({db,lang,t,save,pid,setPid}){
   const floorUnits=prop.units.filter(u=>u.floorId===fid||(onFirst&&(!u.floorId||!floorIdSet.has(u.floorId))));
   const occ=prop.units.filter(u=>!u.vacant&&u.tenantName);
   const expected=occ.reduce((s,u)=>s+u.monthlyRent,0);
-  const collected=occ.reduce((s,u)=>s+(u.paid[CUR_MONTH]?.amount||0),0);
-  const paidCount=occ.filter(u=>u.paid[CUR_MONTH]).length;
+  const collected=occ.reduce((s,u)=>s+(u.paid[curMonth()]?.amount||0),0);
+  const paidCount=occ.filter(u=>u.paid[curMonth()]).length;
   const rate=expected?Math.round((collected/expected)*100):0;
   const unpaidCount=occ.length-paidCount;
   const addFloorNext=async()=>{const names=floors.map(x=>x.name);let nm="G";if(names.includes("G")){let i=1;while(names.includes(String(i)))i++;nm=String(i);}const next=addFloor(db,prop.id,nm);await save(next);const nf=next.properties.find(p=>p.id===prop.id).floors;setFloorId(nf[nf.length-1].id);};
@@ -560,7 +564,7 @@ function UnitsView({db,lang,t,save,pid,setPid}){
         <button className="propchip add" onClick={addFloorNext}><Plus strokeWidth={2.4}/>{t("addFloor")}</button>
       </div>
       <div className="sumcard">
-        <div className="sumtop"><span className="lab">{t("collected")}</span><span className="mo">{monthName(CUR_MONTH,lang)}</span></div>
+        <div className="sumtop"><span className="lab">{t("collected")}</span><span className="mo">{monthName(curMonth(),lang)}</span></div>
         <div className="sumamt">{fmtAmt(collected)} <small className="of">/ {fmtAmt(expected)} TZS</small></div>
         <div className="bar"><div style={{width:rate+"%"}}/></div>
         <div className="sumfoot"><span><span className="dot" style={{background:"var(--green)"}}/>{rate}% {t("rate")}</span><span><b>{paidCount}</b> {t("paidUnits")}</span><span><b>{unpaidCount}</b> {t("pendingUnits")}</span></div>
@@ -579,7 +583,7 @@ function UnitsView({db,lang,t,save,pid,setPid}){
           onSetCorridors={async(nn)=>{await save(setFloorCorridors(db,prop.id,fid,nn));}}/>
       ):(
         floorUnits.length===0?(<div className="empty">{t("addRoom")} →</div>):(
-          <div className="ugrid">{floorUnits.map(u=>{const s=unitStatus(u,CUR_MONTH);const rem=!u.vacant&&s!=="paid"&&remindedThisMonth(db,u.id);return(
+          <div className="ugrid">{floorUnits.map(u=>{const s=unitStatus(u,curMonth());const rem=!u.vacant&&s!=="paid"&&remindedThisMonth(db,u.id);return(
             <button className="utile" key={u.id} onClick={()=>{setSelId(u.id);setView("detail");}}>
               <div className="ut"><span className="ulabel">{u.label}</span><ChevronRight strokeWidth={2.2} width={16} height={16} color="#B6BFCD"/></div>
               <div className="uname">{u.vacant?t("vacant"):u.tenantName}</div>
@@ -650,7 +654,7 @@ function AddRoom({t,lang,floors,currentFloorId,preset,onBack,onSingle,onBulk}){
 }
 
 function RoomCell({u,row,col,side,onTap}){
-  const s=unitStatus(u,CUR_MONTH);
+  const s=unitStatus(u,curMonth());
   return(<button className={`bp-cell ${side} s-${s}`} style={{gridColumn:col,gridRow:row+1}} onClick={()=>onTap(u.id)}>
     <span className="bl">{u.label}</span><span className="bsd"><span className="pd"/></span></button>);
 }
@@ -681,7 +685,7 @@ function PayForm({unit,lang,t,db,save,onDone}){
   const [amount,setAmount]=useState(String(unit.monthlyRent));
   const submit=async()=>{const a=Number(String(amount).replace(/[^\d.]/g,""));if(!(a>0))return;await save(applyPayment(db,unit.id,a,"cash",null));onDone();};
   return(<div className="page"><button className="backbtn" onClick={onDone}><ArrowLeft strokeWidth={2.2}/>{t("back")}</button>
-    <div className="eyebrow">{t("recordPay")}</div><div className="h1">{unit.label} · {unit.tenantName}</div><div className="sub">{monthName(CUR_MONTH,lang)}</div>
+    <div className="eyebrow">{t("recordPay")}</div><div className="h1">{unit.label} · {unit.tenantName}</div><div className="sub">{monthName(curMonth(),lang)}</div>
     <div className="field amt"><label>{t("amount")}</label><input value={amount} onChange={e=>setAmount(e.target.value)} inputMode="numeric"/></div>
     <button className="btn green" onClick={submit}><Check strokeWidth={2.3}/>{t("save")}</button>
   </div>);
@@ -699,8 +703,8 @@ function EditRent({unit,t,db,save,onBack}){
 
 function reminderMsg(unit,prop,lang){
   return lang==="sw"
-    ? `Habari ${unit.tenantName}, kumbusho la kodi ya chumba ${unit.label} (${prop.name}) kwa ${monthName(CUR_MONTH,lang)}: ${fmtAmt(unit.monthlyRent)} TZS. Tafadhali lipa. Asante.`
-    : `Hello ${unit.tenantName}, a reminder for rent on unit ${unit.label} (${prop.name}) for ${monthName(CUR_MONTH,lang)}: ${fmtAmt(unit.monthlyRent)} TZS. Please pay. Thank you.`;
+    ? `Habari ${unit.tenantName}, kumbusho la kodi ya chumba ${unit.label} (${prop.name}) kwa ${monthName(curMonth(),lang)}: ${fmtAmt(unit.monthlyRent)} TZS. Tafadhali lipa. Asante.`
+    : `Hello ${unit.tenantName}, a reminder for rent on unit ${unit.label} (${prop.name}) for ${monthName(curMonth(),lang)}: ${fmtAmt(unit.monthlyRent)} TZS. Please pay. Thank you.`;
 }
 function RemindOne({unit,prop,db,lang,t,save,onBack}){
   const [copied,setCopied]=useState(false); const [logged,setLogged]=useState(remindedThisMonth(db,unit.id));
@@ -719,12 +723,12 @@ function RemindOne({unit,prop,db,lang,t,save,onBack}){
   </div>);
 }
 function RemindAll({prop,db,lang,t,save,onBack}){
-  const unpaid=prop.units.filter(u=>!u.vacant&&u.tenantName&&unitStatus(u,CUR_MONTH)!=="paid");
+  const unpaid=prop.units.filter(u=>!u.vacant&&u.tenantName&&unitStatus(u,curMonth())!=="paid");
   const [doneCount,setDoneCount]=useState(0);
   const markAll=async()=>{let next=db;for(const u of unpaid)next=logReminder(next,u.id);await save(next);setDoneCount(unpaid.length);};
   const wa=async(u)=>{window.open(`https://wa.me/${waNum(u.tenantPhone)}?text=${encodeURIComponent(reminderMsg(u,prop,lang))}`,"_blank");await save(logReminder(db,u.id));};
   return(<div className="page"><button className="backbtn" onClick={onBack}><ArrowLeft strokeWidth={2.2}/>{t("back")}</button>
-    <div className="eyebrow">{t("remindAll")}</div><div className="h1">{prop.name}</div><div className="sub">{unpaid.length} {t("pendingUnits")} · {monthName(CUR_MONTH,lang)}</div>
+    <div className="eyebrow">{t("remindAll")}</div><div className="h1">{prop.name}</div><div className="sub">{unpaid.length} {t("pendingUnits")} · {monthName(curMonth(),lang)}</div>
     {doneCount>0&&<div className="okline"><Check strokeWidth={2.4}/>{doneCount} {t("remindedN")}</div>}
     {unpaid.map(u=>(<div className="entry" key={u.id}><div className="top"><div className="lab"><span className="ec">{u.label}</span><span className="en">{u.tenantName}</span></div>
       <button className="btn green" style={{width:"auto",padding:"8px 13px",fontSize:13}} onClick={()=>wa(u)}><MessageCircle strokeWidth={2.2}/>{t("whatsapp")}</button></div>
@@ -784,7 +788,7 @@ function CollectView({db,lang,t,save}){
   if(phase==="expired")return <Verdict cls="amber" icon={<Clock strokeWidth={2.2}/>} title={t("expiredTitle")} sub={t("expiredSub")} btn={t("payAnother")} onBtn={reset}/>;
   if(phase==="recorded"){const f=unitOf(tk);return(<div className="page"><div className="verdict green"><div className="vicon"><CheckCircle2 strokeWidth={2.2}/></div><h2>{t("recordedTitle")}</h2><p>{t("recordedSub")}</p>
     <div className="vcard"><div className="ln"><span className="k">{t("unit")}</span><span className="v">{f?.unit.label} · {f?.unit.tenantName}</span></div>
-      <div className="ln"><span className="k">{monthName(CUR_MONTH,lang)}</span><span className="v amt">{fmtAmt(amount)} TZS</span></div>
+      <div className="ln"><span className="k">{monthName(curMonth(),lang)}</span><span className="v amt">{fmtAmt(amount)} TZS</span></div>
       <div className="ln"><span className="k">{t("method")}</span><span className="v">{t("methodToken")} · {tk.code}</span></div></div></div>
     <button className="btn primary" onClick={reset}><RefreshCw strokeWidth={2.2}/>{t("payAnother")}</button></div>);}
   if(phase==="confirm"){const f=unitOf(tk);return(<div className="page"><div className="detailcard"><div className="dtop"><span className="dcode">{tk.code}</span><span className="ustat s-due"><span className="pd"/>{t("statusDue")}</span></div>
@@ -839,14 +843,14 @@ function BookView({db,lang,t,resetDemo}){
   const [q,setQ]=useState("");
   const allOcc=db.properties.flatMap(p=>p.units).filter(u=>!u.vacant&&u.tenantName);
   const expected=allOcc.reduce((s,u)=>s+u.monthlyRent,0);
-  const collected=allOcc.reduce((s,u)=>s+(u.paid[CUR_MONTH]?.amount||0),0);
-  const paidCount=allOcc.filter(u=>u.paid[CUR_MONTH]).length;
+  const collected=allOcc.reduce((s,u)=>s+(u.paid[curMonth()]?.amount||0),0);
+  const paidCount=allOcc.filter(u=>u.paid[curMonth()]).length;
   const rate=expected?Math.round((collected/expected)*100):0;
   const ql=q.trim().toLowerCase();
   const payments=[...db.payments].sort((a,b)=>new Date(b.at)-new Date(a.at));
   const list=ql?payments.filter(p=>[p.label,p.tenantName,p.code,p.propertyName].filter(Boolean).some(s=>String(s).toLowerCase().includes(ql))):payments;
-  return(<div className="page"><div className="eyebrow">{t("tBook")}</div><div className="h1">{t("bookTitle")}</div><div className="sub">{monthName(CUR_MONTH,lang)}</div>
-    <div className="sumcard"><div className="sumtop"><span className="lab">{t("collected")}</span><span className="mo">{monthName(CUR_MONTH,lang)}</span></div>
+  return(<div className="page"><div className="eyebrow">{t("tBook")}</div><div className="h1">{t("bookTitle")}</div><div className="sub">{monthName(curMonth(),lang)}</div>
+    <div className="sumcard"><div className="sumtop"><span className="lab">{t("collected")}</span><span className="mo">{monthName(curMonth(),lang)}</span></div>
       <div className="sumamt">{fmtAmt(collected)} <small className="of">/ {fmtAmt(expected)} TZS</small></div>
       <div className="bar"><div style={{width:rate+"%"}}/></div>
       <div className="sumfoot"><span><span className="dot" style={{background:"var(--green)"}}/>{rate}% {t("rate")}</span><span><b>{paidCount}</b> {t("paidUnits")}</span><span><b>{allOcc.length-paidCount}</b> {t("pendingUnits")}</span></div></div>

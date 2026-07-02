@@ -30,11 +30,9 @@ export function getToken(): string | null {
   try {
     const primary = localStorage.getItem(TOKEN_KEY);
     if (primary) return primary;
-    for (const k of LEGACY_TOKEN_KEYS) {
-      const v = localStorage.getItem(k);
-      if (v) return v;
-    }
-    return null;
+    // Fall back to legacy keys AND migrate forward so the shim
+    // self-retires on the next read.
+    return migrateLegacyToken();
   } catch { return null; }
 }
 
@@ -77,6 +75,34 @@ export function setRefreshToken(token: string | null) {
 export function clearTokens() {
   setToken(null);
   setRefreshToken(null);
+  // Also scrub every legacy key so logout is real for users whose
+  // session was stored under an older key. Previously `getToken()`
+  // would happily fall back to a stale `access_token` even after
+  // logout, giving the app the appearance of being still signed in.
+  try {
+    for (const k of LEGACY_TOKEN_KEYS)   localStorage.removeItem(k);
+    for (const k of LEGACY_REFRESH_KEYS) localStorage.removeItem(k);
+  } catch { /* ignore */ }
+}
+
+/**
+ * One-shot migration: if a legacy key holds the current session and
+ * the canonical TOKEN_KEY is empty, copy it forward and delete the
+ * legacy entry. Called from getToken() on the miss path so the
+ * fallback self-retires after one read.
+ */
+function migrateLegacyToken(): string | null {
+  try {
+    for (const k of LEGACY_TOKEN_KEYS) {
+      const v = localStorage.getItem(k);
+      if (v) {
+        localStorage.setItem(TOKEN_KEY, v);
+        localStorage.removeItem(k);
+        return v;
+      }
+    }
+  } catch { /* ignore */ }
+  return null;
 }
 
 // ── API base URL ──────────────────────────────────────────────────────────────

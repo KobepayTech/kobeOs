@@ -113,27 +113,48 @@ export class PosysService {
     throw new BadRequestException('Could not generate a unique token; please retry');
   }
 
-  /** Public-ish lookup for an agent. Auto-expires stale rows. */
-  async lookupToken(code: string): Promise<PropertyPaymentToken> {
+  /**
+   * Read-only lookup for the public agent endpoint. Does NOT mutate
+   * — so a prefetcher, link-preview crawler, or generic
+   * at-least-once retry middleware hitting the URL cannot flip an
+   * ACTIVE token to EXPIRED before the cashier's real scan reads it.
+   * Callers derive display-side expiry from `expiresAt` vs now.
+   */
+  async lookupTokenReadOnly(code: string): Promise<PropertyPaymentToken> {
     const row = await this.tokens.findOne({ where: { code } });
     if (!row) throw new NotFoundException('Token not found');
-    if (row.status === 'ACTIVE' && row.expiresAt.getTime() < Date.now()) {
-      row.status = 'EXPIRED';
-      await this.tokens.save(row);
-    }
     return row;
   }
 
-  /** Agent redeems the token; records actual amount received. */
+  /**
+   * Redeem a token atomically. The transaction opens a
+   * `SELECT … FOR UPDATE` row-lock so two concurrent redeems can't
+   * both pass the ACTIVE check — the second call sees status='USED'
+   * and rejects with "Token is used". Also sweeps EXPIRED here so an
+   * expired-past-TTL row is refused inside the same critical section.
+   */
   async redeemToken(code: string, dto: { amountReceived: number; agentId?: string }): Promise<PropertyPaymentToken> {
-    const row = await this.lookupToken(code);
-    if (row.status !== 'ACTIVE') throw new BadRequestException(`Token is ${row.status.toLowerCase()}`);
     if (dto.amountReceived <= 0) throw new BadRequestException('amountReceived must be > 0');
-    row.status = 'USED';
-    row.usedAt = new Date();
-    row.usedAmount = dto.amountReceived;
-    row.agentId = dto.agentId ?? null;
-    return this.tokens.save(row);
+    return this.tokens.manager.transaction(async (tx) => {
+      const repo = tx.getRepository(PropertyPaymentToken);
+      const row = await repo.createQueryBuilder('t')
+        .setLock('pessimistic_write')
+        .where('t.code = :code', { code })
+        .getOne();
+      if (!row) throw new NotFoundException('Token not found');
+      // Fold expiry-sweep into the same critical section.
+      if (row.status === 'ACTIVE' && row.expiresAt.getTime() < Date.now()) {
+        row.status = 'EXPIRED';
+        await repo.save(row);
+        throw new BadRequestException('Token is expired');
+      }
+      if (row.status !== 'ACTIVE') throw new BadRequestException(`Token is ${row.status.toLowerCase()}`);
+      row.status = 'USED';
+      row.usedAt = new Date();
+      row.usedAmount = dto.amountReceived;
+      row.agentId = dto.agentId ?? null;
+      return repo.save(row);
+    });
   }
 
   async cancelToken(ownerId: string, id: string): Promise<PropertyPaymentToken> {
@@ -144,10 +165,11 @@ export class PosysService {
     return this.tokens.save(row);
   }
 
-  listTokens(ownerId: string) {
-    // Sweep obviously-stale ACTIVE rows up to the caller's view so
-    // they don't dominate the inbox.
-    void this.tokens.update(
+  async listTokens(ownerId: string) {
+    // Sweep obviously-stale ACTIVE rows up to the caller's view before
+    // returning results. Previously used `void update` which lost the
+    // race with the SELECT and returned rows still marked ACTIVE.
+    await this.tokens.update(
       { ownerId, status: 'ACTIVE', expiresAt: LessThan(new Date()) },
       { status: 'EXPIRED' },
     );
@@ -289,8 +311,16 @@ export class PosysService {
     }
     const overdue = leases.filter((l) => {
       if (l.status !== 'active' || !l.unitId) return false;
-      const last = recentPaymentByUnit.get(l.unitId) ?? 0;
-      return last > 0 && (now - last) > 35 * 86400_000;
+      const last = recentPaymentByUnit.get(l.unitId);
+      // Overdue also covers the never-paid case: a fresh active lease
+      // that hasn't received a payment in 35+ days since it started.
+      // Previously `last > 0 && ...` silently dropped exactly the
+      // tenants most worth chasing.
+      if (last == null) {
+        const started = new Date(l.startDate).getTime();
+        return started > 0 && (now - started) > 35 * 86400_000;
+      }
+      return (now - last) > 35 * 86400_000;
     });
     if (overdue.length > 0) {
       out.push({
