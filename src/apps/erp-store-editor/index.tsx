@@ -4,7 +4,7 @@ import {
   ShoppingBag, Search, ChevronDown, ChevronRight, Check, Eye, X,
   Store, Type as TypeIcon, Grid3X3, PanelLeft, Tag, Plus, Globe, Loader2, AlertTriangle,
   LayoutGrid, Layers,
-  Wifi, WifiOff, ExternalLink, Languages, QrCode, Smartphone, Copy,
+  Wifi, ExternalLink, Languages, QrCode, Smartphone, Copy,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -674,10 +674,6 @@ export default function StoreEditor() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
-  const [cloudflaredInstalled, setCloudflaredInstalled] = useState<boolean | null>(null);
-  const [deploymentMode, setDeploymentMode] = useState<'hosted' | 'self-hosted' | null>(null);
-  const [installingCf, setInstallingCf] = useState(false);
-  const [installCfMsg, setInstallCfMsg] = useState<string | null>(null);
   const [readiness, setReadiness] = useState<{
     ready: boolean;
     deploymentMode: 'hosted' | 'self-hosted';
@@ -689,20 +685,6 @@ export default function StoreEditor() {
   // so we don't setState after the editor closes mid-request.
   const mountedRef = useRef(true);
   useEffect(() => () => { mountedRef.current = false; }, []);
-
-  // Status check of whether cloudflared is available + which deployment
-  // mode the backend is in. Hosted backends don't need a per-machine
-  // binary, so the CTA stays hidden.
-  const refreshCloudflaredStatus = useCallback(async () => {
-    try {
-      const r = await api<{ installed: boolean; deploymentMode?: 'hosted' | 'self-hosted' }>(
-        '/store-settings/cloudflared-status',
-      );
-      if (!mountedRef.current) return;
-      setCloudflaredInstalled(Boolean(r?.installed));
-      if (r?.deploymentMode) setDeploymentMode(r.deploymentMode);
-    } catch { /* leave nulls — UI hides CTA when unknown */ }
-  }, []);
 
   // Publish-readiness preflight — one checklist of what's configured vs
   // missing for go-live, so the operator isn't guessing.
@@ -718,49 +700,11 @@ export default function StoreEditor() {
     } catch { /* leave null — panel hidden when unknown */ }
   }, []);
 
-  useEffect(() => { refreshCloudflaredStatus(); void refreshReadiness(); }, [refreshCloudflaredStatus, refreshReadiness]);
+  useEffect(() => { void refreshReadiness(); }, [refreshReadiness]);
 
-  const handleInstallCloudflared = useCallback(async () => {
-    setInstallingCf(true);
-    setInstallCfMsg(null);
-    try {
-      const r = await api<{ installed: boolean; path: string; version: string }>(
-        '/store-settings/install-cloudflared',
-        { method: 'POST' },
-      );
-      if (!mountedRef.current) return;
-      setCloudflaredInstalled(Boolean(r?.installed));
-      setInstallCfMsg(`cloudflared ${r?.version} installed at ${r?.path}`);
-      setTimeout(() => { if (mountedRef.current) setInstallCfMsg(null); }, 5000);
-      // Re-check via the status endpoint so any future deployment-mode
-      // changes get picked up too (and so retries see fresh state).
-      void refreshCloudflaredStatus();
-    } catch (e) {
-      if (!mountedRef.current) return;
-      setInstallCfMsg(`Install failed: ${(e as Error).message}`);
-    } finally {
-      if (mountedRef.current) setInstallingCf(false);
-    }
-  }, [refreshCloudflaredStatus]);
-  const [tunnelRunning, setTunnelRunning] = useState(false);
   const [mobileQrOpen, setMobileQrOpen] = useState(false);
   const [qrCopied, setQrCopied] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
-
-  // Poll tunnel status every 15 seconds while the store is published
-  useEffect(() => {
-    if (!settings.isPublished) { setTunnelRunning(false); return; }
-    let cancelled = false;
-    const check = async () => {
-      try {
-        const res = await api<{ running: boolean }>('/store-settings/tunnel-status');
-        if (!cancelled) setTunnelRunning(res.running);
-      } catch { /* ignore */ }
-    };
-    check();
-    const interval = setInterval(check, 15_000);
-    return () => { cancelled = true; clearInterval(interval); };
-  }, [settings.isPublished]);
 
   // Load persisted settings on mount
   useEffect(() => {
@@ -824,7 +768,6 @@ export default function StoreEditor() {
       });
       if (saved.isPublished) {
         setSettings((prev) => ({ ...prev, ...saved }));
-        setTunnelRunning(true);
         return;
       }
 
@@ -852,17 +795,8 @@ export default function StoreEditor() {
         publishedUrl: updated.publishedUrl,
         publishedAt: updated.publishedAt,
       }));
-      setTunnelRunning(true);
     } catch (e) {
-      const msg = (e as Error).message ?? 'Publish failed';
-      // Surface cloudflared-not-installed error clearly
-      if (msg.includes('cloudflared is not installed') || msg.includes('cloudflared binary not found')) {
-        setPublishError(
-          'cloudflared is not installed on this machine. Click "Install cloudflared" above, then try again.',
-        );
-      } else {
-        setPublishError(msg);
-      }
+      setPublishError((e as Error).message ?? 'Publish failed');
     } finally {
       setPublishing(false);
     }
@@ -1066,17 +1000,15 @@ export default function StoreEditor() {
               {/* Publish status */}
               {settings.isPublished ? (
                 <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 space-y-2">
-                  {/* Live / tunnel indicator */}
+                  {/* Live indicator — under Cloudflare Pages the store is served
+                      from the edge the moment it's published; no tunnel to
+                      reconnect, so "published" == "live". */}
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <span className={`w-2 h-2 rounded-full shrink-0 ${tunnelRunning ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'}`} />
-                      <span className={`text-xs font-medium ${tunnelRunning ? 'text-emerald-300' : 'text-amber-300'}`}>
-                        {tunnelRunning ? 'Live' : 'Tunnel reconnecting…'}
-                      </span>
+                      <span className="w-2 h-2 rounded-full shrink-0 bg-emerald-400 animate-pulse" />
+                      <span className="text-xs font-medium text-emerald-300">Live</span>
                     </div>
-                    {tunnelRunning
-                      ? <Wifi className="w-3.5 h-3.5 text-emerald-400" />
-                      : <WifiOff className="w-3.5 h-3.5 text-amber-400" />}
+                    <Wifi className="w-3.5 h-3.5 text-emerald-400" />
                   </div>
 
                   <a
@@ -1198,53 +1130,17 @@ export default function StoreEditor() {
                       <Globe className="w-3 h-3" /> Ready to publish on {readiness.domain}
                     </p>
                   )}
-                  {/* cloudflared requirement notice — only relevant for
-                      self-hosted deployments. Hosted backends route every
-                      store through the central wildcard tunnel and don't
-                      need a binary on the operator's machine. */}
-                  {deploymentMode !== 'hosted' && (
-                  <div className={`flex items-start gap-2 px-2.5 py-2 rounded-md border text-[10px] ${
-                    cloudflaredInstalled === true
-                      ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-300/80'
-                      : 'bg-white/[0.03] border-white/[0.06] text-white/50'
-                  }`}>
-                    <AlertTriangle className={`w-3 h-3 shrink-0 mt-0.5 ${cloudflaredInstalled === true ? 'text-emerald-400/70' : 'text-amber-400/60'}`} />
-                    <div className="flex-1 space-y-1.5">
-                      {cloudflaredInstalled === true ? (
-                        <span><span className="font-mono">cloudflared</span> is installed — publishing the subdomain will work.</span>
-                      ) : (
-                        <>
-                          <span>
-                            Publishing requires <span className="font-mono text-white/70">cloudflared</span>.
-                            {cloudflaredInstalled === false && ' It looks like it isn\'t installed on this machine.'}
-                          </span>
-                          <div className="flex items-center gap-2 pt-0.5">
-                            <button
-                              onClick={handleInstallCloudflared}
-                              disabled={installingCf}
-                              className="inline-flex items-center gap-1 px-2 py-1 rounded bg-blue-500/15 border border-blue-500/30 text-blue-300 hover:bg-blue-500/25 disabled:opacity-50 text-[10px] font-bold"
-                            >
-                              {installingCf ? 'Installing…' : 'Install cloudflared'}
-                            </button>
-                            <a
-                              href="https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/"
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-blue-400/60 underline underline-offset-2 hover:text-blue-300"
-                            >
-                              Manual download
-                            </a>
-                          </div>
-                          {installCfMsg && (
-                            <p className={`text-[10px] mt-1 ${installCfMsg.startsWith('Install failed') ? 'text-rose-300' : 'text-emerald-300'}`}>
-                              {installCfMsg}
-                            </p>
-                          )}
-                        </>
-                      )}
-                    </div>
+                  {/* Served from Cloudflare's edge — no per-machine binary,
+                      no tunnel. Publishing flips the store live on its
+                      subdomain instantly via the platform's wildcard domain. */}
+                  <div className="flex items-start gap-2 px-2.5 py-2 rounded-md border bg-white/[0.03] border-white/[0.06] text-[10px] text-white/50">
+                    <Globe className="w-3 h-3 shrink-0 mt-0.5 text-indigo-400/60" />
+                    <span className="flex-1">
+                      Served from Cloudflare's edge — publishing makes your store
+                      live at <span className="font-mono text-white/70">{settings.domainSlug || 'yourstore'}.kobeapptz.com</span> instantly.
+                      No install needed.
+                    </span>
                   </div>
-                  )}
                 </div>
               )}
 
