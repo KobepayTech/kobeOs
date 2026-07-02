@@ -30,8 +30,24 @@ async function bootstrap() {
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.useGlobalFilters(new HttpExceptionFilter());
 
-  const { predicate: corsPredicate } = buildOriginPredicate();
-  app.enableCors({ origin: corsPredicate, credentials: true });
+  const cors = buildOriginPredicate();
+  app.enableCors({ origin: cors.predicate, credentials: true });
+  // Log the effective CORS config at boot so a misconfig is loud
+  // instead of silently 4xx'ing every browser fetch (which the SPA
+  // then reports as "Backend unreachable" via OfflineWriteQueuedError).
+  if (!cors.baseDomain && cors.explicit.every((o) => o.includes('localhost'))) {
+    Logger.warn(
+      'CORS: no TENANT_BASE_DOMAIN set and CORS_ORIGIN is localhost-only. ' +
+      'Browsers hitting this API from any non-localhost origin will fail preflight.',
+      'Bootstrap',
+    );
+  } else {
+    Logger.log(
+      `CORS: explicit=[${cors.explicit.join(', ')}]` +
+      (cors.baseDomain ? `, wildcard=*.${cors.baseDomain} + apex ${cors.baseDomain}` : ''),
+      'Bootstrap',
+    );
+  }
 
   // Swagger API explorer — available at /api/docs in all environments.
   const swaggerConfig = new DocumentBuilder()

@@ -265,9 +265,34 @@ export class OfflineError extends Error {
  */
 export class OfflineWriteQueuedError extends Error {
   readonly queued = true;
-  constructor(public readonly path: string) {
-    super(`Backend unreachable — ${path} write queued locally and will sync when reconnected`);
+  constructor(public readonly path: string, hint?: string) {
+    super(
+      `Backend unreachable — ${path} write queued locally and will sync when reconnected` +
+        (hint ? ` (${hint})` : ''),
+    );
   }
+}
+
+/**
+ * Heuristic reason for a fetch that threw before a status code came
+ * back. Distinguishes the three flavours operators actually see:
+ *  - "cors":    preflight was rejected (backend responded but the
+ *               browser blocked the response)
+ *  - "network": DNS / TLS / TCP failure — server never answered
+ *  - "abort":   caller cancelled via AbortController
+ */
+function classifyFetchFailure(err: unknown): string | undefined {
+  if (!err || typeof err !== 'object') return undefined;
+  const name = (err as { name?: string }).name;
+  const msg  = String((err as { message?: string }).message || '').toLowerCase();
+  if (name === 'AbortError') return 'request cancelled';
+  if (msg.includes('cors') || msg.includes('preflight') || msg.includes('cross-origin')) {
+    return 'CORS preflight rejected — check CORS_ORIGIN / TENANT_BASE_DOMAIN on the API';
+  }
+  if (msg.includes('failed to fetch') || msg.includes('network')) {
+    return 'DNS/TLS/network — check the API host resolves and its cert is valid';
+  }
+  return undefined;
 }
 
 // ── Token refresh ─────────────────────────────────────────────────────────────
@@ -408,7 +433,7 @@ export async function api<T = unknown>(
     // off the response. Throw a recognisable error instead so handlers
     // can decide what to do — show a toast, surface inline, etc. The
     // local queue still has the write; nothing is lost.
-    throw new OfflineWriteQueuedError(path);
+    throw new OfflineWriteQueuedError(path, classifyFetchFailure(err));
   }
 }
 

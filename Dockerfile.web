@@ -24,10 +24,18 @@ COPY . .
 # Override these at build time for white-label deploys:
 #   --build-arg VITE_API_BASE=https://api.kobeapptz.com/api
 #   --build-arg VITE_TENANT_BASE_DOMAIN=kobeapptz.com
-ARG VITE_API_BASE=
-ARG VITE_TENANT_BASE_DOMAIN=
+# Defaults picked so a build that forgets --build-arg still produces
+# a working bundle for kobeapptz.com rather than one whose fetches go
+# to the (probably wrong) page origin.
+ARG VITE_API_BASE=https://api.kobeapptz.com/api
+ARG VITE_TENANT_BASE_DOMAIN=kobeapptz.com
 ENV VITE_API_BASE=${VITE_API_BASE} \
     VITE_TENANT_BASE_DOMAIN=${VITE_TENANT_BASE_DOMAIN}
+
+# Fail fast if a caller passed an explicitly-empty build arg — a
+# blank VITE_API_BASE silently produces a bundle whose fetch('') hits
+# the page origin and 404s in prod.
+RUN [ -n "$VITE_API_BASE" ] || (echo 'VITE_API_BASE must not be empty'; exit 1)
 
 RUN npm run build
 

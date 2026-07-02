@@ -1,0 +1,66 @@
+# .dockerignore — keeps Dockerfile.web builds small + prevents secrets
+# from leaking into intermediate layers.
+#
+# Every path here is skipped by `COPY . .` and never enters the build
+# context sent to the daemon. That has three effects:
+#  1. Build context uploads are fast (~1 MB instead of ~2 GB).
+#  2. Committed-then-removed secrets in .git/ never enter any layer.
+#  3. `server/` source doesn't leak into the SPA image where it has no
+#     business existing.
+
+# VCS + editor state
+.git
+.gitignore
+.gitattributes
+.github
+.vscode
+.idea
+*.swp
+*.swo
+
+# Node dep + build output (multi-stage build re-fetches deps in-container)
+node_modules
+dist
+build
+release
+live-build
+
+# Secrets / env — the build args pattern makes VITE_* explicit
+.env
+.env.*
+!.env.example
+server/.env
+server/.env.*
+!server/.env.example
+**/*.pem
+**/*.key
+
+# Backend source (never needed in the SPA container)
+server
+electron
+scripts
+
+# Docs + logs + local scratch
+*.md
+!README.md
+**/*.log
+logs
+coverage
+.nyc_output
+tmp
+temp
+scratchpad
+tasks
+.claude
+.next
+.turbo
+.cache
+.parcel-cache
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# CI + test artefacts
+playwright-report
+test-results
