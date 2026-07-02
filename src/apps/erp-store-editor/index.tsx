@@ -745,6 +745,7 @@ export default function StoreEditor() {
   const [tunnelRunning, setTunnelRunning] = useState(false);
   const [mobileQrOpen, setMobileQrOpen] = useState(false);
   const [qrCopied, setQrCopied] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   // Poll tunnel status every 15 seconds while the store is published
   useEffect(() => {
@@ -1093,6 +1094,45 @@ export default function StoreEditor() {
                       Published {new Date(settings.publishedAt).toLocaleDateString()}
                     </p>
                   )}
+
+                  {/* Direct (path-based) link — works the moment the apex
+                      serves the app, with no wildcard DNS or tunnel. Give
+                      merchants a reliable share link even while the
+                      subdomain above is still coming up. */}
+                  {settings.domainSlug && (() => {
+                    const pathUrl = `https://kobeapptz.com/shop/${settings.domainSlug}`;
+                    return (
+                      <div className="rounded-md border border-white/10 bg-white/[0.02] p-2 space-y-1">
+                        <div className="text-[10px] font-bold text-white/50 uppercase tracking-wide">
+                          Direct link — always works
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <a
+                            href={pathUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex-1 text-[11px] text-indigo-300/80 font-mono truncate hover:text-indigo-200 underline underline-offset-2"
+                          >
+                            kobeapptz.com/shop/{settings.domainSlug}
+                          </a>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard?.writeText(pathUrl).catch(() => {});
+                              setLinkCopied(true);
+                              setTimeout(() => setLinkCopied(false), 1500);
+                            }}
+                            className="shrink-0 text-white/50 hover:text-white/80"
+                            title="Copy direct link"
+                          >
+                            {linkCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                        <p className="text-[9px] text-white/30 leading-snug">
+                          No wildcard/tunnel needed — share this while the subdomain finishes setup.
+                        </p>
+                      </div>
+                    );
+                  })()}
 
                   <div className="grid grid-cols-2 gap-2">
                     <Button

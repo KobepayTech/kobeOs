@@ -1,45 +1,41 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Cloudflare Pages Configuration for KobeOS
+# Cloudflare Pages config for the KobeOS storefront SPA  (publishing "Option 2")
 # ═══════════════════════════════════════════════════════════════════════════════
 #
-# Usage:
-#   1. Install Wrangler: npm install -g wrangler
-#   2. Login: wrangler login
-#   3. Deploy: wrangler pages deploy ../dist
+# One Pages project (kobeos-app) serves the whole app AND every tenant
+# storefront from Cloudflare's edge — no tunnel, no origin server for the
+# frontend. A wildcard custom domain (*.kobeapptz.com) points every
+# subdomain at this same project; the SPA reads window.location.hostname
+# to figure out which tenant/slug it is (see src/main.tsx).
 #
-# Or use the deploy.sh script which does everything for you.
+# Deploy with the CLI (recommended — see deploy/pages-deploy.sh):
+#   npx wrangler pages deploy ../dist --project-name kobeos-app
+#
+# The build output (../dist) is produced by `npm run build` at repo root.
+# We do NOT bake VITE_API_BASE here: pages-deploy.sh builds with the
+# absolute backend URL (https://api.kobeapptz.com/api) so the SPA talks to
+# the API cross-origin. The backend CORS already allows the apex and every
+# *.kobeapptz.com subdomain (see server/src/common/cors.ts), so no proxy
+# hop is required. dist/_redirects only handles the SPA fallback.
 
 name = "kobeos-app"
 compatibility_date = "2024-01-01"
 
-# ══ Build Settings ════════════════════════════════════════════════════════════
-[build]
-  # The build command (run at repo root)
-  command = "npm install --legacy-peer-deps && npm run build"
-  # Directory containing the built files
-  cwd = ".."
-  # The output directory
-  upload_dir = "../dist"
+# Modern Pages projects read the build output directory from here. When you
+# run `wrangler pages deploy <dir>` the CLI arg wins, so this is just the
+# default for `wrangler pages deploy` with no path.
+pages_build_output_dir = "../dist"
 
-# ══ Environment Variables ═════════════════════════════════════════════════════
-# These are baked into the build at build time via Vite.
-# Set them in Cloudflare Pages dashboard → Settings → Environment Variables
-# or pass them when deploying.
-
-[vars]
-  # The backend API URL that the frontend calls
-  # In production: your backend via Cloudflare Tunnel
-  # In development: localhost
-  VITE_API_BASE = "https://api.kobeapptz.com/api"
-
-# ══ Functions (optional serverless backend) ══════════════════════════════════
-# If you want to run small serverless functions on Cloudflare Pages
-# (e.g., for API proxying, authentication helpers), uncomment below:
+# ── Custom domains (add these once in the dashboard or via API) ────────────────
+#   kobeapptz.com          apex — the marketing/app entry
+#   www.kobeapptz.com      redirect/alias
+#   *.kobeapptz.com        wildcard — every published tenant storefront
 #
-# [[env.production.functions]]
-#   directory = "functions"
-
-# ══ Routes ═══════════════════════════════════════════════════════════════════
-# These are handled by the _redirects file in dist/.
-# The wrangler.toml itself doesn't define routes for Pages —
-# _redirects and _headers are the mechanism.
+# Pages → your project → Custom domains → Set up a domain. Cloudflare issues
+# the certs (Universal SSL covers the apex + one-level wildcard automatically).
+#
+# ── Routes / API ───────────────────────────────────────────────────────────────
+# Pages routing is driven by dist/_redirects (SPA fallback). The API is a
+# separate origin at api.kobeapptz.com — it is NOT served by Pages. Point
+# api.kobeapptz.com at the NestJS backend (proxied DNS record or a small
+# api-only tunnel); CORS handles the cross-origin XHR from the storefronts.

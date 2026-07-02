@@ -1,21 +1,22 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# Cloudflare Pages Redirects
+# Cloudflare Pages redirects — copied into dist/_redirects by pages-deploy.sh
 # ═══════════════════════════════════════════════════════════════════════════════
 #
-# Copy this file to dist/_redirects after building.
-# These rules ensure React Router works correctly on Cloudflare Pages.
-#
 # Format: <source> <destination> <status>
-#   200 = rewrite (internal proxy, URL doesn't change)
-#   301/302 = redirect (URL changes in browser)
-#   /* = wildcard match
+#   200 = rewrite (URL stays)   301/302 = redirect (URL changes)   /* = wildcard
+#
+# Default build (pages-deploy.sh) bakes an ABSOLUTE api base
+# (https://api.kobeapptz.com/api) into the SPA and the backend CORS allows
+# every *.kobeapptz.com origin, so no API proxy hop is needed here.
+#
+# Optional: if you instead build with a RELATIVE api base (VITE_API_BASE=/api)
+# to keep everything same-origin, uncomment the proxy line below. Note that
+# Pages only proxies (200) to an external host on paid plans / with a Pages
+# Function; on the free plan an external 200 rewrite falls back to a redirect,
+# which breaks non-GET calls. The absolute-URL + CORS path above avoids this.
+#
+# /api/*  https://api.kobeapptz.com/api/:splat  200
 
-# Proxy API requests to the backend server.
-# The frontend at app.kobeapptz.com calls /api/* → we rewrite to the backend.
-# IMPORTANT: Replace api.kobeapptz.com with your actual backend domain.
-/api/*  https://api.kobeapptz.com/api/:splat  200
-
-# SPA fallback: any unmatched route serves index.html (React Router handles it).
-# This MUST be the last rule. The 200 status means rewrite (not redirect),
-# so the browser URL stays clean (e.g. /m/my-store/pos stays as-is).
+# SPA fallback: every unmatched route serves index.html so React Router (and
+# the hostname-based tenant routing in src/main.tsx) can take over. MUST be last.
 /*  /index.html  200
