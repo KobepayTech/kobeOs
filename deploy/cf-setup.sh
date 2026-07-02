@@ -176,10 +176,17 @@ upsert_cname() {
   fi
 }
 
-note "Routing DNS → tunnel: ${WILDCARD}, ${CF_DOMAIN} (apex), www.${CF_DOMAIN}"
+note "Routing DNS → tunnel: ${WILDCARD}, ${CF_DOMAIN} (apex), www.${CF_DOMAIN}, api.${CF_DOMAIN}"
 upsert_cname "${WILDCARD}"
 upsert_cname "${CF_DOMAIN}"
 upsert_cname "www.${CF_DOMAIN}"
+# api needs an EXPLICIT record: an explicit host always overrides the
+# wildcard, so if a stale api A record exists (e.g. the Cloudflare
+# "Error 1000: DNS points to prohibited IP" one from pointing it at a
+# Cloudflare IP), the wildcard would never cover api. Upserting it here
+# replaces that record with a clean tunnel CNAME. nginx then routes
+# api.* → the API container.
+upsert_cname "api.${CF_DOMAIN}"
 
 # ── 6. catch-all ingress ─────────────────────────────────────────────────────
 # Where the tunnel forwards traffic. Override for your topology:
