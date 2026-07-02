@@ -139,23 +139,47 @@ else
   warn "Would CREATE tunnel '${TUNNEL_NAME}'"
 fi
 
-# ── 5. wildcard CNAME ────────────────────────────────────────────────────────
-note "Wildcard DNS ${WILDCARD} to the tunnel cfargotunnel host, proxied"
-DLIST=$(cf GET "/zones/${ZONE_ID}/dns_records?type=CNAME&name=${WILDCARD}") || die "Could not list DNS records"
-EXISTING_DNS_ID=$(echo "$DLIST" | jq -r '.[0].id // empty')
-if [ "$APPLY" -eq 1 ] && [ -n "$TUNNEL_ID" ]; then
-  CONTENT="${TUNNEL_ID}.cfargotunnel.com"
-  DNS_BODY=$(jq -nc --arg n "$WILDCARD" --arg c "$CONTENT" '{type:"CNAME", name:$n, content:$c, proxied:true, ttl:1}')
-  if [ -n "$EXISTING_DNS_ID" ]; then
-    cf PUT "/zones/${ZONE_ID}/dns_records/${EXISTING_DNS_ID}" "$DNS_BODY" >/dev/null
-    ok "Updated wildcard CNAME → ${CONTENT}"
+# ── 5. tunnel CNAMEs: wildcard + apex + www ──────────────────────────────────
+# Point *.kobeapptz.com AND the apex kobeapptz.com (+ www) at the tunnel.
+# The apex is easy to forget — if a leftover registrar/parking record is
+# still there (e.g. Hostinger "Parked Domain"), the wildcard works but the
+# root serves the parking page. Cloudflare CNAME-flattening makes a root
+# CNAME to cfargotunnel valid.
+CFARGO="${TUNNEL_ID}.cfargotunnel.com"
+
+# upsert_cname <record-name>  — idempotent CNAME → the tunnel, proxied.
+# ANY existing record with that name (CNAME or a stale A) is replaced,
+# so a parked A record at the apex gets overwritten.
+upsert_cname() {
+  local name="$1"
+  local existing
+  existing=$(cf GET "/zones/${ZONE_ID}/dns_records?name=${name}") || die "Could not list DNS for ${name}"
+  local rid rtype
+  rid=$(echo "$existing" | jq -r '.[0].id // empty')
+  rtype=$(echo "$existing" | jq -r '.[0].type // empty')
+  local body
+  body=$(jq -nc --arg n "$name" --arg c "$CFARGO" '{type:"CNAME", name:$n, content:$c, proxied:true, ttl:1}')
+  if [ "$APPLY" -eq 1 ] && [ -n "$TUNNEL_ID" ]; then
+    if [ -n "$rid" ]; then
+      cf PUT "/zones/${ZONE_ID}/dns_records/${rid}" "$body" >/dev/null
+      ok "Updated ${name} (${rtype}→CNAME) → ${CFARGO}"
+    else
+      cf POST "/zones/${ZONE_ID}/dns_records" "$body" >/dev/null
+      ok "Created ${name} CNAME → ${CFARGO}"
+    fi
   else
-    cf POST "/zones/${ZONE_ID}/dns_records" "$DNS_BODY" >/dev/null
-    ok "Created wildcard CNAME → ${CONTENT}"
+    if [ -n "$rid" ]; then
+      warn "Would REPLACE ${name} (currently ${rtype}, id ${rid}) → tunnel CNAME"
+    else
+      warn "Would CREATE ${name} CNAME → tunnel"
+    fi
   fi
-else
-  [ -n "$EXISTING_DNS_ID" ] && warn "Would UPDATE existing wildcard CNAME (${EXISTING_DNS_ID})" || warn "Would CREATE wildcard CNAME"
-fi
+}
+
+note "Routing DNS → tunnel: ${WILDCARD}, ${CF_DOMAIN} (apex), www.${CF_DOMAIN}"
+upsert_cname "${WILDCARD}"
+upsert_cname "${CF_DOMAIN}"
+upsert_cname "www.${CF_DOMAIN}"
 
 # ── 6. catch-all ingress ─────────────────────────────────────────────────────
 note "Tunnel ingress → http://localhost:${KOBE_LOCAL_PORT} (catch-all)"
