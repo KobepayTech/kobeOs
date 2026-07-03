@@ -286,6 +286,56 @@ function persistCloudflaredToken(token) {
   }
 }
 
+/**
+ * Auto-start the tunnel on boot with ZERO manual steps.
+ *
+ *  1. If a run token is already persisted (or in CLOUDFLARED_TOKEN) → just
+ *     start cloudflared (existing behaviour).
+ *  2. Otherwise, if CF_API_TOKEN + CF_ACCOUNT_ID are configured, fetch the
+ *     shared `kobeos-storefronts` tunnel's run token straight from the
+ *     Cloudflare API, persist it, and start cloudflared. The shop owner never
+ *     runs `cloudflared` by hand.
+ *
+ * Fails soft: any problem just logs and leaves the tunnel down (the app + local
+ * data still work; publishing can be retried from System Settings).
+ */
+async function autoBootstrapTunnel() {
+  if (readPersistedToken() || process.env.CLOUDFLARED_TOKEN) {
+    startCloudflared();
+    return;
+  }
+  const apiToken = process.env.CF_API_TOKEN;
+  const acct = process.env.CF_ACCOUNT_ID;
+  if (!apiToken || !acct) {
+    console.log('[KobeOS] tunnel auto-start skipped — no CF_API_TOKEN/ACCOUNT set. Publish once from the Store Editor to set it up.');
+    return;
+  }
+  const API = 'https://api.cloudflare.com/client/v4';
+  const headers = { Authorization: `Bearer ${apiToken}`, 'content-type': 'application/json' };
+  try {
+    if (typeof fetch !== 'function') {
+      console.log('[KobeOS] global fetch unavailable — skipping tunnel auto-start.');
+      return;
+    }
+    const list = await fetch(`${API}/accounts/${acct}/cfd_tunnel?name=kobeos-storefronts&is_deleted=false`, { headers }).then((r) => r.json());
+    const tunnel = list?.result?.[0];
+    if (!tunnel?.id) {
+      console.log('[KobeOS] shared tunnel "kobeos-storefronts" not found — run deploy/cf-setup.sh --apply once, then relaunch.');
+      return;
+    }
+    const tokResp = await fetch(`${API}/accounts/${acct}/cfd_tunnel/${tunnel.id}/token`, { headers }).then((r) => r.json());
+    const runToken = tokResp?.result;
+    if (typeof runToken === 'string' && runToken.length > 20) {
+      persistCloudflaredToken(runToken); // persists + starts cloudflared (http2)
+      console.log(`[KobeOS] tunnel auto-started (${tunnel.id})`);
+    } else {
+      console.log('[KobeOS] could not fetch tunnel run token (token needs Account → Cloudflare Tunnel → Edit).');
+    }
+  } catch (e) {
+    console.error('[KobeOS] tunnel auto-start failed:', e.message);
+  }
+}
+
 async function stopEmbeddedPostgres() {
   if (embeddedPg) {
     try { await embeddedPg.stop(); } catch { /* ignore */ }
@@ -322,9 +372,9 @@ async function bootServices() {
   sendBootProgress(65, 'Waiting for backend…');
   await waitForBackend(3000, 15000);
 
-  // Spin up cloudflared so any previously-published storefronts stay reachable.
-  // No-ops silently if no token was persisted yet (admin hasn't bootstrapped).
-  startCloudflared();
+  // Auto-start the tunnel: uses a persisted token if present, else fetches the
+  // shared tunnel's run token via CF_API_TOKEN — no manual cloudflared setup.
+  await autoBootstrapTunnel();
 
   sendBootProgress(90, 'Loading KobeOS…');
   await new Promise((r) => setTimeout(r, 300));
