@@ -10,8 +10,46 @@ import ChannelsTab from './ChannelsTab';
 import GuestInboxTab from './GuestInboxTab';
 import RoomsBoard from './RoomsBoard';
 import FoodListBoard from './FoodListBoard';
-import type { Hotel as SharedHotel } from '@/shared/types';
+import type { Hotel as SharedHotel, Order as SharedOrder } from '@/shared/types';
 import { useHotelLive, type HotelOrder as LiveOrder } from './useHotelLive';
+
+// Adapt the live hotel-order feed (useHotelLive) to the KDS component's Order
+// model so the KDS tab shows real, live orders instead of an empty array.
+const HOTEL_TO_KDS_STATUS: Record<LiveOrder['status'], SharedOrder['status']> = {
+  PENDING: 'pending', ACCEPTED: 'preparing', PREPARING: 'preparing',
+  READY: 'ready', DELIVERED: 'served', CANCELLED: 'cancelled',
+};
+function toKdsOrders(orders: LiveOrder[]): SharedOrder[] {
+  return orders.map((o) => {
+    const items = (o.items ?? []).map((it, idx) => ({
+      id: it.menuItemId ?? `${o.id}-${idx}`,
+      menuItemId: it.menuItemId ?? '',
+      name: it.name,
+      quantity: it.qty,
+      unitPrice: it.price,
+      totalPrice: it.price * it.qty,
+      station: (it.station === 'bar' ? 'bar' : 'kitchen') as SharedOrder['items'][number]['station'],
+      status: (HOTEL_TO_KDS_STATUS[o.status] === 'ready' ? 'ready' : 'preparing') as SharedOrder['items'][number]['status'],
+    }));
+    const stations = new Set(items.map((i) => i.station));
+    const orderStation: SharedOrder['station'] = stations.size > 1 ? 'mixed' : (items[0]?.station ?? 'kitchen');
+    return {
+      id: o.id,
+      roomId: o.roomNumber,
+      guestName: o.guestName ?? undefined,
+      items,
+      status: HOTEL_TO_KDS_STATUS[o.status] ?? 'pending',
+      subtotal: Number(o.total) || 0,
+      tax: 0,
+      serviceCharge: 0,
+      total: Number(o.total) || 0,
+      paymentStatus: 'unpaid',
+      createdAt: o.createdAt ?? new Date().toISOString(),
+      updatedAt: o.createdAt ?? new Date().toISOString(),
+      station: orderStation,
+    } as SharedOrder;
+  });
+}
 import { buildPublicGuestUrl } from '@/public/api';
 import {
   Building2, LayoutDashboard, ConciergeBell, Bed, Wine, UtensilsCrossed,
@@ -2173,10 +2211,15 @@ export default function KobeHotel() {
         {/* ─── KDS Display (Drive component) ─── */}
         {activeTab === 'kds' && (
           <KDSDisplay
-            orders={[]}
-            station="kitchen"
-            onUpdateItemStatus={() => {}}
-            onCompleteOrder={() => {}}
+            orders={toKdsOrders(live.orders)}
+            station="all"
+            onUpdateItemStatus={(orderId, _itemId, status) => {
+              // Hotel orders track status at the order level (no per-item),
+              // so map a "ready" item toggle to advancing the whole order.
+              if (status === 'ready') void live.advanceOrder(orderId, 'READY');
+              else void live.advanceOrder(orderId, 'PREPARING');
+            }}
+            onCompleteOrder={(orderId) => { void live.advanceOrder(orderId, 'READY'); }}
           />
         )}
 
