@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class SecurityHotelStudioMedia1760000000000 implements MigrationInterface {
-  name = 'SecurityHotelStudioMedia1760000000000';
+export class SecurityHotelStudioMedia1778690510333 implements MigrationInterface {
+  name = 'SecurityHotelStudioMedia1778690510333';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS "pgcrypto"`);

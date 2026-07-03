@@ -6,6 +6,7 @@ import { Public } from '../common/public.decorator';
 import { StoreSettingsService } from './store-settings.service';
 import { UpsertStoreSettingsDto } from './dto/store-settings.dto';
 import { PublishService } from './publish.service';
+import { StoreSettings } from './store-settings.entity';
 
 const MAX_SLUG_QUERY_LENGTH = 64;
 
@@ -35,17 +36,32 @@ export class StoreSettingsController {
     const slugChanged = saved.domainSlug && saved.domainSlug !== before.domainSlug;
     const needsFirstPublish = saved.domainSlug && !saved.isPublished;
     if (slugChanged || needsFirstPublish) {
-      try {
-        return await this.publishSvc.publish(uid);
-      } catch (err) {
-        // Surface in logs only; the saved settings still come back to the UI.
-        // The editor displays cfStatus + has a manual Publish button for retry.
-        console.warn(
-          `[store-settings] auto-publish skipped for ${saved.domainSlug}: ${(err as Error).message}`,
-        );
-      }
+      // Auto-publish is best-effort and must NEVER make saving the store name
+      // feel slow. In hosted mode it's a fast DB flip; in self-hosted mode it
+      // makes Cloudflare/network calls that can hang for many seconds. Cap the
+      // wait: if publish finishes quickly, return the published settings so the
+      // UI flips to "Published" immediately; otherwise return the saved
+      // settings now and let publish finish in the background (its result
+      // lands on the next GET / manual Publish).
+      const published = await this.raceAutoPublish(uid, saved.domainSlug);
+      if (published) return published;
     }
     return saved;
+  }
+
+  /**
+   * Run auto-publish but never block the save for more than AUTO_PUBLISH_MS.
+   * The publish promise keeps running in the background if it loses the race
+   * (its .catch swallows failures so it can't become an unhandled rejection).
+   */
+  private raceAutoPublish(uid: string, slug: string): Promise<StoreSettings | null> {
+    const AUTO_PUBLISH_MS = 3000;
+    const publishing = this.publishSvc.publish(uid).catch((err) => {
+      console.warn(`[store-settings] auto-publish skipped for ${slug}: ${(err as Error).message}`);
+      return null;
+    });
+    const timeout = new Promise<null>((resolve) => setTimeout(resolve, AUTO_PUBLISH_MS, null));
+    return Promise.race([publishing, timeout]);
   }
 
   /**

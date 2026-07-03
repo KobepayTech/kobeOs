@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddSocialSchedulerTables implements MigrationInterface {
-  name = 'AddSocialSchedulerTables';
+export class AddSocialSchedulerTables1780600000000 implements MigrationInterface {
+  name = 'AddSocialSchedulerTables1780600000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // ─── social_posts table ───

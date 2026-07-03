@@ -9,8 +9,8 @@ import { MigrationInterface, QueryRunner } from 'typeorm';
  * the setting was lost on every save and the preview always reverted to
  * 'generic'.
  */
-export class AddTemplateToStoreSettings1719859200000 implements MigrationInterface {
-  name = 'AddTemplateToStoreSettings1719859200000';
+export class AddTemplateToStoreSettings1780900000000 implements MigrationInterface {
+  name = 'AddTemplateToStoreSettings1780900000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(

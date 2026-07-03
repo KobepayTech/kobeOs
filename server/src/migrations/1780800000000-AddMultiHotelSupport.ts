@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class AddMultiHotelSupport implements MigrationInterface {
-  name = 'AddMultiHotelSupport';
+export class AddMultiHotelSupport1780800000000 implements MigrationInterface {
+  name = 'AddMultiHotelSupport1780800000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // ── hotel_chains ──
