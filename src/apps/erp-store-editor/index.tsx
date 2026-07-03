@@ -922,6 +922,32 @@ export default function StoreEditor() {
                   className="h-8 bg-white/[0.04] border-white/[0.08] text-sm text-white/90 placeholder:text-white/30"
                   placeholder="Your store name"
                 />
+                {/* Dedicated Save-name action: persists the store name so the
+                    backend generates the {slug}.kobeapptz.com subdomain used by
+                    the Domain section below. Reuses handleSave (which PUTs the
+                    whole settings object). */}
+                <div className="mt-2 flex items-center gap-2 flex-wrap">
+                  <Button
+                    size="sm"
+                    className="h-7 text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-medium"
+                    onClick={handleSave}
+                    disabled={saving || !settings.storeName.trim()}
+                  >
+                    {saving
+                      ? <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> Saving…</>
+                      : saved
+                        ? <><Check className="w-3 h-3 mr-1.5 text-emerald-300" /> Saved</>
+                        : <><Save className="w-3 h-3 mr-1.5" /> Save name</>}
+                  </Button>
+                  {settings.domainSlug && (
+                    <span className="text-[10px] text-emerald-400/80 font-mono truncate">
+                      {settings.domainSlug}.kobeapptz.com
+                    </span>
+                  )}
+                </div>
+                {saveError && (
+                  <p className="mt-1 text-[10px] text-rose-300">{saveError}</p>
+                )}
               </div>
               <div>
                 <div className="flex items-center justify-between mb-1.5">
