@@ -62,6 +62,19 @@ const STATUS_META: Record<DispatchStatus, { label: string; color: string; bg: st
   DISPATCHED: { label: 'Dispatched', color: 'text-emerald-700',  bg: 'bg-emerald-50',  border: 'border-emerald-200',  icon: Truck },
 };
 
+// The backend has no dispatch enum — it tracks POS fulfillment as
+// NEW → PREPARING → READY → COLLECTED, advanced ONLY via the
+// /start /ready /collected transition endpoints. Map the dispatch pipeline
+// onto that real model (there is no PATCH /pos/orders/:id/status route).
+type FulfillmentStatus = 'NEW' | 'PREPARING' | 'READY' | 'COLLECTED';
+const FULFILL_TO_DISPATCH: Record<FulfillmentStatus, DispatchStatus> = {
+  NEW: 'PENDING', PREPARING: 'PICKED', READY: 'PACKED', COLLECTED: 'DISPATCHED',
+};
+// The transition endpoint to POST to reach each dispatch status.
+const ADVANCE_ENDPOINT: Partial<Record<DispatchStatus, 'start' | 'ready' | 'collected'>> = {
+  PICKED: 'start', PACKED: 'ready', DISPATCHED: 'collected',
+};
+
 const fmt = (n: number) => `TZS ${Math.round(n).toLocaleString()}`;
 const fmtDate = (d?: string) => d ? new Date(d).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '-';
 
@@ -91,8 +104,14 @@ export default function MobileDispatch() {
     setLoading(true);
     (async () => {
       try {
-        const list = await api<DispatchOrder[]>('/pos/orders?limit=200');
-        if (!cancelled) setOrders(Array.isArray(list) ? list : []);
+        // Orders carry `fulfillmentStatus` (NEW…COLLECTED) — map it onto the
+        // dispatch pipeline so the board/filters populate correctly.
+        const list = await api<(Omit<DispatchOrder, 'status'> & { fulfillmentStatus?: FulfillmentStatus })[]>('/pos/orders?limit=200');
+        const mapped: DispatchOrder[] = (Array.isArray(list) ? list : []).map((o) => ({
+          ...o,
+          status: FULFILL_TO_DISPATCH[o.fulfillmentStatus ?? 'NEW'] ?? 'PENDING',
+        }));
+        if (!cancelled) setOrders(mapped);
       } catch (e) {
         if (!cancelled) setErr((e as Error).message);
       } finally {
@@ -150,13 +169,15 @@ export default function MobileDispatch() {
 
   // ── Update order status ────────────────────────────────────────────────────
   const doStatusUpdate = async (order: DispatchOrder, newStatus: DispatchStatus) => {
+    const endpoint = ADVANCE_ENDPOINT[newStatus];
+    if (!endpoint) { setErr(`Cannot move to ${newStatus}`); return; }
     setUpdating(true);
     setErr(null);
     try {
-      await api(`/pos/orders/${order.id}/status`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status: newStatus }),
-      });
+      // Advance fulfillment via the real transition endpoint (there is no
+      // PATCH /pos/orders/:id/status route). /start→PREPARING (Picked),
+      // /ready→READY (Packed), /collected→COLLECTED (Dispatched).
+      await api(`/pos/orders/${order.id}/${endpoint}`, { method: 'POST' });
 
       // Optimistically update local state
       setOrders((prev) =>

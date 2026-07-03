@@ -3,8 +3,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Loader2, Heart, PackageSearch, CreditCard, Star, Award } from 'lucide-react';
+import { API_BASE } from '@/lib/api';
 
-const API = (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? 'http://localhost:3000/api';
+// Use the SAME base as the rest of the app (VITE_API_BASE → '/api' in prod).
+// Previously this read a different var (VITE_API_URL) and defaulted to
+// localhost:3000, so collections/brands/track pages called localhost in
+// production while everything else used VITE_API_BASE.
+const API = API_BASE;
 
 interface Product {
   id: string;
