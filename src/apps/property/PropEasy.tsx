@@ -1302,43 +1302,126 @@ const demoInsights: Insight[] = [
 
 /* ────────────────────────────── Tokens View ────────────────────────────── */
 
+interface PosysToken {
+  id: string;
+  code: string;
+  tenantId: string;
+  amount: number | string;
+  currency?: string;
+  status: 'ACTIVE' | 'USED' | 'EXPIRED' | 'CANCELLED';
+  expiresAt: string;
+  createdAt?: string;
+}
+
 function TokensView({ tenants }: { tenants: ApiTenant[] }) {
-  // Single demo active token + a short history. Real wiring fetches
-  // /api/v1/payments/token/* and ticks the countdown via setInterval.
-  const featured = tenants[0];
-  const code = '842901';
-  const expiresInSec = 28 * 60 + 43;
+  // Fully backed by GET/POST /property/posys/tokens. Issue mints a real token
+  // for a tenant; the countdown ticks off the row's expiresAt.
+  const [tokens, setTokens] = useState<PosysToken[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [issuing, setIssuing] = useState(false);
+  const [selTenant, setSelTenant] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const [, setTick] = useState(0);
+
+  const load = async () => {
+    try {
+      const list = await api<PosysToken[]>('/property/posys/tokens');
+      setTokens(Array.isArray(list) ? list : []);
+      setErr(null);
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { load(); }, []);
+  // Tick every second so the active token's countdown updates.
+  useEffect(() => { const t = setInterval(() => setTick((x) => x + 1), 1000); return () => clearInterval(t); }, []);
+
+  const tenantName = (id: string) => tenants.find((t) => t.id === id)?.name ?? 'Tenant';
+  const now = Date.now();
+  const active = tokens.find((t) => t.status === 'ACTIVE' && new Date(t.expiresAt).getTime() > now);
+  const secsLeft = active ? Math.max(0, Math.round((new Date(active.expiresAt).getTime() - now) / 1000)) : 0;
+
+  const issue = async () => {
+    const tid = selTenant || tenants[0]?.id;
+    const tenant = tenants.find((t) => t.id === tid);
+    if (!tenant) { setErr('Select a tenant first'); return; }
+    setIssuing(true); setErr(null);
+    try {
+      await api('/property/posys/tokens', {
+        method: 'POST',
+        body: JSON.stringify({ tenantId: tenant.id, unitId: tenant.unitId, amount: tenant.rent ?? 0 }),
+      });
+      await load();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setIssuing(false);
+    }
+  };
+
   return (
     <div className="px-6 pb-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <div>
-        {featured && (
+      <div className="space-y-3">
+        {active ? (
           <TokenDisplay
-            code={code}
-            expiresInSec={expiresInSec}
-            amount={featured.rent ?? 0}
-            tenantName={featured.name}
-            unitLabel={featured.unitKind ?? 'Unit'}
-            onCopy={() => navigator.clipboard?.writeText(code).catch(() => {})}
+            code={active.code}
+            expiresInSec={secsLeft}
+            amount={Number(active.amount) || 0}
+            tenantName={tenantName(active.tenantId)}
+            unitLabel={tenants.find((t) => t.id === active.tenantId)?.unitKind ?? 'Unit'}
+            onCopy={() => navigator.clipboard?.writeText(active.code).catch(() => {})}
           />
+        ) : (
+          <div className="rounded-2xl bg-white border border-slate-200 p-6 text-center shadow-sm">
+            <p className="text-sm text-slate-700">{loading ? 'Loading tokens…' : 'No active token. Issue one for a tenant to collect rent.'}</p>
+          </div>
         )}
+        <div className="rounded-2xl bg-white border border-slate-200 p-4 shadow-sm space-y-2">
+          <label className="text-xs font-bold text-slate-900">Issue a payment token</label>
+          <select
+            value={selTenant || tenants[0]?.id || ''}
+            onChange={(e) => setSelTenant(e.target.value)}
+            className="w-full h-9 px-2 rounded-lg border border-slate-200 text-sm text-slate-900"
+          >
+            {tenants.map((t) => (
+              <option key={t.id} value={t.id}>{t.name} · {t.unitKind ?? 'Unit'} · TZS {(t.rent ?? 0).toLocaleString()}</option>
+            ))}
+          </select>
+          <button
+            onClick={issue}
+            disabled={issuing || tenants.length === 0}
+            className="w-full h-9 rounded-lg bg-slate-900 text-white text-sm font-bold disabled:opacity-50"
+          >
+            {issuing ? 'Issuing…' : 'Issue token'}
+          </button>
+          {err && <p className="text-[11px] text-rose-600">{err}</p>}
+        </div>
       </div>
       <div className="rounded-2xl bg-white border border-slate-200 p-5 shadow-sm">
         <h3 className="text-sm font-bold text-slate-900 mb-1">Recent tokens</h3>
-        <p className="text-xs text-slate-700 mb-3">Last issued · auto-expire 30 min after issue</p>
-        <ul className="space-y-1.5">
-          {tenants.slice(0, 8).map((t, i) => (
-            <li key={t.id} className="flex items-center justify-between border-b border-slate-100 last:border-0 pb-1.5">
-              <div className="min-w-0">
-                <div className="font-mono font-extrabold text-sm text-slate-900">{(123456 + i * 71).toString().slice(-6)}</div>
-                <div className="text-[11px] text-slate-700 truncate">{t.name} · {t.unitKind ?? 'Unit'}</div>
-              </div>
-              <div className="text-right">
-                <div className="text-xs font-bold text-slate-900">TZS {(t.rent ?? 0).toLocaleString()}</div>
-                <div className="text-[10px] text-slate-700">{i === 0 ? 'Active' : i < 3 ? 'Used' : 'Expired'}</div>
-              </div>
-            </li>
-          ))}
-        </ul>
+        <p className="text-xs text-slate-700 mb-3">Auto-expire 30 min after issue</p>
+        {tokens.length === 0 ? (
+          <p className="text-xs text-slate-500">{loading ? 'Loading…' : 'No tokens issued yet.'}</p>
+        ) : (
+          <ul className="space-y-1.5">
+            {tokens.slice(0, 12).map((t) => (
+              <li key={t.id} className="flex items-center justify-between border-b border-slate-100 last:border-0 pb-1.5">
+                <div className="min-w-0">
+                  <div className="font-mono font-extrabold text-sm text-slate-900">{t.code}</div>
+                  <div className="text-[11px] text-slate-700 truncate">{tenantName(t.tenantId)}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-xs font-bold text-slate-900">TZS {(Number(t.amount) || 0).toLocaleString()}</div>
+                  <div className={`text-[10px] font-medium ${t.status === 'ACTIVE' ? 'text-emerald-600' : t.status === 'USED' ? 'text-slate-700' : 'text-slate-400'}`}>
+                    {t.status === 'ACTIVE' && new Date(t.expiresAt).getTime() <= now ? 'EXPIRED' : t.status}
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );
