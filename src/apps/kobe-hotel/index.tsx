@@ -2262,9 +2262,32 @@ export default function KobeHotel() {
             <QRCustomerPortal
               hotel={hotelData}
               tableId="table-1"
-              onPlaceOrder={() => {}}
-              onCallWaiter={() => {}}
-              onRequestService={() => {}}
+              onPlaceOrder={(order) => {
+                void api('/hotel/orders', {
+                  method: 'POST',
+                  body: JSON.stringify({
+                    roomNumber: order.roomId || 'table-1',
+                    locationType: order.roomId ? 'room' : 'table',
+                    guestName: order.guestName,
+                    items: order.items.map((i) => ({
+                      name: i.name, qty: i.quantity, price: i.unitPrice,
+                      station: i.station === 'bar' ? 'bar' : 'kitchen',
+                    })),
+                  }),
+                }).catch(() => {});
+              }}
+              onCallWaiter={(tid) => {
+                void api('/hotel/service-requests', {
+                  method: 'POST',
+                  body: JSON.stringify({ roomNumber: tid || 'table-1', kind: 'WAITER', note: 'Guest called waiter' }),
+                }).catch(() => {});
+              }}
+              onRequestService={(roomId, serviceType) => {
+                void api('/hotel/service-requests', {
+                  method: 'POST',
+                  body: JSON.stringify({ roomNumber: roomId || 'table-1', kind: serviceType }),
+                }).catch(() => {});
+              }}
             />
           );
         })()}
