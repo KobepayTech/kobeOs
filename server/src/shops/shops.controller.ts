@@ -1,17 +1,22 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { IsBoolean, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ShopsService } from './shops.service';
 
+// NOTE: the global ValidationPipe runs with `whitelist: true`, which STRIPS
+// any property lacking a class-validator decorator. Without these, every field
+// was silently removed and shop create/update failed with "Shop name is
+// required". Keep every field decorated.
 class UpsertShopDto {
-  name?: string;
-  address?: string;
-  phone?: string;
-  region?: string;
-  openingFloat?: number;
-  currency?: string;
-  isDefault?: boolean;
-  active?: boolean;
+  @IsOptional() @IsString() @MaxLength(120) name?: string;
+  @IsOptional() @IsString() @MaxLength(200) address?: string;
+  @IsOptional() @IsString() @MaxLength(40) phone?: string;
+  @IsOptional() @IsString() @MaxLength(80) region?: string;
+  @IsOptional() @IsNumber() @Min(0) openingFloat?: number;
+  @IsOptional() @IsString() @MaxLength(8) currency?: string;
+  @IsOptional() @IsBoolean() isDefault?: boolean;
+  @IsOptional() @IsBoolean() active?: boolean;
 }
 
 /**
