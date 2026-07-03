@@ -75,6 +75,17 @@ export class StoreSettingsController {
   }
 
   /**
+   * Onboarding hook — "install → sign in → live". Provisions the shop's
+   * subdomain and (self-hosted) its own tunnel, returning the cloudflared run
+   * token so the desktop app can persist it and start the tunnel automatically.
+   * POST /api/store-settings/provision
+   */
+  @Post('provision')
+  provision(@CurrentUser('id') uid: string) {
+    return this.publishSvc.provisionShop(uid);
+  }
+
+  /**
    * Unpublish — stops the tunnel and removes the DNS record.
    * DELETE /api/store-settings/publish
    */

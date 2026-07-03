@@ -134,6 +134,14 @@ contextBridge.exposeInMainWorld('kobeOS', {
     },
   },
 
+  // Cloudflare Tunnel — persist a per-shop run token and (re)start cloudflared.
+  // Used by the onboarding/publish flow: after the backend provisions the
+  // shop's tunnel, the renderer passes the run token here so the desktop starts
+  // the tunnel automatically (no manual `cloudflared` setup by the shop owner).
+  cloudflared: {
+    persistToken: (token) => ipcRenderer.invoke('cloudflared:persist-token', token),
+  },
+
   updater: {
     check:    () => ipcRenderer.invoke('updater-check'),
     download: () => ipcRenderer.invoke('updater-download'),

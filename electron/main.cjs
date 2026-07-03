@@ -161,6 +161,11 @@ function startBackend(dbConfig) {
     // sees both NODE_ENV=production and DB_SYNCHRONIZE=true. Schema is
     // applied via migrations on boot (migrationsRun=true when !isDev).
     KOBEOS_DESKTOP: 'true',   // signals embedded desktop mode to bypass prod guards
+    // Per-shop model: each PC runs its OWN local DB + serves its OWN PWA over
+    // its OWN Cloudflare Tunnel on {slug}.kobeapptz.com. self-hosted publishing
+    // creates a dedicated tunnel per shop (vs the shared wildcard tunnel), so
+    // shops are isolated from each other. Override with KOBEOS_DEPLOYMENT.
+    KOBEOS_DEPLOYMENT: process.env.KOBEOS_DEPLOYMENT || 'self-hosted',
     // Path to the bundled resources directory so PublishService can resolve
     // the cloudflared binary that's shipped alongside the installer rather
     // than depending on the user having it on PATH.

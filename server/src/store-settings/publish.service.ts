@@ -110,6 +110,36 @@ export class PublishService implements OnModuleDestroy {
   }
 
   /**
+   * Provision this shop's public presence and hand the installer everything it
+   * needs to go live: its subdomain + (self-hosted) the cloudflared run token.
+   *
+   * This is the "install → sign in → live" onboarding hook. It publishes (which
+   * in self-hosted mode creates the shop's OWN tunnel + DNS + ingress), then
+   * returns the run token so the desktop app can persist it and start
+   * cloudflared automatically — the shop owner never touches Cloudflare.
+   *
+   * In hosted mode there is no per-shop token (the shared wildcard tunnel
+   * handles routing); tunnelToken is null and the DB flip is enough.
+   */
+  async provisionShop(ownerId: string): Promise<{
+    subdomain: string | null;
+    publishedUrl: string | null;
+    tunnelToken: string | null;
+    mode: 'hosted' | 'self-hosted';
+    ingressPort: number;
+  }> {
+    const settings = await this.publish(ownerId);
+    return {
+      subdomain: settings.domainSlug ?? null,
+      publishedUrl: settings.publishedUrl ?? null,
+      // Only self-hosted installs get a per-shop run token to start locally.
+      tunnelToken: this.deploymentMode === 'self-hosted' ? (settings.cfToken ?? null) : null,
+      mode: this.deploymentMode,
+      ingressPort: this.localPort,
+    };
+  }
+
+  /**
    * Hosted mode — zero Cloudflare calls. The wildcard CNAME + shared
    * tunnel were created once at bootstrap; making a store reachable is
    * just `isPublished=true`.

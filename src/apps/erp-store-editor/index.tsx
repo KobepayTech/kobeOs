@@ -788,13 +788,27 @@ export default function StoreEditor() {
         }
       }
 
-      const updated = await api<StoreSettings>('/store-settings/publish', { method: 'POST' });
+      // Provision = publish + (self-hosted) mint this shop's OWN tunnel token.
+      const prov = await api<{
+        subdomain: string | null;
+        publishedUrl: string | null;
+        tunnelToken: string | null;
+        mode: 'hosted' | 'self-hosted';
+        ingressPort: number;
+      }>('/store-settings/provision', { method: 'POST' });
       setSettings((prev) => ({
         ...prev,
-        isPublished: updated.isPublished,
-        publishedUrl: updated.publishedUrl,
-        publishedAt: updated.publishedAt,
+        isPublished: true,
+        publishedUrl: prov.publishedUrl ?? prev.publishedUrl,
+        publishedAt: new Date().toISOString(),
       }));
+      // Desktop self-hosted install: hand the per-shop run token to Electron so
+      // it persists it and starts cloudflared automatically — the shop owner
+      // never touches Cloudflare. No-op in the hosted/web build.
+      const bridge = (window as unknown as { kobeOS?: { cloudflared?: { persistToken?: (t: string) => Promise<unknown> } } }).kobeOS;
+      if (prov.mode === 'self-hosted' && prov.tunnelToken && bridge?.cloudflared?.persistToken) {
+        try { await bridge.cloudflared.persistToken(prov.tunnelToken); } catch { /* non-fatal — retry from System Settings */ }
+      }
     } catch (e) {
       setPublishError((e as Error).message ?? 'Publish failed');
     } finally {
