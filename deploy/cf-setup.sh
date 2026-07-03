@@ -169,12 +169,23 @@ upsert_cname() {
   local body
   body=$(jq -nc --arg n "$name" --arg c "$CFARGO" '{type:"CNAME", name:$n, content:$c, proxied:true, ttl:1}')
   if [ "$APPLY" -eq 1 ] && [ -n "$TUNNEL_ID" ]; then
+    # Check the write's exit code — do NOT print success when it failed (a
+    # DNS:Read-only token returns 10000 Authentication error on writes, and we
+    # must surface that instead of a misleading "Updated").
     if [ -n "$rid" ]; then
-      cf PUT "/zones/${ZONE_ID}/dns_records/${rid}" "$body" >/dev/null
-      ok "Updated ${name} (${rtype}→CNAME) → ${CFARGO}"
+      if cf PUT "/zones/${ZONE_ID}/dns_records/${rid}" "$body" >/dev/null; then
+        ok "Updated ${name} (${rtype}→CNAME) → ${CFARGO}"
+      else
+        bad "FAILED to update ${name} — does the token have Zone → DNS → Edit (not Read)?"
+        DNS_WRITE_FAILED=1
+      fi
     else
-      cf POST "/zones/${ZONE_ID}/dns_records" "$body" >/dev/null
-      ok "Created ${name} CNAME → ${CFARGO}"
+      if cf POST "/zones/${ZONE_ID}/dns_records" "$body" >/dev/null; then
+        ok "Created ${name} CNAME → ${CFARGO}"
+      else
+        bad "FAILED to create ${name} — does the token have Zone → DNS → Edit (not Read)?"
+        DNS_WRITE_FAILED=1
+      fi
     fi
   else
     if [ -n "$rid" ]; then
@@ -214,10 +225,20 @@ if [ "$APPLY" -eq 1 ] && [ -n "$TUNNEL_ID" ]; then
   else
     ING=$(jq -nc --arg svc "$INGRESS_URL" '{config:{ingress:[{service:$svc}]}}')
   fi
-  cf PUT "/accounts/${ACCOUNT_ID}/cfd_tunnel/${TUNNEL_ID}/configurations" "$ING" >/dev/null
-  ok "Ingress configured"
+  if cf PUT "/accounts/${ACCOUNT_ID}/cfd_tunnel/${TUNNEL_ID}/configurations" "$ING" >/dev/null; then
+    ok "Ingress configured"
+  else
+    bad "FAILED to set ingress — does the token have Account → Cloudflare Tunnel → Edit?"
+  fi
 else
   warn "Would set catch-all ingress → ${INGRESS_URL}${NO_TLS:+ [noTLSVerify]}"
+fi
+
+# Stop before claiming success if any DNS write failed (e.g. DNS:Read token).
+if [ "$APPLY" -eq 1 ] && [ "${DNS_WRITE_FAILED:-0}" -eq 1 ]; then
+  printf "\n"
+  die "One or more DNS records could not be written. Give the API token \
+Zone → DNS → Edit (you likely set it to Read) on ${CF_DOMAIN}, then re-run."
 fi
 
 # ── 7. run token + next steps ────────────────────────────────────────────────
