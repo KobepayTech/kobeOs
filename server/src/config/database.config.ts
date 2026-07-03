@@ -7,8 +7,18 @@ export const databaseConfig: TypeOrmModuleAsyncOptions = {
   inject: [ConfigService],
   useFactory: (config: ConfigService) => {
     const isDev = config.get('NODE_ENV', 'development') === 'development';
-    const synchronize = isDev && config.get('DB_SYNCHRONIZE', 'true') === 'true';
-    const migrationsRun = !isDev || config.get('DB_MIGRATIONS_RUN', 'false') === 'true';
+    // Desktop / per-shop installs (the Electron app sets KOBEOS_DESKTOP=true)
+    // run a LOCAL single-tenant database that this exact app version owns.
+    // synchronize auto-builds the full schema from the entities on every boot —
+    // no migration maintenance, and the backend can never fail to start because
+    // a table is missing (the cause of "Backend unreachable" on the desktop:
+    // NODE_ENV=production ran migrations-only, and any gap crashed boot).
+    // Real server deploys leave KOBEOS_DESKTOP unset and keep migrations.
+    const isDesktop = config.get('KOBEOS_DESKTOP') === 'true';
+    const synchronize = isDesktop || (isDev && config.get('DB_SYNCHRONIZE', 'true') === 'true');
+    // When synchronize owns the schema, don't also run migrations (they'd race
+    // the auto-schema and can conflict). Otherwise run them on non-dev / when asked.
+    const migrationsRun = !synchronize && (!isDev || config.get('DB_MIGRATIONS_RUN', 'false') === 'true');
     return {
       type: 'postgres',
       host: config.get('DB_HOST', 'localhost'),
