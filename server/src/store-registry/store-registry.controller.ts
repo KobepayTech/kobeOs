@@ -1,17 +1,54 @@
 import {
-  Body, Controller, Delete, Get, Param, Post, Req,
-  UseGuards,
+  Body, Controller, Delete, ForbiddenException, Get, Headers, Param, Post, Req,
+  UnauthorizedException, UseGuards,
 } from '@nestjs/common';
 import { Request } from 'express';
+import { ConfigService } from '@nestjs/config';
+import { IsInt, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { Public } from '../common/public.decorator';
 import { StoreRegistryService } from './store-registry.service';
 import { ClaimSubdomainDto, HeartbeatDto } from './dto/store-registry.dto';
 
+// Body for central tunnel provisioning. Decorated so the whitelist:true
+// ValidationPipe keeps the fields (see the shops/eod DTO fix).
+class ProvisionTunnelDto {
+  @IsString() @MaxLength(120) ownerId!: string;
+  @IsOptional() @IsString() @MaxLength(120) storeName?: string;
+  @IsOptional() @IsString() @MaxLength(63) slug?: string;
+  @IsOptional() @IsInt() @Min(1) localPort?: number;
+}
+
 @Controller('store-registry')
 export class StoreRegistryController {
-  constructor(private readonly svc: StoreRegistryService) {}
+  constructor(
+    private readonly svc: StoreRegistryService,
+    private readonly config: ConfigService,
+  ) {}
+
+  /**
+   * CENTRAL token-minting endpoint. A shop installer calls this with the
+   * shared provisioning secret to receive its subdomain + cloudflared run
+   * token — so CF_API_TOKEN stays on the central host and never ships in the
+   * installer. Disabled unless KOBEOS_PROVISIONING_SECRET is set on the host.
+   * POST /api/store-registry/provision-tunnel   (header: x-provisioning-secret)
+   */
+  @Public()
+  @Post('provision-tunnel')
+  provisionTunnel(
+    @Body() dto: ProvisionTunnelDto,
+    @Headers('x-provisioning-secret') secret?: string,
+  ) {
+    const expected = this.config.get<string>('KOBEOS_PROVISIONING_SECRET');
+    if (!expected) {
+      throw new ForbiddenException('Central provisioning is disabled (KOBEOS_PROVISIONING_SECRET not set on this host).');
+    }
+    if (!secret || secret !== expected) {
+      throw new UnauthorizedException('Invalid provisioning secret.');
+    }
+    return this.svc.provisionTunnel(dto);
+  }
 
   /**
    * Check if a slug is available — public, no auth.

@@ -119,6 +119,75 @@ export class StoreRegistryService {
   }
 
   /**
+   * CENTRAL tunnel provisioning — the token-minting service.
+   *
+   * Runs on your always-on central host (which alone holds CF_API_TOKEN). A
+   * shop installer calls this over the provisioning secret, gets back its
+   * subdomain + a cloudflared run token, and starts the tunnel locally. The
+   * Cloudflare API token therefore NEVER ships inside the installer.
+   *
+   * Creates the shop's OWN tunnel (isolated per shop) + CNAME → tunnel +
+   * catch-all ingress → the shop's local port, records the allocation, and
+   * returns the run token (not persisted — the shop keeps it locally).
+   */
+  async provisionTunnel(input: {
+    ownerId: string;
+    storeName?: string;
+    slug?: string;
+    localPort?: number;
+  }): Promise<{ subdomain: string; tunnelToken: string; ingressPort: number; publishedUrl: string }> {
+    if (!this.cf.isCloudflareConfigured()) {
+      throw new BadRequestException(
+        'Central provisioning is not configured: set CF_API_TOKEN (+ CF_ACCOUNT_ID / CF_ZONE_ID) on the provisioning host.',
+      );
+    }
+    const domain = this.config.get<string>('CF_DOMAIN') ?? 'kobeapptz.com';
+    const localPort = input.localPort ?? 3000;
+    const slug = this.slugify(input.slug || input.storeName || '');
+    if (!slug) throw new BadRequestException('A slug or storeName is required.');
+    if (RESERVED.has(slug)) throw new BadRequestException(`"${slug}" is a reserved subdomain`);
+
+    // Enforce global uniqueness — another owner can't take a claimed slug.
+    const existing = await this.repo.findOne({ where: { slug } });
+    if (existing && existing.ownerId !== input.ownerId) {
+      throw new ConflictException(`The subdomain "${slug}" is already taken`);
+    }
+
+    // Mint the shop's own tunnel + DNS + ingress via the Cloudflare API.
+    const { tunnelId, tunnelToken } = await this.cf.createTunnel(slug);
+    const cfRecordId = await this.cf.upsertTunnelCname(slug, tunnelId);
+    await this.cf.configureTunnelIngress(tunnelId, slug, localPort);
+
+    // Record the allocation (the run token is NOT stored — the shop holds it).
+    const reg = existing ?? this.repo.create({ slug, ownerId: input.ownerId });
+    reg.serverIp = 'tunnel';
+    reg.serverPort = localPort;
+    reg.cfRecordId = cfRecordId;
+    reg.status = 'active';
+    reg.storeName = input.storeName ?? reg.storeName ?? slug;
+    reg.lastSeenAt = new Date();
+    await this.repo.save(reg);
+
+    this.logger.log(`Provisioned tunnel for ${slug}.${domain} (owner ${input.ownerId})`);
+    return {
+      subdomain: slug,
+      publishedUrl: `https://${slug}.${domain}`,
+      tunnelToken,
+      ingressPort: localPort,
+    };
+  }
+
+  /** Normalise a store name / slug into a valid DNS label. */
+  private slugify(raw: string): string {
+    return raw
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 63);
+  }
+
+  /**
    * Unpublish a store — deletes the DNS record and marks the registration inactive.
    */
   async unpublish(ownerId: string, slug: string): Promise<void> {

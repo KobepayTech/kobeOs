@@ -128,6 +128,34 @@ export class PublishService implements OnModuleDestroy {
     mode: 'hosted' | 'self-hosted';
     ingressPort: number;
   }> {
+    // If a central provisioning host is configured, delegate tunnel creation to
+    // it (it holds CF_API_TOKEN, not this installer). The shop still keeps its
+    // data + server local — only the tunnel token is minted centrally.
+    const centralUrl = this.config.get<string>('KOBEOS_PROVISIONING_URL');
+    const centralSecret = this.config.get<string>('KOBEOS_PROVISIONING_SECRET');
+    if (this.deploymentMode === 'self-hosted' && centralUrl && centralSecret && !this.cf.isCloudflareConfigured()) {
+      const s = await this.repo.findOne({ where: { ownerId } });
+      if (!s?.domainSlug) throw new BadRequestException('Set a store name before going live.');
+      const central = await this.provisionViaCentral(centralUrl, centralSecret, {
+        ownerId,
+        slug: s.domainSlug,
+        storeName: s.storeName,
+        localPort: this.localPort,
+      });
+      s.isPublished = true;
+      s.publishedUrl = central.publishedUrl ?? `https://${s.domainSlug}.kobeapptz.com`;
+      s.publishedAt = new Date();
+      s.cfToken = central.tunnelToken ?? null;
+      await this.repo.save(s);
+      return {
+        subdomain: s.domainSlug,
+        publishedUrl: s.publishedUrl,
+        tunnelToken: central.tunnelToken ?? null,
+        mode: 'self-hosted',
+        ingressPort: this.localPort,
+      };
+    }
+
     const settings = await this.publish(ownerId);
     return {
       subdomain: settings.domainSlug ?? null,
@@ -137,6 +165,50 @@ export class PublishService implements OnModuleDestroy {
       mode: this.deploymentMode,
       ingressPort: this.localPort,
     };
+  }
+
+  /** POST to the central provisioning host to mint this shop's tunnel token. */
+  private provisionViaCentral(
+    baseUrl: string,
+    secret: string,
+    body: { ownerId: string; slug: string; storeName?: string; localPort: number },
+  ): Promise<{ publishedUrl: string | null; tunnelToken: string | null }> {
+    const url = new URL('/api/store-registry/provision-tunnel', baseUrl);
+    const payload = JSON.stringify(body);
+    return new Promise((resolve, reject) => {
+      const req = https.request(
+        url,
+        {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'content-length': Buffer.byteLength(payload),
+            'x-provisioning-secret': secret,
+          },
+          timeout: 30_000,
+        },
+        (res) => {
+          let data = '';
+          res.on('data', (c) => (data += c));
+          res.on('end', () => {
+            try {
+              const json = JSON.parse(data || '{}');
+              if ((res.statusCode ?? 500) >= 400) {
+                reject(new InternalServerErrorException(`Central provisioning failed: ${json.message ?? res.statusCode}`));
+                return;
+              }
+              resolve({ publishedUrl: json.publishedUrl ?? null, tunnelToken: json.tunnelToken ?? null });
+            } catch (e) {
+              reject(new InternalServerErrorException(`Central provisioning returned invalid JSON: ${(e as Error).message}`));
+            }
+          });
+        },
+      );
+      req.on('error', (e) => reject(new InternalServerErrorException(`Central provisioning unreachable: ${e.message}`)));
+      req.on('timeout', () => { req.destroy(); reject(new InternalServerErrorException('Central provisioning timed out')); });
+      req.write(payload);
+      req.end();
+    });
   }
 
   /**
