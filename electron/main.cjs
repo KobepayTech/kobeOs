@@ -246,7 +246,12 @@ function startCloudflared() {
     return;
   }
   const bin = resolveCloudflaredBinary();
-  cloudflaredProcess = spawn(bin, ['tunnel', '--no-autoupdate', 'run', '--token', token], {
+  // `--protocol http2` forces the tunnel over TCP/443 instead of the default
+  // QUIC (UDP 7844), which home/office firewalls routinely block — the usual
+  // cause of a tunnel that starts but shows "0 active connections". Overridable
+  // via CLOUDFLARED_PROTOCOL (auto | quic | http2) for networks where QUIC works.
+  const protocol = process.env.CLOUDFLARED_PROTOCOL || 'http2';
+  cloudflaredProcess = spawn(bin, ['tunnel', '--no-autoupdate', '--protocol', protocol, 'run', '--token', token], {
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: false,
   });

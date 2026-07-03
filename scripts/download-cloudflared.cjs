@@ -18,7 +18,7 @@ const fs   = require('fs');
 const path = require('path');
 
 const OUT_DIR = path.join(__dirname, '..', 'build', 'cloudflared');
-const VERSION = '2026.5.2';
+const VERSION = '2026.6.1';
 
 const BINARIES = [
   {
