@@ -96,10 +96,19 @@ cf() {
 }
 
 # ── 1. verify token ──────────────────────────────────────────────────────────
+# /user/tokens/verify needs the "User → API Tokens → Read" permission, which a
+# correctly least-privileged Tunnel+DNS token does NOT include — so a failure
+# here does NOT mean the token is bad. Treat it as a soft check; the real
+# validation is the zone + account resolution below (those use the scopes we
+# actually need). This lets scoped tokens (Tunnel:Edit, DNS:Edit, Zone:Read)
+# work without also granting user-level read.
 note "Verifying API token"
-VERIFY=$(cf GET "/user/tokens/verify") || die "Token verification failed — check CF_API_TOKEN"
-status=$(echo "$VERIFY" | jq -r '.status // empty')
-[ "$status" = "active" ] && ok "Token is active" || die "Token status: ${status:-unknown}"
+if VERIFY=$(cf GET "/user/tokens/verify" 2>/dev/null); then
+  status=$(echo "$VERIFY" | jq -r '.status // empty')
+  [ "$status" = "active" ] && ok "Token is active" || warn "Token status: ${status:-unknown} (continuing)"
+else
+  warn "Self-verify unavailable (token lacks User→API Tokens→Read) — checking real access next."
+fi
 
 # ── 2. resolve account id ────────────────────────────────────────────────────
 note "Resolving account"
