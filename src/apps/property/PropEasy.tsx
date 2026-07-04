@@ -192,7 +192,7 @@ export default function PropEasyApp() {
             <ScreeningView tenant={selectedTenant} onBack={() => setView('tenant-detail')} />
           )}
           {view === 'properties'  && <PropertiesView properties={properties} />}
-          {view === 'financials'  && <EmptyState title="Financials" subtitle="Rent roll, expenses, P&L, exports." />}
+          {view === 'financials'  && <FinancialsView tenants={tenants} payments={payments} />}
           {view === 'maintenance' && <EmptyState title="Maintenance" subtitle="Work orders across every unit." />}
           {view === 'documents'   && <EmptyState title="Documents" subtitle="Leases, IDs, insurance, inspections." />}
           {view === 'settings'    && <EmptyState title="Settings" subtitle="Reminders, late-fee policy, integrations." />}
@@ -1299,6 +1299,53 @@ const demoInsights: Insight[] = [
     description: 'Block A utility account · TZS 480,000.',
     actionLabel: 'Mark paid' },
 ];
+
+/* ────────────────────────────── Financials View ────────────────────────── */
+
+function FinancialsView({ tenants, payments }: { tenants: ApiTenant[]; payments: ApiPayment[] }) {
+  // Backed by the shell's GET /property/payments + tenants (rent roll).
+  const collected = payments.filter((p) => p.status === 'Paid').reduce((s, p) => s + (p.amount || 0), 0);
+  const outstanding = payments.filter((p) => p.status && p.status !== 'Paid').reduce((s, p) => s + (p.amount || 0), 0);
+  const rentRoll = tenants.reduce((s, t) => s + (t.rent ?? 0), 0);
+  const tName = (id: string) => tenants.find((t) => t.id === id)?.name ?? 'Tenant';
+  const recent = [...payments].sort((a, b) => (b.paidAt ?? '').localeCompare(a.paidAt ?? '')).slice(0, 12);
+  const Stat = ({ label, value, tone }: { label: string; value: number; tone: string }) => (
+    <div className="rounded-2xl bg-white border border-slate-200 p-4 shadow-sm">
+      <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">{label}</div>
+      <div className={`text-xl font-extrabold mt-1 ${tone}`}>TZS {value.toLocaleString()}</div>
+    </div>
+  );
+  return (
+    <div className="px-6 pb-6 space-y-4">
+      <div className="grid grid-cols-3 gap-3">
+        <Stat label="Collected" value={collected} tone="text-emerald-600" />
+        <Stat label="Outstanding" value={outstanding} tone="text-rose-600" />
+        <Stat label="Monthly rent roll" value={rentRoll} tone="text-slate-900" />
+      </div>
+      <div className="rounded-2xl bg-white border border-slate-200 p-5 shadow-sm">
+        <h3 className="text-sm font-bold text-slate-900 mb-3">Recent payments</h3>
+        {recent.length === 0 ? (
+          <p className="text-xs text-slate-500">No payments recorded yet.</p>
+        ) : (
+          <ul className="space-y-1.5">
+            {recent.map((p) => (
+              <li key={p.id} className="flex items-center justify-between border-b border-slate-100 last:border-0 pb-1.5">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-slate-900 truncate">{tName(p.tenantId)}</div>
+                  <div className="text-[11px] text-slate-500">{p.paidAt ? new Date(p.paidAt).toLocaleDateString() : '—'} · {p.method ?? 'cash'}</div>
+                </div>
+                <div className="text-right">
+                  <div className="text-sm font-bold text-slate-900">TZS {(p.amount || 0).toLocaleString()}</div>
+                  <div className={`text-[10px] font-medium ${p.status === 'Paid' ? 'text-emerald-600' : p.status === 'Overdue' ? 'text-rose-600' : 'text-amber-600'}`}>{p.status ?? 'Pending'}</div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
 
 /* ────────────────────────────── Properties View ────────────────────────── */
 
