@@ -146,7 +146,7 @@ interface CartItem extends MenuItem {
   qty: number;
 }
 interface StaffMember {
-  id: number;
+  id: number | string;
   name: string;
   role: string;
   status: 'On Duty' | 'Off' | 'On Leave';
@@ -155,7 +155,7 @@ interface StaffMember {
   sales?: number;
 }
 interface InventoryItem {
-  id: number;
+  id: number | string;
   name: string;
   category: string;
   quantity: number;
@@ -388,8 +388,39 @@ function statusBadge(status: RoomStatus | string) {
 export default function KobeHotel() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [staff, setStaff] = useState<StaffMember[]>(STAFF);
-  const [inventory] = useState<InventoryItem[]>(INVENTORY);
+  const [inventory, setInventory] = useState<InventoryItem[]>(INVENTORY);
   const [darkMode, setDarkMode] = useState(true);
+
+  // Replace the seed staff/inventory with the owner's real records from the
+  // backend (falls back to the seed when signed out / empty so the demo shows).
+  useEffect(() => {
+    (async () => {
+      try {
+        const s = await api<Array<{ id: string; name: string; role: string; phone: string; status: string }>>('/hotel/staff');
+        if (Array.isArray(s) && s.length) {
+          setStaff(s.map((x) => ({
+            id: x.id, name: x.name, role: x.role, phone: x.phone ?? '',
+            status: x.status === 'off' ? 'Off' : x.status === 'suspended' ? 'On Leave' : 'On Duty',
+            shift: '',
+          })));
+        }
+      } catch { /* keep seed */ }
+      try {
+        const inv = await api<Array<{ id: string; name: string; category: string; quantity: number; unit: string; reorderLevel: number; updatedAt?: string }>>('/hotel/inventory');
+        if (Array.isArray(inv) && inv.length) {
+          setInventory(inv.map((x) => {
+            const qty = Number(x.quantity) || 0; const min = Number(x.reorderLevel) || 0;
+            return {
+              id: x.id, name: x.name, category: x.category, quantity: qty, unit: x.unit ?? 'unit',
+              minThreshold: min,
+              status: qty <= 0 ? 'Out' : qty <= min ? 'Low' : 'In Stock',
+              lastRestocked: x.updatedAt ? new Date(x.updatedAt).toLocaleDateString() : '',
+            };
+          }));
+        }
+      } catch { /* keep seed */ }
+    })();
+  }, []);
 
   // Load rooms + guests from SQLite first, then sync from backend.
   const { data: rooms, setData: setRooms } = useOfflineData<Room>({
@@ -744,7 +775,7 @@ export default function KobeHotel() {
     setReceiptGuest(guest);
   };
 
-  const toggleStaffStatus = (staffId: number) => {
+  const toggleStaffStatus = (staffId: number | string) => {
     setStaff(prev => prev.map(s => {
       if (s.id !== staffId) return s;
       const next = s.status === 'On Duty' ? 'Off' : s.status === 'Off' ? 'On Leave' : 'On Duty';
