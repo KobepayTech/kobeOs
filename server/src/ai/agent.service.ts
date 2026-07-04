@@ -4,7 +4,8 @@ import { Between, In, Not, Repository } from 'typeorm';
 import { AiService } from './ai.service';
 import { PosOrder, PosProduct } from '../pos/pos.entity';
 import { ProductReview } from '../store/product-review.entity';
-import { RentCharge, Tenant } from '../property/property.entity';
+import { RentCharge, Tenant, PropertyUnit } from '../property/property.entity';
+import { BeemService } from '../notifications/beem.service';
 
 export interface AgentReply {
   reply: string;
@@ -38,7 +39,52 @@ export class KobeAgentService {
     @InjectRepository(ProductReview) private readonly reviews: Repository<ProductReview>,
     @InjectRepository(RentCharge) private readonly charges: Repository<RentCharge>,
     @InjectRepository(Tenant) private readonly tenants: Repository<Tenant>,
+    @InjectRepository(PropertyUnit) private readonly units: Repository<PropertyUnit>,
+    private readonly beem: BeemService,
   ) {}
+
+  /**
+   * Run a CONFIRMED write action (the UI called this after the user approved
+   * the pendingAction). Owner-scoped; returns a plain result for the chat.
+   */
+  async execute(ownerId: string, action: { tool: string; args: Record<string, unknown> }): Promise<{ ok: boolean; message: string }> {
+    if (action.tool === 'set_rent') {
+      const amount = Number(action.args.amount || 0);
+      if (amount <= 0) return { ok: false, message: 'Rent amount must be greater than 0.' };
+      let unitId = (action.args.unitId as string) || '';
+      if (!unitId && action.args.tenantId) {
+        const t = await this.tenants.findOne({ where: { ownerId, id: action.args.tenantId as string } });
+        unitId = t?.unitId ?? '';
+      }
+      if (!unitId) return { ok: false, message: 'Specify which unit to change the rent for.' };
+      const res = await this.units.update({ ownerId, id: unitId }, { rentAmount: amount });
+      if (!res.affected) return { ok: false, message: 'Unit not found for this owner.' };
+      return { ok: true, message: `Rent updated to TZS ${amount.toLocaleString()}.` };
+    }
+
+    if (action.tool === 'send_tenant_notification') {
+      const message = String(action.args.message || '').trim();
+      if (!message) return { ok: false, message: 'Message is empty.' };
+      const audience = String(action.args.audience || 'all');
+      let phones: string[];
+      if (audience === 'unpaid') {
+        const rows = await this.charges.find({ where: { ownerId, status: In(['open', 'partial', 'overdue']) }, take: 5000 });
+        const ids = [...new Set(rows.filter((c) => Number(c.amount) - Number(c.amountPaid) > 0).map((c) => c.tenantId))];
+        const tens = ids.length ? await this.tenants.find({ where: { id: In(ids) } }) : [];
+        phones = tens.map((t) => t.phone).filter(Boolean);
+      } else {
+        const tens = await this.tenants.find({ where: { ownerId }, take: 5000 });
+        phones = tens.map((t) => t.phone).filter(Boolean);
+      }
+      if (!phones.length) return { ok: false, message: 'No tenant phone numbers on file.' };
+      const res = await this.beem.sendSmsBatch(phones.map((phone) => ({ phone })), message);
+      return res.ok
+        ? { ok: true, message: `Sent to ${phones.length} tenant(s).` }
+        : { ok: false, message: res.error || 'SMS gateway not configured — set Beem credentials to send.' };
+    }
+
+    return { ok: false, message: `Unknown action "${action.tool}".` };
+  }
 
   private tools: Tool[] = [
     {

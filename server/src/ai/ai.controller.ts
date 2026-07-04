@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Post, Put, UseGuards } from '@nestjs/common';
-import { IsArray, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsArray, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -10,6 +10,11 @@ import { KobeAgentService } from './agent.service';
 class AssistantDto {
   @IsString() @MaxLength(2000) message!: string;
   @IsOptional() @IsArray() history?: Array<{ role: 'user' | 'assistant'; content: string }>;
+}
+
+class ExecuteActionDto {
+  @IsString() @MaxLength(60) tool!: string;
+  @IsOptional() @IsObject() args?: Record<string, unknown>;
 }
 
 @ApiTags('AI / LLM')
@@ -31,6 +36,15 @@ export class AiController {
   @Post('assistant')
   assistant(@CurrentUser('id') uid: string, @Body() dto: AssistantDto) {
     return this.agent.run(uid, dto.message, dto.history ?? []);
+  }
+
+  /**
+   * Run a write action the user confirmed from the assistant (e.g. send a
+   * tenant notification, change rent). POST /api/ai/assistant/execute
+   */
+  @Post('assistant/execute')
+  execute(@CurrentUser('id') uid: string, @Body() dto: ExecuteActionDto) {
+    return this.agent.execute(uid, { tool: dto.tool, args: dto.args ?? {} });
   }
 
   // ── Health ────────────────────────────────────────────────────────────────

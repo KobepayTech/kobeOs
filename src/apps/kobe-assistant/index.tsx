@@ -41,6 +41,22 @@ export default function KobeAssistant() {
     }
   };
 
+  const confirmAction = async (action: PendingAction, idx: number) => {
+    setBusy(true);
+    setMessages((p) => p.map((m, i) => (i === idx ? { ...m, pending: null } : m))); // prevent double-run
+    try {
+      const r = await api<{ ok: boolean; message: string }>('/ai/assistant/execute', {
+        method: 'POST',
+        body: JSON.stringify({ tool: action.tool, args: action.args }),
+      });
+      setMessages((p) => [...p, { role: 'assistant', content: (r.ok ? '✅ ' : '⚠ ') + r.message }]);
+    } catch (e) {
+      setMessages((p) => [...p, { role: 'assistant', content: `Action failed: ${(e as Error).message}` }]);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full bg-[#0c0c1a] text-white/90">
       <div className="shrink-0 px-4 py-3 border-b border-white/[0.06] flex items-center gap-2">
@@ -65,8 +81,9 @@ export default function KobeAssistant() {
               {m.pending && (
                 <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2">
                   <div className="text-[11px] text-amber-200/90 mb-1.5">⚠ {m.pending.summary}</div>
-                  <button className="text-[11px] font-bold px-3 py-1.5 rounded bg-amber-500 text-black inline-flex items-center gap-1"
-                    onClick={() => setMessages((p) => [...p, { role: 'assistant', content: 'This action isn’t auto-run yet — confirm it from the relevant screen (Tenants / Notifications).' }])}>
+                  <button className="text-[11px] font-bold px-3 py-1.5 rounded bg-amber-500 text-black inline-flex items-center gap-1 disabled:opacity-50"
+                    disabled={busy}
+                    onClick={() => m.pending && confirmAction(m.pending, i)}>
                     <CheckCircle2 className="w-3 h-3" /> Confirm
                   </button>
                 </div>

@@ -15,6 +15,6 @@ import { PushModule } from '../push/push.module';
   ],
   providers: [BeemService, NotificationsService, CampaignsService],
   controllers: [NotificationsController],
-  exports: [NotificationsService],
+  exports: [NotificationsService, BeemService],
 })
 export class NotificationsModule {}
