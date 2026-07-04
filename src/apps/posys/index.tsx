@@ -5,6 +5,15 @@ import {
   CheckCircle2, XCircle, AlertTriangle, ArrowLeft, Clock, KeyRound, Share2, RefreshCw, ChevronRight,
   Bell, Pencil, Smartphone, LogIn, LogOut, BedDouble, Users, MessageCircle, Layers
 } from "lucide-react";
+import { api } from "@/lib/api";
+
+// Backend sync: the whole posys db is mirrored to /app-state/posys so it
+// survives cache clears and follows the owner across devices. localStorage
+// stays as the offline cache. Fire-and-forget so the UI never blocks; if the
+// user isn't signed in / is offline the call just fails and local persists.
+const syncUp = (next: unknown) => {
+  api("/app-state/posys", { method: "PUT", body: JSON.stringify({ value: next }) }).catch(() => {});
+};
 
 /* ================= Persistence =================
  * Swapped from the original window.storage shim to localStorage so the
@@ -423,13 +432,18 @@ export default function App(){
   const t=(k)=>STR[lang][k];
 
   useEffect(()=>{(async()=>{
-    let loaded=null; try{const r=await store.get(DB_KEY);if(r&&r.value)loaded=JSON.parse(r.value);}catch{}
+    let loaded=null;
+    // 1. Prefer the backend blob (cross-device, survives cache clear).
+    try{const r=await api("/app-state/posys");if(r&&r.value)loaded=r.value;}catch{/* not signed in / offline */}
+    // 2. Fall back to the localStorage cache.
+    if(!loaded){try{const r=await store.get(DB_KEY);if(r&&r.value)loaded=JSON.parse(r.value);}catch{}}
     if(!loaded||!loaded.seeded){loaded=seedDb();}
     loaded=normalizeDb(loaded);
     try{await store.set(DB_KEY,JSON.stringify(loaded));}catch{}
+    syncUp(loaded);   // push the (possibly seeded/normalized) state up
     setDb(loaded); setPid(loaded.properties[0]?.id||null);
   })();},[]);
-  const save=async(next)=>{setDb(next);try{await store.set(DB_KEY,JSON.stringify(next));}catch{}};
+  const save=async(next)=>{setDb(next);try{await store.set(DB_KEY,JSON.stringify(next));}catch{} syncUp(next);};
   const resetDemo=async()=>{const fresh=seedDb();await save(fresh);setPid(fresh.properties[0]?.id||null);setMode("rent");setRtab("units");};
 
   if(!db) return <div className="posys" data-surface="light"><style>{CSS}</style><div className="wrap"><div className="page"><div className="sub">…</div></div></div></div>;

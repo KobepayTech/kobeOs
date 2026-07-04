@@ -70,6 +70,7 @@ import { StudioMediaModule } from './studio-media/studio-media.module';
 import { ShopStockModule } from './shop-stock/shop-stock.module';
 import { DiscountApprovalModule } from './discount-approval/discount-approval.module';
 import { SocialSchedulerModule } from './social-scheduler/social-scheduler.module';
+import { AppStateModule } from './app-state/app-state.module';
 
 @Module({
   imports: [
@@ -120,6 +121,7 @@ import { SocialSchedulerModule } from './social-scheduler/social-scheduler.modul
     CustomerPortalModule,
     PushModule,
     KobeTokensModule,
+    AppStateModule,
     MzigoModule,
     WarehouseModule,
     DiscountsModule,
