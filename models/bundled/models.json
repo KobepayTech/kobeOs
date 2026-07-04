@@ -1,0 +1,5 @@
+{
+  "_comment": "Drop your .gguf files in this folder. List them here to set custom names/params, or leave models empty to auto-register every gguf as kobe-<filename>. 'default' is the model the Ask Kobe assistant uses (defaults to the first gguf found).",
+  "default": "",
+  "models": []
+}

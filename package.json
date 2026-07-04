@@ -183,6 +183,10 @@
       {
         "from": "build/ollama",
         "to": "ollama"
+      },
+      {
+        "from": "models/bundled",
+        "to": "models"
       }
     ],
     "linux": {

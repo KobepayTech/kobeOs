@@ -180,6 +180,11 @@ function startBackend(dbConfig) {
     CF_ACCOUNT_ID:  process.env.CF_ACCOUNT_ID  || 'd379a7d03f3714377f11cc7e22c96b5d',
     CF_ZONE_ID:     process.env.CF_ZONE_ID     || 'c5f9da50402b712eaa6dd0c83751198b',
     CF_DOMAIN:      process.env.CF_DOMAIN      || 'kobeapptz.com',
+    // Local AI: point the backend at the bundled Ollama and make the bundled
+    // gguf model the default the "Ask Kobe" assistant talks to (falls back to
+    // the AiService default if no model is bundled).
+    OLLAMA_URL:    process.env.OLLAMA_URL    || 'http://127.0.0.1:11434',
+    OLLAMA_MODEL:  process.env.OLLAMA_MODEL  || defaultBundledModel() || 'deepseek-r1:8b',
   };
   // Kill any stale process on port 3000 before starting
   try {
@@ -388,6 +393,130 @@ function stopOllama() {
   if (ollamaProcess) { ollamaProcess.kill('SIGTERM'); ollamaProcess = null; }
 }
 
+// ── Bundled gguf models → import into Ollama on first boot ─────────────────────
+// The installer bakes the shop's .gguf files into resources/models (see
+// models/bundled + extraResources). On first boot we register each one as a
+// named Ollama model via `ollama create` so the AI assistant works fully
+// offline. Import is one-time (Ollama stores the weights under userData) and
+// fail-soft.
+
+function resolveBundledModelsDir() {
+  return IS_PACKAGED
+    ? path.join(process.resourcesPath, 'models')
+    : path.join(__dirname, '..', 'models', 'bundled');
+}
+
+/** Read the optional models.json and merge with auto-discovered *.gguf files. */
+function readBundledModels() {
+  const dir = resolveBundledModelsDir();
+  if (!fs.existsSync(dir)) return { dir, default: '', models: [] };
+
+  let manifest = { default: '', models: [] };
+  const manifestPath = path.join(dir, 'models.json');
+  if (fs.existsSync(manifestPath)) {
+    try { manifest = { default: '', models: [], ...JSON.parse(fs.readFileSync(manifestPath, 'utf8')) }; }
+    catch (e) { console.log('[KobeOS] models.json unreadable:', e.message); }
+  }
+
+  const byFile = new Map((manifest.models || []).filter((m) => m && m.file).map((m) => [m.file, m]));
+  const ggufs = fs.readdirSync(dir).filter((f) => f.toLowerCase().endsWith('.gguf'));
+  const models = [];
+  for (const file of ggufs) {
+    const m = byFile.get(file);
+    const slug = file.replace(/\.gguf$/i, '').replace(/[^a-z0-9_-]+/gi, '-').toLowerCase();
+    models.push({
+      name: (m && m.name) || `kobe-${slug}`,
+      file,
+      system: (m && m.system) || '',
+      parameters: (m && m.parameters) || {},
+    });
+  }
+  // Manifest-listed models whose gguf isn't present are skipped (with a note).
+  for (const m of manifest.models || []) {
+    if (m && m.file && !ggufs.includes(m.file)) console.log(`[KobeOS] models.json references missing gguf "${m.file}" — skipped.`);
+  }
+
+  const def = manifest.default || (models[0] && models[0].name) || '';
+  return { dir, default: def, models };
+}
+
+/** Name of the default bundled model (for OLLAMA_MODEL), or '' if none/unreadable. */
+function defaultBundledModel() {
+  try { return readBundledModels().default || ''; } catch { return ''; }
+}
+
+/** GET http://{host}/api/tags → array of installed model names (empty on error). */
+function ollamaInstalledTags(host) {
+  return new Promise((resolve) => {
+    const http = require('http');
+    const req = http.get(`http://${host}/api/tags`, (res) => {
+      let body = '';
+      res.on('data', (c) => (body += c));
+      res.on('end', () => {
+        try { resolve((JSON.parse(body).models || []).map((m) => m.name)); }
+        catch { resolve([]); }
+      });
+    });
+    req.on('error', () => resolve([]));
+    req.setTimeout(4000, () => { req.destroy(); resolve([]); });
+  });
+}
+
+/** Poll Ollama's API until it answers or timeout elapses. */
+function waitForOllama(host, timeoutMs) {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const http = require('http');
+    const tick = () => {
+      const req = http.get(`http://${host}/api/tags`, (res) => { res.resume(); resolve(true); });
+      req.on('error', () => (Date.now() - start > timeoutMs ? resolve(false) : setTimeout(tick, 500)));
+      req.setTimeout(2000, () => { req.destroy(); Date.now() - start > timeoutMs ? resolve(false) : setTimeout(tick, 500); });
+    };
+    tick();
+  });
+}
+
+/** Register each bundled gguf as a named Ollama model (skips ones already present). */
+async function importBundledModels() {
+  const host = process.env.OLLAMA_HOST || '127.0.0.1:11434';
+  const { dir, models } = readBundledModels();
+  if (!models.length) { console.log('[KobeOS] no bundled gguf models to import.'); return; }
+
+  const up = await waitForOllama(host, 30000);
+  if (!up) { console.log('[KobeOS] Ollama not responding — skipping model import (will retry next boot).'); return; }
+
+  const installed = new Set(await ollamaInstalledTags(host));
+  const bin = resolveOllamaBinary();
+  const env = { ...process.env, OLLAMA_HOST: host, OLLAMA_MODELS: process.env.OLLAMA_MODELS || ollamaModelsDir() };
+
+  for (const m of models) {
+    // Ollama tags default to ":latest" when no tag is given.
+    if (installed.has(m.name) || installed.has(`${m.name}:latest`)) { console.log(`[KobeOS] model "${m.name}" already imported — skip.`); continue; }
+
+    const ggufPath = path.join(dir, m.file);
+    if (!fs.existsSync(ggufPath)) { console.log(`[KobeOS] gguf missing for "${m.name}": ${ggufPath} — skip.`); continue; }
+
+    const lines = [`FROM "${ggufPath}"`];
+    if (m.system) lines.push(`SYSTEM """${m.system}"""`);
+    for (const [k, v] of Object.entries(m.parameters || {})) lines.push(`PARAMETER ${k} ${v}`);
+    const modelfilePath = path.join(app.getPath('userData'), `Modelfile.${m.name}`);
+    try {
+      fs.mkdirSync(path.dirname(modelfilePath), { recursive: true });
+      fs.writeFileSync(modelfilePath, lines.join('\n') + '\n');
+    } catch (e) { console.log(`[KobeOS] could not write Modelfile for "${m.name}":`, e.message); continue; }
+
+    console.log(`[KobeOS] importing model "${m.name}" from ${m.file} …`);
+    await new Promise((resolve) => {
+      const p = spawn(bin, ['create', m.name, '-f', modelfilePath], { stdio: ['ignore', 'pipe', 'pipe'], env });
+      p.stdout.on('data', (d) => console.log('[ollama create]', d.toString().trim()));
+      p.stderr.on('data', (d) => console.log('[ollama create]', d.toString().trim()));
+      p.on('error', (e) => { console.log(`[KobeOS] import "${m.name}" failed:`, e.message); resolve(); });
+      p.on('exit', (code) => { console.log(`[KobeOS] import "${m.name}" exit=${code}`); resolve(); });
+    });
+    try { fs.unlinkSync(modelfilePath); } catch { /* ignore */ }
+  }
+}
+
 async function stopEmbeddedPostgres() {
   if (embeddedPg) {
     try { await embeddedPg.stop(); } catch { /* ignore */ }
@@ -428,6 +557,9 @@ async function bootServices() {
   // warms up in the background while the desktop loads (fail-soft if absent).
   sendBootProgress(80, 'Starting local AI…');
   startOllama();
+  // Import any bundled gguf models into Ollama on first boot (one-time, in the
+  // background so it never blocks the desktop from appearing).
+  importBundledModels().catch((e) => console.log('[KobeOS] model import error:', e.message));
 
   // Auto-start the tunnel: uses a persisted token if present, else fetches the
   // shared tunnel's run token via CF_API_TOKEN — no manual cloudflared setup.
