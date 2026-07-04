@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Globe2, RefreshCw, Link as LinkIcon, AlertCircle, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { api } from '@/lib/api';
 
 /**
  * Channel manager stub — surfaces the connection state for each OTA so a
@@ -75,6 +76,26 @@ interface Props { darkMode: boolean }
 export default function ChannelsTab({ darkMode }: Props) {
   const [channels, setChannels] = useState<Channel[]>(SEED_CHANNELS);
   const [syncingId, setSyncingId] = useState<string | null>(null);
+
+  // Load the owner's real channels from /hotel/channels; keep the seed when
+  // signed out / none configured so the demo still renders.
+  useEffect(() => {
+    (async () => {
+      try {
+        const list = await api<Array<{ id: string; name: string; connected: boolean; commissionPct?: number; lastSyncAt?: string }>>('/hotel/channels');
+        if (Array.isArray(list) && list.length) {
+          setChannels(list.map((c) => ({
+            id: c.id, name: c.name, logoUrl: '',
+            status: c.connected ? 'connected' : 'disconnected',
+            lastSync: c.lastSyncAt ? new Date(c.lastSyncAt).toLocaleString() : '—',
+            rooms: 0, bookings7d: 0,
+            commission: c.commissionPct ? `${c.commissionPct}%` : '—',
+            note: c.connected ? '' : 'Not connected',
+          })));
+        }
+      } catch { /* keep seed */ }
+    })();
+  }, []);
 
   const totalBookings = channels.reduce((s, c) => s + c.bookings7d, 0);
   const totalRooms    = channels.reduce((s, c) => s + c.rooms, 0);

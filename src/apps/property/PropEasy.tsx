@@ -194,7 +194,7 @@ export default function PropEasyApp() {
           {view === 'properties'  && <PropertiesView properties={properties} />}
           {view === 'financials'  && <FinancialsView tenants={tenants} payments={payments} />}
           {view === 'maintenance' && <MaintenanceView properties={properties} />}
-          {view === 'documents'   && <EmptyState title="Documents" subtitle="Leases, IDs, insurance, inspections." />}
+          {view === 'documents'   && <DocumentsView tenants={tenants} />}
           {view === 'settings'    && <EmptyState title="Settings" subtitle="Reminders, late-fee policy, integrations." />}
           {view === 'building-map' && (
             <BuildingMapLive
@@ -1299,6 +1299,65 @@ const demoInsights: Insight[] = [
     description: 'Block A utility account · TZS 480,000.',
     actionLabel: 'Mark paid' },
 ];
+
+/* ────────────────────────────── Documents View ─────────────────────────── */
+
+interface PropDocument { id: string; name: string; type: string; url?: string; tenantId?: string | null; createdAt?: string }
+
+function DocumentsView({ tenants }: { tenants: ApiTenant[] }) {
+  const [docs, setDocs] = useState<PropDocument[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [name, setName] = useState('');
+  const [type, setType] = useState('lease');
+  const [url, setUrl] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    try { const r = await api<PropDocument[]>('/property/documents'); setDocs(Array.isArray(r) ? r : []); }
+    catch { /* keep empty */ } finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+  const add = async () => {
+    if (!name.trim()) return;
+    setBusy(true);
+    try { await api('/property/documents', { method: 'POST', body: JSON.stringify({ name: name.trim(), type, url: url.trim() }) }); setName(''); setUrl(''); await load(); }
+    catch { /* ignore */ } finally { setBusy(false); }
+  };
+  const del = async (id: string) => { try { await api(`/property/documents/${id}`, { method: 'DELETE' }); await load(); } catch { /* ignore */ } };
+  void tenants;
+
+  return (
+    <div className="px-6 pb-6 space-y-4">
+      <div className="rounded-2xl bg-white border border-slate-200 p-4 shadow-sm grid grid-cols-1 sm:grid-cols-[1fr_auto_1fr_auto] gap-2 items-end">
+        <div><label className="text-[11px] font-bold text-slate-500">Document name</label>
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Lease – Unit B3" className="w-full h-9 px-2 rounded-lg border border-slate-200 text-sm text-slate-900" /></div>
+        <select value={type} onChange={(e) => setType(e.target.value)} className="h-9 px-2 rounded-lg border border-slate-200 text-sm">
+          {['lease', 'id', 'insurance', 'inspection', 'receipt', 'other'].map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Link / URL (optional)" className="h-9 px-2 rounded-lg border border-slate-200 text-sm text-slate-900" />
+        <button onClick={add} disabled={busy || !name.trim()} className="h-9 px-4 rounded-lg bg-slate-900 text-white text-sm font-bold disabled:opacity-50">{busy ? 'Adding…' : 'Add'}</button>
+      </div>
+      <div className="rounded-2xl bg-white border border-slate-200 p-5 shadow-sm">
+        <h3 className="text-sm font-bold text-slate-900 mb-3">Documents</h3>
+        {docs.length === 0 ? (
+          <p className="text-xs text-slate-500">{loading ? 'Loading…' : 'No documents yet.'}</p>
+        ) : (
+          <ul className="space-y-2">
+            {docs.map((d) => (
+              <li key={d.id} className="flex items-center justify-between gap-3 border-b border-slate-100 last:border-0 pb-2">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-slate-900 truncate">{d.url ? <a href={d.url} target="_blank" rel="noopener noreferrer" className="underline">{d.name}</a> : d.name}</div>
+                  <div className="text-[11px] text-slate-500 uppercase">{d.type}</div>
+                </div>
+                <button onClick={() => del(d.id)} className="text-[11px] px-2 py-1 rounded bg-rose-50 text-rose-600 font-medium shrink-0">Delete</button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
 
 /* ────────────────────────────── Maintenance View ───────────────────────── */
 
