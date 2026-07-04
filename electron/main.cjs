@@ -336,6 +336,58 @@ async function autoBootstrapTunnel() {
   }
 }
 
+// ── Ollama (local AI runtime for the "Ask Kobe" assistant) ─────────────────────
+// KobeOS bundles the Ollama runtime (scripts/download-ollama.cjs → extraResources)
+// and starts `ollama serve` on boot so the AI assistant works with zero manual
+// install. Models live under userData so they survive app updates. Everything is
+// fail-soft: no bundled binary + no system Ollama → the assistant just reports
+// the model is offline, the rest of the OS is unaffected.
+
+let ollamaProcess = null;
+
+function ollamaModelsDir() {
+  return path.join(USER_DATA, 'ollama-models');
+}
+
+function resolveOllamaBinary() {
+  if (process.env.OLLAMA_BIN && fs.existsSync(process.env.OLLAMA_BIN)) return process.env.OLLAMA_BIN;
+  const resourcesRoot = IS_PACKAGED ? process.resourcesPath : path.join(__dirname, '..', 'build');
+  const rel =
+    process.platform === 'win32' ? path.join('ollama', 'win-x64', 'ollama.exe')
+    : process.platform === 'darwin' ? path.join('ollama', process.arch === 'arm64' ? 'mac-arm64' : 'mac-x64', 'ollama')
+    : path.join('ollama', 'linux-x64', 'bin', 'ollama');
+  const candidate = path.join(resourcesRoot, rel);
+  if (fs.existsSync(candidate)) return candidate;
+  return 'ollama'; // PATH fallback (user already has Ollama installed)
+}
+
+function startOllama() {
+  if (ollamaProcess) return;
+  const bin = resolveOllamaBinary();
+  try { fs.mkdirSync(ollamaModelsDir(), { recursive: true }); } catch { /* ignore */ }
+  const host = process.env.OLLAMA_HOST || '127.0.0.1:11434';
+  const env = { ...process.env, OLLAMA_HOST: host, OLLAMA_MODELS: process.env.OLLAMA_MODELS || ollamaModelsDir() };
+  try {
+    ollamaProcess = spawn(bin, ['serve'], { stdio: ['ignore', 'pipe', 'pipe'], detached: false, env });
+  } catch (e) {
+    console.log(`[KobeOS] ollama not started (${e.message}). AI assistant will be offline until Ollama is available.`);
+    ollamaProcess = null;
+    return;
+  }
+  ollamaProcess.stdout.on('data', (d) => console.log('[ollama]', d.toString().trim()));
+  ollamaProcess.stderr.on('data', (d) => console.log('[ollama]', d.toString().trim()));
+  ollamaProcess.on('error', (e) => { console.log('[KobeOS] ollama error:', e.message); ollamaProcess = null; });
+  ollamaProcess.on('exit', (code, signal) => {
+    console.log(`[KobeOS] ollama exited code=${code} signal=${signal}`);
+    ollamaProcess = null;
+  });
+  console.log(`[KobeOS] ollama started pid=${ollamaProcess.pid} bin=${bin} host=${host}`);
+}
+
+function stopOllama() {
+  if (ollamaProcess) { ollamaProcess.kill('SIGTERM'); ollamaProcess = null; }
+}
+
 async function stopEmbeddedPostgres() {
   if (embeddedPg) {
     try { await embeddedPg.stop(); } catch { /* ignore */ }
@@ -371,6 +423,11 @@ async function bootServices() {
   // Poll until backend responds on :3000 (max 15 s)
   sendBootProgress(65, 'Waiting for backend…');
   await waitForBackend(3000, 15000);
+
+  // Start the local AI runtime for the "Ask Kobe" assistant. Non-blocking: it
+  // warms up in the background while the desktop loads (fail-soft if absent).
+  sendBootProgress(80, 'Starting local AI…');
+  startOllama();
 
   // Auto-start the tunnel: uses a persisted token if present, else fetches the
   // shared tunnel's run token via CF_API_TOKEN — no manual cloudflared setup.
@@ -545,6 +602,7 @@ app.on('window-all-closed', async () => {
   lanServer.stop();
   localdb.close();
   stopCloudflared();
+  stopOllama();
   stopBackend();
   await stopEmbeddedPostgres();
   if (process.platform !== 'darwin') app.quit();
@@ -556,6 +614,7 @@ app.on('before-quit', async () => {
   lanServer.stop();
   localdb.close();
   stopCloudflared();
+  stopOllama();
   stopBackend();
   await stopEmbeddedPostgres();
 });

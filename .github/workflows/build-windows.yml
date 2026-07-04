@@ -127,6 +127,10 @@ jobs:
       - name: Download cloudflared
         run: npm run download:cloudflared
 
+      - name: Download Ollama (local AI runtime)
+        run: npm run download:ollama
+        continue-on-error: true
+
       # ── Build installer ─────────────────────────────────────────────────────
       - name: Build Windows installer
         run: npx electron-builder --win --publish never

@@ -18,11 +18,12 @@
     "core:manifest": "node scripts/generate-core-manifest.js",
     "prepare:postgres": "node scripts/prepare-postgres-resources.cjs",
     "download:cloudflared": "node scripts/download-cloudflared.cjs",
-    "electron:build": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && electron-builder",
-    "electron:build:linux": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && electron-builder --linux",
-    "electron:build:win": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && electron-builder --win",
-    "electron:build:win:fast": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && electron-builder --win --publish never",
-    "electron:build:mac": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && electron-builder --mac",
+    "download:ollama": "node scripts/download-ollama.cjs",
+    "electron:build": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && npm run download:ollama && electron-builder",
+    "electron:build:linux": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && npm run download:ollama && electron-builder --linux",
+    "electron:build:win": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && npm run download:ollama && electron-builder --win",
+    "electron:build:win:fast": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && npm run download:ollama && electron-builder --win --publish never",
+    "electron:build:mac": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && npm run download:ollama && electron-builder --mac",
     "iso:build": "npm run electron:build:linux && node scripts/build-iso.cjs",
     "iso:package": "node scripts/build-iso.cjs",
     "models:checksums": "node scripts/fetch-model-checksums.js",
@@ -178,6 +179,10 @@
       {
         "from": "build/cloudflared",
         "to": "cloudflared"
+      },
+      {
+        "from": "build/ollama",
+        "to": "ollama"
       }
     ],
     "linux": {
