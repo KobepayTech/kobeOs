@@ -248,31 +248,26 @@ export function Header({
 
 /* ─── Main Nav ──────────────────────────────────────────────────────── */
 
-const NAV_ITEMS = [
-  'WORLD CUP 2026',
-  'CLUBS',
-  'APPAREL',
-  'RETRO',
-  'KIDS',
-  'Buy 3 Get 1 FREE',
-  'PLAYERS',
-  'NBA',
-  'NEW',
-];
-
 export function MainNav({
+  categories,
   selectedCategory,
   onSelectCategory,
 }: {
+  categories: string[];
   selectedCategory: string;
   onSelectCategory: (cat: string) => void;
 }) {
+  // Build the nav from the store's REAL product categories (+ an "All" reset),
+  // so clicking a tab actually filters the grid. Previously this used a
+  // hardcoded jersey list whose labels never matched any DB category, so every
+  // tab showed an empty grid. Hidden when the store has no products yet.
+  if (!categories || categories.length === 0) return null;
+  const items = ['All', ...categories];
   return (
     <nav className="bg-white border-t border-b border-[#e5e5e5]">
       <div className="max-w-7xl mx-auto px-4 flex items-center gap-0 overflow-x-auto">
-        {NAV_ITEMS.map((item) => {
+        {items.map((item) => {
           const isActive = selectedCategory === item;
-          const isPromo = item === 'Buy 3 Get 1 FREE';
           return (
             <button
               key={item}
@@ -281,7 +276,7 @@ export function MainNav({
                 isActive
                   ? 'border-[#c8102e] text-[#c8102e]'
                   : 'border-transparent text-[#1a1a1a] hover:text-[#c8102e]'
-              } ${isPromo ? 'text-[#c8102e]' : ''}`}
+              }`}
             >
               {item}
             </button>
@@ -1135,7 +1130,7 @@ export function JerseyShopChrome({
   bannerSubtext,
   bannerCta,
   bannerVisible = true,
-  categories: _categories,
+  categories,
   selectedCategory,
   onSelectCategory,
   searchQuery,
@@ -1147,9 +1142,8 @@ export function JerseyShopChrome({
   config,
   children,
 }: JerseyShopChromeProps) {
-  // _logoUrl, _categories, _onGoStores kept for backward compatibility
+  // _logoUrl, _onGoStores kept for backward compatibility
   void _logoUrl;
-  void _categories;
   void _onGoStores;
   return (
     <div className="flex flex-col min-h-screen bg-white text-[#1a1a1a] font-sans">
@@ -1165,8 +1159,9 @@ export function JerseyShopChrome({
         onPickNav={onPickNav}
       />
 
-      {/* Main Navigation */}
+      {/* Main Navigation — real product categories */}
       <MainNav
+        categories={categories}
         selectedCategory={selectedCategory}
         onSelectCategory={onSelectCategory}
       />
