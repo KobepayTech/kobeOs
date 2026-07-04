@@ -193,6 +193,64 @@ function detectSubdomainSlug(): string {
   return '';
 }
 
+interface StoreReview { id: string; rating: number; title?: string; comment?: string; customerName?: string; createdAt?: string }
+
+/** Real product reviews + submit, backed by /store/:slug/products/:id/reviews. */
+function ProductReviews({ slug, productId }: { slug: string; productId: string }) {
+  const [reviews, setReviews] = useState<StoreReview[]>([]);
+  const [rating, setRating] = useState(5);
+  const [comment, setComment] = useState('');
+  const [name, setName] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    try { const r = await api<StoreReview[]>(`/store/${encodeURIComponent(slug)}/products/${productId}/reviews`, { auth: false }); setReviews(Array.isArray(r) ? r : []); }
+    catch { /* none */ }
+  };
+  useEffect(() => { if (slug && productId) load(); }, [slug, productId]);
+
+  const avg = reviews.length ? reviews.reduce((s, r) => s + (r.rating || 0), 0) / reviews.length : 0;
+  const submit = async () => {
+    if (!comment.trim()) return;
+    setBusy(true);
+    try {
+      await api(`/store/${encodeURIComponent(slug)}/products/${productId}/reviews`, { method: 'POST', auth: false, body: JSON.stringify({ rating, comment: comment.trim(), customerName: name.trim() || 'Customer' }) });
+      setComment(''); setName('');
+      await load();
+    } catch { /* ignore */ } finally { setBusy(false); }
+  };
+  const stars = (n: number) => '★★★★★'.slice(0, Math.round(n)) + '☆☆☆☆☆'.slice(0, 5 - Math.round(n));
+
+  return (
+    <div className="mt-4 border-t border-white/10 pt-3">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-sm font-semibold">Reviews</span>
+        {reviews.length > 0 && <span className="text-xs text-amber-400">{stars(avg)} {avg.toFixed(1)} · {reviews.length}</span>}
+      </div>
+      <div className="space-y-2 max-h-32 overflow-y-auto mb-3">
+        {reviews.length === 0 ? (
+          <p className="text-xs text-slate-400">No reviews yet — be the first.</p>
+        ) : reviews.slice(0, 20).map((r) => (
+          <div key={r.id} className="text-xs">
+            <div className="text-amber-400">{stars(r.rating)} <span className="text-slate-300 font-medium">{r.customerName || 'Customer'}</span></div>
+            {r.comment && <div className="text-slate-400">{r.comment}</div>}
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center gap-2 mb-2">
+        <select value={rating} onChange={(e) => setRating(Number(e.target.value))} className="h-8 px-2 rounded bg-white/5 border border-white/10 text-xs text-white">
+          {[5, 4, 3, 2, 1].map((n) => <option key={n} value={n} className="bg-slate-800">{n} ★</option>)}
+        </select>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" className="h-8 px-2 rounded bg-white/5 border border-white/10 text-xs text-white flex-1 min-w-0" />
+      </div>
+      <div className="flex items-center gap-2">
+        <input value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Write a review…" className="h-8 px-2 rounded bg-white/5 border border-white/10 text-xs text-white flex-1 min-w-0" />
+        <Button size="sm" className="h-8 text-xs bg-blue-600 hover:bg-blue-700 shrink-0" onClick={submit} disabled={busy || !comment.trim()}>{busy ? '…' : 'Post'}</Button>
+      </div>
+    </div>
+  );
+}
+
 export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
   // Priority: prop > subdomain auto-detect > empty (shows SlugPicker)
   const initialSlug =
@@ -606,6 +664,7 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
               >
                 Add to Cart
               </Button>
+              {slug && <ProductReviews slug={slug} productId={selectedProduct.id} />}
             </>
           )}
         </DialogContent>
