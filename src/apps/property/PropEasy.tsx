@@ -193,7 +193,7 @@ export default function PropEasyApp() {
           )}
           {view === 'properties'  && <PropertiesView properties={properties} />}
           {view === 'financials'  && <FinancialsView tenants={tenants} payments={payments} />}
-          {view === 'maintenance' && <EmptyState title="Maintenance" subtitle="Work orders across every unit." />}
+          {view === 'maintenance' && <MaintenanceView properties={properties} />}
           {view === 'documents'   && <EmptyState title="Documents" subtitle="Leases, IDs, insurance, inspections." />}
           {view === 'settings'    && <EmptyState title="Settings" subtitle="Reminders, late-fee policy, integrations." />}
           {view === 'building-map' && (
@@ -1299,6 +1299,85 @@ const demoInsights: Insight[] = [
     description: 'Block A utility account · TZS 480,000.',
     actionLabel: 'Mark paid' },
 ];
+
+/* ────────────────────────────── Maintenance View ───────────────────────── */
+
+interface WorkOrder {
+  id: string; title: string; description?: string;
+  priority: 'low' | 'normal' | 'high' | 'urgent';
+  status: 'open' | 'assigned' | 'in_progress' | 'completed' | 'cancelled';
+  propertyId?: string | null; createdAt?: string;
+}
+
+function MaintenanceView({ properties }: { properties: ApiProperty[] }) {
+  const [orders, setOrders] = useState<WorkOrder[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [title, setTitle] = useState('');
+  const [priority, setPriority] = useState<WorkOrder['priority']>('normal');
+  const [propertyId, setPropertyId] = useState('');
+  const [creating, setCreating] = useState(false);
+
+  const load = async () => {
+    try { const r = await api<WorkOrder[]>('/property/work-orders'); setOrders(Array.isArray(r) ? r : []); }
+    catch { /* keep empty */ } finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const create = async () => {
+    if (!title.trim()) return;
+    setCreating(true);
+    try {
+      await api('/property/work-orders', { method: 'POST', body: JSON.stringify({ title: title.trim(), priority, status: 'open', propertyId: propertyId || undefined }) });
+      setTitle('');
+      await load();
+    } catch { /* ignore */ } finally { setCreating(false); }
+  };
+  const advance = async (o: WorkOrder, status: WorkOrder['status']) => {
+    try { await api(`/property/work-orders/${o.id}`, { method: 'PATCH', body: JSON.stringify({ status }) }); await load(); } catch { /* ignore */ }
+  };
+
+  const propName = (id?: string | null) => properties.find((p) => p.id === id)?.name ?? '';
+  const badge: Record<string, string> = { open: 'text-amber-600', assigned: 'text-blue-600', in_progress: 'text-indigo-600', completed: 'text-emerald-600', cancelled: 'text-slate-400' };
+  return (
+    <div className="px-6 pb-6 space-y-4">
+      <div className="rounded-2xl bg-white border border-slate-200 p-4 shadow-sm grid grid-cols-1 sm:grid-cols-[1fr_auto_auto_auto] gap-2 items-end">
+        <div><label className="text-[11px] font-bold text-slate-500">New work order</label>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Fix leaking tap, Unit B3" className="w-full h-9 px-2 rounded-lg border border-slate-200 text-sm text-slate-900" /></div>
+        <select value={priority} onChange={(e) => setPriority(e.target.value as WorkOrder['priority'])} className="h-9 px-2 rounded-lg border border-slate-200 text-sm">
+          {['low', 'normal', 'high', 'urgent'].map((p) => <option key={p} value={p}>{p}</option>)}
+        </select>
+        <select value={propertyId} onChange={(e) => setPropertyId(e.target.value)} className="h-9 px-2 rounded-lg border border-slate-200 text-sm">
+          <option value="">Any property</option>
+          {properties.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+        </select>
+        <button onClick={create} disabled={creating || !title.trim()} className="h-9 px-4 rounded-lg bg-slate-900 text-white text-sm font-bold disabled:opacity-50">{creating ? 'Adding…' : 'Add'}</button>
+      </div>
+      <div className="rounded-2xl bg-white border border-slate-200 p-5 shadow-sm">
+        <h3 className="text-sm font-bold text-slate-900 mb-3">Work orders</h3>
+        {orders.length === 0 ? (
+          <p className="text-xs text-slate-500">{loading ? 'Loading…' : 'No work orders. Add one above.'}</p>
+        ) : (
+          <ul className="space-y-2">
+            {orders.map((o) => (
+              <li key={o.id} className="flex items-center justify-between gap-3 border-b border-slate-100 last:border-0 pb-2">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-slate-900 truncate">{o.title}</div>
+                  <div className="text-[11px] text-slate-500">{propName(o.propertyId)} · {o.priority}</div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className={`text-[10px] font-bold uppercase ${badge[o.status] ?? 'text-slate-500'}`}>{o.status.replace('_', ' ')}</span>
+                  {o.status !== 'completed' && o.status !== 'cancelled' && (
+                    <button onClick={() => advance(o, 'completed')} className="text-[11px] px-2 py-1 rounded bg-emerald-50 text-emerald-700 font-medium">Done</button>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
 
 /* ────────────────────────────── Financials View ────────────────────────── */
 
