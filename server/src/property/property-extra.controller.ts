@@ -1,7 +1,8 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { IsOptional, IsString } from 'class-validator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { TenantsService, UnitsService } from './property.service';
+import { TenantsService, UnitsService, PropertyDocumentsService } from './property.service';
 import {
   ApplicationsService,
   ExpensesService,
@@ -32,6 +33,18 @@ import {
   UpdateWorkOrderDto,
 } from './dto/property-extra.dto';
 
+// Decorated so the global whitelist ValidationPipe keeps the fields.
+class PropertyDocumentDto {
+  @IsOptional() @IsString() name?: string;
+  @IsOptional() @IsString() type?: string;
+  @IsOptional() @IsString() url?: string;
+  @IsOptional() @IsString() mimeType?: string;
+  @IsOptional() @IsString() propertyId?: string;
+  @IsOptional() @IsString() unitId?: string;
+  @IsOptional() @IsString() tenantId?: string;
+  @IsOptional() @IsString() notes?: string;
+}
+
 @UseGuards(JwtAuthGuard)
 @Controller('property')
 export class PropertyExtraController {
@@ -48,7 +61,14 @@ export class PropertyExtraController {
     private readonly tenants: TenantsService,
     private readonly units: UnitsService,
     private readonly screening: TenantScreeningService,
+    private readonly documents: PropertyDocumentsService,
   ) {}
+
+  /* ── Documents (leases, IDs, insurance, inspections) ───────────────────── */
+  @Get('documents') listDocuments(@CurrentUser('id') uid: string) { return this.documents.list(uid); }
+  @Post('documents') createDocument(@CurrentUser('id') uid: string, @Body() dto: PropertyDocumentDto) { return this.documents.create(uid, dto as any); }
+  @Patch('documents/:id') updateDocument(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: PropertyDocumentDto) { return this.documents.update(uid, id, dto as any); }
+  @Delete('documents/:id') removeDocument(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.documents.remove(uid, id); }
 
   /* ── Tenant screening ───────────────────────────────────────────────── */
 

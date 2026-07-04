@@ -13,12 +13,16 @@ import {
 import { HotelController } from './hotel.controller';
 import { PublicHotelController } from './public-hotel.controller';
 import { HotelGateway } from './hotel.gateway';
+import { HotelInventoryItem, HotelStaff, HotelChannel } from './hotel-extras.entity';
+import { HotelInventoryService, HotelStaffService, HotelChannelsService } from './hotel-extras.service';
+import { HotelExtrasController } from './hotel-extras.controller';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
       HotelRoom, HotelGuest, HotelBooking, HotelTenant, HotelMenuItem, HotelOrder, HotelServiceRequest,
       HotelChain, HotelParkingSpot, HotelFinancialRecord,
+      HotelInventoryItem, HotelStaff, HotelChannel,
     ]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -33,7 +37,8 @@ import { HotelGateway } from './hotel.gateway';
     RoomsService, GuestsService, BookingsService,
     MenuItemsService, OrdersService, ServiceRequestsService,
     TenantsService, HotelChainService, HotelGateway,
+    HotelInventoryService, HotelStaffService, HotelChannelsService,
   ],
-  controllers: [HotelController, PublicHotelController],
+  controllers: [HotelController, PublicHotelController, HotelExtrasController],
 })
 export class HotelModule {}

@@ -1,13 +1,36 @@
-import { Body, Controller, Get, Param, Post, Query, ParseIntPipe, DefaultValuePipe, Req, BadRequestException } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, ParseIntPipe, DefaultValuePipe, Req, BadRequestException, UseGuards } from '@nestjs/common';
+import { IsInt, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
 import { Public } from '../common/public.decorator';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { CurrentUser } from '../auth/current-user.decorator';
 import { StoreService } from './store.service';
 import { TenantRequest } from '../store-settings/tenant.middleware';
 import { CreateOrderDto } from '../pos/dto/pos.dto';
+
+// Decorated so the global whitelist ValidationPipe keeps the fields.
+class SubmitReviewDto {
+  @IsInt() @Min(1) @Max(5) rating!: number;
+  @IsOptional() @IsString() @MaxLength(120) title?: string;
+  @IsOptional() @IsString() @MaxLength(2000) comment?: string;
+  @IsOptional() @IsString() @MaxLength(80) customerName?: string;
+  @IsOptional() @IsString() @MaxLength(40) customerPhone?: string;
+}
 
 @Public()
 @Controller('store')
 export class StoreController {
   constructor(private readonly svc: StoreService) {}
+
+  /** Public: reviews for a product. GET /api/store/:slug/products/:productId/reviews */
+  @Get(':slug/products/:productId/reviews')
+  listReviews(@Param('slug') slug: string, @Param('productId') productId: string) {
+    return this.svc.listReviews(slug, productId);
+  }
+  /** Public: submit a review. POST /api/store/:slug/products/:productId/reviews */
+  @Post(':slug/products/:productId/reviews')
+  addReview(@Param('slug') slug: string, @Param('productId') productId: string, @Body() dto: SubmitReviewDto) {
+    return this.svc.addReview(slug, productId, dto);
+  }
 
   /**
    * Resolve store by explicit slug: GET /api/store/kelvinfashion
@@ -86,4 +109,17 @@ export class StoreController {
   ) {
     return this.svc.trackOrder(slug, orderNumber, phone ?? '');
   }
+}
+
+/** Owner-side review moderation (JWT). */
+@UseGuards(JwtAuthGuard)
+@Controller('store-reviews')
+export class StoreReviewsController {
+  constructor(private readonly svc: StoreService) {}
+
+  @Get()
+  list(@CurrentUser('id') uid: string) { return this.svc.listOwnerReviews(uid); }
+
+  @Delete(':id')
+  remove(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.svc.deleteReview(uid, id); }
 }

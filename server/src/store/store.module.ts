@@ -4,19 +4,20 @@ import { StoreSettings } from '../store-settings/store-settings.entity';
 import { PosOrder, PosOrderItem, PosProduct } from '../pos/pos.entity';
 import { WarehousePickTicket } from '../warehouse/pick-ticket.entity';
 import { StoreService } from './store.service';
-import { StoreController } from './store.controller';
+import { ProductReview } from './product-review.entity';
+import { StoreController, StoreReviewsController } from './store.controller';
 import { TenantMiddleware } from '../store-settings/tenant.middleware';
 import { PosModule } from '../pos/pos.module';
 import { CreditModule } from '../credit/credit.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([StoreSettings, PosProduct, PosOrder, PosOrderItem, WarehousePickTicket]),
+    TypeOrmModule.forFeature([StoreSettings, PosProduct, PosOrder, PosOrderItem, WarehousePickTicket, ProductReview]),
     PosModule,
     CreditModule,
   ],
   providers: [StoreService],
-  controllers: [StoreController],
+  controllers: [StoreController, StoreReviewsController],
   exports: [StoreService],
 })
 export class StoreModule implements NestModule {

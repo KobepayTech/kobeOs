@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { StoreSettings } from '../store-settings/store-settings.entity';
 import { PosOrder, PosOrderItem, PosProduct } from '../pos/pos.entity';
 import { WarehousePickTicket } from '../warehouse/pick-ticket.entity';
+import { ProductReview } from './product-review.entity';
 import { OrdersService } from '../pos/pos.service';
 import { CreateOrderDto } from '../pos/dto/pos.dto';
 import { CreditService } from '../credit/credit.service';
@@ -27,9 +28,41 @@ export class StoreService {
     private readonly itemRepo: Repository<PosOrderItem>,
     @InjectRepository(WarehousePickTicket)
     private readonly pickTicketRepo: Repository<WarehousePickTicket>,
+    @InjectRepository(ProductReview)
+    private readonly reviewsRepo: Repository<ProductReview>,
     private readonly orders: OrdersService,
     private readonly credit: CreditService,
   ) {}
+
+  // ── Product reviews ─────────────────────────────────────────────────────
+  /** Public: approved reviews for a product on this store. */
+  async listReviews(slugOrDomain: string, productId: string) {
+    const ownerId = await this.resolveOwner(slugOrDomain);
+    return this.reviewsRepo.find({
+      where: { ownerId, productId, approved: true },
+      order: { createdAt: 'DESC' },
+      take: 100,
+    });
+  }
+  /** Public: a customer submits a review (auto-approved so it shows live). */
+  async addReview(slugOrDomain: string, productId: string, dto: { rating?: number; title?: string; comment?: string; customerName?: string; customerPhone?: string }) {
+    const ownerId = await this.resolveOwner(slugOrDomain);
+    const rating = Math.max(1, Math.min(5, Math.round(Number(dto.rating) || 5)));
+    return this.reviewsRepo.save(this.reviewsRepo.create({
+      ownerId, productId, rating,
+      title: dto.title ?? '', comment: dto.comment ?? '',
+      customerName: dto.customerName ?? 'Customer', customerPhone: dto.customerPhone ?? null,
+      approved: true,
+    }));
+  }
+  /** Owner: list all reviews (for moderation). */
+  listOwnerReviews(ownerId: string) {
+    return this.reviewsRepo.find({ where: { ownerId }, order: { createdAt: 'DESC' }, take: 300 });
+  }
+  async deleteReview(ownerId: string, id: string) {
+    await this.reviewsRepo.delete({ ownerId, id });
+    return { removed: true };
+  }
 
   /** Resolve a slug or custom domain to the store owner's userId. */
   async resolveOwner(slugOrDomain: string): Promise<string> {
