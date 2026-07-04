@@ -32,7 +32,8 @@ export type AppCategory =
   | 'erp'
   | 'games'
   | 'communication'
-  | 'sports';
+  | 'sports'
+  | 'ai';
 
 /**
  * Subscription tier required to open an app.

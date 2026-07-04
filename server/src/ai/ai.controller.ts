@@ -1,14 +1,37 @@
 import { Body, Controller, Delete, Get, Param, Post, Put, UseGuards } from '@nestjs/common';
+import { IsArray, IsOptional, IsString, MaxLength } from 'class-validator';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { CurrentUser } from '../auth/current-user.decorator';
 import { AiService, ChatCompletionOptions, ModelCategory } from './ai.service';
+import { KobeAgentService } from './agent.service';
+
+// "Chat with your business" request. Decorated (whitelist-safe).
+class AssistantDto {
+  @IsString() @MaxLength(2000) message!: string;
+  @IsOptional() @IsArray() history?: Array<{ role: 'user' | 'assistant'; content: string }>;
+}
 
 @ApiTags('AI / LLM')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
 @Controller('ai')
 export class AiController {
-  constructor(private readonly ai: AiService) {}
+  constructor(
+    private readonly ai: AiService,
+    private readonly agent: KobeAgentService,
+  ) {}
+
+  /**
+   * Natural-language business assistant. Ask "what are today's sales",
+   * "which items do customers like most", "how many tenants haven't paid".
+   * Write actions (notify tenants, change rent) return a pendingAction the
+   * UI must confirm before running. POST /api/ai/assistant
+   */
+  @Post('assistant')
+  assistant(@CurrentUser('id') uid: string, @Body() dto: AssistantDto) {
+    return this.agent.run(uid, dto.message, dto.history ?? []);
+  }
 
   // ── Health ────────────────────────────────────────────────────────────────
 

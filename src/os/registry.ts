@@ -71,6 +71,7 @@ import { manifest as creator } from '@/apps/creator/manifest';
 import { manifest as kobe_models } from '@/apps/kobe-models/manifest';
 import { manifest as kobe_sports } from '@/apps/kobe-sports/manifest';
 import { manifest as kobe_hotel } from '@/apps/kobe-hotel/manifest';
+import { manifest as kobe_assistant } from '@/apps/kobe-assistant/manifest';
 import { manifest as kobe_pay } from '@/apps/kobe-pay/manifest';
 import { manifest as kobe_studio } from '@/apps/kobe-studio/manifest';
 import { manifest as kobetech_admin } from '@/apps/kobetech-admin/manifest';
@@ -154,6 +155,7 @@ export const appRegistry = [
   kobe_models,
   kobe_sports,
   kobe_hotel,
+  kobe_assistant,
   kobe_pay,
   kobe_studio,
   kobetech_admin,
