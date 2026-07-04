@@ -191,7 +191,7 @@ export default function PropEasyApp() {
           {view === 'screening'   && selectedTenant && (
             <ScreeningView tenant={selectedTenant} onBack={() => setView('tenant-detail')} />
           )}
-          {view === 'properties'  && <EmptyState title="Properties" subtitle="Buildings, units, and floor plans live here." />}
+          {view === 'properties'  && <PropertiesView properties={properties} />}
           {view === 'financials'  && <EmptyState title="Financials" subtitle="Rent roll, expenses, P&L, exports." />}
           {view === 'maintenance' && <EmptyState title="Maintenance" subtitle="Work orders across every unit." />}
           {view === 'documents'   && <EmptyState title="Documents" subtitle="Leases, IDs, insurance, inspections." />}
@@ -1299,6 +1299,51 @@ const demoInsights: Insight[] = [
     description: 'Block A utility account · TZS 480,000.',
     actionLabel: 'Mark paid' },
 ];
+
+/* ────────────────────────────── Properties View ────────────────────────── */
+
+function PropertiesView({ properties }: { properties: ApiProperty[] }) {
+  // Buildings come from the shell (GET /property/properties); pull units here.
+  const [units, setUnits] = useState<ApiUnit[]>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    api<ApiUnit[]>('/property/units')
+      .then((u) => setUnits(Array.isArray(u) ? u : []))
+      .catch(() => { /* leave empty */ })
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (properties.length === 0) {
+    return <EmptyState title="Properties" subtitle={loading ? 'Loading…' : 'No properties yet. Add a building to get started.'} />;
+  }
+  return (
+    <div className="px-6 pb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+      {properties.map((p) => {
+        const pu = units.filter((u) => u.propertyId === p.id);
+        const totalRent = pu.reduce((s, u) => s + (u.rent ?? 0), 0);
+        return (
+          <div key={p.id} className="rounded-2xl bg-white border border-slate-200 p-5 shadow-sm">
+            <h3 className="text-base font-bold text-slate-900">{p.name}</h3>
+            <p className="text-xs text-slate-600 mb-3">{p.address}</p>
+            <div className="flex gap-5 text-sm mb-3">
+              <div><span className="font-bold text-slate-900">{pu.length}</span> <span className="text-slate-600">units</span></div>
+              <div><span className="font-bold text-slate-900">TZS {totalRent.toLocaleString()}</span> <span className="text-slate-600">/mo potential</span></div>
+            </div>
+            <ul className="space-y-1">
+              {pu.slice(0, 10).map((u) => (
+                <li key={u.id} className="flex justify-between text-xs border-b border-slate-100 last:border-0 pb-1">
+                  <span className="text-slate-700">{u.kind ?? 'Unit'}</span>
+                  <span className="font-medium text-slate-900">TZS {(u.rent ?? 0).toLocaleString()}</span>
+                </li>
+              ))}
+              {pu.length === 0 && <li className="text-xs text-slate-500">{loading ? 'Loading units…' : 'No units recorded.'}</li>}
+            </ul>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 /* ────────────────────────────── Tokens View ────────────────────────────── */
 
