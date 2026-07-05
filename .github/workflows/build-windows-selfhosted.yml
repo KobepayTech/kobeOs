@@ -1,0 +1,218 @@
+name: Build Windows Installer (self-hosted, offline AI)
+
+# Builds the Windows installer ON YOUR OWN PC via a self-hosted GitHub Actions
+# runner, so it can copy your local GGUF models straight off disk and bake them
+# into the installer — no cloud, no upload, no URLs.
+#
+# Prerequisites (one-time):
+#   1. Register your Windows PC as a self-hosted runner:
+#        GitHub repo → Settings → Actions → Runners → New self-hosted runner
+#        (choose Windows x64 and follow the shown commands). Give it the label
+#        `windows` (default) so `runs-on: [self-hosted, windows]` matches.
+#   2. Put your downloaded .gguf files in a folder, e.g. C:\KobeOS\Models, and
+#      make the filenames match the `file` fields in models/bundled/models.json.
+#   3. (Optional) repo Settings → Secrets and variables → Actions:
+#        - Variable KOBE_MODELS_DIR to override the default C:\KobeOS\Models
+#        - Secret   KOBE_MODELS_AUTH if any model uses a private download URL
+#
+# Then run it manually: Actions tab → this workflow → "Run workflow".
+# (Kept manual on purpose so it doesn't double-build with the cloud workflow on
+#  every push. To make it push-triggered instead, add an `on: push:` block and
+#  disable Build Windows Installer for the branches you build here.)
+
+on:
+  workflow_dispatch:
+    inputs:
+      models_dir:
+        description: 'Folder on this PC holding the .gguf files'
+        required: false
+        default: 'C:\KobeOS\Models'
+      require_models:
+        description: 'Fail the build if a listed model is missing'
+        type: boolean
+        required: false
+        default: true
+
+jobs:
+  build-windows-selfhosted:
+    runs-on: [self-hosted, windows]
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # ── Frontend ────────────────────────────────────────────────────────────
+      - name: Install frontend dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Check Windows build scripts
+        run: node scripts/check-windows-build-scripts.mjs
+
+      - name: Build frontend with TypeScript check
+        run: npm run build
+
+      # ── Backend ─────────────────────────────────────────────────────────────
+      - name: Install server dependencies
+        run: npm install --legacy-peer-deps
+        working-directory: server
+
+      - name: Bundle NestJS backend
+        run: npm run build:bundle
+
+      # ── Pre-build steps ─────────────────────────────────────────────────────
+      - name: Regenerate core integrity manifest
+        run: npm run core:manifest
+
+      - name: Verify manifest was generated
+        run: |
+          if (!(Test-Path "build/core-manifest.json")) {
+            Write-Error "core-manifest.json was not generated"
+            exit 1
+          }
+          $manifest = Get-Content "build/core-manifest.json" | ConvertFrom-Json
+          $count = ($manifest.files | Get-Member -MemberType NoteProperty).Count
+          Write-Host "Manifest contains $count files"
+          if ($count -eq 0) {
+            Write-Error "Manifest is empty"
+            exit 1
+          }
+        shell: pwsh
+
+      - name: Bundle Visual C++ runtime next to PostgreSQL binaries
+        shell: pwsh
+        run: |
+          # The MSVC-built PostgreSQL binaries depend on the VC++ runtime. Without
+          # it, initdb.exe fails to launch with 0xC0000135 (STATUS_DLL_NOT_FOUND).
+          $binDir = "node_modules/@embedded-postgres/windows-x64/native/bin"
+          if (!(Test-Path $binDir)) { Write-Error "Postgres bin dir not found: $binDir"; exit 1 }
+
+          function Find-Dll($name) {
+            $sys = Join-Path $env:WINDIR "System32\$name"
+            if (Test-Path $sys) { return $sys }
+            $redist = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\*\*\VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT\$name" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($redist) { return $redist.FullName }
+            return $null
+          }
+
+          $required = @("vcruntime140.dll","vcruntime140_1.dll","msvcp140.dll")
+          $optional = @("msvcp140_1.dll","msvcp140_2.dll","concrt140.dll","vccorlib140.dll")
+
+          foreach ($d in $required) {
+            $src = Find-Dll $d
+            if (!$src) { Write-Error "Required runtime DLL not found on runner: $d"; exit 1 }
+            Copy-Item $src -Destination $binDir -Force
+            Write-Host "Bundled (required): $d  <- $src"
+          }
+          foreach ($d in $optional) {
+            $src = Find-Dll $d
+            if ($src) { Copy-Item $src -Destination $binDir -Force; Write-Host "Bundled (optional): $d" }
+          }
+
+      - name: Download Visual C++ 2015-2022 x64 Redistributable
+        run: |
+          $url = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+          $dest = "build\vcredist\vc_redist.x64.exe"
+          New-Item -ItemType Directory -Force -Path "build\vcredist" | Out-Null
+          Write-Host "Downloading vc_redist.x64.exe from $url"
+          Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing
+          $size = (Get-Item $dest).Length
+          Write-Host "Downloaded: $([math]::Round($size/1MB, 1)) MB"
+          if ($size -lt 5MB) {
+            Write-Error "vc_redist.x64.exe is suspiciously small -- download may have failed"
+            exit 1
+          }
+        shell: pwsh
+
+      - name: Download cloudflared
+        run: npm run download:cloudflared
+
+      - name: Download Ollama (local AI runtime)
+        run: npm run download:ollama
+        continue-on-error: true
+
+      # This is the whole point of the self-hosted build: copy YOUR local GGUFs
+      # into models/bundled/ so electron-builder bakes them into the installer.
+      - name: Bundle offline AI models from this PC
+        run: npm run fetch:models
+        env:
+          KOBE_MODELS_DIR: ${{ github.event.inputs.models_dir || vars.KOBE_MODELS_DIR || 'C:\KobeOS\Models' }}
+          KOBE_MODELS_AUTH: ${{ secrets.KOBE_MODELS_AUTH }}
+          KOBE_MODELS_REQUIRED: ${{ github.event.inputs.require_models == 'false' && '0' || '1' }}
+
+      # ── Build installer ─────────────────────────────────────────────────────
+      - name: Build Windows installer
+        run: npx electron-builder --win --publish never
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Copy vc_redist.x64.exe next to installer
+        run: |
+          Copy-Item "build\vcredist\vc_redist.x64.exe" "release\vc_redist.x64.exe" -Force
+          Write-Host "Copied vc_redist.x64.exe to release\"
+        shell: pwsh
+
+      # ── Smoke tests ─────────────────────────────────────────────────────────
+      - name: 'Smoke test: verify installer exists and is non-trivial'
+        run: |
+          $exes = Get-ChildItem release\*.exe -ErrorAction SilentlyContinue
+          if ($exes.Count -eq 0) {
+            Write-Error "No .exe found in release/"
+            exit 1
+          }
+          foreach ($exe in $exes) {
+            Write-Host "$($exe.Name): $([math]::Round($exe.Length/1MB, 1)) MB"
+            if ($exe.Length -lt 10MB) {
+              Write-Error "$($exe.Name) is suspiciously small (<10 MB)"
+              exit 1
+            }
+          }
+          Write-Host "Smoke test passed"
+        shell: pwsh
+
+      - name: 'Smoke test: verify bundled AI models are present in the installer'
+        run: |
+          $models = "release\win-unpacked\resources\models"
+          if (Test-Path $models) {
+            $ggufs = Get-ChildItem "$models\*.gguf" -ErrorAction SilentlyContinue
+            Write-Host "Bundled models in installer:"
+            $ggufs | ForEach-Object { Write-Host "  $($_.Name)  ($([math]::Round($_.Length/1MB,1)) MB)" }
+            if ($ggufs.Count -eq 0) {
+              Write-Host "::warning::No .gguf found in resources/models — installer will rely on side-loaded models."
+            }
+          } else {
+            Write-Host "::warning::resources/models not found in the built app."
+          }
+        shell: pwsh
+
+      - name: 'Smoke test: verify asar contains core files'
+        run: |
+          $asar = "release\win-unpacked\resources\app.asar"
+          if (!(Test-Path $asar)) {
+            Write-Error "app.asar not found at $asar"
+            exit 1
+          }
+          npx asar list $asar | Select-String "electron/main.cjs","electron/preload.cjs","electron/update-manager.cjs"
+          Write-Host "Core files present in asar"
+        shell: pwsh
+
+      # ── Artifacts ───────────────────────────────────────────────────────────
+      - name: List release artifacts
+        run: |
+          Write-Host "=== Release Artifacts ==="
+          Get-ChildItem release\ -Recurse | Select-Object FullName, @{N="SizeMB";E={[math]::Round($_.Length/1MB,1)}}
+        shell: pwsh
+
+      - name: Upload Windows installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: KobeOS-Windows-Setup-offline-ai
+          path: |
+            release/*.exe
+            release/vc_redist.x64.exe
+          retention-days: 30
