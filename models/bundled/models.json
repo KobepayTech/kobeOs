@@ -7,26 +7,6 @@
       "file": "qwen.gguf",
       "system": "You are Kobe, a concise business assistant for a Tanzanian shop. Reply in the user's language (Swahili or English).",
       "parameters": { "temperature": 0.3, "num_ctx": 8192 }
-    },
-    {
-      "name": "kobellama",
-      "file": "llama3.gguf",
-      "parameters": { "temperature": 0.3 }
-    },
-    {
-      "name": "kobemistral",
-      "file": "mistral.gguf",
-      "parameters": { "temperature": 0.3 }
-    },
-    {
-      "name": "kobephi3",
-      "file": "phi3.gguf",
-      "parameters": { "temperature": 0.3 }
-    },
-    {
-      "name": "kobedeepseek",
-      "file": "deepseek.gguf",
-      "parameters": { "temperature": 0.3 }
     }
   ]
 }
