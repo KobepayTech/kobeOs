@@ -1,12 +1,17 @@
 {
-  "_comment": "GGUF models baked into the installer. 'file' MUST match the exact filename in your models folder (KOBE_MODELS_DIR, e.g. C:\\KobeOS\\Models) or in models/bundled/. 'name' is the Ollama model name created on first boot. 'default' is the model the Ask Kobe assistant talks to. Optional 'url' downloads the gguf on a GitHub-hosted runner. Set 'default' to whichever model you want the assistant to use.",
-  "default": "kobellama",
+  "_comment": "GGUF models baked into the installer. 'file' MUST match the exact filename in your models folder (KOBE_MODELS_DIR, e.g. C:\\KobeOS\\Models) or in models/bundled/. 'name' is the Ollama model name created on first boot. 'default' is the model the Ask Kobe assistant talks to. Optional 'url' downloads the gguf on a GitHub-hosted runner.",
+  "default": "kobechat",
   "models": [
+    {
+      "name": "kobechat",
+      "file": "qwen.gguf",
+      "system": "You are Kobe, a concise business assistant for a Tanzanian shop. Reply in the user's language (Swahili or English).",
+      "parameters": { "temperature": 0.3, "num_ctx": 8192 }
+    },
     {
       "name": "kobellama",
       "file": "llama3.gguf",
-      "system": "You are Kobe, a concise business assistant for a Tanzanian shop. Reply in the user's language (Swahili or English).",
-      "parameters": { "temperature": 0.3, "num_ctx": 8192 }
+      "parameters": { "temperature": 0.3 }
     },
     {
       "name": "kobemistral",
