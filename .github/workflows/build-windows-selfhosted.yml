@@ -39,6 +39,16 @@ jobs:
     permissions:
       contents: write
 
+    # Self-hosted Windows runners often have PowerShell execution policy set to
+    # Restricted, which blocks the temp .ps1 wrapper GitHub uses for run: steps
+    # ("running scripts is disabled on this system"). Invoke pwsh with
+    # -ExecutionPolicy Bypass so every run: step works without changing the
+    # machine's policy. (Alternatively, set the policy once on the runner:
+    #   Set-ExecutionPolicy -Scope LocalMachine RemoteSigned )
+    defaults:
+      run:
+        shell: pwsh -ExecutionPolicy Bypass -NoProfile -Command ". '{0}'"
+
     steps:
       - uses: actions/checkout@v4
 
@@ -82,10 +92,8 @@ jobs:
             Write-Error "Manifest is empty"
             exit 1
           }
-        shell: pwsh
 
       - name: Bundle Visual C++ runtime next to PostgreSQL binaries
-        shell: pwsh
         run: |
           # The MSVC-built PostgreSQL binaries depend on the VC++ runtime. Without
           # it, initdb.exe fails to launch with 0xC0000135 (STATUS_DLL_NOT_FOUND).
@@ -127,7 +135,6 @@ jobs:
             Write-Error "vc_redist.x64.exe is suspiciously small -- download may have failed"
             exit 1
           }
-        shell: pwsh
 
       - name: Download cloudflared
         run: npm run download:cloudflared
@@ -155,7 +162,6 @@ jobs:
         run: |
           Copy-Item "build\vcredist\vc_redist.x64.exe" "release\vc_redist.x64.exe" -Force
           Write-Host "Copied vc_redist.x64.exe to release\"
-        shell: pwsh
 
       # ── Smoke tests ─────────────────────────────────────────────────────────
       - name: 'Smoke test: verify installer exists and is non-trivial'
@@ -173,7 +179,6 @@ jobs:
             }
           }
           Write-Host "Smoke test passed"
-        shell: pwsh
 
       - name: 'Smoke test: verify bundled AI models are present in the installer'
         run: |
@@ -188,7 +193,6 @@ jobs:
           } else {
             Write-Host "::warning::resources/models not found in the built app."
           }
-        shell: pwsh
 
       - name: 'Smoke test: verify asar contains core files'
         run: |
@@ -199,14 +203,12 @@ jobs:
           }
           npx asar list $asar | Select-String "electron/main.cjs","electron/preload.cjs","electron/update-manager.cjs"
           Write-Host "Core files present in asar"
-        shell: pwsh
 
       # ── Artifacts ───────────────────────────────────────────────────────────
       - name: List release artifacts
         run: |
           Write-Host "=== Release Artifacts ==="
           Get-ChildItem release\ -Recurse | Select-Object FullName, @{N="SizeMB";E={[math]::Round($_.Length/1MB,1)}}
-        shell: pwsh
 
       - name: Upload Windows installer artifact
         uses: actions/upload-artifact@v4
