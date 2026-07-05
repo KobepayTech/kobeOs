@@ -81,6 +81,28 @@ const STATUS_LABELS: Record<string, string> = {
 
 const STATUS_FLOW = ['ASSIGNED', 'IN_PROGRESS', 'ARRIVED', 'DELIVERED'] as const;
 
+/* Map the backend Parcel status machine (REGISTERED→IN_TRANSIT→ARRIVED→
+ * DELIVERED/CANCELLED) to/from the driver-facing Delivery status. */
+const PARCEL_TO_DELIVERY: Record<string, Delivery['status']> = {
+  REGISTERED: 'ASSIGNED',
+  IN_TRANSIT: 'IN_PROGRESS',
+  ARRIVED: 'ARRIVED',
+  DELIVERED: 'DELIVERED',
+  CANCELLED: 'FAILED',
+};
+const DELIVERY_TO_PARCEL: Record<Delivery['status'], string> = {
+  ASSIGNED: 'REGISTERED',
+  IN_PROGRESS: 'IN_TRANSIT',
+  ARRIVED: 'ARRIVED',
+  DELIVERED: 'DELIVERED',
+  FAILED: 'CANCELLED',
+};
+
+interface ParcelRow {
+  id: string; parcelId: string; ownerName: string; ownerPhone: string;
+  destination: string; status: string; createdAt: string; description?: string;
+}
+
 /* ------------------------------------------------------------------ */
 /*  GLASS CARD                                                         */
 /* ------------------------------------------------------------------ */
@@ -114,6 +136,8 @@ export default function DriverMode({ onClose }: DriverModeProps) {
   const [deliveries, setDeliveries] = useState<Delivery[]>(MOCK_DELIVERIES);
   const [drivers, setDrivers] = useState<Driver[]>(MOCK_DRIVERS);
   const [connected, setConnected] = useState(true);
+  /* true once real parcels are loaded — gates writing status back to the API. */
+  const [liveData, setLiveData] = useState(false);
 
   /* Photo / POD state */
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
@@ -122,7 +146,7 @@ export default function DriverMode({ onClose }: DriverModeProps) {
   const [failReason, setFailReason] = useState('');
   const [showFailDialog, setShowFailDialog] = useState(false);
 
-  /* Load real drivers from API */
+  /* Load real drivers + parcels from API (fall back to mock when offline/empty) */
   useEffect(() => {
     (async () => {
       try {
@@ -139,6 +163,26 @@ export default function DriverMode({ onClose }: DriverModeProps) {
           })));
         }
       } catch { /* use mock */ }
+
+      try {
+        const res = await api<ParcelRow[] | { items: ParcelRow[] }>('/cargo/parcels?limit=100');
+        const rows = Array.isArray(res) ? res : (res?.items ?? []);
+        if (rows.length > 0) {
+          setDeliveries(rows.map((p) => ({
+            id: p.id,
+            parcelId: p.parcelId,
+            recipientName: p.ownerName || '—',
+            recipientPhone: p.ownerPhone || '',
+            address: p.destination || '',
+            city: p.destination || '',
+            status: PARCEL_TO_DELIVERY[p.status] ?? 'ASSIGNED',
+            createdAt: p.createdAt,
+            notes: p.description || undefined,
+          })));
+          setLiveData(true);
+        }
+        setConnected(true);
+      } catch { setConnected(false); /* keep mock deliveries */ }
     })();
   }, []);
 
@@ -149,13 +193,28 @@ export default function DriverMode({ onClose }: DriverModeProps) {
   };
 
   const handleStatusChange = useCallback((deliveryId: string, newStatus: Delivery['status']) => {
+    const prevStatus = deliveries.find(d => d.id === deliveryId)?.status;
+    // Optimistic local update.
     setDeliveries(prev => prev.map(d =>
       d.id === deliveryId ? { ...d, status: newStatus } : d
     ));
     if (activeDelivery && activeDelivery.id === deliveryId) {
       setActiveDelivery(prev => prev ? { ...prev, status: newStatus } : null);
     }
-  }, [activeDelivery]);
+    // Persist to the parcel state machine when we're on real data. Revert on error.
+    if (liveData && prevStatus && prevStatus !== newStatus) {
+      api(`/cargo/parcels/${deliveryId}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: DELIVERY_TO_PARCEL[newStatus] }),
+      }).then(() => setConnected(true)).catch(() => {
+        setConnected(false);
+        setDeliveries(prev => prev.map(d => d.id === deliveryId ? { ...d, status: prevStatus } : d));
+        if (activeDelivery && activeDelivery.id === deliveryId) {
+          setActiveDelivery(prev => prev ? { ...prev, status: prevStatus } : null);
+        }
+      });
+    }
+  }, [activeDelivery, deliveries, liveData]);
 
   const handleDeliver = useCallback(() => {
     if (!activeDelivery) return;
