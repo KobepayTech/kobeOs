@@ -8,8 +8,9 @@ import { RentCharge, Tenant, PropertyUnit } from '../property/property.entity';
 import { HotelRoom } from '../hotel/hotel.entity';
 import { HotelFinancialRecord } from '../hotel/hotel-financials.entity';
 import { WarehouseItem } from '../warehouse/warehouse.entity';
-import { ShopExpense } from '../eod/eod.entity';
+import { ShopExpense, ExpenseCategory } from '../eod/eod.entity';
 import { Parcel } from '../cargo/cargo.entity';
+import { Shop } from '../shops/shop.entity';
 import { BeemService } from '../notifications/beem.service';
 
 export interface AgentReply {
@@ -50,6 +51,7 @@ export class KobeAgentService {
     @InjectRepository(WarehouseItem) private readonly whItems: Repository<WarehouseItem>,
     @InjectRepository(ShopExpense) private readonly expenses: Repository<ShopExpense>,
     @InjectRepository(Parcel) private readonly parcels: Repository<Parcel>,
+    @InjectRepository(Shop) private readonly shops: Repository<Shop>,
     private readonly beem: BeemService,
   ) {}
 
@@ -91,6 +93,43 @@ export class KobeAgentService {
       return res.ok
         ? { ok: true, message: `Sent to ${phones.length} tenant(s).` }
         : { ok: false, message: res.error || 'SMS gateway not configured — set Beem credentials to send.' };
+    }
+
+    if (action.tool === 'record_expense') {
+      const amount = Number(action.args.amount || 0);
+      if (amount <= 0) return { ok: false, message: 'Expense amount must be greater than 0.' };
+      const shop = await this.shops.findOne({ where: { ownerId, isDefault: true } })
+        ?? await this.shops.findOne({ where: { ownerId } });
+      if (!shop) return { ok: false, message: 'No shop found to record the expense against.' };
+      await this.expenses.save(this.expenses.create({
+        ownerId,
+        shopId: shop.id,
+        amount,
+        category: String(action.args.category || 'other') as ExpenseCategory,
+        description: String(action.args.description || ''),
+      }));
+      return { ok: true, message: `Recorded TZS ${amount.toLocaleString()} expense.` };
+    }
+
+    if (action.tool === 'set_room_status') {
+      const roomNumber = String(action.args.roomNumber || '').trim();
+      const status = String(action.args.status || '').trim();
+      const allowed = ['available', 'occupied', 'reserved', 'maintenance'];
+      if (!roomNumber) return { ok: false, message: 'Specify which room number.' };
+      if (!allowed.includes(status)) return { ok: false, message: `Status must be one of: ${allowed.join(', ')}.` };
+      const res = await this.hotelRooms.update({ ownerId, roomNumber }, { status: status as HotelRoom['status'] });
+      if (!res.affected) return { ok: false, message: `Room ${roomNumber} not found.` };
+      return { ok: true, message: `Room ${roomNumber} set to ${status}.` };
+    }
+
+    if (action.tool === 'adjust_stock') {
+      const sku = String(action.args.sku || '').trim();
+      const quantity = Number(action.args.quantity ?? -1);
+      if (!sku) return { ok: false, message: 'Specify the item SKU.' };
+      if (!Number.isFinite(quantity) || quantity < 0) return { ok: false, message: 'Quantity must be 0 or more.' };
+      const res = await this.whItems.update({ ownerId, sku }, { quantity });
+      if (!res.affected) return { ok: false, message: `No warehouse item with SKU "${sku}".` };
+      return { ok: true, message: `Stock of ${sku} set to ${quantity}.` };
     }
 
     return { ok: false, message: `Unknown action "${action.tool}".` };
@@ -243,6 +282,30 @@ export class KobeAgentService {
       write: true,
       run: async (_ownerId, args) => ({
         pendingAction: { tool: 'set_rent', summary: `Set rent to TZS ${Number(args?.amount || 0).toLocaleString()}`, args: { tenantId: args?.tenantId ?? null, unitId: args?.unitId ?? null, amount: Number(args?.amount || 0) } },
+      }),
+    },
+    {
+      name: 'record_expense',
+      description: 'Record a business expense. args: {amount, category?, description?}',
+      write: true,
+      run: async (_ownerId, args) => ({
+        pendingAction: { tool: 'record_expense', summary: `Record TZS ${Number(args?.amount || 0).toLocaleString()} expense${args?.category ? ` (${args.category})` : ''}`, args: { amount: Number(args?.amount || 0), category: String(args?.category ?? 'other'), description: String(args?.description ?? '') } },
+      }),
+    },
+    {
+      name: 'set_room_status',
+      description: 'Change a hotel room status. args: {roomNumber, status: "available"|"occupied"|"reserved"|"maintenance"}',
+      write: true,
+      run: async (_ownerId, args) => ({
+        pendingAction: { tool: 'set_room_status', summary: `Set room ${args?.roomNumber ?? '?'} to ${args?.status ?? '?'}`, args: { roomNumber: String(args?.roomNumber ?? ''), status: String(args?.status ?? '') } },
+      }),
+    },
+    {
+      name: 'adjust_stock',
+      description: 'Set a warehouse item quantity. args: {sku, quantity}',
+      write: true,
+      run: async (_ownerId, args) => ({
+        pendingAction: { tool: 'adjust_stock', summary: `Set stock of ${args?.sku ?? '?'} to ${Number(args?.quantity ?? 0)}`, args: { sku: String(args?.sku ?? ''), quantity: Number(args?.quantity ?? 0) } },
       }),
     },
   ];

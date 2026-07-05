@@ -11,13 +11,14 @@ import { HotelFinancialRecord } from '../hotel/hotel-financials.entity';
 import { WarehouseItem } from '../warehouse/warehouse.entity';
 import { ShopExpense } from '../eod/eod.entity';
 import { Parcel } from '../cargo/cargo.entity';
+import { Shop } from '../shops/shop.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
       PosOrder, PosProduct, ProductReview, RentCharge, Tenant, PropertyUnit,
-      HotelRoom, HotelFinancialRecord, WarehouseItem, ShopExpense, Parcel,
+      HotelRoom, HotelFinancialRecord, WarehouseItem, ShopExpense, Parcel, Shop,
     ]),
     NotificationsModule,
   ],
