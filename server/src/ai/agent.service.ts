@@ -1,10 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, In, Not, Repository } from 'typeorm';
+import { Between, In, MoreThanOrEqual, Not, Repository } from 'typeorm';
 import { AiService } from './ai.service';
 import { PosOrder, PosProduct } from '../pos/pos.entity';
 import { ProductReview } from '../store/product-review.entity';
 import { RentCharge, Tenant, PropertyUnit } from '../property/property.entity';
+import { HotelRoom } from '../hotel/hotel.entity';
+import { HotelFinancialRecord } from '../hotel/hotel-financials.entity';
+import { WarehouseItem } from '../warehouse/warehouse.entity';
+import { ShopExpense } from '../eod/eod.entity';
+import { Parcel } from '../cargo/cargo.entity';
 import { BeemService } from '../notifications/beem.service';
 
 export interface AgentReply {
@@ -40,6 +45,11 @@ export class KobeAgentService {
     @InjectRepository(RentCharge) private readonly charges: Repository<RentCharge>,
     @InjectRepository(Tenant) private readonly tenants: Repository<Tenant>,
     @InjectRepository(PropertyUnit) private readonly units: Repository<PropertyUnit>,
+    @InjectRepository(HotelRoom) private readonly hotelRooms: Repository<HotelRoom>,
+    @InjectRepository(HotelFinancialRecord) private readonly hotelFin: Repository<HotelFinancialRecord>,
+    @InjectRepository(WarehouseItem) private readonly whItems: Repository<WarehouseItem>,
+    @InjectRepository(ShopExpense) private readonly expenses: Repository<ShopExpense>,
+    @InjectRepository(Parcel) private readonly parcels: Repository<Parcel>,
     private readonly beem: BeemService,
   ) {}
 
@@ -150,6 +160,74 @@ export class KobeAgentService {
         return { data: { monthly: Math.round(monthly), annual: Math.round(monthly * 12), currency: 'TZS' } };
       },
     },
+    // ── Hotel ──────────────────────────────────────────────────────────────
+    {
+      name: 'hotel_occupancy',
+      description: 'Hotel room occupancy: how many rooms are occupied, reserved, available, in maintenance, and the occupancy rate.',
+      run: async (ownerId) => {
+        const rooms = await this.hotelRooms.find({ where: { ownerId }, take: 5000 });
+        const count = (s: string) => rooms.filter((r) => r.status === s).length;
+        const occupied = count('occupied');
+        const reserved = count('reserved');
+        const total = rooms.length;
+        const rate = total ? Math.round(((occupied + reserved) / total) * 100) : 0;
+        return { data: { totalRooms: total, occupied, reserved, available: count('available'), maintenance: count('maintenance'), occupancyRate: rate } };
+      },
+    },
+    {
+      name: 'hotel_revenue',
+      description: "This month's hotel revenue, expenses and net profit (from hotel financial records).",
+      run: async (ownerId) => {
+        const start = new Date(); start.setDate(1); start.setHours(0, 0, 0, 0);
+        const rows = await this.hotelFin.find({ where: { ownerId }, take: 10000 });
+        let revenue = 0, expense = 0;
+        for (const r of rows) {
+          if (new Date(r.recordDate) < start) continue;
+          const amt = Number(r.amount || 0);
+          if (r.category?.includes('revenue')) revenue += amt;
+          else if (r.category?.includes('expense')) expense += amt;
+        }
+        return { data: { month: start.toISOString().slice(0, 7), revenue: Math.round(revenue), expense: Math.round(expense), net: Math.round(revenue - expense), currency: 'TZS' } };
+      },
+    },
+    // ── Warehouse ──────────────────────────────────────────────────────────
+    {
+      name: 'warehouse_stock',
+      description: 'Warehouse stock: item count, how many are at/below reorder level, total stock value, and the low-stock list.',
+      run: async (ownerId) => {
+        const rows = await this.whItems.find({ where: { ownerId }, take: 5000 });
+        const low = rows.filter((i) => Number(i.quantity ?? 0) <= Number(i.reorderLevel ?? 0))
+          .map((i) => ({ sku: i.sku, name: i.name, quantity: Number(i.quantity ?? 0), reorderLevel: Number(i.reorderLevel ?? 0) }))
+          .sort((a, b) => a.quantity - b.quantity);
+        const stockValue = rows.reduce((s, i) => s + Number(i.quantity ?? 0) * Number(i.unitCost ?? 0), 0);
+        return { data: { items: rows.length, lowStock: low.length, stockValue: Math.round(stockValue), currency: 'TZS', low: low.slice(0, 50) } };
+      },
+    },
+    // ── Accounting / expenses ──────────────────────────────────────────────
+    {
+      name: 'expenses_summary',
+      description: "This month's business expenses: total and a breakdown by category.",
+      run: async (ownerId) => {
+        const start = new Date(); start.setDate(1); start.setHours(0, 0, 0, 0);
+        const rows = await this.expenses.find({ where: { ownerId, createdAt: MoreThanOrEqual(start) }, take: 10000 });
+        const byCategory: Record<string, number> = {};
+        let total = 0;
+        for (const e of rows) { const amt = Number(e.amount || 0); total += amt; byCategory[e.category] = (byCategory[e.category] || 0) + amt; }
+        const breakdown = Object.entries(byCategory).map(([category, amount]) => ({ category, amount: Math.round(amount) })).sort((a, b) => b.amount - a.amount);
+        return { data: { month: start.toISOString().slice(0, 7), total: Math.round(total), count: rows.length, currency: 'TZS', breakdown } };
+      },
+    },
+    // ── Cargo ──────────────────────────────────────────────────────────────
+    {
+      name: 'cargo_status',
+      description: 'Cargo parcels overview: total parcels and how many are in each status (registered, in transit, delivered, etc.).',
+      run: async (ownerId) => {
+        const rows = await this.parcels.find({ where: { ownerId }, take: 5000 });
+        const byStatus: Record<string, number> = {};
+        for (const p of rows) byStatus[p.status] = (byStatus[p.status] || 0) + 1;
+        return { data: { total: rows.length, byStatus } };
+      },
+    },
     // ── write / outward actions: NEVER auto-run — return for confirmation ──
     {
       name: 'send_tenant_notification',
@@ -228,6 +306,11 @@ ${this.toolList()}`;
       case 'top_rated_products': return data.items?.length ? `Top: ${data.items.map((i: any) => `${i.name} (${i.avgRating}★)`).join(', ')}.` : 'No reviews yet.';
       case 'unpaid_tenants': return `${data.count} tenant(s) owe TZS ${Number(data.totalOutstanding).toLocaleString()}.`;
       case 'rent_projection': return `Projected rent: TZS ${Number(data.monthly).toLocaleString()}/mo (TZS ${Number(data.annual).toLocaleString()}/yr).`;
+      case 'hotel_occupancy': return `${data.occupancyRate}% occupancy — ${data.occupied} occupied, ${data.reserved} reserved, ${data.available} free of ${data.totalRooms} rooms.`;
+      case 'hotel_revenue': return `Hotel ${data.month}: revenue TZS ${Number(data.revenue).toLocaleString()}, expenses TZS ${Number(data.expense).toLocaleString()}, net TZS ${Number(data.net).toLocaleString()}.`;
+      case 'warehouse_stock': return `${data.items} items, ${data.lowStock} at/below reorder level. Stock value TZS ${Number(data.stockValue).toLocaleString()}.`;
+      case 'expenses_summary': return `${data.month} expenses: TZS ${Number(data.total).toLocaleString()} across ${data.count} entries.`;
+      case 'cargo_status': return `${data.total} parcel(s): ${Object.entries(data.byStatus || {}).map(([s, n]) => `${n} ${s.toLowerCase()}`).join(', ') || 'none'}.`;
       default: return JSON.stringify(data);
     }
   }

@@ -9,8 +9,11 @@ const SUGGESTIONS = [
   'What are today’s sales?',
   'Which items do customers like most?',
   'How many tenants haven’t paid rent?',
-  'Show me low-stock products',
-  'Project my rent income',
+  'What’s my hotel occupancy right now?',
+  'This month’s hotel revenue and profit',
+  'Show me low-stock warehouse items',
+  'How much did I spend this month?',
+  'How many parcels are in transit?',
 ];
 
 export default function KobeAssistant() {
