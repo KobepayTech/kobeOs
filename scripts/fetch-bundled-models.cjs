@@ -33,13 +33,29 @@ const path = require('path');
 
 const OUT_DIR = path.join(__dirname, '..', 'models', 'bundled');
 const MANIFEST = path.join(OUT_DIR, 'models.json');
-const LOCAL_DIR = process.env.KOBE_MODELS_DIR || '';
+// Fall back to the conventional Windows models folder if the env var didn't
+// reach us (e.g. an empty workflow input) so the standard path still works.
+const LOCAL_DIR = process.env.KOBE_MODELS_DIR || (process.platform === 'win32' ? 'C:\\KobeOS\\Models' : '');
 const AUTH = process.env.KOBE_MODELS_AUTH || '';
 const REQUIRED = process.env.KOBE_MODELS_REQUIRED === '1';
 
 function fail(msg) {
   if (REQUIRED) { console.error(`[fetch-bundled-models] ERROR: ${msg}`); process.exit(1); }
   console.warn(`[fetch-bundled-models] WARN: ${msg}`);
+}
+
+// Diagnostics: show exactly what source we resolved and what's in it, so a
+// "no source" failure is self-explanatory (wrong path vs. permissions vs. name).
+console.log(`[fetch-bundled-models] KOBE_MODELS_DIR=${JSON.stringify(process.env.KOBE_MODELS_DIR || '')}  resolved LOCAL_DIR=${JSON.stringify(LOCAL_DIR)}`);
+if (LOCAL_DIR) {
+  if (fs.existsSync(LOCAL_DIR)) {
+    let listing = [];
+    try { listing = fs.readdirSync(LOCAL_DIR); } catch (e) { console.log(`[fetch-bundled-models]   cannot list ${LOCAL_DIR}: ${e.message}`); }
+    const ggufs = listing.filter((f) => f.toLowerCase().endsWith('.gguf'));
+    console.log(`[fetch-bundled-models]   ${LOCAL_DIR} exists; ${ggufs.length} gguf file(s): ${ggufs.join(', ') || '(none)'}`);
+  } else {
+    console.log(`[fetch-bundled-models]   ${LOCAL_DIR} does NOT exist or is not readable by this account (runner may run as NetworkService).`);
+  }
 }
 
 if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true });
