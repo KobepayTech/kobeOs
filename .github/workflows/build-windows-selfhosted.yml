@@ -47,7 +47,10 @@ jobs:
     #   Set-ExecutionPolicy -Scope LocalMachine RemoteSigned )
     defaults:
       run:
-        shell: pwsh -ExecutionPolicy Bypass -NoProfile -Command ". '{0}'"
+        # Use Windows PowerShell 5.1 (`powershell`, always present) rather than
+        # pwsh (PowerShell 7, not installed on this runner), with
+        # -ExecutionPolicy Bypass to defeat a Restricted policy.
+        shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
 
     steps:
       - uses: actions/checkout@v4
