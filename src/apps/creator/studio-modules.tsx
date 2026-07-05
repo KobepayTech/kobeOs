@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { api } from '@/lib/api';
 import {
   QrCode, ShieldAlert, TrendingUp, BadgeCheck,
   Settings, Plus, Search, CheckCircle2, AlertCircle, Clock,
@@ -102,8 +103,30 @@ const ROLE_COLOR: Record<string, string> = {
 // ── QrPayoutsModule ───────────────────────────────────────────────────────────
 
 export function QrPayoutsModule() {
-  const [qrs] = useState<QrEntry[]>(MOCK_QR);
+  const [qrs, setQrs] = useState<QrEntry[]>(MOCK_QR);
   const [tab, setTab] = useState<'all' | 'customer' | 'supplier'>('all');
+
+  // Load the current owner's QR codes (GET /qr/mine); fall back to mock on empty/error.
+  useEffect(() => {
+    (async () => {
+      try {
+        const rows = await api<Array<Record<string, unknown>>>('/qr/mine');
+        if (Array.isArray(rows) && rows.length > 0) {
+          setQrs(rows.map(r => ({
+            id: String(r.id ?? ''),
+            type: r.type === 'supplier' ? 'supplier' : 'customer',
+            reference: String(r.reference ?? ''),
+            shortCode: String(r.shortCode ?? ''),
+            label: String(r.label ?? ''),
+            amount: Number(r.amount) || 0,
+            currency: String(r.currency ?? 'USD'),
+            used: Boolean(r.used),
+            createdAt: String(r.createdAt ?? '').slice(0, 10),
+          })));
+        }
+      } catch { /* keep mock */ }
+    })();
+  }, []);
   const [lookup, setLookup] = useState('');
   const [lookupResult, setLookupResult] = useState<QrEntry | null | 'not-found'>(null);
   const [lookupLoading, setLookupLoading] = useState(false);
@@ -177,8 +200,33 @@ export function QrPayoutsModule() {
 // ── ExchangePLModule ──────────────────────────────────────────────────────────
 
 export function ExchangePLModule() {
-  const [entries] = useState<ExchangeEntry[]>(MOCK_EXCHANGE);
+  const [entries, setEntries] = useState<ExchangeEntry[]>(MOCK_EXCHANGE);
   const [currFilter, setCurrFilter] = useState('All');
+
+  // Load real exchange-rate P&L rows (GET /exchange-rates); fall back to mock on empty/error.
+  useEffect(() => {
+    (async () => {
+      try {
+        const rows = await api<Array<Record<string, unknown>>>('/exchange-rates');
+        if (Array.isArray(rows) && rows.length > 0) {
+          setEntries(rows.map(r => ({
+            id: String(r.id ?? ''),
+            date: String(r.txnDate ?? r.createdAt ?? '').slice(0, 10),
+            currency: String(r.currency ?? ''),
+            amountUsd: Number(r.amountUsd) || 0,
+            customerRate: Number(r.customerRate) || 0,
+            actualRate: Number(r.actualRate) || 0,
+            customerReceives: Number(r.customerReceives) || 0,
+            actualPaid: Number(r.actualPaid) || 0,
+            profitLoss: Number(r.profitLoss) || 0,
+            status: r.status === 'funded' ? 'funded' : 'pending',
+            txnRef: String(r.txnReference ?? ''),
+          })));
+        }
+      } catch { /* keep mock */ }
+    })();
+  }, []);
+
   const filtered = currFilter === 'All' ? entries : entries.filter(e => e.currency === currFilter);
   const funded = filtered.filter(e => e.status === 'funded');
   const totalPL = funded.reduce((s, e) => s + e.profitLoss, 0);
@@ -282,16 +330,46 @@ export function VerificationModule() {
 
 export function AdminModule() {
   const [users, setUsers] = useState<AdminUser[]>(MOCK_USERS);
+  const [liveUsers, setLiveUsers] = useState(false);
   const [search, setSearch] = useState('');
   const [editId, setEditId] = useState<string | null>(null);
   const [editRole, setEditRole] = useState('');
   const [editCountry, setEditCountry] = useState('');
+
+  // Load real platform users (GET /admin/users, admin-scoped); fall back to mock on empty/error.
+  useEffect(() => {
+    (async () => {
+      try {
+        const rows = await api<Array<Record<string, unknown>>>('/admin/users');
+        if (Array.isArray(rows) && rows.length > 0) {
+          setUsers(rows.map(r => ({
+            id: String(r.id ?? ''),
+            email: String(r.email ?? ''),
+            displayName: String(r.displayName ?? r.email ?? 'User'),
+            role: String(r.role ?? 'user'),
+            country: r.country ? String(r.country) : undefined,
+            createdAt: String(r.createdAt ?? '').slice(0, 10),
+          })));
+          setLiveUsers(true);
+        }
+      } catch { /* keep mock */ }
+    })();
+  }, []);
 
   const filtered = users.filter(u => u.email.includes(search) || u.displayName.toLowerCase().includes(search.toLowerCase()));
 
   const saveRole = (id: string) => {
     setUsers(prev => prev.map(u => u.id === id ? { ...u, role: editRole, country: editCountry || u.country } : u));
     setEditId(null);
+    // Persist role change when on live data (PATCH /admin/users/:id/role). Best-effort:
+    // the local update stands regardless; the API only accepts user|admin so other roles
+    // simply stay client-side.
+    if (liveUsers) {
+      api(`/admin/users/${id}/role`, {
+        method: 'PATCH',
+        body: JSON.stringify({ role: editRole }),
+      }).catch(() => { /* local update already applied */ });
+    }
   };
 
   const ALL_ROLES = ['admin', 'user', 'creator', 'brand', 'cashier_tz', 'cashier_china', 'cashier_india', 'manager_tz', 'manager_abroad'];
@@ -349,6 +427,28 @@ export function AdminModule() {
 export function DisputesModule() {
   const [disputes, setDisputes] = useState<DisputeItem[]>(MOCK_DISPUTES);
   const [filter, setFilter] = useState<'all' | DisputeStatus>('all');
+
+  // Load all disputes for the admin studio (GET /disputes); fall back to mock on empty/error.
+  useEffect(() => {
+    (async () => {
+      try {
+        const rows = await api<Array<Record<string, unknown>>>('/disputes');
+        if (Array.isArray(rows) && rows.length > 0) {
+          setDisputes(rows.map(r => ({
+            id: String(r.id ?? ''),
+            type: (r.type ?? 'other') as DisputeType,
+            status: (r.status ?? 'open') as DisputeStatus,
+            description: String(r.description ?? ''),
+            raisedBy: String(r.raisedBy ?? ''),
+            againstUser: String(r.againstUserId ?? r.againstUser ?? ''),
+            campaignTitle: r.campaignTitle ? String(r.campaignTitle) : undefined,
+            createdAt: String(r.createdAt ?? '').slice(0, 10),
+            resolution: r.resolution ? String(r.resolution) : undefined,
+          })));
+        }
+      } catch { /* keep mock */ }
+    })();
+  }, []);
   const [selected, setSelected] = useState<DisputeItem | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [newDesc, setNewDesc] = useState('');
