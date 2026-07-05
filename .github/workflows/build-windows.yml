@@ -131,6 +131,21 @@ jobs:
         run: npm run download:ollama
         continue-on-error: true
 
+      # Bundle the offline AI models into the installer. Runs only when the
+      # BUNDLE_AI_MODELS repo variable is 'true'. Sources (see
+      # scripts/fetch-bundled-models.cjs): KOBE_MODELS_DIR for a self-hosted
+      # runner with the GGUFs on local disk, or per-model `url` in
+      # models/bundled/models.json for a GitHub-hosted runner. Fail-soft unless
+      # KOBE_MODELS_REQUIRED=1.
+      - name: Fetch bundled AI models
+        if: vars.BUNDLE_AI_MODELS == 'true'
+        run: npm run fetch:models
+        continue-on-error: true
+        env:
+          KOBE_MODELS_DIR: ${{ vars.KOBE_MODELS_DIR }}
+          KOBE_MODELS_AUTH: ${{ secrets.KOBE_MODELS_AUTH }}
+          KOBE_MODELS_REQUIRED: ${{ vars.KOBE_MODELS_REQUIRED }}
+
       # ── Build installer ─────────────────────────────────────────────────────
       - name: Build Windows installer
         run: npx electron-builder --win --publish never

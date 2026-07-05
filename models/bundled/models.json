@@ -1,16 +1,18 @@
 {
-  "_comment": "Drop your .gguf files in this folder and set 'file' to the exact filename. 'default' is the model the Ask Kobe assistant uses. Recommended chat model: Qwen2.5-7B-Instruct (best JSON tool-calling + Swahili) with low temperature for reliable tool calls. Leave 'models' empty to auto-register every gguf as kobe-<filename>.",
+  "_comment": "GGUF models baked into the installer. 'file' is the exact filename in models/bundled/. Optional 'url' lets CI download it on a GitHub-hosted runner (else set KOBE_MODELS_DIR to copy from a self-hosted runner's disk). 'default' is the model the Ask Kobe assistant uses. Recommended chat model: Qwen2.5-7B-Instruct (best JSON tool-calling + Swahili) at low temperature. Leave 'models' empty to auto-register every gguf found here as kobe-<filename>.",
   "default": "kobe-chat",
   "models": [
     {
       "name": "kobe-chat",
       "file": "qwen2.5-7b-instruct-q4_k_m.gguf",
+      "url": "",
       "system": "You are Kobe, a concise business assistant for a Tanzanian shop. Reply in the user's language (Swahili or English).",
       "parameters": { "temperature": 0.3, "num_ctx": 8192 }
     },
     {
       "name": "kobe-embed",
-      "file": "nomic-embed-text-v1.5.Q4_K_M.gguf"
+      "file": "nomic-embed-text-v1.5.Q4_K_M.gguf",
+      "url": ""
     }
   ]
 }

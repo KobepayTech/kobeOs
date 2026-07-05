@@ -19,6 +19,7 @@
     "prepare:postgres": "node scripts/prepare-postgres-resources.cjs",
     "download:cloudflared": "node scripts/download-cloudflared.cjs",
     "download:ollama": "node scripts/download-ollama.cjs",
+    "fetch:models": "node scripts/fetch-bundled-models.cjs",
     "electron:build": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && npm run download:ollama && electron-builder",
     "electron:build:linux": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && npm run download:ollama && electron-builder --linux",
     "electron:build:win": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && npm run download:ollama && electron-builder --win",
