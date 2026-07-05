@@ -35,7 +35,12 @@ const OUT_DIR = path.join(__dirname, '..', 'models', 'bundled');
 const MANIFEST = path.join(OUT_DIR, 'models.json');
 // Fall back to the conventional Windows models folder if the env var didn't
 // reach us (e.g. an empty workflow input) so the standard path still works.
-const LOCAL_DIR = process.env.KOBE_MODELS_DIR || (process.platform === 'win32' ? 'C:\\KobeOS\\Models' : '');
+let LOCAL_DIR = process.env.KOBE_MODELS_DIR || (process.platform === 'win32' ? 'C:\\KobeOS\\Models' : '');
+// Be forgiving if KOBE_MODELS_DIR was pointed at a .gguf FILE instead of the
+// folder — use its parent directory.
+if (LOCAL_DIR && (/\.gguf$/i.test(LOCAL_DIR) || (fs.existsSync(LOCAL_DIR) && fs.statSync(LOCAL_DIR).isFile()))) {
+  LOCAL_DIR = path.dirname(LOCAL_DIR);
+}
 const AUTH = process.env.KOBE_MODELS_AUTH || '';
 const REQUIRED = process.env.KOBE_MODELS_REQUIRED === '1';
 
