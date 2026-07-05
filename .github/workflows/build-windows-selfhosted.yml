@@ -187,14 +187,17 @@ jobs:
         run: |
           $models = "release\win-unpacked\resources\models"
           if (Test-Path $models) {
-            $ggufs = Get-ChildItem "$models\*.gguf" -ErrorAction SilentlyContinue
-            Write-Host "Bundled models in installer:"
-            $ggufs | ForEach-Object { Write-Host "  $($_.Name)  ($([math]::Round($_.Length/1MB,1)) MB)" }
+            $ggufs = @(Get-ChildItem "$models\*.gguf" -ErrorAction SilentlyContinue)
+            Write-Host ("Bundled models in installer: " + $ggufs.Count)
+            foreach ($g in $ggufs) {
+              $mb = [math]::Round($g.Length / 1MB, 1)
+              Write-Host ("  " + $g.Name + "  " + $mb + " MB")
+            }
             if ($ggufs.Count -eq 0) {
-              Write-Host "::warning::No .gguf found in resources/models — installer will rely on side-loaded models."
+              Write-Host "WARNING: no .gguf in resources/models; installer will rely on side-loaded models."
             }
           } else {
-            Write-Host "::warning::resources/models not found in the built app."
+            Write-Host "WARNING: resources/models not found in the built app."
           }
 
       - name: 'Smoke test: verify asar contains core files'
