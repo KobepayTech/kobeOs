@@ -170,6 +170,12 @@ function startBackend(dbConfig) {
     // the cloudflared binary that's shipped alongside the installer rather
     // than depending on the user having it on PATH.
     KOBEOS_RESOURCES_PATH: IS_PACKAGED ? process.resourcesPath : path.join(__dirname, '..'),
+    // Where the backend (plain Node, not asar-aware) can read the built SPA to
+    // serve public storefronts (slug.kobeapptz.com). dist is asarUnpack'd, so
+    // it lives under app.asar.unpacked/dist when packaged.
+    KOBEOS_SPA_PATH: IS_PACKAGED
+      ? path.join(process.resourcesPath, 'app.asar.unpacked', 'dist')
+      : path.join(__dirname, '..', 'dist'),
     JWT_SECRET: getOrCreateJwtSecret(),
     CORS_ORIGIN: 'file://',
     // Cloudflare Tunnel credentials for store publishing.

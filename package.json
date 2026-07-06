@@ -286,7 +286,8 @@
       "node_modules/embedded-postgres/**",
       "node_modules/@embedded-postgres/**",
       "node_modules/bindings/**",
-      "node_modules/file-uri-to-path/**"
+      "node_modules/file-uri-to-path/**",
+      "dist/**"
     ],
     "dmg": {
       "title": "KobeOS ${version}",
