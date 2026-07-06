@@ -132,6 +132,33 @@ export class KobeAgentService {
       return { ok: true, message: `Stock of ${sku} set to ${quantity}.` };
     }
 
+    if (action.tool === 'add_tenant') {
+      const name = String(action.args.name || '').trim();
+      const phone = String(action.args.phone || '').trim();
+      if (!name) return { ok: false, message: 'Tenant name is required.' };
+      if (!phone) return { ok: false, message: 'Tenant phone number is required.' };
+      const unitId = (action.args.unitId as string) || undefined;
+      await this.tenants.save(this.tenants.create({ ownerId, name, phone, unitId }));
+      return { ok: true, message: `Added tenant ${name}.` };
+    }
+
+    if (action.tool === 'add_product') {
+      const name = String(action.args.name || '').trim();
+      const price = Number(action.args.price || 0);
+      if (!name) return { ok: false, message: 'Product name is required.' };
+      if (price <= 0) return { ok: false, message: 'Product price must be greater than 0.' };
+      const sku = String(action.args.sku || '').trim() || name.toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 24);
+      await this.products.save(this.products.create({
+        ownerId,
+        name,
+        price,
+        sku,
+        category: String(action.args.category || ''),
+        stock: Number(action.args.stock || 0),
+      }));
+      return { ok: true, message: `Added product ${name}.` };
+    }
+
     return { ok: false, message: `Unknown action "${action.tool}".` };
   }
 
@@ -306,6 +333,22 @@ export class KobeAgentService {
       write: true,
       run: async (_ownerId, args) => ({
         pendingAction: { tool: 'adjust_stock', summary: `Set stock of ${args?.sku ?? '?'} to ${Number(args?.quantity ?? 0)}`, args: { sku: String(args?.sku ?? ''), quantity: Number(args?.quantity ?? 0) } },
+      }),
+    },
+    {
+      name: 'add_tenant',
+      description: 'Add a new tenant. args: {name, phone, unitId?}',
+      write: true,
+      run: async (_ownerId, args) => ({
+        pendingAction: { tool: 'add_tenant', summary: `Add tenant "${String(args?.name ?? '').slice(0, 60)}"`, args: { name: String(args?.name ?? ''), phone: String(args?.phone ?? ''), unitId: args?.unitId ?? null } },
+      }),
+    },
+    {
+      name: 'add_product',
+      description: 'Add a new product to the catalogue. args: {name, price, category?, stock?, sku?}',
+      write: true,
+      run: async (_ownerId, args) => ({
+        pendingAction: { tool: 'add_product', summary: `Add product "${String(args?.name ?? '').slice(0, 60)}" at TZS ${Number(args?.price || 0).toLocaleString()}`, args: { name: String(args?.name ?? ''), price: Number(args?.price || 0), category: String(args?.category ?? ''), stock: Number(args?.stock || 0), sku: String(args?.sku ?? '') } },
       }),
     },
   ];

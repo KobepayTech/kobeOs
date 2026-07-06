@@ -16,10 +16,10 @@ const DEFAULT_SUGGESTIONS = [
 // Suggestions tailored to the module the co-pilot was opened from, so the
 // prompts are relevant to what the user is doing right now.
 const PROMPTS_BY_APP: Record<string, string[]> = {
-  'erp-pos': ['What are today’s sales?', 'Which items sell the most?', 'Show me low-stock products', 'How much did I spend this month?'],
+  'erp-pos': ['What are today’s sales?', 'Which items sell the most?', 'Show me low-stock products', 'Add a new product'],
   'posys': ['What are today’s sales?', 'Which items sell the most?', 'Show me low-stock products'],
   'pos-kds': ['What are today’s sales?', 'Which items sell the most?'],
-  'property': ['How many tenants haven’t paid rent?', 'Project my rent income', 'Print the pending tenants list', 'Message all tenants who owe rent'],
+  'property': ['How many tenants haven’t paid rent?', 'Project my rent income', 'Message all tenants who owe rent', 'Add a new tenant'],
   'kobe-hotel': ['What’s my hotel occupancy right now?', 'This month’s hotel revenue and profit', 'Set a room to maintenance'],
   'erp-warehouse': ['Show me low-stock warehouse items', 'What’s my total stock value?', 'Set stock for an item'],
   'erp-warehouse-ops': ['Show me low-stock warehouse items', 'What’s my total stock value?'],
