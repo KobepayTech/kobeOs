@@ -213,7 +213,10 @@ export function Header({
 
         {/* Right actions */}
         <div className="flex items-center gap-5 text-[12px] text-[#1a1a1a]">
-          <button className="hidden lg:flex items-center gap-1.5 hover:text-[#c8102e] transition-colors">
+          <button
+            onClick={() => onPickNav?.('track-order')}
+            className="hidden lg:flex items-center gap-1.5 hover:text-[#c8102e] transition-colors"
+          >
             <Truck className="w-4 h-4" />
             Track Order
           </button>
@@ -289,59 +292,61 @@ export function MainNav({
 
 /* ─── Category Quick Icons ──────────────────────────────────────────── */
 
-const CATEGORY_ICONS = [
-  {
-    label: 'Clubs',
-    gradient: 'from-green-400 to-green-600',
-    Icon: CircleDot,
-  },
-  {
-    label: 'World Cup',
-    gradient: 'from-amber-400 to-amber-600',
-    Icon: Trophy,
-  },
-  {
-    label: 'Buy 3 Get 1',
-    gradient: 'from-red-400 to-red-600',
-    Icon: Gift,
-  },
-  {
-    label: '26/27 New',
-    gradient: 'from-blue-400 to-blue-600',
-    Icon: Sparkles,
-  },
-  {
-    label: 'UCL',
-    gradient: 'from-violet-400 to-violet-600',
-    Icon: Star,
-  },
-  {
-    label: '2026 F1',
-    gradient: 'from-orange-400 to-orange-600',
-    Icon: Fuel,
-  },
+// Rotating icon/gradient styling applied to the store's REAL categories, so
+// each quick-icon actually filters the grid (previously these were hardcoded
+// marketing labels with no onClick — clicking did nothing).
+const QUICK_ICON_SET = [CircleDot, Trophy, Gift, Sparkles, Star, Fuel];
+const QUICK_ICON_GRADIENTS = [
+  'from-green-400 to-green-600',
+  'from-amber-400 to-amber-600',
+  'from-red-400 to-red-600',
+  'from-blue-400 to-blue-600',
+  'from-violet-400 to-violet-600',
+  'from-orange-400 to-orange-600',
 ];
 
-export function CategoryIcons() {
+export function CategoryIcons({
+  categories,
+  selectedCategory,
+  onSelectCategory,
+}: {
+  categories: string[];
+  selectedCategory: string;
+  onSelectCategory: (cat: string) => void;
+}) {
+  if (!categories || categories.length === 0) return null;
+  const items = categories.slice(0, 8);
   return (
     <section className="bg-white border-b border-[#e5e5e5]">
       <div className="max-w-7xl mx-auto px-4 py-5">
-        <div className="flex items-center justify-center gap-8 md:gap-12">
-          {CATEGORY_ICONS.map(({ label, gradient, Icon }) => (
-            <button
-              key={label}
-              className="flex flex-col items-center gap-2 group"
-            >
-              <div
-                className={`w-14 h-14 rounded-full bg-gradient-to-br ${gradient} flex items-center justify-center text-white shadow-md group-hover:scale-110 transition-transform`}
+        <div className="flex items-center justify-center gap-8 md:gap-12 overflow-x-auto">
+          {items.map((label, i) => {
+            const Icon = QUICK_ICON_SET[i % QUICK_ICON_SET.length];
+            const gradient = QUICK_ICON_GRADIENTS[i % QUICK_ICON_GRADIENTS.length];
+            const isActive = selectedCategory === label;
+            return (
+              <button
+                key={label}
+                onClick={() => onSelectCategory(label)}
+                className="flex flex-col items-center gap-2 group shrink-0"
               >
-                <Icon className="w-6 h-6" />
-              </div>
-              <span className="text-[12px] text-[#1a1a1a] font-medium whitespace-nowrap">
-                {label}
-              </span>
-            </button>
-          ))}
+                <div
+                  className={`w-14 h-14 rounded-full bg-gradient-to-br ${gradient} flex items-center justify-center text-white shadow-md group-hover:scale-110 transition-transform ${
+                    isActive ? 'ring-2 ring-offset-2 ring-[#c8102e]' : ''
+                  }`}
+                >
+                  <Icon className="w-6 h-6" />
+                </div>
+                <span
+                  className={`text-[12px] font-medium whitespace-nowrap ${
+                    isActive ? 'text-[#c8102e]' : 'text-[#1a1a1a]'
+                  }`}
+                >
+                  {label}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
     </section>
@@ -1166,8 +1171,12 @@ export function JerseyShopChrome({
         onSelectCategory={onSelectCategory}
       />
 
-      {/* Category Quick Icons */}
-      <CategoryIcons />
+      {/* Category Quick Icons — clickable, filter by real categories */}
+      <CategoryIcons
+        categories={categories}
+        selectedCategory={selectedCategory}
+        onSelectCategory={onSelectCategory}
+      />
 
       {/* Hero Banner */}
       <HeroBanner
