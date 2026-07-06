@@ -35,14 +35,25 @@ async function bootstrap() {
   // the ErpShop storefront component.
   //
   // Expected: run `npm run build` at repo root first → dist/ folder created.
-  const spaPath = join(__dirname, '..', '..', 'dist');
-  if (existsSync(spaPath)) {
+  // Resolve the SPA build across deployments: explicit override first
+  // (KOBEOS_SPA_PATH), then the bundled desktop location (KOBEOS_RESOURCES_PATH/
+  // dist), then the monorepo/dev and cwd fallbacks. First candidate that
+  // actually contains index.html wins.
+  const spaCandidates = [
+    process.env.KOBEOS_SPA_PATH,
+    process.env.KOBEOS_RESOURCES_PATH ? join(process.env.KOBEOS_RESOURCES_PATH, 'dist') : null,
+    join(__dirname, '..', '..', 'dist'),
+    join(process.cwd(), 'dist'),
+    join(process.cwd(), '..', 'dist'),
+  ].filter((p): p is string => !!p);
+  const spaPath = spaCandidates.find((p) => existsSync(join(p, 'index.html'))) ?? spaCandidates[0];
+  if (existsSync(join(spaPath, 'index.html'))) {
     app.use(expressStatic(spaPath, { index: false }));
     Logger.log(`Serving SPA static files from ${spaPath}`, 'Bootstrap');
   } else {
     Logger.warn(
-      `SPA dist/ not found at ${spaPath}. ` +
-      `Run 'npm run build' at the repo root to enable storefronts. ` +
+      `SPA dist/ not found. Tried: ${spaCandidates.join(' | ')}. ` +
+      `Build the frontend ('npm run build' at repo root) or set KOBEOS_SPA_PATH. ` +
       `API routes still work — only customer-facing shops will be unavailable.`,
       'Bootstrap',
     );
