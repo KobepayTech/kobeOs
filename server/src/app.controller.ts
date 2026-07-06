@@ -1,4 +1,5 @@
 import { Controller, Get } from '@nestjs/common';
+import { SkipThrottle } from '@nestjs/throttler';
 import { DataSource } from 'typeorm';
 import { Public } from './common/public.decorator';
 
@@ -6,6 +7,10 @@ import { Public } from './common/public.decorator';
 export class AppController {
   constructor(private readonly ds: DataSource) {}
 
+  // Health/liveness is polled constantly (Electron boot, useBackendHealth,
+  // Cloudflare Tunnel) — exempt it from the global rate limiter so it never
+  // returns 429 and boot/health detection stays reliable.
+  @SkipThrottle()
   @Public()
   @Get('health')
   async health() {
