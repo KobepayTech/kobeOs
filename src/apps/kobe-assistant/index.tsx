@@ -16,7 +16,7 @@ const SUGGESTIONS = [
   'How many parcels are in transit?',
 ];
 
-export default function KobeAssistant() {
+export default function KobeAssistant({ contextLabel }: { contextLabel?: string } = {}) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -28,13 +28,18 @@ export default function KobeAssistant() {
     const q = text.trim();
     if (!q || busy) return;
     const history = messages.map((m) => ({ role: m.role, content: m.content }));
+    // Give the model the module the user is currently in (co-pilot context),
+    // without cluttering the visible chat.
+    const ctx = contextLabel
+      ? [{ role: 'user' as const, content: `[context] The user is currently working in the "${contextLabel}" module.` }]
+      : [];
     setMessages((p) => [...p, { role: 'user', content: q }]);
     setInput('');
     setBusy(true);
     try {
       const r = await api<{ reply: string; data?: unknown; pendingAction?: PendingAction | null }>('/ai/assistant', {
         method: 'POST',
-        body: JSON.stringify({ message: q, history }),
+        body: JSON.stringify({ message: q, history: [...ctx, ...history] }),
       });
       setMessages((p) => [...p, { role: 'assistant', content: r.reply, data: r.data, pending: r.pendingAction ?? null }]);
     } catch (e) {
@@ -64,7 +69,7 @@ export default function KobeAssistant() {
     <div className="flex flex-col h-full bg-[#0c0c1a] text-white/90">
       <div className="shrink-0 px-4 py-3 border-b border-white/[0.06] flex items-center gap-2">
         <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 grid place-items-center"><Sparkles className="w-4 h-4" /></div>
-        <div><div className="text-sm font-semibold">Ask Kobe</div><div className="text-[10px] text-white/40">Chat with your business · runs on your local AI</div></div>
+        <div><div className="text-sm font-semibold">Ask Kobe</div><div className="text-[10px] text-white/40">{contextLabel ? `Working in ${contextLabel} · local AI` : 'Chat with your business · runs on your local AI'}</div></div>
       </div>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">

@@ -33,6 +33,7 @@ import { API_BASE, getToken } from '@/lib/api';
 import { ContextMenu } from './ContextMenu';
 import { WindowManager } from './WindowManager';
 import { Taskbar } from './Taskbar';
+import { GlobalAssistant } from './GlobalAssistant';
 
 /* ------------------------------------------------------------------ */
 /*  Bokeh orb background  - lavender/purple tones                     */
@@ -886,6 +887,9 @@ export function Desktop() {
 
       {/* Taskbar */}
       <Taskbar />
+
+      {/* Global AI co-pilot — floating assistant available inside every module */}
+      <GlobalAssistant />
 
       {/* Context menu */}
       {contextMenu && (
