@@ -20,7 +20,7 @@ import {
   BarChart3,
   Building2,
   Zap,
-  Plane, Printer, Users, Wallet, Shield, Code2, Clapperboard,
+  Plane, Printer, Users, Wallet, Shield, Code2, Clapperboard, Sparkles,
   Sun,
   CloudSun,
   StickyNote as NotepadIcon,
@@ -355,6 +355,7 @@ interface Task {
 /*  App shortcut data                                                  */
 /* ------------------------------------------------------------------ */
 const appShortcuts = [
+  { id: 'kobe-assistant', label: 'Ask Kobe', icon: Sparkles, appId: 'kobe-assistant', iconBg: 'linear-gradient(135deg, rgba(99,102,241,0.30), rgba(147,51,234,0.22))' },
   { id: 'chat', label: 'Messages', icon: MessageSquare, appId: 'chat', iconBg: 'linear-gradient(135deg, rgba(123,140,222,0.25), rgba(167,139,250,0.20))' },
   { id: 'calendar', label: 'Calendar', icon: Calendar, appId: 'calendar', iconBg: 'linear-gradient(135deg, rgba(96,165,250,0.25), rgba(123,140,222,0.20))' },
   { id: 'files', label: 'Files', icon: FolderOpen, appId: 'file-manager', iconBg: 'linear-gradient(135deg, rgba(167,139,250,0.25), rgba(192,132,252,0.20))' },

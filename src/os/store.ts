@@ -99,6 +99,7 @@ const defaultDesktopIcons: DesktopIcon[] = [
   { id: 'di-13', appId: 'kobe-pay', x: 120, y: 200, label: 'KobePay', icon: 'Wallet' },
   { id: 'di-14', appId: 'kobetech-admin', x: 120, y: 290, label: 'Kobetech', icon: 'Shield' },
   { id: 'di-15', appId: 'kobetech-devops', x: 120, y: 380, label: 'DevOps', icon: 'Code2' },
+  { id: 'di-16', appId: 'kobe-assistant', x: 120, y: 470, label: 'Ask Kobe', icon: 'Sparkles' },
 ];
 
 const defaultSettings: OSSettings = {
