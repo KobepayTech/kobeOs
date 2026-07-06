@@ -657,7 +657,7 @@ export const HotelAdminDashboard: React.FC = () => {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="flex h-screen w-full overflow-hidden" style={{ background: 'var(--os-wallpaper, linear-gradient(135deg, #E8E4F0 0%, #D4CCE8 50%, #EDE8F5 100%))' }}>
+    <div className="flex h-full w-full overflow-hidden" style={{ background: 'var(--os-wallpaper, linear-gradient(135deg, #E8E4F0 0%, #D4CCE8 50%, #EDE8F5 100%))' }}>
 
       {/* ── Sidebar ───────────────────────────────────────────────────────── */}
       <aside

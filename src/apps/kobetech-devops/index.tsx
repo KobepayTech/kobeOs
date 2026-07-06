@@ -1080,7 +1080,7 @@ export default function KobetechDevops() {
   const activeItem = sidebarItems.find(i => i.key === activeModule);
 
   return (
-    <div className="flex h-screen w-full bg-[#0a0a1a] text-white overflow-hidden">
+    <div className="flex h-full w-full bg-[#0a0a1a] text-white overflow-hidden">
       {/* Sidebar */}
       <aside className="w-56 bg-[#13131f] border-r border-white/[0.06] flex flex-col shrink-0">
         <div className="p-4 border-b border-white/[0.06]">

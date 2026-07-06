@@ -2561,7 +2561,7 @@ ${cashLine}${usdLine}
   };
 
   return (
-    <div className="flex h-screen bg-[#0a0a1a] text-white overflow-hidden">
+    <div className="flex h-full bg-[#0a0a1a] text-white overflow-hidden">
       {/* Sidebar */}
       <div className="w-64 bg-[#0d0d1f] border-r border-white/[0.06] flex flex-col">
         <div className="p-5 border-b border-white/[0.06]">
