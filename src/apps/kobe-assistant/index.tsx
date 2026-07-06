@@ -5,18 +5,37 @@ import { Sparkles, Send, Loader2, User, CheckCircle2 } from 'lucide-react';
 interface PendingAction { tool: string; summary: string; args: Record<string, unknown> }
 interface Msg { role: 'user' | 'assistant'; content: string; data?: unknown; pending?: PendingAction | null }
 
-const SUGGESTIONS = [
+const DEFAULT_SUGGESTIONS = [
   'What are today’s sales?',
   'Which items do customers like most?',
   'How many tenants haven’t paid rent?',
-  'What’s my hotel occupancy right now?',
-  'This month’s hotel revenue and profit',
-  'Show me low-stock warehouse items',
   'How much did I spend this month?',
   'How many parcels are in transit?',
 ];
 
-export default function KobeAssistant({ contextLabel }: { contextLabel?: string } = {}) {
+// Suggestions tailored to the module the co-pilot was opened from, so the
+// prompts are relevant to what the user is doing right now.
+const PROMPTS_BY_APP: Record<string, string[]> = {
+  'erp-pos': ['What are today’s sales?', 'Which items sell the most?', 'Show me low-stock products', 'How much did I spend this month?'],
+  'posys': ['What are today’s sales?', 'Which items sell the most?', 'Show me low-stock products'],
+  'pos-kds': ['What are today’s sales?', 'Which items sell the most?'],
+  'property': ['How many tenants haven’t paid rent?', 'Project my rent income', 'Print the pending tenants list', 'Message all tenants who owe rent'],
+  'kobe-hotel': ['What’s my hotel occupancy right now?', 'This month’s hotel revenue and profit', 'Set a room to maintenance'],
+  'erp-warehouse': ['Show me low-stock warehouse items', 'What’s my total stock value?', 'Set stock for an item'],
+  'erp-warehouse-ops': ['Show me low-stock warehouse items', 'What’s my total stock value?'],
+  'cargo': ['How many parcels are in transit?', 'How many parcels were delivered?'],
+  'erp-shop': ['Which items do customers like most?', 'Show me low-stock products', 'Write a promo for a jersey sale'],
+  'erp-store-editor': ['Which items do customers like most?', 'Write a promo for a sale'],
+  'kobe-pay': ['What are today’s sales?', 'How much did I spend this month?'],
+  'erp-dashboard': ['What are today’s sales?', 'How much did I spend this month?', 'How many tenants haven’t paid rent?'],
+  'erp-summary': ['What are today’s sales?', 'How much did I spend this month?'],
+  'erp-reports': ['What are today’s sales?', 'How much did I spend this month?'],
+  'erp-eod': ['What are today’s sales?', 'How much did I spend this month?'],
+  'erp-accounting': ['How much did I spend this month?', 'What are today’s sales?'],
+};
+
+export default function KobeAssistant({ contextLabel, appId }: { contextLabel?: string; appId?: string } = {}) {
+  const suggestions = (appId && PROMPTS_BY_APP[appId]) || DEFAULT_SUGGESTIONS;
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
@@ -76,7 +95,7 @@ export default function KobeAssistant({ contextLabel }: { contextLabel?: string 
         {messages.length === 0 && (
           <div className="space-y-2">
             <p className="text-xs text-white/40 mb-2">Try asking:</p>
-            {SUGGESTIONS.map((s) => (
+            {suggestions.map((s) => (
               <button key={s} onClick={() => send(s)} className="block w-full text-left text-sm px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.06] hover:border-indigo-500/40 hover:bg-white/[0.06] transition-colors">{s}</button>
             ))}
           </div>

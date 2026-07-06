@@ -19,6 +19,7 @@ export function GlobalAssistant() {
   const windows = useOSStore((s) => s.windows);
   const focused = windows.find((w) => w.isFocused && !w.isMinimized);
   const contextLabel = focused?.title;
+  const contextAppId = focused?.appId;
 
   // Ctrl/Cmd + K toggles the assistant from anywhere.
   useEffect(() => {
@@ -47,7 +48,7 @@ export function GlobalAssistant() {
             >
               <X className="w-4 h-4" />
             </button>
-            <KobeAssistant contextLabel={contextLabel} />
+            <KobeAssistant contextLabel={contextLabel} appId={contextAppId} />
           </div>
         </div>
       )}
