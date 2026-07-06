@@ -1,6 +1,7 @@
 import { useRef, useCallback, type ReactNode, memo } from 'react';
 import { motion } from 'framer-motion';
 import { TitleBar } from './TitleBar';
+import { AppFooter } from './AppFooter';
 import { useOSStore } from './store';
 import type { WindowInstance } from './types';
 
@@ -180,8 +181,15 @@ export const AppWindow = memo(function AppWindow({ window: win, children }: AppW
           onMouseDown={() => {}}
         />
       </div>
+      {/* Scroll area: every module scrolls vertically and always ends at the
+          shared footer (Contact us · © KobeOS <year>). The min-h-full column
+          keeps the footer pinned to the bottom for short apps and pushes it
+          below the fold for tall/full-height ones. */}
       <div className="flex-1 overflow-auto" onMouseDown={(e) => e.stopPropagation()}>
-        {children}
+        <div className="flex min-h-full flex-col">
+          <div className="flex-1">{children}</div>
+          <AppFooter />
+        </div>
       </div>
 
       {!isMax && (
