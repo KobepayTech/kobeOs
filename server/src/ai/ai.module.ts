@@ -6,7 +6,7 @@ import { KobeAgentService } from './agent.service';
 import { PosOrder, PosProduct } from '../pos/pos.entity';
 import { ProductReview } from '../store/product-review.entity';
 import { RentCharge, Tenant, PropertyUnit } from '../property/property.entity';
-import { HotelRoom } from '../hotel/hotel.entity';
+import { HotelRoom, HotelGuest, HotelBooking } from '../hotel/hotel.entity';
 import { HotelFinancialRecord } from '../hotel/hotel-financials.entity';
 import { WarehouseItem } from '../warehouse/warehouse.entity';
 import { ShopExpense } from '../eod/eod.entity';
@@ -18,7 +18,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
   imports: [
     TypeOrmModule.forFeature([
       PosOrder, PosProduct, ProductReview, RentCharge, Tenant, PropertyUnit,
-      HotelRoom, HotelFinancialRecord, WarehouseItem, ShopExpense, Parcel, Shop,
+      HotelRoom, HotelGuest, HotelBooking, HotelFinancialRecord, WarehouseItem, ShopExpense, Parcel, Shop,
     ]),
     NotificationsModule,
   ],

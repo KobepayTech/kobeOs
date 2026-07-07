@@ -5,7 +5,7 @@ import { AiService } from './ai.service';
 import { PosOrder, PosProduct } from '../pos/pos.entity';
 import { ProductReview } from '../store/product-review.entity';
 import { RentCharge, Tenant, PropertyUnit } from '../property/property.entity';
-import { HotelRoom } from '../hotel/hotel.entity';
+import { HotelRoom, HotelGuest, HotelBooking } from '../hotel/hotel.entity';
 import { HotelFinancialRecord } from '../hotel/hotel-financials.entity';
 import { WarehouseItem } from '../warehouse/warehouse.entity';
 import { ShopExpense, ExpenseCategory } from '../eod/eod.entity';
@@ -47,6 +47,8 @@ export class KobeAgentService {
     @InjectRepository(Tenant) private readonly tenants: Repository<Tenant>,
     @InjectRepository(PropertyUnit) private readonly units: Repository<PropertyUnit>,
     @InjectRepository(HotelRoom) private readonly hotelRooms: Repository<HotelRoom>,
+    @InjectRepository(HotelGuest) private readonly hotelGuests: Repository<HotelGuest>,
+    @InjectRepository(HotelBooking) private readonly hotelBookings: Repository<HotelBooking>,
     @InjectRepository(HotelFinancialRecord) private readonly hotelFin: Repository<HotelFinancialRecord>,
     @InjectRepository(WarehouseItem) private readonly whItems: Repository<WarehouseItem>,
     @InjectRepository(ShopExpense) private readonly expenses: Repository<ShopExpense>,
@@ -157,6 +159,55 @@ export class KobeAgentService {
         stock: Number(action.args.stock || 0),
       }));
       return { ok: true, message: `Added product ${name}.` };
+    }
+
+    if (action.tool === 'create_booking') {
+      const roomNumber = String(action.args.roomNumber || '').trim();
+      const guestName = String(action.args.guestName || '').trim();
+      const checkIn = String(action.args.checkIn || '').trim();
+      const checkOut = String(action.args.checkOut || '').trim();
+      if (!roomNumber || !guestName) return { ok: false, message: 'Room number and guest name are required.' };
+      const inD = new Date(checkIn), outD = new Date(checkOut);
+      if (isNaN(inD.getTime()) || isNaN(outD.getTime()) || outD <= inD) return { ok: false, message: 'Provide a valid check-in and check-out date (check-out after check-in).' };
+      const room = await this.hotelRooms.findOne({ where: { ownerId, roomNumber } });
+      if (!room) return { ok: false, message: `Room ${roomNumber} not found.` };
+      let guest = await this.hotelGuests.findOne({ where: { ownerId, name: guestName } });
+      if (!guest) guest = await this.hotelGuests.save(this.hotelGuests.create({ ownerId, name: guestName, phone: String(action.args.guestPhone || '') }));
+      const nights = Math.max(1, Math.round((outD.getTime() - inD.getTime()) / 86400000));
+      const totalAmount = Number(room.rate || 0) * nights;
+      await this.hotelBookings.save(this.hotelBookings.create({
+        ownerId, roomId: room.id, guestId: guest.id, checkIn: inD, checkOut: outD,
+        status: 'CONFIRMED', totalAmount, currency: room.currency || 'TZS', hotelId: room.hotelId ?? null,
+      }));
+      await this.hotelRooms.update({ ownerId, id: room.id }, { status: 'reserved' });
+      return { ok: true, message: `Booked room ${roomNumber} for ${guestName}, ${nights} night(s), TZS ${totalAmount.toLocaleString()}.` };
+    }
+
+    if (action.tool === 'record_rent_payment') {
+      const amount = Number(action.args.amount || 0);
+      if (amount <= 0) return { ok: false, message: 'Payment amount must be greater than 0.' };
+      let tenantId = (action.args.tenantId as string) || '';
+      if (!tenantId) {
+        const name = String(action.args.tenantName || '').trim();
+        if (!name) return { ok: false, message: 'Specify which tenant.' };
+        const t = await this.tenants.findOne({ where: { ownerId, name } });
+        if (!t) return { ok: false, message: `Tenant "${name}" not found.` };
+        tenantId = t.id;
+      }
+      const open = await this.charges.find({ where: { ownerId, tenantId, status: In(['open', 'partial', 'overdue']) }, order: { dueDate: 'ASC' }, take: 100 });
+      if (!open.length) return { ok: false, message: 'This tenant has no outstanding charges.' };
+      let remaining = amount;
+      for (const c of open) {
+        if (remaining <= 0) break;
+        const bal = Number(c.amount || 0) - Number(c.amountPaid || 0);
+        if (bal <= 0) continue;
+        const pay = Math.min(remaining, bal);
+        const newPaid = Number(c.amountPaid || 0) + pay;
+        await this.charges.update({ ownerId, id: c.id }, { amountPaid: newPaid, status: newPaid >= Number(c.amount || 0) ? 'paid' : 'partial' });
+        remaining -= pay;
+      }
+      const applied = amount - remaining;
+      return { ok: true, message: `Recorded TZS ${applied.toLocaleString()} against rent.${remaining > 0 ? ` TZS ${remaining.toLocaleString()} left as credit/unapplied.` : ''}` };
     }
 
     return { ok: false, message: `Unknown action "${action.tool}".` };
@@ -349,6 +400,22 @@ export class KobeAgentService {
       write: true,
       run: async (_ownerId, args) => ({
         pendingAction: { tool: 'add_product', summary: `Add product "${String(args?.name ?? '').slice(0, 60)}" at TZS ${Number(args?.price || 0).toLocaleString()}`, args: { name: String(args?.name ?? ''), price: Number(args?.price || 0), category: String(args?.category ?? ''), stock: Number(args?.stock || 0), sku: String(args?.sku ?? '') } },
+      }),
+    },
+    {
+      name: 'create_booking',
+      description: 'Book a hotel room for a guest. args: {roomNumber, guestName, guestPhone?, checkIn (YYYY-MM-DD), checkOut (YYYY-MM-DD)}',
+      write: true,
+      run: async (_ownerId, args) => ({
+        pendingAction: { tool: 'create_booking', summary: `Book room ${args?.roomNumber ?? '?'} for ${args?.guestName ?? 'guest'} (${args?.checkIn ?? '?'} → ${args?.checkOut ?? '?'})`, args: { roomNumber: String(args?.roomNumber ?? ''), guestName: String(args?.guestName ?? ''), guestPhone: String(args?.guestPhone ?? ''), checkIn: String(args?.checkIn ?? ''), checkOut: String(args?.checkOut ?? '') } },
+      }),
+    },
+    {
+      name: 'record_rent_payment',
+      description: 'Record a rent payment for a tenant (applied to their oldest open charges). args: {tenantName?, tenantId?, amount}',
+      write: true,
+      run: async (_ownerId, args) => ({
+        pendingAction: { tool: 'record_rent_payment', summary: `Record TZS ${Number(args?.amount || 0).toLocaleString()} rent payment for ${args?.tenantName ?? 'tenant'}`, args: { tenantName: String(args?.tenantName ?? ''), tenantId: args?.tenantId ?? null, amount: Number(args?.amount || 0) } },
       }),
     },
   ];

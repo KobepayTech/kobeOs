@@ -1,9 +1,41 @@
 import { useState, useRef, useEffect } from 'react';
 import { api } from '@/lib/api';
-import { Sparkles, Send, Loader2, User, CheckCircle2 } from 'lucide-react';
+import { Sparkles, Send, Loader2, User, CheckCircle2, Printer } from 'lucide-react';
 
 interface PendingAction { tool: string; summary: string; args: Record<string, unknown> }
 interface Msg { role: 'user' | 'assistant'; content: string; data?: unknown; pending?: PendingAction | null }
+
+/** Find the first array-of-objects inside a tool result, for printing as a table. */
+function firstRows(data: unknown): Record<string, unknown>[] | null {
+  if (!data || typeof data !== 'object') return null;
+  for (const v of Object.values(data as Record<string, unknown>)) {
+    if (Array.isArray(v) && v.length > 0 && typeof v[0] === 'object' && v[0] !== null) {
+      return v as Record<string, unknown>[];
+    }
+  }
+  return null;
+}
+
+/** Open a clean printable table (works in Electron + browser). */
+function printReport(rows: Record<string, unknown>[], title: string) {
+  const cols = Object.keys(rows[0]);
+  const esc = (s: unknown) => String(s ?? '').replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c] as string));
+  const html =
+    `<html><head><title>${esc(title)}</title><style>` +
+    `body{font-family:system-ui,sans-serif;padding:28px;color:#111}h1{font-size:18px;margin:0 0 4px}` +
+    `.ts{color:#666;font-size:12px;margin:0 0 16px}table{border-collapse:collapse;width:100%;font-size:13px}` +
+    `th,td{border:1px solid #ccc;padding:6px 10px;text-align:left}th{background:#f3f3f3}` +
+    `</style></head><body><h1>${esc(title)}</h1><p class="ts">KobeOS · ${esc(new Date().toLocaleString())}</p>` +
+    `<table><thead><tr>${cols.map((c) => `<th>${esc(c)}</th>`).join('')}</tr></thead>` +
+    `<tbody>${rows.map((r) => `<tr>${cols.map((c) => `<td>${esc(r[c])}</td>`).join('')}</tr>`).join('')}</tbody></table>` +
+    `</body></html>`;
+  const w = window.open('', '_blank', 'width=820,height=640');
+  if (!w) return;
+  w.document.write(html);
+  w.document.close();
+  w.focus();
+  w.print();
+}
 
 const DEFAULT_SUGGESTIONS = [
   'What are today’s sales?',
@@ -19,8 +51,8 @@ const PROMPTS_BY_APP: Record<string, string[]> = {
   'erp-pos': ['What are today’s sales?', 'Which items sell the most?', 'Show me low-stock products', 'Add a new product'],
   'posys': ['What are today’s sales?', 'Which items sell the most?', 'Show me low-stock products'],
   'pos-kds': ['What are today’s sales?', 'Which items sell the most?'],
-  'property': ['How many tenants haven’t paid rent?', 'Project my rent income', 'Message all tenants who owe rent', 'Add a new tenant'],
-  'kobe-hotel': ['What’s my hotel occupancy right now?', 'This month’s hotel revenue and profit', 'Set a room to maintenance'],
+  'property': ['How many tenants haven’t paid rent?', 'Print the pending tenants list', 'Record a rent payment', 'Add a new tenant'],
+  'kobe-hotel': ['What’s my hotel occupancy right now?', 'This month’s hotel revenue and profit', 'Book a room for a guest', 'Set a room to maintenance'],
   'erp-warehouse': ['Show me low-stock warehouse items', 'What’s my total stock value?', 'Set stock for an item'],
   'erp-warehouse-ops': ['Show me low-stock warehouse items', 'What’s my total stock value?'],
   'cargo': ['How many parcels are in transit?', 'How many parcels were delivered?'],
@@ -115,6 +147,17 @@ export default function KobeAssistant({ contextLabel, appId }: { contextLabel?: 
                   </button>
                 </div>
               )}
+              {m.role === 'assistant' && (() => {
+                const rows = firstRows(m.data);
+                return rows ? (
+                  <button
+                    onClick={() => printReport(rows, 'KobeOS Report')}
+                    className="mt-2 text-[11px] font-semibold px-2.5 py-1 rounded bg-white/10 hover:bg-white/20 text-white/80 inline-flex items-center gap-1"
+                  >
+                    <Printer className="w-3 h-3" /> Print list
+                  </button>
+                ) : null;
+              })()}
             </div>
             {m.role === 'user' && <div className="w-6 h-6 rounded-md bg-white/10 grid place-items-center shrink-0"><User className="w-3.5 h-3.5" /></div>}
           </div>
