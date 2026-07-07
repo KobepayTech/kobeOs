@@ -35,10 +35,23 @@ function sh(cmd) {
   return execSync(cmd, { stdio: ['ignore', 'pipe', 'inherit'] }).toString().trim();
 }
 
+const REQUIRED = process.env.OLLAMA_REQUIRED === '1';
+
 function resolveVersion() {
   if (process.env.OLLAMA_VERSION) return process.env.OLLAMA_VERSION;
-  // Ask GitHub for the latest release tag (curl -L follows the redirect).
-  const json = sh(`curl -L -f -s "https://api.github.com/repos/${REPO}/releases/latest"`);
+  // Prefer the github.com /releases/latest redirect — it is NOT rate-limited,
+  // unlike api.github.com (which 403s on a busy self-hosted runner and used to
+  // make this whole step fail silently, shipping installers with no Ollama).
+  const nul = process.platform === 'win32' ? 'NUL' : '/dev/null';
+  try {
+    const finalUrl = sh(`curl -sIL -o ${nul} -w "%{url_effective}" "https://github.com/${REPO}/releases/latest"`);
+    const m = finalUrl.match(/\/tag\/(v[\w.\-]+)/);
+    if (m) return m[1];
+  } catch { /* fall through to the API */ }
+  // Fallback: the API, authenticated when a token is present (5000/hr vs 60/hr).
+  const auth = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  const authArg = auth ? `-H "Authorization: Bearer ${auth}"` : '';
+  const json = sh(`curl -L -f -s ${authArg} "https://api.github.com/repos/${REPO}/releases/latest"`);
   const tag = JSON.parse(json).tag_name;
   if (!tag) throw new Error('could not resolve latest Ollama release tag');
   return tag;
@@ -107,7 +120,15 @@ if (process.env.OLLAMA_SKIP_DOWNLOAD === '1') {
   walk(platformDir);
   console.log(`  ok    ${dir}  (${(bytes / 1024 / 1024).toFixed(1)} MB)\n`);
 })().catch((err) => {
-  // Fail-soft: never block the installer build over an optional AI runtime.
+  // When OLLAMA_REQUIRED=1 (the self-hosted AI build), a missing Ollama runtime
+  // is a hard failure — otherwise the installer would ship with no AI and the
+  // assistant would report "can't reach Ollama".
+  if (REQUIRED) {
+    console.error(`\n[download-ollama] ERROR: ${err.message}`);
+    console.error('[download-ollama] OLLAMA_REQUIRED=1 and the Ollama runtime could not be bundled. Failing the build.\n');
+    process.exit(1);
+  }
+  // Otherwise fail-soft: don't block a build over an optional AI runtime.
   console.warn(`\n[download-ollama] WARN: ${err.message}`);
   console.warn('[download-ollama] Skipping Ollama bundle — the app will fall back to a system Ollama on PATH.\n');
   process.exit(0);

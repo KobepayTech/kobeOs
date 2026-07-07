@@ -169,9 +169,14 @@ jobs:
       - name: Download cloudflared
         run: npm run download:cloudflared
 
+      # The AI is the whole point of this build, so a missing Ollama runtime is
+      # a hard failure (OLLAMA_REQUIRED=1). GITHUB_TOKEN raises the API rate
+      # limit so version resolution never silently fails on a busy runner.
       - name: Download Ollama (local AI runtime)
         run: npm run download:ollama
-        continue-on-error: true
+        env:
+          OLLAMA_REQUIRED: '1'
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # This is the whole point of the self-hosted build: copy YOUR local GGUFs
       # into models/bundled/ so electron-builder bakes them into the installer.
@@ -226,6 +231,16 @@ jobs:
           } else {
             Write-Host "WARNING: resources/models not found in the built app."
           }
+
+      - name: 'Smoke test: verify Ollama runtime is bundled'
+        run: |
+          $ollama = "release\win-unpacked\resources\ollama\win-x64\ollama.exe"
+          if (!(Test-Path $ollama)) {
+            Write-Error "ollama.exe was NOT bundled at $ollama - the AI assistant would report 'cannot reach Ollama'. The download:ollama step must succeed."
+            exit 1
+          }
+          $mb = [math]::Round((Get-Item $ollama).Length / 1MB, 1)
+          Write-Host "Ollama runtime bundled: $ollama ($mb MB)"
 
       - name: 'Smoke test: verify asar contains core files'
         run: |
