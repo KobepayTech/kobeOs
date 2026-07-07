@@ -10,6 +10,13 @@ export default defineConfig({
       registerType: 'autoUpdate',
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        // Serve the cached app shell for any navigation when the network/site is
+        // unreachable (e.g. the store's tunnel is down), instead of failing with
+        // "Failed to fetch https://<slug>.kobeapptz.com/". API calls are excluded
+        // so they still hit the network (and fall back via the app's offline queue).
+        navigateFallback: 'index.html',
+        navigateFallbackDenylist: [/^\/api\//],
+        cleanupOutdatedCaches: true,
         runtimeCaching: [{ urlPattern: /^https:\/\/api\./, handler: 'NetworkFirst', options: { cacheName: 'api-cache' } }]
       },
       manifest: {
