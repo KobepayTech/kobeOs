@@ -53,6 +53,33 @@ jobs:
         shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
 
     steps:
+      # Self-hosted runners reuse the workspace between runs. A leftover process
+      # from a previous run (or an app launched from release\win-unpacked to
+      # test it) locks the build output, so the next checkout fails with
+      # "EBUSY: resource busy or locked, rmdir ...release\win-unpacked". Stop any
+      # lingering KobeOS/Electron/Ollama/cloudflared/node processes and clear the
+      # release dir before checkout. Runs in the stale workspace; never fails.
+      - name: Free workspace (stop lingering processes, clear locked build output)
+        continue-on-error: true
+        run: |
+          # App processes are uniquely named — safe to stop broadly.
+          foreach ($name in 'KobeOS','electron','ollama','cloudflared') {
+            Get-Process -Name $name -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          }
+          # Only stop node processes that belong to THIS workspace (the bundled
+          # backend launched from win-unpacked), never unrelated node on the runner.
+          Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+            Where-Object { $_.CommandLine -like "*$($env:GITHUB_WORKSPACE)*" -or $_.CommandLine -like '*win-unpacked*' } |
+            ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+          Start-Sleep -Seconds 2
+          $rel = Join-Path $env:GITHUB_WORKSPACE 'release'
+          if (Test-Path $rel) {
+            for ($i = 0; $i -lt 5; $i++) {
+              try { Remove-Item -Recurse -Force $rel -ErrorAction Stop; break }
+              catch { Write-Host "release still locked, retrying ($i)..."; Start-Sleep -Seconds 3 }
+            }
+          }
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
