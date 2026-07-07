@@ -47,6 +47,17 @@ export class AiController {
     return this.agent.execute(uid, { tool: dto.tool, args: dto.args ?? {} });
   }
 
+  /**
+   * Proactive daily briefing: business summary + actionable alerts across
+   * modules. Deterministic, works even when Ollama is offline.
+   * GET /api/ai/briefing
+   */
+  @Get('briefing')
+  @ApiOperation({ summary: 'Proactive daily business briefing + alerts' })
+  briefing(@CurrentUser('id') uid: string) {
+    return this.agent.briefing(uid);
+  }
+
   // ── Health ────────────────────────────────────────────────────────────────
 
   @Get('health')

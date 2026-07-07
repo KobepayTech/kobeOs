@@ -3,7 +3,8 @@ import { api } from '@/lib/api';
 import { Sparkles, Send, Loader2, User, CheckCircle2, Printer } from 'lucide-react';
 
 interface PendingAction { tool: string; summary: string; args: Record<string, unknown> }
-interface Msg { role: 'user' | 'assistant'; content: string; data?: unknown; pending?: PendingAction | null }
+interface BriefingAlert { severity: 'info' | 'warning'; text: string; action?: { tool: string; label: string; args: Record<string, unknown> } }
+interface Msg { role: 'user' | 'assistant'; content: string; data?: unknown; pending?: PendingAction | null; alerts?: BriefingAlert[] }
 
 /** Find the first array-of-objects inside a tool result, for printing as a table. */
 function firstRows(data: unknown): Record<string, unknown>[] | null {
@@ -75,6 +76,21 @@ export default function KobeAssistant({ contextLabel, appId }: { contextLabel?: 
 
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' }); }, [messages, busy]);
 
+  // Proactive daily briefing: greet the user with their business status + alerts
+  // when the assistant opens. Deterministic on the backend, so it works even
+  // when the AI model is offline.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const b = await api<{ summary: string; alerts: BriefingAlert[] }>('/ai/briefing');
+        if (cancelled || !b) return;
+        setMessages((p) => (p.length ? p : [{ role: 'assistant', content: `👋 ${b.summary}`, alerts: b.alerts ?? [] }]));
+      } catch { /* briefing is best-effort */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   const send = async (text: string) => {
     const q = text.trim();
     if (!q || busy) return;
@@ -124,19 +140,29 @@ export default function KobeAssistant({ contextLabel, appId }: { contextLabel?: 
       </div>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
-        {messages.length === 0 && (
-          <div className="space-y-2">
-            <p className="text-xs text-white/40 mb-2">Try asking:</p>
-            {suggestions.map((s) => (
-              <button key={s} onClick={() => send(s)} className="block w-full text-left text-sm px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.06] hover:border-indigo-500/40 hover:bg-white/[0.06] transition-colors">{s}</button>
-            ))}
-          </div>
-        )}
         {messages.map((m, i) => (
           <div key={i} className={`flex gap-2 ${m.role === 'user' ? 'justify-end' : ''}`}>
             {m.role === 'assistant' && <div className="w-6 h-6 rounded-md bg-indigo-500/20 grid place-items-center shrink-0"><Sparkles className="w-3.5 h-3.5 text-indigo-300" /></div>}
             <div className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm ${m.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-white/[0.05] border border-white/[0.06]'}`}>
               <div className="whitespace-pre-wrap leading-snug">{m.content}</div>
+              {m.alerts && m.alerts.length > 0 && (
+                <div className="mt-2 space-y-1.5">
+                  {m.alerts.map((a, ai) => (
+                    <div key={ai} className={`rounded-lg border p-2 ${a.severity === 'warning' ? 'border-amber-500/30 bg-amber-500/10' : 'border-white/10 bg-white/[0.04]'}`}>
+                      <div className={`text-[11px] ${a.severity === 'warning' ? 'text-amber-200/90' : 'text-white/70'}`}>{a.severity === 'warning' ? '⚠ ' : 'ℹ '}{a.text}</div>
+                      {a.action && (
+                        <button
+                          className="mt-1.5 text-[11px] font-bold px-3 py-1.5 rounded bg-amber-500 text-black inline-flex items-center gap-1 disabled:opacity-50"
+                          disabled={busy}
+                          onClick={() => confirmAction({ tool: a.action!.tool, summary: a.action!.label, args: a.action!.args }, i)}
+                        >
+                          <CheckCircle2 className="w-3 h-3" /> {a.action.label}
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
               {m.pending && (
                 <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2">
                   <div className="text-[11px] text-amber-200/90 mb-1.5">⚠ {m.pending.summary}</div>
@@ -162,6 +188,14 @@ export default function KobeAssistant({ contextLabel, appId }: { contextLabel?: 
             {m.role === 'user' && <div className="w-6 h-6 rounded-md bg-white/10 grid place-items-center shrink-0"><User className="w-3.5 h-3.5" /></div>}
           </div>
         ))}
+        {!messages.some((m) => m.role === 'user') && !busy && (
+          <div className="space-y-2 pt-1">
+            <p className="text-xs text-white/40 mb-1">Try asking:</p>
+            {suggestions.map((s) => (
+              <button key={s} onClick={() => send(s)} className="block w-full text-left text-sm px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.06] hover:border-indigo-500/40 hover:bg-white/[0.06] transition-colors">{s}</button>
+            ))}
+          </div>
+        )}
         {busy && <div className="flex gap-2"><div className="w-6 h-6 rounded-md bg-indigo-500/20 grid place-items-center"><Sparkles className="w-3.5 h-3.5 text-indigo-300" /></div><div className="rounded-2xl px-3 py-2 bg-white/[0.05] border border-white/[0.06]"><Loader2 className="w-4 h-4 animate-spin text-white/50" /></div></div>}
       </div>
 

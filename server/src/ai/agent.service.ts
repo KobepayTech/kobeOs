@@ -26,6 +26,18 @@ export interface AgentReply {
 
 type ToolResult = { data: unknown } | { pendingAction: NonNullable<AgentReply['pendingAction']> };
 
+export interface BriefingAlert {
+  severity: 'info' | 'warning';
+  text: string;
+  /** Optional one-tap action the UI can confirm and run via /ai/assistant/execute. */
+  action?: { tool: string; label: string; args: Record<string, unknown> };
+}
+export interface Briefing {
+  summary: string;
+  alerts: BriefingAlert[];
+  data: Record<string, unknown>;
+}
+
 interface Tool {
   name: string;
   description: string;
@@ -211,6 +223,63 @@ export class KobeAgentService {
     }
 
     return { ok: false, message: `Unknown action "${action.tool}".` };
+  }
+
+  /** Run a READ tool by name and return its data (null on error/unknown). */
+  private async runRead(name: string, ownerId: string, args: Record<string, unknown> = {}): Promise<any> {
+    const t = this.tools.find((x) => x.name === name);
+    if (!t) return null;
+    try { const r = await t.run(ownerId, args); return 'data' in r ? r.data : null; }
+    catch (e) { this.logger.warn(`briefing tool ${name} failed: ${(e as Error).message}`); return null; }
+  }
+
+  /**
+   * Proactive daily briefing: aggregates the key signals across modules into a
+   * short summary + actionable alerts. Deterministic (no LLM), so it works even
+   * when Ollama is offline. Only mentions modules that actually have data.
+   * GET /api/ai/briefing
+   */
+  async briefing(ownerId: string): Promise<Briefing> {
+    const [sales, low, unpaid, expenses, occ, cargo] = await Promise.all([
+      this.runRead('sales_today', ownerId),
+      this.runRead('low_stock', ownerId),
+      this.runRead('unpaid_tenants', ownerId),
+      this.runRead('expenses_summary', ownerId),
+      this.runRead('hotel_occupancy', ownerId),
+      this.runRead('cargo_status', ownerId),
+    ]);
+
+    const s: string[] = [];
+    const alerts: BriefingAlert[] = [];
+
+    if (sales) s.push(`Today: ${sales.orders} sale(s), TZS ${Number(sales.total || 0).toLocaleString()}.`);
+    if (occ && occ.totalRooms > 0) s.push(`Hotel ${occ.occupancyRate}% full (${occ.occupied}/${occ.totalRooms}).`);
+    if (cargo && cargo.total > 0) {
+      const inTransit = Number(cargo.byStatus?.IN_TRANSIT || 0);
+      if (inTransit > 0) s.push(`${inTransit} parcel(s) in transit.`);
+    }
+    if (expenses && expenses.total > 0) s.push(`Spent TZS ${Number(expenses.total).toLocaleString()} this month.`);
+
+    if (low && low.count > 0) {
+      alerts.push({ severity: 'warning', text: `${low.count} product(s) at or below reorder level — consider restocking.` });
+    }
+    if (unpaid && unpaid.count > 0) {
+      alerts.push({
+        severity: 'warning',
+        text: `${unpaid.count} tenant(s) owe TZS ${Number(unpaid.totalOutstanding || 0).toLocaleString()} in rent.`,
+        action: {
+          tool: 'send_tenant_notification',
+          label: 'Send rent reminders',
+          args: { audience: 'unpaid', message: 'Reminder: your rent is due. Kindly pay at your earliest convenience. Asante.' },
+        },
+      });
+    }
+    if (sales && sales.orders === 0) {
+      alerts.push({ severity: 'info', text: 'No sales recorded yet today.' });
+    }
+
+    const summary = s.length ? s.join(' ') : 'No activity recorded yet today.';
+    return { summary, alerts, data: { sales, low, unpaid, expenses, occ, cargo } };
   }
 
   private tools: Tool[] = [
