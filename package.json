@@ -243,7 +243,7 @@
       "differentialPackage": true,
       "installerIcon": "build/kobeos-icon.ico",
       "uninstallerIcon": "build/kobeos-icon.ico",
-      "createDesktopShortcut": true,
+      "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
       "shortcutName": "KobeOS",
       "artifactName": "KobeOS-Setup-${version}.exe",

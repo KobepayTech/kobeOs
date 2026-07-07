@@ -113,12 +113,28 @@
   ${Else}
     DetailPrint "cloudflared binary not found in resources — skipping PATH registration."
   ${EndIf}
+
+  ; ── 4. Ensure Desktop + Start Menu shortcuts exist ────────────────────────
+  ; The migration step above can Delete the KobeOS shortcuts, and depending on
+  ; when electron-builder runs its own shortcut creation the icon can end up
+  ; missing. Re-create them unconditionally here so every install has a Desktop
+  ; and Start Menu shortcut. (CreateShortCut just writes the .lnk; the target
+  ; exe is installed in this same section.)
+  DetailPrint "Creating KobeOS shortcuts..."
+  CreateShortCut "$DESKTOP\KobeOS.lnk" "$INSTDIR\KobeOS.exe" "" "$INSTDIR\KobeOS.exe" 0
+  CreateDirectory "$SMPROGRAMS\KobeOS"
+  CreateShortCut "$SMPROGRAMS\KobeOS\KobeOS.lnk" "$INSTDIR\KobeOS.exe" "" "$INSTDIR\KobeOS.exe" 0
 !macroend
 
 ; ── customUnInstall: runs during uninstallation ───────────────────────────────
 !macro customUnInstall
   DeleteRegKey HKCU "${OLD_UNINST_KEY}"
   DeleteRegKey HKCU "${OLD_INSTALL_DIR_KEY}"
+
+  ; Remove the shortcuts we created in customInstall
+  Delete "$DESKTOP\KobeOS.lnk"
+  Delete "$SMPROGRAMS\KobeOS\KobeOS.lnk"
+  RMDir "$SMPROGRAMS\KobeOS"
 
   ; Remove cloudflared.exe left by the installer
   Delete "$INSTDIR\cloudflared.exe"
