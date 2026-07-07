@@ -147,8 +147,12 @@ jobs:
           KOBE_MODELS_REQUIRED: ${{ vars.KOBE_MODELS_REQUIRED }}
 
       # ── Build installer ─────────────────────────────────────────────────────
+      # On a version tag, let electron-builder PUBLISH the update feed to the
+      # GitHub Release — it uploads the installer, latest.yml, and the .blockmap
+      # that electron-updater needs to detect updates and download only changed
+      # blocks (delta). On non-tag builds, publish nothing.
       - name: Build Windows installer
-        run: npx electron-builder --win --publish never
+        run: npx electron-builder --win --publish ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -259,10 +263,14 @@ jobs:
             release/vc_redist.x64.exe
           retention-days: 30
 
-      - name: Attach to GitHub Release (tags only)
+      # electron-builder --publish always (above) already uploaded the installer,
+      # latest.yml and .blockmap to the tag's Release. Here we only ADD the
+      # VC++ redistributable to that same Release (electron-builder doesn't
+      # publish it), so a first-time manual download has everything.
+      - name: Add vc_redist to GitHub Release (tags only)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v1
         with:
-          files: release/*.exe
+          files: release/vc_redist.x64.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -240,7 +240,7 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "differentialPackage": false,
+      "differentialPackage": true,
       "installerIcon": "build/kobeos-icon.ico",
       "uninstallerIcon": "build/kobeos-icon.ico",
       "createDesktopShortcut": true,
