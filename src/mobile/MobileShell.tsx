@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { api, clearTokens, setRefreshToken, setToken } from '@/lib/api';
 import { ensureSession } from '@/lib/auth';
+import { MobileAssistant } from './MobileAssistant';
 
 /**
  * Mobile webapp shell. Renders at `/m/*` (typically reached via QR on a
@@ -119,6 +120,9 @@ export default function MobileShell() {
           );
         })}
       </nav>
+
+      {/* Ask Kobe AI co-pilot — floating, available across the mobile modules */}
+      <MobileAssistant />
     </div>
   );
 }
