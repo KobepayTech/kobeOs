@@ -122,10 +122,14 @@ export default function POSSystem() {
 
   // Load products from SQLite cache first, then sync from backend.
   // Offline users see their last-known catalog instantly.
+  // Seed with an EMPTY catalog, not the demo PRODUCTS: those have fake ids
+  // ('p1'…) that fail the order's @IsUUID(productId) and don't exist in the DB,
+  // so selling them errored with "lines.0.productId must be a UUID". Real
+  // products come from /pos/products (add them, or ask Kobe to seed samples).
   const { data: products } = useOfflineData<Product>({
     table: 'pos_products',
     apiPath: '/pos/products',
-    seed: PRODUCTS,
+    seed: [],
   });
 
   // Discount dialog state
