@@ -11,6 +11,10 @@ class UpdateAutomationDto {
   @IsOptional() @IsBoolean() tenantReminders?: boolean;
   @IsOptional() @IsInt() @Min(0) @Max(60) reminderDaysBefore?: number;
   @IsOptional() @IsString() @MaxLength(320) reminderMessage?: string;
+  @IsOptional() @IsString() @MaxLength(320) overdueMessage?: string;
+  @IsOptional() @IsString() @MaxLength(320) finalNoticeMessage?: string;
+  @IsOptional() @IsInt() @Min(0) @Max(365) firmAfterDays?: number;
+  @IsOptional() @IsInt() @Min(0) @Max(365) finalAfterDays?: number;
 }
 
 @ApiTags('AI / Automation')

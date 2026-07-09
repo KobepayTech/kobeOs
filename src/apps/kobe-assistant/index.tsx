@@ -60,7 +60,7 @@ const PROMPTS_BY_APP: Record<string, string[]> = {
   'erp-shop': ['Which items do customers like most?', 'Show me low-stock products', 'Write a promo for a jersey sale'],
   'erp-store-editor': ['Which items do customers like most?', 'Write a promo for a sale'],
   'kobe-pay': ['What are today’s sales?', 'How much did I spend this month?'],
-  'erp-dashboard': ['What are today’s sales?', 'How much did I spend this month?', 'How many tenants haven’t paid rent?'],
+  'erp-dashboard': ['What are today’s sales?', 'Project this month’s sales', 'How much did I spend this month?', 'How many tenants haven’t paid rent?'],
   'erp-summary': ['What are today’s sales?', 'How much did I spend this month?'],
   'erp-reports': ['What are today’s sales?', 'How much did I spend this month?'],
   'erp-eod': ['What are today’s sales?', 'How much did I spend this month?'],

@@ -363,6 +363,20 @@ export class KobeAgentService {
         return { data: { monthly: Math.round(monthly), annual: Math.round(monthly * 12), currency: 'TZS' } };
       },
     },
+    {
+      name: 'sales_forecast',
+      description: "Project this month's total sales from the current run-rate (month-to-date extrapolated to month end).",
+      run: async (ownerId) => {
+        const start = new Date(); start.setDate(1); start.setHours(0, 0, 0, 0);
+        const now = new Date();
+        const rows = await this.orders.find({ where: { ownerId, createdAt: Between(start, now), status: Not('CANCELLED') as unknown as PosOrder['status'] } });
+        const monthToDate = rows.reduce((s, o) => s + Number(o.total || 0), 0);
+        const dayOfMonth = now.getDate();
+        const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+        const projectedMonthEnd = dayOfMonth > 0 ? Math.round((monthToDate / dayOfMonth) * daysInMonth) : 0;
+        return { data: { monthToDate: Math.round(monthToDate), dayOfMonth, daysInMonth, dailyAverage: Math.round(monthToDate / Math.max(1, dayOfMonth)), projectedMonthEnd, currency: 'TZS' } };
+      },
+    },
     // ── Hotel ──────────────────────────────────────────────────────────────
     {
       name: 'hotel_occupancy',
@@ -581,6 +595,7 @@ ${this.toolList()}`;
       case 'warehouse_stock': return `${data.items} items, ${data.lowStock} at/below reorder level. Stock value TZS ${Number(data.stockValue).toLocaleString()}.`;
       case 'expenses_summary': return `${data.month} expenses: TZS ${Number(data.total).toLocaleString()} across ${data.count} entries.`;
       case 'cargo_status': return `${data.total} parcel(s): ${Object.entries(data.byStatus || {}).map(([s, n]) => `${n} ${s.toLowerCase()}`).join(', ') || 'none'}.`;
+      case 'sales_forecast': return `Month-to-date TZS ${Number(data.monthToDate).toLocaleString()} (day ${data.dayOfMonth}/${data.daysInMonth}). Projected month-end: TZS ${Number(data.projectedMonthEnd).toLocaleString()}.`;
       default: return JSON.stringify(data);
     }
   }

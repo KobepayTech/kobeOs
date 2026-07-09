@@ -19,8 +19,14 @@ export interface AutomationConfig {
   tenantReminders: boolean;
   /** Remind this many days before the due date (and while overdue). */
   reminderDaysBefore: number;
-  /** Reminder SMS template ({name} and {amount} are substituted). */
+  /** Gentle "due soon / just due" template ({name}, {amount}). */
   reminderMessage: string;
+  /** Firm template once a tenant is overdue past `firmAfterDays`. */
+  overdueMessage: string;
+  /** Final-notice template once overdue past `finalAfterDays`. */
+  finalNoticeMessage: string;
+  firmAfterDays: number;
+  finalAfterDays: number;
 }
 
 const DEFAULTS: AutomationConfig = {
@@ -29,6 +35,10 @@ const DEFAULTS: AutomationConfig = {
   tenantReminders: false,
   reminderDaysBefore: 3,
   reminderMessage: 'Hello {name}, a friendly reminder that your rent of TZS {amount} is due. Kindly pay at your earliest convenience. Asante.',
+  overdueMessage: 'Hello {name}, your rent of TZS {amount} is now overdue. Please settle it as soon as possible to avoid penalties. Asante.',
+  finalNoticeMessage: 'FINAL NOTICE: {name}, your rent of TZS {amount} is seriously overdue. Please pay immediately to avoid further action.',
+  firmAfterDays: 1,
+  finalAfterDays: 14,
 };
 
 /**
@@ -124,23 +134,36 @@ export class AutomationService {
       where: { ownerId, status: In(['open', 'partial', 'overdue']), dueDate: LessThanOrEqual(cutoff) },
       take: 5000,
     });
-    // One reminder per tenant, using the largest outstanding balance.
+    // Per tenant: total outstanding + the OLDEST due date (drives escalation).
     const balByTenant = new Map<string, number>();
+    const oldestDue = new Map<string, number>();
     for (const r of rows) {
       const bal = Number(r.amount || 0) - Number(r.amountPaid || 0);
-      if (bal > 0) balByTenant.set(r.tenantId, (balByTenant.get(r.tenantId) ?? 0) + bal);
+      if (bal <= 0) continue;
+      balByTenant.set(r.tenantId, (balByTenant.get(r.tenantId) ?? 0) + bal);
+      const due = new Date(r.dueDate).getTime();
+      oldestDue.set(r.tenantId, Math.min(oldestDue.get(r.tenantId) ?? due, due));
     }
     const ids = [...balByTenant.keys()];
     if (!ids.length) return { ok: true, message: 'No tenants due for a reminder.', count: 0 };
     const tenants = await this.tenants.find({ where: { id: In(ids) } });
+    const today = Date.now();
+    // Escalation ladder: due-soon → firm (overdue) → final notice.
+    const templateFor = (overdueDays: number) =>
+      overdueDays >= c.finalAfterDays ? c.finalNoticeMessage
+      : overdueDays >= c.firmAfterDays ? c.overdueMessage
+      : c.reminderMessage;
     const batch = tenants
       .filter((t) => t.phone)
-      .map((t) => ({
-        phone: t.phone,
-        message: c.reminderMessage
-          .replace('{name}', t.name || 'tenant')
-          .replace('{amount}', Math.round(balByTenant.get(t.id) ?? 0).toLocaleString()),
-      }));
+      .map((t) => {
+        const overdueDays = Math.floor((today - (oldestDue.get(t.id) ?? today)) / 86400000);
+        return {
+          phone: t.phone,
+          message: templateFor(overdueDays)
+            .replace('{name}', t.name || 'tenant')
+            .replace('{amount}', Math.round(balByTenant.get(t.id) ?? 0).toLocaleString()),
+        };
+      });
     if (!batch.length) return { ok: true, message: 'No tenant phone numbers on file.', count: 0 };
     // Personalised messages → send individually.
     let sent = 0;
