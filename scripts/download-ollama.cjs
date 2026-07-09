@@ -96,7 +96,7 @@ if (process.env.OLLAMA_SKIP_DOWNLOAD === '1') {
   fs.mkdirSync(platformDir, { recursive: true });
   const archivePath = path.join(platformDir, asset);
   console.log(`  down  ${dir}/${asset}`);
-  execSync(`curl -L -f -s -S -o "${archivePath}" "${base}/${asset}"`, { stdio: ['ignore', 'inherit', 'inherit'] });
+  execSync(`curl -L -f -s -S --retry 4 --retry-delay 3 --retry-all-errors --connect-timeout 30 --max-time 1800 -o "${archivePath}" "${base}/${asset}"`, { stdio: ['ignore', 'inherit', 'inherit'] });
 
   console.log(`  unpack ${dir}`);
   if (asset.endsWith('.zip')) {

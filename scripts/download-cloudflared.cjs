@@ -57,8 +57,14 @@ if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR, { recursive: true });
     }
 
     console.log(`  down  ${dest}`);
-    // curl -L follows all redirects (GitHub uses multiple hops to S3/CDN)
-    execSync(`curl -L -f -s -S -o "${destPath}" "${url}"`, { stdio: ['ignore', 'inherit', 'inherit'] });
+    // curl -L follows all redirects (GitHub uses multiple hops to S3/CDN).
+    // --retry survives transient network blips; --connect-timeout/--max-time
+    // stop a stalled download from hanging until the CI job gets cancelled
+    // ("The operation was canceled").
+    execSync(
+      `curl -L -f -s -S --retry 4 --retry-delay 3 --retry-all-errors --connect-timeout 30 --max-time 600 -o "${destPath}" "${url}"`,
+      { stdio: ['ignore', 'inherit', 'inherit'] },
+    );
 
     if (makeExec && process.platform !== 'win32') {
       fs.chmodSync(destPath, 0o755);

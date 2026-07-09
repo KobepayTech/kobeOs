@@ -104,7 +104,7 @@ for (const m of models) {
     console.log(`  down  ${file}  ←  ${m.url}`);
     const authArg = AUTH ? `-H "Authorization: ${AUTH}"` : '';
     try {
-      execSync(`curl -L -f -s -S ${authArg} -o "${dest}" "${m.url}"`, { stdio: ['ignore', 'inherit', 'inherit'] });
+      execSync(`curl -L -f -s -S --retry 4 --retry-delay 3 --retry-all-errors --connect-timeout 30 --max-time 3600 ${authArg} -o "${dest}" "${m.url}"`, { stdio: ['ignore', 'inherit', 'inherit'] });
       fetched++;
       continue;
     } catch (e) {
