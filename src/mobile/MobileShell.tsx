@@ -57,6 +57,36 @@ export default function MobileShell() {
     return () => { cancelled = true; };
   }, []);
 
+  // Make the INSTALLED PWA open the mobile workspace, not the storefront.
+  // The static manifest has start_url '/', so installing from here would launch
+  // at '/' (the e-commerce store on a tenant subdomain). Swap in a manifest
+  // scoped to /m/{slug} while this page is open, so the installed app opens the
+  // mobile app.
+  useEffect(() => {
+    if (!slug) return;
+    const startUrl = `/m/${slug}`;
+    const manifest = {
+      name: `KobeOS Mobile — ${slug}`,
+      short_name: 'KobeOS Mobile',
+      start_url: startUrl,
+      scope: startUrl,
+      display: 'standalone',
+      orientation: 'portrait',
+      background_color: '#0a0a1a',
+      theme_color: '#1a1a2e',
+      icons: [
+        { src: '/icon.png', sizes: '192x192', type: 'image/png' },
+        { src: '/icon.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+      ],
+    };
+    const href = `data:application/manifest+json,${encodeURIComponent(JSON.stringify(manifest))}`;
+    let link = document.querySelector('link[rel="manifest"]') as HTMLLinkElement | null;
+    const prev = link?.getAttribute('href') ?? null;
+    if (!link) { link = document.createElement('link'); link.rel = 'manifest'; document.head.appendChild(link); }
+    link.setAttribute('href', href);
+    return () => { if (prev) link!.setAttribute('href', prev); };
+  }, [slug]);
+
   if (!authChecked) {
     return (
       <div className="h-[100dvh] grid place-items-center bg-slate-50">
