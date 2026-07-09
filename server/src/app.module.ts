@@ -71,6 +71,7 @@ import { ShopStockModule } from './shop-stock/shop-stock.module';
 import { DiscountApprovalModule } from './discount-approval/discount-approval.module';
 import { SocialSchedulerModule } from './social-scheduler/social-scheduler.module';
 import { AppStateModule } from './app-state/app-state.module';
+import { AutomationModule } from './automation/automation.module';
 
 @Module({
   imports: [
@@ -122,6 +123,7 @@ import { AppStateModule } from './app-state/app-state.module';
     PushModule,
     KobeTokensModule,
     AppStateModule,
+    AutomationModule,
     MzigoModule,
     WarehouseModule,
     DiscountsModule,

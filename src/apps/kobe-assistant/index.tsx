@@ -52,7 +52,7 @@ const PROMPTS_BY_APP: Record<string, string[]> = {
   'erp-pos': ['What are today’s sales?', 'Which items sell the most?', 'Show me low-stock products', 'Add a new product'],
   'posys': ['What are today’s sales?', 'Which items sell the most?', 'Show me low-stock products'],
   'pos-kds': ['What are today’s sales?', 'Which items sell the most?'],
-  'property': ['How many tenants haven’t paid rent?', 'Print the pending tenants list', 'Record a rent payment', 'Add a new tenant'],
+  'property': ['How many tenants haven’t paid rent?', 'Remind tenants about rent automatically', 'Send me a daily report every morning', 'Record a rent payment'],
   'kobe-hotel': ['What’s my hotel occupancy right now?', 'This month’s hotel revenue and profit', 'Book a room for a guest', 'Set a room to maintenance'],
   'erp-warehouse': ['Show me low-stock warehouse items', 'What’s my total stock value?', 'Set stock for an item'],
   'erp-warehouse-ops': ['Show me low-stock warehouse items', 'What’s my total stock value?'],

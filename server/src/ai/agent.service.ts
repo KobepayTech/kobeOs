@@ -11,6 +11,7 @@ import { WarehouseItem } from '../warehouse/warehouse.entity';
 import { ShopExpense, ExpenseCategory } from '../eod/eod.entity';
 import { Parcel } from '../cargo/cargo.entity';
 import { Shop } from '../shops/shop.entity';
+import { AppState } from '../app-state/app-state.entity';
 import { BeemService } from '../notifications/beem.service';
 
 export interface AgentReply {
@@ -66,6 +67,7 @@ export class KobeAgentService {
     @InjectRepository(ShopExpense) private readonly expenses: Repository<ShopExpense>,
     @InjectRepository(Parcel) private readonly parcels: Repository<Parcel>,
     @InjectRepository(Shop) private readonly shops: Repository<Shop>,
+    @InjectRepository(AppState) private readonly appState: Repository<AppState>,
     private readonly beem: BeemService,
   ) {}
 
@@ -220,6 +222,21 @@ export class KobeAgentService {
       }
       const applied = amount - remaining;
       return { ok: true, message: `Recorded TZS ${applied.toLocaleString()} against rent.${remaining > 0 ? ` TZS ${remaining.toLocaleString()} left as credit/unapplied.` : ''}` };
+    }
+
+    if (action.tool === 'configure_automation') {
+      const row = await this.appState.findOne({ where: { ownerId, key: 'automation' } });
+      const current = (row?.value as Record<string, unknown>) ?? {};
+      const next: Record<string, unknown> = { ...current };
+      if (action.args.dailyReport !== undefined) next.dailyReport = !!action.args.dailyReport;
+      if (action.args.tenantReminders !== undefined) next.tenantReminders = !!action.args.tenantReminders;
+      if (action.args.ownerPhone) next.ownerPhone = String(action.args.ownerPhone);
+      if (row) { row.value = next; await this.appState.save(row); }
+      else await this.appState.save(this.appState.create({ ownerId, key: 'automation', value: next }));
+      const on: string[] = [];
+      if (next.dailyReport) on.push('daily reports');
+      if (next.tenantReminders) on.push('tenant rent reminders');
+      return { ok: true, message: on.length ? `Automation on: ${on.join(' and ')}. I'll handle it from here.` : 'Automation settings updated.' };
     }
 
     return { ok: false, message: `Unknown action "${action.tool}".` };
@@ -486,6 +503,17 @@ export class KobeAgentService {
       run: async (_ownerId, args) => ({
         pendingAction: { tool: 'record_rent_payment', summary: `Record TZS ${Number(args?.amount || 0).toLocaleString()} rent payment for ${args?.tenantName ?? 'tenant'}`, args: { tenantName: String(args?.tenantName ?? ''), tenantId: args?.tenantId ?? null, amount: Number(args?.amount || 0) } },
       }),
+    },
+    {
+      name: 'configure_automation',
+      description: 'Turn automatic daily owner reports and/or automatic tenant rent reminders on or off. args: {dailyReport?: boolean, tenantReminders?: boolean, ownerPhone?}',
+      write: true,
+      run: async (_ownerId, args) => {
+        const parts: string[] = [];
+        if (args?.dailyReport !== undefined) parts.push(`daily reports ${args.dailyReport ? 'ON' : 'OFF'}`);
+        if (args?.tenantReminders !== undefined) parts.push(`tenant rent reminders ${args.tenantReminders ? 'ON' : 'OFF'}`);
+        return { pendingAction: { tool: 'configure_automation', summary: `Automation: ${parts.join(', ') || 'update settings'}`, args: { dailyReport: args?.dailyReport, tenantReminders: args?.tenantReminders, ownerPhone: args?.ownerPhone ?? '' } } };
+      },
     },
   ];
 
