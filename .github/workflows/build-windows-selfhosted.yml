@@ -259,7 +259,26 @@ jobs:
           Write-Host "=== Release Artifacts ==="
           Get-ChildItem release\ -Recurse | Select-Object FullName, @{N="SizeMB";E={[math]::Round($_.Length/1MB,1)}}
 
-      - name: Upload Windows installer artifact
+      # The runner IS your PC, so the fastest way to get the (multi-GB, offline-AI)
+      # installer is a local copy — no slow/flaky upload to GitHub needed. Set the
+      # KOBE_OUTPUT_DIR variable to change the destination (default: the user's
+      # Desktop\KobeOS-Installers).
+      - name: Copy installer to a local output folder
+        run: |
+          $out = if ($env:KOBE_OUTPUT_DIR) { $env:KOBE_OUTPUT_DIR } else { Join-Path ([Environment]::GetFolderPath('Desktop')) 'KobeOS-Installers' }
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item release\*.exe $out -Force
+          if (Test-Path release\vc_redist.x64.exe) { Copy-Item release\vc_redist.x64.exe $out -Force }
+          Write-Host "Installer copied to: $out"
+          Get-ChildItem $out\*.exe | ForEach-Object { Write-Host ("  " + $_.Name + "  " + [math]::Round($_.Length/1MB,1) + " MB") }
+        env:
+          KOBE_OUTPUT_DIR: ${{ vars.KOBE_OUTPUT_DIR }}
+
+      # Uploading a multi-GB artifact over a home connection often hits
+      # ECONNRESET. It's optional here (the local copy above is the deliverable),
+      # so never fail the build on a flaky upload.
+      - name: Upload Windows installer artifact (best-effort)
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: KobeOS-Windows-Setup-offline-ai
