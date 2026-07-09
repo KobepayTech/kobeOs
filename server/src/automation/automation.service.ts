@@ -3,10 +3,11 @@ import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, LessThanOrEqual, Repository } from 'typeorm';
 import { AppState } from '../app-state/app-state.entity';
-import { RentCharge, Tenant } from '../property/property.entity';
+import { PropertyLease, RentCharge, Tenant } from '../property/property.entity';
 import { Shop } from '../shops/shop.entity';
 import { BeemService } from '../notifications/beem.service';
 import { KobeAgentService } from '../ai/agent.service';
+import { RentChargesService } from '../property/property-extra.service';
 
 const AUTOMATION_KEY = 'automation';
 
@@ -27,6 +28,10 @@ export interface AutomationConfig {
   finalNoticeMessage: string;
   firmAfterDays: number;
   finalAfterDays: number;
+  /** On the 1st, prepare this month's rent charges and ask the owner to approve. */
+  monthEndCharges: boolean;
+  /** Set by the day-1 job; cleared on approval. Drives the briefing alert. */
+  pendingCharges?: { period: string; leaseCount: number; flaggedAt: string } | null;
 }
 
 const DEFAULTS: AutomationConfig = {
@@ -39,6 +44,8 @@ const DEFAULTS: AutomationConfig = {
   finalNoticeMessage: 'FINAL NOTICE: {name}, your rent of TZS {amount} is seriously overdue. Please pay immediately to avoid further action.',
   firmAfterDays: 1,
   finalAfterDays: 14,
+  monthEndCharges: false,
+  pendingCharges: null,
 };
 
 /**
@@ -56,9 +63,11 @@ export class AutomationService {
     @InjectRepository(AppState) private readonly appState: Repository<AppState>,
     @InjectRepository(Tenant) private readonly tenants: Repository<Tenant>,
     @InjectRepository(RentCharge) private readonly charges: Repository<RentCharge>,
+    @InjectRepository(PropertyLease) private readonly leases: Repository<PropertyLease>,
     @InjectRepository(Shop) private readonly shops: Repository<Shop>,
     private readonly beem: BeemService,
     private readonly agent: KobeAgentService,
+    private readonly rentCharges: RentChargesService,
   ) {}
 
   // ── Config ────────────────────────────────────────────────────────────────
@@ -81,7 +90,7 @@ export class AutomationService {
     const rows = await this.appState.find({ where: { key: AUTOMATION_KEY } });
     return rows
       .map((r) => ({ ownerId: r.ownerId, cfg: { ...DEFAULTS, ...((r.value as Partial<AutomationConfig>) ?? {}) } }))
-      .filter(({ cfg }) => cfg.dailyReport || cfg.tenantReminders);
+      .filter(({ cfg }) => cfg.dailyReport || cfg.tenantReminders || cfg.monthEndCharges);
   }
 
   private async ownerPhone(ownerId: string, cfg: AutomationConfig): Promise<string> {
@@ -110,6 +119,32 @@ export class AutomationService {
       try { await this.remindTenants(ownerId, cfg); }
       catch (e) { this.logger.warn(`tenant reminders failed for ${ownerId}: ${(e as Error).message}`); }
     }
+  }
+
+  /** On the 1st: prepare (draft) this month's rent charges and ask for approval — 06:00. */
+  @Cron('0 6 1 * *')
+  async prepareMonthEndCharges(): Promise<void> {
+    const period = new Date().toISOString().slice(0, 7);
+    for (const { ownerId, cfg } of await this.enabledOwners()) {
+      if (!cfg.monthEndCharges) continue;
+      try {
+        const leaseCount = await this.leases.count({ where: { ownerId, status: 'active' } });
+        if (leaseCount === 0) continue;
+        await this.setConfig(ownerId, { pendingCharges: { period, leaseCount, flaggedAt: new Date().toISOString() } });
+        const phone = await this.ownerPhone(ownerId, cfg);
+        if (phone) await this.beem.sendSms(phone, `KobeOS: rent charges for ${period} are ready for ${leaseCount} active lease(s). Open KobeOS and approve to generate them.`.slice(0, 300));
+        this.logger.log(`month-end charges drafted for ${ownerId} (${leaseCount} lease(s), ${period})`);
+      } catch (e) { this.logger.warn(`month-end draft failed for ${ownerId}: ${(e as Error).message}`); }
+    }
+  }
+
+  /** Owner-approved: actually generate this month's rent charges (idempotent). */
+  async approveMonthEndCharges(ownerId: string): Promise<{ ok: boolean; message: string }> {
+    const cfg = await this.getConfig(ownerId);
+    const period = cfg.pendingCharges?.period || new Date().toISOString().slice(0, 7);
+    await this.rentCharges.generate(ownerId, period);
+    await this.setConfig(ownerId, { pendingCharges: null });
+    return { ok: true, message: `Rent charges generated for ${period}.` };
   }
 
   // ── Implementations (also callable on demand from the controller) ───────────

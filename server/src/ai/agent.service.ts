@@ -30,8 +30,12 @@ type ToolResult = { data: unknown } | { pendingAction: NonNullable<AgentReply['p
 export interface BriefingAlert {
   severity: 'info' | 'warning';
   text: string;
-  /** Optional one-tap action the UI can confirm and run via /ai/assistant/execute. */
-  action?: { tool: string; label: string; args: Record<string, unknown> };
+  /**
+   * Optional one-tap action. Either an assistant tool (run via
+   * /ai/assistant/execute) OR a direct endpoint the UI POSTs to (used for
+   * actions owned by other modules, avoiding a service cycle).
+   */
+  action?: { label: string; tool?: string; args?: Record<string, unknown>; endpoint?: string; method?: 'POST' | 'PUT' };
 }
 export interface Briefing {
   summary: string;
@@ -294,6 +298,18 @@ export class KobeAgentService {
     if (sales && sales.orders === 0) {
       alerts.push({ severity: 'info', text: 'No sales recorded yet today.' });
     }
+    // Month-end rent charges drafted by the automation job, awaiting approval.
+    try {
+      const autoRow = await this.appState.findOne({ where: { ownerId, key: 'automation' } });
+      const pending = (autoRow?.value as { pendingCharges?: { period: string; leaseCount: number } })?.pendingCharges;
+      if (pending?.period) {
+        alerts.push({
+          severity: 'info',
+          text: `Rent charges for ${pending.period} are ready for ${pending.leaseCount} lease(s) — approve to generate.`,
+          action: { label: 'Generate rent charges', endpoint: '/automation/approve-charges', method: 'POST' },
+        });
+      }
+    } catch { /* automation config optional */ }
 
     const summary = s.length ? s.join(' ') : 'No activity recorded yet today.';
     return { summary, alerts, data: { sales, low, unpaid, expenses, occ, cargo } };

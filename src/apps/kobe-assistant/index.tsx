@@ -3,7 +3,7 @@ import { api } from '@/lib/api';
 import { Sparkles, Send, Loader2, User, CheckCircle2, Printer } from 'lucide-react';
 
 interface PendingAction { tool: string; summary: string; args: Record<string, unknown> }
-interface BriefingAlert { severity: 'info' | 'warning'; text: string; action?: { tool: string; label: string; args: Record<string, unknown> } }
+interface BriefingAlert { severity: 'info' | 'warning'; text: string; action?: { label: string; tool?: string; args?: Record<string, unknown>; endpoint?: string; method?: 'POST' | 'PUT' } }
 interface Msg { role: 'user' | 'assistant'; content: string; data?: unknown; pending?: PendingAction | null; alerts?: BriefingAlert[] }
 
 /** Find the first array-of-objects inside a tool result, for printing as a table. */
@@ -116,6 +116,23 @@ export default function KobeAssistant({ contextLabel, appId }: { contextLabel?: 
     }
   };
 
+  // Run a briefing alert's action: either an assistant tool or a direct endpoint.
+  const runAlertAction = async (a: NonNullable<BriefingAlert['action']>, idx: number) => {
+    if (a.endpoint) {
+      setBusy(true);
+      // Drop the alert so it can't be double-run.
+      setMessages((p) => p.map((m, i) => (i === idx ? { ...m, alerts: (m.alerts ?? []).filter((x) => x.action !== a) } : m)));
+      try {
+        const r = await api<{ ok?: boolean; message?: string }>(a.endpoint, { method: a.method ?? 'POST' });
+        setMessages((p) => [...p, { role: 'assistant', content: '✅ ' + (r?.message ?? 'Done.') }]);
+      } catch (e) {
+        setMessages((p) => [...p, { role: 'assistant', content: `Action failed: ${(e as Error).message}` }]);
+      } finally { setBusy(false); }
+      return;
+    }
+    if (a.tool) confirmAction({ tool: a.tool, summary: a.label, args: a.args ?? {} }, idx);
+  };
+
   const confirmAction = async (action: PendingAction, idx: number) => {
     setBusy(true);
     setMessages((p) => p.map((m, i) => (i === idx ? { ...m, pending: null } : m))); // prevent double-run
@@ -154,7 +171,7 @@ export default function KobeAssistant({ contextLabel, appId }: { contextLabel?: 
                         <button
                           className="mt-1.5 text-[11px] font-bold px-3 py-1.5 rounded bg-amber-500 text-black inline-flex items-center gap-1 disabled:opacity-50"
                           disabled={busy}
-                          onClick={() => confirmAction({ tool: a.action!.tool, summary: a.action!.label, args: a.action!.args }, i)}
+                          onClick={() => runAlertAction(a.action!, i)}
                         >
                           <CheckCircle2 className="w-3 h-3" /> {a.action.label}
                         </button>

@@ -15,6 +15,7 @@ class UpdateAutomationDto {
   @IsOptional() @IsString() @MaxLength(320) finalNoticeMessage?: string;
   @IsOptional() @IsInt() @Min(0) @Max(365) firmAfterDays?: number;
   @IsOptional() @IsInt() @Min(0) @Max(365) finalAfterDays?: number;
+  @IsOptional() @IsBoolean() monthEndCharges?: boolean;
 }
 
 @ApiTags('AI / Automation')
@@ -39,4 +40,8 @@ export class AutomationController {
   @Post('run/tenant-reminders')
   @ApiOperation({ summary: 'Send tenant rent reminders now (test)' })
   runReminders(@CurrentUser('id') uid: string) { return this.svc.remindTenants(uid); }
+
+  @Post('approve-charges')
+  @ApiOperation({ summary: "Approve & generate this month's drafted rent charges" })
+  approveCharges(@CurrentUser('id') uid: string) { return this.svc.approveMonthEndCharges(uid); }
 }

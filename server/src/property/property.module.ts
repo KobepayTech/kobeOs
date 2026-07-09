@@ -79,5 +79,6 @@ import { PropertyExtraController } from './property-extra.controller';
     PosysController,
     PosysTokensController,
   ],
+  exports: [RentChargesService],
 })
 export class PropertyModule {}

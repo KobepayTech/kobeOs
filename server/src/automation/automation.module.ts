@@ -1,18 +1,20 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppState } from '../app-state/app-state.entity';
-import { RentCharge, Tenant } from '../property/property.entity';
+import { PropertyLease, RentCharge, Tenant } from '../property/property.entity';
 import { Shop } from '../shops/shop.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { AiModule } from '../ai/ai.module';
+import { PropertyModule } from '../property/property.module';
 import { AutomationService } from './automation.service';
 import { AutomationController } from './automation.controller';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([AppState, Tenant, RentCharge, Shop]),
+    TypeOrmModule.forFeature([AppState, Tenant, RentCharge, PropertyLease, Shop]),
     NotificationsModule,
     AiModule,
+    PropertyModule,
   ],
   providers: [AutomationService],
   controllers: [AutomationController],
