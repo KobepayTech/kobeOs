@@ -57,7 +57,7 @@ const PROMPTS_BY_APP: Record<string, string[]> = {
   'erp-warehouse': ['Show me low-stock warehouse items', 'What’s my total stock value?', 'Set stock for an item'],
   'erp-warehouse-ops': ['Show me low-stock warehouse items', 'What’s my total stock value?'],
   'cargo': ['How many parcels are in transit?', 'How many parcels were delivered?'],
-  'erp-shop': ['Which items do customers like most?', 'Show me low-stock products', 'Write a promo for a jersey sale'],
+  'erp-shop': ['Which items do customers like most?', 'Find products like “cheap kids kit”', 'Show me low-stock products', 'Write a promo for a jersey sale'],
   'erp-store-editor': ['Which items do customers like most?', 'Write a promo for a sale'],
   'kobe-pay': ['What are today’s sales?', 'How much did I spend this month?'],
   'erp-dashboard': ['What are today’s sales?', 'Project this month’s sales', 'How much did I spend this month?', 'How many tenants haven’t paid rent?'],

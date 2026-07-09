@@ -12,7 +12,16 @@ import { ShopExpense, ExpenseCategory } from '../eod/eod.entity';
 import { Parcel } from '../cargo/cargo.entity';
 import { Shop } from '../shops/shop.entity';
 import { AppState } from '../app-state/app-state.entity';
+import { SearchDoc } from '../search/search.entity';
 import { BeemService } from '../notifications/beem.service';
+
+/** Cosine similarity for semantic-search ranking. */
+function cosineSim(a: number[], b: number[]): number {
+  if (!a?.length || a.length !== b?.length) return 0;
+  let dot = 0, na = 0, nb = 0;
+  for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+  return na && nb ? dot / (Math.sqrt(na) * Math.sqrt(nb)) : 0;
+}
 
 export interface AgentReply {
   reply: string;
@@ -72,6 +81,7 @@ export class KobeAgentService {
     @InjectRepository(Parcel) private readonly parcels: Repository<Parcel>,
     @InjectRepository(Shop) private readonly shops: Repository<Shop>,
     @InjectRepository(AppState) private readonly appState: Repository<AppState>,
+    @InjectRepository(SearchDoc) private readonly searchDocs: Repository<SearchDoc>,
     private readonly beem: BeemService,
   ) {}
 
@@ -393,6 +403,29 @@ export class KobeAgentService {
         return { data: { monthToDate: Math.round(monthToDate), dayOfMonth, daysInMonth, dailyAverage: Math.round(monthToDate / Math.max(1, dayOfMonth)), projectedMonthEnd, currency: 'TZS' } };
       },
     },
+    {
+      name: 'semantic_search',
+      description: 'Find products, tenants or reviews by MEANING, not just keywords (e.g. "cheap kids kit", "customers unhappy with delivery"). args: {query, kind?: "product"|"tenant"|"review", limit?}',
+      run: async (ownerId, args) => {
+        const query = String(args?.query ?? '').trim();
+        if (!query) return { data: { count: 0, results: [] } };
+        let qv: number[] = [];
+        try { qv = await this.ai.generateEmbedding(query.slice(0, 2000), process.env.OLLAMA_EMBED_MODEL || this.ai.getActiveModel()); }
+        catch { return { data: { count: 0, results: [], note: 'Embedding model unavailable — is Ollama running?' } }; }
+        if (!qv.length) return { data: { count: 0, results: [], note: 'No embedding produced.' } };
+        const where: Record<string, unknown> = { ownerId };
+        if (args?.kind) where.kind = String(args.kind);
+        const docs = await this.searchDocs.find({ where, take: 10000 });
+        if (!docs.length) return { data: { count: 0, results: [], note: 'Search index is empty — open Search and reindex (it also rebuilds daily).' } };
+        const limit = Math.min(Number(args?.limit) || 8, 20);
+        const results = docs
+          .map((d) => ({ kind: d.kind, refId: d.refId, text: d.text, score: +cosineSim(qv, d.vector).toFixed(4) }))
+          .filter((r) => r.score > 0)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, limit);
+        return { data: { count: results.length, results } };
+      },
+    },
     // ── Hotel ──────────────────────────────────────────────────────────────
     {
       name: 'hotel_occupancy',
@@ -612,6 +645,7 @@ ${this.toolList()}`;
       case 'expenses_summary': return `${data.month} expenses: TZS ${Number(data.total).toLocaleString()} across ${data.count} entries.`;
       case 'cargo_status': return `${data.total} parcel(s): ${Object.entries(data.byStatus || {}).map(([s, n]) => `${n} ${s.toLowerCase()}`).join(', ') || 'none'}.`;
       case 'sales_forecast': return `Month-to-date TZS ${Number(data.monthToDate).toLocaleString()} (day ${data.dayOfMonth}/${data.daysInMonth}). Projected month-end: TZS ${Number(data.projectedMonthEnd).toLocaleString()}.`;
+      case 'semantic_search': return data.count ? `Found ${data.count} match(es): ${data.results.slice(0, 5).map((r: any) => r.text.slice(0, 40)).join('; ')}.` : (data.note || 'No matches found.');
       default: return JSON.stringify(data);
     }
   }

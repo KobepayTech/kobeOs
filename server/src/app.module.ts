@@ -72,6 +72,7 @@ import { DiscountApprovalModule } from './discount-approval/discount-approval.mo
 import { SocialSchedulerModule } from './social-scheduler/social-scheduler.module';
 import { AppStateModule } from './app-state/app-state.module';
 import { AutomationModule } from './automation/automation.module';
+import { SearchModule } from './search/search.module';
 
 @Module({
   imports: [
@@ -124,6 +125,7 @@ import { AutomationModule } from './automation/automation.module';
     KobeTokensModule,
     AppStateModule,
     AutomationModule,
+    SearchModule,
     MzigoModule,
     WarehouseModule,
     DiscountsModule,
