@@ -28,6 +28,49 @@ export class ProductsService {
     return this.repo.save(this.repo.create({ ...dto, ownerId: uid }));
   }
 
+  /**
+   * Seed a set of placeholder jersey products so an empty storefront isn't
+   * blank. All are clearly demo (SKU DEMO-*) and meant to be edited/replaced.
+   * Idempotent: skips any DEMO sku that already exists.
+   */
+  async seedDemo(uid: string) {
+    const cat = { CLUB: 'Club Jerseys', NAT: 'National Teams', KIDS: 'Kids', RETRO: 'Retro', TRAIN: 'Training' };
+    const demo: Array<{ sku: string; name: string; category: string; price: number; compareAtPrice?: number; stock: number }> = [
+      { sku: 'DEMO-001', name: 'Home Jersey — Red Club 2025/26', category: cat.CLUB, price: 65000, compareAtPrice: 85000, stock: 40 },
+      { sku: 'DEMO-002', name: 'Away Jersey — Blue Club 2025/26', category: cat.CLUB, price: 65000, compareAtPrice: 85000, stock: 35 },
+      { sku: 'DEMO-003', name: 'Third Kit — City Club 2025/26', category: cat.CLUB, price: 70000, stock: 25 },
+      { sku: 'DEMO-004', name: 'Home Jersey — White Club 2025/26', category: cat.CLUB, price: 68000, stock: 30 },
+      { sku: 'DEMO-005', name: 'Home Jersey — Reds 2025/26', category: cat.CLUB, price: 65000, compareAtPrice: 80000, stock: 28 },
+      { sku: 'DEMO-006', name: 'Away Jersey — Paris 2025/26', category: cat.CLUB, price: 72000, stock: 22 },
+      { sku: 'DEMO-007', name: 'National Team Home Kit — Yellow', category: cat.NAT, price: 60000, stock: 50 },
+      { sku: 'DEMO-008', name: 'National Team Home Kit — Sky Blue', category: cat.NAT, price: 60000, compareAtPrice: 75000, stock: 45 },
+      { sku: 'DEMO-009', name: 'National Team Home Kit — Green', category: cat.NAT, price: 58000, stock: 60 },
+      { sku: 'DEMO-010', name: 'National Team Away Kit — Red', category: cat.NAT, price: 58000, stock: 40 },
+      { sku: 'DEMO-011', name: 'Kids Home Jersey — Red Club', category: cat.KIDS, price: 40000, stock: 30 },
+      { sku: 'DEMO-012', name: 'Kids Home Jersey — Blue Club', category: cat.KIDS, price: 40000, compareAtPrice: 52000, stock: 26 },
+      { sku: 'DEMO-013', name: 'Kids National Team Kit — Yellow', category: cat.KIDS, price: 38000, stock: 33 },
+      { sku: 'DEMO-014', name: 'Retro Jersey — Classic Red 1998', category: cat.RETRO, price: 75000, stock: 15 },
+      { sku: 'DEMO-015', name: 'Retro Jersey — Classic Blue 2005', category: cat.RETRO, price: 75000, compareAtPrice: 95000, stock: 12 },
+      { sku: 'DEMO-016', name: 'Retro National Kit — 1994', category: cat.RETRO, price: 78000, stock: 10 },
+      { sku: 'DEMO-017', name: 'Training Jersey — Black', category: cat.TRAIN, price: 45000, stock: 55 },
+      { sku: 'DEMO-018', name: 'Training Jersey — Navy', category: cat.TRAIN, price: 45000, stock: 48 },
+      { sku: 'DEMO-019', name: 'Goalkeeper Jersey — Green', category: cat.CLUB, price: 62000, stock: 18 },
+      { sku: 'DEMO-020', name: 'Long-Sleeve Home Jersey — Red Club', category: cat.CLUB, price: 70000, compareAtPrice: 88000, stock: 20 },
+    ];
+    let created = 0;
+    for (const d of demo) {
+      const exists = await this.repo.findOne({ where: { ownerId: uid, sku: d.sku } });
+      if (exists) continue;
+      await this.repo.save(this.repo.create({
+        ownerId: uid, currency: 'TZS', unit: 'piece',
+        description: 'Sample product — edit or replace with your own.',
+        ...d,
+      }));
+      created += 1;
+    }
+    return { created, total: demo.length };
+  }
+
   async update(uid: string, id: string, dto: UpdateProductDto) {
     const item = await this.get(uid, id);
     Object.assign(item, dto);

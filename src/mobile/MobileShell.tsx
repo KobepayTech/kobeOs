@@ -6,6 +6,7 @@ import {
 import { api, clearTokens, setRefreshToken, setToken } from '@/lib/api';
 import { ensureSession } from '@/lib/auth';
 import { MobileAssistant } from './MobileAssistant';
+import { InstallPwaButton } from './InstallPwaButton';
 
 /**
  * Mobile webapp shell. Renders at `/m/*` (typically reached via QR on a
@@ -79,21 +80,24 @@ export default function MobileShell() {
             <div className="text-[10px] text-slate-400 leading-none mt-0.5">{slug || 'store'}.kobeapptz.com</div>
           </div>
         </Link>
-        <button
-          onClick={() => {
-            try {
-              clearTokens();
-              localStorage.removeItem('access_token');
-              localStorage.removeItem('kobe_session_email');
-            } catch { /* private mode */ }
-            setSignedIn(false);
-            navigate(`/m/${slug}`);
-          }}
-          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-bold text-slate-500 hover:bg-slate-100"
-          aria-label="Sign out"
-        >
-          <LogOut className="w-3.5 h-3.5" />Sign out
-        </button>
+        <div className="flex items-center gap-2">
+          <InstallPwaButton />
+          <button
+            onClick={() => {
+              try {
+                clearTokens();
+                localStorage.removeItem('access_token');
+                localStorage.removeItem('kobe_session_email');
+              } catch { /* private mode */ }
+              setSignedIn(false);
+              navigate(`/m/${slug}`);
+            }}
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-bold text-slate-500 hover:bg-slate-100"
+            aria-label="Sign out"
+          >
+            <LogOut className="w-3.5 h-3.5" />Sign out
+          </button>
+        </div>
       </header>
 
       {/* Active feature */}

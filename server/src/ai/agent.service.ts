@@ -238,6 +238,34 @@ export class KobeAgentService {
       return { ok: true, message: `Recorded TZS ${applied.toLocaleString()} against rent.${remaining > 0 ? ` TZS ${remaining.toLocaleString()} left as credit/unapplied.` : ''}` };
     }
 
+    if (action.tool === 'seed_demo_products') {
+      const demo: Array<{ sku: string; name: string; category: string; price: number; compareAtPrice?: number; stock: number }> = [
+        { sku: 'DEMO-001', name: 'Home Jersey — Red Club 2025/26', category: 'Club Jerseys', price: 65000, compareAtPrice: 85000, stock: 40 },
+        { sku: 'DEMO-002', name: 'Away Jersey — Blue Club 2025/26', category: 'Club Jerseys', price: 65000, compareAtPrice: 85000, stock: 35 },
+        { sku: 'DEMO-003', name: 'Third Kit — City Club 2025/26', category: 'Club Jerseys', price: 70000, stock: 25 },
+        { sku: 'DEMO-004', name: 'Home Jersey — White Club 2025/26', category: 'Club Jerseys', price: 68000, stock: 30 },
+        { sku: 'DEMO-005', name: 'National Team Home Kit — Yellow', category: 'National Teams', price: 60000, stock: 50 },
+        { sku: 'DEMO-006', name: 'National Team Home Kit — Sky Blue', category: 'National Teams', price: 60000, compareAtPrice: 75000, stock: 45 },
+        { sku: 'DEMO-007', name: 'National Team Home Kit — Green', category: 'National Teams', price: 58000, stock: 60 },
+        { sku: 'DEMO-008', name: 'Kids Home Jersey — Red Club', category: 'Kids', price: 40000, stock: 30 },
+        { sku: 'DEMO-009', name: 'Kids Home Jersey — Blue Club', category: 'Kids', price: 40000, compareAtPrice: 52000, stock: 26 },
+        { sku: 'DEMO-010', name: 'Retro Jersey — Classic Red 1998', category: 'Retro', price: 75000, stock: 15 },
+        { sku: 'DEMO-011', name: 'Retro Jersey — Classic Blue 2005', category: 'Retro', price: 75000, compareAtPrice: 95000, stock: 12 },
+        { sku: 'DEMO-012', name: 'Training Jersey — Black', category: 'Training', price: 45000, stock: 55 },
+        { sku: 'DEMO-013', name: 'Training Jersey — Navy', category: 'Training', price: 45000, stock: 48 },
+        { sku: 'DEMO-014', name: 'Goalkeeper Jersey — Green', category: 'Club Jerseys', price: 62000, stock: 18 },
+        { sku: 'DEMO-015', name: 'Long-Sleeve Home Jersey — Red Club', category: 'Club Jerseys', price: 70000, compareAtPrice: 88000, stock: 20 },
+      ];
+      let created = 0;
+      for (const d of demo) {
+        const exists = await this.products.findOne({ where: { ownerId, sku: d.sku } });
+        if (exists) continue;
+        await this.products.save(this.products.create({ ownerId, currency: 'TZS', unit: 'piece', description: 'Sample product — edit or replace with your own.', ...d }));
+        created += 1;
+      }
+      return { ok: true, message: `Added ${created} sample product(s). Edit or replace them anytime.` };
+    }
+
     if (action.tool === 'configure_automation') {
       const row = await this.appState.findOne({ where: { ownerId, key: 'automation' } });
       const current = (row?.value as Record<string, unknown>) ?? {};
@@ -566,6 +594,12 @@ export class KobeAgentService {
       run: async (_ownerId, args) => ({
         pendingAction: { tool: 'record_rent_payment', summary: `Record TZS ${Number(args?.amount || 0).toLocaleString()} rent payment for ${args?.tenantName ?? 'tenant'}`, args: { tenantName: String(args?.tenantName ?? ''), tenantId: args?.tenantId ?? null, amount: Number(args?.amount || 0) } },
       }),
+    },
+    {
+      name: 'seed_demo_products',
+      description: 'Add a set of placeholder jersey products so an empty shop has something to show (the owner edits them later). No args.',
+      write: true,
+      run: async () => ({ pendingAction: { tool: 'seed_demo_products', summary: 'Add ~20 sample jersey products (you can edit them later)', args: {} } }),
     },
     {
       name: 'configure_automation',

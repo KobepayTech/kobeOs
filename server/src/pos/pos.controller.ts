@@ -47,6 +47,7 @@ export class PosController {
   @Get('products') listProducts(@CurrentUser('id') uid: string) { return this.products.list(uid); }
   @Get('products/:id') getProduct(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.products.get(uid, id); }
   @Post('products') createProduct(@CurrentUser('id') uid: string, @Body() dto: CreateProductDto) { return this.products.create(uid, dto); }
+  @Post('products/seed-demo') seedDemoProducts(@CurrentUser('id') uid: string) { return this.products.seedDemo(uid); }
   @Patch('products/:id') updateProduct(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: UpdateProductDto) { return this.products.update(uid, id, dto); }
   @Delete('products/:id') removeProduct(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.products.remove(uid, id); }
 
