@@ -102,9 +102,13 @@ interface TrackedOrder {
 /*  HELPERS                                                             */
 /* ------------------------------------------------------------------ */
 
+// Same-origin '/api' in production: the store at {slug}.kobeapptz.com calls its
+// OWN backend through the same tunnel (no cross-origin, no CORS). Previously
+// this hit https://api.kobeapptz.com which failed cross-origin ("failed to
+// fetch"). Override with VITE_API_BASE for a central/split deployment.
 const API =
   (import.meta.env.VITE_API_BASE as string | undefined) ??
-  (import.meta.env.DEV ? 'http://localhost:3000/api' : 'https://api.kobeapptz.com/api');
+  (import.meta.env.DEV ? 'http://localhost:3000/api' : '/api');
 const SHIPPING_COST = 5000;
 
 function formatPrice(price: number, currency = 'TZS'): string {

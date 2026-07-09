@@ -45,8 +45,11 @@ export function buildOriginPredicate() {
     origin: string | undefined,
     callback: (err: Error | null, allow?: boolean) => void,
   ) => {
-    if (isAllowed(origin)) callback(null, true);
-    else callback(new Error(`Origin '${origin}' not allowed by CORS`), false);
+    // Deny WITHOUT an error: passing an Error makes the cors middleware throw,
+    // which Express turns into a 500 (browsers then report "failed to fetch").
+    // callback(null, false) is a clean CORS rejection — no CORS headers are
+    // set and the browser blocks it normally.
+    callback(null, isAllowed(origin));
   };
 
   return { predicate, isAllowed, explicit, baseDomain };

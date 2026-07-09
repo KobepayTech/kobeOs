@@ -186,6 +186,10 @@ function startBackend(dbConfig) {
     CF_ACCOUNT_ID:  process.env.CF_ACCOUNT_ID  || 'd379a7d03f3714377f11cc7e22c96b5d',
     CF_ZONE_ID:     process.env.CF_ZONE_ID     || 'c5f9da50402b712eaa6dd0c83751198b',
     CF_DOMAIN:      process.env.CF_DOMAIN      || 'kobeapptz.com',
+    // CORS: allow this shop's own storefront subdomains (*.kobeapptz.com) to
+    // call the backend through the tunnel, or every browser fetch from the
+    // published store fails preflight ("failed to fetch").
+    TENANT_BASE_DOMAIN: process.env.TENANT_BASE_DOMAIN || process.env.CF_DOMAIN || 'kobeapptz.com',
     // Local AI: point the backend at the bundled Ollama and make the bundled
     // gguf model the default the "Ask Kobe" assistant talks to (falls back to
     // the AiService default if no model is bundled).

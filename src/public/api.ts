@@ -3,9 +3,11 @@
  * that the guest QR pages talk to. Mirrors the base-URL resolution in
  * src/lib/api.ts so the same .env settings drive both.
  */
+// Same-origin '/api' in production so public apps served at {slug}.kobeapptz.com
+// call their own backend through the same tunnel (no cross-origin CORS).
 const PUBLIC_API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined) ??
-  (import.meta.env.DEV ? 'http://localhost:3000/api' : 'https://api.kobeapptz.com/api');
+  (import.meta.env.DEV ? 'http://localhost:3000/api' : '/api');
 
 /**
  * If the OS is reached at `serenahotel.kobeapptz.com`, the first label is the
