@@ -726,6 +726,22 @@ export default function KobeHotel() {
     }
   };
 
+  // Push a bar/restaurant POS order to the live KDS via /hotel/orders. The KDS
+  // tab reads the same endpoint and routes each item by its station.
+  const sendToKitchen = async (items: CartItem[], location: string, station: 'kitchen' | 'bar' | 'other' = 'kitchen') => {
+    if (!items.length) return;
+    try {
+      await api('/hotel/orders', {
+        method: 'POST',
+        body: JSON.stringify({
+          roomNumber: location,
+          items: items.map((c) => ({ name: c.name, qty: c.qty, price: c.price, station })),
+          currency: 'TZS',
+        }),
+      });
+    } catch { /* offline — the receipt/KOT still prints locally */ }
+  };
+
   const requestPortalService = async (kind: string, label: string) => {
     try {
       const created = await api<PortalServiceRequest>('/hotel/service-requests', {
@@ -1101,7 +1117,7 @@ export default function KobeHotel() {
                   </div>
                   <div className="grid grid-cols-2 gap-2 mt-3">
                     <Button size="sm" variant="outline" className={darkMode ? 'border-white/10' : ''} onClick={() => setBarCart([])}><X className="w-3 h-3 mr-1" />Clear</Button>
-                    <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => barCart.length > 0 && setShowReceipt(true)}><Check className="w-3 h-3 mr-1" />Pay</Button>
+                    <Button size="sm" className="bg-emerald-600 hover:bg-emerald-700" onClick={() => { if (barCart.length > 0) { sendToKitchen(barCart, barTable, 'bar'); setShowReceipt(true); } }}><Check className="w-3 h-3 mr-1" />Pay</Button>
                   </div>
                   <div className="grid grid-cols-2 gap-2 mt-2">
                     <Button size="sm" variant="outline" className={darkMode ? 'border-white/10' : ''}><Banknote className="w-3 h-3 mr-1" />Cash</Button>
@@ -1205,7 +1221,7 @@ export default function KobeHotel() {
                     </div>
                     <div className="grid grid-cols-2 gap-2 mt-3">
                       <Button size="sm" variant="outline" className={darkMode ? 'border-white/10' : ''} onClick={() => setRestCart([])}><X className="w-3 h-3 mr-1" />Clear</Button>
-                      <Button size="sm" className="bg-orange-600 hover:bg-orange-700" onClick={() => restCart.length > 0 && setKotMode(true)}><Send className="w-3 h-3 mr-1" />Send KOT</Button>
+                      <Button size="sm" className="bg-orange-600 hover:bg-orange-700" onClick={() => { if (restCart.length > 0) { sendToKitchen(restCart, 'Restaurant'); setKotMode(true); } }}><Send className="w-3 h-3 mr-1" />Send KOT</Button>
                     </div>
                     <Button size="sm" variant="outline" className={`mt-2 w-full ${darkMode ? 'border-white/10' : ''}`}><Bed className="w-3 h-3 mr-1" />Room Charge</Button>
                   </CardContent>
