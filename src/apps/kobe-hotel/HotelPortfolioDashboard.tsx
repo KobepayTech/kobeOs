@@ -133,7 +133,20 @@ export default function HotelPortfolioDashboard({ hotels = DEMO_PORTFOLIO, onSel
         <section className="xl:col-span-2">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-extrabold text-slate-900">Properties</h3>
-            <button className="text-xs font-semibold text-blue-600 hover:text-blue-500">+ Add Property</button>
+            <button
+              onClick={async () => {
+                const name = window.prompt('New hotel / property name:')?.trim();
+                if (!name) return;
+                const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
+                try {
+                  await api('/hotel/properties', { method: 'POST', body: JSON.stringify({ slug, name }) });
+                  window.alert(`Property "${name}" added.`);
+                } catch (e) {
+                  window.alert('Could not add property: ' + (e as Error).message);
+                }
+              }}
+              className="text-xs font-semibold text-blue-600 hover:text-blue-500"
+            >+ Add Property</button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

@@ -799,7 +799,8 @@ export default function KobeHotel() {
     { id: 'portal', label: 'Guest Portal', icon: QrCode, color: 'text-pink-400 bg-pink-500/10 border-pink-500/20' },
     { id: 'channels', label: 'Channels', icon: Globe2, color: 'text-teal-400 bg-teal-500/10 border-teal-500/20' },
     { id: 'inbox', label: 'Inbox', icon: MessageSquare, color: 'text-fuchsia-400 bg-fuchsia-500/10 border-fuchsia-500/20' },
-    { id: 'erp', label: 'Hotel ERP', icon: LayoutDashboard, color: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20' },
+    // 'Hotel ERP' tab removed — it duplicated KobeHotel. Its only unique
+    // feature (Add Property) now lives on the Portfolio dashboard.
     { id: 'qr-portal', label: 'QR Portal', icon: QrCode, color: 'text-teal-400 bg-teal-500/10 border-teal-500/20' },
   ];
 
