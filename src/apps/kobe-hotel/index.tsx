@@ -997,7 +997,17 @@ export default function KobeHotel() {
             ROOMS (blue/light board view)
         ════════════════════════════════════════════════════════════ */}
         {activeTab === 'rooms' && (
-          <RoomsBoard rooms={rooms} onSelect={(r) => setSelectedRoom(r as Room)} />
+          <RoomsBoard
+            rooms={rooms.map((r) => {
+              const g = guests.find((x) => String(x.room) === String(r.number) && x.status === 'Checked-in');
+              return { ...r, checkIn: g?.checkIn, checkOut: g?.checkOut, guest: g?.name ?? r.guest };
+            })}
+            onSelect={(r) => setSelectedRoom(r as Room)}
+            onCheckOut={async (room) => {
+              try { await api(`/hotel/rooms/${room.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'available' }) }); } catch { /* offline — update locally */ }
+              setRooms((prev) => prev.map((r) => (r.id === room.id ? { ...r, status: 'available', guest: undefined } : r)));
+            }}
+          />
         )}
 
         {/* ════════════════════════════════════════════════════════════

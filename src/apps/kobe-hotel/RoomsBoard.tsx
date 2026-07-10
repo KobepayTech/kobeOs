@@ -1,5 +1,25 @@
 import { useMemo, useState } from 'react';
-import { Bed, Lock, Unlock, Plus, Search, Eye, Brush, Wrench } from 'lucide-react';
+import { Bed, Lock, Unlock, Plus, Search, Eye, Brush, Wrench, LogOut, Clock } from 'lucide-react';
+
+/**
+ * Hotels check guests out at 10:00 on the check-out date. Given the check-out
+ * date, compute whether checkout is due and a friendly countdown
+ * ("2d 4h till checkout" / "Checkout due · 3h overdue").
+ */
+export function checkoutInfo(checkOut?: string): { due: boolean; label: string } | null {
+  if (!checkOut) return null;
+  const d = new Date(checkOut);
+  if (isNaN(d.getTime())) return null;
+  d.setHours(10, 0, 0, 0); // standard 10:00 checkout
+  const diffMs = d.getTime() - Date.now();
+  if (diffMs <= 0) {
+    const overdueH = Math.floor(-diffMs / 3_600_000);
+    return { due: true, label: overdueH > 0 ? `Checkout due · ${overdueH}h overdue` : 'Checkout due' };
+  }
+  const days = Math.floor(diffMs / 86_400_000);
+  const hours = Math.floor((diffMs % 86_400_000) / 3_600_000);
+  return { due: false, label: days > 0 ? `${days}d ${hours}h till checkout` : `${hours}h till checkout` };
+}
 
 /**
  * Blue/light themed Rooms tab — matches the Dashboard's aesthetic. Wraps
@@ -17,11 +37,15 @@ export interface BoardRoom {
   floor: number;
   beds: number;
   imageUrl?: string;
+  /** Booking dates (YYYY-MM-DD) — drive the checkout countdown. */
+  checkIn?: string;
+  checkOut?: string;
 }
 
 interface Props {
   rooms: BoardRoom[];
   onSelect?: (room: BoardRoom) => void;
+  onCheckOut?: (room: BoardRoom) => void;
 }
 
 type Filter = 'All' | 'Available' | 'Occupied' | 'Cleaning' | 'Maintenance';
@@ -33,7 +57,7 @@ const TYPE_IMAGES: Record<string, string> = {
   'VIP Suite': 'https://images.unsplash.com/photo-1631049307264-da0ec9d70304?w=600&h=360&fit=crop',
 };
 
-export default function RoomsBoard({ rooms, onSelect }: Props) {
+export default function RoomsBoard({ rooms, onSelect, onCheckOut }: Props) {
   const [filter, setFilter] = useState<Filter>('All');
   const [search, setSearch] = useState('');
 
@@ -103,7 +127,7 @@ export default function RoomsBoard({ rooms, onSelect }: Props) {
             <h3 className="text-xs font-extrabold text-slate-500 uppercase tracking-wide mb-3">Floor {floor}</h3>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
               {filtered.filter((r) => r.floor === floor).map((room) => (
-                <RoomCard key={room.id} room={room} onClick={() => onSelect?.(room)} />
+                <RoomCard key={room.id} room={room} onClick={() => onSelect?.(room)} onCheckOut={onCheckOut} />
               ))}
             </div>
           </div>
@@ -134,8 +158,9 @@ const TONE: Record<Filter, { label: string; activeBorder: string; cardBorder: st
   Maintenance: { label: 'text-slate-600',   activeBorder: 'border-slate-400',   cardBorder: 'border-slate-200',   chip: 'bg-slate-200 text-slate-700',     icon: 'text-slate-500' },
 };
 
-function RoomCard({ room, onClick }: { room: BoardRoom; onClick: () => void }) {
+function RoomCard({ room, onClick, onCheckOut }: { room: BoardRoom; onClick: () => void; onCheckOut?: (room: BoardRoom) => void }) {
   const tone = TONE[(room.status.charAt(0).toUpperCase() + room.status.slice(1)) as Filter];
+  const co = room.status === 'occupied' ? checkoutInfo(room.checkOut) : null;
   const img = room.imageUrl ?? TYPE_IMAGES[room.type] ?? FALLBACK_IMG;
   const Icon =
     room.status === 'cleaning'    ? Brush :
@@ -173,6 +198,21 @@ function RoomCard({ room, onClick }: { room: BoardRoom; onClick: () => void }) {
           <div className="mt-2 flex items-center gap-1 text-[11px] text-blue-600 hover:text-blue-500">
             <Eye className="w-3 h-3" /> View details
           </div>
+        )}
+        {co && (
+          <div className={`mt-2 flex items-center gap-1 text-[10px] font-bold rounded-md px-1.5 py-1 ${co.due ? 'bg-red-50 text-red-600' : 'bg-amber-50 text-amber-700'}`}>
+            <Clock className="w-3 h-3" /> {co.label}
+          </div>
+        )}
+        {room.status === 'occupied' && onCheckOut && (
+          <span
+            role="button"
+            tabIndex={0}
+            onClick={(e) => { e.stopPropagation(); onCheckOut(room); }}
+            className={`mt-2 flex items-center justify-center gap-1 text-[11px] font-bold rounded-md py-1.5 cursor-pointer ${co?.due ? 'bg-red-600 text-white hover:bg-red-700' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'}`}
+          >
+            <LogOut className="w-3 h-3" /> Check out
+          </span>
         )}
       </div>
     </button>
