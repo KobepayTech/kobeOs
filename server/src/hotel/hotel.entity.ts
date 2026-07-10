@@ -87,6 +87,12 @@ export class HotelBooking extends OwnedEntity {
   @Index()
   @Column({ type: 'uuid', nullable: true })
   hotelId?: string | null;
+
+  /** PalmPesa order_id for an online booking — the webhook matches on this to
+   *  auto-confirm the right booking, unambiguously, even across many hotels. */
+  @Index()
+  @Column({ type: 'varchar', nullable: true })
+  palmPesaOrderId?: string | null;
 }
 
 @Entity('hotel_tenants')

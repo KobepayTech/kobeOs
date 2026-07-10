@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { WebhookEvent } from './webhook.entity';
 import { PalmPesaCallback } from '../creators/palmpesa.service';
+import { HotelBooking, HotelRoom } from '../hotel/hotel.entity';
 
 @Injectable()
 export class WebhookService {
@@ -26,6 +27,10 @@ export class WebhookService {
   constructor(
     @InjectRepository(WebhookEvent)
     private readonly repo: Repository<WebhookEvent>,
+    @InjectRepository(HotelBooking)
+    private readonly bookings: Repository<HotelBooking>,
+    @InjectRepository(HotelRoom)
+    private readonly rooms: Repository<HotelRoom>,
   ) {}
 
   /**
@@ -87,6 +92,26 @@ export class WebhookService {
     if (ref.startsWith('lic_') && this.licenseSvc) {
       await this.licenseSvc.handleCallback(payload);
       return;
+    }
+
+    // Auto-confirm hotel bookings paid online. The order_id is globally unique
+    // and stored on exactly ONE booking, which belongs to exactly ONE hotel
+    // (via ownerId) — so a single shared PalmPesa merchant + webhook confirms
+    // the right hotel's booking with no cross-tenant ambiguity.
+    if (payload.order_id) {
+      const booking = await this.bookings.findOne({ where: { palmPesaOrderId: payload.order_id } });
+      if (booking) {
+        if (paymentStatus === 'COMPLETED') {
+          await this.bookings.update({ id: booking.id }, { status: 'CONFIRMED' });
+          this.logger.log(`Hotel booking ${booking.id} auto-confirmed (owner ${booking.ownerId}).`);
+        } else if (paymentStatus === 'FAILED') {
+          await this.bookings.update({ id: booking.id }, { status: 'CANCELLED' });
+          // Release the room the failed booking was holding.
+          await this.rooms.update({ ownerId: booking.ownerId, id: booking.roomId }, { status: 'available' });
+          this.logger.warn(`Hotel booking ${booking.id} cancelled — payment failed.`);
+        }
+        return;
+      }
     }
 
     // Route creator subscription payments to CreatorSubscriptionService

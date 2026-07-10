@@ -92,6 +92,8 @@ export class HotelPublicService {
         description: `Room ${room.roomNumber} · ${nights} night(s)`,
       });
       payment = { initiated: true, orderId: res.order_id, message: 'Check your phone and enter your PIN to complete payment.' };
+      // Store the order_id so the PalmPesa webhook can auto-confirm THIS booking.
+      await this.bookings.update({ ownerId, id: booking.id }, { palmPesaOrderId: res.order_id });
     } catch { /* gateway down — booking still valid, pay on arrival */ }
 
     return { ok: true, bookingId: booking.id, room: room.roomNumber, nights, totalAmount, currency: room.currency || 'TZS', payment };
