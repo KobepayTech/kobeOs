@@ -883,8 +883,12 @@ export default function KobeHotel() {
                       <Input name="idNumber" placeholder="ID/Passport Number" required className={darkMode ? 'bg-[#0a0a1a] border-white/10' : ''} />
                       <Input name="nationality" placeholder="Nationality" required className={darkMode ? 'bg-[#0a0a1a] border-white/10' : ''} />
                       <Input name="guests" type="number" min={1} placeholder="Number of Guests" required className={darkMode ? 'bg-[#0a0a1a] border-white/10' : ''} />
-                      <Input name="checkIn" type="date" required className={darkMode ? 'bg-[#0a0a1a] border-white/10' : ''} />
-                      <Input name="checkOut" type="date" required className={darkMode ? 'bg-[#0a0a1a] border-white/10' : ''} />
+                      <label className="flex flex-col gap-1 text-[11px] font-semibold opacity-70">Check-in date
+                        <Input name="checkIn" type="date" required min={todayStr} className={darkMode ? 'bg-[#0a0a1a] border-white/10' : ''} />
+                      </label>
+                      <label className="flex flex-col gap-1 text-[11px] font-semibold opacity-70">Check-out date
+                        <Input name="checkOut" type="date" required min={todayStr} className={darkMode ? 'bg-[#0a0a1a] border-white/10' : ''} />
+                      </label>
                       <Select name="room">
                         <SelectTrigger className={darkMode ? 'bg-[#0a0a1a] border-white/10' : ''}>
                           <SelectValue placeholder="Select Room" />
