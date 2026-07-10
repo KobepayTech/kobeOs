@@ -82,6 +82,11 @@ const bookPathMatch = pathname.match(/^\/book\/([a-z0-9][a-z0-9-]{0,61}[a-z0-9]|
 const bookingSlug = tenantSub ?? (bookPathMatch?.[1]?.toLowerCase() ?? null);
 const isHotelBooking = seg('/book') && !!bookingSlug;
 
+// Public payout-receipt view — the China Cashier receipt QR lands here.
+// /r/{token} shows the receipt details + Pending/Paid status, no auth.
+const receiptMatch = pathname.match(/^\/r\/([a-f0-9]{8,})\/?$/i);
+const receiptToken = receiptMatch?.[1] ?? null;
+
 const mount = (node: ReactNode) =>
   createRoot(document.getElementById('root')!).render(node);
 
@@ -114,6 +119,9 @@ if (isOverlay) {
 } else if (isHotelBooking && bookingSlug) {
   // Public hotel booking site: {slug}.kobeapptz.com/book or /book/{slug}
   import('./public/HotelBooking').then(({ default: HotelBooking }) => mount(<HotelBooking slug={bookingSlug} />));
+} else if (receiptToken) {
+  // Public payout-receipt view (scanned QR): /r/{token}
+  import('./public/Receipt').then(({ default: Receipt }) => mount(<Receipt token={receiptToken} />));
 } else if (shopSlug) {
   // Any non-reserved wildcard subdomain is a public shop storefront:
   //   https://kelvinfashion.kobeapptz.com

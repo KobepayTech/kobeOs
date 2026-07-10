@@ -9,6 +9,7 @@ import {
   PaymentSupplier,
 } from './kobepay.entity';
 import { KobePayAuditEvent, KobePayUser } from './kobepay-rbac.entity';
+import { PayoutReceipt } from './payout-receipt.entity';
 import { KobePayRate } from './kobepay-rate.entity';
 import { KobepayDispatchAttempt } from './kobepay-dispatch.entity';
 import { KobepayDispatcherService } from './kobepay-dispatcher.service';
@@ -24,8 +25,10 @@ import {
 import { KobePayCashierPerfService, KobePayOwnerService, KobePayRiskService } from './kobepay-owner.service';
 import { KobePayRbacService } from './kobepay-rbac.service';
 import { KobePayRatesService } from './kobepay-rate.service';
+import { KobePayReceiptsService } from './kobepay-receipts.service';
 import { PaymentsController } from './payments.controller';
 import { KobePayController } from './kobepay.controller';
+import { KobePayReceiptsController, PublicReceiptController } from './kobepay-receipts.controller';
 import { ErpModule } from '../erp/erp.module';
 
 @Module({
@@ -34,6 +37,7 @@ import { ErpModule } from '../erp/erp.module';
       Wallet, PaymentTransaction, CreditLoan,
       PaymentCustomer, PaymentSupplier, PaymentDeposit, PaymentPayout, PaymentAllocation,
       KobePayUser, KobePayAuditEvent, KobePayRate, KobepayDispatchAttempt,
+      PayoutReceipt,
     ]),
     ErpModule,
   ],
@@ -44,7 +48,8 @@ import { ErpModule } from '../erp/erp.module';
     KobePayOwnerService, KobePayCashierPerfService, KobePayRiskService,
     KobePayRbacService, KobePayRatesService,
     KobepayDispatcherService, KobepayRetryQueueService,
+    KobePayReceiptsService,
   ],
-  controllers: [PaymentsController, KobePayController],
+  controllers: [PaymentsController, KobePayController, KobePayReceiptsController, PublicReceiptController],
 })
 export class PaymentsModule {}
