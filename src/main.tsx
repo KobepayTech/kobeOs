@@ -77,6 +77,11 @@ const isPosys = subPosys || seg('/posys');
 const shopPathMatch = pathname.match(/^\/shop\/([a-z0-9][a-z0-9-]{0,61}[a-z0-9]|[a-z0-9])\/?/i);
 const shopSlug = tenantSub ?? (shopPathMatch?.[1]?.toLowerCase() ?? null);
 
+// Public hotel booking site: {slug}.kobeapptz.com/book or /book/{slug}
+const bookPathMatch = pathname.match(/^\/book\/([a-z0-9][a-z0-9-]{0,61}[a-z0-9]|[a-z0-9])\/?/i);
+const bookingSlug = tenantSub ?? (bookPathMatch?.[1]?.toLowerCase() ?? null);
+const isHotelBooking = seg('/book') && !!bookingSlug;
+
 const mount = (node: ReactNode) =>
   createRoot(document.getElementById('root')!).render(node);
 
@@ -106,6 +111,9 @@ if (isOverlay) {
   // POSys lives as a desktop OS app but is also reachable standalone
   // via posys.kobeapptz.com / /posys. Same module, no wrapper needed.
   import('./apps/posys/index').then(({ default: Posys }) => mount(<Posys />));
+} else if (isHotelBooking && bookingSlug) {
+  // Public hotel booking site: {slug}.kobeapptz.com/book or /book/{slug}
+  import('./public/HotelBooking').then(({ default: HotelBooking }) => mount(<HotelBooking slug={bookingSlug} />));
 } else if (shopSlug) {
   // Any non-reserved wildcard subdomain is a public shop storefront:
   //   https://kelvinfashion.kobeapptz.com

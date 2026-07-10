@@ -73,6 +73,7 @@ import { SocialSchedulerModule } from './social-scheduler/social-scheduler.modul
 import { AppStateModule } from './app-state/app-state.module';
 import { AutomationModule } from './automation/automation.module';
 import { SearchModule } from './search/search.module';
+import { HotelPublicModule } from './hotel-public/hotel-public.module';
 
 @Module({
   imports: [
@@ -126,6 +127,7 @@ import { SearchModule } from './search/search.module';
     AppStateModule,
     AutomationModule,
     SearchModule,
+    HotelPublicModule,
     MzigoModule,
     WarehouseModule,
     DiscountsModule,
