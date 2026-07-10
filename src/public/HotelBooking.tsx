@@ -16,7 +16,7 @@ export default function HotelBooking({ slug }: { slug: string }) {
   const [sel, setSel] = useState<PublicRoom | null>(null);
   const [form, setForm] = useState({ guestName: '', guestPhone: '', checkIn: '', checkOut: '', guests: 1 });
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState<{ room: string; nights: number; totalAmount: number; currency: string } | null>(null);
+  const [done, setDone] = useState<{ room: string; nights: number; totalAmount: number; currency: string; payment?: { initiated: boolean; message: string } } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const today = new Date().toISOString().slice(0, 10);
 
@@ -36,7 +36,7 @@ export default function HotelBooking({ slug }: { slug: string }) {
     if (!form.guestName.trim() || !form.guestPhone.trim() || !form.checkIn || !form.checkOut) { setError('Fill in your name, phone and dates.'); return; }
     setBusy(true);
     try {
-      const res = await publicApi<{ ok: boolean; room: string; nights: number; totalAmount: number; currency: string }>(`/hotel/public/${encodeURIComponent(slug)}/book`, {
+      const res = await publicApi<{ ok: boolean; room: string; nights: number; totalAmount: number; currency: string; payment?: { initiated: boolean; message: string } }>(`/hotel/public/${encodeURIComponent(slug)}/book`, {
         method: 'POST',
         body: JSON.stringify({ ...form, roomId: sel?.id, roomType: sel?.type }),
       });
@@ -54,7 +54,11 @@ export default function HotelBooking({ slug }: { slug: string }) {
         <h1 className="text-lg font-extrabold text-slate-900">Booking requested!</h1>
         <p className="text-sm text-slate-500 mt-1">Room {done.room} · {done.nights} night(s)</p>
         <p className="text-2xl font-extrabold text-slate-900 mt-2">{done.currency} {done.totalAmount.toLocaleString()}</p>
-        <p className="text-xs text-slate-400 mt-3">The front desk will confirm your booking shortly.</p>
+        {done.payment?.initiated ? (
+          <p className="mt-3 text-sm font-semibold text-indigo-600 bg-indigo-50 rounded-lg px-3 py-2">📱 {done.payment.message}</p>
+        ) : (
+          <p className="text-xs text-slate-400 mt-3">{done.payment?.message ?? 'The front desk will confirm your booking shortly.'}</p>
+        )}
       </div>
     </div>
   );

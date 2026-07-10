@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { StoreSettings } from '../store-settings/store-settings.entity';
 import { HotelRoom, HotelGuest, HotelBooking } from '../hotel/hotel.entity';
+import { PalmPesaService } from '../creators/palmpesa.service';
 
 export interface PublicBookDto {
   roomId?: string;
@@ -27,6 +28,7 @@ export class HotelPublicService {
     @InjectRepository(HotelRoom) private readonly rooms: Repository<HotelRoom>,
     @InjectRepository(HotelGuest) private readonly guests: Repository<HotelGuest>,
     @InjectRepository(HotelBooking) private readonly bookings: Repository<HotelBooking>,
+    private readonly palmpesa: PalmPesaService,
   ) {}
 
   private async ownerFor(slug: string): Promise<{ ownerId: string; name: string }> {
@@ -72,6 +74,26 @@ export class HotelPublicService {
       guestCount: dto.guests || 1, status: 'PENDING', totalAmount, currency: room.currency || 'TZS', hotelId: room.hotelId ?? null,
     }));
     await this.rooms.update({ ownerId, id: room.id }, { status: 'reserved' });
-    return { ok: true, bookingId: booking.id, room: room.roomNumber, nights, totalAmount, currency: room.currency || 'TZS' };
+
+    // Kick off a PalmPesa USSD-push so the guest pays on their phone. Best-
+    // effort: if the gateway is unavailable, the booking still stands and the
+    // front desk can collect payment on arrival.
+    let payment: { initiated: boolean; orderId?: string; message: string } = {
+      initiated: false,
+      message: 'Booking received — pay at the hotel on arrival.',
+    };
+    try {
+      const res = await this.palmpesa.initiatePayment({
+        name: dto.guestName.trim(),
+        email: '',
+        phone: dto.guestPhone.trim(),
+        amountTzs: totalAmount,
+        transactionId: `HOTEL-${booking.id}`,
+        description: `Room ${room.roomNumber} · ${nights} night(s)`,
+      });
+      payment = { initiated: true, orderId: res.order_id, message: 'Check your phone and enter your PIN to complete payment.' };
+    } catch { /* gateway down — booking still valid, pay on arrival */ }
+
+    return { ok: true, bookingId: booking.id, room: room.roomNumber, nights, totalAmount, currency: room.currency || 'TZS', payment };
   }
 }
