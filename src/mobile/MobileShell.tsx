@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Outlet, Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
-  ShoppingCart, ClipboardList, Calculator, NotebookPen, Boxes, Receipt, LogOut, User, Loader2, Sparkles, Truck,
+  ShoppingCart, ClipboardList, Calculator, NotebookPen, Boxes, Receipt, LogOut, User, Loader2, Sparkles, Truck, BedDouble,
 } from 'lucide-react';
 import { api, clearTokens, setRefreshToken, setToken } from '@/lib/api';
 import { ensureSession } from '@/lib/auth';
@@ -22,6 +22,7 @@ const TABS: Array<{ to: string; label: string; Icon: typeof ShoppingCart }> = [
   { to: 'pos',       label: 'POS',       Icon: ShoppingCart },
   { to: 'po',        label: 'Purchase',  Icon: ClipboardList },
   { to: 'dispatch',  label: 'Dispatch',  Icon: Truck },
+  { to: 'hotel',     label: 'Hotel',     Icon: BedDouble },
   { to: 'eod',       label: 'Till',      Icon: Calculator },
   { to: 'summary',   label: 'Summary',   Icon: NotebookPen },
   { to: 'inventory', label: 'Stock',     Icon: Boxes },
@@ -136,7 +137,7 @@ export default function MobileShell() {
       </main>
 
       {/* Bottom tab nav */}
-      <nav className="h-16 border-t border-slate-200 bg-white grid grid-cols-7">
+      <nav className="h-16 border-t border-slate-200 bg-white grid grid-cols-8">
         {TABS.map(({ to, label, Icon }) => {
           const path = `/m/${slug}/${to}`;
           const active = location.pathname.startsWith(path);
