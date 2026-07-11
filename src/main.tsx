@@ -18,6 +18,7 @@ import { detectAppSubdomain, detectTenantSubdomain } from './public/api';
  *   /me                                  me.kobeapptz.com
  *   /track/{ref}                         track.kobeapptz.com/{ref}
  *   /posys                               posys.kobeapptz.com
+ *   /cargotz                             cargotz.kobeapptz.com
  *   /shop/{slug}                         {slug}.kobeapptz.com
  *
  * Special routes that don't follow the pattern:
@@ -41,6 +42,7 @@ const subMzigo = appSub === 'mzigo';
 const subMe    = appSub === 'me';
 const subTrack = appSub === 'track';
 const subPosys = appSub === 'posys';
+const subCargoTz = appSub === 'cargotz';
 
 // Path helper — match a URL segment exactly (either the whole path is
 // the segment, or the segment is followed by `/`). Prevents /me from
@@ -70,6 +72,7 @@ const isCustomerPortal  = subMe    || seg('/me');
 const isTuma            = subTuma  || seg('/tuma');
 const isMzigo = !isMzigoTrack && (subMzigo || seg('/mzigo'));
 const isPosys = subPosys || seg('/posys');
+const isCargoTz = subCargoTz || seg('/cargotz');
 // Public tenant storefront: subdomain slug (kelvinfashion.kobeapptz.com)
 // or apex fallback (/shop/kelvinfashion). Regex validates that the slug
 // looks like a valid DNS label so a hand-crafted URL can't route
@@ -116,6 +119,12 @@ if (isOverlay) {
   // POSys lives as a desktop OS app but is also reachable standalone
   // via posys.kobeapptz.com / /posys. Same module, no wrapper needed.
   import('./apps/posys/index').then(({ default: Posys }) => mount(<Posys />));
+} else if (isCargoTz) {
+  // Cargo TZ — the domestic ground-transport module, also runnable
+  // standalone via cargotz.kobeapptz.com / /cargotz. Wrapped in a
+  // full-height shell so its `h-full` layout fills the viewport.
+  import('./apps/cargo-tz/index').then(({ default: CargoTz }) =>
+    mount(<div className="h-screen w-screen overflow-hidden"><CargoTz /></div>));
 } else if (isHotelBooking && bookingSlug) {
   // Public hotel booking site: {slug}.kobeapptz.com/book or /book/{slug}
   import('./public/HotelBooking').then(({ default: HotelBooking }) => mount(<HotelBooking slug={bookingSlug} />));

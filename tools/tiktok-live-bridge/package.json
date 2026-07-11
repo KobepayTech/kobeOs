@@ -1,0 +1,15 @@
+{
+  "name": "kobeos-tiktok-live-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Standalone bridge: forwards a public TikTok live's chat to a KobeOS Live-Sale ingest URL. Not part of the KobeOS product; run at your own discretion.",
+  "bin": { "kobeos-tiktok-bridge": "bridge.mjs" },
+  "scripts": {
+    "start": "node bridge.mjs"
+  },
+  "dependencies": {
+    "tiktok-live-connector": "^2.0.5"
+  },
+  "engines": { "node": ">=18" }
+}
