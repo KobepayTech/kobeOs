@@ -64,6 +64,7 @@ export interface SiteConfig {
   heroImageUrl?: string;
   about?: string;
   services?: Array<{ title: string; desc?: string; icon?: string }>;
+  amenities?: string[];
   hours?: Array<{ day: string; open: string }>;
   phone?: string;
   whatsapp?: string;

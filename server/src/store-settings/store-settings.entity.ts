@@ -151,6 +151,8 @@ export class StoreSettings extends BaseEntity {
     heroImageUrl?: string;
     about?: string;
     services?: Array<{ title: string; desc?: string; icon?: string }>;
+    /** Hotel booking-site amenities (WiFi, Pool, Parking…). */
+    amenities?: string[];
     hours?: Array<{ day: string; open: string }>;
     phone?: string;
     whatsapp?: string;

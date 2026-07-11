@@ -31,19 +31,40 @@ export class HotelPublicService {
     private readonly palmpesa: PalmPesaService,
   ) {}
 
-  private async ownerFor(slug: string): Promise<{ ownerId: string; name: string }> {
+  private async settingsFor(slug: string) {
     const s =
       (await this.settings.findOne({ where: { domainSlug: slug } })) ??
       (await this.settings.findOne({ where: { customDomain: slug } }));
     if (!s) throw new NotFoundException('Hotel not found');
+    return s;
+  }
+
+  private async ownerFor(slug: string): Promise<{ ownerId: string; name: string }> {
+    const s = await this.settingsFor(slug);
     return { ownerId: s.ownerId, name: s.storeName || 'Hotel' };
   }
 
   async listRooms(slug: string) {
-    const { ownerId, name } = await this.ownerFor(slug);
+    const s = await this.settingsFor(slug);
+    const ownerId = s.ownerId;
     const rooms = await this.rooms.find({ where: { ownerId }, take: 500 });
+    const site = (s.siteConfig ?? {}) as Record<string, unknown>;
     return {
-      hotelName: name,
+      hotelName: s.storeName || 'Hotel',
+      // Branding for the public booking site — driven by the hotel's own
+      // store_settings so the "site builder" edits flow straight through.
+      branding: {
+        logoUrl: s.logoUrl || '',
+        tagline: s.tagline || '',
+        primaryColor: s.primaryColor || '#4f46e5',
+        accentColor: s.accentColor || '#8b5cf6',
+        heroImageUrl: (site.heroImageUrl as string) || '',
+        about: (site.about as string) || '',
+        amenities: Array.isArray(site.amenities) ? (site.amenities as string[]) : [],
+        phone: (site.phone as string) || '',
+        whatsapp: (site.whatsapp as string) || '',
+        address: (site.address as string) || '',
+      },
       rooms: rooms.map((r) => ({
         id: r.id, roomNumber: r.roomNumber, type: r.type,
         rate: Number(r.rate || 0), currency: r.currency, capacity: r.capacity,

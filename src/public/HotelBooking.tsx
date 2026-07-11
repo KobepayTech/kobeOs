@@ -8,9 +8,14 @@ import { BedDouble, CalendarDays, CheckCircle2, Loader2, Users } from 'lucide-re
  * dates, book. Booking lands as PENDING for the front desk to confirm.
  */
 interface PublicRoom { id: string; roomNumber: string; type: string; rate: number; currency: string; capacity: number; available: boolean }
+interface Branding {
+  logoUrl: string; tagline: string; primaryColor: string; accentColor: string;
+  heroImageUrl: string; about: string; amenities: string[]; phone: string; whatsapp: string; address: string;
+}
 
 export default function HotelBooking({ slug }: { slug: string }) {
   const [hotelName, setHotelName] = useState('Hotel');
+  const [branding, setBranding] = useState<Branding | null>(null);
   const [rooms, setRooms] = useState<PublicRoom[]>([]);
   const [loading, setLoading] = useState(true);
   const [sel, setSel] = useState<PublicRoom | null>(null);
@@ -23,8 +28,9 @@ export default function HotelBooking({ slug }: { slug: string }) {
   useEffect(() => {
     (async () => {
       try {
-        const r = await publicApi<{ hotelName: string; rooms: PublicRoom[] }>(`/hotel/public/${encodeURIComponent(slug)}/rooms`);
+        const r = await publicApi<{ hotelName: string; rooms: PublicRoom[]; branding?: Branding }>(`/hotel/public/${encodeURIComponent(slug)}/rooms`);
         setHotelName(r.hotelName || 'Hotel');
+        setBranding(r.branding ?? null);
         setRooms(r.rooms || []);
       } catch { setError('Could not load this hotel.'); }
       finally { setLoading(false); }
@@ -63,14 +69,35 @@ export default function HotelBooking({ slug }: { slug: string }) {
     </div>
   );
 
+  const primary = branding?.primaryColor || '#4f46e5';
+  const accent = branding?.accentColor || '#8b5cf6';
+
   return (
     <div className="min-h-[100dvh] bg-slate-50 text-slate-900">
-      <header className="bg-slate-900 text-white px-5 py-6">
-        <h1 className="text-2xl font-extrabold">{hotelName}</h1>
-        <p className="text-sm text-white/60">Book your stay</p>
+      <header className="relative overflow-hidden text-white px-5 py-10" style={{ background: `linear-gradient(135deg, ${primary}, ${accent})` }}>
+        {branding?.heroImageUrl && <img src={branding.heroImageUrl} alt="" className="absolute inset-0 w-full h-full object-cover opacity-30" />}
+        <div className="relative max-w-2xl mx-auto">
+          <div className="flex items-center gap-3">
+            {branding?.logoUrl && <img src={branding.logoUrl} alt={hotelName} className="h-12 w-12 rounded-xl object-cover ring-2 ring-white/40" />}
+            <div>
+              <h1 className="text-2xl font-extrabold">{hotelName}</h1>
+              <p className="text-sm text-white/75">{branding?.tagline || 'Book your stay'}</p>
+            </div>
+          </div>
+          {branding?.amenities && branding.amenities.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mt-3">
+              {branding.amenities.slice(0, 8).map((a, i) => (
+                <span key={i} className="text-[11px] font-semibold bg-white/20 rounded-full px-2.5 py-0.5">{a}</span>
+              ))}
+            </div>
+          )}
+        </div>
       </header>
 
       <div className="max-w-2xl mx-auto p-4 space-y-4">
+        {branding?.about && (
+          <div className="bg-white rounded-2xl border border-slate-200 p-4 text-sm text-slate-600 leading-relaxed whitespace-pre-line">{branding.about}</div>
+        )}
         {/* Dates + guests */}
         <div className="bg-white rounded-2xl border border-slate-200 p-4 grid grid-cols-2 gap-3">
           <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-500"><span className="inline-flex items-center gap-1"><CalendarDays className="w-3 h-3" /> Check-in</span>
@@ -112,7 +139,7 @@ export default function HotelBooking({ slug }: { slug: string }) {
           <input placeholder="Your full name" value={form.guestName} onChange={(e) => setForm({ ...form, guestName: e.target.value })} className="w-full h-10 px-3 rounded-lg border border-slate-200 text-sm" />
           <input placeholder="Phone number" value={form.guestPhone} onChange={(e) => setForm({ ...form, guestPhone: e.target.value })} className="w-full h-10 px-3 rounded-lg border border-slate-200 text-sm" />
           {error && <div className="text-xs text-red-600">{error}</div>}
-          <button onClick={book} disabled={busy} className="w-full h-11 rounded-lg bg-indigo-600 text-white font-bold inline-flex items-center justify-center gap-2 disabled:opacity-50">
+          <button onClick={book} disabled={busy} style={{ background: primary }} className="w-full h-11 rounded-lg text-white font-bold inline-flex items-center justify-center gap-2 disabled:opacity-50">
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
             {sel ? `Book ${sel.type} #${sel.roomNumber}` : 'Book a room'}
           </button>
