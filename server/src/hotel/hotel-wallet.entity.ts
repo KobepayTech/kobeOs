@@ -10,7 +10,10 @@ import { OwnedEntity } from '../common/owned.entity';
  * balances can never mix.
  */
 @Entity('hotel_wallets')
-@Index(['ownerId'], { unique: true })
+// Explicit name so this unique index doesn't collide with the non-unique
+// ownerId index inherited from OwnedEntity (TypeORM auto-names both from the
+// same table+columns hash, which would clash on synchronize).
+@Index('UQ_hotel_wallet_owner', ['ownerId'], { unique: true })
 export class HotelWallet extends OwnedEntity {
   /** Current withdrawable balance (net of commission and past payouts). */
   @Column({ type: 'decimal', precision: 18, scale: 2, default: 0 })
