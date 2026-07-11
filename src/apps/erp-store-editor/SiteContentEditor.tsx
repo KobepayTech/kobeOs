@@ -29,6 +29,10 @@ export default function SiteContentEditor({ value, onChange }: { value: SiteConf
       <Field label="About / description">
         <textarea className={`${inputCls} h-20 py-1.5 resize-none`} value={c.about ?? ''} onChange={(e) => patch({ about: e.target.value })} placeholder="Tell customers who you are…" />
       </Field>
+      <label className="flex items-center gap-2 text-[11px] font-semibold text-white/70 py-1">
+        <input type="checkbox" checked={!!c.cargoTracking} onChange={(e) => patch({ cargoTracking: e.target.checked })} className="accent-emerald-500" />
+        Show a “Track your parcel” box (Cargo TZ)
+      </label>
       <div className="grid grid-cols-2 gap-2">
         <Field label="CTA label"><input className={inputCls} value={c.ctaLabel ?? ''} onChange={(e) => patch({ ctaLabel: e.target.value })} placeholder="Get in touch" /></Field>
         <Field label="CTA link"><input className={inputCls} value={c.ctaHref ?? ''} onChange={(e) => patch({ ctaHref: e.target.value })} placeholder="tel: / https:" /></Field>

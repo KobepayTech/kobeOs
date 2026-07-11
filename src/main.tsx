@@ -90,6 +90,12 @@ const isHotelBooking = seg('/book') && !!bookingSlug;
 const receiptMatch = pathname.match(/^\/r\/([a-f0-9]{8,})\/?$/i);
 const receiptToken = receiptMatch?.[1] ?? null;
 
+// Public Cargo TZ parcel tracker — the parcel QR opens /ctz/{tracking}.
+// Also reachable as bare /ctz to type a number.
+const ctzMatch = pathname.match(/^\/ctz(?:\/([A-Za-z0-9-]+))?\/?$/);
+const isCtzTrack = !!ctzMatch;
+const ctzTracking = ctzMatch?.[1] ?? '';
+
 const mount = (node: ReactNode) =>
   createRoot(document.getElementById('root')!).render(node);
 
@@ -120,17 +126,20 @@ if (isOverlay) {
   // via posys.kobeapptz.com / /posys. Same module, no wrapper needed.
   import('./apps/posys/index').then(({ default: Posys }) => mount(<Posys />));
 } else if (isCargoTz) {
-  // Cargo TZ — the domestic ground-transport module, also runnable
-  // standalone via cargotz.kobeapptz.com / /cargotz. Wrapped in a
-  // full-height shell so its `h-full` layout fills the viewport.
-  import('./apps/cargo-tz/index').then(({ default: CargoTz }) =>
-    mount(<div className="h-screen w-screen overflow-hidden"><CargoTz /></div>));
+  // Cargo TZ — the domestic bus-cargo operations module (3 roles: receive,
+  // warehouse, owner), runnable standalone via cargotz.kobeapptz.com /
+  // /cargotz. Full-height shell so its `h-full` layout fills the viewport.
+  import('./apps/cargo-tz-ops/index').then(({ default: CargoTzOps }) =>
+    mount(<div className="h-screen w-screen overflow-hidden"><CargoTzOps /></div>));
 } else if (isHotelBooking && bookingSlug) {
   // Public hotel booking site: {slug}.kobeapptz.com/book or /book/{slug}
   import('./public/HotelBooking').then(({ default: HotelBooking }) => mount(<HotelBooking slug={bookingSlug} />));
 } else if (receiptToken) {
   // Public payout-receipt view (scanned QR): /r/{token}
   import('./public/Receipt').then(({ default: Receipt }) => mount(<Receipt token={receiptToken} />));
+} else if (isCtzTrack) {
+  // Public Cargo TZ parcel tracker (scanned QR): /ctz/{tracking}
+  import('./public/CargoTzTrack').then(({ default: CargoTzTrack }) => mount(<CargoTzTrack tracking={ctzTracking} />));
 } else if (shopSlug) {
   // Any non-reserved wildcard subdomain is a public shop storefront:
   //   https://kelvinfashion.kobeapptz.com

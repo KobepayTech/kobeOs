@@ -1,7 +1,8 @@
+import { useState } from 'react';
 import type { SiteConfig } from './index';
 import {
   Phone, Mail, MapPin, MessageCircle, Clock, ArrowRight, Facebook, Instagram,
-  Star, Sparkles, ShieldCheck, Truck, Heart, Wrench, Scissors, Store,
+  Star, Sparkles, ShieldCheck, Truck, Heart, Wrench, Scissors, Store, PackageSearch,
 } from 'lucide-react';
 
 /**
@@ -71,6 +72,9 @@ export default function SimpleSite({ settings }: { settings: Settings }) {
           </div>
         </div>
       </section>
+
+      {/* Cargo TZ — track your parcel */}
+      {c.cargoTracking && <TrackBox primary={primary} />}
 
       {/* Services */}
       {services.length > 0 && (
@@ -147,6 +151,23 @@ export default function SimpleSite({ settings }: { settings: Settings }) {
         <div className="mt-1 text-[11px]">Powered by KobeOS</div>
       </footer>
     </div>
+  );
+}
+
+function TrackBox({ primary }: { primary: string }) {
+  const [tn, setTn] = useState('');
+  const go = () => { if (tn.trim()) window.location.href = `/ctz/${encodeURIComponent(tn.trim().toUpperCase())}`; };
+  return (
+    <section className="max-w-3xl mx-auto px-5 -mt-8 relative z-10">
+      <div className="rounded-2xl bg-white shadow-xl border border-slate-100 p-5">
+        <div className="flex items-center gap-2 font-extrabold text-slate-900"><PackageSearch className="w-5 h-5" style={{ color: primary }} /> Track your parcel</div>
+        <div className="mt-3 flex gap-2">
+          <input value={tn} onChange={(e) => setTn(e.target.value.toUpperCase())} onKeyDown={(e) => { if (e.key === 'Enter') go(); }}
+            placeholder="Tracking number e.g. CTZ-2026...-000234" className="flex-1 h-12 px-4 rounded-xl border border-slate-200 text-sm font-mono" />
+          <button onClick={go} className="h-12 px-6 rounded-xl text-white font-bold" style={{ background: primary }}>Track</button>
+        </div>
+      </div>
+    </section>
   );
 }
 

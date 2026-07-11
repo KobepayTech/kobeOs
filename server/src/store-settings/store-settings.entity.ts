@@ -162,6 +162,8 @@ export class StoreSettings extends BaseEntity {
     socials?: { facebook?: string; instagram?: string; tiktok?: string; x?: string };
     ctaLabel?: string;
     ctaHref?: string;
+    /** Cargo TZ: show a "track your parcel" box that opens /ctz/{number}. */
+    cargoTracking?: boolean;
   };
 
   // Publish state (managed by publish/unpublish endpoints)

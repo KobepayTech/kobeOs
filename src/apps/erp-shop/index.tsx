@@ -74,6 +74,7 @@ export interface SiteConfig {
   socials?: { facebook?: string; instagram?: string; tiktok?: string; x?: string };
   ctaLabel?: string;
   ctaHref?: string;
+  cargoTracking?: boolean;
 }
 
 interface Product {
