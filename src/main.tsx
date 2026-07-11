@@ -129,8 +129,12 @@ if (isOverlay) {
   // Cargo TZ — the domestic bus-cargo operations module (3 roles: receive,
   // warehouse, owner), runnable standalone via cargotz.kobeapptz.com /
   // /cargotz. Full-height shell so its `h-full` layout fills the viewport.
-  import('./apps/cargo-tz-ops/index').then(({ default: CargoTzOps }) =>
-    mount(<div className="h-screen w-screen overflow-hidden"><CargoTzOps /></div>));
+  import('./apps/cargo-tz-ops/index').then(({ default: CargoTzOps }) => {
+    // /cargotz/{receive|warehouse|owner} deep-links (and installs) a role.
+    const roleSeg = pathname.replace(/^\/cargotz\/?/, '').split('/')[0];
+    const role = roleSeg === 'warehouse' ? 'warehouse' : roleSeg === 'owner' ? 'dashboard' : roleSeg === 'receive' ? 'intake' : undefined;
+    mount(<div className="h-screen w-screen overflow-hidden"><CargoTzOps role={role as 'intake' | 'warehouse' | 'dashboard' | undefined} /></div>);
+  });
 } else if (isHotelBooking && bookingSlug) {
   // Public hotel booking site: {slug}.kobeapptz.com/book or /book/{slug}
   import('./public/HotelBooking').then(({ default: HotelBooking }) => mount(<HotelBooking slug={bookingSlug} />));

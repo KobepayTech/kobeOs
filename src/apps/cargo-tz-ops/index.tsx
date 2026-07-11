@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { useQRScanner } from '@/hooks/useQRScanner';
+import { usePwaManifest } from '@/hooks/usePwaManifest';
+import { InstallPwaButton } from '@/mobile/InstallPwaButton';
 import { QRCodeSVG } from 'qrcode.react';
 import {
   PackagePlus, Warehouse, LayoutDashboard, Camera, Loader2, CheckCircle2, Printer, Plus,
@@ -25,9 +27,27 @@ const LABEL: Record<string, string> = { RECEIVED_AT_SHOP: 'Received', AT_WAREHOU
 const tsh = (n: number | string) => `TSh ${Number(n || 0).toLocaleString()}`;
 const CHART = ['#10b981', '#6366f1', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#14b8a6'];
 
-export default function CargoTzOps() {
-  const [tab, setTab] = useState<'intake' | 'warehouse' | 'dashboard'>('intake');
+const ROLE_META: Record<'intake' | 'warehouse' | 'dashboard', { slug: string; name: string; short: string }> = {
+  intake: { slug: 'receive', name: 'Cargo TZ · Receiving Agent', short: 'CTZ Receive' },
+  warehouse: { slug: 'warehouse', name: 'Cargo TZ · Warehouse', short: 'CTZ Warehouse' },
+  dashboard: { slug: 'owner', name: 'Cargo TZ · Owner', short: 'CTZ Owner' },
+};
+
+export default function CargoTzOps({ role }: { role?: 'intake' | 'warehouse' | 'dashboard' }) {
+  const [tab, setTab] = useState<'intake' | 'warehouse' | 'dashboard'>(role ?? 'intake');
   const [pin, setPin] = useState('');
+
+  // Route-scoped installable PWA: installing while on a tab adds a home-screen
+  // app for THAT role (e.g. "Cargo TZ · Warehouse" opening at /cargotz/warehouse),
+  // so each staffer gets their own app. Only meaningful on the standalone URL.
+  const standalone = typeof window !== 'undefined' && /^\/cargotz(\/|$)/.test(window.location.pathname);
+  const meta = ROLE_META[tab];
+  usePwaManifest({ name: meta.name, shortName: meta.short, startUrl: `/cargotz/${meta.slug}`, enabled: standalone });
+  useEffect(() => {
+    if (standalone && window.location.pathname !== `/cargotz/${meta.slug}`) {
+      window.history.replaceState(null, '', `/cargotz/${meta.slug}`);
+    }
+  }, [standalone, meta.slug]);
   const apiPin = useCallback(<T,>(path: string, init: RequestInit = {}) => {
     const headers = new Headers(init.headers);
     if (pin.trim()) headers.set('x-ctz-pin', pin.trim());
@@ -44,8 +64,11 @@ export default function CargoTzOps() {
     <div className="h-full flex flex-col bg-slate-50 text-slate-900 overflow-hidden">
       <div className="flex items-center justify-between px-4 py-3 bg-emerald-700 text-white shrink-0">
         <div className="flex items-center gap-2"><PackageCheck className="w-5 h-5" /><span className="font-extrabold">Cargo TZ</span></div>
-        <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))} placeholder="Staff PIN" inputMode="numeric"
-          className="w-24 h-8 px-2 rounded-md text-slate-900 text-xs text-center tracking-widest" title="Optional — your 4-digit staff PIN attributes the action" />
+        <div className="flex items-center gap-2">
+          {standalone && <InstallPwaButton />}
+          <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))} placeholder="Staff PIN" inputMode="numeric"
+            className="w-24 h-8 px-2 rounded-md text-slate-900 text-xs text-center tracking-widest" title="Optional — your 4-digit staff PIN attributes the action" />
+        </div>
       </div>
       <div className="flex border-b border-slate-200 bg-white shrink-0">
         {tabs.map((t) => (
