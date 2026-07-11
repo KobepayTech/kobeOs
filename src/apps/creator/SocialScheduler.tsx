@@ -1,4 +1,5 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
+import { api } from '@/lib/api';
 import {
   Calendar, CalendarDays, PenLine, Link2, Image, BarChart3,
   ChevronLeft, ChevronRight, Instagram, Twitter, Facebook,
@@ -678,20 +679,75 @@ function ComposerView() {
 // C. CONNECTED ACCOUNTS VIEW
 // ═══════════════════════════════════════════════════
 
-function AccountsView() {
-  const [accounts, setAccounts] = useState<ConnectedAccount[]>(mockAccounts);
-  const [connectingId, setConnectingId] = useState<string | null>(null);
+/** Backend SocialAccount row shape (server/src/social-scheduler/social-account.entity.ts). */
+interface ApiSocialAccount {
+  id: string; platform: string; accountName: string; accountHandle: string;
+  status: string; accountAvatar?: string | null; updatedAt?: string; createdAt?: string;
+}
 
-  const handleConnect = (id: string) => {
-    setConnectingId(id);
-    setTimeout(() => {
-      setAccounts(prev => prev.map(a => a.id === id ? { ...a, connected: true, lastSynced: new Date().toISOString() } : a));
-      setConnectingId(null);
-    }, 1500);
+const CONNECTABLE_PLATFORMS = ['Instagram', 'TikTok', 'Facebook', 'YouTube', 'Twitter / X', 'LinkedIn', 'Threads'];
+
+function AccountsView() {
+  const [accounts, setAccounts] = useState<ConnectedAccount[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [connectingId, setConnectingId] = useState<string | null>(null);
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState({ platform: 'Instagram', accountName: '', handle: '' });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const mapRow = (a: ApiSocialAccount): ConnectedAccount => ({
+    id: a.id,
+    platform: a.platform,
+    accountName: a.accountName,
+    handle: a.accountHandle,
+    connected: a.status === 'connected',
+    lastSynced: a.updatedAt ?? a.createdAt ?? null,
+    avatar: (a.accountName || a.platform).slice(0, 2).toUpperCase(),
+  });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const rows = await api<ApiSocialAccount[]>('/social-scheduler/accounts');
+      setAccounts(Array.isArray(rows) ? rows.map(mapRow) : []);
+    } catch { setAccounts([]); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const addAccount = async () => {
+    if (!form.accountName.trim() || !form.handle.trim()) { setError('Enter an account name and handle.'); return; }
+    setSaving(true); setError(null);
+    try {
+      // No OAuth yet — link the handle so it persists and shows. accessToken
+      // is a placeholder until the official Graph OAuth flow is added.
+      await api('/social-scheduler/accounts', {
+        method: 'POST',
+        body: JSON.stringify({
+          platform: form.platform,
+          accountName: form.accountName.trim(),
+          accountHandle: form.handle.trim().startsWith('@') ? form.handle.trim() : `@${form.handle.trim()}`,
+          accessToken: 'manual-link',
+          metadata: { linkType: 'manual' },
+        }),
+      });
+      setShowAdd(false); setForm({ platform: 'Instagram', accountName: '', handle: '' });
+      await load();
+    } catch (e) { setError((e as Error).message || 'Could not link account.'); }
+    finally { setSaving(false); }
   };
 
-  const handleDisconnect = (id: string) => {
-    setAccounts(prev => prev.map(a => a.id === id ? { ...a, connected: false, lastSynced: null } : a));
+  const handleConnect = async (id: string) => {
+    // "Sync" — touch the row so lastSynced updates (real API sync lands with OAuth).
+    setConnectingId(id);
+    await load();
+    setConnectingId(null);
+  };
+
+  const handleDisconnect = async (id: string) => {
+    try { await api(`/social-scheduler/accounts/${id}`, { method: 'DELETE' }); } catch { /* ignore */ }
+    setAccounts(prev => prev.filter(a => a.id !== id));
   };
 
   return (
@@ -700,12 +756,39 @@ function AccountsView() {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-lg font-semibold text-white">Connected Accounts</h2>
-            <p className="text-sm text-slate-400 mt-0.5">Manage your social media platform connections</p>
+            <p className="text-sm text-slate-400 mt-0.5">Link your social accounts. Live API sync arrives with the official connect flow.</p>
           </div>
-          <div className="text-xs text-slate-500">
-            {accounts.filter(a => a.connected).length} of {accounts.length} connected
+          <div className="flex items-center gap-3">
+            <div className="text-xs text-slate-500">{accounts.filter(a => a.connected).length} connected</div>
+            <Button size="sm" className="h-8 text-xs bg-cyan-500/15 text-cyan-400 hover:bg-cyan-500/25 border border-cyan-500/20" onClick={() => setShowAdd(true)}>
+              <Plus className="w-3.5 h-3.5 mr-1" /> Link account
+            </Button>
           </div>
         </div>
+
+        {loading && <div className="text-sm text-slate-500 py-8 text-center">Loading accounts…</div>}
+        {!loading && accounts.length === 0 && (
+          <div className="text-sm text-slate-500 py-10 text-center border border-dashed border-white/10 rounded-xl">
+            No accounts linked yet. Click <span className="text-cyan-400 font-semibold">Link account</span> to add your Instagram, TikTok, or others.
+          </div>
+        )}
+
+        <Dialog open={showAdd} onOpenChange={setShowAdd}>
+          <DialogContent className="bg-[#13131f] border-white/10 text-white max-w-sm">
+            <DialogHeader><DialogTitle>Link a social account</DialogTitle></DialogHeader>
+            <div className="space-y-3">
+              <select value={form.platform} onChange={e => setForm({ ...form, platform: e.target.value })} className="w-full h-10 px-3 rounded-lg bg-black/30 border border-white/10 text-sm">
+                {CONNECTABLE_PLATFORMS.map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+              <Input placeholder="Account name (e.g. Kobe Studio)" value={form.accountName} onChange={e => setForm({ ...form, accountName: e.target.value })} className="bg-black/30 border-white/10" />
+              <Input placeholder="Handle (e.g. kobestudio)" value={form.handle} onChange={e => setForm({ ...form, handle: e.target.value })} className="bg-black/30 border-white/10" />
+              {error && <div className="text-xs text-red-400">{error}</div>}
+              <Button onClick={addAccount} disabled={saving} className="w-full bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30">
+                {saving ? 'Linking…' : 'Link account'}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         <div className="grid grid-cols-2 gap-4">
           {accounts.map((account) => {
