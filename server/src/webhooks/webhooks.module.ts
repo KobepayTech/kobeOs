@@ -3,12 +3,13 @@ import { ModuleRef } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { WebhookEvent } from './webhook.entity';
 import { HotelBooking, HotelRoom } from '../hotel/hotel.entity';
+import { HotelWalletModule } from '../hotel/hotel-wallet.module';
 import { WebhookController } from './webhook.controller';
 import { WebhookGuard } from './webhook.guard';
 import { WebhookService } from './webhook.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([WebhookEvent, HotelBooking, HotelRoom])],
+  imports: [TypeOrmModule.forFeature([WebhookEvent, HotelBooking, HotelRoom]), HotelWalletModule],
   controllers: [WebhookController],
   providers: [WebhookGuard, WebhookService],
   exports: [WebhookService],

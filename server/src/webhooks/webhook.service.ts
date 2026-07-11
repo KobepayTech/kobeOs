@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { WebhookEvent } from './webhook.entity';
 import { PalmPesaCallback } from '../creators/palmpesa.service';
 import { HotelBooking, HotelRoom } from '../hotel/hotel.entity';
+import { HotelWalletService } from '../hotel/hotel-wallet.service';
 
 @Injectable()
 export class WebhookService {
@@ -31,6 +32,7 @@ export class WebhookService {
     private readonly bookings: Repository<HotelBooking>,
     @InjectRepository(HotelRoom)
     private readonly rooms: Repository<HotelRoom>,
+    private readonly hotelWallet: HotelWalletService,
   ) {}
 
   /**
@@ -103,7 +105,21 @@ export class WebhookService {
       if (booking) {
         if (paymentStatus === 'COMPLETED') {
           await this.bookings.update({ id: booking.id }, { status: 'CONFIRMED' });
-          this.logger.log(`Hotel booking ${booking.id} auto-confirmed (owner ${booking.ownerId}).`);
+          // Credit the hotel's platform wallet (net of commission). Keyed by
+          // the booking's ownerId, so on a shared merchant each hotel's
+          // balance is credited independently — idempotent per bookingId.
+          try {
+            await this.hotelWallet.creditForBooking(booking.ownerId, {
+              bookingId: booking.id,
+              amount: Number(booking.totalAmount) || 0,
+              currency: booking.currency || 'TZS',
+              hotelId: booking.hotelId ?? null,
+              description: `Room booking ${booking.id} paid online`,
+            });
+          } catch (e) {
+            this.logger.error(`Wallet credit failed for booking ${booking.id}: ${(e as Error).message}`);
+          }
+          this.logger.log(`Hotel booking ${booking.id} auto-confirmed + wallet credited (owner ${booking.ownerId}).`);
         } else if (paymentStatus === 'FAILED') {
           await this.bookings.update({ id: booking.id }, { status: 'CANCELLED' });
           // Release the room the failed booking was holding.

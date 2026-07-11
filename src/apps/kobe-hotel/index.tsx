@@ -8,6 +8,7 @@ import { QRCustomerPortal } from './QRCustomerPortal';
 import HotelBookersDashboard from './HotelBookersDashboard';
 import ChannelsTab from './ChannelsTab';
 import GuestInboxTab from './GuestInboxTab';
+import WalletTab from './WalletTab';
 import RoomsBoard from './RoomsBoard';
 import FoodListBoard from './FoodListBoard';
 import type { Hotel as SharedHotel, Order as SharedOrder } from '@/shared/types';
@@ -53,7 +54,7 @@ function toKdsOrders(orders: LiveOrder[]): SharedOrder[] {
 import { buildPublicGuestUrl } from '@/public/api';
 import {
   Building2, LayoutDashboard, ConciergeBell, Bed, Wine, UtensilsCrossed,
-  Package, Users, Calculator, QrCode, Plus, Minus, Search, Trash2,
+  Package, Users, Calculator, QrCode, Plus, Minus, Search, Trash2, Wallet,
   CheckCircle2, Clock, X, Check, Printer, Smartphone,
   Banknote, Receipt, Calendar, Phone, User,
   ArrowLeft, Download, TrendingUp, AlertTriangle, Star, Lock,
@@ -810,6 +811,7 @@ export default function KobeHotel() {
     { id: 'inventory', label: 'Inventory', icon: Package, color: 'text-violet-400 bg-violet-500/10 border-violet-500/20' },
     { id: 'staff', label: 'Staff', icon: Users, color: 'text-sky-400 bg-sky-500/10 border-sky-500/20' },
     { id: 'accounting', label: 'Accounting', icon: Calculator, color: 'text-green-400 bg-green-500/10 border-green-500/20' },
+    { id: 'wallet', label: 'Wallet', icon: Wallet, color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' },
     { id: 'menu', label: 'Menu', icon: CakeSlice, color: 'text-rose-400 bg-rose-500/10 border-rose-500/20' },
     { id: 'kds', label: 'KDS', icon: ChefHat, color: 'text-orange-400 bg-orange-500/10 border-orange-500/20' },
     { id: 'portal', label: 'Guest Portal', icon: QrCode, color: 'text-pink-400 bg-pink-500/10 border-pink-500/20' },
@@ -1810,6 +1812,11 @@ export default function KobeHotel() {
             INBOX (guest messaging)
         ════════════════════════════════════════════════════════════ */}
         {activeTab === 'inbox' && <GuestInboxTab darkMode={darkMode} />}
+
+        {/* ════════════════════════════════════════════════════════════
+            WALLET & PAYOUTS (platform settlement)
+        ════════════════════════════════════════════════════════════ */}
+        {activeTab === 'wallet' && <WalletTab darkMode={darkMode} />}
 
         {/* ════════════════════════════════════════════════════════════
             MENU EDITOR

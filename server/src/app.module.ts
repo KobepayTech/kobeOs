@@ -36,6 +36,7 @@ import { DiscountsModule } from './discounts/discount.module';
 import { PaymentsModule } from './payments/payments.module';
 import { CreditModule } from './credit/credit.module';
 import { HotelModule } from './hotel/hotel.module';
+import { HotelWalletModule } from './hotel/hotel-wallet.module';
 import { CreatorsModule } from './creators/creators.module';
 import { VideoGenerationModule } from './video-generation/video-generation.module';
 import { AiModule } from './ai/ai.module';
@@ -134,6 +135,7 @@ import { HotelPublicModule } from './hotel-public/hotel-public.module';
     PaymentsModule,
     CreditModule,
     HotelModule,
+    HotelWalletModule,
     HotelSecurityModule,
     CreatorsModule,
     StudioMediaModule,
