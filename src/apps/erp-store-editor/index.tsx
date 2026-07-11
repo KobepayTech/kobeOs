@@ -15,6 +15,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Switch } from '@/components/ui/switch';
 import { PhotoUpload } from '@/components/PhotoUpload';
 import { HomepageSectionBuilder, IndustryTemplatePicker } from './StorefrontSections';
+import SiteContentEditor from './SiteContentEditor';
+import SimpleSite from '@/apps/erp-shop/SimpleSite';
 import { JerseyStorefrontPreview } from './JerseyStorefrontPreview';
 import { JerseyDesignEditor } from './JerseyDesignEditor';
 
@@ -70,7 +72,24 @@ interface StoreSettings {
   // Storefront template — 'generic' = original mockup; 'jerseys' uses
   // the projerseyshop.es-style preview (clubs grid, kit cards,
   // customizer CTA, trust strip).
-  template?: 'generic' | 'jerseys';
+  template?: 'generic' | 'jerseys' | 'site';
+  // Simple-website content (template='site').
+  siteConfig?: SiteConfig;
+}
+
+export interface SiteConfig {
+  heroImageUrl?: string;
+  about?: string;
+  services?: Array<{ title: string; desc?: string; icon?: string }>;
+  hours?: Array<{ day: string; open: string }>;
+  phone?: string;
+  whatsapp?: string;
+  email?: string;
+  address?: string;
+  mapQuery?: string;
+  socials?: { facebook?: string; instagram?: string; tiktok?: string; x?: string };
+  ctaLabel?: string;
+  ctaHref?: string;
 }
 
 interface PreviewProduct {
@@ -556,6 +575,11 @@ function PreviewFooter({ settings }: { settings: StoreSettings }) {
    ═══════════════════════════════════════════════════════════ */
 
 function LivePreview({ settings }: { settings: StoreSettings }) {
+  if (settings.template === 'site') {
+    // True WYSIWYG — the same component the published site renders. The
+    // editor's StoreSettings is a superset of the fields SimpleSite reads.
+    return <SimpleSite settings={settings as unknown as { storeName: string; tagline: string; logoUrl: string; primaryColor: string; accentColor: string; footerText: string; bannerBg: string; siteConfig?: SiteConfig }} />;
+  }
   if (settings.template === 'jerseys') {
     return (
       <JerseyStorefrontPreview
@@ -883,17 +907,18 @@ export default function StoreEditor() {
               <p className="text-[10px] text-white/50">
                 Pick the storefront layout used by the live preview on the right.
               </p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 {[
-                  { id: 'generic', label: 'Generic', sub: 'Single hero + product grid' },
+                  { id: 'generic', label: 'Generic', sub: 'Hero + product grid' },
                   { id: 'jerseys', label: 'Jersey Shop', sub: 'projerseyshop.es style' },
+                  { id: 'site', label: 'Website', sub: 'Simple 1-page site, no cart' },
                 ].map((opt) => {
                   const active = (settings.template ?? 'generic') === opt.id;
                   return (
                     <button
                       key={opt.id}
                       type="button"
-                      onClick={() => update('template', opt.id as 'generic' | 'jerseys')}
+                      onClick={() => update('template', opt.id as 'generic' | 'jerseys' | 'site')}
                       className={`text-left p-2.5 rounded-lg border transition-all ${
                         active
                           ? 'border-amber-500/60 bg-amber-500/10'
@@ -908,6 +933,16 @@ export default function StoreEditor() {
               </div>
             </div>
           </Section>
+
+          {/* ─── Website content (simple one-page site) ─── */}
+          {settings.template === 'site' && (
+            <Section title="Website Content" icon={LayoutGrid} defaultOpen>
+              <SiteContentEditor
+                value={settings.siteConfig ?? {}}
+                onChange={(next) => update('siteConfig', next)}
+              />
+            </Section>
+          )}
 
           {/* ─── Industry Template ─── */}
           <Section title="Industry Template" icon={LayoutGrid}>

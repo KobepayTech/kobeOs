@@ -140,6 +140,28 @@ export class StoreSettings extends BaseEntity {
     paymentLogos?: string[];
   };
 
+  /**
+   * Simple one-page business website content (template='site'). For
+   * businesses that just want a lightweight brochure site — hero, about,
+   * services, hours, contact — with no product catalogue or cart. Stored
+   * as JSON so the editor can add fields without a migration.
+   */
+  @Column({ type: 'jsonb', default: {} })
+  siteConfig!: {
+    heroImageUrl?: string;
+    about?: string;
+    services?: Array<{ title: string; desc?: string; icon?: string }>;
+    hours?: Array<{ day: string; open: string }>;
+    phone?: string;
+    whatsapp?: string;
+    email?: string;
+    address?: string;
+    mapQuery?: string;
+    socials?: { facebook?: string; instagram?: string; tiktok?: string; x?: string };
+    ctaLabel?: string;
+    ctaHref?: string;
+  };
+
   // Publish state (managed by publish/unpublish endpoints)
   @Column({ default: false })
   isPublished!: boolean;

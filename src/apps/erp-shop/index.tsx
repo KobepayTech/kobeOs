@@ -22,6 +22,7 @@ import {
   WishlistPage,
 } from './StorefrontPages';
 import { JerseyShopChrome, JerseyProductCard, type JerseyConfig } from './JerseyShopLayout';
+import SimpleSite from './SimpleSite';
 
 /* ------------------------------------------------------------------ */
 /*  TYPES                                                               */
@@ -53,6 +54,25 @@ interface StoreSettings {
   showCartIcon: boolean;
   footerText: string;
   headingSize: string;
+  /** 'generic'/'jerseys' = shop; 'site' = simple one-page website. */
+  template?: 'generic' | 'jerseys' | 'site';
+  /** Simple-website content (template='site'). */
+  siteConfig?: SiteConfig;
+}
+
+export interface SiteConfig {
+  heroImageUrl?: string;
+  about?: string;
+  services?: Array<{ title: string; desc?: string; icon?: string }>;
+  hours?: Array<{ day: string; open: string }>;
+  phone?: string;
+  whatsapp?: string;
+  email?: string;
+  address?: string;
+  mapQuery?: string;
+  socials?: { facebook?: string; instagram?: string; tiktok?: string; x?: string };
+  ctaLabel?: string;
+  ctaHref?: string;
 }
 
 interface Product {
@@ -516,6 +536,11 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
   }
 
   if (!settings) return null;
+
+  // Simple one-page business website — no catalogue, no cart.
+  if (settings.template === 'site') {
+    return <SimpleSite settings={settings} />;
+  }
 
   const cols = settings.gridColumns ?? 3;
   const gridClass = cols === 2 ? 'grid-cols-2' : cols >= 4 ? 'grid-cols-4' : 'grid-cols-3';
