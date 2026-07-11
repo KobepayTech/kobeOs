@@ -38,6 +38,7 @@ import { CreditModule } from './credit/credit.module';
 import { HotelModule } from './hotel/hotel.module';
 import { HotelWalletModule } from './hotel/hotel-wallet.module';
 import { LiveSaleModule } from './live-sales/live-sale.module';
+import { CargoTzModule } from './cargotz/cargotz.module';
 import { CreatorsModule } from './creators/creators.module';
 import { VideoGenerationModule } from './video-generation/video-generation.module';
 import { AiModule } from './ai/ai.module';
@@ -138,6 +139,7 @@ import { HotelPublicModule } from './hotel-public/hotel-public.module';
     HotelModule,
     HotelWalletModule,
     LiveSaleModule,
+    CargoTzModule,
     HotelSecurityModule,
     CreatorsModule,
     StudioMediaModule,
