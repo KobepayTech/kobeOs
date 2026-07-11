@@ -27,10 +27,10 @@ const LABEL: Record<string, string> = { RECEIVED_AT_SHOP: 'Received', AT_WAREHOU
 const tsh = (n: number | string) => `TSh ${Number(n || 0).toLocaleString()}`;
 const CHART = ['#10b981', '#6366f1', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#14b8a6'];
 
-const ROLE_META: Record<'intake' | 'warehouse' | 'dashboard', { slug: string; name: string; short: string }> = {
-  intake: { slug: 'receive', name: 'Cargo TZ · Receiving Agent', short: 'CTZ Receive' },
-  warehouse: { slug: 'warehouse', name: 'Cargo TZ · Warehouse', short: 'CTZ Warehouse' },
-  dashboard: { slug: 'owner', name: 'Cargo TZ · Owner', short: 'CTZ Owner' },
+const ROLE_META: Record<'intake' | 'warehouse' | 'dashboard', { slug: string; name: string; short: string; icon: string; theme: string }> = {
+  intake: { slug: 'receive', name: 'Cargo TZ · Receiving Agent', short: 'CTZ Receive', icon: '/ctz-receive', theme: '#059669' },
+  warehouse: { slug: 'warehouse', name: 'Cargo TZ · Warehouse', short: 'CTZ Warehouse', icon: '/ctz-warehouse', theme: '#4f46e5' },
+  dashboard: { slug: 'owner', name: 'Cargo TZ · Owner', short: 'CTZ Owner', icon: '/ctz-owner', theme: '#d97706' },
 };
 
 export default function CargoTzOps({ role }: { role?: 'intake' | 'warehouse' | 'dashboard' }) {
@@ -42,7 +42,7 @@ export default function CargoTzOps({ role }: { role?: 'intake' | 'warehouse' | '
   // so each staffer gets their own app. Only meaningful on the standalone URL.
   const standalone = typeof window !== 'undefined' && /^\/cargotz(\/|$)/.test(window.location.pathname);
   const meta = ROLE_META[tab];
-  usePwaManifest({ name: meta.name, shortName: meta.short, startUrl: `/cargotz/${meta.slug}`, enabled: standalone });
+  usePwaManifest({ name: meta.name, shortName: meta.short, startUrl: `/cargotz/${meta.slug}`, iconBase: meta.icon, themeColor: meta.theme, enabled: standalone });
   useEffect(() => {
     if (standalone && window.location.pathname !== `/cargotz/${meta.slug}`) {
       window.history.replaceState(null, '', `/cargotz/${meta.slug}`);
