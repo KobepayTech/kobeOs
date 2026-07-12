@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 
 /* ── Types ── */
-interface Session { id: string; title: string; platform: string; status: 'LIVE' | 'ENDED'; ingestToken: string; currency: string; totalSales: number | string; orderCount: number; createdAt: string }
+interface Session { id: string; title: string; platform: string; status: 'LIVE' | 'ENDED'; ingestToken: string; currency: string; totalSales: number | string; orderCount: number; createdAt: string; showOnStorefront?: boolean }
 interface PinRow { id: string; code: string; productId: string; name: string; livePrice: number; catalogPrice: number; stock: number; soldQty: number }
 interface Comment { id: string; source: string; buyerHandle: string; buyerContact: string; text: string; matchedCode: string; qty: number; status: string; createdAt: string }
 interface Product { id: string; name: string; price: number | string; stock: number }
@@ -80,6 +80,11 @@ function SessionConsole({ session, onBack }: { session: Session; onBack: () => v
   const [busy, setBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [ended, setEnded] = useState(session.status === 'ENDED');
+  const [onShop, setOnShop] = useState(session.showOnStorefront !== false);
+  const toggleShop = async () => {
+    const next = !onShop; setOnShop(next);
+    try { await api(`/live-sales/${session.id}/storefront`, { method: 'POST', body: JSON.stringify({ show: next }) }); } catch { setOnShop(!next); }
+  };
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const refresh = useCallback(async () => {
@@ -140,7 +145,15 @@ function SessionConsole({ session, onBack }: { session: Session; onBack: () => v
           <span className="font-bold">{session.title}</span>
           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${ended ? 'bg-slate-700 text-slate-400' : 'bg-rose-500/20 text-rose-400'}`}>{ended ? 'ENDED' : '● LIVE'}</span>
         </div>
-        {!ended && <button onClick={end} className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold"><Square className="w-3.5 h-3.5" /> End live</button>}
+        <div className="flex items-center gap-2">
+          {!ended && (
+            <button onClick={toggleShop} title="Show this live as a shoppable banner on your online storefront"
+              className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-semibold border ${onShop ? 'bg-fuchsia-600/20 border-fuchsia-500/40 text-fuchsia-300' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>
+              <ShoppingBag className="w-3.5 h-3.5" /> {onShop ? 'On shop' : 'Off shop'}
+            </button>
+          )}
+          {!ended && <button onClick={end} className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold"><Square className="w-3.5 h-3.5" /> End live</button>}
+        </div>
       </div>
 
       {/* Stats */}

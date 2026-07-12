@@ -36,6 +36,7 @@ export class LiveSaleController {
   @Post() start(@CurrentUser('id') uid: string, @Body() dto: StartSessionDto) { return this.svc.startSession(uid, dto); }
   @Get(':id') get(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.svc.getSession(uid, id); }
   @Post(':id/end') end(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.svc.endSession(uid, id); }
+  @Post(':id/storefront') storefront(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: { show: boolean }) { return this.svc.setStorefront(uid, id, !!dto.show); }
   @Get(':id/stats') stats(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.svc.stats(uid, id); }
 
   @Get(':id/pins') pins(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.svc.listPins(uid, id); }
@@ -62,4 +63,15 @@ export class LiveSaleIngestController {
   ingest(@Param('token') token: string, @Body() dto: IngestDto) {
     return this.svc.ingestByToken(token, dto);
   }
+}
+
+/** Public: the active shoppable live for a storefront slug (drives the
+ *  "LIVE" banner on the online shop). */
+@Public()
+@Controller('live-sales/public')
+export class LiveSalePublicController {
+  constructor(private readonly svc: LiveSaleService) {}
+
+  @Get(':slug')
+  live(@Param('slug') slug: string) { return this.svc.publicLive(slug); }
 }

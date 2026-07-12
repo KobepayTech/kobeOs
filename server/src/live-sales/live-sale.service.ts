@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { randomBytes } from 'crypto';
 import { LiveSession, LivePin, LiveComment } from './live-sale.entity';
 import { PosProduct } from '../pos/pos.entity';
+import { StoreSettings } from '../store-settings/store-settings.entity';
 import { OrdersService } from '../pos/pos.service';
 import { PalmPesaService } from '../creators/palmpesa.service';
 
@@ -25,6 +26,7 @@ export class LiveSaleService {
     @InjectRepository(LivePin) private readonly pins: Repository<LivePin>,
     @InjectRepository(LiveComment) private readonly comments: Repository<LiveComment>,
     @InjectRepository(PosProduct) private readonly products: Repository<PosProduct>,
+    @InjectRepository(StoreSettings) private readonly settings: Repository<StoreSettings>,
     private readonly orders: OrdersService,
     private readonly palmpesa: PalmPesaService,
   ) {}
@@ -57,6 +59,44 @@ export class LiveSaleService {
     s.status = 'ENDED';
     s.endedAt = new Date();
     return this.sessions.save(s);
+  }
+
+  /** Toggle whether this live shows as a shoppable banner on the storefront. */
+  async setStorefront(uid: string, id: string, show: boolean) {
+    const s = await this.getSession(uid, id);
+    s.showOnStorefront = show;
+    return this.sessions.save(s);
+  }
+
+  /**
+   * Public: the active, storefront-enabled live for a shop slug, with its
+   * pinned products (live price + remaining stock). Powers the "LIVE" banner
+   * on the online storefront so web shoppers can buy the live too. Returns
+   * { live: false } when nothing is running.
+   */
+  async publicLive(slug: string) {
+    const s =
+      (await this.settings.findOne({ where: { domainSlug: slug } })) ??
+      (await this.settings.findOne({ where: { customDomain: slug } }));
+    if (!s) return { live: false as const };
+    const session = await this.sessions.findOne({
+      where: { ownerId: s.ownerId, status: 'LIVE', showOnStorefront: true },
+      order: { createdAt: 'DESC' },
+    });
+    if (!session) return { live: false as const };
+    const pins = await this.pins.find({ where: { ownerId: s.ownerId, sessionId: session.id }, order: { code: 'ASC' } });
+    const products: Array<{ productId: string; code: string; name: string; livePrice: number; catalogPrice: number; stock: number; currency: string }> = [];
+    for (const p of pins) {
+      const prod = await this.products.findOne({ where: { ownerId: s.ownerId, id: p.productId } });
+      if (!prod) continue;
+      products.push({
+        productId: p.productId, code: p.code, name: p.name,
+        livePrice: num(p.livePrice) > 0 ? num(p.livePrice) : num(prod.price),
+        catalogPrice: num(prod.price),
+        stock: Number(prod.stock), currency: session.currency,
+      });
+    }
+    return { live: true as const, sessionId: session.id, title: session.title, currency: session.currency, products };
   }
 
   /* ── Pins ── */

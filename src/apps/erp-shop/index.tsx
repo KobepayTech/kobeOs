@@ -23,6 +23,7 @@ import {
 } from './StorefrontPages';
 import { JerseyShopChrome, JerseyProductCard, type JerseyConfig } from './JerseyShopLayout';
 import SimpleSite from './SimpleSite';
+import LiveShoppingBanner from './LiveShoppingBanner';
 
 /* ------------------------------------------------------------------ */
 /*  TYPES                                                               */
@@ -548,7 +549,9 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
   const gridClass = cols === 2 ? 'grid-cols-2' : cols >= 4 ? 'grid-cols-4' : 'grid-cols-3';
 
   return (
-    <div className="h-full overflow-hidden">
+    <div className="h-full overflow-auto">
+      {/* Live shopping — shows when the shop is live-selling (opt-in per session) */}
+      <LiveShoppingBanner slug={slug} onAdd={addToCart} />
       <JerseyShopChrome
         storeName={settings.storeName}
         tagline={settings.tagline}

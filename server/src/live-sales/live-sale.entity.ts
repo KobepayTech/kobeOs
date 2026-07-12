@@ -39,6 +39,12 @@ export class LiveSession extends OwnedEntity {
   @Column({ default: 0 })
   orderCount!: number;
 
+  /** When true, an active session appears as a shoppable "LIVE" banner on
+   *  the owner's online storefront — so web customers can buy the live at
+   *  the live price too, not just viewers on TikTok/Instagram. */
+  @Column({ default: true })
+  showOnStorefront!: boolean;
+
   @Column({ type: 'timestamptz', nullable: true })
   endedAt?: Date | null;
 }
