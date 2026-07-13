@@ -73,6 +73,7 @@ const isTuma            = subTuma  || seg('/tuma');
 const isMzigo = !isMzigoTrack && (subMzigo || seg('/mzigo'));
 const isPosys = subPosys || seg('/posys');
 const isCargoTz = subCargoTz || seg('/cargotz');
+const isCoach = seg('/coach');
 // Public tenant storefront: subdomain slug (kelvinfashion.kobeapptz.com)
 // or apex fallback (/shop/kelvinfashion). Regex validates that the slug
 // looks like a valid DNS label so a hand-crafted URL can't route
@@ -135,6 +136,10 @@ if (isOverlay) {
     const role = roleSeg === 'warehouse' ? 'warehouse' : roleSeg === 'owner' ? 'dashboard' : roleSeg === 'receive' ? 'intake' : undefined;
     mount(<div className="h-screen w-screen overflow-hidden"><CargoTzOps role={role as 'intake' | 'warehouse' | 'dashboard' | undefined} /></div>);
   });
+} else if (isCoach) {
+  // Kobe Coach — installable coach/team-admin PWA (standalone at /coach).
+  import('./apps/kobe-coach/index').then(({ default: KobeCoach }) =>
+    mount(<div className="h-screen w-screen overflow-hidden"><KobeCoach /></div>));
 } else if (isHotelBooking && bookingSlug) {
   // Public hotel booking site: {slug}.kobeapptz.com/book or /book/{slug}
   import('./public/HotelBooking').then(({ default: HotelBooking }) => mount(<HotelBooking slug={bookingSlug} />));
