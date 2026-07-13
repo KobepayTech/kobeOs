@@ -7,13 +7,15 @@ import Analytics from './components/Analytics';
 import AiStudio from './components/AiStudio';
 import Tracking from './components/Tracking';
 import Broadcast from './components/Broadcast';
+import Boxing from './components/Boxing';
 import type { Match, LiveMatch } from './api';
 
-type Tab = 'dashboard' | 'matches' | 'tracking' | 'analytics' | 'broadcast' | 'teams' | 'players' | 'ai';
+type Tab = 'dashboard' | 'matches' | 'boxing' | 'tracking' | 'analytics' | 'broadcast' | 'teams' | 'players' | 'ai';
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: '📊' },
-  { id: 'matches',   label: 'Matches',   icon: '⚽' },
+  { id: 'matches',   label: 'Football',  icon: '⚽' },
+  { id: 'boxing',    label: 'Boxing',    icon: '🥊' },
   { id: 'tracking',  label: 'Tracking',  icon: '🏃' },
   { id: 'analytics', label: 'Analytics', icon: '📈' },
   { id: 'broadcast', label: 'Broadcast', icon: '📺' },
@@ -88,6 +90,7 @@ export default function KobeSports() {
       <div className="flex-1 overflow-hidden">
         {activeTab === 'dashboard'  && <div className="h-full overflow-auto"><Dashboard /></div>}
         {activeTab === 'matches'    && <Matches onSelectMatch={handleSelectMatch} selectedMatchId={selectedMatchId} />}
+        {activeTab === 'boxing'     && <Boxing />}
         {activeTab === 'tracking'   && <Tracking matchId={selectedMatchId} />}
         {activeTab === 'analytics'  && <div className="h-full overflow-auto"><Analytics matchId={selectedMatchId} /></div>}
         {activeTab === 'broadcast'  && <Broadcast matchId={selectedMatchId} />}
