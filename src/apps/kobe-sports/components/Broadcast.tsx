@@ -7,7 +7,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { ObsClient } from '../obs';
 import { useSportsSocket, type MatchEvent } from '../useSportsSocket';
-import { matchesApi, type Match } from '../api';
+import { matchesApi, boxingApi, type Match } from '../api';
 
 // ── Demo fallback ─────────────────────────────────────────────────────────────
 
@@ -130,6 +130,9 @@ export default function Broadcast({ matchId: propMatchId }: BroadcastProps) {
   }, [propMatchId]);
   const [view, setView] = useState<'preview' | 'builder'>('preview');
   const [widgets, setWidgets] = useState({ score: true, possession: true, xg: true, speed: true });
+  const [overlaySport, setOverlaySport] = useState<'football' | 'boxing'>('football');
+  const [bouts, setBouts] = useState<{ id: string; fighterAName: string; fighterBName: string; status: string }[]>([]);
+  const [boutId, setBoutId] = useState('');
   const [banners, setBanners] = useState<Array<MatchEvent & { uid: string }>>([]);
   const bannerIdRef = useRef(0);
 
@@ -159,12 +162,17 @@ export default function Broadcast({ matchId: propMatchId }: BroadcastProps) {
   const dismissBanner = (uid: string) => setBanners((b) => b.filter((x) => x.uid !== uid));
 
   useEffect(() => {
-    matchesApi.list(1, 50).then((r) => { if (r.data.length) { setMatches(r.data); setSelectedId(r.data[0].id); } }).catch(() => {});
+    // The /sports list endpoints return a raw array; the client types it as
+    // {data,total}. Normalise either shape.
+    matchesApi.list(1, 50).then((r) => { const rows = (Array.isArray(r) ? r : r.data) ?? []; if (rows.length) { setMatches(rows); setSelectedId(rows[0].id); } }).catch(() => {});
+    boxingApi.bouts().then((r) => { const rows = Array.isArray(r) ? r : []; setBouts(rows); if (rows.length) setBoutId(rows[0].id); }).catch(() => {});
   }, []);
 
   const toggle = (k: keyof typeof widgets) => setWidgets((v) => ({ ...v, [k]: !v[k] }));
 
-  const obsUrl = `${window.location.origin}/sports/overlay?match=${selectedId}`;
+  const obsUrl = overlaySport === 'boxing'
+    ? `${window.location.origin}/sports/overlay?bout=${boutId}`
+    : `${window.location.origin}/sports/overlay?match=${selectedId}`;
 
   return (
     <div className="flex flex-col h-full">
@@ -273,6 +281,21 @@ export default function Broadcast({ matchId: propMatchId }: BroadcastProps) {
             {/* OBS export */}
             <div className="rounded-xl bg-gray-900 border border-gray-800 p-4 space-y-3">
               <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">OBS Browser Source</h4>
+              {/* Overlay source: football scoreboard or boxing scorecard */}
+              <div className="flex items-center gap-2">
+                {(['football', 'boxing'] as const).map((s) => (
+                  <button key={s} onClick={() => setOverlaySport(s)}
+                    className={`px-3 h-8 rounded-lg text-xs font-bold ${overlaySport === s ? 'bg-rose-600 text-white' : 'bg-gray-800 text-gray-400'}`}>
+                    {s === 'football' ? '⚽ Football' : '🥊 Boxing'}
+                  </button>
+                ))}
+                {overlaySport === 'boxing' && (
+                  <select value={boutId} onChange={(e) => setBoutId(e.target.value)} className="flex-1 h-8 px-2 rounded-lg bg-gray-800 border border-gray-700 text-xs text-white">
+                    {bouts.length === 0 && <option value="">No bouts — create one in Boxing</option>}
+                    {bouts.map((b) => <option key={b.id} value={b.id}>{b.fighterAName} vs {b.fighterBName} ({b.status})</option>)}
+                  </select>
+                )}
+              </div>
               <p className="text-xs text-gray-500">Add this URL as a Browser Source in OBS at 1920×1080 with transparent background.</p>
               <div className="flex gap-2">
                 <div className="flex-1 bg-gray-800 rounded-lg px-3 py-2 text-xs text-gray-400 font-mono truncate">{obsUrl}</div>

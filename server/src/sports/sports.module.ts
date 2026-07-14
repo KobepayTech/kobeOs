@@ -16,6 +16,7 @@ import { SportsAiService } from './sports-ai.service';
 import { BoxingFighter, BoxingBout } from './boxing.entity';
 import { BoxingService } from './boxing.service';
 import { BoxingController } from './boxing.controller';
+import { SportsPublicController } from './sports-public.controller';
 import { AiModule } from '../ai/ai.module';
 
 @Module({
@@ -33,7 +34,7 @@ import { AiModule } from '../ai/ai.module';
     MatchLifecycleService, PlayerStatsService, CameraService, SportsAiService,
     BoxingService,
   ],
-  controllers: [SportsController, BoxingController],
+  controllers: [SportsController, BoxingController, SportsPublicController],
   exports: [
     MatchesService, AnalyticsService, VisionIngestService, OffsideDetectionService,
     SportsGateway, MatchLifecycleService, PlayerStatsService, CameraService, SportsAiService,

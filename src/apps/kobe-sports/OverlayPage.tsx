@@ -8,6 +8,7 @@
  */
 import { useState, useEffect, useRef } from 'react';
 import { useSportsSocket, type MatchEvent } from './useSportsSocket';
+import BoxingOverlay from './BoxingOverlay';
 
 function ScoreTicker({ homeTeam, awayTeam, homeScore, awayScore, minute, half }: {
   homeTeam: string; awayTeam: string; homeScore: number; awayScore: number; minute: number; half: number;
@@ -82,6 +83,13 @@ function EventBanner({ event, onDismiss }: { event: MatchEvent & { uid: string }
 }
 
 export default function OverlayPage() {
+  // Dispatcher: ?bout=<id> → boxing scorebug; otherwise the football overlay.
+  const boutId = new URLSearchParams(window.location.search).get('bout');
+  if (boutId) return <BoxingOverlay boutId={boutId} />;
+  return <FootballOverlay />;
+}
+
+function FootballOverlay() {
   const params = new URLSearchParams(window.location.search);
   const matchId = params.get('match') ?? '1';
 

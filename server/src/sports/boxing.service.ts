@@ -65,6 +65,19 @@ export class BoxingService {
     return this.withTally(b);
   }
 
+  /** Public, read-only bout state for the broadcast overlay (no owner scope
+   *  — the bout id is the key). Includes both fighters' records for the card. */
+  async publicBout(id: string) {
+    const b = await this.bouts.findOne({ where: { id } });
+    if (!b) throw new NotFoundException('Bout not found');
+    const [a, bb] = await Promise.all([
+      this.fighters.findOne({ where: { id: b.fighterAId } }),
+      this.fighters.findOne({ where: { id: b.fighterBId } }),
+    ]);
+    const rec = (f: BoxingFighter | null) => (f ? { wins: f.wins, losses: f.losses, draws: f.draws, kos: f.kos, country: f.country, nickname: f.nickname } : null);
+    return { ...this.withTally(b), fighterA: rec(a), fighterB: rec(bb) };
+  }
+
   async updateBout(uid: string, id: string, dto: Partial<BoxingBout>) {
     const b = await this.bouts.findOne({ where: { ownerId: uid, id } });
     if (!b) throw new NotFoundException();

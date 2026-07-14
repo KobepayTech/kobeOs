@@ -367,3 +367,16 @@ export const boxingApi = {
   score: (id: string, b: { round: number; judge: string; a: number; b: number }) => req<BoxingBout>(`/sports/boxing/bouts/${id}/score`, { method: 'POST', body: JSON.stringify(b) }),
   finish: (id: string, b: { method: string; winnerId?: string; endRound?: number }) => req<BoxingBout>(`/sports/boxing/bouts/${id}/finish`, { method: 'POST', body: JSON.stringify(b) }),
 };
+
+// ── Sport registry ───────────────────────────────────────────────────────────
+export interface SportModule { id: string; label: string; icon: string }
+export interface SportDescriptor {
+  id: string; name: string; icon: string; kind: string; live: boolean;
+  competitor: { singular: string; plural: string; sideA: string; sideB: string };
+  modules: SportModule[]; eventTypes: string[];
+  scoring: { type: string; description: string }; statuses: string[];
+  overlay: 'match' | 'bout' | null; apiBase: string;
+}
+export const registryApi = {
+  get: () => req<{ sports: SportDescriptor[]; liveCount: number; total: number }>('/sports/registry'),
+};
