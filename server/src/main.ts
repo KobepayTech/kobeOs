@@ -4,7 +4,7 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { json, urlencoded, static as expressStatic } from 'express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { join } from 'path';
+import { join, basename, extname } from 'path';
 import { existsSync } from 'fs';
 import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/http-exception.filter';
@@ -94,12 +94,32 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('api/docs', app, document);
 
-  // SPA catch-all: return index.html for any route that isn't /api/* or /assets/*
-  // This lets React Router in the browser handle paths like /shop/:slug,
-  // /m/:slug, and tenant subdomains (slug.kobeapptz.com → /).
+  // SPA catch-all: return index.html for any route that isn't /api/* or a
+  // static asset. This lets React Router handle /shop/:slug, /m/:slug, etc.
+  //
+  // The SPA is built with a RELATIVE base ('./assets/…') so Electron can load
+  // it over file://. That means on a DEEP route (e.g. /m/johsport) the browser
+  // requests /m/assets/index-*.js — which is NOT under top-level /assets/ and
+  // would otherwise fall through to index.html (served as text/html), breaking
+  // the module script and blanking the page. So: resolve any nested /assets/
+  // request — and any relatively-referenced top-level file (registerSW.js,
+  // manifest.webmanifest, icons…) — to the real file before the HTML fallback.
   app.use((req, res, next) => {
     if (req.path.startsWith('/api/') || req.path.startsWith('/assets/')) {
       return next();
+    }
+    // Nested "/assets/…" from a deep route → serve the real hashed asset.
+    const assetIdx = req.path.indexOf('/assets/');
+    if (assetIdx > 0) {
+      const real = join(spaPath, req.path.slice(assetIdx));
+      if (existsSync(real)) return res.sendFile(real);
+    }
+    // A relatively-referenced top-level static file that resolved under a
+    // deep route (e.g. /m/registerSW.js → registerSW.js).
+    const ext = extname(req.path);
+    if (ext && ext !== '.html') {
+      const flat = join(spaPath, basename(req.path));
+      if (existsSync(flat)) return res.sendFile(flat);
     }
     const indexPath = join(spaPath, 'index.html');
     if (existsSync(indexPath)) {
