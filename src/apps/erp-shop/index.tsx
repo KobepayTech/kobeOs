@@ -278,6 +278,24 @@ function ProductReviews({ slug, productId }: { slug: string; productId: string }
   );
 }
 
+/** Placeholder product card shown when the catalogue is empty (or loading) —
+ *  the "shadow box" where a product image, title, price and Add button go. */
+function ProductSkeleton() {
+  return (
+    <div className="rounded-xl border border-slate-200 overflow-hidden bg-white animate-pulse">
+      <div className="aspect-square bg-slate-200/80" />
+      <div className="p-3 space-y-2">
+        <div className="h-3.5 rounded bg-slate-200 w-4/5" />
+        <div className="h-3 rounded bg-slate-100 w-2/5" />
+        <div className="flex items-center justify-between pt-1">
+          <div className="h-4 rounded bg-slate-200 w-1/3" />
+          <div className="h-8 w-8 rounded-lg bg-slate-200" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
   // Priority: prop > subdomain auto-detect > empty (shows SlugPicker)
   const initialSlug =
@@ -660,11 +678,17 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
                     onAddToWishlist={(prod) => toggleWishlist(prod.id)}
                   />
                 ))}
+                {/* Empty catalogue: show placeholder "shadow" cards so the shop
+                    reads as a shop-in-progress, not a broken page. */}
+                {filteredProducts.length === 0 && Array.from({ length: cols >= 4 ? 8 : 6 }).map((_, i) => (
+                  <ProductSkeleton key={`sk-${i}`} />
+                ))}
               </div>
               {filteredProducts.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-16 text-slate-500">
-                  <ShoppingBag className="w-10 h-10 mb-3 opacity-40" />
-                  <p className="font-medium">No products found</p>
+                <div className="flex flex-col items-center justify-center pb-10 -mt-4 text-slate-400">
+                  <ShoppingBag className="w-8 h-8 mb-2 opacity-40" />
+                  <p className="text-sm font-medium">Products coming soon</p>
+                  <p className="text-xs text-slate-500">Your items will appear here once added.</p>
                 </div>
               )}
             </>

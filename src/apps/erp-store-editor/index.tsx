@@ -702,6 +702,8 @@ export default function StoreEditor() {
   const [publishError, setPublishError] = useState<string | null>(null);
   const [seeding, setSeeding] = useState(false);
   const [seedMsg, setSeedMsg] = useState<string | null>(null);
+  // On phones the editor + preview can't sit side-by-side — toggle between them.
+  const [mobileView, setMobileView] = useState<'edit' | 'preview'>('edit');
 
   // One-click populate an empty store with ~20 clearly-labelled DEMO products
   // so the live storefront isn't blank. They're normal products the operator
@@ -902,9 +904,18 @@ export default function StoreEditor() {
      RENDER
      ═════════════════════════════════════════════════════════ */
   return (
-    <div className="flex h-full bg-[#0d0d1a] text-white/90 overflow-hidden">
-      {/* LEFT SIDEBAR — Editor Controls */}
-      <aside className="w-72 shrink-0 bg-[#111118] border-r border-white/[0.06] flex flex-col">
+    <div className="relative flex h-full bg-[#0d0d1a] text-white/90 overflow-hidden">
+      {/* Mobile Edit ⇄ Preview toggle (phones only) */}
+      <div className="md:hidden absolute bottom-4 left-1/2 -translate-x-1/2 z-30 flex rounded-full bg-[#111118] border border-white/15 shadow-xl overflow-hidden">
+        {(['edit', 'preview'] as const).map((v) => (
+          <button key={v} onClick={() => setMobileView(v)}
+            className={`px-5 h-9 text-xs font-bold capitalize ${mobileView === v ? 'bg-violet-600 text-white' : 'text-white/60'}`}>
+            {v === 'edit' ? '✏️ Edit' : '👁 Preview'}
+          </button>
+        ))}
+      </div>
+      {/* LEFT SIDEBAR — Editor Controls (full-width on phones, toggled) */}
+      <aside className={`w-full md:w-72 shrink-0 bg-[#111118] border-r border-white/[0.06] flex-col ${mobileView === 'edit' ? 'flex' : 'hidden'} md:flex`}>
         {/* Sidebar Header */}
         <div className="flex items-center gap-2.5 px-4 py-3 border-b border-white/[0.06]">
           <div className="w-8 h-8 rounded-lg bg-violet-500 flex items-center justify-center">
@@ -1555,8 +1566,8 @@ export default function StoreEditor() {
         </div>
       </aside>
 
-      {/* RIGHT PANEL — Live Preview */}
-      <div className="flex-1 flex flex-col bg-[#0a0a1a] overflow-hidden">
+      {/* RIGHT PANEL — Live Preview (toggled on phones) */}
+      <div className={`flex-1 flex-col bg-[#0a0a1a] overflow-hidden ${mobileView === 'preview' ? 'flex' : 'hidden'} md:flex`}>
         {/* Toolbar */}
         <div className="flex flex-col border-b border-white/[0.06] bg-[#111118]">
           <div className="flex items-center justify-between px-4 py-2.5">
