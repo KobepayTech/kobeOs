@@ -172,13 +172,29 @@ export function AnnouncementBar() {
 
 /* ─── Header ────────────────────────────────────────────────────────── */
 
+/** Renders a store's name as a two-tone wordmark (first word accented),
+ *  so the storefront brand tracks the actual store name. */
+function StoreWordmark({ name, accent, rest }: { name: string; accent: string; rest: string }) {
+  const parts = (name || 'My Store').trim().split(/\s+/);
+  return (
+    <span className="text-[22px] font-black tracking-wider" style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}>
+      <span style={{ color: accent }}>{parts[0].toUpperCase()}</span>
+      {parts.length > 1 && <span style={{ color: rest }}> {parts.slice(1).join(' ').toUpperCase()}</span>}
+    </span>
+  );
+}
+
 export function Header({
+  storeName,
+  logoUrl,
   searchQuery,
   onSearchChange,
   cartCount,
   onOpenCart,
   onPickNav,
 }: {
+  storeName: string;
+  logoUrl?: string;
   searchQuery: string;
   onSearchChange: (q: string) => void;
   cartCount: number;
@@ -188,15 +204,10 @@ export function Header({
   return (
     <header className="bg-white border-b border-[#e5e5e5]">
       <div className="max-w-7xl mx-auto px-4 h-[70px] flex items-center gap-6">
-        {/* Logo */}
-        <a href="/" className="shrink-0 flex items-center gap-0">
-          <span
-            className="text-[22px] font-black tracking-wider"
-            style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}
-          >
-            <span className="text-[#c8102e]">PRO</span>
-            <span className="text-[#1a1a1a]">JERSEY SHOP</span>
-          </span>
+        {/* Logo — the store's own name/logo (was hardcoded "PRO JERSEY SHOP"). */}
+        <a href="/" className="shrink-0 flex items-center gap-2">
+          {logoUrl && <img src={logoUrl} alt={storeName} className="h-9 w-auto max-w-[140px] object-contain" />}
+          {!logoUrl && <StoreWordmark name={storeName} accent="#c8102e" rest="#1a1a1a" />}
         </a>
 
         {/* Search */}
@@ -264,8 +275,11 @@ export function MainNav({
   // so clicking a tab actually filters the grid. Previously this used a
   // hardcoded jersey list whose labels never matched any DB category, so every
   // tab showed an empty grid. Hidden when the store has no products yet.
-  if (!categories || categories.length === 0) return null;
-  const items = ['All', ...categories];
+  // `categories` already includes an "All" reset. Hide the nav entirely when
+  // there are no real categories yet (empty store) — no lone "All" tab.
+  const realCats = (categories ?? []).filter((c) => c !== 'All');
+  if (realCats.length === 0) return null;
+  const items = ['All', ...realCats];
   return (
     <nav className="bg-white border-t border-b border-[#e5e5e5]">
       <div className="max-w-7xl mx-auto px-4 flex items-center gap-0 overflow-x-auto">
@@ -314,8 +328,10 @@ export function CategoryIcons({
   selectedCategory: string;
   onSelectCategory: (cat: string) => void;
 }) {
-  if (!categories || categories.length === 0) return null;
-  const items = categories.slice(0, 8);
+  // Quick-icons are for REAL categories only — never the "All" reset (that
+  // was the stray green circle). Hidden when the store has no categories yet.
+  const items = (categories ?? []).filter((c) => c !== 'All').slice(0, 8);
+  if (items.length === 0) return null;
   return (
     <section className="bg-white border-b border-[#e5e5e5]">
       <div className="max-w-7xl mx-auto px-4 py-5">
@@ -1029,8 +1045,7 @@ export function Footer({
         {/* Brand column */}
         <div className="col-span-2 md:col-span-1">
           <div className="text-[16px] font-black mb-2">
-            <span className="text-[#c8102e]">PRO</span>
-            <span className="text-white">JERSEY SHOP</span>
+            <StoreWordmark name={storeName} accent="#c8102e" rest="#ffffff" />
           </div>
           <p className="text-[#999] mb-4">
             {tagline ?? 'Your #1 Source for Premium Soccer Jerseys Since 2017.'}
@@ -1148,7 +1163,6 @@ export function JerseyShopChrome({
   children,
 }: JerseyShopChromeProps) {
   // _logoUrl, _onGoStores kept for backward compatibility
-  void _logoUrl;
   void _onGoStores;
   return (
     <div className="flex flex-col min-h-screen bg-white text-[#1a1a1a] font-sans">
@@ -1157,6 +1171,8 @@ export function JerseyShopChrome({
 
       {/* Header */}
       <Header
+        storeName={storeName}
+        logoUrl={_logoUrl}
         searchQuery={searchQuery}
         onSearchChange={onSearchChange}
         cartCount={cartCount}
