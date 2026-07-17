@@ -700,6 +700,21 @@ export default function StoreEditor() {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [publishError, setPublishError] = useState<string | null>(null);
+  const [seeding, setSeeding] = useState(false);
+  const [seedMsg, setSeedMsg] = useState<string | null>(null);
+
+  // One-click populate an empty store with ~20 clearly-labelled DEMO products
+  // so the live storefront isn't blank. They're normal products the operator
+  // edits or deletes — this just gets past the cold-start.
+  const seedDemoProducts = useCallback(async () => {
+    setSeeding(true); setSeedMsg(null);
+    try {
+      const r = await api<{ created?: number; note?: string }>('/pos/products/seed-demo', { method: 'POST', body: '{}' });
+      setSeedMsg(r?.created ? `Added ${r.created} demo products — publish to see them live.` : (r?.note || 'Products already exist.'));
+    } catch (e) {
+      setSeedMsg((e as Error).message || 'Could not add demo products.');
+    } finally { setSeeding(false); }
+  }, []);
   const [readiness, setReadiness] = useState<{
     ready: boolean;
     deploymentMode: 'hosted' | 'self-hosted';
@@ -1207,6 +1222,15 @@ export default function StoreEditor() {
                       <Globe className="w-3 h-3" /> Ready to publish on {readiness.domain}
                     </p>
                   )}
+                  {/* Cold-start helper: fill an empty store with demo products */}
+                  <button
+                    onClick={seedDemoProducts}
+                    disabled={seeding}
+                    className="w-full h-8 rounded-md border border-indigo-500/30 bg-indigo-500/10 text-indigo-300 text-[11px] font-bold hover:bg-indigo-500/20 disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
+                  >
+                    {seeding ? 'Adding…' : '+ Add demo products'}
+                  </button>
+                  {seedMsg && <p className="text-[10px] text-emerald-400/80 text-center">{seedMsg}</p>}
                   {/* Served from Cloudflare's edge — no per-machine binary,
                       no tunnel. Publishing flips the store live on its
                       subdomain instantly via the platform's wildcard domain. */}
