@@ -318,8 +318,12 @@ function Toggle({
 
 function PreviewHeader({
   settings,
+  cartCount = 0,
+  onOpenCart,
 }: {
   settings: StoreSettings;
+  cartCount?: number;
+  onOpenCart?: () => void;
 }) {
   const { storeName, tagline, headerStyle, showSearch, showCartIcon, primaryColor } = settings;
 
@@ -339,14 +343,16 @@ function PreviewHeader({
           <span className="font-semibold text-white/90 text-sm">{storeName}</span>
         </div>
         {showCartIcon && (
-          <button className="relative p-2 rounded-lg hover:bg-white/[0.06] transition-colors">
+          <button onClick={onOpenCart} className="relative p-2 rounded-lg hover:bg-white/[0.06] transition-colors">
             <ShoppingBag className="w-4 h-4 text-white/70" />
-            <span
-              className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full text-[10px] font-bold text-white flex items-center justify-center"
-              style={{ backgroundColor: primaryColor }}
-            >
-              2
-            </span>
+            {cartCount > 0 && (
+              <span
+                className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full text-[10px] font-bold text-white flex items-center justify-center"
+                style={{ backgroundColor: primaryColor }}
+              >
+                {cartCount}
+              </span>
+            )}
           </button>
         )}
       </header>
@@ -487,9 +493,13 @@ function PreviewBanner({
 function PreviewProductCard({
   product,
   settings,
+  onOpen,
+  onAdd,
 }: {
   product: PreviewProduct;
   settings: StoreSettings;
+  onOpen?: () => void;
+  onAdd?: () => void;
 }) {
   const { cardStyle, productCardStyle, showStock, showCategoryBadge, showQuickAdd, primaryColor } = settings;
 
@@ -498,7 +508,8 @@ function PreviewProductCard({
 
   return (
     <div
-      className={`group relative rounded-xl overflow-hidden transition-all hover:-translate-y-0.5 hover:shadow-lg ${cardStyleBg[cardStyle]}`}
+      onClick={onOpen}
+      className={`group relative rounded-xl overflow-hidden transition-all hover:-translate-y-0.5 hover:shadow-lg cursor-pointer ${cardStyleBg[cardStyle]}`}
     >
       {/* Image area */}
       <div
@@ -545,6 +556,7 @@ function PreviewProductCard({
           </span>
           {showQuickAdd && (
             <button
+              onClick={(e) => { e.stopPropagation(); onAdd?.(); }}
               className="p-1 rounded-md text-white/60 hover:text-white transition-colors"
               style={{ backgroundColor: `${primaryColor}30` }}
             >
@@ -591,98 +603,138 @@ function LivePreview({ settings }: { settings: StoreSettings }) {
       />
     );
   }
-  const gridCols =
-    settings.gridColumns === 2
-      ? 'grid-cols-2'
-      : settings.gridColumns === 4
-      ? 'grid-cols-4'
-      : 'grid-cols-3';
+  return <GenericStorefrontPreview settings={settings} />;
+}
 
+/** Interactive generic storefront preview — category tabs filter the grid,
+ *  products open a detail sheet, add-to-cart fills a working cart drawer, so
+ *  the operator can walk the real shopper flow while designing. */
+function GenericStorefrontPreview({ settings }: { settings: StoreSettings }) {
+  const [selectedCat, setSelectedCat] = useState('All');
+  const [openProduct, setOpenProduct] = useState<PreviewProduct | null>(null);
+  const [cart, setCart] = useState<{ product: PreviewProduct; qty: number }[]>([]);
+  const [cartOpen, setCartOpen] = useState(false);
+
+  const gridCols = settings.gridColumns === 2 ? 'grid-cols-2' : settings.gridColumns === 4 ? 'grid-cols-4' : 'grid-cols-3';
   const bodySize = bodySizeMap[settings.bodySize];
+  const cartCount = cart.reduce((s, i) => s + i.qty, 0);
+  const cartTotal = cart.reduce((s, i) => s + i.product.price * i.qty, 0);
+  const addToCart = (p: PreviewProduct) => setCart((prev) => {
+    const e = prev.find((x) => x.product.id === p.id);
+    return e ? prev.map((x) => (x.product.id === p.id ? { ...x, qty: x.qty + 1 } : x)) : [...prev, { product: p, qty: 1 }];
+  });
+  const visible = PREVIEW_PRODUCTS
+    .filter((p) => selectedCat === 'All' || p.category === selectedCat)
+    .slice(0, Math.min(settings.productsPerPage, PREVIEW_PRODUCTS.length));
 
   return (
-    <div
-      className="flex flex-col h-full overflow-hidden"
-      style={{ backgroundColor: bgStyleMap[settings.bgStyle] }}
-    >
-      <PreviewHeader settings={settings} />
+    <div className="relative flex flex-col h-full overflow-hidden" style={{ backgroundColor: bgStyleMap[settings.bgStyle] }}>
+      <PreviewHeader settings={settings} cartCount={cartCount} onOpenCart={() => setCartOpen(true)} />
 
       <ScrollArea className="flex-1 min-h-0">
-        {/* Banner */}
         <PreviewBanner settings={settings} />
 
-        {/* Category Nav */}
+        {/* Category Nav — clickable, filters the grid */}
         {settings.enableCategoryNav && settings.showCategoryNav && (
           <div className="px-5 py-3 flex flex-wrap gap-2 border-b border-white/[0.04]">
-            {['All', ...categoryOptions].map((cat, i) => (
-              <button
-                key={cat}
-                className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${
-                  i === 0
-                    ? 'text-white'
-                    : 'text-white/50 hover:text-white/80 hover:bg-white/[0.04]'
-                }`}
-                style={i === 0 ? { backgroundColor: settings.primaryColor } : {}}
-              >
-                {cat}
-              </button>
-            ))}
+            {['All', ...categoryOptions].map((cat) => {
+              const active = selectedCat === cat;
+              return (
+                <button
+                  key={cat}
+                  onClick={() => setSelectedCat(cat)}
+                  className={`px-3 py-1 rounded-full text-xs font-medium transition-all ${active ? 'text-white' : 'text-white/50 hover:text-white/80 hover:bg-white/[0.04]'}`}
+                  style={active ? { backgroundColor: settings.primaryColor } : {}}
+                >
+                  {cat}
+                </button>
+              );
+            })}
           </div>
         )}
 
         {/* Product Grid */}
         <div className="p-5">
           <div className="flex items-center justify-between mb-4">
-            <h2
-              className={`font-bold text-white/90 ${headingSizeMap[settings.headingSize]}`}
-            >
-              Featured Products
+            <h2 className={`font-bold text-white/90 ${headingSizeMap[settings.headingSize]}`}>
+              {selectedCat === 'All' ? 'Featured Products' : selectedCat}
             </h2>
-            <button
-              className="text-xs font-medium hover:opacity-80 transition-opacity"
-              style={{ color: settings.primaryColor }}
-            >
-              View all
-            </button>
+            {selectedCat !== 'All' && (
+              <button onClick={() => setSelectedCat('All')} className="text-xs font-medium hover:opacity-80" style={{ color: settings.primaryColor }}>
+                View all
+              </button>
+            )}
           </div>
-          <div className={`grid ${gridCols} gap-3`}>
-            {PREVIEW_PRODUCTS.slice(0, Math.min(settings.productsPerPage, PREVIEW_PRODUCTS.length)).map((product) => (
-              <PreviewProductCard key={product.id} product={product} settings={settings} />
-            ))}
-          </div>
+          {visible.length === 0 ? (
+            <p className="text-white/40 text-xs py-8 text-center">No products in {selectedCat}.</p>
+          ) : (
+            <div className={`grid ${gridCols} gap-3`}>
+              {visible.map((product) => (
+                <PreviewProductCard key={product.id} product={product} settings={settings} onOpen={() => setOpenProduct(product)} onAdd={() => addToCart(product)} />
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Newsletter / CTA section */}
         <div className="px-5 pb-5">
-          <div
-            className="rounded-xl p-5 text-center"
-            style={{ backgroundColor: `${settings.primaryColor}15` }}
-          >
-            <h3 className={`font-bold text-white/90 mb-1 ${headingSizeMap[settings.headingSize]}`}>
-              Stay Updated
-            </h3>
-            <p className={`text-white/50 mb-3 ${bodySize}`}>
-              Subscribe for exclusive deals and new arrivals
-            </p>
+          <div className="rounded-xl p-5 text-center" style={{ backgroundColor: `${settings.primaryColor}15` }}>
+            <h3 className={`font-bold text-white/90 mb-1 ${headingSizeMap[settings.headingSize]}`}>Stay Updated</h3>
+            <p className={`text-white/50 mb-3 ${bodySize}`}>Subscribe for exclusive deals and new arrivals</p>
             <div className="flex gap-2 max-w-xs mx-auto">
-              <input
-                type="text"
-                placeholder="Enter your email"
-                readOnly
-                className="flex-1 h-8 px-3 rounded-lg bg-white/[0.06] border border-white/[0.08] text-xs text-white/70 placeholder:text-white/30 outline-none"
-              />
-              <button
-                className="px-4 h-8 rounded-lg text-xs font-medium text-white hover:brightness-110 transition-all"
-                style={{ backgroundColor: settings.primaryColor }}
-              >
-                Subscribe
-              </button>
+              <input type="text" placeholder="Enter your email" readOnly className="flex-1 h-8 px-3 rounded-lg bg-white/[0.06] border border-white/[0.08] text-xs text-white/70 placeholder:text-white/30 outline-none" />
+              <button className="px-4 h-8 rounded-lg text-xs font-medium text-white hover:brightness-110" style={{ backgroundColor: settings.primaryColor }}>Subscribe</button>
             </div>
           </div>
         </div>
 
         <PreviewFooter settings={settings} />
       </ScrollArea>
+
+      {/* Product detail sheet */}
+      {openProduct && (
+        <div className="absolute inset-0 z-20 bg-black/60 flex items-end sm:items-center justify-center p-3" onClick={() => setOpenProduct(null)}>
+          <div className="w-full sm:max-w-sm rounded-2xl overflow-hidden border border-white/10" style={{ backgroundColor: bgStyleMap[settings.bgStyle] }} onClick={(e) => e.stopPropagation()}>
+            <div className={`relative h-40 bg-gradient-to-br ${openProduct.gradient} opacity-90 flex items-center justify-center`}>
+              <Tag className="w-10 h-10 text-white/40" />
+              <button onClick={() => setOpenProduct(null)} className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/40 text-white grid place-items-center">✕</button>
+            </div>
+            <div className="p-4 space-y-2">
+              <div className="text-white/90 font-bold">{openProduct.name}</div>
+              <div className="text-white/40 text-xs">{openProduct.category}</div>
+              <div className="text-white/90 font-extrabold text-lg" style={{ color: settings.primaryColor }}>{tzs(openProduct.price)}</div>
+              <p className="text-white/50 text-xs">Demo product — a real product's description shows here.</p>
+              <button onClick={() => { addToCart(openProduct); setOpenProduct(null); setCartOpen(true); }} className="w-full h-10 rounded-lg text-white font-bold text-sm" style={{ backgroundColor: settings.primaryColor }}>
+                Add to cart
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Cart drawer */}
+      {cartOpen && (
+        <div className="absolute inset-0 z-20 bg-black/60 flex justify-end" onClick={() => setCartOpen(false)}>
+          <div className="w-64 h-full flex flex-col border-l border-white/10" style={{ backgroundColor: bgStyleMap[settings.bgStyle] }} onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-3 h-11 border-b border-white/10">
+              <span className="text-white/90 font-bold text-sm">Cart ({cartCount})</span>
+              <button onClick={() => setCartOpen(false)} className="text-white/50">✕</button>
+            </div>
+            <div className="flex-1 overflow-auto p-3 space-y-2">
+              {cart.length === 0 ? <p className="text-white/40 text-xs text-center py-8">Your cart is empty.</p> : cart.map((i) => (
+                <div key={i.product.id} className="flex items-center justify-between text-xs">
+                  <span className="text-white/80 truncate">{i.product.name} ×{i.qty}</span>
+                  <span className="text-white/60 shrink-0 pl-2">{tzs(i.product.price * i.qty)}</span>
+                </div>
+              ))}
+            </div>
+            <div className="border-t border-white/10 p-3 space-y-2">
+              <div className="flex justify-between text-sm text-white/90 font-bold"><span>Total</span><span>{tzs(cartTotal)}</span></div>
+              <button className="w-full h-9 rounded-lg text-white font-bold text-xs" style={{ backgroundColor: settings.primaryColor }}>Checkout</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
