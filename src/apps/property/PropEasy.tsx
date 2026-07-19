@@ -219,7 +219,10 @@ export default function PropEasyApp() {
             />
           )}
           {view === 'insights' && (
-            <InsightsLive fallbackTenantCount={tenants.length || 20} />
+            <div className="space-y-4">
+              <MarketRentsCard />
+              <InsightsLive fallbackTenantCount={tenants.length || 20} />
+            </div>
           )}
           {view === 'tokens' && (
             <TokensView tenants={tenants} />
@@ -845,6 +848,50 @@ function TenantDetailView({
 /* ════════════════════════════════════════════════════════════════════
    Dashboard view (mockup 4 trimmed for current scope)
    ══════════════════════════════════════════════════════════════════ */
+
+/* ──────────────── Market rents (#7) ──────────────── */
+
+interface MarketRents {
+  currency: string;
+  totalUnitsSampled: number;
+  buckets: Array<{ key: string; count: number; avgRent: number; minRent: number; maxRent: number; ownerAvg: number | null; deltaPct: number | null }>;
+}
+
+function MarketRentsCard() {
+  const [data, setData] = useState<MarketRents | null>(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => { api<MarketRents>('/property/posys/market-rents').then(setData).catch(() => {}).finally(() => setLoading(false)); }, []);
+  const money = (n: number) => `TZS ${Math.round(n).toLocaleString()}`;
+  if (loading) return <div className="rounded-2xl bg-white border border-slate-200 p-5 text-sm text-slate-500 shadow-sm">Loading market rents…</div>;
+  if (!data || data.buckets.length === 0) return null;
+  return (
+    <div className="rounded-2xl bg-white border border-slate-200 p-5 shadow-sm">
+      <div className="flex items-center justify-between mb-1">
+        <h3 className="text-sm font-bold text-slate-900">Market rents</h3>
+        <span className="text-[11px] text-slate-500">{data.totalUnitsSampled} units sampled</span>
+      </div>
+      <p className="text-xs text-slate-600 mb-3">Trending rents across all KobeOS properties, by room size — and how yours compare.</p>
+      <div className="space-y-2">
+        {data.buckets.map((b) => (
+          <div key={b.key} className="flex items-center justify-between border-b border-slate-100 last:border-0 pb-2">
+            <div>
+              <div className="text-sm font-semibold text-slate-900">{b.key}</div>
+              <div className="text-[11px] text-slate-500">{b.count} units · {money(b.minRent)}–{money(b.maxRent)}</div>
+            </div>
+            <div className="text-right">
+              <div className="text-sm font-bold text-slate-900">avg {money(b.avgRent)}</div>
+              {b.ownerAvg != null && (
+                <div className={`text-[11px] font-semibold ${b.deltaPct != null && b.deltaPct < 0 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                  yours {money(b.ownerAvg)}{b.deltaPct != null ? ` (${b.deltaPct >= 0 ? '+' : ''}${b.deltaPct}%)` : ''}
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 /* ──────────────── Team & contacts (#10) ──────────────── */
 

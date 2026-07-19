@@ -72,6 +72,12 @@ export class PosysController {
     return this.svc.pendingTenants(uid);
   }
 
+  // Market-rent manifest (#7) — platform-wide aggregate + owner comparison.
+  @Get('market-rents')
+  marketRents(@CurrentUser('id') uid: string) {
+    return this.svc.marketRents(uid);
+  }
+
   @Delete('tokens/:id')
   cancelToken(@CurrentUser('id') uid: string, @Param('id') id: string) {
     return this.svc.cancelToken(uid, id);

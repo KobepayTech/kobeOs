@@ -309,6 +309,54 @@ export class PosysService {
     });
   }
 
+  /**
+   * Market-rent manifest (#7). Every unit on the platform contributes to an
+   * anonymised, aggregated view of rents by bedroom count, so an owner can see
+   * trending market rates and how their own rents compare. No owner data is
+   * exposed — only averages/ranges and the caller's own averages.
+   */
+  async marketRents(ownerId: string) {
+    const all = await this.units.find();
+    const bucketOf = (u: PropertyUnit) => {
+      const b = Number(u.bedrooms || 0);
+      return b <= 0 ? 'Studio / other' : `${b} bed`;
+    };
+
+    const market = new Map<string, { count: number; sum: number; min: number; max: number }>();
+    const own = new Map<string, { count: number; sum: number }>();
+    for (const u of all) {
+      const rent = Number(u.rentAmount || 0);
+      if (rent <= 0) continue;
+      const k = bucketOf(u);
+      const m = market.get(k) ?? { count: 0, sum: 0, min: Infinity, max: 0 };
+      m.count += 1; m.sum += rent; m.min = Math.min(m.min, rent); m.max = Math.max(m.max, rent);
+      market.set(k, m);
+      if (u.ownerId === ownerId) {
+        const o = own.get(k) ?? { count: 0, sum: 0 };
+        o.count += 1; o.sum += rent; own.set(k, o);
+      }
+    }
+
+    const buckets = [...market.entries()]
+      .map(([key, v]) => {
+        const avgRent = Math.round(v.sum / v.count);
+        const o = own.get(key);
+        const ownerAvg = o ? Math.round(o.sum / o.count) : null;
+        return {
+          key,
+          count: v.count,
+          avgRent,
+          minRent: v.min === Infinity ? 0 : v.min,
+          maxRent: v.max,
+          ownerAvg,
+          deltaPct: ownerAvg != null && avgRent > 0 ? Math.round(((ownerAvg - avgRent) / avgRent) * 100) : null,
+        };
+      })
+      .sort((a, b) => a.key.localeCompare(b.key));
+
+    return { currency: 'TZS', totalUnitsSampled: all.filter((u) => Number(u.rentAmount) > 0).length, buckets };
+  }
+
   // ── Rent dashboard (#2): collected vs expected + monthly breakdown ──────
 
   /** Month key like "2026-07" from a Date. */
