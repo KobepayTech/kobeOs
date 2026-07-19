@@ -107,6 +107,11 @@ const estateMatch = pathname.match(/^\/estate(?:\/([A-Za-z0-9]{1,8}))?\/?$/i);
 const isEstate = !!estateMatch;
 const estateCode = (estateMatch?.[1] ?? '').toUpperCase();
 
+// Public lawyer/contract portal: /contract or /contract/{CODE}.
+const contractMatch = pathname.match(/^\/contract(?:\/([A-Za-z0-9]{1,8}))?\/?$/i);
+const isContract = !!contractMatch;
+const contractCode = (contractMatch?.[1] ?? '').toUpperCase();
+
 const mount = (node: ReactNode) =>
   createRoot(document.getElementById('root')!).render(node);
 
@@ -165,6 +170,9 @@ if (isOverlay) {
 } else if (isEstate) {
   // Public tenant portal (scanned estate QR): /estate or /estate/{CODE}
   import('./public/PropertyPortal').then(({ default: PropertyPortal }) => mount(<PropertyPortal code={estateCode} />));
+} else if (isContract) {
+  // Public lawyer/contract portal: /contract or /contract/{CODE}
+  import('./public/LawyerPortal').then(({ default: LawyerPortal }) => mount(<LawyerPortal code={contractCode} />));
 } else if (shopSlug) {
   // Any non-reserved wildcard subdomain is a public shop storefront:
   //   https://kelvinfashion.kobeapptz.com

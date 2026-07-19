@@ -108,6 +108,13 @@ export class PosysTokensController {
     return this.svc.portalByToken(code.trim().toUpperCase());
   }
 
+  // Lawyer contract-drafting data (#8): tenant + unit + property + terms.
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Get(':code/contract')
+  contract(@Param('code') code: string) {
+    return this.svc.contractByToken(code.trim().toUpperCase());
+  }
+
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post(':code/redeem')
   redeem(

@@ -129,6 +129,31 @@ export class PosysService {
     };
   }
 
+  /**
+   * Contract-drafting data for the lawyer portal (#8), keyed by a rent token —
+   * same access model as the bank page. Returns the tenant, unit, property and
+   * rent terms a lawyer needs to fill and print a tenancy agreement.
+   */
+  async contractByToken(code: string) {
+    const token = await this.tokens.findOne({ where: { code } });
+    if (!token) throw new NotFoundException('Token not found');
+    const tenant = await this.tenants.findOne({ where: { id: token.tenantId } });
+    const unit = token.unitId ? await this.units.findOne({ where: { id: token.unitId } }) : null;
+    const property = unit?.propertyId ? await this.props.findOne({ where: { id: unit.propertyId } }) : null;
+    return {
+      tenant: {
+        name: tenant?.name ?? '',
+        phone: tenant?.phone ?? '',
+        leaseStart: tenant?.leaseStart ?? null,
+        leaseEnd: tenant?.leaseEnd ?? null,
+      },
+      unit: { label: unit?.unitNumber ?? '', rent: Number(unit?.rentAmount ?? token.amount) },
+      property: { name: property?.name ?? '', address: property?.address ?? '' },
+      annualRent: Number(token.amount),
+      currency: token.currency,
+    };
+  }
+
   // ── Payment tokens ─────────────────────────────────────────────
 
   /**
