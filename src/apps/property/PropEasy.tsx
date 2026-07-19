@@ -7,12 +7,14 @@ import {
   FileDown, ShieldCheck, X,
   Image as ImageIcon,
   Calendar, Activity, MapPin, MessageCircle,
-  LayoutGrid, Sparkles, Ticket,
+  LayoutGrid, Globe, Sparkles, Ticket,
 } from 'lucide-react';
 import {
   BuildingMapView, PaymentCycleRing, TokenDisplay, InsightsView,
   type FloorBlock, type Insight, type CycleMonthStatus, type UnitStatus,
 } from './PosysFeatures';
+import { SiteBuilder, type SiteSection } from '@/components/site-builder/SiteBuilder';
+import { EstateSitePreview, type EstateSite } from './EstateSitePreview';
 
 /**
  * PropEasy — property-management UI for KobeOS, matching the requested
@@ -33,7 +35,7 @@ import {
 
 /* ────────────────────────────── Types ────────────────────────────── */
 
-type View = 'dashboard' | 'properties' | 'tenants' | 'tenant-detail' | 'screening' | 'financials' | 'maintenance' | 'documents' | 'settings' | 'building-map' | 'insights' | 'tokens' | 'team';
+type View = 'dashboard' | 'properties' | 'tenants' | 'tenant-detail' | 'screening' | 'financials' | 'maintenance' | 'documents' | 'settings' | 'building-map' | 'insights' | 'tokens' | 'team' | 'site';
 type TenantStatus = 'rent_paid' | 'overdue' | 'late_fees' | 'in_proceed';
 type UnitKind = 'House' | 'Apartment' | 'Duplex' | 'Studio';
 
@@ -205,6 +207,7 @@ export default function PropEasyApp() {
           {view === 'financials'  && <FinancialsView tenants={tenants} payments={payments} />}
           {view === 'maintenance' && <MaintenanceView properties={properties} />}
           {view === 'team'        && <TeamView />}
+          {view === 'site'        && <PropertySiteBuilderView />}
           {view === 'documents'   && <DocumentsView tenants={tenants} />}
           {view === 'settings'    && <EmptyState title="Settings" subtitle="Reminders, late-fee policy, integrations." />}
           {view === 'building-map' && (
@@ -375,6 +378,7 @@ function titleFor(v: View): string {
     case 'screening':     return 'Tenants';
     case 'financials':    return 'Financials';
     case 'team':          return 'Team & Contacts';
+    case 'site':          return 'Site Builder';
     case 'maintenance':   return 'Maintenance';
     case 'documents':     return 'Documents';
     case 'settings':      return 'Settings';
@@ -396,6 +400,7 @@ function Sidebar({ view, onChange, onInviteTenant }: { view: View; onChange: (v:
     { id: 'financials',   label: 'Financials',   icon: DollarSign },
     { id: 'maintenance',  label: 'Maintenance',  icon: Wrench },
     { id: 'team',         label: 'Team & Contacts', icon: Phone },
+    { id: 'site',         label: 'Site Builder', icon: Globe },
     { id: 'insights',     label: 'Insights',     icon: Sparkles },
     { id: 'documents',    label: 'Documents',    icon: FileText },
     { id: 'settings',     label: 'Settings',     icon: Settings },
@@ -848,6 +853,55 @@ function TenantDetailView({
 /* ════════════════════════════════════════════════════════════════════
    Dashboard view (mockup 4 trimmed for current scope)
    ══════════════════════════════════════════════════════════════════ */
+
+/* ──────────────── Estate site builder (#11 site builder) ──────────────── */
+
+const PROPERTY_SITE_SECTIONS: SiteSection[] = [
+  { title: 'Brand', fields: [
+    { key: 'businessName', label: 'Business name', type: 'text', placeholder: 'Kobe Estates' },
+    { key: 'tagline', label: 'Tagline', type: 'text', placeholder: 'Rentals & property management' },
+    { key: 'primaryColor', label: 'Primary color', type: 'color' },
+  ] },
+  { title: 'Hero', fields: [
+    { key: 'heroHeadline', label: 'Headline', type: 'text', placeholder: 'Quality homes, simple rent.' },
+    { key: 'heroSubtext', label: 'Subtext', type: 'textarea', placeholder: 'Browse units, pay rent with your token…' },
+  ] },
+  { title: 'About', fields: [{ key: 'about', label: 'About us', type: 'textarea', placeholder: 'A short intro to your estate.' }] },
+  { title: 'Services', fields: [{ key: 'services', label: 'Services (one per line)', type: 'textarea', placeholder: '24/7 security\nOn-site plumber\nMonthly cleaning' }] },
+  { title: 'Contact', fields: [
+    { key: 'phone', label: 'Phone', type: 'text', placeholder: '07XX XXX XXX' },
+    { key: 'email', label: 'Email', type: 'text', placeholder: 'hello@estate.co.tz' },
+  ] },
+];
+
+function PropertySiteBuilderView() {
+  const [config, setConfig] = useState<EstateSite>({ primaryColor: '#c8102e' });
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => {
+    api<EstateSite>('/property/site').then((c) => setConfig({ primaryColor: '#c8102e', ...(c || {}) })).catch(() => {});
+  }, []);
+  const save = async () => {
+    setSaving(true); setSaved(false);
+    try { await api('/property/site', { method: 'PUT', body: JSON.stringify(config) }); setSaved(true); setTimeout(() => setSaved(false), 2000); }
+    catch { /* ignore */ } finally { setSaving(false); }
+  };
+  return (
+    <div className="h-full">
+      <SiteBuilder<EstateSite>
+        title="Estate Site Builder"
+        subtitle="Your public tenant site & QR portal"
+        sections={PROPERTY_SITE_SECTIONS}
+        value={config}
+        onChange={setConfig}
+        onSave={save}
+        saving={saving}
+        saved={saved}
+        renderPreview={(c) => <EstateSitePreview config={c} properties={[{ name: 'Sample Court', address: 'Plot 12, Dar es Salaam' }]} />}
+      />
+    </div>
+  );
+}
 
 /* ──────────────── Market rents (#7) ──────────────── */
 

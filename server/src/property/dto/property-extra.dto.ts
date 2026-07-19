@@ -153,3 +153,15 @@ export class CreateRentIncreaseSimulationDto {
   @IsNumber() increasePercent!: number;
   @IsOptional() @IsString() notes?: string;
 }
+
+export class PropertySiteConfigDto {
+  @IsOptional() @IsString() businessName?: string;
+  @IsOptional() @IsString() tagline?: string;
+  @IsOptional() @IsString() primaryColor?: string;
+  @IsOptional() @IsString() heroHeadline?: string;
+  @IsOptional() @IsString() heroSubtext?: string;
+  @IsOptional() @IsString() about?: string;
+  @IsOptional() @IsString() services?: string;
+  @IsOptional() @IsString() phone?: string;
+  @IsOptional() @IsString() email?: string;
+}

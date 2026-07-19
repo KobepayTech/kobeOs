@@ -15,6 +15,7 @@ interface Portal {
   tenant: { name: string; unitLabel: string; status: string; expected: number; paid: number; remaining: number; currency: string; fullyPaid: boolean };
   staff: Array<{ name: string; role: string; phone: string }>;
   properties: Array<{ name: string; address: string }>;
+  site?: { businessName?: string; tagline?: string; primaryColor?: string };
 }
 
 const ROLE_LABEL: Record<string, string> = {
@@ -57,12 +58,14 @@ export default function PropertyPortal({ code: initialCode = '' }: { code?: stri
   return (
     <div className="min-h-[100dvh] bg-slate-100" style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
       <div className="max-w-lg mx-auto p-4 space-y-4">
-        {/* Header */}
-        <div className="bg-slate-900 text-white rounded-2xl px-5 py-4 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-white/10 grid place-items-center"><Home className="w-5 h-5" /></div>
+        {/* Header — branded from the owner's site builder when available */}
+        <div className="rounded-2xl px-5 py-4 flex items-center gap-3 text-white" style={{ backgroundColor: portal?.site?.primaryColor || '#0f172a' }}>
+          <div className="w-10 h-10 rounded-xl bg-white/15 grid place-items-center font-black">
+            {portal?.site?.businessName ? portal.site.businessName.charAt(0).toUpperCase() : <Home className="w-5 h-5" />}
+          </div>
           <div>
-            <div className="text-sm font-bold leading-none">Tenant Portal</div>
-            <div className="text-[11px] text-slate-300 mt-0.5">Rent status &amp; property contacts</div>
+            <div className="text-sm font-bold leading-none">{portal?.site?.businessName || 'Tenant Portal'}</div>
+            <div className="text-[11px] text-white/70 mt-0.5">{portal?.site?.tagline || 'Rent status & property contacts'}</div>
           </div>
         </div>
 

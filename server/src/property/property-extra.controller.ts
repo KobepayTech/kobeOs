@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards, Put } from '@nestjs/common';
 import { IsOptional, IsString } from 'class-validator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -29,6 +29,7 @@ import {
   UpdateExpenseDto,
   UpdateLeaseDto,
   UpdateSettingsDto,
+  PropertySiteConfigDto,
   UpdateVendorDto,
   UpdateWorkOrderDto,
 } from './dto/property-extra.dto';
@@ -172,6 +173,10 @@ export class PropertyExtraController {
 
   @Get('settings') getSettings(@CurrentUser('id') uid: string) { return this.settings.get(uid); }
   @Patch('settings') updateSettings(@CurrentUser('id') uid: string, @Body() dto: UpdateSettingsDto) { return this.settings.update(uid, dto as any); }
+
+  // Public-site builder config (#11 site builder)
+  @Get('site') getSite(@CurrentUser('id') uid: string) { return this.settings.getSite(uid); }
+  @Put('site') saveSite(@CurrentUser('id') uid: string, @Body() dto: PropertySiteConfigDto) { return this.settings.saveSite(uid, dto as any); }
 
   @Get('expenses')
   listExpenses(@CurrentUser('id') uid: string, @Query('propertyId') propertyId?: string) {

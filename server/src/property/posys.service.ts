@@ -5,7 +5,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { LessThan, Repository } from 'typeorm';
 import { randomInt } from 'crypto';
 import {
-  Property, PropertyExpense, PropertyLease, PropertyUnit, PropertyVendor, PropertyWorkOrder,
+  Property, PropertyExpense, PropertyLease, PropertySetting, PropertyUnit, PropertyVendor, PropertyWorkOrder,
   RentCharge, RentPayment, Tenant,
 } from './property.entity';
 import { PropertyPaymentToken } from './posys.entity';
@@ -90,6 +90,7 @@ export class PosysService {
     @InjectRepository(RentCharge)      private readonly charges: Repository<RentCharge>,
     @InjectRepository(PropertyPaymentToken) private readonly tokens: Repository<PropertyPaymentToken>,
     @InjectRepository(PropertyVendor) private readonly vendors: Repository<PropertyVendor>,
+    @InjectRepository(PropertySetting) private readonly settingsRepo: Repository<PropertySetting>,
   ) {}
 
   /**
@@ -102,12 +103,15 @@ export class PosysService {
     const token = await this.tokens.findOne({ where: { code } });
     if (!token) throw new NotFoundException('Token not found');
     const ownerId = token.ownerId;
-    const [tenant, unit, vendors, props] = await Promise.all([
+    const [tenant, unit, vendors, props, siteRow] = await Promise.all([
       this.tenants.findOne({ where: { id: token.tenantId } }),
       token.unitId ? this.units.findOne({ where: { id: token.unitId } }) : Promise.resolve(null),
       this.vendors.find({ where: { ownerId } }),
       this.props.find({ where: { ownerId } }),
+      this.settingsRepo.findOne({ where: { ownerId, key: 'siteConfig' } }),
     ]);
+    let site: Record<string, unknown> = {};
+    try { site = siteRow?.value ? JSON.parse(siteRow.value) : {}; } catch { site = {}; }
     const expected = Number(token.amount);
     const paid = Number(token.usedAmount);
     const expired = token.status === 'ACTIVE' && token.expiresAt.getTime() < Date.now();
@@ -126,6 +130,7 @@ export class PosysService {
         .filter((v) => v.name)
         .map((v) => ({ name: v.name, role: v.category, phone: v.phone })),
       properties: props.map((p) => ({ name: p.name, address: p.address })),
+      site,
     };
   }
 
