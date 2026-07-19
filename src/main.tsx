@@ -43,6 +43,11 @@ const subMe    = appSub === 'me';
 const subTrack = appSub === 'track';
 const subPosys = appSub === 'posys';
 const subCargoTz = appSub === 'cargotz';
+// Property module subdomains (#9)
+const subProperty = appSub === 'property';
+const subEstate   = appSub === 'estate';
+const subPay      = appSub === 'pay';
+const subContract = appSub === 'contract';
 
 // Path helper — match a URL segment exactly (either the whole path is
 // the segment, or the segment is followed by `/`). Prevents /me from
@@ -97,20 +102,24 @@ const ctzMatch = pathname.match(/^\/ctz(?:\/([A-Za-z0-9-]+))?\/?$/);
 const isCtzTrack = !!ctzMatch;
 const ctzTracking = ctzMatch?.[1] ?? '';
 
-// Public rent-collection panel for banks/agents: /pay or /pay/{CODE} (scanned QR).
+// On a module subdomain (pay./estate./contract.) the token may be the first
+// path segment, e.g. pay.kobeapptz.com/D8487KXS.
+const bareCode = (pathname.match(/^\/([A-Za-z0-9]{8})\/?$/)?.[1] ?? '').toUpperCase();
+
+// Public rent-collection panel for banks/agents: /pay, /pay/{CODE}, or pay.*
 const payMatch = pathname.match(/^\/pay(?:\/([A-Za-z0-9]{1,8}))?\/?$/i);
-const isRentPay = !!payMatch;
-const rentPayCode = (payMatch?.[1] ?? '').toUpperCase();
+const isRentPay = !!payMatch || subPay;
+const rentPayCode = (payMatch?.[1]?.toUpperCase()) || (subPay ? bareCode : '');
 
-// Public tenant portal (scanned estate QR): /estate or /estate/{CODE}.
+// Public tenant portal (scanned estate QR): /estate, /estate/{CODE}, or estate.*
 const estateMatch = pathname.match(/^\/estate(?:\/([A-Za-z0-9]{1,8}))?\/?$/i);
-const isEstate = !!estateMatch;
-const estateCode = (estateMatch?.[1] ?? '').toUpperCase();
+const isEstate = !!estateMatch || subEstate;
+const estateCode = (estateMatch?.[1]?.toUpperCase()) || (subEstate ? bareCode : '');
 
-// Public lawyer/contract portal: /contract or /contract/{CODE}.
+// Public lawyer/contract portal: /contract, /contract/{CODE}, or contract.*
 const contractMatch = pathname.match(/^\/contract(?:\/([A-Za-z0-9]{1,8}))?\/?$/i);
-const isContract = !!contractMatch;
-const contractCode = (contractMatch?.[1] ?? '').toUpperCase();
+const isContract = !!contractMatch || subContract;
+const contractCode = (contractMatch?.[1]?.toUpperCase()) || (subContract ? bareCode : '');
 
 const mount = (node: ReactNode) =>
   createRoot(document.getElementById('root')!).render(node);
@@ -173,6 +182,10 @@ if (isOverlay) {
 } else if (isContract) {
   // Public lawyer/contract portal: /contract or /contract/{CODE}
   import('./public/LawyerPortal').then(({ default: LawyerPortal }) => mount(<LawyerPortal code={contractCode} />));
+} else if (subProperty) {
+  // Property management app, standalone via property.kobeapptz.com (#9)
+  import('./apps/property/PropEasy').then(({ default: PropEasy }) =>
+    mount(<div className="h-screen w-screen overflow-hidden"><PropEasy /></div>));
 } else if (shopSlug) {
   // Any non-reserved wildcard subdomain is a public shop storefront:
   //   https://kelvinfashion.kobeapptz.com

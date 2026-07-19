@@ -20,6 +20,8 @@ const RESERVED_SUBDOMAINS = new Set([
   // Public app subdomains — see APP_SUBDOMAINS below. Listed here too
   // so the tenant detector doesn't treat them as a customer slug.
   'tuma', 'mzigo', 'me', 'track', 'posys', 'cargo', 'cargotz',
+  // Property module subdomains (#9).
+  'property', 'estate', 'pay', 'contract',
 ]);
 
 /**
@@ -37,6 +39,11 @@ export const APP_SUBDOMAINS = {
   posys:  'posys',    // POSys property + hotel ops (bilingual)
   cargo:  'mzigo',    // Friendly alias → Mzigo
   cargotz: 'cargotz', // Cargo TZ — domestic ground transport, standalone
+  // Property module (#9) — reachable from anywhere via subdomain.
+  property: 'property', // Property management app (standalone)
+  estate:  'estate',   // Tenant portal (token-gated)
+  pay:     'pay',      // Bank/agent rent-collection panel
+  contract: 'contract', // Lawyer contract portal
 } as const;
 
 export type PublicAppId = (typeof APP_SUBDOMAINS)[keyof typeof APP_SUBDOMAINS];
