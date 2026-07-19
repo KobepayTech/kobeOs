@@ -10,9 +10,23 @@ import {
 } from './property.entity';
 import { PropertyPaymentToken } from './posys.entity';
 
-const TOKEN_ALPHABET_DIGITS = '0123456789';
-const TOKEN_LEN = 6;
-const TOKEN_TTL_MS = 30 * 60 * 1000;
+// 8-char tokens with BOTH letters and digits, minus ambiguous glyphs
+// (0/O, 1/I/L) so they read cleanly off a phone and type easily at a bank.
+const TOKEN_LETTERS = 'ABCDEFGHJKMNPQRSTUVWXYZ';
+const TOKEN_DIGITS = '23456789';
+const TOKEN_ALPHABET = TOKEN_LETTERS + TOKEN_DIGITS;
+const TOKEN_LEN = 8;
+// A rent token is the tenant's payment id for the whole period, so it lives
+// long enough to accept partial payments across weeks (45 days), not minutes.
+const TOKEN_TTL_MS = 45 * 24 * 60 * 60 * 1000;
+
+/** 8-char code guaranteed to contain at least one letter and one digit. */
+function genTokenCode(): string {
+  for (;;) {
+    const code = Array.from({ length: TOKEN_LEN }, () => TOKEN_ALPHABET[randomInt(0, TOKEN_ALPHABET.length)]).join('');
+    if (/[A-Z]/.test(code) && /[0-9]/.test(code)) return code;
+  }
+}
 
 export interface BuildingMapUnit {
   id: string;
@@ -94,7 +108,7 @@ export class PosysService {
     if (dto.amount <= 0) throw new BadRequestException('amount must be > 0');
     const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);
     for (let i = 0; i < 6; i++) {
-      const code = Array.from({ length: TOKEN_LEN }, () => TOKEN_ALPHABET_DIGITS[randomInt(0, TOKEN_ALPHABET_DIGITS.length)]).join('');
+      const code = genTokenCode();
       const exists = await this.tokens.findOne({ where: { code, status: 'ACTIVE' } });
       if (exists) continue;
       return this.tokens.save(this.tokens.create({
@@ -127,13 +141,47 @@ export class PosysService {
   }
 
   /**
+   * Enriched, owner-safe view of a token for the public bank/agent page:
+   * the tenant's name (so the clerk confirms who they're collecting for),
+   * the expected amount, what's already been paid against this token, and
+   * what remains. Never exposes ownerId or internal ids.
+   */
+  async lookupTokenForAgent(code: string) {
+    const row = await this.tokens.findOne({ where: { code } });
+    if (!row) throw new NotFoundException('Token not found');
+    const tenant = await this.tenants.findOne({ where: { id: row.tenantId } });
+    const expired = row.status === 'ACTIVE' && row.expiresAt.getTime() < Date.now();
+    const expected = Number(row.amount);
+    const paid = Number(row.usedAmount);
+    return {
+      code: row.code,
+      status: expired ? 'EXPIRED' : row.status,
+      tenantName: tenant?.name ?? 'Tenant',
+      expected,
+      paid,
+      remaining: Math.max(0, expected - paid),
+      currency: row.currency,
+      expiresAt: row.expiresAt,
+      fullyPaid: row.status === 'USED',
+    };
+  }
+
+  /**
    * Redeem a token atomically. The transaction opens a
    * `SELECT … FOR UPDATE` row-lock so two concurrent redeems can't
    * both pass the ACTIVE check — the second call sees status='USED'
    * and rejects with "Token is used". Also sweeps EXPIRED here so an
    * expired-past-TTL row is refused inside the same critical section.
    */
-  async redeemToken(code: string, dto: { amountReceived: number; agentId?: string }): Promise<PropertyPaymentToken> {
+  async redeemToken(code: string, dto: { amountReceived: number; agentId?: string }): Promise<{
+    code: string;
+    status: PropertyPaymentToken['status'];
+    expected: number;
+    paid: number;
+    remaining: number;
+    currency: string;
+    fullyPaid: boolean;
+  }> {
     if (dto.amountReceived <= 0) throw new BadRequestException('amountReceived must be > 0');
     return this.tokens.manager.transaction(async (tx) => {
       const repo = tx.getRepository(PropertyPaymentToken);
@@ -149,11 +197,52 @@ export class PosysService {
         throw new BadRequestException('Token is expired');
       }
       if (row.status !== 'ACTIVE') throw new BadRequestException(`Token is ${row.status.toLowerCase()}`);
-      row.status = 'USED';
+
+      // Accumulate — a half payment leaves the SAME token ACTIVE so the tenant
+      // completes it later with the same code. The token only closes (USED)
+      // once the total received reaches the expected amount.
+      row.usedAmount = Number(row.usedAmount) + dto.amountReceived;
       row.usedAt = new Date();
-      row.usedAmount = dto.amountReceived;
       row.agentId = dto.agentId ?? null;
-      return repo.save(row);
+      const expected = Number(row.amount);
+      const fullyPaid = row.usedAmount >= expected;
+      if (fullyPaid) row.status = 'USED';
+      await repo.save(row);
+
+      // Record the actual money received as a RentPayment. Entering the token
+      // is the ONLY path that records rent — no token, no payment. unitId is
+      // required on a payment, so fall back to the tenant's unit when the token
+      // wasn't tied to one.
+      let unitId = row.unitId ?? null;
+      if (!unitId) {
+        const tenant = await tx.getRepository(Tenant).findOne({ where: { id: row.tenantId } });
+        unitId = tenant?.unitId ?? null;
+      }
+      if (unitId) {
+        const payRepo = tx.getRepository(RentPayment);
+        const now = new Date();
+        await payRepo.save(payRepo.create({
+          ownerId: row.ownerId,
+          tenantId: row.tenantId,
+          unitId,
+          amount: dto.amountReceived,
+          currency: row.currency,
+          forMonth: new Date(now.getFullYear(), now.getMonth(), 1),
+          paidAt: now,
+          method: 'TOKEN',
+          reference: row.code,
+        }));
+      }
+
+      return {
+        code: row.code,
+        status: row.status,
+        expected,
+        paid: row.usedAmount,
+        remaining: Math.max(0, expected - row.usedAmount),
+        currency: row.currency,
+        fullyPaid,
+      };
     });
   }
 

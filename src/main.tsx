@@ -97,6 +97,11 @@ const ctzMatch = pathname.match(/^\/ctz(?:\/([A-Za-z0-9-]+))?\/?$/);
 const isCtzTrack = !!ctzMatch;
 const ctzTracking = ctzMatch?.[1] ?? '';
 
+// Public rent-collection panel for banks/agents: /pay or /pay/{CODE} (scanned QR).
+const payMatch = pathname.match(/^\/pay(?:\/([A-Za-z0-9]{1,8}))?\/?$/i);
+const isRentPay = !!payMatch;
+const rentPayCode = (payMatch?.[1] ?? '').toUpperCase();
+
 const mount = (node: ReactNode) =>
   createRoot(document.getElementById('root')!).render(node);
 
@@ -149,6 +154,9 @@ if (isOverlay) {
 } else if (isCtzTrack) {
   // Public Cargo TZ parcel tracker (scanned QR): /ctz/{tracking}
   import('./public/CargoTzTrack').then(({ default: CargoTzTrack }) => mount(<CargoTzTrack tracking={ctzTracking} />));
+} else if (isRentPay) {
+  // Public bank/agent rent-collection panel: /pay or /pay/{CODE}
+  import('./public/RentPay').then(({ default: RentPay }) => mount(<RentPay code={rentPayCode} />));
 } else if (shopSlug) {
   // Any non-reserved wildcard subdomain is a public shop storefront:
   //   https://kelvinfashion.kobeapptz.com

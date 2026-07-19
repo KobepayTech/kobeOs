@@ -4,6 +4,7 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
+import { Public } from '../common/public.decorator';
 import { PosysService } from './posys.service';
 
 @UseGuards(JwtAuthGuard)
@@ -78,6 +79,7 @@ export class PosysController {
  * at-least-once retry middleware can't flip a token to EXPIRED before
  * the cashier's real scan reads it.
  */
+@Public()
 @Controller('property/tokens')
 export class PosysTokensController {
   constructor(private readonly svc: PosysService) {}
@@ -85,7 +87,7 @@ export class PosysTokensController {
   @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Get(':code')
   lookup(@Param('code') code: string) {
-    return this.svc.lookupTokenReadOnly(code.trim().toUpperCase());
+    return this.svc.lookupTokenForAgent(code.trim().toUpperCase());
   }
 
   @Throttle({ default: { limit: 5, ttl: 60_000 } })

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
 import {
   Building2, Layers, Search, AlertTriangle, TrendingUp, TrendingDown, Zap,
   CheckCircle2, Clock, XCircle, Wrench, Sparkles, Copy, Share2, RefreshCw,
@@ -298,7 +299,7 @@ function Legend({ dot, label }: { dot: string; label: string }) {
 /* ─── 3. PAYMENT TOKEN DISPLAY ──────────────────────────────────── */
 
 export interface TokenDisplayProps {
-  code: string;                  // 6-digit
+  code: string;                  // 8-char alphanumeric
   expiresInSec: number;
   amount: number;
   tenantName: string;
@@ -309,25 +310,43 @@ export interface TokenDisplayProps {
 }
 
 export function TokenDisplay({ code, expiresInSec, amount, tenantName, unitLabel, onCopy, onShare, onCancel }: TokenDisplayProps) {
-  const mins = Math.floor(expiresInSec / 60);
-  const secs = expiresInSec % 60;
   const fmt = (n: number) => `TZS ${Math.round(n).toLocaleString()}`;
   const expired = expiresInSec <= 0;
+  const days = Math.floor(expiresInSec / 86400);
+  const hours = Math.floor(expiresInSec / 3600);
+  const mm = Math.floor((expiresInSec % 3600) / 60);
+  const ss = expiresInSec % 60;
+  const expiryText = expired
+    ? 'Expired — generate a new token'
+    : days >= 1 ? `Valid for ${days} day${days > 1 ? 's' : ''}`
+    : hours >= 1 ? `Valid for ${hours} hour${hours > 1 ? 's' : ''}`
+    : `Expires in ${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+  // The QR sends a bank clerk / agent straight to the collection panel with
+  // this token prefilled: {origin}/pay/{CODE}.
+  const payUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/pay/${code}`;
   return (
     <div className="rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 p-6 text-white shadow-lg">
       <div className="text-[10px] uppercase font-bold tracking-[0.2em] opacity-80 mb-2">
         {expired ? 'Token expired' : 'Payment token'}
       </div>
-      <div className="flex items-center gap-2 font-mono font-black text-4xl tracking-widest">
-        {code.split('').map((d, i) => (
-          <span key={i} className="bg-white/15 rounded-md px-3 py-1.5 min-w-[2.4rem] text-center">
-            {d}
-          </span>
-        ))}
-      </div>
-      <div className={`mt-3 inline-flex items-center gap-1.5 text-sm font-bold ${expired ? 'text-rose-200' : 'text-amber-200'}`}>
-        <Clock className="w-4 h-4" />
-        {expired ? 'Expired — generate a new token' : `Expires in ${String(mins).padStart(2,'0')}:${String(secs).padStart(2,'0')}`}
+      <div className="flex items-start gap-4">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 font-mono font-black text-2xl sm:text-3xl tracking-widest flex-wrap">
+            {code.split('').map((d, i) => (
+              <span key={i} className="bg-white/15 rounded-md px-2 py-1 min-w-[1.7rem] text-center">
+                {d}
+              </span>
+            ))}
+          </div>
+          <div className={`mt-3 inline-flex items-center gap-1.5 text-sm font-bold ${expired ? 'text-rose-200' : 'text-amber-200'}`}>
+            <Clock className="w-4 h-4" />
+            {expiryText}
+          </div>
+        </div>
+        {/* QR — tenant shows it to a bank/agent, or scans it themselves */}
+        <div className="shrink-0 bg-white rounded-xl p-2 grid place-items-center">
+          <QRCodeSVG value={payUrl} size={92} level="M" />
+        </div>
       </div>
       <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
         <div className="bg-white/10 rounded-lg p-2.5">

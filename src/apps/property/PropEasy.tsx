@@ -1765,7 +1765,7 @@ function TokensView({ tenants }: { tenants: ApiTenant[] }) {
       </div>
       <div className="rounded-2xl bg-white border border-slate-200 p-5 shadow-sm">
         <h3 className="text-sm font-bold text-slate-900 mb-1">Recent tokens</h3>
-        <p className="text-xs text-slate-700 mb-3">Auto-expire 30 min after issue</p>
+        <p className="text-xs text-slate-700 mb-3">Valid 45 days · accept partial payments at a bank or agent (/pay)</p>
         {tokens.length === 0 ? (
           <p className="text-xs text-slate-500">{loading ? 'Loading…' : 'No tokens issued yet.'}</p>
         ) : (
