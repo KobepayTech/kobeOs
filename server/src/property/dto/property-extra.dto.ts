@@ -49,7 +49,7 @@ export class UpdateChargeDto {
 
 export class CreateVendorDto {
   @IsString() name!: string;
-  @IsOptional() @IsEnum(['plumber', 'electrician', 'hvac', 'handyman', 'cleaning', 'landscaping', 'general']) category?: 'plumber' | 'electrician' | 'hvac' | 'handyman' | 'cleaning' | 'landscaping' | 'general';
+  @IsOptional() @IsEnum(['plumber', 'electrician', 'hvac', 'handyman', 'cleaning', 'landscaping', 'security', 'manager', 'general']) category?: 'plumber' | 'electrician' | 'hvac' | 'handyman' | 'cleaning' | 'landscaping' | 'security' | 'manager' | 'general';
   @IsOptional() @IsString() phone?: string;
   @IsOptional() @IsString() email?: string;
   @IsOptional() @IsString() color?: string;
@@ -57,7 +57,7 @@ export class CreateVendorDto {
 }
 export class UpdateVendorDto {
   @IsOptional() @IsString() name?: string;
-  @IsOptional() @IsEnum(['plumber', 'electrician', 'hvac', 'handyman', 'cleaning', 'landscaping', 'general']) category?: 'plumber' | 'electrician' | 'hvac' | 'handyman' | 'cleaning' | 'landscaping' | 'general';
+  @IsOptional() @IsEnum(['plumber', 'electrician', 'hvac', 'handyman', 'cleaning', 'landscaping', 'security', 'manager', 'general']) category?: 'plumber' | 'electrician' | 'hvac' | 'handyman' | 'cleaning' | 'landscaping' | 'security' | 'manager' | 'general';
   @IsOptional() @IsString() phone?: string;
   @IsOptional() @IsString() email?: string;
   @IsOptional() @IsString() color?: string;

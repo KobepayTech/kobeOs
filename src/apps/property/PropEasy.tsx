@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import {
-  Home, Building2, Users, DollarSign, Wrench, FileText, Settings, LogOut,
+  Phone, Home, Building2, Users, DollarSign, Wrench, FileText, Settings, LogOut,
   Search, Bell, ChevronDown, Plus, ArrowLeft, ArrowRight,
   Info, Pencil, Trash2, Filter, Columns3, ChevronRight, MoreHorizontal,
   FileDown, ShieldCheck, X,
@@ -33,7 +33,7 @@ import {
 
 /* ────────────────────────────── Types ────────────────────────────── */
 
-type View = 'dashboard' | 'properties' | 'tenants' | 'tenant-detail' | 'screening' | 'financials' | 'maintenance' | 'documents' | 'settings' | 'building-map' | 'insights' | 'tokens';
+type View = 'dashboard' | 'properties' | 'tenants' | 'tenant-detail' | 'screening' | 'financials' | 'maintenance' | 'documents' | 'settings' | 'building-map' | 'insights' | 'tokens' | 'team';
 type TenantStatus = 'rent_paid' | 'overdue' | 'late_fees' | 'in_proceed';
 type UnitKind = 'House' | 'Apartment' | 'Duplex' | 'Studio';
 
@@ -204,6 +204,7 @@ export default function PropEasyApp() {
           {view === 'properties'  && <PropertiesView properties={properties} />}
           {view === 'financials'  && <FinancialsView tenants={tenants} payments={payments} />}
           {view === 'maintenance' && <MaintenanceView properties={properties} />}
+          {view === 'team'        && <TeamView />}
           {view === 'documents'   && <DocumentsView tenants={tenants} />}
           {view === 'settings'    && <EmptyState title="Settings" subtitle="Reminders, late-fee policy, integrations." />}
           {view === 'building-map' && (
@@ -370,6 +371,7 @@ function titleFor(v: View): string {
     case 'tenant-detail': return 'Tenants';
     case 'screening':     return 'Tenants';
     case 'financials':    return 'Financials';
+    case 'team':          return 'Team & Contacts';
     case 'maintenance':   return 'Maintenance';
     case 'documents':     return 'Documents';
     case 'settings':      return 'Settings';
@@ -390,6 +392,7 @@ function Sidebar({ view, onChange, onInviteTenant }: { view: View; onChange: (v:
     { id: 'tokens',       label: 'Payment Tokens', icon: Ticket },
     { id: 'financials',   label: 'Financials',   icon: DollarSign },
     { id: 'maintenance',  label: 'Maintenance',  icon: Wrench },
+    { id: 'team',         label: 'Team & Contacts', icon: Phone },
     { id: 'insights',     label: 'Insights',     icon: Sparkles },
     { id: 'documents',    label: 'Documents',    icon: FileText },
     { id: 'settings',     label: 'Settings',     icon: Settings },
@@ -842,6 +845,97 @@ function TenantDetailView({
 /* ════════════════════════════════════════════════════════════════════
    Dashboard view (mockup 4 trimmed for current scope)
    ══════════════════════════════════════════════════════════════════ */
+
+/* ──────────────── Team & contacts (#10) ──────────────── */
+
+interface ApiVendor { id: string; name: string; category?: string; phone?: string; email?: string }
+const STAFF_ROLES = [
+  { value: 'manager', label: 'Property manager' },
+  { value: 'security', label: 'Guard / security' },
+  { value: 'plumber', label: 'Plumber' },
+  { value: 'electrician', label: 'Electrician' },
+  { value: 'cleaning', label: 'Cleaner' },
+  { value: 'handyman', label: 'Handyman' },
+  { value: 'landscaping', label: 'Landscaping' },
+  { value: 'hvac', label: 'HVAC / AC' },
+  { value: 'general', label: 'Other' },
+];
+const roleLabel = (v?: string) => STAFF_ROLES.find((r) => r.value === v)?.label ?? (v || 'Other');
+
+function TeamView() {
+  const [vendors, setVendors] = useState<ApiVendor[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [addOpen, setAddOpen] = useState(false);
+  const load = useCallback(async () => {
+    try { const v = await api<ApiVendor[]>('/property/vendors'); setVendors(Array.isArray(v) ? v : []); }
+    catch { /* leave */ } finally { setLoading(false); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+  const del = async (v: ApiVendor) => {
+    setVendors((p) => p.filter((x) => x.id !== v.id));
+    try { await api(`/property/vendors/${v.id}`, { method: 'DELETE' }); } finally { void load(); }
+  };
+  return (
+    <div className="px-6 pb-6 space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-extrabold text-slate-900">Team &amp; contacts</h2>
+          <p className="text-xs text-slate-600">Managers, guards, plumbers, electricians, cleaners — also shown on your tenant portal.</p>
+        </div>
+        <button onClick={() => setAddOpen(true)} className="px-3.5 py-2 rounded-xl bg-blue-600 text-white font-semibold text-xs hover:bg-blue-500 flex items-center gap-1.5"><Plus className="w-3.5 h-3.5" /> Add person</button>
+      </div>
+      {vendors.length === 0 ? (
+        <EmptyState title="No team yet" subtitle={loading ? 'Loading…' : 'Add your property manager, guards and technicians.'} />
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {vendors.map((v) => (
+            <div key={v.id} className="rounded-2xl bg-white border border-slate-200 p-4 shadow-sm">
+              <div className="flex items-start justify-between">
+                <div className="min-w-0">
+                  <div className="text-sm font-bold text-slate-900 truncate">{v.name}</div>
+                  <div className="text-[11px] text-blue-600 font-semibold">{roleLabel(v.category)}</div>
+                </div>
+                <button onClick={() => del(v)} className="text-slate-300 hover:text-rose-600"><Trash2 className="w-3.5 h-3.5" /></button>
+              </div>
+              {v.phone ? (
+                <div className="mt-3 flex gap-2">
+                  <a href={`tel:${v.phone}`} className="flex-1 h-8 rounded-lg border border-slate-200 text-slate-700 text-xs font-semibold inline-flex items-center justify-center gap-1.5 hover:bg-slate-50"><Phone className="w-3.5 h-3.5" /> Call</a>
+                  <a href={`https://wa.me/${v.phone.replace(/\D/g, '').replace(/^0/, '255')}`} target="_blank" rel="noreferrer" className="flex-1 h-8 rounded-lg bg-emerald-600 text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5"><MessageCircle className="w-3.5 h-3.5" /> WhatsApp</a>
+                </div>
+              ) : <div className="mt-2 text-[11px] text-slate-400">No phone on file</div>}
+            </div>
+          ))}
+        </div>
+      )}
+      {addOpen && <VendorModal onClose={() => setAddOpen(false)} onSaved={() => { setAddOpen(false); void load(); }} />}
+    </div>
+  );
+}
+
+function VendorModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const [form, setForm] = useState({ name: '', category: 'manager', phone: '' });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const set = (k: keyof typeof form) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const submit = async () => {
+    setErr(null);
+    if (!form.name.trim()) { setErr('Name is required.'); return; }
+    setSaving(true);
+    try { await api('/property/vendors', { method: 'POST', body: JSON.stringify({ name: form.name.trim(), category: form.category, phone: form.phone.trim() || undefined }) }); onSaved(); }
+    catch (e) { setErr(e instanceof Error ? e.message : 'Could not save.'); } finally { setSaving(false); }
+  };
+  return (
+    <ModalShell title="Add team member" onClose={onClose}>
+      <Field label="Full name *"><input value={form.name} onChange={set('name')} className={inputCls} placeholder="e.g. Juma Bakari" /></Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Role"><select value={form.category} onChange={set('category')} className={inputCls}>{STAFF_ROLES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}</select></Field>
+        <Field label="Phone"><input value={form.phone} onChange={set('phone')} inputMode="tel" className={inputCls} placeholder="07XX XXX XXX" /></Field>
+      </div>
+      {err && <p className="text-xs text-rose-600">{err}</p>}
+      <ModalActions saving={saving} onClose={onClose} onSubmit={submit} label="Add person" />
+    </ModalShell>
+  );
+}
 
 /* ──────────────── Rent collection rollup (#2) ──────────────── */
 
