@@ -38,7 +38,7 @@ type TenantStatus = 'rent_paid' | 'overdue' | 'late_fees' | 'in_proceed';
 type UnitKind = 'House' | 'Apartment' | 'Duplex' | 'Studio';
 
 interface ApiProperty   { id: string; name: string; address: string; imageUrl?: string }
-interface ApiUnit       { id: string; propertyId: string; kind?: UnitKind; rent?: number }
+interface ApiUnit       { id: string; propertyId: string; unitNumber?: string; type?: string; rentAmount?: number; status?: string; kind?: UnitKind; rent?: number }
 interface ApiTenant     {
   id: string;
   name: string;
@@ -350,6 +350,15 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">{label}</span>
       <div className="mt-1">{children}</div>
     </label>
+  );
+}
+
+function Row({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div className="flex items-center justify-between text-sm">
+      <span className="text-slate-500">{label}</span>
+      <span className={strong ? 'font-bold text-slate-900' : 'text-slate-700'}>{value}</span>
+    </div>
   );
 }
 
@@ -1785,45 +1794,275 @@ function FinancialsView({ tenants, payments }: { tenants: ApiTenant[]; payments:
 
 /* ────────────────────────────── Properties View ────────────────────────── */
 
-function PropertiesView({ properties }: { properties: ApiProperty[] }) {
-  // Buildings come from the shell (GET /property/properties); pull units here.
+const unitRent = (u: ApiUnit) => Number(u.rentAmount ?? u.rent ?? 0);
+const unitLabel = (u: ApiUnit) => u.unitNumber || u.kind || 'Unit';
+
+function PropertiesView({ properties: initialProps }: { properties: ApiProperty[] }) {
+  const [properties, setProperties] = useState<ApiProperty[]>(initialProps);
   const [units, setUnits] = useState<ApiUnit[]>([]);
   const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    api<ApiUnit[]>('/property/units')
-      .then((u) => setUnits(Array.isArray(u) ? u : []))
-      .catch(() => { /* leave empty */ })
-      .finally(() => setLoading(false));
-  }, []);
+  const [addPropOpen, setAddPropOpen] = useState(false);
+  const [editProp, setEditProp] = useState<ApiProperty | null>(null);
+  const [addUnitFor, setAddUnitFor] = useState<ApiProperty | null>(null);
+  const [simFor, setSimFor] = useState<ApiProperty | null>(null);
 
-  if (properties.length === 0) {
-    return <EmptyState title="Properties" subtitle={loading ? 'Loading…' : 'No properties yet. Add a building to get started.'} />;
-  }
+  const load = useCallback(async () => {
+    try {
+      const [p, u] = await Promise.all([
+        api<ApiProperty[]>('/property/properties'),
+        api<ApiUnit[]>('/property/units'),
+      ]);
+      setProperties(Array.isArray(p) ? p : []);
+      setUnits(Array.isArray(u) ? u : []);
+    } catch { /* keep current */ }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const setUnitRent = async (u: ApiUnit, rentAmount: number) => {
+    setUnits((prev) => prev.map((x) => (x.id === u.id ? { ...x, rentAmount } : x)));
+    try { await api(`/property/units/${u.id}`, { method: 'PATCH', body: JSON.stringify({ rentAmount }) }); }
+    catch { void load(); }
+  };
+  const deleteProperty = async (p: ApiProperty) => {
+    if (!confirm(`Delete "${p.name}" and its units?`)) return;
+    setProperties((prev) => prev.filter((x) => x.id !== p.id));
+    try { await api(`/property/properties/${p.id}`, { method: 'DELETE' }); } finally { void load(); }
+  };
+
   return (
-    <div className="px-6 pb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-      {properties.map((p) => {
-        const pu = units.filter((u) => u.propertyId === p.id);
-        const totalRent = pu.reduce((s, u) => s + (u.rent ?? 0), 0);
-        return (
-          <div key={p.id} className="rounded-2xl bg-white border border-slate-200 p-5 shadow-sm">
-            <h3 className="text-base font-bold text-slate-900">{p.name}</h3>
-            <p className="text-xs text-slate-600 mb-3">{p.address}</p>
-            <div className="flex gap-5 text-sm mb-3">
-              <div><span className="font-bold text-slate-900">{pu.length}</span> <span className="text-slate-600">units</span></div>
-              <div><span className="font-bold text-slate-900">TZS {totalRent.toLocaleString()}</span> <span className="text-slate-600">/mo potential</span></div>
-            </div>
-            <ul className="space-y-1">
-              {pu.slice(0, 10).map((u) => (
-                <li key={u.id} className="flex justify-between text-xs border-b border-slate-100 last:border-0 pb-1">
-                  <span className="text-slate-700">{u.kind ?? 'Unit'}</span>
-                  <span className="font-medium text-slate-900">TZS {(u.rent ?? 0).toLocaleString()}</span>
-                </li>
-              ))}
-              {pu.length === 0 && <li className="text-xs text-slate-500">{loading ? 'Loading units…' : 'No units recorded.'}</li>}
-            </ul>
-          </div>
-        );
-      })}
+    <div className="px-6 pb-6 space-y-4">
+      <div className="flex items-center justify-between">
+        <h2 className="text-lg font-extrabold text-slate-900">Properties &amp; rooms</h2>
+        <button onClick={() => setAddPropOpen(true)} className="px-3.5 py-2 rounded-xl bg-blue-600 text-white font-semibold text-xs hover:bg-blue-500 flex items-center gap-1.5">
+          <Plus className="w-3.5 h-3.5" /> Add property
+        </button>
+      </div>
+
+      {properties.length === 0 ? (
+        <EmptyState title="Properties" subtitle={loading ? 'Loading…' : 'No properties yet. Add a building to get started.'} />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {properties.map((p) => {
+            const pu = units.filter((u) => u.propertyId === p.id);
+            const totalRent = pu.reduce((s, u) => s + unitRent(u), 0);
+            const occupied = pu.filter((u) => u.status === 'occupied').length;
+            return (
+              <div key={p.id} className="rounded-2xl bg-white border border-slate-200 p-5 shadow-sm">
+                <div className="flex items-start justify-between">
+                  <div className="min-w-0">
+                    <h3 className="text-base font-bold text-slate-900 truncate">{p.name}</h3>
+                    <p className="text-xs text-slate-600">{p.address || '—'}</p>
+                  </div>
+                  <div className="flex gap-1 shrink-0">
+                    <button onClick={() => setEditProp(p)} title="Edit" className="w-7 h-7 rounded-lg border border-slate-200 grid place-items-center text-slate-500 hover:text-slate-900"><Edit3 className="w-3.5 h-3.5" /></button>
+                    <button onClick={() => deleteProperty(p)} title="Delete" className="w-7 h-7 rounded-lg border border-slate-200 grid place-items-center text-slate-400 hover:text-rose-600"><Trash2 className="w-3.5 h-3.5" /></button>
+                  </div>
+                </div>
+
+                <div className="flex gap-5 text-sm my-3">
+                  <div><span className="font-bold text-slate-900">{pu.length}</span> <span className="text-slate-600">rooms</span></div>
+                  <div><span className="font-bold text-slate-900">{occupied}</span> <span className="text-slate-600">occupied</span></div>
+                  <div><span className="font-bold text-slate-900">TZS {totalRent.toLocaleString()}</span> <span className="text-slate-600">/mo</span></div>
+                </div>
+
+                <ul className="space-y-1 mb-3">
+                  {pu.length === 0 && <li className="text-xs text-slate-500">{loading ? 'Loading rooms…' : 'No rooms yet.'}</li>}
+                  {pu.map((u) => (
+                    <UnitRow key={u.id} unit={u} onSetRent={(v) => setUnitRent(u, v)} />
+                  ))}
+                </ul>
+
+                <div className="flex gap-2">
+                  <button onClick={() => setAddUnitFor(p)} className="flex-1 h-8 rounded-lg border border-slate-200 text-slate-700 text-xs font-semibold hover:bg-slate-50 inline-flex items-center justify-center gap-1.5">
+                    <Plus className="w-3.5 h-3.5" /> Add room
+                  </button>
+                  <button onClick={() => setSimFor(p)} className="flex-1 h-8 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 text-xs font-semibold hover:bg-blue-100 inline-flex items-center justify-center gap-1.5">
+                    <Activity className="w-3.5 h-3.5" /> Rent simulation
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {addPropOpen && <PropertyModal onClose={() => setAddPropOpen(false)} onSaved={() => { setAddPropOpen(false); void load(); }} />}
+      {editProp && <PropertyModal property={editProp} onClose={() => setEditProp(null)} onSaved={() => { setEditProp(null); void load(); }} />}
+      {addUnitFor && <UnitModal property={addUnitFor} onClose={() => setAddUnitFor(null)} onSaved={() => { setAddUnitFor(null); void load(); }} />}
+      {simFor && <RentSimulator property={simFor} units={units.filter((u) => u.propertyId === simFor.id)} onClose={() => setSimFor(null)} />}
+    </div>
+  );
+}
+
+function UnitRow({ unit, onSetRent }: { unit: ApiUnit; onSetRent: (v: number) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(String(unitRent(unit)));
+  return (
+    <li className="flex items-center justify-between text-xs border-b border-slate-100 last:border-0 pb-1.5">
+      <span className="text-slate-700">{unitLabel(unit)}{unit.status && unit.status !== 'occupied' && <span className="ml-1.5 text-[10px] text-amber-600">· {unit.status}</span>}</span>
+      {editing ? (
+        <span className="flex items-center gap-1">
+          <input autoFocus value={val} onChange={(e) => setVal(e.target.value.replace(/[^\d]/g, ''))}
+            className="w-24 h-7 px-2 rounded border border-blue-300 text-xs text-right" />
+          <button onClick={() => { onSetRent(Number(val) || 0); setEditing(false); }} className="text-emerald-600 font-bold">✓</button>
+          <button onClick={() => { setVal(String(unitRent(unit))); setEditing(false); }} className="text-slate-400">✕</button>
+        </span>
+      ) : (
+        <button onClick={() => setEditing(true)} className="font-medium text-slate-900 hover:text-blue-600" title="Edit rent">
+          TZS {unitRent(unit).toLocaleString()} <Edit3 className="w-3 h-3 inline -mt-0.5 opacity-40" />
+        </button>
+      )}
+    </li>
+  );
+}
+
+function PropertyModal({ property, onClose, onSaved }: { property?: ApiProperty; onClose: () => void; onSaved: () => void }) {
+  const editing = !!property;
+  const [form, setForm] = useState({
+    name: property?.name ?? '', address: property?.address ?? '', city: '', type: 'residential' as const,
+  });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const set = (k: keyof typeof form) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const submit = async () => {
+    setErr(null);
+    if (!form.name.trim()) { setErr('Name is required.'); return; }
+    setSaving(true);
+    try {
+      const body = JSON.stringify({ name: form.name.trim(), address: form.address.trim() || undefined, city: form.city.trim() || undefined, type: form.type });
+      if (editing) await api(`/property/properties/${property!.id}`, { method: 'PATCH', body });
+      else await api('/property/properties', { method: 'POST', body });
+      onSaved();
+    } catch (e) { setErr(e instanceof Error ? e.message : 'Could not save.'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <ModalShell title={editing ? 'Edit property' : 'Add property'} onClose={onClose}>
+      <Field label="Property name *"><input value={form.name} onChange={set('name')} className={inputCls} placeholder="e.g. Tavares Cliffs" /></Field>
+      <Field label="Address"><input value={form.address} onChange={set('address')} className={inputCls} placeholder="Plot / street" /></Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="City"><input value={form.city} onChange={set('city')} className={inputCls} placeholder="Dar es Salaam" /></Field>
+        <Field label="Type">
+          <select value={form.type} onChange={set('type')} className={inputCls}>
+            <option value="residential">Residential</option><option value="commercial">Commercial</option><option value="mixed">Mixed</option>
+          </select>
+        </Field>
+      </div>
+      {err && <p className="text-xs text-rose-600">{err}</p>}
+      <ModalActions saving={saving} onClose={onClose} onSubmit={submit} label={editing ? 'Save' : 'Add property'} />
+    </ModalShell>
+  );
+}
+
+function UnitModal({ property, onClose, onSaved }: { property: ApiProperty; onClose: () => void; onSaved: () => void }) {
+  const [form, setForm] = useState({ unitNumber: '', rentAmount: '', bedrooms: '', status: 'vacant' as const });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const set = (k: keyof typeof form) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const submit = async () => {
+    setErr(null);
+    if (!form.unitNumber.trim()) { setErr('Room number/name is required.'); return; }
+    setSaving(true);
+    try {
+      await api('/property/units', {
+        method: 'POST',
+        body: JSON.stringify({
+          propertyId: property.id,
+          unitNumber: form.unitNumber.trim(),
+          rentAmount: form.rentAmount ? Number(form.rentAmount) : 0,
+          bedrooms: form.bedrooms ? Number(form.bedrooms) : undefined,
+          status: form.status,
+        }),
+      });
+      onSaved();
+    } catch (e) { setErr(e instanceof Error ? e.message : 'Could not add room.'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <ModalShell title={`Add room · ${property.name}`} onClose={onClose}>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Room number/name *"><input value={form.unitNumber} onChange={set('unitNumber')} className={inputCls} placeholder="A1" /></Field>
+        <Field label="Monthly rent (TZS)"><input value={form.rentAmount} onChange={(e) => setForm((f) => ({ ...f, rentAmount: e.target.value.replace(/[^\d]/g, '') }))} inputMode="numeric" className={inputCls} placeholder="500000" /></Field>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Bedrooms"><input value={form.bedrooms} onChange={set('bedrooms')} inputMode="numeric" className={inputCls} placeholder="optional" /></Field>
+        <Field label="Status">
+          <select value={form.status} onChange={set('status')} className={inputCls}>
+            <option value="vacant">Vacant</option><option value="occupied">Occupied</option><option value="maintenance">Maintenance</option>
+          </select>
+        </Field>
+      </div>
+      {err && <p className="text-xs text-rose-600">{err}</p>}
+      <ModalActions saving={saving} onClose={onClose} onSubmit={submit} label="Add room" />
+    </ModalShell>
+  );
+}
+
+/** Client-side rent-increase simulation (#3): flat +X per room, or +X%. */
+function RentSimulator({ property, units, onClose }: { property: ApiProperty; units: ApiUnit[]; onClose: () => void }) {
+  const [mode, setMode] = useState<'flat' | 'pct'>('flat');
+  const [flat, setFlat] = useState(10000);
+  const [pct, setPct] = useState(10);
+  const current = units.reduce((s, u) => s + unitRent(u), 0);
+  const projected = mode === 'flat' ? current + flat * units.length : current * (1 + pct / 100);
+  const delta = projected - current;
+  const money = (n: number) => `TZS ${Math.round(n).toLocaleString()}`;
+
+  return (
+    <ModalShell title={`Rent simulation · ${property.name}`} onClose={onClose}>
+      <div className="flex rounded-lg border border-slate-200 overflow-hidden text-xs font-semibold">
+        <button onClick={() => setMode('flat')} className={`flex-1 h-9 ${mode === 'flat' ? 'bg-blue-600 text-white' : 'text-slate-600'}`}>+ Fixed per room</button>
+        <button onClick={() => setMode('pct')} className={`flex-1 h-9 ${mode === 'pct' ? 'bg-blue-600 text-white' : 'text-slate-600'}`}>+ Percentage</button>
+      </div>
+
+      {mode === 'flat' ? (
+        <Field label={`Increase per room / month (TZS) — ${units.length} rooms`}>
+          <input value={String(flat)} onChange={(e) => setFlat(Number(e.target.value.replace(/[^\d]/g, '')) || 0)} inputMode="numeric" className={inputCls} />
+        </Field>
+      ) : (
+        <Field label={`Increase percentage: ${pct}%`}>
+          <input type="range" min={0} max={50} value={pct} onChange={(e) => setPct(Number(e.target.value))} className="w-full" />
+        </Field>
+      )}
+
+      <div className="rounded-xl bg-slate-50 border border-slate-200 p-4 space-y-2">
+        <Row label="Current monthly rent" value={money(current)} />
+        <Row label="Projected monthly rent" value={money(projected)} strong />
+        <Row label="Extra per month" value={`+${money(delta)}`} strong />
+        <Row label="Extra per year" value={`+${money(delta * 12)}`} />
+      </div>
+      <p className="text-[11px] text-slate-500">Simulation only — nothing is changed. Edit a room’s rent to apply it.</p>
+      <button onClick={onClose} className="w-full h-10 rounded-lg bg-slate-900 text-white text-sm font-bold">Done</button>
+    </ModalShell>
+  );
+}
+
+const inputCls = 'w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-sm text-slate-900 focus:outline-none focus:border-blue-400';
+
+function ModalShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-200 p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-bold text-slate-900">{title}</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="w-4 h-4" /></button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function ModalActions({ saving, onClose, onSubmit, label }: { saving: boolean; onClose: () => void; onSubmit: () => void; label: string }) {
+  return (
+    <div className="flex gap-2 pt-1">
+      <button onClick={onClose} className="flex-1 h-10 rounded-lg border border-slate-200 text-slate-600 text-sm font-semibold hover:bg-slate-50">Cancel</button>
+      <button onClick={onSubmit} disabled={saving} className="flex-1 h-10 rounded-lg bg-blue-600 text-white text-sm font-bold hover:bg-blue-500 disabled:opacity-50">{saving ? 'Saving…' : label}</button>
     </div>
   );
 }
