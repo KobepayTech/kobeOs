@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Switch } from '@/components/ui/switch';
+import { api } from '@/lib/api';
 
 const roles = ['Owner', 'Manager', 'Seller', 'Accountant', 'Warehouse', 'Rider', 'Admin'];
 
@@ -67,7 +68,21 @@ export default function ERPAdmin() {
   const [search, setSearch] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<typeof initialUsers[0] | null>(null);
-  const [form, setForm] = useState({ name: '', email: '', role: 'Seller', active: true });
+  const [form, setForm] = useState({ name: '', email: '', role: 'Seller', active: true, password: '' });
+  const [saving, setSaving] = useState(false);
+  const [saveErr, setSaveErr] = useState<string | null>(null);
+
+  // Admin sets the initial password at creation. Generates a strong random
+  // one so the admin can hand off working credentials without inventing a
+  // weak password themselves.
+  const genPassword = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%';
+    const arr = new Uint32Array(14);
+    crypto.getRandomValues(arr);
+    let p = '';
+    for (let i = 0; i < arr.length; i++) p += chars[arr[i] % chars.length];
+    setForm((f) => ({ ...f, password: p }));
+  };
 
   const filteredUsers = users.filter((u) =>
     u.name.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase())
@@ -75,24 +90,60 @@ export default function ERPAdmin() {
 
   const openAdd = () => {
     setEditingUser(null);
-    setForm({ name: '', email: '', role: 'Seller', active: true });
+    setForm({ name: '', email: '', role: 'Seller', active: true, password: '' });
+    setSaveErr(null);
     setModalOpen(true);
   };
 
   const openEdit = (user: typeof initialUsers[0]) => {
     setEditingUser(user);
-    setForm({ name: user.name, email: user.email, role: user.role, active: user.active });
+    setForm({ name: user.name, email: user.email, role: user.role, active: user.active, password: '' });
+    setSaveErr(null);
     setModalOpen(true);
   };
 
-  const saveUser = () => {
+  const saveUser = async () => {
+    setSaveErr(null);
     if (editingUser) {
-      setUsers((prev) => prev.map((u) => (u.id === editingUser.id ? { ...u, ...form } : u)));
-    } else {
-      const newId = Math.max(...users.map((u) => u.id), 0) + 1;
-      setUsers((prev) => [...prev, { id: newId, ...form, lastLogin: 'Never' }]);
+      // Editing stays a local update (no admin password-reset endpoint yet).
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === editingUser.id
+            ? { ...u, name: form.name, email: form.email, role: form.role, active: form.active }
+            : u,
+        ),
+      );
+      setModalOpen(false);
+      return;
     }
-    setModalOpen(false);
+
+    // Creating a real login account — admin supplies the initial password.
+    if (!form.email.trim()) { setSaveErr('Email is required.'); return; }
+    if (form.password.length < 8) { setSaveErr('Password must be at least 8 characters.'); return; }
+    setSaving(true);
+    try {
+      // Backend role is user|admin; map the elevated business roles to admin.
+      const role = form.role === 'Admin' || form.role === 'Owner' ? 'admin' : 'user';
+      await api('/users', {
+        method: 'POST',
+        body: JSON.stringify({
+          email: form.email.trim(),
+          password: form.password,
+          displayName: form.name.trim(),
+          role,
+        }),
+      });
+      const newId = Math.max(...users.map((u) => u.id), 0) + 1;
+      setUsers((prev) => [
+        ...prev,
+        { id: newId, name: form.name, email: form.email, role: form.role, active: form.active, lastLogin: 'Never' },
+      ]);
+      setModalOpen(false);
+    } catch (e) {
+      setSaveErr(e instanceof Error ? e.message : 'Could not create the user.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const deleteUser = (id: number) => {
@@ -276,16 +327,42 @@ export default function ERPAdmin() {
                 {roles.map((r) => <option key={r} value={r}>{r}</option>)}
               </select>
             </div>
+            {/* Password — admin sets the initial credential at creation. */}
+            {!editingUser && (
+              <div>
+                <label className="text-xs text-slate-400 block mb-1">Password</label>
+                <div className="flex gap-2">
+                  <Input
+                    value={form.password}
+                    onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
+                    placeholder="Min 8 characters"
+                    className="bg-slate-800 border-slate-700 text-slate-100 font-mono"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={genPassword}
+                    className="shrink-0 px-2 text-xs border-slate-700 text-slate-300 hover:bg-slate-800"
+                  >
+                    Generate
+                  </Button>
+                </div>
+                <p className="text-[10px] text-slate-500 mt-1">
+                  You set the initial password — share it with the staff member; they can change it after signing in.
+                </p>
+              </div>
+            )}
             <div className="flex items-center gap-2">
               <Switch checked={form.active} onCheckedChange={(v) => setForm((f) => ({ ...f, active: v }))} />
               <span className="text-xs text-slate-300">Active</span>
             </div>
+            {saveErr && <p className="text-[11px] text-rose-400">{saveErr}</p>}
             <div className="flex gap-2 pt-2">
               <Button variant="outline" onClick={() => setModalOpen(false)} className="flex-1 border-slate-700 text-slate-300 hover:bg-slate-800">
                 Cancel
               </Button>
-              <Button onClick={saveUser} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white">
-                Save
+              <Button onClick={saveUser} disabled={saving} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-60">
+                {saving ? 'Creating…' : editingUser ? 'Save' : 'Create user'}
               </Button>
             </div>
           </div>
