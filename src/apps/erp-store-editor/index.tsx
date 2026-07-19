@@ -4,7 +4,7 @@ import {
   ShoppingBag, Search, ChevronDown, ChevronRight, Check, Eye, X,
   Store, Type as TypeIcon, Grid3X3, PanelLeft, Tag, Plus, Globe, Loader2, AlertTriangle,
   LayoutGrid, Layers,
-  Wifi, ExternalLink, Languages, QrCode, Smartphone, Copy,
+  Wifi, ExternalLink, Languages, QrCode, Smartphone, Copy, Monitor,
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -19,6 +19,7 @@ import SiteContentEditor from './SiteContentEditor';
 import SimpleSite from '@/apps/erp-shop/SimpleSite';
 import { JerseyStorefrontPreview } from './JerseyStorefrontPreview';
 import { JerseyDesignEditor } from './JerseyDesignEditor';
+import { DevicePreviewFrame } from './DevicePreviewFrame';
 
 
 /* ═══════════════════════════════════════════════════════════
@@ -595,11 +596,17 @@ function LivePreview({ settings }: { settings: StoreSettings }) {
     return <SimpleSite settings={settings as unknown as { storeName: string; tagline: string; logoUrl: string; primaryColor: string; accentColor: string; footerText: string; bannerBg: string; siteConfig?: SiteConfig }} />;
   }
   if (settings.template === 'jerseys') {
+    // True WYSIWYG — renders the same JerseyShopChrome the published store
+    // uses, so the preview and the live site can't drift apart.
     return (
       <JerseyStorefrontPreview
-        primaryColor={settings.primaryColor}
         storeName={settings.storeName}
         tagline={settings.tagline}
+        logoUrl={settings.logoUrl}
+        bannerHeadline={settings.bannerHeadline}
+        bannerSubtext={settings.bannerSubtext}
+        bannerCta={settings.bannerCta}
+        bannerVisible={settings.bannerVisible}
       />
     );
   }
@@ -756,6 +763,9 @@ export default function StoreEditor() {
   const [seedMsg, setSeedMsg] = useState<string | null>(null);
   // On phones the editor + preview can't sit side-by-side — toggle between them.
   const [mobileView, setMobileView] = useState<'edit' | 'preview'>('edit');
+  // Preview device — 'mobile' shrinks the iframe to a phone width so the
+  // storefront's real responsive breakpoints kick in (WYSIWYG at 390px).
+  const [previewDevice, setPreviewDevice] = useState<'desktop' | 'mobile'>('desktop');
 
   // One-click populate an empty store with ~20 clearly-labelled DEMO products
   // so the live storefront isn't blank. They're normal products the operator
@@ -1626,9 +1636,28 @@ export default function StoreEditor() {
             <div className="flex items-center gap-2">
               <Eye className="w-4 h-4 text-white/50" />
               <span className="text-xs font-medium text-white/70">Live Preview</span>
-              <span className="text-[10px] text-white/30 px-1.5 py-0.5 rounded-full bg-white/[0.04] border border-white/[0.06]">
-                375px
-              </span>
+              {/* Real device toggle — resizes the preview iframe so the
+                  storefront's responsive layout actually changes. */}
+              <div className="flex rounded-md bg-white/[0.04] border border-white/[0.06] overflow-hidden">
+                <button
+                  onClick={() => setPreviewDevice('desktop')}
+                  title="Desktop preview"
+                  className={`flex items-center gap-1 px-2 py-1 text-[10px] font-medium transition-colors ${
+                    previewDevice === 'desktop' ? 'bg-violet-600 text-white' : 'text-white/50 hover:text-white/80'
+                  }`}
+                >
+                  <Monitor className="w-3 h-3" /> Desktop
+                </button>
+                <button
+                  onClick={() => setPreviewDevice('mobile')}
+                  title="Mobile preview (390px)"
+                  className={`flex items-center gap-1 px-2 py-1 text-[10px] font-medium transition-colors ${
+                    previewDevice === 'mobile' ? 'bg-violet-600 text-white' : 'text-white/50 hover:text-white/80'
+                  }`}
+                >
+                  <Smartphone className="w-3 h-3" /> Mobile
+                </button>
+              </div>
               {/* Active domain pill */}
               {(settings.publishedUrl || settings.customDomain || settings.domainSlug) && (
                 <span className={`hidden sm:flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full font-mono border ${
@@ -1680,9 +1709,13 @@ export default function StoreEditor() {
           )}
         </div>
 
-        {/* Preview Content */}
-        <div className="flex-1 min-h-0 overflow-hidden">
-          <LivePreview settings={settings} />
+        {/* Preview Content — rendered inside an iframe so the storefront gets
+            its own viewport width and the Desktop/Mobile toggle produces a
+            genuine responsive layout (not just a narrower box). */}
+        <div className={`flex-1 min-h-0 overflow-hidden ${previewDevice === 'mobile' ? 'bg-[#0a0a1a] px-2' : ''}`}>
+          <DevicePreviewFrame width={previewDevice === 'mobile' ? 390 : '100%'}>
+            <LivePreview settings={settings} />
+          </DevicePreviewFrame>
         </div>
       </div>
 
