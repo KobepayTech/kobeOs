@@ -834,10 +834,169 @@ function TenantDetailView({
    Dashboard view (mockup 4 trimmed for current scope)
    ══════════════════════════════════════════════════════════════════ */
 
+/* ──────────────── Rent collection rollup (#2) ──────────────── */
+
+interface RentDashboard {
+  currency: string;
+  expectedMonthly: number;
+  collectedThisMonth: number;
+  pendingThisMonth: number;
+  collectionRate: number;
+  months: Array<{ period: string; label: string; expected: number; collected: number; pending: number }>;
+  properties: Array<{ propertyId: string; name: string; units: number; expected: number; collected: number; pending: number }>;
+}
+interface PendingTenant {
+  tenantId: string; name: string; phone: string; unitLabel: string;
+  rent: number; pendingThisMonth: number; totalPending: number; monthsDue: number;
+}
+
+function Bar({ collected, expected, thin }: { collected: number; expected: number; thin?: boolean }) {
+  const pct = expected > 0 ? Math.min(100, Math.round((collected / expected) * 100)) : 0;
+  return (
+    <div className={`w-full ${thin ? 'h-2' : 'h-3'} rounded-full bg-slate-100 overflow-hidden`}>
+      <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
+    </div>
+  );
+}
+
+function RentCollectionPanel({ tenants, onOpenTenant }: { tenants: ApiTenant[]; onOpenTenant: (t: ApiTenant) => void }) {
+  const [data, setData] = useState<RentDashboard | null>(null);
+  const [pending, setPending] = useState<PendingTenant[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showBreakdown, setShowBreakdown] = useState(false);
+  const [showPending, setShowPending] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [d, p] = await Promise.all([
+          api<RentDashboard>('/property/posys/rent-dashboard'),
+          api<PendingTenant[]>('/property/posys/pending-tenants'),
+        ]);
+        setData(d);
+        setPending(Array.isArray(p) ? p : []);
+      } catch { /* older backend — panel hides itself */ }
+      finally { setLoading(false); }
+    })();
+  }, []);
+
+  const ccy = data?.currency ?? 'TZS';
+  const money = (n: number) => `${ccy} ${Math.round(n).toLocaleString()}`;
+
+  const remind = (t: PendingTenant) => {
+    const phone = t.phone.replace(/\D/g, '').replace(/^0/, '255');
+    const due = t.monthsDue ? ` (${t.monthsDue} month${t.monthsDue > 1 ? 's' : ''} due)` : '';
+    const msg = `Hello ${t.name}, a reminder that your rent${t.unitLabel ? ` for unit ${t.unitLabel}` : ''} is pending: ${money(t.totalPending)}${due}. Please pay using your rent token. Asante.`;
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+  };
+
+  if (loading) return <div className="bg-white rounded-2xl border border-slate-100 p-6 text-sm text-slate-500 shadow-sm">Loading rent…</div>;
+  if (!data) return null;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <button onClick={() => setShowBreakdown((v) => !v)} className="text-left">
+          <PpKpi title="Collected this month" value={money(data.collectedThisMonth)} delta={`${data.collectionRate}% of expected`} tone="emerald" icon={<Calendar className="w-5 h-5 text-white" />} />
+        </button>
+        <PpKpi title="Expected (monthly)" value={money(data.expectedMonthly)} delta="all units" tone="blue" icon={<Home className="w-5 h-5 text-white" />} />
+        <button onClick={() => setShowPending(true)} className="text-left">
+          <PpKpi title="Pending this month" value={money(data.pendingThisMonth)} delta={`${pending.length} tenant${pending.length !== 1 ? 's' : ''} owing`} deltaNeg tone="orange" icon={<Activity className="w-5 h-5 text-white" />} />
+        </button>
+        <PpKpi title="Collection rate" value={`${data.collectionRate}%`} delta="this month" tone="violet" icon={<Users className="w-5 h-5 text-white" />} />
+      </div>
+
+      <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-sm font-bold text-slate-900">Collected vs expected — this month</span>
+          <button onClick={() => setShowBreakdown((v) => !v)} className="text-xs font-semibold text-blue-600 hover:text-blue-500">
+            {showBreakdown ? 'Hide breakdown' : 'Monthly breakdown'}
+          </button>
+        </div>
+        <Bar collected={data.collectedThisMonth} expected={data.expectedMonthly} />
+        <div className="flex justify-between text-[11px] text-slate-500 mt-1.5">
+          <span className="font-semibold text-emerald-600">{money(data.collectedThisMonth)} collected</span>
+          <span className="font-semibold text-orange-600">{money(data.pendingThisMonth)} pending</span>
+        </div>
+      </div>
+
+      {showBreakdown && (
+        <div className="bg-white rounded-2xl border border-slate-100 p-4 shadow-sm">
+          <h4 className="text-sm font-bold text-slate-900 mb-3">Monthly breakdown</h4>
+          <div className="space-y-2">
+            {data.months.map((m) => (
+              <div key={m.period} className="flex items-center gap-3">
+                <span className="w-12 text-xs font-semibold text-slate-600">{m.label}</span>
+                <div className="flex-1"><Bar collected={m.collected} expected={m.expected} thin /></div>
+                <span className="w-24 text-right text-[11px] text-slate-700">{money(m.collected)}</span>
+                <span className="w-24 text-right text-[11px] font-semibold text-orange-600">{m.pending > 0 ? `${money(m.pending)} due` : '—'}</span>
+              </div>
+            ))}
+          </div>
+
+          <h4 className="text-sm font-bold text-slate-900 mt-4 mb-2">By property (this month)</h4>
+          <div className="space-y-1.5">
+            {data.properties.length === 0 ? (
+              <p className="text-xs text-slate-500">No properties yet.</p>
+            ) : data.properties.map((p) => (
+              <div key={p.propertyId} className="flex items-center justify-between text-xs border-b border-slate-100 last:border-0 pb-1.5">
+                <span className="text-slate-800 font-medium">{p.name} <span className="text-slate-400">· {p.units} units</span></span>
+                <span className="text-slate-600">{money(p.collected)} / {money(p.expected)}{p.pending > 0 && <span className="text-orange-600 font-semibold"> · {money(p.pending)} due</span>}</span>
+              </div>
+            ))}
+          </div>
+
+          <button onClick={() => setShowPending(true)} className="mt-3 text-xs font-semibold text-blue-600 hover:text-blue-500">
+            View pending tenants ({pending.length})
+          </button>
+        </div>
+      )}
+
+      {showPending && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex justify-end" onClick={() => setShowPending(false)}>
+          <div className="w-full max-w-md h-full bg-white shadow-xl overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="sticky top-0 bg-white border-b border-slate-200 px-5 py-3 flex items-center justify-between">
+              <h3 className="text-sm font-bold text-slate-900">Tenants with rent pending ({pending.length})</h3>
+              <button onClick={() => setShowPending(false)}><X className="w-4 h-4 text-slate-500" /></button>
+            </div>
+            <div className="p-4 space-y-2">
+              {pending.length === 0 ? (
+                <p className="text-sm text-slate-500 text-center py-10">Everyone's paid up 🎉</p>
+              ) : pending.map((t) => (
+                <div key={t.tenantId} className="rounded-xl border border-slate-200 p-3">
+                  <div className="flex items-center justify-between">
+                    <button
+                      onClick={() => { const full = tenants.find((x) => x.id === t.tenantId); if (full) onOpenTenant(full); }}
+                      className="text-left min-w-0"
+                    >
+                      <div className="text-sm font-bold text-slate-900 truncate">{t.name}</div>
+                      <div className="text-[11px] text-slate-500">Unit {t.unitLabel || '—'} · {t.monthsDue} month{t.monthsDue !== 1 ? 's' : ''} due</div>
+                    </button>
+                    <div className="text-right shrink-0 pl-2">
+                      <div className="text-sm font-bold text-orange-600">{money(t.totalPending)}</div>
+                      <div className="text-[10px] text-slate-400">pending</div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => remind(t)}
+                    disabled={!t.phone}
+                    className="mt-2 w-full h-8 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-500 disabled:opacity-40 inline-flex items-center justify-center gap-1.5"
+                  >
+                    <MessageCircle className="w-3.5 h-3.5" /> {t.phone ? 'Remind on WhatsApp' : 'No phone on file'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DashboardView({ tenants, payments, properties, onOpenTenant }: { tenants: ApiTenant[]; payments: ApiPayment[]; properties: ApiProperty[]; onOpenTenant: (t: ApiTenant) => void }) {
   const totalProperties = properties.length || 24;
   const activeTenants   = tenants.length || 187;
-  const monthlyRevenue  = payments.filter((p) => p.status === 'Paid').reduce((s, p) => s + p.amount, 0) || 47_290;
   const pendingRequests = tenants.filter((t) => t.balance && t.balance > 0).length || 8;
 
   const propertyCards: Array<{ id: string; name: string; address: string; image: string; status: 'Occupied' | 'Vacant' | 'Maintenance'; tenants: string; rent: number; nextPayment?: string }> =
@@ -868,11 +1027,16 @@ function DashboardView({ tenants, payments, properties, onOpenTenant }: { tenant
         <p className="text-sm text-slate-700 mt-0.5">Welcome back! Here's what's happening with your properties.</p>
       </div>
 
+      {/* Real rent-collection rollup (#2): collected vs expected, monthly
+          breakdown, and a pending-tenants drill-down with WhatsApp reminders. */}
+      <RentCollectionPanel tenants={tenants} onOpenTenant={onOpenTenant} />
+
+      {/* Portfolio snapshot */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <PpKpi title="Total Properties" value={totalProperties.toLocaleString()} delta="+2 this month"           tone="blue"   icon={<Home className="w-5 h-5 text-white" />} />
-        <PpKpi title="Active Tenants"   value={activeTenants.toLocaleString()}   delta="+12 this month"          tone="emerald" icon={<Users className="w-5 h-5 text-white" />} />
-        <PpKpi title="Monthly Revenue"  value={`$${monthlyRevenue.toLocaleString()}`} delta="+8.2% from last month" tone="violet" icon={<Calendar className="w-5 h-5 text-white" />} />
-        <PpKpi title="Pending Requests" value={pendingRequests.toLocaleString()} delta="-3 from yesterday" deltaNeg tone="orange" icon={<Activity className="w-5 h-5 text-white" />} />
+        <PpKpi title="Total Properties" value={totalProperties.toLocaleString()} delta="in portfolio"    tone="blue"   icon={<Home className="w-5 h-5 text-white" />} />
+        <PpKpi title="Active Tenants"   value={activeTenants.toLocaleString()}   delta="on the books"    tone="emerald" icon={<Users className="w-5 h-5 text-white" />} />
+        <PpKpi title="Open Requests"    value={pendingRequests.toLocaleString()} delta="maintenance"     tone="orange" icon={<Activity className="w-5 h-5 text-white" />} />
+        <PpKpi title="This month"       value={new Date().toLocaleString('en', { month: 'long' })} delta="billing period" tone="violet" icon={<Calendar className="w-5 h-5 text-white" />} />
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_320px] gap-5">

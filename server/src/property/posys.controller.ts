@@ -61,6 +61,17 @@ export class PosysController {
     return this.svc.listTokens(uid);
   }
 
+  // ── Rent dashboard (#2) ────────────────────────────────────────
+  @Get('rent-dashboard')
+  rentDashboard(@CurrentUser('id') uid: string) {
+    return this.svc.rentDashboard(uid);
+  }
+
+  @Get('pending-tenants')
+  pendingTenants(@CurrentUser('id') uid: string) {
+    return this.svc.pendingTenants(uid);
+  }
+
   @Delete('tokens/:id')
   cancelToken(@CurrentUser('id') uid: string, @Param('id') id: string) {
     return this.svc.cancelToken(uid, id);

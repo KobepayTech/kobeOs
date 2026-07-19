@@ -246,6 +246,134 @@ export class PosysService {
     });
   }
 
+  // ── Rent dashboard (#2): collected vs expected + monthly breakdown ──────
+
+  /** Month key like "2026-07" from a Date. */
+  private monthKey(d: Date): string {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  /** The month a payment applies to (its billing month, else when it was paid). */
+  private paymentMonth(p: RentPayment): string {
+    return this.monthKey(new Date(p.forMonth ?? p.paidAt));
+  }
+
+  /**
+   * Collected-vs-expected rollup for the owner's portfolio. Expected rent is
+   * the sum of unit rents (per month); collected is the sum of recorded
+   * payments (which now only come from redeemed tokens). Returns the last 6
+   * months and a per-property breakdown so the UI can drill in.
+   */
+  async rentDashboard(ownerId: string) {
+    const [props, units, payments] = await Promise.all([
+      this.props.find({ where: { ownerId } }),
+      this.units.find({ where: { ownerId } }),
+      this.payments.find({ where: { ownerId } }),
+    ]);
+
+    const monthlyExpected = units.reduce((s, u) => s + Number(u.rentAmount || 0), 0);
+    const now = new Date();
+    const thisKey = this.monthKey(now);
+
+    const months: Array<{ period: string; label: string; expected: number; collected: number; pending: number }> = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = this.monthKey(d);
+      const collected = payments
+        .filter((p) => this.paymentMonth(p) === key)
+        .reduce((s, p) => s + Number(p.amount), 0);
+      months.push({
+        period: key,
+        label: d.toLocaleString('en', { month: 'short', year: '2-digit' }),
+        expected: monthlyExpected,
+        collected,
+        pending: Math.max(0, monthlyExpected - collected),
+      });
+    }
+
+    const collectedThisMonth = payments
+      .filter((p) => this.paymentMonth(p) === thisKey)
+      .reduce((s, p) => s + Number(p.amount), 0);
+
+    const properties = props.map((pr) => {
+      const punits = units.filter((u) => u.propertyId === pr.id);
+      const expected = punits.reduce((s, u) => s + Number(u.rentAmount || 0), 0);
+      const unitIds = new Set(punits.map((u) => u.id));
+      const collected = payments
+        .filter((p) => p.unitId && unitIds.has(p.unitId) && this.paymentMonth(p) === thisKey)
+        .reduce((s, p) => s + Number(p.amount), 0);
+      return {
+        propertyId: pr.id,
+        name: pr.name,
+        units: punits.length,
+        expected,
+        collected,
+        pending: Math.max(0, expected - collected),
+      };
+    });
+
+    return {
+      currency: 'TZS',
+      expectedMonthly: monthlyExpected,
+      collectedThisMonth,
+      pendingThisMonth: Math.max(0, monthlyExpected - collectedThisMonth),
+      collectionRate: monthlyExpected > 0 ? Math.round((collectedThisMonth / monthlyExpected) * 100) : 0,
+      months,
+      properties,
+    };
+  }
+
+  /**
+   * Tenants with rent still owing — the drill-down behind "pending". Computes
+   * this-month shortfall and, from lease start, how many whole months they're
+   * behind. Includes phone so the UI can fire a WhatsApp reminder.
+   */
+  async pendingTenants(ownerId: string) {
+    const [units, tenants, payments] = await Promise.all([
+      this.units.find({ where: { ownerId } }),
+      this.tenants.find({ where: { ownerId } }),
+      this.payments.find({ where: { ownerId } }),
+    ]);
+    const unitById = new Map(units.map((u) => [u.id, u]));
+    const now = new Date();
+    const thisKey = this.monthKey(now);
+
+    const rows = tenants.map((t) => {
+      const unit = t.unitId ? unitById.get(t.unitId) : undefined;
+      const rent = unit ? Number(unit.rentAmount || 0) : 0;
+
+      const paidThisMonth = payments
+        .filter((p) => p.tenantId === t.id && this.paymentMonth(p) === thisKey)
+        .reduce((s, p) => s + Number(p.amount), 0);
+      const pendingThisMonth = Math.max(0, rent - paidThisMonth);
+
+      const start = t.leaseStart ? new Date(t.leaseStart) : null;
+      const monthsElapsed = start && !isNaN(start.getTime())
+        ? Math.max(1, (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth()) + 1)
+        : 1;
+      const totalExpected = rent * monthsElapsed;
+      const totalPaid = payments
+        .filter((p) => p.tenantId === t.id)
+        .reduce((s, p) => s + Number(p.amount), 0);
+      const totalPending = Math.max(0, totalExpected - totalPaid);
+      const monthsDue = rent > 0 ? Math.floor(totalPending / rent) : 0;
+
+      return {
+        tenantId: t.id,
+        name: t.name,
+        phone: t.phone ?? '',
+        unitLabel: unit?.unitNumber ?? '',
+        rent,
+        pendingThisMonth,
+        totalPending,
+        monthsDue,
+      };
+    }).filter((r) => r.totalPending > 0);
+
+    rows.sort((a, b) => b.totalPending - a.totalPending);
+    return rows;
+  }
+
   async cancelToken(ownerId: string, id: string): Promise<PropertyPaymentToken> {
     const row = await this.tokens.findOne({ where: { id, ownerId } });
     if (!row) throw new NotFoundException();
