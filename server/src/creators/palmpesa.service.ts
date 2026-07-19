@@ -44,19 +44,27 @@ export class PalmPesaService {
   private readonly logger = new Logger(PalmPesaService.name);
   private readonly base = 'https://palmpesa.drmlelwa.co.tz';
 
-  // Baked-in defaults — override via env vars for white-label deployments
-  private static readonly DEFAULT_API_TOKEN =
-    '0HNndAwG6NIXcksD1kRxHVHMgUtDi8GqgMfMQrymleH8HluAdA1ZRAl2jG3B';
-  private static readonly DEFAULT_USER_ID = 531;
-
-  constructor(private readonly config: ConfigService) {}
-
-  private get apiToken(): string {
-    return this.config.get<string>('PALMPESA_API_TOKEN', PalmPesaService.DEFAULT_API_TOKEN);
+  constructor(private readonly config: ConfigService) {
+    if (!this.isConfigured()) {
+      this.logger.warn(
+        'PALMPESA_API_TOKEN is not set — PalmPesa payments are disabled. Set it as a ' +
+          'secret to enable charging (and rotate the key that previously shipped in the repo).',
+      );
+    }
   }
 
-  private get userId(): number {
-    return this.config.get<number>('PALMPESA_USER_ID', PalmPesaService.DEFAULT_USER_ID);
+  /**
+   * The API token is a LIVE secret — read from the environment ONLY, never
+   * hardcoded. A token committed to source is exposed to everyone with repo
+   * access and must be rotated, so there is deliberately no baked-in fallback.
+   */
+  private get apiToken(): string {
+    return this.config.get<string>('PALMPESA_API_TOKEN', '');
+  }
+
+  /** True when PalmPesa credentials are configured. Callers may gate on this. */
+  isConfigured(): boolean {
+    return !!this.apiToken;
   }
 
   get callbackBase(): string {
@@ -143,6 +151,13 @@ export class PalmPesaService {
   }
 
   private async post<T>(path: string, body: Record<string, unknown>): Promise<T> {
+    if (!this.isConfigured()) {
+      // Fail loudly instead of silently calling the gateway with a missing
+      // (or rotated-away) key — callers surface this as a clear payment error.
+      throw new ServiceUnavailableException(
+        'PalmPesa is not configured. Set PALMPESA_API_TOKEN to enable payments.',
+      );
+    }
     const url = `${this.base}${path}`;
     const res = await fetch(url, {
       method: 'POST',
