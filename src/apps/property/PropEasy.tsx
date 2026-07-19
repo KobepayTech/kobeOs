@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import {
   Home, Building2, Users, DollarSign, Wrench, FileText, Settings, LogOut,
@@ -149,6 +149,7 @@ export default function PropEasyApp() {
   const [tenants, setTenants] = useState<ApiTenant[]>(DEMO_TENANTS);
   const [payments, setPayments] = useState<ApiPayment[]>(DEMO_PAYMENTS);
   const [properties, setProperties] = useState<ApiProperty[]>([]);
+  const [addOpen, setAddOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -168,17 +169,26 @@ export default function PropEasyApp() {
     return () => { cancelled = true; };
   }, []);
 
+  // Reload tenants from the API after a create/edit so the list reflects the
+  // real backend (not the demo fallback).
+  const refreshTenants = useCallback(async () => {
+    try {
+      const t = await api<ApiTenant[]>('/property/tenants');
+      setTenants(t.length ? t : DEMO_TENANTS);
+    } catch { /* keep current list */ }
+  }, []);
+
   const openTenant = (t: ApiTenant) => { setSelectedTenant(t); setView('tenant-detail'); };
   const openScreening = (t: ApiTenant) => { setSelectedTenant(t); setView('screening'); };
 
   return (
     <div className="flex h-full w-full bg-slate-50 text-slate-900" data-surface="light" style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
-      <Sidebar view={view} onChange={setView} onInviteTenant={() => setView('tenants')} />
+      <Sidebar view={view} onChange={setView} onInviteTenant={() => { setView('tenants'); setAddOpen(true); }} />
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar title={titleFor(view)} />
         <div className="flex-1 overflow-y-auto p-6">
           {view === 'dashboard'     && <DashboardView tenants={tenants} payments={payments} properties={properties} onOpenTenant={openTenant} />}
-          {view === 'tenants'       && <TenantsView tenants={tenants} onPick={openTenant} />}
+          {view === 'tenants'       && <TenantsView tenants={tenants} onPick={openTenant} onAddTenant={() => setAddOpen(true)} />}
           {view === 'tenant-detail' && selectedTenant && (
             <TenantDetailView
               tenant={selectedTenant}
@@ -215,7 +225,131 @@ export default function PropEasyApp() {
           )}
         </div>
       </div>
+
+      {addOpen && (
+        <AddTenantModal
+          onClose={() => setAddOpen(false)}
+          onCreated={async () => { setAddOpen(false); await refreshTenants(); setView('tenants'); }}
+        />
+      )}
     </div>
+  );
+}
+
+/* ────────────────────────────── Add Tenant modal ────────────────────────────── */
+
+function AddTenantModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const [form, setForm] = useState({
+    name: '', phone: '', email: '', monthlyIncome: '',
+    leaseStart: '', leaseEnd: '', status: 'active' as const, notes: '',
+  });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const set = (k: keyof typeof form) => (e: { target: { value: string } }) =>
+    setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const submit = async () => {
+    setErr(null);
+    if (!form.name.trim()) { setErr('Full name is required.'); return; }
+    if (!form.phone.trim()) { setErr('Phone number is required.'); return; }
+    setSaving(true);
+    try {
+      await api('/property/tenants', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: form.name.trim(),
+          phone: form.phone.trim(),
+          email: form.email.trim() || undefined,
+          monthlyIncome: form.monthlyIncome ? Number(form.monthlyIncome) : undefined,
+          leaseStart: form.leaseStart || undefined,
+          leaseEnd: form.leaseEnd || undefined,
+          status: form.status,
+          notes: form.notes.trim() || undefined,
+        }),
+      });
+      onCreated();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Could not add tenant.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl border border-slate-200 p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-base font-bold text-slate-900">Add tenant</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600"><X className="w-4 h-4" /></button>
+        </div>
+
+        <div className="space-y-3">
+          <Field label="Full name *">
+            <input value={form.name} onChange={set('name')} placeholder="e.g. Amina Juma"
+              className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:border-blue-400" />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Phone *">
+              <input value={form.phone} onChange={set('phone')} inputMode="tel" placeholder="07XX XXX XXX"
+                className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:border-blue-400" />
+            </Field>
+            <Field label="Email">
+              <input value={form.email} onChange={set('email')} type="email" placeholder="optional"
+                className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:border-blue-400" />
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Lease start">
+              <input value={form.leaseStart} onChange={set('leaseStart')} type="date"
+                className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:border-blue-400" />
+            </Field>
+            <Field label="Lease end">
+              <input value={form.leaseEnd} onChange={set('leaseEnd')} type="date"
+                className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:border-blue-400" />
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Monthly income (TZS)">
+              <input value={form.monthlyIncome} onChange={set('monthlyIncome')} inputMode="numeric" placeholder="optional"
+                className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:border-blue-400" />
+            </Field>
+            <Field label="Status">
+              <select value={form.status} onChange={set('status')}
+                className="w-full h-10 px-3 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:border-blue-400">
+                <option value="active">Active</option>
+                <option value="pending">Pending</option>
+                <option value="late">Late</option>
+                <option value="moving_out">Moving out</option>
+                <option value="past">Past</option>
+              </select>
+            </Field>
+          </div>
+          <Field label="Notes">
+            <textarea value={form.notes} onChange={set('notes')} rows={2} placeholder="optional"
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-white text-sm focus:outline-none focus:border-blue-400" />
+          </Field>
+
+          {err && <div className="text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">{err}</div>}
+
+          <div className="flex gap-2 pt-1">
+            <button onClick={onClose} className="flex-1 h-10 rounded-lg border border-slate-200 text-slate-600 text-sm font-semibold hover:bg-slate-50">Cancel</button>
+            <button onClick={submit} disabled={saving}
+              className="flex-1 h-10 rounded-lg bg-blue-600 text-white text-sm font-bold hover:bg-blue-500 disabled:opacity-50 inline-flex items-center justify-center gap-2">
+              {saving ? 'Adding…' : 'Add tenant'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block">
+      <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">{label}</span>
+      <div className="mt-1">{children}</div>
+    </label>
   );
 }
 
@@ -345,7 +479,7 @@ function TopBar({ title }: { title: string }) {
    Tenants view (mockup 1)
    ══════════════════════════════════════════════════════════════════ */
 
-function TenantsView({ tenants, onPick }: { tenants: ApiTenant[]; onPick: (t: ApiTenant) => void }) {
+function TenantsView({ tenants, onPick, onAddTenant }: { tenants: ApiTenant[]; onPick: (t: ApiTenant) => void; onAddTenant: () => void }) {
   const [page, setPage] = useState(1);
   const [pageSize] = useState(10);
   const [search, setSearch] = useState('');
@@ -392,7 +526,7 @@ function TenantsView({ tenants, onPick }: { tenants: ApiTenant[]; onPick: (t: Ap
               <Plus className="w-3.5 h-3.5" /> Tenant Requests
             </button>
           </div>
-          <button className="px-3.5 py-2 rounded-xl bg-blue-600 text-white font-semibold text-xs hover:bg-blue-500 flex items-center gap-1.5">
+          <button onClick={onAddTenant} className="px-3.5 py-2 rounded-xl bg-blue-600 text-white font-semibold text-xs hover:bg-blue-500 flex items-center gap-1.5">
             <Plus className="w-3.5 h-3.5" /> Add Tenant
           </button>
           <button className="w-9 h-9 bg-white border border-slate-200 rounded-xl flex items-center justify-center text-slate-700 hover:text-slate-900">
