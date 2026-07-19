@@ -1747,48 +1747,149 @@ function MaintenanceView({ properties }: { properties: ApiProperty[] }) {
 
 /* ────────────────────────────── Financials View ────────────────────────── */
 
-function FinancialsView({ tenants, payments }: { tenants: ApiTenant[]; payments: ApiPayment[] }) {
-  // Backed by the shell's GET /property/payments + tenants (rent roll).
-  const collected = payments.filter((p) => p.status === 'Paid').reduce((s, p) => s + (p.amount || 0), 0);
-  const outstanding = payments.filter((p) => p.status && p.status !== 'Paid').reduce((s, p) => s + (p.amount || 0), 0);
-  const rentRoll = tenants.reduce((s, t) => s + (t.rent ?? 0), 0);
-  const tName = (id: string) => tenants.find((t) => t.id === id)?.name ?? 'Tenant';
-  const recent = [...payments].sort((a, b) => (b.paidAt ?? '').localeCompare(a.paidAt ?? '')).slice(0, 12);
+interface ApiExpense { id: string; title: string; category?: string; amount: number; spentAt?: string; currency?: string; propertyId?: string }
+
+const EXPENSE_CATEGORIES = [
+  { value: 'tax', label: 'Tax' },
+  { value: 'instalment', label: 'Instalment paid' },
+  { value: 'stamp_duty', label: 'Stamp duty' },
+  { value: 'water', label: 'Water bill' },
+  { value: 'electricity', label: 'Electricity' },
+  { value: 'maintenance', label: 'Maintenance' },
+  { value: 'security', label: 'Security / guards' },
+  { value: 'general', label: 'Other' },
+];
+const catLabel = (v?: string) => EXPENSE_CATEGORIES.find((c) => c.value === v)?.label ?? (v || 'Other');
+
+function FinancialsView({ tenants: _t, payments: _p }: { tenants: ApiTenant[]; payments: ApiPayment[] }) {
+  void _t; void _p;
+  const [expenses, setExpenses] = useState<ApiExpense[]>([]);
+  const [collectedThisMonth, setCollectedThisMonth] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [addOpen, setAddOpen] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const [ex, dash] = await Promise.all([
+        api<ApiExpense[]>('/property/expenses').catch(() => [] as ApiExpense[]),
+        api<{ collectedThisMonth: number }>('/property/posys/rent-dashboard').catch(() => ({ collectedThisMonth: 0 })),
+      ]);
+      setExpenses(Array.isArray(ex) ? ex : []);
+      setCollectedThisMonth(dash?.collectedThisMonth ?? 0);
+    } finally { setLoading(false); }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const money = (n: number) => `TZS ${Math.round(n).toLocaleString()}`;
+  const thisMonthKey = new Date().toISOString().slice(0, 7);
+  const isThisMonth = (e: ApiExpense) => (e.spentAt ?? '').slice(0, 7) === thisMonthKey;
+  const expThisMonth = expenses.filter(isThisMonth).reduce((s, e) => s + Number(e.amount || 0), 0);
+  const net = collectedThisMonth - expThisMonth;
+
+  // Category totals (all-time)
+  const byCat = new Map<string, number>();
+  for (const e of expenses) byCat.set(e.category ?? 'general', (byCat.get(e.category ?? 'general') ?? 0) + Number(e.amount || 0));
+
+  const del = async (e: ApiExpense) => {
+    setExpenses((prev) => prev.filter((x) => x.id !== e.id));
+    try { await api(`/property/expenses/${e.id}`, { method: 'DELETE' }); } finally { void load(); }
+  };
+
   const Stat = ({ label, value, tone }: { label: string; value: number; tone: string }) => (
     <div className="rounded-2xl bg-white border border-slate-200 p-4 shadow-sm">
       <div className="text-[11px] font-medium text-slate-500 uppercase tracking-wide">{label}</div>
-      <div className={`text-xl font-extrabold mt-1 ${tone}`}>TZS {value.toLocaleString()}</div>
+      <div className={`text-xl font-extrabold mt-1 ${tone}`}>{money(value)}</div>
     </div>
   );
+
   return (
     <div className="px-6 pb-6 space-y-4">
       <div className="grid grid-cols-3 gap-3">
-        <Stat label="Collected" value={collected} tone="text-emerald-600" />
-        <Stat label="Outstanding" value={outstanding} tone="text-rose-600" />
-        <Stat label="Monthly rent roll" value={rentRoll} tone="text-slate-900" />
+        <Stat label="Collected (this month)" value={collectedThisMonth} tone="text-emerald-600" />
+        <Stat label="Expenses (this month)" value={expThisMonth} tone="text-rose-600" />
+        <Stat label="Net (this month)" value={net} tone={net >= 0 ? 'text-slate-900' : 'text-rose-600'} />
       </div>
+
       <div className="rounded-2xl bg-white border border-slate-200 p-5 shadow-sm">
-        <h3 className="text-sm font-bold text-slate-900 mb-3">Recent payments</h3>
-        {recent.length === 0 ? (
-          <p className="text-xs text-slate-500">No payments recorded yet.</p>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-bold text-slate-900">Expenditures</h3>
+          <button onClick={() => setAddOpen(true)} className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-500 inline-flex items-center gap-1.5">
+            <Plus className="w-3.5 h-3.5" /> Add expense
+          </button>
+        </div>
+
+        {/* Category breakdown */}
+        {byCat.size > 0 && (
+          <div className="flex flex-wrap gap-2 mb-4">
+            {[...byCat.entries()].sort((a, b) => b[1] - a[1]).map(([cat, total]) => (
+              <span key={cat} className="text-[11px] px-2.5 py-1 rounded-full bg-slate-100 text-slate-700 font-semibold">
+                {catLabel(cat)}: {money(total)}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {expenses.length === 0 ? (
+          <p className="text-xs text-slate-500">{loading ? 'Loading…' : 'No expenditures recorded yet. Add tax, instalments, stamp duty, water bills, etc.'}</p>
         ) : (
           <ul className="space-y-1.5">
-            {recent.map((p) => (
-              <li key={p.id} className="flex items-center justify-between border-b border-slate-100 last:border-0 pb-1.5">
+            {[...expenses].sort((a, b) => (b.spentAt ?? '').localeCompare(a.spentAt ?? '')).slice(0, 30).map((e) => (
+              <li key={e.id} className="flex items-center justify-between border-b border-slate-100 last:border-0 pb-1.5">
                 <div className="min-w-0">
-                  <div className="text-sm font-medium text-slate-900 truncate">{tName(p.tenantId)}</div>
-                  <div className="text-[11px] text-slate-500">{p.paidAt ? new Date(p.paidAt).toLocaleDateString() : '—'} · {p.method ?? 'cash'}</div>
+                  <div className="text-sm font-medium text-slate-900 truncate">{e.title}</div>
+                  <div className="text-[11px] text-slate-500">{catLabel(e.category)} · {e.spentAt ? new Date(e.spentAt).toLocaleDateString() : '—'}</div>
                 </div>
-                <div className="text-right">
-                  <div className="text-sm font-bold text-slate-900">TZS {(p.amount || 0).toLocaleString()}</div>
-                  <div className={`text-[10px] font-medium ${p.status === 'Paid' ? 'text-emerald-600' : p.status === 'Overdue' ? 'text-rose-600' : 'text-amber-600'}`}>{p.status ?? 'Pending'}</div>
+                <div className="flex items-center gap-2 shrink-0 pl-2">
+                  <span className="text-sm font-bold text-rose-600">−{money(Number(e.amount || 0))}</span>
+                  <button onClick={() => del(e)} className="text-slate-300 hover:text-rose-600"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div>
               </li>
             ))}
           </ul>
         )}
       </div>
+
+      {addOpen && <ExpenseModal onClose={() => setAddOpen(false)} onSaved={() => { setAddOpen(false); void load(); }} />}
     </div>
+  );
+}
+
+function ExpenseModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const [form, setForm] = useState({ title: '', category: 'tax', amount: '', spentAt: new Date().toISOString().slice(0, 10) });
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const set = (k: keyof typeof form) => (e: { target: { value: string } }) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const submit = async () => {
+    setErr(null);
+    if (!form.title.trim()) { setErr('Description is required.'); return; }
+    if (!form.amount || Number(form.amount) <= 0) { setErr('Enter an amount.'); return; }
+    setSaving(true);
+    try {
+      await api('/property/expenses', {
+        method: 'POST',
+        body: JSON.stringify({ title: form.title.trim(), category: form.category, amount: Number(form.amount), spentAt: form.spentAt }),
+      });
+      onSaved();
+    } catch (e) { setErr(e instanceof Error ? e.message : 'Could not save expense.'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <ModalShell title="Add expenditure" onClose={onClose}>
+      <Field label="Description *"><input value={form.title} onChange={set('title')} className={inputCls} placeholder="e.g. Q3 property tax" /></Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Category">
+          <select value={form.category} onChange={set('category')} className={inputCls}>
+            {EXPENSE_CATEGORIES.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
+          </select>
+        </Field>
+        <Field label="Amount (TZS) *"><input value={form.amount} onChange={(e) => setForm((f) => ({ ...f, amount: e.target.value.replace(/[^\d]/g, '') }))} inputMode="numeric" className={inputCls} placeholder="0" /></Field>
+      </div>
+      <Field label="Date"><input type="date" value={form.spentAt} onChange={set('spentAt')} className={inputCls} /></Field>
+      {err && <p className="text-xs text-rose-600">{err}</p>}
+      <ModalActions saving={saving} onClose={onClose} onSubmit={submit} label="Add expense" />
+    </ModalShell>
   );
 }
 
