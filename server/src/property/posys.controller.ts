@@ -101,6 +101,13 @@ export class PosysTokensController {
     return this.svc.lookupTokenForAgent(code.trim().toUpperCase());
   }
 
+  // Public tenant portal (#11): rent status + landlord contacts/services.
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Get(':code/portal')
+  portal(@Param('code') code: string) {
+    return this.svc.portalByToken(code.trim().toUpperCase());
+  }
+
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post(':code/redeem')
   redeem(

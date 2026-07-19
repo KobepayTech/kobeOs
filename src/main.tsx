@@ -102,6 +102,11 @@ const payMatch = pathname.match(/^\/pay(?:\/([A-Za-z0-9]{1,8}))?\/?$/i);
 const isRentPay = !!payMatch;
 const rentPayCode = (payMatch?.[1] ?? '').toUpperCase();
 
+// Public tenant portal (scanned estate QR): /estate or /estate/{CODE}.
+const estateMatch = pathname.match(/^\/estate(?:\/([A-Za-z0-9]{1,8}))?\/?$/i);
+const isEstate = !!estateMatch;
+const estateCode = (estateMatch?.[1] ?? '').toUpperCase();
+
 const mount = (node: ReactNode) =>
   createRoot(document.getElementById('root')!).render(node);
 
@@ -157,6 +162,9 @@ if (isOverlay) {
 } else if (isRentPay) {
   // Public bank/agent rent-collection panel: /pay or /pay/{CODE}
   import('./public/RentPay').then(({ default: RentPay }) => mount(<RentPay code={rentPayCode} />));
+} else if (isEstate) {
+  // Public tenant portal (scanned estate QR): /estate or /estate/{CODE}
+  import('./public/PropertyPortal').then(({ default: PropertyPortal }) => mount(<PropertyPortal code={estateCode} />));
 } else if (shopSlug) {
   // Any non-reserved wildcard subdomain is a public shop storefront:
   //   https://kelvinfashion.kobeapptz.com

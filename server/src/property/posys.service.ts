@@ -5,7 +5,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { LessThan, Repository } from 'typeorm';
 import { randomInt } from 'crypto';
 import {
-  Property, PropertyExpense, PropertyLease, PropertyUnit, PropertyWorkOrder,
+  Property, PropertyExpense, PropertyLease, PropertyUnit, PropertyVendor, PropertyWorkOrder,
   RentCharge, RentPayment, Tenant,
 } from './property.entity';
 import { PropertyPaymentToken } from './posys.entity';
@@ -89,7 +89,45 @@ export class PosysService {
     @InjectRepository(PropertyWorkOrder) private readonly workOrders: Repository<PropertyWorkOrder>,
     @InjectRepository(RentCharge)      private readonly charges: Repository<RentCharge>,
     @InjectRepository(PropertyPaymentToken) private readonly tokens: Repository<PropertyPaymentToken>,
+    @InjectRepository(PropertyVendor) private readonly vendors: Repository<PropertyVendor>,
   ) {}
+
+  /**
+   * Public tenant portal (#11), keyed by a rent token. A tenant scans the
+   * estate QR, enters their token, and sees: their rent status for the period,
+   * the landlord's team/technician contacts (#10), and the property list.
+   * Token-gated — no token, no personal data. Owner-safe (no ids leaked).
+   */
+  async portalByToken(code: string) {
+    const token = await this.tokens.findOne({ where: { code } });
+    if (!token) throw new NotFoundException('Token not found');
+    const ownerId = token.ownerId;
+    const [tenant, unit, vendors, props] = await Promise.all([
+      this.tenants.findOne({ where: { id: token.tenantId } }),
+      token.unitId ? this.units.findOne({ where: { id: token.unitId } }) : Promise.resolve(null),
+      this.vendors.find({ where: { ownerId } }),
+      this.props.find({ where: { ownerId } }),
+    ]);
+    const expected = Number(token.amount);
+    const paid = Number(token.usedAmount);
+    const expired = token.status === 'ACTIVE' && token.expiresAt.getTime() < Date.now();
+    return {
+      tenant: {
+        name: tenant?.name ?? 'Tenant',
+        unitLabel: unit?.unitNumber ?? '',
+        status: expired ? 'EXPIRED' : token.status,
+        expected,
+        paid,
+        remaining: Math.max(0, expected - paid),
+        currency: token.currency,
+        fullyPaid: token.status === 'USED',
+      },
+      staff: vendors
+        .filter((v) => v.name)
+        .map((v) => ({ name: v.name, role: v.category, phone: v.phone })),
+      properties: props.map((p) => ({ name: p.name, address: p.address })),
+    };
+  }
 
   // ── Payment tokens ─────────────────────────────────────────────
 
