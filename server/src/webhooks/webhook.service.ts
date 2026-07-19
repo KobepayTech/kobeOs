@@ -14,6 +14,7 @@ export class WebhookService {
   // Set by WebhooksModule after CreatorsModule / LicenseModule are loaded
   private creatorSubSvc?: import('../creators/creator-subscription.service').CreatorSubscriptionService;
   private licenseSvc?: import('../license/license.service').LicenseService;
+  private mobileSubSvc?: import('../mobile-subscription/mobile-subscription.service').MobileSubscriptionService;
 
   setCreatorSubscriptionService(
     svc: import('../creators/creator-subscription.service').CreatorSubscriptionService,
@@ -23,6 +24,12 @@ export class WebhookService {
 
   setLicenseService(svc: import('../license/license.service').LicenseService) {
     this.licenseSvc = svc;
+  }
+
+  setMobileSubscriptionService(
+    svc: import('../mobile-subscription/mobile-subscription.service').MobileSubscriptionService,
+  ) {
+    this.mobileSubSvc = svc;
   }
 
   constructor(
@@ -93,6 +100,13 @@ export class WebhookService {
     const ref = payload.reference ?? '';
     if (ref.startsWith('lic_') && this.licenseSvc) {
       await this.licenseSvc.handleCallback(payload);
+      return;
+    }
+
+    // Route mobile-workspace subscription payments (reference "msub_") to
+    // MobileSubscriptionService.
+    if (ref.startsWith('msub_') && this.mobileSubSvc) {
+      await this.mobileSubSvc.handleCallback(payload);
       return;
     }
 

@@ -62,6 +62,7 @@ import { WebhooksModule } from './webhooks/webhooks.module';
 import { SportsModule } from './sports/sports.module';
 import { KobeModelsModule } from './kobe-models/kobe-models.module';
 import { LicenseModule } from './license/license.module';
+import { MobileSubscriptionModule } from './mobile-subscription/mobile-subscription.module';
 import { PrintModule } from './print/print.module';
 import { AdminModule } from './admin/admin.module';
 import { DevopsModule } from './devops/devops.module';
@@ -145,6 +146,7 @@ import { HotelPublicModule } from './hotel-public/hotel-public.module';
     StudioMediaModule,
     KobeSecurityModule,
     LicenseModule,
+    MobileSubscriptionModule,
     PrintModule,
     AdminModule,
     ErpModule,

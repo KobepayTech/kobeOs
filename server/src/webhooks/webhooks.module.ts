@@ -39,5 +39,15 @@ export class WebhooksModule implements OnModuleInit {
     } catch {
       // LicenseModule not loaded — skip
     }
+
+    try {
+      const { MobileSubscriptionService } = await import(
+        '../mobile-subscription/mobile-subscription.service'
+      );
+      const svc = this.moduleRef.get(MobileSubscriptionService, { strict: false });
+      if (svc) this.webhookService.setMobileSubscriptionService(svc);
+    } catch {
+      // MobileSubscriptionModule not loaded — skip
+    }
   }
 }
