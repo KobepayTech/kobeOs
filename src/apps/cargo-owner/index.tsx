@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { api } from '@/lib/api';
 import { ensureSession } from '@/lib/auth';
 import { useCargoParcels } from '@/hooks/useCargoParcels';
-import {
+import { Globe,
   PackageSearch, Search, MapPin, Phone, User, Weight,
   Clock, CheckCircle2, Truck, Box,
   Bell, Check, ChevronRight, Navigation,
@@ -517,6 +517,9 @@ export default function CargoOwner() {
                 <span className="ml-0.5 w-4 h-4 bg-red-500 rounded-full text-[9px] font-bold flex items-center justify-center text-white">{unreadCount}</span>
               )}
             </TabsTrigger>
+            <TabsTrigger value="site" className="flex-1 data-[state=active]:bg-emerald-500/20 data-[state=active]:text-emerald-400 text-slate-400 text-xs gap-1.5">
+              <Globe className="w-3.5 h-3.5" /> Site
+            </TabsTrigger>
           </TabsList>
         </div>
 
@@ -783,6 +786,10 @@ export default function CargoOwner() {
                 </Card>
               ))}
             </div>
+          </TabsContent>
+
+          <TabsContent value="site" className="m-0 p-0">
+            <div className="h-[85vh]"><CargoSiteBuilder /></div>
           </TabsContent>
         </ScrollArea>
       </Tabs>

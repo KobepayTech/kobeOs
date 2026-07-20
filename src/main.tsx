@@ -121,6 +121,11 @@ const contractMatch = pathname.match(/^\/contract(?:\/([A-Za-z0-9]{1,8}))?\/?$/i
 const isContract = !!contractMatch || subContract;
 const contractCode = (contractMatch?.[1]?.toUpperCase()) || (subContract ? bareCode : '');
 
+// Public branded cargo landing: /cg/{slug}.
+const cargoSiteMatch = pathname.match(/^\/cg\/([a-z0-9][a-z0-9-]{0,61}[a-z0-9]|[a-z0-9])\/?$/i);
+const cargoSiteSlug = cargoSiteMatch?.[1] ?? '';
+const isCargoSite = !!cargoSiteSlug;
+
 const mount = (node: ReactNode) =>
   createRoot(document.getElementById('root')!).render(node);
 
@@ -182,6 +187,9 @@ if (isOverlay) {
 } else if (isContract) {
   // Public lawyer/contract portal: /contract or /contract/{CODE}
   import('./public/LawyerPortal').then(({ default: LawyerPortal }) => mount(<LawyerPortal code={contractCode} />));
+} else if (isCargoSite) {
+  // Public branded cargo landing: /cg/{slug}
+  import('./public/CargoSite').then(({ default: CargoSite }) => mount(<CargoSite slug={cargoSiteSlug} />));
 } else if (subProperty) {
   // Property management app, standalone via property.kobeapptz.com (#9)
   import('./apps/property/PropEasy').then(({ default: PropEasy }) =>
