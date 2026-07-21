@@ -3,7 +3,7 @@ import { api } from '@/lib/api';
 import {
   Phone, Home, Building2, Users, DollarSign, Wrench, FileText, Settings, LogOut,
   Search, Bell, ChevronDown, Plus, ArrowLeft, ArrowRight,
-  Info, Pencil, Trash2, Filter, Columns3, ChevronRight, MoreHorizontal,
+  Info, Pencil, Edit3, Trash2, Filter, Columns3, ChevronRight, MoreHorizontal,
   FileDown, ShieldCheck, X,
   Image as ImageIcon,
   Calendar, Activity, MapPin, MessageCircle,

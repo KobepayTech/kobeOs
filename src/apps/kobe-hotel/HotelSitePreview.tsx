@@ -5,6 +5,7 @@ import { MapPin, Phone, MessageCircle, Star, BedDouble } from 'lucide-react';
  *  builder preview matches what guests see. */
 
 export interface HotelSite {
+  [key: string]: unknown;
   hotelName?: string;
   tagline?: string;
   primaryColor?: string;

@@ -15,6 +15,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { QRCodeSVG } from 'qrcode.react';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import CargoSiteBuilder from './CargoSiteBuilder';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 type ParcelStatus = 'REGISTERED' | 'VERIFIED' | 'PAID' | 'IN_TRANSIT' | 'ARRIVED' | 'DELIVERED';

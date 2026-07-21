@@ -5,6 +5,7 @@ import { Truck, Search, Phone, MessageCircle, MapPin, PackageCheck } from 'lucid
  *  and the cargo-owner site builder preview so they never drift. */
 
 export interface CargoSite {
+  [key: string]: unknown;
   companyName?: string;
   tagline?: string;
   primaryColor?: string;
