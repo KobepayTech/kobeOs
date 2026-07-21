@@ -7,6 +7,7 @@ import { Phone, Mail, Building2, Wrench } from 'lucide-react';
  */
 
 export interface EstateSite {
+  [key: string]: unknown;
   businessName?: string;
   tagline?: string;
   primaryColor?: string;
