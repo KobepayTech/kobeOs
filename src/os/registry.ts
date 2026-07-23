@@ -1,3 +1,4 @@
+import { installedApps } from './module-installer';
 import { manifest as file_manager } from '@/apps/file-manager/manifest';
 import { manifest as terminal } from '@/apps/terminal/manifest';
 import { manifest as settings } from '@/apps/settings/manifest';
@@ -9,6 +10,7 @@ import { manifest as calendar } from '@/apps/calendar/manifest';
 import { manifest as clock } from '@/apps/clock/manifest';
 import { manifest as task_manager } from '@/apps/task-manager/manifest';
 import { manifest as package_manager } from '@/apps/package-manager/manifest';
+import { manifest as app_store } from '@/apps/app-store/manifest';
 import { manifest as backup_restore } from '@/apps/backup-restore/manifest';
 import { manifest as tasks } from '@/apps/tasks/manifest';
 import { manifest as notes } from '@/apps/notes/manifest';
@@ -87,93 +89,29 @@ import { manifest as erp_discounts } from '@/apps/erp-discounts/manifest';
 import { manifest as erp_shop } from '@/apps/erp-shop/manifest';
 import { manifest as erp_store_editor } from '@/apps/erp-store-editor/manifest';
 
-export const appRegistry = [
-  file_manager,
-  terminal,
-  settings,
-  system_settings,
-  calculator,
-  text_editor,
-  notepad,
-  calendar,
-  clock,
-  task_manager,
-  package_manager,
-  backup_restore,
-  tasks,
-  notes,
-  spreadsheet,
-  presentation,
-  draw,
-  kanban,
-  password_manager,
-  media_player,
-  image_viewer,
-  music_studio,
-  camera,
-  screen_recorder,
-  browser,
-  email,
-  chat,
-  contacts,
-  video_conference,
-  code_ide,
-  database_manager,
-  api_tester,
-  git_client,
-  regex_tester,
-  json_formatter,
-  color_picker,
-  markdown_preview,
-  snake,
-  tetris,
-  chess,
-  solitaire,
-  erp_dashboard,
-  erp_pos,
-  erp_messaging,
-  erp_store,
-  erp_warehouse,
-  erp_warehouse_ops,
-  erp_kobepay_inbox,
-  erp_accounting,
-  erp_reports,
-  erp_summary,
-  erp_eod,
-  erp_admin,
-  erp_sourcing,
-  erp_shipments,
-  erp_loyalty,
-  erp_rider,
-  property,
-  posys,
-  property_payments,
-  cargo,
-  cargo_welcome,
-  cargo_sender,
-  cargo_owner,
-  cargo_driver,
-  cargo_receiver,
-  cargo_company,
-  cargo_consolidation,
-  cargo_tz,
-  kobe_print,
-  creator,
-  kobe_models,
-  kobe_sports,
-  kobe_hotel,
-  kobe_assistant,
-  kobe_agents,
-  kobe_pay,
-  china_cashier,
-  live_sales,
-  cargo_tz_ops,
-  kobe_coach,
-  kobe_studio,
-  kobetech_admin,
-  kobetech_devops,
-  erp_credit,
-  erp_discounts,
-  erp_shop,
-  erp_store_editor,
+/** Every module compiled into this KobeOS build. */
+export const appCatalogue = [
+  file_manager, terminal, settings, system_settings, calculator, text_editor, notepad,
+  calendar, clock, task_manager, package_manager, app_store, backup_restore, tasks, notes,
+  spreadsheet, presentation, draw, kanban, password_manager, media_player,
+  image_viewer, music_studio, camera, screen_recorder, browser, email, chat,
+  contacts, video_conference, code_ide, database_manager, api_tester, git_client,
+  regex_tester, json_formatter, color_picker, markdown_preview, snake, tetris,
+  chess, solitaire, erp_dashboard, erp_pos, erp_messaging, erp_store,
+  erp_warehouse, erp_warehouse_ops, erp_kobepay_inbox, erp_accounting,
+  erp_reports, erp_summary, erp_eod, erp_admin, erp_sourcing, erp_shipments,
+  erp_loyalty, erp_rider, property, posys, property_payments, cargo, cargo_welcome,
+  cargo_sender, cargo_owner, cargo_driver, cargo_receiver, cargo_company,
+  cargo_consolidation, cargo_tz, kobe_print, creator, kobe_models, kobe_sports,
+  kobe_hotel, kobe_assistant, kobe_agents, kobe_pay, china_cashier, live_sales,
+  cargo_tz_ops, kobe_coach, kobe_studio, kobetech_admin, kobetech_devops,
+  erp_credit, erp_discounts, erp_shop, erp_store_editor,
 ];
+
+/** Modules currently enabled for the launcher and window manager. */
+export const appRegistry = installedApps(appCatalogue);
+
+/** Recalculate after install/disable/uninstall without reloading KobeOS. */
+export function getInstalledAppRegistry() {
+  return installedApps(appCatalogue);
+}
