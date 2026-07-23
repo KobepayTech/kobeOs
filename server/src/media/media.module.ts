@@ -7,6 +7,7 @@ import { MediaController } from './media.controller';
 @Module({
   imports: [TypeOrmModule.forFeature([MediaAsset, Playlist])],
   providers: [MediaAssetsService, PlaylistsService],
+  exports: [MediaAssetsService, PlaylistsService],
   controllers: [MediaController],
 })
 export class MediaModule {}
