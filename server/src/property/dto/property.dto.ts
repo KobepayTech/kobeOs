@@ -1,4 +1,20 @@
-import { IsDateString, IsEnum, IsInt, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsDateString,
+  IsEnum,
+  IsIn,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  MaxLength,
+  Min,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class CreatePropertyDto {
   @IsString() @MaxLength(120) name!: string;
@@ -26,28 +42,77 @@ export class UpdatePropertyDto {
 export class CreateUnitDto {
   @IsUUID() propertyId!: string;
   @IsString() @MaxLength(40) unitNumber!: string;
-  @IsOptional() @IsString() type?: string;
-  @IsOptional() @IsNumber() bedrooms?: number;
-  @IsOptional() @IsNumber() bathrooms?: number;
+  @IsOptional() @IsString() @MaxLength(80) type?: string;
+  @IsOptional() @IsNumber() @Min(0) bedrooms?: number;
+  @IsOptional() @IsNumber() @Min(0) bathrooms?: number;
   @IsOptional() @IsInt() @Min(0) sqft?: number;
-  @IsOptional() @IsString() floor?: string;
-  @IsOptional() @IsNumber() rentAmount?: number;
+  @IsOptional() @IsString() @MaxLength(40) floor?: string;
+  @IsOptional() @IsString() @MaxLength(60) corridor?: string;
+  @IsOptional() @IsIn(['left', 'right', 'end', 'single']) corridorSide?: 'left' | 'right' | 'end' | 'single';
+  @IsOptional() @IsInt() @Min(0) @Max(1000) layoutPosition?: number;
+  @IsOptional() @IsNumber() @Min(0) rentAmount?: number;
   @IsOptional() @IsString() @MaxLength(8) currency?: string;
   @IsOptional() @IsEnum(['vacant', 'occupied', 'turnover', 'unavailable', 'maintenance']) status?: 'vacant' | 'occupied' | 'turnover' | 'unavailable' | 'maintenance';
   @IsOptional() @IsString() notes?: string;
 }
 export class UpdateUnitDto {
   @IsOptional() @IsUUID() propertyId?: string;
-  @IsOptional() @IsString() unitNumber?: string;
-  @IsOptional() @IsString() type?: string;
-  @IsOptional() @IsNumber() bedrooms?: number;
-  @IsOptional() @IsNumber() bathrooms?: number;
+  @IsOptional() @IsString() @MaxLength(40) unitNumber?: string;
+  @IsOptional() @IsString() @MaxLength(80) type?: string;
+  @IsOptional() @IsNumber() @Min(0) bedrooms?: number;
+  @IsOptional() @IsNumber() @Min(0) bathrooms?: number;
   @IsOptional() @IsInt() @Min(0) sqft?: number;
-  @IsOptional() @IsString() floor?: string;
-  @IsOptional() @IsNumber() rentAmount?: number;
+  @IsOptional() @IsString() @MaxLength(40) floor?: string;
+  @IsOptional() @IsString() @MaxLength(60) corridor?: string;
+  @IsOptional() @IsIn(['left', 'right', 'end', 'single']) corridorSide?: 'left' | 'right' | 'end' | 'single';
+  @IsOptional() @IsInt() @Min(0) @Max(1000) layoutPosition?: number;
+  @IsOptional() @IsNumber() @Min(0) rentAmount?: number;
   @IsOptional() @IsString() @MaxLength(8) currency?: string;
   @IsOptional() @IsEnum(['vacant', 'occupied', 'turnover', 'unavailable', 'maintenance']) status?: 'vacant' | 'occupied' | 'turnover' | 'unavailable' | 'maintenance';
   @IsOptional() @IsString() notes?: string;
+}
+
+/** A room/unit proposal used by the bulk property onboarding transaction. */
+export class PropertyLayoutUnitDto {
+  @IsString() @MaxLength(40) unitNumber!: string;
+  @IsOptional() @IsString() @MaxLength(80) type?: string;
+  @IsOptional() @IsNumber() @Min(0) bedrooms?: number;
+  @IsOptional() @IsNumber() @Min(0) bathrooms?: number;
+  @IsOptional() @IsInt() @Min(0) sqft?: number;
+  @IsString() @MaxLength(40) floor!: string;
+  @IsOptional() @IsString() @MaxLength(60) corridor?: string;
+  @IsOptional() @IsIn(['left', 'right', 'end', 'single']) corridorSide?: 'left' | 'right' | 'end' | 'single';
+  @IsOptional() @IsInt() @Min(0) @Max(1000) layoutPosition?: number;
+  @IsOptional() @IsNumber() @Min(0) rentAmount?: number;
+  @IsOptional() @IsString() @MaxLength(8) currency?: string;
+  @IsOptional() @IsEnum(['vacant', 'occupied', 'turnover', 'unavailable', 'maintenance']) status?: 'vacant' | 'occupied' | 'turnover' | 'unavailable' | 'maintenance';
+  @IsOptional() @IsString() @MaxLength(500) notes?: string;
+}
+
+export class OnboardPropertyDto {
+  @ValidateNested() @Type(() => CreatePropertyDto)
+  property!: CreatePropertyDto;
+
+  @IsArray() @ArrayMaxSize(500)
+  @ValidateNested({ each: true }) @Type(() => PropertyLayoutUnitDto)
+  units!: PropertyLayoutUnitDto[];
+
+  @IsOptional() @IsString() @MaxLength(2000)
+  layoutPrompt?: string;
+}
+
+export class LayoutProposalDto {
+  @IsString() @MaxLength(2000)
+  prompt!: string;
+
+  @IsOptional() @IsString() @MaxLength(40)
+  startingRoom?: string;
+
+  @IsOptional() @IsNumber() @Min(0)
+  defaultRent?: number;
+
+  @IsOptional() @IsString() @MaxLength(80)
+  defaultType?: string;
 }
 
 export class CreateTenantDto {
