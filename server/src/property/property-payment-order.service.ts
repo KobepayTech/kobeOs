@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import {
   createHmac,
   randomBytes,
@@ -254,9 +254,9 @@ export class PropertyPaymentOrderService {
     const unitIds = [...new Set(rows.map((row) => row.unitId))];
     const partnerIds = [...new Set(rows.map((row) => row.assignedPartnerId).filter(Boolean) as string[])];
     const [tenants, units, partners] = await Promise.all([
-      tenantIds.length ? this.tenants.createQueryBuilder('tenant').where('tenant.id IN (:...ids)', { ids: tenantIds }).getMany() : [],
-      unitIds.length ? this.units.createQueryBuilder('unit').where('unit.id IN (:...ids)', { ids: unitIds }).getMany() : [],
-      partnerIds.length ? this.partners.createQueryBuilder('partner').where('partner.id IN (:...ids)', { ids: partnerIds }).getMany() : [],
+      tenantIds.length ? this.tenants.createQueryBuilder('tenant').where('tenant.id IN (:...ids)', { ids: tenantIds }).getMany() : ([] as Tenant[]),
+      unitIds.length ? this.units.createQueryBuilder('unit').where('unit.id IN (:...ids)', { ids: unitIds }).getMany() : ([] as PropertyUnit[]),
+      partnerIds.length ? this.partners.createQueryBuilder('partner').where('partner.id IN (:...ids)', { ids: partnerIds }).getMany() : ([] as PropertyCollectionPartner[]),
     ]);
     const tenantMap = new Map(tenants.map((row) => [row.id, row]));
     const unitMap = new Map(units.map((row) => [row.id, row]));
@@ -431,7 +431,7 @@ export class PropertyPaymentOrderService {
   }
 
   private async receiptFor(
-    manager: Parameters<DataSource['transaction']>[0] extends (manager: infer M) => unknown ? M : never,
+    manager: EntityManager,
     redemption: PropertyPaymentRedemption,
     order: PropertyPaymentOrder,
     partner: PropertyCollectionPartner,
