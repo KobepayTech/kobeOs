@@ -60,6 +60,7 @@ import { manifest as erp_rider } from '@/apps/erp-rider/manifest';
 import { manifest as property } from '@/apps/property/manifest';
 import { manifest as posys } from '@/apps/posys/manifest';
 import { manifest as property_payments } from '@/apps/property-payments/manifest';
+import { manifest as media_inbox } from '@/apps/media-inbox/manifest';
 import { manifest as cargo } from '@/apps/cargo/manifest';
 import { manifest as cargo_welcome } from '@/apps/cargo-welcome/manifest';
 import { manifest as cargo_sender } from '@/apps/cargo-sender/manifest';
@@ -100,8 +101,8 @@ export const appCatalogue = [
   chess, solitaire, erp_dashboard, erp_pos, erp_messaging, erp_store,
   erp_warehouse, erp_warehouse_ops, erp_kobepay_inbox, erp_accounting,
   erp_reports, erp_summary, erp_eod, erp_admin, erp_sourcing, erp_shipments,
-  erp_loyalty, erp_rider, property, posys, property_payments, cargo, cargo_welcome,
-  cargo_sender, cargo_owner, cargo_driver, cargo_receiver, cargo_company,
+  erp_loyalty, erp_rider, property, posys, property_payments, media_inbox, cargo,
+  cargo_welcome, cargo_sender, cargo_owner, cargo_driver, cargo_receiver, cargo_company,
   cargo_consolidation, cargo_tz, kobe_print, creator, kobe_models, kobe_sports,
   kobe_hotel, kobe_assistant, kobe_agents, kobe_pay, china_cashier, live_sales,
   cargo_tz_ops, kobe_coach, kobe_studio, kobetech_admin, kobetech_devops,
