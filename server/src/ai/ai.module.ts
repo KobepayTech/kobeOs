@@ -2,7 +2,10 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AiService } from './ai.service';
 import { AiController } from './ai.controller';
+import { ScheduledAgentController } from './scheduled-agent.controller';
 import { KobeAgentService } from './agent.service';
+import { ScheduledAgentService } from './scheduled-agent.service';
+import { AiAgentRun, AiScheduledAgent } from './scheduled-agent.entity';
 import { PosOrder, PosProduct } from '../pos/pos.entity';
 import { ProductReview } from '../store/product-review.entity';
 import { RentCharge, Tenant, PropertyUnit } from '../property/property.entity';
@@ -20,12 +23,13 @@ import { NotificationsModule } from '../notifications/notifications.module';
   imports: [
     TypeOrmModule.forFeature([
       PosOrder, PosProduct, ProductReview, RentCharge, Tenant, PropertyUnit,
-      HotelRoom, HotelGuest, HotelBooking, HotelFinancialRecord, WarehouseItem, ShopExpense, Parcel, Shop, AppState, SearchDoc,
+      HotelRoom, HotelGuest, HotelBooking, HotelFinancialRecord, WarehouseItem,
+      ShopExpense, Parcel, Shop, AppState, SearchDoc, AiScheduledAgent, AiAgentRun,
     ]),
     NotificationsModule,
   ],
-  providers: [AiService, KobeAgentService],
-  controllers: [AiController],
-  exports: [AiService, KobeAgentService],
+  providers: [AiService, KobeAgentService, ScheduledAgentService],
+  controllers: [AiController, ScheduledAgentController],
+  exports: [AiService, KobeAgentService, ScheduledAgentService],
 })
 export class AiModule {}
