@@ -1,0 +1,18 @@
+# Copy to config.yaml and fill in. Env overrides: KOBE_VISION_MATCH_ID, _TOKEN, _SOURCE...
+source: "rtsp://camera.local/stream"   # RTSP url, video file, or "0" for webcam
+match_id: "REPLACE-WITH-MATCH-UUID"
+backend_url: "http://127.0.0.1:3000"
+token: "REPLACE-WITH-JWT"
+
+weights: "models/football/players-yolo26m.pt"   # your LICENSED detector weights
+imgsz: 1280
+conf: 0.25
+device: "cuda:0"        # or "cpu"
+frame_rate: 25
+ingest_every: 1
+
+# One-time calibration: 4 pixel points (in the camera frame) and the pitch
+# points (0..100) they correspond to. Order: TL, TR, BR, BL of the pitch.
+pixel_corners: [[120, 400], [1800, 380], [1900, 1040], [40, 1060]]
+pitch_corners: [[0, 0], [100, 0], [100, 100], [0, 100]]
+attack_direction: "left_to_right"

@@ -1,0 +1,68 @@
+# kobe-sports-vision
+
+A standalone Python vision worker for **KobeSports**. It runs a YOLO detector
+plus **Roboflow Supervision** (tracking, pitch geometry, zones, line crossings),
+computes football analytics (speed/distance/heatmaps, possession/passes), and
+POSTs each processed frame to the existing NestJS backend at
+`POST /sports/vision/ingest/:matchId` — the endpoint and downstream
+(offside detection, player stats, WebSocket broadcast) already exist.
+
+```
+RTSP cameras / video  →  YOLO detector  →  Supervision (track + geometry)
+                      →  Kobe analytics (possession, passes, speed, zones)
+                      →  /sports/vision/ingest/:matchId  →  WebSocket  →  clients
+```
+
+## ⚠️ Licensing — read before commercial use
+
+- **Ultralytics YOLO (any version, incl. YOLO11 / YOLO26) is AGPL-3.0 or a paid
+  Enterprise licence.** KobeOS is a commercial, closed, self-distributed product,
+  which is exactly the case AGPL-3.0 is designed to catch. **Secure an
+  Ultralytics Enterprise licence before distributing**, or swap in a
+  permissively-licensed detector. The detector is isolated in `detector.py`, so
+  this decision touches one file only.
+- **Roboflow Supervision is MIT** — safe to use and bundle.
+- This worker's own code (analytics, geometry, ingest) is part of KobeOS.
+
+## Architecture
+
+| Module | Role | Tested here |
+|---|---|---|
+| `detector.py` | Ultralytics YOLO wrapper (version-agnostic, lazy import) | needs GPU/weights |
+| `tracking.py` | Supervision tracker → stable track IDs (prefers the `trackers` package's `ByteTrackTracker`, falls back to `sv.ByteTrack`) | needs supervision |
+| `pitch.py` | 4-point homography, pixel → pitch (0..100) | ✅ pure stdlib |
+| `kinematics.py` | speed (km/h), distance, sprints, heatmaps | ✅ |
+| `possession.py` | nearest-player, control-for-N-frames, passes/interceptions, possession % | ✅ |
+| `zones.py` | `PolygonZone` + `LineZone` on pitch coords | ✅ |
+| `ingest.py` | builds + POSTs the exact `IngestFrameDto` (stdlib urllib) | ✅ |
+| `pipeline.py` | orchestrates detections → frame payload + analytics snapshot | ✅ |
+| `worker.py` | capture loop (RTSP/file/webcam) | needs opencv |
+
+The analytics/geometry layer is **pure stdlib and unit-tested** so the contract
+and football maths are verified without a GPU; only YOLO + capture need hardware.
+
+## Run
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt              # installs ultralytics (AGPL) — see above
+cp config.example.yaml config.yaml           # then edit: source, match_id, token, calibration
+python -m kobe_vision.worker --config config.yaml --half 1
+```
+
+Calibration: set `pixel_corners` (4 points in the camera frame) and the
+`pitch_corners` they map to (default = pitch corners 0..100), then every
+detection is transformed to pitch coordinates automatically.
+
+## Test (no GPU needed)
+
+```bash
+python tests/test_analytics.py        # 8 tests: pitch, kinematics, possession, zones, contract
+```
+
+## Notes / not-included
+
+Per the plan, this worker supplies detections, tracking, geometry and the
+analytics layer. It does **not** provide a trained football detector, jersey-OCR,
+cross-camera identity, or VAR decisions — those are your custom models + rules.
+Phase 2 (many products/objects per still image, jersey-number OCR) builds on top.
