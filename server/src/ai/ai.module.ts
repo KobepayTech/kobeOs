@@ -4,7 +4,9 @@ import { AiService } from './ai.service';
 import { AiController } from './ai.controller';
 import { ScheduledAgentController } from './scheduled-agent.controller';
 import { KobeAgentService } from './agent.service';
+import { AiDocsService } from './ai-docs.service';
 import { AiMemory } from './ai-memory.entity';
+import { AiDocument, AiDocChunk } from './ai-document.entity';
 import { ScheduledAgentService } from './scheduled-agent.service';
 import { AiAgentRun, AiScheduledAgent } from './scheduled-agent.entity';
 import { PosOrder, PosProduct } from '../pos/pos.entity';
@@ -26,11 +28,12 @@ import { NotificationsModule } from '../notifications/notifications.module';
       PosOrder, PosProduct, ProductReview, RentCharge, Tenant, PropertyUnit,
       HotelRoom, HotelGuest, HotelBooking, HotelFinancialRecord, WarehouseItem,
       ShopExpense, Parcel, Shop, AppState, SearchDoc, AiScheduledAgent, AiAgentRun, AiMemory,
+      AiDocument, AiDocChunk,
     ]),
     NotificationsModule,
   ],
-  providers: [AiService, KobeAgentService, ScheduledAgentService],
+  providers: [AiService, KobeAgentService, ScheduledAgentService, AiDocsService],
   controllers: [AiController, ScheduledAgentController],
-  exports: [AiService, KobeAgentService, ScheduledAgentService],
+  exports: [AiService, KobeAgentService, ScheduledAgentService, AiDocsService],
 })
 export class AiModule {}

@@ -15,6 +15,7 @@ import { AppState } from '../app-state/app-state.entity';
 import { SearchDoc } from '../search/search.entity';
 import { cosine, tokenize, keywordScore, rankByDesc } from '../search/search.service';
 import { AiMemory } from './ai-memory.entity';
+import { AiDocsService } from './ai-docs.service';
 import { BeemService } from '../notifications/beem.service';
 
 
@@ -80,6 +81,7 @@ export class KobeAgentService {
     @InjectRepository(SearchDoc) private readonly searchDocs: Repository<SearchDoc>,
     @InjectRepository(AiMemory) private readonly memory: Repository<AiMemory>,
     private readonly beem: BeemService,
+    private readonly aiDocs: AiDocsService,
   ) {}
 
   /** Durable facts Kobe remembers about this business (empty if none/first run). */
@@ -504,6 +506,17 @@ export class KobeAgentService {
         return { data: { saved: true, fact, remembered: facts.length } };
       },
     },
+    {
+      name: 'search_documents',
+      description: 'Answer from the owner\'s UPLOADED documents (contracts, price lists, supplier catalogues, policies). Use this whenever the question is about "the contract", "the price list", "our policy", or any document they uploaded. args: {query, documentId?}. Ground your answer ONLY in the returned passages; if `weak` is true, say you could not find it rather than guessing.',
+      run: async (ownerId, args) => {
+        const query = String(args?.query ?? '').trim();
+        if (!query) return { data: { count: 0, passages: [] } };
+        const documentId = args?.documentId ? String(args.documentId) : undefined;
+        const { passages, weak, note } = await this.aiDocs.search(ownerId, query, 6, documentId);
+        return { data: { count: passages.length, passages, weak, note } };
+      },
+    },
     // ── Hotel ──────────────────────────────────────────────────────────────
     {
       name: 'hotel_occupancy',
@@ -679,7 +692,7 @@ export class KobeAgentService {
    * focused and accurate (small models degrade when shown 25 unrelated tools).
    * Cross-domain / unclear questions fall through to the generalist (all tools).
    */
-  private readonly sharedTools = ['semantic_search', 'remember', 'configure_automation'];
+  private readonly sharedTools = ['semantic_search', 'search_documents', 'remember', 'configure_automation'];
 
   private readonly specialists: Record<
     'kobepay' | 'properties' | 'hotels' | 'shop' | 'cargo' | 'finance',
@@ -805,6 +818,7 @@ ${this.toolList(activeToolNames)}`;
       case 'sales_forecast': return `Month-to-date TZS ${Number(data.monthToDate).toLocaleString()} (day ${data.dayOfMonth}/${data.daysInMonth}). Projected month-end: TZS ${Number(data.projectedMonthEnd).toLocaleString()}.`;
       case 'semantic_search': return data.count ? `Found ${data.count} match(es): ${data.results.slice(0, 5).map((r: any) => r.text.slice(0, 40)).join('; ')}.` : (data.note || 'No matches found.');
       case 'remember': return data.saved ? `Got it — I'll remember that.` : (data.note || 'Nothing to remember.');
+      case 'search_documents': return data.count ? `Found ${data.count} relevant passage(s) in your documents${data.passages?.[0]?.title ? ` (e.g. "${data.passages[0].title}")` : ''}.` : (data.note || 'Nothing found in your documents.');
       default: return JSON.stringify(data);
     }
   }
