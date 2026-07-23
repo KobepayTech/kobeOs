@@ -9,7 +9,7 @@ import {
   PropertyLayoutUnitDto,
 } from './dto/property.dto';
 
-interface LayoutProposal {
+export interface LayoutProposal {
   summary: string;
   source: 'ai' | 'planner';
   floors: Array<{
