@@ -10,6 +10,7 @@ import { manifest as calendar } from '@/apps/calendar/manifest';
 import { manifest as clock } from '@/apps/clock/manifest';
 import { manifest as task_manager } from '@/apps/task-manager/manifest';
 import { manifest as package_manager } from '@/apps/package-manager/manifest';
+import { manifest as app_store } from '@/apps/app-store/manifest';
 import { manifest as backup_restore } from '@/apps/backup-restore/manifest';
 import { manifest as tasks } from '@/apps/tasks/manifest';
 import { manifest as notes } from '@/apps/notes/manifest';
@@ -89,7 +90,7 @@ import { manifest as erp_store_editor } from '@/apps/erp-store-editor/manifest';
 /** Every module compiled into this KobeOS build. */
 export const appCatalogue = [
   file_manager, terminal, settings, system_settings, calculator, text_editor, notepad,
-  calendar, clock, task_manager, package_manager, backup_restore, tasks, notes,
+  calendar, clock, task_manager, package_manager, app_store, backup_restore, tasks, notes,
   spreadsheet, presentation, draw, kanban, password_manager, media_player,
   image_viewer, music_studio, camera, screen_recorder, browser, email, chat,
   contacts, video_conference, code_ide, database_manager, api_tester, git_client,
