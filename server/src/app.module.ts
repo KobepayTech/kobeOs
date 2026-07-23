@@ -19,6 +19,7 @@ import { CalendarModule } from './calendar/calendar.module';
 import { FilesModule } from './files/files.module';
 import { PasswordsModule } from './passwords/passwords.module';
 import { MediaModule } from './media/media.module';
+import { MediaInboxModule } from './media/media-inbox.module';
 import { CargoModule } from './cargo/cargo.module';
 import { AirCargoModule } from './cargo/air-cargo.module';
 import { ShopsModule } from './shops/shops.module';
@@ -117,6 +118,7 @@ import { HotelPublicModule } from './hotel-public/hotel-public.module';
     FilesModule,
     PasswordsModule,
     MediaModule,
+    MediaInboxModule,
     CargoModule,
     AirCargoModule,
     ShopsModule,

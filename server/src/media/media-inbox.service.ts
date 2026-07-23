@@ -9,7 +9,7 @@ import { createHash, randomBytes } from 'crypto';
 import { basename, extname } from 'path';
 import { MediaAsset } from './media.entity';
 import { MediaInboxItem } from './media-inbox.entity';
-import { MediaService } from './media.service';
+import { MediaAssetsService } from './media.service';
 import { PosProduct } from '../pos/pos.entity';
 import { AiService } from '../ai/ai.service';
 import {
@@ -18,7 +18,7 @@ import {
   UpdateMediaInboxItemDto,
 } from './dto/media-inbox.dto';
 
-interface UploadResult {
+export interface UploadResult {
   item: MediaInboxItem;
   duplicate: boolean;
 }
@@ -55,7 +55,7 @@ export class MediaInboxService {
     private readonly assets: Repository<MediaAsset>,
     @InjectRepository(PosProduct)
     private readonly products: Repository<PosProduct>,
-    private readonly media: MediaService,
+    private readonly media: MediaAssetsService,
     private readonly ai: AiService,
     private readonly dataSource: DataSource,
   ) {}
@@ -75,7 +75,7 @@ export class MediaInboxService {
         results.push({ item: duplicate, duplicate: true });
         continue;
       }
-      const asset = await this.media.upload(ownerId, file);
+      const asset = await this.media.createFromUpload(ownerId, file, 'image');
       const item = await this.inbox.save(this.inbox.create({
         ownerId,
         assetId: asset.id,
@@ -83,9 +83,9 @@ export class MediaInboxService {
         originalName: file.originalname,
         mimeType: file.mimetype,
         sizeBytes: file.size,
-        width: asset.width ?? null,
-        height: asset.height ?? null,
-        url: asset.url,
+        width: null,
+        height: null,
+        url: asset.src,
         status: 'UNPROCESSED',
         folder: 'unprocessed',
         metadata: {},
@@ -131,7 +131,7 @@ export class MediaInboxService {
     if (item.status === 'PROCESSING') throw new BadRequestException('Wait for processing to finish');
     const asset = await this.assets.findOne({ where: { ownerId, id: item.assetId } });
     await this.inbox.remove(item);
-    if (asset) await this.media.delete(ownerId, asset.id);
+    if (asset) await this.media.remove(ownerId, asset.id);
     return { deleted: true };
   }
 
@@ -197,25 +197,28 @@ export class MediaInboxService {
             const product = await productRepo.save(productRepo.create({
               ownerId,
               sku,
-              barcode: text(metadata.barcode),
               name: baseName,
               description: text(metadata.description),
               category,
               price: number(metadata.price),
-              cost: number(metadata.cost),
               stock: Math.floor(number(metadata.stock)),
-              minStock: Math.floor(number(metadata.minStock)),
-              reorderLevel: Math.floor(number(metadata.reorderLevel)),
-              imageUrl: item.url,
+              imageUrls: [item.url],
               active: metadata.active !== false,
               taxRate: number(metadata.taxRate),
               unit: text(metadata.unit, 'pcs'),
+              // Real first-class columns.
+              tags: stringArray(metadata.tags),
+              variants: Array.isArray(metadata.variants) ? (metadata.variants as PosProduct['variants']) : [],
+              // Everything else the importer captures lives in customData
+              // (PosProduct has no dedicated barcode/cost/minStock/etc. columns).
               customData: {
+                barcode: text(metadata.barcode),
+                cost: number(metadata.cost),
+                minStock: Math.floor(number(metadata.minStock)),
+                reorderLevel: Math.floor(number(metadata.reorderLevel)),
                 subcategory,
                 sizes: stringArray(metadata.sizes),
                 colours: stringArray(metadata.colours ?? metadata.colors),
-                tags: stringArray(metadata.tags),
-                variants: Array.isArray(metadata.variants) ? metadata.variants : [],
                 supplier: text(metadata.supplier),
                 weight: metadata.weight ?? null,
                 dimensions: metadata.dimensions ?? null,
