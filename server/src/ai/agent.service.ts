@@ -13,15 +13,9 @@ import { Parcel } from '../cargo/cargo.entity';
 import { Shop } from '../shops/shop.entity';
 import { AppState } from '../app-state/app-state.entity';
 import { SearchDoc } from '../search/search.entity';
+import { cosine, tokenize, keywordScore, rankByDesc } from '../search/search.service';
 import { BeemService } from '../notifications/beem.service';
 
-/** Cosine similarity for semantic-search ranking. */
-function cosineSim(a: number[], b: number[]): number {
-  if (!a?.length || a.length !== b?.length) return 0;
-  let dot = 0, na = 0, nb = 0;
-  for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
-  return na && nb ? dot / (Math.sqrt(na) * Math.sqrt(nb)) : 0;
-}
 
 export interface AgentReply {
   reply: string;
@@ -433,25 +427,48 @@ export class KobeAgentService {
     },
     {
       name: 'semantic_search',
-      description: 'Find products, tenants or reviews by MEANING, not just keywords (e.g. "cheap kids kit", "customers unhappy with delivery"). args: {query, kind?: "product"|"tenant"|"review", limit?}',
+      description: 'Find products, tenants or reviews by MEANING and/or exact match (e.g. "cheap kids kit", a phone number, a SKU, "customers unhappy with delivery"). Hybrid keyword+semantic. args: {query, kind?: "product"|"tenant"|"review", limit?}. If the result is `weak`, do NOT state matches as fact — hedge and ask the user to confirm.',
       run: async (ownerId, args) => {
         const query = String(args?.query ?? '').trim();
         if (!query) return { data: { count: 0, results: [] } };
-        let qv: number[] = [];
-        try { qv = await this.ai.generateEmbedding(query.slice(0, 2000), process.env.OLLAMA_EMBED_MODEL || this.ai.getActiveModel()); }
-        catch { return { data: { count: 0, results: [], note: 'Embedding model unavailable — is Ollama running?' } }; }
-        if (!qv.length) return { data: { count: 0, results: [], note: 'No embedding produced.' } };
         const where: Record<string, unknown> = { ownerId };
         if (args?.kind) where.kind = String(args.kind);
         const docs = await this.searchDocs.find({ where, take: 10000 });
         if (!docs.length) return { data: { count: 0, results: [], note: 'Search index is empty — open Search and reindex (it also rebuilds daily).' } };
         const limit = Math.min(Number(args?.limit) || 8, 20);
+
+        // Keyword scores (always available) + best-effort vector scores, fused
+        // with Reciprocal Rank Fusion. Corrective: expose `weak` so the model
+        // hedges instead of hallucinating over a poor match.
+        const qTokens = tokenize(query);
+        const kw = docs.map((d) => keywordScore(qTokens, query, d.text));
+        let qv: number[] | null = null;
+        try { const v = await this.ai.generateEmbedding(query.slice(0, 2000), process.env.OLLAMA_EMBED_MODEL || this.ai.getActiveModel()); qv = v.length ? v : null; }
+        catch { qv = null; }
+        const vec = qv ? docs.map((d) => cosine(qv!, d.vector)) : docs.map(() => 0);
+        const vecRank = rankByDesc(vec);
+        const kwRank = rankByDesc(kw);
+        const K = 60;
         const results = docs
-          .map((d) => ({ kind: d.kind, refId: d.refId, text: d.text, score: +cosineSim(qv, d.vector).toFixed(4) }))
-          .filter((r) => r.score > 0)
+          .map((d, i) => {
+            const hasVec = !!qv && vec[i] > 0.05;
+            const hasKw = kw[i] > 0;
+            if (!hasVec && !hasKw) return null;
+            const rrf = (hasVec ? 1 / (K + vecRank[i]) : 0) + (hasKw ? 1 / (K + kwRank[i]) : 0);
+            return { kind: d.kind, refId: d.refId, text: d.text, score: +rrf.toFixed(6), vec: +vec[i].toFixed(4) };
+          })
+          .filter((r): r is NonNullable<typeof r> => r !== null)
           .sort((a, b) => b.score - a.score)
           .slice(0, limit);
-        return { data: { count: results.length, results } };
+        const bestVec = results.reduce((m, r) => Math.max(m, r.vec), 0);
+        const bestKw = kw.reduce((m, v) => Math.max(m, v), 0);
+        const weak = qv ? bestVec < 0.35 : bestKw < 1;
+        const note = !qv
+          ? 'Semantic model offline — keyword matches only.'
+          : weak
+            ? 'No strong match — treat these as guesses; ask the user to confirm rather than stating them as fact.'
+            : undefined;
+        return { data: { count: results.length, results, weak, note } };
       },
     },
     // ── Hotel ──────────────────────────────────────────────────────────────
