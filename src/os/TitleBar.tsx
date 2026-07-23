@@ -1,5 +1,5 @@
-import { memo } from 'react';
-import { Minus, Maximize2, X, type LucideIcon } from 'lucide-react';
+import { memo, type MouseEvent } from 'react';
+import { Minus, Maximize2, Minimize2, X, type LucideIcon } from 'lucide-react';
 import { useOSStore } from './store';
 import * as icons from 'lucide-react';
 
@@ -8,6 +8,7 @@ interface TitleBarProps {
   title: string;
   icon?: string;
   isFocused: boolean;
+  isMaximized: boolean;
   onMouseDown: () => void;
 }
 
@@ -23,6 +24,7 @@ export const TitleBar = memo(function TitleBar({
   title,
   icon,
   isFocused,
+  isMaximized,
   onMouseDown,
 }: TitleBarProps) {
   const minimizeWindow = useOSStore((s) => s.minimizeWindow);
@@ -35,31 +37,47 @@ export const TitleBar = memo(function TitleBar({
 
   /* Dim the lights when window is not focused (macOS behaviour) */
   const dim = !isFocused;
+  const MaximizeIcon = isMaximized ? Minimize2 : Maximize2;
+
+  const stopControlMouseDown = (event: MouseEvent<HTMLButtonElement>) => {
+    // Do not let a window-control click start a title-bar drag.
+    event.stopPropagation();
+  };
 
   return (
     <div
-      className="h-9 flex items-center select-none cursor-grab active:cursor-grabbing rounded-t-3xl overflow-hidden relative"
+      className="h-11 flex items-center select-none cursor-grab active:cursor-grabbing rounded-t-3xl overflow-hidden relative"
       style={{ background: 'transparent' }}
       onMouseDown={onMouseDown}
+      onDoubleClick={(event) => {
+        if ((event.target as HTMLElement).closest('button')) return;
+        maximizeWindow(windowId);
+      }}
     >
       {/* ── Traffic lights (LEFT, macOS-style with always-visible glyphs) ── */}
-      <div className="flex items-center gap-2 pl-4 pr-3 z-10">
+      <div className="flex items-center gap-2.5 pl-4 pr-3 z-10">
         {/* Close */}
         <button
-          className="group relative flex items-center justify-center rounded-full transition-all duration-150 hover:scale-110"
+          type="button"
+          className="group relative flex items-center justify-center rounded-full transition-all duration-150 hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
           style={{
-            width: 14,
-            height: 14,
+            width: 22,
+            height: 22,
             background: dim ? '#D3D3D3' : TRAFFIC_LIGHT.close.bg,
-            border: `0.5px solid ${dim ? '#B0B0B0' : TRAFFIC_LIGHT.close.border}`,
+            border: `1px solid ${dim ? '#B0B0B0' : TRAFFIC_LIGHT.close.border}`,
           }}
-          onClick={() => closeWindow(windowId)}
-          aria-label="Close"
+          onMouseDown={stopControlMouseDown}
+          onClick={(event) => {
+            event.stopPropagation();
+            closeWindow(windowId);
+          }}
+          aria-label="Close window"
+          title="Close"
         >
           <X
             style={{
-              width: 10,
-              height: 10,
+              width: 13,
+              height: 13,
               color: dim ? 'rgba(0,0,0,0.45)' : '#4D0000',
               strokeWidth: 3,
             }}
@@ -68,42 +86,54 @@ export const TitleBar = memo(function TitleBar({
 
         {/* Minimize */}
         <button
-          className="group relative flex items-center justify-center rounded-full transition-all duration-150 hover:scale-110"
+          type="button"
+          className="group relative flex items-center justify-center rounded-full transition-all duration-150 hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
           style={{
-            width: 14,
-            height: 14,
+            width: 22,
+            height: 22,
             background: dim ? '#D3D3D3' : TRAFFIC_LIGHT.minimize.bg,
-            border: `0.5px solid ${dim ? '#B0B0B0' : TRAFFIC_LIGHT.minimize.border}`,
+            border: `1px solid ${dim ? '#B0B0B0' : TRAFFIC_LIGHT.minimize.border}`,
           }}
-          onClick={() => minimizeWindow(windowId)}
-          aria-label="Minimize"
+          onMouseDown={stopControlMouseDown}
+          onClick={(event) => {
+            event.stopPropagation();
+            minimizeWindow(windowId);
+          }}
+          aria-label="Minimize window"
+          title="Minimize"
         >
           <Minus
             style={{
-              width: 10,
-              height: 10,
+              width: 13,
+              height: 13,
               color: dim ? 'rgba(0,0,0,0.45)' : '#995700',
               strokeWidth: 3,
             }}
           />
         </button>
 
-        {/* Maximize */}
+        {/* Maximize / restore */}
         <button
-          className="group relative flex items-center justify-center rounded-full transition-all duration-150 hover:scale-110"
+          type="button"
+          className="group relative flex items-center justify-center rounded-full transition-all duration-150 hover:scale-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
           style={{
-            width: 14,
-            height: 14,
+            width: 22,
+            height: 22,
             background: dim ? '#D3D3D3' : TRAFFIC_LIGHT.maximize.bg,
-            border: `0.5px solid ${dim ? '#B0B0B0' : TRAFFIC_LIGHT.maximize.border}`,
+            border: `1px solid ${dim ? '#B0B0B0' : TRAFFIC_LIGHT.maximize.border}`,
           }}
-          onClick={() => maximizeWindow(windowId)}
-          aria-label="Maximize"
+          onMouseDown={stopControlMouseDown}
+          onClick={(event) => {
+            event.stopPropagation();
+            maximizeWindow(windowId);
+          }}
+          aria-label={isMaximized ? 'Restore window' : 'Maximize window'}
+          title={isMaximized ? 'Restore' : 'Full screen'}
         >
-          <Maximize2
+          <MaximizeIcon
             style={{
-              width: 9,
-              height: 9,
+              width: 12,
+              height: 12,
               color: dim ? 'rgba(0,0,0,0.45)' : '#006500',
               strokeWidth: 3,
             }}
