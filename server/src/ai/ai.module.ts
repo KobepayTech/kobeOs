@@ -21,6 +21,7 @@ import { Shop } from '../shops/shop.entity';
 import { AppState } from '../app-state/app-state.entity';
 import { SearchDoc } from '../search/search.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { SystemHealthModule } from '../system-health/system-health.module';
 
 @Module({
   imports: [
@@ -31,6 +32,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
       AiDocument, AiDocChunk,
     ]),
     NotificationsModule,
+    SystemHealthModule,
   ],
   providers: [AiService, KobeAgentService, ScheduledAgentService, AiDocsService],
   controllers: [AiController, ScheduledAgentController],

@@ -16,6 +16,7 @@ import { SearchDoc } from '../search/search.entity';
 import { cosine, tokenize, keywordScore, rankByDesc } from '../search/search.service';
 import { AiMemory } from './ai-memory.entity';
 import { AiDocsService } from './ai-docs.service';
+import { SystemHealthService } from '../system-health/system-health.service';
 import { BeemService } from '../notifications/beem.service';
 
 
@@ -82,6 +83,7 @@ export class KobeAgentService {
     @InjectRepository(AiMemory) private readonly memory: Repository<AiMemory>,
     private readonly beem: BeemService,
     private readonly aiDocs: AiDocsService,
+    private readonly systemHealth: SystemHealthService,
   ) {}
 
   /** Durable facts Kobe remembers about this business (empty if none/first run). */
@@ -517,6 +519,25 @@ export class KobeAgentService {
         return { data: { count: passages.length, passages, weak, note } };
       },
     },
+    {
+      name: 'diagnose_system',
+      description: 'Check whether KobeOS itself is healthy and explain any problem in plain language with the likely fix. Use this when the user says something is "not working", "broken", "slow", "offline", or asks if the system is OK. args: {} (no arguments).',
+      run: async () => {
+        const report = this.systemHealth.getReport();
+        const health = await this.ai.health().catch(() => null as unknown as { running?: boolean; models?: unknown[] });
+        const advice: string[] = [];
+        if (report.subsystems.database.state === 'down') {
+          advice.push('The database is down — this is the critical one. It is retrying automatically; if it does not recover, restart KobeOS. Your data is safe.');
+        }
+        if (report.subsystems.ai.state === 'down' || !health?.running) {
+          advice.push('The local AI (Ollama) is offline, so Kobe is in offline mode — keyword search and deterministic reports still work. Start Ollama (or the KobeOS AI runtime) to restore smart answers.');
+        } else if (Array.isArray(health?.models) && health.models.length === 0) {
+          advice.push('The AI is running but no model is installed. Install a recommended chat model in Kobe Models.');
+        }
+        if (!advice.length) advice.push('Everything looks healthy — database and local AI are both up.');
+        return { data: { mode: report.mode, message: report.message, subsystems: report.subsystems, advice } };
+      },
+    },
     // ── Hotel ──────────────────────────────────────────────────────────────
     {
       name: 'hotel_occupancy',
@@ -692,7 +713,7 @@ export class KobeAgentService {
    * focused and accurate (small models degrade when shown 25 unrelated tools).
    * Cross-domain / unclear questions fall through to the generalist (all tools).
    */
-  private readonly sharedTools = ['semantic_search', 'search_documents', 'remember', 'configure_automation'];
+  private readonly sharedTools = ['semantic_search', 'search_documents', 'diagnose_system', 'remember', 'configure_automation'];
 
   private readonly specialists: Record<
     'kobepay' | 'properties' | 'hotels' | 'shop' | 'cargo' | 'finance',
@@ -819,6 +840,7 @@ ${this.toolList(activeToolNames)}`;
       case 'semantic_search': return data.count ? `Found ${data.count} match(es): ${data.results.slice(0, 5).map((r: any) => r.text.slice(0, 40)).join('; ')}.` : (data.note || 'No matches found.');
       case 'remember': return data.saved ? `Got it — I'll remember that.` : (data.note || 'Nothing to remember.');
       case 'search_documents': return data.count ? `Found ${data.count} relevant passage(s) in your documents${data.passages?.[0]?.title ? ` (e.g. "${data.passages[0].title}")` : ''}.` : (data.note || 'Nothing found in your documents.');
+      case 'diagnose_system': return `System status: ${data.mode}. ${Array.isArray(data.advice) ? data.advice.join(' ') : data.message}`;
       default: return JSON.stringify(data);
     }
   }
