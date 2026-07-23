@@ -1,6 +1,15 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api';
-import { Sparkles, Send, Loader2, User, CheckCircle2, Printer, Mic } from 'lucide-react';
+import { Sparkles, Send, Loader2, User, CheckCircle2, Printer, Mic, Volume2, VolumeX } from 'lucide-react';
+
+/** Strip emoji/markdown so the spoken reply sounds natural. */
+function speakable(text: string): string {
+  return text
+    .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}]/gu, '')
+    .replace(/[*_`#>]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 interface PendingAction { tool: string; summary: string; args: Record<string, unknown> }
 interface BriefingAlert { severity: 'info' | 'warning'; text: string; action?: { label: string; tool?: string; args?: Record<string, unknown>; endpoint?: string; method?: 'POST' | 'PUT' } }
@@ -73,8 +82,26 @@ export default function KobeAssistant({ contextLabel, appId }: { contextLabel?: 
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [listening, setListening] = useState(false);
+  // Voice mode: read Kobe's replies aloud, and auto-send after dictation (hands-free).
+  const [voice, setVoice] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const recogRef = useRef<{ stop: () => void } | null>(null);
+  const spokenRef = useRef(-1);        // index of the last message read aloud
+  const voiceRef = useRef(false);      // latest `voice` for use inside recognition callbacks
+  voiceRef.current = voice;
+
+  const TTS = typeof window !== 'undefined' && 'speechSynthesis' in window;
+  const speak = useCallback((text: string) => {
+    if (!TTS) return;
+    const clean = speakable(text);
+    if (!clean) return;
+    try {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(clean.slice(0, 500));
+      u.lang = navigator.language || 'en-US';
+      window.speechSynthesis.speak(u);
+    } catch { /* TTS best-effort */ }
+  }, [TTS]);
 
   // Voice input via the Web Speech API (works in Electron/Chromium + Chrome/Edge
   // PWA). Dictates into the input; the user reviews and sends.
@@ -88,12 +115,16 @@ export default function KobeAssistant({ contextLabel, appId }: { contextLabel?: 
     r.interimResults = true;
     r.continuous = false;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let heard = '';
     r.onresult = (e: any) => {
       let text = '';
       for (let i = 0; i < e.results.length; i++) text += e.results[i][0].transcript;
+      heard = text;
       setInput(text);
     };
-    r.onend = () => setListening(false);
+    // Hands-free: when voice mode is on, send what was dictated as soon as the
+    // user stops speaking, so they never have to touch the keyboard.
+    r.onend = () => { setListening(false); if (voiceRef.current && heard.trim()) send(heard); };
     r.onerror = () => setListening(false);
     recogRef.current = r;
     setListening(true);
@@ -101,6 +132,18 @@ export default function KobeAssistant({ contextLabel, appId }: { contextLabel?: 
   };
 
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' }); }, [messages, busy]);
+
+  // Read the newest assistant reply aloud when voice mode is on.
+  useEffect(() => {
+    if (!voice) return;
+    const last = messages.length - 1;
+    if (last < 0 || last === spokenRef.current) return;
+    const m = messages[last];
+    if (m.role === 'assistant' && m.content) { spokenRef.current = last; speak(m.content); }
+  }, [messages, voice, speak]);
+
+  // Stop any speech when voice mode is switched off.
+  useEffect(() => { if (!voice && TTS) window.speechSynthesis.cancel(); }, [voice, TTS]);
 
   // Proactive daily briefing: greet the user with their business status + alerts
   // when the assistant opens. Deterministic on the backend, so it works even
@@ -179,7 +222,17 @@ export default function KobeAssistant({ contextLabel, appId }: { contextLabel?: 
     <div className="flex flex-col h-full bg-[#0c0c1a] text-white/90">
       <div className="shrink-0 px-4 py-3 border-b border-white/[0.06] flex items-center gap-2">
         <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 grid place-items-center"><Sparkles className="w-4 h-4" /></div>
-        <div><div className="text-sm font-semibold">Ask Kobe</div><div className="text-[10px] text-white/40">{contextLabel ? `Working in ${contextLabel} · local AI` : 'Chat with your business · runs on your local AI'}</div></div>
+        <div className="flex-1"><div className="text-sm font-semibold">Ask Kobe</div><div className="text-[10px] text-white/40">{contextLabel ? `Working in ${contextLabel} · local AI` : 'Chat with your business · runs on your local AI'}</div></div>
+        {TTS && (
+          <button
+            type="button"
+            onClick={() => setVoice((v) => !v)}
+            title={voice ? 'Voice mode on — Kobe speaks replies and auto-sends dictation' : 'Turn on voice mode'}
+            className={`h-8 w-8 grid place-items-center rounded-lg ${voice ? 'bg-indigo-600 text-white' : 'bg-white/[0.05] border border-white/[0.08] text-white/60 hover:text-white'}`}
+          >
+            {voice ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+          </button>
+        )}
       </div>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
