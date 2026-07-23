@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import { Type } from 'class-transformer';
 import {
   IsArray,
@@ -46,7 +47,9 @@ export class PayReceiptDto {
   @IsEnum(METHODS) method!: (typeof METHODS)[number];
   @IsOptional() @IsString() @MaxLength(120) transactionId?: string;
   @IsOptional() @IsString() @MaxLength(500) notes?: string;
-  /** New clients always send this. Optional preserves older installed PWAs;
-   * row locking still prevents a duplicate payout for those clients. */
-  @IsOptional() @IsString() @MaxLength(120) idempotencyKey?: string;
+  /** New clients send a stable key. Older installed PWAs receive a generated
+   * key from the DTO initializer; database row locking still prevents a second
+   * payout if they retry with a different generated key. */
+  @IsOptional() @IsString() @MaxLength(120)
+  idempotencyKey: string = randomUUID();
 }
