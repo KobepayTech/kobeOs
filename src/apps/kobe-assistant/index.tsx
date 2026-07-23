@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api';
-import { Sparkles, Send, Loader2, User, CheckCircle2, Printer, Mic, Volume2, VolumeX } from 'lucide-react';
+import { Sparkles, Send, Loader2, User, CheckCircle2, Printer, Mic, Volume2, VolumeX, Paperclip } from 'lucide-react';
 
 /** Strip emoji/markdown so the spoken reply sounds natural. */
 function speakable(text: string): string {
@@ -86,6 +86,7 @@ export default function KobeAssistant({ contextLabel, appId }: { contextLabel?: 
   const [voice, setVoice] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const recogRef = useRef<{ stop: () => void } | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const spokenRef = useRef(-1);        // index of the last message read aloud
   const voiceRef = useRef(false);      // latest `voice` for use inside recognition callbacks
   voiceRef.current = voice;
@@ -180,6 +181,46 @@ export default function KobeAssistant({ contextLabel, appId }: { contextLabel?: 
       setMessages((p) => [...p, { role: 'assistant', content: r.reply, data: r.data, pending: r.pendingAction ?? null }]);
     } catch (e) {
       setMessages((p) => [...p, { role: 'assistant', content: `Couldn’t reach the assistant: ${(e as Error).message}` }]);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Read a File as a base64 string (no data: prefix) for the vision endpoint.
+  const readAsBase64 = (file: File): Promise<string> => new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result).replace(/^data:[^;]+;base64,/, ''));
+    fr.onerror = () => reject(new Error('Could not read the file.'));
+    fr.readAsDataURL(file);
+  });
+
+  // Attach a photo (→ vision skill) or a document (→ chat-with-documents).
+  const onAttach = async (file: File | undefined) => {
+    if (!file || busy) return;
+    setBusy(true);
+    try {
+      if (file.type.startsWith('image/')) {
+        setMessages((p) => [...p, { role: 'user', content: `📷 ${file.name}` }]);
+        const b64 = await readAsBase64(file);
+        const r = await api<{ content: string }>('/ai/vision/describe', {
+          method: 'POST',
+          body: JSON.stringify({ image: b64, prompt: 'Describe this for a business owner. If it is a product, suggest a name, category and short selling description.' }),
+        });
+        setMessages((p) => [...p, { role: 'assistant', content: r.content || 'I could not read that image.' }]);
+      } else if (/\.(txt|md|csv|json|log|tsv|html?)$/i.test(file.name) || file.type.startsWith('text/')) {
+        const text = await file.text();
+        if (!text.trim()) throw new Error('That file looks empty.');
+        setMessages((p) => [...p, { role: 'user', content: `📄 ${file.name}` }]);
+        const doc = await api<{ title: string; chunkCount: number }>('/ai/docs', {
+          method: 'POST',
+          body: JSON.stringify({ title: file.name.replace(/\.[^.]+$/, ''), text, source: file.name }),
+        });
+        setMessages((p) => [...p, { role: 'assistant', content: `📚 Learned from “${doc.title}” (${doc.chunkCount} passage${doc.chunkCount === 1 ? '' : 's'}). Ask me anything about it.` }]);
+      } else {
+        setMessages((p) => [...p, { role: 'assistant', content: 'I can read photos and text files (.txt, .md, .csv). For a PDF, paste its text or export it as text and attach that.' }]);
+      }
+    } catch (e) {
+      setMessages((p) => [...p, { role: 'assistant', content: `Attachment failed: ${(e as Error).message}` }]);
     } finally {
       setBusy(false);
     }
@@ -296,7 +337,15 @@ export default function KobeAssistant({ contextLabel, appId }: { contextLabel?: 
       </div>
 
       <form className="shrink-0 p-3 border-t border-white/[0.06] flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); send(input); }}>
-        <input value={input} onChange={(e) => setInput(e.target.value)} placeholder={listening ? 'Listening…' : 'Ask about sales, tenants, stock…'} className="flex-1 h-10 px-3 rounded-lg bg-white/[0.05] border border-white/[0.08] text-sm text-white placeholder:text-white/30 outline-none focus:border-indigo-500/50" />
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*,.txt,.md,.csv,.json,.log,.tsv,.html,text/*"
+          className="hidden"
+          onChange={(e) => { onAttach(e.target.files?.[0]); e.target.value = ''; }}
+        />
+        <button type="button" onClick={() => fileRef.current?.click()} disabled={busy} title="Attach a photo or document" className="h-10 w-10 grid place-items-center rounded-lg bg-white/[0.05] border border-white/[0.08] text-white/70 hover:text-white disabled:opacity-40"><Paperclip className="w-4 h-4" /></button>
+        <input value={input} onChange={(e) => setInput(e.target.value)} placeholder={listening ? 'Listening…' : 'Ask, or attach a photo / document…'} className="flex-1 h-10 px-3 rounded-lg bg-white/[0.05] border border-white/[0.08] text-sm text-white placeholder:text-white/30 outline-none focus:border-indigo-500/50" />
         {SR && (
           <button type="button" onClick={toggleVoice} title="Speak" className={`h-10 w-10 grid place-items-center rounded-lg ${listening ? 'bg-red-600 animate-pulse text-white' : 'bg-white/[0.05] border border-white/[0.08] text-white/70 hover:text-white'}`}><Mic className="w-4 h-4" /></button>
         )}
