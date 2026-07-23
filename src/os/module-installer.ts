@@ -72,8 +72,10 @@ async function sha256(value: Uint8Array): Promise<string> {
   if (!globalThis.crypto?.subtle) {
     throw new Error('Secure integrity verification is unavailable in this runtime');
   }
-  const bytes = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
-  const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
+  // Copy into a fresh ArrayBuffer-backed view: value.buffer is ArrayBufferLike
+  // (may be a SharedArrayBuffer), which crypto.subtle.digest's BufferSource
+  // type rejects. new Uint8Array(value) yields a definite ArrayBuffer.
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', new Uint8Array(value));
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
