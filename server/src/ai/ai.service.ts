@@ -195,6 +195,46 @@ export class AiService {
     return (await this.chatCompletion({ messages, model })).content;
   }
 
+  /**
+   * VISION SKILL — look at a photo and answer. Routes to the local vision model
+   * automatically (images present). `image` is base64 (data: URI prefix is
+   * stripped). Used for "describe this", "tag this product", "read this label".
+   */
+  async describeImage(image: string, prompt: string, systemPrompt?: string): Promise<string> {
+    const b64 = (image || '').replace(/^data:image\/[a-z0-9.+-]+;base64,/i, '').trim();
+    if (!b64) throw new Error('No image provided.');
+    const messages: ChatMessage[] = [];
+    if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
+    messages.push({ role: 'user', content: prompt || 'Describe this image.', images: [b64] });
+    return (await this.chatCompletion({ messages })).content;
+  }
+
+  /**
+   * VISION SKILL (structured) — draft a product listing from a photo. Returns
+   * best-effort {name, category, description, tags[]} the operator can edit.
+   * Never invents price/cost. Falls back to a plain description on parse fail.
+   */
+  async describeProductImage(image: string): Promise<{ name: string; category: string; description: string; tags: string[]; raw: string }> {
+    const raw = await this.describeImage(
+      image,
+      'You are cataloguing a product from its photo. Reply with ONLY a JSON object: {"name": short product name, "category": one category word, "description": one selling sentence, "tags": [3-6 short keywords]}. Do not invent price or brand you cannot see.',
+      'You are a precise retail cataloguer. Output only JSON.',
+    );
+    try {
+      const m = raw.match(/\{[\s\S]*\}/);
+      const obj = m ? JSON.parse(m[0]) : {};
+      return {
+        name: String(obj.name ?? '').slice(0, 120),
+        category: String(obj.category ?? '').slice(0, 60),
+        description: String(obj.description ?? '').slice(0, 400),
+        tags: Array.isArray(obj.tags) ? obj.tags.map((t: unknown) => String(t).slice(0, 40)).slice(0, 6) : [],
+        raw,
+      };
+    } catch {
+      return { name: '', category: '', description: raw.slice(0, 400), tags: [], raw };
+    }
+  }
+
   async generateVideoScript(topic: string, scenes = 5): Promise<string> {
     return this.complete(`Write a ${scenes}-scene video script about: ${topic}. Each scene 1-2 sentences. Total 30-60 seconds.`, 'You are a professional video script writer. Output only script text, no markdown.');
   }

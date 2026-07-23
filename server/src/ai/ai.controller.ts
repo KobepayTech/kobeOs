@@ -162,6 +162,22 @@ export class AiController {
     return { embedding: await this.ai.generateEmbedding(body.text, body.model) };
   }
 
+  // ── Vision skill ──────────────────────────────────────────────────────────
+
+  /** Describe / read / answer about a photo (base64 image). Local vision model. */
+  @Post('vision/describe')
+  @ApiOperation({ summary: 'Ask Kobe about a photo (describe, read a label, etc.)' })
+  async visionDescribe(@Body() body: { image: string; prompt?: string }) {
+    return { content: await this.ai.describeImage(body.image, body.prompt ?? 'Describe this image for a business owner.') };
+  }
+
+  /** Draft a product listing (name/category/description/tags) from a photo. */
+  @Post('vision/product')
+  @ApiOperation({ summary: 'Draft a product listing from a photo' })
+  visionProduct(@Body() body: { image: string }) {
+    return this.ai.describeProductImage(body.image);
+  }
+
   // ── Specialised ───────────────────────────────────────────────────────────
 
   @Post('video-script')
