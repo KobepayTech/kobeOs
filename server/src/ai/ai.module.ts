@@ -4,6 +4,7 @@ import { AiService } from './ai.service';
 import { AiController } from './ai.controller';
 import { ScheduledAgentController } from './scheduled-agent.controller';
 import { KobeAgentService } from './agent.service';
+import { AiMemory } from './ai-memory.entity';
 import { ScheduledAgentService } from './scheduled-agent.service';
 import { AiAgentRun, AiScheduledAgent } from './scheduled-agent.entity';
 import { PosOrder, PosProduct } from '../pos/pos.entity';
@@ -24,7 +25,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     TypeOrmModule.forFeature([
       PosOrder, PosProduct, ProductReview, RentCharge, Tenant, PropertyUnit,
       HotelRoom, HotelGuest, HotelBooking, HotelFinancialRecord, WarehouseItem,
-      ShopExpense, Parcel, Shop, AppState, SearchDoc, AiScheduledAgent, AiAgentRun,
+      ShopExpense, Parcel, Shop, AppState, SearchDoc, AiScheduledAgent, AiAgentRun, AiMemory,
     ]),
     NotificationsModule,
   ],

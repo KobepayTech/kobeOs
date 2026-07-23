@@ -14,6 +14,7 @@ import { Shop } from '../shops/shop.entity';
 import { AppState } from '../app-state/app-state.entity';
 import { SearchDoc } from '../search/search.entity';
 import { cosine, tokenize, keywordScore, rankByDesc } from '../search/search.service';
+import { AiMemory } from './ai-memory.entity';
 import { BeemService } from '../notifications/beem.service';
 
 
@@ -76,8 +77,29 @@ export class KobeAgentService {
     @InjectRepository(Shop) private readonly shops: Repository<Shop>,
     @InjectRepository(AppState) private readonly appState: Repository<AppState>,
     @InjectRepository(SearchDoc) private readonly searchDocs: Repository<SearchDoc>,
+    @InjectRepository(AiMemory) private readonly memory: Repository<AiMemory>,
     private readonly beem: BeemService,
   ) {}
+
+  /** Durable facts Kobe remembers about this business (empty if none/first run). */
+  private async getFacts(ownerId: string): Promise<string[]> {
+    try {
+      const row = await this.memory.findOne({ where: { ownerId } });
+      return Array.isArray(row?.facts) ? row!.facts : [];
+    } catch { return []; }
+  }
+
+  /** Save a durable fact/preference for this owner. Deduped, newest kept, capped. */
+  private async remember(ownerId: string, fact: string): Promise<string[]> {
+    const clean = (fact || '').trim().slice(0, 240);
+    if (!clean) return this.getFacts(ownerId);
+    let row = await this.memory.findOne({ where: { ownerId } });
+    if (!row) row = this.memory.create({ ownerId, facts: [] });
+    const existing = (row.facts || []).filter((f) => f.toLowerCase() !== clean.toLowerCase());
+    row.facts = [...existing, clean].slice(-30); // keep the 30 most-recent facts
+    await this.memory.save(row);
+    return row.facts;
+  }
 
   /**
    * Run a CONFIRMED write action (the UI called this after the user approved
@@ -471,6 +493,16 @@ export class KobeAgentService {
         return { data: { count: results.length, results, weak, note } };
       },
     },
+    {
+      name: 'remember',
+      description: 'Save a durable preference or fact about THIS business so you apply it in future chats (e.g. "reply in Swahili", "VAT is 18%", "main supplier is Acme Ltd", "rent is due on the 5th"). Use only for lasting facts the owner tells you to remember — not one-off requests. args: {fact}.',
+      run: async (ownerId, args) => {
+        const fact = String(args?.fact ?? '').trim();
+        if (!fact) return { data: { saved: false, note: 'Nothing to remember.' } };
+        const facts = await this.remember(ownerId, fact);
+        return { data: { saved: true, fact, remembered: facts.length } };
+      },
+    },
     // ── Hotel ──────────────────────────────────────────────────────────────
     {
       name: 'hotel_occupancy',
@@ -647,10 +679,14 @@ export class KobeAgentService {
   }
 
   async run(ownerId: string, message: string, history: Array<{ role: 'user' | 'assistant'; content: string }> = []): Promise<AgentReply> {
+    const facts = await this.getFacts(ownerId);
+    const memoryBlock = facts.length
+      ? `\nWhat you remember about this business (apply it, don't restate it unless asked):\n${facts.map((f) => `- ${f}`).join('\n')}\n`
+      : '';
     const system = `You are Kobe, a concise business assistant inside KobeOS. Answer questions about the owner's shop/property using ONLY the tools below.
 When you need data, reply with EXACTLY one JSON object and nothing else: {"tool":"<name>","args":{...}}.
 After you receive the tool result, answer the user in plain language (short, with the key numbers). If no tool is needed, just answer.
-Tools:
+${memoryBlock}Tools:
 ${this.toolList()}`;
 
     const first = await this.ai.chatCompletion({
@@ -697,6 +733,7 @@ ${this.toolList()}`;
       case 'cargo_status': return `${data.total} parcel(s): ${Object.entries(data.byStatus || {}).map(([s, n]) => `${n} ${s.toLowerCase()}`).join(', ') || 'none'}.`;
       case 'sales_forecast': return `Month-to-date TZS ${Number(data.monthToDate).toLocaleString()} (day ${data.dayOfMonth}/${data.daysInMonth}). Projected month-end: TZS ${Number(data.projectedMonthEnd).toLocaleString()}.`;
       case 'semantic_search': return data.count ? `Found ${data.count} match(es): ${data.results.slice(0, 5).map((r: any) => r.text.slice(0, 40)).join('; ')}.` : (data.note || 'No matches found.');
+      case 'remember': return data.saved ? `Got it — I'll remember that.` : (data.note || 'Nothing to remember.');
       default: return JSON.stringify(data);
     }
   }
