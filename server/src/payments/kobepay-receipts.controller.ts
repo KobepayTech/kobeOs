@@ -18,13 +18,11 @@ export class KobePayReceiptsController {
     return { user: await this.rbac.resolveActor(uid, pin) };
   }
 
-  /** China Cashier dashboard — cards + charts. */
   @Get('dashboard')
   dashboard(@CurrentUser('id') uid: string) {
     return this.receipts.dashboard(uid);
   }
 
-  /** Admin China Payout Analytics. */
   @Get('analytics')
   analytics(
     @CurrentUser('id') uid: string,
@@ -40,25 +38,28 @@ export class KobePayReceiptsController {
   @Get()
   list(
     @CurrentUser('id') uid: string,
-    @Query('status') status?: 'Pending' | 'Paid',
+    @Query('status') status?: 'Pending' | 'Paid' | 'Cancelled',
     @Query('q') q?: string,
   ) {
     return this.receipts.list(uid, { status, q });
   }
 
-  /** Scan / manual-entry lookup by receipt number. */
+  /** Load customer details and every receipt using a mobile number. */
+  @Get('by-customer/:phone')
+  byCustomer(@CurrentUser('id') uid: string, @Param('phone') phone: string) {
+    return this.receipts.getByCustomerPhone(uid, phone);
+  }
+
   @Get('by-number/:number')
   byNumber(@CurrentUser('id') uid: string, @Param('number') number: string) {
     return this.receipts.getByNumber(uid, number);
   }
 
-  /** In-app QR scan lookup by token (owner-scoped, full row). */
   @Get('by-token/:token')
   byToken(@CurrentUser('id') uid: string, @Param('token') token: string) {
     return this.receipts.getByTokenOwned(uid, token);
   }
 
-  /** Create a receipt (Tanzania cashier / owner side). */
   @Post()
   async create(
     @CurrentUser('id') uid: string,
@@ -68,7 +69,6 @@ export class KobePayReceiptsController {
     return this.receipts.create(uid, await this.ctx(uid, pin), dto);
   }
 
-  /** Pay a receipt (China cashier). Gated by payout.markPaid in the service. */
   @Post(':id/pay')
   async pay(
     @CurrentUser('id') uid: string,
@@ -79,15 +79,12 @@ export class KobePayReceiptsController {
     return this.receipts.pay(uid, await this.ctx(uid, pin), id, dto);
   }
 
-  /** Seed demo receipts (mockup data). */
   @Post('seed-demo')
   async seedDemo(@CurrentUser('id') uid: string, @Headers('x-kobepay-pin') pin: string) {
     return this.receipts.seedDemo(uid, await this.ctx(uid, pin));
   }
 }
 
-/** Public receipt view — the QR-scan landing page. The token is the
- *  capability; no auth required. */
 @Public()
 @Controller('public/receipts')
 export class PublicReceiptController {
