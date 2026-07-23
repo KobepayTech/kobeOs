@@ -46,5 +46,7 @@ export class PayReceiptDto {
   @IsEnum(METHODS) method!: (typeof METHODS)[number];
   @IsOptional() @IsString() @MaxLength(120) transactionId?: string;
   @IsOptional() @IsString() @MaxLength(500) notes?: string;
-  @IsString() @MaxLength(120) idempotencyKey!: string;
+  /** New clients always send this. Optional preserves older installed PWAs;
+   * row locking still prevents a duplicate payout for those clients. */
+  @IsOptional() @IsString() @MaxLength(120) idempotencyKey?: string;
 }
