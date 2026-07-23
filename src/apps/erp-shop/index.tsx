@@ -2,9 +2,10 @@ import { useState, useMemo, useEffect } from 'react';
 import {
   ShoppingBag, Search, Plus, Minus, Trash2, Package,
   ShoppingCart, CreditCard, Truck, CheckCircle2,
-  Smartphone, Building2, Banknote, Loader2, AlertCircle,
+  Smartphone, Building2, Banknote, Loader2, AlertCircle, Pencil,
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import HandwrittenQuantityOverlay from '@/components/handwriting/HandwrittenQuantityOverlay';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -415,6 +416,20 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
     });
   };
 
+  // Handwritten quantity → SET the cart line to an exact quantity (2 → 5),
+  // clamped to stock. A quantity of 0 removes the line.
+  const setCartQuantity = (product: Product, writtenQuantity: number) => {
+    const quantity = Math.max(0, Math.min(writtenQuantity, product.stock));
+    if (quantity === 0) { removeFromCart(product.id); return; }
+    setCart((current) => {
+      const existing = current.find((item) => item.product.id === product.id);
+      if (existing) return current.map((item) => (item.product.id === product.id ? { ...item, quantity } : item));
+      return [...current, { product, quantity }];
+    });
+  };
+  // Product whose quantity is being handwritten (null = overlay closed).
+  const [writeQtyProduct, setWriteQtyProduct] = useState<Product | null>(null);
+
   const removeFromCart = (id: string) => setCart((p) => p.filter((i) => i.product.id !== id));
 
   const updateQuantity = (id: string, delta: number) => {
@@ -715,18 +730,41 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
                   <span>{getStockLabel(selectedProduct.stock)} ({selectedProduct.stock} available)</span>
                 </div>
               </div>
-              <Button
-                onClick={() => { addToCart(selectedProduct); setSelectedProduct(null); }}
-                disabled={selectedProduct.stock <= 0}
-                className="w-full mt-4 bg-blue-600 hover:bg-blue-700"
-              >
-                Add to Cart
-              </Button>
+              <div className="flex gap-2 mt-4">
+                <Button
+                  onClick={() => { addToCart(selectedProduct); setSelectedProduct(null); }}
+                  disabled={selectedProduct.stock <= 0}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700"
+                >
+                  Add to Cart
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setWriteQtyProduct(selectedProduct)}
+                  disabled={selectedProduct.stock <= 0}
+                  title="Write a quantity"
+                  className="px-3 border-white/20 bg-white/5 hover:bg-white/10"
+                >
+                  <Pencil className="w-4 h-4" />
+                </Button>
+              </div>
               {slug && <ProductReviews slug={slug} productId={selectedProduct.id} />}
             </>
           )}
         </DialogContent>
       </Dialog>
+
+      {/* Handwritten quantity overlay */}
+      {writeQtyProduct && (
+        <HandwrittenQuantityOverlay
+          productName={writeQtyProduct.name}
+          stock={writeQtyProduct.stock}
+          currentQuantity={cart.find((i) => i.product.id === writeQtyProduct.id)?.quantity ?? 0}
+          imageUrl={writeQtyProduct.imageUrl}
+          onSet={(quantity) => setCartQuantity(writeQtyProduct, quantity)}
+          onClose={() => { setWriteQtyProduct(null); setSelectedProduct(null); }}
+        />
+      )}
 
       {/* Cart Dialog */}
       <Dialog open={isCartOpen} onOpenChange={setIsCartOpen}>
