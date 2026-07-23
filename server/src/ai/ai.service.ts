@@ -73,7 +73,7 @@ export const MODEL_CATALOGUE: ModelInfo[] = [
 
 export const RECOMMENDED_MODELS = MODEL_CATALOGUE.filter((model) => model.recommended);
 
-interface RuntimeHealth {
+export interface RuntimeHealth {
   running: boolean;
   models: string[];
   activeModel: string;
