@@ -73,6 +73,7 @@ import { manifest as kobe_models } from '@/apps/kobe-models/manifest';
 import { manifest as kobe_sports } from '@/apps/kobe-sports/manifest';
 import { manifest as kobe_hotel } from '@/apps/kobe-hotel/manifest';
 import { manifest as kobe_assistant } from '@/apps/kobe-assistant/manifest';
+import { manifest as kobe_agents } from '@/apps/kobe-agents/manifest';
 import { manifest as kobe_pay } from '@/apps/kobe-pay/manifest';
 import { manifest as china_cashier } from '@/apps/china-cashier/manifest';
 import { manifest as live_sales } from '@/apps/live-sales/manifest';
@@ -162,6 +163,7 @@ export const appRegistry = [
   kobe_sports,
   kobe_hotel,
   kobe_assistant,
+  kobe_agents,
   kobe_pay,
   china_cashier,
   live_sales,
