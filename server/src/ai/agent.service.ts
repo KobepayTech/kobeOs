@@ -21,6 +21,7 @@ import { BeemService } from '../notifications/beem.service';
 export interface AgentReply {
   reply: string;
   used?: string;                 // tool that was called (if any)
+  specialist?: string;           // which specialist answered (multi-agent team routing)
   data?: unknown;                // raw tool result (for the UI to render tables/print)
   pendingAction?: {              // a write the user must CONFIRM before it runs
     tool: string;
@@ -663,8 +664,70 @@ export class KobeAgentService {
     },
   ];
 
-  private toolList(): string {
-    return this.tools.map((t) => `- ${t.name}: ${t.description}`).join('\n');
+  private toolList(names?: string[]): string {
+    const list = names ? this.tools.filter((t) => names.includes(t.name)) : this.tools;
+    return list.map((t) => `- ${t.name}: ${t.description}`).join('\n');
+  }
+
+  /**
+   * MULTI-AGENT SPECIALIST TEAM.
+   *
+   * Kobe isn't one generalist — it's a team of domain experts (KobePay,
+   * Properties, Hotels, Retail, Cargo, Finance). A lightweight router sends each
+   * question to the right specialist, who answers with an expert persona and
+   * ONLY that domain's tools. Scoping the tool list keeps the local model
+   * focused and accurate (small models degrade when shown 25 unrelated tools).
+   * Cross-domain / unclear questions fall through to the generalist (all tools).
+   */
+  private readonly sharedTools = ['semantic_search', 'remember', 'configure_automation'];
+
+  private readonly specialists: Record<
+    'kobepay' | 'properties' | 'hotels' | 'shop' | 'cargo' | 'finance',
+    { title: string; persona: string; tools: string[] }
+  > = {
+    kobepay: {
+      title: 'KobePay payments specialist',
+      persona: "You are Kobe's KobePay specialist — money in and out: recording payments and receipts, rent collections, and reconciling what customers or tenants still owe. Be precise with amounts and always state the currency (TZS).",
+      tools: ['record_rent_payment', 'record_expense', 'expenses_summary', 'sales_today', 'unpaid_tenants'],
+    },
+    properties: {
+      title: 'Kobe Properties specialist',
+      persona: "You are Kobe's property-management specialist — tenants, leases, rent, arrears and tenant communication. Think like a landlord's manager: who owes, how much, and what to do next.",
+      tools: ['unpaid_tenants', 'rent_projection', 'set_rent', 'add_tenant', 'record_rent_payment', 'send_tenant_notification'],
+    },
+    hotels: {
+      title: 'Kobe Hotels specialist',
+      persona: "You are Kobe's hospitality specialist — room occupancy, bookings, housekeeping status and hotel revenue. Think like a front-desk + revenue manager.",
+      tools: ['hotel_occupancy', 'hotel_revenue', 'set_room_status', 'create_booking'],
+    },
+    shop: {
+      title: 'Retail & inventory specialist',
+      persona: "You are Kobe's retail specialist — POS sales, pricing, stock and the product catalogue. Think like a shopkeeper watching sales and stock.",
+      tools: ['sales_today', 'low_stock', 'top_rated_products', 'sales_forecast', 'warehouse_stock', 'adjust_stock', 'add_product', 'seed_demo_products'],
+    },
+    cargo: {
+      title: 'Cargo & logistics specialist',
+      persona: "You are Kobe's cargo specialist — parcels, shipments and delivery status.",
+      tools: ['cargo_status'],
+    },
+    finance: {
+      title: 'Finance & accounting specialist',
+      persona: "You are Kobe's finance specialist — expenses, cash flow, revenue-vs-cost and month-to-date performance across the whole business. Think like an accountant.",
+      tools: ['expenses_summary', 'record_expense', 'sales_today', 'sales_forecast', 'rent_projection', 'hotel_revenue'],
+    },
+  };
+
+  /** Route a question to the specialist whose domain it fits (keyword-first, offline-safe). */
+  private classifyDomain(message: string): keyof typeof this.specialists | 'general' {
+    const m = ` ${message.toLowerCase()} `;
+    const has = (...w: string[]) => w.some((x) => m.includes(x));
+    if (has('kobepay', 'receipt', 'payment', 'paid ', ' pay ', 'collect', 'reconcile', 'deposit', 'transaction')) return 'kobepay';
+    if (has('room', 'guest', 'booking', 'check-in', 'checkout', 'occupanc', 'hotel', 'housekeep', 'reservation')) return 'hotels';
+    if (has('tenant', 'rent', 'lease', 'landlord', 'property', 'properties', 'unit', 'apartment', 'arrear', 'eviction')) return 'properties';
+    if (has('parcel', 'cargo', 'shipment', 'delivery', 'courier', 'freight', 'consignment')) return 'cargo';
+    if (has('expense', 'profit', 'cash flow', 'cashflow', 'tax', 'margin', 'accounting', 'balance sheet', 'p&l')) return 'finance';
+    if (has('sale', 'stock', 'product', 'inventory', 'price', 'sku', 'restock', 'sell', 'catalog', 'warehouse')) return 'shop';
+    return 'general';
   }
 
   /** Extract the first {...} JSON object from a model response, if any. */
@@ -683,25 +746,33 @@ export class KobeAgentService {
     const memoryBlock = facts.length
       ? `\nWhat you remember about this business (apply it, don't restate it unless asked):\n${facts.map((f) => `- ${f}`).join('\n')}\n`
       : '';
-    const system = `You are Kobe, a concise business assistant inside KobeOS. Answer questions about the owner's shop/property using ONLY the tools below.
+    // Route to the specialist whose domain fits, then scope the tool list to
+    // that specialist (+ shared tools). Generalist sees everything.
+    const domain = this.classifyDomain(message);
+    const spec = domain === 'general' ? null : this.specialists[domain];
+    const activeToolNames = spec ? [...spec.tools, ...this.sharedTools] : undefined;
+    const personaLine = spec ? `${spec.persona}\n` : '';
+
+    const system = `You are Kobe, a concise business assistant inside KobeOS. ${personaLine}Answer questions about the owner's business using ONLY the tools below.
 When you need data, reply with EXACTLY one JSON object and nothing else: {"tool":"<name>","args":{...}}.
 After you receive the tool result, answer the user in plain language (short, with the key numbers). If no tool is needed, just answer.
 ${memoryBlock}Tools:
-${this.toolList()}`;
+${this.toolList(activeToolNames)}`;
 
     const first = await this.ai.chatCompletion({
       messages: [{ role: 'system', content: system }, ...history, { role: 'user', content: message }],
     }).catch((e) => { this.logger.warn(`LLM error: ${(e as Error).message}`); return { content: '' } as { content: string }; });
 
+    const specialist = spec?.title;
     const call = this.extractToolCall(first.content || '');
-    if (!call) return { reply: (first.content || '').trim() || "I couldn't reach the local AI model. Is Ollama running?", pendingAction: null };
+    if (!call) return { reply: (first.content || '').trim() || "I couldn't reach the local AI model. Is Ollama running?", specialist, pendingAction: null };
 
     const tool = this.tools.find((t) => t.name === call.tool);
-    if (!tool) return { reply: first.content.trim(), pendingAction: null };
+    if (!tool) return { reply: first.content.trim(), specialist, pendingAction: null };
 
     const result = await tool.run(ownerId, call.args);
     if ('pendingAction' in result) {
-      return { reply: `Ready to ${result.pendingAction.summary.toLowerCase()}. Confirm to proceed.`, used: tool.name, pendingAction: result.pendingAction };
+      return { reply: `Ready to ${result.pendingAction.summary.toLowerCase()}. Confirm to proceed.`, used: tool.name, specialist, pendingAction: result.pendingAction };
     }
 
     // Feed the tool result back for a natural-language answer.
@@ -715,7 +786,7 @@ ${this.toolList()}`;
     }).catch(() => ({ content: '' } as { content: string }));
 
     const reply = (second.content || '').trim() || this.fallbackSummary(tool.name, result.data);
-    return { reply, used: tool.name, data: result.data, pendingAction: null };
+    return { reply, used: tool.name, specialist, data: result.data, pendingAction: null };
   }
 
   /** Deterministic answer if the model can't phrase it (or is offline). */
