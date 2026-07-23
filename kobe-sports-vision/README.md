@@ -54,6 +54,31 @@ Calibration: set `pixel_corners` (4 points in the camera frame) and the
 `pitch_corners` they map to (default = pitch corners 0..100), then every
 detection is transformed to pitch coordinates automatically.
 
+## Running on a normal desktop CPU (no GPU)
+
+It works for **one camera at reduced settings** — good for piloting and the
+"slow" analytics (possession, zones, heatmaps, distance covered, formations).
+Precise ball touches / fast events degrade; that's a GPU job.
+
+Set `device: "cpu"` and the worker auto-applies a CPU preset (any value you set
+explicitly still wins):
+
+- `imgsz` → 640 (nano/small models are near real-time at 640 on CPU)
+- `detect_every` → 3 (runs the detector every 3rd frame; the match clock uses
+  the real frame number, so speeds/distances stay correct — only temporal
+  resolution drops)
+
+For more CPU speed:
+
+- Use a **nano** player model (`yolo26n` / `yolo11n`), not m/l/x.
+- **Drop the separate high-res ball model** (1280–1920px is the biggest CPU cost)
+  or run it rarely.
+- **Export to ONNX or Intel OpenVINO** (`yolo export format=openvino`) — a large
+  speedup on Intel CPUs vs PyTorch.
+- One camera, not four; raise `detect_every` to 4–5 if it can't keep up.
+
+Realistic: ~5–15 effective FPS on a modern desktop CPU, single camera.
+
 ## Test (no GPU needed)
 
 ```bash

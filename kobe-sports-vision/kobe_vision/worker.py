@@ -48,18 +48,24 @@ def main() -> None:
     if not cap.isOpened():
         raise SystemExit(f"could not open source: {cfg.source}")
 
-    print(f"[worker] streaming {cfg.source} -> {ingest.url}")
+    detect_every = max(1, cfg.detect_every)
+    print(f"[worker] streaming {cfg.source} -> {ingest.url} (device={cfg.device or 'auto'}, "
+          f"imgsz={cfg.imgsz}, detect_every={detect_every})")
     frame_number = 0
     try:
         while True:
             ok, frame = cap.read()
             if not ok:
                 break
-            detections = detector.detect(frame)
-            tracks = tracker.update(detections)
-            payload = pipeline.process(frame_number, args.half, tracks)
-            if frame_number % max(1, cfg.ingest_every) == 0:
-                ingest.send(payload)
+            # CPU mode: only run the heavy detector every Nth frame. The match
+            # clock uses the real frame number, so speeds/distances stay correct;
+            # temporal resolution just drops N-fold.
+            if frame_number % detect_every == 0:
+                detections = detector.detect(frame)
+                tracks = tracker.update(detections)
+                payload = pipeline.process(frame_number, args.half, tracks)
+                if (frame_number // detect_every) % max(1, cfg.ingest_every) == 0:
+                    ingest.send(payload)
             frame_number += 1
     except KeyboardInterrupt:
         pass

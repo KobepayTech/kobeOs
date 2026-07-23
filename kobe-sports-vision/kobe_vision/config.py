@@ -19,6 +19,7 @@ class Config:
     imgsz: int = 1280
     conf: float = 0.25
     device: Optional[str] = None             # 'cuda:0' | 'cpu' | None(auto)
+    detect_every: int = 1                    # run the detector every Nth frame (CPU: 2-5)
     # Four pixel points and the pitch points they map to (0..100), for calibration.
     pixel_corners: Optional[List[Tuple[float, float]]] = None
     pitch_corners: List[Tuple[float, float]] = field(
@@ -44,4 +45,17 @@ class Config:
             if env:
                 data[k] = env
         known = {f for f in cls().__dict__}
-        return cls(**{k: v for k, v in data.items() if k in known})
+        cfg = cls(**{k: v for k, v in data.items() if k in known})
+        if str(cfg.device).lower() == "cpu":
+            cfg.apply_cpu_preset(explicit=set(data.keys()))
+        return cfg
+
+    def apply_cpu_preset(self, explicit=frozenset()) -> "Config":
+        """Sensible defaults for a GPU-less desktop: smaller input + frame-skip.
+        Only fills values the user did NOT set explicitly, so config always wins.
+        """
+        if "imgsz" not in explicit:
+            self.imgsz = 640          # nano/small models are real-time-ish at 640 on CPU
+        if "detect_every" not in explicit:
+            self.detect_every = 3     # ~3x less CPU; clock/speeds stay correct
+        return self
