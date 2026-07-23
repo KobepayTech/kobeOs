@@ -25,20 +25,27 @@ export interface ModuleProgress {
 const STORAGE_KEY = 'kobeos-module-install-state-v1';
 const CHANGE_EVENT = 'kobeos:modules-changed';
 const CORE_APPS = new Set([
-  'file-manager', 'settings', 'system-settings', 'package-manager',
+  'file-manager', 'settings', 'system-settings', 'package-manager', 'app-store',
   'terminal', 'browser', 'kobe-assistant',
 ]);
 
 function readRecords(): Record<string, ModuleRecord> {
+  if (typeof localStorage === 'undefined') return {};
   try {
     const value = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') as Record<string, ModuleRecord>;
     return value && typeof value === 'object' ? value : {};
-  } catch { return {}; }
+  } catch {
+    return {};
+  }
 }
 
 function writeRecords(records: Record<string, ModuleRecord>) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
-  window.dispatchEvent(new CustomEvent(CHANGE_EVENT));
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+  }
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent(CHANGE_EVENT));
+  }
 }
 
 function canonicalManifest(app: AppManifest): string {
@@ -62,11 +69,17 @@ function canonicalManifest(app: AppManifest): string {
 }
 
 async function sha256(value: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-256', value);
+  if (!globalThis.crypto?.subtle) {
+    throw new Error('Secure integrity verification is unavailable in this runtime');
+  }
+  const bytes = value.buffer.slice(value.byteOffset, value.byteOffset + value.byteLength);
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-export function isCoreApp(appId: string): boolean { return CORE_APPS.has(appId); }
+export function isCoreApp(appId: string): boolean {
+  return CORE_APPS.has(appId);
+}
 
 export function getModuleRecord(app: AppManifest): ModuleRecord {
   const saved = readRecords()[app.id];
@@ -89,6 +102,7 @@ export function installedApps(catalogue: AppManifest[]): AppManifest[] {
 }
 
 export function subscribeToModuleChanges(listener: () => void): () => void {
+  if (typeof window === 'undefined') return () => undefined;
   window.addEventListener(CHANGE_EVENT, listener);
   return () => window.removeEventListener(CHANGE_EVENT, listener);
 }
@@ -112,7 +126,13 @@ export async function installBundledModule(
     while (copied < total) {
       copied = Math.min(total, copied + chunkSize);
       notify('preparing', 5 + Math.round((copied / total) * 35), copied, 'Loading bundled package metadata');
-      await new Promise((resolve) => requestAnimationFrame(() => resolve(undefined)));
+      await new Promise<void>((resolve) => {
+        if (typeof requestAnimationFrame === 'function') {
+          requestAnimationFrame(() => resolve());
+        } else {
+          setTimeout(resolve, 0);
+        }
+      });
     }
 
     notify('verifying', 55, total, 'Verifying SHA-256 integrity and core signer');
