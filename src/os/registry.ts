@@ -57,6 +57,7 @@ import { manifest as erp_loyalty } from '@/apps/erp-loyalty/manifest';
 import { manifest as erp_rider } from '@/apps/erp-rider/manifest';
 import { manifest as property } from '@/apps/property/manifest';
 import { manifest as posys } from '@/apps/posys/manifest';
+import { manifest as property_payments } from '@/apps/property-payments/manifest';
 import { manifest as cargo } from '@/apps/cargo/manifest';
 import { manifest as cargo_welcome } from '@/apps/cargo-welcome/manifest';
 import { manifest as cargo_sender } from '@/apps/cargo-sender/manifest';
@@ -145,6 +146,7 @@ export const appRegistry = [
   erp_rider,
   property,
   posys,
+  property_payments,
   cargo,
   cargo_welcome,
   cargo_sender,
