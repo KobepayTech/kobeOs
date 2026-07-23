@@ -3,25 +3,40 @@ import { publicApi } from './api';
 import { Loader2 } from 'lucide-react';
 import { CargoSitePreview, type CargoSite as CargoSiteConfig } from './CargoSitePreview';
 
-/**
- * Public branded cargo landing at /cg/:slug. Reads the owner's published
- * store_settings via @Public GET /store/:slug and renders the branded landing
- * (company brand + services + a live tracking box). Configured from the
- * cargo-owner app's Site Builder.
- */
-
-interface StoreSettings {
-  storeName?: string; tagline?: string; primaryColor?: string; logoUrl?: string;
-  siteConfig?: { heroImageUrl?: string; about?: string; services?: string[]; cargoServices?: string[]; phone?: string; whatsapp?: string; address?: string };
+interface ModuleSiteSettings {
+  name?: string;
+  tagline?: string;
+  primaryColor?: string;
+  logoUrl?: string;
+  config?: {
+    heroImageUrl?: string;
+    about?: string;
+    services?: string[];
+    cargoServices?: string[];
+    phone?: string;
+    whatsapp?: string;
+    address?: string;
+  };
 }
 
-function toSite(s: StoreSettings): CargoSiteConfig {
-  const c = s.siteConfig ?? {};
-  const services = Array.isArray(c.cargoServices) ? c.cargoServices : Array.isArray(c.services) ? c.services : [];
+function toSite(site: ModuleSiteSettings): CargoSiteConfig {
+  const config = site.config ?? {};
+  const services = Array.isArray(config.cargoServices)
+    ? config.cargoServices
+    : Array.isArray(config.services)
+      ? config.services
+      : [];
   return {
-    companyName: s.storeName ?? '', tagline: s.tagline ?? '', primaryColor: s.primaryColor ?? '#059669',
-    logoUrl: s.logoUrl ?? '', heroImageUrl: c.heroImageUrl ?? '', about: c.about ?? '',
-    services: services.join('\n'), phone: c.phone ?? '', whatsapp: c.whatsapp ?? '', address: c.address ?? '',
+    companyName: site.name ?? '',
+    tagline: site.tagline ?? '',
+    primaryColor: site.primaryColor ?? '#059669',
+    logoUrl: site.logoUrl ?? '',
+    heroImageUrl: config.heroImageUrl ?? '',
+    about: config.about ?? '',
+    services: services.join('\n'),
+    phone: config.phone ?? '',
+    whatsapp: config.whatsapp ?? '',
+    address: config.address ?? '',
   };
 }
 
@@ -31,8 +46,8 @@ export default function CargoSite({ slug }: { slug: string }) {
 
   useEffect(() => {
     let cancelled = false;
-    publicApi<{ settings: StoreSettings }>(`/store/${encodeURIComponent(slug)}`)
-      .then((r) => { if (!cancelled) setSite(toSite(r.settings || {})); })
+    publicApi<ModuleSiteSettings>(`/module-sites/public/cargo/${encodeURIComponent(slug)}`)
+      .then((response) => { if (!cancelled) setSite(toSite(response)); })
       .catch(() => { if (!cancelled) setError('This cargo site isn’t published yet.'); });
     return () => { cancelled = true; };
   }, [slug]);
