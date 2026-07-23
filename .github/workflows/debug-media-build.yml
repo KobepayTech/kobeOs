@@ -1,0 +1,31 @@
+name: Debug Media Inbox Build
+
+on:
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+jobs:
+  backend-build-tail:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - name: Build and print concise failure
+        shell: bash
+        run: |
+          set +e
+          npm run build > /tmp/media-build.log 2>&1
+          code=$?
+          tail -n 120 /tmp/media-build.log
+          exit $code
