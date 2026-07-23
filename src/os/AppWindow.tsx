@@ -134,15 +134,13 @@ export const AppWindow = memo(function AppWindow({ window: win, children }: AppW
     [win.id, win.x, win.y, win.width, win.height, win.minWidth, win.minHeight, win.isMaximized, bringToFront, updateWindow]
   );
 
-  if (win.isMinimized) return null;
-
   const isMax = win.isMaximized;
   const style = isMax
     ? {
         left: 0,
         top: 0,
         width: '100%' as const,
-        height: 'calc(100% - 80px)' as const,
+        height: '100%' as const,
         position: 'absolute' as const,
       }
     : {
@@ -159,9 +157,11 @@ export const AppWindow = memo(function AppWindow({ window: win, children }: AppW
       animate={{ opacity: 1, scale: 1 }}
       exit={{ opacity: 0, scale: 0.95 }}
       transition={{ duration: 0.15 }}
-      className="flex flex-col overflow-hidden rounded-3xl border border-white/50 pointer-events-auto"
+      aria-hidden={win.isMinimized}
+      className={`flex flex-col overflow-hidden border border-white/50 pointer-events-auto ${isMax ? 'rounded-none' : 'rounded-3xl'}`}
       style={{
         ...style,
+        display: win.isMinimized ? 'none' : 'flex',
         zIndex: win.zIndex,
         background: 'rgba(255,255,255,0.40)',
         backdropFilter: 'blur(40px)',
@@ -178,6 +178,7 @@ export const AppWindow = memo(function AppWindow({ window: win, children }: AppW
           title={win.title}
           icon={win.icon}
           isFocused={win.isFocused}
+          isMaximized={win.isMaximized}
           onMouseDown={() => {}}
         />
       </div>
