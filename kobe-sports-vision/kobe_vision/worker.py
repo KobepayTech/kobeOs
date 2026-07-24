@@ -47,6 +47,10 @@ def main() -> None:
         detector = YoloDetector(cfg.weights, conf=cfg.conf, imgsz=cfg.imgsz, device=cfg.device)
     else:
         raise SystemExit(f"unknown detector_backend: {cfg.detector_backend!r}")
+
+    # Jersey-colour team split (turns generic "player" into player_home/away).
+    from .team_classifier import TeamClassifier, sample_jersey_color
+    team_clf = TeamClassifier() if cfg.team_split else None
     tracker = SupervisionTracker(frame_rate=cfg.frame_rate)
     pipeline = AnalyticsPipeline(mapper, frame_rate=cfg.frame_rate)
     ingest = IngestClient(cfg.backend_url, cfg.match_id, token=cfg.token)
@@ -71,6 +75,16 @@ def main() -> None:
             if frame_number % detect_every == 0:
                 detections = detector.detect(frame)
                 tracks = tracker.update(detections)
+                # Split generic "player" into home/away by jersey colour.
+                if team_clf is not None:
+                    samples = [(tid, sample_jersey_color(frame, box))
+                               for tid, cls, _c, box in tracks if cls == "player"]
+                    if samples:
+                        teams = team_clf.update_and_assign(samples)
+                        tracks = [
+                            (tid, f"player_{teams[tid]}" if cls == "player" and tid in teams else cls, c, box)
+                            for tid, cls, c, box in tracks
+                        ]
                 payload = pipeline.process(frame_number, args.half, tracks)
                 if (frame_number // detect_every) % max(1, cfg.ingest_every) == 0:
                     ingest.send(payload)

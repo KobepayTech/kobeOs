@@ -100,6 +100,40 @@ class TestZones(unittest.TestCase):
         self.assertEqual(r["in"] + r["out"], 2)
 
 
+class TestTeamClassifier(unittest.TestCase):
+    def test_splits_red_vs_blue_and_is_stable(self):
+        from kobe_vision.team_classifier import TeamClassifier, chromaticity, kmeans_2
+        # Two teams: reddish vs bluish jerseys (RGB).
+        red = [(200, 40, 40), (210, 50, 30), (190, 30, 45)]
+        blue = [(40, 50, 200), (30, 60, 210), (45, 40, 190)]
+        c0, c1, assign = kmeans_2([chromaticity(c) for c in red + blue])
+        # First three (red) share a cluster; last three (blue) share the other.
+        self.assertEqual(len(set(assign[:3])), 1)
+        self.assertEqual(len(set(assign[3:])), 1)
+        self.assertNotEqual(assign[0], assign[3])
+
+        clf = TeamClassifier(refit_every=1, min_players=2)
+        samples = [(1, red[0]), (2, red[1]), (3, blue[0]), (4, blue[1])]
+        out = None
+        for _ in range(5):
+            out = clf.update_and_assign(samples)
+        # Reds land on one team, blues on the other (label name is arbitrary but consistent).
+        self.assertEqual(out[1], out[2])
+        self.assertEqual(out[3], out[4])
+        self.assertNotEqual(out[1], out[3])
+
+    def test_majority_vote_absorbs_one_noisy_frame(self):
+        from kobe_vision.team_classifier import TeamClassifier
+        clf = TeamClassifier(refit_every=100, min_players=2)
+        red, blue = (200, 40, 40), (40, 50, 200)
+        for _ in range(8):
+            clf.update_and_assign([(1, red), (2, blue)])
+        stable = clf.update_and_assign([(1, red), (2, blue)])[1]
+        # One frame where player 1's colour is misread as blue must NOT flip the team.
+        flipped = clf.update_and_assign([(1, blue), (2, blue)])[1]
+        self.assertEqual(stable, flipped)
+
+
 class TestIngestContract(unittest.TestCase):
     def test_frame_shape_matches_dto(self):
         obj = build_tracked_object(5, "player_home", 72.1, 31.4, 0.91, speed=24.3, bbox=[1, 2, 3, 4])

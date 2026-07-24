@@ -30,6 +30,7 @@ class Config:
     )
     attack_direction: str = "left_to_right"
     ingest_every: int = 1                    # post every Nth frame
+    team_split: bool = True                  # jersey-colour home/away for generic "player"
 
     @classmethod
     def load(cls, path: Optional[str] = None) -> "Config":

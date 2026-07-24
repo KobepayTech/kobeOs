@@ -36,10 +36,14 @@ Other permissive alternatives (Apache-2.0) that fit Supervision if you prefer:
   geometry, ingest) is part of KobeOS.
 
 ### Team home/away with RF-DETR
-COCO gives generic `person` → mapped to `"player"`. Tracking, ball, zones,
-speed and heatmaps work immediately; splitting players into home/away is a
-small follow-up (jersey-colour clustering, or a fine-tuned RF-DETR checkpoint
-with referee/goalkeeper classes). Possession-by-team needs that split.
+COCO gives generic `person` → mapped to `"player"`. The built-in
+**jersey-colour team classifier** (`team_classifier.py`, on by default via
+`team_split: true`) then splits players into `player_home` / `player_away`:
+it samples each jersey's torso colour, clusters players into two teams by
+lighting-invariant chromaticity, and stabilises each track with a majority
+vote — so possession/passes work with the licence-clean RF-DETR base and no
+custom training. Referees still land in a team until you use a fine-tuned
+checkpoint with a dedicated referee class.
 
 ## Architecture
 
