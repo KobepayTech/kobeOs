@@ -1,8 +1,13 @@
 # KobeSports vision worker.
-# NOTE: ultralytics is AGPL-3.0 / Enterprise — see README before commercial use.
-ultralytics>=8.3.0
+#
+# DEFAULT (licence-clean, Apache-2.0): rfdetr + supervision.
+rfdetr>=1.0.0
 supervision>=0.26.0
-# trackers  # future-proof ByteTrackTracker (Supervision >=0.31 removes sv.ByteTrack)
 opencv-python>=4.9.0
 numpy>=1.26.0
 PyYAML>=6.0        # optional (JSON configs work without it)
+#
+# OPTIONAL Ultralytics backend — AGPL-3.0 / Enterprise. Only install if you have
+# a licence for commercial use. Then set detector_backend: "ultralytics".
+# ultralytics>=8.3.0
+# trackers        # future-proof ByteTrackTracker (Supervision >=0.31)

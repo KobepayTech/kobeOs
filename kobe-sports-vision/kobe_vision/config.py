@@ -10,7 +10,10 @@ from typing import List, Optional, Tuple
 @dataclass
 class Config:
     source: str = "0"                       # RTSP url, file path, or camera index
-    weights: str = "models/football/players-yolo26m.pt"
+    # 'rfdetr' = Apache-2.0 (licence-clean, COCO person+ball, no training);
+    # 'ultralytics' = AGPL-3.0 / Enterprise (needs a licence for commercial use).
+    detector_backend: str = "rfdetr"
+    weights: Optional[str] = None            # None = COCO-pretrained base (rfdetr)
     ball_weights: Optional[str] = None       # optional dedicated small-ball model
     match_id: str = ""
     backend_url: str = "http://127.0.0.1:3000"

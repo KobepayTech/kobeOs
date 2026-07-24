@@ -31,14 +31,22 @@ def main() -> None:
 
     # Lazy CV imports so the module loads without torch/opencv.
     import cv2  # type: ignore
-    from .detector import YoloDetector
     from .tracking import SupervisionTracker
 
     if cfg.pixel_corners is None:
         raise SystemExit("pixel_corners not calibrated — set 4 pixel points in the config.")
     mapper = PitchMapper.calibrate(cfg.pixel_corners, cfg.pitch_corners)
 
-    detector = YoloDetector(cfg.weights, conf=cfg.conf, imgsz=cfg.imgsz, device=cfg.device)
+    if cfg.detector_backend == "rfdetr":
+        from .detector_rfdetr import RFDetrDetector          # Apache-2.0
+        detector = RFDetrDetector(weights=cfg.weights, conf=cfg.conf)
+    elif cfg.detector_backend == "ultralytics":
+        from .detector import YoloDetector                   # AGPL-3.0 / Enterprise
+        if not cfg.weights:
+            raise SystemExit("ultralytics backend needs `weights` (a .pt file).")
+        detector = YoloDetector(cfg.weights, conf=cfg.conf, imgsz=cfg.imgsz, device=cfg.device)
+    else:
+        raise SystemExit(f"unknown detector_backend: {cfg.detector_backend!r}")
     tracker = SupervisionTracker(frame_rate=cfg.frame_rate)
     pipeline = AnalyticsPipeline(mapper, frame_rate=cfg.frame_rate)
     ingest = IngestClient(cfg.backend_url, cfg.match_id, token=cfg.token)

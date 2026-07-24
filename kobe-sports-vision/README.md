@@ -15,20 +15,38 @@ RTSP cameras / video  →  YOLO detector  →  Supervision (track + geometry)
 
 ## ⚠️ Licensing — read before commercial use
 
-- **Ultralytics YOLO (any version, incl. YOLO11 / YOLO26) is AGPL-3.0 or a paid
-  Enterprise licence.** KobeOS is a commercial, closed, self-distributed product,
-  which is exactly the case AGPL-3.0 is designed to catch. **Secure an
-  Ultralytics Enterprise licence before distributing**, or swap in a
-  permissively-licensed detector. The detector is isolated in `detector.py`, so
-  this decision touches one file only.
+KobeOS is a commercial, closed, self-distributed product, so the detector's
+licence matters. The worker supports two backends (config `detector_backend`):
+
+- **`rfdetr` (DEFAULT) — Apache-2.0, licence-clean.** RF-DETR (Roboflow) needs
+  no fee and no open-sourcing. Its COCO base already detects `person` +
+  `sports ball`, so you can pilot with **no custom training**. This is the way
+  to **avoid the Ultralytics Enterprise licence entirely.**
+- **`ultralytics` (OPT-IN) — AGPL-3.0 / Enterprise.** Ultralytics YOLO (any
+  version, incl. YOLO11/YOLO26 — and AGPL wrappers like Tencent YOLO-Master)
+  require a paid Enterprise licence for closed commercial distribution. Only
+  enable this backend if you hold that licence.
+
+Other permissive alternatives (Apache-2.0) that fit Supervision if you prefer:
+**RTMDet** (MMDetection), **DETR-family** (HF Transformers), **YOLOX**.
+
 - **Roboflow Supervision is MIT** — safe to use and bundle.
-- This worker's own code (analytics, geometry, ingest) is part of KobeOS.
+- The detector backends are isolated in `detector_rfdetr.py` / `detector.py`,
+  so the licence choice touches one file. This worker's own code (analytics,
+  geometry, ingest) is part of KobeOS.
+
+### Team home/away with RF-DETR
+COCO gives generic `person` → mapped to `"player"`. Tracking, ball, zones,
+speed and heatmaps work immediately; splitting players into home/away is a
+small follow-up (jersey-colour clustering, or a fine-tuned RF-DETR checkpoint
+with referee/goalkeeper classes). Possession-by-team needs that split.
 
 ## Architecture
 
 | Module | Role | Tested here |
 |---|---|---|
-| `detector.py` | Ultralytics YOLO wrapper (version-agnostic, lazy import) | needs GPU/weights |
+| `detector_rfdetr.py` | **RF-DETR backend (Apache-2.0, default)** — COCO person+ball, no training | needs torch |
+| `detector.py` | Ultralytics YOLO backend (AGPL/Enterprise, opt-in), version-agnostic | needs GPU/weights |
 | `tracking.py` | Supervision tracker → stable track IDs (prefers the `trackers` package's `ByteTrackTracker`, falls back to `sv.ByteTrack`) | needs supervision |
 | `pitch.py` | 4-point homography, pixel → pitch (0..100) | ✅ pure stdlib |
 | `kinematics.py` | speed (km/h), distance, sprints, heatmaps | ✅ |

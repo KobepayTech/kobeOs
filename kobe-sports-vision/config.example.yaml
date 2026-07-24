@@ -4,7 +4,9 @@ match_id: "REPLACE-WITH-MATCH-UUID"
 backend_url: "http://127.0.0.1:3000"
 token: "REPLACE-WITH-JWT"
 
-weights: "models/football/players-yolo26m.pt"   # your LICENSED detector weights
+detector_backend: "rfdetr"   # Apache-2.0, no licence, COCO person+ball with no training
+# weights: "models/football/rfdetr-football.pt"   # optional fine-tuned checkpoint
+# For Ultralytics instead (AGPL/Enterprise): detector_backend: "ultralytics" + weights: "...pt"
 imgsz: 1280
 conf: 0.25
 device: "cuda:0"        # or "cpu"
