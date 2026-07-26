@@ -24,7 +24,7 @@
  * to skip entirely (e.g. a lightweight build that relies on system Ollama).
  */
 
-const { execSync } = require('child_process');
+const { execFileSync, execSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
@@ -34,6 +34,11 @@ const REQUIRED = process.env.OLLAMA_REQUIRED === '1';
 
 function sh(cmd) {
   return execSync(cmd, { stdio: ['ignore', 'pipe', 'inherit'] }).toString().trim();
+}
+
+function run(command, args, stdio = ['ignore', 'pipe', 'inherit']) {
+  const output = execFileSync(command, args, { stdio });
+  return Buffer.isBuffer(output) ? output.toString().trim() : '';
 }
 
 function getPlatformTarget(platform = process.platform, arch = process.arch) {
@@ -58,14 +63,14 @@ function findSystemOllamaDir(platform = process.platform, env = process.env) {
   ].filter(Boolean);
 
   try {
-    const fromPath = sh('where ollama.exe')
+    const fromPath = run(process.platform === 'win32' ? 'where.exe' : 'where', ['ollama.exe'])
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter(Boolean)
       .map((line) => path.dirname(line));
     candidates.push(...fromPath);
   } catch {
-    // Ignore PATH lookup failures and fall back to standard install locations.
+    console.log('  note  ollama.exe not found in PATH; checking standard install locations');
   }
 
   for (const candidate of new Set(candidates)) {
@@ -88,7 +93,7 @@ async function resolveVersion() {
   // make this whole step fail silently, shipping installers with no Ollama).
   const nul = process.platform === 'win32' ? 'NUL' : '/dev/null';
   try {
-    const finalUrl = sh(`curl -sIL -o ${nul} -w "%{url_effective}" "https://github.com/${REPO}/releases/latest"`);
+    const finalUrl = run('curl', ['-sIL', '-o', nul, '-w', '%{url_effective}', `https://github.com/${REPO}/releases/latest`]);
     const match = finalUrl.match(/\/tag\/(v[\w.-]+)/);
     if (match) return match[1];
   } catch {
@@ -110,15 +115,19 @@ async function resolveVersion() {
 }
 
 function summarizeDirectoryBytes(rootDir) {
-  let bytes = 0;
-  const walk = (current) => fs.readdirSync(current).forEach((entry) => {
-    const fullPath = path.join(current, entry);
-    const stats = fs.statSync(fullPath);
-    if (stats.isDirectory()) walk(fullPath);
-    else bytes += stats.size;
-  });
-  walk(rootDir);
-  return bytes;
+  try {
+    let bytes = 0;
+    const walk = (current) => fs.readdirSync(current).forEach((entry) => {
+      const fullPath = path.join(current, entry);
+      const stats = fs.statSync(fullPath);
+      if (stats.isDirectory()) walk(fullPath);
+      else bytes += stats.size;
+    });
+    walk(rootDir);
+    return bytes;
+  } catch (error) {
+    throw new Error(`cannot calculate bundled Ollama size for ${rootDir}: ${error.message}`);
+  }
 }
 
 async function main() {
@@ -159,20 +168,27 @@ async function main() {
 
   const archivePath = path.join(platformDir, asset);
   console.log(`  down  ${dir}/${asset}`);
-  execSync(`curl -L -f -s -S --retry 4 --retry-delay 3 --retry-all-errors --connect-timeout 30 --max-time 1800 -o "${archivePath}" "${base}/${asset}"`, {
-    stdio: ['ignore', 'inherit', 'inherit'],
-  });
+  run('curl', [
+    '-L', '-f', '-s', '-S',
+    '--retry', '4',
+    '--retry-delay', '3',
+    '--retry-all-errors',
+    '--connect-timeout', '30',
+    '--max-time', '1800',
+    '-o', archivePath,
+    `${base}/${asset}`,
+  ], ['ignore', 'inherit', 'inherit']);
 
   console.log(`  unpack ${dir}`);
   if (asset.endsWith('.zip')) {
     // bsdtar (the default `tar` on Windows 10+ and macOS) extracts zip; on
     // Linux, GNU tar can't, so fall back to unzip there.
-    if (process.platform === 'win32') execSync(`tar -xf "${archivePath}" -C "${platformDir}"`, { stdio: 'inherit' });
-    else execSync(`unzip -o -q "${archivePath}" -d "${platformDir}"`, { stdio: 'inherit' });
+    if (process.platform === 'win32') run('tar', ['-xf', archivePath, '-C', platformDir], 'inherit');
+    else run('unzip', ['-o', '-q', archivePath, '-d', platformDir], 'inherit');
   } else if (asset.endsWith('.tar.zst')) {
-    execSync(`tar --zstd -xf "${archivePath}" -C "${platformDir}"`, { stdio: 'inherit' });
+    run('tar', ['--zstd', '-xf', archivePath, '-C', platformDir], 'inherit');
   } else {
-    execSync(`tar -xzf "${archivePath}" -C "${platformDir}"`, { stdio: 'inherit' });
+    run('tar', ['-xzf', archivePath, '-C', platformDir], 'inherit');
   }
   fs.unlinkSync(archivePath);
 

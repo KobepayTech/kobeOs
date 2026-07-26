@@ -36,4 +36,15 @@ describe('download-ollama helpers', () => {
 
     expect(findSystemOllamaDir('win32', { LOCALAPPDATA: localAppData })).toBe(installDir);
   });
+
+  it('accepts an explicit OLLAMA_HOME override', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ollama-home-'));
+    tempDirs.push(root);
+
+    const installDir = path.join(root, 'Ollama');
+    fs.mkdirSync(installDir, { recursive: true });
+    fs.writeFileSync(path.join(installDir, 'ollama.exe'), '');
+
+    expect(findSystemOllamaDir('win32', { OLLAMA_HOME: installDir })).toBe(installDir);
+  });
 });
