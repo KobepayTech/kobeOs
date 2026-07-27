@@ -75,6 +75,7 @@ import { StudioMediaModule } from './studio-media/studio-media.module';
 import { ShopStockModule } from './shop-stock/shop-stock.module';
 import { DiscountApprovalModule } from './discount-approval/discount-approval.module';
 import { SystemHealthModule } from './system-health/system-health.module';
+import { LanModule } from './lan/lan.module';
 import { SocialSchedulerModule } from './social-scheduler/social-scheduler.module';
 import { AppStateModule } from './app-state/app-state.module';
 import { AutomationModule } from './automation/automation.module';
@@ -166,6 +167,7 @@ import { HotelPublicModule } from './hotel-public/hotel-public.module';
     ShopStockModule,
     DiscountApprovalModule,
     SystemHealthModule,
+    LanModule,
   ],
   controllers: [AppController],
   providers: [
