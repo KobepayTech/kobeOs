@@ -34,9 +34,10 @@ export const AppWindow = memo(function AppWindow({ window: win, children }: AppW
   }, [win.id, win.isFocused, focusWindow]);
 
   const startDrag = useCallback(
-    (e: React.MouseEvent) => {
+    (e: React.PointerEvent) => {
       if (win.isMaximized) return;
       e.preventDefault();
+      if (e.button !== 0 && e.pointerType !== 'touch') return;
       bringToFront(win.id);
       dragState.current = {
         dragging: true,
@@ -50,7 +51,7 @@ export const AppWindow = memo(function AppWindow({ window: win, children }: AppW
         dir: '' as ResizeDir,
       };
 
-      const onMove = (ev: MouseEvent) => {
+      const onMove = (ev: PointerEvent) => {
         const state = dragState.current;
         if (!state.dragging) return;
         const dx = ev.clientX - state.startX;
@@ -66,12 +67,14 @@ export const AppWindow = memo(function AppWindow({ window: win, children }: AppW
 
       const onUp = () => {
         dragState.current.dragging = false;
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+        document.removeEventListener('pointercancel', onUp);
       };
 
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', onUp);
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
+      document.addEventListener('pointercancel', onUp);
     },
     [win.id, win.x, win.y, win.width, win.height, win.isMaximized, bringToFront, updateWindow]
   );
@@ -172,7 +175,13 @@ export const AppWindow = memo(function AppWindow({ window: win, children }: AppW
       }}
       onMouseDown={onMouseDownWindow}
     >
-      <div onMouseDown={startDrag}>
+      <div
+        className="touch-none select-none"
+        onPointerDown={(e) => {
+          if ((e.target as HTMLElement).closest('button')) return;
+          startDrag(e);
+        }}
+      >
         <TitleBar
           windowId={win.id}
           title={win.title}

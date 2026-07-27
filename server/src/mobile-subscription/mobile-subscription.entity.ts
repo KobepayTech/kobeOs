@@ -53,6 +53,14 @@ export class MobileSubscription extends BaseEntity {
   @Column({ nullable: true, type: 'varchar' })
   channel?: string | null;
 
+  /** Paid add-on modules and their individual expiry timestamps (ISO-8601). */
+  @Column({ type: 'jsonb', default: {} })
+  moduleEntitlements!: Record<string, string>;
+
+  /** Module attached to the current PalmPesa transaction, if it is an add-on purchase. */
+  @Column({ nullable: true, type: 'varchar' })
+  pendingModuleId?: string | null;
+
   /** Account that initiated the most recent payment (audit only). */
   @Column({ nullable: true, type: 'uuid' })
   lastPaidByUserId?: string | null;

@@ -78,6 +78,8 @@ import { AppStateModule } from './app-state/app-state.module';
 import { AutomationModule } from './automation/automation.module';
 import { SearchModule } from './search/search.module';
 import { HotelPublicModule } from './hotel-public/hotel-public.module';
+import { AppMarketplaceModule } from './app-marketplace/app-marketplace.module';
+import { DeveloperPlatformModule } from './developer-platform/developer-platform.module';
 
 @Module({
   imports: [
@@ -132,6 +134,8 @@ import { HotelPublicModule } from './hotel-public/hotel-public.module';
     AutomationModule,
     SearchModule,
     HotelPublicModule,
+    AppMarketplaceModule,
+    DeveloperPlatformModule,
     MzigoModule,
     WarehouseModule,
     DiscountsModule,

@@ -18,7 +18,7 @@ export function sha256(input: string): string {
 export interface IssuedTokens {
   accessToken: string;
   refreshToken: string;
-  user: { id: string; email: string };
+  user: { id: string; email: string; displayName?: string };
 }
 
 @Injectable()
@@ -40,7 +40,7 @@ export class AuthService {
       passwordHash,
       displayName: dto.displayName ?? dto.email.split('@')[0],
     });
-    return this.issue(user.id, user.email);
+    return this.issue(user.id, user.email, user.displayName);
   }
 
   async login(dto: LoginDto): Promise<IssuedTokens> {
@@ -48,7 +48,7 @@ export class AuthService {
     if (!user) throw new UnauthorizedException('Invalid credentials');
     const ok = await bcrypt.compare(dto.password, user.passwordHash);
     if (!ok) throw new UnauthorizedException('Invalid credentials');
-    return this.issue(user.id, user.email);
+    return this.issue(user.id, user.email, user.displayName);
   }
 
   /**
@@ -117,7 +117,7 @@ export class AuthService {
     record.revokedAt = new Date();
     await this.refreshTokens.save(record);
 
-    return this.issue(user.id, user.email);
+    return this.issue(user.id, user.email, user.displayName);
   }
 
   async logout(rawToken: string): Promise<{ ok: true }> {
@@ -134,7 +134,7 @@ export class AuthService {
     );
   }
 
-  private async issue(sub: string, email: string): Promise<IssuedTokens> {
+  private async issue(sub: string, email: string, displayName?: string): Promise<IssuedTokens> {
     const accessExpires = this.config.get<string>('JWT_EXPIRES_IN', '15m');
     const refreshDays = Number(this.config.get<string>('REFRESH_EXPIRES_DAYS', '30'));
 
@@ -154,7 +154,7 @@ export class AuthService {
       }),
     );
 
-    return { accessToken, refreshToken, user: { id: sub, email } };
+    return { accessToken, refreshToken, user: { id: sub, email, displayName } };
   }
 
   /** Nightly job: remove expired and revoked refresh tokens older than 7 days. */

@@ -195,9 +195,9 @@ const PSB = ({ status }: { status: string }) => {
   return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border border-white/[0.20] ${colors[status] || ''}`}>{status.replace(/_/g, ' ')}</span>;
 };
 
-/* Glass card wrapper */
+/* Shared operations card wrapper */
 const GC = ({ children, className = '' }: { children: React.ReactNode; className?: string }) => (
-  <Card className={`bg-white/[0.30] backdrop-blur-xl border border-white/[0.40] rounded-2xl shadow-sm ${className}`}>
+  <Card className={`bg-white border border-slate-200 rounded-2xl shadow-[0_8px_24px_rgba(15,23,42,0.06)] ${className}`}>
     {children}
   </Card>
 );
@@ -1711,11 +1711,11 @@ export default function CargoTZApp() {
   };
 
   return (
-    <div className="h-full flex" style={{ backgroundColor: '#E8E4F0' }}>
+    <div className="h-full flex bg-[#f6f8fc]" data-surface="light" data-module="cargo-tz">
       {/* LEFT SIDEBAR */}
-      <div className="w-60 h-full flex flex-col shrink-0 border-r border-white/30 bg-white/20 backdrop-blur-xl">
+      <div className="w-60 h-full flex flex-col shrink-0 border-r border-slate-200 bg-white">
         {/* Header */}
-        <div className="shrink-0 px-4 py-4 border-b border-white/30">
+        <div className="shrink-0 px-4 py-4 border-b border-slate-200">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center">
               <Navigation className="w-4 h-4 text-white" />
@@ -1736,9 +1736,9 @@ export default function CargoTZApp() {
               return (
                 <button key={item.key} onClick={() => setActiveTab(item.key)}
                   className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border transition-all text-left ${
-                    isActive ? 'bg-emerald-100 border-emerald-300' : 'bg-white/[0.20] border-transparent hover:bg-white/[0.30]'
+                    isActive ? 'bg-emerald-50 border-emerald-200' : 'bg-transparent border-transparent hover:bg-slate-50'
                   }`}>
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isActive ? 'bg-emerald-200' : 'bg-white/40'}`}>
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isActive ? 'bg-emerald-100' : 'bg-slate-100'}`}>
                     <Icon className={`w-4 h-4 ${isActive ? 'text-emerald-700' : 'text-slate-500'}`} />
                   </div>
                   <div className="min-w-0">
@@ -1752,7 +1752,7 @@ export default function CargoTZApp() {
         </div>
 
         {/* Sidebar Footer */}
-        <div className="shrink-0 px-4 py-3 border-t border-white/30">
+        <div className="shrink-0 px-4 py-3 border-t border-slate-200">
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
             <span className="text-[10px] text-emerald-600">System Online</span>
@@ -1765,6 +1765,16 @@ export default function CargoTZApp() {
 
       {/* MAIN CONTENT */}
       <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="shrink-0 h-14 px-6 flex items-center justify-between bg-white border-b border-slate-200">
+          <div>
+            <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-400">Operations console</div>
+            <div className="text-sm font-semibold text-slate-800">Domestic transport network</div>
+          </div>
+          <div className="hidden sm:flex items-center gap-2 text-[10px] text-slate-500">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+            Dar es Salaam network live
+          </div>
+        </div>
         <ScrollArea className="flex-1 overflow-y-auto p-6">
           {renderTab()}
         </ScrollArea>

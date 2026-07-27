@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query, Request, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { MobileSubscriptionService } from './mobile-subscription.service';
-import { SubscribeMobileDto } from './dto/subscribe.dto';
+import { SubscribeMobileDto, SubscribeMobileModuleDto } from './dto/subscribe.dto';
 
 /**
  * Gates the /m/:slug mobile workspace behind a 48h trial then a monthly
@@ -23,6 +23,15 @@ export class MobileSubscriptionController {
   @Post('subscribe')
   subscribe(@Request() req: { user: { id: string } }, @Body() dto: SubscribeMobileDto) {
     return this.svc.subscribe(dto.slug, req.user.id, dto.msisdn);
+  }
+
+  /** Purchase one optional module; it remains hidden until payment settles. */
+  @Post('modules/subscribe')
+  subscribeModule(
+    @Request() req: { user: { id: string } },
+    @Body() dto: SubscribeMobileModuleDto,
+  ) {
+    return this.svc.subscribeModule(dto.slug, req.user.id, dto.msisdn, dto.moduleId);
   }
 
   /** Poll payment status after the USSD push. */

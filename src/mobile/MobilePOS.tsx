@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { api } from '@/lib/api';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { api, uploadFile } from '@/lib/api';
 import { useQRScanner } from '@/hooks/useQRScanner';
 import {
   Search, Minus, Plus, ShoppingCart, X, Trash2, Loader2, CheckCircle2, QrCode,
@@ -22,6 +22,7 @@ interface Product {
   unit?: string;
   decimalQuantity?: boolean;
   barcode?: string;
+  imageUrl?: string | null;
 }
 
 interface CartItem { product: Product; quantity: number }
@@ -42,8 +43,16 @@ export default function MobilePOS() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState<string | null>(null);
+  const [doneTitle, setDoneTitle] = useState('Sale recorded');
   const [err, setErr] = useState<string | null>(null);
   const [showScanner, setShowScanner] = useState(false);
+  const [showAddProduct, setShowAddProduct] = useState(false);
+  const [savingProduct, setSavingProduct] = useState(false);
+  const [imageUploading, setImageUploading] = useState(false);
+  const [newProduct, setNewProduct] = useState({
+    name: '', sku: '', category: 'Other', price: '', stock: '', imageUrl: '',
+  });
+  const lastScanRef = useRef<string | null>(null);
   const { videoRef, result, start: startScan, stop: stopScan } = useQRScanner();
 
   useEffect(() => {
@@ -65,6 +74,8 @@ export default function MobilePOS() {
   useEffect(() => {
     if (!result) return;
     const scanned = result.rawValue.trim();
+    if (!scanned || lastScanRef.current === scanned) return;
+    lastScanRef.current = scanned;
     const match = products.find(
       (p) => p.sku === scanned || p.id === scanned || p.barcode === scanned,
     );
@@ -72,13 +83,14 @@ export default function MobilePOS() {
       addToCart(match);
       setShowScanner(false);
       stopScan();
-      setDone(`${match.name} added from scan`);
+      setDoneTitle('Product scanned');
+      setDone(`${match.name} added to cart`);
       setTimeout(() => setDone(null), 2000);
     } else {
       setErr(`No product found for barcode: ${scanned}`);
       setTimeout(() => setErr(null), 3000);
     }
-  }, [result]);
+  }, [products, result, stopScan]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -128,6 +140,7 @@ export default function MobilePOS() {
         method: 'POST',
         body: JSON.stringify(dto),
       });
+      setDoneTitle('Sale recorded');
       setDone(sale?.receipt?.orderNumber ?? orderNumber);
       setCart([]);
       setDrawerOpen(false);
@@ -140,6 +153,63 @@ export default function MobilePOS() {
       setErr((e as Error).message);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const createProduct = async () => {
+    if (!newProduct.name.trim() || !newProduct.sku.trim()) {
+      setErr('Product name and SKU are required.');
+      return;
+    }
+    const price = Number(newProduct.price);
+    const stock = Number(newProduct.stock);
+    if (!Number.isFinite(price) || price < 0 || !Number.isFinite(stock) || stock < 0) {
+      setErr('Enter a valid price and stock quantity.');
+      return;
+    }
+    setSavingProduct(true);
+    setErr(null);
+    try {
+      await api('/pos/products', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: newProduct.name.trim(),
+          sku: newProduct.sku.trim(),
+          category: newProduct.category.trim() || 'Other',
+          price,
+          stock,
+          currency: 'TZS',
+          taxRate: 0,
+          active: true,
+          imageUrl: newProduct.imageUrl.trim() || undefined,
+        }),
+      });
+      const list = await api<Product[]>('/pos/products');
+      if (Array.isArray(list)) setProducts(list);
+      setNewProduct({ name: '', sku: '', category: 'Other', price: '', stock: '', imageUrl: '' });
+      setShowAddProduct(false);
+      setDoneTitle('Product added');
+      setDone('Available in Inventory, Store, and POS');
+      setTimeout(() => setDone(null), 2500);
+    } catch (e) {
+      setErr((e as Error).message || 'Could not add product.');
+    } finally {
+      setSavingProduct(false);
+    }
+  };
+
+  const uploadProductImage = async (file?: File) => {
+    if (!file) return;
+    setImageUploading(true);
+    setErr(null);
+    try {
+      const asset = await uploadFile<{ src: string }>('/media/upload?kind=photo', file);
+      if (!asset?.src) throw new Error('Upload returned no image URL');
+      setNewProduct((product) => ({ ...product, imageUrl: asset.src }));
+    } catch (e) {
+      setErr((e as Error).message || 'Could not upload product image.');
+    } finally {
+      setImageUploading(false);
     }
   };
 
@@ -158,7 +228,15 @@ export default function MobilePOS() {
             />
           </div>
           <button
-            onClick={() => { setShowScanner(true); startScan(); }}
+            onClick={() => setShowAddProduct(true)}
+            className="shrink-0 w-11 h-11 rounded-xl bg-emerald-600 text-white grid place-items-center active:bg-emerald-700"
+            title="Add product"
+            aria-label="Add product"
+          >
+            <Plus className="w-5 h-5" />
+          </button>
+          <button
+            onClick={() => { lastScanRef.current = null; setShowScanner(true); startScan(); }}
             className="shrink-0 w-11 h-11 rounded-xl bg-indigo-600 text-white grid place-items-center active:bg-indigo-700"
             title="Scan barcode"
           >
@@ -185,9 +263,13 @@ export default function MobilePOS() {
                 disabled={p.stock <= 0}
                 className="w-full flex items-center gap-3 p-3 rounded-xl bg-white border border-slate-200 text-left active:bg-slate-50 disabled:opacity-50"
               >
-                <div className="w-12 h-12 rounded-lg bg-slate-100 grid place-items-center text-[10px] font-bold text-slate-500">
-                  {p.category?.slice(0, 3).toUpperCase() ?? 'SKU'}
-                </div>
+                {p.imageUrl ? (
+                  <img src={p.imageUrl} alt={p.name} className="w-12 h-12 rounded-lg object-cover bg-slate-100 shrink-0" />
+                ) : (
+                  <div className="w-12 h-12 rounded-lg bg-slate-100 grid place-items-center text-[10px] font-bold text-slate-500 shrink-0">
+                    {p.category?.slice(0, 3).toUpperCase() ?? 'SKU'}
+                  </div>
+                )}
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-bold text-slate-900 truncate">{p.name}</div>
                   <div className="text-[10px] text-slate-500">
@@ -215,8 +297,8 @@ export default function MobilePOS() {
         <div className="fixed top-16 left-4 right-4 z-30 rounded-xl border border-emerald-300 bg-emerald-50 text-emerald-800 p-3 flex items-center gap-2 shadow-lg">
           <CheckCircle2 className="w-5 h-5" />
           <div className="flex-1">
-            <div className="text-sm font-extrabold">Sale recorded</div>
-            <div className="text-[11px] opacity-80">Receipt {done}</div>
+            <div className="text-sm font-extrabold">{doneTitle}</div>
+            <div className="text-[11px] opacity-80">{doneTitle === 'Sale recorded' ? `Receipt ${done}` : done}</div>
           </div>
           <button onClick={() => setDone(null)}><X className="w-4 h-4" /></button>
         </div>
@@ -319,6 +401,69 @@ export default function MobilePOS() {
                 {submitting ? 'Processing…' : `Charge ${fmt(total)} (Cash)`}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add product — writes to the shared /pos/products catalogue, so the
+          new item also appears in Inventory, Store Builder, and desktop POS. */}
+      {showAddProduct && (
+        <div className="fixed inset-0 z-50 bg-black/45 flex items-end" onClick={() => setShowAddProduct(false)}>
+          <div className="w-full max-h-[88vh] overflow-y-auto rounded-t-3xl bg-white p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900">Add product</h3>
+                <p className="text-[10px] text-slate-500 mt-0.5">Shared with Inventory, storefront, and every POS.</p>
+              </div>
+              <button onClick={() => setShowAddProduct(false)} className="w-8 h-8 rounded-full bg-slate-100 grid place-items-center">
+                <X className="w-4 h-4 text-slate-600" />
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="col-span-2 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                Product name
+                <input value={newProduct.name} onChange={(e) => setNewProduct((p) => ({ ...p, name: e.target.value }))} className="mt-1 w-full h-11 px-3 rounded-xl border border-slate-200 text-sm normal-case font-normal tracking-normal" />
+              </label>
+              <label className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                SKU
+                <input value={newProduct.sku} onChange={(e) => setNewProduct((p) => ({ ...p, sku: e.target.value }))} className="mt-1 w-full h-11 px-3 rounded-xl border border-slate-200 text-sm normal-case font-normal tracking-normal" />
+              </label>
+              <label className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                Category
+                <input value={newProduct.category} onChange={(e) => setNewProduct((p) => ({ ...p, category: e.target.value }))} className="mt-1 w-full h-11 px-3 rounded-xl border border-slate-200 text-sm normal-case font-normal tracking-normal" />
+              </label>
+              <label className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                Price (TZS)
+                <input type="number" inputMode="decimal" min="0" value={newProduct.price} onChange={(e) => setNewProduct((p) => ({ ...p, price: e.target.value }))} className="mt-1 w-full h-11 px-3 rounded-xl border border-slate-200 text-sm normal-case font-normal tracking-normal" />
+              </label>
+              <label className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                Opening stock
+                <input type="number" inputMode="numeric" min="0" value={newProduct.stock} onChange={(e) => setNewProduct((p) => ({ ...p, stock: e.target.value }))} className="mt-1 w-full h-11 px-3 rounded-xl border border-slate-200 text-sm normal-case font-normal tracking-normal" />
+              </label>
+              <div className="col-span-2 space-y-2">
+                <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Product image</div>
+                {newProduct.imageUrl && (
+                  <img src={newProduct.imageUrl} alt="Product preview" className="w-full h-36 rounded-xl object-cover bg-slate-100" />
+                )}
+                <label className="w-full h-11 rounded-xl border border-dashed border-indigo-300 bg-indigo-50 text-indigo-700 text-xs font-extrabold inline-flex items-center justify-center gap-2 cursor-pointer">
+                  {imageUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                  {imageUploading ? 'Uploading image…' : newProduct.imageUrl ? 'Replace photo' : 'Take or choose photo'}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="sr-only"
+                    disabled={imageUploading}
+                    onChange={(e) => { void uploadProductImage(e.target.files?.[0]); e.currentTarget.value = ''; }}
+                  />
+                </label>
+                <input type="url" inputMode="url" value={newProduct.imageUrl} onChange={(e) => setNewProduct((p) => ({ ...p, imageUrl: e.target.value }))} placeholder="Or paste an image URL" className="w-full h-10 px-3 rounded-xl border border-slate-200 text-sm" />
+              </div>
+            </div>
+            <button onClick={createProduct} disabled={savingProduct} className="w-full h-12 rounded-xl bg-emerald-600 disabled:opacity-50 text-white font-extrabold text-sm inline-flex items-center justify-center gap-2">
+              {savingProduct && <Loader2 className="w-4 h-4 animate-spin" />}
+              {savingProduct ? 'Saving…' : 'Save product'}
+            </button>
           </div>
         </div>
       )}

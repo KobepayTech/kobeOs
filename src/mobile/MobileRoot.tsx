@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import MobileShell, { MobileHome } from './MobileShell';
+import MobileShell, { MobileHome, MobileModules } from './MobileShell';
 import MobilePOS from './MobilePOS';
 import MobilePO from './MobilePO';
 import MobileImageOrder from './MobileImageOrder';
@@ -26,6 +26,7 @@ export default function MobileRoot() {
       <Routes>
         <Route path="/m/:slug" element={<MobileShell />}>
           <Route index element={<MobileHome />} />
+          <Route path="modules" element={<MobileModules />} />
           <Route path="pos" element={<MobilePOS />} />
           <Route path="po" element={<MobilePO />} />
           <Route path="image-order" element={<MobileImageOrder />} />

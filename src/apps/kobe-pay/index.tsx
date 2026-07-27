@@ -14,7 +14,7 @@ import {
   Plus, Search, CheckCircle2, Clock, XCircle, Phone, User, Mail, CreditCard, Banknote,
   Smartphone, Landmark, DollarSign, ChevronRight, X, Check, Download, Printer, QrCode,
   Trash2, Edit, Eye, Filter, BadgeCheck, AlertTriangle, TrendingUp, ShieldCheck, Activity, FileText, KeyRound,
-  ArrowRightLeft, ScanLine, Loader2, Ticket,
+  ArrowRightLeft, ScanLine, Loader2, Ticket, Monitor, RefreshCw, Wifi, CircleDollarSign,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,9 +28,10 @@ import { SendMoneyWizard, type ContactOption } from './SendMoneyWizard';
 import { TumaDialog } from './TumaDialog';
 
 type Role = 'Admin' | 'Cashier TZ' | 'Cashier China';
-type Module = 'dashboard' | 'owner' | 'customers' | 'deposits' | 'payouts' | 'suppliers' | 'allocations' | 'receipts' | 'users' | 'cashierPerf' | 'risk' | 'audit' | 'rates' | 'settings';
+type Module = 'dashboard' | 'kds' | 'owner' | 'customers' | 'deposits' | 'payouts' | 'suppliers' | 'allocations' | 'receipts' | 'users' | 'cashierPerf' | 'risk' | 'audit' | 'rates' | 'settings';
 
 interface RateRow { id: string; fromCurrency: string; toCurrency: string; salesRate: string | number; costRate: string | number; realRate: string | number; effectiveFrom: string; active: boolean; notes: string; createdAt: string; }
+interface LiveFxRow { from: string; to: string; rate: number; source: 'live' | 'cached' | 'fallback'; fetchedAt: string; }
 
 type KobePayUserRole = 'Admin' | 'Manager' | 'Cashier TZ' | 'Cashier China' | 'Auditor';
 interface KobePayUserRow { id: string; name: string; phone: string; role: KobePayUserRole; active: boolean; pin: string; permissions?: Record<string, boolean> | null; }
@@ -250,6 +251,7 @@ const WEEKLY_DATA = [
 
 const SIDEBAR_ITEMS: { id: Module; label: string; icon: typeof Wallet; color: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, color: 'text-cyan-400' },
+  { id: 'kds', label: 'Cash KDS', icon: Monitor, color: 'text-emerald-400' },
   { id: 'owner', label: 'Owner Profit', icon: TrendingUp, color: 'text-yellow-400' },
   { id: 'cashierPerf', label: 'Cashier Performance', icon: Activity, color: 'text-indigo-400' },
   { id: 'risk', label: 'Risk & Exceptions', icon: ShieldCheck, color: 'text-rose-400' },
@@ -649,6 +651,10 @@ export default function KobePay() {
   const [newRateNotes, setNewRateNotes] = useState('');
   const [rateError, setRateError] = useState<string | null>(null);
   const [rateSaving, setRateSaving] = useState(false);
+  const [rateUpdatedAt, setRateUpdatedAt] = useState<Date | null>(null);
+  const [liveFxRates, setLiveFxRates] = useState<LiveFxRow[]>([]);
+  const [liveFxUpdatedAt, setLiveFxUpdatedAt] = useState<Date | null>(null);
+  const [liveFxLoading, setLiveFxLoading] = useState(false);
 
   const reloadActiveRates = useCallback(async () => {
     try {
@@ -658,6 +664,7 @@ export default function KobePay() {
       ]);
       setActiveRates(a);
       setDerivedRates(d);
+      setRateUpdatedAt(new Date());
     } catch { /* */ }
   }, []);
 
@@ -673,7 +680,52 @@ export default function KobePay() {
 
   // Anyone authenticated may read the active rates so the deposit form can
   // pre-fill the sales rate. Full history is admin-only.
-  useEffect(() => { reloadActiveRates(); }, [reloadActiveRates]);
+  useEffect(() => {
+    void reloadActiveRates();
+    const timer = window.setInterval(() => { void reloadActiveRates(); }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [reloadActiveRates]);
+
+  const cashCurrencies = useMemo(() => Array.from(new Set([
+    ...deposits.filter((d) => d.status === 'Confirmed').map((d) => d.currency),
+    ...payouts.map((p) => p.currency),
+  ])).filter(Boolean).sort(), [deposits, payouts]);
+
+  const reloadLiveFx = useCallback(async () => {
+    const currencies = cashCurrencies.filter((currency) => currency !== 'TZS');
+    if (currencies.length === 0) return;
+    setLiveFxLoading(true);
+    try {
+      const rows = await Promise.all(currencies.map((currency) =>
+        api<LiveFxRow>(`/fx/current?from=${encodeURIComponent(currency)}&to=TZS`).catch(() => null),
+      ));
+      setLiveFxRates(rows.filter((row): row is LiveFxRow => row !== null));
+      setLiveFxUpdatedAt(new Date());
+    } finally {
+      setLiveFxLoading(false);
+    }
+  }, [cashCurrencies]);
+
+  useEffect(() => {
+    void reloadLiveFx();
+    const timer = window.setInterval(() => { void reloadLiveFx(); }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [reloadLiveFx]);
+
+  const resolveKdsRate = useCallback((from: string): { marketRate: number; bookRate: number; source: string; spread: number } | null => {
+    if (from === 'TZS') return { marketRate: 1, bookRate: 1, source: 'base', spread: 0 };
+    const house = resolveClientRate(from, 'TZS');
+    const live = liveFxRates.find((row) => row.from === from && row.to === 'TZS');
+    if (!house && !live) return null;
+    const marketRate = live?.rate ?? house?.salesRate ?? 0;
+    const bookRate = house?.costRate ?? marketRate;
+    return {
+      marketRate,
+      bookRate,
+      source: live?.source === 'live' ? 'live market' : house ? 'house rate' : (live?.source ?? 'rate'),
+      spread: house ? house.salesRate - house.costRate : 0,
+    };
+  }, [liveFxRates, resolveClientRate]);
 
   useEffect(() => {
     if (module !== 'rates' || role !== 'Admin') return;
@@ -779,15 +831,49 @@ export default function KobePay() {
   const allocated = useMemo(() => allocations.reduce((s, a) => s + a.amount, 0), [allocations]);
   const pendingPayouts = useMemo(() => payouts.filter(p => p.status === 'INITIATED' || p.status === 'SENT').reduce((s, p) => s + p.amount, 0), [payouts]);
 
+  const cashRows = useMemo(() => cashCurrencies.map((currency) => {
+    const received = deposits
+      .filter((d) => d.status === 'Confirmed' && d.currency === currency)
+      .reduce((sum, d) => sum + d.amount, 0);
+    const disbursed = payouts
+      .filter((p) => p.currency === currency && ['SENT', 'CONFIRMED', 'PAID'].includes(p.status))
+      .reduce((sum, p) => sum + p.amount, 0);
+    const pending = payouts
+      .filter((p) => p.currency === currency && p.status === 'INITIATED')
+      .reduce((sum, p) => sum + p.amount, 0);
+    const rate = resolveKdsRate(currency);
+    const onHand = received - disbursed;
+    return {
+      currency,
+      received,
+      disbursed,
+      pending,
+      onHand,
+      rate,
+      bookValueTzs: rate ? onHand * rate.bookRate : null,
+      marketValueTzs: rate ? onHand * rate.marketRate : null,
+      mtmPnlTzs: rate ? onHand * (rate.marketRate - rate.bookRate) : null,
+      estimatedSpreadTzs: rate ? received * rate.spread : null,
+    };
+  }), [cashCurrencies, deposits, payouts, resolveKdsRate]);
+
+  const cashSummary = useMemo(() => ({
+    bookValueTzs: cashRows.reduce((sum, row) => sum + (row.bookValueTzs ?? 0), 0),
+    marketValueTzs: cashRows.reduce((sum, row) => sum + (row.marketValueTzs ?? 0), 0),
+    mtmPnlTzs: cashRows.reduce((sum, row) => sum + (row.mtmPnlTzs ?? 0), 0),
+    estimatedSpreadTzs: cashRows.reduce((sum, row) => sum + (row.estimatedSpreadTzs ?? 0), 0),
+    missingRates: cashRows.filter((row) => !row.rate).length,
+  }), [cashRows]);
+
   const canAccess = (m: Module): boolean => {
     if (role === 'Admin') return true;
     // Admin-only modules: profit margins, RBAC, audit, and risk.
     if (m === 'owner' || m === 'users' || m === 'audit' || m === 'risk' || m === 'cashierPerf') return false;
-    if (role === 'Cashier TZ') return ['dashboard', 'customers', 'deposits', 'payouts', 'receipts'].includes(m);
+    if (role === 'Cashier TZ') return ['dashboard', 'kds', 'customers', 'deposits', 'payouts', 'receipts'].includes(m);
     // Cashier China sees Rates (read-only for sales/office; can update the
     // real rate from their daily market). Other cashier-China access stays
     // as before.
-    if (role === 'Cashier China') return ['dashboard', 'payouts', 'receipts', 'suppliers', 'rates'].includes(m);
+    if (role === 'Cashier China') return ['dashboard', 'kds', 'payouts', 'receipts', 'suppliers', 'rates'].includes(m);
     return false;
   };
 
@@ -1157,6 +1243,102 @@ ${cashLine}${usdLine}
     return { deposits: custDeposits, allocations: custAllocs };
   };
 
+  const formatTzs = (value: number | null) => value == null ? '—' : `TZS ${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+
+  const renderCashKds = () => {
+    const pendingTzs = cashRows.reduce((sum, row) => sum + (row.rate ? row.pending * row.rate.bookRate : 0), 0);
+    const updatedAt = liveFxUpdatedAt ?? rateUpdatedAt;
+    const liveFxSource = liveFxRates.some((row) => row.source === 'live')
+      ? 'Live FX connected'
+      : liveFxRates.some((row) => row.source === 'cached')
+        ? 'Cached FX rate'
+        : liveFxRates.some((row) => row.source === 'fallback')
+          ? 'Fallback FX rate'
+          : 'Waiting for FX';
+    return (
+      <div className="space-y-5">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/15"><Monitor className="h-5 w-5 text-emerald-400" /></div>
+              <div>
+                <h3 className="text-lg font-semibold text-white">Cash position KDS</h3>
+                <p className="text-xs text-slate-400">Confirmed receipts minus disbursed payouts, valued in TZS.</p>
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className={`inline-flex items-center gap-1.5 text-xs ${liveFxSource === 'Live FX connected' ? 'text-emerald-300' : 'text-amber-300'}`}><Wifi className="h-3.5 w-3.5" /> {liveFxLoading ? 'Updating live FX…' : liveFxSource}</span>
+            <span className="text-xs text-slate-500">{updatedAt ? `Updated ${updatedAt.toLocaleTimeString()}` : 'Waiting for rate update'}</span>
+            <Button variant="outline" size="sm" onClick={() => { void reloadActiveRates(); void reloadLiveFx(); }} className="border-white/10 bg-white/[0.04] text-slate-100 hover:bg-white/[0.1] hover:text-white">
+              <RefreshCw className={`h-3.5 w-3.5 ${liveFxLoading ? 'animate-spin' : ''}`} /> Refresh
+            </Button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {[
+            { label: 'Cash on hand (book)', value: formatTzs(cashSummary.bookValueTzs), icon: CircleDollarSign, color: 'text-cyan-300', bg: 'bg-cyan-500/10' },
+            { label: 'Cash at live market', value: formatTzs(cashSummary.marketValueTzs), icon: ArrowRightLeft, color: 'text-violet-300', bg: 'bg-violet-500/10' },
+            { label: 'FX P/L (mark-to-market)', value: formatTzs(cashSummary.mtmPnlTzs), icon: cashSummary.mtmPnlTzs >= 0 ? TrendingUp : TrendingUp, color: cashSummary.mtmPnlTzs >= 0 ? 'text-emerald-300' : 'text-rose-300', bg: cashSummary.mtmPnlTzs >= 0 ? 'bg-emerald-500/10' : 'bg-rose-500/10' },
+            { label: 'Pending payouts', value: formatTzs(pendingTzs), icon: Clock, color: 'text-amber-300', bg: 'bg-amber-500/10' },
+          ].map((card) => (
+            <Card key={card.label} className="border-white/[0.06] bg-[#13131f]">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div><p className="text-xs text-slate-400">{card.label}</p><p className="mt-1 text-xl font-semibold text-white">{card.value}</p></div>
+                  <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${card.bg}`}><card.icon className={`h-5 w-5 ${card.color}`} /></div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        <Card className="border-white/[0.06] bg-[#13131f]">
+          <CardContent className="p-5">
+            <div className="mb-4 flex items-center justify-between">
+              <div><h3 className="font-semibold text-white">Multi-currency cash ledger</h3><p className="text-xs text-slate-500">Each currency stays separate; TZS totals are rate-based and never raw-summed.</p></div>
+              {cashSummary.missingRates > 0 && <Badge variant="outline" className="border-amber-500/30 bg-amber-500/10 text-amber-300">{cashSummary.missingRates} rate{cashSummary.missingRates === 1 ? '' : 's'} missing</Badge>}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[760px] text-sm">
+                <thead><tr className="border-b border-white/[0.06] text-left text-xs text-slate-500"><th className="py-2">Currency</th><th className="text-right">Received</th><th className="text-right">Disbursed</th><th className="text-right">On hand</th><th className="text-right">Live rate / TZS</th><th className="text-right">Book value</th><th className="text-right">FX P/L</th></tr></thead>
+                <tbody>
+                  {cashRows.length === 0 && <tr><td colSpan={7} className="py-10 text-center text-slate-500">No confirmed multi-currency receipts yet.</td></tr>}
+                  {cashRows.map((row) => (
+                    <tr key={row.currency} className="border-b border-white/[0.04] last:border-0">
+                      <td className="py-3 font-mono font-semibold text-white">{row.currency}<span className="ml-2 text-[10px] font-sans font-normal text-slate-500">{row.rate?.source ?? 'needs rate'}</span></td>
+                      <td className="text-right font-mono text-emerald-300">{row.received.toLocaleString()}</td>
+                      <td className="text-right font-mono text-amber-300">{row.disbursed.toLocaleString()}</td>
+                      <td className={`text-right font-mono font-semibold ${row.onHand < 0 ? 'text-rose-300' : 'text-white'}`}>{row.onHand.toLocaleString()}</td>
+                      <td className="text-right font-mono text-slate-200">{row.rate ? row.rate.marketRate.toLocaleString(undefined, { maximumFractionDigits: 4 }) : '—'}</td>
+                      <td className="text-right font-mono text-cyan-300">{formatTzs(row.bookValueTzs)}</td>
+                      <td className={`text-right font-mono font-semibold ${(row.mtmPnlTzs ?? 0) >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>{formatTzs(row.mtmPnlTzs)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <Card className="border-white/[0.06] bg-[#13131f]"><CardContent className="p-5">
+            <div className="mb-3 flex items-center justify-between"><div><h3 className="font-semibold text-white">Rate monitor</h3><p className="text-xs text-slate-500">Market rates refresh every 60 seconds; house spread drives estimated profit.</p></div><ArrowRightLeft className="h-5 w-5 text-teal-300" /></div>
+            <div className="space-y-2">
+              {cashRows.map((row) => <div key={row.currency} className="flex items-center justify-between rounded-lg border border-white/[0.05] bg-white/[0.02] px-3 py-2"><span className="font-mono text-sm text-white">{row.currency} → TZS</span><span className="font-mono text-sm text-slate-200">{row.rate ? row.rate.marketRate.toLocaleString(undefined, { maximumFractionDigits: 4 }) : 'No rate'}</span><span className="text-[11px] text-slate-500">{row.rate?.source ?? 'set a house rate'}</span></div>)}
+              {cashRows.length === 0 && <p className="text-sm text-slate-500">No currencies to monitor yet.</p>}
+            </div>
+          </CardContent></Card>
+          <Card className="border-white/[0.06] bg-[#13131f]"><CardContent className="p-5">
+            <div className="mb-3 flex items-center justify-between"><div><h3 className="font-semibold text-white">Operator notes</h3><p className="text-xs text-slate-500">How to read this screen</p></div><Badge variant="outline" className="border-cyan-500/20 bg-cyan-500/10 text-cyan-300">KDS</Badge></div>
+            <div className="space-y-2 text-sm text-slate-300"><p>• Received is confirmed deposits grouped by currency.</p><p>• Disbursed includes SENT, CONFIRMED, and PAID payouts.</p><p>• FX P/L is a mark-to-market estimate: on-hand × (live rate − book rate).</p><p>• The estimated house spread is {formatTzs(cashSummary.estimatedSpreadTzs)} on confirmed receipts.</p></div>
+          </CardContent></Card>
+        </div>
+      </div>
+    );
+  };
+
   const renderDashboard = () => (
     <div className="space-y-6">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -1165,6 +1347,8 @@ ${cashLine}${usdLine}
           { label: 'Unassigned', value: `$${unassigned.toLocaleString()}`, icon: DollarSign, color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
           { label: 'Allocated', value: `$${allocated.toLocaleString()}`, icon: Share2, color: 'text-violet-400', bg: 'bg-violet-500/10' },
           { label: 'Pending Payouts', value: `$${pendingPayouts.toLocaleString()}`, icon: Clock, color: 'text-amber-400', bg: 'bg-amber-500/10' },
+          { label: 'Cash on Hand (TZS)', value: formatTzs(cashSummary.bookValueTzs), icon: CircleDollarSign, color: 'text-cyan-300', bg: 'bg-cyan-500/10' },
+          { label: 'FX P/L (TZS)', value: formatTzs(cashSummary.mtmPnlTzs), icon: TrendingUp, color: cashSummary.mtmPnlTzs >= 0 ? 'text-emerald-300' : 'text-rose-300', bg: cashSummary.mtmPnlTzs >= 0 ? 'bg-emerald-500/10' : 'bg-rose-500/10' },
         ].map(card => (
           <Card key={card.label} className="bg-[#13131f] border-white/[0.06]">
             <CardContent className="p-5">
@@ -1250,6 +1434,7 @@ ${cashLine}${usdLine}
         </Card>
       </div>
       <div className="flex gap-3">
+        <Button onClick={() => setModule('kds')} variant="outline" className="border-emerald-500/40 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20 hover:text-white"><Monitor className="w-4 h-4 mr-2" />Cash KDS</Button>
         {role !== 'Cashier China' && <Button onClick={() => setModule('deposits')} className="bg-cyan-600 hover:bg-cyan-700 text-white"><Plus className="w-4 h-4 mr-2" />New Deposit</Button>}
         {role !== 'Cashier China' && <Button onClick={() => { setTransactIntent('send'); setSendOpen(true); }} className="bg-lime-500 hover:bg-lime-600 text-white"><Send className="w-4 h-4 mr-2" />Send Money</Button>}
         {role !== 'Cashier China' && <Button onClick={() => { setTransactIntent('receive'); setSendOpen(true); }} variant="outline" className="border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20"><Download className="w-4 h-4 mr-2" />Receive (Scan)</Button>}
@@ -2533,6 +2718,7 @@ ${cashLine}${usdLine}
   const renderModule = () => {
     switch (module) {
       case 'dashboard': return renderDashboard();
+      case 'kds': return renderCashKds();
       case 'owner': return renderOwner();
       case 'cashierPerf': return renderCashierPerf();
       case 'risk': return renderRisk();
@@ -2552,7 +2738,7 @@ ${cashLine}${usdLine}
 
   const getModuleTitle = () => {
     const titles: Record<Module, string> = {
-      dashboard: 'Dashboard', owner: 'Owner Profit Dashboard', cashierPerf: 'Cashier Performance',
+      dashboard: 'Dashboard', kds: 'Cash Position KDS', owner: 'Owner Profit Dashboard', cashierPerf: 'Cashier Performance',
       risk: 'Risk & Exceptions', rates: 'Exchange Rates', users: 'Users & Permissions', audit: 'Audit Log',
       customers: 'Customers', deposits: 'Deposits', payouts: 'Payouts',
       suppliers: 'Suppliers', allocations: 'Allocations', receipts: 'Receipts', settings: 'Settings',
@@ -2561,7 +2747,7 @@ ${cashLine}${usdLine}
   };
 
   return (
-    <div className="flex h-full bg-[#0a0a1a] text-white overflow-hidden">
+    <div data-surface="pay-dark" data-module="kobe-pay" className="flex h-full bg-[#0a0a1a] text-white overflow-hidden">
       {/* Sidebar */}
       <div className="w-64 bg-[#0d0d1f] border-r border-white/[0.06] flex flex-col">
         <div className="p-5 border-b border-white/[0.06]">

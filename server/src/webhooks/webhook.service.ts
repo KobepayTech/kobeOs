@@ -15,6 +15,7 @@ export class WebhookService {
   private creatorSubSvc?: import('../creators/creator-subscription.service').CreatorSubscriptionService;
   private licenseSvc?: import('../license/license.service').LicenseService;
   private mobileSubSvc?: import('../mobile-subscription/mobile-subscription.service').MobileSubscriptionService;
+  private appMarketplaceSvc?: import('../app-marketplace/app-marketplace.service').AppMarketplaceService;
 
   setCreatorSubscriptionService(
     svc: import('../creators/creator-subscription.service').CreatorSubscriptionService,
@@ -30,6 +31,12 @@ export class WebhookService {
     svc: import('../mobile-subscription/mobile-subscription.service').MobileSubscriptionService,
   ) {
     this.mobileSubSvc = svc;
+  }
+
+  setAppMarketplaceService(
+    svc: import('../app-marketplace/app-marketplace.service').AppMarketplaceService,
+  ) {
+    this.appMarketplaceSvc = svc;
   }
 
   constructor(
@@ -107,6 +114,13 @@ export class WebhookService {
     // MobileSubscriptionService.
     if (ref.startsWith('msub_') && this.mobileSubSvc) {
       await this.mobileSubSvc.handleCallback(payload);
+      return;
+    }
+
+    // Per-app OS subscription (each installed app owns its 14-day trial and
+    // paid renewal independently).
+    if (ref.startsWith('appsub_') && this.appMarketplaceSvc) {
+      await this.appMarketplaceSvc.handlePalmPesaCallback(payload);
       return;
     }
 

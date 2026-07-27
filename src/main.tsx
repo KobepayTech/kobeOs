@@ -2,7 +2,7 @@ import type { ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './index.css';
 import './styles/global.css';
-import { Desktop } from './os/Desktop';
+import App from './App';
 import { detectAppSubdomain, detectTenantSubdomain } from './public/api';
 
 /**
@@ -201,5 +201,5 @@ if (isOverlay) {
   //   https://kobeapptz.com/shop/kelvinfashion
   import('./apps/erp-shop/index').then(({ default: ErpShop }) => mount(<ErpShop data={{ slug: shopSlug }} />));
 } else {
-  mount(<Desktop />);
+  mount(<App />);
 }

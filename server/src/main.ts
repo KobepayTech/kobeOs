@@ -65,6 +65,25 @@ async function bootstrap() {
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.useGlobalFilters(new HttpExceptionFilter());
 
+  // Developer API preflights cannot carry the project Authorization header,
+  // so they need an origin-reflecting CORS layer before the restrictive
+  // first-party KobeOS CORS policy below. Actual requests are still protected
+  // by the API key and the project's allowedOrigins check.
+  app.use('/api/developer/v1', (req, res, next) => {
+    const origin = req.headers.origin;
+    if (origin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+      res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    }
+    if (req.method === 'OPTIONS') {
+      res.status(204).end();
+      return;
+    }
+    next();
+  });
+
   const cors = buildOriginPredicate();
   app.enableCors({ origin: cors.predicate, credentials: true });
   // Log the effective CORS config at boot so a misconfig is loud

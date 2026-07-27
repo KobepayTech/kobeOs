@@ -18,6 +18,7 @@ interface AuthResponse {
 function persist(res: AuthResponse) {
   setToken(res.accessToken);
   setRefreshToken(res.refreshToken);
+  localStorage.setItem('kobeos_auth_user', JSON.stringify(res.user));
 }
 
 export async function login(email: string, password: string): Promise<AuthUser> {
@@ -52,6 +53,10 @@ export async function logout(): Promise<void> {
     } catch { /* server may already have revoked the token */ }
   }
   clearTokens();
+  try {
+    localStorage.removeItem('kobeos_auth_user');
+    localStorage.removeItem('kobeos_user');
+  } catch { /* storage may be unavailable */ }
 }
 
 export async function requestPasswordReset(email: string): Promise<{ ok: true; resetToken?: string }> {
@@ -72,6 +77,19 @@ export async function resetPassword(token: string, newPassword: string): Promise
 
 export function isLoggedIn(): boolean {
   return !!getToken();
+}
+
+export function hasStoredSession(): boolean {
+  return !!(getToken() || getRefreshToken());
+}
+
+export function getStoredAuthUser(): AuthUser | null {
+  try {
+    const raw = localStorage.getItem('kobeos_auth_user');
+    return raw ? JSON.parse(raw) as AuthUser : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

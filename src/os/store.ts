@@ -7,6 +7,7 @@ import type {
   Notification,
   OSSettings,
   ContextMenuItem,
+  AppEntitlements,
 } from './types';
 import { setTheme, setAccentColor, setWallpaper } from './theme';
 import {
@@ -17,6 +18,10 @@ import {
 } from './license';
 import type { LicensePayload, LicenseStatus } from './license';
 import type { SubscriptionTier } from './types';
+import {
+  CORE_APP_IDS,
+  type AppEntitlementSnapshot,
+} from '@/lib/appMarketplace';
 
 interface OSStore {
   // Windows
@@ -36,6 +41,11 @@ interface OSStore {
   getApp: (id: string) => AppManifest | undefined;
   launchApp: (appId: string, data?: Record<string, unknown>) => WindowInstance | null;
   isAppOpen: (appId: string) => boolean;
+  installedAppIds: string[];
+  appEntitlements: AppEntitlements;
+  isAppInstalled: (appId: string) => boolean;
+  setAppEntitlements: (records: AppEntitlementSnapshot[]) => void;
+  recordInstalledApp: (record: AppEntitlementSnapshot) => void;
 
   // Desktop
   selectedIconId: string | null;
@@ -120,6 +130,8 @@ export const useOSStore = create<OSStore>()(
       windows: [],
       nextZIndex: 100,
       apps: [],
+      installedAppIds: [...CORE_APP_IDS],
+      appEntitlements: {},
       selectedIconId: null,
       contextMenu: null,
       notifications: [],
@@ -256,9 +268,32 @@ export const useOSStore = create<OSStore>()(
       launchApp: (appId, data) => {
         const app = get().getApp(appId);
         if (!app) return null;
+        if (!get().isAppInstalled(appId)) {
+          const store = get().getApp('package-manager');
+          if (store && appId !== 'package-manager') {
+            return get().openWindow('package-manager', store.name, { requestedAppId: appId });
+          }
+          return null;
+        }
         return get().openWindow(appId, app.name, data);
       },
       isAppOpen: (appId) => get().windows.some((w) => w.appId === appId),
+      isAppInstalled: (appId) =>
+        CORE_APP_IDS.includes(appId as typeof CORE_APP_IDS[number]) ||
+        get().installedAppIds.includes(appId),
+      setAppEntitlements: (records) => set({
+        appEntitlements: Object.fromEntries(records.map((record) => [record.appId, record])),
+        installedAppIds: Array.from(new Set([
+          ...CORE_APP_IDS,
+          ...records.map((record) => record.appId),
+        ])),
+      }),
+      recordInstalledApp: (record) => set((state) => ({
+        appEntitlements: { ...state.appEntitlements, [record.appId]: record },
+        installedAppIds: state.installedAppIds.includes(record.appId)
+          ? state.installedAppIds
+          : [...state.installedAppIds, record.appId],
+      })),
 
       selectIcon: (id) => set({ selectedIconId: id }),
       deselectIcon: () => set({ selectedIconId: null }),
@@ -352,7 +387,11 @@ export const useOSStore = create<OSStore>()(
     }),
     {
       name: 'kobe-os-settings',
-      partialize: (state) => ({ settings: state.settings }),
+      partialize: (state) => ({
+        settings: state.settings,
+        installedAppIds: state.installedAppIds,
+        appEntitlements: state.appEntitlements,
+      }),
     }
   )
 );

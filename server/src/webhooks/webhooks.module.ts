@@ -49,5 +49,15 @@ export class WebhooksModule implements OnModuleInit {
     } catch {
       // MobileSubscriptionModule not loaded — skip
     }
+
+    try {
+      const { AppMarketplaceService } = await import(
+        '../app-marketplace/app-marketplace.service'
+      );
+      const svc = this.moduleRef.get(AppMarketplaceService, { strict: false });
+      if (svc) this.webhookService.setAppMarketplaceService(svc);
+    } catch {
+      // AppMarketplaceModule not loaded — skip
+    }
   }
 }

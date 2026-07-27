@@ -31,6 +31,12 @@ import MobileEod from '@/mobile/MobileEod';
 import MobileSummary from '@/mobile/MobileSummary';
 import MobileInventory from '@/mobile/MobileInventory';
 import MobileOrders from '@/mobile/MobileOrders';
+import {
+  getStoredAuthUser,
+  hasStoredSession,
+  type AuthUser,
+} from '@/lib/auth';
+import { useOSStore } from '@/os/store';
 
 const Router = typeof window !== 'undefined' && (window as any).kobeOS
   ? HashRouter
@@ -45,13 +51,24 @@ const Router = typeof window !== 'undefined' && (window as any).kobeOS
  *     WindowManager / Taskbar.
  */
 export default function App() {
-  const [user, setUser] = useState<string | null>(() =>
-    localStorage.getItem('kobeos_user')
+  const [user, setUser] = useState<AuthUser | null>(() => {
+    const stored = getStoredAuthUser();
+    return stored && hasStoredSession() ? stored : null;
+  });
+  const [storeSetupComplete, setStoreSetupComplete] = useState(() =>
+    (() => {
+      const stored = getStoredAuthUser();
+      return !!stored &&
+        localStorage.getItem(`kobeos_store_onboarding_complete:${stored.id}`) === 'true';
+    })()
   );
 
-  const handleLogin = (username: string) => {
-    setUser(username);
-    localStorage.setItem('kobeos_user', username);
+  const handleLogin = (account: AuthUser, _created: boolean) => {
+    useOSStore.getState().setAppEntitlements([]);
+    setUser(account);
+    setStoreSetupComplete(
+      localStorage.getItem(`kobeos_store_onboarding_complete:${account.id}`) === 'true',
+    );
   };
 
   /* ---- Public routes (no desktop-OS auth required) ----
@@ -76,6 +93,37 @@ export default function App() {
             <Route path="orders" element={<MobileOrders />} />
           </Route>
           <Route path="*" element={<LoginScreen onLogin={handleLogin} />} />
+        </Routes>
+      </Router>
+    );
+  }
+
+  /* A newly installed KobeOS instance always opens the App Store after the
+   * online account step. This flag is device-local: signing into the same
+   * account on another fresh installation repeats app selection for that
+   * computer, while the cloud entitlement list restores paid/trial status. */
+  if (!storeSetupComplete) {
+    return (
+      <Router>
+        <Routes>
+          <Route
+            path="/store"
+            element={
+              <AppStore
+                onboarding
+                onComplete={() => {
+                  localStorage.setItem(`kobeos_store_onboarding_complete:${user.id}`, 'true');
+                  setStoreSetupComplete(true);
+                  if ((window as any).kobeOS) {
+                    window.location.hash = '#/';
+                  } else {
+                    window.location.assign('/');
+                  }
+                }}
+              />
+            }
+          />
+          <Route path="*" element={<Navigate to="/store" replace />} />
         </Routes>
       </Router>
     );
