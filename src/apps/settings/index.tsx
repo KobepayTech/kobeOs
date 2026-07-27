@@ -2,13 +2,14 @@ import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import * as icons from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { NetworkTab } from './NetworkTab';
 import { useOSStore } from '@/os/store';
 import { accentColors, wallpapers } from '@/os/theme';
 import { useSubscription } from '@/hooks/useSubscription';
 import { getToken, API_BASE } from '@/lib/api';
 import UpdateManager from '@/components/UpdateManager';
 
-type Tab = 'appearance' | 'desktop' | 'taskbar' | 'notifications' | 'system' | 'apps' | 'subscription';
+type Tab = 'appearance' | 'desktop' | 'taskbar' | 'notifications' | 'system' | 'network' | 'apps' | 'subscription';
 
 export default function Settings() {
   const { settings, updateSettings, pinApp, unpinApp } = useOSStore();
@@ -20,6 +21,7 @@ export default function Settings() {
     { key: 'taskbar', label: 'Taskbar', icon: icons.Layout },
     { key: 'notifications', label: 'Notifications', icon: icons.Bell },
     { key: 'system', label: 'System', icon: icons.Cpu },
+    { key: 'network', label: 'Network', icon: icons.Wifi },
     { key: 'apps', label: 'Apps', icon: icons.Grid3x3 },
     { key: 'subscription', label: 'Subscription', icon: icons.CreditCard },
   ];
@@ -62,6 +64,7 @@ export default function Settings() {
           {tab === 'taskbar' && <TaskbarTab settings={settings} updateSettings={updateSettings} />}
           {tab === 'notifications' && <NotificationsTab />}
           {tab === 'system' && <SystemTab />}
+          {tab === 'network' && <NetworkTab />}
           {tab === 'apps' && <AppsTab settings={settings} pinApp={pinApp} unpinApp={unpinApp} />}
           {tab === 'subscription' && <SubscriptionTab />}
         </motion.div>
