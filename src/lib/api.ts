@@ -127,6 +127,17 @@ export const API_BASE =
     ? 'http://127.0.0.1:3000/api'
     : import.meta.env.DEV ? 'http://localhost:3000/api' : '/api');
 
+// Runtime override: when the internet base is unreachable, LAN failover points
+// the app at the server's WiFi address instead (see src/lib/lan.ts). apiBase()
+// is the effective base every request uses; API_BASE stays the default.
+let _runtimeBase: string | null = null;
+export function apiBase(): string {
+  return _runtimeBase ?? API_BASE;
+}
+export function setRuntimeApiBase(base: string | null): void {
+  _runtimeBase = base;
+}
+
 // ── Backend reachability ──────────────────────────────────────────────────────
 
 let _backendReachable = true;
@@ -322,7 +333,7 @@ async function refreshAccessToken(): Promise<boolean> {
   if (!rt) return false;
   refreshInFlight = (async () => {
     try {
-      const res = await fetch(`${API_BASE}/auth/refresh`, {
+      const res = await fetch(`${apiBase()}/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refreshToken: rt }),
@@ -368,7 +379,7 @@ async function rawFetch(path: string, init: RequestInit, attachAuth: boolean): P
   } catch {
     /* storage disabled */
   }
-  return fetch(`${API_BASE}${path}`, { ...init, headers });
+  return fetch(`${apiBase()}${path}`, { ...init, headers });
 }
 
 // ── Main api() ────────────────────────────────────────────────────────────────

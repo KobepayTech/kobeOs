@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { API_BASE, markBackendReachable } from '@/lib/api';
+import { apiBase, markBackendReachable, setRuntimeApiBase } from '@/lib/api';
+import { discoverLanBase } from '@/lib/lan';
 import { useOSStore } from '@/os/store';
 
 /**
@@ -67,11 +68,27 @@ export function useBackendHealth(): BackendHealth {
       }
     };
 
+    // When the current base can't be reached, try to find the same server on
+    // the local WiFi and switch to it. Returns true if it switched (so the
+    // caller re-probes against the new base next tick).
+    const tryLanFailover = async (): Promise<boolean> => {
+      const origin = typeof window !== 'undefined' ? window.location.origin : '';
+      const found = await discoverLanBase(origin);
+      if (!found || found === apiBase()) return false;
+      setRuntimeApiBase(found);
+      markBackendReachable();
+      if (!cancelled) {
+        setHealth({ status: 'online', dbConnected: true, lastChecked: Date.now() });
+        addNotification({ type: 'success', title: 'Connected over WiFi', message: 'No internet — KobeOS is talking to the server directly on your local network.' });
+      }
+      return true;
+    };
+
     const probe = async () => {
       const controller = new AbortController();
       const to = setTimeout(() => controller.abort(), TIMEOUT_MS);
       try {
-        const res = await fetch(`${API_BASE}/health`, {
+        const res = await fetch(`${apiBase()}/health`, {
           signal: controller.signal,
           headers: { accept: 'application/json' },
         });
@@ -90,11 +107,13 @@ export function useBackendHealth(): BackendHealth {
             : ct.includes('application/json')
               ? 'degraded' // reached the API, but SELECT 1 failed
               : 'offline'; // 200 but not our JSON (parked page / wrong origin)
+        if (next === 'offline' && (await tryLanFailover())) return; // switched to WiFi; re-probe
         if (next === 'online') markBackendReachable();
         setHealth({ status: next, dbConnected: db, lastChecked: Date.now() });
         notifyTransition(next);
       } catch {
         if (cancelled) return;
+        if (await tryLanFailover()) return; // internet gone — try the server over WiFi
         setHealth((h) => ({ ...h, status: 'offline', dbConnected: false, lastChecked: Date.now() }));
         notifyTransition('offline');
       } finally {
