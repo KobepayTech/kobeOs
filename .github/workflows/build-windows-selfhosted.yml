@@ -47,7 +47,7 @@ jobs:
       # Never build into the reusable checkout. An app launched interactively
       # from an older release is owned by the desktop user, while the runner
       # service may run as NETWORK SERVICE and cannot terminate it.
-      KOBE_RELEASE_NAME: kobeos-release-${{ github.run_id }}
+      KOBE_RELEASE_NAME: kobeos-release-${{ github.run_id }}-${{ github.run_attempt }}
 
     # Self-hosted Windows runners often have PowerShell execution policy set to
     # Restricted, which blocks the temp .ps1 wrapper GitHub uses for run: steps
