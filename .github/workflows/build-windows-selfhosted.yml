@@ -32,13 +32,44 @@ on:
         type: boolean
         required: false
         default: true
+      recover_existing_installers:
+        description: 'Copy installers from the runner service Desktop without rebuilding'
+        type: boolean
+        required: false
+        default: false
 
 concurrency:
   group: windows-selfhosted-installer
   cancel-in-progress: false
 
 jobs:
+  recover-existing-installers:
+    if: ${{ inputs.recover_existing_installers }}
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+    steps:
+      - name: Copy existing installers to an accessible folder
+        run: |
+          $source = Join-Path ([Environment]::GetFolderPath('Desktop')) 'KobeOS-Installers'
+          $out = if ($env:KOBE_OUTPUT_DIR) { $env:KOBE_OUTPUT_DIR } else { 'C:\KobeOS\Installers' }
+          $installers = @(Get-ChildItem (Join-Path $source '*.exe') -File -ErrorAction SilentlyContinue)
+          if ($installers.Count -eq 0) {
+            throw "No existing installers found in the runner service output: $source"
+          }
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          $installers | Copy-Item -Destination $out -Force
+          Write-Host "Recovered installers to: $out"
+          Get-ChildItem (Join-Path $out '*.exe') | ForEach-Object {
+            Write-Host ("  " + $_.Name + "  " + [math]::Round($_.Length/1MB,1) + " MB")
+          }
+        env:
+          KOBE_OUTPUT_DIR: ${{ vars.KOBE_OUTPUT_DIR }}
+
   build-windows-selfhosted:
+    if: ${{ !inputs.recover_existing_installers }}
     runs-on: [self-hosted, windows]
     timeout-minutes: 120
     permissions:
@@ -270,10 +301,10 @@ jobs:
       # The runner IS your PC, so the fastest way to get the (multi-GB, offline-AI)
       # installer is a local copy — no slow/flaky upload to GitHub needed. Set the
       # KOBE_OUTPUT_DIR variable to change the destination (default: the user's
-      # Desktop\KobeOS-Installers).
+      # C:\KobeOS\Installers).
       - name: Copy installer to a local output folder
         run: |
-          $out = if ($env:KOBE_OUTPUT_DIR) { $env:KOBE_OUTPUT_DIR } else { Join-Path ([Environment]::GetFolderPath('Desktop')) 'KobeOS-Installers' }
+          $out = if ($env:KOBE_OUTPUT_DIR) { $env:KOBE_OUTPUT_DIR } else { 'C:\KobeOS\Installers' }
           New-Item -ItemType Directory -Force -Path $out | Out-Null
           Copy-Item (Join-Path $env:KOBE_RELEASE_DIR "*.exe") $out -Force
           Write-Host "Installer copied to: $out"
