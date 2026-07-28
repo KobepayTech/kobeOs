@@ -43,33 +43,17 @@ export async function bootTestApp(): Promise<INestApplication> {
 /** Wipe all per-user data between specs so suites can't interfere. */
 export async function resetDb(app: INestApplication) {
   const ds = app.get(DataSource);
-  const tables = [
-    'refresh_tokens', 'password_resets',
-    'chat_messages', 'chat_channels',
-    'notes', 'todo_items', 'todo_lists',
-    'kanban_cards', 'kanban_columns', 'kanban_boards',
-    'contacts', 'emails', 'calendar_events',
-    'vfs_nodes', 'password_entries', 'playlists', 'media_assets',
-    'parcels', 'shipments', 'cargo_drivers', 'cargo_flights',
-    'rent_payments', 'tenants', 'property_units', 'properties',
-    'pos_order_items', 'pos_orders', 'pos_products',
-    'warehouse_pick_ticket_items', 'warehouse_pick_tickets',
-    'warehouse_movements', 'warehouse_items', 'warehouses',
-    'discount_rules', 'coupons', 'campaigns',
-    'credit_receivables', 'credit_profiles',
-    'erp_kobepay_inbox', 'erp_kobepay_providers',
-    'kobepay_dispatch_attempts',
-    'kobepay_audit_events', 'kobepay_users', 'kobepay_rates',
-    'kobepay_allocations', 'kobepay_payouts', 'kobepay_deposits',
-    'kobepay_suppliers', 'kobepay_customers',
-    'payment_transactions', 'credit_loans', 'wallets',
-    'hotel_bookings', 'hotel_guests', 'hotel_rooms',
-    'print_jobs', 'print_products', 'print_materials', 'print_customers',
-    'admin_companies', 'admin_subscriptions', 'admin_invoices', 'admin_roles', 'admin_tickets',
-    'dev_commits', 'dev_feature_flags', 'dev_deployments', 'dev_issues',
-    'erp_accounts', 'erp_transactions', 'erp_loyalty_customers', 'erp_loyalty_rewards',
-    'erp_loyalty_points', 'erp_suppliers', 'erp_purchase_orders',
-    'creators', 'users',
-  ];
-  await ds.query(`TRUNCATE TABLE ${tables.map((t) => `"${t}"`).join(', ')} CASCADE`);
+  const tables = await ds.query<Array<{ tablename: string }>>(`
+    SELECT tablename
+    FROM pg_tables
+    WHERE schemaname = 'public'
+      AND tablename <> 'kobeos_migrations'
+    ORDER BY tablename
+  `);
+  if (!tables.length) return;
+
+  const identifiers = tables.map(({ tablename }) =>
+    `"${tablename.replaceAll('"', '""')}"`,
+  );
+  await ds.query(`TRUNCATE TABLE ${identifiers.join(', ')} RESTART IDENTITY CASCADE`);
 }
