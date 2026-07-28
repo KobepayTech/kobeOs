@@ -39,6 +39,13 @@ if (!existsSync(new URL('../electron/splash-preload.cjs', import.meta.url))) {
   failures.push('electron/splash-preload.cjs: startup progress preload is missing');
 }
 
+const installerNsh = readFileSync(new URL('../build/installer.nsh', import.meta.url), 'utf8');
+if (/ExecWait\s+'"\$0"\s+\/S(?:\s+_\?=\$INSTDIR)?'/i.test(installerNsh)) {
+  failures.push(
+    'build/installer.nsh: customInstall must not run an existing uninstaller after extracting the new payload',
+  );
+}
+
 if (failures.length) {
   console.error(`Windows startup/build validation failed for ${projectRoot}:`);
   for (const item of failures) console.error(`- ${item}`);
