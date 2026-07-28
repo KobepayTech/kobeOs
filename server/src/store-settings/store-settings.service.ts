@@ -43,17 +43,21 @@ export class StoreSettingsService {
   async checkSlugAvailability(
     slug: string,
     ownerId?: string,
-  ): Promise<{ available: boolean; reason?: string }> {
+  ): Promise<{ available: boolean; slug: string; reason?: string }> {
     const normalised = toSlug(slug);
-    if (!normalised) return { available: false, reason: 'invalid' };
-    if (RESERVED_SLUGS.has(normalised)) return { available: false, reason: 'reserved' };
+    if (!normalised) return { available: false, slug: normalised, reason: 'invalid' };
+    if (RESERVED_SLUGS.has(normalised)) {
+      return { available: false, slug: normalised, reason: 'reserved' };
+    }
     const conflict = await this.repo.findOne({ where: { domainSlug: normalised } });
     if (conflict) {
       // Same owner → effectively available (they already own it)
-      if (ownerId && conflict.ownerId === ownerId) return { available: true };
-      return { available: false, reason: 'taken' };
+      if (ownerId && conflict.ownerId === ownerId) {
+        return { available: true, slug: normalised };
+      }
+      return { available: false, slug: normalised, reason: 'taken' };
     }
-    return { available: true };
+    return { available: true, slug: normalised };
   }
 
   async upsert(ownerId: string, dto: UpsertStoreSettingsDto): Promise<StoreSettings> {

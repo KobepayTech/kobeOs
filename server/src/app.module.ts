@@ -93,7 +93,7 @@ import { DeveloperPlatformModule } from './developer-platform/developer-platform
     }),
     TypeOrmModule.forRootAsync(databaseConfig),
     ThrottlerModule.forRoot([
-      { name: 'default', ttl: 60_000, limit: 120 },
+      { name: 'default', ttl: 60_000, limit: process.env.NODE_ENV === 'test' ? 10_000 : 120 },
       { name: 'auth', ttl: 60_000, limit: process.env.NODE_ENV === 'test' ? 10_000 : 10 },
       // Tighter bucket for public lookup endpoints that expose
       // enumerable resources (e.g. /store-settings/check-slug).

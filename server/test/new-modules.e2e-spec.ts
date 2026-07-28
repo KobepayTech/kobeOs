@@ -42,7 +42,7 @@ describe('New modules + ownership (e2e)', () => {
     expect(patched.body.status).toBe('Completed');
 
     const company = await request(http).post('/api/admin/companies').set(bearer(t))
-      .send({ name: 'Acme', plan: 'Pro', revenue: 1000 });
+      .send({ name: 'Acme', email: 'admin@acme.e2e.test' });
     expect(company.status).toBe(201);
 
     const list = await request(http).get('/api/admin/companies').set(bearer(t));
@@ -233,8 +233,8 @@ describe('New modules + ownership (e2e)', () => {
     expect(Number(sale.body.receivable.monthlyAmount)).toBe(100000);
 
     const profile = await request(http).get('/api/credit/profiles/by-phone/+255700000001').set(bearer(t));
-    expect(profile.body.outstanding).toBe(300000);
-    expect(profile.body.availableCredit).toBe(200000);
+    expect(Number(profile.body.outstanding)).toBe(300000);
+    expect(Number(profile.body.availableCredit)).toBe(200000);
 
     // Second BNPL purchase exceeding remaining limit is rejected.
     const denied = await request(http).post('/api/pos/orders').set(bearer(t)).send({
@@ -251,11 +251,11 @@ describe('New modules + ownership (e2e)', () => {
     const paid = await request(http).patch(`/api/credit/receivables/${receivableId}/pay`).set(bearer(t))
       .send({ amount: 100000 });
     expect(paid.body.status).toBe('PARTIAL');
-    expect(paid.body.paid).toBe(100000);
+    expect(Number(paid.body.paid)).toBe(100000);
 
     const after = await request(http).get('/api/credit/profiles/by-phone/+255700000001').set(bearer(t));
-    expect(after.body.outstanding).toBe(200000);
-    expect(after.body.availableCredit).toBe(300000);
+    expect(Number(after.body.outstanding)).toBe(200000);
+    expect(Number(after.body.availableCredit)).toBe(300000);
   });
 
   it('BNPL without a credit profile is rejected', async () => {
@@ -328,7 +328,7 @@ describe('New modules + ownership (e2e)', () => {
       taxAmount: 100,
     });
     expect(sale.status).toBe(201);
-    expect(sale.body.total).toBe(5100);
+    expect(Number(sale.body.total)).toBe(5100);
     expect(Array.isArray(sale.body.journal)).toBe(true);
 
     // Lines posted: DR Cash 5100, CR Revenue 5000, CR Tax 100.
@@ -1125,7 +1125,7 @@ describe('New modules + ownership (e2e)', () => {
       customerPhone: '+255700storefront',
     });
     expect(sale.status).toBe(201);
-    expect(sale.body.total).toBe(24000);
+    expect(Number(sale.body.total)).toBe(24000);
     expect(sale.body.receipt.text).toContain('SHOP-TEST-1');
     expect(sale.body.pickTicket.ticketNumber).toBe('PT-SHOP-TEST-1');
 
