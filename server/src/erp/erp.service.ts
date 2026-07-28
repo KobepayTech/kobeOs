@@ -59,6 +59,7 @@ export class ErpService {
         supplierNeedsAction: supplierCapital.needsAction,
       },
       monthlyRevenue,
+      accounts: { monthlyTrend: monthlyRevenue },
       supplierCapital,
     };
   }

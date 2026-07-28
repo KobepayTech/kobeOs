@@ -112,7 +112,7 @@ describe('New modules + ownership (e2e)', () => {
       paymentMethod: 'CASH',
     });
     expect(sale.status).toBe(201);
-    expect(sale.body.total).toBe(36000);
+    expect(Number(sale.body.total)).toBe(36000);
     expect(sale.body.receipt.text).toContain('SO-1001');
     expect(sale.body.receipt.text).toContain('Rice 5kg');
     expect(sale.body.receipt.text).toContain('TOTAL');
@@ -165,8 +165,8 @@ describe('New modules + ownership (e2e)', () => {
     });
     expect(sale.status).toBe(201);
     // 10000 subtotal - 5% rule (500) - 10% coupon (1000) = 8500.
-    expect(sale.body.discountAmount).toBe(1500);
-    expect(sale.body.total).toBe(8500);
+    expect(Number(sale.body.discountAmount)).toBe(1500);
+    expect(Number(sale.body.total)).toBe(8500);
     expect(sale.body.discount.breakdown).toHaveLength(2);
 
     // Coupon usage was incremented.
@@ -194,7 +194,7 @@ describe('New modules + ownership (e2e)', () => {
       approvedBy: 'manager-asha',
     });
     expect(approved.status).toBe(201);
-    expect(approved.body.total).toBe(700);
+    expect(Number(approved.body.total)).toBe(700);
   });
 
   it('BNPL sale creates receivable, decrements available credit, accepts payment', async () => {
@@ -222,7 +222,7 @@ describe('New modules + ownership (e2e)', () => {
     expect(sale.body.isBnpl).toBe(true);
     expect(sale.body.receivable.amount).toBe(300000);
     expect(sale.body.receivable.installmentMonths).toBe(3);
-    expect(sale.body.receivable.monthlyAmount).toBe(100000);
+    expect(Number(sale.body.receivable.monthlyAmount)).toBe(100000);
 
     const profile = await request(http).get('/api/credit/profiles/by-phone/+255700000001').set(bearer(t));
     expect(profile.body.outstanding).toBe(300000);
