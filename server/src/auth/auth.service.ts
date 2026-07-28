@@ -18,7 +18,7 @@ export function sha256(input: string): string {
 export interface IssuedTokens {
   accessToken: string;
   refreshToken: string;
-  user: { id: string; email: string; displayName?: string };
+  user: { id: string; email: string; displayName?: string; role: 'user' | 'admin' };
 }
 
 @Injectable()
@@ -40,7 +40,7 @@ export class AuthService {
       passwordHash,
       displayName: dto.displayName ?? dto.email.split('@')[0],
     });
-    return this.issue(user.id, user.email, user.displayName);
+    return this.issue(user.id, user.email, user.displayName, user.role);
   }
 
   async login(dto: LoginDto): Promise<IssuedTokens> {
@@ -48,7 +48,7 @@ export class AuthService {
     if (!user) throw new UnauthorizedException('Invalid credentials');
     const ok = await bcrypt.compare(dto.password, user.passwordHash);
     if (!ok) throw new UnauthorizedException('Invalid credentials');
-    return this.issue(user.id, user.email, user.displayName);
+    return this.issue(user.id, user.email, user.displayName, user.role);
   }
 
   /**
@@ -117,7 +117,7 @@ export class AuthService {
     record.revokedAt = new Date();
     await this.refreshTokens.save(record);
 
-    return this.issue(user.id, user.email, user.displayName);
+    return this.issue(user.id, user.email, user.displayName, user.role);
   }
 
   async logout(rawToken: string): Promise<{ ok: true }> {
@@ -134,12 +134,17 @@ export class AuthService {
     );
   }
 
-  private async issue(sub: string, email: string, displayName?: string): Promise<IssuedTokens> {
+  private async issue(
+    sub: string,
+    email: string,
+    displayName: string | undefined,
+    role: 'user' | 'admin',
+  ): Promise<IssuedTokens> {
     const accessExpires = this.config.get<string>('JWT_EXPIRES_IN', '15m');
     const refreshDays = Number(this.config.get<string>('REFRESH_EXPIRES_DAYS', '30'));
 
     const accessToken = await this.jwt.signAsync(
-      { sub, email },
+      { sub, email, role },
       { expiresIn: accessExpires },
     );
 
@@ -154,7 +159,7 @@ export class AuthService {
       }),
     );
 
-    return { accessToken, refreshToken, user: { id: sub, email, displayName } };
+    return { accessToken, refreshToken, user: { id: sub, email, displayName, role } };
   }
 
   /** Nightly job: remove expired and revoked refresh tokens older than 7 days. */

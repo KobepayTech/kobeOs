@@ -10,7 +10,12 @@ import { Public } from '../common/public.decorator';
 
 @Public()
 @Controller('auth')
-@Throttle({ auth: { limit: 10, ttl: 60_000 } })
+@Throttle({
+  auth: {
+    limit: process.env.NODE_ENV === 'test' ? 10_000 : 10,
+    ttl: 60_000,
+  },
+})
 export class AuthController {
   constructor(
     private readonly auth: AuthService,

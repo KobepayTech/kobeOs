@@ -52,8 +52,8 @@ export class ErpPurchaseOrder extends OwnedEntity {
   poNumber!: string;
 
   @Index()
-  @Column('uuid')
-  supplierId!: string;
+  @Column('uuid', { nullable: true })
+  supplierId!: string | null;
 
   @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
   totalCny!: number;

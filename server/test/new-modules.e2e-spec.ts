@@ -1,5 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
+import { DataSource } from 'typeorm';
 import { bootTestApp, resetDb } from './setup';
 
 /**
@@ -15,14 +16,21 @@ describe('New modules + ownership (e2e)', () => {
   afterAll(async () => { await app.close(); });
   beforeEach(async () => { await resetDb(app); });
 
-  const token = async (email: string): Promise<string> => {
+  const token = async (email: string, role: 'user' | 'admin' = 'user'): Promise<string> => {
     const r = await request(http).post('/api/auth/register').send({ email, password: 'secret123' });
-    return r.body.accessToken as string;
+    if (role === 'user') return r.body.accessToken as string;
+
+    await app.get(DataSource).query(
+      'UPDATE "users" SET "role" = $1 WHERE "email" = $2',
+      [role, email],
+    );
+    const login = await request(http).post('/api/auth/login').send({ email, password: 'secret123' });
+    return login.body.accessToken as string;
   };
   const bearer = (t: string) => ({ Authorization: `Bearer ${t}` });
 
   it('CRUD round-trips across print / admin / devops / erp', async () => {
-    const t = await token('crud@e2e.test');
+    const t = await token('crud@e2e.test', 'admin');
 
     const job = await request(http).post('/api/print/jobs').set(bearer(t))
       .send({ product: 'Corporate Polo', customer: 'CRDB', qty: 25, priority: 'High' });
@@ -220,7 +228,7 @@ describe('New modules + ownership (e2e)', () => {
     });
     expect(sale.status).toBe(201);
     expect(sale.body.isBnpl).toBe(true);
-    expect(sale.body.receivable.amount).toBe(300000);
+    expect(Number(sale.body.receivable.amount)).toBe(300000);
     expect(sale.body.receivable.installmentMonths).toBe(3);
     expect(Number(sale.body.receivable.monthlyAmount)).toBe(100000);
 
