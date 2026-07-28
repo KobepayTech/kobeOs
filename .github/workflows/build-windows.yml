@@ -109,6 +109,9 @@ jobs:
             if ($src) { Copy-Item $src -Destination $binDir -Force; Write-Host "Bundled (optional): $d" }
           }
 
+      - name: Prepare direct PostgreSQL resources
+        run: npm run prepare:postgres
+
       - name: Download Visual C++ 2015-2022 x64 Redistributable
         run: |
           $url = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
@@ -209,6 +212,27 @@ jobs:
 
       - name: 'Smoke test: verify postgres binaries and VC++ runtime'
         run: |
+          $directBin = "release\win-unpacked\resources\postgres\bin"
+          foreach ($binary in @("initdb.exe","postgres.exe","pg_ctl.exe")) {
+            $target = Join-Path $directBin $binary
+            if (!(Test-Path $target)) {
+              Write-Error "Direct PostgreSQL resource missing: $target"
+              exit 1
+            }
+            if ((Get-Item $target).Length -lt 100KB) {
+              Write-Error "Direct PostgreSQL binary is suspiciously small: $target"
+              exit 1
+            }
+          }
+          foreach ($dll in @("vcruntime140.dll","vcruntime140_1.dll","msvcp140.dll")) {
+            $target = Join-Path $directBin $dll
+            if (!(Test-Path $target)) {
+              Write-Error "Direct PostgreSQL VC++ runtime missing: $target"
+              exit 1
+            }
+          }
+          Write-Host "Direct PostgreSQL resources present: $directBin"
+
           $unpackedRoot = "release\win-unpacked\resources\app.asar.unpacked\node_modules"
           $unpacked = "$unpackedRoot\@embedded-postgres\windows-x64"
 

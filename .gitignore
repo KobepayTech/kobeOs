@@ -13,6 +13,7 @@ live-build/
 electron/server-bundle/
 electron/.staging/
 build/vcredist/vc_redist.x64.exe
+build/postgres/
 build/cloudflared/
 build/ollama/*
 !build/ollama/.gitkeep

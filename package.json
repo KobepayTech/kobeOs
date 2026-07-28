@@ -178,6 +178,10 @@
         "to": "core-manifest.json"
       },
       {
+        "from": "build/postgres",
+        "to": "postgres"
+      },
+      {
         "from": "build/cloudflared",
         "to": "cloudflared"
       },

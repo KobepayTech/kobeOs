@@ -192,6 +192,9 @@ jobs:
             if ($src) { Copy-Item $src -Destination $binDir -Force; Write-Host "Bundled (optional): $d" }
           }
 
+      - name: Prepare direct PostgreSQL resources
+        run: npm run prepare:postgres
+
       - name: Download Visual C++ 2015-2022 x64 Redistributable
         run: |
           $url = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
@@ -289,8 +292,45 @@ jobs:
             Write-Error "app.asar not found at $asar"
             exit 1
           }
-          npx asar list $asar | Select-String "electron/main.cjs","electron/preload.cjs","electron/update-manager.cjs"
+          $asarFiles = @(npx asar list $asar | ForEach-Object { $_ -replace '\\', '/' })
+          foreach ($required in @(
+            "electron/main.cjs",
+            "electron/preload.cjs",
+            "electron/update-manager.cjs",
+            "electron/pg-bootstrap.cjs",
+            "electron/splash.html",
+            "electron/splash.css",
+            "electron/splash-preload.cjs"
+          )) {
+            if (!($asarFiles | Select-String -SimpleMatch $required)) {
+              Write-Error "Required ASAR file missing: $required"
+              exit 1
+            }
+          }
           Write-Host "Core files present in asar"
+
+      - name: 'Smoke test: verify PostgreSQL binaries and VC++ runtime'
+        run: |
+          $binDir = Join-Path $env:KOBE_RELEASE_DIR "win-unpacked\resources\postgres\bin"
+          foreach ($binary in @("initdb.exe","postgres.exe","pg_ctl.exe")) {
+            $target = Join-Path $binDir $binary
+            if (!(Test-Path $target)) {
+              Write-Error "PostgreSQL binary missing: $target"
+              exit 1
+            }
+            if ((Get-Item $target).Length -lt 100KB) {
+              Write-Error "PostgreSQL binary is suspiciously small: $target"
+              exit 1
+            }
+          }
+          foreach ($dll in @("vcruntime140.dll","vcruntime140_1.dll","msvcp140.dll")) {
+            $target = Join-Path $binDir $dll
+            if (!(Test-Path $target)) {
+              Write-Error "PostgreSQL VC++ runtime missing: $target"
+              exit 1
+            }
+          }
+          Write-Host "PostgreSQL binaries and VC++ runtime are bundled correctly"
 
       # ── Artifacts ───────────────────────────────────────────────────────────
       - name: List release artifacts
