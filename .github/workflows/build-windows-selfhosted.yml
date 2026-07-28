@@ -43,6 +43,11 @@ jobs:
     timeout-minutes: 120
     permissions:
       contents: write
+    env:
+      # Never build into the reusable checkout. An app launched interactively
+      # from an older release is owned by the desktop user, while the runner
+      # service may run as NETWORK SERVICE and cannot terminate it.
+      KOBE_RELEASE_DIR: ${{ runner.temp }}\kobeos-release-${{ github.run_id }}
 
     # Self-hosted Windows runners often have PowerShell execution policy set to
     # Restricted, which blocks the temp .ps1 wrapper GitHub uses for run: steps
@@ -58,64 +63,22 @@ jobs:
         shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
 
     steps:
-      # Self-hosted runners reuse the workspace between runs. A leftover process
-      # from a previous run (or an app launched from release\win-unpacked to
-      # test it) locks the build output, so the next checkout fails with
-      # "EBUSY: resource busy or locked, rmdir ...release\win-unpacked". Stop any
-      # lingering processes launched from this workspace (including embedded
-      # PostgreSQL) and clear the release dir before checkout. If the lock cannot
-      # be cleared, fail here with the owning processes instead of letting
-      # actions/checkout fail later with a vague EBUSY error.
-      - name: Free workspace (stop lingering processes, clear locked build output)
+      # Each run gets an isolated output directory under RUNNER_TEMP. This avoids
+      # cross-user EBUSY failures if a desktop user is testing a previous
+      # win-unpacked build while the runner service starts a new job.
+      - name: Prepare isolated build output
         run: |
-          $workspace = [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE).TrimEnd('\') + '\'
-          $release = [IO.Path]::GetFullPath((Join-Path $workspace 'release'))
-          if (!$release.StartsWith($workspace, [StringComparison]::OrdinalIgnoreCase)) {
-            throw "Refusing to clean a release path outside the workspace: $release"
-          }
-
-          function Get-WorkspaceProcesses {
-            @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
-              $_.ExecutablePath -and
-              [IO.Path]::GetFullPath($_.ExecutablePath).StartsWith($workspace, [StringComparison]::OrdinalIgnoreCase)
-            })
-          }
-
-          # Repeat because stopping a parent may briefly leave child processes
-          # (notably Electron renderers and PostgreSQL workers) behind.
-          for ($pass = 1; $pass -le 4; $pass++) {
-            $processes = @(Get-WorkspaceProcesses)
-            if ($processes.Count -eq 0) { break }
-            foreach ($process in ($processes | Sort-Object ProcessId -Descending)) {
-              Write-Host "Stopping workspace process: $($process.Name) (PID $($process.ProcessId))"
-              Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
-            }
-            Start-Sleep -Seconds 2
-          }
-
-          $remaining = @(Get-WorkspaceProcesses)
-          if ($remaining.Count -gt 0) {
-            $remaining | Format-Table Name, ProcessId, ExecutablePath -AutoSize
-            throw "Unable to stop all processes launched from $workspace"
+          $runnerTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\') + '\'
+          $release = [IO.Path]::GetFullPath($env:KOBE_RELEASE_DIR)
+          if (!$release.StartsWith($runnerTemp, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Refusing to prepare an output path outside RUNNER_TEMP: $release"
           }
 
           if (Test-Path -LiteralPath $release) {
-            $removed = $false
-            for ($attempt = 1; $attempt -le 8; $attempt++) {
-              try {
-                Remove-Item -LiteralPath $release -Recurse -Force -ErrorAction Stop
-                $removed = $true
-                break
-              } catch {
-                Write-Warning "release cleanup attempt $attempt failed: $($_.Exception.Message)"
-                Start-Sleep -Seconds 3
-              }
-            }
-            if (!$removed -and (Test-Path -LiteralPath $release)) {
-              throw "release remains locked after 8 cleanup attempts: $release"
-            }
+            Remove-Item -LiteralPath $release -Recurse -Force -ErrorAction Stop
           }
-          Write-Host "Workspace is ready for checkout."
+          New-Item -ItemType Directory -Path $release -Force | Out-Null
+          Write-Host "Build output: $release"
 
       - uses: actions/checkout@v4
         with:
@@ -230,21 +193,21 @@ jobs:
 
       # ── Build installer ─────────────────────────────────────────────────────
       - name: Build Windows installer
-        run: npx electron-builder --win --publish never
+        run: npx electron-builder --win --publish never --config.directories.output="$env:KOBE_RELEASE_DIR"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Copy vc_redist.x64.exe next to installer
         run: |
-          Copy-Item "build\vcredist\vc_redist.x64.exe" "release\vc_redist.x64.exe" -Force
-          Write-Host "Copied vc_redist.x64.exe to release\"
+          Copy-Item "build\vcredist\vc_redist.x64.exe" (Join-Path $env:KOBE_RELEASE_DIR "vc_redist.x64.exe") -Force
+          Write-Host "Copied vc_redist.x64.exe to $env:KOBE_RELEASE_DIR"
 
       # ── Smoke tests ─────────────────────────────────────────────────────────
       - name: 'Smoke test: verify installer exists and is non-trivial'
         run: |
-          $exes = Get-ChildItem release\*.exe -ErrorAction SilentlyContinue
+          $exes = @(Get-ChildItem (Join-Path $env:KOBE_RELEASE_DIR "*.exe") -ErrorAction SilentlyContinue)
           if ($exes.Count -eq 0) {
-            Write-Error "No .exe found in release/"
+            Write-Error "No .exe found in $env:KOBE_RELEASE_DIR"
             exit 1
           }
           foreach ($exe in $exes) {
@@ -258,7 +221,7 @@ jobs:
 
       - name: 'Smoke test: verify bundled AI models are present in the installer'
         run: |
-          $models = "release\win-unpacked\resources\models"
+          $models = Join-Path $env:KOBE_RELEASE_DIR "win-unpacked\resources\models"
           if (Test-Path $models) {
             $ggufs = @(Get-ChildItem "$models\*.gguf" -ErrorAction SilentlyContinue)
             Write-Host ("Bundled models in installer: " + $ggufs.Count)
@@ -275,7 +238,7 @@ jobs:
 
       - name: 'Smoke test: verify Ollama runtime is bundled'
         run: |
-          $ollama = "release\win-unpacked\resources\ollama\win-x64\ollama.exe"
+          $ollama = Join-Path $env:KOBE_RELEASE_DIR "win-unpacked\resources\ollama\win-x64\ollama.exe"
           if (!(Test-Path $ollama)) {
             Write-Error "ollama.exe was NOT bundled at $ollama - the AI assistant would report 'cannot reach Ollama'. The download:ollama step must succeed."
             exit 1
@@ -285,7 +248,7 @@ jobs:
 
       - name: 'Smoke test: verify asar contains core files'
         run: |
-          $asar = "release\win-unpacked\resources\app.asar"
+          $asar = Join-Path $env:KOBE_RELEASE_DIR "win-unpacked\resources\app.asar"
           if (!(Test-Path $asar)) {
             Write-Error "app.asar not found at $asar"
             exit 1
@@ -297,7 +260,7 @@ jobs:
       - name: List release artifacts
         run: |
           Write-Host "=== Release Artifacts ==="
-          Get-ChildItem release\ -Recurse | Select-Object FullName, @{N="SizeMB";E={[math]::Round($_.Length/1MB,1)}}
+          Get-ChildItem $env:KOBE_RELEASE_DIR -Recurse | Select-Object FullName, @{N="SizeMB";E={[math]::Round($_.Length/1MB,1)}}
 
       # The runner IS your PC, so the fastest way to get the (multi-GB, offline-AI)
       # installer is a local copy — no slow/flaky upload to GitHub needed. Set the
@@ -307,8 +270,7 @@ jobs:
         run: |
           $out = if ($env:KOBE_OUTPUT_DIR) { $env:KOBE_OUTPUT_DIR } else { Join-Path ([Environment]::GetFolderPath('Desktop')) 'KobeOS-Installers' }
           New-Item -ItemType Directory -Force -Path $out | Out-Null
-          Copy-Item release\*.exe $out -Force
-          if (Test-Path release\vc_redist.x64.exe) { Copy-Item release\vc_redist.x64.exe $out -Force }
+          Copy-Item (Join-Path $env:KOBE_RELEASE_DIR "*.exe") $out -Force
           Write-Host "Installer copied to: $out"
           Get-ChildItem $out\*.exe | ForEach-Object { Write-Host ("  " + $_.Name + "  " + [math]::Round($_.Length/1MB,1) + " MB") }
         env:
@@ -326,48 +288,45 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: KobeOS-Windows-Setup-offline-ai
-          path: |
-            release/*.exe
-            release/vc_redist.x64.exe
+          path: ${{ env.KOBE_RELEASE_DIR }}/*.exe
           retention-days: 30
 
-      # Keep the reusable runner clean even when a build or smoke test fails.
-      # Installer files have already been copied/uploaded; win-unpacked is only
-      # temporary build output and is the directory most likely to be locked.
-      - name: Release workspace locks after build
+      # Keep RUNNER_TEMP from accumulating multi-GB build directories. The
+      # installer has already been copied locally and optionally uploaded.
+      - name: Clean isolated build output
         if: always()
         run: |
-          $workspace = [IO.Path]::GetFullPath($env:GITHUB_WORKSPACE).TrimEnd('\') + '\'
-          $unpacked = [IO.Path]::GetFullPath((Join-Path $workspace 'release\win-unpacked'))
-          if (!$unpacked.StartsWith($workspace, [StringComparison]::OrdinalIgnoreCase)) {
-            throw "Refusing to clean a path outside the workspace: $unpacked"
+          $runnerTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\') + '\'
+          $release = [IO.Path]::GetFullPath($env:KOBE_RELEASE_DIR)
+          if (!$release.StartsWith($runnerTemp, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Refusing to clean an output path outside RUNNER_TEMP: $release"
           }
 
           for ($pass = 1; $pass -le 4; $pass++) {
             $processes = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
               $_.ExecutablePath -and
-              [IO.Path]::GetFullPath($_.ExecutablePath).StartsWith($workspace, [StringComparison]::OrdinalIgnoreCase)
+              [IO.Path]::GetFullPath($_.ExecutablePath).StartsWith($release, [StringComparison]::OrdinalIgnoreCase)
             })
             if ($processes.Count -eq 0) { break }
             foreach ($process in ($processes | Sort-Object ProcessId -Descending)) {
-              Write-Host "Stopping workspace process: $($process.Name) (PID $($process.ProcessId))"
+              Write-Host "Stopping build-output process: $($process.Name) (PID $($process.ProcessId))"
               Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
             }
             Start-Sleep -Seconds 2
           }
 
-          if (Test-Path -LiteralPath $unpacked) {
+          if (Test-Path -LiteralPath $release) {
             for ($attempt = 1; $attempt -le 5; $attempt++) {
               try {
-                Remove-Item -LiteralPath $unpacked -Recurse -Force -ErrorAction Stop
+                Remove-Item -LiteralPath $release -Recurse -Force -ErrorAction Stop
                 break
               } catch {
-                Write-Warning "win-unpacked cleanup attempt $attempt failed: $($_.Exception.Message)"
+                Write-Warning "isolated output cleanup attempt $attempt failed: $($_.Exception.Message)"
                 Start-Sleep -Seconds 3
               }
             }
           }
 
-          if (Test-Path -LiteralPath $unpacked) {
-            throw "Temporary build output remains locked: $unpacked"
+          if (Test-Path -LiteralPath $release) {
+            throw "Temporary build output remains locked: $release"
           }
