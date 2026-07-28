@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { api } from '@/lib/api';
+import { api, apiArray } from '@/lib/api';
 import {
   Phone, Home, Building2, Users, DollarSign, Wrench, FileText, Settings, LogOut,
   Search, Bell, ChevronDown, Plus, ArrowLeft, ArrowRight,
@@ -152,17 +152,21 @@ export default function PropEasyApp() {
   const [payments, setPayments] = useState<ApiPayment[]>(DEMO_PAYMENTS);
   const [properties, setProperties] = useState<ApiProperty[]>([]);
   const [addOpen, setAddOpen] = useState(false);
+  const [addPropertyOpen, setAddPropertyOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const [t, p, props] = await Promise.all([
-          api<ApiTenant[]>('/property/tenants').catch(() => [] as ApiTenant[]),
-          api<ApiPayment[]>('/property/payments').catch(() => [] as ApiPayment[]),
-          api<ApiProperty[]>('/property/properties').catch(() => [] as ApiProperty[]),
+        const [tenantResponse, paymentResponse, propertyResponse] = await Promise.all([
+          api<unknown>('/property/tenants').catch(() => []),
+          api<unknown>('/property/payments').catch(() => []),
+          api<unknown>('/property/properties').catch(() => []),
         ]);
         if (cancelled) return;
+        const t = apiArray<ApiTenant>(tenantResponse, ['tenants']);
+        const p = apiArray<ApiPayment>(paymentResponse, ['payments']);
+        const props = apiArray<ApiProperty>(propertyResponse, ['properties']);
         if (t.length) setTenants(t);
         if (p.length) setPayments(p);
         setProperties(props);
@@ -175,8 +179,16 @@ export default function PropEasyApp() {
   // real backend (not the demo fallback).
   const refreshTenants = useCallback(async () => {
     try {
-      const t = await api<ApiTenant[]>('/property/tenants');
+      const response = await api<unknown>('/property/tenants');
+      const t = apiArray<ApiTenant>(response, ['tenants']);
       setTenants(t.length ? t : DEMO_TENANTS);
+    } catch { /* keep current list */ }
+  }, []);
+
+  const refreshProperties = useCallback(async () => {
+    try {
+      const response = await api<unknown>('/property/properties');
+      setProperties(apiArray<ApiProperty>(response, ['properties']));
     } catch { /* keep current list */ }
   }, []);
 
@@ -189,7 +201,7 @@ export default function PropEasyApp() {
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar title={titleFor(view)} />
         <div className="flex-1 overflow-y-auto p-6">
-          {view === 'dashboard'     && <DashboardView tenants={tenants} payments={payments} properties={properties} onOpenTenant={openTenant} />}
+          {view === 'dashboard'     && <DashboardView tenants={tenants} payments={payments} properties={properties} onOpenTenant={openTenant} onAddProperty={() => setAddPropertyOpen(true)} />}
           {view === 'tenants'       && <TenantsView tenants={tenants} onPick={openTenant} onAddTenant={() => setAddOpen(true)} />}
           {view === 'tenant-detail' && selectedTenant && (
             <TenantDetailView
@@ -237,6 +249,16 @@ export default function PropEasyApp() {
         <AddTenantModal
           onClose={() => setAddOpen(false)}
           onCreated={async () => { setAddOpen(false); await refreshTenants(); setView('tenants'); }}
+        />
+      )}
+      {addPropertyOpen && (
+        <PropertyModal
+          onClose={() => setAddPropertyOpen(false)}
+          onSaved={async () => {
+            setAddPropertyOpen(false);
+            await refreshProperties();
+            setView('properties');
+          }}
         />
       )}
     </div>
@@ -968,7 +990,7 @@ function TeamView() {
   const [loading, setLoading] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
   const load = useCallback(async () => {
-    try { const v = await api<ApiVendor[]>('/property/vendors'); setVendors(Array.isArray(v) ? v : []); }
+    try { const v = await api<unknown>('/property/vendors'); setVendors(apiArray<ApiVendor>(v, ['vendors'])); }
     catch { /* leave */ } finally { setLoading(false); }
   }, []);
   useEffect(() => { load(); }, [load]);
@@ -1075,10 +1097,10 @@ function RentCollectionPanel({ tenants, onOpenTenant }: { tenants: ApiTenant[]; 
       try {
         const [d, p] = await Promise.all([
           api<RentDashboard>('/property/posys/rent-dashboard'),
-          api<PendingTenant[]>('/property/posys/pending-tenants'),
+          api<unknown>('/property/posys/pending-tenants'),
         ]);
         setData(d);
-        setPending(Array.isArray(p) ? p : []);
+        setPending(apiArray<PendingTenant>(p, ['tenants', 'pendingTenants']));
       } catch { /* older backend — panel hides itself */ }
       finally { setLoading(false); }
     })();
@@ -1198,7 +1220,19 @@ function RentCollectionPanel({ tenants, onOpenTenant }: { tenants: ApiTenant[]; 
   );
 }
 
-function DashboardView({ tenants, payments, properties, onOpenTenant }: { tenants: ApiTenant[]; payments: ApiPayment[]; properties: ApiProperty[]; onOpenTenant: (t: ApiTenant) => void }) {
+function DashboardView({
+  tenants,
+  payments,
+  properties,
+  onOpenTenant,
+  onAddProperty,
+}: {
+  tenants: ApiTenant[];
+  payments: ApiPayment[];
+  properties: ApiProperty[];
+  onOpenTenant: (t: ApiTenant) => void;
+  onAddProperty: () => void;
+}) {
   const totalProperties = properties.length || 24;
   const activeTenants   = tenants.length || 187;
   const pendingRequests = tenants.filter((t) => t.balance && t.balance > 0).length || 8;
@@ -1247,7 +1281,7 @@ function DashboardView({ tenants, payments, properties, onOpenTenant }: { tenant
         <section>
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-lg font-extrabold text-slate-900">Properties</h3>
-            <button className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold">
+            <button onClick={onAddProperty} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold">
               <Plus className="w-3.5 h-3.5" /> Add Property
             </button>
           </div>
@@ -1815,7 +1849,7 @@ function DocumentsView({ tenants }: { tenants: ApiTenant[] }) {
   const [busy, setBusy] = useState(false);
 
   const load = async () => {
-    try { const r = await api<PropDocument[]>('/property/documents'); setDocs(Array.isArray(r) ? r : []); }
+    try { const r = await api<unknown>('/property/documents'); setDocs(apiArray<PropDocument>(r, ['documents'])); }
     catch { /* keep empty */ } finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []);
@@ -1879,7 +1913,7 @@ function MaintenanceView({ properties }: { properties: ApiProperty[] }) {
   const [creating, setCreating] = useState(false);
 
   const load = async () => {
-    try { const r = await api<WorkOrder[]>('/property/work-orders'); setOrders(Array.isArray(r) ? r : []); }
+    try { const r = await api<unknown>('/property/work-orders'); setOrders(apiArray<WorkOrder>(r, ['workOrders'])); }
     catch { /* keep empty */ } finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []);
@@ -1966,10 +2000,10 @@ function FinancialsView({ tenants: _t, payments: _p }: { tenants: ApiTenant[]; p
   const load = useCallback(async () => {
     try {
       const [ex, dash] = await Promise.all([
-        api<ApiExpense[]>('/property/expenses').catch(() => [] as ApiExpense[]),
+        api<unknown>('/property/expenses').catch(() => []),
         api<{ collectedThisMonth: number }>('/property/posys/rent-dashboard').catch(() => ({ collectedThisMonth: 0 })),
       ]);
-      setExpenses(Array.isArray(ex) ? ex : []);
+      setExpenses(apiArray<ApiExpense>(ex, ['expenses']));
       setCollectedThisMonth(dash?.collectedThisMonth ?? 0);
     } finally { setLoading(false); }
   }, []);
@@ -2105,11 +2139,11 @@ function PropertiesView({ properties: initialProps }: { properties: ApiProperty[
   const load = useCallback(async () => {
     try {
       const [p, u] = await Promise.all([
-        api<ApiProperty[]>('/property/properties'),
-        api<ApiUnit[]>('/property/units'),
+        api<unknown>('/property/properties'),
+        api<unknown>('/property/units'),
       ]);
-      setProperties(Array.isArray(p) ? p : []);
-      setUnits(Array.isArray(u) ? u : []);
+      setProperties(apiArray<ApiProperty>(p, ['properties']));
+      setUnits(apiArray<ApiUnit>(u, ['units']));
     } catch { /* keep current */ }
     finally { setLoading(false); }
   }, []);
@@ -2388,8 +2422,8 @@ function TokensView({ tenants }: { tenants: ApiTenant[] }) {
 
   const load = async () => {
     try {
-      const list = await api<PosysToken[]>('/property/posys/tokens');
-      setTokens(Array.isArray(list) ? list : []);
+      const list = await api<unknown>('/property/posys/tokens');
+      setTokens(apiArray<PosysToken>(list, ['tokens']));
       setErr(null);
     } catch (e) {
       setErr((e as Error).message);
@@ -2561,14 +2595,17 @@ function InsightsLive({ fallbackTenantCount }: { fallbackTenantCount: number }) 
     let cancelled = false;
     void Promise.allSettled([
       api<ServerHealth>('/property/posys/portfolio-health'),
-      api<ServerInsight[]>('/property/posys/insights'),
+      api<unknown>('/property/posys/insights'),
     ]).then(([h, i]) => {
       if (cancelled) return;
       if (h.status === 'fulfilled' && h.value && typeof h.value.healthScore === 'number') {
         setHealth(h.value);
       }
-      if (i.status === 'fulfilled' && Array.isArray(i.value) && i.value.length > 0) {
-        setInsights(i.value);
+      const rows = i.status === 'fulfilled'
+        ? apiArray<ServerInsight>(i.value, ['insights'])
+        : [];
+      if (rows.length > 0) {
+        setInsights(rows);
       }
     });
     return () => { cancelled = true; };

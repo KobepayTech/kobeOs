@@ -55,7 +55,8 @@ DB_PASSWORD=kobe
 DB_DATABASE=kobeos
 JWT_SECRET=replace-me
 NODE_ENV=development        # gates synchronize + dev-only routes
-DB_SYNCHRONIZE=true         # honored only when NODE_ENV=development
+DB_SYNCHRONIZE=false        # set true only for local throwaway development
+DB_MIGRATIONS_RUN=true      # apply tracked migrations on boot
 ```
 
 In production, `synchronize` is forced off and migrations run automatically

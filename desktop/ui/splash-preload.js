@@ -1,8 +1,9 @@
-const { ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer } = require('electron');
 
-// Forward boot-progress events from main process into the splash page
-ipcRenderer.on('boot-progress', (_event, { pct, msg }) => {
-  if (window.__setBootProgress) {
-    window.__setBootProgress(pct, msg);
-  }
+contextBridge.exposeInMainWorld('kobeSplash', {
+  onBootProgress: (callback) => {
+    const handler = (_event, progress) => callback(progress);
+    ipcRenderer.on('boot-progress', handler);
+    return () => ipcRenderer.removeListener('boot-progress', handler);
+  },
 });

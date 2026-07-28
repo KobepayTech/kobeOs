@@ -11,15 +11,13 @@ import {
   LayoutDashboard, Building2, Bed, Calendar, Users,
   UtensilsCrossed, Car, DollarSign, BarChart3, Globe,
   Bell, ChevronDown, Search, Plus, Edit2, Trash2, Eye,
-  CheckCircle, X, TrendingUp, TrendingDown, Minus,
-  ChefHat, QrCode, Star, Percent, Phone, Mail, MapPin,
-  Clock, ArrowUpRight, ArrowDownRight, Filter, Download,
-  Settings, LogOut, Shield, Wifi, Coffee, Waves, Dumbbell,
-  CreditCard, Receipt, Wallet, CircleDollarSign, UserPlus,
-  CarFront, Bike, ParkingSquare, FileText, MoreHorizontal,
-  XCircle, HelpCircle, Megaphone
+  CheckCircle, X, TrendingUp, Minus,
+  ChefHat, QrCode, Star, Percent, MapPin,
+  Clock, ArrowUpRight, ArrowDownRight,
+  Settings, Receipt, Wallet, CircleDollarSign, UserPlus,
+  CarFront, Bike, ParkingSquare
 } from 'lucide-react';
-import type { Hotel, Room, Booking, Guest, MenuCategory, MenuItem, StaffMember, Order, OrderItem } from '@/shared/types';
+import type { Room, Booking, Guest, MenuCategory, MenuItem, StaffMember, Order, OrderItem } from '@/shared/types';
 import { formatCurrency, formatDate, getStatusColor, classNames } from '@/shared/utils';
 import { api } from '@/lib/api';
 

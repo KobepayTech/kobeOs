@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   CheckCircle2,
   Clock3,
@@ -25,8 +25,8 @@ function currentAccess(
   access: AppAccess,
   trialEndsAt: number,
   periodEndsAt: number | null,
+  now: number,
 ): AppAccess {
-  const now = Date.now();
   if (periodEndsAt && periodEndsAt > now) return 'active';
   if (access === 'trial' && trialEndsAt > now) return 'trial';
   if (access === 'pending' || access === 'failed') return access;
@@ -40,18 +40,33 @@ export function AppEntitlementGate({
   app: AppManifest;
   children: ReactNode;
 }) {
+  type PendingPayPalOrder = {
+    orderId: string;
+    approvalUrl: string;
+    createdAt: number;
+  };
+
   const record = useOSStore((state) => state.appEntitlements[app.id]);
   const setAppEntitlements = useOSStore((state) => state.setAppEntitlements);
   const [msisdn, setMsisdn] = useState('');
   const [provider, setProvider] = useState<'paypal' | 'palmpesa' | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const access = useMemo(() => {
     if (CORE_APP_IDS.includes(app.id as typeof CORE_APP_IDS[number])) return 'active';
     if (!record) return 'expired';
-    return currentAccess(record.access, record.trialEndsAt, record.periodEndsAt);
-  }, [app.id, record]);
+    return currentAccess(record.access, record.trialEndsAt, record.periodEndsAt, now);
+  }, [app.id, now, record]);
+  const trialDaysRemaining = record
+    ? Math.max(0, Math.ceil((record.trialEndsAt - now) / 86_400_000))
+    : 0;
 
   const refresh = async () => {
     const records = await listAppEntitlements();
@@ -94,13 +109,51 @@ export function AppEntitlementGate({
   };
 
   const startPayPal = async () => {
+    // Open synchronously while the click still has browser user activation.
+    // Opening only after the create-order request resolves is commonly blocked.
+    const popup = window.open(
+      'about:blank',
+      `kobeos-paypal-${app.id}`,
+      'popup,width=520,height=720',
+    );
+    if (!popup) {
+      setError('PayPal was blocked by the browser. Allow pop-ups for KobeOS and try again.');
+      return;
+    }
+    try { popup.opener = null; } catch { /* browser may make opener read-only */ }
+
     setProvider('paypal');
     setError('');
     setMessage('Opening the secure PayPal approval page…');
     try {
-      const payment = await startPayPalAppPayment(app.id);
-      const popup = window.open(payment.approvalUrl, '_blank', 'noopener,noreferrer');
-      if (!popup) window.location.assign(payment.approvalUrl);
+      const pendingKey = `kobeos_pending_paypal:${app.id}`;
+      let payment: { orderId: string; approvalUrl: string };
+      let saved: Partial<PendingPayPalOrder> | null = null;
+      try {
+        saved = JSON.parse(localStorage.getItem(pendingKey) ?? 'null') as
+          | Partial<PendingPayPalOrder>
+          | null;
+      } catch { /* storage may be unavailable or contain stale data */ }
+
+      if (
+        saved?.orderId &&
+        saved.approvalUrl &&
+        saved.createdAt &&
+        saved.createdAt > Date.now() - 3 * 60 * 60 * 1000
+      ) {
+        payment = { orderId: saved.orderId, approvalUrl: saved.approvalUrl };
+      } else {
+        try { localStorage.removeItem(pendingKey); } catch { /* ignore */ }
+        payment = await startPayPalAppPayment(app.id);
+        try {
+          localStorage.setItem(pendingKey, JSON.stringify({
+            ...payment,
+            createdAt: Date.now(),
+          }));
+        } catch { /* recovery still works while this window remains open */ }
+      }
+
+      popup.location.replace(payment.approvalUrl);
       setMessage('Complete payment in PayPal. This page will check for approval.');
 
       let lastError: unknown;
@@ -110,18 +163,22 @@ export function AppEntitlementGate({
           const result = await capturePayPalAppPayment(app.id, payment.orderId);
           if (result.status === 'active') {
             await refresh();
+            try { localStorage.removeItem(`kobeos_pending_paypal:${app.id}`); } catch { /* ignore */ }
+            if (!popup.closed) popup.close();
             setMessage('PayPal payment captured. Your app is unlocked.');
             setProvider(null);
             return;
           }
         } catch (err) {
           lastError = err;
+          if (popup.closed) break;
         }
       }
       throw lastError instanceof Error
         ? lastError
         : new Error('PayPal approval was not completed in time. Use Refresh access after payment.');
     } catch (err) {
+      if (!popup.closed) popup.close();
       setError(err instanceof Error ? err.message : 'PayPal checkout could not be started.');
       setProvider(null);
     }
@@ -133,7 +190,7 @@ export function AppEntitlementGate({
         {access === 'trial' && record && (
           <div className="pointer-events-none absolute right-3 top-3 z-40 inline-flex items-center gap-1.5 rounded-full border border-orange-200 bg-orange-50/95 px-3 py-1.5 text-[10px] font-black text-orange-700 shadow-sm backdrop-blur">
             <Clock3 className="h-3.5 w-3.5" />
-            {record.daysRemaining} day{record.daysRemaining === 1 ? '' : 's'} left
+            {trialDaysRemaining} day{trialDaysRemaining === 1 ? '' : 's'} left
           </div>
         )}
         {children}
@@ -167,7 +224,7 @@ export function AppEntitlementGate({
         <div className="mt-6 grid grid-cols-2 gap-3">
           <button
             onClick={startPayPal}
-            disabled={provider !== null || record?.paymentProviders.paypal === false}
+            disabled={provider !== null || record?.paymentProviders?.paypal === false}
             className="flex min-h-24 flex-col items-center justify-center rounded-2xl border border-blue-200 bg-blue-50 p-4 text-blue-900 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {provider === 'paypal' ? <Loader2 className="h-6 w-6 animate-spin" /> : <CreditCard className="h-6 w-6" />}
@@ -176,7 +233,7 @@ export function AppEntitlementGate({
           </button>
           <button
             onClick={startPalmPesa}
-            disabled={provider !== null || record?.paymentProviders.palmPesa === false}
+            disabled={provider !== null || record?.paymentProviders?.palmPesa === false}
             className="flex min-h-24 flex-col items-center justify-center rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {provider === 'palmpesa' ? <Loader2 className="h-6 w-6 animate-spin" /> : <Smartphone className="h-6 w-6" />}

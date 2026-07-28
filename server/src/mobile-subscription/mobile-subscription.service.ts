@@ -171,6 +171,9 @@ export class MobileSubscriptionService {
     sub.status = 'pending';
     sub.pendingModuleId = null;
     sub.lastPaidByUserId = userId ?? null;
+    sub.callbackPayload = null;
+    sub.palmPesaTransId = null;
+    sub.channel = null;
     await this.repo.save(sub);
 
     return { transactionId, orderId: order_id, amount: MOBILE_SUB_PRICE_TZS, slug };
@@ -209,6 +212,9 @@ export class MobileSubscriptionService {
     sub.status = 'pending';
     sub.pendingModuleId = module.id;
     sub.lastPaidByUserId = userId ?? null;
+    sub.callbackPayload = null;
+    sub.palmPesaTransId = null;
+    sub.channel = null;
     await this.repo.save(sub);
 
     return { transactionId, orderId: order_id, amount: module.priceTzs, slug, moduleId: module.id };
@@ -243,6 +249,14 @@ export class MobileSubscriptionService {
       return;
     }
 
+    const previousCallback = sub.callbackPayload as PalmPesaCallback | null | undefined;
+    if (
+      payload.payment_status === 'COMPLETED' &&
+      previousCallback?.payment_status === 'COMPLETED'
+    ) {
+      this.logger.log(`Ignoring duplicate mobile payment callback for ${transactionId}.`);
+      return;
+    }
     sub.callbackPayload = payload as unknown as Record<string, unknown>;
 
     if (payload.payment_status === 'COMPLETED') {
@@ -260,8 +274,11 @@ export class MobileSubscriptionService {
         sub.status = this.baseStatus(sub, now);
         this.logger.log(`Mobile module "${module.id}" ACTIVE for shop "${sub.slug}" (30 days).`);
       } else {
+        const now = Date.now();
+        const existingEnd = sub.currentPeriodEndsAt?.getTime() ?? 0;
+        const startsAt = Math.max(now, existingEnd);
         sub.status = 'active';
-        sub.currentPeriodEndsAt = new Date(Date.now() + MOBILE_PERIOD_MS);
+        sub.currentPeriodEndsAt = new Date(startsAt + MOBILE_PERIOD_MS);
         this.logger.log(`Mobile subscription ACTIVE for shop "${sub.slug}" (30 days).`);
       }
       sub.palmPesaTransId = payload.data?.[0]?.transid ?? null;

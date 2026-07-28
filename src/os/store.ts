@@ -22,6 +22,7 @@ import {
   CORE_APP_IDS,
   type AppEntitlementSnapshot,
 } from '@/lib/appMarketplace';
+import { apiArray } from '@/lib/api';
 
 interface OSStore {
   // Windows
@@ -44,7 +45,7 @@ interface OSStore {
   installedAppIds: string[];
   appEntitlements: AppEntitlements;
   isAppInstalled: (appId: string) => boolean;
-  setAppEntitlements: (records: AppEntitlementSnapshot[]) => void;
+  setAppEntitlements: (records: unknown) => void;
   recordInstalledApp: (record: AppEntitlementSnapshot) => void;
 
   // Desktop
@@ -95,21 +96,8 @@ const notifTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 const defaultDesktopIcons: DesktopIcon[] = [
   { id: 'di-1', appId: 'file-manager', x: 20, y: 20, label: 'File Manager', icon: 'FolderOpen' },
-  { id: 'di-2', appId: 'terminal', x: 20, y: 110, label: 'Terminal', icon: 'Terminal' },
-  { id: 'di-3', appId: 'settings', x: 20, y: 200, label: 'Settings', icon: 'Settings' },
-  { id: 'di-4', appId: 'calculator', x: 20, y: 290, label: 'Calculator', icon: 'Calculator' },
-  { id: 'di-5', appId: 'text-editor', x: 20, y: 380, label: 'Text Editor', icon: 'FileText' },
-  { id: 'di-6', appId: 'calendar', x: 20, y: 470, label: 'Calendar', icon: 'Calendar' },
-  { id: 'di-7', appId: 'browser', x: 20, y: 560, label: 'Browser', icon: 'Globe' },
-  { id: 'di-8', appId: 'erp-dashboard', x: 20, y: 650, label: 'ERP Dashboard', icon: 'BarChart3' },
-  { id: 'di-9', appId: 'cargo', x: 20, y: 740, label: 'KOBECARGO', icon: 'Plane' },
-  { id: 'di-10', appId: 'kobe-print', x: 20, y: 830, label: 'KobePrint', icon: 'Printer' },
-  { id: 'di-11', appId: 'kobe-studio', x: 120, y: 20, label: 'Kobe Studio', icon: 'Clapperboard' },
-  { id: 'di-12', appId: 'kobe-hotel', x: 120, y: 110, label: 'KobeHotel', icon: 'Building2' },
-  { id: 'di-13', appId: 'kobe-pay', x: 120, y: 200, label: 'KobePay', icon: 'Wallet' },
-  { id: 'di-14', appId: 'kobetech-admin', x: 120, y: 290, label: 'Kobetech', icon: 'Shield' },
-  { id: 'di-15', appId: 'kobetech-devops', x: 120, y: 380, label: 'DevOps', icon: 'Code2' },
-  { id: 'di-16', appId: 'kobe-assistant', x: 120, y: 470, label: 'Ask Kobe', icon: 'Sparkles' },
+  { id: 'di-2', appId: 'settings', x: 20, y: 110, label: 'Settings', icon: 'Settings' },
+  { id: 'di-3', appId: 'package-manager', x: 20, y: 200, label: 'App Store', icon: 'Store' },
 ];
 
 const defaultSettings: OSSettings = {
@@ -120,7 +108,7 @@ const defaultSettings: OSSettings = {
   showSeconds: false,
   dateFormat: 'YYYY-MM-DD',
   reduceMotion: false,
-  pinnedApps: ['file-manager', 'terminal', 'settings', 'calculator', 'browser', 'text-editor'],
+  pinnedApps: ['package-manager', 'file-manager', 'settings'],
   desktopIcons: defaultDesktopIcons,
 };
 
@@ -281,13 +269,19 @@ export const useOSStore = create<OSStore>()(
       isAppInstalled: (appId) =>
         CORE_APP_IDS.includes(appId as typeof CORE_APP_IDS[number]) ||
         get().installedAppIds.includes(appId),
-      setAppEntitlements: (records) => set({
-        appEntitlements: Object.fromEntries(records.map((record) => [record.appId, record])),
-        installedAppIds: Array.from(new Set([
-          ...CORE_APP_IDS,
-          ...records.map((record) => record.appId),
-        ])),
-      }),
+      setAppEntitlements: (records) => {
+        const validRecords = apiArray<AppEntitlementSnapshot>(
+          records,
+          ['entitlements', 'apps'],
+        ).filter((record) => record && typeof record.appId === 'string' && record.appId.length > 0);
+        set({
+          appEntitlements: Object.fromEntries(validRecords.map((record) => [record.appId, record])),
+          installedAppIds: Array.from(new Set([
+            ...CORE_APP_IDS,
+            ...validRecords.map((record) => record.appId),
+          ])),
+        });
+      },
       recordInstalledApp: (record) => set((state) => ({
         appEntitlements: { ...state.appEntitlements, [record.appId]: record },
         installedAppIds: state.installedAppIds.includes(record.appId)
@@ -387,6 +381,40 @@ export const useOSStore = create<OSStore>()(
     }),
     {
       name: 'kobe-os-settings',
+      version: 2,
+      migrate: (persisted) => {
+        if (!persisted || typeof persisted !== 'object') return persisted as OSStore;
+        const state = persisted as Partial<OSStore>;
+        const entitlements =
+          state.appEntitlements && typeof state.appEntitlements === 'object'
+            ? state.appEntitlements
+            : {};
+        const entitlementRecords = Array.isArray(entitlements)
+          ? apiArray<AppEntitlementSnapshot>(entitlements)
+          : Object.values(entitlements)
+            .filter((record): record is AppEntitlementSnapshot =>
+              !!record &&
+              typeof record === 'object' &&
+              typeof (record as Partial<AppEntitlementSnapshot>).appId === 'string',
+            );
+        const appEntitlements = Object.fromEntries(
+          entitlementRecords.map((record) => [record.appId, record]),
+        );
+        const installedAppIds = Array.from(new Set([
+          ...CORE_APP_IDS,
+          ...Object.keys(appEntitlements),
+        ]));
+        const settings = state.settings
+          ? {
+              ...state.settings,
+              pinnedApps: (state.settings.pinnedApps ?? [])
+                .filter((appId) => installedAppIds.includes(appId)),
+              desktopIcons: (state.settings.desktopIcons ?? [])
+                .filter((icon) => installedAppIds.includes(icon.appId)),
+            }
+          : state.settings;
+        return { ...state, appEntitlements, installedAppIds, settings } as OSStore;
+      },
       partialize: (state) => ({
         settings: state.settings,
         installedAppIds: state.installedAppIds,

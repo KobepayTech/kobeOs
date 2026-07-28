@@ -6,10 +6,10 @@ import CargoPaymentWorkflow from './CargoPaymentWorkflow';
 import {
   LayoutDashboard, BarChart3, Package, ShieldCheck, Warehouse, Plane,
   Wallet, MapPin, Truck, Search, CheckCircle2, ArrowRight, Box,
-  AlertTriangle, Bell, TrendingUp, Minus, X, Clock, AlertCircle,
+  AlertTriangle, Bell, TrendingUp, Minus, Clock, AlertCircle,
   Container, Weight, Ruler, Settings, Plus, Loader2, Receipt,
-  Printer, DollarSign, Phone, Calendar, XCircle, CircleDot, Circle,
-  Fuel, Navigation, Eye, Sparkles,
+  DollarSign, Phone, Calendar, CircleDot, Circle,
+  Navigation,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,9 +17,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Card, CardContent } from '@/components/ui/card';
 import { QRCodeSVG } from 'qrcode.react';
 import {
-  BarChart, Bar, PieChart, Pie, Cell, Line, XAxis, YAxis,
+  BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis,
   CartesianGrid, Tooltip, ResponsiveContainer, Legend,
-  ComposedChart,
 } from 'recharts';
 
 /* ═══════════════════════════════════════════
@@ -300,10 +299,13 @@ function DashboardTab() {
   const { data: payments, loading: pLoading } = useApi<Transaction[]>('/cargo/payments');
   const { data: customs } = useApi<{ customs: Array<{ shipmentId: string; import: CClear; export: CClear }> }>('/cargo/air/customs');
 
-  const sh = asList<Shipment>(shipments);
-  const fl = asList<Flight>(flights);
-  const tx = asList<Transaction>(payments);
-  const cu = asList<{ shipmentId: string; import: CClear; export: CClear }>(customs?.customs);
+  const sh = useMemo(() => asList<Shipment>(shipments), [shipments]);
+  const fl = useMemo(() => asList<Flight>(flights), [flights]);
+  const tx = useMemo(() => asList<Transaction>(payments), [payments]);
+  const cu = useMemo(
+    () => asList<{ shipmentId: string; import: CClear; export: CClear }>(customs?.customs),
+    [customs],
+  );
 
   const activeCount = sh.filter(s => s.status !== 'DELIVERED' && s.status !== 'CANCELLED').length;
   const inTransit = sh.filter(s => s.status === 'IN_TRANSIT' || s.status === 'ARRIVED').length;
@@ -1129,8 +1131,13 @@ function AnalyticsTab() {
   const { data: payments } = useApi<Transaction[]>('/cargo/payments');
   const [chartView, setChartView] = useState<'volume' | 'cost' | 'customers'>('volume');
 
-  const sh = asList<Shipment>(shipments);
-  const tx = asList<Transaction>(payments);
+  const sh = useMemo(() => asList<Shipment>(shipments), [shipments]);
+  const tx = useMemo(() => asList<Transaction>(payments), [payments]);
+  const totalRevenue = sh.reduce((sum, shipment) => sum + (shipment.value || 0), 0);
+  const totalCosts = sh.reduce((sum, shipment) => sum + (shipment.cost || 0), 0);
+  const averageMargin = totalRevenue > 0
+    ? ((totalRevenue - totalCosts) / totalRevenue) * 100
+    : 0;
 
   // Monthly volume from real shipment data
   const monthlyVolume = useMemo(() => {
@@ -1267,9 +1274,9 @@ function AnalyticsTab() {
       {/* Summary Stats */}
       <div className={G.kpiGrid}>
         <KPI t="Total Shipments" v={String(sh.length)} i={Package} c="blue" />
-        <KPI t="Total Revenue" v={usd(sh.reduce((s, x) => s + (x.value || 0), 0))} i={DollarSign} c="emerald" />
-        <KPI t="Total Costs" v={usd(sh.reduce((s, x) => s + (x.cost || 0), 0))} i={DollarSign} c="rose" />
-        <KPI t="Avg Margin" v={`${sh.length > 0 ? (sh.reduce((s, x) => s + ((x.value || 0) - (x.cost || 0)), 0) / sh.reduce((s, x) => s + (x.value || 0), 0) * 100).toFixed(1) : '0.0'}%`} i={TrendingUp} c="indigo" />
+        <KPI t="Total Revenue" v={usd(totalRevenue)} i={DollarSign} c="emerald" />
+        <KPI t="Total Costs" v={usd(totalCosts)} i={DollarSign} c="rose" />
+        <KPI t="Avg Margin" v={`${averageMargin.toFixed(1)}%`} i={TrendingUp} c="indigo" />
       </div>
     </div></div>
   );

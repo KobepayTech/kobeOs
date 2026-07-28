@@ -28,7 +28,7 @@ function createSplashWindow() {
     resizable: false,
     webPreferences: {
       nodeIntegration: false,
-      contextIsolation: false,
+      contextIsolation: true,
       preload: path.join(__dirname, 'splash-preload.cjs'),
     },
   });
@@ -72,10 +72,7 @@ const SERVER_BUNDLE = IS_PACKAGED
 // 'desktop'  = embedded postgres on persistent userData directory
 // 'installed' = legacy: system postgres (Linux kiosk installs only)
 
-function getSystemMode() {
-  // Packaged desktop app always uses embedded postgres
-  if (IS_PACKAGED) return 'desktop';
-  // Dev mode: use embedded postgres too (no system postgres required)
+function isLiveUsb() {
   try {
     const mounts = fs.readFileSync('/proc/mounts', 'utf8');
     if (
@@ -84,9 +81,21 @@ function getSystemMode() {
       mounts.includes('squashfs') ||
       mounts.includes('overlay') ||
       mounts.includes('aufs')
-    ) return 'live-usb';
+    ) return true;
   } catch { /* not Linux */ }
-  return 'desktop';
+  return false;
+}
+
+function getSystemMode() {
+  // The runtime uses this internal value to choose embedded vs system
+  // PostgreSQL. Packaged KobeOS uses embedded PostgreSQL even when installed.
+  return isLiveUsb() ? 'live-usb' : 'desktop';
+}
+
+function getUiSystemMode() {
+  // Keep the renderer contract limited to the modes it can display. The
+  // internal "desktop" mode is equivalent to an installed system in the UI.
+  return isLiveUsb() ? 'live-usb' : 'installed';
 }
 
 // ── Embedded PostgreSQL (live-usb mode) ───────────────────────────────────────
@@ -811,7 +820,7 @@ ipcMain.handle('system-reboot', async () => {
   exec(process.platform === 'win32' ? 'shutdown /r /t 0' : 'reboot');
   return { confirmed: true };
 });
-ipcMain.handle('get-system-mode', () => getSystemMode());
+ipcMain.handle('get-system-mode', () => getUiSystemMode());
 
 ipcMain.handle('toggle-fullscreen', () => {
   if (!mainWindow) return false;
@@ -839,8 +848,12 @@ ipcMain.handle('install-to-disk', async (event, diskPath, options = {}) => {
   }
 
   // options.luksPassphrase: string — if provided, root partition is LUKS-encrypted
-  const luksPassphrase = typeof options.luksPassphrase === 'string' ? options.luksPassphrase : '';
-  const useLuks = luksPassphrase.length >= 8;
+  const safeOptions = options && typeof options === 'object' ? options : {};
+  const luksPassphrase = typeof safeOptions.luksPassphrase === 'string' ? safeOptions.luksPassphrase : '';
+  if (luksPassphrase && (luksPassphrase.length < 8 || luksPassphrase.length > 512 || luksPassphrase.includes('\0'))) {
+    return { success: false, error: 'LUKS passphrase must be between 8 and 512 characters.' };
+  }
+  const useLuks = luksPassphrase.length > 0;
 
   const ok = await confirmDestructive({
     title: 'Install KobeOS to disk',
@@ -895,8 +908,8 @@ mkfs.ext4 -F -L KOBEOS_REC "$PART_REC"
 ${useLuks ? `
 echo "Setting up LUKS encryption on root partition..."
 apt-get install -y --no-install-recommends cryptsetup 2>/dev/null || true
-echo -n "${luksPassphrase}" | cryptsetup luksFormat --type luks2 --batch-mode "$PART_ROOT" -
-echo -n "${luksPassphrase}" | cryptsetup open "$PART_ROOT" kobeos_root -
+printf '%s' "$KOBEOS_LUKS_PASSPHRASE" | cryptsetup luksFormat --type luks2 --batch-mode "$PART_ROOT" -
+printf '%s' "$KOBEOS_LUKS_PASSPHRASE" | cryptsetup open "$PART_ROOT" kobeos_root -
 mkfs.ext4 -F -L KOBEOS_ROOT /dev/mapper/kobeos_root
 ROOT_DEV=/dev/mapper/kobeos_root
 ` : `
@@ -1072,7 +1085,10 @@ ${useLuks ? 'cryptsetup close kobeos_root 2>/dev/null || true' : ''}
 echo "INSTALL_COMPLETE"
 `;
   return new Promise((resolve) => {
-    execFile('/bin/bash', ['-c', script], { timeout: 900_000 }, (error, stdout, stderr) => {
+    execFile('/bin/bash', ['-c', script], {
+      timeout: 900_000,
+      env: { ...process.env, KOBEOS_LUKS_PASSPHRASE: luksPassphrase },
+    }, (error, stdout, stderr) => {
       resolve({ success: !error, output: stdout, error: stderr });
     });
   });

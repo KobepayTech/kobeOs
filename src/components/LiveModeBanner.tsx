@@ -11,7 +11,7 @@ export default function LiveModeBanner() {
     'installed': { icon: <HardDrive size={18} className="text-green-400" />, bg: 'bg-green-500/10 border-green-500/30', text: 'text-green-400', label: 'INSTALLED SYSTEM', message: 'KobeOS is installed on this computer. All features available.', action: null, color: '' },
     'unknown': { icon: <AlertTriangle size={18} className="text-gray-400" />, bg: 'bg-gray-500/10 border-gray-500/30', text: 'text-gray-400', label: 'SYSTEM MODE UNKNOWN', message: 'Cannot detect if running from USB or installed disk.', action: null, color: '' }
   };
-  const c = configs[mode];
+  const c = configs[mode as keyof typeof configs] ?? configs.unknown;
   return (
     <div className={`fixed top-0 left-0 right-0 z-50 border-b ${c.bg} backdrop-blur-md`}>
       <div className="max-w-7xl mx-auto px-4 py-2 flex items-center justify-between">

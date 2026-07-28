@@ -34,6 +34,7 @@ describe('KobeOS launcher smoke test (real OS shell)', () => {
       'kobeos_store_onboarding_complete:smoke-test-user',
       'true',
     );
+    localStorage.setItem('kobeos_entitlement_owner', 'smoke-test-user');
 
     // The launcher now shows only apps installed for the signed-in account.
     // Seed the smoke account with the catalogue used by these launcher tests.
@@ -105,7 +106,7 @@ describe('KobeOS launcher smoke test (real OS shell)', () => {
   });
 
   it('filters shortcuts when typing in the search bar', () => {
-    const { getByPlaceholderText, getByText, queryByText } = render(<App />);
+    const { getByPlaceholderText, getByText } = render(<App />);
 
     const searchInput = getByPlaceholderText(/Search Apps/i);
 

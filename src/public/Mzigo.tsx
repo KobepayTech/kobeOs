@@ -1,7 +1,8 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment */
 // @ts-nocheck
 import { useEffect, useState, useRef } from "react";
 import {
-  Package, Truck, Warehouse, MapPin, Phone, Loader2, Check, AlertTriangle,
+  Package, Warehouse, MapPin, Phone, Loader2, Check, AlertTriangle,
   Send, ScanLine, RefreshCw, ChevronRight, Copy, ArrowRight, User, Building2,
   Plus, Printer, Settings,
 } from "lucide-react";
@@ -781,3 +782,5 @@ function ParcelCard({ parcel, actionLabel, actionDisabled, onAction }) {
     </div>
   );
 }
+/* eslint-disable @typescript-eslint/ban-ts-comment */
+// @ts-nocheck

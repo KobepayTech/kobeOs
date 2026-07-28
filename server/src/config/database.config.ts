@@ -15,10 +15,10 @@ export const databaseConfig: TypeOrmModuleAsyncOptions = {
     // NODE_ENV=production ran migrations-only, and any gap crashed boot).
     // Real server deploys leave KOBEOS_DESKTOP unset and keep migrations.
     const isDesktop = config.get('KOBEOS_DESKTOP') === 'true';
-    const synchronize = isDesktop || (isDev && config.get('DB_SYNCHRONIZE', 'true') === 'true');
+    const synchronize = isDesktop || (isDev && config.get('DB_SYNCHRONIZE', 'false') === 'true');
     // When synchronize owns the schema, don't also run migrations (they'd race
     // the auto-schema and can conflict). Otherwise run them on non-dev / when asked.
-    const migrationsRun = !synchronize && (!isDev || config.get('DB_MIGRATIONS_RUN', 'false') === 'true');
+    const migrationsRun = !synchronize && (!isDev || config.get('DB_MIGRATIONS_RUN', 'true') === 'true');
     return {
       type: 'postgres',
       host: config.get('DB_HOST', 'localhost'),

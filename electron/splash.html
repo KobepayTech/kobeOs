@@ -135,8 +135,7 @@
       }
     });
 
-    // Also expose a direct setter for the preload bridge
-    window.__setBootProgress = setProgress;
+    window.kobeSplash?.onBootProgress((pct, msg) => setProgress(pct, msg));
   </script>
 </body>
 </html>

@@ -25,7 +25,7 @@ export class UsersService {
   async getProfile(id: string) {
     const user = await this.findById(id);
     if (!user) throw new NotFoundException('User not found');
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+
     const { passwordHash, ...rest } = user;
     return rest;
   }

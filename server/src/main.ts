@@ -65,27 +65,26 @@ async function bootstrap() {
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.useGlobalFilters(new HttpExceptionFilter());
 
+  const cors = buildOriginPredicate();
   // Developer API preflights cannot carry the project Authorization header,
-  // so they need an origin-reflecting CORS layer before the restrictive
-  // first-party KobeOS CORS policy below. Actual requests are still protected
-  // by the API key and the project's allowedOrigins check.
-  app.use('/api/developer/v1', (req, res, next) => {
-    const origin = req.headers.origin;
-    if (origin) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Vary', 'Origin');
-      res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
-      res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    }
-    if (req.method === 'OPTIONS') {
-      res.status(204).end();
+  // and third-party web apps are intentionally outside KobeOS's first-party
+  // origin list. Use a request-aware CORS policy so only /developer/v1 can
+  // reflect a third-party origin. The controller still validates every actual
+  // request against the API key project's allowedOrigins list.
+  app.enableCors((req, callback) => {
+    const path = typeof req.path === 'string' ? req.path : req.url;
+    if (path.startsWith('/api/developer/v1')) {
+      callback(null, {
+        origin: true,
+        credentials: false,
+        methods: ['POST', 'OPTIONS'],
+        allowedHeaders: ['Authorization', 'Content-Type'],
+        maxAge: 86_400,
+      });
       return;
     }
-    next();
+    callback(null, { origin: cors.predicate, credentials: true });
   });
-
-  const cors = buildOriginPredicate();
-  app.enableCors({ origin: cors.predicate, credentials: true });
   // Log the effective CORS config at boot so a misconfig is loud
   // instead of silently 4xx'ing every browser fetch (which the SPA
   // then reports as "Backend unreachable" via OfflineWriteQueuedError).

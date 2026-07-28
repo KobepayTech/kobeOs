@@ -58,6 +58,12 @@ export class AiController {
     return this.agent.briefing(uid);
   }
 
+  @Get('skills')
+  @ApiOperation({ summary: 'Business skills available to the Kobe assistant' })
+  skills() {
+    return { skills: this.agent.listSkills() };
+  }
+
   // ── Health ────────────────────────────────────────────────────────────────
 
   @Get('health')

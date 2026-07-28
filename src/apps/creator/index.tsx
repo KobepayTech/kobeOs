@@ -18,7 +18,7 @@ import {
 import { SocialScheduler } from './SocialScheduler';
 import {
   useMarketplace, useMyCampaigns, useOpenCampaigns, useCreateCampaign,
-  useMyEscrow, useCreatorProfile, useSyncCreator, useCampaignActions
+  useMyEscrow, useCreatorProfile, useSyncCreator
 } from './useCreatorApi';
 export { useMarketplace, useMyCampaigns, useOpenCampaigns, useCreateCampaign, useMyEscrow, useCreatorProfile, useSyncCreator };
 function idHash(id: string): number {

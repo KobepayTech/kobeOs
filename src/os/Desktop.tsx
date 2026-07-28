@@ -23,7 +23,6 @@ import {
   Zap,
   Plane, Printer, Users, Wallet, Shield, Code2, Clapperboard, Sparkles,
   Sun,
-  CloudSun,
   StickyNote as NotepadIcon,
   MessageCircle,
   CheckSquare,
@@ -901,30 +900,6 @@ export function Desktop() {
 }
 
 /* ─────────────────────────── Trial countdown banner ─────────────────────────── */
-
-function TrialBanner() {
-  const licenseStatus = useOSStore((s) => s.licenseStatus);
-  const licensePayload = useOSStore((s) => s.licensePayload);
-  const launchApp = useOSStore((s) => s.launchApp);
-
-  if (licenseStatus !== 'valid' || licensePayload?.plan !== 'trial' || !licensePayload?.expiresAt) return null;
-  const msRemaining = licensePayload.expiresAt - Date.now();
-  if (msRemaining <= 0) return null;
-  const daysRemaining = Math.ceil(msRemaining / 86_400_000);
-
-  return (
-    <div className="absolute top-3 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/20 backdrop-blur-md border border-amber-400/40 text-amber-100 text-xs font-semibold shadow-lg">
-      <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-300 animate-pulse" />
-      Free trial · {daysRemaining} day{daysRemaining === 1 ? '' : 's'} left
-      <button
-        onClick={() => launchApp('settings')}
-        className="ml-1 px-2 py-0.5 rounded-full bg-amber-300 text-amber-900 text-[10px] hover:bg-amber-200 transition-colors"
-      >
-        Upgrade
-      </button>
-    </div>
-  );
-}
 
 /* ─────────────────────────── OTA update banner ─────────────────────────── */
 

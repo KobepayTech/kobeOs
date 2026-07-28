@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import { DataSource } from 'typeorm';
 import { Public } from './common/public.decorator';
@@ -18,7 +18,11 @@ export class AppController {
       await this.ds.query('SELECT 1');
       return { status: 'ok', db: 'connected', timestamp: new Date().toISOString() };
     } catch {
-      return { status: 'error', db: 'disconnected', timestamp: new Date().toISOString() };
+      throw new ServiceUnavailableException({
+        status: 'error',
+        db: 'disconnected',
+        timestamp: new Date().toISOString(),
+      });
     }
   }
 }

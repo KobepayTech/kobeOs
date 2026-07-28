@@ -89,6 +89,10 @@ export default function LoginScreen({
       setError('Enter your email address.');
       return;
     }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setError('Enter a valid email address.');
+      return;
+    }
     if (password.length < 8) {
       setError('Password must contain at least 8 characters.');
       return;
@@ -114,6 +118,8 @@ export default function LoginScreen({
         setError('An account already exists for this email. Choose Sign in.');
       } else if (err instanceof ApiError && err.status === 401) {
         setError('The email or password is incorrect.');
+      } else if (err instanceof ApiError) {
+        setError(err.message || 'The account service rejected this request.');
       } else {
         setError('KobeOS could not reach the account service. Check the connection and try again.');
         checkConnection();

@@ -1,5 +1,5 @@
 import {
-  IsString, IsNumber, IsOptional, IsArray, IsEnum, IsUUID, Min, Max,
+  IsString, IsNumber, IsOptional, IsArray, IsUUID, Min, Max,
 } from 'class-validator';
 
 export class AddReviewDto {

@@ -141,6 +141,9 @@ export class AppMarketplaceService {
     record.transactionId = transactionId;
     record.palmPesaOrderId = order_id;
     record.amountTzs = APP_PRICE_TZS;
+    record.callbackPayload = null;
+    record.palmPesaTransId = null;
+    record.channel = null;
     await this.repo.save(record);
     return { transactionId, orderId: order_id, amount: APP_PRICE_TZS, appId };
   }
@@ -158,6 +161,7 @@ export class AppMarketplaceService {
     record.paypalOrderId = result.orderId;
     record.transactionId = `paypal_${result.orderId}`;
     record.amountUsd = APP_PRICE_USD;
+    record.callbackPayload = null;
     await this.repo.save(record);
     return { ...result, amount: APP_PRICE_USD, currency: 'USD', appId };
   }
@@ -166,6 +170,15 @@ export class AppMarketplaceService {
     const record = await this.requireEntitlement(userId, appId);
     if (record.paypalOrderId !== orderId) {
       throw new BadRequestException('PayPal order does not match this app.');
+    }
+    const previousOrder = record.callbackPayload as { status?: string } | null | undefined;
+    if (previousOrder?.status === 'COMPLETED') {
+      const current = this.view(record);
+      return {
+        status: current.access,
+        appId,
+        periodEndsAt: record.currentPeriodEndsAt?.getTime(),
+      };
     }
     const order = await this.paypal.captureOrder(orderId);
     if (order.status !== 'COMPLETED') {
@@ -201,6 +214,14 @@ export class AppMarketplaceService {
     const record = await this.repo.findOne({ where: { transactionId } });
     if (!record) {
       this.logger.warn(`App payment callback for unknown transaction ${transactionId}.`);
+      return;
+    }
+    const previousCallback = record.callbackPayload as PalmPesaCallback | null | undefined;
+    if (
+      payload.payment_status === 'COMPLETED' &&
+      previousCallback?.payment_status === 'COMPLETED'
+    ) {
+      this.logger.log(`Ignoring duplicate app payment callback for ${transactionId}.`);
       return;
     }
     record.callbackPayload = payload as unknown as Record<string, unknown>;

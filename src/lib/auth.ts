@@ -25,6 +25,7 @@ export async function login(email: string, password: string): Promise<AuthUser> 
   const res = await api<AuthResponse>('/auth/login', {
     method: 'POST',
     auth: false,
+    offlineFallback: false,
     body: JSON.stringify({ email, password }),
   });
   persist(res);
@@ -35,6 +36,7 @@ export async function register(email: string, password: string, displayName?: st
   const res = await api<AuthResponse>('/auth/register', {
     method: 'POST',
     auth: false,
+    offlineFallback: false,
     body: JSON.stringify({ email, password, displayName }),
   });
   persist(res);
@@ -48,6 +50,7 @@ export async function logout(): Promise<void> {
       await api('/auth/logout', {
         method: 'POST',
         auth: false,
+        offlineFallback: false,
         body: JSON.stringify({ refreshToken }),
       });
     } catch { /* server may already have revoked the token */ }
@@ -56,6 +59,7 @@ export async function logout(): Promise<void> {
   try {
     localStorage.removeItem('kobeos_auth_user');
     localStorage.removeItem('kobeos_user');
+    localStorage.removeItem('kobeos_entitlement_owner');
   } catch { /* storage may be unavailable */ }
 }
 
@@ -63,6 +67,7 @@ export async function requestPasswordReset(email: string): Promise<{ ok: true; r
   return api('/auth/forgot-password', {
     method: 'POST',
     auth: false,
+    offlineFallback: false,
     body: JSON.stringify({ email }),
   });
 }
@@ -71,6 +76,7 @@ export async function resetPassword(token: string, newPassword: string): Promise
   return api('/auth/reset-password', {
     method: 'POST',
     auth: false,
+    offlineFallback: false,
     body: JSON.stringify({ token, newPassword }),
   });
 }

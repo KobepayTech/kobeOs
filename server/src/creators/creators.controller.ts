@@ -1,7 +1,7 @@
 import {
   Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards,
 } from '@nestjs/common';
-import { IsEnum, IsString, Matches } from 'class-validator';
+import { IsEnum, IsString } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { Public } from '../common/public.decorator';

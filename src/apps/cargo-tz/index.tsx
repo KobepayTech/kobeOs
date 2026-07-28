@@ -6,9 +6,8 @@ import {
   ArrowRight, AlertTriangle, Clock, DollarSign, Phone, User, Box, ScanLine, Weight,
   FileText, ChevronRight, BarChart3, TrendingUp,
   Navigation, Award, Star, Zap, Eye,
-  Route, Gauge, Activity, Target, Timer, Radio, Wifi,
+  Route, Activity, Timer, Radio, Wifi,
   Lock, Send, Receipt, Wallet, Banknote, Wrench, Calculator,
-  NavigationIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

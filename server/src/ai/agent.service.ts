@@ -112,7 +112,7 @@ export class KobeAgentService {
       if (audience === 'unpaid') {
         const rows = await this.charges.find({ where: { ownerId, status: In(['open', 'partial', 'overdue']) }, take: 5000 });
         const ids = [...new Set(rows.filter((c) => Number(c.amount) - Number(c.amountPaid) > 0).map((c) => c.tenantId))];
-        const tens = ids.length ? await this.tenants.find({ where: { id: In(ids) } }) : [];
+        const tens = ids.length ? await this.tenants.find({ where: { ownerId, id: In(ids) } }) : [];
         phones = tens.map((t) => t.phone).filter(Boolean);
       } else {
         const tens = await this.tenants.find({ where: { ownerId }, take: 5000 });
@@ -386,7 +386,7 @@ export class KobeAgentService {
         const byProd = new Map<string, { sum: number; n: number }>();
         for (const r of rows) { const e = byProd.get(r.productId) ?? { sum: 0, n: 0 }; e.sum += r.rating; e.n += 1; byProd.set(r.productId, e); }
         const ids = [...byProd.keys()];
-        const prods = ids.length ? await this.products.find({ where: { id: In(ids) } }) : [];
+        const prods = ids.length ? await this.products.find({ where: { ownerId, id: In(ids) } }) : [];
         const nameOf = (id: string) => prods.find((p) => p.id === id)?.name ?? 'Product';
         const ranked = ids.map((id) => ({ name: nameOf(id), avgRating: +(byProd.get(id)!.sum / byProd.get(id)!.n).toFixed(2), reviews: byProd.get(id)!.n }))
           .sort((a, b) => b.avgRating - a.avgRating || b.reviews - a.reviews).slice(0, limit);
@@ -401,7 +401,7 @@ export class KobeAgentService {
         const byTenant = new Map<string, number>();
         for (const c of rows) { const bal = Number(c.amount || 0) - Number(c.amountPaid || 0); if (bal > 0) byTenant.set(c.tenantId, (byTenant.get(c.tenantId) ?? 0) + bal); }
         const ids = [...byTenant.keys()];
-        const tens = ids.length ? await this.tenants.find({ where: { id: In(ids) } }) : [];
+        const tens = ids.length ? await this.tenants.find({ where: { ownerId, id: In(ids) } }) : [];
         const list = ids.map((id) => { const t = tens.find((x) => x.id === id); return { name: t?.name ?? 'Tenant', phone: t?.phone ?? '', balance: Math.round(byTenant.get(id)!) }; })
           .sort((a, b) => b.balance - a.balance);
         const total = list.reduce((s, t) => s + t.balance, 0);
@@ -618,6 +618,14 @@ export class KobeAgentService {
     return this.tools.map((t) => `- ${t.name}: ${t.description}`).join('\n');
   }
 
+  listSkills() {
+    return this.tools.map(({ name, description, write = false }) => ({
+      name,
+      description,
+      write,
+    }));
+  }
+
   /** Extract the first {...} JSON object from a model response, if any. */
   private extractToolCall(text: string): { tool: string; args: Record<string, unknown> } | null {
     const m = text.match(/\{[\s\S]*\}/);
@@ -629,7 +637,125 @@ export class KobeAgentService {
     return null;
   }
 
+  /**
+   * Handle obvious questions and business intents without depending on the
+   * language model. This keeps Kobe useful while Ollama is starting or absent,
+   * and lets the model focus on genuinely open-ended requests.
+   */
+  private async deterministicReply(ownerId: string, message: string): Promise<AgentReply | null> {
+    const q = message.trim().toLowerCase();
+    if (!q) return null;
+
+    if (/^(hi|hello|hey|habari|mambo|good (morning|afternoon|evening))[!. ]*$/.test(q)) {
+      return {
+        reply: 'Hello! I’m Kobe. I can answer general questions and work with sales, property, hotel, warehouse, cargo, expenses, products, and automations.',
+        pendingAction: null,
+      };
+    }
+    if (/\b(who are you|what are you)\b/.test(q)) {
+      return {
+        reply: 'I’m Kobe, the KobeOS business assistant. I can answer questions, read your live business data, and prepare actions for you to confirm.',
+        pendingAction: null,
+      };
+    }
+    if (/\b(what can you do|show (me )?(your )?skills|list (your )?skills|help me)\b/.test(q)) {
+      const readable = this.listSkills().filter((skill) => !skill.write).length;
+      const actions = this.listSkills().filter((skill) => skill.write).length;
+      return {
+        reply: `I have ${readable} reporting skills and ${actions} action skills. I can check sales, stock, rent, hotel occupancy, expenses, cargo and forecasts, then prepare actions such as recording rent, adding tenants/products, booking rooms and updating stock.`,
+        data: { skills: this.listSkills() },
+        pendingAction: null,
+      };
+    }
+    if (/\b(what time is it|current time)\b/.test(q)) {
+      return { reply: `It is ${new Date().toLocaleTimeString()}.`, pendingAction: null };
+    }
+    if (/\b(what(?:'s| is) (today'?s )?date|current date|what day is it)\b/.test(q)) {
+      return {
+        reply: `Today is ${new Date().toLocaleDateString('en', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.`,
+        pendingAction: null,
+      };
+    }
+
+    const arithmetic = q.match(/(?:what is|calculate)\s+(-?\d+(?:\.\d+)?)\s*([+\-*/x×÷])\s*(-?\d+(?:\.\d+)?)/);
+    if (arithmetic) {
+      const left = Number(arithmetic[1]);
+      const right = Number(arithmetic[3]);
+      const operator = arithmetic[2];
+      const result =
+        operator === '+' ? left + right :
+          operator === '-' ? left - right :
+            operator === '*' || operator === 'x' || operator === '×' ? left * right :
+              right === 0 ? NaN : left / right;
+      return {
+        reply: Number.isFinite(result) ? `${left} ${operator} ${right} = ${result}` : 'That calculation is undefined.',
+        pendingAction: null,
+      };
+    }
+
+    if (/\brecord\b.*\brent payment\b/.test(q)) {
+      const numberMatch = message.replace(/,/g, '').match(/\b(\d+(?:\.\d+)?)\s*(k|m)?\b/i);
+      const amount = numberMatch
+        ? Number(numberMatch[1]) * (numberMatch[2]?.toLowerCase() === 'm' ? 1_000_000 : numberMatch[2]?.toLowerCase() === 'k' ? 1_000 : 1)
+        : 0;
+      const tenantMatch = message.match(/\b(?:for|from)\s+(.+?)(?:\s+(?:tzs|amount|of)\b|$)/i);
+      const tenantName = tenantMatch?.[1]?.trim() ?? '';
+      if (!amount || !tenantName) {
+        return {
+          reply: 'Tell me the tenant and amount, for example: “Record a rent payment of TZS 250,000 for Asha M.”',
+          pendingAction: null,
+        };
+      }
+      const tool = this.tools.find((item) => item.name === 'record_rent_payment')!;
+      const result = await tool.run(ownerId, { tenantName, amount });
+      return 'pendingAction' in result
+        ? { reply: `Ready to ${result.pendingAction.summary.toLowerCase()}. Confirm to proceed.`, used: tool.name, pendingAction: result.pendingAction }
+        : null;
+    }
+
+    const intents: Array<{ pattern: RegExp; tool: string }> = [
+      { pattern: /\b(today'?s sales|sales today|revenue today)\b/, tool: 'sales_today' },
+      { pattern: /\b(low stock|out of stock|restock)\b/, tool: 'low_stock' },
+      { pattern: /\b(top rated|best liked|customer favorites|customer favourites)\b/, tool: 'top_rated_products' },
+      { pattern: /\b(unpaid tenants|tenants.*(?:owe|haven'?t paid|not paid)|outstanding rent)\b/, tool: 'unpaid_tenants' },
+      { pattern: /\b(rent projection|projected rent|monthly rent income)\b/, tool: 'rent_projection' },
+      { pattern: /\b(sales forecast|project.*sales|month.?end sales)\b/, tool: 'sales_forecast' },
+      { pattern: /\b(hotel occupancy|rooms? (?:occupied|available|reserved)|how full.*hotel)\b/, tool: 'hotel_occupancy' },
+      { pattern: /\b(hotel revenue|hotel profit|hotel income)\b/, tool: 'hotel_revenue' },
+      { pattern: /\b(warehouse stock|stock value|warehouse value)\b/, tool: 'warehouse_stock' },
+      { pattern: /\b(expenses|spent this month|monthly spending)\b/, tool: 'expenses_summary' },
+      { pattern: /\b(cargo status|parcel status|parcels?.*(?:transit|delivered|registered))\b/, tool: 'cargo_status' },
+    ];
+
+    const intent = intents.find((item) => item.pattern.test(q));
+    if (!intent) return null;
+    const tool = this.tools.find((item) => item.name === intent.tool);
+    if (!tool) return null;
+    try {
+      const result = await tool.run(ownerId, {});
+      if ('pendingAction' in result) {
+        return {
+          reply: `Ready to ${result.pendingAction.summary.toLowerCase()}. Confirm to proceed.`,
+          used: tool.name,
+          pendingAction: result.pendingAction,
+        };
+      }
+      return {
+        reply: this.fallbackSummary(tool.name, result.data),
+        used: tool.name,
+        data: result.data,
+        pendingAction: null,
+      };
+    } catch (error) {
+      this.logger.warn(`Deterministic skill ${tool.name} failed: ${(error as Error).message}`);
+      return null;
+    }
+  }
+
   async run(ownerId: string, message: string, history: Array<{ role: 'user' | 'assistant'; content: string }> = []): Promise<AgentReply> {
+    const deterministic = await this.deterministicReply(ownerId, message);
+    if (deterministic) return deterministic;
+
     const system = `You are Kobe, a concise business assistant inside KobeOS. Answer questions about the owner's shop/property using ONLY the tools below.
 When you need data, reply with EXACTLY one JSON object and nothing else: {"tool":"<name>","args":{...}}.
 After you receive the tool result, answer the user in plain language (short, with the key numbers). If no tool is needed, just answer.
@@ -641,7 +767,13 @@ ${this.toolList()}`;
     }).catch((e) => { this.logger.warn(`LLM error: ${(e as Error).message}`); return { content: '' } as { content: string }; });
 
     const call = this.extractToolCall(first.content || '');
-    if (!call) return { reply: (first.content || '').trim() || "I couldn't reach the local AI model. Is Ollama running?", pendingAction: null };
+    if (!call) {
+      return {
+        reply: (first.content || '').trim() ||
+          'The local language model is not running yet. I can still answer business questions such as “today’s sales”, “hotel occupancy”, “unpaid tenants”, “low stock”, or “cargo status”.',
+        pendingAction: null,
+      };
+    }
 
     const tool = this.tools.find((t) => t.name === call.tool);
     if (!tool) return { reply: first.content.trim(), pendingAction: null };

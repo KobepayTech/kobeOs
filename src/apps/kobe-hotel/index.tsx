@@ -58,9 +58,8 @@ import {
   Package, Users, Calculator, QrCode, Plus, Minus, Search, Trash2, Wallet,
   CheckCircle2, Clock, X, Check, Printer, Smartphone,
   Banknote, Receipt, Calendar, Phone, User,
-  ArrowLeft, Download, TrendingUp, AlertTriangle, Star, Lock,
-  Unlock, Eye, Send, Moon, Sun, GlassWater, Beef, CakeSlice,
-  Coffee, ChefHat, Brush, ShieldCheck, CircleDollarSign,
+  ArrowLeft, Download, TrendingUp, AlertTriangle, Star, Lock, Eye, Send, Moon, Sun, GlassWater, Beef, CakeSlice,
+  Coffee, ChefHat, Brush, CircleDollarSign,
   Globe2, MessageSquare,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -71,7 +70,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { QRCodeSVG } from 'qrcode.react';
-import { BarChart, Bar, AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 // ─── Types ───────────────────────────────────────────────────────────
 type RoomStatus = 'available' | 'occupied' | 'cleaning' | 'maintenance';

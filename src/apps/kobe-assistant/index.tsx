@@ -1,10 +1,47 @@
 import { useState, useRef, useEffect } from 'react';
-import { api } from '@/lib/api';
-import { Sparkles, Send, Loader2, User, CheckCircle2, Printer, Mic } from 'lucide-react';
+import { api, apiArray, apiObject, ApiError } from '@/lib/api';
+import { Sparkles, Send, Loader2, User, CheckCircle2, Printer, Mic, Wrench } from 'lucide-react';
 
 interface PendingAction { tool: string; summary: string; args: Record<string, unknown> }
 interface BriefingAlert { severity: 'info' | 'warning'; text: string; action?: { label: string; tool?: string; args?: Record<string, unknown>; endpoint?: string; method?: 'POST' | 'PUT' } }
 interface Msg { role: 'user' | 'assistant'; content: string; data?: unknown; pending?: PendingAction | null; alerts?: BriefingAlert[] }
+interface AssistantSkill { name: string; description: string; write: boolean }
+
+const FALLBACK_SKILLS: AssistantSkill[] = [
+  { name: 'sales_today', description: 'Today’s orders and sales revenue.', write: false },
+  { name: 'low_stock', description: 'Products and warehouse items that need restocking.', write: false },
+  { name: 'unpaid_tenants', description: 'Outstanding rent and tenants who have not paid.', write: false },
+  { name: 'hotel_occupancy', description: 'Occupied, reserved and available hotel rooms.', write: false },
+  { name: 'hotel_revenue', description: 'Hotel revenue, expenses and profit.', write: false },
+  { name: 'cargo_status', description: 'Parcel totals and current delivery statuses.', write: false },
+  { name: 'record_rent_payment', description: 'Prepare a rent payment for confirmation.', write: true },
+  { name: 'add_tenant', description: 'Prepare a new tenant record for confirmation.', write: true },
+  { name: 'create_booking', description: 'Prepare a hotel booking for confirmation.', write: true },
+  { name: 'adjust_stock', description: 'Prepare a stock-level change for confirmation.', write: true },
+];
+
+function localBasicReply(question: string): string {
+  const q = question.trim().toLowerCase();
+  if (/^(hi|hello|hey|habari|mambo)[!. ]*$/.test(q)) {
+    return 'Hello! I’m Kobe. I can help with sales, properties, hotels, stock, cargo, expenses and everyday questions.';
+  }
+  const arithmetic = q.match(/(?:what is|calculate)\s+(-?\d+(?:\.\d+)?)\s*([+\-*/x×÷])\s*(-?\d+(?:\.\d+)?)/);
+  if (arithmetic) {
+    const left = Number(arithmetic[1]);
+    const right = Number(arithmetic[3]);
+    const operator = arithmetic[2];
+    const answer =
+      operator === '+' ? left + right :
+        operator === '-' ? left - right :
+          operator === '*' || operator === 'x' || operator === '×' ? left * right :
+            right === 0 ? NaN : left / right;
+    return Number.isFinite(answer) ? `${left} ${operator} ${right} = ${answer}` : 'That calculation is undefined.';
+  }
+  if (/\b(what can you do|skills|help)\b/.test(q)) {
+    return 'I can answer general questions and work with sales, properties, rent, hotels, inventory, expenses and cargo. Open Skills above to see every available business tool.';
+  }
+  return 'The assistant service is reconnecting. I can still help with basic questions; live business answers will resume when Kobe Cloud is reachable.';
+}
 
 /** Find the first array-of-objects inside a tool result, for printing as a table. */
 function firstRows(data: unknown): Record<string, unknown>[] | null {
@@ -73,6 +110,8 @@ export default function KobeAssistant({ contextLabel, appId }: { contextLabel?: 
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [listening, setListening] = useState(false);
+  const [skills, setSkills] = useState<AssistantSkill[]>(FALLBACK_SKILLS);
+  const [showSkills, setShowSkills] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const recogRef = useRef<{ stop: () => void } | null>(null);
 
@@ -109,11 +148,24 @@ export default function KobeAssistant({ contextLabel, appId }: { contextLabel?: 
     let cancelled = false;
     (async () => {
       try {
-        const b = await api<{ summary: string; alerts: BriefingAlert[] }>('/ai/briefing');
-        if (cancelled || !b) return;
+        const response = await api<unknown>('/ai/briefing', { offlineFallback: false });
+        const b = apiObject<{ summary: string; alerts?: BriefingAlert[] }>(response);
+        if (cancelled || !b || typeof b.summary !== 'string' || !b.summary.trim()) return;
         setMessages((p) => (p.length ? p : [{ role: 'assistant', content: `👋 ${b.summary}`, alerts: b.alerts ?? [] }]));
       } catch { /* briefing is best-effort */ }
     })();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    api<unknown>('/ai/skills', { offlineFallback: false })
+      .then((response) => {
+        const available = apiArray<AssistantSkill>(response, ['skills'])
+          .filter((skill) => skill && typeof skill.name === 'string' && typeof skill.description === 'string');
+        if (!cancelled && available.length) setSkills(available);
+      })
+      .catch(() => { /* embedded skills remain visible while offline */ });
     return () => { cancelled = true; };
   }, []);
 
@@ -130,13 +182,36 @@ export default function KobeAssistant({ contextLabel, appId }: { contextLabel?: 
     setInput('');
     setBusy(true);
     try {
-      const r = await api<{ reply: string; data?: unknown; pendingAction?: PendingAction | null }>('/ai/assistant', {
+      const response = await api<unknown>('/ai/assistant', {
         method: 'POST',
         body: JSON.stringify({ message: q, history: [...ctx, ...history] }),
+        offlineFallback: false,
       });
+      const r = apiObject<{ reply: string; data?: unknown; pendingAction?: PendingAction | null }>(response);
+      if (!r || typeof r.reply !== 'string' || !r.reply.trim()) {
+        throw new Error('The assistant returned an empty response.');
+      }
       setMessages((p) => [...p, { role: 'assistant', content: r.reply, data: r.data, pending: r.pendingAction ?? null }]);
     } catch (e) {
-      setMessages((p) => [...p, { role: 'assistant', content: `Couldn’t reach the assistant: ${(e as Error).message}` }]);
+      let reply = '';
+      if (e instanceof ApiError && (e.status === 404 || e.status === 405)) {
+        try {
+          const fallbackResponse = await api<unknown>('/ai/chat', {
+            method: 'POST',
+            body: JSON.stringify({
+              messages: [
+                { role: 'system', content: 'You are Kobe, a helpful and concise general business assistant.' },
+                ...history,
+                { role: 'user', content: q },
+              ],
+            }),
+            offlineFallback: false,
+          });
+          const fallback = apiObject<{ content?: string }>(fallbackResponse);
+          reply = fallback?.content?.trim() ?? '';
+        } catch { /* use deterministic local fallback below */ }
+      }
+      setMessages((p) => [...p, { role: 'assistant', content: reply || localBasicReply(q) }]);
     } finally {
       setBusy(false);
     }
@@ -149,7 +224,10 @@ export default function KobeAssistant({ contextLabel, appId }: { contextLabel?: 
       // Drop the alert so it can't be double-run.
       setMessages((p) => p.map((m, i) => (i === idx ? { ...m, alerts: (m.alerts ?? []).filter((x) => x.action !== a) } : m)));
       try {
-        const r = await api<{ ok?: boolean; message?: string }>(a.endpoint, { method: a.method ?? 'POST' });
+        const r = await api<{ ok?: boolean; message?: string }>(a.endpoint, {
+          method: a.method ?? 'POST',
+          offlineFallback: false,
+        });
         setMessages((p) => [...p, { role: 'assistant', content: '✅ ' + (r?.message ?? 'Done.') }]);
       } catch (e) {
         setMessages((p) => [...p, { role: 'assistant', content: `Action failed: ${(e as Error).message}` }]);
@@ -166,6 +244,7 @@ export default function KobeAssistant({ contextLabel, appId }: { contextLabel?: 
       const r = await api<{ ok: boolean; message: string }>('/ai/assistant/execute', {
         method: 'POST',
         body: JSON.stringify({ tool: action.tool, args: action.args }),
+        offlineFallback: false,
       });
       setMessages((p) => [...p, { role: 'assistant', content: (r.ok ? '✅ ' : '⚠ ') + r.message }]);
     } catch (e) {
@@ -180,9 +259,35 @@ export default function KobeAssistant({ contextLabel, appId }: { contextLabel?: 
       <div className="shrink-0 px-4 py-3 border-b border-white/[0.06] flex items-center gap-2">
         <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 grid place-items-center"><Sparkles className="w-4 h-4" /></div>
         <div><div className="text-sm font-semibold">Ask Kobe</div><div className="text-[10px] text-white/40">{contextLabel ? `Working in ${contextLabel} · local AI` : 'Chat with your business · runs on your local AI'}</div></div>
+        <button
+          type="button"
+          onClick={() => setShowSkills((visible) => !visible)}
+          className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.05] px-2.5 py-1.5 text-[10px] font-semibold text-white/70 hover:bg-white/[0.09] hover:text-white"
+        >
+          <Wrench className="h-3.5 w-3.5" /> Skills {skills.length}
+        </button>
       </div>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
+        {showSkills && (
+          <section className="rounded-2xl border border-indigo-400/20 bg-indigo-500/[0.08] p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-xs font-semibold text-indigo-100">Available business skills</p>
+              <span className="text-[9px] text-white/40">Actions require confirmation</span>
+            </div>
+            <div className="grid gap-1.5 sm:grid-cols-2">
+              {skills.map((skill) => (
+                <div key={skill.name} className="rounded-lg border border-white/[0.07] bg-black/10 px-2.5 py-2">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-bold text-white/85">{skill.name.replace(/_/g, ' ')}</span>
+                    {skill.write && <span className="rounded bg-amber-400/15 px-1 py-0.5 text-[8px] font-bold text-amber-200">CONFIRM</span>}
+                  </div>
+                  <p className="mt-1 text-[9px] leading-3.5 text-white/45">{skill.description}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
         {messages.map((m, i) => (
           <div key={i} className={`flex gap-2 ${m.role === 'user' ? 'justify-end' : ''}`}>
             {m.role === 'assistant' && <div className="w-6 h-6 rounded-md bg-indigo-500/20 grid place-items-center shrink-0"><Sparkles className="w-3.5 h-3.5 text-indigo-300" /></div>}

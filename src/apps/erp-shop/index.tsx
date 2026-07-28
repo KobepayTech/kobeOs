@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import {
   ShoppingBag, Search, Plus, Minus, Trash2, Package,
-  ShoppingCart, CreditCard, Truck, CheckCircle2,
+  ShoppingCart, CreditCard, CheckCircle2,
   Smartphone, Building2, Banknote, Loader2, AlertCircle,
 } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -12,7 +12,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Card, CardContent } from '@/components/ui/card';
-import { StorefrontNav, type StorefrontView } from './StorefrontNav';
+import { type StorefrontView } from './StorefrontNav';
 import {
   BnplPage,
   BrandsPage,

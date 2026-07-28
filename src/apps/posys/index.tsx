@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment */
 // @ts-nocheck
 import { useState, useEffect, useMemo, useRef } from "react";
 import {
@@ -46,7 +47,7 @@ function qrMatrix(text){
   const bytes=[]; for(const ch of text){const cp=ch.codePointAt(0); if(cp<0x80)bytes.push(cp); else if(cp<0x800)bytes.push(0xc0|(cp>>6),0x80|(cp&0x3f)); else bytes.push(0xe0|(cp>>12),0x80|((cp>>6)&0x3f),0x80|(cp&0x3f));}
   const n=bytes.length;
   const VERS=[{v:1,size:21,dataCW:16,ec:10,blocks:1,align:null},{v:2,size:25,dataCW:28,ec:16,blocks:1,align:18},{v:3,size:29,dataCW:44,ec:26,blocks:1,align:22},{v:4,size:33,dataCW:64,ec:18,blocks:2,align:26}];
-  let V=VERS.find(c=>n+2<=c.dataCW)||VERS[VERS.length-1];
+  const V=VERS.find(c=>n+2<=c.dataCW)||VERS[VERS.length-1];
   const size=V.size,totalDataCW=V.dataCW,ecLen=V.ec,nb=V.blocks;
   const bits=[]; const pushBits=(val,len)=>{for(let i=len-1;i>=0;i--)bits.push((val>>i)&1);};
   pushBits(0b0100,4); pushBits(n,8); for(const b of bytes)pushBits(b,8);
@@ -131,7 +132,7 @@ function logReminder(db,unitId){
 function addProperty(db,name,location){return{...db,properties:[...db.properties,{id:rid("prop_"),name,location,floors:[{id:rid("fl_"),name:"G",corridors:1}],units:[]}]};}
 function nextSlot(units,floorId,corridor,side){const on=units.filter(u=>u.floorId===floorId&&(u.corridor||0)===corridor&&u.side===side);return on.length?Math.max(...on.map(u=>u.slot??0))+1:0;}
 function addUnit(db,propertyId,unit){return{...db,properties:db.properties.map(p=>{if(p.id!==propertyId)return p;const slot=nextSlot(p.units,unit.floorId,unit.corridor||0,unit.side);return{...p,units:[...p.units,{id:rid("u_"),paid:{},corridor:0,...unit,slot}]};})};}
-function addUnitsBulk(db,propertyId,{prefix,start,count,type,rent,floorId,corridor,side}){return{...db,properties:db.properties.map(p=>{if(p.id!==propertyId)return p;let slot=nextSlot(p.units,floorId,corridor||0,side);const ns=[];for(let i=0;i<count;i++)ns.push({id:rid("u_"),label:`${prefix}${start+i}`,type,monthlyRent:rent,vacant:true,tenantName:null,tenantPhone:null,paid:{},floorId,corridor:corridor||0,side,slot:slot+i});return{...p,units:[...p.units,...ns]};})};}
+function addUnitsBulk(db,propertyId,{prefix,start,count,type,rent,floorId,corridor,side}){return{...db,properties:db.properties.map(p=>{if(p.id!==propertyId)return p;const slot=nextSlot(p.units,floorId,corridor||0,side);const ns=[];for(let i=0;i<count;i++)ns.push({id:rid("u_"),label:`${prefix}${start+i}`,type,monthlyRent:rent,vacant:true,tenantName:null,tenantPhone:null,paid:{},floorId,corridor:corridor||0,side,slot:slot+i});return{...p,units:[...p.units,...ns]};})};}
 function addFloor(db,propertyId,name){return{...db,properties:db.properties.map(p=>p.id!==propertyId?p:{...p,floors:[...(p.floors||[]),{id:rid("fl_"),name,corridors:1}]})};}
 function setFloorCorridors(db,propertyId,floorId,n){return{...db,properties:db.properties.map(p=>p.id!==propertyId?p:{...p,floors:(p.floors||[]).map(f=>f.id===floorId?{...f,corridors:n}:f)})};}
 function setUnitRent(db,unitId,newRent){return{...db,properties:db.properties.map(p=>({...p,units:p.units.map(u=>u.id===unitId?{...u,monthlyRent:newRent}:u)}))};}
@@ -436,14 +437,14 @@ export default function App(){
     // 1. Prefer the backend blob (cross-device, survives cache clear).
     try{const r=await api("/app-state/posys");if(r&&r.value)loaded=r.value;}catch{/* not signed in / offline */}
     // 2. Fall back to the localStorage cache.
-    if(!loaded){try{const r=await store.get(DB_KEY);if(r&&r.value)loaded=JSON.parse(r.value);}catch{}}
+    if(!loaded){try{const r=await store.get(DB_KEY);if(r&&r.value)loaded=JSON.parse(r.value);}catch { /* local cache unavailable */ }}
     if(!loaded||!loaded.seeded){loaded=seedDb();}
     loaded=normalizeDb(loaded);
-    try{await store.set(DB_KEY,JSON.stringify(loaded));}catch{}
+    try{await store.set(DB_KEY,JSON.stringify(loaded));}catch { /* local cache unavailable */ }
     syncUp(loaded);   // push the (possibly seeded/normalized) state up
     setDb(loaded); setPid(loaded.properties[0]?.id||null);
   })();},[]);
-  const save=async(next)=>{setDb(next);try{await store.set(DB_KEY,JSON.stringify(next));}catch{} syncUp(next);};
+  const save=async(next)=>{setDb(next);try{await store.set(DB_KEY,JSON.stringify(next));}catch { /* local cache unavailable */ } syncUp(next);};
   const resetDemo=async()=>{const fresh=seedDb();await save(fresh);setPid(fresh.properties[0]?.id||null);setMode("rent");setRtab("units");};
 
   if(!db) return <div className="posys" data-surface="light"><style>{CSS}</style><div className="wrap"><div className="page"><div className="sub">…</div></div></div></div>;
@@ -724,9 +725,9 @@ function RemindOne({unit,prop,db,lang,t,save,onBack}){
   const [copied,setCopied]=useState(false); const [logged,setLogged]=useState(remindedThisMonth(db,unit.id));
   const msg=reminderMsg(unit,prop,lang);
   const mark=async()=>{if(!logged){await save(logReminder(db,unit.id));setLogged(true);}};
-  const copy=async()=>{try{await navigator.clipboard.writeText(msg);}catch{}setCopied(true);setTimeout(()=>setCopied(false),1500);mark();};
+  const copy=async()=>{try{await navigator.clipboard.writeText(msg);}catch { /* clipboard unavailable */ }setCopied(true);setTimeout(()=>setCopied(false),1500);mark();};
   const wa=()=>{window.open(`https://wa.me/${waNum(unit.tenantPhone)}?text=${encodeURIComponent(msg)}`,"_blank");mark();};
-  const share=async()=>{try{if(navigator.share)await navigator.share({text:msg});else copy();}catch{}mark();};
+  const share=async()=>{try{if(navigator.share)await navigator.share({text:msg});else copy();}catch { /* share cancelled */ }mark();};
   return(<div className="page"><button className="backbtn" onClick={onBack}><ArrowLeft strokeWidth={2.2}/>{t("back")}</button>
     <div className="eyebrow">{t("remindTitle")}</div><div className="h1">{unit.label} · {unit.tenantName}</div><div className="sub">{t("remindSub")}</div>
     {logged&&<div className="okline"><Check strokeWidth={2.4}/>{t("reminded")}</div>}
@@ -761,8 +762,8 @@ function IssueToken({unit,lang,t,db,save,onBack}){
   const mm=Math.max(0,Math.floor(msLeft/60000)),ss=Math.max(0,Math.floor((msLeft%60000)/1000));
   const qrValue=`POSYS|${tk.code}|${tk.amount}|${unit.label}`;
   const shareText=lang==="sw"?`POSys — Token ya kodi\n${unit.label} · ${unit.tenantName}\nKiasi: ${fmtAmt(tk.amount)} TZS\nToken: ${tk.code}\nInaisha baada ya dakika ${TOKEN_TTL_MIN}.`:`POSys — Rent token\n${unit.label} · ${unit.tenantName}\nAmount: ${fmtAmt(tk.amount)} TZS\nToken: ${tk.code}\nExpires in ${TOKEN_TTL_MIN} min.`;
-  const copy=async()=>{try{await navigator.clipboard.writeText(shareText);}catch{}setCopied(true);setTimeout(()=>setCopied(false),1500);};
-  const share=async()=>{try{if(navigator.share)await navigator.share({text:shareText});else copy();}catch{}};
+  const copy=async()=>{try{await navigator.clipboard.writeText(shareText);}catch { /* clipboard unavailable */ }setCopied(true);setTimeout(()=>setCopied(false),1500);};
+  const share=async()=>{try{if(navigator.share)await navigator.share({text:shareText});else copy();}catch { /* share cancelled */ }};
   const cancelToken=async()=>{await save({...db,tokens:{...db.tokens,[tk.code]:{...db.tokens[tk.code],status:"cancelled"}}});onBack();};
   return(<div className="page"><button className="backbtn" onClick={onBack}><ArrowLeft strokeWidth={2.2}/>{t("back")}</button>
     <div className="token"><div className="tktop"><div className="tkhead"><span className="tkbrand"><KeyRound strokeWidth={2.2}/>{t("tokenTitle")}</span>
@@ -789,11 +790,11 @@ function CollectView({db,lang,t,save}){
   const videoRef=useRef(null),streamRef=useRef(null),rafRef=useRef(null);
   const canScan=typeof window!=="undefined"&&"BarcodeDetector" in window&&navigator.mediaDevices&&typeof navigator.mediaDevices.getUserMedia==="function";
   const reset=()=>{setCode("");setPhase("idle");setTk(null);setAmount("");setScanErr("");};
-  const parse=(raw)=>{let s=String(raw||"").trim();if(s.includes("|")){const parts=s.split("|");if((parts[0]||"").toUpperCase()==="POSYS"&&parts[1])return parts[1].replace(/\D/g,"").slice(0,6);}const m=s.match(/\d{6}/);return m?m[0]:s.replace(/\D/g,"").slice(0,6);};
+  const parse=(raw)=>{const s=String(raw||"").trim();if(s.includes("|")){const parts=s.split("|");if((parts[0]||"").toUpperCase()==="POSYS"&&parts[1])return parts[1].replace(/\D/g,"").slice(0,6);}const m=s.match(/\d{6}/);return m?m[0]:s.replace(/\D/g,"").slice(0,6);};
   const find=(raw)=>{const c=parse(raw!=null?raw:code);if(c.length<6)return;const token=db.tokens[c];if(!token){setCode(c);setPhase("notfound");return;}setCode(c);setTk(token);if(token.status==="used"||token.status==="cancelled"){setPhase("used");return;}if(new Date(token.expiresAt).getTime()<=Date.now()){setPhase("expired");return;}setAmount(String(token.amount));setPhase("confirm");};
   const confirm=async()=>{const a=Number(String(amount).replace(/[^\d.]/g,""));if(!(a>0))return;let next=applyPayment(db,tk.unitId,a,"token",tk.code);next={...next,tokens:{...next.tokens,[tk.code]:{...next.tokens[tk.code],status:"used",usedAt:new Date().toISOString(),paidAmount:a}}};await save(next);setPhase("recorded");};
   const stopScan=()=>{if(rafRef.current){cancelAnimationFrame(rafRef.current);rafRef.current=null;}if(streamRef.current){streamRef.current.getTracks().forEach(tr=>tr.stop());streamRef.current=null;}setScanning(false);};
-  const startScan=async()=>{setScanErr("");setScanning(true);try{const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}}});streamRef.current=stream;if(videoRef.current){videoRef.current.srcObject=stream;await videoRef.current.play();}const detector=new window.BarcodeDetector({formats:["qr_code"]});const tick=async()=>{if(!streamRef.current||!videoRef.current)return;try{const found=await detector.detect(videoRef.current);if(found&&found.length){const raw=found[0].rawValue||"";stopScan();find(raw);return;}}catch{}rafRef.current=requestAnimationFrame(tick);};rafRef.current=requestAnimationFrame(tick);}catch{stopScan();setScanErr(lang==="sw"?"Kamera haipatikani. Andika namba.":"Camera unavailable. Type the code.");}};
+  const startScan=async()=>{setScanErr("");setScanning(true);try{const stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:"environment"}}});streamRef.current=stream;if(videoRef.current){videoRef.current.srcObject=stream;await videoRef.current.play();}const detector=new window.BarcodeDetector({formats:["qr_code"]});const tick=async()=>{if(!streamRef.current||!videoRef.current)return;try{const found=await detector.detect(videoRef.current);if(found&&found.length){const raw=found[0].rawValue||"";stopScan();find(raw);return;}}catch { /* scanner retry */ }rafRef.current=requestAnimationFrame(tick);};rafRef.current=requestAnimationFrame(tick);}catch{stopScan();setScanErr(lang==="sw"?"Kamera haipatikani. Andika namba.":"Camera unavailable. Type the code.");}};
   useEffect(()=>()=>stopScan(),[]);
   const unitOf=(token)=>findUnit(db,token.unitId);
 
@@ -957,3 +958,5 @@ function HotelGuests({db,lang,t,save}){
     {past.length>0&&<><div className="subhead" style={{marginTop:18}}>{t("pastGuests")}</div>{past.map(s=><Card key={s.id} s={s}/>)}</>}
   </div>);
 }
+/* eslint-disable @typescript-eslint/ban-ts-comment */
+// @ts-nocheck

@@ -6,7 +6,7 @@ import { InstallPwaButton } from '@/mobile/InstallPwaButton';
 import { QRCodeSVG } from 'qrcode.react';
 import {
   PackagePlus, Warehouse, LayoutDashboard, Camera, Loader2, CheckCircle2, Printer, Plus,
-  Truck, MapPin, Clock, Wallet, PackageCheck, X, Search, ArrowRight, Users, AlertCircle,
+  Truck, MapPin, Clock, Wallet, PackageCheck, X, Search, ArrowRight, AlertCircle,
 } from 'lucide-react';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar, Cell } from 'recharts';
 

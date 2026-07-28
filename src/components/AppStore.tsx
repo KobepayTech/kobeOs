@@ -14,15 +14,12 @@ import {
   Copy,
   Download,
   Gamepad2,
-  Globe2,
   KeyRound,
   Loader2,
-  LockKeyhole,
   PackageCheck,
   RefreshCw,
   RotateCw,
   Search,
-  ShieldCheck,
   ShoppingBag,
   Sparkles,
   Store,
@@ -190,9 +187,29 @@ function DeveloperWorkspace() {
   };
 
   const copy = async (value: string, label: string) => {
-    await navigator.clipboard.writeText(value);
-    setCopied(label);
-    window.setTimeout(() => setCopied(''), 1600);
+    try {
+      if (!navigator.clipboard?.writeText) throw new Error('Clipboard API unavailable');
+      await navigator.clipboard.writeText(value);
+      setCopied(label);
+      window.setTimeout(() => setCopied(''), 1600);
+    } catch {
+      // Electron file:// builds and non-secure HTTP previews may not expose
+      // navigator.clipboard. Keep API-key copying usable in those environments.
+      const textarea = document.createElement('textarea');
+      textarea.value = value;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      const copiedSuccessfully = document.execCommand('copy');
+      textarea.remove();
+      if (copiedSuccessfully) {
+        setCopied(label);
+        window.setTimeout(() => setCopied(''), 1600);
+      } else {
+        setError('Clipboard access is unavailable. Select and copy the value manually.');
+      }
+    }
   };
 
   const developerApiBase =

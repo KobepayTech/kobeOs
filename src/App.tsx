@@ -38,7 +38,32 @@ import {
 } from '@/lib/auth';
 import { useOSStore } from '@/os/store';
 
-const Router = typeof window !== 'undefined' && (window as any).kobeOS
+const ENTITLEMENT_OWNER_KEY = 'kobeos_entitlement_owner';
+
+function isElectronShell(): boolean {
+  return typeof window !== 'undefined' && 'kobeOS' in window;
+}
+
+function initialAccount(): AuthUser | null {
+  const stored = getStoredAuthUser();
+  if (!stored || !hasStoredSession()) return null;
+
+  // Entitlements are persisted for offline continuity, so explicitly bind
+  // that cache to the account that downloaded it. Without this check, a
+  // different account on the same computer could briefly inherit the prior
+  // user's installed/paid apps while Kobe Cloud was loading.
+  try {
+    if (localStorage.getItem(ENTITLEMENT_OWNER_KEY) !== stored.id) {
+      useOSStore.getState().setAppEntitlements([]);
+      localStorage.setItem(ENTITLEMENT_OWNER_KEY, stored.id);
+    }
+  } catch {
+    useOSStore.getState().setAppEntitlements([]);
+  }
+  return stored;
+}
+
+const Router = isElectronShell()
   ? HashRouter
   : BrowserRouter;
 
@@ -51,10 +76,7 @@ const Router = typeof window !== 'undefined' && (window as any).kobeOS
  *     WindowManager / Taskbar.
  */
 export default function App() {
-  const [user, setUser] = useState<AuthUser | null>(() => {
-    const stored = getStoredAuthUser();
-    return stored && hasStoredSession() ? stored : null;
-  });
+  const [user, setUser] = useState<AuthUser | null>(initialAccount);
   const [storeSetupComplete, setStoreSetupComplete] = useState(() =>
     (() => {
       const stored = getStoredAuthUser();
@@ -65,6 +87,9 @@ export default function App() {
 
   const handleLogin = (account: AuthUser, _created: boolean) => {
     useOSStore.getState().setAppEntitlements([]);
+    try {
+      localStorage.setItem(ENTITLEMENT_OWNER_KEY, account.id);
+    } catch { /* storage may be unavailable */ }
     setUser(account);
     setStoreSetupComplete(
       localStorage.getItem(`kobeos_store_onboarding_complete:${account.id}`) === 'true',
@@ -114,7 +139,7 @@ export default function App() {
                 onComplete={() => {
                   localStorage.setItem(`kobeos_store_onboarding_complete:${user.id}`, 'true');
                   setStoreSetupComplete(true);
-                  if ((window as any).kobeOS) {
+                  if (isElectronShell()) {
                     window.location.hash = '#/';
                   } else {
                     window.location.assign('/');
