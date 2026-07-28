@@ -19,6 +19,7 @@ import { CalendarModule } from './calendar/calendar.module';
 import { FilesModule } from './files/files.module';
 import { PasswordsModule } from './passwords/passwords.module';
 import { MediaModule } from './media/media.module';
+import { MediaInboxModule } from './media/media-inbox.module';
 import { CargoModule } from './cargo/cargo.module';
 import { AirCargoModule } from './cargo/air-cargo.module';
 import { ShopsModule } from './shops/shops.module';
@@ -73,6 +74,7 @@ import { HotelSecurityModule } from './hotel-security/hotel-security.module';
 import { StudioMediaModule } from './studio-media/studio-media.module';
 import { ShopStockModule } from './shop-stock/shop-stock.module';
 import { DiscountApprovalModule } from './discount-approval/discount-approval.module';
+import { SystemHealthModule } from './system-health/system-health.module';
 import { SocialSchedulerModule } from './social-scheduler/social-scheduler.module';
 import { AppStateModule } from './app-state/app-state.module';
 import { AutomationModule } from './automation/automation.module';
@@ -119,6 +121,7 @@ import { DeveloperPlatformModule } from './developer-platform/developer-platform
     FilesModule,
     PasswordsModule,
     MediaModule,
+    MediaInboxModule,
     CargoModule,
     AirCargoModule,
     ShopsModule,
@@ -166,6 +169,7 @@ import { DeveloperPlatformModule } from './developer-platform/developer-platform
     AccountModule,
     ShopStockModule,
     DiscountApprovalModule,
+    SystemHealthModule,
   ],
   controllers: [AppController],
   providers: [

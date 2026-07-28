@@ -13,19 +13,17 @@ import { Parcel } from '../cargo/cargo.entity';
 import { Shop } from '../shops/shop.entity';
 import { AppState } from '../app-state/app-state.entity';
 import { SearchDoc } from '../search/search.entity';
+import { cosine, tokenize, keywordScore, rankByDesc } from '../search/search.service';
+import { AiMemory } from './ai-memory.entity';
+import { AiDocsService } from './ai-docs.service';
+import { SystemHealthService } from '../system-health/system-health.service';
 import { BeemService } from '../notifications/beem.service';
 
-/** Cosine similarity for semantic-search ranking. */
-function cosineSim(a: number[], b: number[]): number {
-  if (!a?.length || a.length !== b?.length) return 0;
-  let dot = 0, na = 0, nb = 0;
-  for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
-  return na && nb ? dot / (Math.sqrt(na) * Math.sqrt(nb)) : 0;
-}
 
 export interface AgentReply {
   reply: string;
   used?: string;                 // tool that was called (if any)
+  specialist?: string;           // which specialist answered (multi-agent team routing)
   data?: unknown;                // raw tool result (for the UI to render tables/print)
   pendingAction?: {              // a write the user must CONFIRM before it runs
     tool: string;
@@ -82,8 +80,31 @@ export class KobeAgentService {
     @InjectRepository(Shop) private readonly shops: Repository<Shop>,
     @InjectRepository(AppState) private readonly appState: Repository<AppState>,
     @InjectRepository(SearchDoc) private readonly searchDocs: Repository<SearchDoc>,
+    @InjectRepository(AiMemory) private readonly memory: Repository<AiMemory>,
     private readonly beem: BeemService,
+    private readonly aiDocs: AiDocsService,
+    private readonly systemHealth: SystemHealthService,
   ) {}
+
+  /** Durable facts Kobe remembers about this business (empty if none/first run). */
+  private async getFacts(ownerId: string): Promise<string[]> {
+    try {
+      const row = await this.memory.findOne({ where: { ownerId } });
+      return Array.isArray(row?.facts) ? row!.facts : [];
+    } catch { return []; }
+  }
+
+  /** Save a durable fact/preference for this owner. Deduped, newest kept, capped. */
+  private async remember(ownerId: string, fact: string): Promise<string[]> {
+    const clean = (fact || '').trim().slice(0, 240);
+    if (!clean) return this.getFacts(ownerId);
+    let row = await this.memory.findOne({ where: { ownerId } });
+    if (!row) row = this.memory.create({ ownerId, facts: [] });
+    const existing = (row.facts || []).filter((f) => f.toLowerCase() !== clean.toLowerCase());
+    row.facts = [...existing, clean].slice(-30); // keep the 30 most-recent facts
+    await this.memory.save(row);
+    return row.facts;
+  }
 
   /**
    * Run a CONFIRMED write action (the UI called this after the user approved
@@ -433,25 +454,88 @@ export class KobeAgentService {
     },
     {
       name: 'semantic_search',
-      description: 'Find products, tenants or reviews by MEANING, not just keywords (e.g. "cheap kids kit", "customers unhappy with delivery"). args: {query, kind?: "product"|"tenant"|"review", limit?}',
+      description: 'Find products, tenants or reviews by MEANING and/or exact match (e.g. "cheap kids kit", a phone number, a SKU, "customers unhappy with delivery"). Hybrid keyword+semantic. args: {query, kind?: "product"|"tenant"|"review", limit?}. If the result is `weak`, do NOT state matches as fact — hedge and ask the user to confirm.',
       run: async (ownerId, args) => {
         const query = String(args?.query ?? '').trim();
         if (!query) return { data: { count: 0, results: [] } };
-        let qv: number[] = [];
-        try { qv = await this.ai.generateEmbedding(query.slice(0, 2000), process.env.OLLAMA_EMBED_MODEL || this.ai.getActiveModel()); }
-        catch { return { data: { count: 0, results: [], note: 'Embedding model unavailable — is Ollama running?' } }; }
-        if (!qv.length) return { data: { count: 0, results: [], note: 'No embedding produced.' } };
         const where: Record<string, unknown> = { ownerId };
         if (args?.kind) where.kind = String(args.kind);
         const docs = await this.searchDocs.find({ where, take: 10000 });
         if (!docs.length) return { data: { count: 0, results: [], note: 'Search index is empty — open Search and reindex (it also rebuilds daily).' } };
         const limit = Math.min(Number(args?.limit) || 8, 20);
+
+        // Keyword scores (always available) + best-effort vector scores, fused
+        // with Reciprocal Rank Fusion. Corrective: expose `weak` so the model
+        // hedges instead of hallucinating over a poor match.
+        const qTokens = tokenize(query);
+        const kw = docs.map((d) => keywordScore(qTokens, query, d.text));
+        let qv: number[] | null = null;
+        try { const v = await this.ai.generateEmbedding(query.slice(0, 2000), process.env.OLLAMA_EMBED_MODEL || this.ai.getActiveModel()); qv = v.length ? v : null; }
+        catch { qv = null; }
+        const vec = qv ? docs.map((d) => cosine(qv!, d.vector)) : docs.map(() => 0);
+        const vecRank = rankByDesc(vec);
+        const kwRank = rankByDesc(kw);
+        const K = 60;
         const results = docs
-          .map((d) => ({ kind: d.kind, refId: d.refId, text: d.text, score: +cosineSim(qv, d.vector).toFixed(4) }))
-          .filter((r) => r.score > 0)
+          .map((d, i) => {
+            const hasVec = !!qv && vec[i] > 0.05;
+            const hasKw = kw[i] > 0;
+            if (!hasVec && !hasKw) return null;
+            const rrf = (hasVec ? 1 / (K + vecRank[i]) : 0) + (hasKw ? 1 / (K + kwRank[i]) : 0);
+            return { kind: d.kind, refId: d.refId, text: d.text, score: +rrf.toFixed(6), vec: +vec[i].toFixed(4) };
+          })
+          .filter((r): r is NonNullable<typeof r> => r !== null)
           .sort((a, b) => b.score - a.score)
           .slice(0, limit);
-        return { data: { count: results.length, results } };
+        const bestVec = results.reduce((m, r) => Math.max(m, r.vec), 0);
+        const bestKw = kw.reduce((m, v) => Math.max(m, v), 0);
+        const weak = qv ? bestVec < 0.35 : bestKw < 1;
+        const note = !qv
+          ? 'Semantic model offline — keyword matches only.'
+          : weak
+            ? 'No strong match — treat these as guesses; ask the user to confirm rather than stating them as fact.'
+            : undefined;
+        return { data: { count: results.length, results, weak, note } };
+      },
+    },
+    {
+      name: 'remember',
+      description: 'Save a durable preference or fact about THIS business so you apply it in future chats (e.g. "reply in Swahili", "VAT is 18%", "main supplier is Acme Ltd", "rent is due on the 5th"). Use only for lasting facts the owner tells you to remember — not one-off requests. args: {fact}.',
+      run: async (ownerId, args) => {
+        const fact = String(args?.fact ?? '').trim();
+        if (!fact) return { data: { saved: false, note: 'Nothing to remember.' } };
+        const facts = await this.remember(ownerId, fact);
+        return { data: { saved: true, fact, remembered: facts.length } };
+      },
+    },
+    {
+      name: 'search_documents',
+      description: 'Answer from the owner\'s UPLOADED documents (contracts, price lists, supplier catalogues, policies). Use this whenever the question is about "the contract", "the price list", "our policy", or any document they uploaded. args: {query, documentId?}. Ground your answer ONLY in the returned passages; if `weak` is true, say you could not find it rather than guessing.',
+      run: async (ownerId, args) => {
+        const query = String(args?.query ?? '').trim();
+        if (!query) return { data: { count: 0, passages: [] } };
+        const documentId = args?.documentId ? String(args.documentId) : undefined;
+        const { passages, weak, note } = await this.aiDocs.search(ownerId, query, 6, documentId);
+        return { data: { count: passages.length, passages, weak, note } };
+      },
+    },
+    {
+      name: 'diagnose_system',
+      description: 'Check whether KobeOS itself is healthy and explain any problem in plain language with the likely fix. Use this when the user says something is "not working", "broken", "slow", "offline", or asks if the system is OK. args: {} (no arguments).',
+      run: async () => {
+        const report = this.systemHealth.getReport();
+        const health = await this.ai.health().catch(() => null as unknown as { running?: boolean; models?: unknown[] });
+        const advice: string[] = [];
+        if (report.subsystems.database.state === 'down') {
+          advice.push('The database is down — this is the critical one. It is retrying automatically; if it does not recover, restart KobeOS. Your data is safe.');
+        }
+        if (report.subsystems.ai.state === 'down' || !health?.running) {
+          advice.push('The local AI (Ollama) is offline, so Kobe is in offline mode — keyword search and deterministic reports still work. Start Ollama (or the KobeOS AI runtime) to restore smart answers.');
+        } else if (Array.isArray(health?.models) && health.models.length === 0) {
+          advice.push('The AI is running but no model is installed. Install a recommended chat model in Kobe Models.');
+        }
+        if (!advice.length) advice.push('Everything looks healthy — database and local AI are both up.');
+        return { data: { mode: report.mode, message: report.message, subsystems: report.subsystems, advice } };
       },
     },
     // ── Hotel ──────────────────────────────────────────────────────────────
@@ -614,8 +698,70 @@ export class KobeAgentService {
     },
   ];
 
-  private toolList(): string {
-    return this.tools.map((t) => `- ${t.name}: ${t.description}`).join('\n');
+  private toolList(names?: string[]): string {
+    const list = names ? this.tools.filter((t) => names.includes(t.name)) : this.tools;
+    return list.map((t) => `- ${t.name}: ${t.description}`).join('\n');
+  }
+
+  /**
+   * MULTI-AGENT SPECIALIST TEAM.
+   *
+   * Kobe isn't one generalist — it's a team of domain experts (KobePay,
+   * Properties, Hotels, Retail, Cargo, Finance). A lightweight router sends each
+   * question to the right specialist, who answers with an expert persona and
+   * ONLY that domain's tools. Scoping the tool list keeps the local model
+   * focused and accurate (small models degrade when shown 25 unrelated tools).
+   * Cross-domain / unclear questions fall through to the generalist (all tools).
+   */
+  private readonly sharedTools = ['semantic_search', 'search_documents', 'diagnose_system', 'remember', 'configure_automation'];
+
+  private readonly specialists: Record<
+    'kobepay' | 'properties' | 'hotels' | 'shop' | 'cargo' | 'finance',
+    { title: string; persona: string; tools: string[] }
+  > = {
+    kobepay: {
+      title: 'KobePay payments specialist',
+      persona: "You are Kobe's KobePay specialist — money in and out: recording payments and receipts, rent collections, and reconciling what customers or tenants still owe. Be precise with amounts and always state the currency (TZS).",
+      tools: ['record_rent_payment', 'record_expense', 'expenses_summary', 'sales_today', 'unpaid_tenants'],
+    },
+    properties: {
+      title: 'Kobe Properties specialist',
+      persona: "You are Kobe's property-management specialist — tenants, leases, rent, arrears and tenant communication. Think like a landlord's manager: who owes, how much, and what to do next.",
+      tools: ['unpaid_tenants', 'rent_projection', 'set_rent', 'add_tenant', 'record_rent_payment', 'send_tenant_notification'],
+    },
+    hotels: {
+      title: 'Kobe Hotels specialist',
+      persona: "You are Kobe's hospitality specialist — room occupancy, bookings, housekeeping status and hotel revenue. Think like a front-desk + revenue manager.",
+      tools: ['hotel_occupancy', 'hotel_revenue', 'set_room_status', 'create_booking'],
+    },
+    shop: {
+      title: 'Retail & inventory specialist',
+      persona: "You are Kobe's retail specialist — POS sales, pricing, stock and the product catalogue. Think like a shopkeeper watching sales and stock.",
+      tools: ['sales_today', 'low_stock', 'top_rated_products', 'sales_forecast', 'warehouse_stock', 'adjust_stock', 'add_product', 'seed_demo_products'],
+    },
+    cargo: {
+      title: 'Cargo & logistics specialist',
+      persona: "You are Kobe's cargo specialist — parcels, shipments and delivery status.",
+      tools: ['cargo_status'],
+    },
+    finance: {
+      title: 'Finance & accounting specialist',
+      persona: "You are Kobe's finance specialist — expenses, cash flow, revenue-vs-cost and month-to-date performance across the whole business. Think like an accountant.",
+      tools: ['expenses_summary', 'record_expense', 'sales_today', 'sales_forecast', 'rent_projection', 'hotel_revenue'],
+    },
+  };
+
+  /** Route a question to the specialist whose domain it fits (keyword-first, offline-safe). */
+  private classifyDomain(message: string): keyof typeof this.specialists | 'general' {
+    const m = ` ${message.toLowerCase()} `;
+    const has = (...w: string[]) => w.some((x) => m.includes(x));
+    if (has('kobepay', 'receipt', 'payment', 'paid ', ' pay ', 'collect', 'reconcile', 'deposit', 'transaction')) return 'kobepay';
+    if (has('room', 'guest', 'booking', 'check-in', 'checkout', 'occupanc', 'hotel', 'housekeep', 'reservation')) return 'hotels';
+    if (has('tenant', 'rent', 'lease', 'landlord', 'property', 'properties', 'unit', 'apartment', 'arrear', 'eviction')) return 'properties';
+    if (has('parcel', 'cargo', 'shipment', 'delivery', 'courier', 'freight', 'consignment')) return 'cargo';
+    if (has('expense', 'profit', 'cash flow', 'cashflow', 'tax', 'margin', 'accounting', 'balance sheet', 'p&l')) return 'finance';
+    if (has('sale', 'stock', 'product', 'inventory', 'price', 'sku', 'restock', 'sell', 'catalog', 'warehouse')) return 'shop';
+    return 'general';
   }
 
   listSkills() {
@@ -756,31 +902,44 @@ export class KobeAgentService {
     const deterministic = await this.deterministicReply(ownerId, message);
     if (deterministic) return deterministic;
 
-    const system = `You are Kobe, a concise business assistant inside KobeOS. Answer questions about the owner's shop/property using ONLY the tools below.
+    const facts = await this.getFacts(ownerId);
+    const memoryBlock = facts.length
+      ? `\nWhat you remember about this business (apply it, don't restate it unless asked):\n${facts.map((f) => `- ${f}`).join('\n')}\n`
+      : '';
+    // Route to the specialist whose domain fits, then scope the tool list to
+    // that specialist (+ shared tools). Generalist sees everything.
+    const domain = this.classifyDomain(message);
+    const spec = domain === 'general' ? null : this.specialists[domain];
+    const activeToolNames = spec ? [...spec.tools, ...this.sharedTools] : undefined;
+    const personaLine = spec ? `${spec.persona}\n` : '';
+
+    const system = `You are Kobe, a concise business assistant inside KobeOS. ${personaLine}Answer questions about the owner's business using ONLY the tools below.
 When you need data, reply with EXACTLY one JSON object and nothing else: {"tool":"<name>","args":{...}}.
 After you receive the tool result, answer the user in plain language (short, with the key numbers). If no tool is needed, just answer.
-Tools:
-${this.toolList()}`;
+${memoryBlock}Tools:
+${this.toolList(activeToolNames)}`;
 
     const first = await this.ai.chatCompletion({
       messages: [{ role: 'system', content: system }, ...history, { role: 'user', content: message }],
     }).catch((e) => { this.logger.warn(`LLM error: ${(e as Error).message}`); return { content: '' } as { content: string }; });
 
+    const specialist = spec?.title;
     const call = this.extractToolCall(first.content || '');
     if (!call) {
       return {
         reply: (first.content || '').trim() ||
           'The local language model is not running yet. I can still answer business questions such as “today’s sales”, “hotel occupancy”, “unpaid tenants”, “low stock”, or “cargo status”.',
+        specialist,
         pendingAction: null,
       };
     }
 
     const tool = this.tools.find((t) => t.name === call.tool);
-    if (!tool) return { reply: first.content.trim(), pendingAction: null };
+    if (!tool) return { reply: first.content.trim(), specialist, pendingAction: null };
 
     const result = await tool.run(ownerId, call.args);
     if ('pendingAction' in result) {
-      return { reply: `Ready to ${result.pendingAction.summary.toLowerCase()}. Confirm to proceed.`, used: tool.name, pendingAction: result.pendingAction };
+      return { reply: `Ready to ${result.pendingAction.summary.toLowerCase()}. Confirm to proceed.`, used: tool.name, specialist, pendingAction: result.pendingAction };
     }
 
     // Feed the tool result back for a natural-language answer.
@@ -794,7 +953,7 @@ ${this.toolList()}`;
     }).catch(() => ({ content: '' } as { content: string }));
 
     const reply = (second.content || '').trim() || this.fallbackSummary(tool.name, result.data);
-    return { reply, used: tool.name, data: result.data, pendingAction: null };
+    return { reply, used: tool.name, specialist, data: result.data, pendingAction: null };
   }
 
   /** Deterministic answer if the model can't phrase it (or is offline). */
@@ -812,6 +971,9 @@ ${this.toolList()}`;
       case 'cargo_status': return `${data.total} parcel(s): ${Object.entries(data.byStatus || {}).map(([s, n]) => `${n} ${s.toLowerCase()}`).join(', ') || 'none'}.`;
       case 'sales_forecast': return `Month-to-date TZS ${Number(data.monthToDate).toLocaleString()} (day ${data.dayOfMonth}/${data.daysInMonth}). Projected month-end: TZS ${Number(data.projectedMonthEnd).toLocaleString()}.`;
       case 'semantic_search': return data.count ? `Found ${data.count} match(es): ${data.results.slice(0, 5).map((r: any) => r.text.slice(0, 40)).join('; ')}.` : (data.note || 'No matches found.');
+      case 'remember': return data.saved ? `Got it — I'll remember that.` : (data.note || 'Nothing to remember.');
+      case 'search_documents': return data.count ? `Found ${data.count} relevant passage(s) in your documents${data.passages?.[0]?.title ? ` (e.g. "${data.passages[0].title}")` : ''}.` : (data.note || 'Nothing found in your documents.');
+      case 'diagnose_system': return `System status: ${data.mode}. ${Array.isArray(data.advice) ? data.advice.join(' ') : data.message}`;
       default: return JSON.stringify(data);
     }
   }

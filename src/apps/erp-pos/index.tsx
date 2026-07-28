@@ -7,8 +7,9 @@ import {
   Receipt, Tag, Percent, Search, Barcode, Shirt, Backpack, Coffee,
   BookOpen, PenTool, Clock, CheckCircle2, XCircle, AlertCircle,
   ArrowRight, Send, User, Phone, Package,
-  History, X, Star, Zap, Image as ImageIcon,
+  History, X, Star, Zap, Image as ImageIcon, Pencil,
 } from 'lucide-react';
+import HandwrittenQuantityOverlay from '@/components/handwriting/HandwrittenQuantityOverlay';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
@@ -252,6 +253,18 @@ export default function POSSystem() {
   const removeItem = (index: number) => {
     setCart((prev) => prev.filter((_, i) => i !== index));
   };
+
+  // Handwritten quantity → SET the line to an exact quantity, clamped to stock.
+  const setCartQuantity = (product: Product, writtenQuantity: number) => {
+    const quantity = Math.max(0, Math.min(writtenQuantity, product.stock));
+    setCart((prev) => {
+      const idx = prev.findIndex((i) => i.product.id === product.id);
+      if (quantity === 0) return idx >= 0 ? prev.filter((_, i) => i !== idx) : prev;
+      if (idx >= 0) { const u = [...prev]; u[idx] = { ...u[idx], quantity }; return u; }
+      return [...prev, { product, quantity }];
+    });
+  };
+  const [writeQtyProduct, setWriteQtyProduct] = useState<Product | null>(null);
 
   // ── Discount Request ──
   const openDiscountDialog = () => {
@@ -780,17 +793,28 @@ export default function POSSystem() {
                       <span className="text-[10px] text-white/30 uppercase tracking-wider">
                         {product.category}
                       </span>
-                      <Button
-                        size="sm"
-                        className="h-8 bg-amber-500 hover:bg-amber-600 text-black text-xs font-bold"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          addToCart(product);
-                        }}
-                      >
-                        <Plus className="w-3.5 h-3.5 mr-1" />
-                        Add
-                      </Button>
+                      <div className="flex items-center gap-1">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          title="Write quantity"
+                          className="h-8 w-8 text-white/50 hover:text-amber-400 hover:bg-amber-500/10"
+                          onClick={(e) => { e.stopPropagation(); setWriteQtyProduct(product); }}
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="h-8 bg-amber-500 hover:bg-amber-600 text-black text-xs font-bold"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            addToCart(product);
+                          }}
+                        >
+                          <Plus className="w-3.5 h-3.5 mr-1" />
+                          Add
+                        </Button>
+                      </div>
                     </div>
                   </CardContent>
                 </Card>
@@ -1466,6 +1490,17 @@ export default function POSSystem() {
       </Dialog>
 
       {/* ─── Order-from-image Dialog ─── */}
+      {/* Handwritten quantity overlay */}
+      {writeQtyProduct && (
+        <HandwrittenQuantityOverlay
+          productName={writeQtyProduct.name}
+          stock={writeQtyProduct.stock}
+          currentQuantity={cart.find((i) => i.product.id === writeQtyProduct.id)?.quantity ?? 0}
+          onSet={(quantity) => setCartQuantity(writeQtyProduct, quantity)}
+          onClose={() => setWriteQtyProduct(null)}
+        />
+      )}
+
       <OrderFromImageDialog
         open={imageOrderOpen}
         onOpenChange={setImageOrderOpen}

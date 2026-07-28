@@ -30,9 +30,10 @@ import {
   Zap,
   type LucideIcon,
 } from 'lucide-react';
-import { appRegistry } from '@/os/registry';
+import { appCatalogue, getInstalledAppRegistry } from '@/os/registry';
 import { useOSStore } from '@/os/store';
 import type { AppCategory, AppManifest } from '@/os/types';
+import { installBundledModule } from '@/os/module-installer';
 import {
   CORE_APP_IDS,
   createDeveloperProject,
@@ -48,6 +49,7 @@ import { API_BASE } from '@/lib/api';
 type StoreTab = 'discover' | 'installed' | 'develop';
 
 const HIDDEN_APP_IDS = new Set([
+  'app-store',
   'cargo-welcome',
 ]);
 
@@ -362,6 +364,7 @@ export default function AppStore({
   const appEntitlements = useOSStore((state) => state.appEntitlements);
   const setAppEntitlements = useOSStore((state) => state.setAppEntitlements);
   const recordInstalledApp = useOSStore((state) => state.recordInstalledApp);
+  const setApps = useOSStore((state) => state.setApps);
   const [tab, setTab] = useState<StoreTab>(onboarding ? 'discover' : 'discover');
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState<AppCategory | 'all'>('all');
@@ -371,7 +374,7 @@ export default function AppStore({
   const [error, setError] = useState('');
 
   const catalog = useMemo(() =>
-    appRegistry.filter((app) => !HIDDEN_APP_IDS.has(app.id) && !CORE_APP_IDS.includes(app.id as typeof CORE_APP_IDS[number])),
+    appCatalogue.filter((app) => !HIDDEN_APP_IDS.has(app.id) && !CORE_APP_IDS.includes(app.id as typeof CORE_APP_IDS[number])),
   []);
 
   useEffect(() => {
@@ -408,11 +411,20 @@ export default function AppStore({
     });
   };
 
+  const installApp = async (appId: string) => {
+    const app = catalog.find((candidate) => candidate.id === appId);
+    if (!app) throw new Error(`App ${appId} is not available in this KobeOS build.`);
+
+    await installBundledModule(app, () => undefined);
+    setApps(getInstalledAppRegistry());
+    return installMarketplaceApp(appId);
+  };
+
   const installOne = async (appId: string) => {
     setInstalling((current) => new Set(current).add(appId));
     setError('');
     try {
-      const record = await installMarketplaceApp(appId);
+      const record = await installApp(appId);
       recordInstalledApp(record);
       setSelected((current) => {
         const next = new Set(current);
@@ -435,7 +447,7 @@ export default function AppStore({
     if (!targets.length) return;
     setInstalling(new Set(targets));
     setError('');
-    const results = await Promise.allSettled(targets.map((appId) => installMarketplaceApp(appId)));
+    const results = await Promise.allSettled(targets.map((appId) => installApp(appId)));
     results.forEach((result) => {
       if (result.status === 'fulfilled') recordInstalledApp(result.value);
     });

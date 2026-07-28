@@ -35,6 +35,7 @@ import { ContextMenu } from './ContextMenu';
 import { WindowManager } from './WindowManager';
 import { Taskbar } from './Taskbar';
 import { GlobalAssistant } from './GlobalAssistant';
+import SafeModeBanner from './SafeModeBanner';
 
 /* ------------------------------------------------------------------ */
 /*  Bokeh orb background  - lavender/purple tones                     */
@@ -879,6 +880,9 @@ export function Desktop() {
 
       {/* Open application windows */}
       <WindowManager />
+
+      {/* Self-healing safe-mode banner (AI offline / DB recovering) */}
+      <SafeModeBanner />
 
       {/* Taskbar */}
       <Taskbar />

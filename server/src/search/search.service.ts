@@ -15,7 +15,36 @@ export function cosine(a: number[], b: number[]): number {
   return na && nb ? dot / (Math.sqrt(na) * Math.sqrt(nb)) : 0;
 }
 
-export interface SearchHit { kind: string; refId: string; text: string; score: number }
+export interface SearchHit { kind: string; refId: string; text: string; score: number; vec?: number; kw?: number }
+
+/** Split a string into lowercase word tokens (letters/digits), dropping tiny stopwords. */
+export function tokenize(s: string): string[] {
+  return (s.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter((t) => t.length > 1);
+}
+
+/**
+ * Keyword relevance of a document to the query — the "exact match" half of
+ * hybrid search that vectors miss (SKUs, phone numbers, exact names). Counts
+ * how many query tokens appear in the doc, with a strong bonus when the whole
+ * query appears as a substring.
+ */
+export function keywordScore(qTokens: string[], rawQuery: string, text: string): number {
+  if (!qTokens.length) return 0;
+  const hay = text.toLowerCase();
+  let hits = 0;
+  for (const t of qTokens) if (hay.includes(t)) hits += 1;
+  const coverage = hits / qTokens.length;
+  const phraseBonus = rawQuery.trim().length >= 3 && hay.includes(rawQuery.trim().toLowerCase()) ? 1 : 0;
+  return coverage + phraseBonus; // 0 … 2
+}
+
+/** Map each item's index to its 1-based rank (best = 1) by a numeric key, descending. */
+export function rankByDesc(scores: number[]): number[] {
+  const order = scores.map((s, i) => ({ s, i })).sort((a, b) => b.s - a.s);
+  const rank = new Array(scores.length).fill(scores.length + 1);
+  order.forEach((o, idx) => { rank[o.i] = idx + 1; });
+  return rank;
+}
 
 /**
  * Semantic search: embeds products/tenants/reviews once (reindex) and finds the
@@ -84,12 +113,27 @@ export class SearchService {
     }
   }
 
-  async search(ownerId: string, query: string, limit = 10, kind?: string): Promise<{ results: SearchHit[]; note?: string }> {
+  /**
+   * Hybrid + corrective retrieval.
+   *
+   * HYBRID: fuse semantic (cosine) and keyword ranks with Reciprocal Rank
+   * Fusion, so exact matches (a SKU, a phone number, an exact name) surface
+   * alongside meaning-based matches. RRF is scale-free, so we don't have to
+   * tune weights between two very different score distributions.
+   *
+   * CORRECTIVE: if the embedding model is offline we still return keyword
+   * results (search never goes dark), and we expose a `weak` flag + `confidence`
+   * so the assistant can say "no strong match" instead of hallucinating over a
+   * poor retrieval. The 1-based RRF constant K damps the tyranny of rank #1.
+   */
+  async search(
+    ownerId: string,
+    query: string,
+    limit = 10,
+    kind?: string,
+  ): Promise<{ results: SearchHit[]; weak: boolean; confidence: number; note?: string }> {
     const q = (query || '').trim();
-    if (!q) return { results: [] };
-    let qv: number[];
-    try { qv = await this.embed(q); } catch { return { results: [], note: 'Embedding model unavailable — is Ollama running?' }; }
-    if (!qv.length) return { results: [], note: 'Embedding model returned nothing.' };
+    if (!q) return { results: [], weak: true, confidence: 0 };
 
     const where: Record<string, unknown> = { ownerId };
     if (kind) where.kind = kind;
@@ -99,13 +143,45 @@ export class SearchService {
       await this.reindex(ownerId);
       docs = await this.repo.find({ where, take: 10000 });
     }
-    if (!docs.length) return { results: [], note: 'Nothing to search yet.' };
+    if (!docs.length) return { results: [], weak: true, confidence: 0, note: 'Nothing to search yet.' };
 
-    const results = docs
-      .map((d) => ({ kind: d.kind, refId: d.refId, text: d.text, score: +cosine(qv, d.vector).toFixed(4) }))
-      .filter((r) => r.score > 0)
+    // Keyword scores — always available, even without the model.
+    const qTokens = tokenize(q);
+    const kw = docs.map((d) => keywordScore(qTokens, q, d.text));
+
+    // Vector scores — best-effort; null if the embed model is unavailable.
+    let qv: number[] | null = null;
+    try { const v = await this.embed(q); qv = v.length ? v : null; } catch { qv = null; }
+    const vec = qv ? docs.map((d) => cosine(qv!, d.vector)) : docs.map(() => 0);
+
+    const vecRank = rankByDesc(vec);
+    const kwRank = rankByDesc(kw);
+    const K = 60;
+
+    const fused = docs
+      .map((d, i) => {
+        const hasVec = !!qv && vec[i] > 0.05;
+        const hasKw = kw[i] > 0;
+        if (!hasVec && !hasKw) return null;
+        const rrf = (hasVec ? 1 / (K + vecRank[i]) : 0) + (hasKw ? 1 / (K + kwRank[i]) : 0);
+        return { kind: d.kind, refId: d.refId, text: d.text, score: +rrf.toFixed(6), vec: +vec[i].toFixed(4), kw: +kw[i].toFixed(3) };
+      })
+      .filter((r): r is NonNullable<typeof r> => r !== null)
       .sort((a, b) => b.score - a.score)
       .slice(0, limit);
-    return { results };
+
+    // Corrective confidence: the strongest semantic hit if the model ran, else
+    // keyword coverage of the top hit. Weak → tell the caller to hedge.
+    const bestVec = fused.reduce((m, r) => Math.max(m, r.vec ?? 0), 0);
+    const bestKw = fused.reduce((m, r) => Math.max(m, r.kw ?? 0), 0);
+    const confidence = qv ? +bestVec.toFixed(4) : +Math.min(1, bestKw / 2).toFixed(4);
+    const weak = qv ? bestVec < 0.35 : bestKw < 1;
+    const note = !qv
+      ? 'Semantic model offline — keyword results only.'
+      : weak
+        ? 'No strong match — these are the closest guesses; confirm before relying on them.'
+        : undefined;
+
+    return { results: fused, weak, confidence, note };
   }
 }

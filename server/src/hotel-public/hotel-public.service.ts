@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { StoreSettings } from '../store-settings/store-settings.entity';
+import { ModuleSiteSettings } from '../store-settings/module-site-settings.entity';
 import { HotelRoom, HotelGuest, HotelBooking } from '../hotel/hotel.entity';
 import { PalmPesaService } from '../creators/palmpesa.service';
 
@@ -15,49 +16,88 @@ export interface PublicBookDto {
   guests?: number;
 }
 
+interface ResolvedHotelSite {
+  ownerId: string;
+  name: string;
+  tagline: string;
+  logoUrl: string;
+  primaryColor: string;
+  accentColor: string;
+  config: Record<string, unknown>;
+}
+
 /**
- * Public, unauthenticated hotel booking — the room-booking equivalent of the
- * e-commerce storefront. Resolves the hotel by its published slug (same
- * store_settings.domainSlug used by the shop), lists rooms, and takes a
- * booking. Bookings land as PENDING for the front desk to confirm.
+ * Public, unauthenticated hotel booking. Hotel website branding is resolved
+ * from module_site_settings(moduleId='hotel'), so editing the booking site can
+ * never overwrite the ERP, cargo, or property website. A legacy fallback keeps
+ * old deployments working until the migration has run.
  */
 @Injectable()
 export class HotelPublicService {
   constructor(
-    @InjectRepository(StoreSettings) private readonly settings: Repository<StoreSettings>,
+    @InjectRepository(ModuleSiteSettings)
+    private readonly moduleSites: Repository<ModuleSiteSettings>,
+    @InjectRepository(StoreSettings)
+    private readonly legacySettings: Repository<StoreSettings>,
     @InjectRepository(HotelRoom) private readonly rooms: Repository<HotelRoom>,
     @InjectRepository(HotelGuest) private readonly guests: Repository<HotelGuest>,
     @InjectRepository(HotelBooking) private readonly bookings: Repository<HotelBooking>,
     private readonly palmpesa: PalmPesaService,
   ) {}
 
-  private async settingsFor(slug: string) {
-    const s =
-      (await this.settings.findOne({ where: { domainSlug: slug } })) ??
-      (await this.settings.findOne({ where: { customDomain: slug } }));
-    if (!s) throw new NotFoundException('Hotel not found');
-    return s;
+  private async settingsFor(slug: string): Promise<ResolvedHotelSite> {
+    const key = slug.trim().toLowerCase();
+    const scoped = await this.moduleSites.findOne({
+      where: [
+        { moduleId: 'hotel', domainSlug: key, isPublished: true },
+        { moduleId: 'hotel', customDomain: key, isPublished: true },
+      ],
+    });
+    if (scoped) {
+      return {
+        ownerId: scoped.ownerId,
+        name: scoped.name || 'Hotel',
+        tagline: scoped.tagline || '',
+        logoUrl: scoped.logoUrl || '',
+        primaryColor: scoped.primaryColor || '#4f46e5',
+        accentColor: scoped.accentColor || '#8b5cf6',
+        config: scoped.config ?? {},
+      };
+    }
+
+    // Backward compatibility for databases that have not run the migration.
+    const legacy =
+      (await this.legacySettings.findOne({ where: { domainSlug: key } })) ??
+      (await this.legacySettings.findOne({ where: { customDomain: key } }));
+    if (!legacy) throw new NotFoundException('Hotel not found');
+    return {
+      ownerId: legacy.ownerId,
+      name: legacy.storeName || 'Hotel',
+      tagline: legacy.tagline || '',
+      logoUrl: legacy.logoUrl || '',
+      primaryColor: legacy.primaryColor || '#4f46e5',
+      accentColor: legacy.accentColor || '#8b5cf6',
+      config: (legacy.siteConfig ?? {}) as Record<string, unknown>,
+    };
   }
 
   private async ownerFor(slug: string): Promise<{ ownerId: string; name: string }> {
-    const s = await this.settingsFor(slug);
-    return { ownerId: s.ownerId, name: s.storeName || 'Hotel' };
+    const site = await this.settingsFor(slug);
+    return { ownerId: site.ownerId, name: site.name };
   }
 
   async listRooms(slug: string) {
-    const s = await this.settingsFor(slug);
-    const ownerId = s.ownerId;
+    const siteSettings = await this.settingsFor(slug);
+    const ownerId = siteSettings.ownerId;
     const rooms = await this.rooms.find({ where: { ownerId }, take: 500 });
-    const site = (s.siteConfig ?? {}) as Record<string, unknown>;
+    const site = siteSettings.config;
     return {
-      hotelName: s.storeName || 'Hotel',
-      // Branding for the public booking site — driven by the hotel's own
-      // store_settings so the "site builder" edits flow straight through.
+      hotelName: siteSettings.name,
       branding: {
-        logoUrl: s.logoUrl || '',
-        tagline: s.tagline || '',
-        primaryColor: s.primaryColor || '#4f46e5',
-        accentColor: s.accentColor || '#8b5cf6',
+        logoUrl: siteSettings.logoUrl,
+        tagline: siteSettings.tagline,
+        primaryColor: siteSettings.primaryColor,
+        accentColor: siteSettings.accentColor,
         heroImageUrl: (site.heroImageUrl as string) || '',
         about: (site.about as string) || '',
         amenities: Array.isArray(site.amenities) ? (site.amenities as string[]) : [],
@@ -66,8 +106,12 @@ export class HotelPublicService {
         address: (site.address as string) || '',
       },
       rooms: rooms.map((r) => ({
-        id: r.id, roomNumber: r.roomNumber, type: r.type,
-        rate: Number(r.rate || 0), currency: r.currency, capacity: r.capacity,
+        id: r.id,
+        roomNumber: r.roomNumber,
+        type: r.type,
+        rate: Number(r.rate || 0),
+        currency: r.currency,
+        capacity: r.capacity,
         available: r.status === 'available',
       })),
     };
@@ -75,30 +119,56 @@ export class HotelPublicService {
 
   async book(slug: string, dto: PublicBookDto) {
     const { ownerId } = await this.ownerFor(slug);
-    if (!dto.guestName?.trim() || !dto.guestPhone?.trim()) throw new BadRequestException('Name and phone are required.');
-    const inD = new Date(dto.checkIn), outD = new Date(dto.checkOut);
-    if (isNaN(inD.getTime()) || isNaN(outD.getTime()) || outD <= inD) throw new BadRequestException('Provide a valid check-in and check-out date.');
+    if (!dto.guestName?.trim() || !dto.guestPhone?.trim()) {
+      throw new BadRequestException('Name and phone are required.');
+    }
+    const inD = new Date(dto.checkIn);
+    const outD = new Date(dto.checkOut);
+    if (isNaN(inD.getTime()) || isNaN(outD.getTime()) || outD <= inD) {
+      throw new BadRequestException('Provide a valid check-in and check-out date.');
+    }
 
-    let room = dto.roomId ? await this.rooms.findOne({ where: { ownerId, id: dto.roomId } }) : null;
+    let room = dto.roomId
+      ? await this.rooms.findOne({ where: { ownerId, id: dto.roomId } })
+      : null;
     if (!room) {
-      room = await this.rooms.findOne({ where: { ownerId, status: 'available', ...(dto.roomType ? { type: dto.roomType } : {}) } });
+      room = await this.rooms.findOne({
+        where: {
+          ownerId,
+          status: 'available',
+          ...(dto.roomType ? { type: dto.roomType } : {}),
+        },
+      });
     }
     if (!room) throw new BadRequestException('No available room for those criteria.');
 
-    let guest = await this.guests.findOne({ where: { ownerId, name: dto.guestName.trim() } });
-    if (!guest) guest = await this.guests.save(this.guests.create({ ownerId, name: dto.guestName.trim(), phone: dto.guestPhone.trim() }));
+    let guest = await this.guests.findOne({
+      where: { ownerId, name: dto.guestName.trim() },
+    });
+    if (!guest) {
+      guest = await this.guests.save(this.guests.create({
+        ownerId,
+        name: dto.guestName.trim(),
+        phone: dto.guestPhone.trim(),
+      }));
+    }
 
     const nights = Math.max(1, Math.round((outD.getTime() - inD.getTime()) / 86_400_000));
     const totalAmount = Number(room.rate || 0) * nights;
     const booking = await this.bookings.save(this.bookings.create({
-      ownerId, roomId: room.id, guestId: guest.id, checkIn: inD, checkOut: outD,
-      guestCount: dto.guests || 1, status: 'PENDING', totalAmount, currency: room.currency || 'TZS', hotelId: room.hotelId ?? null,
+      ownerId,
+      roomId: room.id,
+      guestId: guest.id,
+      checkIn: inD,
+      checkOut: outD,
+      guestCount: dto.guests || 1,
+      status: 'PENDING',
+      totalAmount,
+      currency: room.currency || 'TZS',
+      hotelId: room.hotelId ?? null,
     }));
     await this.rooms.update({ ownerId, id: room.id }, { status: 'reserved' });
 
-    // Kick off a PalmPesa USSD-push so the guest pays on their phone. Best-
-    // effort: if the gateway is unavailable, the booking still stands and the
-    // front desk can collect payment on arrival.
     let payment: { initiated: boolean; orderId?: string; message: string } = {
       initiated: false,
       message: 'Booking received — pay at the hotel on arrival.',
@@ -112,11 +182,27 @@ export class HotelPublicService {
         transactionId: `HOTEL-${booking.id}`,
         description: `Room ${room.roomNumber} · ${nights} night(s)`,
       });
-      payment = { initiated: true, orderId: res.order_id, message: 'Check your phone and enter your PIN to complete payment.' };
-      // Store the order_id so the PalmPesa webhook can auto-confirm THIS booking.
-      await this.bookings.update({ ownerId, id: booking.id }, { palmPesaOrderId: res.order_id });
-    } catch { /* gateway down — booking still valid, pay on arrival */ }
+      payment = {
+        initiated: true,
+        orderId: res.order_id,
+        message: 'Check your phone and enter your PIN to complete payment.',
+      };
+      await this.bookings.update(
+        { ownerId, id: booking.id },
+        { palmPesaOrderId: res.order_id },
+      );
+    } catch {
+      // Gateway unavailable — booking remains valid and can be paid on arrival.
+    }
 
-    return { ok: true, bookingId: booking.id, room: room.roomNumber, nights, totalAmount, currency: room.currency || 'TZS', payment };
+    return {
+      ok: true,
+      bookingId: booking.id,
+      room: room.roomNumber,
+      nights,
+      totalAmount,
+      currency: room.currency || 'TZS',
+      payment,
+    };
   }
 }

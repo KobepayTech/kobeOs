@@ -5,6 +5,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { AiService, ChatCompletionOptions, ModelCategory } from './ai.service';
 import { KobeAgentService } from './agent.service';
+import { AiDocsService } from './ai-docs.service';
 
 // "Chat with your business" request. Decorated (whitelist-safe).
 class AssistantDto {
@@ -17,6 +18,18 @@ class ExecuteActionDto {
   @IsOptional() @IsObject() args?: Record<string, unknown>;
 }
 
+// "Chat with your documents": upload a doc's extracted text for grounding.
+class IngestDocDto {
+  @IsString() @MaxLength(200) title!: string;
+  @IsString() @MaxLength(2_000_000) text!: string;
+  @IsOptional() @IsString() @MaxLength(200) source?: string;
+}
+
+class DocSearchDto {
+  @IsString() @MaxLength(2000) query!: string;
+  @IsOptional() @IsString() documentId?: string;
+}
+
 @ApiTags('AI / LLM')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
@@ -25,7 +38,35 @@ export class AiController {
   constructor(
     private readonly ai: AiService,
     private readonly agent: KobeAgentService,
+    private readonly aiDocs: AiDocsService,
   ) {}
+
+  // ── Chat with your documents ───────────────────────────────────────────────
+
+  /** Upload a document's extracted text; Kobe chunks + embeds it for grounding. */
+  @Post('docs')
+  @ApiOperation({ summary: 'Ingest a document for "chat with your documents"' })
+  ingestDoc(@CurrentUser('id') uid: string, @Body() dto: IngestDocDto) {
+    return this.aiDocs.ingest(uid, dto.title, dto.text, dto.source ?? '');
+  }
+
+  @Get('docs')
+  @ApiOperation({ summary: 'List uploaded documents' })
+  listDocs(@CurrentUser('id') uid: string) {
+    return this.aiDocs.list(uid);
+  }
+
+  @Delete('docs/:id')
+  @ApiOperation({ summary: 'Delete an uploaded document and its passages' })
+  removeDoc(@CurrentUser('id') uid: string, @Param('id') id: string) {
+    return this.aiDocs.remove(uid, id);
+  }
+
+  @Post('docs/search')
+  @ApiOperation({ summary: 'Retrieve the passages most relevant to a question' })
+  searchDocs(@CurrentUser('id') uid: string, @Body() dto: DocSearchDto) {
+    return this.aiDocs.search(uid, dto.query, 6, dto.documentId);
+  }
 
   /**
    * Natural-language business assistant. Ask "what are today's sales",
@@ -125,6 +166,22 @@ export class AiController {
   @ApiOperation({ summary: 'Generate text embedding vector' })
   async embed(@Body() body: { text: string; model?: string }) {
     return { embedding: await this.ai.generateEmbedding(body.text, body.model) };
+  }
+
+  // ── Vision skill ──────────────────────────────────────────────────────────
+
+  /** Describe / read / answer about a photo (base64 image). Local vision model. */
+  @Post('vision/describe')
+  @ApiOperation({ summary: 'Ask Kobe about a photo (describe, read a label, etc.)' })
+  async visionDescribe(@Body() body: { image: string; prompt?: string }) {
+    return { content: await this.ai.describeImage(body.image, body.prompt ?? 'Describe this image for a business owner.') };
+  }
+
+  /** Draft a product listing (name/category/description/tags) from a photo. */
+  @Post('vision/product')
+  @ApiOperation({ summary: 'Draft a product listing from a photo' })
+  visionProduct(@Body() body: { image: string }) {
+    return this.ai.describeProductImage(body.image);
   }
 
   // ── Specialised ───────────────────────────────────────────────────────────

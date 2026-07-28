@@ -1,6 +1,18 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { api, apiArray, apiObject, ApiError } from '@/lib/api';
-import { Sparkles, Send, Loader2, User, CheckCircle2, Printer, Mic, Wrench } from 'lucide-react';
+import {
+  Sparkles, Send, Loader2, User, CheckCircle2, Printer, Mic,
+  Volume2, VolumeX, Paperclip, Wrench,
+} from 'lucide-react';
+
+/** Strip emoji/markdown so the spoken reply sounds natural. */
+function speakable(text: string): string {
+  return text
+    .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}]/gu, '')
+    .replace(/[*_`#>]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 interface PendingAction { tool: string; summary: string; args: Record<string, unknown> }
 interface BriefingAlert { severity: 'info' | 'warning'; text: string; action?: { label: string; tool?: string; args?: Record<string, unknown>; endpoint?: string; method?: 'POST' | 'PUT' } }
@@ -112,8 +124,27 @@ export default function KobeAssistant({ contextLabel, appId }: { contextLabel?: 
   const [listening, setListening] = useState(false);
   const [skills, setSkills] = useState<AssistantSkill[]>(FALLBACK_SKILLS);
   const [showSkills, setShowSkills] = useState(false);
+  // Voice mode: read Kobe's replies aloud, and auto-send after dictation (hands-free).
+  const [voice, setVoice] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const recogRef = useRef<{ stop: () => void } | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const spokenRef = useRef(-1);        // index of the last message read aloud
+  const voiceRef = useRef(false);      // latest `voice` for use inside recognition callbacks
+  voiceRef.current = voice;
+
+  const TTS = typeof window !== 'undefined' && 'speechSynthesis' in window;
+  const speak = useCallback((text: string) => {
+    if (!TTS) return;
+    const clean = speakable(text);
+    if (!clean) return;
+    try {
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(clean.slice(0, 500));
+      u.lang = navigator.language || 'en-US';
+      window.speechSynthesis.speak(u);
+    } catch { /* TTS best-effort */ }
+  }, [TTS]);
 
   // Voice input via the Web Speech API (works in Electron/Chromium + Chrome/Edge
   // PWA). Dictates into the input; the user reviews and sends.
@@ -127,12 +158,16 @@ export default function KobeAssistant({ contextLabel, appId }: { contextLabel?: 
     r.interimResults = true;
     r.continuous = false;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let heard = '';
     r.onresult = (e: any) => {
       let text = '';
       for (let i = 0; i < e.results.length; i++) text += e.results[i][0].transcript;
+      heard = text;
       setInput(text);
     };
-    r.onend = () => setListening(false);
+    // Hands-free: when voice mode is on, send what was dictated as soon as the
+    // user stops speaking, so they never have to touch the keyboard.
+    r.onend = () => { setListening(false); if (voiceRef.current && heard.trim()) send(heard); };
     r.onerror = () => setListening(false);
     recogRef.current = r;
     setListening(true);
@@ -140,6 +175,18 @@ export default function KobeAssistant({ contextLabel, appId }: { contextLabel?: 
   };
 
   useEffect(() => { scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' }); }, [messages, busy]);
+
+  // Read the newest assistant reply aloud when voice mode is on.
+  useEffect(() => {
+    if (!voice) return;
+    const last = messages.length - 1;
+    if (last < 0 || last === spokenRef.current) return;
+    const m = messages[last];
+    if (m.role === 'assistant' && m.content) { spokenRef.current = last; speak(m.content); }
+  }, [messages, voice, speak]);
+
+  // Stop any speech when voice mode is switched off.
+  useEffect(() => { if (!voice && TTS) window.speechSynthesis.cancel(); }, [voice, TTS]);
 
   // Proactive daily briefing: greet the user with their business status + alerts
   // when the assistant opens. Deterministic on the backend, so it works even
@@ -217,6 +264,46 @@ export default function KobeAssistant({ contextLabel, appId }: { contextLabel?: 
     }
   };
 
+  // Read a File as a base64 string (no data: prefix) for the vision endpoint.
+  const readAsBase64 = (file: File): Promise<string> => new Promise((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result).replace(/^data:[^;]+;base64,/, ''));
+    fr.onerror = () => reject(new Error('Could not read the file.'));
+    fr.readAsDataURL(file);
+  });
+
+  // Attach a photo (→ vision skill) or a document (→ chat-with-documents).
+  const onAttach = async (file: File | undefined) => {
+    if (!file || busy) return;
+    setBusy(true);
+    try {
+      if (file.type.startsWith('image/')) {
+        setMessages((p) => [...p, { role: 'user', content: `📷 ${file.name}` }]);
+        const b64 = await readAsBase64(file);
+        const r = await api<{ content: string }>('/ai/vision/describe', {
+          method: 'POST',
+          body: JSON.stringify({ image: b64, prompt: 'Describe this for a business owner. If it is a product, suggest a name, category and short selling description.' }),
+        });
+        setMessages((p) => [...p, { role: 'assistant', content: r.content || 'I could not read that image.' }]);
+      } else if (/\.(txt|md|csv|json|log|tsv|html?)$/i.test(file.name) || file.type.startsWith('text/')) {
+        const text = await file.text();
+        if (!text.trim()) throw new Error('That file looks empty.');
+        setMessages((p) => [...p, { role: 'user', content: `📄 ${file.name}` }]);
+        const doc = await api<{ title: string; chunkCount: number }>('/ai/docs', {
+          method: 'POST',
+          body: JSON.stringify({ title: file.name.replace(/\.[^.]+$/, ''), text, source: file.name }),
+        });
+        setMessages((p) => [...p, { role: 'assistant', content: `📚 Learned from “${doc.title}” (${doc.chunkCount} passage${doc.chunkCount === 1 ? '' : 's'}). Ask me anything about it.` }]);
+      } else {
+        setMessages((p) => [...p, { role: 'assistant', content: 'I can read photos and text files (.txt, .md, .csv). For a PDF, paste its text or export it as text and attach that.' }]);
+      }
+    } catch (e) {
+      setMessages((p) => [...p, { role: 'assistant', content: `Attachment failed: ${(e as Error).message}` }]);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   // Run a briefing alert's action: either an assistant tool or a direct endpoint.
   const runAlertAction = async (a: NonNullable<BriefingAlert['action']>, idx: number) => {
     if (a.endpoint) {
@@ -258,14 +345,24 @@ export default function KobeAssistant({ contextLabel, appId }: { contextLabel?: 
     <div className="flex flex-col h-full bg-[#0c0c1a] text-white/90">
       <div className="shrink-0 px-4 py-3 border-b border-white/[0.06] flex items-center gap-2">
         <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 grid place-items-center"><Sparkles className="w-4 h-4" /></div>
-        <div><div className="text-sm font-semibold">Ask Kobe</div><div className="text-[10px] text-white/40">{contextLabel ? `Working in ${contextLabel} · local AI` : 'Chat with your business · runs on your local AI'}</div></div>
+        <div className="flex-1"><div className="text-sm font-semibold">Ask Kobe</div><div className="text-[10px] text-white/40">{contextLabel ? `Working in ${contextLabel} · local AI` : 'Chat with your business · runs on your local AI'}</div></div>
         <button
           type="button"
           onClick={() => setShowSkills((visible) => !visible)}
-          className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.05] px-2.5 py-1.5 text-[10px] font-semibold text-white/70 hover:bg-white/[0.09] hover:text-white"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.05] px-2.5 py-1.5 text-[10px] font-semibold text-white/70 hover:bg-white/[0.09] hover:text-white"
         >
           <Wrench className="h-3.5 w-3.5" /> Skills {skills.length}
         </button>
+        {TTS && (
+          <button
+            type="button"
+            onClick={() => setVoice((v) => !v)}
+            title={voice ? 'Voice mode on — Kobe speaks replies and auto-sends dictation' : 'Turn on voice mode'}
+            className={`h-8 w-8 grid place-items-center rounded-lg ${voice ? 'bg-indigo-600 text-white' : 'bg-white/[0.05] border border-white/[0.08] text-white/60 hover:text-white'}`}
+          >
+            {voice ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+          </button>
+        )}
       </div>
 
       <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
@@ -348,7 +445,15 @@ export default function KobeAssistant({ contextLabel, appId }: { contextLabel?: 
       </div>
 
       <form className="shrink-0 p-3 border-t border-white/[0.06] flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); send(input); }}>
-        <input value={input} onChange={(e) => setInput(e.target.value)} placeholder={listening ? 'Listening…' : 'Ask about sales, tenants, stock…'} className="flex-1 h-10 px-3 rounded-lg bg-white/[0.05] border border-white/[0.08] text-sm text-white placeholder:text-white/30 outline-none focus:border-indigo-500/50" />
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*,.txt,.md,.csv,.json,.log,.tsv,.html,text/*"
+          className="hidden"
+          onChange={(e) => { onAttach(e.target.files?.[0]); e.target.value = ''; }}
+        />
+        <button type="button" onClick={() => fileRef.current?.click()} disabled={busy} title="Attach a photo or document" className="h-10 w-10 grid place-items-center rounded-lg bg-white/[0.05] border border-white/[0.08] text-white/70 hover:text-white disabled:opacity-40"><Paperclip className="w-4 h-4" /></button>
+        <input value={input} onChange={(e) => setInput(e.target.value)} placeholder={listening ? 'Listening…' : 'Ask, or attach a photo / document…'} className="flex-1 h-10 px-3 rounded-lg bg-white/[0.05] border border-white/[0.08] text-sm text-white placeholder:text-white/30 outline-none focus:border-indigo-500/50" />
         {SR && (
           <button type="button" onClick={toggleVoice} title="Speak" className={`h-10 w-10 grid place-items-center rounded-lg ${listening ? 'bg-red-600 animate-pulse text-white' : 'bg-white/[0.05] border border-white/[0.08] text-white/70 hover:text-white'}`}><Mic className="w-4 h-4" /></button>
         )}

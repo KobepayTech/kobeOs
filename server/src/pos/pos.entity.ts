@@ -106,6 +106,11 @@ export class PosProduct extends OwnedEntity {
   @Column({ type: 'jsonb', default: [] })
   tags!: string[];
 
+  // Free-form extra attributes (bulk-import metadata: supplier, cost, sizes,
+  // colours, subcategory, source, etc.). Keeps the core columns lean.
+  @Column({ type: 'jsonb', default: {} })
+  customData!: Record<string, unknown>;
+
   /** Jersey-specific product details — team, type, season, badges, size, kit type, name/number printing */
   @Column({ type: 'jsonb', default: {} })
   jerseyDetails!: {
