@@ -251,20 +251,26 @@ export class KobePayDepositsService {
       if (collectedTzs === 0) {
         if (cashCurrency === 'TZS') {
           collectedTzs = parseFloat((Number(dto.amount) + serviceFee).toFixed(4));
-        } else if (cashCurrency === 'USD' && quoteUsd > 0) {
-          // Convert the customer's USD intent through the direct USD→TZS
-          // rate. Going through the rounded CNY→TZS cross-rate can introduce
-          // a small monetary drift (for example 26,299,999.971 vs 26,300,000).
-          const r = await this.rates.currentRate(uid, 'USD', 'TZS');
-          if (r && r.salesRate > 0) {
-            collectedTzs = parseFloat((quoteUsd * r.salesRate + serviceFee).toFixed(4));
+        } else {
+          if (cashCurrency === 'USD' && quoteUsd > 0) {
+            // Convert the customer's USD intent through the direct USD→TZS
+            // rate. Going through the rounded CNY→TZS cross-rate can introduce
+            // a small monetary drift (for example 26,299,999.971 vs 26,300,000).
+            const r = await this.rates.currentRate(uid, 'USD', 'TZS');
+            if (r && r.salesRate > 0) {
+              collectedTzs = parseFloat((quoteUsd * r.salesRate + serviceFee).toFixed(4));
+            }
           }
-        } else if (targetAmount > 0 && salesRate > 0) {
-          collectedTzs = parseFloat((targetAmount * salesRate + serviceFee).toFixed(4));
-        } else if (quoteUsd > 0) {
-          const r = await this.rates.currentRate(uid, 'USD', 'TZS');
-          if (r && r.salesRate > 0) {
-            collectedTzs = parseFloat((quoteUsd * r.salesRate + serviceFee).toFixed(4));
+          // Legacy deposits may provide only targetAmount + salesRate. Keep
+          // that path as the fallback when no direct USD→TZS rate is set.
+          if (collectedTzs === 0 && targetAmount > 0 && salesRate > 0) {
+            collectedTzs = parseFloat((targetAmount * salesRate + serviceFee).toFixed(4));
+          }
+          if (collectedTzs === 0 && quoteUsd > 0) {
+            const r = await this.rates.currentRate(uid, 'USD', 'TZS');
+            if (r && r.salesRate > 0) {
+              collectedTzs = parseFloat((quoteUsd * r.salesRate + serviceFee).toFixed(4));
+            }
           }
         }
       }
