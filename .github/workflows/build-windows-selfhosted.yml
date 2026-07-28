@@ -61,8 +61,17 @@ jobs:
         # pwsh (PowerShell 7, not installed on this runner), with
         # -ExecutionPolicy Bypass to defeat a Restricted policy.
         shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+        working-directory: source
 
     steps:
+      # The default self-hosted workspace may contain a legacy win-unpacked app
+      # that a desktop user is actively testing. Check out into a clean child
+      # directory so checkout never tries to delete that locked sibling.
+      - uses: actions/checkout@v4
+        with:
+          path: source
+          clean: true
+
       # Each run gets an isolated output directory under RUNNER_TEMP. This avoids
       # cross-user EBUSY failures if a desktop user is testing a previous
       # win-unpacked build while the runner service starts a new job.
@@ -81,16 +90,11 @@ jobs:
           Add-Content -Path $env:GITHUB_ENV -Value "KOBE_RELEASE_DIR=$release" -Encoding UTF8
           Write-Host "Build output: $release"
 
-      - uses: actions/checkout@v4
-        with:
-          # The controlled step above removes generated output and reports lock
-          # owners. Avoid checkout's opaque git-clean/recreate fallback.
-          clean: false
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
+          cache-dependency-path: source/package-lock.json
 
       # ── Frontend ────────────────────────────────────────────────────────────
       - name: Install frontend dependencies
@@ -105,7 +109,7 @@ jobs:
       # ── Backend ─────────────────────────────────────────────────────────────
       - name: Install server dependencies
         run: npm install --legacy-peer-deps
-        working-directory: server
+        working-directory: source/server
 
       - name: Bundle NestJS backend
         run: npm run build:bundle
