@@ -18,14 +18,20 @@ describe('New modules + ownership (e2e)', () => {
 
   const token = async (email: string, role: 'user' | 'admin' = 'user'): Promise<string> => {
     const r = await request(http).post('/api/auth/register').send({ email, password: 'secret123' });
-    if (role === 'user') return r.body.accessToken as string;
+    if (r.status !== 201 || typeof r.body.accessToken !== 'string') {
+      throw new Error(`Could not register ${email}: HTTP ${r.status} ${JSON.stringify(r.body)}`);
+    }
+    if (role === 'user') return r.body.accessToken;
 
     await app.get(DataSource).query(
       'UPDATE "users" SET "role" = $1 WHERE "email" = $2',
       [role, email],
     );
     const login = await request(http).post('/api/auth/login').send({ email, password: 'secret123' });
-    return login.body.accessToken as string;
+    if (login.status !== 201 || typeof login.body.accessToken !== 'string') {
+      throw new Error(`Could not log in ${email}: HTTP ${login.status} ${JSON.stringify(login.body)}`);
+    }
+    return login.body.accessToken;
   };
   const bearer = (t: string) => ({ Authorization: `Bearer ${t}` });
 

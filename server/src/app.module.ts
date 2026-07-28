@@ -95,9 +95,14 @@ import { DeveloperPlatformModule } from './developer-platform/developer-platform
     ThrottlerModule.forRoot([
       { name: 'default', ttl: 60_000, limit: process.env.NODE_ENV === 'test' ? 10_000 : 120 },
       { name: 'auth', ttl: 60_000, limit: process.env.NODE_ENV === 'test' ? 10_000 : 10 },
-      // Tighter bucket for public lookup endpoints that expose
-      // enumerable resources (e.g. /store-settings/check-slug).
-      { name: 'public-lookup', ttl: 60_000, limit: 20 },
+      // Routes that expose enumerable resources override this named bucket
+      // with a tighter limit. Keep the global baseline aligned with the
+      // default bucket so unrelated endpoints are not accidentally capped.
+      {
+        name: 'public-lookup',
+        ttl: 60_000,
+        limit: process.env.NODE_ENV === 'test' ? 10_000 : 120,
+      },
     ]),
     RedisCacheModule,
     AuditModule,
