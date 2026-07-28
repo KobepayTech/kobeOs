@@ -134,7 +134,10 @@ export class ErpKobepayInboxService {
       } else if (poMatches.length > 1) {
         allocationStatus = 'needs_review';
         reviewReason = `${poMatches.length} open POs match supplier ${supplierName}; pick the right one.`;
-      } else if (input.poNumber || supplierName) {
+      } else if (input.poNumber) {
+        // A PO link is optional. Only flag po_missing when the sender named
+        // a specific PO that could not be found; a clean supplier match is
+        // otherwise sufficient to link and journal the receipt.
         allocationStatus = 'po_missing';
       }
     }
