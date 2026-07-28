@@ -47,7 +47,7 @@ jobs:
       # Never build into the reusable checkout. An app launched interactively
       # from an older release is owned by the desktop user, while the runner
       # service may run as NETWORK SERVICE and cannot terminate it.
-      KOBE_RELEASE_DIR: ${{ runner.temp }}\kobeos-release-${{ github.run_id }}
+      KOBE_RELEASE_NAME: kobeos-release-${{ github.run_id }}
 
     # Self-hosted Windows runners often have PowerShell execution policy set to
     # Restricted, which blocks the temp .ps1 wrapper GitHub uses for run: steps
@@ -69,7 +69,7 @@ jobs:
       - name: Prepare isolated build output
         run: |
           $runnerTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\') + '\'
-          $release = [IO.Path]::GetFullPath($env:KOBE_RELEASE_DIR)
+          $release = [IO.Path]::GetFullPath((Join-Path $runnerTemp $env:KOBE_RELEASE_NAME))
           if (!$release.StartsWith($runnerTemp, [StringComparison]::OrdinalIgnoreCase)) {
             throw "Refusing to prepare an output path outside RUNNER_TEMP: $release"
           }
@@ -78,6 +78,7 @@ jobs:
             Remove-Item -LiteralPath $release -Recurse -Force -ErrorAction Stop
           }
           New-Item -ItemType Directory -Path $release -Force | Out-Null
+          Add-Content -Path $env:GITHUB_ENV -Value "KOBE_RELEASE_DIR=$release" -Encoding UTF8
           Write-Host "Build output: $release"
 
       - uses: actions/checkout@v4
@@ -288,7 +289,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: KobeOS-Windows-Setup-offline-ai
-          path: ${{ env.KOBE_RELEASE_DIR }}/*.exe
+          path: ${{ runner.temp }}/${{ env.KOBE_RELEASE_NAME }}/*.exe
           retention-days: 30
 
       # Keep RUNNER_TEMP from accumulating multi-GB build directories. The
