@@ -14,6 +14,17 @@ export class SubscribeMobileDto {
 
 export class SubscribeMobileModuleDto extends SubscribeMobileDto {
   @IsString()
-  @IsIn(['po', 'dispatch', 'hotel', 'lipa', 'eod', 'summary'])
+  @IsIn(['dispatch', 'hotel', 'lipa', 'eod', 'summary'])
+  moduleId!: string;
+}
+
+export class InstallMobileModuleDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(120)
+  slug!: string;
+
+  @IsString()
+  @IsIn(['dispatch', 'hotel', 'lipa', 'eod', 'summary'])
   moduleId!: string;
 }

@@ -46,6 +46,21 @@ if (/ExecWait\s+'"\$0"\s+\/S(?:\s+_\?=\$INSTDIR)?'/i.test(installerNsh)) {
   );
 }
 
+const selfHostedWorkflow = readFileSync(
+  new URL('../.github/workflows/build-windows-selfhosted.yml', import.meta.url),
+  'utf8',
+);
+if (!/electron-builder\s+--win\s+nsis-web\b/.test(selfHostedWorkflow)) {
+  failures.push(
+    '.github/workflows/build-windows-selfhosted.yml: offline AI builds must use nsis-web because embedded NSIS packages are limited to 4 GiB',
+  );
+}
+if (!/\*\.nsis\.7z/.test(selfHostedWorkflow)) {
+  failures.push(
+    '.github/workflows/build-windows-selfhosted.yml: the NSIS sidecar package must be validated and copied with the setup EXE',
+  );
+}
+
 if (failures.length) {
   console.error(`Windows startup/build validation failed for ${projectRoot}:`);
   for (const item of failures) console.error(`- ${item}`);

@@ -36,6 +36,7 @@ import { WindowManager } from './WindowManager';
 import { Taskbar } from './Taskbar';
 import { GlobalAssistant } from './GlobalAssistant';
 import SafeModeBanner from './SafeModeBanner';
+import { ContextualInstallPrompt } from './ContextualInstallPrompt';
 
 /* ------------------------------------------------------------------ */
 /*  Bokeh orb background  - lavender/purple tones                     */
@@ -889,6 +890,8 @@ export function Desktop() {
 
       {/* Global AI co-pilot — floating assistant available inside every module */}
       <GlobalAssistant />
+
+      <ContextualInstallPrompt />
 
       {/* Context menu */}
       {contextMenu && (

@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { api, uploadFile } from '@/lib/api';
+import { ApiError, api, apiArray, apiObject, uploadFile } from '@/lib/api';
 import { useQRScanner } from '@/hooks/useQRScanner';
 import {
-  Search, Minus, Plus, ShoppingCart, X, Trash2, Loader2, CheckCircle2, QrCode,
+  Search, Minus, Plus, ShoppingCart, X, Trash2, Loader2, CheckCircle2, QrCode, Camera, Images,
 } from 'lucide-react';
+import { StoreMediaGallery } from '@/components/StoreMediaGallery';
 
 /**
  * Phone-first POS. One scrollable product column, big tap targets, sticky
@@ -49,6 +50,12 @@ export default function MobilePOS() {
   const [showAddProduct, setShowAddProduct] = useState(false);
   const [savingProduct, setSavingProduct] = useState(false);
   const [imageUploading, setImageUploading] = useState(false);
+  const [showMediaGallery, setShowMediaGallery] = useState(false);
+  const [discountAmount, setDiscountAmount] = useState('');
+  const [couponCode, setCouponCode] = useState('');
+  const [showManagerApproval, setShowManagerApproval] = useState(false);
+  const [managerForm, setManagerForm] = useState({ email: '', password: '' });
+  const [managerBusy, setManagerBusy] = useState(false);
   const [newProduct, setNewProduct] = useState({
     name: '', sku: '', category: 'Other', price: '', stock: '', imageUrl: '',
   });
@@ -59,8 +66,8 @@ export default function MobilePOS() {
     let cancelled = false;
     (async () => {
       try {
-        const list = await api<Product[]>('/pos/products');
-        if (!cancelled) setProducts(Array.isArray(list) ? list : []);
+        const response = await api<unknown>('/pos/products');
+        if (!cancelled) setProducts(apiArray<Product>(response, ['products']));
       } catch (e) {
         if (!cancelled) setErr((e as Error).message);
       } finally {
@@ -103,6 +110,7 @@ export default function MobilePOS() {
   }, [products, search]);
 
   const total = cart.reduce((s, it) => s + parseFloat(String(it.product.price)) * it.quantity, 0);
+  const payableTotal = Math.max(0, total - Math.max(0, Number(discountAmount) || 0));
   const cartCount = cart.reduce((s, it) => s + it.quantity, 0);
 
   const addToCart = (p: Product) => {
@@ -125,7 +133,7 @@ export default function MobilePOS() {
 
   const removeFrom = (id: string) => setCart((prev) => prev.filter((c) => c.product.id !== id));
 
-  const checkout = async () => {
+  const checkout = async (approvedBy?: string) => {
     if (cart.length === 0) return;
     setSubmitting(true);
     setErr(null);
@@ -135,6 +143,9 @@ export default function MobilePOS() {
         orderNumber,
         lines: cart.map((c) => ({ productId: c.product.id, quantity: c.quantity })),
         paymentMethod: 'CASH',
+        discountAmount: Math.max(0, Number(discountAmount) || 0),
+        couponCode: couponCode.trim() || undefined,
+        approvedBy,
       };
       const sale = await api<{ receipt?: { orderNumber?: string } }>('/pos/orders', {
         method: 'POST',
@@ -143,16 +154,44 @@ export default function MobilePOS() {
       setDoneTitle('Sale recorded');
       setDone(sale?.receipt?.orderNumber ?? orderNumber);
       setCart([]);
+      setDiscountAmount('');
+      setCouponCode('');
       setDrawerOpen(false);
       // Refresh stock — mobile cashier might keep selling without reloading.
       try {
-        const list = await api<Product[]>('/pos/products');
-        if (Array.isArray(list)) setProducts(list);
+        const response = await api<unknown>('/pos/products');
+        setProducts(apiArray<Product>(response, ['products']));
       } catch { /* ignore */ }
     } catch (e) {
-      setErr((e as Error).message);
+      if (e instanceof ApiError && e.status === 403 && /approval threshold/i.test(e.message)) {
+        setShowManagerApproval(true);
+      } else {
+        setErr((e as Error).message);
+      }
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const approveAndCheckout = async () => {
+    if (!managerForm.email.trim() || !managerForm.password) return;
+    setManagerBusy(true);
+    setErr(null);
+    try {
+      const response = await api<unknown>('/pos/manager-approve', {
+        method: 'POST',
+        body: JSON.stringify(managerForm),
+        offlineFallback: false,
+      });
+      const manager = apiObject<{ id: string }>(response);
+      if (!manager?.id) throw new Error('Manager approval response was invalid.');
+      setShowManagerApproval(false);
+      setManagerForm({ email: '', password: '' });
+      await checkout(manager.id);
+    } catch (reason) {
+      setErr(reason instanceof Error ? reason.message : 'Manager approval failed.');
+    } finally {
+      setManagerBusy(false);
     }
   };
 
@@ -184,8 +223,8 @@ export default function MobilePOS() {
           imageUrl: newProduct.imageUrl.trim() || undefined,
         }),
       });
-      const list = await api<Product[]>('/pos/products');
-      if (Array.isArray(list)) setProducts(list);
+      const response = await api<unknown>('/pos/products');
+      setProducts(apiArray<Product>(response, ['products']));
       setNewProduct({ name: '', sku: '', category: 'Other', price: '', stock: '', imageUrl: '' });
       setShowAddProduct(false);
       setDoneTitle('Product added');
@@ -388,17 +427,41 @@ export default function MobilePOS() {
               ))}
             </div>
             <div className="border-t border-slate-100 px-5 py-4 space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <label className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                  Coupon code
+                  <input
+                    value={couponCode}
+                    onChange={(event) => setCouponCode(event.target.value.toUpperCase())}
+                    placeholder="Optional"
+                    className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-2 text-sm font-semibold normal-case tracking-normal"
+                  />
+                </label>
+                <label className="text-[10px] font-bold uppercase tracking-wide text-slate-500">
+                  Manual discount
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    max={total}
+                    value={discountAmount}
+                    onChange={(event) => setDiscountAmount(event.target.value)}
+                    placeholder="TZS 0"
+                    className="mt-1 h-10 w-full rounded-lg border border-slate-200 px-2 text-sm font-semibold normal-case tracking-normal"
+                  />
+                </label>
+              </div>
               <div className="flex items-center justify-between">
-                <span className="text-xs text-slate-500">Total</span>
-                <span className="text-xl font-extrabold text-slate-900">{fmt(total)}</span>
+                <span className="text-xs text-slate-500">{couponCode ? 'Estimated total' : 'Total'}</span>
+                <span className="text-xl font-extrabold text-slate-900">{fmt(payableTotal)}</span>
               </div>
               <button
-                onClick={checkout}
+                onClick={() => void checkout()}
                 disabled={submitting}
                 className="w-full h-12 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-extrabold text-sm inline-flex items-center justify-center gap-2"
               >
                 {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
-                {submitting ? 'Processing…' : `Charge ${fmt(total)} (Cash)`}
+                {submitting ? 'Processing…' : `Charge ${fmt(payableTotal)} (Cash)`}
               </button>
             </div>
           </div>
@@ -445,18 +508,38 @@ export default function MobilePOS() {
                 {newProduct.imageUrl && (
                   <img src={newProduct.imageUrl} alt="Product preview" className="w-full h-36 rounded-xl object-cover bg-slate-100" />
                 )}
-                <label className="w-full h-11 rounded-xl border border-dashed border-indigo-300 bg-indigo-50 text-indigo-700 text-xs font-extrabold inline-flex items-center justify-center gap-2 cursor-pointer">
-                  {imageUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                  {imageUploading ? 'Uploading image…' : newProduct.imageUrl ? 'Replace photo' : 'Take or choose photo'}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    className="sr-only"
-                    disabled={imageUploading}
-                    onChange={(e) => { void uploadProductImage(e.target.files?.[0]); e.currentTarget.value = ''; }}
-                  />
-                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="h-11 rounded-xl border border-dashed border-indigo-300 bg-indigo-50 text-indigo-700 text-xs font-extrabold inline-flex items-center justify-center gap-2 cursor-pointer">
+                    {imageUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
+                    Camera
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      className="sr-only"
+                      disabled={imageUploading}
+                      onChange={(e) => { void uploadProductImage(e.target.files?.[0]); e.currentTarget.value = ''; }}
+                    />
+                  </label>
+                  <label className="h-11 rounded-xl border border-dashed border-indigo-300 bg-indigo-50 text-indigo-700 text-xs font-extrabold inline-flex items-center justify-center gap-2 cursor-pointer">
+                    <Images className="w-4 h-4" />
+                    Phone gallery
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="sr-only"
+                      disabled={imageUploading}
+                      onChange={(e) => { void uploadProductImage(e.target.files?.[0]); e.currentTarget.value = ''; }}
+                    />
+                  </label>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowMediaGallery(true)}
+                  className="w-full h-11 rounded-xl bg-slate-900 text-white text-xs font-extrabold inline-flex items-center justify-center gap-2"
+                >
+                  <Images className="w-4 h-4" /> Choose from store gallery
+                </button>
                 <input type="url" inputMode="url" value={newProduct.imageUrl} onChange={(e) => setNewProduct((p) => ({ ...p, imageUrl: e.target.value }))} placeholder="Or paste an image URL" className="w-full h-10 px-3 rounded-xl border border-slate-200 text-sm" />
               </div>
             </div>
@@ -502,6 +585,60 @@ export default function MobilePOS() {
               <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-black/60 text-white text-xs font-bold">
                 <QrCode className="w-4 h-4 animate-pulse" /> Point camera at product barcode
               </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <StoreMediaGallery
+        open={showMediaGallery}
+        onClose={() => setShowMediaGallery(false)}
+        onSelect={({ url, suggestion }) => setNewProduct((product) => ({
+          ...product,
+          imageUrl: url,
+          name: suggestion.name || product.name,
+          category: suggestion.category || product.category,
+        }))}
+      />
+
+      {showManagerApproval && (
+        <div className="fixed inset-0 z-[10200] grid place-items-center bg-black/60 p-4">
+          <div className="w-full max-w-sm rounded-3xl bg-white p-5 shadow-2xl">
+            <div className="flex items-start justify-between">
+              <div>
+                <h3 className="text-base font-extrabold text-slate-900">Manager approval required</h3>
+                <p className="mt-1 text-xs text-slate-500">This discount is above the approval limit.</p>
+              </div>
+              <button onClick={() => setShowManagerApproval(false)} className="grid h-8 w-8 place-items-center rounded-full bg-slate-100">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="mt-4 space-y-3">
+              <input
+                type="email"
+                inputMode="email"
+                autoComplete="username"
+                value={managerForm.email}
+                onChange={(event) => setManagerForm((form) => ({ ...form, email: event.target.value }))}
+                placeholder="Manager email"
+                className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm"
+              />
+              <input
+                type="password"
+                autoComplete="current-password"
+                value={managerForm.password}
+                onChange={(event) => setManagerForm((form) => ({ ...form, password: event.target.value }))}
+                placeholder="Manager password"
+                className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm"
+              />
+              <button
+                onClick={() => void approveAndCheckout()}
+                disabled={managerBusy || !managerForm.email.trim() || !managerForm.password}
+                className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 text-sm font-extrabold text-white disabled:opacity-40"
+              >
+                {managerBusy && <Loader2 className="h-4 w-4 animate-spin" />}
+                {managerBusy ? 'Verifying…' : 'Approve & complete sale'}
+              </button>
             </div>
           </div>
         </div>

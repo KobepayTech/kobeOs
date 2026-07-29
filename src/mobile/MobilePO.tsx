@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api } from '@/lib/api';
+import { api, apiArray, apiObject } from '@/lib/api';
 import { Plus, Trash2, Loader2, CheckCircle2, X, ClipboardList, TrendingUp, UserPlus } from 'lucide-react';
 
 /**
@@ -43,7 +43,7 @@ export default function MobilePO() {
     setSupplierErr(null);
     setSavingSupplier(true);
     try {
-      const created = await api<Supplier>('/erp/sourcing/suppliers', {
+      const response = await api<unknown>('/erp/sourcing/suppliers', {
         method: 'POST',
         body: JSON.stringify({
           name: supplierForm.name.trim(),
@@ -52,6 +52,8 @@ export default function MobilePO() {
           phone: supplierForm.phone.trim() || undefined,
         }),
       });
+      const created = apiObject<Supplier>(response);
+      if (!created?.id) throw new Error('Supplier was saved but the response was invalid.');
       // Add to local list + auto-select so the operator can continue
       // straight to line items.
       setSuppliers((prev) => [...prev, created]);
@@ -69,8 +71,8 @@ export default function MobilePO() {
     let cancelled = false;
     (async () => {
       try {
-        const list = await api<Supplier[]>('/erp/sourcing/suppliers');
-        if (!cancelled) setSuppliers(Array.isArray(list) ? list : []);
+        const response = await api<unknown>('/erp/sourcing/suppliers');
+        if (!cancelled) setSuppliers(apiArray<Supplier>(response, ['suppliers']));
       } catch (e) {
         if (!cancelled) setErr((e as Error).message);
       }

@@ -116,7 +116,15 @@ const PROMPTS_BY_APP: Record<string, string[]> = {
   'erp-accounting': ['How much did I spend this month?', 'What are today’s sales?'],
 };
 
-export default function KobeAssistant({ contextLabel, appId }: { contextLabel?: string; appId?: string } = {}) {
+export default function KobeAssistant({
+  contextLabel,
+  appId,
+  responseMode = 'quality',
+}: {
+  contextLabel?: string;
+  appId?: string;
+  responseMode?: 'fast' | 'quality';
+} = {}) {
   const suggestions = (appId && PROMPTS_BY_APP[appId]) || DEFAULT_SUGGESTIONS;
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
@@ -231,7 +239,7 @@ export default function KobeAssistant({ contextLabel, appId }: { contextLabel?: 
     try {
       const response = await api<unknown>('/ai/assistant', {
         method: 'POST',
-        body: JSON.stringify({ message: q, history: [...ctx, ...history] }),
+        body: JSON.stringify({ message: q, history: [...ctx, ...history], mode: responseMode }),
         offlineFallback: false,
       });
       const r = apiObject<{ reply: string; data?: unknown; pendingAction?: PendingAction | null }>(response);
@@ -251,6 +259,7 @@ export default function KobeAssistant({ contextLabel, appId }: { contextLabel?: 
                 ...history,
                 { role: 'user', content: q },
               ],
+              mode: responseMode,
             }),
             offlineFallback: false,
           });

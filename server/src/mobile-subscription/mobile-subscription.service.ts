@@ -6,6 +6,7 @@ import {
   MobileSubscription,
   MOBILE_SUB_PRICE_TZS,
   MOBILE_TRIAL_MS,
+  MOBILE_MODULE_TRIAL_MS,
   MOBILE_PERIOD_MS,
   type MobileSubStatus,
 } from './mobile-subscription.entity';
@@ -31,7 +32,8 @@ export const MOBILE_MODULE_CATALOG: MobileModuleDefinition[] = [
   { id: 'inventory', name: 'Inventory', description: 'Check shared stock and product availability.', priceTzs: 0, included: true },
   { id: 'orders', name: 'Orders', description: 'Review store and POS orders.', priceTzs: 0, included: true },
   { id: 'image-order', name: 'Order from image', description: 'Turn an annotated customer image into an order.', priceTzs: 0, included: true },
-  { id: 'po', name: 'Purchasing', description: 'Create and receive purchase orders.', priceTzs: 25_000, included: false },
+  { id: 'po', name: 'Purchasing', description: 'Create and receive purchase orders.', priceTzs: 0, included: true },
+  { id: 'discounts', name: 'Discount approvals', description: 'Approve, counter, or reject cashier discount requests.', priceTzs: 0, included: true },
   { id: 'dispatch', name: 'Dispatch', description: 'Pack, assign, and dispatch deliveries.', priceTzs: 35_000, included: false },
   { id: 'hotel', name: 'Hotel', description: 'Run hotel operations as a separate mobile app.', priceTzs: 50_000, included: false },
   { id: 'lipa', name: 'Lipa', description: 'Mobile collections and payment operations.', priceTzs: 30_000, included: false },
@@ -82,7 +84,7 @@ export class MobileSubscriptionService {
   }
 
   /**
-   * Resolve a shop's current access. Lazily starts the 48h trial the first
+   * Resolve a shop's current access. Lazily starts the 14-day trial the first
    * time a shop is seen. Access is derived from timestamps (paid period wins,
    * else an unused trial that's still valid, else expired) so it can't drift
    * from a stale status column.
@@ -102,7 +104,17 @@ export class MobileSubscriptionService {
           amountTzs: 0,
         }),
       );
-      this.logger.log(`Mobile trial started for shop "${slug}" (48h).`);
+      this.logger.log(`Mobile trial started for shop "${slug}" (14 days).`);
+    }
+
+    // Upgrade active legacy 48-hour trials to the current 14-day policy
+    // without restarting trials for shops older than fourteen days.
+    if (!sub.currentPeriodEndsAt && sub.trialEndsAt && sub.createdAt) {
+      const policyEnd = sub.createdAt.getTime() + MOBILE_TRIAL_MS;
+      if (sub.trialEndsAt.getTime() < policyEnd && policyEnd > now) {
+        sub.trialEndsAt = new Date(policyEnd);
+        await this.repo.save(sub);
+      }
     }
 
     const paidActive = !!sub.currentPeriodEndsAt && sub.currentPeriodEndsAt.getTime() > now;
@@ -177,6 +189,46 @@ export class MobileSubscriptionService {
     await this.repo.save(sub);
 
     return { transactionId, orderId: order_id, amount: MOBILE_SUB_PRICE_TZS, slug };
+  }
+
+  /** Install one optional module without requiring a configured payment
+   * provider. The first install gets a single 14-day trial. An expired
+   * entitlement remains in the JSON map, which prevents trial resets. */
+  async installModuleTrial(slugRaw: string, moduleId: string) {
+    const slug = this.norm(slugRaw);
+    if (!slug) throw new BadRequestException('slug is required');
+    const module = MOBILE_MODULE_CATALOG.find((item) => item.id === moduleId);
+    if (!module) throw new BadRequestException('Unknown mobile module');
+    if (module.included) {
+      return { moduleId, status: 'active', trialEndsAt: null, included: true };
+    }
+
+    const access = await this.getAccess(slug);
+    if (access.access === 'expired') {
+      throw new BadRequestException('Renew the base mobile subscription before adding modules');
+    }
+
+    const sub = await this.repo.findOne({ where: { slug } });
+    if (!sub) throw new NotFoundException('Mobile subscription not found');
+    const previous = sub.moduleEntitlements?.[module.id];
+    const previousExpiry = Date.parse(previous ?? '');
+    if (Number.isFinite(previousExpiry) && previousExpiry > Date.now()) {
+      return { moduleId, status: 'active', trialEndsAt: previousExpiry, included: false };
+    }
+    if (previous) {
+      throw new BadRequestException(
+        `${module.name} trial has ended. Configure PalmPesa to renew this module.`,
+      );
+    }
+
+    const trialEndsAt = Date.now() + MOBILE_MODULE_TRIAL_MS;
+    sub.moduleEntitlements = {
+      ...(sub.moduleEntitlements ?? {}),
+      [module.id]: new Date(trialEndsAt).toISOString(),
+    };
+    await this.repo.save(sub);
+    this.logger.log(`Mobile module "${module.id}" trial ACTIVE for shop "${slug}" (14 days).`);
+    return { moduleId, status: 'trial', trialEndsAt, included: false };
   }
 
   /** Start a separate 30-day subscription for one optional mobile module. */

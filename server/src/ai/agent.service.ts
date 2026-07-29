@@ -898,7 +898,12 @@ export class KobeAgentService {
     }
   }
 
-  async run(ownerId: string, message: string, history: Array<{ role: 'user' | 'assistant'; content: string }> = []): Promise<AgentReply> {
+  async run(
+    ownerId: string,
+    message: string,
+    history: Array<{ role: 'user' | 'assistant'; content: string }> = [],
+    mode: 'fast' | 'quality' = 'quality',
+  ): Promise<AgentReply> {
     const deterministic = await this.deterministicReply(ownerId, message);
     if (deterministic) return deterministic;
 
@@ -920,7 +925,13 @@ ${memoryBlock}Tools:
 ${this.toolList(activeToolNames)}`;
 
     const first = await this.ai.chatCompletion({
-      messages: [{ role: 'system', content: system }, ...history, { role: 'user', content: message }],
+      messages: [
+        { role: 'system', content: system },
+        ...(mode === 'fast' ? history.slice(-6) : history),
+        { role: 'user', content: message },
+      ],
+      mode,
+      maxTokens: mode === 'fast' ? 320 : undefined,
     }).catch((e) => { this.logger.warn(`LLM error: ${(e as Error).message}`); return { content: '' } as { content: string }; });
 
     const specialist = spec?.title;
@@ -950,6 +961,8 @@ ${this.toolList(activeToolNames)}`;
         { role: 'assistant', content: JSON.stringify(call) },
         { role: 'user', content: `Tool ${tool.name} returned: ${JSON.stringify(result.data)}. Answer the original question briefly using these numbers.` },
       ],
+      mode,
+      maxTokens: mode === 'fast' ? 256 : undefined,
     }).catch(() => ({ content: '' } as { content: string }));
 
     const reply = (second.content || '').trim() || this.fallbackSummary(tool.name, result.data);

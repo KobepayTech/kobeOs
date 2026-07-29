@@ -10,7 +10,7 @@ export class AppController {
   // Health/liveness is polled constantly (Electron boot, useBackendHealth,
   // Cloudflare Tunnel) — exempt it from the global rate limiter so it never
   // returns 429 and boot/health detection stays reliable.
-  @SkipThrottle()
+  @SkipThrottle({ default: true, auth: true, 'public-lookup': true })
   @Public()
   @Get('health')
   async health() {

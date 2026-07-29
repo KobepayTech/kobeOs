@@ -1,5 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Post, Put, UseGuards } from '@nestjs/common';
-import { IsArray, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsArray, IsIn, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -11,6 +11,7 @@ import { AiDocsService } from './ai-docs.service';
 class AssistantDto {
   @IsString() @MaxLength(2000) message!: string;
   @IsOptional() @IsArray() history?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  @IsOptional() @IsIn(['fast', 'quality']) mode?: 'fast' | 'quality';
 }
 
 class ExecuteActionDto {
@@ -76,7 +77,7 @@ export class AiController {
    */
   @Post('assistant')
   assistant(@CurrentUser('id') uid: string, @Body() dto: AssistantDto) {
-    return this.agent.run(uid, dto.message, dto.history ?? []);
+    return this.agent.run(uid, dto.message, dto.history ?? [], dto.mode ?? 'quality');
   }
 
   /**

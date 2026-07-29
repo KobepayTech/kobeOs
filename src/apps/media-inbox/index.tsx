@@ -16,7 +16,7 @@ import {
   UploadCloud,
   X,
 } from 'lucide-react';
-import { api } from '@/lib/api';
+import { api, apiArray } from '@/lib/api';
 
 type Status = 'UNPROCESSED' | 'PROCESSING' | 'PROCESSED' | 'FAILED';
 
@@ -96,8 +96,8 @@ export default function MediaInboxApp() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const rows = await api<MediaItem[]>(`/media/inbox?status=${status}`);
-      setItems(Array.isArray(rows) ? rows : []);
+      const response = await api<unknown>(`/media/inbox?status=${status}`);
+      setItems(apiArray<MediaItem>(response));
       setSelected(new Set());
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not load media inbox.');
@@ -125,7 +125,8 @@ export default function MediaInboxApp() {
         const batch = images.slice(offset, offset + 10);
         const data = new FormData();
         batch.forEach((file) => data.append('files', file));
-        const result = await api<UploadResponse[]>('/media/inbox/upload', { method: 'POST', body: data });
+        const response = await api<unknown>('/media/inbox/upload', { method: 'POST', body: data });
+        const result = apiArray<UploadResponse>(response);
         duplicates += result.filter((entry) => entry.duplicate).length;
         setUploadProgress({ done: Math.min(images.length, offset + batch.length), total: images.length, duplicates });
       }
@@ -153,10 +154,11 @@ export default function MediaInboxApp() {
     if (!selected.size) return;
     setSuggesting(true); setError(null);
     try {
-      const rows = await api<Array<{ itemId: string; suggestions: Record<string, unknown> }>>('/media/inbox/suggest', {
+      const response = await api<unknown>('/media/inbox/suggest', {
         method: 'POST',
         body: JSON.stringify({ itemIds: [...selected], moduleId: target.moduleId, categoryHint: defaults.category || undefined }),
       });
+      const rows = apiArray<{ itemId: string; suggestions: Record<string, unknown> }>(response);
       setEdits((current) => {
         const next = { ...current };
         rows.forEach(({ itemId, suggestions }) => {

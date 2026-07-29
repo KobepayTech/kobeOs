@@ -35,6 +35,7 @@ const TABS: MobileModuleUi[] = [
   { id: 'orders',      to: 'orders',      label: 'Orders',      Icon: Receipt },
   { id: 'image-order', to: 'image-order', label: 'Image order', Icon: Sparkles, showInNav: false },
   { id: 'po',          to: 'po',          label: 'Purchase',    Icon: ClipboardList },
+  { id: 'discounts',   to: 'discounts',   label: 'Approvals',   Icon: ShieldCheck },
   { id: 'dispatch',    to: 'dispatch',    label: 'Dispatch',    Icon: Truck },
   { id: 'hotel',       to: 'hotel',       label: 'Hotel',       Icon: BedDouble },
   { id: 'lipa',        to: 'lipa',        label: 'Lipa',        Icon: Landmark },
@@ -47,8 +48,8 @@ const FALLBACK_MODULES: MobileModuleAccess[] = TABS.map((module) => ({
   name: module.label,
   description: '',
   priceTzs: 0,
-  included: ['pos', 'inventory', 'orders', 'image-order'].includes(module.id),
-  enabled: ['pos', 'inventory', 'orders', 'image-order'].includes(module.id),
+  included: ['pos', 'inventory', 'orders', 'image-order', 'po', 'discounts'].includes(module.id),
+  enabled: ['pos', 'inventory', 'orders', 'image-order', 'po', 'discounts'].includes(module.id),
   expiresAt: null,
 }));
 
@@ -116,7 +117,7 @@ export default function MobileShell() {
     return () => { cancelled = true; };
   }, []);
 
-  // Subscription gate — a shop's /m workspace is free for 48h, then requires a
+  // Subscription gate — a shop's /m workspace is free for 14 days, then requires a
   // monthly PalmPesa subscription. Checked after sign-in. Fails OPEN: a billing
   // hiccup or an older backend without this endpoint must never lock staff out —
   // the paywall only appears when the server explicitly returns access:'expired'.
@@ -225,7 +226,7 @@ export default function MobileShell() {
         </div>
       </header>
 
-      {/* Trial countdown — free for 48h, then the paywall kicks in. Tapping it
+      {/* Trial countdown — free for 14 days, then the paywall kicks in. Tapping it
           lets the shop subscribe early via PalmPesa. */}
       {access?.access === 'trial' && (
         <button
@@ -246,10 +247,15 @@ export default function MobileShell() {
                 <Puzzle className="w-6 h-6" />
               </div>
               <h2 className="mt-3 text-lg font-extrabold text-slate-900">{lockedModule.name} is not added</h2>
-              <p className="mt-1 text-xs text-slate-500">This module stays hidden until the shop owner chooses and pays for it.</p>
-              <Link to={`/m/${slug}/modules`} className="mt-4 h-11 rounded-xl bg-indigo-600 text-white font-extrabold text-sm inline-flex items-center justify-center gap-2 px-5">
-                <Plus className="w-4 h-4" /> Add module
-              </Link>
+              <p className="mt-1 text-xs text-slate-500">Install this module here and continue with a 14-day free trial.</p>
+              <InlineModuleInstall
+                slug={slug}
+                module={lockedModule}
+                onInstalled={async () => {
+                  await refreshAccess();
+                  navigate(`/m/${slug}/${currentModule?.to ?? lockedModule.id}`);
+                }}
+              />
             </div>
           </div>
         ) : (
@@ -284,6 +290,51 @@ export default function MobileShell() {
 }
 
 /* ─── Sign-in (email + password) ──────────────────────────────────────── */
+
+function InlineModuleInstall({
+  slug,
+  module,
+  onInstalled,
+}: {
+  slug: string;
+  module: MobileModuleAccess;
+  onInstalled: () => Promise<void>;
+}) {
+  const [installing, setInstalling] = useState(false);
+  const [error, setError] = useState('');
+
+  const install = async () => {
+    setInstalling(true);
+    setError('');
+    try {
+      await api('/mobile-access/modules/install', {
+        method: 'POST',
+        body: JSON.stringify({ slug, moduleId: module.id }),
+        offlineFallback: false,
+      });
+      await onInstalled();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not install this module.');
+    } finally {
+      setInstalling(false);
+    }
+  };
+
+  return (
+    <div className="mt-4 space-y-2">
+      <button
+        onClick={() => void install()}
+        disabled={installing}
+        className="h-11 w-full rounded-xl bg-indigo-600 px-5 text-sm font-extrabold text-white inline-flex items-center justify-center gap-2 disabled:opacity-50"
+      >
+        {installing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+        {installing ? 'Installing…' : 'Install — 14 days free'}
+      </button>
+      <p className="text-[10px] text-slate-400">No payment setup is needed until the trial ends.</p>
+      {error && <p className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-[11px] text-rose-700">{error}</p>}
+    </div>
+  );
+}
 
 function MobileSignIn({ slug, onSignedIn }: { slug: string; onSignedIn: () => void }) {
   const [email, setEmail] = useState(() => localStorage.getItem('kobe_session_email') || '');
@@ -442,7 +493,7 @@ export function MobileHome() {
 }
 
 /** Optional modules are discoverable only here. Locked apps do not appear on
- * the home screen or navigation until their PalmPesa payment activates. */
+ * the home screen or navigation until its trial or payment activates. */
 export function MobileModules() {
   const { slug, modules, refreshAccess } = useOutletContext<MobileOutletContext>();
   const navigate = useNavigate();
@@ -450,6 +501,30 @@ export function MobileModules() {
   const [phone, setPhone] = useState(() => localStorage.getItem('kobe_msub_phone') || '');
   const [phase, setPhase] = useState<'idle' | 'pushing' | 'waiting'>('idle');
   const [error, setError] = useState<string | null>(null);
+
+  const installTrial = async (module: MobileModuleAccess) => {
+    setPhase('pushing');
+    setError(null);
+    try {
+      await api('/mobile-access/modules/install', {
+        method: 'POST',
+        body: JSON.stringify({ slug, moduleId: module.id }),
+        offlineFallback: false,
+      });
+      await refreshAccess();
+      navigate(`/m/${slug}/${module.id}`);
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : 'Could not install this module.';
+      if (/trial has ended|configure palmpesa/i.test(message)) {
+        setSelected(module.id);
+        setError('The 14-day trial has ended. Enter a mobile-money number after PalmPesa is configured.');
+      } else {
+        setError(message);
+      }
+    } finally {
+      setPhase('idle');
+    }
+  };
 
   const purchase = async (module: MobileModuleAccess) => {
     if (!/^[+0-9\s-]{9,15}$/.test(phone.trim())) {
@@ -495,7 +570,10 @@ export function MobileModules() {
       window.setTimeout(() => void poll(), 4000);
     } catch (e) {
       setPhase('idle');
-      setError((e as Error).message || 'Could not start module payment.');
+      const message = (e as Error).message || 'Could not start module payment.';
+      setError(/palmpesa|not configured|missing/i.test(message)
+        ? 'PalmPesa is not configured yet. Ask the KobeOS administrator to add the PalmPesa credentials.'
+        : message);
     }
   };
 
@@ -505,6 +583,9 @@ export function MobileModules() {
         <h2 className="text-xl font-extrabold text-slate-900">Mobile modules</h2>
         <p className="text-xs text-slate-500 mt-1">Each module is a separate installable web app. Optional modules stay hidden until you add them.</p>
       </div>
+      {error && !selected && (
+        <p className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">{error}</p>
+      )}
 
       <div className="space-y-3">
         {modules.map((module) => {
@@ -540,8 +621,13 @@ export function MobileModules() {
                   Open {module.name}
                 </Link>
               ) : !module.included && !isSelected ? (
-                <button onClick={() => { setSelected(module.id); setError(null); }} className="mt-3 w-full h-10 rounded-xl bg-indigo-600 text-white font-extrabold text-xs inline-flex items-center justify-center gap-1.5">
-                  <Plus className="w-3.5 h-3.5" /> Add module
+                <button
+                  onClick={() => void installTrial(module)}
+                  disabled={phase !== 'idle'}
+                  className="mt-3 w-full h-10 rounded-xl bg-indigo-600 text-white font-extrabold text-xs inline-flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  {phase !== 'idle' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                  Install — 14 days free
                 </button>
               ) : null}
 
@@ -603,7 +689,7 @@ interface MobileAccessResult {
 
 /**
  * Blocks (or, in `dismissible` mode, overlays) the mobile workspace once the
- * 48h trial is over. Collects a mobile-money number, fires a PalmPesa USSD
+ * 14-day trial is over. Collects a mobile-money number, fires a PalmPesa USSD
  * push via /mobile-access/subscribe, then polls /status until the payment
  * settles and unlocks the shop for 30 days.
  */
@@ -679,7 +765,7 @@ function MobilePaywall({
           <p className="text-xs text-slate-500 mt-1">
             {dismissible
               ? `Lock in the ${slug} mobile workspace before your trial runs out.`
-              : `The ${slug} mobile workspace was free for 48 hours. Subscribe to keep using it.`}
+              : `The ${slug} mobile workspace was free for 14 days. Subscribe to keep using it.`}
           </p>
         </div>
 

@@ -47,6 +47,9 @@ interface OSStore {
   isAppInstalled: (appId: string) => boolean;
   setAppEntitlements: (records: unknown) => void;
   recordInstalledApp: (record: AppEntitlementSnapshot) => void;
+  pendingInstallAppId: string | null;
+  requestAppInstall: (appId: string) => void;
+  clearAppInstallRequest: () => void;
 
   // Desktop
   selectedIconId: string | null;
@@ -120,6 +123,7 @@ export const useOSStore = create<OSStore>()(
       apps: [],
       installedAppIds: [...CORE_APP_IDS],
       appEntitlements: {},
+      pendingInstallAppId: null,
       selectedIconId: null,
       contextMenu: null,
       notifications: [],
@@ -257,10 +261,7 @@ export const useOSStore = create<OSStore>()(
         const app = get().getApp(appId);
         if (!app) return null;
         if (!get().isAppInstalled(appId)) {
-          const store = get().getApp('package-manager');
-          if (store && appId !== 'package-manager') {
-            return get().openWindow('package-manager', store.name, { requestedAppId: appId });
-          }
+          if (appId !== 'package-manager') get().requestAppInstall(appId);
           return null;
         }
         return get().openWindow(appId, app.name, data);
@@ -288,6 +289,8 @@ export const useOSStore = create<OSStore>()(
           ? state.installedAppIds
           : [...state.installedAppIds, record.appId],
       })),
+      requestAppInstall: (appId) => set({ pendingInstallAppId: appId }),
+      clearAppInstallRequest: () => set({ pendingInstallAppId: null }),
 
       selectIcon: (id) => set({ selectedIconId: id }),
       deselectIcon: () => set({ selectedIconId: null }),

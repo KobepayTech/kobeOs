@@ -27,6 +27,10 @@ on:
         description: 'Folder on this PC holding the .gguf files'
         required: false
         default: 'C:\KobeOS\Models'
+      ollama_dir:
+        description: 'Existing Ollama install to reuse without downloading'
+        required: false
+        default: 'C:\Users\HomePC\AppData\Local\Programs\Ollama'
       require_models:
         description: 'Fail the build if a listed model is missing'
         type: boolean
@@ -55,14 +59,17 @@ jobs:
         run: |
           $source = Join-Path ([Environment]::GetFolderPath('Desktop')) 'KobeOS-Installers'
           $out = if ($env:KOBE_OUTPUT_DIR) { $env:KOBE_OUTPUT_DIR } else { 'C:\KobeOS\Installers' }
-          $installers = @(Get-ChildItem (Join-Path $source '*.exe') -File -ErrorAction SilentlyContinue)
-          if ($installers.Count -eq 0) {
+          $artifacts = @(
+            Get-ChildItem $source -File -ErrorAction SilentlyContinue |
+              Where-Object { $_.Extension -eq '.exe' -or $_.Name -like '*.nsis.7z' }
+          )
+          if (!($artifacts | Where-Object Extension -eq '.exe')) {
             throw "No existing installers found in the runner service output: $source"
           }
           New-Item -ItemType Directory -Force -Path $out | Out-Null
-          $installers | Copy-Item -Destination $out -Force
-          Write-Host "Recovered installers to: $out"
-          Get-ChildItem (Join-Path $out '*.exe') | ForEach-Object {
+          $artifacts | Copy-Item -Destination $out -Force
+          Write-Host "Recovered installer artifacts to: $out"
+          $artifacts | ForEach-Object {
             Write-Host ("  " + $_.Name + "  " + [math]::Round($_.Length/1MB,1) + " MB")
           }
         env:
@@ -215,10 +222,11 @@ jobs:
       # The AI is the whole point of this build, so a missing Ollama runtime is
       # a hard failure (OLLAMA_REQUIRED=1). GITHUB_TOKEN raises the API rate
       # limit so version resolution never silently fails on a busy runner.
-      - name: Download Ollama (local AI runtime)
+      - name: Prepare Ollama runtime (reuse local or download)
         run: npm run download:ollama
         env:
           OLLAMA_REQUIRED: '1'
+          OLLAMA_LOCAL_DIR: ${{ github.event.inputs.ollama_dir || vars.KOBE_OLLAMA_DIR }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # This is the whole point of the self-hosted build: copy YOUR local GGUFs
@@ -231,32 +239,56 @@ jobs:
           KOBE_MODELS_REQUIRED: ${{ github.event.inputs.require_models == 'false' && '0' || '1' }}
 
       # ── Build installer ─────────────────────────────────────────────────────
-      - name: Build Windows installer
-        run: npx electron-builder --win --publish never --config.directories.output="$env:KOBE_RELEASE_DIR"
+      # Offline AI pushes the app package beyond NSIS's 4 GiB embedded-file
+      # ceiling. nsis-web deliberately keeps the package as a sidecar .7z. When
+      # the setup EXE and sidecar are in the same folder, installation is fully
+      # offline; the configured URL is only a fallback if the sidecar is absent.
+      - name: Build Windows offline setup and sidecar package
+        run: npx electron-builder --win nsis-web --publish never --config.directories.output="$env:KOBE_RELEASE_DIR"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Copy vc_redist.x64.exe next to installer
         run: |
-          Copy-Item "build\vcredist\vc_redist.x64.exe" (Join-Path $env:KOBE_RELEASE_DIR "vc_redist.x64.exe") -Force
-          Write-Host "Copied vc_redist.x64.exe to $env:KOBE_RELEASE_DIR"
-
-      # ── Smoke tests ─────────────────────────────────────────────────────────
-      - name: 'Smoke test: verify installer exists and is non-trivial'
-        run: |
-          $exes = @(Get-ChildItem (Join-Path $env:KOBE_RELEASE_DIR "*.exe") -ErrorAction SilentlyContinue)
-          if ($exes.Count -eq 0) {
-            Write-Error "No .exe found in $env:KOBE_RELEASE_DIR"
+          $package = Get-ChildItem $env:KOBE_RELEASE_DIR -Recurse -File -Filter "*.nsis.7z" | Select-Object -First 1
+          if (!$package) {
+            Write-Error "NSIS sidecar package was not produced"
             exit 1
           }
-          foreach ($exe in $exes) {
-            Write-Host "$($exe.Name): $([math]::Round($exe.Length/1MB, 1)) MB"
-            if ($exe.Length -lt 10MB) {
-              Write-Error "$($exe.Name) is suspiciously small (<10 MB)"
-              exit 1
-            }
+          Copy-Item "build\vcredist\vc_redist.x64.exe" (Join-Path $package.DirectoryName "vc_redist.x64.exe") -Force
+          Write-Host "Copied vc_redist.x64.exe next to the offline setup: $($package.DirectoryName)"
+
+      # ── Smoke tests ─────────────────────────────────────────────────────────
+      - name: 'Smoke test: verify setup and sidecar package'
+        run: |
+          $packages = @(Get-ChildItem $env:KOBE_RELEASE_DIR -Recurse -File -Filter "*.nsis.7z")
+          if ($packages.Count -ne 1) {
+            Write-Error "Expected exactly one .nsis.7z sidecar, found $($packages.Count)"
+            exit 1
           }
-          Write-Host "Smoke test passed"
+          $setups = @(
+            Get-ChildItem $packages[0].DirectoryName -File -Filter "*.exe" |
+              Where-Object Name -ne "vc_redist.x64.exe"
+          )
+          if ($setups.Count -ne 1) {
+            Write-Error "Expected exactly one setup EXE next to the sidecar, found $($setups.Count)"
+            exit 1
+          }
+          if ($setups[0].Length -lt 1MB) {
+            Write-Error "$($setups[0].Name) is suspiciously small (<1 MB)"
+            exit 1
+          }
+          if ($packages[0].Length -lt 100MB) {
+            Write-Error "$($packages[0].Name) is suspiciously small (<100 MB)"
+            exit 1
+          }
+          if ($setups[0].DirectoryName -ne $packages[0].DirectoryName) {
+            Write-Error "Setup and sidecar must be in the same folder for offline installation"
+            exit 1
+          }
+          Write-Host "Setup:   $($setups[0].FullName) ($([math]::Round($setups[0].Length/1MB, 1)) MB)"
+          Write-Host "Sidecar: $($packages[0].FullName) ($([math]::Round($packages[0].Length/1MB, 1)) MB)"
+          Write-Host "Offline setup smoke test passed"
 
       - name: 'Smoke test: verify bundled AI models are present in the installer'
         run: |
@@ -346,9 +378,18 @@ jobs:
         run: |
           $out = if ($env:KOBE_OUTPUT_DIR) { $env:KOBE_OUTPUT_DIR } else { 'C:\KobeOS\Installers' }
           New-Item -ItemType Directory -Force -Path $out | Out-Null
-          Copy-Item (Join-Path $env:KOBE_RELEASE_DIR "*.exe") $out -Force
-          Write-Host "Installer copied to: $out"
-          Get-ChildItem $out\*.exe | ForEach-Object { Write-Host ("  " + $_.Name + "  " + [math]::Round($_.Length/1MB,1) + " MB") }
+          $package = Get-ChildItem $env:KOBE_RELEASE_DIR -Recurse -File -Filter "*.nsis.7z" | Select-Object -First 1
+          if (!$package) {
+            Write-Error "Refusing to publish an offline setup without its sidecar package"
+            exit 1
+          }
+          $deliverables = @(
+            Get-ChildItem $package.DirectoryName -File |
+              Where-Object { $_.Extension -eq ".exe" -or $_.Name -like "*.nsis.7z" }
+          )
+          $deliverables | Copy-Item -Destination $out -Force
+          Write-Host "Offline setup files copied to: $out"
+          $deliverables | ForEach-Object { Write-Host ("  " + $_.Name + "  " + [math]::Round($_.Length/1MB,1) + " MB") }
         env:
           KOBE_OUTPUT_DIR: ${{ vars.KOBE_OUTPUT_DIR }}
 
@@ -364,7 +405,10 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: KobeOS-Windows-Setup-offline-ai
-          path: ${{ runner.temp }}/${{ env.KOBE_RELEASE_NAME }}/*.exe
+          path: |
+            ${{ runner.temp }}/${{ env.KOBE_RELEASE_NAME }}/nsis-web/*.exe
+            ${{ runner.temp }}/${{ env.KOBE_RELEASE_NAME }}/nsis-web/*.nsis.7z
+            ${{ runner.temp }}/${{ env.KOBE_RELEASE_NAME }}/nsis-web/vc_redist.x64.exe
           retention-days: 30
 
       # Keep RUNNER_TEMP from accumulating multi-GB build directories. The

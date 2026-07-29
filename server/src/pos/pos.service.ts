@@ -14,8 +14,9 @@ import { PosGateway } from './pos.gateway';
 export class ProductsService {
   constructor(@InjectRepository(PosProduct) private readonly repo: Repository<PosProduct>) {}
 
-  list(uid: string, page = 1, limit = 50) {
-    return this.repo.find({ where: { ownerId: uid }, order: { name: 'ASC' }, skip: (page - 1) * limit, take: limit });
+  list(uid: string, page = 1, limit = 500) {
+    const safeLimit = Math.min(1000, Math.max(1, limit));
+    return this.repo.find({ where: { ownerId: uid }, order: { name: 'ASC' }, skip: (page - 1) * safeLimit, take: safeLimit });
   }
 
   async get(uid: string, id: string) {
@@ -216,6 +217,12 @@ export class OrdersService {
       const discount = parseFloat(
         (couponOrRuleDiscount + negotiatedDiscount + Math.max(0, manualOverride - negotiatedDiscount)).toFixed(4),
       );
+      const effectiveDiscountPercent = subtotal > 0 ? (discount / subtotal) * 100 : 0;
+      if (effectiveDiscountPercent > 20 && !dto.approvedBy) {
+        throw new ForbiddenException(
+          'Discount exceeds approval threshold; manager approval required (set approvedBy)',
+        );
+      }
 
       const total = parseFloat((subtotal + tax - discount).toFixed(4));
       const paymentMethod = dto.paymentMethod ?? 'CASH';
