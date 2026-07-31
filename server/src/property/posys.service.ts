@@ -241,7 +241,7 @@ export class PosysService {
    * and rejects with "Token is used". Also sweeps EXPIRED here so an
    * expired-past-TTL row is refused inside the same critical section.
    */
-  async redeemToken(code: string, dto: { amountReceived: number; agentId?: string }): Promise<{
+  async redeemToken(code: string, dto: { amountReceived: number; agentId?: string; idempotencyKey?: string }): Promise<{
     code: string;
     status: PropertyPaymentToken['status'];
     expected: number;
@@ -266,13 +266,31 @@ export class PosysService {
       }
       if (row.status !== 'ACTIVE') throw new BadRequestException(`Token is ${row.status.toLowerCase()}`);
 
+      const expected = Number(row.amount);
+      const key = dto.idempotencyKey?.trim();
+
+      // Idempotency: a retried redeem carrying a key we've already applied is a
+      // no-op — return the current state without adding the amount again or
+      // inserting a duplicate RentPayment.
+      if (key && Array.isArray(row.redeemedKeys) && row.redeemedKeys.includes(key)) {
+        const paid = Number(row.usedAmount);
+        return { code: row.code, status: row.status, expected, paid, remaining: Math.max(0, expected - paid), currency: row.currency, fullyPaid: paid >= expected };
+      }
+
+      // Overpayment cap: never accept more than the remaining balance, so the
+      // recorded rent can't exceed what was actually owed on this token.
+      const remaining = expected - Number(row.usedAmount);
+      if (dto.amountReceived > remaining + 1e-6) {
+        throw new BadRequestException(`Amount exceeds remaining balance (${Math.max(0, remaining)} ${row.currency})`);
+      }
+
       // Accumulate — a half payment leaves the SAME token ACTIVE so the tenant
       // completes it later with the same code. The token only closes (USED)
       // once the total received reaches the expected amount.
       row.usedAmount = Number(row.usedAmount) + dto.amountReceived;
       row.usedAt = new Date();
       row.agentId = dto.agentId ?? null;
-      const expected = Number(row.amount);
+      if (key) row.redeemedKeys = [...(row.redeemedKeys ?? []), key];
       const fullyPaid = row.usedAmount >= expected;
       if (fullyPaid) row.status = 'USED';
       await repo.save(row);

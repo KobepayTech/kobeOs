@@ -1,7 +1,8 @@
 import {
   IsDateString, IsEnum, IsInt, IsNumber, IsOptional,
-  IsString, IsUUID, MaxLength, Min, IsObject,
+  IsString, IsUUID, MaxLength, Min, Max, IsObject, IsArray, ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class CreateMatchDto {
   @IsString() @MaxLength(40) sport!: string;
@@ -91,10 +92,10 @@ export class TrackedObject {
   @IsString() class!: string;
 
   /** Pitch-normalised X coordinate (0 = left goal line, 100 = right goal line) */
-  @IsNumber() x!: number;
+  @IsNumber() @Min(0) @Max(100) x!: number;
 
   /** Pitch-normalised Y coordinate (0 = top touchline, 100 = bottom touchline) */
-  @IsNumber() y!: number;
+  @IsNumber() @Min(0) @Max(100) y!: number;
 
   /** Confidence score from YOLO (0–1) */
   @IsNumber() confidence!: number;
@@ -106,7 +107,7 @@ export class TrackedObject {
   @IsOptional() @IsInt() jerseyNumber?: number;
 
   /** Bounding box in original pixel coords [x1, y1, x2, y2] */
-  @IsOptional() metadata?: number[];
+  @IsOptional() @IsArray() metadata?: number[];
 }
 
 /**
@@ -124,7 +125,7 @@ export class IngestFrameDto {
   @IsInt() half!: number;
 
   /** All tracked objects in this frame */
-  objects!: TrackedObject[];
+  @IsArray() @ValidateNested({ each: true }) @Type(() => TrackedObject) objects!: TrackedObject[];
 
   /**
    * Optional: event detected in this frame by the event-detection model.
@@ -136,7 +137,7 @@ export class IngestFrameDto {
    * Optional: raw homography matrix (3×3) used to map pixel → pitch coords.
    * Stored for audit / replay.
    */
-  @IsOptional() homography?: number[][];
+  @IsOptional() @IsArray() homography?: number[][];
 }
 
 /** Snapshot of player positions for offside checking. */
@@ -154,5 +155,5 @@ export class CheckOffsideDto {
   @IsString() attackDirection!: string;
 
   /** All player positions at this frame */
-  objects!: TrackedObject[];
+  @IsArray() @ValidateNested({ each: true }) @Type(() => TrackedObject) objects!: TrackedObject[];
 }

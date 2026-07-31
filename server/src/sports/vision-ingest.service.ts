@@ -220,16 +220,11 @@ export class VisionIngestService {
   // ── Heatmaps ───────────────────────────────────────────────────────────────
 
   private updateHeatmaps(state: LiveMatchState, home: TrackedObject[], away: TrackedObject[]) {
-    for (const p of home) {
-      const row = Math.min(HEATMAP_ROWS - 1, Math.floor((p.y / 100) * HEATMAP_ROWS));
-      const col = Math.min(HEATMAP_COLS - 1, Math.floor((p.x / 100) * HEATMAP_COLS));
-      state.heatmaps.home[row][col]++;
-    }
-    for (const p of away) {
-      const row = Math.min(HEATMAP_ROWS - 1, Math.floor((p.y / 100) * HEATMAP_ROWS));
-      const col = Math.min(HEATMAP_COLS - 1, Math.floor((p.x / 100) * HEATMAP_COLS));
-      state.heatmaps.away[row][col]++;
-    }
+    // Clamp BOTH bounds: an out-of-pitch coordinate (y<0) would otherwise give a
+    // negative index and crash on `heatmaps[-1][col]`.
+    const cell = (v: number, n: number) => Math.max(0, Math.min(n - 1, Math.floor((v / 100) * n)));
+    for (const p of home) state.heatmaps.home[cell(p.y, HEATMAP_ROWS)][cell(p.x, HEATMAP_COLS)]++;
+    for (const p of away) state.heatmaps.away[cell(p.y, HEATMAP_ROWS)][cell(p.x, HEATMAP_COLS)]++;
   }
 
   // ── Player state updates ───────────────────────────────────────────────────

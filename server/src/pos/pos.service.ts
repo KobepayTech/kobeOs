@@ -213,11 +213,14 @@ export class OrdersService {
           ? discountResult.discountAmount
           : 0;
       const manualOverride = couponOrRuleDiscount > 0 ? 0 : (dto.discountAmount ?? 0);
-      const discount = parseFloat(
-        (couponOrRuleDiscount + negotiatedDiscount + Math.max(0, manualOverride - negotiatedDiscount)).toFixed(4),
-      );
+      const rawDiscount =
+        couponOrRuleDiscount + negotiatedDiscount + Math.max(0, manualOverride - negotiatedDiscount);
+      // Clamp the total discount to the billable amount so the order total can
+      // NEVER go negative — an unbounded manual discountAmount would otherwise
+      // post negative revenue into the books / EOD till.
+      const discount = parseFloat(Math.min(rawDiscount, subtotal + tax).toFixed(4));
 
-      const total = parseFloat((subtotal + tax - discount).toFixed(4));
+      const total = parseFloat(Math.max(0, subtotal + tax - discount).toFixed(4));
       const paymentMethod = dto.paymentMethod ?? 'CASH';
       const isBnpl = paymentMethod === 'BNPL';
 

@@ -1,11 +1,20 @@
 import {
   Body, Controller, Delete, Get, Param, Post, Query, UseGuards,
 } from '@nestjs/common';
+import { IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { Public } from '../common/public.decorator';
 import { PosysService } from './posys.service';
+
+/** Public token redeem — validated so the whitelist can't strip fields. */
+class RedeemTokenDto {
+  @IsNumber() @Min(0.0001) amountReceived!: number;
+  @IsOptional() @IsString() @MaxLength(64) agentId?: string;
+  /** Client-supplied key so an at-least-once retry can't double-credit. */
+  @IsOptional() @IsString() @MaxLength(80) idempotencyKey?: string;
+}
 
 @UseGuards(JwtAuthGuard)
 @Controller('property/posys')
@@ -125,7 +134,7 @@ export class PosysTokensController {
   @Post(':code/redeem')
   redeem(
     @Param('code') code: string,
-    @Body() dto: { amountReceived: number; agentId?: string },
+    @Body() dto: RedeemTokenDto,
   ) {
     return this.svc.redeemToken(code.trim().toUpperCase(), dto);
   }
