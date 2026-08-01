@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { apiBase, markBackendReachable, setRuntimeApiBase } from '@/lib/api';
-import { discoverLanBase } from '@/lib/lan';
+import { API_BASE, apiBase, markBackendReachable, setRuntimeApiBase } from '@/lib/api';
+import { discoverLanBase, probeBase } from '@/lib/lan';
 import { useOSStore } from '@/os/store';
 
 /**
@@ -108,7 +108,14 @@ export function useBackendHealth(): BackendHealth {
               ? 'degraded' // reached the API, but SELECT 1 failed
               : 'offline'; // 200 but not our JSON (parked page / wrong origin)
         if (next === 'offline' && (await tryLanFailover())) return; // switched to WiFi; re-probe
-        if (next === 'online') markBackendReachable();
+        if (next === 'online') {
+          markBackendReachable();
+          // If we're on a LAN override but the internet base is reachable again,
+          // return to it so the app isn't stuck on WiFi after the network's back.
+          if (apiBase() !== API_BASE) {
+            probeBase(API_BASE).then((ok) => { if (ok && !cancelled) setRuntimeApiBase(null); });
+          }
+        }
         setHealth({ status: next, dbConnected: db, lastChecked: Date.now() });
         notifyTransition(next);
       } catch {
@@ -124,7 +131,9 @@ export function useBackendHealth(): BackendHealth {
 
     probe();
     // Re-probe immediately when the tab regains focus / network comes back.
-    const onWake = () => { if (!cancelled) probe(); };
+    // Clear the pending scheduled probe before a manual one, so tab focus /
+    // network-online events can't compound into multiple parallel poll loops.
+    const onWake = () => { if (!cancelled) { if (timer) clearTimeout(timer); probe(); } };
     window.addEventListener('online', onWake);
     window.addEventListener('focus', onWake);
 

@@ -586,17 +586,29 @@ export const HotelAdminDashboard: React.FC = () => {
   }, [guestForm, selectedHotel, hotels, liveData, loadHotels]);
 
   const handleAddHotel = useCallback(async () => {
-    let slug = (hotelForm.name || 'hotel').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 38);
-    if (slug.length < 3) slug = `${slug || 'h'}-hotel`;
+    const name = hotelForm.name?.trim() || 'New Hotel';
+    // Valid per the server rule ^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$: strip AFTER
+    // slicing so we never end on a hyphen, and pad short names.
+    const makeSlug = (suffix = '') => {
+      let s = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+      s = s.slice(0, 40 - suffix.length).replace(/-+$/, '') + suffix;
+      if (s.length < 3) s = `${s || 'hotel'}-${Math.random().toString(36).slice(2, 6)}`;
+      return s.slice(0, 40).replace(/-+$/, '');
+    };
+    const submit = (slug: string) => api('/hotel/properties', { method: 'POST', body: JSON.stringify({ slug, name }) });
     try {
-      await api('/hotel/properties', {
-        method: 'POST',
-        body: JSON.stringify({ slug, name: hotelForm.name || 'New Hotel' }),
-      });
+      try { await submit(makeSlug()); }
+      catch (e) {
+        if (/already taken/i.test((e as Error).message)) await submit(makeSlug(`-${Math.random().toString(36).slice(2, 5)}`));
+        else throw e;
+      }
       await loadHotels();
-    } catch { /* offline / no backend */ }
-    setHotelForm({ name: '', location: '', rooms: '', phone: '', email: '' });
-    setShowAddHotel(false);
+      setHotelForm({ name: '', location: '', rooms: '', phone: '', email: '' });
+      setShowAddHotel(false);
+    } catch (e) {
+      // Surface the failure instead of silently closing the form.
+      window.alert('Could not add hotel: ' + (e as Error).message);
+    }
   }, [hotelForm, loadHotels]);
 
   const aggregatedStats = useMemo(() => {

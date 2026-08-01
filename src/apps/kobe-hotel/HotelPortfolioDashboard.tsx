@@ -97,9 +97,10 @@ export async function fetchPortfolio(): Promise<PortfolioHotel[] | null> {
 interface Props {
   hotels?: PortfolioHotel[];
   onSelectHotel: (id: string) => void;
+  onRefresh?: () => void | Promise<void>;
 }
 
-export default function HotelPortfolioDashboard({ hotels = DEMO_PORTFOLIO, onSelectHotel }: Props) {
+export default function HotelPortfolioDashboard({ hotels = DEMO_PORTFOLIO, onSelectHotel, onRefresh }: Props) {
   const totals = useMemo(() => {
     const roomsTotal     = hotels.reduce((s, h) => s + h.roomsTotal, 0);
     const occupied       = hotels.reduce((s, h) => s + h.occupied, 0);
@@ -137,13 +138,29 @@ export default function HotelPortfolioDashboard({ hotels = DEMO_PORTFOLIO, onSel
               onClick={async () => {
                 const name = window.prompt('New hotel / property name:')?.trim();
                 if (!name) return;
-                const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
+                // Build a slug that satisfies the server rule
+                // ^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$ (3–40 chars, no leading/
+                // trailing hyphen). Strip AFTER slicing, and pad short names.
+                const makeSlug = (suffix = '') => {
+                  let s = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+                  s = s.slice(0, 40 - suffix.length).replace(/-+$/, '') + suffix;
+                  if (s.length < 3) s = `${s || 'hotel'}-${Math.random().toString(36).slice(2, 6)}`;
+                  return s.slice(0, 40).replace(/-+$/, '');
+                };
+                const submit = (slug: string) => api('/hotel/properties', { method: 'POST', body: JSON.stringify({ slug, name }) });
                 try {
-                  await api('/hotel/properties', { method: 'POST', body: JSON.stringify({ slug, name }) });
-                  window.alert(`Property "${name}" added.`);
+                  await submit(makeSlug());
                 } catch (e) {
-                  window.alert('Could not add property: ' + (e as Error).message);
+                  // Slug already taken → retry once with a short random suffix.
+                  if (/already taken/i.test((e as Error).message)) {
+                    try { await submit(makeSlug(`-${Math.random().toString(36).slice(2, 5)}`)); }
+                    catch (e2) { window.alert('Could not add property: ' + (e2 as Error).message); return; }
+                  } else {
+                    window.alert('Could not add property: ' + (e as Error).message); return;
+                  }
                 }
+                window.alert(`Property "${name}" added.`);
+                await onRefresh?.();
               }}
               className="text-xs font-semibold text-blue-600 hover:text-blue-500"
             >+ Add Property</button>
