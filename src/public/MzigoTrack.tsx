@@ -1,6 +1,7 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment */
 // @ts-nocheck
 import { useEffect, useState } from "react";
-import { Package, MapPin, Phone, Loader2, Check, AlertTriangle, ArrowRight, CheckCircle2 } from "lucide-react";
+import { Package, MapPin, Loader2, Check, AlertTriangle, ArrowRight, CheckCircle2 } from "lucide-react";
 
 /**
  * Public Mzigo tracking page — recipient or owner pastes / opens the
@@ -194,3 +195,5 @@ export default function MzigoTrack() {
 function Pair({ k, v }) {
   return <div className="flex justify-between text-xs gap-2"><span className="text-slate-500 shrink-0">{k}</span><span className="font-bold text-right">{v}</span></div>;
 }
+/* eslint-disable @typescript-eslint/ban-ts-comment */
+// @ts-nocheck

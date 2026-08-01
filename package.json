@@ -1,7 +1,7 @@
 {
   "name": "kobeos",
   "private": true,
-  "version": "1.6.3",
+  "version": "1.6.5",
   "main": "electron/main.cjs",
   "scripts": {
     "prepare": "node scripts/setup-hooks.cjs",
@@ -176,6 +176,10 @@
       {
         "from": "build/core-manifest.json",
         "to": "core-manifest.json"
+      },
+      {
+        "from": "build/postgres",
+        "to": "postgres"
       },
       {
         "from": "build/cloudflared",

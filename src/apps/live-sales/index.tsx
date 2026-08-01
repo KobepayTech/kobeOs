@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import {
-  Radio, Plus, Loader2, Pin, Trash2, ShoppingBag, CheckCircle2, XCircle, Zap,
+  Radio, Plus, Loader2, Pin, ShoppingBag, CheckCircle2, XCircle, Zap,
   MessageCircle, Package, Play, Square, TrendingUp, Link2, Copy, Send, AlertCircle,
 } from 'lucide-react';
 

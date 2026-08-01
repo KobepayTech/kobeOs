@@ -213,7 +213,7 @@ export const EMBEDDED_CATALOGUE: KobeCatalogue = {
     // ── Sports ────────────────────────────────────────────────────────────────
     {
       id: 'kobe-football-vision:1b',
-      name: 'Kobe Football Vision',
+      name: 'Kobe Football Vision · YOLOv8',
       description: 'YOLOv8n fine-tuned for football: player/ball/goalpost detection, home/away/referee classification, ByteTrack integration for player tracking.',
       category: 'sports',
       // Size will be updated after training + bundling.
@@ -232,7 +232,7 @@ export const EMBEDDED_CATALOGUE: KobeCatalogue = {
       upstreamUrl: 'https://github.com/ultralytics/ultralytics',
       version: '1.0',
       recommended: true,
-      tags: ['sports', 'football', 'tracking', 'yolo', 'bytetrack'],
+      tags: ['sports', 'football', 'tracking', 'yolo', 'yolov8', 'bytetrack'],
     },
     // ── Speech ────────────────────────────────────────────────────────────────
     {

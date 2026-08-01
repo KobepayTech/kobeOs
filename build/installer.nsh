@@ -28,28 +28,13 @@
 
 ; ── customInstall: runs during installation ───────────────────────────────────
 !macro customInstall
-  ; ── 1. Migrate from previous KobeOS installation ──────────────────────────
-  ReadRegStr $0 HKCU "${OLD_UNINST_KEY}" "UninstallString"
-  ${If} $0 != ""
-    MessageBox MB_YESNO|MB_ICONINFORMATION \
-      "KobeOS (the previous version of Kobe Studio) is installed.$\n$\nThe installer will remove it first. Your data will not be affected.$\n$\nContinue?" \
-      IDYES +2
-    Abort
-    DetailPrint "Removing previous KobeOS installation..."
-    ExecWait '"$0" /S _?=$INSTDIR'
-    DeleteRegKey HKCU "${OLD_UNINST_KEY}"
-    DeleteRegKey HKCU "${OLD_INSTALL_DIR_KEY}"
-    Delete "$DESKTOP\KobeOS.lnk"
-    Delete "$SMPROGRAMS\KobeOS\KobeOS.lnk"
-    RMDir "$SMPROGRAMS\KobeOS"
-  ${EndIf}
-  ReadRegStr $0 HKLM "${OLD_UNINST_KEY}" "UninstallString"
-  ${If} $0 != ""
-    ExecWait '"$0" /S'
-    DeleteRegKey HKLM "${OLD_UNINST_KEY}"
-  ${EndIf}
+  ; Do not invoke an existing KobeOS uninstaller from customInstall. This macro
+  ; runs after electron-builder has extracted the new payload and registered its
+  ; uninstall metadata. Running that UninstallString here can therefore remove
+  ; the files that were just installed while NSIS still returns exit code 0.
+  ; electron-builder's assisted installer already handles in-place upgrades.
 
-  ; ── 2. Install Visual C++ 2015-2022 x64 Redistributable if missing ─────────
+  ; ── 1. Install Visual C++ 2015-2022 x64 Redistributable if missing ─────────
   ; Check HKLM (machine-wide) then HKCU (per-user).
   StrCpy $1 "0"
   ReadRegDWORD $0 HKLM "${VCREDIST_KEY}" "Installed"
@@ -84,7 +69,7 @@
     DetailPrint "Visual C++ 2015-2022 x64 Redistributable already present — skipping."
   ${EndIf}
 
-  ; ── 3. Register cloudflared.exe on the system PATH ────────────────────────
+  ; ── 2. Register cloudflared.exe on the system PATH ────────────────────────
   ; cloudflared-win-x64.exe is bundled in resources\cloudflared\ by electron-builder.
   ; We copy it to $INSTDIR\cloudflared.exe and add $INSTDIR to the machine PATH
   ; so `cloudflared` is available system-wide (needed by the NestJS backend).
@@ -114,12 +99,10 @@
     DetailPrint "cloudflared binary not found in resources — skipping PATH registration."
   ${EndIf}
 
-  ; ── 4. Ensure Desktop + Start Menu shortcuts exist ────────────────────────
-  ; The migration step above can Delete the KobeOS shortcuts, and depending on
-  ; when electron-builder runs its own shortcut creation the icon can end up
-  ; missing. Re-create them unconditionally here so every install has a Desktop
-  ; and Start Menu shortcut. (CreateShortCut just writes the .lnk; the target
-  ; exe is installed in this same section.)
+  ; ── 3. Ensure Desktop + Start Menu shortcuts exist ────────────────────────
+  ; Re-create these unconditionally so both fresh installs and in-place upgrades
+  ; have a Desktop and Start Menu shortcut. (CreateShortCut just writes the
+  ; .lnk; the target exe is installed in this same section.)
   DetailPrint "Creating KobeOS shortcuts..."
   CreateShortCut "$DESKTOP\KobeOS.lnk" "$INSTDIR\KobeOS.exe" "" "$INSTDIR\KobeOS.exe" 0
   CreateDirectory "$SMPROGRAMS\KobeOS"

@@ -20,6 +20,11 @@ import SimpleSite from '@/apps/erp-shop/SimpleSite';
 import { JerseyStorefrontPreview } from './JerseyStorefrontPreview';
 import { JerseyDesignEditor } from './JerseyDesignEditor';
 import { DevicePreviewFrame } from './DevicePreviewFrame';
+import {
+  UniversalProductForm,
+  blankProduct,
+  type UniversalProduct,
+} from '@/apps/erp-store/UniversalProductForm';
 
 
 /* ═══════════════════════════════════════════════════════════
@@ -96,12 +101,27 @@ export interface SiteConfig {
 }
 
 interface PreviewProduct {
-  id: number;
+  id: string;
+  sku: string;
   name: string;
   price: number;
   stock: number;
   category: string;
-  gradient: string;
+  description?: string;
+  imageUrl?: string;
+  gradient?: string;
+}
+
+interface PosProductRow {
+  id: string;
+  sku: string;
+  name: string;
+  price: number | string;
+  stock: number;
+  category?: string;
+  description?: string | null;
+  imageUrl?: string | null;
+  active?: boolean;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -144,16 +164,25 @@ const defaultSettings: StoreSettings = {
   publishedAt: null,
 };
 
-const PREVIEW_PRODUCTS: PreviewProduct[] = [
-  { id: 1, name: 'Spain Away Soccer Match Jersey World Cup 2026', price: 24.99, stock: 150, category: 'World Cup 2026', gradient: 'from-red-500 to-yellow-500' },
-  { id: 2, name: 'Real Madrid Home Soccer Fan Jersey 2026/27', price: 17.99, stock: 200, category: 'Clubs', gradient: 'from-white to-purple-600' },
-  { id: 3, name: 'PSG Champions of Europe #26 Home Soccer Fan Jersey', price: 29.99, stock: 80, category: 'Clubs', gradient: 'from-blue-700 to-red-600' },
-  { id: 4, name: 'Brazil Home Soccer Fan Jersey World Cup 2026', price: 19.99, stock: 120, category: 'World Cup 2026', gradient: 'from-yellow-400 to-green-500' },
-  { id: 5, name: 'Retro 1998 Brazil Home Soccer Jersey', price: 22.99, stock: 60, category: 'Retro', gradient: 'from-yellow-400 to-blue-600' },
-  { id: 6, name: 'Liverpool Home Soccer Match Jersey 2026/27', price: 22.99, stock: 90, category: 'Clubs', gradient: 'from-red-600 to-red-800' },
+const categoryOptions = ['Electronics', 'Clothing', 'Food', 'Household', 'Other'];
+const productGradients = [
+  'from-violet-600 to-indigo-500',
+  'from-emerald-600 to-cyan-500',
+  'from-amber-500 to-rose-500',
+  'from-blue-600 to-fuchsia-500',
 ];
 
-const categoryOptions = ['Electronics', 'Clothing', 'Food', 'Household'];
+const freshProduct = (): UniversalProduct => ({
+  ...blankProduct,
+  currency: 'TZS',
+  category: 'Other',
+  imageUrls: [],
+  variants: [],
+  tags: [],
+  jerseyDetails: blankProduct.jerseyDetails
+    ? { ...blankProduct.jerseyDetails, badgeOptions: [] }
+    : undefined,
+});
 
 const colorPresets = [
   { label: 'Blue', value: '#3b82f6' },
@@ -518,10 +547,16 @@ function PreviewProductCard({
           isCompact ? 'h-20' : isFeatured ? 'h-32' : 'h-28'
         }`}
       >
-        <div className={`absolute inset-0 bg-gradient-to-br ${product.gradient} opacity-80`} />
-        <div className="absolute inset-0 flex items-center justify-center">
-          <Tag className="w-8 h-8 text-white/30" />
-        </div>
+        {product.imageUrl ? (
+          <img src={product.imageUrl} alt={product.name} className="absolute inset-0 h-full w-full object-cover" />
+        ) : (
+          <>
+            <div className={`absolute inset-0 bg-gradient-to-br ${product.gradient ?? productGradients[0]} opacity-80`} />
+            <div className="absolute inset-0 flex items-center justify-center">
+              <Tag className="w-8 h-8 text-white/30" />
+            </div>
+          </>
+        )}
         {showCategoryBadge && (
           <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-black/40 text-[10px] text-white/80 font-medium backdrop-blur-sm">
             {product.category}
@@ -589,7 +624,7 @@ function PreviewFooter({ settings }: { settings: StoreSettings }) {
    LIVE PREVIEW
    ═══════════════════════════════════════════════════════════ */
 
-function LivePreview({ settings }: { settings: StoreSettings }) {
+function LivePreview({ settings, products }: { settings: StoreSettings; products: PreviewProduct[] }) {
   if (settings.template === 'site') {
     // True WYSIWYG — the same component the published site renders. The
     // editor's StoreSettings is a superset of the fields SimpleSite reads.
@@ -610,13 +645,13 @@ function LivePreview({ settings }: { settings: StoreSettings }) {
       />
     );
   }
-  return <GenericStorefrontPreview settings={settings} />;
+  return <GenericStorefrontPreview settings={settings} products={products} />;
 }
 
 /** Interactive generic storefront preview — category tabs filter the grid,
  *  products open a detail sheet, add-to-cart fills a working cart drawer, so
  *  the operator can walk the real shopper flow while designing. */
-function GenericStorefrontPreview({ settings }: { settings: StoreSettings }) {
+function GenericStorefrontPreview({ settings, products }: { settings: StoreSettings; products: PreviewProduct[] }) {
   const [selectedCat, setSelectedCat] = useState('All');
   const [openProduct, setOpenProduct] = useState<PreviewProduct | null>(null);
   const [cart, setCart] = useState<{ product: PreviewProduct; qty: number }[]>([]);
@@ -630,9 +665,10 @@ function GenericStorefrontPreview({ settings }: { settings: StoreSettings }) {
     const e = prev.find((x) => x.product.id === p.id);
     return e ? prev.map((x) => (x.product.id === p.id ? { ...x, qty: x.qty + 1 } : x)) : [...prev, { product: p, qty: 1 }];
   });
-  const visible = PREVIEW_PRODUCTS
+  const categories = ['All', ...Array.from(new Set(products.map((p) => p.category).filter(Boolean)))];
+  const visible = products
     .filter((p) => selectedCat === 'All' || p.category === selectedCat)
-    .slice(0, Math.min(settings.productsPerPage, PREVIEW_PRODUCTS.length));
+    .slice(0, Math.min(settings.productsPerPage, products.length));
 
   return (
     <div className="relative flex flex-col h-full overflow-hidden" style={{ backgroundColor: bgStyleMap[settings.bgStyle] }}>
@@ -644,7 +680,7 @@ function GenericStorefrontPreview({ settings }: { settings: StoreSettings }) {
         {/* Category Nav — clickable, filters the grid */}
         {settings.enableCategoryNav && settings.showCategoryNav && (
           <div className="px-5 py-3 flex flex-wrap gap-2 border-b border-white/[0.04]">
-            {['All', ...categoryOptions].map((cat) => {
+            {categories.map((cat) => {
               const active = selectedCat === cat;
               return (
                 <button
@@ -673,7 +709,10 @@ function GenericStorefrontPreview({ settings }: { settings: StoreSettings }) {
             )}
           </div>
           {visible.length === 0 ? (
-            <p className="text-white/40 text-xs py-8 text-center">No products in {selectedCat}.</p>
+            <div className="py-8 text-center">
+              <p className="text-white/55 text-sm font-semibold">No active products yet</p>
+              <p className="text-white/35 text-xs mt-1">Add a product in the builder and it will sync here, Inventory, and POS.</p>
+            </div>
           ) : (
             <div className={`grid ${gridCols} gap-3`}>
               {visible.map((product) => (
@@ -702,15 +741,17 @@ function GenericStorefrontPreview({ settings }: { settings: StoreSettings }) {
       {openProduct && (
         <div className="absolute inset-0 z-20 bg-black/60 flex items-end sm:items-center justify-center p-3" onClick={() => setOpenProduct(null)}>
           <div className="w-full sm:max-w-sm rounded-2xl overflow-hidden border border-white/10" style={{ backgroundColor: bgStyleMap[settings.bgStyle] }} onClick={(e) => e.stopPropagation()}>
-            <div className={`relative h-40 bg-gradient-to-br ${openProduct.gradient} opacity-90 flex items-center justify-center`}>
-              <Tag className="w-10 h-10 text-white/40" />
+            <div className={`relative h-40 bg-gradient-to-br ${openProduct.gradient ?? productGradients[0]} opacity-90 flex items-center justify-center`}>
+              {openProduct.imageUrl
+                ? <img src={openProduct.imageUrl} alt={openProduct.name} className="absolute inset-0 h-full w-full object-cover" />
+                : <Tag className="w-10 h-10 text-white/40" />}
               <button onClick={() => setOpenProduct(null)} className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/40 text-white grid place-items-center">✕</button>
             </div>
             <div className="p-4 space-y-2">
               <div className="text-white/90 font-bold">{openProduct.name}</div>
               <div className="text-white/40 text-xs">{openProduct.category}</div>
               <div className="text-white/90 font-extrabold text-lg" style={{ color: settings.primaryColor }}>{tzs(openProduct.price)}</div>
-              <p className="text-white/50 text-xs">Demo product — a real product's description shows here.</p>
+              <p className="text-white/50 text-xs">{openProduct.description || `SKU ${openProduct.sku}`}</p>
               <button onClick={() => { addToCart(openProduct); setOpenProduct(null); setCartOpen(true); }} className="w-full h-10 rounded-lg text-white font-bold text-sm" style={{ backgroundColor: settings.primaryColor }}>
                 Add to cart
               </button>
@@ -766,6 +807,64 @@ export default function StoreEditor() {
   // Preview device — 'mobile' shrinks the iframe to a phone width so the
   // storefront's real responsive breakpoints kick in (WYSIWYG at 390px).
   const [previewDevice, setPreviewDevice] = useState<'desktop' | 'mobile'>('desktop');
+  const [catalogProducts, setCatalogProducts] = useState<PreviewProduct[]>([]);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [productDialogOpen, setProductDialogOpen] = useState(false);
+  const [productForm, setProductForm] = useState<UniversalProduct>(() => freshProduct());
+  const [productSaving, setProductSaving] = useState(false);
+
+  const loadProducts = useCallback(async () => {
+    try {
+      const rows = await api<PosProductRow[]>('/pos/products');
+      setCatalogProducts(
+        (Array.isArray(rows) ? rows : [])
+          .filter((row) => row.active !== false)
+          .map((row, index) => ({
+            id: row.id,
+            sku: row.sku,
+            name: row.name,
+            price: Number(row.price),
+            stock: Number(row.stock),
+            category: row.category || 'Other',
+            description: row.description ?? undefined,
+            imageUrl: row.imageUrl ?? undefined,
+            gradient: productGradients[index % productGradients.length],
+          })),
+      );
+      setCatalogError(null);
+    } catch (error) {
+      setCatalogError(error instanceof Error ? error.message : 'Could not load products');
+    }
+  }, []);
+
+  useEffect(() => { void loadProducts(); }, [loadProducts]);
+
+  const saveProduct = useCallback(async () => {
+    if (!productForm.name.trim() || !productForm.sku.trim()) {
+      setCatalogError('Product name and SKU are required.');
+      return;
+    }
+    setProductSaving(true);
+    setCatalogError(null);
+    try {
+      await api('/pos/products', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...productForm,
+          name: productForm.name.trim(),
+          sku: productForm.sku.trim(),
+          imageUrl: productForm.imageUrl || undefined,
+        }),
+      });
+      setProductDialogOpen(false);
+      setProductForm(freshProduct());
+      await loadProducts();
+    } catch (error) {
+      setCatalogError(error instanceof Error ? error.message : 'Could not save product');
+    } finally {
+      setProductSaving(false);
+    }
+  }, [loadProducts, productForm]);
 
   // One-click populate an empty store with ~20 clearly-labelled DEMO products
   // so the live storefront isn't blank. They're normal products the operator
@@ -775,10 +874,11 @@ export default function StoreEditor() {
     try {
       const r = await api<{ created?: number; note?: string }>('/pos/products/seed-demo', { method: 'POST', body: '{}' });
       setSeedMsg(r?.created ? `Added ${r.created} demo products — publish to see them live.` : (r?.note || 'Products already exist.'));
+      await loadProducts();
     } catch (e) {
       setSeedMsg((e as Error).message || 'Could not add demo products.');
     } finally { setSeeding(false); }
-  }, []);
+  }, [loadProducts]);
   const [readiness, setReadiness] = useState<{
     ready: boolean;
     deploymentMode: 'hosted' | 'self-hosted';
@@ -991,6 +1091,30 @@ export default function StoreEditor() {
 
         {/* Sections */}
         <ScrollArea className="flex-1 min-h-0">
+          {/* Products are shared with Inventory, desktop POS, mobile POS, and
+              the published storefront. Creating here writes to that one
+              catalogue instead of keeping builder-only demo cards. */}
+          <Section title="Products" icon={ShoppingBag} defaultOpen>
+            <div className="space-y-3">
+              <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+                <div className="text-xs font-semibold text-emerald-300">
+                  {catalogProducts.length} active product{catalogProducts.length === 1 ? '' : 's'} synced
+                </div>
+                <p className="mt-1 text-[10px] leading-relaxed text-white/45">
+                  Products added here or in Inventory automatically appear in the store and both POS apps.
+                </p>
+              </div>
+              {catalogError && <p className="text-[10px] text-rose-300">{catalogError}</p>}
+              <Button
+                size="sm"
+                onClick={() => { setProductForm(freshProduct()); setProductDialogOpen(true); }}
+                className="w-full h-8 bg-emerald-600 hover:bg-emerald-500 text-white text-xs"
+              >
+                <Plus className="w-3.5 h-3.5 mr-1.5" /> Add product
+              </Button>
+            </div>
+          </Section>
+
           {/* ─── Preview Template ─── */}
           <Section title="Preview Template" icon={LayoutGrid} defaultOpen>
             <div className="space-y-2">
@@ -1714,7 +1838,7 @@ export default function StoreEditor() {
             genuine responsive layout (not just a narrower box). */}
         <div className={`flex-1 min-h-0 overflow-hidden ${previewDevice === 'mobile' ? 'bg-[#0a0a1a] px-2' : ''}`}>
           <DevicePreviewFrame width={previewDevice === 'mobile' ? 390 : '100%'}>
-            <LivePreview settings={settings} />
+            <LivePreview settings={settings} products={catalogProducts} />
           </DevicePreviewFrame>
         </div>
       </div>
@@ -1730,6 +1854,28 @@ export default function StoreEditor() {
           onCopy={() => { setQrCopied(true); setTimeout(() => setQrCopied(false), 2000); }}
         />
       )}
+
+      <Dialog open={productDialogOpen} onOpenChange={setProductDialogOpen}>
+        <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-sm">
+              <ShoppingBag className="w-4 h-4 text-emerald-400" /> Add storefront product
+            </DialogTitle>
+          </DialogHeader>
+          <UniversalProductForm
+            value={productForm}
+            onChange={setProductForm}
+            onSave={() => { if (!productSaving) void saveProduct(); }}
+            onCancel={() => setProductDialogOpen(false)}
+            categories={categoryOptions}
+          />
+          {productSaving && (
+            <div className="flex items-center justify-center gap-2 text-xs text-slate-400">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" /> Saving product…
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1776,8 +1922,8 @@ function MobileQrDialog({
         </DialogHeader>
         <div className="space-y-3">
           <p className="text-xs text-white/60">
-            Scan with a phone to open POS, Purchase Orders, End-of-Day, Sales &amp; Expenses,
-            stock lookup, and order history — all on the same subdomain as your store.
+            Scan with a phone to open your mobile modules. POS, Stock, Orders, and Image Order
+            are included; optional apps stay hidden until you add and pay for them.
           </p>
 
           <div className="bg-white rounded-xl p-4 grid place-items-center">

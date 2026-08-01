@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { publicApi } from './api';
-import { Package, MapPin, Truck, CheckCircle2, Clock, Loader2, Search, PackageCheck } from 'lucide-react';
+import { Package, MapPin, Truck, CheckCircle2, Loader2, Search, PackageCheck } from 'lucide-react';
 
 /**
  * Public Cargo TZ tracker. The parcel QR encodes the tracking number and

@@ -18,7 +18,7 @@
  */
 
 import { Injectable, Logger } from '@nestjs/common';
-import type { CheckOffsideDto, TrackedObject } from './dto/sports.dto';
+import type { CheckOffsideDto } from './dto/sports.dto';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

@@ -63,7 +63,7 @@ export class AddModuleSiteSettings1781100000000 implements MigrationInterface {
         s."accentColor",
         NULLIF(s."domainSlug", ''),
         NULL,
-        COALESCE(s."siteConfig", '{}'::jsonb),
+        COALESCE(to_jsonb(s)->'siteConfig', '{}'::jsonb),
         '{}'::jsonb,
         s."isPublished" AND s."domainSlug" <> '',
         CASE m."moduleId"

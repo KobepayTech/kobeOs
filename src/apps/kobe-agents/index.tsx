@@ -11,7 +11,6 @@ import {
   Play,
   Plus,
   RefreshCw,
-  ShieldCheck,
   Sparkles,
   Trash2,
   XCircle,

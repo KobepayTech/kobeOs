@@ -128,15 +128,7 @@
       }
     }
 
-    // Listen for progress events from main process
-    window.addEventListener('message', (e) => {
-      if (e.data && e.data.type === 'boot-progress') {
-        setProgress(e.data.pct, e.data.msg);
-      }
-    });
-
-    // Also expose a direct setter for the preload bridge
-    window.__setBootProgress = setProgress;
+    window.kobeSplash?.onBootProgress(({ pct, msg }) => setProgress(pct, msg));
   </script>
 </body>
 </html>

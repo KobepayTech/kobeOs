@@ -504,3 +504,56 @@ export async function fetchObjectUrl(path: string): Promise<string> {
 function safeJson(s: string): unknown {
   try { return JSON.parse(s); } catch { return s; }
 }
+
+/**
+ * Convert the list shapes used by current, paginated, and legacy KobeOS APIs
+ * into a plain array. Keeping this at the HTTP boundary prevents a malformed
+ * or wrapped response from crashing an entire module with `.map`/`.filter`
+ * errors.
+ */
+export function apiArray<T>(
+  value: unknown,
+  preferredKeys: readonly string[] = [],
+): T[] {
+  if (Array.isArray(value)) return value as T[];
+  if (!value || typeof value !== 'object') return [];
+
+  const record = value as Record<string, unknown>;
+  const keys = [
+    ...preferredKeys,
+    'items',
+    'data',
+    'rows',
+    'results',
+    'records',
+    'models',
+    'projects',
+    'apps',
+    'entitlements',
+  ];
+
+  for (const key of [...new Set(keys)]) {
+    const candidate = record[key];
+    if (Array.isArray(candidate)) return candidate as T[];
+    if (candidate && typeof candidate === 'object') {
+      const nested = candidate as Record<string, unknown>;
+      for (const nestedKey of ['items', 'rows', 'results', 'records', ...preferredKeys]) {
+        if (Array.isArray(nested[nestedKey])) return nested[nestedKey] as T[];
+      }
+    }
+  }
+  return [];
+}
+
+/** Unwrap common `{ data: value }` / `{ result: value }` response envelopes. */
+export function apiObject<T>(value: unknown): T | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  for (const key of ['data', 'result']) {
+    const candidate = record[key];
+    if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+      return candidate as T;
+    }
+  }
+  return value as T;
+}

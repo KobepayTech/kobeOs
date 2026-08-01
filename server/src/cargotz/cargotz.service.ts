@@ -174,7 +174,6 @@ export class CargoTzService {
     const { parcel } = await this.getOne(uid, idOrTracking);
     parcel.status = dto.status;
     if (dto.location) parcel.currentLocation = dto.location;
-    if (dto.status === 'DELIVERED') parcel.paymentStatus = parcel.paymentStatus; // no-op hook
     await this.parcels.save(parcel);
     await this.addEvent(uid, parcel.id, dto.status, ctx.name, dto.location ?? parcel.currentLocation, dto.note ?? '');
     return this.getOne(uid, parcel.id);

@@ -77,7 +77,7 @@ export class ReorderService {
         const stock = Number(p.stock) || 0;
 
         let urgency: ReorderUrgency = 'OK';
-        let daysOfCover: number | null = velocity > 0 ? stock / velocity : null;
+        const daysOfCover: number | null = velocity > 0 ? stock / velocity : null;
         let reorderByIso: string | null = null;
         let suggestedReorderQty = 0;
 

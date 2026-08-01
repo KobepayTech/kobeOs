@@ -17,7 +17,6 @@ import {
 } from 'crypto';
 import { Property, PropertyUnit, RentCharge, RentPayment, Tenant } from './property.entity';
 import {
-  CollectionChannel,
   PropertyCollectionPartner,
   PropertyPaymentOrder,
   PropertyPaymentRedemption,

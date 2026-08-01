@@ -23,7 +23,7 @@ function n(value: unknown): number {
 }
 
 function normalizePhone(phone: string) {
-  return (phone || '').replace(/\s+/g, '').replace(/[()\-]/g, '');
+  return (phone || '').replace(/\s+/g, '').replace(/[()-]/g, '');
 }
 
 @Injectable()

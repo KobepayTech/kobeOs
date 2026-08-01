@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between, MoreThanOrEqual } from 'typeorm';
+import { Repository } from 'typeorm';
 import { PaymentTransaction } from '../payments/payments.entity';
 import { PosOrder, PosProduct } from '../pos/pos.entity';
 import { WarehouseItem } from '../warehouse/warehouse.entity';
@@ -59,6 +59,7 @@ export class ErpService {
         supplierNeedsAction: supplierCapital.needsAction,
       },
       monthlyRevenue,
+      accounts: { monthlyTrend: monthlyRevenue },
       supplierCapital,
     };
   }

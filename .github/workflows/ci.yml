@@ -20,11 +20,10 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps
+        run: npm ci --legacy-peer-deps
 
       - name: Lint
         run: npm run lint
-        continue-on-error: true
 
       - name: Test
         run: npm run test
@@ -72,18 +71,16 @@ jobs:
           cache-dependency-path: server/package-lock.json
 
       - name: Install dependencies
-        run: npm install --legacy-peer-deps
+        run: npm ci --legacy-peer-deps
 
       - name: Lint
         run: npm run lint
-        continue-on-error: true
 
       - name: Build
         run: npm run build
 
       - name: E2E tests
         run: npm run test:e2e
-        continue-on-error: true
         env:
           NODE_ENV: test
           PORT: 3000

@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { Outlet, Link, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { Outlet, Link, useLocation, useNavigate, useOutletContext, useParams } from 'react-router-dom';
 import {
   ShoppingCart, ClipboardList, Calculator, NotebookPen, Boxes, Receipt, LogOut, User, Loader2, Sparkles, Truck, BedDouble, Landmark,
   Clock, CreditCard, ShieldCheck, X,
+  Puzzle, Plus,
 } from 'lucide-react';
 import { api, clearTokens, setRefreshToken, setToken } from '@/lib/api';
 import { ensureSession } from '@/lib/auth';
 import { MobileAssistant } from './MobileAssistant';
 import { InstallPwaButton } from './InstallPwaButton';
+import { usePwaManifest } from '@/hooks/usePwaManifest';
 
 /**
  * Mobile webapp shell. Renders at `/m/*` (typically reached via QR on a
@@ -19,17 +21,44 @@ import { InstallPwaButton } from './InstallPwaButton';
  * an iPad or in a desktop browser.
  */
 
-const TABS: Array<{ to: string; label: string; Icon: typeof ShoppingCart }> = [
-  { to: 'pos',       label: 'POS',       Icon: ShoppingCart },
-  { to: 'po',        label: 'Purchase',  Icon: ClipboardList },
-  { to: 'dispatch',  label: 'Dispatch',  Icon: Truck },
-  { to: 'hotel',     label: 'Hotel',     Icon: BedDouble },
-  { to: 'lipa',      label: 'Lipa',      Icon: Landmark },
-  { to: 'eod',       label: 'Till',      Icon: Calculator },
-  { to: 'summary',   label: 'Summary',   Icon: NotebookPen },
-  { to: 'inventory', label: 'Stock',     Icon: Boxes },
-  { to: 'orders',    label: 'Orders',    Icon: Receipt },
+interface MobileModuleUi {
+  id: string;
+  to: string;
+  label: string;
+  Icon: typeof ShoppingCart;
+  showInNav?: boolean;
+}
+
+const TABS: MobileModuleUi[] = [
+  { id: 'pos',         to: 'pos',         label: 'POS',         Icon: ShoppingCart },
+  { id: 'inventory',   to: 'inventory',   label: 'Stock',       Icon: Boxes },
+  { id: 'orders',      to: 'orders',      label: 'Orders',      Icon: Receipt },
+  { id: 'image-order', to: 'image-order', label: 'Image order', Icon: Sparkles, showInNav: false },
+  { id: 'po',          to: 'po',          label: 'Purchase',    Icon: ClipboardList },
+  { id: 'discounts',   to: 'discounts',   label: 'Approvals',   Icon: ShieldCheck },
+  { id: 'dispatch',    to: 'dispatch',    label: 'Dispatch',    Icon: Truck },
+  { id: 'hotel',       to: 'hotel',       label: 'Hotel',       Icon: BedDouble },
+  { id: 'lipa',        to: 'lipa',        label: 'Lipa',        Icon: Landmark },
+  { id: 'eod',         to: 'eod',         label: 'Till',        Icon: Calculator },
+  { id: 'summary',     to: 'summary',     label: 'Summary',     Icon: NotebookPen },
 ];
+
+const FALLBACK_MODULES: MobileModuleAccess[] = TABS.map((module) => ({
+  id: module.id,
+  name: module.label,
+  description: '',
+  priceTzs: 0,
+  included: ['pos', 'inventory', 'orders', 'image-order', 'po', 'discounts'].includes(module.id),
+  enabled: ['pos', 'inventory', 'orders', 'image-order', 'po', 'discounts'].includes(module.id),
+  expiresAt: null,
+}));
+
+export interface MobileOutletContext {
+  slug: string;
+  modules: MobileModuleAccess[];
+  enabledTabs: MobileModuleUi[];
+  refreshAccess: () => Promise<void>;
+}
 
 export default function MobileShell() {
   const { slug = '' } = useParams<{ slug?: string }>();
@@ -40,6 +69,31 @@ export default function MobileShell() {
   const [showPaywall, setShowPaywall] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
+  const modules = access?.modules ?? FALLBACK_MODULES;
+  const enabledIds = new Set(modules.filter((module) => module.enabled).map((module) => module.id));
+  const routeTail = location.pathname.replace(`/m/${slug}`, '').replace(/^\//, '');
+  const routeModuleId = routeTail.split('/')[0] || null;
+  const currentModule = TABS.find((module) => module.id === routeModuleId) ?? null;
+  const enabledTabs = TABS.filter((module) => enabledIds.has(module.id));
+  const visibleNavTabs = enabledTabs.filter((module) => module.showInNav !== false);
+  const standalone = typeof window !== 'undefined' && (
+    window.matchMedia?.('(display-mode: standalone)').matches ||
+    (window.navigator as Navigator & { standalone?: boolean }).standalone === true
+  );
+  const modulePwaMode = standalone && !!currentModule;
+  const navTabs = modulePwaMode && currentModule ? [currentModule] : visibleNavTabs;
+
+  // Every module is installable as its own PWA. The home/module-marketplace
+  // routes intentionally do not expose an install action for a combined ERP
+  // shell; opening POS installs POS, opening Hotel installs Hotel, and so on.
+  usePwaManifest({
+    name: currentModule ? `Kobe ${currentModule.label} — ${slug}` : 'Kobe mobile modules',
+    shortName: currentModule ? `Kobe ${currentModule.label}` : 'Kobe Modules',
+    startUrl: currentModule ? `/m/${slug}/${currentModule.to}` : `/m/${slug}`,
+    themeColor: '#4f46e5',
+    backgroundColor: '#f8fafc',
+    enabled: !!currentModule && enabledIds.has(currentModule.id),
+  });
 
   // One-shot session check on mount — if a JWT is already in
   // localStorage from a previous sign-in (or the desktop OS), pass
@@ -63,37 +117,7 @@ export default function MobileShell() {
     return () => { cancelled = true; };
   }, []);
 
-  // Make the INSTALLED PWA open the mobile workspace, not the storefront.
-  // The static manifest has start_url '/', so installing from here would launch
-  // at '/' (the e-commerce store on a tenant subdomain). Swap in a manifest
-  // scoped to /m/{slug} while this page is open, so the installed app opens the
-  // mobile app.
-  useEffect(() => {
-    if (!slug) return;
-    const startUrl = `/m/${slug}`;
-    const manifest = {
-      name: `KobeOS Mobile — ${slug}`,
-      short_name: 'KobeOS Mobile',
-      start_url: startUrl,
-      scope: startUrl,
-      display: 'standalone',
-      orientation: 'portrait',
-      background_color: '#0a0a1a',
-      theme_color: '#1a1a2e',
-      icons: [
-        { src: '/icon.png', sizes: '192x192', type: 'image/png' },
-        { src: '/icon.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
-      ],
-    };
-    const href = `data:application/manifest+json,${encodeURIComponent(JSON.stringify(manifest))}`;
-    let link = document.querySelector('link[rel="manifest"]') as HTMLLinkElement | null;
-    const prev = link?.getAttribute('href') ?? null;
-    if (!link) { link = document.createElement('link'); link.rel = 'manifest'; document.head.appendChild(link); }
-    link.setAttribute('href', href);
-    return () => { if (prev) link!.setAttribute('href', prev); };
-  }, [slug]);
-
-  // Subscription gate — a shop's /m workspace is free for 48h, then requires a
+  // Subscription gate — a shop's /m workspace is free for 14 days, then requires a
   // monthly PalmPesa subscription. Checked after sign-in. Fails OPEN: a billing
   // hiccup or an older backend without this endpoint must never lock staff out —
   // the paywall only appears when the server explicitly returns access:'expired'.
@@ -173,19 +197,25 @@ export default function MobileShell() {
     );
   }
 
+  const lockedModule = currentModule && !enabledIds.has(currentModule.id)
+    ? modules.find((module) => module.id === currentModule.id) ?? null
+    : null;
+
   return (
     <div className="h-[100dvh] flex flex-col bg-slate-50 text-slate-900 overflow-hidden" style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
       {/* Header */}
       <header className="h-14 px-4 flex items-center justify-between border-b border-slate-200 bg-white">
-        <Link to={`/m/${slug}`} className="flex items-center gap-2">
+        <Link to={modulePwaMode && currentModule ? `/m/${slug}/${currentModule.to}` : `/m/${slug}`} className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-white text-xs font-extrabold">K</div>
           <div>
-            <div className="text-xs font-extrabold text-slate-900 leading-none">KobeOS Mobile</div>
+            <div className="text-xs font-extrabold text-slate-900 leading-none">
+              {currentModule ? `Kobe ${currentModule.label}` : 'Kobe mobile modules'}
+            </div>
             <div className="text-[10px] text-slate-400 leading-none mt-0.5">{slug || 'store'}.kobeapptz.com</div>
           </div>
         </Link>
         <div className="flex items-center gap-2">
-          <InstallPwaButton />
+          {currentModule && !lockedModule && <InstallPwaButton />}
           <button
             onClick={signOut}
             className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-[11px] font-bold text-slate-500 hover:bg-slate-100"
@@ -196,7 +226,7 @@ export default function MobileShell() {
         </div>
       </header>
 
-      {/* Trial countdown — free for 48h, then the paywall kicks in. Tapping it
+      {/* Trial countdown — free for 14 days, then the paywall kicks in. Tapping it
           lets the shop subscribe early via PalmPesa. */}
       {access?.access === 'trial' && (
         <button
@@ -210,19 +240,39 @@ export default function MobileShell() {
 
       {/* Active feature */}
       <main className="flex-1 overflow-y-auto">
-        <Outlet />
+        {lockedModule ? (
+          <div className="min-h-full grid place-items-center p-6">
+            <div className="w-full max-w-sm rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+              <div className="mx-auto w-12 h-12 rounded-xl bg-indigo-50 text-indigo-600 grid place-items-center">
+                <Puzzle className="w-6 h-6" />
+              </div>
+              <h2 className="mt-3 text-lg font-extrabold text-slate-900">{lockedModule.name} is not added</h2>
+              <p className="mt-1 text-xs text-slate-500">Install this module here and continue with a 14-day free trial.</p>
+              <InlineModuleInstall
+                slug={slug}
+                module={lockedModule}
+                onInstalled={async () => {
+                  await refreshAccess();
+                  navigate(`/m/${slug}/${currentModule?.to ?? lockedModule.id}`);
+                }}
+              />
+            </div>
+          </div>
+        ) : (
+          <Outlet context={{ slug, modules, enabledTabs, refreshAccess } satisfies MobileOutletContext} />
+        )}
       </main>
 
       {/* Bottom tab nav */}
-      <nav className="h-16 border-t border-slate-200 bg-white grid grid-cols-9">
-        {TABS.map(({ to, label, Icon }) => {
+      <nav className="h-16 border-t border-slate-200 bg-white flex overflow-x-auto">
+        {navTabs.map(({ to, label, Icon }) => {
           const path = `/m/${slug}/${to}`;
           const active = location.pathname.startsWith(path);
           return (
             <Link
               key={to}
               to={path}
-              className={`flex flex-col items-center justify-center gap-0.5 ${
+              className={`min-w-20 flex-1 flex flex-col items-center justify-center gap-0.5 ${
                 active ? 'text-indigo-600' : 'text-slate-500'
               }`}
             >
@@ -240,6 +290,51 @@ export default function MobileShell() {
 }
 
 /* ─── Sign-in (email + password) ──────────────────────────────────────── */
+
+function InlineModuleInstall({
+  slug,
+  module,
+  onInstalled,
+}: {
+  slug: string;
+  module: MobileModuleAccess;
+  onInstalled: () => Promise<void>;
+}) {
+  const [installing, setInstalling] = useState(false);
+  const [error, setError] = useState('');
+
+  const install = async () => {
+    setInstalling(true);
+    setError('');
+    try {
+      await api('/mobile-access/modules/install', {
+        method: 'POST',
+        body: JSON.stringify({ slug, moduleId: module.id }),
+        offlineFallback: false,
+      });
+      await onInstalled();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not install this module.');
+    } finally {
+      setInstalling(false);
+    }
+  };
+
+  return (
+    <div className="mt-4 space-y-2">
+      <button
+        onClick={() => void install()}
+        disabled={installing}
+        className="h-11 w-full rounded-xl bg-indigo-600 px-5 text-sm font-extrabold text-white inline-flex items-center justify-center gap-2 disabled:opacity-50"
+      >
+        {installing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+        {installing ? 'Installing…' : 'Install — 14 days free'}
+      </button>
+      <p className="text-[10px] text-slate-400">No payment setup is needed until the trial ends.</p>
+      {error && <p className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-[11px] text-rose-700">{error}</p>}
+    </div>
+  );
+}
 
 function MobileSignIn({ slug, onSignedIn }: { slug: string; onSignedIn: () => void }) {
   const [email, setEmail] = useState(() => localStorage.getItem('kobe_session_email') || '');
@@ -336,6 +431,9 @@ function MobileSignIn({ slug, onSignedIn }: { slug: string; onSignedIn: () => vo
 
 export function MobileHome() {
   const { slug = '' } = useParams<{ slug?: string }>();
+  const { enabledTabs, modules } = useOutletContext<MobileOutletContext>();
+  const imageOrderEnabled = enabledTabs.some((module) => module.id === 'image-order');
+  const lockedCount = modules.filter((module) => !module.enabled).length;
   return (
     <div className="p-5 space-y-4">
       <div>
@@ -346,23 +444,25 @@ export function MobileHome() {
       {/* Highlighted "from image" tile — a customer just forwarded a
        *  marked WhatsApp photo? Tap here, the seller doesn't have to
        *  type the order by hand. */}
-      <Link
-        to={`/m/${slug}/image-order`}
-        className="block rounded-2xl p-4 bg-gradient-to-br from-violet-600 to-indigo-600 text-white active:opacity-90 shadow-lg"
-      >
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-white/20 grid place-items-center">
-            <Sparkles className="w-5 h-5" />
+      {imageOrderEnabled && (
+        <Link
+          to={`/m/${slug}/image-order`}
+          className="block rounded-2xl p-4 bg-gradient-to-br from-violet-600 to-indigo-600 text-white active:opacity-90 shadow-lg"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-white/20 grid place-items-center">
+              <Sparkles className="w-5 h-5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-extrabold">Order from image</div>
+              <div className="text-[11px] opacity-80">Forward an annotated WhatsApp photo → POS order</div>
+            </div>
           </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-extrabold">Order from image</div>
-            <div className="text-[11px] opacity-80">Forward an annotated WhatsApp photo → POS order</div>
-          </div>
-        </div>
-      </Link>
+        </Link>
+      )}
 
       <div className="grid grid-cols-2 gap-3">
-        {TABS.map(({ to, label, Icon }) => (
+        {enabledTabs.filter((module) => module.id !== 'image-order').map(({ to, label, Icon }) => (
           <Link
             key={to}
             to={`/m/${slug}/${to}`}
@@ -374,6 +474,182 @@ export function MobileHome() {
             <span className="text-xs font-bold text-slate-700">{label}</span>
           </Link>
         ))}
+      </div>
+
+      <Link
+        to={`/m/${slug}/modules`}
+        className="rounded-2xl border border-dashed border-indigo-300 bg-indigo-50/60 p-4 flex items-center gap-3 active:bg-indigo-100"
+      >
+        <div className="w-10 h-10 rounded-xl bg-white text-indigo-600 grid place-items-center border border-indigo-100">
+          <Plus className="w-5 h-5" />
+        </div>
+        <div className="flex-1">
+          <div className="text-sm font-extrabold text-indigo-900">Add modules</div>
+          <div className="text-[11px] text-indigo-600">{lockedCount} optional module{lockedCount === 1 ? '' : 's'} available</div>
+        </div>
+      </Link>
+    </div>
+  );
+}
+
+/** Optional modules are discoverable only here. Locked apps do not appear on
+ * the home screen or navigation until its trial or payment activates. */
+export function MobileModules() {
+  const { slug, modules, refreshAccess } = useOutletContext<MobileOutletContext>();
+  const navigate = useNavigate();
+  const [selected, setSelected] = useState<string | null>(null);
+  const [phone, setPhone] = useState(() => localStorage.getItem('kobe_msub_phone') || '');
+  const [phase, setPhase] = useState<'idle' | 'pushing' | 'waiting'>('idle');
+  const [error, setError] = useState<string | null>(null);
+
+  const installTrial = async (module: MobileModuleAccess) => {
+    setPhase('pushing');
+    setError(null);
+    try {
+      await api('/mobile-access/modules/install', {
+        method: 'POST',
+        body: JSON.stringify({ slug, moduleId: module.id }),
+        offlineFallback: false,
+      });
+      await refreshAccess();
+      navigate(`/m/${slug}/${module.id}`);
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : 'Could not install this module.';
+      if (/trial has ended|configure palmpesa/i.test(message)) {
+        setSelected(module.id);
+        setError('The 14-day trial has ended. Enter a mobile-money number after PalmPesa is configured.');
+      } else {
+        setError(message);
+      }
+    } finally {
+      setPhase('idle');
+    }
+  };
+
+  const purchase = async (module: MobileModuleAccess) => {
+    if (!/^[+0-9\s-]{9,15}$/.test(phone.trim())) {
+      setError('Enter a valid mobile-money number.');
+      return;
+    }
+    setPhase('pushing');
+    setError(null);
+    try {
+      localStorage.setItem('kobe_msub_phone', phone.trim());
+      const response = await api<{ transactionId: string }>('/mobile-access/modules/subscribe', {
+        method: 'POST',
+        body: JSON.stringify({ slug, moduleId: module.id, msisdn: phone.trim() }),
+      });
+      setPhase('waiting');
+      let tries = 0;
+      const poll = async () => {
+        tries += 1;
+        try {
+          const status = await api<{ status: string; moduleActive?: boolean }>(
+            `/mobile-access/status/${encodeURIComponent(response.transactionId)}`,
+          );
+          if (status.moduleActive || status.status === 'active') {
+            await refreshAccess();
+            setPhase('idle');
+            setSelected(null);
+            navigate(`/m/${slug}/${module.id}`);
+            return;
+          }
+          if (status.status === 'failed') {
+            setPhase('idle');
+            setError('Payment failed or was cancelled. Try again.');
+            return;
+          }
+        } catch { /* transient callback delay */ }
+        if (tries >= 30) {
+          setPhase('idle');
+          setError('Payment confirmation timed out. If you approved it, reopen this page to refresh.');
+          return;
+        }
+        window.setTimeout(() => void poll(), 4000);
+      };
+      window.setTimeout(() => void poll(), 4000);
+    } catch (e) {
+      setPhase('idle');
+      const message = (e as Error).message || 'Could not start module payment.';
+      setError(/palmpesa|not configured|missing/i.test(message)
+        ? 'PalmPesa is not configured yet. Ask the KobeOS administrator to add the PalmPesa credentials.'
+        : message);
+    }
+  };
+
+  return (
+    <div className="p-5 space-y-4">
+      <div>
+        <h2 className="text-xl font-extrabold text-slate-900">Mobile modules</h2>
+        <p className="text-xs text-slate-500 mt-1">Each module is a separate installable web app. Optional modules stay hidden until you add them.</p>
+      </div>
+      {error && !selected && (
+        <p className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-700">{error}</p>
+      )}
+
+      <div className="space-y-3">
+        {modules.map((module) => {
+          const ui = TABS.find((item) => item.id === module.id);
+          const Icon = ui?.Icon ?? Puzzle;
+          const isSelected = selected === module.id;
+          return (
+            <div key={module.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex items-start gap-3">
+                <div className={`w-11 h-11 rounded-xl grid place-items-center ${module.enabled ? 'bg-emerald-50 text-emerald-600' : 'bg-indigo-50 text-indigo-600'}`}>
+                  <Icon className="w-5 h-5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-sm font-extrabold text-slate-900">{module.name}</h3>
+                    {module.enabled ? (
+                      <span className="rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-bold text-emerald-700">
+                        {module.included ? 'Included' : 'Active'}
+                      </span>
+                    ) : (
+                      <span className="text-xs font-extrabold text-indigo-700">TZS {module.priceTzs.toLocaleString()}/mo</span>
+                    )}
+                  </div>
+                  <p className="mt-1 text-[11px] leading-relaxed text-slate-500">{module.description}</p>
+                  {module.enabled && module.expiresAt && (
+                    <p className="mt-1 text-[10px] text-slate-400">Active until {new Date(module.expiresAt).toLocaleDateString()}</p>
+                  )}
+                </div>
+              </div>
+
+              {module.enabled && ui ? (
+                <Link to={`/m/${slug}/${ui.to}`} className="mt-3 w-full h-10 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs inline-flex items-center justify-center">
+                  Open {module.name}
+                </Link>
+              ) : !module.included && !isSelected ? (
+                <button
+                  onClick={() => void installTrial(module)}
+                  disabled={phase !== 'idle'}
+                  className="mt-3 w-full h-10 rounded-xl bg-indigo-600 text-white font-extrabold text-xs inline-flex items-center justify-center gap-1.5 disabled:opacity-50"
+                >
+                  {phase !== 'idle' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                  Install — 14 days free
+                </button>
+              ) : null}
+
+              {isSelected && !module.enabled && (
+                <div className="mt-3 rounded-xl bg-slate-50 border border-slate-200 p-3 space-y-2">
+                  <label className="block text-[10px] uppercase tracking-wide font-bold text-slate-500">
+                    Mobile-money number
+                    <input type="tel" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="07XX XXX XXX" className="mt-1 w-full h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm normal-case tracking-normal font-normal" />
+                  </label>
+                  {error && <p className="text-[11px] text-rose-600">{error}</p>}
+                  <div className="grid grid-cols-2 gap-2">
+                    <button onClick={() => { setSelected(null); setError(null); }} disabled={phase !== 'idle'} className="h-10 rounded-lg border border-slate-200 text-xs font-bold text-slate-600 disabled:opacity-50">Cancel</button>
+                    <button onClick={() => void purchase(module)} disabled={phase !== 'idle'} className="h-10 rounded-lg bg-indigo-600 text-xs font-extrabold text-white disabled:opacity-50 inline-flex items-center justify-center gap-1.5">
+                      {phase !== 'idle' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                      {phase === 'pushing' ? 'Starting…' : phase === 'waiting' ? 'Approve on phone…' : `Pay ${module.priceTzs.toLocaleString()}`}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -390,6 +666,16 @@ export function MobileFeatureFrame({ title, children }: { title: string; childre
 
 /* ─── Subscription paywall ────────────────────────────────────────────── */
 
+interface MobileModuleAccess {
+  id: string;
+  name: string;
+  description: string;
+  priceTzs: number;
+  included: boolean;
+  enabled: boolean;
+  expiresAt: number | null;
+}
+
 interface MobileAccessResult {
   slug: string;
   access: 'active' | 'trial' | 'expired';
@@ -397,11 +683,13 @@ interface MobileAccessResult {
   trialEndsAt: number | null;
   periodEndsAt: number | null;
   hoursRemaining: number;
+  modules: MobileModuleAccess[];
+  enabledModules: string[];
 }
 
 /**
  * Blocks (or, in `dismissible` mode, overlays) the mobile workspace once the
- * 48h trial is over. Collects a mobile-money number, fires a PalmPesa USSD
+ * 14-day trial is over. Collects a mobile-money number, fires a PalmPesa USSD
  * push via /mobile-access/subscribe, then polls /status until the payment
  * settles and unlocks the shop for 30 days.
  */
@@ -477,7 +765,7 @@ function MobilePaywall({
           <p className="text-xs text-slate-500 mt-1">
             {dismissible
               ? `Lock in the ${slug} mobile workspace before your trial runs out.`
-              : `The ${slug} mobile workspace was free for 48 hours. Subscribe to keep using it.`}
+              : `The ${slug} mobile workspace was free for 14 days. Subscribe to keep using it.`}
           </p>
         </div>
 

@@ -9,7 +9,6 @@ import { Download } from 'lucide-react';
  * app is already installed / running standalone, or when the browser doesn't
  * support programmatic install (e.g. iOS Safari — there we show a hint instead).
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type BIPEvent = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: string }> };
 
 export function InstallPwaButton() {

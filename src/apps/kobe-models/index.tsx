@@ -3,6 +3,7 @@ import {
   catalogueApi, downloadApi, installedApi,
   type CatalogueModel, type DownloadJob, type InstalledModel, type ModelCategory,
 } from './api';
+import { apiArray } from '@/lib/api';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -34,7 +35,7 @@ const DEMO_MODELS: CatalogueModel[] = [
   { id: 'llama3.2:3b', name: 'Llama 3.2 3B', description: 'Lightweight. Runs on CPU, ideal for low-resource devices.', category: 'chat', sizeBytes: 2_000_000_000, sizeLabel: '2.0 GB', minVramGb: 0, kobeOptimised: false, downloadUrl: '', checksum: '', ollamaFallback: 'llama3.2:3b', license: 'llama', upstreamUrl: '', version: '3.2', recommended: true, tags: ['chat', 'cpu'] },
   { id: 'deepseek-coder-v2:16b', name: 'Kobe-DeepSeek Coder V2', description: 'Best-in-class open coding model. Supports 338 languages.', category: 'coding', sizeBytes: 9_000_000_000, sizeLabel: '9.0 GB', minVramGb: 12, kobeOptimised: true, downloadUrl: '', checksum: '', ollamaFallback: 'deepseek-coder-v2:16b', license: 'other', upstreamUrl: '', version: '2.0', recommended: true, tags: ['coding'] },
   { id: 'llava:7b', name: 'LLaVA 7B', description: 'Vision-language model. Analyse images and screenshots.', category: 'vision', sizeBytes: 4_500_000_000, sizeLabel: '4.5 GB', minVramGb: 6, kobeOptimised: false, downloadUrl: '', checksum: '', ollamaFallback: 'llava:7b', license: 'apache-2.0', upstreamUrl: '', version: '1.5', recommended: true, tags: ['vision'] },
-  { id: 'kobe-football-vision:1b', name: 'Kobe Football Vision', description: 'YOLOv8n for player tracking, ball detection, event classification.', category: 'sports', sizeBytes: 12_000_000, sizeLabel: '~12 MB', minVramGb: 0, kobeOptimised: true, downloadUrl: '', checksum: '', license: 'apache-2.0', upstreamUrl: '', version: '1.0', recommended: true, tags: ['sports', 'yolo'] },
+  { id: 'kobe-football-vision:1b', name: 'Kobe Football Vision · YOLOv8', description: 'YOLOv8n for player tracking, ball detection, event classification.', category: 'sports', sizeBytes: 12_000_000, sizeLabel: '~12 MB', minVramGb: 0, kobeOptimised: true, downloadUrl: '', checksum: '', license: 'apache-2.0', upstreamUrl: '', version: '1.0', recommended: true, tags: ['sports', 'yolo', 'yolov8'] },
   { id: 'nomic-embed-text:latest', name: 'Nomic Embed Text', description: 'High-quality text embeddings for RAG and semantic search.', category: 'embedding', sizeBytes: 274_000_000, sizeLabel: '274 MB', minVramGb: 0, kobeOptimised: false, downloadUrl: '', checksum: '', ollamaFallback: 'nomic-embed-text:latest', license: 'apache-2.0', upstreamUrl: '', version: '1.0', recommended: true, tags: ['embedding', 'rag'] },
 ];
 
@@ -178,6 +179,7 @@ export default function KobeModelManager() {
   const [search, setSearch] = useState('');
   const [tab, setTab] = useState<'catalogue' | 'installed'>('catalogue');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // ── Load data ───────────────────────────────────────────────────────────────
@@ -185,7 +187,12 @@ export default function KobeModelManager() {
   const loadCatalogue = useCallback(async () => {
     try {
       const cat = await catalogueApi.all();
-      setCatalogue(cat.models);
+      const remote = apiArray<CatalogueModel>(cat, ['models']);
+      const remoteIds = new Set(remote.map((model) => model.id));
+      setCatalogue([
+        ...remote,
+        ...DEMO_MODELS.filter((model) => !remoteIds.has(model.id)),
+      ]);
     } catch {
       setCatalogue(DEMO_MODELS);
     }
@@ -194,8 +201,8 @@ export default function KobeModelManager() {
   const loadInstalled = useCallback(async () => {
     try {
       const [inst, active] = await Promise.all([installedApi.list(), installedApi.active()]);
-      setInstalled(inst.models);
-      setActiveModel(active.model);
+      setInstalled(apiArray<InstalledModel>(inst, ['models']));
+      setActiveModel(typeof active?.model === 'string' ? active.model : '');
     } catch {
       setInstalled([]);
     }
@@ -204,7 +211,7 @@ export default function KobeModelManager() {
   const loadJobs = useCallback(async () => {
     try {
       const j = await downloadApi.jobs();
-      setJobs(j);
+      setJobs(apiArray<DownloadJob>(j, ['jobs']));
     } catch {
       setJobs([]);
     }
@@ -238,26 +245,33 @@ export default function KobeModelManager() {
   // ── Actions ─────────────────────────────────────────────────────────────────
 
   const handleDownload = async (modelId: string) => {
+    setError('');
     try {
       const job = await downloadApi.start(modelId);
       setJobs((prev) => [...prev.filter((j) => j.modelId !== modelId), job]);
-    } catch {
-      // backend unavailable in demo
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'The model could not be installed.');
     }
   };
 
   const handleSetActive = async (modelId: string) => {
+    setError('');
     try {
       await installedApi.setActive(modelId);
       setActiveModel(modelId);
-    } catch { /* demo */ }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'The active model could not be changed.');
+    }
   };
 
   const handleDelete = async (modelId: string) => {
+    setError('');
     try {
       await installedApi.delete(modelId);
       await loadInstalled();
-    } catch { /* demo */ }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'The model could not be removed.');
+    }
   };
 
   // ── Derived state ────────────────────────────────────────────────────────────
@@ -320,6 +334,12 @@ export default function KobeModelManager() {
           </button>
         ))}
       </div>
+
+      {error && (
+        <div className="shrink-0 border-b border-red-800/60 bg-red-950/60 px-4 py-2 text-xs text-red-200">
+          {error}
+        </div>
+      )}
 
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar — category filter */}

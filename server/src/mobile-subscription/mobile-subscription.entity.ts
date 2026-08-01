@@ -5,15 +5,17 @@ export type MobileSubStatus = 'trialing' | 'active' | 'expired' | 'pending' | 'f
 
 /** Monthly price for mobile-workspace access, in TZS. */
 export const MOBILE_SUB_PRICE_TZS = 100_000;
-/** Free trial length before the paywall: 48 hours. */
-export const MOBILE_TRIAL_MS = 48 * 60 * 60 * 1000;
+/** Free trial length before the paywall: 14 days. */
+export const MOBILE_TRIAL_MS = 14 * 24 * 60 * 60 * 1000;
+/** One-time trial granted when an optional PWA module is installed. */
+export const MOBILE_MODULE_TRIAL_MS = 14 * 24 * 60 * 60 * 1000;
 /** Paid period length granted per successful payment: 30 days. */
 export const MOBILE_PERIOD_MS = 30 * 24 * 60 * 60 * 1000;
 
 /**
  * Per-SHOP subscription that gates the /m/:slug mobile workspace.
  *
- * Keyed by `slug` (e.g. "johsport") so one 48h trial + one paid subscription
+ * Keyed by `slug` (e.g. "johsport") so one 14-day trial + one paid subscription
  * covers everyone who signs into that shop's mobile workspace — not per user.
  * Any signed-in staff member can pay to unlock it for the whole shop.
  */
@@ -28,7 +30,7 @@ export class MobileSubscription extends BaseEntity {
   @Column({ default: 'trialing' })
   status!: MobileSubStatus;
 
-  /** End of the free 48h trial (set when the shop is first seen). */
+  /** End of the free 14-day trial (set when the shop is first seen). */
   @Column({ type: 'timestamptz', nullable: true })
   trialEndsAt?: Date | null;
 
@@ -52,6 +54,14 @@ export class MobileSubscription extends BaseEntity {
 
   @Column({ nullable: true, type: 'varchar' })
   channel?: string | null;
+
+  /** Paid add-on modules and their individual expiry timestamps (ISO-8601). */
+  @Column({ type: 'jsonb', default: {} })
+  moduleEntitlements!: Record<string, string>;
+
+  /** Module attached to the current PalmPesa transaction, if it is an add-on purchase. */
+  @Column({ nullable: true, type: 'varchar' })
+  pendingModuleId?: string | null;
 
   /** Account that initiated the most recent payment (audit only). */
   @Column({ nullable: true, type: 'uuid' })

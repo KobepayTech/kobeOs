@@ -34,9 +34,10 @@ export const AppWindow = memo(function AppWindow({ window: win, children }: AppW
   }, [win.id, win.isFocused, focusWindow]);
 
   const startDrag = useCallback(
-    (e: React.MouseEvent) => {
+    (e: React.PointerEvent) => {
       if (win.isMaximized) return;
       e.preventDefault();
+      if (e.button !== 0 && e.pointerType !== 'touch') return;
       bringToFront(win.id);
       dragState.current = {
         dragging: true,
@@ -50,7 +51,7 @@ export const AppWindow = memo(function AppWindow({ window: win, children }: AppW
         dir: '' as ResizeDir,
       };
 
-      const onMove = (ev: MouseEvent) => {
+      const onMove = (ev: PointerEvent) => {
         const state = dragState.current;
         if (!state.dragging) return;
         const dx = ev.clientX - state.startX;
@@ -66,12 +67,14 @@ export const AppWindow = memo(function AppWindow({ window: win, children }: AppW
 
       const onUp = () => {
         dragState.current.dragging = false;
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
+        document.removeEventListener('pointermove', onMove);
+        document.removeEventListener('pointerup', onUp);
+        document.removeEventListener('pointercancel', onUp);
       };
 
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', onUp);
+      document.addEventListener('pointermove', onMove);
+      document.addEventListener('pointerup', onUp);
+      document.addEventListener('pointercancel', onUp);
     },
     [win.id, win.x, win.y, win.width, win.height, win.isMaximized, bringToFront, updateWindow]
   );
@@ -101,25 +104,31 @@ export const AppWindow = memo(function AppWindow({ window: win, children }: AppW
         const dy = ev.clientY - state.startY;
         const vw = window.innerWidth;
         const vh = window.innerHeight;
-        let nx = state.startWinX;
-        let ny = state.startWinY;
-        let nw = state.startW;
-        let nh = state.startH;
-        const minW = win.minWidth;
-        const minH = win.minHeight;
-        if (state.dir.includes('e')) nw = Math.max(minW, state.startW + dx);
+        const minW = Math.min(win.minWidth, vw);
+        const minH = Math.min(win.minHeight, vh);
+        let left = Math.max(0, Math.min(state.startWinX, Math.max(0, vw - minW)));
+        let top = Math.max(0, Math.min(state.startWinY, Math.max(0, vh - minH)));
+        let right = Math.max(left + minW, Math.min(vw, state.startWinX + state.startW));
+        let bottom = Math.max(top + minH, Math.min(vh, state.startWinY + state.startH));
+
+        if (state.dir.includes('e')) {
+          right = Math.max(left + minW, Math.min(vw, state.startWinX + state.startW + dx));
+        }
         if (state.dir.includes('w')) {
-          nw = Math.max(minW, state.startW - dx);
-          nx = state.startWinX + (state.startW - nw);
+          left = Math.max(0, Math.min(right - minW, state.startWinX + dx));
         }
-        if (state.dir.includes('s')) nh = Math.max(minH, state.startH + dy);
+        if (state.dir.includes('s')) {
+          bottom = Math.max(top + minH, Math.min(vh, state.startWinY + state.startH + dy));
+        }
         if (state.dir.includes('n')) {
-          nh = Math.max(minH, state.startH - dy);
-          ny = state.startWinY + (state.startH - nh);
+          top = Math.max(0, Math.min(bottom - minH, state.startWinY + dy));
         }
-        nw = Math.min(nw, vw);
-        nh = Math.min(nh, vh);
-        updateWindow(win.id, { x: nx, y: ny, width: nw, height: nh });
+        updateWindow(win.id, {
+          x: left,
+          y: top,
+          width: right - left,
+          height: bottom - top,
+        });
       };
 
       const onUp = () => {
@@ -172,7 +181,13 @@ export const AppWindow = memo(function AppWindow({ window: win, children }: AppW
       }}
       onMouseDown={onMouseDownWindow}
     >
-      <div onMouseDown={startDrag}>
+      <div
+        className="touch-none select-none"
+        onPointerDown={(e) => {
+          if ((e.target as HTMLElement).closest('button')) return;
+          startDrag(e);
+        }}
+      >
         <TitleBar
           windowId={win.id}
           title={win.title}

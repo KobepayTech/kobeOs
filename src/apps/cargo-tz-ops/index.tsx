@@ -6,7 +6,7 @@ import { InstallPwaButton } from '@/mobile/InstallPwaButton';
 import { QRCodeSVG } from 'qrcode.react';
 import {
   PackagePlus, Warehouse, LayoutDashboard, Camera, Loader2, CheckCircle2, Printer, Plus,
-  Truck, MapPin, Clock, Wallet, PackageCheck, X, Search, ArrowRight, Users, AlertCircle,
+  Truck, MapPin, Clock, Wallet, PackageCheck, X, Search, ArrowRight, AlertCircle,
 } from 'lucide-react';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar, Cell } from 'recharts';
 
@@ -61,16 +61,16 @@ export default function CargoTzOps({ role }: { role?: 'intake' | 'warehouse' | '
   ] as const;
 
   return (
-    <div className="h-full flex flex-col bg-slate-50 text-slate-900 overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-3 bg-emerald-700 text-white shrink-0">
-        <div className="flex items-center gap-2"><PackageCheck className="w-5 h-5" /><span className="font-extrabold">Cargo TZ</span></div>
+    <div className="h-full flex flex-col bg-[#f6f8fc] text-slate-900 overflow-hidden" data-surface="light" data-module="cargo-tz-ops">
+      <div className="flex items-center justify-between px-4 py-3 bg-white text-slate-900 border-b border-slate-200 shrink-0">
+        <div className="flex items-center gap-2"><div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center"><PackageCheck className="w-4 h-4 text-white" /></div><div><span className="font-extrabold">Cargo TZ</span><span className="block text-[10px] text-slate-500">Domestic operations</span></div></div>
         <div className="flex items-center gap-2">
           {standalone && <InstallPwaButton />}
           <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))} placeholder="Staff PIN" inputMode="numeric"
             className="w-24 h-8 px-2 rounded-md text-slate-900 text-xs text-center tracking-widest" title="Optional — your 4-digit staff PIN attributes the action" />
         </div>
       </div>
-      <div className="flex border-b border-slate-200 bg-white shrink-0">
+      <div className="flex border-b border-slate-200 bg-white shrink-0 px-2">
         {tabs.map((t) => (
           <button key={t.key} onClick={() => setTab(t.key)} className={`flex-1 py-2.5 inline-flex items-center justify-center gap-1.5 text-xs font-bold ${tab === t.key ? 'text-emerald-700 border-b-2 border-emerald-600' : 'text-slate-500'}`}>
             <t.Icon className="w-4 h-4" /> {t.label}

@@ -3,10 +3,10 @@ import { api } from '@/lib/api';
 import {
   Calendar, CalendarDays, PenLine, Link2, Image, BarChart3,
   ChevronLeft, ChevronRight, Instagram, Twitter, Facebook,
-  Linkedin, Youtube, Video, Pin, AtSign, Cloud, Paperclip,
+  Linkedin, Youtube, Video, Pin, AtSign, Cloud,
   X, Plus, Clock, Eye, Heart, MessageSquare, Share2,
-  CheckCircle2, AlertCircle, Upload, Search, Filter,
-  Trash2, Edit3, Copy, TrendingUp, Hash
+  CheckCircle2, Upload, Search, Filter,
+  Trash2, TrendingUp, Hash
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';

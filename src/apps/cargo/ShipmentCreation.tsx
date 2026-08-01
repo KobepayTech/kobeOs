@@ -10,7 +10,7 @@
 
 import React, { useState } from 'react';
 import {
-  Plus, X, ChevronRight, ChevronLeft, CheckCircle, QrCode,
+  Plus, X, ChevronRight, ChevronLeft, CheckCircle,
   User, Phone, Building2, MapPin, Package, DollarSign, FileText
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';

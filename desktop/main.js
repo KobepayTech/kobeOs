@@ -25,11 +25,11 @@ function createSplashWindow() {
     resizable: false,
     webPreferences: {
       nodeIntegration: false,
-      contextIsolation: false,
-      preload: path.join(__dirname, 'splash-preload.js'),
+      contextIsolation: true,
+      preload: path.join(__dirname, 'ui', 'splash-preload.js'),
     },
   });
-  splashWindow.loadFile(path.join(__dirname, 'splash.html'));
+  splashWindow.loadFile(path.join(__dirname, 'ui', 'splash.html'));
   splashWindow.on('closed', () => { splashWindow = null; });
 }
 
@@ -161,7 +161,8 @@ function startBackend(dbConfig) {
     DB_USERNAME: dbConfig.user,
     DB_PASSWORD: dbConfig.password,
     DB_DATABASE: dbConfig.database,
-    DB_SYNCHRONIZE: 'true',
+    DB_SYNCHRONIZE: 'false',
+    DB_MIGRATIONS_RUN: 'true',
     KOBEOS_DESKTOP: 'true',   // signals embedded desktop mode to bypass prod guards
     JWT_SECRET: getOrCreateJwtSecret(),
     CORS_ORIGIN: 'file://',
@@ -385,7 +386,7 @@ ipcMain.handle('system-shutdown', () => {
 ipcMain.handle('system-reboot', () => {
   exec(process.platform === 'win32' ? 'shutdown /r /t 0' : 'reboot');
 });
-ipcMain.handle('get-system-mode', () => getSystemMode());
+ipcMain.handle('get-system-mode', () => (getSystemMode() === 'live-usb' ? 'live-usb' : 'installed'));
 
 ipcMain.handle('toggle-fullscreen', () => {
   if (!mainWindow) return false;
@@ -413,8 +414,12 @@ ipcMain.handle('install-to-disk', async (event, diskPath, options = {}) => {
   }
 
   // options.luksPassphrase: string — if provided, root partition is LUKS-encrypted
-  const luksPassphrase = typeof options.luksPassphrase === 'string' ? options.luksPassphrase : '';
-  const useLuks = luksPassphrase.length >= 8;
+  const safeOptions = options && typeof options === 'object' ? options : {};
+  const luksPassphrase = typeof safeOptions.luksPassphrase === 'string' ? safeOptions.luksPassphrase : '';
+  if (luksPassphrase.length > 0 && (luksPassphrase.length < 8 || luksPassphrase.length > 512 || luksPassphrase.includes('\0'))) {
+    return { success: false, error: 'LUKS passphrase must be 8-512 characters and cannot contain NUL bytes' };
+  }
+  const useLuks = luksPassphrase.length > 0;
 
   // Partition layout (GPT, 4 partitions):
   //   p1  512 MiB  EFI System Partition (FAT32)
@@ -461,8 +466,8 @@ mkfs.ext4 -F -L KOBEOS_REC "$PART_REC"
 ${useLuks ? `
 echo "Setting up LUKS encryption on root partition..."
 apt-get install -y --no-install-recommends cryptsetup 2>/dev/null || true
-echo -n "${luksPassphrase}" | cryptsetup luksFormat --type luks2 --batch-mode "$PART_ROOT" -
-echo -n "${luksPassphrase}" | cryptsetup open "$PART_ROOT" kobeos_root -
+printf '%s' "$KOBEOS_LUKS_PASSPHRASE" | cryptsetup luksFormat --type luks2 --batch-mode "$PART_ROOT" -
+printf '%s' "$KOBEOS_LUKS_PASSPHRASE" | cryptsetup open "$PART_ROOT" kobeos_root -
 mkfs.ext4 -F -L KOBEOS_ROOT /dev/mapper/kobeos_root
 ROOT_DEV=/dev/mapper/kobeos_root
 ` : `
@@ -529,7 +534,7 @@ Environment=DB_PORT=5432
 Environment=DB_USERNAME=kobeos
 Environment=DB_PASSWORD=kobeos_prod
 Environment=DB_DATABASE=kobeos
-Environment=DB_SYNCHRONIZE=true
+# DB_SYNCHRONIZE intentionally unset: production uses tracked migrations.
 EnvironmentFile=-/opt/kobeos/resources/.env
 ExecStart=/usr/bin/node /opt/kobeos/resources/server-bundle/index.js
 Restart=on-failure
@@ -630,7 +635,10 @@ ${useLuks ? 'cryptsetup close kobeos_root 2>/dev/null || true' : ''}
 echo "INSTALL_COMPLETE"
 `;
   return new Promise((resolve) => {
-    execFile('/bin/bash', ['-c', script], { timeout: 900_000 }, (error, stdout, stderr) => {
+    execFile('/bin/bash', ['-c', script], {
+      timeout: 900_000,
+      env: { ...process.env, KOBEOS_LUKS_PASSPHRASE: luksPassphrase },
+    }, (error, stdout, stderr) => {
       resolve({ success: !error, output: stdout, error: stderr });
     });
   });

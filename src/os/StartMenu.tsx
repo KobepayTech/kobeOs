@@ -10,7 +10,7 @@ interface StartMenuProps {
 }
 
 export function StartMenu({ open, onClose }: StartMenuProps) {
-  const { apps, settings, launchApp, pinApp, unpinApp } = useOSStore();
+  const { apps, installedAppIds, settings, launchApp, pinApp, unpinApp } = useOSStore();
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -22,14 +22,15 @@ export function StartMenu({ open, onClose }: StartMenuProps) {
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase();
-    if (!q) return apps;
-    return apps.filter(
+    const installed = apps.filter((app) => installedAppIds.includes(app.id));
+    if (!q) return installed;
+    return installed.filter(
       (a) =>
         a.name.toLowerCase().includes(q) ||
         a.description.toLowerCase().includes(q) ||
         a.category.toLowerCase().includes(q)
     );
-  }, [apps, query]);
+  }, [apps, installedAppIds, query]);
 
   const byCategory = useMemo(() => {
     const map: Record<string, typeof apps> = {};
@@ -86,7 +87,7 @@ export function StartMenu({ open, onClose }: StartMenuProps) {
             Pinned
           </div>
           <div className="grid grid-cols-6 gap-2">
-            {settings.pinnedApps.slice(0, 12).map((appId) => {
+            {settings.pinnedApps.filter((appId) => installedAppIds.includes(appId)).slice(0, 12).map((appId) => {
               const app = apps.find((a) => a.id === appId);
               if (!app) return null;
               const Icon = (icons[app.icon as keyof typeof icons] as LucideIcon | undefined) ?? icons.Circle;

@@ -14,8 +14,9 @@ import { PosGateway } from './pos.gateway';
 export class ProductsService {
   constructor(@InjectRepository(PosProduct) private readonly repo: Repository<PosProduct>) {}
 
-  list(uid: string, page = 1, limit = 50) {
-    return this.repo.find({ where: { ownerId: uid }, order: { name: 'ASC' }, skip: (page - 1) * limit, take: limit });
+  list(uid: string, page = 1, limit = 500) {
+    const safeLimit = Math.min(1000, Math.max(1, limit));
+    return this.repo.find({ where: { ownerId: uid }, order: { name: 'ASC' }, skip: (page - 1) * safeLimit, take: safeLimit });
   }
 
   async get(uid: string, id: string) {
@@ -215,9 +216,15 @@ export class OrdersService {
       const manualOverride = couponOrRuleDiscount > 0 ? 0 : (dto.discountAmount ?? 0);
       const rawDiscount =
         couponOrRuleDiscount + negotiatedDiscount + Math.max(0, manualOverride - negotiatedDiscount);
-      // Clamp the total discount to the billable amount so the order total can
-      // NEVER go negative — an unbounded manual discountAmount would otherwise
-      // post negative revenue into the books / EOD till.
+      // Route a large manual/negotiated discount through manager approval…
+      const effectiveDiscountPercent = subtotal > 0 ? (rawDiscount / subtotal) * 100 : 0;
+      if (effectiveDiscountPercent > 20 && !dto.approvedBy) {
+        throw new ForbiddenException(
+          'Discount exceeds approval threshold; manager approval required (set approvedBy)',
+        );
+      }
+      // …and clamp it to the billable amount so the order total can NEVER go
+      // negative (an unbounded discountAmount would post negative revenue).
       const discount = parseFloat(Math.min(rawDiscount, subtotal + tax).toFixed(4));
 
       const total = parseFloat(Math.max(0, subtotal + tax - discount).toFixed(4));

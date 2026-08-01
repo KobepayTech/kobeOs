@@ -82,6 +82,8 @@ import { AppStateModule } from './app-state/app-state.module';
 import { AutomationModule } from './automation/automation.module';
 import { SearchModule } from './search/search.module';
 import { HotelPublicModule } from './hotel-public/hotel-public.module';
+import { AppMarketplaceModule } from './app-marketplace/app-marketplace.module';
+import { DeveloperPlatformModule } from './developer-platform/developer-platform.module';
 
 @Module({
   imports: [
@@ -93,11 +95,16 @@ import { HotelPublicModule } from './hotel-public/hotel-public.module';
     }),
     TypeOrmModule.forRootAsync(databaseConfig),
     ThrottlerModule.forRoot([
-      { name: 'default', ttl: 60_000, limit: 120 },
-      { name: 'auth', ttl: 60_000, limit: 10 },
-      // Tighter bucket for public lookup endpoints that expose
-      // enumerable resources (e.g. /store-settings/check-slug).
-      { name: 'public-lookup', ttl: 60_000, limit: 20 },
+      { name: 'default', ttl: 60_000, limit: process.env.NODE_ENV === 'test' ? 10_000 : 120 },
+      { name: 'auth', ttl: 60_000, limit: process.env.NODE_ENV === 'test' ? 10_000 : 10 },
+      // Routes that expose enumerable resources override this named bucket
+      // with a tighter limit. Keep the global baseline aligned with the
+      // default bucket so unrelated endpoints are not accidentally capped.
+      {
+        name: 'public-lookup',
+        ttl: 60_000,
+        limit: process.env.NODE_ENV === 'test' ? 10_000 : 120,
+      },
     ]),
     RedisCacheModule,
     AuditModule,
@@ -137,6 +144,8 @@ import { HotelPublicModule } from './hotel-public/hotel-public.module';
     AutomationModule,
     SearchModule,
     HotelPublicModule,
+    AppMarketplaceModule,
+    DeveloperPlatformModule,
     MzigoModule,
     WarehouseModule,
     DiscountsModule,

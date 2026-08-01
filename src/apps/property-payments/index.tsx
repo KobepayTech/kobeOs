@@ -4,8 +4,6 @@ import {
   BadgeDollarSign,
   Banknote,
   Building2,
-  CheckCircle2,
-  Clock3,
   Copy,
   ExternalLink,
   Landmark,

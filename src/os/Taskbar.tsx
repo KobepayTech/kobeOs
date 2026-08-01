@@ -36,6 +36,7 @@ export function Taskbar() {
   const {
     windows,
     settings,
+    installedAppIds,
     getApp,
     focusWindow,
     launchApp,
@@ -107,7 +108,7 @@ export function Taskbar() {
 
         {/* Pinned + Open Windows */}
         <div className="flex items-center gap-0.5 overflow-hidden">
-          {settings.pinnedApps.map((appId) => {
+          {settings.pinnedApps.filter((appId) => installedAppIds.includes(appId)).map((appId) => {
             const app = getApp(appId);
             if (!app) return null;
             const Icon = (icons[app.icon as keyof typeof icons] as LucideIcon | undefined) ?? icons.Circle;

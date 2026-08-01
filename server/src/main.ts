@@ -66,7 +66,25 @@ async function bootstrap() {
   app.useGlobalFilters(new HttpExceptionFilter());
 
   const cors = buildOriginPredicate();
-  app.enableCors({ origin: cors.predicate, credentials: true });
+  // Developer API preflights cannot carry the project Authorization header,
+  // and third-party web apps are intentionally outside KobeOS's first-party
+  // origin list. Use a request-aware CORS policy so only /developer/v1 can
+  // reflect a third-party origin. The controller still validates every actual
+  // request against the API key project's allowedOrigins list.
+  app.enableCors((req, callback) => {
+    const path = typeof req.path === 'string' ? req.path : req.url;
+    if (path.startsWith('/api/developer/v1')) {
+      callback(null, {
+        origin: true,
+        credentials: false,
+        methods: ['POST', 'OPTIONS'],
+        allowedHeaders: ['Authorization', 'Content-Type'],
+        maxAge: 86_400,
+      });
+      return;
+    }
+    callback(null, { origin: cors.predicate, credentials: true });
+  });
   // Log the effective CORS config at boot so a misconfig is loud
   // instead of silently 4xx'ing every browser fetch (which the SPA
   // then reports as "Backend unreachable" via OfflineWriteQueuedError).
