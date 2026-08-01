@@ -274,12 +274,15 @@ jobs:
             Write-Error "Expected exactly one setup EXE next to the sidecar, found $($setups.Count)"
             exit 1
           }
-          if ($setups[0].Length -lt 1MB) {
-            Write-Error "$($setups[0].Name) is suspiciously small (<1 MB)"
+          # nsis-web produces a SMALL web-bootstrapper .exe by design — the real
+          # payload is the .nsis.7z sidecar (validated below). Only guard against
+          # a genuinely broken/empty stub, not against it being under 1 MB.
+          if ($setups[0].Length -lt 50KB) {
+            Write-Error "$($setups[0].Name) is corrupt/empty ($([math]::Round($setups[0].Length/1KB)) KB)"
             exit 1
           }
           if ($packages[0].Length -lt 100MB) {
-            Write-Error "$($packages[0].Name) is suspiciously small (<100 MB)"
+            Write-Error "$($packages[0].Name) is suspiciously small (<100 MB) — payload did not pack"
             exit 1
           }
           if ($setups[0].DirectoryName -ne $packages[0].DirectoryName) {
