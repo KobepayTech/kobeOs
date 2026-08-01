@@ -32,6 +32,19 @@ import { detectAppSubdomain, detectTenantSubdomain } from './public/api';
  * Everything else mounts the full OS shell.
  */
 const pathname = window.location.pathname;
+
+// OAuth redirect landing (TikTok): tokens arrive in the URL fragment. Store them
+// and bounce to the app root, which then boots signed-in.
+if (pathname === '/oauth/tiktok') {
+  const frag = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+  const access = frag.get('access_token');
+  const refresh = frag.get('refresh_token');
+  import('./lib/auth').then(({ oauthConsume }) => {
+    if (access && refresh) oauthConsume(access, refresh);
+    window.location.replace('/');
+  });
+}
+
 const tenantSub = detectTenantSubdomain();
 const appSub = detectAppSubdomain();
 

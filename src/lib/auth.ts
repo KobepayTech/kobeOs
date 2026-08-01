@@ -30,6 +30,23 @@ export async function login(email: string, password: string): Promise<AuthUser> 
   return res.user;
 }
 
+/** Sign in / up with a Google Identity Services credential (ID token). */
+export async function oauthGoogle(credential: string): Promise<AuthUser> {
+  const res = await api<AuthResponse>('/auth/oauth/google', {
+    method: 'POST',
+    auth: false,
+    body: JSON.stringify({ credential }),
+  });
+  persist(res);
+  return res.user;
+}
+
+/** Store tokens handed back by a provider redirect (e.g. TikTok callback). */
+export function oauthConsume(accessToken: string, refreshToken: string): void {
+  setToken(accessToken);
+  setRefreshToken(refreshToken);
+}
+
 export async function register(email: string, password: string, displayName?: string): Promise<AuthUser> {
   const res = await api<AuthResponse>('/auth/register', {
     method: 'POST',

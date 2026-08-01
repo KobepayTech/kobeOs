@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, ConflictException, Logger } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, BadRequestException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -49,6 +49,79 @@ export class AuthService {
     const ok = await bcrypt.compare(dto.password, user.passwordHash);
     if (!ok) throw new UnauthorizedException('Invalid credentials');
     return this.issue(user.id, user.email);
+  }
+
+  /**
+   * Sign in (or transparently create) a user from a verified OAuth profile.
+   * OAuth accounts have no usable password (a random hash is stored), so they
+   * can only be entered through the provider. Linked to any existing local
+   * account by email.
+   */
+  async oauthSignIn(profile: { email: string; displayName?: string; avatarUrl?: string | null }): Promise<IssuedTokens> {
+    const email = profile.email.trim().toLowerCase();
+    if (!email) throw new UnauthorizedException('No email from provider');
+    let user = await this.users.findByEmail(email);
+    if (!user) {
+      const passwordHash = await bcrypt.hash(randomBytes(32).toString('hex'), 10);
+      user = await this.users.create({
+        email,
+        passwordHash,
+        displayName: profile.displayName?.trim() || email.split('@')[0],
+      });
+    }
+    return this.issue(user.id, user.email);
+  }
+
+  /** Verify a Google ID token (GIS credential) and sign the user in. */
+  async googleSignIn(credential: string): Promise<IssuedTokens> {
+    const clientId = this.config.get<string>('GOOGLE_CLIENT_ID');
+    if (!clientId) throw new BadRequestException('Google sign-in is not configured');
+    if (!credential) throw new BadRequestException('Missing Google credential');
+    const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`)
+      .catch(() => null);
+    if (!res || !res.ok) throw new UnauthorizedException('Could not verify Google token');
+    const p = (await res.json()) as { aud?: string; email?: string; email_verified?: string | boolean; name?: string; picture?: string };
+    if (p.aud !== clientId) throw new UnauthorizedException('Google token was issued for a different app');
+    if (!p.email || !(p.email_verified === true || p.email_verified === 'true')) throw new UnauthorizedException('Google email not verified');
+    return this.oauthSignIn({ email: p.email, displayName: p.name, avatarUrl: p.picture });
+  }
+
+  /** The URL to send the user to start TikTok Login (auth-code flow). */
+  tiktokAuthUrl(state: string): string {
+    const key = this.config.get<string>('TIKTOK_CLIENT_KEY');
+    const redirect = this.config.get<string>('TIKTOK_REDIRECT_URI');
+    if (!key || !redirect) throw new BadRequestException('TikTok sign-in is not configured');
+    const params = new URLSearchParams({
+      client_key: key, response_type: 'code', scope: 'user.info.basic',
+      redirect_uri: redirect, state,
+    });
+    return `https://www.tiktok.com/v2/auth/authorize/?${params.toString()}`;
+  }
+
+  /** Exchange a TikTok auth code for tokens + profile, then sign in. */
+  async tiktokSignIn(code: string): Promise<IssuedTokens> {
+    const key = this.config.get<string>('TIKTOK_CLIENT_KEY');
+    const secret = this.config.get<string>('TIKTOK_CLIENT_SECRET');
+    const redirect = this.config.get<string>('TIKTOK_REDIRECT_URI');
+    if (!key || !secret || !redirect) throw new BadRequestException('TikTok sign-in is not configured');
+    if (!code) throw new BadRequestException('Missing TikTok code');
+    const tokenRes = await fetch('https://open.tiktokapis.com/v2/oauth/token/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ client_key: key, client_secret: secret, code, grant_type: 'authorization_code', redirect_uri: redirect }).toString(),
+    }).catch(() => null);
+    const tok = (tokenRes && tokenRes.ok ? await tokenRes.json() : null) as { access_token?: string; open_id?: string } | null;
+    if (!tok?.access_token || !tok.open_id) throw new UnauthorizedException('TikTok token exchange failed');
+    let name = 'TikTok user';
+    let avatar: string | null = null;
+    try {
+      const infoRes = await fetch('https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name,avatar_url', { headers: { Authorization: `Bearer ${tok.access_token}` } });
+      const info = (await infoRes.json()) as { data?: { user?: { display_name?: string; avatar_url?: string } } };
+      name = info.data?.user?.display_name ?? name;
+      avatar = info.data?.user?.avatar_url ?? null;
+    } catch { /* profile fetch is best-effort */ }
+    // TikTok may not return an email → synthesise a stable identity address.
+    return this.oauthSignIn({ email: `tiktok_${tok.open_id}@users.kobeos.local`, displayName: name, avatarUrl: avatar });
   }
 
   /**

@@ -1,8 +1,23 @@
 import React, { useState } from 'react';
 import { Lock, Power, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { login } from '@/lib/auth';
-import { ApiError } from '@/lib/api';
+import { login, oauthGoogle } from '@/lib/auth';
+import { ApiError, API_BASE } from '@/lib/api';
+
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
+
+// Load the Google Identity Services script once (no-op if already present).
+function loadGis(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if ((window as any).google?.accounts?.id) return resolve();
+    const s = document.createElement('script');
+    s.src = 'https://accounts.google.com/gsi/client';
+    s.async = true; s.defer = true;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error('Could not load Google sign-in'));
+    document.head.appendChild(s);
+  });
+}
 
 const PROFILES = [
   { name: 'Admin', avatar: 'A', role: 'System Administrator', color: 'from-blue-500 to-purple-600' },
@@ -36,6 +51,36 @@ export default function LoginScreen({ onLogin }: { onLogin: (user: string) => vo
     } finally {
       setLoading(false);
     }
+  };
+
+  const signInWithGoogle = async () => {
+    if (!GOOGLE_CLIENT_ID) { setError('Google sign-in is not configured on this build'); return; }
+    setError('');
+    try {
+      await loadGis();
+      const google = (window as any).google;
+      google.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: async (resp: { credential?: string }) => {
+          if (!resp?.credential) { setError('Google sign-in was cancelled'); return; }
+          setLoading(true);
+          try {
+            const user = await oauthGoogle(resp.credential);
+            onLogin(user.displayName ?? user.email);
+          } catch { setError('Google sign-in failed'); }
+          finally { setLoading(false); }
+        },
+      });
+      google.accounts.id.prompt();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  const signInWithTikTok = () => {
+    // Server-side auth-code flow: backend redirects to TikTok, then back to
+    // /oauth/tiktok with tokens in the URL fragment (handled in main.tsx).
+    window.location.href = `${API_BASE}/auth/oauth/tiktok`;
   };
 
   return (
@@ -95,6 +140,32 @@ export default function LoginScreen({ onLogin }: { onLogin: (user: string) => vo
             </Button>
           </div>
         )}
+
+        {/* Sign up / in with a provider — no profile selection needed */}
+        <div className="mt-6">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="h-px flex-1 bg-gray-700" />
+            <span className="text-xs text-gray-500">or continue with</span>
+            <div className="h-px flex-1 bg-gray-700" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              onClick={signInWithGoogle}
+              disabled={loading}
+              className="flex items-center justify-center gap-2 py-2.5 rounded-xl border border-gray-700 hover:border-gray-500 bg-white text-gray-800 font-medium disabled:opacity-50"
+            >
+              <span className="text-lg font-bold" style={{ color: '#4285F4' }}>G</span> Google
+            </button>
+            <button
+              onClick={signInWithTikTok}
+              disabled={loading}
+              className="flex items-center justify-center gap-2 py-2.5 rounded-xl border border-gray-700 hover:border-gray-500 bg-black text-white font-medium disabled:opacity-50"
+            >
+              <span aria-hidden className="text-lg">♪</span> TikTok
+            </button>
+          </div>
+          <p className="text-[11px] text-gray-500 text-center mt-3">New here? Continuing with Google or TikTok creates your account.</p>
+        </div>
 
         <div className="flex justify-center mt-6">
           <button className="text-gray-500 hover:text-white" onClick={() => window.kobeOS?.system?.shutdown?.()}>
