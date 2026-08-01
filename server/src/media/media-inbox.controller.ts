@@ -31,9 +31,10 @@ export class MediaInboxController {
   @Post('upload')
   @UseInterceptors(FilesInterceptor('files', 100, {
     storage: memoryStorage(),
-    limits: { fileSize: 15 * 1024 * 1024, files: 100 },
+    limits: { fileSize: 100 * 1024 * 1024, files: 100 }, // 100MB — accommodates short videos
     fileFilter: (_request, file, callback) => {
-      callback(file.mimetype.startsWith('image/') ? null : new Error('Only image files are allowed'), file.mimetype.startsWith('image/'));
+      const ok = file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/');
+      callback(ok ? null : new Error('Only image or video files are allowed'), ok);
     },
   }))
   upload(

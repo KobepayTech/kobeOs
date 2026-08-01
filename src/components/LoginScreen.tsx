@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Lock, Power, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { login, oauthGoogle } from '@/lib/auth';
+import { login, oauthGoogle, requestPasswordReset, resetPassword } from '@/lib/auth';
 import { ApiError, API_BASE } from '@/lib/api';
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
@@ -83,6 +83,37 @@ export default function LoginScreen({ onLogin }: { onLogin: (user: string) => vo
     window.location.href = `${API_BASE}/auth/oauth/tiktok`;
   };
 
+  // ── Forgot password ─────────────────────────────────────────────────────────
+  const [fpOpen, setFpOpen] = useState(false);
+  const [fpStage, setFpStage] = useState<'request' | 'reset'>('request');
+  const [fpToken, setFpToken] = useState('');
+  const [fpNewPass, setFpNewPass] = useState('');
+  const [fpMsg, setFpMsg] = useState('');
+
+  const sendResetCode = async () => {
+    if (!email) { setFpMsg('Enter your account email first'); return; }
+    setLoading(true); setFpMsg('');
+    try {
+      const res = await requestPasswordReset(email);
+      // In dev the server returns the token directly; in prod it's emailed.
+      if (res.resetToken) { setFpToken(res.resetToken); setFpMsg('Reset code ready — set a new password below.'); }
+      else setFpMsg('If that email exists, a reset code has been sent. Enter it below.');
+      setFpStage('reset');
+    } catch { setFpMsg('Could not start password reset'); }
+    finally { setLoading(false); }
+  };
+
+  const submitReset = async () => {
+    if (!fpToken || fpNewPass.length < 6) { setFpMsg('Enter the code and a new password (6+ chars)'); return; }
+    setLoading(true); setFpMsg('');
+    try {
+      await resetPassword(fpToken.trim(), fpNewPass);
+      setFpMsg('Password changed — you can sign in now.');
+      setFpOpen(false); setFpStage('request'); setFpToken(''); setFpNewPass(''); setPassword('');
+    } catch { setFpMsg('Invalid or expired reset code'); }
+    finally { setLoading(false); }
+  };
+
   return (
     <div className="h-screen w-screen bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900 flex items-center justify-center">
       <div className="bg-gray-900/80 backdrop-blur-xl border border-gray-700/50 rounded-3xl p-8 shadow-2xl max-w-md w-full">
@@ -138,6 +169,30 @@ export default function LoginScreen({ onLogin }: { onLogin: (user: string) => vo
             >
               {loading ? <Loader2 size={20} className="animate-spin" /> : 'Sign In'}
             </Button>
+
+            <div className="text-center">
+              <button type="button" onClick={() => { setFpOpen((v) => !v); setFpMsg(''); }} className="text-xs text-gray-400 hover:text-white">
+                Forgot password?
+              </button>
+            </div>
+
+            {fpOpen && (
+              <div className="rounded-xl border border-gray-700 bg-gray-800/60 p-3 space-y-2">
+                {fpStage === 'request' ? (
+                  <>
+                    <p className="text-xs text-gray-400">We’ll send a reset code to <b className="text-gray-200">{email || 'your email'}</b>.</p>
+                    <Button onClick={sendResetCode} disabled={loading || !email} className="w-full bg-gray-700 hover:bg-gray-600 rounded-lg">Send reset code</Button>
+                  </>
+                ) : (
+                  <>
+                    <input value={fpToken} onChange={(e) => setFpToken(e.target.value)} placeholder="Reset code" className="w-full bg-gray-900 border border-gray-700 rounded-lg py-2 px-3 text-white placeholder-gray-500 text-sm outline-none" />
+                    <input type="password" value={fpNewPass} onChange={(e) => setFpNewPass(e.target.value)} placeholder="New password (6+ chars)" className="w-full bg-gray-900 border border-gray-700 rounded-lg py-2 px-3 text-white placeholder-gray-500 text-sm outline-none" />
+                    <Button onClick={submitReset} disabled={loading} className="w-full bg-blue-600 hover:bg-blue-700 rounded-lg">Set new password</Button>
+                  </>
+                )}
+                {fpMsg && <p className="text-[11px] text-gray-300">{fpMsg}</p>}
+              </div>
+            )}
           </div>
         )}
 

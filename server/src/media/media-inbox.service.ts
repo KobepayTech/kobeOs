@@ -61,13 +61,15 @@ export class MediaInboxService {
   ) {}
 
   async upload(ownerId: string, files: Express.Multer.File[]): Promise<UploadResult[]> {
-    if (!files.length) throw new BadRequestException('Select at least one image');
-    if (files.length > 100) throw new BadRequestException('Upload at most 100 images per batch');
+    if (!files.length) throw new BadRequestException('Select at least one image or video');
+    if (files.length > 100) throw new BadRequestException('Upload at most 100 files per batch');
 
     const results: UploadResult[] = [];
     for (const file of files) {
-      if (!file.mimetype?.startsWith('image/')) {
-        throw new BadRequestException(`${file.originalname} is not an image`);
+      const isImage = !!file.mimetype?.startsWith('image/');
+      const isVideo = !!file.mimetype?.startsWith('video/');
+      if (!isImage && !isVideo) {
+        throw new BadRequestException(`${file.originalname} is not an image or video`);
       }
       const sha256 = createHash('sha256').update(file.buffer).digest('hex');
       const duplicate = await this.inbox.findOne({ where: { ownerId, sha256 } });
@@ -75,7 +77,7 @@ export class MediaInboxService {
         results.push({ item: duplicate, duplicate: true });
         continue;
       }
-      const asset = await this.media.createFromUpload(ownerId, file, 'image');
+      const asset = await this.media.createFromUpload(ownerId, file, isVideo ? 'video' : 'image');
       const item = await this.inbox.save(this.inbox.create({
         ownerId,
         assetId: asset.id,
