@@ -126,6 +126,12 @@ const cargoSiteMatch = pathname.match(/^\/cg\/([a-z0-9][a-z0-9-]{0,61}[a-z0-9]|[
 const cargoSiteSlug = cargoSiteMatch?.[1] ?? '';
 const isCargoSite = !!cargoSiteSlug;
 
+// KobePay remittance: sender live portal /remit/{portalToken}; cashier /rc/{CODE}
+const remitMatch = pathname.match(/^\/remit\/([A-Za-z0-9_-]{16,})\/?$/);
+const remitPortalToken = remitMatch?.[1] ?? '';
+const remitCashierMatch = pathname.match(/^\/rc\/([A-Za-z0-9]{8})\/?$/);
+const remitCashierCode = (remitCashierMatch?.[1] ?? '').toUpperCase();
+
 const mount = (node: ReactNode) =>
   createRoot(document.getElementById('root')!).render(node);
 
@@ -187,6 +193,12 @@ if (isOverlay) {
 } else if (isContract) {
   // Public lawyer/contract portal: /contract or /contract/{CODE}
   import('./public/LawyerPortal').then(({ default: LawyerPortal }) => mount(<LawyerPortal code={contractCode} />));
+} else if (remitPortalToken) {
+  // Sender's live remittance portal: /remit/{portalToken}
+  import('./public/Remittance').then(({ default: Remittance }) => mount(<Remittance portalToken={remitPortalToken} />));
+} else if (remitCashierCode) {
+  // Cashier redeem page for a scanned remittance QR: /rc/{CODE}
+  import('./public/RemittanceCashier').then(({ default: RemittanceCashier }) => mount(<RemittanceCashier code={remitCashierCode} />));
 } else if (isCargoSite) {
   // Public branded cargo landing: /cg/{slug}
   import('./public/CargoSite').then(({ default: CargoSite }) => mount(<CargoSite slug={cargoSiteSlug} />));
