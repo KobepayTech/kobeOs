@@ -65,8 +65,15 @@ export class AuthController {
   /** Start TikTok Login — redirects the browser to TikTok's consent screen. */
   @Get('oauth/tiktok')
   tiktokStart(@Res() res: Response) {
-    const state = randomBytes(12).toString('hex');
-    res.redirect(this.auth.tiktokAuthUrl(state));
+    // Never throw inside a @Res() handler — that leaves the browser with a bare
+    // 500 and no redirect. If TikTok isn't configured, bounce back to the app
+    // with a readable error instead.
+    try {
+      const state = randomBytes(12).toString('hex');
+      res.redirect(this.auth.tiktokAuthUrl(state));
+    } catch (e) {
+      res.redirect(`/oauth/tiktok#error=${encodeURIComponent((e as Error).message)}`);
+    }
   }
 
   /**
