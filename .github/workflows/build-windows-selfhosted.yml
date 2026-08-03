@@ -105,7 +105,7 @@ jobs:
       # The default self-hosted workspace may contain a legacy win-unpacked app
       # that a desktop user is actively testing. Check out into a clean child
       # directory so checkout never tries to delete that locked sibling.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           path: source
           clean: true
@@ -128,11 +128,14 @@ jobs:
           Add-Content -Path $env:GITHUB_ENV -Value "KOBE_RELEASE_DIR=$release" -Encoding UTF8
           Write-Host "Build output: $release"
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: source/package-lock.json
+          # No `cache: npm` here on purpose: this is a self-hosted runner, so the
+          # global npm cache already persists on disk between runs. setup-node's
+          # cache save (tar of the cache into the Actions backend) is redundant
+          # and was failing on Windows with "tar.exe exit code 2" on the
+          # 'C:\Program Files' path - a noisy, pointless post-job failure.
 
       # -- Frontend ------------------------------------------------------------
       - name: Install frontend dependencies
