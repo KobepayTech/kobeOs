@@ -46,6 +46,10 @@ interface OSStore {
   appEntitlements: AppEntitlements;
   isAppInstalled: (appId: string) => boolean;
   setAppEntitlements: (records: unknown) => void;
+  /** Offline fallback: make the whole registered catalogue usable when the
+   *  entitlement backend can't be reached, so the desktop is never left with
+   *  only the core apps. Real entitlements reconcile once online. */
+  enableOfflineAppFallback: () => void;
   recordInstalledApp: (record: AppEntitlementSnapshot) => void;
   pendingInstallAppId: string | null;
   requestAppInstall: (appId: string) => void;
@@ -283,6 +287,12 @@ export const useOSStore = create<OSStore>()(
           ])),
         });
       },
+      enableOfflineAppFallback: () => set((state) => ({
+        installedAppIds: Array.from(new Set([
+          ...CORE_APP_IDS,
+          ...state.apps.map((app) => app.id),
+        ])),
+      })),
       recordInstalledApp: (record) => set((state) => ({
         appEntitlements: { ...state.appEntitlements, [record.appId]: record },
         installedAppIds: state.installedAppIds.includes(record.appId)

@@ -30,7 +30,7 @@ import {
 } from 'lucide-react';
 import { useOSStore } from './store';
 import { API_BASE } from '@/lib/api';
-import { listAppEntitlements } from '@/lib/appMarketplace';
+import { listAppEntitlements, CORE_APP_IDS } from '@/lib/appMarketplace';
 import { ContextMenu } from './ContextMenu';
 import { WindowManager } from './WindowManager';
 import { Taskbar } from './Taskbar';
@@ -400,8 +400,13 @@ export function Desktop() {
     listAppEntitlements()
       .then(setAppEntitlements)
       .catch(() => {
-        // Keep the last persisted entitlement snapshot while temporarily
-        // offline. New installation/account setup still requires the network.
+        // The entitlement backend is unreachable (offline / self-hosted backend
+        // down). Don't strand the user with only the 3 core apps: if nothing
+        // beyond core is installed, make the whole catalogue usable locally.
+        // Real entitlements reconcile when the backend is reachable again.
+        const s = useOSStore.getState();
+        const hasRealApps = s.installedAppIds.some((id) => !CORE_APP_IDS.includes(id as typeof CORE_APP_IDS[number]));
+        if (!hasRealApps) s.enableOfflineAppFallback();
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
