@@ -61,6 +61,35 @@ if (!/\*\.nsis\.7z/.test(selfHostedWorkflow)) {
   );
 }
 
+const runBlockNonAscii = [];
+let inRunBlock = false;
+let runBlockIndent = 0;
+for (const [index, line] of selfHostedWorkflow.split(/\r?\n/).entries()) {
+  const indent = line.match(/^ */)?.[0].length ?? 0;
+  if (inRunBlock && indent <= runBlockIndent && line.trim()) {
+    inRunBlock = false;
+  }
+
+  if (!inRunBlock) {
+    const match = line.match(/^(\s*)run:\s*\|$/);
+    if (match) {
+      inRunBlock = true;
+      runBlockIndent = match[1].length;
+    }
+    continue;
+  }
+
+  if ([...line].some((char) => char.charCodeAt(0) > 127)) {
+    runBlockNonAscii.push(index + 1);
+  }
+}
+
+if (runBlockNonAscii.length) {
+  failures.push(
+    `.github/workflows/build-windows-selfhosted.yml: PowerShell run blocks must stay ASCII-only for Windows PowerShell compatibility (non-ASCII on lines ${runBlockNonAscii.join(', ')})`,
+  );
+}
+
 if (failures.length) {
   console.error(`Windows startup/build validation failed for ${projectRoot}:`);
   for (const item of failures) console.error(`- ${item}`);
