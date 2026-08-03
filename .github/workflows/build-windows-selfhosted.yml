@@ -2,20 +2,20 @@ name: Build Windows Installer (self-hosted, offline AI)
 
 # Builds the Windows installer ON YOUR OWN PC via a self-hosted GitHub Actions
 # runner, so it can copy your local GGUF models straight off disk and bake them
-# into the installer — no cloud, no upload, no URLs.
+# into the installer - no cloud, no upload, no URLs.
 #
 # Prerequisites (one-time):
 #   1. Register your Windows PC as a self-hosted runner:
-#        GitHub repo → Settings → Actions → Runners → New self-hosted runner
+#        GitHub repo -> Settings -> Actions -> Runners -> New self-hosted runner
 #        (choose Windows x64 and follow the shown commands). Give it the label
 #        `windows` (default) so `runs-on: [self-hosted, windows]` matches.
 #   2. Put your downloaded .gguf files in a folder, e.g. C:\KobeOS\Models, and
 #      make the filenames match the `file` fields in models/bundled/models.json.
-#   3. (Optional) repo Settings → Secrets and variables → Actions:
+#   3. (Optional) repo Settings -> Secrets and variables -> Actions:
 #        - Variable KOBE_MODELS_DIR to override the default C:\KobeOS\Models
 #        - Secret   KOBE_MODELS_AUTH if any model uses a private download URL
 #
-# Then run it manually: Actions tab → this workflow → "Run workflow".
+# Then run it manually: Actions tab -> this workflow -> "Run workflow".
 # (Kept manual on purpose so it doesn't double-build with the cloud workflow on
 #  every push. To make it push-triggered instead, add an `on: push:` block and
 #  disable Build Windows Installer for the branches you build here.)
@@ -134,7 +134,7 @@ jobs:
           cache: npm
           cache-dependency-path: source/package-lock.json
 
-      # ── Frontend ────────────────────────────────────────────────────────────
+      # -- Frontend ------------------------------------------------------------
       - name: Install frontend dependencies
         run: npm install --legacy-peer-deps
 
@@ -144,7 +144,7 @@ jobs:
       - name: Build frontend with TypeScript check
         run: npm run build
 
-      # ── Backend ─────────────────────────────────────────────────────────────
+      # -- Backend -------------------------------------------------------------
       - name: Install server dependencies
         run: npm install --legacy-peer-deps
         working-directory: source/server
@@ -152,7 +152,7 @@ jobs:
       - name: Bundle NestJS backend
         run: npm run build:bundle
 
-      # ── Pre-build steps ─────────────────────────────────────────────────────
+      # -- Pre-build steps -----------------------------------------------------
       - name: Regenerate core integrity manifest
         run: npm run core:manifest
 
@@ -238,7 +238,7 @@ jobs:
           KOBE_MODELS_AUTH: ${{ secrets.KOBE_MODELS_AUTH }}
           KOBE_MODELS_REQUIRED: ${{ github.event.inputs.require_models == 'false' && '0' || '1' }}
 
-      # ── Build installer ─────────────────────────────────────────────────────
+      # -- Build installer -----------------------------------------------------
       # Offline AI pushes the app package beyond NSIS's 4 GiB embedded-file
       # ceiling. nsis-web deliberately keeps the package as a sidecar .7z. When
       # the setup EXE and sidecar are in the same folder, installation is fully
@@ -258,7 +258,7 @@ jobs:
           Copy-Item "build\vcredist\vc_redist.x64.exe" (Join-Path $package.DirectoryName "vc_redist.x64.exe") -Force
           Write-Host "Copied vc_redist.x64.exe next to the offline setup: $($package.DirectoryName)"
 
-      # ── Smoke tests ─────────────────────────────────────────────────────────
+      # -- Smoke tests ---------------------------------------------------------
       - name: 'Smoke test: verify setup and sidecar package'
         run: |
           $packages = @(Get-ChildItem $env:KOBE_RELEASE_DIR -Recurse -File -Filter "*.nsis.7z")
@@ -274,7 +274,7 @@ jobs:
             Write-Error "Expected exactly one setup EXE next to the sidecar, found $($setups.Count)"
             exit 1
           }
-          # nsis-web produces a SMALL web-bootstrapper .exe by design - the real
+          # nsis-web produces a SMALL web-bootstrapper .exe by design; the real
           # payload is the .nsis.7z sidecar (validated below). Only guard against
           # a genuinely broken/empty stub, not against it being under 1 MB.
           if ($setups[0].Length -lt 50KB) {
@@ -282,7 +282,7 @@ jobs:
             exit 1
           }
           if ($packages[0].Length -lt 100MB) {
-            Write-Error "$($packages[0].Name) is suspiciously small (<100 MB) - payload did not pack"
+            Write-Error "$($packages[0].Name) is suspiciously small (under 100 MB) - payload did not pack"
             exit 1
           }
           if ($setups[0].DirectoryName -ne $packages[0].DirectoryName) {
@@ -367,14 +367,14 @@ jobs:
           }
           Write-Host "PostgreSQL binaries and VC++ runtime are bundled correctly"
 
-      # ── Artifacts ───────────────────────────────────────────────────────────
+      # -- Artifacts -----------------------------------------------------------
       - name: List release artifacts
         run: |
           Write-Host "=== Release Artifacts ==="
           Get-ChildItem $env:KOBE_RELEASE_DIR -Recurse | Select-Object FullName, @{N="SizeMB";E={[math]::Round($_.Length/1MB,1)}}
 
       # The runner IS your PC, so the fastest way to get the (multi-GB, offline-AI)
-      # installer is a local copy — no slow/flaky upload to GitHub needed. Set the
+      # installer is a local copy - no slow/flaky upload to GitHub needed. Set the
       # KOBE_OUTPUT_DIR variable to change the destination (default: the user's
       # C:\KobeOS\Installers).
       - name: Copy installer to a local output folder
@@ -397,7 +397,7 @@ jobs:
           KOBE_OUTPUT_DIR: ${{ vars.KOBE_OUTPUT_DIR }}
 
       # The multi-GB offline-AI installer can't reliably upload to GitHub over a
-      # home connection — it hits ECONNRESET or the pre-signed upload token
+      # home connection - it hits ECONNRESET or the pre-signed upload token
       # expires mid-upload ("Server failed to authenticate... signature"). The
       # local copy above is the real deliverable, so this upload is OFF by
       # default. Set the UPLOAD_ARTIFACT repo variable to 'true' to enable it
