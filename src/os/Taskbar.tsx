@@ -106,8 +106,12 @@ export function Taskbar() {
         {/* Divider */}
         <div className="w-px h-6 mx-1" style={{ background: 'rgba(45,43,85,0.12)' }} />
 
-        {/* Pinned + Open Windows */}
-        <div className="flex items-center gap-0.5 overflow-hidden">
+        {/* Pinned + Open Windows — grows to fill the bar, scrolls horizontally
+            when there are more tabs than fit (dynamic width) instead of clipping. */}
+        <div
+          className="flex items-center gap-0.5 flex-1 min-w-0 overflow-x-auto overflow-y-hidden"
+          style={{ scrollbarWidth: 'thin' }}
+        >
           {settings.pinnedApps.filter((appId) => installedAppIds.includes(appId)).map((appId) => {
             const app = getApp(appId);
             if (!app) return null;

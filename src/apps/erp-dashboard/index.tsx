@@ -7,7 +7,7 @@ import {
   FileText, ShieldCheck, Truck, Heart, UserCircle,
   ChevronRight, Boxes, CircleDollarSign,
   Globe, LayoutDashboard, CreditCard, Percent,
-  NotebookPen, Calculator, Smartphone, ExternalLink,
+  NotebookPen, Calculator, Smartphone, ExternalLink, Images,
 } from 'lucide-react';
 import { useOSStore } from '@/os/store';
 import {
@@ -80,6 +80,7 @@ const moduleSections = [
       { id: 'shop', appId: 'erp-shop', label: 'Online Shop', desc: 'Customer storefront', icon: ShoppingBag, color: 'text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/20' },
       { id: 'store', appId: 'erp-store', label: 'Product Manager', desc: 'SKU, inventory & pricing', icon: Store, color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20' },
       { id: 'store-editor', appId: 'erp-store-editor', label: 'Store Editor', desc: 'Customize your storefront', icon: Palette, color: 'text-violet-400', bg: 'bg-violet-500/10', border: 'border-violet-500/20' },
+      { id: 'media-inbox', appId: 'media-inbox', label: 'Media Inbox', desc: 'Bulk images/videos -> products', icon: Images, color: 'text-fuchsia-400', bg: 'bg-fuchsia-500/10', border: 'border-fuchsia-500/20' },
       { id: 'credit', appId: 'erp-credit', label: 'Credit & Collections', desc: 'Customer credit & balances', icon: CreditCard, color: 'text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/20' },
       { id: 'discounts', appId: 'erp-discounts', label: 'Discounts & Promos', desc: 'Rules, campaigns & coupons', icon: Percent, color: 'text-pink-400', bg: 'bg-pink-500/10', border: 'border-pink-500/20' },
     ] as ModuleTile[],
