@@ -12,7 +12,11 @@ Instagram Live (official webhook, separate) ────────────
 
 ## Sources & licensing (read this)
 - **TikTok** — `tiktok-live-connector` (**MIT**). Unofficial/reverse-engineered;
-  it can break when TikTok changes, and needs the account to be **live**.
+  it can break when TikTok changes, and needs the account to be **live**. The
+  handshake is signed by **Euler Stream** (the default signer) — set
+  `tiktok.eulerApiKey` with your Euler Stream key for reliable, higher-rate
+  production use (a free shared signer is used if you leave it blank). Euler
+  Stream also carries gifts / likes / follows / joins.
 - **Social Stream Ninja** — **AGPL-3.0**. Nothing from SSN is bundled here. If
   you already run SSN, point `ssn.wsUrl` at its WebSocket and this worker reads
   it. Keep SSN as a separate process.

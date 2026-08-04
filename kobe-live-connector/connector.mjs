@@ -83,9 +83,19 @@ async function startTikTok() {
   let WebcastPushConnection;
   try { ({ WebcastPushConnection } = await import('tiktok-live-connector')); }
   catch { console.error('[tiktok] `npm i tiktok-live-connector` first.'); return; }
-  const conn = new WebcastPushConnection(cfg.tiktok.username, cfg.tiktok.sessionId ? { sessionId: cfg.tiktok.sessionId } : {});
+  // Euler Stream signs the TikTok LIVE WebSocket handshake (TikTok requires a
+  // signed connection and rotates it). Passing your Euler Stream API key makes
+  // the connection reliable and raises the rate limits; without it the free
+  // shared signer is used (fine for testing, throttled for production).
+  const opts = {};
+  if (cfg.tiktok.sessionId) opts.sessionId = cfg.tiktok.sessionId;
+  if (cfg.tiktok.eulerApiKey) opts.signProviderOptions = { params: { apiKey: cfg.tiktok.eulerApiKey } };
+  const conn = new WebcastPushConnection(cfg.tiktok.username, opts);
   tiktokConn = conn;
   conn.on('chat', (d) => forward('tiktok', d.uniqueId || d.nickname || '', d.comment || ''));
+  // Euler Stream also surfaces gifts / likes / follows / joins — forward gifts
+  // as comments so a "gift = order" rule could be added later; the rest log.
+  conn.on('gift', (d) => { if (d.giftType !== 1 || d.repeatEnd) console.log(`[tiktok] 🎁 ${d.uniqueId} sent ${d.repeatCount || 1}x ${d.giftName}`); });
   conn.on('disconnected', () => {
     console.warn('[tiktok] disconnected — retrying in 10s');
     setTimeout(() => conn.connect().catch(() => {}), 10_000);
