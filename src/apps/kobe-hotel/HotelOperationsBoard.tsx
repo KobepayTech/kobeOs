@@ -3,7 +3,7 @@ import { api } from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Banknote, Boxes, Calculator, Check, Coins, FileText, Plus, Receipt, ShieldCheck, Trash2, Users } from 'lucide-react';
+import { Boxes, Calculator, Check, Coins, FileText, Plus, Receipt, Users } from 'lucide-react';
 
 type Department = 'bar' | 'kitchen' | 'cleaning' | 'room-amenities';
 interface RequestLine { inventoryId?: string; name: string; quantity: number; approvedQuantity?: number; unit: string; unitCost?: number; totalCost?: number }

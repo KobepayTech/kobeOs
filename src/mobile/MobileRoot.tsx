@@ -14,7 +14,7 @@ import MobileDispatch from './MobileDispatch';
 import MobileHotel from './MobileHotel';
 import MobileLipa from './MobileLipa';
 import MobileDiscountApprovals from './MobileDiscountApprovals';
-import MobileHotelDepartmentOrder, { type HotelDepartment } from './MobileHotelDepartmentOrder';
+import MobileHotelDepartmentOrder from './MobileHotelDepartmentOrder';
 
 /**
  * Self-contained router for the /m/:slug mobile webapp. main.tsx dispatches

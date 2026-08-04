@@ -25,7 +25,7 @@ export class HotelProcurementRequest extends OwnedEntity {
   @Column({ default: 'TZS' }) currency!: string;
   @Column({ default: '' }) note!: string;
   @Column({ type: 'uuid', nullable: true }) hotelId?: string | null;
-  @Column({ nullable: true }) reviewedBy?: string | null;
+  @Column({ type: 'uuid', nullable: true }) reviewedBy?: string | null;
   @Column({ type: 'timestamptz', nullable: true }) purchasedAt?: Date | null;
 }
 
