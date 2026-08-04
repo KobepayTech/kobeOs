@@ -1,0 +1,12 @@
+{
+  "name": "kobe-live-connector",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Bridge TikTok LIVE / Social Stream Ninja chat into KobeOS live-sales.",
+  "scripts": { "start": "node connector.mjs" },
+  "dependencies": {
+    "tiktok-live-connector": "^1.2.0",
+    "ws": "^8.18.0"
+  }
+}

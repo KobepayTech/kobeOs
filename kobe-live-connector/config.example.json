@@ -1,0 +1,6 @@
+{
+  "backendUrl": "http://127.0.0.1:3000",
+  "ingestToken": "PASTE-THE-SESSION-INGEST-TOKEN",
+  "tiktok": { "username": "your_tiktok_handle" },
+  "ssn": { "wsUrl": "" }
+}

@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, Res, UseGuards } from '@nestjs/common';
+import type { Response } from 'express';
 import { IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Public } from '../common/public.decorator';
@@ -78,4 +79,25 @@ export class LiveSalePublicController {
   /** Buyer's checkout page for a live reservation (opened from the DM link). */
   @Get('checkout/:token')
   checkout(@Param('token') token: string) { return this.svc.checkoutByToken(token); }
+
+  /** Instagram Graph API `live_comments` webhook — Meta's verification GET. */
+  @Get('webhooks/instagram')
+  igVerify(
+    @Query('hub.mode') mode: string,
+    @Query('hub.verify_token') token: string,
+    @Query('hub.challenge') challenge: string,
+    @Res() res: Response,
+  ) {
+    if (mode === 'subscribe' && token && token === process.env.IG_WEBHOOK_VERIFY_TOKEN) {
+      res.status(200).send(challenge);
+    } else {
+      res.status(403).send('forbidden');
+    }
+  }
+
+  /** Instagram live comments delivered by the Graph API webhook. */
+  @Post('webhooks/instagram')
+  igEvent(@Body() body: unknown) {
+    return this.svc.ingestInstagramWebhook(body);
+  }
 }
