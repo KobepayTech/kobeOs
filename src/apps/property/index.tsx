@@ -20,7 +20,7 @@ export default function PropertyApp() {
   }
 
   return (
-    <div data-theme="light" className="flex h-full min-h-0 flex-col bg-slate-100">
+    <div data-surface="light" data-theme="light" className="flex h-full min-h-0 flex-col bg-slate-100">
       <div className="flex shrink-0 items-center gap-3 border-b border-slate-200 bg-white px-4 py-2.5">
         <div className="grid h-9 w-9 place-items-center rounded-xl bg-blue-50 text-blue-600">
           <Building2 className="h-4 w-4" />

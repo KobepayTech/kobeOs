@@ -263,7 +263,7 @@ export default function PropertyOnboardingWizard({ onCancel, onCreated }: Props)
   };
 
   return (
-    <div data-theme="light" className="h-full min-h-0 overflow-y-auto bg-slate-50 text-slate-900">
+    <div data-surface="light" data-theme="light" className="h-full min-h-0 overflow-y-auto bg-slate-50 text-slate-900">
       <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur px-5 py-3">
         <div className="mx-auto flex max-w-7xl items-center gap-4">
           <button onClick={onCancel} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50" aria-label="Back to properties">
