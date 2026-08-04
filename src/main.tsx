@@ -4,6 +4,7 @@ import './index.css';
 import './styles/global.css';
 import App from './App';
 import { detectAppSubdomain, detectTenantSubdomain } from './public/api';
+import { hydrateTokens } from './lib/api';
 
 /**
  * Routing for the standalone web bundle.
@@ -154,8 +155,11 @@ const liveHandleMatch = pathname.match(/^\/@([a-z0-9_.-]{2,40})\/?$/i);
 const isLiveCatalog = !livePayToken && (pathname.replace(/\/$/, '') === '/live' || !!liveHandleMatch);
 const liveCatalogSlug = liveHandleMatch?.[1] ?? (tenantSub ?? '');
 
-const mount = (node: ReactNode) =>
-  createRoot(document.getElementById('root')!).render(node);
+const mount = (node: ReactNode) => {
+  void hydrateTokens().finally(() => {
+    createRoot(document.getElementById('root')!).render(node);
+  });
+};
 
 if (isOverlay) {
   import('./apps/kobe-sports/OverlayPage').then(({ default: OverlayPage }) => mount(<OverlayPage />));
