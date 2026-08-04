@@ -113,6 +113,7 @@ export class HotelPublicService {
         currency: r.currency,
         capacity: r.capacity,
         available: r.status === 'available',
+        imageUrl: r.imageUrl || (site.roomImages as Record<string, string> | undefined)?.[r.id] || (site.roomImageUrl as string) || '',
       })),
     };
   }

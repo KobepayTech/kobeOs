@@ -14,6 +14,7 @@ import MobileDispatch from './MobileDispatch';
 import MobileHotel from './MobileHotel';
 import MobileLipa from './MobileLipa';
 import MobileDiscountApprovals from './MobileDiscountApprovals';
+import MobileHotelDepartmentOrder, { type HotelDepartment } from './MobileHotelDepartmentOrder';
 
 /**
  * Self-contained router for the /m/:slug mobile webapp. main.tsx dispatches
@@ -41,6 +42,10 @@ export default function MobileRoot() {
           <Route path="cargo-pack" element={<MobileCargoPack />} />
           <Route path="dispatch" element={<MobileDispatch />} />
           <Route path="hotel" element={<MobileHotel />} />
+          <Route path="hotel/bar" element={<MobileHotelDepartmentOrder department="bar" />} />
+          <Route path="hotel/kitchen" element={<MobileHotelDepartmentOrder department="kitchen" />} />
+          <Route path="hotel/cleaning" element={<MobileHotelDepartmentOrder department="cleaning" />} />
+          <Route path="hotel/room-amenities" element={<MobileHotelDepartmentOrder department="room-amenities" />} />
           <Route path="lipa" element={<MobileLipa />} />
         </Route>
       </Routes>

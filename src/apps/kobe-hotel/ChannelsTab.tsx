@@ -101,22 +101,36 @@ export default function ChannelsTab({ darkMode }: Props) {
   const totalRooms    = channels.reduce((s, c) => s + c.rooms, 0);
   const connectedCount = channels.filter((c) => c.status === 'connected').length;
 
-  const syncNow = (id: string) => {
+  const syncNow = async (id: string) => {
     setSyncingId(id);
-    setTimeout(() => {
-      setChannels((prev) => prev.map((c) =>
-        c.id === id && c.status !== 'disconnected'
-          ? { ...c, status: 'connected', lastSync: 'just now' }
-          : c,
-      ));
-      setSyncingId(null);
-    }, 800);
+    try {
+      if (/^[0-9a-f-]{36}$/i.test(id)) await api(`/hotel/channels/${id}`, { method: 'PATCH', body: JSON.stringify({ connected: true }) });
+      setChannels((prev) => prev.map((c) => c.id === id && c.status !== 'disconnected' ? { ...c, status: 'connected', lastSync: 'just now' } : c));
+    } finally { setSyncingId(null); }
   };
 
-  const connectOrFix = (id: string) => {
-    setChannels((prev) => prev.map((c) =>
-      c.id === id ? { ...c, status: 'connected', lastSync: 'just now', note: 'Auto-sync enabled', rooms: c.rooms || 8 } : c,
-    ));
+  const connectOrFix = async (id: string) => {
+    const channel = channels.find((c) => c.id === id);
+    if (!channel) return;
+    try {
+      if (/^[0-9a-f-]{36}$/i.test(id)) {
+        await api(`/hotel/channels/${id}`, { method: 'PATCH', body: JSON.stringify({ connected: true }) });
+      } else {
+        const created = await api<{ id: string }>('/hotel/channels', { method: 'POST', body: JSON.stringify({ name: channel.name, type: 'ota', connected: true, commissionPct: Number(channel.commission.replace('%', '')) || 0 }) });
+        setChannels((prev) => prev.map((c) => c.id === id ? { ...c, id: created.id } : c));
+      }
+      setChannels((prev) => prev.map((c) => c.id === id ? { ...c, status: 'connected', lastSync: 'just now', note: 'Connection saved · sync ready', rooms: c.rooms || 8 } : c));
+    } catch (e) { window.alert(`Could not connect ${channel.name}: ${(e as Error).message}`); }
+  };
+
+  const addChannel = async () => {
+    const name = window.prompt('Channel name (e.g. Booking.com, Airbnb, direct website)')?.trim();
+    if (!name) return;
+    const commission = Number(window.prompt('Commission percentage', '15') || 0);
+    try {
+      const created = await api<{ id: string; name: string; connected: boolean; commissionPct?: number }>('/hotel/channels', { method: 'POST', body: JSON.stringify({ name, type: 'ota', connected: true, commissionPct: Number.isFinite(commission) ? commission : 0 }) });
+      setChannels((prev) => [...prev, { id: created.id, name: created.name, logoUrl: '', status: 'connected', lastSync: 'just now', rooms: 0, bookings7d: 0, commission: `${created.commissionPct ?? commission}%`, note: 'Connection saved · sync ready' }]);
+    } catch (e) { window.alert(`Could not add channel: ${(e as Error).message}`); }
   };
 
   return (
@@ -128,7 +142,7 @@ export default function ChannelsTab({ darkMode }: Props) {
             OTA + direct-booking integrations
           </p>
         </div>
-        <Button className="bg-teal-600 hover:bg-teal-700">
+        <Button onClick={() => void addChannel()} className="bg-teal-600 hover:bg-teal-700">
           <LinkIcon className="w-4 h-4 mr-1" />Connect new channel
         </Button>
       </div>
@@ -171,11 +185,11 @@ export default function ChannelsTab({ darkMode }: Props) {
                   Last sync: <span className={darkMode ? 'text-gray-300' : 'text-gray-700'}>{c.lastSync}</span>
                 </span>
                 {c.status === 'disconnected' ? (
-                  <Button size="sm" className="bg-teal-600 hover:bg-teal-700 h-7" onClick={() => connectOrFix(c.id)}>
+                  <Button size="sm" className="bg-teal-600 hover:bg-teal-700 h-7" onClick={() => void connectOrFix(c.id)}>
                     <LinkIcon className="w-3 h-3 mr-1" />Connect
                   </Button>
                 ) : c.status === 'error' ? (
-                  <Button size="sm" className="bg-amber-600 hover:bg-amber-700 h-7" onClick={() => connectOrFix(c.id)}>
+                  <Button size="sm" className="bg-amber-600 hover:bg-amber-700 h-7" onClick={() => void connectOrFix(c.id)}>
                     <AlertCircle className="w-3 h-3 mr-1" />Reconnect
                   </Button>
                 ) : (
@@ -183,7 +197,7 @@ export default function ChannelsTab({ darkMode }: Props) {
                     size="sm"
                     variant="outline"
                     className={`h-7 ${darkMode ? 'border-white/10 hover:bg-white/5' : ''}`}
-                    onClick={() => syncNow(c.id)}
+                    onClick={() => void syncNow(c.id)}
                     disabled={syncingId === c.id}
                   >
                     <RefreshCw className={`w-3 h-3 mr-1 ${syncingId === c.id ? 'animate-spin' : ''}`} />

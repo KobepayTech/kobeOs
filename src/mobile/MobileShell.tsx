@@ -38,6 +38,10 @@ const TABS: MobileModuleUi[] = [
   { id: 'discounts',   to: 'discounts',   label: 'Approvals',   Icon: ShieldCheck },
   { id: 'dispatch',    to: 'dispatch',    label: 'Dispatch',    Icon: Truck },
   { id: 'hotel',       to: 'hotel',       label: 'Hotel',       Icon: BedDouble },
+  { id: 'hotel-bar',   to: 'hotel/bar',   label: 'Bar stock',  Icon: Boxes, showInNav: false },
+  { id: 'hotel-kitchen', to: 'hotel/kitchen', label: 'Kitchen', Icon: Boxes, showInNav: false },
+  { id: 'hotel-cleaning', to: 'hotel/cleaning', label: 'Cleaning', Icon: Boxes, showInNav: false },
+  { id: 'hotel-amenities', to: 'hotel/room-amenities', label: 'Amenities', Icon: BedDouble, showInNav: false },
   { id: 'lipa',        to: 'lipa',        label: 'Lipa',        Icon: Landmark },
   { id: 'eod',         to: 'eod',         label: 'Till',        Icon: Calculator },
   { id: 'summary',     to: 'summary',     label: 'Summary',     Icon: NotebookPen },
@@ -48,8 +52,8 @@ const FALLBACK_MODULES: MobileModuleAccess[] = TABS.map((module) => ({
   name: module.label,
   description: '',
   priceTzs: 0,
-  included: ['pos', 'inventory', 'orders', 'image-order', 'po', 'discounts'].includes(module.id),
-  enabled: ['pos', 'inventory', 'orders', 'image-order', 'po', 'discounts'].includes(module.id),
+  included: ['pos', 'inventory', 'orders', 'image-order', 'po', 'discounts', 'hotel-bar', 'hotel-kitchen', 'hotel-cleaning', 'hotel-amenities'].includes(module.id),
+  enabled: ['pos', 'inventory', 'orders', 'image-order', 'po', 'discounts', 'hotel-bar', 'hotel-kitchen', 'hotel-cleaning', 'hotel-amenities'].includes(module.id),
   expiresAt: null,
 }));
 
@@ -72,7 +76,12 @@ export default function MobileShell() {
   const modules = access?.modules ?? FALLBACK_MODULES;
   const enabledIds = new Set(modules.filter((module) => module.enabled).map((module) => module.id));
   const routeTail = location.pathname.replace(`/m/${slug}`, '').replace(/^\//, '');
-  const routeModuleId = routeTail.split('/')[0] || null;
+  const routeModuleId =
+    routeTail === 'hotel/bar' ? 'hotel-bar' :
+    routeTail === 'hotel/kitchen' ? 'hotel-kitchen' :
+    routeTail === 'hotel/cleaning' ? 'hotel-cleaning' :
+    routeTail === 'hotel/room-amenities' ? 'hotel-amenities' :
+    routeTail.split('/')[0] || null;
   const currentModule = TABS.find((module) => module.id === routeModuleId) ?? null;
   const enabledTabs = TABS.filter((module) => enabledIds.has(module.id));
   const visibleNavTabs = enabledTabs.filter((module) => module.showInNav !== false);
@@ -341,6 +350,8 @@ function MobileSignIn({ slug, onSignedIn }: { slug: string; onSignedIn: () => vo
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [mode, setMode] = useState<'signin' | 'signup'>('signin');
+  const [displayName, setDisplayName] = useState('');
 
   const submit = async (e: { preventDefault?: () => void }) => {
     e.preventDefault?.();
@@ -353,10 +364,10 @@ function MobileSignIn({ slug, onSignedIn }: { slug: string; onSignedIn: () => vo
         accessToken?: string;
         refresh_token?: string;
         refreshToken?: string;
-      }>('/auth/login', {
+      }>(mode === 'signup' ? '/auth/register' : '/auth/login', {
         method: 'POST',
         auth: false,
-        body: JSON.stringify({ email: email.trim(), password }),
+        body: JSON.stringify({ email: email.trim(), password, ...(mode === 'signup' && displayName.trim() ? { displayName: displayName.trim() } : {}) }),
       });
       const token = res?.accessToken ?? res?.access_token;
       const refresh = res?.refreshToken ?? res?.refresh_token;
@@ -377,9 +388,14 @@ function MobileSignIn({ slug, onSignedIn }: { slug: string; onSignedIn: () => vo
       <form onSubmit={submit} className="w-full max-w-sm bg-white rounded-2xl border border-slate-200 shadow-lg p-6 space-y-4">
         <div className="text-center mb-2">
           <div className="w-12 h-12 mx-auto rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-white text-base font-extrabold mb-3">K</div>
-          <h1 className="text-lg font-extrabold text-slate-900">Sign in to KobeOS</h1>
+          <h1 className="text-lg font-extrabold text-slate-900">{mode === 'signup' ? 'Create KobeOS account' : 'Sign in to KobeOS'}</h1>
           <p className="text-[11px] text-slate-500 mt-0.5">{slug ? `${slug}.kobeapptz.com` : 'mobile workspace'}</p>
         </div>
+
+        {mode === 'signup' && <label className="block">
+          <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wide">Name</span>
+          <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Hotel manager" className="mt-1 w-full h-11 px-3 rounded-lg border border-slate-200 bg-white text-base text-slate-900 focus:outline-none focus:border-indigo-400" />
+        </label>}
 
         <label className="block">
           <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wide">Email</span>
@@ -415,7 +431,11 @@ function MobileSignIn({ slug, onSignedIn }: { slug: string; onSignedIn: () => vo
           className="w-full h-11 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white font-extrabold text-sm inline-flex items-center justify-center gap-2"
         >
           {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
-          {submitting ? 'Signing in…' : 'Sign in'}
+          {submitting ? (mode === 'signup' ? 'Creating account…' : 'Signing in…') : (mode === 'signup' ? 'Create account' : 'Sign in')}
+        </button>
+
+        <button type="button" onClick={() => { setMode(mode === 'signin' ? 'signup' : 'signin'); setErr(null); }} className="w-full text-xs font-bold text-indigo-600">
+          {mode === 'signin' ? 'Need an account? Sign up' : 'Already have an account? Sign in'}
         </button>
 
         <p className="text-[10px] text-slate-400 text-center pt-2">

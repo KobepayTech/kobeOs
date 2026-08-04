@@ -7,7 +7,7 @@ import { BedDouble, CalendarDays, CheckCircle2, Loader2, Users } from 'lucide-re
  * Served at {slug}.kobeapptz.com/book (and /book/{slug}). Browse rooms, pick
  * dates, book. Booking lands as PENDING for the front desk to confirm.
  */
-interface PublicRoom { id: string; roomNumber: string; type: string; rate: number; currency: string; capacity: number; available: boolean }
+interface PublicRoom { id: string; roomNumber: string; type: string; rate: number; currency: string; capacity: number; available: boolean; imageUrl?: string }
 interface Branding {
   logoUrl: string; tagline: string; primaryColor: string; accentColor: string;
   heroImageUrl: string; about: string; amenities: string[]; phone: string; whatsapp: string; address: string;
@@ -122,8 +122,8 @@ export default function HotelBooking({ slug }: { slug: string }) {
               onClick={() => setSel(r)}
               className={`w-full text-left rounded-2xl border p-4 flex items-center justify-between transition ${sel?.id === r.id ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-slate-200'} ${r.available ? 'bg-white hover:border-indigo-300' : 'bg-slate-50 opacity-60'}`}
             >
-              <div className="flex items-center gap-3">
-                <BedDouble className="w-5 h-5 text-indigo-500" />
+              <div className="flex items-center gap-3 min-w-0">
+                {r.imageUrl ? <img src={r.imageUrl} alt={`${r.type} room`} className="w-16 h-14 rounded-xl object-cover" /> : <div className="w-16 h-14 rounded-xl bg-indigo-50 grid place-items-center"><BedDouble className="w-5 h-5 text-indigo-500" /></div>}
                 <div>
                   <div className="font-extrabold text-slate-900">{r.type} · #{r.roomNumber}</div>
                   <div className="text-[11px] text-slate-400">Sleeps {r.capacity}{r.available ? '' : ' · Not available'}</div>

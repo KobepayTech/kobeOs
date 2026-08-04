@@ -240,12 +240,12 @@ MOCK_HOTELS.forEach((hotel, hi) => {
 });
 
 // ── Backend row shapes (server/src/hotel) ───────────────────────────────────
-interface ApiTenant { id: string; slug: string; name: string; brandColor?: string | null; logoUrl?: string | null; currency: string; }
+interface ApiTenant { id: string; slug: string; name: string; brandColor?: string | null; logoUrl?: string | null; currency: string; location?: string; phone?: string; email?: string; }
 interface ApiPortfolioEntry { id: string; slug: string; name: string; currency: string; roomsTotal: number; occupied: number; occupancyRate: number; revenueToday: number; alerts: number; }
-interface ApiRoom { id: string; roomNumber: string; type: string; rate: number | string; currency: string; capacity: number; status: 'available' | 'occupied' | 'reserved' | 'maintenance'; hotelId?: string | null; }
+interface ApiRoom { id: string; roomNumber: string; type: string; rate: number | string; currency: string; capacity: number; status: 'available' | 'occupied' | 'reserved' | 'maintenance'; imageUrl?: string | null; hotelId?: string | null; }
 interface ApiGuest { id: string; name: string; phone: string; email?: string | null; nationality?: string | null; idType?: string | null; idNumber?: string | null; hotelId?: string | null; }
 interface ApiBooking { id: string; roomId: string; guestId: string; checkIn: string; checkOut: string; guestCount: number; status: 'PENDING' | 'CONFIRMED' | 'CHECKED_IN' | 'CHECKED_OUT' | 'CANCELLED'; totalAmount: number | string; currency: string; hotelId?: string | null; }
-interface ApiMenuItem { id: string; name: string; category: string; price: number | string; currency: string; available: boolean; station: 'kitchen' | 'bar' | 'other'; hotelId?: string | null; }
+interface ApiMenuItem { id: string; name: string; category: string; price: number | string; currency: string; available: boolean; station: 'kitchen' | 'bar' | 'other'; imageUrl?: string | null; hotelId?: string | null; }
 interface ApiOrderItem { menuItemId?: string; name: string; qty: number; price: number | string; station?: 'kitchen' | 'bar' | 'other'; }
 interface ApiOrder { id: string; roomNumber: string; locationType: 'room' | 'table'; guestName?: string | null; items: ApiOrderItem[]; total: number | string; currency: string; status: 'PENDING' | 'ACCEPTED' | 'PREPARING' | 'READY' | 'DELIVERED' | 'CANCELLED'; note: string; hotelId?: string | null; createdAt?: string; updatedAt?: string; }
 interface ApiStaff { id: string; name: string; role: string; phone: string; email?: string | null; status: 'active' | 'off' | 'suspended'; hotelId?: string | null; }
@@ -344,6 +344,7 @@ function buildHotelsFromApi(
         pricePerNight: num(r.rate),
         status: r.status,
         capacity: r.capacity,
+        imageUrl: r.imageUrl ?? undefined,
         amenities: [],
         qrCode: undefined,
         currentGuest: r.status === 'occupied' && active ? {
@@ -384,6 +385,7 @@ function buildHotelsFromApi(
         isAvailable: m.available,
         preparationTime: 0,
         station: mapStation(m.station),
+        image: m.imageUrl ?? undefined,
       });
       catMap.set(m.category, arr);
     });
@@ -452,16 +454,16 @@ function buildHotelsFromApi(
     return {
       id: t.id,
       name: t.name,
-      location: '',
+      location: t.location ?? '',
       status: 'active',
       currency: t.currency,
       revenueToday,
       revenueThisMonth: revenueThisMonth || revenueToday,
       expensesToday,
       subdomain: t.slug,
-      phone: '',
-      email: '',
-      address: '',
+      phone: t.phone ?? '',
+      email: t.email ?? '',
+      address: t.location ?? '',
       settings: { checkInTime: '14:00', checkOutTime: '11:00', currency: t.currency, taxRate: 18, serviceCharge: 5, enableQROrdering: true, enableRoomService: true },
       staff: mappedStaff,
       parkingSpots: mappedParking,
@@ -498,9 +500,10 @@ export const HotelAdminDashboard: React.FC = () => {
   const [liveData, setLiveData] = useState(false);
 
   // Add-dialog form state.
-  const [roomForm, setRoomForm] = useState({ number: '', type: 'Standard', price: '', capacity: '' });
+  const [roomForm, setRoomForm] = useState({ number: '', type: 'Standard', price: '', capacity: '', imageUrl: '' });
   const [guestForm, setGuestForm] = useState({ name: '', phone: '', email: '', idType: 'passport', idNumber: '' });
   const [hotelForm, setHotelForm] = useState({ name: '', location: '', rooms: '', phone: '', email: '' });
+  const [hotelError, setHotelError] = useState<string | null>(null);
 
   // ── Derived data ──────────────────────────────────────────────────────────
   const selectedHotel = useMemo(() =>
@@ -554,12 +557,13 @@ export const HotelAdminDashboard: React.FC = () => {
           type: roomForm.type,
           rate: Number(roomForm.price) || 0,
           capacity: Number(roomForm.capacity) || 2,
+          ...(roomForm.imageUrl.trim() ? { imageUrl: roomForm.imageUrl.trim() } : {}),
           ...(liveData && hotelId ? { hotelId } : {}),
         }),
       });
       if (liveData) await loadHotels();
     } catch { /* offline / no backend — leave demo data intact */ }
-    setRoomForm({ number: '', type: 'Standard', price: '', capacity: '' });
+    setRoomForm({ number: '', type: 'Standard', price: '', capacity: '', imageUrl: '' });
     setShowAddRoom(false);
   }, [roomForm, selectedHotel, hotels, liveData, loadHotels]);
 
@@ -584,29 +588,36 @@ export const HotelAdminDashboard: React.FC = () => {
   }, [guestForm, selectedHotel, hotels, liveData, loadHotels]);
 
   const handleAddHotel = useCallback(async () => {
-    const name = hotelForm.name?.trim() || 'New Hotel';
-    // Valid per the server rule ^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$: strip AFTER
-    // slicing so we never end on a hyphen, and pad short names.
+    const name = hotelForm.name.trim();
+    if (name.length < 2) { setHotelError('Enter a hotel name first.'); return; }
     const makeSlug = (suffix = '') => {
-      let s = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-      s = s.slice(0, 40 - suffix.length).replace(/-+$/, '') + suffix;
-      if (s.length < 3) s = `${s || 'hotel'}-${Math.random().toString(36).slice(2, 6)}`;
-      return s.slice(0, 40).replace(/-+$/, '');
+      let slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+      slug = slug.slice(0, 40 - suffix.length).replace(/-+$/, '') + suffix;
+      if (slug.length < 3) slug = `${slug || 'hotel'}-${Math.random().toString(36).slice(2, 6)}`;
+      return slug.slice(0, 40).replace(/-+$/, '');
     };
-    const submit = (slug: string) => api('/hotel/properties', { method: 'POST', body: JSON.stringify({ slug, name }) });
+    setHotelError(null);
     try {
-      try { await submit(makeSlug()); }
-      catch (e) {
-        if (/already taken/i.test((e as Error).message)) await submit(makeSlug(`-${Math.random().toString(36).slice(2, 5)}`));
-        else throw e;
+      const submit = (slug: string) => api<ApiTenant>('/hotel/properties', {
+        method: 'POST',
+        body: JSON.stringify({ slug, name, location: hotelForm.location.trim(), phone: hotelForm.phone.trim(), email: hotelForm.email.trim() }),
+      });
+      let created: ApiTenant;
+      try { created = await submit(makeSlug()); }
+      catch (err) {
+        if (!/already taken/i.test((err as Error).message)) throw err;
+        created = await submit(makeSlug(`-${Math.random().toString(36).slice(2, 5)}`));
       }
+      const roomCount = Math.max(0, Math.min(500, Number(hotelForm.rooms) || 0));
+      await Promise.all(Array.from({ length: roomCount }, (_, index) => api('/hotel/rooms', {
+        method: 'POST',
+        body: JSON.stringify({ hotelId: created.id, roomNumber: String(101 + index), type: 'Standard', rate: 0, capacity: 2 }),
+      })));
       await loadHotels();
-      setHotelForm({ name: '', location: '', rooms: '', phone: '', email: '' });
-      setShowAddHotel(false);
-    } catch (e) {
-      // Surface the failure instead of silently closing the form.
-      window.alert('Could not add hotel: ' + (e as Error).message);
-    }
+      setSelectedHotelId(created.id);
+    } catch (err) { setHotelError((err as Error).message || 'Could not create hotel.'); return; }
+    setHotelForm({ name: '', location: '', rooms: '', phone: '', email: '' });
+    setShowAddHotel(false);
   }, [hotelForm, loadHotels]);
 
   const aggregatedStats = useMemo(() => {
@@ -1017,6 +1028,7 @@ export const HotelAdminDashboard: React.FC = () => {
               {showAddHotel && (
                 <Modal title="Add New Hotel" onClose={() => setShowAddHotel(false)}>
                   <div className="flex flex-col gap-4">
+                    {hotelError && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{hotelError}</div>}
                     <FormInput label="Hotel Name" placeholder="e.g., Kobe Plaza Hotel" value={hotelForm.name} onChange={v => setHotelForm(f => ({ ...f, name: v }))} />
                     <FormInput label="Location" placeholder="e.g., Mwanza, TZ" value={hotelForm.location} onChange={v => setHotelForm(f => ({ ...f, location: v }))} />
                     <FormInput label="Number of Rooms" type="number" placeholder="e.g., 20" value={hotelForm.rooms} onChange={v => setHotelForm(f => ({ ...f, rooms: v }))} />
@@ -1080,6 +1092,7 @@ export const HotelAdminDashboard: React.FC = () => {
                     <FormInput label="Floor" type="number" placeholder="1" />
                     <FormInput label="Price per Night" type="number" placeholder="85000" value={roomForm.price} onChange={v => setRoomForm(f => ({ ...f, price: v }))} />
                     <FormInput label="Capacity" type="number" placeholder="2" value={roomForm.capacity} onChange={v => setRoomForm(f => ({ ...f, capacity: v }))} />
+                    <FormInput label="Room image URL" placeholder="https://images.example.com/room.jpg" value={roomForm.imageUrl} onChange={v => setRoomForm(f => ({ ...f, imageUrl: v }))} />
                     <div className="flex gap-3 mt-2">
                       <button onClick={() => setShowAddRoom(false)} className="flex-1 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer hover:bg-white/50" style={{ border: '1px solid rgba(0,0,0,0.08)', color: 'var(--os-text-primary, #2D2B55)' }}>Cancel</button>
                       <button onClick={() => void handleAddRoom()} className="flex-1 py-2.5 rounded-xl text-sm font-medium text-white transition-all cursor-pointer hover:opacity-90" style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}>Add Room</button>

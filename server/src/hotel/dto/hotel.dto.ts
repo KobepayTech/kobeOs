@@ -9,6 +9,7 @@ export class CreateRoomDto {
   @IsOptional() @IsInt() @Min(1) capacity?: number;
   @IsOptional() @IsEnum(['available', 'occupied', 'reserved', 'maintenance']) status?: 'available' | 'occupied' | 'reserved' | 'maintenance';
   @IsOptional() @IsUUID() hotelId?: string;
+  @IsOptional() @IsString() imageUrl?: string;
 }
 export class UpdateRoomDto {
   @IsOptional() @IsString() type?: string;
@@ -16,6 +17,7 @@ export class UpdateRoomDto {
   @IsOptional() @IsInt() @Min(1) capacity?: number;
   @IsOptional() @IsEnum(['available', 'occupied', 'reserved', 'maintenance']) status?: 'available' | 'occupied' | 'reserved' | 'maintenance';
   @IsOptional() @IsUUID() hotelId?: string;
+  @IsOptional() @IsString() imageUrl?: string;
 }
 
 export class CreateGuestDto {
@@ -56,12 +58,18 @@ export class CreateTenantDto {
   @IsOptional() @IsString() @MaxLength(20) brandColor?: string;
   @IsOptional() @IsString() @MaxLength(500) logoUrl?: string;
   @IsOptional() @IsString() @MaxLength(8) currency?: string;
+  @IsOptional() @IsString() @MaxLength(160) location?: string;
+  @IsOptional() @IsString() @MaxLength(40) phone?: string;
+  @IsOptional() @IsString() @MaxLength(160) email?: string;
 }
 export class UpdateTenantDto {
   @IsOptional() @IsString() @MaxLength(120) name?: string;
   @IsOptional() @IsString() @MaxLength(20) brandColor?: string;
   @IsOptional() @IsString() @MaxLength(500) logoUrl?: string;
   @IsOptional() @IsString() @MaxLength(8) currency?: string;
+  @IsOptional() @IsString() @MaxLength(160) location?: string;
+  @IsOptional() @IsString() @MaxLength(40) phone?: string;
+  @IsOptional() @IsString() @MaxLength(160) email?: string;
 }
 
 export class CreateMenuItemDto {
@@ -71,6 +79,7 @@ export class CreateMenuItemDto {
   @IsOptional() @IsString() @MaxLength(8) currency?: string;
   @IsOptional() @IsBoolean() available?: boolean;
   @IsOptional() @IsEnum(['kitchen', 'bar', 'other']) station?: 'kitchen' | 'bar' | 'other';
+  @IsOptional() @IsString() imageUrl?: string;
   @IsOptional() @IsUUID() hotelId?: string;
 }
 export class UpdateMenuItemDto {
@@ -80,6 +89,7 @@ export class UpdateMenuItemDto {
   @IsOptional() @IsString() currency?: string;
   @IsOptional() @IsBoolean() available?: boolean;
   @IsOptional() @IsEnum(['kitchen', 'bar', 'other']) station?: 'kitchen' | 'bar' | 'other';
+  @IsOptional() @IsString() imageUrl?: string;
   @IsOptional() @IsUUID() hotelId?: string;
 }
 

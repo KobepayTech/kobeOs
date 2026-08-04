@@ -97,6 +97,7 @@ export interface Room {
   pricePerNight: number;
   status: 'available' | 'occupied' | 'cleaning' | 'maintenance' | 'reserved';
   capacity: number;
+  imageUrl?: string;
   amenities: string[];
   qrCode?: string;
   currentGuest?: Guest;

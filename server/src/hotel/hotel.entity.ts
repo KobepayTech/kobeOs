@@ -22,6 +22,9 @@ export class HotelRoom extends OwnedEntity {
   @Column({ default: 'available' })
   status!: 'available' | 'occupied' | 'reserved' | 'maintenance';
 
+  @Column({ nullable: true, type: 'varchar' })
+  imageUrl?: string | null;
+
   /** Property this room belongs to (HotelTenant.id). Nullable for legacy rows
    *  predating the multi-property switch — the controller treats missing
    *  hotelId as "any property" so the legacy single-hotel dashboard keeps
@@ -112,6 +115,15 @@ export class HotelTenant extends OwnedEntity {
 
   @Column({ default: 'TZS' })
   currency!: string;
+
+  @Column({ default: '' })
+  location!: string;
+
+  @Column({ default: '' })
+  phone!: string;
+
+  @Column({ default: '' })
+  email!: string;
 }
 
 @Entity('hotel_menu_items')
@@ -134,6 +146,11 @@ export class HotelMenuItem extends OwnedEntity {
   /** Which station prepares this item — drives KDS routing. */
   @Column({ default: 'kitchen' })
   station!: 'kitchen' | 'bar' | 'other';
+
+  /** Customer-facing food photo. Kept on the menu row so POS, QR ordering,
+   * restaurant and the public booking/restaurant pages use one source. */
+  @Column({ nullable: true, type: 'varchar' })
+  imageUrl?: string | null;
 
   /** Scope to a single property when set; null = shared across the owner's
    *  properties (common for small chains that run one menu). */

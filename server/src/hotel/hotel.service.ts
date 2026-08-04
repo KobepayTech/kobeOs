@@ -272,6 +272,9 @@ export class TenantsService {
       if (dto.brandColor !== undefined) existingForOwner.brandColor = dto.brandColor ?? null;
       if (dto.logoUrl !== undefined) existingForOwner.logoUrl = dto.logoUrl ?? null;
       if (dto.currency) existingForOwner.currency = dto.currency;
+      if (dto.location !== undefined) existingForOwner.location = dto.location;
+      if (dto.phone !== undefined) existingForOwner.phone = dto.phone;
+      if (dto.email !== undefined) existingForOwner.email = dto.email;
       return this.repo.save(existingForOwner);
     }
     const created = this.repo.create({
@@ -281,6 +284,7 @@ export class TenantsService {
       brandColor: dto.brandColor ?? null,
       logoUrl: dto.logoUrl ?? null,
       currency: dto.currency ?? 'TZS',
+      location: dto.location ?? '', phone: dto.phone ?? '', email: dto.email ?? '',
     });
     return this.repo.save(created);
   }
@@ -300,6 +304,7 @@ export class TenantsService {
       brandColor: dto.brandColor ?? null,
       logoUrl: dto.logoUrl ?? null,
       currency: dto.currency ?? 'TZS',
+      location: dto.location ?? '', phone: dto.phone ?? '', email: dto.email ?? '',
     });
     return this.repo.save(created);
   }
@@ -311,6 +316,9 @@ export class TenantsService {
     if (dto.brandColor !== undefined) t.brandColor = dto.brandColor ?? null;
     if (dto.logoUrl !== undefined) t.logoUrl = dto.logoUrl ?? null;
     if (dto.currency !== undefined) t.currency = dto.currency;
+    if (dto.location !== undefined) t.location = dto.location;
+    if (dto.phone !== undefined) t.phone = dto.phone;
+    if (dto.email !== undefined) t.email = dto.email;
     return this.repo.save(t);
   }
 
