@@ -145,6 +145,10 @@ const remitPortalToken = remitMatch?.[1] ?? '';
 const remitCashierMatch = pathname.match(/^\/rc\/([A-Za-z0-9]{8})\/?$/);
 const remitCashierCode = (remitCashierMatch?.[1] ?? '').toUpperCase();
 
+// Live-sale buyer checkout (from the BUY reservation link): /live/pay/{token}
+const livePayMatch = pathname.match(/^\/live\/pay\/([A-Za-z0-9_-]{16,})\/?$/);
+const livePayToken = livePayMatch?.[1] ?? '';
+
 const mount = (node: ReactNode) =>
   createRoot(document.getElementById('root')!).render(node);
 
@@ -212,6 +216,9 @@ if (isOverlay) {
 } else if (remitCashierCode) {
   // Cashier redeem page for a scanned remittance QR: /rc/{CODE}
   import('./public/RemittanceCashier').then(({ default: RemittanceCashier }) => mount(<RemittanceCashier code={remitCashierCode} />));
+} else if (livePayToken) {
+  // Live-sale buyer checkout from the BUY reservation link: /live/pay/{token}
+  import('./public/LivePay').then(({ default: LivePay }) => mount(<LivePay token={livePayToken} />));
 } else if (isCargoSite) {
   // Public branded cargo landing: /cg/{slug}
   import('./public/CargoSite').then(({ default: CargoSite }) => mount(<CargoSite slug={cargoSiteSlug} />));

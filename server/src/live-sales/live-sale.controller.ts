@@ -80,6 +80,12 @@ export class LiveSalePublicController {
   @Get('checkout/:token')
   checkout(@Param('token') token: string) { return this.svc.checkoutByToken(token); }
 
+  /** Buyer confirms & pays their live reservation from the checkout page. */
+  @Post('checkout/:token/pay')
+  pay(@Param('token') token: string, @Body() dto: { buyerContact?: string }) {
+    return this.svc.payByToken(token, { buyerContact: dto?.buyerContact });
+  }
+
   /** Instagram Graph API `live_comments` webhook — Meta's verification GET. */
   @Get('webhooks/instagram')
   igVerify(

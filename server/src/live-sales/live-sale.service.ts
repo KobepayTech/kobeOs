@@ -224,6 +224,18 @@ export class LiveSaleService {
     };
   }
 
+  /** Buyer self-checkout from the reservation link. Reuses the operator convert
+   *  path (atomic stock + payment), keyed by the public checkout token. */
+  async payByToken(token: string, dto: { buyerContact?: string }) {
+    const c = await this.comments.findOne({ where: { checkoutToken: token } });
+    if (!c || !token) throw new NotFoundException('Reservation not found');
+    if (c.status === 'CONVERTED') return { ok: true, alreadyPaid: true };
+    if (c.status === 'EXPIRED' || (c.reservedUntil ? c.reservedUntil.getTime() <= Date.now() : true)) {
+      throw new BadRequestException('This reservation has expired — comment BUY again to get a new link.');
+    }
+    return this.convert(c.ownerId, c.id, { buyerContact: dto.buyerContact });
+  }
+
   /** Release soft reservations that were never paid, so stock frees up. */
   @Cron('30 * * * * *')
   async releaseExpiredReservations(): Promise<void> {
