@@ -2480,7 +2480,8 @@ function TokensView({ tenants }: { tenants: ApiTenant[] }) {
           <select
             value={selTenant || tenants[0]?.id || ''}
             onChange={(e) => setSelTenant(e.target.value)}
-            className="w-full h-9 px-2 rounded-lg border border-slate-200 text-sm text-slate-900"
+            className="w-full h-9 px-2 rounded-lg border border-slate-200 bg-white text-sm text-slate-900"
+            style={{ colorScheme: 'light', color: '#0f172a', backgroundColor: '#ffffff' }}
           >
             {tenants.map((t) => (
               <option key={t.id} value={t.id}>{t.name} · {t.unitKind ?? 'Unit'} · TZS {(t.rent ?? 0).toLocaleString()}</option>
@@ -2490,6 +2491,7 @@ function TokensView({ tenants }: { tenants: ApiTenant[] }) {
             onClick={issue}
             disabled={issuing || tenants.length === 0}
             className="w-full h-9 rounded-lg bg-slate-900 text-white text-sm font-bold disabled:opacity-50"
+            style={{ color: '#ffffff', backgroundColor: '#0f172a' }}
           >
             {issuing ? 'Issuing…' : 'Issue token'}
           </button>
