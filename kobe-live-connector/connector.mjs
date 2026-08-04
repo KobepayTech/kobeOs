@@ -89,7 +89,14 @@ async function startTikTok() {
   // shared signer is used (fine for testing, throttled for production).
   const opts = {};
   if (cfg.tiktok.sessionId) opts.sessionId = cfg.tiktok.sessionId;
-  if (cfg.tiktok.eulerApiKey) opts.signProviderOptions = { params: { apiKey: cfg.tiktok.eulerApiKey } };
+  // Signer: point at your OWN/free self-hosted sign server via `signHost`, or
+  // pass a paid Euler Stream key via `eulerApiKey`. Leave both blank to use the
+  // free shared signer. Prefer Social Stream Ninja (ssn.wsUrl) to skip signing.
+  if (cfg.tiktok.signHost || cfg.tiktok.eulerApiKey) {
+    opts.signProviderOptions = {};
+    if (cfg.tiktok.signHost) opts.signProviderOptions.host = cfg.tiktok.signHost;
+    if (cfg.tiktok.eulerApiKey) opts.signProviderOptions.params = { apiKey: cfg.tiktok.eulerApiKey };
+  }
   const conn = new WebcastPushConnection(cfg.tiktok.username, opts);
   tiktokConn = conn;
   conn.on('chat', (d) => forward('tiktok', d.uniqueId || d.nickname || '', d.comment || ''));

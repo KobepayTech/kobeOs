@@ -4,8 +4,11 @@
   "autoReplyWebhook": "",
   "tiktok": {
     "username": "your_tiktok_handle",
+    "signHost": "",
     "eulerApiKey": "",
     "sessionId": ""
   },
-  "ssn": { "wsUrl": "" }
+  "ssn": {
+    "wsUrl": ""
+  }
 }
