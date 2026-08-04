@@ -77,7 +77,7 @@ export class LivePin extends OwnedEntity {
   soldQty!: number;
 }
 
-export type LiveCommentStatus = 'NEW' | 'MATCHED' | 'CONVERTED' | 'IGNORED' | 'FAILED';
+export type LiveCommentStatus = 'NEW' | 'MATCHED' | 'RESERVED' | 'CONVERTED' | 'IGNORED' | 'FAILED' | 'EXPIRED';
 
 @Entity('live_comments')
 @Index(['ownerId', 'sessionId', 'status'])
@@ -117,6 +117,15 @@ export class LiveComment extends OwnedEntity {
   @Index()
   @Column('uuid', { nullable: true })
   orderId?: string | null;
+
+  /** Public checkout token — the buyer opens /live/pay/{token} to pay. */
+  @Index()
+  @Column({ default: '' })
+  checkoutToken!: string;
+
+  /** RESERVED expiry — stock is held until this time, then auto-released. */
+  @Column({ type: 'timestamptz', nullable: true })
+  reservedUntil?: Date | null;
 
   @Column({ type: 'text', default: '' })
   note!: string;

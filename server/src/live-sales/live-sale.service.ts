@@ -1,7 +1,10 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Cron } from '@nestjs/schedule';
+import { LessThan, Repository } from 'typeorm';
 import { randomBytes } from 'crypto';
+
+const RESERVE_MINUTES = 5;
 import { LiveSession, LivePin, LiveComment } from './live-sale.entity';
 import { PosProduct } from '../pos/pos.entity';
 import { StoreSettings } from '../store-settings/store-settings.entity';
@@ -161,17 +164,74 @@ export class LiveSaleService {
     const session = await this.getSession(uid, sessionId);
     if (session.status !== 'LIVE') throw new BadRequestException('Session has ended');
     const match = await this.parse(uid, sessionId, dto.text || '');
+    const handle = dto.buyerHandle?.trim() || '';
+
+    // A BUY that matches a pinned product is auto-RESERVED: the buyer gets a
+    // checkout link and stock is held (softly) for RESERVE_MINUTES. Duplicate
+    // BUYs from the same handle for the same product reuse the live reservation
+    // instead of stacking orders.
+    let status: LiveComment['status'] = match ? 'MATCHED' : 'NEW';
+    let checkoutToken = '';
+    let reservedUntil: Date | null = null;
+    if (match && handle) {
+      const existing = await this.comments.findOne({
+        where: { ownerId: uid, sessionId, buyerHandle: handle, matchedProductId: match.productId, status: 'RESERVED' },
+      });
+      if (existing && existing.reservedUntil && existing.reservedUntil.getTime() > Date.now()) {
+        return existing; // idempotent: same buyer already holds this product
+      }
+      status = 'RESERVED';
+      checkoutToken = randomBytes(16).toString('base64url');
+      reservedUntil = new Date(Date.now() + RESERVE_MINUTES * 60_000);
+    }
+
     return this.comments.save(this.comments.create({
       ownerId: uid, sessionId,
       source: dto.source || 'manual',
-      buyerHandle: dto.buyerHandle?.trim() || '',
+      buyerHandle: handle,
       buyerContact: dto.buyerContact?.trim() || '',
       text: dto.text || '',
       matchedCode: match?.code || '',
       matchedProductId: match?.productId || null,
       qty: match?.qty || 1,
-      status: match ? 'MATCHED' : 'NEW',
+      status,
+      checkoutToken,
+      reservedUntil,
     }));
+  }
+
+  /** Public checkout page data for a reservation token (buyer opens /live/pay/{token}). */
+  async checkoutByToken(token: string) {
+    const c = await this.comments.findOne({ where: { checkoutToken: token } });
+    if (!c || !token) throw new NotFoundException('Reservation not found');
+    const session = await this.sessions.findOne({ where: { id: c.sessionId } });
+    const pin = c.matchedProductId
+      ? await this.pins.findOne({ where: { ownerId: c.ownerId, sessionId: c.sessionId, productId: c.matchedProductId } })
+      : null;
+    const product = c.matchedProductId ? await this.products.findOne({ where: { ownerId: c.ownerId, id: c.matchedProductId } }) : null;
+    const expired = c.status === 'EXPIRED' || (c.reservedUntil ? c.reservedUntil.getTime() <= Date.now() : true);
+    return {
+      token,
+      status: c.status,
+      expired: c.status !== 'CONVERTED' && expired,
+      reservedUntil: c.reservedUntil,
+      qty: c.qty,
+      buyerHandle: c.buyerHandle,
+      product: product ? { name: product.name, imageUrl: (product as { imageUrl?: string }).imageUrl ?? null } : null,
+      unitPrice: num(pin?.livePrice) || num(product?.price),
+      currency: session?.currency || 'TZS',
+      sessionTitle: session?.title || 'Live Sale',
+    };
+  }
+
+  /** Release soft reservations that were never paid, so stock frees up. */
+  @Cron('30 * * * * *')
+  async releaseExpiredReservations(): Promise<void> {
+    const res = await this.comments.update(
+      { status: 'RESERVED', reservedUntil: LessThan(new Date()) },
+      { status: 'EXPIRED', note: 'Reservation expired unpaid' },
+    );
+    if (res.affected) this.logger.log(`released ${res.affected} expired live reservation(s)`);
   }
 
   listComments(uid: string, sessionId: string) {
@@ -268,12 +328,23 @@ export class LiveSaleService {
     const pins = await this.listPins(uid, sessionId);
     const comments = await this.comments.find({ where: { ownerId: uid, sessionId } });
     const converted = comments.filter((c) => c.status === 'CONVERTED');
+    // Per-platform breakdown (source = 'tiktok' | 'instagram' | 'bridge' | ...).
+    const byPlatform: Record<string, { comments: number; reserved: number; sold: number }> = {};
+    for (const c of comments) {
+      const p = (c.source || 'other').toLowerCase();
+      byPlatform[p] = byPlatform[p] || { comments: 0, reserved: 0, sold: 0 };
+      byPlatform[p].comments += 1;
+      if (c.status === 'RESERVED') byPlatform[p].reserved += 1;
+      if (c.status === 'CONVERTED') byPlatform[p].sold += 1;
+    }
     return {
       session,
       totalSales: num(session.totalSales),
       orderCount: session.orderCount,
       pendingComments: comments.filter((c) => c.status === 'MATCHED' || c.status === 'NEW').length,
+      reservedComments: comments.filter((c) => c.status === 'RESERVED').length,
       convertedComments: converted.length,
+      byPlatform,
       pins,
     };
   }

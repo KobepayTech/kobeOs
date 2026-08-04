@@ -74,4 +74,8 @@ export class LiveSalePublicController {
 
   @Get(':slug')
   live(@Param('slug') slug: string) { return this.svc.publicLive(slug); }
+
+  /** Buyer's checkout page for a live reservation (opened from the DM link). */
+  @Get('checkout/:token')
+  checkout(@Param('token') token: string) { return this.svc.checkoutByToken(token); }
 }
