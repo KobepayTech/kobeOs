@@ -50,6 +50,12 @@ export class ProcessMediaInboxDto {
   createEntities?: boolean;
 }
 
+export class ImportUrlsDto {
+  @IsArray() @ArrayNotEmpty() @ArrayMaxSize(200)
+  @IsString({ each: true }) @MaxLength(2048, { each: true })
+  urls!: string[];
+}
+
 export class UpdateMediaInboxItemDto {
   @IsOptional() @IsString() @MaxLength(120) category?: string;
   @IsOptional() @IsString() @MaxLength(120) subcategory?: string;

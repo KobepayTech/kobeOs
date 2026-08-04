@@ -16,6 +16,7 @@ import { memoryStorage } from 'multer';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import {
+  ImportUrlsDto,
   ProcessMediaInboxDto,
   SuggestMediaMetadataDto,
   UpdateMediaInboxItemDto,
@@ -42,6 +43,12 @@ export class MediaInboxController {
     @UploadedFiles() files: Express.Multer.File[],
   ) {
     return this.service.upload(ownerId, files ?? []);
+  }
+
+  /** Bulk-add by pasting a list of image/video links (Drive or any host). */
+  @Post('import-urls')
+  importUrls(@CurrentUser('id') ownerId: string, @Body() dto: ImportUrlsDto) {
+    return this.service.importFromUrls(ownerId, dto.urls);
   }
 
   @Get()
