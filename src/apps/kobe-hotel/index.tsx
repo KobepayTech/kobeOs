@@ -12,6 +12,8 @@ import WalletTab from './WalletTab';
 import BookingSiteTab from './BookingSiteTab';
 import RoomsBoard from './RoomsBoard';
 import FoodListBoard from './FoodListBoard';
+import HotelOperationsBoard from './HotelOperationsBoard';
+import MobileHotelDepartmentOrder from '@/mobile/MobileHotelDepartmentOrder';
 import type { Hotel as SharedHotel, Order as SharedOrder } from '@/shared/types';
 import { useHotelLive, type HotelOrder as LiveOrder } from './useHotelLive';
 
@@ -100,11 +102,12 @@ interface Guest {
   balance: number;
 }
 interface MenuItem {
-  id: number;
+  id: number | string;
   name: string;
   price: number;
   category: string;
   stock: number;
+  imageUrl?: string;
 }
 interface PortalOrder {
   id: string;
@@ -363,6 +366,17 @@ function formatTZS(n: number) {
   return `TZS ${n}`;
 }
 
+function categoryFoodImage(category: string) {
+  const images: Record<string, string> = {
+    Breakfast: 'https://images.unsplash.com/photo-1533089860892-a7c6f0a88666?w=600&h=360&fit=crop',
+    Lunch: 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c?w=600&h=360&fit=crop',
+    Dinner: 'https://images.unsplash.com/photo-1559847844-5315695dadae?w=600&h=360&fit=crop',
+    Desserts: 'https://images.unsplash.com/photo-1488477181946-6428a0291777?w=600&h=360&fit=crop',
+    Swahili: 'https://images.unsplash.com/photo-1574484284002-952d92456975?w=600&h=360&fit=crop',
+  };
+  return images[category] ?? 'https://images.unsplash.com/photo-1565299624946-b28f40a0ae38?w=600&h=360&fit=crop';
+}
+
 function statusBadge(status: RoomStatus | string) {
   const map: Record<string, { color: string; label: string }> = {
     available: { color: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30', label: 'Available' },
@@ -477,6 +491,7 @@ export default function KobeHotel() {
     currency: string;
     available: boolean;
     station: 'kitchen' | 'bar' | 'other';
+    imageUrl?: string | null;
   }
   const [menuRows, setMenuRows] = useState<MenuItemRow[]>([]);
   const [menuLoading, setMenuLoading] = useState(true);
@@ -489,6 +504,7 @@ export default function KobeHotel() {
     currency: string;
     station: 'kitchen' | 'bar' | 'other';
     available: boolean;
+    imageUrl: string;
   }>(null);
   const [menuSaving, setMenuSaving] = useState(false);
 
@@ -515,9 +531,13 @@ export default function KobeHotel() {
   const pendingCheckouts = checkedInGuests.filter(g => g.checkOut <= todayStr).length;
 
   const barCategories = useMemo(() => [...new Set(BAR_ITEMS.map(i => i.category))], []);
-  const restCategories = useMemo(() => [...new Set(FOOD_ITEMS.map(i => i.category))], []);
+  const restaurantCatalog: MenuItem[] = menuRows.length > 0
+    ? menuRows.filter((m) => m.station !== 'bar').map((m) => ({ id: m.id, name: m.name, price: Number(m.price), category: m.category, stock: 99, imageUrl: m.imageUrl ?? undefined }))
+    : FOOD_ITEMS;
+  const restCategories = useMemo(() => [...new Set(restaurantCatalog.map(i => i.category))], [restaurantCatalog]);
   const filteredBarItems = BAR_ITEMS.filter(i => i.category === barCategory);
-  const filteredRestItems = FOOD_ITEMS.filter(i => i.category === restCategory);
+  const filteredRestItems = restaurantCatalog.filter(i => i.category === restCategory);
+  const foodBoardItems = menuRows.length > 0 ? menuRows.map((m) => ({ id: m.id, name: m.name, category: m.category, price: Number(m.price), currency: m.currency, available: m.available, imageUrl: m.imageUrl ?? undefined })) : undefined;
   const filteredGuests = guests.filter(g => g.name.toLowerCase().includes(searchGuest.toLowerCase()) || g.room.toLowerCase().includes(searchGuest.toLowerCase()));
   const filteredInventory = inventory.filter(i => i.name.toLowerCase().includes(searchInventory.toLowerCase()));
 
@@ -529,10 +549,10 @@ export default function KobeHotel() {
       return [...prev, { ...item, qty: 1 }];
     });
   };
-  const updateBarQty = (id: number, delta: number) => {
+  const updateBarQty = (id: number | string, delta: number) => {
     setBarCart(prev => prev.map(c => c.id === id ? { ...c, qty: Math.max(0, c.qty + delta) } : c).filter(c => c.qty > 0));
   };
-  const removeFromBarCart = (id: number) => setBarCart(prev => prev.filter(c => c.id !== id));
+  const removeFromBarCart = (id: number | string) => setBarCart(prev => prev.filter(c => c.id !== id));
   const barSubtotal = barCart.reduce((s, c) => s + c.price * c.qty, 0);
   const barDiscount = happyHour ? Math.round(barSubtotal * 0.2) : 0;
   const barVAT = Math.round((barSubtotal - barDiscount) * 0.18);
@@ -545,7 +565,7 @@ export default function KobeHotel() {
       return [...prev, { ...item, qty: 1 }];
     });
   };
-  const updateRestQty = (id: number, delta: number) => {
+  const updateRestQty = (id: number | string, delta: number) => {
     setRestCart(prev => prev.map(c => c.id === id ? { ...c, qty: Math.max(0, c.qty + delta) } : c).filter(c => c.qty > 0));
   };
   const restSubtotal = restCart.reduce((s, c) => s + c.price * c.qty, 0);
@@ -596,7 +616,7 @@ export default function KobeHotel() {
 
   const openNewMenuItem = () => setMenuEditor({
     name: '', category: '', price: '', currency: tenantBrand && tenantBrand.length ? 'TZS' : 'TZS',
-    station: 'kitchen', available: true,
+    station: 'kitchen', available: true, imageUrl: '',
   });
   const openEditMenuItem = (m: MenuItemRow) => setMenuEditor({
     id: m.id,
@@ -606,6 +626,7 @@ export default function KobeHotel() {
     currency: m.currency,
     station: m.station,
     available: m.available,
+    imageUrl: m.imageUrl ?? '',
   });
 
   const saveMenuItem = async () => {
@@ -624,6 +645,7 @@ export default function KobeHotel() {
         currency: menuEditor.currency || 'TZS',
         station: menuEditor.station,
         available: menuEditor.available,
+        imageUrl: menuEditor.imageUrl.trim() || undefined,
       };
       const saved = menuEditor.id
         ? await api<MenuItemRow>(`/hotel/menu-items/${menuEditor.id}`, {
@@ -811,6 +833,11 @@ export default function KobeHotel() {
     { id: 'inventory', label: 'Inventory', icon: Package, color: 'text-violet-400 bg-violet-500/10 border-violet-500/20' },
     { id: 'staff', label: 'Staff', icon: Users, color: 'text-sky-400 bg-sky-500/10 border-sky-500/20' },
     { id: 'accounting', label: 'Accounting', icon: Calculator, color: 'text-green-400 bg-green-500/10 border-green-500/20' },
+    { id: 'hotel-operations', label: 'HR & Ops', icon: Users, color: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20' },
+    { id: 'bar-order', label: 'Bar Request', icon: Wine, color: 'text-amber-400 bg-amber-500/10 border-amber-500/20' },
+    { id: 'kitchen-order', label: 'Kitchen Request', icon: ChefHat, color: 'text-orange-400 bg-orange-500/10 border-orange-500/20' },
+    { id: 'cleaning-order', label: 'Cleaning Request', icon: Brush, color: 'text-sky-400 bg-sky-500/10 border-sky-500/20' },
+    { id: 'amenities-order', label: 'Amenities Request', icon: Bed, color: 'text-violet-400 bg-violet-500/10 border-violet-500/20' },
     { id: 'wallet', label: 'Wallet', icon: Wallet, color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' },
     { id: 'booking-site', label: 'Booking Site', icon: Globe2, color: 'text-teal-400 bg-teal-500/10 border-teal-500/20' },
     { id: 'menu', label: 'Menu', icon: CakeSlice, color: 'text-rose-400 bg-rose-500/10 border-rose-500/20' },
@@ -1038,7 +1065,18 @@ export default function KobeHotel() {
             FOOD LIST (customer-facing menu catalog)
         ════════════════════════════════════════════════════════════ */}
         {activeTab === 'food' && (
-          <FoodListBoard />
+          <FoodListBoard
+            items={foodBoardItems}
+            onAdd={openNewMenuItem}
+            onEdit={(item) => {
+              const row = menuRows.find((m) => m.id === String(item.id));
+              if (row) openEditMenuItem(row);
+            }}
+            onToggleAvailability={(item) => {
+              const row = menuRows.find((m) => m.id === String(item.id));
+              if (row) void toggleMenuAvailable(row);
+            }}
+          />
         )}
 
         {/* ════════════════════════════════════════════════════════════
@@ -1191,10 +1229,11 @@ export default function KobeHotel() {
                 <div className="lg:col-span-2">
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                     {filteredRestItems.map(item => (
-                      <button key={item.id} onClick={() => addToRestCart(item)} className={`p-3 rounded-xl border text-left transition-all hover:scale-[1.03] ${darkMode ? 'bg-[#13131f] border-white/[0.06] hover:border-orange-500/30' : 'bg-white border-gray-200 hover:border-orange-400'}`}>
-                        <p className="font-medium text-sm">{item.name}</p>
+                      <button key={item.id} onClick={() => addToRestCart(item)} className={`overflow-hidden rounded-xl border text-left transition-all hover:scale-[1.03] ${darkMode ? 'bg-[#13131f] border-white/[0.06] hover:border-orange-500/30' : 'bg-white border-gray-200 hover:border-orange-400'}`}>
+                        <img src={item.imageUrl ?? categoryFoodImage(item.category)} alt={item.name} onError={(e) => { e.currentTarget.src = categoryFoodImage(item.category); }} className="w-full h-24 object-cover" />
+                        <div className="p-3"><p className="font-medium text-sm">{item.name}</p>
                         <p className="text-sm font-bold text-orange-400 mt-1">TZS {item.price.toLocaleString()}</p>
-                        <p className="text-[10px] text-gray-500">Stock: {item.stock}</p>
+                        <p className="text-[10px] text-gray-500">{menuRows.length ? 'Available' : `Stock: ${item.stock}`}</p></div>
                       </button>
                     ))}
                   </div>
@@ -1552,6 +1591,12 @@ export default function KobeHotel() {
           </div>
         )}
 
+        {activeTab === 'hotel-operations' && <HotelOperationsBoard darkMode={darkMode} />}
+        {activeTab === 'bar-order' && <MobileHotelDepartmentOrder department="bar" />}
+        {activeTab === 'kitchen-order' && <MobileHotelDepartmentOrder department="kitchen" />}
+        {activeTab === 'cleaning-order' && <MobileHotelDepartmentOrder department="cleaning" />}
+        {activeTab === 'amenities-order' && <MobileHotelDepartmentOrder department="room-amenities" />}
+
         {/* ════════════════════════════════════════════════════════════
             GUEST PORTAL (QR)
         ════════════════════════════════════════════════════════════ */}
@@ -1876,6 +1921,9 @@ export default function KobeHotel() {
                       .filter(m => menuFilter === 'all' || m.station === menuFilter)
                       .map(m => (
                         <div key={m.id} className="flex items-center gap-3 px-4 py-3">
+                          <div className="w-12 h-12 rounded-lg overflow-hidden bg-white/5 shrink-0">
+                            {m.imageUrl ? <img src={m.imageUrl} alt={m.name} className="w-full h-full object-cover" /> : <CakeSlice className="w-full h-full p-3 text-rose-400/50" />}
+                          </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
                               <p className="text-sm font-semibold truncate">{m.name}</p>
@@ -1976,6 +2024,16 @@ export default function KobeHotel() {
                       className={darkMode ? 'bg-[#0a0a1a] border-white/10 text-white placeholder:text-gray-600' : ''}
                     />
                   </div>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-400 mb-1 block">Food image URL</label>
+                  <Input
+                    value={menuEditor.imageUrl}
+                    onChange={e => setMenuEditor({ ...menuEditor, imageUrl: e.target.value })}
+                    placeholder="https://images.example.com/dish.jpg"
+                    className={darkMode ? 'bg-[#0a0a1a] border-white/10 text-white placeholder:text-gray-600' : ''}
+                  />
+                  <p className="text-[10px] text-gray-500 mt-1">Used by the restaurant, QR menu, and public food list.</p>
                 </div>
                 <div>
                   <label className="text-xs text-gray-400 mb-1 block">Station</label>

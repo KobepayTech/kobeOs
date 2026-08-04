@@ -82,6 +82,7 @@ import { AppStateModule } from './app-state/app-state.module';
 import { AutomationModule } from './automation/automation.module';
 import { SearchModule } from './search/search.module';
 import { HotelPublicModule } from './hotel-public/hotel-public.module';
+import { HotelOperationsModule } from './hotel/hotel-operations.module';
 import { AppMarketplaceModule } from './app-marketplace/app-marketplace.module';
 import { DeveloperPlatformModule } from './developer-platform/developer-platform.module';
 
@@ -152,6 +153,7 @@ import { DeveloperPlatformModule } from './developer-platform/developer-platform
     PaymentsModule,
     CreditModule,
     HotelModule,
+    HotelOperationsModule,
     HotelWalletModule,
     LiveSaleModule,
     CargoTzModule,

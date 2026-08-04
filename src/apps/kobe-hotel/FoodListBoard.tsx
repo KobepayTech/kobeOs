@@ -22,6 +22,9 @@ export interface FoodItem {
 
 interface Props {
   items?: FoodItem[];
+  onAdd?: () => void;
+  onEdit?: (item: FoodItem) => void;
+  onToggleAvailability?: (item: FoodItem) => void;
 }
 
 const FALLBACK: Record<string, string> = {
@@ -61,7 +64,7 @@ const CATEGORY_ICONS: Record<string, typeof Coffee> = {
   Drinks:    Coffee,
 };
 
-export default function FoodListBoard({ items = DEMO_FOOD }: Props) {
+export default function FoodListBoard({ items = DEMO_FOOD, onAdd, onEdit, onToggleAvailability }: Props) {
   const categories = useMemo(() => ['All', ...Array.from(new Set(items.map((i) => i.category)))], [items]);
   const [cat, setCat] = useState<string>('All');
   const [search, setSearch] = useState('');
@@ -95,7 +98,7 @@ export default function FoodListBoard({ items = DEMO_FOOD }: Props) {
               className="pl-8 pr-3 py-2 rounded-md border border-slate-200 bg-white text-xs w-56 focus:outline-none focus:border-blue-400"
             />
           </div>
-          <button className="inline-flex items-center gap-1 px-3 py-2 rounded-md bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold">
+          <button onClick={onAdd} className="inline-flex items-center gap-1 px-3 py-2 rounded-md bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold disabled:opacity-50" disabled={!onAdd}>
             <Plus className="w-3.5 h-3.5" />Add Dish
           </button>
         </div>
@@ -127,19 +130,19 @@ export default function FoodListBoard({ items = DEMO_FOOD }: Props) {
         </div>
       ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-          {filtered.map((item) => <FoodCard key={item.id} item={item} />)}
+          {filtered.map((item) => <FoodCard key={item.id} item={item} onEdit={onEdit} onToggleAvailability={onToggleAvailability} />)}
         </div>
       )}
     </div>
   );
 }
 
-function FoodCard({ item }: { item: FoodItem }) {
+function FoodCard({ item, onEdit, onToggleAvailability }: { item: FoodItem; onEdit?: (item: FoodItem) => void; onToggleAvailability?: (item: FoodItem) => void }) {
   const img = item.imageUrl ?? FALLBACK[item.category] ?? FALLBACK.Default;
   return (
     <div className={`bg-white rounded-2xl border border-slate-100 overflow-hidden shadow-sm hover:shadow-md hover:-translate-y-0.5 transition ${!item.available ? 'opacity-60' : ''}`}>
       <div className="relative h-32 bg-slate-200">
-        <img src={img} alt={item.name} className="w-full h-full object-cover" />
+        <img src={img} alt={item.name} onError={(e) => { e.currentTarget.src = FALLBACK[item.category] ?? FALLBACK.Default; }} className="w-full h-full object-cover" />
         <div className="absolute top-2 left-2 flex gap-1">
           {item.spicy      && <span className="px-1.5 py-0.5 rounded bg-rose-500 text-white text-[10px] font-extrabold inline-flex items-center gap-0.5"><Flame className="w-3 h-3" />Spicy</span>}
           {item.vegetarian && <span className="px-1.5 py-0.5 rounded bg-emerald-500 text-white text-[10px] font-extrabold inline-flex items-center gap-0.5"><Leaf className="w-3 h-3" />Veg</span>}
@@ -158,7 +161,7 @@ function FoodCard({ item }: { item: FoodItem }) {
         <p className="text-[11px] text-slate-500 line-clamp-2 leading-tight min-h-[28px]">{item.description ?? ''}</p>
         <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
           <span className="text-[10px] uppercase tracking-wide font-bold text-slate-400">{item.category}</span>
-          <button className="text-[11px] font-bold text-blue-600 hover:text-blue-500">Edit</button>
+          <div className="flex items-center gap-2"><button onClick={() => onToggleAvailability?.(item)} className="text-[11px] font-bold text-slate-500 hover:text-slate-700">{item.available ? 'Hide' : 'Show'}</button><button onClick={() => onEdit?.(item)} disabled={!onEdit} className="text-[11px] font-bold text-blue-600 hover:text-blue-500 disabled:opacity-40">Edit</button></div>
         </div>
       </div>
     </div>

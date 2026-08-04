@@ -30,6 +30,7 @@ import MobileImageOrder from '@/mobile/MobileImageOrder';
 import MobileEod from '@/mobile/MobileEod';
 import MobileSummary from '@/mobile/MobileSummary';
 import MobileInventory from '@/mobile/MobileInventory';
+import MobileHotelDepartmentOrder from '@/mobile/MobileHotelDepartmentOrder';
 import MobileOrders from '@/mobile/MobileOrders';
 import {
   getStoredAuthUser,
@@ -115,6 +116,10 @@ export default function App() {
             <Route path="eod" element={<MobileEod />} />
             <Route path="summary" element={<MobileSummary />} />
             <Route path="inventory" element={<MobileInventory />} />
+            <Route path="hotel/bar" element={<MobileHotelDepartmentOrder department="bar" />} />
+            <Route path="hotel/kitchen" element={<MobileHotelDepartmentOrder department="kitchen" />} />
+            <Route path="hotel/cleaning" element={<MobileHotelDepartmentOrder department="cleaning" />} />
+            <Route path="hotel/room-amenities" element={<MobileHotelDepartmentOrder department="room-amenities" />} />
             <Route path="orders" element={<MobileOrders />} />
           </Route>
           <Route path="*" element={<LoginScreen onLogin={handleLogin} />} />
@@ -196,7 +201,11 @@ export default function App() {
           <Route path="image-order" element={<MobileImageOrder />} />
           <Route path="eod" element={<MobileEod />} />
           <Route path="summary" element={<MobileSummary />} />
-          <Route path="inventory" element={<MobileInventory />} />
+            <Route path="inventory" element={<MobileInventory />} />
+            <Route path="hotel/bar" element={<MobileHotelDepartmentOrder department="bar" />} />
+            <Route path="hotel/kitchen" element={<MobileHotelDepartmentOrder department="kitchen" />} />
+            <Route path="hotel/cleaning" element={<MobileHotelDepartmentOrder department="cleaning" />} />
+            <Route path="hotel/room-amenities" element={<MobileHotelDepartmentOrder department="room-amenities" />} />
           <Route path="orders" element={<MobileOrders />} />
         </Route>
 
