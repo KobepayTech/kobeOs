@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Cron } from '@nestjs/schedule';
-import { LessThan, Repository } from 'typeorm';
+import { In, LessThan, Repository } from 'typeorm';
 import { randomBytes } from 'crypto';
 
 const RESERVE_MINUTES = 5;
@@ -15,6 +15,7 @@ import { PosProduct } from '../pos/pos.entity';
 import { StoreSettings } from '../store-settings/store-settings.entity';
 import { OrdersService } from '../pos/pos.service';
 import { PalmPesaService } from '../creators/palmpesa.service';
+import { ApifyService } from './apify.service';
 
 const num = (v: unknown) => Number(v) || 0;
 
@@ -74,19 +75,46 @@ export class LiveSaleService {
     @InjectRepository(StoreSettings) private readonly settings: Repository<StoreSettings>,
     private readonly orders: OrdersService,
     private readonly palmpesa: PalmPesaService,
+    private readonly apify: ApifyService,
   ) {}
 
   /* ── Sessions ── */
 
-  async startSession(uid: string, dto: { title?: string; platform?: string; currency?: string }) {
+  async startSession(uid: string, dto: { title?: string; platform?: string; currency?: string; kind?: string; postUrl?: string }) {
+    const kind: LiveSession['kind'] = dto.kind === 'post' ? 'post' : 'live';
     return this.sessions.save(this.sessions.create({
       ownerId: uid,
-      title: dto.title?.trim() || 'Live Sale',
+      title: dto.title?.trim() || (kind === 'post' ? 'Post / Ad Sale' : 'Live Sale'),
       platform: (dto.platform as LiveSession['platform']) || 'other',
       currency: dto.currency || 'TZS',
       status: 'LIVE',
+      kind,
+      postUrl: dto.postUrl?.trim() || '',
       ingestToken: randomBytes(12).toString('hex'),
     }));
+  }
+
+  /**
+   * Poll ad/post campaigns for new BUY comments via Apify (non-live channel).
+   * Runs every 3 minutes over open 'post' sessions that have a postUrl. New
+   * comments (by external id) are fed through the same reserve/checkout engine,
+   * tagged source 'post-{platform}' so the KDS/admin can separate them.
+   */
+  @Cron('0 */3 * * * *')
+  async pollPostCampaigns(): Promise<void> {
+    if (!this.apify.isConfigured()) return;
+    const campaigns = await this.sessions.find({ where: { status: 'LIVE', kind: 'post' } });
+    for (const c of campaigns) {
+      if (!c.postUrl) continue;
+      try {
+        const comments = await this.apify.fetchPostComments(c.postUrl, c.platform);
+        for (const cm of comments) {
+          await this.ingestComment(c.ownerId, c.id, {
+            source: `post-${c.platform}`, buyerHandle: cm.buyerHandle, text: cm.text, externalId: cm.externalId,
+          }).catch(() => undefined);
+        }
+      } catch (e) { this.logger.warn(`post campaign poll ${c.id} failed: ${(e as Error).message}`); }
+    }
   }
 
   listSessions(uid: string) {
@@ -252,9 +280,15 @@ export class LiveSaleService {
     return null;
   }
 
-  async ingestComment(uid: string, sessionId: string, dto: IngestInput) {
+  async ingestComment(uid: string, sessionId: string, dto: IngestInput & { externalId?: string }) {
     const session = await this.getSession(uid, sessionId);
-    if (session.status !== 'LIVE') throw new BadRequestException('Session has ended');
+    // Live sessions are gated by LIVE status; post/ad campaigns stay open.
+    if (session.kind !== 'post' && session.status !== 'LIVE') throw new BadRequestException('Session has ended');
+    // De-dupe polled (Apify) comments by their platform comment id.
+    if (dto.externalId) {
+      const seen = await this.comments.findOne({ where: { ownerId: uid, sessionId, externalId: dto.externalId } });
+      if (seen) return seen;
+    }
     const match = await this.parse(uid, sessionId, dto.text || '');
     const handle = dto.buyerHandle?.trim() || '';
 
@@ -267,6 +301,7 @@ export class LiveSaleService {
         return this.comments.save(this.comments.create({
           ownerId: uid, sessionId, source: dto.source || 'manual', buyerHandle: handle,
           text: dto.text || '', status: 'IGNORED', note: `filtered: ${mod.reason}`,
+          externalId: dto.externalId || '',
         }));
       }
     }
@@ -305,6 +340,7 @@ export class LiveSaleService {
       checkoutToken,
       reservationCode,
       reservedUntil,
+      externalId: dto.externalId || '',
     }));
 
     // Auto-reply text the connector/moderator posts back into the live chat
@@ -475,6 +511,41 @@ export class LiveSaleService {
       convertedComments: converted.length,
       byPlatform,
       pins,
+    };
+  }
+
+  /**
+   * Unified sales feed for the admin (KDS board + mobile PWA): every reservation
+   * and sale across the owner's live AND post/ad campaigns, split by channel so
+   * the KDS can show non-live sales in a separate list. Newest first.
+   */
+  async salesFeed(uid: string, limit = 200) {
+    const rows = await this.comments.find({
+      where: [
+        { ownerId: uid, status: 'RESERVED' },
+        { ownerId: uid, status: 'CONVERTED' },
+      ],
+      order: { createdAt: 'DESC' }, take: limit,
+    });
+    const sessionIds = Array.from(new Set(rows.map((r) => r.sessionId)));
+    const sessions = sessionIds.length ? await this.sessions.find({ where: { ownerId: uid, id: In(sessionIds) } }) : [];
+    const byId = new Map(sessions.map((s) => [s.id, s]));
+    const items = rows.map((r) => {
+      const s = byId.get(r.sessionId);
+      return {
+        id: r.id, channel: (s?.kind ?? 'live') as LiveSession['kind'],
+        platform: (r.source || s?.platform || 'other').replace(/^post-/, ''),
+        sessionTitle: s?.title ?? 'Sale', sessionId: r.sessionId,
+        code: r.matchedCode, qty: r.qty, status: r.status,
+        buyerHandle: r.buyerHandle, buyerContact: r.buyerContact,
+        reservationCode: r.reservationCode, checkoutToken: r.checkoutToken,
+        reservedUntil: r.reservedUntil, orderId: r.orderId, createdAt: r.createdAt,
+      };
+    });
+    return {
+      live: items.filter((i) => i.channel === 'live'),
+      nonLive: items.filter((i) => i.channel === 'post'),
+      counts: { live: items.filter((i) => i.channel === 'live').length, nonLive: items.filter((i) => i.channel === 'post').length },
     };
   }
 
