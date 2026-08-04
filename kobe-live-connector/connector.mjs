@@ -25,6 +25,31 @@ import { URL } from 'node:url';
 const cfg = JSON.parse(fs.readFileSync(new URL('./config.json', import.meta.url), 'utf8'));
 const ingestUrl = `${cfg.backendUrl.replace(/\/$/, '')}/live-sales/ingest/${cfg.ingestToken}`;
 
+let tiktokConn = null; // set once TikTok connects, for optional reply-back
+
+/**
+ * Post an auto-reply back where the platform allows:
+ *  - a webhook you control (cfg.autoReplyWebhook), and/or
+ *  - TikTok live chat IF you provide an authenticated sessionId (best-effort;
+ *    TikTok has no supported comment API, so this can fail/break).
+ * Instagram replies go through the official one-private-reply API on the
+ * backend, not here. Otherwise the moderator reads the reply out.
+ */
+function onReply(source, reply) {
+  if (cfg.autoReplyWebhook) {
+    try {
+      const u = new URL(cfg.autoReplyWebhook);
+      const lib = u.protocol === 'https:' ? https : http;
+      const body = JSON.stringify({ source, reply });
+      const r = lib.request(u, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } });
+      r.on('error', () => {}); r.write(body); r.end();
+    } catch { /* bad webhook url */ }
+  }
+  if (source === 'tiktok' && tiktokConn && cfg.tiktok?.sessionId) {
+    Promise.resolve(tiktokConn.sendMessage?.(reply)).catch(() => {});
+  }
+}
+
 // ── Forward a comment to KobeOS (stdlib http, no deps) ───────────────────────
 function forward(source, buyerHandle, text) {
   if (!text || !text.trim()) return;
@@ -32,9 +57,20 @@ function forward(source, buyerHandle, text) {
   const u = new URL(ingestUrl);
   const lib = u.protocol === 'https:' ? https : http;
   const req = lib.request(u, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } }, (res) => {
-    res.resume();
-    if (res.statusCode >= 300) console.warn(`[ingest] ${res.statusCode} for "${text.slice(0, 40)}"`);
-    else console.log(`[${source}] ${buyerHandle}: ${text.slice(0, 60)}`);
+    let buf = '';
+    res.on('data', (d) => { buf += d; });
+    res.on('end', () => {
+      if (res.statusCode >= 300) { console.warn(`[ingest] ${res.statusCode} for "${text.slice(0, 40)}"`); return; }
+      console.log(`[${source}] ${buyerHandle}: ${text.slice(0, 60)}`);
+      // Auto-reply: KobeOS returns a ready-to-post reply when it reserves a BUY.
+      try {
+        const r = JSON.parse(buf);
+        if (r && r.reply) {
+          console.log(`   ↳ REPLY: ${r.reply}`);
+          onReply(source, r.reply); // post it back where the platform allows
+        }
+      } catch { /* non-JSON */ }
+    });
   });
   req.on('error', (e) => console.warn(`[ingest] send failed: ${e.message}`));
   req.write(body);
@@ -47,7 +83,8 @@ async function startTikTok() {
   let WebcastPushConnection;
   try { ({ WebcastPushConnection } = await import('tiktok-live-connector')); }
   catch { console.error('[tiktok] `npm i tiktok-live-connector` first.'); return; }
-  const conn = new WebcastPushConnection(cfg.tiktok.username);
+  const conn = new WebcastPushConnection(cfg.tiktok.username, cfg.tiktok.sessionId ? { sessionId: cfg.tiktok.sessionId } : {});
+  tiktokConn = conn;
   conn.on('chat', (d) => forward('tiktok', d.uniqueId || d.nickname || '', d.comment || ''));
   conn.on('disconnected', () => {
     console.warn('[tiktok] disconnected — retrying in 10s');

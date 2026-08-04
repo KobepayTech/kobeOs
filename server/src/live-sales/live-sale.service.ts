@@ -29,6 +29,43 @@ export interface IngestInput {
 export class LiveSaleService {
   private readonly logger = new Logger(LiveSaleService.name);
 
+  // ── In-memory moderation (per live, resets on restart) ─────────────────────
+  private readonly recentByHandle = new Map<string, number[]>();   // handle -> timestamps
+  private readonly recentText = new Map<string, number>();          // handle|text -> last ts
+  private static readonly RATE_MAX = 6;        // comments …
+  private static readonly RATE_WINDOW_MS = 8_000;  // … per 8s per handle
+  private static readonly DUP_WINDOW_MS = 20_000;  // identical text suppressed for 20s
+  private blockWords: string[] | null = null;
+
+  private getBlockWords(): string[] {
+    if (this.blockWords) return this.blockWords;
+    const extra = (process.env.LIVE_BLOCK_WORDS || '').toLowerCase().split(',').map((w) => w.trim()).filter(Boolean);
+    this.blockWords = [...extra];
+    return this.blockWords;
+  }
+
+  /** Spam/abuse gate: block-words, per-handle flood, and duplicate text. */
+  private moderate(handle: string, text: string): { blocked: boolean; reason?: string } {
+    const clean = (text || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    if (!clean) return { blocked: true, reason: 'empty' };
+    for (const w of this.getBlockWords()) if (w && clean.includes(w)) return { blocked: true, reason: 'blocked-word' };
+    const h = handle || '_anon';
+    const now = Date.now();
+    // Duplicate identical text from the same handle.
+    const dupKey = `${h}|${clean}`;
+    const lastDup = this.recentText.get(dupKey);
+    if (lastDup && now - lastDup < LiveSaleService.DUP_WINDOW_MS) return { blocked: true, reason: 'duplicate' };
+    this.recentText.set(dupKey, now);
+    // Flood: too many from one handle in the window.
+    const stamps = (this.recentByHandle.get(h) || []).filter((t) => now - t < LiveSaleService.RATE_WINDOW_MS);
+    stamps.push(now);
+    this.recentByHandle.set(h, stamps);
+    if (stamps.length > LiveSaleService.RATE_MAX) return { blocked: true, reason: 'flood' };
+    // Opportunistic cleanup so the maps don't grow forever.
+    if (this.recentText.size > 5000) for (const [k, t] of this.recentText) if (now - t > LiveSaleService.DUP_WINDOW_MS) this.recentText.delete(k);
+    return { blocked: false };
+  }
+
   constructor(
     @InjectRepository(LiveSession) private readonly sessions: Repository<LiveSession>,
     @InjectRepository(LivePin) private readonly pins: Repository<LivePin>,
@@ -221,6 +258,19 @@ export class LiveSaleService {
     const match = await this.parse(uid, sessionId, dto.text || '');
     const handle = dto.buyerHandle?.trim() || '';
 
+    // Moderation: drop spam/flood/blocked comments (store as IGNORED so the
+    // console shows they were filtered) — but never filter a genuine BUY match,
+    // so a fast repeat buyer is still served (BUY dedupe handles that below).
+    if (!match) {
+      const mod = this.moderate(handle, dto.text || '');
+      if (mod.blocked) {
+        return this.comments.save(this.comments.create({
+          ownerId: uid, sessionId, source: dto.source || 'manual', buyerHandle: handle,
+          text: dto.text || '', status: 'IGNORED', note: `filtered: ${mod.reason}`,
+        }));
+      }
+    }
+
     // A BUY that matches a pinned product is auto-RESERVED: the buyer gets a
     // checkout link and stock is held (softly) for RESERVE_MINUTES. Duplicate
     // BUYs from the same handle for the same product reuse the live reservation
@@ -242,7 +292,7 @@ export class LiveSaleService {
       reservedUntil = new Date(Date.now() + RESERVE_MINUTES * 60_000);
     }
 
-    return this.comments.save(this.comments.create({
+    const saved = await this.comments.save(this.comments.create({
       ownerId: uid, sessionId,
       source: dto.source || 'manual',
       buyerHandle: handle,
@@ -256,6 +306,15 @@ export class LiveSaleService {
       reservationCode,
       reservedUntil,
     }));
+
+    // Auto-reply text the connector/moderator posts back into the live chat
+    // (or the IG private reply) so the buyer knows how to complete the order.
+    let reply: string | undefined;
+    if (status === 'RESERVED') {
+      const who = handle ? `@${handle.replace(/^@/, '')} ` : '';
+      reply = `${who}${match!.code} reserved${saved.qty > 1 ? ` x${saved.qty}` : ''} for ${RESERVE_MINUTES} min. Open our profile link and enter code ${reservationCode} to pay.`;
+    }
+    return { ...saved, reply } as LiveComment & { reply?: string };
   }
 
   /** Public checkout page data for a reservation token (buyer opens /live/pay/{token}). */
