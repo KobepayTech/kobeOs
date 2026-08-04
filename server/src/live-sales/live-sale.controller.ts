@@ -43,6 +43,7 @@ export class LiveSaleController {
   @Get(':id/pins') pins(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.svc.listPins(uid, id); }
   @Post(':id/pins') pin(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: PinDto) { return this.svc.pinProduct(uid, id, dto); }
   @Delete(':id/pins/:pinId') unpin(@CurrentUser('id') uid: string, @Param('id') id: string, @Param('pinId') pinId: string) { return this.svc.unpin(uid, id, pinId); }
+  @Post(':id/featured') featured(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: { pinId: string }) { return this.svc.setFeatured(uid, id, dto?.pinId); }
 
   @Get(':id/comments') comments(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.svc.listComments(uid, id); }
   @Post(':id/comments') ingest(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: IngestDto) { return this.svc.ingestComment(uid, id, dto); }
@@ -84,6 +85,18 @@ export class LiveSalePublicController {
   @Post('checkout/:token/pay')
   pay(@Param('token') token: string, @Body() dto: { buyerContact?: string }) {
     return this.svc.payByToken(token, { buyerContact: dto?.buyerContact });
+  }
+
+  /** Reserve a product straight from the live catalog (method 1). */
+  @Post(':slug/reserve')
+  reserve(@Param('slug') slug: string, @Body() dto: { code: string; qty?: number; buyerHandle?: string; variation?: string }) {
+    return this.svc.reserveFromCatalog(slug, dto);
+  }
+
+  /** Pull up a reservation by its short code (method 2 — moderator's K7Q4). */
+  @Get('reservation/:code')
+  reservation(@Param('code') code: string) {
+    return this.svc.checkoutByCode(code);
   }
 
   /** Instagram Graph API `live_comments` webhook — Meta's verification GET. */

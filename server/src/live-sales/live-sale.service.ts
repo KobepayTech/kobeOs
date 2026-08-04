@@ -5,6 +5,11 @@ import { LessThan, Repository } from 'typeorm';
 import { randomBytes } from 'crypto';
 
 const RESERVE_MINUTES = 5;
+const CODE_ALPHABET = 'ACDEFGHJKMNPQRTUVWXY34679'; // no ambiguous 0/O/1/I/L/B8/S5/2Z
+/** Short human reservation code the moderator reads out, e.g. "K7Q4". */
+function genReservationCode(): string {
+  return Array.from({ length: 4 }, () => CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)]).join('');
+}
 import { LiveSession, LivePin, LiveComment } from './live-sale.entity';
 import { PosProduct } from '../pos/pos.entity';
 import { StoreSettings } from '../store-settings/store-settings.entity';
@@ -88,7 +93,7 @@ export class LiveSaleService {
     });
     if (!session) return { live: false as const };
     const pins = await this.pins.find({ where: { ownerId: s.ownerId, sessionId: session.id }, order: { code: 'ASC' } });
-    const products: Array<{ productId: string; code: string; name: string; livePrice: number; catalogPrice: number; stock: number; currency: string }> = [];
+    const products: Array<{ productId: string; code: string; name: string; livePrice: number; catalogPrice: number; stock: number; currency: string; imageUrl: string | null; isFeatured: boolean }> = [];
     for (const p of pins) {
       const prod = await this.products.findOne({ where: { ownerId: s.ownerId, id: p.productId } });
       if (!prod) continue;
@@ -97,9 +102,59 @@ export class LiveSaleService {
         livePrice: num(p.livePrice) > 0 ? num(p.livePrice) : num(prod.price),
         catalogPrice: num(prod.price),
         stock: Number(prod.stock), currency: session.currency,
+        imageUrl: (prod as { imageUrl?: string }).imageUrl ?? null,
+        isFeatured: !!p.isFeatured,
       });
     }
-    return { live: true as const, sessionId: session.id, title: session.title, currency: session.currency, products };
+    // "NOW SHOWING" — the featured product (or the first) leads the catalog.
+    const featured = products.find((p) => p.isFeatured) ?? products[0] ?? null;
+    return { live: true as const, sessionId: session.id, title: session.title, currency: session.currency, featured, products };
+  }
+
+  /** Seller sets the "NOW SHOWING" product; the catalog updates live. */
+  async setFeatured(uid: string, sessionId: string, pinId: string) {
+    await this.getSession(uid, sessionId);
+    await this.pins.update({ ownerId: uid, sessionId }, { isFeatured: false });
+    const res = await this.pins.update({ ownerId: uid, sessionId, id: pinId }, { isFeatured: true });
+    if (!res.affected) throw new NotFoundException('Pinned product not found');
+    return { ok: true, featuredPinId: pinId };
+  }
+
+  /**
+   * Buyer reserves a product straight from the live catalog (method 1). Resolves
+   * the active session by storefront slug, holds stock softly for RESERVE_MINUTES,
+   * and returns a short reservation code + the checkout token/link.
+   */
+  async reserveFromCatalog(slug: string, dto: { code: string; qty?: number; buyerHandle?: string; variation?: string }) {
+    const live = await this.publicLive(slug);
+    if (!live.live) throw new BadRequestException('No live sale is running right now');
+    const code = (dto.code || '').toUpperCase();
+    const pin = await this.pins.findOne({ where: { sessionId: live.sessionId, code } });
+    if (!pin) throw new NotFoundException('That product code is not in this live');
+    const product = await this.products.findOne({ where: { id: pin.productId } });
+    if (!product) throw new NotFoundException('Product no longer exists');
+    const qty = Math.max(1, Math.min(Number(dto.qty) || 1, 99));
+    if (Number(product.stock) < qty) throw new BadRequestException(`Only ${Number(product.stock)} left`);
+
+    const reservationCode = genReservationCode();
+    const checkoutToken = randomBytes(16).toString('base64url');
+    const saved = await this.comments.save(this.comments.create({
+      ownerId: pin.ownerId, sessionId: live.sessionId, source: 'catalog',
+      buyerHandle: dto.buyerHandle?.trim() || '',
+      text: `Catalog reserve ${code} x${qty}${dto.variation ? ` (${dto.variation})` : ''}`,
+      matchedCode: code, matchedProductId: pin.productId, qty,
+      status: 'RESERVED', checkoutToken, reservationCode,
+      note: dto.variation?.slice(0, 120) || '',
+      reservedUntil: new Date(Date.now() + RESERVE_MINUTES * 60_000),
+    }));
+    return { reservationCode, checkoutToken, checkoutPath: `/live/pay/${checkoutToken}`, expiresInSeconds: RESERVE_MINUTES * 60, qty, sessionId: live.sessionId, id: saved.id };
+  }
+
+  /** Look up a reservation by its short code (method 2 — the moderator's K7Q4). */
+  async checkoutByCode(code: string) {
+    const c = await this.comments.findOne({ where: { reservationCode: (code || '').toUpperCase() } });
+    if (!c || !c.checkoutToken) throw new NotFoundException('Reservation code not found or expired');
+    return this.checkoutByToken(c.checkoutToken);
   }
 
   /* ── Pins ── */
@@ -172,6 +227,7 @@ export class LiveSaleService {
     // instead of stacking orders.
     let status: LiveComment['status'] = match ? 'MATCHED' : 'NEW';
     let checkoutToken = '';
+    let reservationCode = '';
     let reservedUntil: Date | null = null;
     if (match && handle) {
       const existing = await this.comments.findOne({
@@ -182,6 +238,7 @@ export class LiveSaleService {
       }
       status = 'RESERVED';
       checkoutToken = randomBytes(16).toString('base64url');
+      reservationCode = genReservationCode();
       reservedUntil = new Date(Date.now() + RESERVE_MINUTES * 60_000);
     }
 
@@ -196,6 +253,7 @@ export class LiveSaleService {
       qty: match?.qty || 1,
       status,
       checkoutToken,
+      reservationCode,
       reservedUntil,
     }));
   }

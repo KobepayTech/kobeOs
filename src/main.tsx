@@ -149,6 +149,11 @@ const remitCashierCode = (remitCashierMatch?.[1] ?? '').toUpperCase();
 const livePayMatch = pathname.match(/^\/live\/pay\/([A-Za-z0-9_-]{16,})\/?$/);
 const livePayToken = livePayMatch?.[1] ?? '';
 
+// Permanent Kobe Live Catalog: /live (uses the store subdomain) or /@seller
+const liveHandleMatch = pathname.match(/^\/@([a-z0-9_.-]{2,40})\/?$/i);
+const isLiveCatalog = !livePayToken && (pathname.replace(/\/$/, '') === '/live' || !!liveHandleMatch);
+const liveCatalogSlug = liveHandleMatch?.[1] ?? (tenantSub ?? '');
+
 const mount = (node: ReactNode) =>
   createRoot(document.getElementById('root')!).render(node);
 
@@ -219,6 +224,9 @@ if (isOverlay) {
 } else if (livePayToken) {
   // Live-sale buyer checkout from the BUY reservation link: /live/pay/{token}
   import('./public/LivePay').then(({ default: LivePay }) => mount(<LivePay token={livePayToken} />));
+} else if (isLiveCatalog) {
+  // Permanent Kobe Live Catalog: /live or /@seller
+  import('./public/LiveCatalog').then(({ default: LiveCatalog }) => mount(<LiveCatalog slug={liveCatalogSlug} />));
 } else if (isCargoSite) {
   // Public branded cargo landing: /cg/{slug}
   import('./public/CargoSite').then(({ default: CargoSite }) => mount(<CargoSite slug={cargoSiteSlug} />));

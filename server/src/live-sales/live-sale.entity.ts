@@ -73,6 +73,10 @@ export class LivePin extends OwnedEntity {
   @Column({ type: 'decimal', precision: 18, scale: 2, default: 0 })
   livePrice!: number;
 
+  /** The "NOW SHOWING" product on the live catalog. One per session. */
+  @Column({ default: false })
+  isFeatured!: boolean;
+
   @Column({ default: 0 })
   soldQty!: number;
 }
@@ -122,6 +126,12 @@ export class LiveComment extends OwnedEntity {
   @Index()
   @Column({ default: '' })
   checkoutToken!: string;
+
+  /** Short human code the moderator reads out (e.g. "K7Q4") so the buyer can
+   *  pull up their reservation on the catalog page. */
+  @Index()
+  @Column({ default: '' })
+  reservationCode!: string;
 
   /** RESERVED expiry — stock is held until this time, then auto-released. */
   @Column({ type: 'timestamptz', nullable: true })
