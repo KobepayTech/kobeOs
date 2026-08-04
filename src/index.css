@@ -5,7 +5,8 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
+  :root, [data-theme="light"] {
+    color-scheme: light;
     /* ── Aladin OS Color System ── */
     --os-accent: #7B8CDE;
     --os-accent-rgb: 123, 140, 222;
@@ -67,6 +68,7 @@
   }
 
   .dark, [data-theme="dark"] {
+    color-scheme: dark;
     /* shadcn/ui dark */
     --background: 246 32% 12%;
     --foreground: 0 0% 98%;

@@ -196,7 +196,7 @@ export default function PropEasyApp() {
   const openScreening = (t: ApiTenant) => { setSelectedTenant(t); setView('screening'); };
 
   return (
-    <div className="flex h-full w-full bg-slate-50 text-slate-900" data-surface="light" style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
+    <div className="flex h-full w-full bg-slate-50 text-slate-900" data-surface="light" data-theme="light" style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
       <Sidebar view={view} onChange={setView} onInviteTenant={() => { setView('tenants'); setAddOpen(true); }} />
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar title={titleFor(view)} />
