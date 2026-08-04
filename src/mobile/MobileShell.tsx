@@ -3,7 +3,7 @@ import { Outlet, Link, useLocation, useNavigate, useOutletContext, useParams } f
 import {
   ShoppingCart, ClipboardList, Calculator, NotebookPen, Boxes, Receipt, LogOut, User, Loader2, Sparkles, Truck, BedDouble, Landmark,
   Clock, CreditCard, ShieldCheck, X,
-  Puzzle, Plus,
+  Puzzle, Plus, Radio,
 } from 'lucide-react';
 import { api, clearTokens, setRefreshToken, setToken } from '@/lib/api';
 import { ensureSession } from '@/lib/auth';
@@ -33,6 +33,7 @@ const TABS: MobileModuleUi[] = [
   { id: 'pos',         to: 'pos',         label: 'POS',         Icon: ShoppingCart },
   { id: 'inventory',   to: 'inventory',   label: 'Stock',       Icon: Boxes },
   { id: 'orders',      to: 'orders',      label: 'Orders',      Icon: Receipt },
+  { id: 'live-sales',  to: 'live-sales',  label: 'Live sales',  Icon: Radio },
   { id: 'image-order', to: 'image-order', label: 'Image order', Icon: Sparkles, showInNav: false },
   { id: 'po',          to: 'po',          label: 'Purchase',    Icon: ClipboardList },
   { id: 'discounts',   to: 'discounts',   label: 'Approvals',   Icon: ShieldCheck },
