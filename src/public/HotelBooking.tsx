@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { publicApi } from './api';
-import { BedDouble, CalendarDays, CheckCircle2, Loader2, Users } from 'lucide-react';
+import { BedDouble, CalendarDays, CheckCircle2, ChevronDown, Loader2, Users } from 'lucide-react';
+import { Calendar as DateCalendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 /**
  * Public hotel booking site — the room-booking equivalent of the storefront.
@@ -11,6 +13,70 @@ interface PublicRoom { id: string; roomNumber: string; type: string; rate: numbe
 interface Branding {
   logoUrl: string; tagline: string; primaryColor: string; accentColor: string;
   heroImageUrl: string; about: string; amenities: string[]; phone: string; whatsapp: string; address: string;
+}
+
+function dateFromKey(value: string): Date | undefined {
+  if (!value) return undefined;
+  const [year, month, day] = value.split('-').map(Number);
+  if (!year || !month || !day) return undefined;
+  return new Date(year, month - 1, day, 12);
+}
+
+function dateKey(value?: Date): string {
+  if (!value) return '';
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function displayDate(value: string): string {
+  const date = dateFromKey(value);
+  return date
+    ? date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })
+    : 'Select a date';
+}
+
+function DatePickerField({
+  label,
+  value,
+  min,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  min: string;
+  onChange: (value: string) => void;
+}) {
+  const minDate = dateFromKey(min);
+
+  return (
+    <div className="flex flex-col gap-1 text-[11px] font-semibold text-slate-500">
+      <span className="inline-flex items-center gap-1"><CalendarDays className="w-3 h-3" /> {label}</span>
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className={`h-10 w-full rounded-lg border border-slate-200 px-3 text-left text-sm inline-flex items-center justify-between gap-2 hover:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-200 ${value ? 'text-slate-900' : 'text-slate-400'}`}
+            aria-label={`Select ${label.toLowerCase()}`}
+          >
+            <span className="truncate">{displayDate(value)}</span>
+            <ChevronDown className="w-4 h-4 shrink-0 text-slate-400" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-auto bg-white border-slate-200 p-1 text-slate-900">
+          <DateCalendar
+            mode="single"
+            selected={dateFromKey(value)}
+            onSelect={(date) => onChange(dateKey(date))}
+            disabled={minDate ? { before: minDate } : undefined}
+            initialFocus
+            className="bg-white text-slate-900"
+          />
+        </PopoverContent>
+      </Popover>
+    </div>
+  );
 }
 
 export default function HotelBooking({ slug }: { slug: string }) {
@@ -100,12 +166,22 @@ export default function HotelBooking({ slug }: { slug: string }) {
         )}
         {/* Dates + guests */}
         <div className="bg-white rounded-2xl border border-slate-200 p-4 grid grid-cols-2 gap-3">
-          <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-500"><span className="inline-flex items-center gap-1"><CalendarDays className="w-3 h-3" /> Check-in</span>
-            <input type="date" min={today} value={form.checkIn} onChange={(e) => setForm({ ...form, checkIn: e.target.value })} className="h-10 px-2 rounded-lg border border-slate-200 text-sm" />
-          </label>
-          <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-500"><span className="inline-flex items-center gap-1"><CalendarDays className="w-3 h-3" /> Check-out</span>
-            <input type="date" min={form.checkIn || today} value={form.checkOut} onChange={(e) => setForm({ ...form, checkOut: e.target.value })} className="h-10 px-2 rounded-lg border border-slate-200 text-sm" />
-          </label>
+          <DatePickerField
+            label="Check-in"
+            value={form.checkIn}
+            min={today}
+            onChange={(checkIn) => setForm((current) => ({
+              ...current,
+              checkIn,
+              checkOut: current.checkOut && current.checkOut < checkIn ? '' : current.checkOut,
+            }))}
+          />
+          <DatePickerField
+            label="Check-out"
+            value={form.checkOut}
+            min={form.checkIn || today}
+            onChange={(checkOut) => setForm((current) => ({ ...current, checkOut }))}
+          />
           <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-500"><span className="inline-flex items-center gap-1"><Users className="w-3 h-3" /> Guests</span>
             <input type="number" min={1} value={form.guests} onChange={(e) => setForm({ ...form, guests: Math.max(1, Number(e.target.value)) })} className="h-10 px-2 rounded-lg border border-slate-200 text-sm" />
           </label>
