@@ -28,8 +28,8 @@ export class ModuleSiteSettingsController {
   }
 
   @Get(':moduleId')
-  get(@CurrentUser('id') uid: string, @Param('moduleId') moduleId: string) {
-    return this.svc.get(uid, moduleId);
+  get(@CurrentUser('id') uid: string, @Param('moduleId') moduleId: string, @Query('hotelId') hotelId?: string) {
+    return this.svc.get(uid, moduleId, hotelId);
   }
 
   @Put(':moduleId')
@@ -37,17 +37,18 @@ export class ModuleSiteSettingsController {
     @CurrentUser('id') uid: string,
     @Param('moduleId') moduleId: string,
     @Body() dto: UpsertModuleSiteSettingsDto,
+    @Query('hotelId') hotelId?: string,
   ) {
-    return this.svc.upsert(uid, moduleId, dto);
+    return this.svc.upsert(uid, moduleId, dto, hotelId ?? dto.hotelId);
   }
 
   @Post(':moduleId/publish')
-  publish(@CurrentUser('id') uid: string, @Param('moduleId') moduleId: string) {
-    return this.svc.publish(uid, moduleId);
+  publish(@CurrentUser('id') uid: string, @Param('moduleId') moduleId: string, @Query('hotelId') hotelId?: string) {
+    return this.svc.publish(uid, moduleId, hotelId);
   }
 
   @Delete(':moduleId/publish')
-  unpublish(@CurrentUser('id') uid: string, @Param('moduleId') moduleId: string) {
-    return this.svc.unpublish(uid, moduleId);
+  unpublish(@CurrentUser('id') uid: string, @Param('moduleId') moduleId: string, @Query('hotelId') hotelId?: string) {
+    return this.svc.unpublish(uid, moduleId, hotelId);
   }
 }

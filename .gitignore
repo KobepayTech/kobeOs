@@ -18,6 +18,7 @@ build/cloudflared/
 build/ollama/*
 !build/ollama/.gitkeep
 tmp-screenshots/
+logs/
 
 # Secrets — keep .env.example tracked, never commit real env files.
 .env

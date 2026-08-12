@@ -1,6 +1,9 @@
-import { IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsObject, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 
 export class UpsertModuleSiteSettingsDto {
+  @IsOptional() @IsUUID()
+  hotelId?: string;
+
   @IsOptional() @IsString() @MaxLength(200)
   name?: string;
 

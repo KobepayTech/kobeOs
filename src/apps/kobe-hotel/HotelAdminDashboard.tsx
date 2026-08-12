@@ -613,6 +613,8 @@ export const HotelAdminDashboard: React.FC = () => {
         method: 'POST',
         body: JSON.stringify({ hotelId: created.id, roomNumber: String(101 + index), type: 'Standard', rate: 0, capacity: 2 }),
       })));
+      // Initialize and publish this property's independent hotel website.
+      await api(`/module-sites/hotel?hotelId=${encodeURIComponent(created.id)}`);
       await loadHotels();
       setSelectedHotelId(created.id);
     } catch (err) { setHotelError((err as Error).message || 'Could not create hotel.'); return; }

@@ -18,6 +18,7 @@ export interface PublicBookDto {
 
 interface ResolvedHotelSite {
   ownerId: string;
+  hotelId: string | null;
   name: string;
   tagline: string;
   logoUrl: string;
@@ -56,6 +57,7 @@ export class HotelPublicService {
     if (scoped) {
       return {
         ownerId: scoped.ownerId,
+        hotelId: scoped.hotelId,
         name: scoped.name || 'Hotel',
         tagline: scoped.tagline || '',
         logoUrl: scoped.logoUrl || '',
@@ -72,6 +74,7 @@ export class HotelPublicService {
     if (!legacy) throw new NotFoundException('Hotel not found');
     return {
       ownerId: legacy.ownerId,
+      hotelId: null,
       name: legacy.storeName || 'Hotel',
       tagline: legacy.tagline || '',
       logoUrl: legacy.logoUrl || '',
@@ -81,15 +84,18 @@ export class HotelPublicService {
     };
   }
 
-  private async ownerFor(slug: string): Promise<{ ownerId: string; name: string }> {
+  private async ownerFor(slug: string): Promise<{ ownerId: string; hotelId: string | null; name: string }> {
     const site = await this.settingsFor(slug);
-    return { ownerId: site.ownerId, name: site.name };
+    return { ownerId: site.ownerId, hotelId: site.hotelId, name: site.name };
   }
 
   async listRooms(slug: string) {
     const siteSettings = await this.settingsFor(slug);
     const ownerId = siteSettings.ownerId;
-    const rooms = await this.rooms.find({ where: { ownerId }, take: 500 });
+    const rooms = await this.rooms.find({
+      where: { ownerId, ...(siteSettings.hotelId ? { hotelId: siteSettings.hotelId } : {}) },
+      take: 500,
+    });
     const site = siteSettings.config;
     return {
       hotelName: siteSettings.name,
@@ -119,7 +125,7 @@ export class HotelPublicService {
   }
 
   async book(slug: string, dto: PublicBookDto) {
-    const { ownerId } = await this.ownerFor(slug);
+    const { ownerId, hotelId } = await this.ownerFor(slug);
     if (!dto.guestName?.trim() || !dto.guestPhone?.trim()) {
       throw new BadRequestException('Name and phone are required.');
     }
@@ -136,6 +142,7 @@ export class HotelPublicService {
       room = await this.rooms.findOne({
         where: {
           ownerId,
+          ...(hotelId ? { hotelId } : {}),
           status: 'available',
           ...(dto.roomType ? { type: dto.roomType } : {}),
         },
@@ -144,13 +151,14 @@ export class HotelPublicService {
     if (!room) throw new BadRequestException('No available room for those criteria.');
 
     let guest = await this.guests.findOne({
-      where: { ownerId, name: dto.guestName.trim() },
+      where: { ownerId, name: dto.guestName.trim(), ...(hotelId ? { hotelId } : {}) },
     });
     if (!guest) {
       guest = await this.guests.save(this.guests.create({
         ownerId,
         name: dto.guestName.trim(),
         phone: dto.guestPhone.trim(),
+        hotelId,
       }));
     }
 
@@ -168,7 +176,7 @@ export class HotelPublicService {
       currency: room.currency || 'TZS',
       hotelId: room.hotelId ?? null,
     }));
-    await this.rooms.update({ ownerId, id: room.id }, { status: 'reserved' });
+    await this.rooms.update({ ownerId, id: room.id, ...(hotelId ? { hotelId } : {}) }, { status: 'reserved' });
 
     let payment: { initiated: boolean; orderId?: string; message: string } = {
       initiated: false,
