@@ -86,6 +86,19 @@ export class PlayerStatsService {
       const yellowCards = playerEvents.filter((e) => e.type === 'YELLOW_CARD').length;
       const redCards = playerEvents.filter((e) => e.type === 'RED_CARD').length;
 
+      // Assists: explicit ASSIST events for this player, plus GOAL events on the
+      // same team credited to this player via the recorded assist metadata.
+      const assists = events.filter((e) => {
+        if (e.team !== p.team) return false;
+        if (e.type === 'ASSIST' && e.playerName === p.name) return true;
+        if (e.type === 'GOAL') {
+          const meta = (e.metadata ?? {}) as Record<string, unknown>;
+          const assistBy = meta.assistedBy ?? meta.assist ?? meta.assistBy;
+          return typeof assistBy === 'string' && assistBy === p.name;
+        }
+        return false;
+      }).length;
+
       // xG from vision events
       const xg = liveState?.events
         .filter((e) => e.team === p.team && e.trackId === track?.trackId && (e.type === 'SHOT' || e.type === 'GOAL'))
@@ -118,7 +131,7 @@ export class PlayerStatsService {
         sprints,
         topSpeedKmh: parseFloat((track?.speed ?? 0).toFixed(1)),
         goals,
-        assists: 0, // TODO: derive from passing network when available
+        assists,
         yellowCards,
         redCards,
         xg: parseFloat(xg.toFixed(3)),

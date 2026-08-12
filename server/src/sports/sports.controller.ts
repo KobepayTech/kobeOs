@@ -14,6 +14,7 @@ import { MatchLifecycleService } from './match-lifecycle.service';
 import { PlayerStatsService } from './player-stats.service';
 import { CameraService } from './camera.service';
 import { SportsAiService } from './sports-ai.service';
+import { LiveDataService } from './live-data.service';
 import {
   CreateMatchDto, CreateMatchEventDto, CreatePlayerDto, CreateTeamDto,
   UpdateAnalyticsDto, UpdateMatchDto, UpdatePlayerDto, UpdateTeamDto,
@@ -40,7 +41,36 @@ export class SportsController {
     private readonly playerStats: PlayerStatsService,
     private readonly cameras: CameraService,
     private readonly sportsAi: SportsAiService,
+    private readonly liveData: LiveDataService,
   ) {}
+
+  // ── Live external data (football-data.org / api-football) ─────────────────
+
+  @Get('live')
+  @ApiOperation({ summary: 'Real-world live fixtures & scores from configured data providers' })
+  liveMatchesFeed() {
+    return this.liveData.getLiveMatches();
+  }
+
+  @Post('live/refresh')
+  @ApiOperation({ summary: 'Force an immediate poll of the live-data providers' })
+  async refreshLive() {
+    await this.liveData.pollLiveMatches();
+    return { ok: true, count: this.liveData.getLiveMatches().length };
+  }
+
+  @Get('live/leagues')
+  @ApiOperation({ summary: 'Distinct competitions present in the current live feed' })
+  liveLeagues() {
+    const counts = new Map<string, number>();
+    for (const m of this.liveData.getLiveMatches()) {
+      const name = m.competition || 'Other';
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+  }
 
   // ── AI Vision ingest ──────────────────────────────────────────────────────
 

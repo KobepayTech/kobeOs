@@ -13,6 +13,7 @@ import { MatchLifecycleService } from './match-lifecycle.service';
 import { PlayerStatsService } from './player-stats.service';
 import { CameraService } from './camera.service';
 import { SportsAiService } from './sports-ai.service';
+import { LiveDataService } from './live-data.service';
 import { BoxingFighter, BoxingBout } from './boxing.entity';
 import { BoxingService } from './boxing.service';
 import { BoxingController } from './boxing.controller';
@@ -32,12 +33,14 @@ import { AiModule } from '../ai/ai.module';
     MatchesService, MatchEventsService, PlayersService, TeamsService, AnalyticsService,
     VisionIngestService, OffsideDetectionService, SportsGateway,
     MatchLifecycleService, PlayerStatsService, CameraService, SportsAiService,
+    LiveDataService,
     BoxingService,
   ],
   controllers: [SportsController, BoxingController, SportsPublicController],
   exports: [
     MatchesService, AnalyticsService, VisionIngestService, OffsideDetectionService,
     SportsGateway, MatchLifecycleService, PlayerStatsService, CameraService, SportsAiService,
+    LiveDataService,
   ],
 })
 export class SportsModule {}

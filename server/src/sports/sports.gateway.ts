@@ -24,6 +24,7 @@ import { Logger } from '@nestjs/common';
 import { Server, Socket } from 'socket.io';
 import { VisionIngestService, type LiveMatchState } from './vision-ingest.service';
 import type { OffsideResult } from './offside-detection.service';
+import { LiveDataService, type LiveMatch } from './live-data.service';
 
 const STATE_THROTTLE_MS = 1000;
 
@@ -33,8 +34,25 @@ export class SportsGateway implements OnGatewayInit {
   private readonly logger = new Logger(SportsGateway.name);
   private readonly lastStateSent = new Map<string, number>();
 
-  constructor(private readonly vision: VisionIngestService) {
+  constructor(
+    private readonly vision: VisionIngestService,
+    private readonly liveData: LiveDataService,
+  ) {
     this.vision.onFrame((matchId, state) => this.onVisionFrame(matchId, state));
+    // Broadcast external live-score updates (football-data.org / api-football)
+    // to every connected client as they arrive from the poll.
+    this.liveData.onUpdate((matches) => this.broadcastLiveMatches(matches));
+  }
+
+  @SubscribeMessage('get-live-matches')
+  handleGetLive(@ConnectedSocket() client: Socket) {
+    const matches = this.liveData.getLiveMatches();
+    client.emit('live-matches', matches);
+    return { ok: true, count: matches.length };
+  }
+
+  private broadcastLiveMatches(matches: LiveMatch[]) {
+    try { this.server?.emit('live-matches', matches); } catch { /* not ready */ }
   }
 
   afterInit() {

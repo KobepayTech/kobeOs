@@ -9,6 +9,7 @@
  */
 import { useState, useEffect, useRef } from 'react';
 import { useSportsSocket, type LivePlayer, type OffsideResult } from '../useSportsSocket';
+import { matchesApi, type MatchPlayerStat } from '../api';
 
 // ── Demo data ─────────────────────────────────────────────────────────────────
 
@@ -43,20 +44,55 @@ interface PlayerRating {
   speed: number;
 }
 
-function buildRatings(players: LivePlayer[]): PlayerRating[] {
+const clampRating = (n: number, lo = 40, hi = 99) => Math.max(lo, Math.min(hi, Math.round(n)));
+// Stable 0..1 value from a track id — used only for demo/no-data mode so the
+// panel stays steady instead of flickering with random noise.
+const stableFrac = (n: number) => {
+  const x = Math.sin(n * 12.9898) * 43758.5453;
+  return x - Math.floor(x);
+};
+
+/**
+ * Build rating cards from REAL per-player match stats (distance, sprints, top
+ * speed, goals, xG, rating) computed server-side from the vision pipeline,
+ * keyed by team + jersey. Sub-scores are derived deterministically from those
+ * measured metrics. When no backend stat exists yet (demo / not tracking), fall
+ * back to stable per-player placeholders seeded by track id — never random.
+ */
+function buildRatings(players: LivePlayer[], stats: Map<string, MatchPlayerStat>): PlayerRating[] {
   return players.map((p) => {
-    const base = 60 + Math.random() * 30;
+    const team: 'home' | 'away' = p.class.includes('home') ? 'home' : 'away';
+    const stat = p.jerseyNumber != null ? stats.get(`${team}:${p.jerseyNumber}`) : undefined;
+
+    if (stat) {
+      const attacking = clampRating(45 + stat.goals * 14 + stat.xg * 16 + Math.max(0, stat.topSpeedKmh - 24) * 1.2);
+      const workRate = clampRating(38 + stat.distanceKm * 4.5 + stat.sprints * 0.6);
+      const passing = clampRating(48 + stat.minutesPlayed * 0.22 + stat.distanceKm * 1.6);
+      const defending = clampRating(stat.rating - (attacking - 55) * 0.35 - stat.yellowCards * 5 - stat.redCards * 15);
+      return {
+        trackId: p.trackId,
+        jerseyNumber: p.jerseyNumber,
+        team,
+        overall: clampRating(stat.rating, 1, 99),
+        passing, defending, attacking, workRate,
+        distanceKm: stat.distanceKm,
+        sprints: stat.sprints,
+        speed: p.speed,
+      };
+    }
+
+    const base = 62 + stableFrac(p.trackId) * 24;
     return {
       trackId: p.trackId,
       jerseyNumber: p.jerseyNumber,
-      team: p.class.includes('home') ? 'home' : 'away',
+      team,
       overall: Math.round(base),
-      passing: Math.round(base + (Math.random() - 0.5) * 20),
-      defending: Math.round(base + (Math.random() - 0.5) * 20),
-      attacking: Math.round(base + (Math.random() - 0.5) * 20),
-      workRate: Math.round(base + (Math.random() - 0.5) * 20),
-      distanceKm: parseFloat((5 + Math.random() * 7).toFixed(1)),
-      sprints: Math.round(10 + Math.random() * 30),
+      passing: clampRating(base + (stableFrac(p.trackId + 1) - 0.5) * 16),
+      defending: clampRating(base + (stableFrac(p.trackId + 2) - 0.5) * 16),
+      attacking: clampRating(base + (stableFrac(p.trackId + 3) - 0.5) * 16),
+      workRate: clampRating(base + (stableFrac(p.trackId + 4) - 0.5) * 16),
+      distanceKm: parseFloat((6 + stableFrac(p.trackId + 5) * 5).toFixed(1)),
+      sprints: Math.round(12 + stableFrac(p.trackId + 6) * 24),
       speed: p.speed,
     };
   });
@@ -206,6 +242,25 @@ export default function Tracking({ matchId }: TrackingProps) {
     return () => { if (demoRef.current) clearInterval(demoRef.current); };
   }, [connected]);
 
+  // Real per-player stats from the vision pipeline (distance, sprints, top
+  // speed, goals, xG, rating), refreshed while a match is selected.
+  const [statMap, setStatMap] = useState<Map<string, MatchPlayerStat>>(new Map());
+  useEffect(() => {
+    if (!matchId) { setStatMap(new Map()); return; }
+    let active = true;
+    const load = () => matchesApi.playerStats(matchId)
+      .then((rows) => {
+        if (!active) return;
+        const map = new Map<string, MatchPlayerStat>();
+        (rows ?? []).forEach((s) => map.set(`${s.team}:${s.jerseyNumber}`, s));
+        setStatMap(map);
+      })
+      .catch(() => { /* not tracking yet — fall back to placeholders */ });
+    load();
+    const t = setInterval(load, 5000);
+    return () => { active = false; clearInterval(t); };
+  }, [matchId]);
+
   const players = frame?.players ?? demoPlayers;
   const ball = frame?.ball ?? null;
   const clock = frame?.matchClock ?? 0;
@@ -216,7 +271,7 @@ export default function Tracking({ matchId }: TrackingProps) {
   const [view, setView] = useState<'pitch' | 'ratings' | 'offside'>('pitch');
   const [teamFilter, setTeamFilter] = useState<'all' | 'home' | 'away'>('all');
 
-  const ratings = buildRatings(players);
+  const ratings = buildRatings(players, statMap);
   const selectedRating = ratings.find((r) => r.trackId === selectedId);
   const selectedPlayer = players.find((p) => p.trackId === selectedId);
   const visibleRatings = ratings.filter((r) => teamFilter === 'all' || r.team === teamFilter);
