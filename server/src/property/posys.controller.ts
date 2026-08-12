@@ -1,20 +1,11 @@
 import {
   Body, Controller, Delete, Get, Param, Post, Query, UseGuards,
 } from '@nestjs/common';
-import { IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { Public } from '../common/public.decorator';
 import { PosysService } from './posys.service';
-
-/** Public token redeem — validated so the whitelist can't strip fields. */
-class RedeemTokenDto {
-  @IsNumber() @Min(0.0001) amountReceived!: number;
-  @IsOptional() @IsString() @MaxLength(64) agentId?: string;
-  /** Client-supplied key so an at-least-once retry can't double-credit. */
-  @IsOptional() @IsString() @MaxLength(80) idempotencyKey?: string;
-}
 
 @UseGuards(JwtAuthGuard)
 @Controller('property/posys')
@@ -94,10 +85,9 @@ export class PosysController {
 }
 
 /**
- * Token lookup + redeem for an agent terminal that doesn't hold the
- * landlord's JWT session. Rate-limited hard so the 6-digit code space
- * (1M entries) can't be brute-forced: 20 lookups per minute per IP,
- * 5 redeems per minute per IP.
+ * Public token lookup and tenant/lawyer portals. Cash redemption is handled
+ * by PropertyCollectionPortalController, which requires an authenticated
+ * collection-partner session before it can change token state.
  *
  * `lookup` intentionally does NOT mutate — expiry sweeps happen in
  * `listTokens` and are also checked at `redeem` time. That keeps
@@ -130,12 +120,4 @@ export class PosysTokensController {
     return this.svc.contractByToken(code.trim().toUpperCase());
   }
 
-  @Throttle({ default: { limit: 5, ttl: 60_000 } })
-  @Post(':code/redeem')
-  redeem(
-    @Param('code') code: string,
-    @Body() dto: RedeemTokenDto,
-  ) {
-    return this.svc.redeemToken(code.trim().toUpperCase(), dto);
-  }
 }

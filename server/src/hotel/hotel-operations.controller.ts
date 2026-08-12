@@ -1,8 +1,8 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { HotelOperationsService } from './hotel-operations.service';
-import { CreateAssetDto, CreateHotelRequisitionDto, CreatePayrollDto, CreatePettyCashDto, ReviewHotelRequisitionDto } from './hotel-operations.dto';
+import { CreateAssetDto, CreateHotelRequisitionDto, CreatePayrollDto, CreatePettyCashDto, HotelStatementQueryDto, ReviewHotelRequisitionDto } from './hotel-operations.dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller('hotel/operations')
@@ -25,5 +25,5 @@ export class HotelOperationsController {
   @Post('assets') createAsset(@CurrentUser('id') uid: string, @Body() dto: CreateAssetDto) { return this.ops.createAsset(uid, dto); }
 
   @Get('ledger') ledger(@CurrentUser('id') uid: string) { return this.ops.listLedger(uid); }
-  @Get('statements') statements(@CurrentUser('id') uid: string) { return this.ops.statements(uid); }
+  @Get('statements') statements(@CurrentUser('id') uid: string, @Query() query: HotelStatementQueryDto) { return this.ops.statements(uid, query); }
 }

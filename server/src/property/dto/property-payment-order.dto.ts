@@ -54,6 +54,13 @@ export class RedeemPropertyPaymentOrderDto {
   @IsString() @MaxLength(120) idempotencyKey!: string;
 }
 
+/** Cashier bridge for the original 8-character Property payment tokens. */
+export class RedeemLegacyPropertyTokenDto {
+  @IsNumber() @Min(0.01) amountReceived!: number;
+  @IsOptional() @IsString() @MaxLength(120) reference?: string;
+  @IsString() @MaxLength(120) idempotencyKey!: string;
+}
+
 export class CancelPropertyPaymentOrderDto {
   @IsString() @MaxLength(500) reason!: string;
 }

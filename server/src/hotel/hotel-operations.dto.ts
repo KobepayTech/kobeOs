@@ -61,3 +61,9 @@ export class CreateAssetDto {
   @IsOptional() @IsString() note?: string;
   @IsOptional() @IsUUID() hotelId?: string;
 }
+
+export class HotelStatementQueryDto {
+  @IsOptional() @IsDateString() from?: string;
+  @IsOptional() @IsDateString() to?: string;
+  @IsOptional() @IsUUID() hotelId?: string;
+}
