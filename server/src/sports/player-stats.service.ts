@@ -25,6 +25,8 @@ export interface MatchPlayerStat {
   distanceKm: number;
   sprints: number;
   topSpeedKmh: number;
+  passes: number;
+  passAccuracy: number; // 0–100
   goals: number;
   assists: number;
   yellowCards: number;
@@ -107,11 +109,18 @@ export class PlayerStatsService {
       const distanceKm = track ? parseFloat((track.distanceM / 1000).toFixed(2)) : 0;
       const sprints = track?.sprints ?? 0;
 
-      // Simple rating formula: base 60 + contributions
+      // Pass involvement from the vision pass-detection engine
+      const passes = track?.passes ?? 0;
+      const passesCompleted = track?.passesCompleted ?? 0;
+      const passAccuracy = passes > 0 ? Math.round((passesCompleted / passes) * 100) : 0;
+
+      // Rating formula: base 60 + measured contributions
       const rating = Math.min(100, Math.round(
         60
         + goals * 8
+        + assists * 4
         + (xg * 5)
+        + Math.min(passesCompleted * 0.1, 8)
         + Math.min(sprints * 0.3, 10)
         + Math.min(distanceKm * 1.5, 12)
         - yellowCards * 5
@@ -130,6 +139,8 @@ export class PlayerStatsService {
         distanceKm,
         sprints,
         topSpeedKmh: parseFloat((track?.speed ?? 0).toFixed(1)),
+        passes,
+        passAccuracy,
         goals,
         assists,
         yellowCards,

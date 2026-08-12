@@ -128,6 +128,8 @@ export class SportsGateway implements OnGatewayInit {
       events: state.events.slice(-20),
       heatmaps: state.heatmaps,
       ball: state.ball,
+      passingNetwork: this.vision.buildPassNetwork(state),
+      passes: state.passEvents.slice(-40),
     };
   }
 }

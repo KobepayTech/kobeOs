@@ -112,6 +112,8 @@ export interface MatchPlayerStat {
   distanceKm: number;
   sprints: number;
   topSpeedKmh: number;
+  passes: number;
+  passAccuracy: number;
   goals: number;
   assists: number;
   yellowCards: number;
