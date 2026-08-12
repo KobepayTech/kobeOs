@@ -1,0 +1,315 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { api } from '@/lib/api';
+import {
+  GraduationCap, Plus, Users, Store, Inbox, Wallet, ShieldCheck, Scale,
+  RefreshCw, X, PiggyBank, Lock, ArrowRightLeft, Loader2, CheckCircle2, AlertTriangle,
+} from 'lucide-react';
+
+// ── Types ──────────────────────────────────────────────────────────────────
+interface School { id: string; name: string; code: string; bankModel: string; currency: string }
+interface Student { id: string; schoolId: string; name: string; studentCode: string; className: string; status: string; parentName: string; parentPhone: string; controls: Record<string, unknown> }
+interface Merchant { id: string; name: string; merchantCode: string; category: string; commissionPct: number; status: string; online: boolean; allowed?: boolean }
+interface Deposit { id: string; bankTransactionId: string; amount: number; senderName: string; senderPhone: string; reference: string; status: string; source: string }
+interface Reconcile { bank: number; students: number; merchants: number; suppliers: number; escrow: number; fees: number; balanced: boolean; drift: number }
+interface Dashboard { school: { id: string; name: string; code: string; bankModel: string }; students: number; walletTotal: number; studentSpendToday: number; depositsToday: number; reconcile: Reconcile }
+interface WalletView { studentId: string; currency: string; available: number; savings: number; buckets: Array<{ category: string; balance: number }>; reserved: Array<{ id: string; purpose: string; amount: number }>; reservedTotal: number; total: number; spentToday: number }
+
+const CATS = ['AVAILABLE', 'FOOD', 'TRANSPORT', 'BOOKS', 'SUPPLIES', 'ONLINE', 'GROUP', 'SAVINGS'];
+const money = (n: number, c = 'TZS') => `${c === 'TZS' ? 'TSh ' : c + ' '}${Number(n || 0).toLocaleString()}`;
+
+export default function KobepayPro() {
+  const [schools, setSchools] = useState<School[]>([]);
+  const [schoolId, setSchoolId] = useState<string>('');
+  const [tab, setTab] = useState<'overview' | 'students' | 'merchants' | 'deposits'>('overview');
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+
+  const loadSchools = useCallback(async () => {
+    setLoading(true); setErr(null);
+    try {
+      const rows = await api<School[]>('/kobepay-pro/schools');
+      setSchools(Array.isArray(rows) ? rows : []);
+      if (rows?.length && !schoolId) setSchoolId(rows[0].id);
+    } catch (e) { setErr((e as Error).message); }
+    finally { setLoading(false); }
+  }, [schoolId]);
+  useEffect(() => { void loadSchools(); }, [loadSchools]);
+
+  const newSchool = async () => {
+    const name = prompt('School name')?.trim();
+    if (!name) return;
+    const s = await api<School>('/kobepay-pro/schools', { method: 'POST', body: JSON.stringify({ name }) });
+    await loadSchools(); setSchoolId(s.id);
+  };
+
+  const school = schools.find((s) => s.id === schoolId) || null;
+
+  return (
+    <div className="h-full flex flex-col bg-slate-950 text-slate-100">
+      <header className="flex items-center gap-3 px-4 py-3 border-b border-slate-800">
+        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 grid place-items-center"><GraduationCap className="w-5 h-5 text-white" /></div>
+        <div className="min-w-0">
+          <h1 className="text-sm font-black">Kobepay Pro</h1>
+          <p className="text-[10px] text-slate-500">Programmable school money · wallets · rules · settlement</p>
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          {schools.length > 0 && (
+            <select value={schoolId} onChange={(e) => setSchoolId(e.target.value)} className="h-9 rounded-lg bg-slate-900 border border-slate-700 px-3 text-xs">
+              {schools.map((s) => <option key={s.id} value={s.id}>{s.name} · {s.code}</option>)}
+            </select>
+          )}
+          <button onClick={() => void loadSchools()} className="h-9 w-9 grid place-items-center rounded-lg border border-slate-700 text-slate-400"><RefreshCw className="w-4 h-4" /></button>
+          <button onClick={newSchool} className="h-9 inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 px-3 text-xs font-bold"><Plus className="w-4 h-4" />School</button>
+        </div>
+      </header>
+
+      {loading ? (
+        <div className="flex-1 grid place-items-center text-slate-500"><Loader2 className="w-6 h-6 animate-spin" /></div>
+      ) : !school ? (
+        <div className="flex-1 grid place-items-center text-center px-6">
+          <div className="space-y-2">
+            <GraduationCap className="w-10 h-10 mx-auto text-slate-600" />
+            <p className="text-slate-400">No schools yet.</p>
+            <button onClick={newSchool} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-4 h-9 text-sm font-bold"><Plus className="w-4 h-4" />Create your first school</button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <nav className="flex items-center gap-1 px-4 py-2 border-b border-slate-800">
+            {([['overview', 'Overview', Scale], ['students', 'Students', Users], ['merchants', 'Merchants', Store], ['deposits', 'Deposits', Inbox]] as const).map(([id, label, Icon]) => (
+              <button key={id} onClick={() => setTab(id)} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold ${tab === id ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-slate-200'}`}>
+                <Icon className="w-3.5 h-3.5" />{label}
+              </button>
+            ))}
+          </nav>
+          {err && <div className="mx-4 mt-3 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">{err}</div>}
+          <div className="flex-1 overflow-auto">
+            {tab === 'overview' && <Overview schoolId={school.id} currency={school.currency} />}
+            {tab === 'students' && <Students schoolId={school.id} currency={school.currency} />}
+            {tab === 'merchants' && <Merchants schoolId={school.id} />}
+            {tab === 'deposits' && <Deposits schoolId={school.id} onChange={() => setTab('deposits')} />}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Overview ────────────────────────────────────────────────────────────────
+function Overview({ schoolId, currency }: { schoolId: string; currency: string }) {
+  const [d, setD] = useState<Dashboard | null>(null);
+  const load = useCallback(() => { api<Dashboard>(`/kobepay-pro/schools/${schoolId}/dashboard`).then(setD).catch(() => setD(null)); }, [schoolId]);
+  useEffect(() => { load(); const t = setInterval(load, 10000); return () => clearInterval(t); }, [load]);
+  if (!d) return <div className="p-6 text-slate-500 text-sm">Loading dashboard…</div>;
+  const r = d.reconcile;
+  return (
+    <div className="p-4 space-y-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <Stat label="Students" value={String(d.students)} Icon={Users} tone="text-blue-400" />
+        <Stat label="Student wallets" value={money(d.walletTotal, currency)} Icon={Wallet} tone="text-emerald-400" />
+        <Stat label="Spent today" value={money(d.studentSpendToday, currency)} Icon={ArrowRightLeft} tone="text-amber-400" />
+        <Stat label="Deposits today" value={money(d.depositsToday, currency)} Icon={PiggyBank} tone="text-teal-400" />
+      </div>
+      <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Scale className="w-4 h-4 text-slate-400" />
+          <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400">Ledger reconciliation</h2>
+          <span className={`ml-auto inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full ${r.balanced ? 'bg-emerald-500/15 text-emerald-400' : 'bg-rose-500/15 text-rose-400'}`}>
+            {r.balanced ? <><CheckCircle2 className="w-3.5 h-3.5" />Balanced</> : <><AlertTriangle className="w-3.5 h-3.5" />Drift {money(r.drift, currency)}</>}
+          </span>
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-center">
+          {[['Bank', r.bank], ['Students', r.students], ['Merchants', r.merchants], ['Escrow', r.escrow], ['Fees', r.fees]].map(([k, v]) => (
+            <div key={k as string} className="rounded-xl bg-slate-800/60 p-3">
+              <div className="text-[10px] uppercase text-slate-500">{k}</div>
+              <div className="font-bold text-sm mt-0.5">{money(v as number, currency)}</div>
+            </div>
+          ))}
+        </div>
+        <p className="mt-3 text-[11px] text-slate-500">Bank {money(r.bank, currency)} = Students {money(r.students, currency)} + Merchants {money(r.merchants, currency)} + Escrow {money(r.escrow, currency)} + Fees {money(r.fees, currency)}</p>
+      </div>
+    </div>
+  );
+}
+
+// ── Students ──────────────────────────────────────────────────────────────
+function Students({ schoolId, currency }: { schoolId: string; currency: string }) {
+  const [rows, setRows] = useState<Student[]>([]);
+  const [sel, setSel] = useState<Student | null>(null);
+  const load = useCallback(() => { api<Student[]>(`/kobepay-pro/students?schoolId=${schoolId}`).then((r) => setRows(Array.isArray(r) ? r : [])).catch(() => setRows([])); }, [schoolId]);
+  useEffect(() => { load(); }, [load]);
+
+  const add = async () => {
+    const name = prompt('Student name')?.trim(); if (!name) return;
+    const parentPhone = prompt('Parent phone (optional)')?.trim() || '';
+    await api('/kobepay-pro/students', { method: 'POST', body: JSON.stringify({ schoolId, name, parentPhone }) });
+    load();
+  };
+  return (
+    <div className="p-4">
+      <div className="flex items-center mb-3">
+        <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400">Students · {rows.length}</h2>
+        <button onClick={add} className="ml-auto h-8 inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-bold"><Plus className="w-4 h-4" />Add student</button>
+      </div>
+      <div className="rounded-xl border border-slate-800 overflow-hidden">
+        {rows.length === 0 ? <div className="p-8 text-center text-slate-500 text-sm">No students yet.</div> : rows.map((s) => (
+          <button key={s.id} onClick={() => setSel(s)} className="w-full flex items-center gap-3 px-4 py-2.5 border-b border-slate-800/70 hover:bg-slate-800/40 text-left">
+            <div className="w-8 h-8 rounded-lg bg-slate-800 grid place-items-center text-xs font-bold">{s.name.slice(0, 2).toUpperCase()}</div>
+            <div className="min-w-0 flex-1"><div className="text-sm font-semibold truncate">{s.name}</div><div className="text-[11px] text-slate-500">{s.studentCode}{s.className ? ` · ${s.className}` : ''}</div></div>
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${s.status === 'ACTIVE' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-slate-700 text-slate-400'}`}>{s.status}</span>
+          </button>
+        ))}
+      </div>
+      {sel && <StudentDrawer student={sel} currency={currency} onClose={() => { setSel(null); load(); }} />}
+    </div>
+  );
+}
+
+function StudentDrawer({ student, currency, onClose }: { student: Student; currency: string; onClose: () => void }) {
+  const [w, setW] = useState<WalletView | null>(null);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(() => { api<WalletView>(`/kobepay-pro/students/${student.id}/wallet`).then(setW).catch(() => setW(null)); }, [student.id]);
+  useEffect(() => { load(); }, [load]);
+
+  const controls = (student.controls ?? {}) as Record<string, unknown>;
+  const act = async (fn: () => Promise<unknown>) => { setBusy(true); try { await fn(); load(); } finally { setBusy(false); } };
+  const deposit = () => { const a = Number(prompt('Deposit amount')); if (a > 0) act(() => api(`/kobepay-pro/students/${student.id}/deposit`, { method: 'POST', body: JSON.stringify({ amount: a }) })); };
+  const allocate = () => { const from = prompt('From pool', 'AVAILABLE')?.toUpperCase(); const to = prompt('To pool', 'FOOD')?.toUpperCase(); const a = Number(prompt('Amount')); if (from && to && a > 0) act(() => api(`/kobepay-pro/students/${student.id}/allocate`, { method: 'POST', body: JSON.stringify({ from, to, amount: a }) })); };
+  const reserve = () => { const a = Number(prompt('Reserve amount')); const purpose = prompt('Purpose', 'Group order') || 'Reserved'; if (a > 0) act(() => api(`/kobepay-pro/students/${student.id}/reserve`, { method: 'POST', body: JSON.stringify({ amount: a, purpose }) })); };
+  const setLimit = () => { const v = prompt('Daily limit (blank = none)', String(controls.dailyLimit ?? '')); const dailyLimit = v === '' ? null : Number(v); act(() => api(`/kobepay-pro/students/${student.id}/controls`, { method: 'PATCH', body: JSON.stringify({ controls: { dailyLimit } }) })); };
+  const toggleOnline = () => act(() => api(`/kobepay-pro/students/${student.id}/controls`, { method: 'PATCH', body: JSON.stringify({ controls: { onlineAllowed: !(controls.onlineAllowed !== false) } }) }));
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/50" onClick={onClose}>
+      <div className="w-full max-w-md h-full bg-slate-900 border-l border-slate-800 overflow-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2 p-4 border-b border-slate-800 sticky top-0 bg-slate-900">
+          <div><div className="font-bold">{student.name}</div><div className="text-[11px] text-slate-500">{student.studentCode}</div></div>
+          <button onClick={onClose} className="ml-auto text-slate-400"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-4 space-y-4">
+          <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
+            <div className="text-[10px] uppercase text-slate-500">Total balance</div>
+            <div className="text-2xl font-black">{money(w?.total ?? 0, currency)}</div>
+            <div className="grid grid-cols-2 gap-2 mt-3 text-sm">
+              <Pool label="Available" value={w?.available ?? 0} c={currency} Icon={Wallet} />
+              <Pool label="Savings" value={w?.savings ?? 0} c={currency} Icon={PiggyBank} />
+              <Pool label="Reserved" value={w?.reservedTotal ?? 0} c={currency} Icon={Lock} />
+              <Pool label="Restricted" value={(w?.buckets ?? []).reduce((s, b) => s + b.balance, 0)} c={currency} Icon={ShieldCheck} />
+            </div>
+            {(w?.buckets ?? []).length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {w!.buckets.map((b) => <span key={b.category} className="text-[10px] px-2 py-1 rounded-full bg-slate-800 text-slate-300">{b.category} {money(b.balance, currency)}</span>)}
+              </div>
+            )}
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <ActBtn label="Deposit" onClick={deposit} busy={busy} />
+            <ActBtn label="Allocate" onClick={allocate} busy={busy} />
+            <ActBtn label="Reserve" onClick={reserve} busy={busy} />
+          </div>
+          <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4 space-y-2">
+            <div className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-1">Parent controls</div>
+            <Row label="Daily limit" value={controls.dailyLimit != null ? money(Number(controls.dailyLimit), currency) : 'None'} onEdit={setLimit} />
+            <Row label="Online purchases" value={controls.onlineAllowed === false ? 'OFF' : 'ON'} onEdit={toggleOnline} />
+            <Row label="Approval above" value={controls.approvalThreshold != null ? money(Number(controls.approvalThreshold), currency) : 'None'} onEdit={() => { const v = prompt('Require approval at/above (blank = none)', String(controls.approvalThreshold ?? '')); const approvalThreshold = v === '' ? null : Number(v); act(() => api(`/kobepay-pro/students/${student.id}/controls`, { method: 'PATCH', body: JSON.stringify({ controls: { approvalThreshold } }) })); }} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Merchants ────────────────────────────────────────────────────────────
+function Merchants({ schoolId }: { schoolId: string }) {
+  const [rows, setRows] = useState<Merchant[]>([]);
+  const load = useCallback(() => { api<Merchant[]>(`/kobepay-pro/schools/${schoolId}/merchants`).then((r) => setRows(Array.isArray(r) ? r : [])).catch(() => setRows([])); }, [schoolId]);
+  useEffect(() => { load(); }, [load]);
+  const add = async () => {
+    const name = prompt('Merchant name')?.trim(); if (!name) return;
+    const category = (prompt('Category (FOOD/BOOKS/SUPPLIES/ONLINE/AVAILABLE)', 'FOOD') || 'AVAILABLE').toUpperCase();
+    await api('/kobepay-pro/merchants', { method: 'POST', body: JSON.stringify({ name, category, status: 'ACTIVE' }) });
+    load();
+  };
+  const approve = (m: Merchant, allowed: boolean) => api(`/kobepay-pro/schools/${schoolId}/merchants/${m.id}/approve`, { method: 'POST', body: JSON.stringify({ allowed }) }).then(load);
+  const settle = async (m: Merchant) => { const r = await api<{ settled: number }>(`/kobepay-pro/merchants/${m.id}/settle`, { method: 'POST', body: '{}' }); alert(`Settled ${money(r.settled)}`); };
+  return (
+    <div className="p-4">
+      <div className="flex items-center mb-3">
+        <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400">Merchants · {rows.length}</h2>
+        <button onClick={add} className="ml-auto h-8 inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-bold"><Plus className="w-4 h-4" />Add merchant</button>
+      </div>
+      <div className="rounded-xl border border-slate-800 overflow-hidden">
+        {rows.length === 0 ? <div className="p-8 text-center text-slate-500 text-sm">No merchants yet.</div> : rows.map((m) => (
+          <div key={m.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-slate-800/70">
+            <div className="w-8 h-8 rounded-lg bg-slate-800 grid place-items-center"><Store className="w-4 h-4 text-slate-400" /></div>
+            <div className="min-w-0 flex-1"><div className="text-sm font-semibold truncate">{m.name}</div><div className="text-[11px] text-slate-500">{m.category} · {m.commissionPct}% fee · {m.merchantCode}</div></div>
+            <button onClick={() => settle(m)} className="text-[11px] px-2 py-1 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800">Settle</button>
+            <button onClick={() => approve(m, !m.allowed)} className={`text-[11px] font-bold px-2.5 py-1 rounded-lg ${m.allowed ? 'bg-emerald-500/15 text-emerald-400' : 'bg-slate-700 text-slate-300'}`}>{m.allowed ? 'Approved' : 'Approve'}</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Deposits ─────────────────────────────────────────────────────────────
+function Deposits({ schoolId }: { schoolId: string; onChange: () => void }) {
+  const [rows, setRows] = useState<Deposit[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);
+  const load = useCallback(() => {
+    api<Deposit[]>('/kobepay-pro/deposits/unmatched').then((r) => setRows(Array.isArray(r) ? r : [])).catch(() => setRows([]));
+    api<Student[]>(`/kobepay-pro/students?schoolId=${schoolId}`).then((r) => setStudents(Array.isArray(r) ? r : [])).catch(() => setStudents([]));
+  }, [schoolId]);
+  useEffect(() => { load(); }, [load]);
+  const match = async (d: Deposit) => {
+    const code = prompt(`Match ${money(d.amount)} from ${d.senderName || d.senderPhone} to which student code?`)?.trim().toUpperCase();
+    if (!code) return;
+    const student = students.find((s) => s.studentCode === code);
+    if (!student) { alert('No student with that code'); return; }
+    await api(`/kobepay-pro/deposits/${d.id}/match`, { method: 'POST', body: JSON.stringify({ studentId: student.id }) });
+    load();
+  };
+  return (
+    <div className="p-4">
+      <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-3">Unmatched deposits · {rows.length}</h2>
+      <div className="rounded-xl border border-slate-800 overflow-hidden">
+        {rows.length === 0 ? <div className="p-8 text-center text-slate-500 text-sm">No deposits waiting to be matched. M-Pesa deposits with a valid student reference auto-post.</div> : rows.map((d) => (
+          <div key={d.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-slate-800/70">
+            <div className="min-w-0 flex-1"><div className="text-sm font-semibold">{money(d.amount)}</div><div className="text-[11px] text-slate-500">{d.senderName || d.senderPhone || '—'} · ref {d.reference || '—'} · {d.source}</div></div>
+            <button onClick={() => match(d)} className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-emerald-600">Match student</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Small pieces ─────────────────────────────────────────────────────────
+function Stat({ label, value, Icon, tone }: { label: string; value: string; Icon: typeof Wallet; tone: string }) {
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
+      <div className="flex items-center gap-2 text-slate-500 text-[11px]"><Icon className={`w-4 h-4 ${tone}`} />{label}</div>
+      <div className="text-lg font-black mt-1">{value}</div>
+    </div>
+  );
+}
+function Pool({ label, value, c, Icon }: { label: string; value: number; c: string; Icon: typeof Wallet }) {
+  return (
+    <div className="rounded-xl bg-slate-800/60 p-2.5">
+      <div className="flex items-center gap-1 text-[10px] uppercase text-slate-500"><Icon className="w-3 h-3" />{label}</div>
+      <div className="font-bold mt-0.5">{money(value, c)}</div>
+    </div>
+  );
+}
+function ActBtn({ label, onClick, busy }: { label: string; onClick: () => void; busy: boolean }) {
+  return <button disabled={busy} onClick={onClick} className="h-9 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-bold disabled:opacity-40">{label}</button>;
+}
+function Row({ label, value, onEdit }: { label: string; value: string; onEdit: () => void }) {
+  return (
+    <div className="flex items-center gap-2 text-sm">
+      <span className="text-slate-400">{label}</span>
+      <span className="ml-auto font-semibold">{value}</span>
+      <button onClick={onEdit} className="text-[11px] text-emerald-400 hover:underline">Edit</button>
+    </div>
+  );
+}
