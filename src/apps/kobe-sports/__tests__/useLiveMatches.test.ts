@@ -16,7 +16,7 @@ vi.mock('socket.io-client', () => ({ io: vi.fn(() => mockSocket) }));
 
 // ── REST feed mock ────────────────────────────────────────────────────────────
 
-const getLive = vi.fn<[], Promise<unknown[]>>(async () => []);
+const getLive = vi.fn(async (): Promise<unknown[]> => []);
 vi.mock('../api', () => ({ matchesApi: { getLive: () => getLive() } }));
 
 const fire = (event: string, ...args: unknown[]) => act(() => { socketHandlers[event]?.(...args); });
