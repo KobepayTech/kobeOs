@@ -71,6 +71,7 @@ export default function PropertyPaymentsApp() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const cashierUrl = `${window.location.origin}/pay`;
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -149,6 +150,7 @@ export default function PropertyPaymentsApp() {
           <div className="grid h-10 w-10 place-items-center rounded-xl bg-blue-600 text-white"><BadgeDollarSign className="h-5 w-5" /></div>
           <div className="min-w-0 flex-1"><h1 className="font-extrabold">Property Payments</h1><p className="text-[11px] text-slate-500">Secure orders, banks, agents, collection receipts, and reconciliation</p></div>
           <button onClick={() => void load()} className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 text-slate-500 hover:bg-slate-50" title="Refresh"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button>
+          <a href={cashierUrl} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-teal-200 bg-teal-50 px-3 text-xs font-extrabold text-teal-800 hover:bg-teal-100"><ExternalLink className="h-3.5 w-3.5" />Open cashier PWA</a>
           <button onClick={() => setShowPartnerForm(true)} className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3 text-xs font-extrabold"><ShieldCheck className="h-3.5 w-3.5" />Add bank/agent</button>
           <button onClick={() => setShowOrderForm(true)} className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-blue-600 px-4 text-xs font-extrabold text-white hover:bg-blue-500"><Plus className="h-3.5 w-3.5" />Create payment order</button>
         </div>

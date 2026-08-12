@@ -5,7 +5,8 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Not, Repository } from 'typeorm';
+import { IsNull, Not, Repository } from 'typeorm';
+import { HotelTenant } from '../hotel/hotel.entity';
 import { StoreSettings } from './store-settings.entity';
 import {
   MODULE_SITE_IDS,
@@ -37,6 +38,8 @@ export class ModuleSiteSettingsService {
     private readonly repo: Repository<ModuleSiteSettings>,
     @InjectRepository(StoreSettings)
     private readonly legacyRepo: Repository<StoreSettings>,
+    @InjectRepository(HotelTenant)
+    private readonly hotelRepo: Repository<HotelTenant>,
   ) {}
 
   assertModule(moduleId: string): asserts moduleId is ModuleSiteId {
@@ -63,18 +66,40 @@ export class ModuleSiteSettingsService {
     }
   }
 
-  private async createFromLegacy(ownerId: string, moduleId: ModuleSiteId) {
-    const legacy = await this.legacyRepo.findOne({ where: { ownerId } });
-    const slug = legacy?.domainSlug || null;
-    const config = (legacy?.siteConfig ?? {}) as Record<string, unknown>;
+  private async hotelForOwner(ownerId: string, hotelId: string): Promise<HotelTenant> {
+    const tenant = await this.hotelRepo.findOne({ where: { id: hotelId, ownerId } });
+    if (!tenant) throw new NotFoundException('Hotel property not found');
+    return tenant;
+  }
+
+  private async resolveHotelId(ownerId: string, moduleId: ModuleSiteId, raw?: string): Promise<string | null> {
+    const hotelId = raw?.trim() || null;
+    if (hotelId && moduleId !== 'hotel') {
+      throw new BadRequestException('hotelId is only supported for hotel sites');
+    }
+    if (hotelId) await this.hotelForOwner(ownerId, hotelId);
+    return hotelId;
+  }
+
+  private async createFromLegacy(ownerId: string, moduleId: ModuleSiteId, hotelId: string | null) {
+    const tenant = moduleId === 'hotel' && hotelId
+      ? await this.hotelForOwner(ownerId, hotelId)
+      : null;
+    const legacy = tenant ? null : await this.legacyRepo.findOne({ where: { ownerId } });
+    const slug = tenant?.slug || legacy?.domainSlug || null;
+    const config = (tenant
+      ? { phone: tenant.phone, address: tenant.location }
+      : (legacy?.siteConfig ?? {})) as Record<string, unknown>;
+    const isPublished = tenant ? Boolean(slug) : Boolean(legacy?.isPublished && slug);
     return this.repo.create({
       ownerId,
       moduleId,
-      name: legacy?.storeName ?? '',
+      hotelId,
+      name: tenant?.name ?? legacy?.storeName ?? '',
       tagline: legacy?.tagline ?? '',
-      logoUrl: legacy?.logoUrl ?? '',
+      logoUrl: tenant?.logoUrl ?? legacy?.logoUrl ?? '',
       faviconUrl: legacy?.faviconUrl ?? '',
-      primaryColor: legacy?.primaryColor ?? '#4f46e5',
+      primaryColor: tenant?.brandColor ?? legacy?.primaryColor ?? '#4f46e5',
       accentColor: legacy?.accentColor ?? '#8b5cf6',
       domainSlug: slug,
       // A custom hostname cannot safely point to several modules at once. The
@@ -82,18 +107,21 @@ export class ModuleSiteSettingsService {
       customDomain: moduleId === 'erp' ? (legacy?.customDomain ?? null) : null,
       config,
       seo: {},
-      isPublished: Boolean(legacy?.isPublished && slug),
-      publishedUrl: legacy?.isPublished && slug ? this.publicUrl(moduleId, slug) : null,
-      publishedAt: legacy?.publishedAt ?? null,
+      isPublished,
+      publishedUrl: isPublished && slug ? this.publicUrl(moduleId, slug) : null,
+      publishedAt: isPublished ? (legacy?.publishedAt ?? new Date()) : null,
     });
   }
 
-  async get(ownerId: string, moduleIdRaw: string): Promise<ModuleSiteSettings> {
+  async get(ownerId: string, moduleIdRaw: string, hotelIdRaw?: string): Promise<ModuleSiteSettings> {
     this.assertModule(moduleIdRaw);
     const moduleId = moduleIdRaw;
-    const existing = await this.repo.findOne({ where: { ownerId, moduleId } });
+    const hotelId = await this.resolveHotelId(ownerId, moduleId, hotelIdRaw);
+    const existing = await this.repo.findOne({
+      where: { ownerId, moduleId, hotelId: hotelId ?? IsNull() },
+    });
     if (existing) return existing;
-    return this.repo.save(await this.createFromLegacy(ownerId, moduleId));
+    return this.repo.save(await this.createFromLegacy(ownerId, moduleId, hotelId));
   }
 
   async getPublic(moduleIdRaw: string, slugOrDomain: string): Promise<ModuleSiteSettings> {
@@ -133,13 +161,15 @@ export class ModuleSiteSettingsService {
     ownerId: string,
     moduleIdRaw: string,
     dto: UpsertModuleSiteSettingsDto,
+    hotelIdRaw?: string,
   ): Promise<ModuleSiteSettings> {
     this.assertModule(moduleIdRaw);
     const moduleId = moduleIdRaw;
     this.ensureJsonSize(dto.config, 'config');
     this.ensureJsonSize(dto.seo, 'seo');
 
-    const site = await this.get(ownerId, moduleId);
+    const hotelId = await this.resolveHotelId(ownerId, moduleId, hotelIdRaw ?? dto.hotelId);
+    const site = await this.get(ownerId, moduleId, hotelId ?? undefined);
     const nextSlugInput = dto.domainSlug !== undefined
       ? dto.domainSlug
       : (!site.domainSlug && dto.name ? dto.name : undefined);
@@ -187,8 +217,8 @@ export class ModuleSiteSettingsService {
     return this.repo.save(site);
   }
 
-  async publish(ownerId: string, moduleIdRaw: string): Promise<ModuleSiteSettings> {
-    const site = await this.get(ownerId, moduleIdRaw);
+  async publish(ownerId: string, moduleIdRaw: string, hotelIdRaw?: string): Promise<ModuleSiteSettings> {
+    const site = await this.get(ownerId, moduleIdRaw, hotelIdRaw);
     if (!site.domainSlug) throw new BadRequestException('Set a site name or slug before publishing');
     site.isPublished = true;
     site.publishedAt = new Date();
@@ -198,8 +228,8 @@ export class ModuleSiteSettingsService {
     return this.repo.save(site);
   }
 
-  async unpublish(ownerId: string, moduleIdRaw: string): Promise<ModuleSiteSettings> {
-    const site = await this.get(ownerId, moduleIdRaw);
+  async unpublish(ownerId: string, moduleIdRaw: string, hotelIdRaw?: string): Promise<ModuleSiteSettings> {
+    const site = await this.get(ownerId, moduleIdRaw, hotelIdRaw);
     site.isPublished = false;
     site.publishedUrl = null;
     site.publishedAt = null;

@@ -18,6 +18,7 @@ import {
   CreateCollectionPartnerDto,
   CreatePropertyPaymentOrderDto,
   PartnerLoginDto,
+  RedeemLegacyPropertyTokenDto,
   RedeemPropertyPaymentOrderDto,
 } from './dto/property-payment-order.dto';
 import { PropertyPaymentOrderService } from './property-payment-order.service';
@@ -112,5 +113,24 @@ export class PropertyCollectionPortalController {
     @Body() dto: RedeemPropertyPaymentOrderDto,
   ) {
     return this.service.redeem(session ?? '', code, dto);
+  }
+
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  @Get('tokens/:code')
+  lookupLegacyToken(
+    @Headers('x-property-agent-session') session: string,
+    @Param('code') code: string,
+  ) {
+    return this.service.lookupLegacyTokenForPartner(session ?? '', code);
+  }
+
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @Post('tokens/:code/redeem')
+  redeemLegacyToken(
+    @Headers('x-property-agent-session') session: string,
+    @Param('code') code: string,
+    @Body() dto: RedeemLegacyPropertyTokenDto,
+  ) {
+    return this.service.redeemLegacyToken(session ?? '', code, dto);
   }
 }

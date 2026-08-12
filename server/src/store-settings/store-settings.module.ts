@@ -12,12 +12,14 @@ import { PublishService } from './publish.service';
 import { StorefrontService } from './storefront.service';
 import { StorefrontController, StorefrontPublicController } from './storefront.controller';
 import { CloudflareService } from '../store-registry/cloudflare.service';
+import { HotelTenant } from '../hotel/hotel.entity';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
       StoreSettings,
       ModuleSiteSettings,
+      HotelTenant,
       IndustryTemplate,
       StoreCollection,
       StoreHomepageSection,

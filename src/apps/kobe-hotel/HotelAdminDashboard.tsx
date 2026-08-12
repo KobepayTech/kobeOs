@@ -613,6 +613,8 @@ export const HotelAdminDashboard: React.FC = () => {
         method: 'POST',
         body: JSON.stringify({ hotelId: created.id, roomNumber: String(101 + index), type: 'Standard', rate: 0, capacity: 2 }),
       })));
+      // Initialize and publish this property's independent hotel website.
+      await api(`/module-sites/hotel?hotelId=${encodeURIComponent(created.id)}`);
       await loadHotels();
       setSelectedHotelId(created.id);
     } catch (err) { setHotelError((err as Error).message || 'Could not create hotel.'); return; }
@@ -678,7 +680,7 @@ export const HotelAdminDashboard: React.FC = () => {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="flex h-full w-full overflow-hidden" style={{ background: 'var(--os-wallpaper, linear-gradient(135deg, #E8E4F0 0%, #D4CCE8 50%, #EDE8F5 100%))' }}>
+    <div data-surface="light" data-theme="light" className="flex h-full w-full overflow-hidden" style={{ background: 'var(--os-wallpaper, linear-gradient(135deg, #E8E4F0 0%, #D4CCE8 50%, #EDE8F5 100%))' }}>
 
       {/* ── Sidebar ───────────────────────────────────────────────────────── */}
       <aside
@@ -1582,7 +1584,7 @@ export const HotelAdminDashboard: React.FC = () => {
                 <div className="flex items-center justify-between mb-6">
                   <div>
                     <h3 className="font-semibold text-base" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Public Website</h3>
-                    <p className="text-xs opacity-50 mt-1">Your hotel website is live at: <span className="font-medium" style={{ color: '#6366F1' }}>https://{(selectedHotel || allHotels[0]).subdomain}.kobe</span></p>
+                    <p className="text-xs opacity-50 mt-1">Your hotel website is live at: <span className="font-medium" style={{ color: '#6366F1' }}>https://{(selectedHotel || allHotels[0]).subdomain}.kobeapptz.com/book</span></p>
                   </div>
                   <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-white cursor-pointer transition-all hover:shadow-lg" style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}>
                     <Eye size={16} /> Preview

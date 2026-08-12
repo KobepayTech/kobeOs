@@ -4,7 +4,7 @@ import {
   Phone, Home, Building2, Users, DollarSign, Wrench, FileText, Settings, LogOut,
   Search, Bell, ChevronDown, Plus, ArrowLeft, ArrowRight,
   Info, Pencil, Edit3, Trash2, Filter, Columns3, ChevronRight, MoreHorizontal,
-  FileDown, ShieldCheck, X,
+  FileDown, ShieldCheck, X, ExternalLink, RefreshCw,
   Image as ImageIcon,
   Calendar, Activity, MapPin, MessageCircle,
   LayoutGrid, Globe, Sparkles, Ticket,
@@ -196,7 +196,7 @@ export default function PropEasyApp() {
   const openScreening = (t: ApiTenant) => { setSelectedTenant(t); setView('screening'); };
 
   return (
-    <div className="flex h-full w-full bg-slate-50 text-slate-900" data-surface="light" style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
+    <div className="flex h-full w-full bg-slate-50 text-slate-900" data-surface="light" data-theme="light" style={{ fontFamily: 'Inter, system-ui, sans-serif' }}>
       <Sidebar view={view} onChange={setView} onInviteTenant={() => { setView('tenants'); setAddOpen(true); }} />
       <div className="flex-1 flex flex-col overflow-hidden">
         <TopBar title={titleFor(view)} />
@@ -2432,6 +2432,10 @@ function TokensView({ tenants }: { tenants: ApiTenant[] }) {
     }
   };
   useEffect(() => { load(); }, []);
+  useEffect(() => {
+    const timer = window.setInterval(() => { void load(); }, 15_000);
+    return () => window.clearInterval(timer);
+  }, []);
   // Tick every second so the active token's countdown updates.
   useEffect(() => { const t = setInterval(() => setTick((x) => x + 1), 1000); return () => clearInterval(t); }, []);
 
@@ -2439,6 +2443,9 @@ function TokensView({ tenants }: { tenants: ApiTenant[] }) {
   const now = Date.now();
   const active = tokens.find((t) => t.status === 'ACTIVE' && new Date(t.expiresAt).getTime() > now);
   const secsLeft = active ? Math.max(0, Math.round((new Date(active.expiresAt).getTime() - now) / 1000)) : 0;
+  const cashierUrl = typeof window !== 'undefined' && window.location.hostname.startsWith('property.')
+    ? `${window.location.protocol}//pay.${window.location.hostname.slice('property.'.length)}`
+    : '/pay';
 
   const issue = async () => {
     const tid = selTenant || tenants[0]?.id;
@@ -2460,6 +2467,15 @@ function TokensView({ tenants }: { tenants: ApiTenant[] }) {
 
   return (
     <div className="px-6 pb-6 grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="lg:col-span-2 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-teal-200 bg-teal-50 px-4 py-3">
+        <div>
+          <p className="text-sm font-extrabold text-teal-950">Cashier PWA</p>
+          <p className="text-xs text-teal-800">Cashiers open the PWA, sign in with a registered bank/agent code and PIN, then enter or scan this token. Cash collection updates this token here. Create partner access from the Property Payments app in KobeOS.</p>
+        </div>
+        <a href={cashierUrl} target="_blank" rel="noreferrer" className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-xl bg-teal-700 px-3 text-xs font-extrabold text-white hover:bg-teal-800">
+          Open Cashier PWA <ExternalLink className="h-3.5 w-3.5" />
+        </a>
+      </div>
       <div className="space-y-3">
         {active ? (
           <TokenDisplay
@@ -2480,7 +2496,8 @@ function TokensView({ tenants }: { tenants: ApiTenant[] }) {
           <select
             value={selTenant || tenants[0]?.id || ''}
             onChange={(e) => setSelTenant(e.target.value)}
-            className="w-full h-9 px-2 rounded-lg border border-slate-200 text-sm text-slate-900"
+            className="w-full h-9 px-2 rounded-lg border border-slate-200 bg-white text-sm text-slate-900"
+            style={{ colorScheme: 'light', color: '#0f172a', backgroundColor: '#ffffff' }}
           >
             {tenants.map((t) => (
               <option key={t.id} value={t.id}>{t.name} · {t.unitKind ?? 'Unit'} · TZS {(t.rent ?? 0).toLocaleString()}</option>
@@ -2490,6 +2507,7 @@ function TokensView({ tenants }: { tenants: ApiTenant[] }) {
             onClick={issue}
             disabled={issuing || tenants.length === 0}
             className="w-full h-9 rounded-lg bg-slate-900 text-white text-sm font-bold disabled:opacity-50"
+            style={{ color: '#ffffff', backgroundColor: '#0f172a' }}
           >
             {issuing ? 'Issuing…' : 'Issue token'}
           </button>
@@ -2497,8 +2515,11 @@ function TokensView({ tenants }: { tenants: ApiTenant[] }) {
         </div>
       </div>
       <div className="rounded-2xl bg-white border border-slate-200 p-5 shadow-sm">
-        <h3 className="text-sm font-bold text-slate-900 mb-1">Recent tokens</h3>
-        <p className="text-xs text-slate-700 mb-3">Valid 45 days · accept partial payments at a bank or agent (/pay)</p>
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <h3 className="text-sm font-bold text-slate-900">Recent tokens</h3>
+          <button onClick={() => void load()} className="inline-flex items-center gap-1 text-[10px] font-bold text-slate-500 hover:text-slate-900" title="Refresh token status"><RefreshCw className="h-3 w-3" />Refresh</button>
+        </div>
+        <p className="text-xs text-slate-700 mb-3">Valid 45 days · accept partial payments at a bank or agent (/pay) · status refreshes automatically</p>
         {tokens.length === 0 ? (
           <p className="text-xs text-slate-500">{loading ? 'Loading…' : 'No tokens issued yet.'}</p>
         ) : (

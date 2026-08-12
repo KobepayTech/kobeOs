@@ -24,6 +24,13 @@ interface ModuleSiteSettings {
   };
 }
 
+interface HotelProperty {
+  id: string;
+  slug: string;
+  name: string;
+  location?: string;
+}
+
 const HOTEL_SECTIONS: SiteSection[] = [
   { title: 'Brand', fields: [
     { key: 'hotelName', label: 'Hotel name', type: 'text', placeholder: 'Serena Hotel' },
@@ -83,6 +90,8 @@ function toPayload(value: HotelSite) {
 
 export default function BookingSiteTab({ darkMode }: { darkMode?: boolean } = {}) {
   void darkMode;
+  const [properties, setProperties] = useState<HotelProperty[]>([]);
+  const [selectedPropertyId, setSelectedPropertyId] = useState('');
   const [value, setValue] = useState<HotelSite>({
     primaryColor: '#4f46e5',
     accentColor: '#8b5cf6',
@@ -104,26 +113,46 @@ export default function BookingSiteTab({ darkMode }: { darkMode?: boolean } = {}
     });
   }, []);
 
+  const siteQuery = selectedPropertyId
+    ? `?hotelId=${encodeURIComponent(selectedPropertyId)}`
+    : '';
+
   const load = useCallback(async () => {
     try {
-      applySite(await api<ModuleSiteSettings>('/module-sites/hotel'));
+      applySite(await api<ModuleSiteSettings>(`/module-sites/hotel${siteQuery}`));
     } catch {
       // Offline desktop mode keeps the editable defaults.
     }
-  }, [applySite]);
+  }, [applySite, siteQuery]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const rows = await api<HotelProperty[]>('/hotel/properties');
+        if (!cancelled) {
+          setProperties(Array.isArray(rows) ? rows : []);
+          if (rows?.length && !selectedPropertyId) setSelectedPropertyId(rows[0].id);
+        }
+      } catch {
+        // Keep the legacy single-site builder available when offline.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selectedPropertyId]);
+
+  useEffect(() => { void load(); }, [load]);
 
   const save = async () => {
     setSaving(true);
     setSaved(false);
     try {
-      let site = await api<ModuleSiteSettings>('/module-sites/hotel', {
+      let site = await api<ModuleSiteSettings>(`/module-sites/hotel${siteQuery}`, {
         method: 'PUT',
         body: JSON.stringify(toPayload(value)),
       });
       if (site.domainSlug && !site.isPublished) {
-        site = await api<ModuleSiteSettings>('/module-sites/hotel/publish', { method: 'POST' });
+        site = await api<ModuleSiteSettings>(`/module-sites/hotel/publish${siteQuery}`, { method: 'POST' });
       }
       applySite(site);
       setSaved(true);
@@ -137,9 +166,28 @@ export default function BookingSiteTab({ darkMode }: { darkMode?: boolean } = {}
 
   const slug = meta.domainSlug || '';
   const bookUrl = meta.publishedUrl || (slug ? `https://${slug}.kobeapptz.com/book` : '');
+  const selectedProperty = properties.find((property) => property.id === selectedPropertyId);
 
   return (
     <div className="flex flex-col h-full">
+      {properties.length > 0 && (
+        <div className="flex items-center gap-3 px-4 py-2 bg-[#111118] border-b border-white/10 text-white shrink-0">
+          <label htmlFor="hotel-site-property" className="text-xs font-semibold text-white/60">Website for</label>
+          <select
+            id="hotel-site-property"
+            value={selectedPropertyId}
+            onChange={(event) => setSelectedPropertyId(event.target.value)}
+            className="min-w-0 flex-1 max-w-sm rounded-lg border border-white/10 bg-white/10 px-2.5 py-1.5 text-xs text-white outline-none"
+          >
+            {properties.map((property) => (
+              <option key={property.id} value={property.id} className="bg-[#111118] text-white">
+                {property.name} · {property.slug}.kobeapptz.com
+              </option>
+            ))}
+          </select>
+          {selectedProperty?.location && <span className="hidden sm:block text-[11px] text-white/40">{selectedProperty.location}</span>}
+        </div>
+      )}
       {bookUrl && (
         <div className="flex items-center justify-between gap-3 px-4 py-2 bg-[#111118] border-b border-white/10 text-white shrink-0">
           <a href={bookUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-teal-400 font-bold text-xs hover:underline break-all">

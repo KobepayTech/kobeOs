@@ -5,7 +5,7 @@ export const MODULE_SITE_IDS = ['erp', 'hotel', 'cargo', 'property'] as const;
 export type ModuleSiteId = (typeof MODULE_SITE_IDS)[number];
 
 @Entity('module_site_settings')
-@Index('UQ_module_site_owner_module', ['ownerId', 'moduleId'], { unique: true })
+@Index('UQ_module_site_owner_module_hotel', ['ownerId', 'moduleId', 'hotelId'], { unique: true })
 @Index('UQ_module_site_module_slug', ['moduleId', 'domainSlug'], {
   unique: true,
   where: '"domainSlug" IS NOT NULL',
@@ -17,6 +17,11 @@ export type ModuleSiteId = (typeof MODULE_SITE_IDS)[number];
 export class ModuleSiteSettings extends BaseEntity {
   @Column('uuid')
   ownerId!: string;
+
+  /** Hotel property this site belongs to. Null keeps legacy non-property sites working. */
+  @Index()
+  @Column({ type: 'uuid', nullable: true })
+  hotelId!: string | null;
 
   @Column({ type: 'varchar', length: 32 })
   moduleId!: ModuleSiteId;

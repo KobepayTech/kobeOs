@@ -854,7 +854,7 @@ export default function KobeHotel() {
   // RENDER
   // ═══════════════════════════════════════════════════════════════════
   return (
-    <div className={`flex h-full w-full overflow-hidden ${darkMode ? 'bg-[#0a0a1a] text-white' : 'bg-gray-50 text-gray-900'}`}>
+    <div data-surface={darkMode ? 'dark' : 'light'} data-theme={darkMode ? 'dark' : 'light'} className={`flex h-full w-full overflow-hidden ${darkMode ? 'bg-[#0a0a1a] text-white' : 'bg-gray-50 text-gray-900'}`}>
 
       {/* ─── SIDEBAR ──────────────────────────────────────────────── */}
       <aside className={`w-20 flex-shrink-0 flex flex-col items-center py-4 ${darkMode ? 'bg-[#0c0c1a] border-r border-white/[0.06]' : 'bg-white border-r border-gray-200'}`}>

@@ -5,7 +5,8 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
+  :root, [data-theme="light"] {
+    color-scheme: light;
     /* ── Aladin OS Color System ── */
     --os-accent: #7B8CDE;
     --os-accent-rgb: 123, 140, 222;
@@ -66,7 +67,31 @@
     --sidebar-ring: 229 57% 68%;
   }
 
+  /* Light modules must not inherit the browser's dark form-control palette
+     from the OS shell. Keep native inputs/selects readable even when a light
+     app is rendered inside a dark workspace. */
+  [data-surface="light"] :is(
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+    select,
+    textarea
+  ) {
+    color-scheme: light;
+    background-color: #ffffff;
+    color: #0f172a;
+  }
+
+  [data-surface="light"] select option {
+    background-color: #ffffff;
+    color: #0f172a;
+  }
+
+  [data-surface="light"] :is(input, select, textarea)::placeholder {
+    color: #64748b;
+    opacity: 1;
+  }
+
   .dark, [data-theme="dark"] {
+    color-scheme: dark;
     /* shadcn/ui dark */
     --background: 246 32% 12%;
     --foreground: 0 0% 98%;

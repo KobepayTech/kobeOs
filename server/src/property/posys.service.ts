@@ -214,10 +214,12 @@ export class PosysService {
    * the expected amount, what's already been paid against this token, and
    * what remains. Never exposes ownerId or internal ids.
    */
-  async lookupTokenForAgent(code: string) {
-    const row = await this.tokens.findOne({ where: { code } });
+  async lookupTokenForAgent(code: string, ownerId?: string) {
+    const row = await this.tokens.findOne({
+      where: ownerId ? { code, ownerId } : { code },
+    });
     if (!row) throw new NotFoundException('Token not found');
-    const tenant = await this.tenants.findOne({ where: { id: row.tenantId } });
+    const tenant = await this.tenants.findOne({ where: { id: row.tenantId, ownerId: row.ownerId } });
     const expired = row.status === 'ACTIVE' && row.expiresAt.getTime() < Date.now();
     const expected = Number(row.amount);
     const paid = Number(row.usedAmount);
@@ -241,7 +243,7 @@ export class PosysService {
    * and rejects with "Token is used". Also sweeps EXPIRED here so an
    * expired-past-TTL row is refused inside the same critical section.
    */
-  async redeemToken(code: string, dto: { amountReceived: number; agentId?: string; idempotencyKey?: string }): Promise<{
+  async redeemToken(code: string, dto: { amountReceived: number; agentId?: string; idempotencyKey?: string; method?: string; reference?: string }, ownerId?: string): Promise<{
     code: string;
     status: PropertyPaymentToken['status'];
     expected: number;
@@ -255,7 +257,10 @@ export class PosysService {
       const repo = tx.getRepository(PropertyPaymentToken);
       const row = await repo.createQueryBuilder('t')
         .setLock('pessimistic_write')
-        .where('t.code = :code', { code })
+        .where(
+          ownerId ? 't.code = :code AND t.ownerId = :ownerId' : 't.code = :code',
+          ownerId ? { code, ownerId } : { code },
+        )
         .getOne();
       if (!row) throw new NotFoundException('Token not found');
       // Fold expiry-sweep into the same critical section.
@@ -264,8 +269,6 @@ export class PosysService {
         await repo.save(row);
         throw new BadRequestException('Token is expired');
       }
-      if (row.status !== 'ACTIVE') throw new BadRequestException(`Token is ${row.status.toLowerCase()}`);
-
       const expected = Number(row.amount);
       const key = dto.idempotencyKey?.trim();
 
@@ -276,6 +279,8 @@ export class PosysService {
         const paid = Number(row.usedAmount);
         return { code: row.code, status: row.status, expected, paid, remaining: Math.max(0, expected - paid), currency: row.currency, fullyPaid: paid >= expected };
       }
+
+      if (row.status !== 'ACTIVE') throw new BadRequestException(`Token is ${row.status.toLowerCase()}`);
 
       // Overpayment cap: never accept more than the remaining balance, so the
       // recorded rent can't exceed what was actually owed on this token.
@@ -315,8 +320,8 @@ export class PosysService {
           currency: row.currency,
           forMonth: new Date(now.getFullYear(), now.getMonth(), 1),
           paidAt: now,
-          method: 'TOKEN',
-          reference: row.code,
+          method: dto.method ?? 'TOKEN',
+          reference: dto.reference?.trim() || row.code,
         }));
       }
 
