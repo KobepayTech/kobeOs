@@ -14,6 +14,7 @@ import MobileDispatch from './MobileDispatch';
 import MobileHotel from './MobileHotel';
 import MobileLipa from './MobileLipa';
 import MobileDiscountApprovals from './MobileDiscountApprovals';
+import MobileLiveSales from './MobileLiveSales';
 import MobileHotelDepartmentOrder from './MobileHotelDepartmentOrder';
 
 /**
@@ -47,6 +48,7 @@ export default function MobileRoot() {
           <Route path="hotel/cleaning" element={<MobileHotelDepartmentOrder department="cleaning" />} />
           <Route path="hotel/room-amenities" element={<MobileHotelDepartmentOrder department="room-amenities" />} />
           <Route path="lipa" element={<MobileLipa />} />
+          <Route path="live-sales" element={<MobileLiveSales />} />
         </Route>
       </Routes>
     </BrowserRouter>

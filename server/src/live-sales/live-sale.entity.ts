@@ -11,6 +11,7 @@ import { OwnedEntity } from '../common/owned.entity';
  */
 export type LivePlatform = 'instagram' | 'tiktok' | 'facebook' | 'youtube' | 'other';
 export type LiveStatus = 'LIVE' | 'ENDED';
+export type LiveKind = 'live' | 'post';
 
 @Entity('live_sessions')
 @Index(['ownerId', 'status'])
@@ -23,6 +24,16 @@ export class LiveSession extends OwnedEntity {
 
   @Column({ default: 'LIVE' })
   status!: LiveStatus;
+
+  /** 'live' = a livestream session; 'post' = an ad/post campaign whose comments
+   *  are polled (e.g. via Apify) rather than streamed. Post campaigns aren't
+   *  gated by LIVE status. */
+  @Column({ default: 'live' })
+  kind!: LiveKind;
+
+  /** For a 'post' campaign: the ad/post URL whose comments we poll. */
+  @Column({ default: '' })
+  postUrl!: string;
 
   /** Opaque token an external comment-bridge uses to POST into the public
    *  ingest endpoint without a JWT. Rotated by starting a new session. */
@@ -93,6 +104,11 @@ export class LiveComment extends OwnedEntity {
   /** Where the comment came from: manual console, an external bridge, etc. */
   @Column({ default: 'manual' })
   source!: string;
+
+  /** Platform's own comment id, used to de-duplicate polled (Apify) comments. */
+  @Index()
+  @Column({ default: '' })
+  externalId!: string;
 
   @Column({ default: '' })
   buyerHandle!: string;

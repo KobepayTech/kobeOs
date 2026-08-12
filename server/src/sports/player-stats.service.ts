@@ -25,6 +25,8 @@ export interface MatchPlayerStat {
   distanceKm: number;
   sprints: number;
   topSpeedKmh: number;
+  passes: number;
+  passAccuracy: number; // 0–100
   goals: number;
   assists: number;
   yellowCards: number;
@@ -86,6 +88,19 @@ export class PlayerStatsService {
       const yellowCards = playerEvents.filter((e) => e.type === 'YELLOW_CARD').length;
       const redCards = playerEvents.filter((e) => e.type === 'RED_CARD').length;
 
+      // Assists: explicit ASSIST events for this player, plus GOAL events on the
+      // same team credited to this player via the recorded assist metadata.
+      const assists = events.filter((e) => {
+        if (e.team !== p.team) return false;
+        if (e.type === 'ASSIST' && e.playerName === p.name) return true;
+        if (e.type === 'GOAL') {
+          const meta = (e.metadata ?? {}) as Record<string, unknown>;
+          const assistBy = meta.assistedBy ?? meta.assist ?? meta.assistBy;
+          return typeof assistBy === 'string' && assistBy === p.name;
+        }
+        return false;
+      }).length;
+
       // xG from vision events
       const xg = liveState?.events
         .filter((e) => e.team === p.team && e.trackId === track?.trackId && (e.type === 'SHOT' || e.type === 'GOAL'))
@@ -94,11 +109,18 @@ export class PlayerStatsService {
       const distanceKm = track ? parseFloat((track.distanceM / 1000).toFixed(2)) : 0;
       const sprints = track?.sprints ?? 0;
 
-      // Simple rating formula: base 60 + contributions
+      // Pass involvement from the vision pass-detection engine
+      const passes = track?.passes ?? 0;
+      const passesCompleted = track?.passesCompleted ?? 0;
+      const passAccuracy = passes > 0 ? Math.round((passesCompleted / passes) * 100) : 0;
+
+      // Rating formula: base 60 + measured contributions
       const rating = Math.min(100, Math.round(
         60
         + goals * 8
+        + assists * 4
         + (xg * 5)
+        + Math.min(passesCompleted * 0.1, 8)
         + Math.min(sprints * 0.3, 10)
         + Math.min(distanceKm * 1.5, 12)
         - yellowCards * 5
@@ -117,8 +139,10 @@ export class PlayerStatsService {
         distanceKm,
         sprints,
         topSpeedKmh: parseFloat((track?.speed ?? 0).toFixed(1)),
+        passes,
+        passAccuracy,
         goals,
-        assists: 0, // TODO: derive from passing network when available
+        assists,
         yellowCards,
         redCards,
         xg: parseFloat(xg.toFixed(3)),

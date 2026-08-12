@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 
 /* ── Types ── */
-interface Session { id: string; title: string; platform: string; status: 'LIVE' | 'ENDED'; ingestToken: string; currency: string; totalSales: number | string; orderCount: number; createdAt: string; showOnStorefront?: boolean }
+interface Session { id: string; title: string; platform: string; status: 'LIVE' | 'ENDED'; kind?: 'live' | 'post'; postUrl?: string; ingestToken: string; currency: string; totalSales: number | string; orderCount: number; createdAt: string; showOnStorefront?: boolean }
 interface PinRow { id: string; code: string; productId: string; name: string; livePrice: number; catalogPrice: number; stock: number; soldQty: number }
 interface Comment { id: string; source: string; buyerHandle: string; buyerContact: string; text: string; matchedCode: string; qty: number; status: string; createdAt: string }
 interface Product { id: string; name: string; price: number | string; stock: number }
@@ -33,7 +33,22 @@ export default function LiveSales() {
     await loadSessions(); setActive(s);
   };
 
+  // Non-live: an ad/post campaign whose comments are polled (Apify) and land
+  // in the same reserve→checkout flow, but tracked separately from lives.
+  const startPost = async () => {
+    const postUrl = prompt('Paste the post or ad URL to watch for BUY comments')?.trim();
+    if (!postUrl) return;
+    const platform = /tiktok/i.test(postUrl) ? 'tiktok' : 'instagram';
+    const title = prompt('Name this campaign', 'Post campaign')?.trim();
+    if (title === undefined) return;
+    const s = await api<Session>('/live-sales', { method: 'POST', body: JSON.stringify({ title: title || 'Post campaign', platform, kind: 'post', postUrl }) });
+    await loadSessions(); setActive(s);
+  };
+
   if (active) return <SessionConsole session={active} onBack={() => { setActive(null); loadSessions(); }} />;
+
+  const lives = sessions.filter((s) => s.kind !== 'post');
+  const posts = sessions.filter((s) => s.kind === 'post');
 
   return (
     <div className="h-full bg-slate-950 text-slate-100 overflow-auto">
@@ -42,29 +57,52 @@ export default function LiveSales() {
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-fuchsia-500 to-rose-600 grid place-items-center"><Radio className="w-4.5 h-4.5 text-white" /></div>
           <div><h1 className="text-sm font-bold">Live Sales</h1><p className="text-[10px] text-slate-500">Sell live · comment orders → real-time stock</p></div>
         </div>
-        <button onClick={start} className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-sm font-bold"><Play className="w-4 h-4" /> Go Live</button>
+        <div className="flex items-center gap-2">
+          <button onClick={startPost} className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-bold"><MessageCircle className="w-4 h-4" /> Post campaign</button>
+          <button onClick={start} className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-sm font-bold"><Play className="w-4 h-4" /> Go Live</button>
+        </div>
       </div>
 
-      <div className="p-5 space-y-2">
+      <div className="p-5 space-y-6">
         {loading ? <Center><Loader2 className="w-6 h-6 animate-spin text-slate-500" /></Center> : sessions.length === 0 ? (
-          <div className="text-center text-slate-500 py-16">No live sessions yet. Hit <span className="text-fuchsia-400 font-semibold">Go Live</span> to start one.</div>
-        ) : sessions.map((s) => (
-          <button key={s.id} onClick={() => setActive(s)} className="w-full text-left rounded-xl border border-slate-800 bg-slate-900/50 p-4 flex items-center justify-between hover:border-slate-700">
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="font-bold">{s.title}</span>
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${s.status === 'LIVE' ? 'bg-rose-500/20 text-rose-400' : 'bg-slate-700 text-slate-400'}`}>{s.status === 'LIVE' ? '● LIVE' : 'ENDED'}</span>
-                <span className="text-[10px] text-slate-500 uppercase">{s.platform}</span>
-              </div>
-              <div className="text-[11px] text-slate-500 mt-0.5">{new Date(s.createdAt).toLocaleString()}</div>
-            </div>
-            <div className="text-right">
-              <div className="font-extrabold text-emerald-400">{money(s.totalSales, s.currency)}</div>
-              <div className="text-[11px] text-slate-500">{s.orderCount} orders</div>
-            </div>
-          </button>
-        ))}
+          <div className="text-center text-slate-500 py-16">No sessions yet. Hit <span className="text-fuchsia-400 font-semibold">Go Live</span> to sell on a stream, or <span className="text-slate-300 font-semibold">Post campaign</span> to sell from an ad/post.</div>
+        ) : (
+          <>
+            <SessionGroup label="Live sessions" hint="Realtime stream comments" items={lives} onOpen={setActive} />
+            <SessionGroup label="Post & ad campaigns" hint="Non-live · comments polled from the post" items={posts} onOpen={setActive} />
+          </>
+        )}
       </div>
+    </div>
+  );
+}
+
+/* A titled group of sessions (Live sessions / Post & ad campaigns). */
+function SessionGroup({ label, hint, items, onOpen }: { label: string; hint: string; items: Session[]; onOpen: (s: Session) => void }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      <div className="flex items-baseline gap-2 px-1">
+        <span className="text-xs font-bold text-slate-300 uppercase tracking-wide">{label}</span>
+        <span className="text-[10px] text-slate-600">{hint}</span>
+        <span className="ml-auto text-[11px] text-slate-500">{items.length}</span>
+      </div>
+      {items.map((s) => (
+        <button key={s.id} onClick={() => onOpen(s)} className="w-full text-left rounded-xl border border-slate-800 bg-slate-900/50 p-4 flex items-center justify-between hover:border-slate-700">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-bold">{s.title}</span>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${s.status === 'LIVE' ? 'bg-rose-500/20 text-rose-400' : 'bg-slate-700 text-slate-400'}`}>{s.status === 'LIVE' ? (s.kind === 'post' ? '● WATCHING' : '● LIVE') : 'ENDED'}</span>
+              <span className="text-[10px] text-slate-500 uppercase">{s.platform}</span>
+            </div>
+            <div className="text-[11px] text-slate-500 mt-0.5">{new Date(s.createdAt).toLocaleString()}</div>
+          </div>
+          <div className="text-right">
+            <div className="font-extrabold text-emerald-400">{money(s.totalSales, s.currency)}</div>
+            <div className="text-[11px] text-slate-500">{s.orderCount} orders</div>
+          </div>
+        </button>
+      ))}
     </div>
   );
 }

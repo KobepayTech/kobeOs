@@ -6,6 +6,7 @@ import {
   CheckSquare,
   ImagePlus,
   Images,
+  Link2,
   Loader2,
   PackagePlus,
   RefreshCw,
@@ -92,6 +93,10 @@ export default function MediaInboxApp() {
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [showLinks, setShowLinks] = useState(false);
+  const [linkText, setLinkText] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [linkFails, setLinkFails] = useState<Array<{ url: string; error: string }>>([]);
 
   const load = useCallback(async () => {
     setError(null);
@@ -136,6 +141,30 @@ export default function MediaInboxApp() {
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Upload failed.');
     } finally { setUploading(false); }
+  };
+
+  // Bulk import from a pasted list of links. Accepts anything — one URL per
+  // line, comma/space separated, or a wall of Google Drive links — and pulls
+  // every http(s) token out of it.
+  const importUrls = async () => {
+    const urls = (linkText.match(/https?:\/\/[^\s,]+/g) || []).map((u) => u.replace(/[)>\]]+$/, ''));
+    const unique = [...new Set(urls)];
+    if (!unique.length) { setError('Paste at least one image link (https://…).'); return; }
+    setImporting(true); setError(null); setNotice(null); setLinkFails([]);
+    try {
+      const response = await api<unknown>('/media/inbox/import-urls', { method: 'POST', body: JSON.stringify({ urls: unique }) });
+      const results = apiArray<{ url: string; ok: boolean; duplicate: boolean; error?: string }>(response);
+      const added = results.filter((r) => r.ok && !r.duplicate).length;
+      const dupes = results.filter((r) => r.ok && r.duplicate).length;
+      const fails = results.filter((r) => !r.ok).map((r) => ({ url: r.url, error: r.error || 'Failed' }));
+      setLinkFails(fails);
+      setNotice(`${added} image${added === 1 ? '' : 's'} imported${dupes ? `; ${dupes} duplicate${dupes === 1 ? '' : 's'} reused` : ''}${fails.length ? `; ${fails.length} failed` : ''}.`);
+      if (!fails.length) { setLinkText(''); setShowLinks(false); }
+      setStatus('UNPROCESSED');
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Import failed.');
+    } finally { setImporting(false); }
   };
 
   const drop = (event: DragEvent<HTMLDivElement>) => {
@@ -247,6 +276,7 @@ export default function MediaInboxApp() {
           <div className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-blue-600 to-violet-600 text-white"><Images className="h-5 w-5" /></div>
           <div className="min-w-0 flex-1"><h1 className="font-extrabold">Shared Media Inbox</h1><p className="text-[11px] text-slate-500">Upload once, classify in a gallery, then attach to any KobeOS module</p></div>
           <button onClick={() => void load()} className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 text-slate-500"><RefreshCw className="h-4 w-4" /></button>
+          <button onClick={() => { setShowLinks((v) => !v); setLinkFails([]); }} className={`inline-flex h-9 items-center gap-1.5 rounded-xl border px-4 text-xs font-extrabold ${showLinks ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-600'}`}><Link2 className="h-4 w-4" />Paste links</button>
           <button onClick={() => fileInput.current?.click()} disabled={uploading} className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-blue-600 px-4 text-xs font-extrabold text-white disabled:opacity-40"><ImagePlus className="h-4 w-4" />Upload images</button>
           <input ref={fileInput} className="hidden" type="file" accept="image/*,video/*" multiple onChange={(event) => { void upload([...(event.target.files || [])]); event.currentTarget.value = ''; }} />
         </div>
@@ -255,6 +285,37 @@ export default function MediaInboxApp() {
 
       <main className="grid min-h-0 flex-1 gap-4 overflow-hidden p-4 xl:grid-cols-[minmax(0,1fr)_400px]">
         <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          {showLinks && (
+            <div className="m-3 mb-0 rounded-2xl border border-blue-200 bg-blue-50/60 p-3">
+              <div className="flex items-center gap-1.5 text-xs font-extrabold text-blue-800"><Link2 className="h-4 w-4" />Import from links</div>
+              <p className="mt-1 text-[11px] text-slate-500">Paste any number of image or video links — one per line or all at once. Google Drive links must be shared as <b>“Anyone with the link”</b>.</p>
+              <textarea
+                value={linkText}
+                onChange={(event) => setLinkText(event.target.value)}
+                placeholder={'https://drive.google.com/open?id=…\nhttps://example.com/photo.jpg\n…'}
+                rows={5}
+                className="mt-2 w-full resize-y rounded-xl border border-slate-300 bg-white px-3 py-2 text-xs text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+              />
+              <div className="mt-2 flex items-center gap-2">
+                <span className="text-[10px] font-bold text-slate-500">{(linkText.match(/https?:\/\/[^\s,]+/g) || []).length} link(s) detected</span>
+                <div className="flex-1" />
+                <button onClick={() => { setLinkText(''); setLinkFails([]); }} disabled={importing || !linkText} className="h-9 rounded-xl border border-slate-200 px-3 text-xs font-bold text-slate-600 disabled:opacity-40">Clear</button>
+                <button onClick={() => void importUrls()} disabled={importing} className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-blue-600 px-4 text-xs font-extrabold text-white disabled:opacity-40">{importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}{importing ? 'Importing…' : 'Import links'}</button>
+              </div>
+              {importing && <p className="mt-2 text-[10px] text-slate-500">Fetching each link server-side — this can take a moment for large batches.</p>}
+              {!!linkFails.length && (
+                <div className="mt-2 max-h-32 overflow-auto rounded-xl border border-rose-200 bg-white p-2">
+                  <div className="mb-1 text-[10px] font-extrabold uppercase text-rose-600">{linkFails.length} link(s) failed</div>
+                  {linkFails.map((f, i) => (
+                    <div key={i} className="border-b border-slate-100 py-1 last:border-0">
+                      <div className="truncate text-[10px] text-slate-500" title={f.url}>{f.url}</div>
+                      <div className="text-[10px] font-semibold text-rose-600">{f.error}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           <div onDragEnter={(event) => { event.preventDefault(); setDragging(true); }} onDragOver={(event) => event.preventDefault()} onDragLeave={() => setDragging(false)} onDrop={drop} className={`m-3 rounded-2xl border-2 border-dashed p-4 text-center transition ${dragging ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-slate-50'}`}>
             <UploadCloud className="mx-auto h-7 w-7 text-blue-500" /><div className="mt-1 text-sm font-extrabold">Drop product or module images here</div><div className="text-[11px] text-slate-500">Up to 100 images per batch · duplicates are detected by SHA-256</div>
             {uploading && <div className="mx-auto mt-3 max-w-md"><div className="mb-1 flex justify-between text-[10px] font-bold text-slate-500"><span>Uploading {uploadProgress.done}/{uploadProgress.total}</span><span>{uploadProgress.duplicates} duplicate(s)</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-blue-600 transition-all" style={{ width: `${uploadProgress.total ? (uploadProgress.done / uploadProgress.total) * 100 : 0}%` }} /></div></div>}

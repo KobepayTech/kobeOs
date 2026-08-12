@@ -337,13 +337,18 @@ export default function LoginScreen({
                 ))}
               </div>
 
-              <div className="space-y-3">
+              {/* A real <form> with named + identified fields so the browser's
+                  password manager reliably offers to save the email/password
+                  and autofills them on the next sign-in. */}
+              <form onSubmit={(event) => { event.preventDefault(); if (!loading && connection === 'online') submit(); }} className="space-y-3">
                 {mode === 'create' && (
-                  <label className="block text-[10px] font-black uppercase tracking-wide text-slate-500">
+                  <label htmlFor="login-name" className="block text-[10px] font-black uppercase tracking-wide text-slate-500">
                     Your name or business
                     <div className="relative mt-2">
                       <User className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
                       <input
+                        id="login-name"
+                        name="name"
                         value={displayName}
                         onChange={(event) => setDisplayName(event.target.value)}
                         placeholder="Amina Joseph"
@@ -353,29 +358,32 @@ export default function LoginScreen({
                     </div>
                   </label>
                 )}
-                <label className="block text-[10px] font-black uppercase tracking-wide text-slate-500">
+                <label htmlFor="login-email" className="block text-[10px] font-black uppercase tracking-wide text-slate-500">
                   Email address
                   <div className="relative mt-2">
                     <Mail className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
                     <input
+                      id="login-email"
+                      name="email"
                       type="email"
                       value={email}
                       onChange={(event) => setEmail(event.target.value)}
                       placeholder="you@business.com"
-                      autoComplete="email"
+                      autoComplete="username"
                       className="h-12 rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm font-semibold outline-none focus:border-[#ff7616]"
                     />
                   </div>
                 </label>
-                <label className="block text-[10px] font-black uppercase tracking-wide text-slate-500">
+                <label htmlFor="login-password" className="block text-[10px] font-black uppercase tracking-wide text-slate-500">
                   Password
                   <div className="relative mt-2">
                     <LockKeyhole className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
                     <input
+                      id="login-password"
+                      name="password"
                       type={showPassword ? 'text' : 'password'}
                       value={password}
                       onChange={(event) => setPassword(event.target.value)}
-                      onKeyDown={(event) => event.key === 'Enter' && mode === 'signin' && submit()}
                       placeholder="At least 8 characters"
                       autoComplete={mode === 'create' ? 'new-password' : 'current-password'}
                       className="h-12 rounded-xl border border-slate-200 bg-white pl-10 pr-11 text-sm font-semibold outline-none focus:border-[#ff7616]"
@@ -386,15 +394,16 @@ export default function LoginScreen({
                   </div>
                 </label>
                 {mode === 'create' && (
-                  <label className="block text-[10px] font-black uppercase tracking-wide text-slate-500">
+                  <label htmlFor="login-confirm" className="block text-[10px] font-black uppercase tracking-wide text-slate-500">
                     Confirm password
                     <div className="relative mt-2">
                       <Check className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
                       <input
+                        id="login-confirm"
+                        name="confirm-password"
                         type={showPassword ? 'text' : 'password'}
                         value={confirmPassword}
                         onChange={(event) => setConfirmPassword(event.target.value)}
-                        onKeyDown={(event) => event.key === 'Enter' && submit()}
                         placeholder="Repeat your password"
                         autoComplete="new-password"
                         className="h-12 rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm font-semibold outline-none focus:border-[#ff7616]"
@@ -402,22 +411,22 @@ export default function LoginScreen({
                     </div>
                   </label>
                 )}
-              </div>
 
-              {error && (
-                <div className="mt-4 rounded-xl border border-red-100 bg-red-50 px-3 py-2.5 text-xs font-semibold leading-5 text-red-700">
-                  {error}
-                </div>
-              )}
+                {error && (
+                  <div className="mt-4 rounded-xl border border-red-100 bg-red-50 px-3 py-2.5 text-xs font-semibold leading-5 text-red-700">
+                    {error}
+                  </div>
+                )}
 
-              <button
-                onClick={submit}
-                disabled={loading || connection !== 'online'}
-                className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#0a1728] text-sm font-black text-white transition hover:bg-[#14253b] disabled:cursor-not-allowed disabled:opacity-45"
-              >
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : mode === 'create' ? 'Create account and choose apps' : 'Sign in and open App Store'}
-                {!loading && <ArrowRight className="h-4 w-4" />}
-              </button>
+                <button
+                  type="submit"
+                  disabled={loading || connection !== 'online'}
+                  className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#0a1728] text-sm font-black text-white transition hover:bg-[#14253b] disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : mode === 'create' ? 'Create account and choose apps' : 'Sign in and open App Store'}
+                  {!loading && <ArrowRight className="h-4 w-4" />}
+                </button>
+              </form>
 
               {mode === 'signin' && (
                 <div className="mt-2 text-center">

@@ -7,6 +7,7 @@ import { StoreSettings } from '../store-settings/store-settings.entity';
 import { LiveSaleService } from './live-sale.service';
 import { LiveSaleController, LiveSaleIngestController, LiveSalePublicController } from './live-sale.controller';
 import { PalmPesaService } from '../creators/palmpesa.service';
+import { ApifyService } from './apify.service';
 import { PosModule } from '../pos/pos.module';
 
 @Module({
@@ -15,7 +16,7 @@ import { PosModule } from '../pos/pos.module';
     ConfigModule,
     PosModule, // provides OrdersService (atomic stock decrement)
   ],
-  providers: [LiveSaleService, PalmPesaService],
+  providers: [LiveSaleService, PalmPesaService, ApifyService],
   controllers: [LiveSaleController, LiveSaleIngestController, LiveSalePublicController],
   exports: [LiveSaleService],
 })

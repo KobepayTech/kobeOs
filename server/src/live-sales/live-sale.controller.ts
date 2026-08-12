@@ -10,6 +10,10 @@ class StartSessionDto {
   @IsOptional() @IsString() @MaxLength(120) title?: string;
   @IsOptional() @IsString() platform?: string;
   @IsOptional() @IsString() currency?: string;
+  /** 'live' (default) or 'post' for an ad/post campaign. */
+  @IsOptional() @IsString() kind?: string;
+  /** For a post campaign: the ad/post URL whose comments Apify polls. */
+  @IsOptional() @IsString() @MaxLength(500) postUrl?: string;
 }
 class PinDto {
   @IsUUID() productId!: string;
@@ -44,6 +48,8 @@ export class LiveSaleController {
   @Post(':id/pins') pin(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: PinDto) { return this.svc.pinProduct(uid, id, dto); }
   @Delete(':id/pins/:pinId') unpin(@CurrentUser('id') uid: string, @Param('id') id: string, @Param('pinId') pinId: string) { return this.svc.unpin(uid, id, pinId); }
   @Post(':id/featured') featured(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: { pinId: string }) { return this.svc.setFeatured(uid, id, dto?.pinId); }
+
+  @Get('sales/feed') salesFeed(@CurrentUser('id') uid: string) { return this.svc.salesFeed(uid); }
 
   @Get(':id/comments') comments(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.svc.listComments(uid, id); }
   @Post(':id/comments') ingest(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: IngestDto) { return this.svc.ingestComment(uid, id, dto); }
