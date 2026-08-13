@@ -28,7 +28,14 @@ export type MerchantStatus = 'PENDING' | 'ACTIVE' | 'SUSPENDED';
 export type KpAccountType =
   | 'BANK' | 'FEES' | 'ESCROW' | 'STUDENT' | 'MERCHANT' | 'SUPPLIER' | 'EXTERNAL';
 export type KpTxnKind =
-  | 'DEPOSIT' | 'PAYMENT' | 'SETTLEMENT' | 'FEE' | 'RESERVE' | 'RELEASE' | 'REVERSAL' | 'ADJUSTMENT';
+  | 'DEPOSIT' | 'PAYMENT' | 'SETTLEMENT' | 'FEE' | 'RESERVE' | 'RELEASE'
+  | 'CAPTURE' | 'REVERSAL' | 'ADJUSTMENT';
+
+export type SupplierStatus = 'ACTIVE' | 'SUSPENDED';
+export type GroupStatus =
+  | 'OPEN' | 'ORDERED' | 'PRODUCTION' | 'IN_TRANSIT' | 'DELIVERED' | 'VERIFIED' | 'COMPLETED' | 'CANCELLED';
+export type GroupOrderStatus =
+  | 'RESERVED' | 'RELEASED' | 'CAPTURED' | 'COLLECTED' | 'CANCELLED';
 export type KpTxnStatus = 'POSTED' | 'REVERSED';
 export type BankDepositStatus = 'UNMATCHED' | 'MATCHED' | 'POSTED' | 'DUPLICATE' | 'REJECTED';
 export type DepositSource = 'MPESA_SMS' | 'WEBHOOK' | 'MANUAL';
@@ -196,4 +203,68 @@ export class KpBankDeposit extends OwnedEntity {
   @Column({ default: 'UNMATCHED' }) status!: BankDepositStatus;
   @Column({ default: 'MPESA_SMS' }) source!: DepositSource;
   @Column({ type: 'text', default: '' }) rawMessage!: string;
+}
+
+/** A supplier who fulfils bulk purchase groups. */
+@Entity('kp_suppliers')
+@Index(['ownerId', 'code'], { unique: true })
+export class KpSupplier extends OwnedEntity {
+  @Column() name!: string;
+  @Column({ length: 32 }) code!: string;
+  @Column({ default: '' }) contactPhone!: string;
+  @Column({ default: '' }) contactEmail!: string;
+  @Column({ default: '' }) settlementAccount!: string;
+  @Column({ default: 'mobile' }) settlementMethod!: string;
+  /** Capability token for the public supplier portal (no login). */
+  @Index() @Column({ unique: true }) portalToken!: string;
+  @Column({ default: 'ACTIVE' }) status!: SupplierStatus;
+}
+
+/**
+ * A bulk purchase group: the school offers a product at a group price; parents
+ * join and money is reserved (escrow) until enough participants join, then it
+ * consolidates into ONE supplier order, is delivered, verified, collected and
+ * finally the supplier is paid from escrow.
+ */
+@Entity('kp_purchase_groups')
+@Index(['ownerId', 'schoolId', 'status'])
+export class KpPurchaseGroup extends OwnedEntity {
+  @Column('uuid') schoolId!: string;
+  @Column({ length: 16 }) reference!: string;
+  @Column() title!: string;
+  @Column({ default: '' }) productName!: string;
+  @Column({ type: 'text', default: '' }) description!: string;
+  @Column({ default: '' }) imageUrl!: string;
+  @Column('numeric', { precision: 18, scale: 4, default: 0, transformer: numeric }) normalPrice!: number;
+  @Column('numeric', { precision: 18, scale: 4, default: 0, transformer: numeric }) groupPrice!: number;
+  @Column({ default: 'TZS' }) currency!: string;
+  @Column({ type: 'int', default: 1 }) minParticipants!: number;
+  @Column({ type: 'timestamptz', nullable: true }) deadline?: Date | null;
+  @Column({ default: '' }) deliveryLocation!: string;
+  @Column('uuid', { nullable: true }) supplierId?: string | null;
+  /** Unit price paid to the supplier (the margin becomes Kobepay/school fees). */
+  @Column('numeric', { precision: 18, scale: 4, default: 0, transformer: numeric }) supplierUnitCost!: number;
+  @Column({ default: 'OPEN' }) status!: GroupStatus;
+  @Column({ type: 'timestamptz', nullable: true }) orderedAt?: Date | null;
+  @Column({ type: 'timestamptz', nullable: true }) deliveredAt?: Date | null;
+  @Column({ type: 'timestamptz', nullable: true }) verifiedAt?: Date | null;
+  @Column({ type: 'timestamptz', nullable: true }) completedAt?: Date | null;
+}
+
+/** One participant's order inside a purchase group. */
+@Entity('kp_group_orders')
+@Index(['ownerId', 'groupId'])
+@Index(['ownerId', 'studentId'])
+export class KpGroupOrder extends OwnedEntity {
+  @Column('uuid') groupId!: string;
+  @Column('uuid') schoolId!: string;
+  @Column('uuid') studentId!: string;
+  @Column({ length: 16 }) reference!: string;
+  @Column({ type: 'int', default: 1 }) qty!: number;
+  @Column('numeric', { precision: 18, scale: 4, default: 0, transformer: numeric }) unitPrice!: number;
+  @Column('numeric', { precision: 18, scale: 4, default: 0, transformer: numeric }) amount!: number;
+  @Column('uuid', { nullable: true }) holdId?: string | null;
+  @Column({ default: 'RESERVED' }) status!: GroupOrderStatus;
+  @Column({ type: 'timestamptz', nullable: true }) collectedAt?: Date | null;
+  @Column({ default: '' }) collectedBy!: string;
 }

@@ -4,11 +4,13 @@ import {
 } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
+import { Public } from '../common/public.decorator';
 import { SchoolService } from './school.service';
 import { WalletService } from './wallet.service';
 import { PaymentService } from './payment.service';
 import { DepositEngineService } from './deposit-engine.service';
 import { LedgerService } from './ledger.service';
+import { GroupsService } from './groups.service';
 import type { SpendCategory } from './kobepay-pro.entity';
 
 const CATEGORIES = ['AVAILABLE', 'FOOD', 'TRANSPORT', 'BOOKS', 'SUPPLIES', 'ONLINE', 'GROUP', 'SAVINGS'];
@@ -66,6 +68,43 @@ class PayDto {
   @IsOptional() @IsString() @MaxLength(200) description?: string;
 }
 class MatchDepositDto { @IsString() studentId!: string; }
+class CreateSupplierDto {
+  @IsString() @MaxLength(120) name!: string;
+  @IsOptional() @IsString() @MaxLength(32) code?: string;
+  @IsOptional() @IsString() @MaxLength(40) contactPhone?: string;
+  @IsOptional() @IsString() @MaxLength(120) contactEmail?: string;
+  @IsOptional() @IsString() @MaxLength(120) settlementAccount?: string;
+  @IsOptional() @IsString() @MaxLength(24) settlementMethod?: string;
+}
+class CreateGroupDto {
+  @IsString() schoolId!: string;
+  @IsString() @MaxLength(120) title!: string;
+  @IsOptional() @IsString() @MaxLength(120) productName?: string;
+  @IsOptional() @IsString() @MaxLength(2000) description?: string;
+  @IsOptional() @IsString() @MaxLength(500) imageUrl?: string;
+  @IsOptional() @IsNumber() @Min(0) normalPrice?: number;
+  @IsNumber() @Min(1) groupPrice!: number;
+  @IsOptional() @IsNumber() @Min(1) minParticipants?: number;
+  @IsOptional() @IsString() deadline?: string;
+  @IsOptional() @IsString() @MaxLength(200) deliveryLocation?: string;
+  @IsOptional() @IsString() supplierId?: string;
+  @IsOptional() @IsNumber() @Min(0) supplierUnitCost?: number;
+}
+class JoinGroupDto {
+  @IsString() studentId!: string;
+  @IsOptional() @IsNumber() @Min(1) qty?: number;
+}
+class AssignSupplierDto {
+  @IsString() supplierId!: string;
+  @IsNumber() @Min(0) supplierUnitCost!: number;
+}
+class ConsolidateDto { @IsOptional() @IsBoolean() force?: boolean; }
+class CollectDto {
+  @IsOptional() @IsString() studentId?: string;
+  @IsOptional() @IsString() nfcCardId?: string;
+  @IsOptional() @IsString() qrToken?: string;
+  @IsOptional() @IsString() studentCode?: string;
+}
 
 @UseGuards(JwtAuthGuard)
 @Controller('kobepay-pro')
@@ -76,6 +115,7 @@ export class KobepayProController {
     private readonly payments: PaymentService,
     private readonly deposits: DepositEngineService,
     private readonly ledger: LedgerService,
+    private readonly groupsSvc: GroupsService,
   ) {}
 
   // Schools
@@ -123,4 +163,37 @@ export class KobepayProController {
   @Get('deposits/unmatched') unmatched(@CurrentUser('id') uid: string) { return this.deposits.listUnmatched(uid); }
   @Post('deposits/:id/match') matchDeposit(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: MatchDepositDto) { return this.deposits.matchToStudent(uid, id, dto.studentId); }
   @Get('reconcile') reconcile(@CurrentUser('id') uid: string) { return this.ledger.reconcile(uid); }
+
+  // Suppliers
+  @Get('suppliers') suppliers(@CurrentUser('id') uid: string) { return this.groupsSvc.listSuppliers(uid); }
+  @Post('suppliers') createSupplier(@CurrentUser('id') uid: string, @Body() dto: CreateSupplierDto) { return this.groupsSvc.createSupplier(uid, dto); }
+  @Post('suppliers/:id/settle') settleSupplier(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.groupsSvc.settleSupplier(uid, id); }
+
+  // Purchase groups
+  @Get('groups') groups(@CurrentUser('id') uid: string, @Query('schoolId') schoolId?: string) { return this.groupsSvc.listGroups(uid, schoolId); }
+  @Post('groups') createGroup(@CurrentUser('id') uid: string, @Body() dto: CreateGroupDto) { return this.groupsSvc.createGroup(uid, dto); }
+  @Get('groups/:id') group(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.groupsSvc.getGroup(uid, id); }
+  @Post('groups/:id/join') join(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: JoinGroupDto) { return this.groupsSvc.joinGroup(uid, id, dto); }
+  @Post('group-orders/:orderId/cancel') cancelOrder(@CurrentUser('id') uid: string, @Param('orderId') orderId: string) { return this.groupsSvc.cancelOrder(uid, orderId); }
+  @Post('groups/:id/supplier') assignSupplier(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: AssignSupplierDto) { return this.groupsSvc.assignSupplier(uid, id, dto); }
+  @Post('groups/:id/consolidate') consolidate(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: ConsolidateDto) { return this.groupsSvc.consolidate(uid, id, !!dto?.force); }
+  @Post('groups/:id/verify') verify(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.groupsSvc.verifyDelivery(uid, id); }
+  @Post('groups/:id/collect') collect(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: CollectDto) { return this.groupsSvc.collect(uid, id, dto); }
+  @Post('groups/:id/complete') complete(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.groupsSvc.completeAndPay(uid, id); }
+  @Post('groups/:id/cancel') cancelGroup(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.groupsSvc.cancelGroup(uid, id); }
+}
+
+/** Public supplier portal — a supplier manages fulfilment with a token, no login. */
+@Public()
+@Controller('kobepay-pro/supplier')
+export class SupplierPortalController {
+  constructor(private readonly groupsSvc: GroupsService) {}
+
+  @Get('portal/:token')
+  portal(@Param('token') token: string) { return this.groupsSvc.supplierPortal(token); }
+
+  @Post('portal/:token/orders/:groupId/status')
+  updateStatus(@Param('token') token: string, @Param('groupId') groupId: string, @Body() dto: { status: string }) {
+    return this.groupsSvc.supplierUpdateStatus(token, groupId, dto.status as any);
+  }
 }

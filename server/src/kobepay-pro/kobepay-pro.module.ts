@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import {
-  KpAccount, KpBankDeposit, KpBucket, KpLedgerLine, KpMerchant, KpMerchantApproval,
-  KpReservedHold, KpSchool, KpStudent, KpTransaction, KpWallet,
+  KpAccount, KpBankDeposit, KpBucket, KpGroupOrder, KpLedgerLine, KpMerchant, KpMerchantApproval,
+  KpPurchaseGroup, KpReservedHold, KpSchool, KpStudent, KpSupplier, KpTransaction, KpWallet,
 } from './kobepay-pro.entity';
 import { LedgerService } from './ledger.service';
 import { WalletService } from './wallet.service';
@@ -10,7 +10,8 @@ import { DepositEngineService } from './deposit-engine.service';
 import { RuleEngineService } from './rule-engine.service';
 import { PaymentService } from './payment.service';
 import { SchoolService } from './school.service';
-import { KobepayProController } from './kobepay-pro.controller';
+import { GroupsService } from './groups.service';
+import { KobepayProController, SupplierPortalController } from './kobepay-pro.controller';
 import { MobileMoneyModule } from '../mobile-money/mobile-money.module';
 
 /**
@@ -24,14 +25,15 @@ import { MobileMoneyModule } from '../mobile-money/mobile-money.module';
       KpSchool, KpStudent, KpMerchant, KpMerchantApproval,
       KpAccount, KpTransaction, KpLedgerLine,
       KpWallet, KpBucket, KpReservedHold, KpBankDeposit,
+      KpSupplier, KpPurchaseGroup, KpGroupOrder,
     ]),
     MobileMoneyModule,
   ],
   providers: [
     LedgerService, WalletService, DepositEngineService,
-    RuleEngineService, PaymentService, SchoolService,
+    RuleEngineService, PaymentService, SchoolService, GroupsService,
   ],
-  controllers: [KobepayProController],
-  exports: [LedgerService, WalletService, DepositEngineService, PaymentService, SchoolService],
+  controllers: [KobepayProController, SupplierPortalController],
+  exports: [LedgerService, WalletService, DepositEngineService, PaymentService, SchoolService, GroupsService],
 })
 export class KobepayProModule {}

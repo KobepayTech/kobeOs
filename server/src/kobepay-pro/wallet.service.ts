@@ -4,7 +4,7 @@ import { DataSource, EntityManager, Repository } from 'typeorm';
 import {
   KpBucket, KpReservedHold, KpStudent, KpTransaction, KpWallet, SpendCategory,
 } from './kobepay-pro.entity';
-import { LedgerService } from './ledger.service';
+import { LedgerService, PostLine } from './ledger.service';
 
 const CENTS = 1e4;
 const round = (n: number) => Math.round(n * CENTS) / CENTS;
@@ -130,42 +130,90 @@ export class WalletService {
     ownerId: string, studentId: string, amount: number, purpose: string, groupId?: string,
   ): Promise<KpReservedHold> {
     if (amount <= 0) throw new BadRequestException('Reserve amount must be positive');
-    return this.dataSource.transaction(async (m) => {
-      const wallet = await this.ensureWallet(m, ownerId, studentId);
-      if (wallet.available < amount) throw new BadRequestException('Insufficient available balance to reserve');
-      wallet.available = round(wallet.available - amount);
-      await m.save(wallet);
-      const hold = await m.save(m.create(KpReservedHold, {
-        ownerId, studentId, amount, purpose, groupId: groupId ?? null, status: 'RESERVED',
-      }));
-      await m.save(m.create(KpTransaction, {
-        ownerId, reference: 'RSV', kind: 'RESERVE', status: 'POSTED', studentId,
-        category: 'GROUP', amount, currency: wallet.currency,
-        description: purpose, metadata: { groupId: groupId ?? null, holdId: hold.id },
-      }));
-      return hold;
-    });
+    return this.dataSource.transaction((m) => this.reserveIn(m, ownerId, studentId, amount, purpose, groupId));
   }
 
-  /** Release a hold back to Available (e.g. a group order failed to reach minimum). */
+  /** Reserve inside the caller's transaction (used by group join). */
+  async reserveIn(
+    m: EntityManager, ownerId: string, studentId: string, amount: number, purpose: string, groupId?: string,
+  ): Promise<KpReservedHold> {
+    if (amount <= 0) throw new BadRequestException('Reserve amount must be positive');
+    const wallet = await this.ensureWallet(m, ownerId, studentId);
+    if (wallet.available < amount) throw new BadRequestException('Insufficient available balance to reserve');
+    wallet.available = round(wallet.available - amount);
+    await m.save(wallet);
+    const hold = await m.save(m.create(KpReservedHold, {
+      ownerId, studentId, amount, purpose, groupId: groupId ?? null, status: 'RESERVED',
+    }));
+    // Move the money into escrow at the ledger level: Dr STUDENT / Cr ESCROW.
+    // It is still the student's until captured, but held apart from spendable.
+    await this.ledger.post(m, {
+      ownerId, kind: 'RESERVE', amount, currency: wallet.currency,
+      studentId, category: 'GROUP', description: purpose,
+      metadata: { groupId: groupId ?? null, holdId: hold.id },
+    }, [
+      { type: 'STUDENT', refId: studentId, debit: amount },
+      { type: 'ESCROW', credit: amount },
+    ]);
+    return hold;
+  }
+
+  /** Release a hold back to Available (e.g. a group failed to reach minimum). */
   async release(ownerId: string, holdId: string): Promise<WalletView> {
     const studentId = await this.dataSource.transaction(async (m) => {
-      const hold = await m.findOne(KpReservedHold, { where: { ownerId, id: holdId } });
-      if (!hold) throw new NotFoundException('Reserved hold not found');
-      if (hold.status !== 'RESERVED') throw new BadRequestException('Hold is not active');
-      const wallet = await this.ensureWallet(m, ownerId, hold.studentId);
-      hold.status = 'RELEASED';
-      await m.save(hold);
-      wallet.available = round(wallet.available + hold.amount);
-      await m.save(wallet);
-      await m.save(m.create(KpTransaction, {
-        ownerId, reference: 'REL', kind: 'RELEASE', status: 'POSTED', studentId: hold.studentId,
-        category: 'GROUP', amount: hold.amount, currency: wallet.currency,
-        description: `Release ${hold.purpose}`, metadata: { holdId },
-      }));
-      return hold.studentId;
+      return this.releaseHold(m, ownerId, holdId);
     });
     return this.view(ownerId, studentId);
+  }
+
+  /** Release a hold inside the caller's transaction (Dr ESCROW / Cr STUDENT). */
+  async releaseHold(m: EntityManager, ownerId: string, holdId: string): Promise<string> {
+    const hold = await m.findOne(KpReservedHold, { where: { ownerId, id: holdId } });
+    if (!hold) throw new NotFoundException('Reserved hold not found');
+    if (hold.status !== 'RESERVED') throw new BadRequestException('Hold is not active');
+    const wallet = await this.ensureWallet(m, ownerId, hold.studentId);
+    hold.status = 'RELEASED';
+    await m.save(hold);
+    wallet.available = round(wallet.available + hold.amount);
+    await m.save(wallet);
+    await this.ledger.post(m, {
+      ownerId, kind: 'RELEASE', amount: hold.amount, currency: wallet.currency,
+      studentId: hold.studentId, category: 'GROUP', description: `Release ${hold.purpose}`,
+      metadata: { holdId },
+    }, [
+      { type: 'ESCROW', debit: hold.amount },
+      { type: 'STUDENT', refId: hold.studentId, credit: hold.amount },
+    ]);
+    return hold.studentId;
+  }
+
+  /**
+   * Capture an escrowed hold to a supplier when a group completes, inside the
+   * caller's transaction. The supplier gets `supplierShare`; any margin (the
+   * group-vs-supplier price difference) is recognised as Kobepay fees:
+   *   Dr ESCROW amount / Cr SUPPLIER supplierShare / Cr FEES margin.
+   */
+  async captureHold(
+    m: EntityManager, ownerId: string, holdId: string, supplierId: string, supplierShare: number,
+  ): Promise<void> {
+    const hold = await m.findOne(KpReservedHold, { where: { ownerId, id: holdId } });
+    if (!hold) throw new NotFoundException('Reserved hold not found');
+    if (hold.status !== 'RESERVED') throw new BadRequestException('Hold is not active');
+    const supShare = Math.max(0, Math.min(round(supplierShare), hold.amount));
+    const margin = round(hold.amount - supShare);
+    hold.status = 'CAPTURED';
+    await m.save(hold);
+    const lines: PostLine[] = [
+      { type: 'ESCROW', debit: hold.amount },
+      { type: 'SUPPLIER', refId: supplierId, credit: supShare },
+    ];
+    if (margin > 0) lines.push({ type: 'FEES', credit: margin });
+    await this.ledger.post(m, {
+      ownerId, kind: 'CAPTURE', amount: hold.amount, currency: 'TZS',
+      studentId: hold.studentId, category: 'GROUP',
+      description: `Capture ${hold.purpose} → supplier`,
+      metadata: { holdId, supplierId, supplierShare: supShare, margin },
+    }, lines);
   }
 
   /**

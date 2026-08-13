@@ -155,6 +155,10 @@ const liveHandleMatch = pathname.match(/^\/@([a-z0-9_.-]{2,40})\/?$/i);
 const isLiveCatalog = !livePayToken && (pathname.replace(/\/$/, '') === '/live' || !!liveHandleMatch);
 const liveCatalogSlug = liveHandleMatch?.[1] ?? (tenantSub ?? '');
 
+// Kobepay Pro supplier portal (tokenised, no login): /kobepay/supplier/{token}
+const supplierPortalMatch = pathname.match(/^\/kobepay\/supplier\/([A-Za-z0-9_-]{16,})\/?$/);
+const supplierPortalToken = supplierPortalMatch?.[1] ?? '';
+
 const mount = (node: ReactNode) => {
   void hydrateTokens().finally(() => {
     createRoot(document.getElementById('root')!).render(node);
@@ -231,6 +235,9 @@ if (isOverlay) {
 } else if (isLiveCatalog) {
   // Permanent Kobe Live Catalog: /live or /@seller
   import('./public/LiveCatalog').then(({ default: LiveCatalog }) => mount(<LiveCatalog slug={liveCatalogSlug} />));
+} else if (supplierPortalToken) {
+  // Kobepay Pro supplier portal: /kobepay/supplier/{token}
+  import('./public/SupplierPortal').then(({ default: SupplierPortal }) => mount(<SupplierPortal token={supplierPortalToken} />));
 } else if (isCargoSite) {
   // Public branded cargo landing: /cg/{slug}
   import('./public/CargoSite').then(({ default: CargoSite }) => mount(<CargoSite slug={cargoSiteSlug} />));

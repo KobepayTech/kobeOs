@@ -3,6 +3,7 @@ import { api } from '@/lib/api';
 import {
   GraduationCap, Plus, Users, Store, Inbox, Wallet, ShieldCheck, Scale,
   RefreshCw, X, PiggyBank, Lock, ArrowRightLeft, Loader2, CheckCircle2, AlertTriangle,
+  Boxes, Truck, Copy,
 } from 'lucide-react';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -20,7 +21,7 @@ const money = (n: number, c = 'TZS') => `${c === 'TZS' ? 'TSh ' : c + ' '}${Numb
 export default function KobepayPro() {
   const [schools, setSchools] = useState<School[]>([]);
   const [schoolId, setSchoolId] = useState<string>('');
-  const [tab, setTab] = useState<'overview' | 'students' | 'merchants' | 'deposits'>('overview');
+  const [tab, setTab] = useState<'overview' | 'students' | 'groups' | 'merchants' | 'deposits'>('overview');
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
@@ -76,7 +77,7 @@ export default function KobepayPro() {
       ) : (
         <>
           <nav className="flex items-center gap-1 px-4 py-2 border-b border-slate-800">
-            {([['overview', 'Overview', Scale], ['students', 'Students', Users], ['merchants', 'Merchants', Store], ['deposits', 'Deposits', Inbox]] as const).map(([id, label, Icon]) => (
+            {([['overview', 'Overview', Scale], ['students', 'Students', Users], ['groups', 'Groups', Boxes], ['merchants', 'Merchants', Store], ['deposits', 'Deposits', Inbox]] as const).map(([id, label, Icon]) => (
               <button key={id} onClick={() => setTab(id)} className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold ${tab === id ? 'bg-slate-800 text-white' : 'text-slate-400 hover:text-slate-200'}`}>
                 <Icon className="w-3.5 h-3.5" />{label}
               </button>
@@ -86,6 +87,7 @@ export default function KobepayPro() {
           <div className="flex-1 overflow-auto">
             {tab === 'overview' && <Overview schoolId={school.id} currency={school.currency} />}
             {tab === 'students' && <Students schoolId={school.id} currency={school.currency} />}
+            {tab === 'groups' && <Groups schoolId={school.id} currency={school.currency} />}
             {tab === 'merchants' && <Merchants schoolId={school.id} />}
             {tab === 'deposits' && <Deposits schoolId={school.id} onChange={() => setTab('deposits')} />}
           </div>
@@ -314,6 +316,167 @@ function Deposits({ schoolId }: { schoolId: string; onChange: () => void }) {
   );
 }
 
+// ── Groups (bulk purchasing + escrow) ────────────────────────────────────
+interface Group { id: string; reference: string; title: string; productName: string; groupPrice: number; normalPrice: number; status: string; minParticipants: number; deliveryLocation: string; supplierId: string | null; supplierUnitCost: number }
+interface Supplier { id: string; name: string; code: string; portalToken: string; status: string }
+interface GroupDetail {
+  group: Group; supplier: { id: string; name: string; code: string } | null;
+  participants: number; totalQty: number; escrowTotal: number; supplierTotal: number; collected: number; minReached: boolean;
+  orders: Array<{ id: string; reference: string; studentName: string; qty: number; amount: number; status: string; collected: boolean }>;
+}
+const GROUP_STAGES = ['OPEN', 'ORDERED', 'PRODUCTION', 'IN_TRANSIT', 'DELIVERED', 'VERIFIED', 'COMPLETED'];
+
+function Groups({ schoolId, currency }: { schoolId: string; currency: string }) {
+  const [rows, setRows] = useState<Group[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [sel, setSel] = useState<string | null>(null);
+  const load = useCallback(() => {
+    api<Group[]>(`/kobepay-pro/groups?schoolId=${schoolId}`).then((r) => setRows(Array.isArray(r) ? r : [])).catch(() => setRows([]));
+    api<Supplier[]>('/kobepay-pro/suppliers').then((r) => setSuppliers(Array.isArray(r) ? r : [])).catch(() => setSuppliers([]));
+  }, [schoolId]);
+  useEffect(() => { load(); }, [load]);
+
+  const addGroup = async () => {
+    const title = prompt('Product / group title (e.g. "Casio FX-991 Calculator")')?.trim();
+    if (!title) return;
+    const groupPrice = Number(prompt('Group price per unit (what each parent pays)')); if (!(groupPrice > 0)) return;
+    const normalPrice = Number(prompt('Normal retail price (optional)', '0')) || 0;
+    const minParticipants = Number(prompt('Minimum participants', '1')) || 1;
+    const deliveryLocation = prompt('Delivery location', 'School office') || '';
+    await api('/kobepay-pro/groups', { method: 'POST', body: JSON.stringify({ schoolId, title, groupPrice, normalPrice, minParticipants, deliveryLocation }) });
+    load();
+  };
+  const addSupplier = async () => {
+    const name = prompt('Supplier name')?.trim(); if (!name) return;
+    const r = await api<Supplier>('/kobepay-pro/suppliers', { method: 'POST', body: JSON.stringify({ name }) });
+    const url = `${window.location.origin}/kobepay/supplier/${r.portalToken}`;
+    alert(`Supplier "${r.name}" created (${r.code}).\n\nPortal link (no login) — share with the supplier:\n${url}`);
+    load();
+  };
+
+  return (
+    <div className="p-4 space-y-4">
+      <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
+        <div className="flex items-center mb-2">
+          <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400">Suppliers · {suppliers.length}</h2>
+          <button onClick={addSupplier} className="ml-auto h-8 inline-flex items-center gap-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 px-3 text-xs font-bold"><Plus className="w-4 h-4" />Add supplier</button>
+        </div>
+        {suppliers.length === 0 ? <p className="text-[11px] text-slate-500">Add a supplier, then share their portal link so they fulfil orders without an account.</p> : suppliers.map((s) => (
+          <div key={s.id} className="flex items-center gap-2 py-1.5 text-sm">
+            <Truck className="w-4 h-4 text-slate-500" />
+            <span className="font-semibold">{s.name}</span>
+            <span className="text-[11px] text-slate-500">{s.code}</span>
+            <button onClick={() => { navigator.clipboard?.writeText(`${window.location.origin}/kobepay/supplier/${s.portalToken}`); }} className="ml-auto inline-flex items-center gap-1 text-[11px] text-emerald-400 hover:underline"><Copy className="w-3 h-3" />Copy portal link</button>
+            <button onClick={() => api(`/kobepay-pro/suppliers/${s.id}/settle`, { method: 'POST', body: '{}' }).then((r) => alert(`Settled ${money((r as { settled: number }).settled, currency)}`))} className="text-[11px] px-2 py-0.5 rounded border border-slate-700 text-slate-300">Settle</button>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-center">
+        <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400">Purchase groups · {rows.length}</h2>
+        <button onClick={addGroup} className="ml-auto h-8 inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-bold"><Plus className="w-4 h-4" />New group</button>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {rows.length === 0 ? <div className="col-span-full p-8 text-center text-slate-500 text-sm">No purchase groups yet.</div> : rows.map((g) => (
+          <button key={g.id} onClick={() => setSel(g.id)} className="text-left rounded-xl border border-slate-800 bg-slate-900/50 p-3 hover:border-slate-700">
+            <div className="flex items-center gap-2">
+              <span className="font-bold truncate">{g.title}</span>
+              <span className="ml-auto text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-800 text-slate-300">{g.status}</span>
+            </div>
+            <div className="text-[11px] text-slate-500 mt-1">{money(g.groupPrice, currency)}{g.normalPrice > 0 && <span className="line-through ml-1 text-slate-600">{money(g.normalPrice, currency)}</span>} · min {g.minParticipants} · {g.reference}</div>
+          </button>
+        ))}
+      </div>
+      {sel && <GroupDrawer groupId={sel} currency={currency} schoolId={schoolId} suppliers={suppliers} onClose={() => { setSel(null); load(); }} />}
+    </div>
+  );
+}
+
+function GroupDrawer({ groupId, currency, schoolId, suppliers, onClose }: { groupId: string; currency: string; schoolId: string; suppliers: Supplier[]; onClose: () => void }) {
+  const [d, setD] = useState<GroupDetail | null>(null);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [busy, setBusy] = useState(false);
+  const load = useCallback(() => {
+    api<GroupDetail>(`/kobepay-pro/groups/${groupId}`).then(setD).catch(() => setD(null));
+    api<Student[]>(`/kobepay-pro/students?schoolId=${schoolId}`).then((r) => setStudents(Array.isArray(r) ? r : [])).catch(() => setStudents([]));
+  }, [groupId, schoolId]);
+  useEffect(() => { load(); }, [load]);
+  const act = async (fn: () => Promise<unknown>) => { setBusy(true); try { await fn(); load(); } catch (e) { alert((e as Error).message); } finally { setBusy(false); } };
+
+  if (!d) return null;
+  const g = d.group;
+  const stageIdx = GROUP_STAGES.indexOf(g.status);
+
+  const join = () => {
+    const code = prompt('Student code to add to this group')?.trim().toUpperCase(); if (!code) return;
+    const student = students.find((s) => s.studentCode === code);
+    if (!student) { alert('No student with that code'); return; }
+    const qty = Number(prompt('Quantity', '1')) || 1;
+    act(() => api(`/kobepay-pro/groups/${groupId}/join`, { method: 'POST', body: JSON.stringify({ studentId: student.id, qty }) }));
+  };
+  const assign = () => {
+    if (!suppliers.length) { alert('Add a supplier first'); return; }
+    const code = prompt(`Supplier code (${suppliers.map((s) => s.code).join(', ')})`)?.trim().toUpperCase();
+    const supplier = suppliers.find((s) => s.code === code); if (!supplier) { alert('Unknown supplier'); return; }
+    const cost = Number(prompt('Supplier unit cost (what the supplier charges per unit)')); if (!(cost >= 0)) return;
+    act(() => api(`/kobepay-pro/groups/${groupId}/supplier`, { method: 'POST', body: JSON.stringify({ supplierId: supplier.id, supplierUnitCost: cost }) }));
+  };
+  const consolidate = () => act(() => api(`/kobepay-pro/groups/${groupId}/consolidate`, { method: 'POST', body: JSON.stringify({ force: !d.minReached && confirm('Minimum not reached. Order anyway?') }) }));
+  const collect = () => { const code = prompt('Scan/enter the collecting student code')?.trim().toUpperCase(); if (!code) return; act(() => api(`/kobepay-pro/groups/${groupId}/collect`, { method: 'POST', body: JSON.stringify({ studentCode: code }) }).then((r) => alert(`Collected: ${(r as { student: { name: string } }).student.name}`))); };
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/50" onClick={onClose}>
+      <div className="w-full max-w-md h-full bg-slate-900 border-l border-slate-800 overflow-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2 p-4 border-b border-slate-800 sticky top-0 bg-slate-900">
+          <div className="min-w-0"><div className="font-bold truncate">{g.title}</div><div className="text-[11px] text-slate-500">{g.reference} · {g.status}</div></div>
+          <button onClick={onClose} className="ml-auto text-slate-400"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-4 space-y-4">
+          {/* progress */}
+          <div className="flex items-center gap-1">
+            {GROUP_STAGES.map((s, i) => (
+              <div key={s} className={`flex-1 h-1.5 rounded-full ${g.status === 'CANCELLED' ? 'bg-rose-800' : i <= stageIdx ? 'bg-emerald-500' : 'bg-slate-800'}`} title={s} />
+            ))}
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <Pool label="Participants" value={d.participants} c="" Icon={Users} />
+            <Pool label="Units" value={d.totalQty} c="" Icon={Boxes} />
+            <Pool label="In escrow" value={d.escrowTotal} c={currency} Icon={Lock} />
+            <Pool label="To supplier" value={d.supplierTotal} c={currency} Icon={Truck} />
+          </div>
+          <div className="text-[11px] text-slate-500">
+            {money(g.groupPrice, currency)}/unit · supplier {g.supplierUnitCost > 0 ? money(g.supplierUnitCost, currency) : '—'}/unit · margin becomes fees · deliver to {g.deliveryLocation || '—'}
+            {d.supplier && <> · supplier: <b className="text-slate-300">{d.supplier.name}</b></>}
+          </div>
+
+          {/* stage actions */}
+          <div className="grid grid-cols-2 gap-2">
+            {g.status === 'OPEN' && <><ActBtn label="Add participant" onClick={join} busy={busy} /><ActBtn label="Assign supplier" onClick={assign} busy={busy} /><ActBtn label="Consolidate order" onClick={consolidate} busy={busy} /><ActBtn label="Cancel group" onClick={() => act(() => api(`/kobepay-pro/groups/${groupId}/cancel`, { method: 'POST', body: '{}' }))} busy={busy} /></>}
+            {['ORDERED', 'PRODUCTION', 'IN_TRANSIT'].includes(g.status) && <div className="col-span-2 text-[11px] text-slate-500">Waiting on the supplier to update fulfilment via their portal link.</div>}
+            {g.status === 'DELIVERED' && <ActBtn label="Verify delivery" onClick={() => act(() => api(`/kobepay-pro/groups/${groupId}/verify`, { method: 'POST', body: '{}' }))} busy={busy} />}
+            {g.status === 'VERIFIED' && <><ActBtn label="Collect (scan student)" onClick={collect} busy={busy} /><ActBtn label="Complete & pay supplier" onClick={() => act(() => api(`/kobepay-pro/groups/${groupId}/complete`, { method: 'POST', body: '{}' }))} busy={busy} /></>}
+            {g.status === 'COMPLETED' && <div className="col-span-2 text-[11px] text-emerald-400">Completed — {d.collected}/{d.orders.length} collected. Settle the supplier from the Suppliers panel.</div>}
+          </div>
+
+          {/* participants */}
+          <div className="rounded-2xl border border-slate-800 bg-slate-950 p-3">
+            <div className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-2">Participants</div>
+            {d.orders.length === 0 ? <p className="text-[11px] text-slate-500">No participants yet.</p> : d.orders.map((o) => (
+              <div key={o.id} className="flex items-center gap-2 py-1 text-sm">
+                <span className="truncate">{o.studentName}</span>
+                <span className="text-[11px] text-slate-500">×{o.qty} · {money(o.amount, currency)}</span>
+                {o.collected && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
+                <span className="ml-auto text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">{o.status}</span>
+                {g.status === 'OPEN' && o.status === 'RESERVED' && <button onClick={() => act(() => api(`/kobepay-pro/group-orders/${o.id}/cancel`, { method: 'POST', body: '{}' }))} className="text-[11px] text-rose-400">remove</button>}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Small pieces ─────────────────────────────────────────────────────────
 function Stat({ label, value, Icon, tone }: { label: string; value: string; Icon: typeof Wallet; tone: string }) {
   return (
@@ -327,7 +490,7 @@ function Pool({ label, value, c, Icon }: { label: string; value: number; c: stri
   return (
     <div className="rounded-xl bg-slate-800/60 p-2.5">
       <div className="flex items-center gap-1 text-[10px] uppercase text-slate-500"><Icon className="w-3 h-3" />{label}</div>
-      <div className="font-bold mt-0.5">{money(value, c)}</div>
+      <div className="font-bold mt-0.5">{c ? money(value, c) : value.toLocaleString()}</div>
     </div>
   );
 }
