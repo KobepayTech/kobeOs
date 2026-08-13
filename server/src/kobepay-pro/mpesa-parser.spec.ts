@@ -56,6 +56,33 @@ describe('parsePaymentSms — real samples', () => {
     expect(parsePaymentSms(oddDecimal.raw)!.transactionId).toBe(oddDecimal.transactionId);
   });
 
+  it('CRDB Swahili deposit ("Umeweka …") credits with its REF as the id', () => {
+    const p = must(parsePaymentSms(
+      'Muamala umefanikiwa. Umeweka TSh 500000.00 kwenye akaunti 01520****DP00 Tarehe 2026-07-21 17:34:12.469 REF: 19f85194334d3b29. CRDB Wakala. Kitu Kimesimama!ki ya CRDB.',
+    ));
+    expect(p.amount).toBe(500000);
+    expect(p.transactionId).toBe('19F85194334D3B29');
+    expect(p.direction).toBe('RECEIVED');
+    expect(p.provider).toBe('CRDB');
+  });
+
+  it('CRDB English deposit ("you have received TZS…")', () => {
+    const p = must(parsePaymentSms(
+      'Dear Customer, you have received TZS500,000.00 in your account number: 0152********P00 2026-07-21T17:34 REF:FT262024HV5R . For queries call 0755197700',
+    ));
+    expect(p.amount).toBe(500000);
+    expect(p.transactionId).toBe('FT262024HV5R');
+    expect(p.direction).toBe('RECEIVED');
+  });
+
+  it('CRDB outgoing transfer ("kwenda") is NOT a deposit', () => {
+    const p = must(parsePaymentSms(
+      'KUMB:19f853874fb158d9 Muamala umefanikiwa TZS1100000 NBC kwenda STEPHENE SOSTER 050174000147 Risiti:003-19f853874fb158d9 2026-07-21 18:08:17 CRDB SIMBANKING APP',
+    ));
+    expect(p.amount).toBe(1100000);
+    expect(p.direction).toBe('SENT');
+  });
+
   it('extracts a Kobepay student reference when present (paybill deposits)', () => {
     const p = must(parsePaymentSms('DH8C7263CE Confirmed. Receive Tsh30,000.00 from JANE DOE. Reference KBP48291. New balance is Tsh30,000.00'));
     expect(p.reference).toBe('KBP48291');

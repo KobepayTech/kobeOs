@@ -61,8 +61,9 @@ const AMOUNT = () => regexFromEnv('MPESA_AMOUNT_REGEX', /(?:tshs?|tzs)\s*\.?\s*(
 const PHONE = /(\+?255\d{9}|0\d{9})/;
 // Student reference (a Kobepay code the parent puts on a paybill deposit).
 const STUDENT_REF = () => regexFromEnv('MPESA_REF_REGEX', /\b(KBP[- ]?[A-Z0-9]{3,})\b/i);
-// Receiving account tail: XX0147, **0147, ****2200, AC:050*****0147.
-const ACCOUNT = /(?:AC[:\s]*|akaunti(?:\s+yako)?\s*|Akaunti\s*)([0-9X*]{4,}[0-9]{3,}|[X*]{2,}\d{3,}|\d{3,}[X*]+\d{3,})/i;
+// Receiving account tail: XX0147, **0147, ****2200, AC:050*****0147,
+// 01520****DP00, 0152********P00.
+const ACCOUNT = /(?:AC[:\s]*|account\s+number[:\s]*|akaunti(?:\s+yako)?\s*|Akaunti\s*)([0-9][0-9A-Za-z*]{3,})/i;
 
 function toAmount(s: string): number {
   const n = parseFloat(s.replace(/,/g, ''));
@@ -79,8 +80,11 @@ function detectProvider(t: string): SmsProvider {
 
 function detectDirection(t: string): SmsDirection {
   if (/reversal|imerejeshwa|umerejeshewa/i.test(t)) return 'REVERSAL';
-  if (/has been deducted|deducted from|sent to|umelipa|umetuma|paid to/i.test(t)) return 'SENT';
-  if (/\breceive(d)?\b|received a payment|umepokea|imewekwa/i.test(t)) return 'RECEIVED';
+  // Outgoing: deductions, sends, and bank-to-bank transfers ("kwenda" = to).
+  if (/has been deducted|deducted from|sent to|umelipa|umetuma|paid to|\bkwenda\b/i.test(t)) return 'SENT';
+  // Incoming credits across providers: M-Pesa (Receive/received/Umepokea),
+  // NBC (imewekwa) and CRDB (Umeweka … / you have received).
+  if (/\breceive(d)?\b|received a payment|umepokea|imewekwa|\bumeweka\b/i.test(t)) return 'RECEIVED';
   return 'UNKNOWN';
 }
 
