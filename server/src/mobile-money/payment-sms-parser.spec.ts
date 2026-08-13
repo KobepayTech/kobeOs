@@ -1,4 +1,4 @@
-import { parsePaymentSms, parseMpesaSms, ParsedPaymentSms } from './mpesa-parser';
+import { parsePaymentSms, parseMpesaSms, ParsedPaymentSms } from './payment-sms-parser';
 
 function must(v: ParsedPaymentSms | null): ParsedPaymentSms {
   if (!v) throw new Error('expected a parsed SMS, got null');

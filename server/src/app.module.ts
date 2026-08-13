@@ -85,6 +85,7 @@ import { HotelPublicModule } from './hotel-public/hotel-public.module';
 import { HotelOperationsModule } from './hotel/hotel-operations.module';
 import { AppMarketplaceModule } from './app-marketplace/app-marketplace.module';
 import { DeveloperPlatformModule } from './developer-platform/developer-platform.module';
+import { MobileMoneyModule } from './mobile-money/mobile-money.module';
 import { KobepayProModule } from './kobepay-pro/kobepay-pro.module';
 
 @Module({
@@ -182,6 +183,7 @@ import { KobepayProModule } from './kobepay-pro/kobepay-pro.module';
     SystemHealthModule,
     LanModule,
     RemittanceModule,
+    MobileMoneyModule,
     KobepayProModule,
   ],
   controllers: [AppController],

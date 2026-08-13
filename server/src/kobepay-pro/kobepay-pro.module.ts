@@ -11,7 +11,7 @@ import { RuleEngineService } from './rule-engine.service';
 import { PaymentService } from './payment.service';
 import { SchoolService } from './school.service';
 import { KobepayProController } from './kobepay-pro.controller';
-import { MpesaController } from './mpesa.controller';
+import { MobileMoneyModule } from '../mobile-money/mobile-money.module';
 
 /**
  * Kobepay Pro — programmable school financial OS.
@@ -25,12 +25,13 @@ import { MpesaController } from './mpesa.controller';
       KpAccount, KpTransaction, KpLedgerLine,
       KpWallet, KpBucket, KpReservedHold, KpBankDeposit,
     ]),
+    MobileMoneyModule,
   ],
   providers: [
     LedgerService, WalletService, DepositEngineService,
     RuleEngineService, PaymentService, SchoolService,
   ],
-  controllers: [KobepayProController, MpesaController],
+  controllers: [KobepayProController],
   exports: [LedgerService, WalletService, DepositEngineService, PaymentService, SchoolService],
 })
 export class KobepayProModule {}

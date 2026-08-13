@@ -253,12 +253,15 @@ function Merchants({ schoolId }: { schoolId: string }) {
 }
 
 // ── Deposits ─────────────────────────────────────────────────────────────
+interface SmsDevice { id: string; deviceId: string; label: string; purpose: string; active: boolean; lastSeenAt: string | null }
 function Deposits({ schoolId }: { schoolId: string; onChange: () => void }) {
   const [rows, setRows] = useState<Deposit[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
+  const [devices, setDevices] = useState<SmsDevice[]>([]);
   const load = useCallback(() => {
     api<Deposit[]>('/kobepay-pro/deposits/unmatched').then((r) => setRows(Array.isArray(r) ? r : [])).catch(() => setRows([]));
     api<Student[]>(`/kobepay-pro/students?schoolId=${schoolId}`).then((r) => setStudents(Array.isArray(r) ? r : [])).catch(() => setStudents([]));
+    api<SmsDevice[]>('/mobile-money/devices').then((r) => setDevices(Array.isArray(r) ? r : [])).catch(() => setDevices([]));
   }, [schoolId]);
   useEffect(() => { load(); }, [load]);
   const match = async (d: Deposit) => {
@@ -269,16 +272,43 @@ function Deposits({ schoolId }: { schoolId: string; onChange: () => void }) {
     await api(`/kobepay-pro/deposits/${d.id}/match`, { method: 'POST', body: JSON.stringify({ studentId: student.id }) });
     load();
   };
+  const addDevice = async () => {
+    const label = prompt('Name this phone (e.g. "Front office iPhone")')?.trim();
+    if (label === undefined) return;
+    const deviceId = `KOBE-MPESA-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
+    const r = await api<{ device: SmsDevice; gatewayKey: string }>('/mobile-money/devices', { method: 'POST', body: JSON.stringify({ deviceId, label: label || deviceId, purpose: 'kobepay-pro' }) });
+    alert(`Forwarder registered.\n\nPOST the SMS to:\n${window.location.origin}/api/mpesa/sms\n\nJSON body:\n{\n  "device_id": "${r.device.deviceId}",\n  "message": "<the raw SMS>",\n  "gateway_key": "${r.gatewayKey}"\n}\n\nSave this gateway key now — it is shown only once.`);
+    load();
+  };
   return (
-    <div className="p-4">
-      <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-3">Unmatched deposits · {rows.length}</h2>
-      <div className="rounded-xl border border-slate-800 overflow-hidden">
-        {rows.length === 0 ? <div className="p-8 text-center text-slate-500 text-sm">No deposits waiting to be matched. M-Pesa deposits with a valid student reference auto-post.</div> : rows.map((d) => (
-          <div key={d.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-slate-800/70">
-            <div className="min-w-0 flex-1"><div className="text-sm font-semibold">{money(d.amount)}</div><div className="text-[11px] text-slate-500">{d.senderName || d.senderPhone || '—'} · ref {d.reference || '—'} · {d.source}</div></div>
-            <button onClick={() => match(d)} className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-emerald-600">Match student</button>
+    <div className="p-4 space-y-4">
+      <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
+        <div className="flex items-center mb-2">
+          <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400">SMS forwarders</h2>
+          <button onClick={addDevice} className="ml-auto h-8 inline-flex items-center gap-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 px-3 text-xs font-bold"><Plus className="w-4 h-4" />Set up iPhone</button>
+        </div>
+        {devices.length === 0 ? (
+          <p className="text-[11px] text-slate-500">Register the phone that holds the M-Pesa/bank SIM. An Apple Shortcuts automation POSTs each incoming SMS to <span className="text-slate-300">/api/mpesa/sms</span>; Kobepay parses and posts deposits automatically.</p>
+        ) : devices.map((d) => (
+          <div key={d.id} className="flex items-center gap-3 py-1.5 text-sm">
+            <span className={`w-1.5 h-1.5 rounded-full ${d.active ? 'bg-emerald-400' : 'bg-slate-600'}`} />
+            <span className="font-semibold">{d.label || d.deviceId}</span>
+            <span className="text-[11px] text-slate-500">{d.deviceId} · {d.purpose}</span>
+            <span className="ml-auto text-[11px] text-slate-500">{d.lastSeenAt ? `seen ${new Date(d.lastSeenAt).toLocaleString()}` : 'never seen'}</span>
           </div>
         ))}
+      </div>
+
+      <div>
+        <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-3">Unmatched deposits · {rows.length}</h2>
+        <div className="rounded-xl border border-slate-800 overflow-hidden">
+          {rows.length === 0 ? <div className="p-8 text-center text-slate-500 text-sm">No deposits waiting to be matched. Deposits carrying a valid student reference auto-post.</div> : rows.map((d) => (
+            <div key={d.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-slate-800/70">
+              <div className="min-w-0 flex-1"><div className="text-sm font-semibold">{money(d.amount)}</div><div className="text-[11px] text-slate-500">{d.senderName || d.senderPhone || '—'} · ref {d.reference || '—'} · {d.source}</div></div>
+              <button onClick={() => match(d)} className="text-[11px] font-bold px-2.5 py-1 rounded-lg bg-emerald-600">Match student</button>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

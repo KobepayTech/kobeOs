@@ -1,9 +1,9 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { KpBankDeposit, KpStudent, DepositSource } from './kobepay-pro.entity';
 import { WalletService } from './wallet.service';
-import { parsePaymentSms } from './mpesa-parser';
+import { MobileMoneyService } from '../mobile-money/mobile-money.service';
 
 export interface IngestResult {
   ok: boolean;
@@ -16,36 +16,38 @@ export interface IngestResult {
 
 /**
  * The deposit engine turns incoming bank/mobile-money transactions into student
- * wallet credits. It is idempotent on `bankTransactionId` (globally unique) so
- * a re-forwarded SMS or webhook retry can never credit a wallet twice, and it
- * auto-matches deposits to a student by the reference on the transfer.
+ * wallet credits. It registers as a consumer of the shared Mobile Money bridge
+ * (device purpose "kobepay-pro"), so forwarded SMS flow in without this module
+ * owning the HTTP endpoint. It is idempotent on `bankTransactionId` so a
+ * re-forwarded SMS can never credit a wallet twice, and auto-matches deposits to
+ * a student by the reference / parent phone.
  */
 @Injectable()
-export class DepositEngineService {
+export class DepositEngineService implements OnModuleInit {
   private readonly logger = new Logger(DepositEngineService.name);
 
   constructor(
     @InjectRepository(KpBankDeposit) private readonly deposits: Repository<KpBankDeposit>,
     @InjectRepository(KpStudent) private readonly students: Repository<KpStudent>,
     private readonly wallets: WalletService,
+    private readonly mobileMoney: MobileMoneyService,
   ) {}
 
-  /** Ingest a raw M-Pesa SMS forwarded by the phone bridge. */
-  async ingestSms(ownerId: string, message: string): Promise<IngestResult> {
-    const parsed = parsePaymentSms(message);
-    if (!parsed) return { ok: false, status: 'REJECTED', reason: 'Not a recognisable payment SMS' };
-    // Only credit genuine incoming money — never deductions, sends or reversals.
-    if (parsed.direction !== 'RECEIVED') {
-      return { ok: false, status: 'REJECTED', reason: `Ignored ${parsed.direction.toLowerCase()} SMS` };
-    }
-    return this.record(ownerId, {
-      bankTransactionId: parsed.transactionId,
-      amount: parsed.amount,
-      senderName: parsed.senderName,
-      senderPhone: parsed.senderPhone,
-      reference: parsed.reference,
-      source: 'MPESA_SMS',
-      raw: parsed.raw,
+  onModuleInit() {
+    // Any device whose purpose is "kobepay-pro" routes school deposits here.
+    this.mobileMoney.registerConsumer('kobepay-pro', async (ownerId, txn) => {
+      const r = await this.record(ownerId, {
+        bankTransactionId: txn.transactionId,
+        amount: txn.amount,
+        senderName: txn.senderName,
+        senderPhone: txn.senderPhone,
+        reference: txn.reference,
+        source: 'MPESA_SMS',
+        raw: txn.rawMessage,
+      });
+      // The school owns its deposits whether or not a student was auto-matched;
+      // unmatched ones sit in the school console's reconciliation queue.
+      return { consumed: r.status !== 'REJECTED', ref: r.depositId };
     });
   }
 

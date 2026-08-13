@@ -1,26 +1,24 @@
 /**
- * Payment-SMS parser for the Kobepay deposit bridge.
+ * Payment-SMS parser for the KobePay mobile-money bridge.
  *
- * The iPhone Shortcuts automation forwards raw SMS from M-Pesa (Vodacom TZ) and
- * banks (NBC, CRDB, …). All the intelligence lives here so that when a provider
- * changes wording we update this file, not every phone. Verified against real
+ * This is a SHARED capability — not specific to schools. An iPhone Shortcuts
+ * automation forwards raw SMS from M-Pesa (Vodacom TZ) and banks (NBC, CRDB, …)
+ * to /api/mpesa/sms; the server does all the parsing here so that when a
+ * provider changes wording we update this one file, not every phone. Any KobeOS
+ * module (school deposits, live sales, hotel, cargo, general merchant
+ * collection) can consume the resulting transactions. Verified against real
  * samples:
  *
- *   M-Pesa receive (person):
- *     "DH8C7263CE Confirmed. On 8/8/26, 8:41 pm Receive Tsh150,000.00 from
- *      ROMANA MAURUS KIMENA New balance is Tsh150,000.11..."
- *   M-Pesa receive (business/paybill):
- *     "DHCC7286JJ confirmed. You have received a payment of Tsh40,000.00 from
- *      922746 - TIPS-CRDB on 12/8/26..."
- *   M-Pesa Swahili duplicate (SAME code → deduped by the engine):
- *     "DHCC7286JJ imethibitishwa. Umepokea Tshs 40,000.00 kutoka CRDB Bank..."
- *   M-Pesa debit (IGNORED — not a deposit):
- *     "... has been deducted ...", "... sent to business ..."
- *   NBC deposit (no code / with REF):
- *     "Ndugu X ,TSH 5,600,000.00 imewekwa kwenye AC:050*****0147 kutoka Wakala
- *      48157 Tar 10-08-2026 REF:622217024333..."
+ *   M-Pesa receive (person):  "DH8C7263CE Confirmed. … Receive Tsh150,000.00 from ROMANA MAURUS KIMENA …"
+ *   M-Pesa receive (paybill): "DHCC7286JJ confirmed. You have received a payment of Tsh40,000.00 from 922746 - TIPS-CRDB …"
+ *   M-Pesa Swahili duplicate: "DHCC7286JJ imethibitishwa. Umepokea Tshs 40,000.00 kutoka CRDB Bank…"  (SAME code → deduped)
+ *   M-Pesa debit (IGNORED):   "… has been deducted …", "… sent to business …"
+ *   NBC deposit:              "Ndugu X ,TSH 5,600,000.00 imewekwa kwenye AC:050*****0147 … REF:622217024333"
+ *   CRDB deposit (Swahili):   "Muamala umefanikiwa. Umeweka TSh 500000.00 kwenye akaunti 01520****DP00 … REF: 19f85194334d3b29"
+ *   CRDB deposit (English):   "Dear Customer, you have received TZS500,000.00 in your account number: 0152********P00 … REF:FT262024HV5R"
+ *   CRDB send (IGNORED):      "… TZS1100000 NBC kwenda STEPHENE …"
  *
- * Env overrides (optional, once you want to tune matching):
+ * Env overrides (optional, to tune matching without a redeploy):
  *   MPESA_TXID_REGEX / MPESA_AMOUNT_REGEX / MPESA_REF_REGEX  (group 1 = value)
  */
 
@@ -34,14 +32,14 @@ export interface ParsedPaymentSms {
   amount: number;
   senderName: string;
   senderPhone: string;
-  reference: string;   // student-matching hint (e.g. KBP48291), often empty
+  reference: string;   // matching hint (e.g. KBP48291 / order code), often empty
   account: string;     // receiving account tail if present (e.g. **0147)
   provider: SmsProvider;
   direction: SmsDirection;
   raw: string;
 }
 
-/** Back-compat alias — the deposit engine imports these names. */
+/** Back-compat alias. */
 export type ParsedMpesaSms = ParsedPaymentSms;
 
 function regexFromEnv(name: string, fallback: RegExp): RegExp {
@@ -59,8 +57,8 @@ const BANK_REF = /\bREF[:\s]*([A-Z0-9]{6,})\b/i;
 // Amount: Tsh / Tshs / TZS / TSH, tolerating "Tshs . 4684.6".
 const AMOUNT = () => regexFromEnv('MPESA_AMOUNT_REGEX', /(?:tshs?|tzs)\s*\.?\s*([\d,]+(?:\.\d{1,2})?)/i);
 const PHONE = /(\+?255\d{9}|0\d{9})/;
-// Student reference (a Kobepay code the parent puts on a paybill deposit).
-const STUDENT_REF = () => regexFromEnv('MPESA_REF_REGEX', /\b(KBP[- ]?[A-Z0-9]{3,})\b/i);
+// A KobePay reference a payer can put on a paybill deposit (student/order code).
+const KOBE_REF = () => regexFromEnv('MPESA_REF_REGEX', /\b(KBP[- ]?[A-Z0-9]{3,})\b/i);
 // Receiving account tail: XX0147, **0147, ****2200, AC:050*****0147,
 // 01520****DP00, 0152********P00.
 const ACCOUNT = /(?:AC[:\s]*|account\s+number[:\s]*|akaunti(?:\s+yako)?\s*|Akaunti\s*)([0-9][0-9A-Za-z*]{3,})/i;
@@ -129,7 +127,7 @@ export function parsePaymentSms(raw: string | null | undefined): ParsedPaymentSm
     : refMatch ? refMatch[1].toUpperCase()
     : `SMS-${createHash('sha1').update(text).digest('hex').slice(0, 16).toUpperCase()}`;
 
-  const studentRef = text.match(STUDENT_REF());
+  const kobeRef = text.match(KOBE_REF());
   const acct = text.match(ACCOUNT);
   const phone = text.match(PHONE);
 
@@ -138,7 +136,7 @@ export function parsePaymentSms(raw: string | null | undefined): ParsedPaymentSm
     amount,
     senderName: extractName(text),
     senderPhone: phone ? phone[1] : '',
-    reference: studentRef ? studentRef[1].replace(/\s+/g, '').toUpperCase() : '',
+    reference: kobeRef ? kobeRef[1].replace(/\s+/g, '').toUpperCase() : '',
     account: acct ? acct[1].toUpperCase() : '',
     provider: detectProvider(text),
     direction: detectDirection(text),
@@ -146,5 +144,5 @@ export function parsePaymentSms(raw: string | null | undefined): ParsedPaymentSm
   };
 }
 
-/** Back-compat alias — existing callers import parseMpesaSms. */
+/** Back-compat alias. */
 export const parseMpesaSms = parsePaymentSms;
