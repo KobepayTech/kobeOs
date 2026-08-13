@@ -1,28 +1,48 @@
 /**
- * M-Pesa SMS parser.
+ * Payment-SMS parser for the Kobepay deposit bridge.
  *
- * The iPhone Shortcuts bridge forwards the raw M-Pesa SMS text; the server does
- * all the intelligence here so that when M-Pesa changes its wording we update
- * this file, not every phone. Patterns are deliberately tolerant and can be
- * overridden with env vars once a real sample is confirmed:
+ * The iPhone Shortcuts automation forwards raw SMS from M-Pesa (Vodacom TZ) and
+ * banks (NBC, CRDB, …). All the intelligence lives here so that when a provider
+ * changes wording we update this file, not every phone. Verified against real
+ * samples:
  *
- *   MPESA_TXID_REGEX   — capture group 1 = transaction id
- *   MPESA_AMOUNT_REGEX — capture group 1 = amount (commas/decimals allowed)
- *   MPESA_REF_REGEX    — capture group 1 = the student reference (e.g. KBP48291)
+ *   M-Pesa receive (person):
+ *     "DH8C7263CE Confirmed. On 8/8/26, 8:41 pm Receive Tsh150,000.00 from
+ *      ROMANA MAURUS KIMENA New balance is Tsh150,000.11..."
+ *   M-Pesa receive (business/paybill):
+ *     "DHCC7286JJ confirmed. You have received a payment of Tsh40,000.00 from
+ *      922746 - TIPS-CRDB on 12/8/26..."
+ *   M-Pesa Swahili duplicate (SAME code → deduped by the engine):
+ *     "DHCC7286JJ imethibitishwa. Umepokea Tshs 40,000.00 kutoka CRDB Bank..."
+ *   M-Pesa debit (IGNORED — not a deposit):
+ *     "... has been deducted ...", "... sent to business ..."
+ *   NBC deposit (no code / with REF):
+ *     "Ndugu X ,TSH 5,600,000.00 imewekwa kwenye AC:050*****0147 kutoka Wakala
+ *      48157 Tar 10-08-2026 REF:622217024333..."
  *
- * NOTE: the exact default matcher should be finalised against one real
- * "money received" SMS. Until then these cover the common Vodacom TZ format.
+ * Env overrides (optional, once you want to tune matching):
+ *   MPESA_TXID_REGEX / MPESA_AMOUNT_REGEX / MPESA_REF_REGEX  (group 1 = value)
  */
 
-export interface ParsedMpesaSms {
+import { createHash } from 'crypto';
+
+export type SmsProvider = 'MPESA' | 'NBC' | 'CRDB' | 'BANK' | 'UNKNOWN';
+export type SmsDirection = 'RECEIVED' | 'SENT' | 'REVERSAL' | 'UNKNOWN';
+
+export interface ParsedPaymentSms {
   transactionId: string;
   amount: number;
   senderName: string;
   senderPhone: string;
-  reference: string;
-  direction: 'RECEIVED' | 'SENT' | 'REVERSAL' | 'UNKNOWN';
+  reference: string;   // student-matching hint (e.g. KBP48291), often empty
+  account: string;     // receiving account tail if present (e.g. **0147)
+  provider: SmsProvider;
+  direction: SmsDirection;
   raw: string;
 }
+
+/** Back-compat alias — the deposit engine imports these names. */
+export type ParsedMpesaSms = ParsedPaymentSms;
 
 function regexFromEnv(name: string, fallback: RegExp): RegExp {
   const raw = process.env[name];
@@ -30,64 +50,97 @@ function regexFromEnv(name: string, fallback: RegExp): RegExp {
   try { return new RegExp(raw, 'i'); } catch { return fallback; }
 }
 
-// Transaction id: M-Pesa TZ confirmation codes are ~10 uppercase alphanumerics,
-// usually the first token of the SMS (e.g. "QGH7K12345 Confirmed.").
-const TXID = () => regexFromEnv('MPESA_TXID_REGEX', /\b([A-Z0-9]{8,12})\b(?=\s+Confirmed|\s+imethibitishwa|\.)/);
-const TXID_FALLBACK = /^\s*([A-Z0-9]{8,12})\b/;
-// Amount: "TSh50,000.00" / "TZS 50,000" / "Tsh 5,000".
-const AMOUNT = () => regexFromEnv('MPESA_AMOUNT_REGEX', /(?:tsh|tzs)\s*([\d,]+(?:\.\d{1,2})?)/i);
-// Phone: 2557xxxxxxxx / +2557xxxxxxxx / 07xxxxxxxx.
+// Leading M-Pesa confirmation code: 8–12 uppercase alphanumerics (must contain a
+// digit) followed by Confirmed / confirmed / imethibitishwa.
+const TXID_CONFIRMED = () => regexFromEnv('MPESA_TXID_REGEX', /\b([A-Z0-9]{8,12})\b\.?\s+(?:confirmed|imethibitishwa)/i);
+const TXID_LEADING = /^\s*(?=[A-Z0-9]*[0-9])([A-Z]{2}[A-Z0-9]{6,10})\b/;
+// Bank transaction reference, e.g. "REF:622217024333".
+const BANK_REF = /\bREF[:\s]*([A-Z0-9]{6,})\b/i;
+// Amount: Tsh / Tshs / TZS / TSH, tolerating "Tshs . 4684.6".
+const AMOUNT = () => regexFromEnv('MPESA_AMOUNT_REGEX', /(?:tshs?|tzs)\s*\.?\s*([\d,]+(?:\.\d{1,2})?)/i);
 const PHONE = /(\+?255\d{9}|0\d{9})/;
-// Student reference: KBP48291 / "ref KBP48291" / "account: 48291".
-const REF = () => regexFromEnv('MPESA_REF_REGEX', /\b(KBP[- ]?[A-Z0-9]{3,})\b/i);
-const REF_ACCOUNT = /(?:ref(?:erence)?|account|acc|kumb\.?)\s*[:.\-]?\s*([A-Za-z0-9-]{3,})/i;
+// Student reference (a Kobepay code the parent puts on a paybill deposit).
+const STUDENT_REF = () => regexFromEnv('MPESA_REF_REGEX', /\b(KBP[- ]?[A-Z0-9]{3,})\b/i);
+// Receiving account tail: XX0147, **0147, ****2200, AC:050*****0147.
+const ACCOUNT = /(?:AC[:\s]*|akaunti(?:\s+yako)?\s*|Akaunti\s*)([0-9X*]{4,}[0-9]{3,}|[X*]{2,}\d{3,}|\d{3,}[X*]+\d{3,})/i;
 
 function toAmount(s: string): number {
   const n = parseFloat(s.replace(/,/g, ''));
   return Number.isFinite(n) ? n : 0;
 }
 
-function detectDirection(text: string): ParsedMpesaSms['direction'] {
-  const t = text.toLowerCase();
-  if (/reversal|imerejeshwa|umerejeshewa/.test(t)) return 'REVERSAL';
-  if (/received|umepokea|you have received/.test(t)) return 'RECEIVED';
-  if (/sent to|umelipa|umetuma|paid to/.test(t)) return 'SENT';
+function detectProvider(t: string): SmsProvider {
+  if (/m-?pesa/i.test(t)) return 'MPESA';
+  if (/\bNBC\b/i.test(t)) return 'NBC';
+  if (/\bCRDB\b/i.test(t)) return 'CRDB';
+  if (/imewekwa|akaunti|bank/i.test(t)) return 'BANK';
   return 'UNKNOWN';
 }
 
-function extractName(text: string): string {
-  // "...from 0712345678 JOHN DOE ..." or "...kutoka JOHN DOE 0712..."
-  const afterFrom = text.match(/(?:from|kutoka)\s+(?:\+?255\d{9}|0\d{9})?\s*([A-Za-z][A-Za-z .'-]{2,40})/i);
-  if (afterFrom) return afterFrom[1].trim().replace(/\s+/g, ' ');
-  const beforePhone = text.match(/([A-Za-z][A-Za-z .'-]{2,40})\s+(?:\+?255\d{9}|0\d{9})/);
-  return beforePhone ? beforePhone[1].trim().replace(/\s+/g, ' ') : '';
+function detectDirection(t: string): SmsDirection {
+  if (/reversal|imerejeshwa|umerejeshewa/i.test(t)) return 'REVERSAL';
+  if (/has been deducted|deducted from|sent to|umelipa|umetuma|paid to/i.test(t)) return 'SENT';
+  if (/\breceive(d)?\b|received a payment|umepokea|imewekwa/i.test(t)) return 'RECEIVED';
+  return 'UNKNOWN';
+}
+
+function clean(name: string): string {
+  return name.replace(/\s+/g, ' ').replace(/[.,]+$/, '').trim();
+}
+
+function extractName(t: string): string {
+  const patterns = [
+    /from\s+([A-Za-z][A-Za-z .'\-]+?)\s+New balance/i,          // M-Pesa person receive
+    /from\s+([0-9]{3,}\s*-\s*[A-Za-z][\w .'\-]*?)\s+on\b/i,      // M-Pesa paybill "922746 - TIPS-CRDB"
+    /from\s+([A-Za-z][A-Za-z .'\-]+?)\s+on\b/i,                  // M-Pesa generic "from X on"
+    /kutoka\s+([A-Za-z][\w .'\-,*]+?)\s+(?:tarehe|tar\b|saa)\b/i, // Swahili "kutoka X tarehe/Tar/saa"
+    /Ndugu\s+([A-Za-z][A-Za-z .'\-]+?)\s*,/i,                    // NBC "Ndugu NAME ,"
+    /([A-Za-z][A-Za-z .'\-]{2,40})\s+(?:\+?255\d{9}|0\d{9})/,     // name before a phone
+  ];
+  for (const re of patterns) {
+    const m = t.match(re);
+    if (m) return clean(m[1]);
+  }
+  return '';
 }
 
 /**
- * Parse a raw M-Pesa SMS. Returns null when there is no recognisable amount or
- * transaction id (so junk / non-payment SMS is ignored rather than crediting).
+ * Parse a payment SMS. Returns null when there's no recognisable amount, so
+ * marketing/junk SMS is ignored rather than crediting anything.
  */
-export function parseMpesaSms(raw: string | null | undefined): ParsedMpesaSms | null {
+export function parsePaymentSms(raw: string | null | undefined): ParsedPaymentSms | null {
   if (!raw || typeof raw !== 'string') return null;
   const text = raw.replace(/\s+/g, ' ').trim();
 
-  const idMatch = text.match(TXID()) || text.match(TXID_FALLBACK);
   const amountMatch = text.match(AMOUNT());
-  if (!idMatch || !amountMatch) return null;
-
+  if (!amountMatch) return null;
   const amount = toAmount(amountMatch[1]);
   if (amount <= 0) return null;
 
-  const refMatch = text.match(REF()) || text.match(REF_ACCOUNT);
-  const phoneMatch = text.match(PHONE);
+  // Transaction id: M-Pesa code → bank REF → deterministic hash of the SMS
+  // (so an exact re-forward dedupes, while distinct SMS differ).
+  const codeMatch = text.match(TXID_CONFIRMED()) || text.match(TXID_LEADING);
+  const refMatch = text.match(BANK_REF);
+  const transactionId = codeMatch ? codeMatch[1].toUpperCase()
+    : refMatch ? refMatch[1].toUpperCase()
+    : `SMS-${createHash('sha1').update(text).digest('hex').slice(0, 16).toUpperCase()}`;
+
+  const studentRef = text.match(STUDENT_REF());
+  const acct = text.match(ACCOUNT);
+  const phone = text.match(PHONE);
 
   return {
-    transactionId: idMatch[1].toUpperCase(),
+    transactionId,
     amount,
     senderName: extractName(text),
-    senderPhone: phoneMatch ? phoneMatch[1] : '',
-    reference: refMatch ? refMatch[1].replace(/\s+/g, '').toUpperCase() : '',
+    senderPhone: phone ? phone[1] : '',
+    reference: studentRef ? studentRef[1].replace(/\s+/g, '').toUpperCase() : '',
+    account: acct ? acct[1].toUpperCase() : '',
+    provider: detectProvider(text),
     direction: detectDirection(text),
     raw: text,
   };
 }
+
+/** Back-compat alias — existing callers import parseMpesaSms. */
+export const parseMpesaSms = parsePaymentSms;

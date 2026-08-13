@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { KpBankDeposit, KpStudent, DepositSource } from './kobepay-pro.entity';
 import { WalletService } from './wallet.service';
-import { parseMpesaSms } from './mpesa-parser';
+import { parsePaymentSms } from './mpesa-parser';
 
 export interface IngestResult {
   ok: boolean;
@@ -32,10 +32,11 @@ export class DepositEngineService {
 
   /** Ingest a raw M-Pesa SMS forwarded by the phone bridge. */
   async ingestSms(ownerId: string, message: string): Promise<IngestResult> {
-    const parsed = parseMpesaSms(message);
-    if (!parsed) return { ok: false, status: 'REJECTED', reason: 'Not a recognisable M-Pesa payment SMS' };
-    if (parsed.direction === 'SENT') {
-      return { ok: false, status: 'REJECTED', reason: 'Outgoing payment SMS ignored' };
+    const parsed = parsePaymentSms(message);
+    if (!parsed) return { ok: false, status: 'REJECTED', reason: 'Not a recognisable payment SMS' };
+    // Only credit genuine incoming money — never deductions, sends or reversals.
+    if (parsed.direction !== 'RECEIVED') {
+      return { ok: false, status: 'REJECTED', reason: `Ignored ${parsed.direction.toLowerCase()} SMS` };
     }
     return this.record(ownerId, {
       bankTransactionId: parsed.transactionId,
