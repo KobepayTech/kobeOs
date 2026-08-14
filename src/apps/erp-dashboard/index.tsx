@@ -8,6 +8,7 @@ import {
   ChevronRight, Boxes, CircleDollarSign,
   Globe, LayoutDashboard, CreditCard, Percent,
   NotebookPen, Calculator, Smartphone, ExternalLink, Images,
+  Radio,
 } from 'lucide-react';
 import { useOSStore } from '@/os/store';
 import {
@@ -81,6 +82,7 @@ const moduleSections = [
       { id: 'store', appId: 'erp-store', label: 'Product Manager', desc: 'SKU, inventory & pricing', icon: Store, color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20' },
       { id: 'store-editor', appId: 'erp-store-editor', label: 'Store Editor', desc: 'Customize your storefront', icon: Palette, color: 'text-violet-400', bg: 'bg-violet-500/10', border: 'border-violet-500/20' },
       { id: 'media-inbox', appId: 'media-inbox', label: 'Media Inbox', desc: 'Bulk images/videos -> products', icon: Images, color: 'text-fuchsia-400', bg: 'bg-fuchsia-500/10', border: 'border-fuchsia-500/20' },
+      { id: 'live-sales', appId: 'live-sales', label: 'Live Stream Sales', desc: 'Start a live catalog, capture comments & send paid orders to KDS', icon: Radio, color: 'text-fuchsia-400', bg: 'bg-fuchsia-500/10', border: 'border-fuchsia-500/20' },
       { id: 'credit', appId: 'erp-credit', label: 'Credit & Collections', desc: 'Customer credit & balances', icon: CreditCard, color: 'text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/20' },
       { id: 'discounts', appId: 'erp-discounts', label: 'Discounts & Promos', desc: 'Rules, campaigns & coupons', icon: Percent, color: 'text-pink-400', bg: 'bg-pink-500/10', border: 'border-pink-500/20' },
     ] as ModuleTile[],
@@ -356,6 +358,7 @@ function DashboardOverview({ launchApp }: { launchApp: (appId: string) => void }
           {[
             { appId: 'erp-pos', label: 'POS System', desc: 'Point of sale', icon: Receipt, color: 'bg-amber-500/15 text-amber-400 hover:bg-amber-500/25', border: 'border-amber-500/20 hover:border-amber-500/40' },
             { appId: 'erp-shop', label: 'Online Shop', desc: 'Customer storefront', icon: ShoppingBag, color: 'bg-blue-500/15 text-blue-400 hover:bg-blue-500/25', border: 'border-blue-500/20 hover:border-blue-500/40' },
+            { appId: 'live-sales', label: 'Start Live Sales', desc: 'Comments → web checkout → KDS', icon: Radio, color: 'bg-fuchsia-500/15 text-fuchsia-400 hover:bg-fuchsia-500/25', border: 'border-fuchsia-500/20 hover:border-fuchsia-500/40' },
             { appId: 'erp-warehouse', label: 'Warehouse', desc: 'Stock management', icon: Warehouse, color: 'bg-orange-500/15 text-orange-400 hover:bg-orange-500/25', border: 'border-orange-500/20 hover:border-orange-500/40' },
             { appId: 'erp-accounting', label: 'Accounting', desc: 'Financial records', icon: CircleDollarSign, color: 'bg-green-500/15 text-green-400 hover:bg-green-500/25', border: 'border-green-500/20 hover:border-green-500/40' },
             { appId: 'erp-reports', label: 'Reports', desc: 'Analytics & insights', icon: FileText, color: 'bg-indigo-500/15 text-indigo-400 hover:bg-indigo-500/25', border: 'border-indigo-500/20 hover:border-indigo-500/40' },

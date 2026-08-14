@@ -98,15 +98,17 @@ interface JerseyShopChromeProps {
   onOpenCart: () => void;
   onGoStores: () => void;
   onPickNav?: (
-    view: 'new-arrivals' | 'offers' | 'brands' | 'wishlist' | 'track-order',
+    view: 'new-arrivals' | 'best-sellers' | 'offers' | 'brands' | 'wishlist' | 'track-order' | 'loyalty' | 'bnpl',
   ) => void;
+  onSignup?: () => void;
+  customerName?: string;
   config?: JerseyConfig;
   children: React.ReactNode;
 }
 
 /* ─── Announcement Bar ──────────────────────────────────────────────── */
 
-export function AnnouncementBar() {
+export function AnnouncementBar({ onSignup, onShopNow }: { onSignup?: () => void; onShopNow?: () => void }) {
   return (
     <div className="bg-[#f5f5f5] text-[11px] text-[#666] border-b border-[#e5e5e5]">
       <div className="max-w-7xl mx-auto px-4 py-1.5">
@@ -115,9 +117,10 @@ export function AnnouncementBar() {
           <select
             className="bg-transparent border-none text-[11px] text-[#666] focus:outline-none cursor-pointer"
             aria-label="Currency"
-            defaultValue="USD"
+            defaultValue="TZS"
           >
-            <option>USD / US$</option>
+            <option value="TZS">TZS / TSh</option>
+            <option value="USD">USD / US$</option>
             <option>EUR / €</option>
             <option>GBP / £</option>
           </select>
@@ -141,7 +144,7 @@ export function AnnouncementBar() {
           <span className="font-semibold text-[#1a1a1a]">
             SIGN UP GET 15% OFF
           </span>
-          <button className="border border-[#999] text-[#1a1a1a] px-3 py-0.5 text-[11px] font-medium hover:border-[#c8102e] hover:text-[#c8102e] transition-colors">
+          <button onClick={onSignup} className="border border-[#999] text-[#1a1a1a] px-3 py-0.5 text-[11px] font-medium hover:border-[#c8102e] hover:text-[#c8102e] transition-colors">
             Sign up
           </button>
         </div>
@@ -152,7 +155,7 @@ export function AnnouncementBar() {
             Free Shipping Worldwide
           </span>
           <span className="text-[#ccc]">|</span>
-          <button className="underline hover:text-[#c8102e] transition-colors">
+          <button onClick={onShopNow} className="underline hover:text-[#c8102e] transition-colors">
             See terms
           </button>
           <span className="text-[#ccc]">|</span>
@@ -192,6 +195,8 @@ export function Header({
   cartCount,
   onOpenCart,
   onPickNav,
+  onSignup,
+  customerName,
 }: {
   storeName: string;
   logoUrl?: string;
@@ -200,6 +205,8 @@ export function Header({
   cartCount: number;
   onOpenCart: () => void;
   onPickNav?: JerseyShopChromeProps['onPickNav'];
+  onSignup?: () => void;
+  customerName?: string;
 }) {
   return (
     <header className="bg-white border-b border-[#e5e5e5]">
@@ -236,11 +243,11 @@ export function Header({
             Download App
           </button>
           <button
-            onClick={() => onPickNav?.('track-order')}
+            onClick={onSignup}
             className="flex items-center gap-1.5 hover:text-[#c8102e] transition-colors"
           >
             <User className="w-4 h-4" />
-            Login
+            {customerName ? customerName.split(' ')[0] : 'Sign up'}
           </button>
           <button
             onClick={onOpenCart}
@@ -271,15 +278,13 @@ export function MainNav({
   selectedCategory: string;
   onSelectCategory: (cat: string) => void;
 }) {
-  // Build the nav from the store's REAL product categories (+ an "All" reset),
-  // so clicking a tab actually filters the grid. Previously this used a
-  // hardcoded jersey list whose labels never matched any DB category, so every
-  // tab showed an empty grid. Hidden when the store has no products yet.
-  // `categories` already includes an "All" reset. Hide the nav entirely when
-  // there are no real categories yet (empty store) — no lone "All" tab.
+  // These are permanent, deep-linkable jersey departments. Real store
+  // categories are appended so custom departments continue to work too.
+  const core = ['Club Jerseys', 'Kids', 'National Teams', 'Retro', 'Training'];
   const realCats = (categories ?? []).filter((c) => c !== 'All');
-  if (realCats.length === 0) return null;
-  const items = ['All', ...realCats];
+  const normalized = new Set(core.map((c) => c.toLowerCase().replace(/[^a-z0-9]/g, '')));
+  const extras = realCats.filter((c) => !normalized.has(c.toLowerCase().replace(/[^a-z0-9]/g, '')));
+  const items = ['All', ...core, ...extras];
   return (
     <nav className="bg-white border-t border-b border-[#e5e5e5]">
       <div className="max-w-7xl mx-auto px-4 flex items-center gap-0 overflow-x-auto">
@@ -472,12 +477,14 @@ export function JerseyProductCard({
   onAddToCart,
   onAddToWishlist,
   onOpen,
+  onOpenReviews,
   wished,
 }: {
   product: JerseyProduct;
   onAddToCart: (p: JerseyProduct) => void;
   onAddToWishlist: (p: JerseyProduct) => void;
   onOpen: (p: JerseyProduct) => void;
+  onOpenReviews?: (p: JerseyProduct) => void;
   wished: boolean;
 }) {
   const newRecent = useMemo(() => {
@@ -511,8 +518,11 @@ export function JerseyProductCard({
   return (
     <div className="group bg-white rounded-lg border border-[#e5e5e5] overflow-hidden flex flex-col hover:shadow-md transition-shadow">
       {/* Image area */}
-      <button
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => onOpen(product)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onOpen(product); }}
         className="relative aspect-square bg-[#f8f8f8] overflow-hidden"
       >
         {product.imageUrl ? (
@@ -564,7 +574,7 @@ export function JerseyProductCard({
             QUICK VIEW
           </button>
         </div>
-      </button>
+      </div>
 
       {/* Info area */}
       <div className="p-3 flex-1 flex flex-col gap-1.5">
@@ -579,8 +589,12 @@ export function JerseyProductCard({
           {displayPrice}
         </div>
 
-        {/* Star rating placeholder */}
-        <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => (onOpenReviews ?? onOpen)(product)}
+          className="flex items-center gap-1 w-fit rounded px-1.5 py-1 -ml-1.5 text-[#666] hover:bg-amber-50 hover:text-[#c8102e] transition-colors"
+          aria-label={`Read or write reviews for ${product.name}`}
+        >
           <div className="flex">
             {[1, 2, 3, 4, 5].map((s) => (
               <Star
@@ -589,8 +603,8 @@ export function JerseyProductCard({
               />
             ))}
           </div>
-          <span className="text-[11px] text-[#999]">(211)</span>
-        </div>
+          <span className="text-[11px] font-semibold underline underline-offset-2">REVIEWS</span>
+        </button>
 
         <Button
           size="sm"
@@ -1159,6 +1173,8 @@ export function JerseyShopChrome({
   onOpenCart,
   onGoStores: _onGoStores,
   onPickNav,
+  onSignup,
+  customerName,
   config,
   children,
 }: JerseyShopChromeProps) {
@@ -1167,7 +1183,7 @@ export function JerseyShopChrome({
   return (
     <div className="flex flex-col min-h-screen bg-white text-[#1a1a1a] font-sans">
       {/* Announcement Bar */}
-      <AnnouncementBar />
+      <AnnouncementBar onSignup={onSignup} onShopNow={() => onSelectCategory('All')} />
 
       {/* Header */}
       <Header
@@ -1178,6 +1194,8 @@ export function JerseyShopChrome({
         cartCount={cartCount}
         onOpenCart={onOpenCart}
         onPickNav={onPickNav}
+        onSignup={onSignup}
+        customerName={customerName}
       />
 
       {/* Main Navigation — real product categories */}

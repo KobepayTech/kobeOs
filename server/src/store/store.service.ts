@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { randomBytes } from 'crypto';
 import { StoreSettings } from '../store-settings/store-settings.entity';
 import { PosOrder, PosOrderItem, PosProduct } from '../pos/pos.entity';
 import { WarehousePickTicket } from '../warehouse/pick-ticket.entity';
@@ -8,6 +9,8 @@ import { ProductReview } from './product-review.entity';
 import { OrdersService } from '../pos/pos.service';
 import { CreateOrderDto } from '../pos/dto/pos.dto';
 import { CreditService } from '../credit/credit.service';
+import { Coupon } from '../discounts/discount.entity';
+import { LoyaltyCustomer, LoyaltyPointsEntry } from '../erp/erp.entity';
 
 export interface PublicStoreResponse {
   settings: StoreSettings;
@@ -30,6 +33,12 @@ export class StoreService {
     private readonly pickTicketRepo: Repository<WarehousePickTicket>,
     @InjectRepository(ProductReview)
     private readonly reviewsRepo: Repository<ProductReview>,
+    @InjectRepository(Coupon)
+    private readonly couponsRepo: Repository<Coupon>,
+    @InjectRepository(LoyaltyCustomer)
+    private readonly loyaltyRepo: Repository<LoyaltyCustomer>,
+    @InjectRepository(LoyaltyPointsEntry)
+    private readonly loyaltyPointsRepo: Repository<LoyaltyPointsEntry>,
     private readonly orders: OrdersService,
     private readonly credit: CreditService,
   ) {}
@@ -73,6 +82,163 @@ export class StoreService {
     return settings.ownerId;
   }
 
+  // ── Public customer profile + loyalty ───────────────────────────────────
+
+  private normalizePhone(phone: string): string {
+    const digits = String(phone || '').replace(/\D/g, '');
+    if (digits.startsWith('0') && digits.length >= 9) return `255${digits.slice(1)}`;
+    return digits;
+  }
+
+  private async findCustomerByPhone(ownerId: string, phone: string): Promise<LoyaltyCustomer | null> {
+    const phoneNormalized = this.normalizePhone(phone);
+    if (!phoneNormalized) return null;
+    return (
+      await this.loyaltyRepo.findOne({ where: { ownerId, phoneNormalized } })
+    ) ?? (
+      await this.loyaltyRepo.findOne({ where: { ownerId, phone: phone.trim() } })
+    );
+  }
+
+  private async uniqueLoyaltyCode(): Promise<string> {
+    for (let i = 0; i < 12; i += 1) {
+      const code = `KJ-${randomBytes(4).toString('hex').toUpperCase()}`;
+      if (!(await this.loyaltyRepo.findOne({ where: { loyaltyCode: code } }))) return code;
+    }
+    throw new BadRequestException('Could not generate a loyalty number; please try again');
+  }
+
+  private async uniqueCouponCode(): Promise<string> {
+    for (let i = 0; i < 12; i += 1) {
+      const code = `KOBE15-${randomBytes(3).toString('hex').toUpperCase()}`;
+      if (!(await this.couponsRepo.findOne({ where: { code } }))) return code;
+    }
+    throw new BadRequestException('Could not generate a signup coupon; please try again');
+  }
+
+  private async availableCoupon(customer: LoyaltyCustomer): Promise<string | null> {
+    if (!customer.signupCouponCode) return null;
+    const coupon = await this.couponsRepo.findOne({
+      where: { ownerId: customer.ownerId, code: customer.signupCouponCode, active: true },
+    });
+    if (!coupon) return null;
+    if (coupon.expiresAt && coupon.expiresAt.getTime() <= Date.now()) return null;
+    if (coupon.usageLimit > 0 && coupon.usageCount >= coupon.usageLimit) return null;
+    return coupon.code;
+  }
+
+  private async publicCustomer(customer: LoyaltyCustomer) {
+    return {
+      id: customer.id,
+      name: customer.name,
+      phone: customer.phone,
+      address: customer.address || '',
+      loyaltyCode: customer.loyaltyCode,
+      points: customer.points,
+      visits: customer.visits,
+      purchaseCount: customer.purchaseCount,
+      freeJerseyCredits: customer.freeJerseyCredits,
+      couponCode: await this.availableCoupon(customer),
+      joinedAt: customer.joinDate || customer.createdAt,
+    };
+  }
+
+  private async ensureCustomer(ownerId: string, dto: { name: string; phone: string }): Promise<{ customer: LoyaltyCustomer; created: boolean }> {
+    const name = dto.name.trim();
+    const phone = dto.phone.trim();
+    const phoneNormalized = this.normalizePhone(phone);
+    if (!name) throw new BadRequestException('Name is required');
+    if (phoneNormalized.length < 9) throw new BadRequestException('Enter a valid phone number');
+
+    let customer = await this.findCustomerByPhone(ownerId, phone);
+    let created = false;
+    if (!customer) {
+      created = true;
+      customer = this.loyaltyRepo.create({
+        ownerId,
+        name,
+        phone,
+        phoneNormalized,
+        loyaltyCode: await this.uniqueLoyaltyCode(),
+        signupCouponCode: await this.uniqueCouponCode(),
+        address: '',
+        points: 100,
+        visits: 0,
+        purchaseCount: 0,
+        freeJerseyCredits: 0,
+        freeJerseyAwarded: false,
+        joinDate: new Date().toISOString().slice(0, 10),
+      });
+      customer = await this.loyaltyRepo.save(customer);
+      await this.couponsRepo.save(this.couponsRepo.create({
+        ownerId,
+        code: customer.signupCouponCode,
+        type: 'Percentage',
+        value: 15,
+        usageLimit: 1,
+        usageCount: 0,
+        active: true,
+      }));
+      await this.loyaltyPointsRepo.save(this.loyaltyPointsRepo.create({
+        ownerId,
+        customer: customer.name,
+        type: 'Bonus',
+        points: 100,
+        description: 'Storefront signup bonus',
+        date: new Date().toISOString().slice(0, 10),
+      }));
+    } else {
+      customer.name = name;
+      customer.phone = phone;
+      customer.phoneNormalized = phoneNormalized;
+      if (!customer.loyaltyCode) customer.loyaltyCode = await this.uniqueLoyaltyCode();
+      if (!customer.signupCouponCode) {
+        customer.signupCouponCode = await this.uniqueCouponCode();
+        await this.couponsRepo.save(this.couponsRepo.create({
+          ownerId,
+          code: customer.signupCouponCode,
+          type: 'Percentage',
+          value: 15,
+          usageLimit: 1,
+          usageCount: 0,
+          active: true,
+        }));
+      }
+      customer = await this.loyaltyRepo.save(customer);
+    }
+    return { customer, created };
+  }
+
+  async signupCustomer(slugOrDomain: string, dto: { name: string; phone: string }) {
+    const ownerId = await this.resolveOwner(slugOrDomain);
+    const { customer, created } = await this.ensureCustomer(ownerId, dto);
+    return { ...(await this.publicCustomer(customer)), created };
+  }
+
+  async customerProfile(slugOrDomain: string, phone: string) {
+    const ownerId = await this.resolveOwner(slugOrDomain);
+    const customer = await this.findCustomerByPhone(ownerId, phone);
+    if (!customer) throw new NotFoundException('Customer not found');
+    return this.publicCustomer(customer);
+  }
+
+  async loyaltyByCode(slugOrDomain: string, code: string) {
+    const ownerId = await this.resolveOwner(slugOrDomain);
+    const customer = await this.loyaltyRepo.findOne({
+      where: { ownerId, loyaltyCode: String(code || '').trim().toUpperCase() },
+    });
+    if (!customer) throw new NotFoundException('Loyalty member not found');
+    return this.publicCustomer(customer);
+  }
+
+  private isJersey(product: PosProduct): boolean {
+    const text = [product.name, product.category, product.brand, ...(product.tags ?? [])]
+      .join(' ')
+      .toLowerCase();
+    return /jersey|shirt|kit|retro|national team|club/.test(text)
+      || Object.keys(product.jerseyDetails ?? {}).length > 0;
+  }
+
   /**
    * Place a storefront order. Public visitor — no JWT — so we resolve
    * the owner from the slug and call the existing OrdersService.create
@@ -83,7 +249,108 @@ export class StoreService {
    */
   async placeOrder(slugOrDomain: string, dto: CreateOrderDto) {
     const ownerId = await this.resolveOwner(slugOrDomain);
-    return this.orders.create(ownerId, dto);
+    const customer = dto.customerPhone
+      ? await this.findCustomerByPhone(ownerId, dto.customerPhone)
+      : null;
+
+    // A welcome coupon is tied to the phone it was issued to. This keeps the
+    // automatic code convenient without turning it into a public shared code.
+    if (dto.couponCode) {
+      const couponOwner = await this.loyaltyRepo.findOne({
+        where: { ownerId, signupCouponCode: dto.couponCode.trim().toUpperCase() },
+      });
+      if (couponOwner && (!customer || couponOwner.id !== customer.id)) {
+        throw new BadRequestException('This coupon belongs to another loyalty member');
+      }
+    }
+
+    // Public storefront requests never get to self-authorize manager pricing.
+    // Reward pricing is inserted below only after validating the member credit.
+    const safeLines = dto.lines.map((line) => ({ productId: line.productId, quantity: line.quantity }));
+    let rewardClaimed = false;
+    const rewardProductId = dto.redeemFreeJerseyProductId;
+    if (rewardProductId) {
+      if (!customer || !dto.loyaltyCode || customer.loyaltyCode !== dto.loyaltyCode.trim().toUpperCase()) {
+        throw new BadRequestException('A valid loyalty membership is required for this reward');
+      }
+      const rewardLine = safeLines.find((line) => line.productId === rewardProductId);
+      if (!rewardLine || Number(rewardLine.quantity) < 1) {
+        throw new BadRequestException('Add the reward jersey to your cart first');
+      }
+      const product = await this.productsRepo.findOne({ where: { ownerId, id: rewardProductId, active: true } });
+      if (!product || !this.isJersey(product)) {
+        throw new BadRequestException('The free-jersey reward can only be used on an eligible jersey');
+      }
+      const claim = await this.loyaltyRepo.createQueryBuilder()
+        .update(LoyaltyCustomer)
+        .set({ freeJerseyCredits: () => '"freeJerseyCredits" - 1' })
+        .where('id = :id AND "ownerId" = :ownerId AND "freeJerseyCredits" > 0', { id: customer.id, ownerId })
+        .execute();
+      if (!claim.affected) throw new BadRequestException('No free-jersey credit is available');
+      rewardClaimed = true;
+
+      // Exactly one unit is free. If the cart has multiple units of the same
+      // jersey, split the line so the remainder stays at normal price.
+      const index = safeLines.indexOf(rewardLine);
+      const replacement: Array<{ productId: string; quantity: number; negotiatedPrice?: number }> = [
+        { productId: rewardProductId, quantity: 1, negotiatedPrice: 0 },
+      ];
+      if (Number(rewardLine.quantity) > 1) {
+        replacement.push({ productId: rewardProductId, quantity: Number(rewardLine.quantity) - 1 });
+      }
+      safeLines.splice(index, 1, ...replacement);
+    }
+
+    const publicDto = {
+      orderNumber: dto.orderNumber,
+      lines: safeLines,
+      paymentMethod: dto.paymentMethod,
+      couponCode: dto.couponCode?.trim().toUpperCase() || undefined,
+      customerName: dto.customerName,
+      customerPhone: dto.customerPhone,
+      installmentMonths: dto.installmentMonths,
+      approvedBy: rewardClaimed ? `LOYALTY-${customer!.loyaltyCode}` : undefined,
+    } as CreateOrderDto;
+
+    let sale: Awaited<ReturnType<OrdersService['create']>>;
+    try {
+      sale = await this.orders.create(ownerId, publicDto);
+    } catch (error) {
+      if (rewardClaimed && customer) {
+        await this.loyaltyRepo.increment({ id: customer.id, ownerId }, 'freeJerseyCredits', 1);
+      }
+      throw error;
+    }
+
+    let loyalty: Awaited<ReturnType<StoreService['publicCustomer']>> | null = null;
+    if (dto.customerPhone && dto.customerName) {
+      const ensured = await this.ensureCustomer(ownerId, { name: dto.customerName, phone: dto.customerPhone });
+      const fresh = await this.loyaltyRepo.findOneOrFail({ where: { id: ensured.customer.id, ownerId } });
+      fresh.address = dto.customerAddress?.trim() || fresh.address || '';
+      fresh.visits += 1;
+      fresh.purchaseCount += 1;
+      fresh.lastOrderId = (sale as { id: string }).id;
+      const earned = Math.max(0, Math.floor(Number((sale as { total: number }).total || 0) / 1000));
+      fresh.points += earned;
+      if (!fresh.freeJerseyAwarded) {
+        fresh.freeJerseyAwarded = true;
+        fresh.freeJerseyCredits += 1;
+      }
+      const saved = await this.loyaltyRepo.save(fresh);
+      if (earned > 0) {
+        await this.loyaltyPointsRepo.save(this.loyaltyPointsRepo.create({
+          ownerId,
+          customer: saved.name,
+          type: 'Earned',
+          points: earned,
+          description: `Purchase ${(sale as { orderNumber: string }).orderNumber}`,
+          date: new Date().toISOString().slice(0, 10),
+        }));
+      }
+      loyalty = await this.publicCustomer(saved);
+    }
+
+    return { ...sale, loyalty, rewardRedeemed: rewardClaimed };
   }
 
   /**

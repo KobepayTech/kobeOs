@@ -44,6 +44,24 @@ export class LoyaltyCustomer extends OwnedEntity {
   @Column({ default: '' })
   phone!: string;
 
+  /** Tanzania-normalised digits used for reliable phone-based storefront lookup. */
+  @Index()
+  @Column({ default: '' })
+  phoneNormalized!: string;
+
+  /** Human-friendly member number; also encoded in the customer's QR card. */
+  @Index()
+  @Column({ default: '' })
+  loyaltyCode!: string;
+
+  /** Single-use welcome coupon generated when the customer signs up. */
+  @Column({ default: '' })
+  signupCouponCode!: string;
+
+  /** Last delivery address is deliberately optional; signup remains name + phone. */
+  @Column({ type: 'text', default: '' })
+  address!: string;
+
   @Column({ default: 0 })
   points!: number;
 
@@ -52,6 +70,21 @@ export class LoyaltyCustomer extends OwnedEntity {
 
   @Column({ default: 0 })
   visits!: number;
+
+  @Column({ default: 0 })
+  purchaseCount!: number;
+
+  /** One credit redeems exactly one eligible jersey line at checkout. */
+  @Column({ default: 0 })
+  freeJerseyCredits!: number;
+
+  /** Prevents the welcome jersey from being awarded more than once. */
+  @Column({ default: false })
+  freeJerseyAwarded!: boolean;
+
+  @Index()
+  @Column('uuid', { nullable: true })
+  lastOrderId?: string | null;
 }
 
 @Entity('erp_loyalty_rewards')

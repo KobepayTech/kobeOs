@@ -121,6 +121,23 @@ export class LiveSaleService {
     return this.sessions.find({ where: { ownerId: uid }, order: { createdAt: 'DESC' }, take: 200 });
   }
 
+  async operatorContext(uid: string) {
+    const store = await this.settings.findOne({ where: { ownerId: uid } });
+    if (!store) return { storefrontSlug: '', storefrontUrl: '', catalogUrl: '' };
+    const baseDomain = (process.env.TENANT_BASE_DOMAIN || process.env.CF_DOMAIN || 'kobeapptz.com')
+      .trim()
+      .replace(/^https?:\/\//, '')
+      .replace(/\/$/, '');
+    const storefrontUrl = store.customDomain
+      ? `https://${store.customDomain.replace(/^https?:\/\//, '').replace(/\/$/, '')}`
+      : `https://${store.domainSlug}.${baseDomain}`;
+    return {
+      storefrontSlug: store.domainSlug,
+      storefrontUrl,
+      catalogUrl: `${storefrontUrl}/live`,
+    };
+  }
+
   async getSession(uid: string, id: string) {
     const s = await this.sessions.findOne({ where: { ownerId: uid, id } });
     if (!s) throw new NotFoundException('Session not found');
@@ -241,13 +258,13 @@ export class LiveSaleService {
   async listPins(uid: string, sessionId: string) {
     const pins = await this.pins.find({ where: { ownerId: uid, sessionId }, order: { code: 'ASC' } });
     // Enrich with live remaining stock + catalog price.
-    const out: Array<{ id: string; code: string; productId: string; name: string; livePrice: number; catalogPrice: number; stock: number; soldQty: number }> = [];
+    const out: Array<{ id: string; code: string; productId: string; name: string; livePrice: number; catalogPrice: number; stock: number; soldQty: number; isFeatured: boolean }> = [];
     for (const p of pins) {
       const prod = await this.products.findOne({ where: { ownerId: uid, id: p.productId } });
       out.push({
         id: p.id, code: p.code, productId: p.productId, name: p.name,
         livePrice: num(p.livePrice), catalogPrice: prod ? num(prod.price) : 0,
-        stock: prod ? Number(prod.stock) : 0, soldQty: p.soldQty,
+        stock: prod ? Number(prod.stock) : 0, soldQty: p.soldQty, isFeatured: p.isFeatured,
       });
     }
     return out;

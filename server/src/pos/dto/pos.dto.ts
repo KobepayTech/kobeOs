@@ -101,6 +101,12 @@ export class CreateOrderDto {
   @IsOptional() @IsString() bnplPlan?: string;
   @IsOptional() @IsString() customerName?: string;
   @IsOptional() @IsString() customerPhone?: string;
+  /** Storefront-only delivery address, saved to the customer's lightweight profile. */
+  @IsOptional() @IsString() @MaxLength(500) customerAddress?: string;
+  /** Storefront loyalty member number used to authorize a reward redemption. */
+  @IsOptional() @IsString() @MaxLength(32) loyaltyCode?: string;
+  /** Storefront-only: one eligible cart line to make free using a jersey credit. */
+  @IsOptional() @IsUUID() redeemFreeJerseyProductId?: string;
   /** BNPL only — number of monthly installments (defaults to 1 = lump sum). */
   @IsOptional() @IsInt() @Min(1) installmentMonths?: number;
 }

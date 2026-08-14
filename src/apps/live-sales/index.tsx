@@ -2,15 +2,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import {
   Radio, Plus, Loader2, Pin, ShoppingBag, CheckCircle2, XCircle, Zap,
-  MessageCircle, Package, Play, Square, TrendingUp, Link2, Copy, Send, AlertCircle,
+  MessageCircle, Package, Play, Square, TrendingUp, Link2, Copy, Send, AlertCircle, MonitorPlay, Star,
 } from 'lucide-react';
 
 /* ── Types ── */
 interface Session { id: string; title: string; platform: string; status: 'LIVE' | 'ENDED'; kind?: 'live' | 'post'; postUrl?: string; ingestToken: string; currency: string; totalSales: number | string; orderCount: number; createdAt: string; showOnStorefront?: boolean }
-interface PinRow { id: string; code: string; productId: string; name: string; livePrice: number; catalogPrice: number; stock: number; soldQty: number }
-interface Comment { id: string; source: string; buyerHandle: string; buyerContact: string; text: string; matchedCode: string; qty: number; status: string; createdAt: string }
+interface PinRow { id: string; code: string; productId: string; name: string; livePrice: number; catalogPrice: number; stock: number; soldQty: number; isFeatured: boolean }
+interface Comment { id: string; source: string; buyerHandle: string; buyerContact: string; text: string; matchedCode: string; qty: number; status: string; createdAt: string; reservationCode?: string; checkoutToken?: string; orderId?: string }
 interface Product { id: string; name: string; price: number | string; stock: number }
 interface Stats { totalSales: number; orderCount: number; pendingComments: number; convertedComments: number; pins: PinRow[] }
+interface OperatorContext { storefrontSlug: string; storefrontUrl: string; catalogUrl: string }
 
 const money = (n: number | string, c = 'TZS') => `${c === 'TZS' ? 'TSh ' : c === 'CNY' ? '¥' : c + ' '}${Number(n || 0).toLocaleString()}`;
 
@@ -18,10 +19,19 @@ export default function LiveSales() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [active, setActive] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const [context, setContext] = useState<OperatorContext>({ storefrontSlug: '', storefrontUrl: '', catalogUrl: '' });
+  const openKds = () => window.open('/display/orders', '_blank', 'noopener,noreferrer');
 
   const loadSessions = useCallback(async () => {
     setLoading(true);
-    try { const s = await api<Session[]>('/live-sales'); setSessions(Array.isArray(s) ? s : []); }
+    try {
+      const [s, ctx] = await Promise.all([
+        api<Session[]>('/live-sales'),
+        api<OperatorContext>('/live-sales/operator/context'),
+      ]);
+      setSessions(Array.isArray(s) ? s : []);
+      setContext(ctx);
+    }
     catch { setSessions([]); } finally { setLoading(false); }
   }, []);
   useEffect(() => { loadSessions(); }, [loadSessions]);
@@ -29,7 +39,10 @@ export default function LiveSales() {
   const start = async () => {
     const title = prompt('Name this live session', 'Live Sale')?.trim();
     if (title === undefined) return;
-    const s = await api<Session>('/live-sales', { method: 'POST', body: JSON.stringify({ title: title || 'Live Sale', platform: 'tiktok' }) });
+    const requestedPlatform = prompt('Platform: TikTok, Instagram, Facebook or YouTube', 'tiktok')?.trim().toLowerCase();
+    if (requestedPlatform === undefined) return;
+    const platform = ['tiktok', 'instagram', 'facebook', 'youtube'].includes(requestedPlatform) ? requestedPlatform : 'other';
+    const s = await api<Session>('/live-sales', { method: 'POST', body: JSON.stringify({ title: title || 'Live Sale', platform }) });
     await loadSessions(); setActive(s);
   };
 
@@ -45,7 +58,7 @@ export default function LiveSales() {
     await loadSessions(); setActive(s);
   };
 
-  if (active) return <SessionConsole session={active} onBack={() => { setActive(null); loadSessions(); }} />;
+  if (active) return <SessionConsole session={active} context={context} onOpenKds={openKds} onBack={() => { setActive(null); loadSessions(); }} />;
 
   const lives = sessions.filter((s) => s.kind !== 'post');
   const posts = sessions.filter((s) => s.kind === 'post');
@@ -58,14 +71,16 @@ export default function LiveSales() {
           <div><h1 className="text-sm font-bold">Live Sales</h1><p className="text-[10px] text-slate-500">Sell live · comment orders → real-time stock</p></div>
         </div>
         <div className="flex items-center gap-2">
+          <button onClick={openKds} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-sm font-bold"><MonitorPlay className="w-4 h-4" /> Open KDS</button>
+          {context.catalogUrl && <button onClick={() => navigator.clipboard?.writeText(context.catalogUrl)} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-slate-700 bg-slate-800 text-slate-200 text-sm font-bold"><Copy className="w-4 h-4" /> Copy live shop</button>}
           <button onClick={startPost} className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-bold"><MessageCircle className="w-4 h-4" /> Post campaign</button>
-          <button onClick={start} className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-sm font-bold"><Play className="w-4 h-4" /> Go Live</button>
+          <button onClick={start} className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-sm font-bold"><Play className="w-4 h-4" /> Start Live Sales</button>
         </div>
       </div>
 
       <div className="p-5 space-y-6">
         {loading ? <Center><Loader2 className="w-6 h-6 animate-spin text-slate-500" /></Center> : sessions.length === 0 ? (
-          <div className="text-center text-slate-500 py-16">No sessions yet. Hit <span className="text-fuchsia-400 font-semibold">Go Live</span> to sell on a stream, or <span className="text-slate-300 font-semibold">Post campaign</span> to sell from an ad/post.</div>
+          <div className="text-center text-slate-500 py-16">No sessions yet. Start a live-selling session, pin products, then use your permanent catalog link in the stream comments. Paid orders automatically enter POS, stock, accounting and KDS.</div>
         ) : (
           <>
             <SessionGroup label="Live sessions" hint="Realtime stream comments" items={lives} onOpen={setActive} />
@@ -108,7 +123,7 @@ function SessionGroup({ label, hint, items, onOpen }: { label: string; hint: str
 }
 
 /* ─────────────────────── Session console ─────────────────────── */
-function SessionConsole({ session, onBack }: { session: Session; onBack: () => void }) {
+function SessionConsole({ session, context, onOpenKds, onBack }: { session: Session; context: OperatorContext; onOpenKds: () => void; onBack: () => void }) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -170,6 +185,12 @@ function SessionConsole({ session, onBack }: { session: Session; onBack: () => v
 
   const ignore = async (c: Comment) => { await api(`/live-sales/comments/${c.id}/ignore`, { method: 'POST', body: '{}' }); refresh(); };
 
+  const feature = async (pinId: string) => {
+    await api(`/live-sales/${session.id}/featured`, { method: 'POST', body: JSON.stringify({ pinId }) });
+    flash('Now-showing product updated');
+    refresh();
+  };
+
   const end = async () => { await api(`/live-sales/${session.id}/end`, { method: 'POST', body: '{}' }); setEnded(true); };
 
   const bridgeUrl = `${window.location.origin}/api/live-sales/ingest/${session.ingestToken}`;
@@ -179,6 +200,8 @@ function SessionConsole({ session, onBack }: { session: Session; onBack: () => v
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 shrink-0">
         <div className="flex items-center gap-2">
+          <button onClick={onOpenKds} className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-xs font-semibold"><MonitorPlay className="w-3.5 h-3.5" /> KDS</button>
+          {context.catalogUrl && <button onClick={() => { navigator.clipboard?.writeText(context.catalogUrl); flash('Customer live-catalog link copied'); }} className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-700 bg-slate-800 text-slate-300 text-xs font-semibold"><Copy className="w-3.5 h-3.5" /> Catalog link</button>}
           <button onClick={onBack} className="text-slate-400 hover:text-white text-sm">←</button>
           <span className="font-bold">{session.title}</span>
           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${ended ? 'bg-slate-700 text-slate-400' : 'bg-rose-500/20 text-rose-400'}`}>{ended ? 'ENDED' : '● LIVE'}</span>
@@ -212,7 +235,7 @@ function SessionConsole({ session, onBack }: { session: Session; onBack: () => v
           <div className="flex-1 overflow-auto p-2 space-y-1.5">
             {(stats?.pins ?? []).length === 0 ? <p className="text-xs text-slate-500 text-center py-6">Pin products with a buy-code (e.g. A1) that you announce on the live.</p> :
               stats!.pins.map((p) => (
-                <div key={p.id} className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950 px-3 py-2">
+                <div key={p.id} className={`flex items-center justify-between rounded-lg border px-3 py-2 ${p.isFeatured ? 'border-fuchsia-500/50 bg-fuchsia-500/10' : 'border-slate-800 bg-slate-950'}`}>
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="font-mono font-extrabold text-fuchsia-400 bg-fuchsia-500/10 rounded px-2 py-0.5 text-sm">{p.code}</span>
                     <div className="min-w-0">
@@ -220,7 +243,8 @@ function SessionConsole({ session, onBack }: { session: Session; onBack: () => v
                       <div className="text-[11px] text-slate-500">{money(p.livePrice > 0 ? p.livePrice : p.catalogPrice, session.currency)} · sold {p.soldQty}</div>
                     </div>
                   </div>
-                  <div className="text-right shrink-0 pl-2">
+                  <div className="text-right shrink-0 pl-2 flex items-center gap-2">
+                    {!ended && <button onClick={() => feature(p.id)} title="Make this the NOW SHOWING product" className={`p-1.5 rounded ${p.isFeatured ? 'bg-fuchsia-500 text-white' : 'bg-slate-800 text-slate-400 hover:text-fuchsia-300'}`}><Star className={`w-3.5 h-3.5 ${p.isFeatured ? 'fill-current' : ''}`} /></button>}
                     <div className={`text-sm font-bold ${p.stock <= 0 ? 'text-rose-400' : p.stock <= 3 ? 'text-amber-400' : 'text-slate-300'}`}>{p.stock <= 0 ? 'SOLD OUT' : `${p.stock} left`}</div>
                   </div>
                 </div>
@@ -244,13 +268,21 @@ function SessionConsole({ session, onBack }: { session: Session; onBack: () => v
           <div className="flex-1 overflow-auto p-2 space-y-1.5">
             {comments.length === 0 ? <p className="text-xs text-slate-500 text-center py-6">Comments appear here — typed by you, or forwarded by a bridge.</p> :
               comments.map((c) => (
-                <div key={c.id} className={`rounded-lg border px-3 py-2 ${c.status === 'CONVERTED' ? 'border-emerald-800 bg-emerald-500/5' : c.status === 'MATCHED' ? 'border-amber-800 bg-amber-500/5' : 'border-slate-800 bg-slate-950'}`}>
+                <div key={c.id} className={`rounded-lg border px-3 py-2 ${c.status === 'CONVERTED' ? 'border-emerald-800 bg-emerald-500/5' : c.status === 'MATCHED' || c.status === 'RESERVED' ? 'border-amber-800 bg-amber-500/5' : 'border-slate-800 bg-slate-950'}`}>
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <span className="text-xs font-bold text-slate-300">{c.buyerHandle || '@guest'}</span>
                       {c.matchedCode && <span className="ml-1.5 font-mono text-[10px] text-fuchsia-400">{c.matchedCode}×{c.qty}</span>}
                       <span className="ml-1.5 text-[9px] text-slate-600 uppercase">{c.source}</span>
                       <div className="text-sm text-slate-400 truncate">{c.text}</div>
+                      {c.status === 'RESERVED' && (
+                        <div className="mt-1 flex items-center gap-2 text-[10px] text-amber-300">
+                          <span>Reserved · code <b className="font-mono">{c.reservationCode}</b></span>
+                          {c.checkoutToken && context.storefrontUrl && (
+                            <button onClick={() => { navigator.clipboard?.writeText(`${context.storefrontUrl}/live/pay/${c.checkoutToken}`); flash('Buyer checkout link copied'); }} className="underline underline-offset-2">Copy checkout</button>
+                          )}
+                        </div>
+                      )}
                     </div>
                     <div className="shrink-0">
                       {c.status === 'CONVERTED' ? <span className="text-[10px] font-bold text-emerald-400 inline-flex items-center gap-0.5"><CheckCircle2 className="w-3 h-3" /> SOLD</span>

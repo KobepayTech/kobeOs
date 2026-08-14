@@ -7,6 +7,7 @@ import { WarehouseItem } from '../warehouse/warehouse.entity';
 import { Contact } from '../contacts/contact.entity';
 import { PrintJob } from '../print/print.entity';
 import { SupplierCapitalService } from './supplier-capital.service';
+import { LoyaltyCustomer } from './erp.entity';
 
 @Injectable()
 export class ErpService {
@@ -17,6 +18,7 @@ export class ErpService {
     @InjectRepository(WarehouseItem)      private readonly warehouseRepo: Repository<WarehouseItem>,
     @InjectRepository(Contact)            private readonly contactsRepo: Repository<Contact>,
     @InjectRepository(PrintJob)           private readonly printRepo: Repository<PrintJob>,
+    @InjectRepository(LoyaltyCustomer)    private readonly loyaltyRepo: Repository<LoyaltyCustomer>,
     private readonly supplierCapital: SupplierCapitalService,
   ) {}
 
@@ -144,27 +146,49 @@ export class ErpService {
   // ── Loyalty ───────────────────────────────────────────────────────────────
 
   async getLoyalty(uid: string) {
-    const contacts = await this.contactsRepo.find({
+    const loyaltyCustomers = await this.loyaltyRepo.find({
       where: { ownerId: uid },
       order: { createdAt: 'DESC' },
     });
 
-    // Derive loyalty points from POS orders per customer name
-    const orders = await this.ordersRepo.find({ where: { ownerId: uid, status: 'COMPLETED' } });
-    const pointsMap: Record<string, number> = {};
-    for (const o of orders) {
-      const name = o.customerName || 'Walk-in';
-      pointsMap[name] = (pointsMap[name] || 0) + Math.floor(Number(o.total) / 1000);
-    }
-
-    const customers = contacts.map(c => ({
-      id:     c.id,
-      name:   c.name,
-      email:  c.email,
-      phone:  c.phone,
-      points: pointsMap[c.name] || 0,
-      tier:   pointsMap[c.name] >= 5000 ? 'Gold' : pointsMap[c.name] >= 1000 ? 'Silver' : 'Bronze',
+    // Storefront signups are the source of truth. Contacts remain a fallback
+    // for older stores that have not received a loyalty signup yet.
+    let customers = loyaltyCustomers.map(c => ({
+      id: c.id,
+      name: c.name,
+      email: '',
+      phone: c.phone,
+      points: c.points,
+      visits: c.visits,
+      joinDate: c.joinDate,
+      loyaltyCode: c.loyaltyCode,
+      purchaseCount: c.purchaseCount,
+      freeJerseyCredits: c.freeJerseyCredits,
+      tier: c.points >= 5000 ? 'Gold' : c.points >= 1000 ? 'Silver' : 'Bronze',
     }));
+
+    if (customers.length === 0) {
+      const contacts = await this.contactsRepo.find({ where: { ownerId: uid }, order: { createdAt: 'DESC' } });
+      const orders = await this.ordersRepo.find({ where: { ownerId: uid, status: 'COMPLETED' } });
+      const pointsMap: Record<string, number> = {};
+      for (const o of orders) {
+        const name = o.customerName || 'Walk-in';
+        pointsMap[name] = (pointsMap[name] || 0) + Math.floor(Number(o.total) / 1000);
+      }
+      customers = contacts.map(c => ({
+        id: c.id,
+        name: c.name,
+        email: c.email ?? '',
+        phone: c.phone ?? '',
+        points: pointsMap[c.name] || 0,
+        visits: 0,
+        joinDate: c.createdAt.toISOString().slice(0, 10),
+        loyaltyCode: '',
+        purchaseCount: 0,
+        freeJerseyCredits: 0,
+        tier: pointsMap[c.name] >= 5000 ? 'Gold' : pointsMap[c.name] >= 1000 ? 'Silver' : 'Bronze',
+      }));
+    }
 
     const totalPoints = customers.reduce((s, c) => s + c.points, 0);
     return {

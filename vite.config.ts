@@ -58,6 +58,14 @@ export default defineConfig({
   // usr/bin/X11/X11/...) that crash chokidar with ELOOP if scanned.
   // release/ holds packaged Electron output, also outside the source set.
   server: { watch: { ignored: ['**/live-build/**', '**/release/**', '**/dist/**', '**/node_modules/**'] } },
+  // Lets `npm run preview` exercise the production bundle against the real
+  // API without browser CORS errors. This affects local verification only;
+  // deployed builds still use VITE_API_BASE.
+  preview: {
+    proxy: {
+      '/api': { target: 'https://api.kobeapptz.com', changeOrigin: true, secure: true },
+    },
+  },
   // Restrict the dep scanner to the actual source set so it doesn't crawl
   // live-build/ or release/ and trip over self-referential symlinks.
   optimizeDeps: { entries: ['index.html', 'src/**/*.{ts,tsx}'] },

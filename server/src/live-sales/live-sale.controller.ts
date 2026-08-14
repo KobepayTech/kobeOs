@@ -39,6 +39,7 @@ export class LiveSaleController {
 
   @Get() list(@CurrentUser('id') uid: string) { return this.svc.listSessions(uid); }
   @Post() start(@CurrentUser('id') uid: string, @Body() dto: StartSessionDto) { return this.svc.startSession(uid, dto); }
+  @Get('operator/context') context(@CurrentUser('id') uid: string) { return this.svc.operatorContext(uid); }
   @Get(':id') get(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.svc.getSession(uid, id); }
   @Post(':id/end') end(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.svc.endSession(uid, id); }
   @Post(':id/storefront') storefront(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: { show: boolean }) { return this.svc.setStorefront(uid, id, !!dto.show); }
