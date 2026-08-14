@@ -112,6 +112,27 @@ interface BnplEligibility {
   reason?: 'no_profile' | 'inactive' | 'no_phone';
 }
 
+interface LiveReservationCheckout {
+  token: string;
+  status: string;
+  expired: boolean;
+  reservedUntil: string | null;
+  qty: number;
+  unitPrice: number;
+  currency: string;
+  sessionTitle: string;
+  sessionId: string;
+  platform: string;
+  reservationCode: string;
+  product: { id: string; sku: string; name: string; imageUrl: string | null } | null;
+}
+
+interface LiveReservationStart {
+  checkoutToken: string;
+  reservationCode: string;
+  storefrontPath: string;
+}
+
 export interface StoreCustomerProfile {
   id: string;
   name: string;
@@ -393,6 +414,13 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
   const [checkoutForm, setCheckoutForm] = useState<CheckoutForm>({
     name: '', phone: '', address: '', paymentMethod: 'cod',
   });
+  const [liveCheckoutToken, setLiveCheckoutToken] = useState(() => {
+    try { return new URLSearchParams(window.location.search).get('live')?.trim() || ''; }
+    catch { return ''; }
+  });
+  const [liveReservation, setLiveReservation] = useState<LiveReservationCheckout | null>(null);
+  const [liveReservationApplied, setLiveReservationApplied] = useState(false);
+  const [liveReservationError, setLiveReservationError] = useState<string | null>(null);
   // Top-level storefront view (home / collection / portal pages).
   const [view, setView] = useState<StorefrontView>('home');
   const [wishlistIds, setWishlistIds] = useState<string[]>(() => {
@@ -476,6 +504,54 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
       if (savedPhone) void lookupCustomer(savedPhone);
     } catch { /* storage disabled */ }
   }, [slug]);
+
+  // A comment/DM reservation opens the normal storefront with ?live={token}.
+  // Validate it with the backend, preload the held item at its Live price, and
+  // leave the buyer on the full catalogue to add anything else they want.
+  useEffect(() => {
+    if (!slug || !liveCheckoutToken || products.length === 0 || liveReservationApplied) return;
+    let cancelled = false;
+    api<LiveReservationCheckout>(`/live-sales/public/checkout/${encodeURIComponent(liveCheckoutToken)}`, { auth: false })
+      .then((reservation) => {
+        if (cancelled) return;
+        if (reservation.expired || reservation.status !== 'RESERVED') {
+          setLiveReservationError('This Live reservation has expired. Return to the Live and reserve again.');
+          setLiveReservationApplied(true);
+          return;
+        }
+        const product = reservation.product
+          ? products.find((candidate) => candidate.id === reservation.product!.id)
+          : null;
+        if (!product) {
+          setLiveReservationError('The reserved Live product is no longer available in this store.');
+          setLiveReservationApplied(true);
+          return;
+        }
+        const liveProduct: Product = {
+          ...product,
+          price: Number(reservation.unitPrice || product.price),
+          imageUrl: reservation.product?.imageUrl || product.imageUrl,
+        };
+        setCart((current) => {
+          const existing = current.find((item) => item.product.id === liveProduct.id);
+          if (existing) {
+            return current.map((item) => item.product.id === liveProduct.id
+              ? { product: liveProduct, quantity: Math.max(item.quantity, reservation.qty) }
+              : item);
+          }
+          return [{ product: liveProduct, quantity: Math.min(reservation.qty, liveProduct.stock) }, ...current];
+        });
+        setLiveReservation(reservation);
+        setLiveReservationApplied(true);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setLiveReservationError(error instanceof Error ? error.message : 'Could not open the Live reservation.');
+          setLiveReservationApplied(true);
+        }
+      });
+    return () => { cancelled = true; };
+  }, [slug, products, liveCheckoutToken, liveReservationApplied]);
 
   // If a returning buyer types their registered phone during checkout, fill
   // their name and coupon automatically after a short debounce.
@@ -625,6 +701,26 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
     }
   };
 
+  const reserveFromLiveBanner = async (product: { code: string }) => {
+    const reservation = await api<LiveReservationStart>(
+      `/live-sales/public/${encodeURIComponent(slug)}/reserve`,
+      {
+        method: 'POST',
+        auth: false,
+        body: JSON.stringify({ code: product.code, qty: 1 }),
+      },
+    );
+    setLiveReservation(null);
+    setLiveReservationError(null);
+    setLiveReservationApplied(false);
+    setLiveCheckoutToken(reservation.checkoutToken);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('live', reservation.checkoutToken);
+      window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+    } catch { /* embedded webview may reject history updates */ }
+  };
+
   // Pre-flight BNPL check: whenever the buyer is on the BNPL payment
   // option AND has typed a phone, ask the backend if they're eligible.
   // Debounced so each keystroke doesn't spam the credit lookup.
@@ -701,6 +797,7 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
       customerAddress: checkoutForm.address,
       loyaltyCode: customerProfile?.loyaltyCode,
       redeemFreeJerseyProductId: redeemFreeJerseyProductId || undefined,
+      liveCheckoutToken: liveCheckoutToken || undefined,
     };
     if (isBnpl) orderDto.installmentMonths = installmentMonths;
     try {
@@ -739,6 +836,15 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
       }));
       setCouponCode(sale.loyalty?.couponCode ?? '');
       setRedeemFreeJerseyProductId('');
+      if (liveCheckoutToken) {
+        setLiveCheckoutToken('');
+        setLiveReservation(null);
+        try {
+          const url = new URL(window.location.href);
+          url.searchParams.delete('live');
+          window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+        } catch { /* embedded webview may reject history updates */ }
+      }
     } catch (err) {
       setOrderError(err instanceof Error ? err.message : 'Order could not be placed. Try again.');
     } finally {
@@ -785,8 +891,19 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
 
   return (
     <div className="h-full overflow-auto">
+      {liveReservation && (
+        <div className="bg-gradient-to-r from-fuchsia-700 to-indigo-700 text-white">
+          <div className="max-w-6xl mx-auto px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+            <div className="font-extrabold">{liveReservation.platform.toUpperCase()} LIVE reservation added to your cart</div>
+            <div className="text-xs text-white/80">Code {liveReservation.reservationCode} · Add more products—this complete order will be tracked to {liveReservation.sessionTitle}.</div>
+          </div>
+        </div>
+      )}
+      {liveReservationError && (
+        <div className="bg-amber-600 text-white text-center text-sm font-semibold px-4 py-2">{liveReservationError}</div>
+      )}
       {/* Live shopping — shows when the shop is live-selling (opt-in per session) */}
-      <LiveShoppingBanner slug={slug} onAdd={addToCart} />
+      <LiveShoppingBanner slug={slug} onReserve={reserveFromLiveBanner} />
       <JerseyShopChrome
         storeName={settings.storeName}
         tagline={settings.tagline}
@@ -1050,6 +1167,7 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-white truncate">{item.product.name}</p>
                       <p className="text-sm text-blue-400">{formatPrice(item.product.price, item.product.currency)}</p>
+                      {liveReservation?.product?.id === item.product.id && <p className="text-[10px] font-bold text-fuchsia-300">LIVE RESERVED PRICE</p>}
                     </div>
                     <div className="flex items-center gap-1">
                       <Button size="icon" variant="ghost" onClick={() => updateQuantity(item.product.id, -1)} className="h-7 w-7">
@@ -1084,6 +1202,11 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
         <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Checkout</DialogTitle></DialogHeader>
           <div className="space-y-4">
+            {liveReservation && (
+              <div className="rounded-lg border border-fuchsia-500/30 bg-fuchsia-500/10 p-3 text-sm text-fuchsia-100">
+                This complete basket is attributed to {liveReservation.platform} Live · {liveReservation.sessionTitle}.
+              </div>
+            )}
             <Input placeholder="Full Name" value={checkoutForm.name} onChange={(e) => setCheckoutForm({ ...checkoutForm, name: e.target.value })} className="bg-white/10 border-white/20 text-white" />
             <Input placeholder="Phone Number" value={checkoutForm.phone} onChange={(e) => setCheckoutForm({ ...checkoutForm, phone: e.target.value })} className="bg-white/10 border-white/20 text-white" />
             <Input placeholder="Delivery Address" value={checkoutForm.address} onChange={(e) => setCheckoutForm({ ...checkoutForm, address: e.target.value })} className="bg-white/10 border-white/20 text-white" />

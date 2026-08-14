@@ -11,6 +11,7 @@ import { CreateOrderDto } from '../pos/dto/pos.dto';
 import { CreditService } from '../credit/credit.service';
 import { Coupon } from '../discounts/discount.entity';
 import { LoyaltyCustomer, LoyaltyPointsEntry } from '../erp/erp.entity';
+import { LiveComment, LivePin, LiveSession } from '../live-sales/live-sale.entity';
 
 export interface PublicStoreResponse {
   settings: StoreSettings;
@@ -39,6 +40,12 @@ export class StoreService {
     private readonly loyaltyRepo: Repository<LoyaltyCustomer>,
     @InjectRepository(LoyaltyPointsEntry)
     private readonly loyaltyPointsRepo: Repository<LoyaltyPointsEntry>,
+    @InjectRepository(LiveComment)
+    private readonly liveCommentsRepo: Repository<LiveComment>,
+    @InjectRepository(LiveSession)
+    private readonly liveSessionsRepo: Repository<LiveSession>,
+    @InjectRepository(LivePin)
+    private readonly livePinsRepo: Repository<LivePin>,
     private readonly orders: OrdersService,
     private readonly credit: CreditService,
   ) {}
@@ -266,7 +273,47 @@ export class StoreService {
 
     // Public storefront requests never get to self-authorize manager pricing.
     // Reward pricing is inserted below only after validating the member credit.
-    const safeLines = dto.lines.map((line) => ({ productId: line.productId, quantity: line.quantity }));
+    const safeLines: Array<{ productId: string; quantity: number; negotiatedPrice?: number }> =
+      dto.lines.map((line) => ({ productId: line.productId, quantity: line.quantity }));
+
+    // A social-live reservation token is the attribution proof. Resolve every
+    // campaign/platform value server-side, verify the token belongs to this
+    // shop, and apply the reserved Live price only to its matched product.
+    // The rest of the basket stays at normal catalogue pricing but the entire
+    // order remains attributable to the Live session that brought the buyer.
+    let liveAttribution: {
+      comment: LiveComment;
+      session: LiveSession;
+      pin: LivePin;
+      reservedLine: { productId: string; quantity: number; negotiatedPrice?: number };
+    } | null = null;
+    if (dto.liveCheckoutToken?.trim()) {
+      const comment = await this.liveCommentsRepo.findOne({
+        where: { ownerId, checkoutToken: dto.liveCheckoutToken.trim() },
+      });
+      if (!comment) throw new BadRequestException('Live reservation was not found for this store');
+      if (comment.status === 'CONVERTED') throw new BadRequestException('This Live reservation has already been used');
+      if (comment.status !== 'RESERVED' || !comment.reservedUntil || comment.reservedUntil.getTime() <= Date.now()) {
+        throw new BadRequestException('This Live reservation has expired');
+      }
+      if (!comment.matchedProductId) throw new BadRequestException('Live reservation has no matched product');
+      const [session, pin, product] = await Promise.all([
+        this.liveSessionsRepo.findOne({ where: { ownerId, id: comment.sessionId } }),
+        this.livePinsRepo.findOne({
+          where: { ownerId, sessionId: comment.sessionId, productId: comment.matchedProductId },
+        }),
+        this.productsRepo.findOne({ where: { ownerId, id: comment.matchedProductId, active: true } }),
+      ]);
+      if (!session || !pin || !product) throw new BadRequestException('Live product is no longer available');
+      const reservedLine = safeLines.find((line) => line.productId === comment.matchedProductId);
+      if (!reservedLine || Number(reservedLine.quantity) < Number(comment.qty || 1)) {
+        throw new BadRequestException(`Keep at least ${Number(comment.qty || 1)} of the reserved Live item in your cart`);
+      }
+      const livePrice = Number(pin.livePrice || 0);
+      const catalogPrice = Number(product.price || 0);
+      if (livePrice > 0 && livePrice <= catalogPrice) reservedLine.negotiatedPrice = livePrice;
+      liveAttribution = { comment, session, pin, reservedLine };
+    }
     let rewardClaimed = false;
     const rewardProductId = dto.redeemFreeJerseyProductId;
     if (rewardProductId) {
@@ -296,7 +343,11 @@ export class StoreService {
         { productId: rewardProductId, quantity: 1, negotiatedPrice: 0 },
       ];
       if (Number(rewardLine.quantity) > 1) {
-        replacement.push({ productId: rewardProductId, quantity: Number(rewardLine.quantity) - 1 });
+        replacement.push({
+          productId: rewardProductId,
+          quantity: Number(rewardLine.quantity) - 1,
+          negotiatedPrice: rewardLine.negotiatedPrice,
+        });
       }
       safeLines.splice(index, 1, ...replacement);
     }
@@ -308,6 +359,12 @@ export class StoreService {
       couponCode: dto.couponCode?.trim().toUpperCase() || undefined,
       customerName: dto.customerName,
       customerPhone: dto.customerPhone,
+      salesChannel: liveAttribution
+        ? `${liveAttribution.session.platform}-${liveAttribution.session.kind}`
+        : 'storefront',
+      liveSessionId: liveAttribution?.session.id,
+      liveCommentId: liveAttribution?.comment.id,
+      attributionCode: liveAttribution?.comment.reservationCode || undefined,
       installmentMonths: dto.installmentMonths,
       approvedBy: rewardClaimed ? `LOYALTY-${customer!.loyaltyCode}` : undefined,
     } as CreateOrderDto;
@@ -320,6 +377,25 @@ export class StoreService {
         await this.loyaltyRepo.increment({ id: customer.id, ownerId }, 'freeJerseyCredits', 1);
       }
       throw error;
+    }
+
+    // Convert the reservation only after the full POS transaction commits.
+    // The session receives the whole basket value—not just the first reserved
+    // product—because the Live is what acquired this customer and sale.
+    if (liveAttribution) {
+      const { comment, session, pin, reservedLine } = liveAttribution;
+      comment.status = 'CONVERTED';
+      comment.orderId = (sale as { id: string }).id;
+      comment.qty = Number(reservedLine.quantity);
+      comment.buyerContact = dto.customerPhone?.trim() || comment.buyerContact;
+      pin.soldQty = Number(pin.soldQty || 0) + Number(reservedLine.quantity);
+      session.totalSales = Number(session.totalSales || 0) + Number((sale as { total: number }).total || 0);
+      session.orderCount = Number(session.orderCount || 0) + 1;
+      await Promise.all([
+        this.liveCommentsRepo.save(comment),
+        this.livePinsRepo.save(pin),
+        this.liveSessionsRepo.save(session),
+      ]);
     }
 
     let loyalty: Awaited<ReturnType<StoreService['publicCustomer']>> | null = null;
@@ -350,7 +426,17 @@ export class StoreService {
       loyalty = await this.publicCustomer(saved);
     }
 
-    return { ...sale, loyalty, rewardRedeemed: rewardClaimed };
+    return {
+      ...sale,
+      loyalty,
+      rewardRedeemed: rewardClaimed,
+      attribution: liveAttribution ? {
+        channel: `${liveAttribution.session.platform}-${liveAttribution.session.kind}`,
+        sessionId: liveAttribution.session.id,
+        sessionTitle: liveAttribution.session.title,
+        reservationCode: liveAttribution.comment.reservationCode,
+      } : null,
+    };
   }
 
   /**

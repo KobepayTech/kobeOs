@@ -107,6 +107,14 @@ export class CreateOrderDto {
   @IsOptional() @IsString() @MaxLength(32) loyaltyCode?: string;
   /** Storefront-only: one eligible cart line to make free using a jersey credit. */
   @IsOptional() @IsUUID() redeemFreeJerseyProductId?: string;
+  /** Public storefront token issued by a Live comment/catalog reservation.
+   * StoreService validates it and derives all attribution fields server-side. */
+  @IsOptional() @IsString() @MaxLength(80) liveCheckoutToken?: string;
+  /** Internal, server-derived sale attribution persisted on the POS order. */
+  @IsOptional() @IsString() @MaxLength(64) salesChannel?: string;
+  @IsOptional() @IsUUID() liveSessionId?: string;
+  @IsOptional() @IsUUID() liveCommentId?: string;
+  @IsOptional() @IsString() @MaxLength(32) attributionCode?: string;
   /** BNPL only — number of monthly installments (defaults to 1 = lump sum). */
   @IsOptional() @IsInt() @Min(1) installmentMonths?: number;
 }

@@ -11,7 +11,7 @@ function genReservationCode(): string {
   return Array.from({ length: 4 }, () => CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)]).join('');
 }
 import { LiveSession, LivePin, LiveComment } from './live-sale.entity';
-import { PosProduct } from '../pos/pos.entity';
+import { PosOrder, PosProduct } from '../pos/pos.entity';
 import { StoreSettings } from '../store-settings/store-settings.entity';
 import { OrdersService } from '../pos/pos.service';
 import { PalmPesaService } from '../creators/palmpesa.service';
@@ -72,11 +72,28 @@ export class LiveSaleService {
     @InjectRepository(LivePin) private readonly pins: Repository<LivePin>,
     @InjectRepository(LiveComment) private readonly comments: Repository<LiveComment>,
     @InjectRepository(PosProduct) private readonly products: Repository<PosProduct>,
+    @InjectRepository(PosOrder) private readonly posOrders: Repository<PosOrder>,
     @InjectRepository(StoreSettings) private readonly settings: Repository<StoreSettings>,
     private readonly orders: OrdersService,
     private readonly palmpesa: PalmPesaService,
     private readonly apify: ApifyService,
   ) {}
+
+  /** Absolute tracked storefront URL used in comment replies and private DMs.
+   * The reservation token is the proof later used to attribute the full cart. */
+  private async storefrontCheckoutUrl(ownerId: string, session: LiveSession, checkoutToken: string): Promise<string> {
+    const store = await this.settings.findOne({ where: { ownerId } });
+    const configured = store?.publishedUrl?.trim() || store?.customDomain?.trim() || '';
+    const base = configured
+      ? (/^https?:\/\//i.test(configured) ? configured : `https://${configured}`)
+      : `https://${store?.domainSlug || 'shop'}.${process.env.TENANT_BASE_DOMAIN || process.env.CF_DOMAIN || 'kobeapptz.com'}`;
+    const url = new URL(base.replace(/\/$/, '') + '/');
+    url.searchParams.set('live', checkoutToken);
+    url.searchParams.set('utm_source', session.platform);
+    url.searchParams.set('utm_medium', session.kind === 'post' ? 'social-post' : 'social-live');
+    url.searchParams.set('utm_campaign', session.id);
+    return url.toString();
+  }
 
   /* ── Sessions ── */
 
@@ -190,7 +207,21 @@ export class LiveSaleService {
     }
     // "NOW SHOWING" — the featured product (or the first) leads the catalog.
     const featured = products.find((p) => p.isFeatured) ?? products[0] ?? null;
-    return { live: true as const, sessionId: session.id, title: session.title, currency: session.currency, featured, products };
+    const configured = s.publishedUrl?.trim() || s.customDomain?.trim() || '';
+    const storefrontUrl = configured
+      ? (/^https?:\/\//i.test(configured) ? configured : `https://${configured}`)
+      : `https://${s.domainSlug}.${process.env.TENANT_BASE_DOMAIN || process.env.CF_DOMAIN || 'kobeapptz.com'}`;
+    return {
+      live: true as const,
+      sessionId: session.id,
+      title: session.title,
+      currency: session.currency,
+      platform: session.platform,
+      kind: session.kind,
+      storefrontUrl: storefrontUrl.replace(/\/$/, ''),
+      featured,
+      products,
+    };
   }
 
   /** Seller sets the "NOW SHOWING" product; the catalog updates live. */
@@ -229,7 +260,19 @@ export class LiveSaleService {
       note: dto.variation?.slice(0, 120) || '',
       reservedUntil: new Date(Date.now() + RESERVE_MINUTES * 60_000),
     }));
-    return { reservationCode, checkoutToken, checkoutPath: `/live/pay/${checkoutToken}`, expiresInSeconds: RESERVE_MINUTES * 60, qty, sessionId: live.sessionId, id: saved.id };
+    const session = await this.sessions.findOneOrFail({ where: { id: live.sessionId, ownerId: pin.ownerId } });
+    const storefrontUrl = await this.storefrontCheckoutUrl(pin.ownerId, session, checkoutToken);
+    return {
+      reservationCode,
+      checkoutToken,
+      checkoutPath: `/live/pay/${checkoutToken}`,
+      storefrontPath: `/?live=${encodeURIComponent(checkoutToken)}&utm_source=${encodeURIComponent(session.platform)}&utm_medium=${session.kind === 'post' ? 'social-post' : 'social-live'}&utm_campaign=${encodeURIComponent(session.id)}`,
+      storefrontUrl,
+      expiresInSeconds: RESERVE_MINUTES * 60,
+      qty,
+      sessionId: live.sessionId,
+      id: saved.id,
+    };
   }
 
   /** Look up a reservation by its short code (method 2 — the moderator's K7Q4). */
@@ -365,7 +408,8 @@ export class LiveSaleService {
     let reply: string | undefined;
     if (status === 'RESERVED') {
       const who = handle ? `@${handle.replace(/^@/, '')} ` : '';
-      reply = `${who}${match!.code} reserved${saved.qty > 1 ? ` x${saved.qty}` : ''} for ${RESERVE_MINUTES} min. Open our profile link and enter code ${reservationCode} to pay.`;
+      const shopUrl = await this.storefrontCheckoutUrl(uid, session, checkoutToken);
+      reply = `${who}${match!.code} reserved${saved.qty > 1 ? ` x${saved.qty}` : ''} for ${RESERVE_MINUTES} min. Add anything else you want and checkout here: ${shopUrl}`;
     }
     return { ...saved, reply } as LiveComment & { reply?: string };
   }
@@ -387,10 +431,20 @@ export class LiveSaleService {
       reservedUntil: c.reservedUntil,
       qty: c.qty,
       buyerHandle: c.buyerHandle,
-      product: product ? { name: product.name, imageUrl: (product as { imageUrl?: string }).imageUrl ?? null } : null,
+      product: product ? {
+        id: product.id,
+        sku: product.sku,
+        name: product.name,
+        imageUrl: (product as { imageUrl?: string }).imageUrl ?? null,
+      } : null,
       unitPrice: num(pin?.livePrice) || num(product?.price),
       currency: session?.currency || 'TZS',
       sessionTitle: session?.title || 'Live Sale',
+      sessionId: session?.id || c.sessionId,
+      platform: session?.platform || c.source || 'other',
+      kind: session?.kind || 'live',
+      reservationCode: c.reservationCode,
+      storefrontPath: `/?live=${encodeURIComponent(token)}`,
     };
   }
 
@@ -449,6 +503,7 @@ export class LiveSaleService {
     // negotiatedPrice can't exceed catalog (OrdersService rejects markups).
     const negotiatedPrice = live > 0 && live <= catalog ? live : undefined;
     const contact = (dto.buyerContact || c.buyerContact || '').trim();
+    const session = await this.getSession(uid, c.sessionId);
 
     let order;
     try {
@@ -458,6 +513,10 @@ export class LiveSaleService {
         paymentMethod: 'live',
         customerName: c.buyerHandle || 'Live buyer',
         customerPhone: contact,
+        salesChannel: `${session.platform || c.source || 'other'}-${session.kind || 'live'}`,
+        liveSessionId: c.sessionId,
+        liveCommentId: c.id,
+        attributionCode: c.reservationCode,
       } as Parameters<OrdersService['create']>[1]);
     } catch (e) {
       c.status = 'FAILED';
@@ -476,7 +535,6 @@ export class LiveSaleService {
     c.qty = qty;
     c.buyerContact = contact;
     await this.comments.save(c);
-    const session = await this.getSession(uid, c.sessionId);
     session.totalSales = num(session.totalSales) + lineTotal;
     session.orderCount += 1;
     await this.sessions.save(session);
@@ -547,8 +605,12 @@ export class LiveSaleService {
     const sessionIds = Array.from(new Set(rows.map((r) => r.sessionId)));
     const sessions = sessionIds.length ? await this.sessions.find({ where: { ownerId: uid, id: In(sessionIds) } }) : [];
     const byId = new Map(sessions.map((s) => [s.id, s]));
+    const orderIds = rows.map((r) => r.orderId).filter((id): id is string => !!id);
+    const orders = orderIds.length ? await this.posOrders.find({ where: { ownerId: uid, id: In(orderIds) } }) : [];
+    const ordersById = new Map(orders.map((order) => [order.id, order]));
     const items = rows.map((r) => {
       const s = byId.get(r.sessionId);
+      const order = r.orderId ? ordersById.get(r.orderId) : undefined;
       return {
         id: r.id, channel: (s?.kind ?? 'live') as LiveSession['kind'],
         platform: (r.source || s?.platform || 'other').replace(/^post-/, ''),
@@ -557,6 +619,10 @@ export class LiveSaleService {
         buyerHandle: r.buyerHandle, buyerContact: r.buyerContact,
         reservationCode: r.reservationCode, checkoutToken: r.checkoutToken,
         reservedUntil: r.reservedUntil, orderId: r.orderId, createdAt: r.createdAt,
+        orderNumber: order?.orderNumber ?? null,
+        orderTotal: order ? num(order.total) : null,
+        currency: order?.currency ?? s?.currency ?? 'TZS',
+        salesChannel: order?.salesChannel ?? `${s?.platform || r.source || 'other'}-${s?.kind || 'live'}`,
       };
     });
     return {
