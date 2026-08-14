@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
   CheckCircle2,
-  Clock3,
   CreditCard,
   Loader2,
   LockKeyhole,
@@ -64,10 +63,6 @@ export function AppEntitlementGate({
     if (!record) return 'expired';
     return currentAccess(record.access, record.trialEndsAt, record.periodEndsAt, now);
   }, [app.id, now, record]);
-  const trialDaysRemaining = record
-    ? Math.max(0, Math.ceil((record.trialEndsAt - now) / 86_400_000))
-    : 0;
-
   const refresh = async () => {
     const records = await listAppEntitlements();
     setAppEntitlements(records);
@@ -187,12 +182,6 @@ export function AppEntitlementGate({
   if (access === 'active' || access === 'trial') {
     return (
       <div className="relative h-full min-h-0">
-        {access === 'trial' && record && (
-          <div className="pointer-events-none absolute left-3 top-3 z-40 inline-flex items-center gap-1.5 rounded-full border border-orange-200 bg-orange-50/95 px-3 py-1.5 text-[10px] font-black text-orange-700 shadow-sm backdrop-blur">
-            <Clock3 className="h-3.5 w-3.5" />
-            {trialDaysRemaining} day{trialDaysRemaining === 1 ? '' : 's'} left
-          </div>
-        )}
         {children}
       </div>
     );

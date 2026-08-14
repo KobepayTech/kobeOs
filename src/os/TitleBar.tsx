@@ -1,10 +1,11 @@
-import { memo, type MouseEvent } from 'react';
-import { Minus, Maximize2, Minimize2, X, type LucideIcon } from 'lucide-react';
+import { memo, useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { Clock3, Minus, Maximize2, Minimize2, X, type LucideIcon } from 'lucide-react';
 import { useOSStore } from './store';
 import * as icons from 'lucide-react';
 
 interface TitleBarProps {
   windowId: string;
+  appId: string;
   title: string;
   icon?: string;
   isFocused: boolean;
@@ -21,6 +22,7 @@ const TRAFFIC_LIGHT = {
 
 export const TitleBar = memo(function TitleBar({
   windowId,
+  appId,
   title,
   icon,
   isFocused,
@@ -30,6 +32,19 @@ export const TitleBar = memo(function TitleBar({
   const minimizeWindow = useOSStore((s) => s.minimizeWindow);
   const maximizeWindow = useOSStore((s) => s.maximizeWindow);
   const closeWindow    = useOSStore((s) => s.closeWindow);
+  const entitlement = useOSStore((s) => s.appEntitlements[appId]);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const trialDaysRemaining = useMemo(() => {
+    if (!entitlement || entitlement.access !== 'trial' || entitlement.trialEndsAt <= now) return null;
+    if (entitlement.periodEndsAt && entitlement.periodEndsAt > now) return null;
+    return Math.max(0, Math.ceil((entitlement.trialEndsAt - now) / 86_400_000));
+  }, [entitlement, now]);
 
   const IconComp = icon
     ? (icons[icon as keyof typeof icons] as LucideIcon | undefined)
@@ -158,6 +173,18 @@ export const TitleBar = memo(function TitleBar({
           </span>
         </div>
       </div>
+
+      {/* Trial time sits opposite the window controls so it never covers app content. */}
+      {trialDaysRemaining !== null && (
+        <div
+          className="pointer-events-none absolute right-4 top-1/2 z-10 inline-flex -translate-y-1/2 items-center gap-1.5 rounded-full border border-orange-200/90 bg-orange-50/95 px-2.5 py-1 text-[10px] font-black text-orange-700 shadow-sm backdrop-blur"
+          aria-label={`Trial time remaining: ${trialDaysRemaining} day${trialDaysRemaining === 1 ? '' : 's'}`}
+          title={`${trialDaysRemaining} trial day${trialDaysRemaining === 1 ? '' : 's'} remaining`}
+        >
+          <Clock3 className="h-3.5 w-3.5" />
+          <span>Trial · {trialDaysRemaining}d</span>
+        </div>
+      )}
     </div>
   );
 });

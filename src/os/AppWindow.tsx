@@ -190,6 +190,7 @@ export const AppWindow = memo(function AppWindow({ window: win, children }: AppW
       >
         <TitleBar
           windowId={win.id}
+          appId={win.appId}
           title={win.title}
           icon={win.icon}
           isFocused={win.isFocused}
