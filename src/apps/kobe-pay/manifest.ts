@@ -2,8 +2,8 @@ import { lazy } from 'react';
 import type { AppManifest } from '@/os/types';
 export const manifest: AppManifest = {
   id: 'kobe-pay',
-  name: 'KobePay',
-  description: 'Trade finance wallet - Customer deposits, supplier allocation, payout workflow, cashier roles (TZ/China), bank-style receipts',
+  name: 'Kobepay FX',
+  description: 'Cross-border trade finance & remittance — customer deposits, supplier allocation, FX payout workflow, cashier roles (TZ/China), bank-style receipts',
   icon: 'Wallet',
   category: 'erp',
   version: '1.0.0',

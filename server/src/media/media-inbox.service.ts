@@ -308,6 +308,41 @@ export class MediaInboxService {
     return results;
   }
 
+  /**
+   * One-tap bulk catalogue: turn every unprocessed image into a generic,
+   * PUBLISHED product (name from the filename, price 0, active) while keeping
+   * the image attached. Processed in chunks so a large box never runs one giant
+   * transaction. Failed items can be retried with includeFailed.
+   */
+  async generateGenericProducts(
+    ownerId: string,
+    opts: { category?: string; includeFailed?: boolean } = {},
+  ): Promise<{ processed: number; results: unknown[] }> {
+    const statuses = (opts.includeFailed
+      ? ['UNPROCESSED', 'FAILED']
+      : ['UNPROCESSED']) as MediaInboxItem['status'][];
+    const items = await this.inbox.find({ where: { ownerId, status: In(statuses) } });
+    if (!items.length) return { processed: 0, results: [] };
+    const ids = items.map((item) => item.id);
+    let processed = 0;
+    const results: unknown[] = [];
+    for (let i = 0; i < ids.length; i += 100) {
+      const batch = ids.slice(i, i + 100);
+      const r = await this.process(ownerId, {
+        itemIds: batch,
+        moduleId: 'erp',
+        entityType: 'product',
+        createEntities: true,
+        category: opts.category?.trim() || 'General',
+        // Generic + published: active defaults true, a placeholder price/stock.
+        defaults: { price: 0, stock: 0, active: true },
+      });
+      processed += r.processed;
+      results.push(...r.results);
+    }
+    return { processed, results };
+  }
+
   async process(ownerId: string, dto: ProcessMediaInboxDto) {
     const items = await this.inbox.find({ where: { ownerId, id: In(dto.itemIds) } });
     if (items.length !== dto.itemIds.length) throw new NotFoundException('One or more selected images were not found');

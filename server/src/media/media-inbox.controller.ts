@@ -84,4 +84,13 @@ export class MediaInboxController {
   process(@CurrentUser('id') ownerId: string, @Body() dto: ProcessMediaInboxDto) {
     return this.service.process(ownerId, dto);
   }
+
+  /** One-tap: turn every unprocessed image into a generic, published product. */
+  @Post('generate-products')
+  generateProducts(
+    @CurrentUser('id') ownerId: string,
+    @Body() dto: { category?: string; includeFailed?: boolean },
+  ) {
+    return this.service.generateGenericProducts(ownerId, dto ?? {});
+  }
 }

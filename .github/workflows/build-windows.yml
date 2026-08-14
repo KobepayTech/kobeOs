@@ -2,6 +2,11 @@ name: Build Windows Installer
 
 on:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish a release so desktop apps auto-update (no tag needed)'
+        type: boolean
+        default: false
   push:
     branches: [master, main]
     tags: ['v*']
@@ -150,12 +155,14 @@ jobs:
           KOBE_MODELS_REQUIRED: ${{ vars.KOBE_MODELS_REQUIRED }}
 
       # ── Build installer ─────────────────────────────────────────────────────
-      # On a version tag, let electron-builder PUBLISH the update feed to the
-      # GitHub Release — it uploads the installer, latest.yml, and the .blockmap
-      # that electron-updater needs to detect updates and download only changed
-      # blocks (delta). On non-tag builds, publish nothing.
+      # PUBLISH the update feed to the GitHub Release (installer + latest.yml +
+      # .blockmap for delta updates) either on a version tag OR when the
+      # "publish" input is checked on a manual run — the latter lets you ship an
+      # auto-update with one click from the Actions tab, no git tag required.
+      # electron-builder creates the release for the current package.json version.
+      # Other builds publish nothing.
       - name: Build Windows installer
-        run: npx electron-builder --win --publish ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
+        run: npx electron-builder --win --publish ${{ (startsWith(github.ref, 'refs/tags/v') || github.event.inputs.publish == 'true') && 'always' || 'never' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

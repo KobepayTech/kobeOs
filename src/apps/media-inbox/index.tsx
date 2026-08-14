@@ -167,6 +167,21 @@ export default function MediaInboxApp() {
     } finally { setImporting(false); }
   };
 
+  // One tap: turn every unprocessed image into a generic, published product.
+  const [generating, setGenerating] = useState(false);
+  const generateProducts = async () => {
+    if (!confirm('Create a generic, published product from every unprocessed image? You can edit names, prices and categories afterwards.')) return;
+    setGenerating(true); setError(null); setNotice(null);
+    try {
+      const res = await api<{ processed: number }>('/media/inbox/generate-products', { method: 'POST', body: JSON.stringify({ includeFailed: true }) });
+      setNotice(`${res.processed} product${res.processed === 1 ? '' : 's'} created and published from your images.`);
+      setStatus('PROCESSED');
+      await load();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Could not create products.');
+    } finally { setGenerating(false); }
+  };
+
   const drop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault(); setDragging(false); void upload([...event.dataTransfer.files]);
   };
@@ -277,6 +292,7 @@ export default function MediaInboxApp() {
           <div className="min-w-0 flex-1"><h1 className="font-extrabold">Shared Media Inbox</h1><p className="text-[11px] text-slate-500">Upload once, classify in a gallery, then attach to any KobeOS module</p></div>
           <button onClick={() => void load()} className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 text-slate-500"><RefreshCw className="h-4 w-4" /></button>
           <button onClick={() => { setShowLinks((v) => !v); setLinkFails([]); }} className={`inline-flex h-9 items-center gap-1.5 rounded-xl border px-4 text-xs font-extrabold ${showLinks ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-600'}`}><Link2 className="h-4 w-4" />Paste links</button>
+          <button onClick={() => void generateProducts()} disabled={generating} className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-4 text-xs font-extrabold text-emerald-700 disabled:opacity-40">{generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackagePlus className="h-4 w-4" />}Publish all as products</button>
           <button onClick={() => fileInput.current?.click()} disabled={uploading} className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-blue-600 px-4 text-xs font-extrabold text-white disabled:opacity-40"><ImagePlus className="h-4 w-4" />Upload images</button>
           <input ref={fileInput} className="hidden" type="file" accept="image/*,video/*" multiple onChange={(event) => { void upload([...(event.target.files || [])]); event.currentTarget.value = ''; }} />
         </div>
