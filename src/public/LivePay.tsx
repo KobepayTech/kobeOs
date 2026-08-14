@@ -4,8 +4,9 @@ import { publicApi } from './api';
 interface Checkout {
   token: string; status: string; expired: boolean; reservedUntil: string | null;
   qty: number; buyerHandle: string;
-  product: { name: string; imageUrl: string | null } | null;
-  unitPrice: number; currency: string; sessionTitle: string;
+  product: { id: string; sku: string; name: string; imageUrl: string | null } | null;
+  unitPrice: number; currency: string; sessionTitle: string; platform: string;
+  storefrontPath: string;
 }
 
 const money = (n: number, ccy: string) => `${ccy} ${Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
@@ -86,6 +87,9 @@ export default function LivePay({ token }: { token: string }) {
                     <div className="text-center text-xs text-amber-300">Held for {Math.floor(left / 60)}:{String(left % 60).padStart(2, '0')} more</div>
                   )}
                   <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" placeholder="Your phone number" className="w-full h-11 px-3 rounded-lg bg-white/[0.05] border border-white/10 text-sm outline-none" />
+                  <a href={data.storefrontPath || `/?live=${encodeURIComponent(token)}`} className="block w-full h-11 leading-[44px] rounded-lg bg-fuchsia-600 hover:bg-fuchsia-700 text-center font-semibold">
+                    Add more products from the store
+                  </a>
                   <button onClick={pay} disabled={busy || !phone.trim()} className="w-full h-11 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 font-semibold">
                     {busy ? 'Confirming…' : `Confirm order · ${money(total, data.currency)}`}
                   </button>

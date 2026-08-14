@@ -7,6 +7,7 @@ interface CatalogProduct {
 }
 interface Catalog {
   live: boolean; sessionId?: string; title?: string; currency?: string;
+  platform?: string; kind?: 'live' | 'post'; storefrontUrl?: string;
   featured?: CatalogProduct | null; products?: CatalogProduct[];
 }
 
@@ -38,10 +39,12 @@ export default function LiveCatalog({ slug, whatsapp }: { slug: string; whatsapp
   const reserve = async (p: CatalogProduct) => {
     setBusy(true); setError(null);
     try {
-      const r = await publicApi<{ checkoutPath: string }>(`/live-sales/public/${encodeURIComponent(slug)}/reserve`, {
+      const r = await publicApi<{ checkoutToken: string; storefrontPath: string; storefrontUrl: string }>(`/live-sales/public/${encodeURIComponent(slug)}/reserve`, {
         method: 'POST', body: JSON.stringify({ code: p.code, qty, buyerHandle: handle.trim() }),
       });
-      window.location.href = r.checkoutPath; // -> /live/pay/{token}
+      // Keep the reserved Live item, then open the complete shop so the buyer
+      // can add more products. The token attributes the whole final basket.
+      window.location.href = r.storefrontUrl || r.storefrontPath;
     } catch (e) { setError((e as Error).message); setBusy(false); }
   };
 
@@ -51,7 +54,7 @@ export default function LiveCatalog({ slug, whatsapp }: { slug: string; whatsapp
     setBusy(true); setError(null);
     try {
       const r = await publicApi<{ token: string }>(`/live-sales/public/reservation/${code}`);
-      window.location.href = `/live/pay/${r.token}`;
+      window.location.href = `/?live=${encodeURIComponent(r.token)}`;
     } catch (e) { setError('That reservation code was not found or has expired.'); setBusy(false); }
   };
 
@@ -86,7 +89,7 @@ export default function LiveCatalog({ slug, whatsapp }: { slug: string; whatsapp
               <div className="text-xs text-white/50">{featured.stock > 0 ? `Stock: ${featured.stock}` : 'Sold out'}</div>
               <QtyRow qty={qty} setQty={setQty} max={featured.stock} />
               <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="Your TikTok/IG @handle (optional)" className="w-full h-9 px-3 rounded-lg bg-white/[0.05] border border-white/10 text-xs outline-none" />
-              <button disabled={busy || featured.stock <= 0} onClick={() => reserve(featured)} className="w-full h-11 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 font-bold">RESERVE AND BUY</button>
+              <button disabled={busy || featured.stock <= 0} onClick={() => reserve(featured)} className="w-full h-11 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 font-bold">ADD TO CART & SHOP MORE</button>
             </div>
           </div>
         )}
@@ -107,7 +110,7 @@ export default function LiveCatalog({ slug, whatsapp }: { slug: string; whatsapp
             <div className="mt-3 rounded-lg border border-white/10 bg-white/[0.03] p-2.5 space-y-2">
               <div className="text-sm font-semibold">#{picked.code} {picked.name} · {money(priceOf(picked), picked.currency)}</div>
               <QtyRow qty={qty} setQty={setQty} max={picked.stock} />
-              <button disabled={busy || picked.stock <= 0} onClick={() => reserve(picked)} className="w-full h-10 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 font-bold text-sm">RESERVE AND BUY</button>
+              <button disabled={busy || picked.stock <= 0} onClick={() => reserve(picked)} className="w-full h-10 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 font-bold text-sm">ADD TO CART & SHOP MORE</button>
             </div>
           )}
         </div>
@@ -125,6 +128,13 @@ export default function LiveCatalog({ slug, whatsapp }: { slug: string; whatsapp
         {whatsapp && (
           <a href={`https://wa.me/${whatsapp.replace(/[^0-9]/g, '')}?text=${encodeURIComponent('Hello Kobe, I want to buy from your live. Product code: ')}`} target="_blank" rel="noreferrer" className="block text-center h-11 leading-[44px] rounded-lg bg-emerald-600 hover:bg-emerald-700 font-bold">Buy via WhatsApp</a>
         )}
+
+        <a
+          href={`${cat.storefrontUrl || '/'}?utm_source=${encodeURIComponent(cat.platform || 'live')}&utm_medium=${cat.kind === 'post' ? 'social-post' : 'social-live'}&utm_campaign=${encodeURIComponent(cat.sessionId || '')}`}
+          className="block text-center h-11 leading-[44px] rounded-lg border border-white/15 bg-white/[0.05] hover:bg-white/10 font-bold"
+        >
+          Browse the full store
+        </a>
 
         {error && <p className="text-[11px] text-red-300 text-center">{error}</p>}
         <p className="text-[10px] text-white/30 text-center">Reserved items are held 5 minutes. Pay to confirm.</p>

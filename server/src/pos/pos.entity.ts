@@ -197,6 +197,28 @@ export class PosOrder extends OwnedEntity {
   @Column({ nullable: true, type: 'varchar' })
   customerPhone?: string | null;
 
+  /** Where this sale originated. Examples: pos, storefront,
+   * instagram-live, tiktok-live, instagram-post. This is independent of the
+   * payment method so a mobile-money payment can still be attributed to an
+   * Instagram Live campaign. */
+  @Index()
+  @Column({ default: 'pos' })
+  salesChannel!: string;
+
+  /** Validated live/post campaign attribution. These are populated by the
+   * server from a reservation token; public checkout callers cannot choose
+   * another seller's session or comment. */
+  @Index()
+  @Column('uuid', { nullable: true })
+  liveSessionId?: string | null;
+
+  @Index()
+  @Column('uuid', { nullable: true })
+  liveCommentId?: string | null;
+
+  @Column({ default: '' })
+  attributionCode!: string;
+
   @Column({ default: false })
   isBnpl!: boolean;
 
