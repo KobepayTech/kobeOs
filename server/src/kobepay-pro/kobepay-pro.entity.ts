@@ -87,6 +87,9 @@ export class KpMerchant extends OwnedEntity {
   @Column('numeric', { precision: 5, scale: 2, default: 0, transformer: numeric }) commissionPct!: number;
   @Column({ default: 'PENDING' }) status!: MerchantStatus;
   @Column({ default: false }) online!: boolean;
+  /** Kobepay Connect: sha256 of the merchant's API key (never store the key). */
+  @Column({ default: '' }) apiKeyHash!: string;
+  @Column({ default: '' }) apiKeyLast4!: string;
 }
 
 /** Per-school merchant whitelist — a school approves which merchants its students may use. */
@@ -249,6 +252,23 @@ export class KpPurchaseGroup extends OwnedEntity {
   @Column({ type: 'timestamptz', nullable: true }) deliveredAt?: Date | null;
   @Column({ type: 'timestamptz', nullable: true }) verifiedAt?: Date | null;
   @Column({ type: 'timestamptz', nullable: true }) completedAt?: Date | null;
+}
+
+/**
+ * A starter pack: a named bundle of purchase groups (books + uniform +
+ * calculator …) a parent buys in one tap. Each item references a purchase
+ * group, so escrow/supplier/delivery all reuse the Groups engine.
+ */
+@Entity('kp_starter_packs')
+@Index(['ownerId', 'schoolId'])
+export class KpStarterPack extends OwnedEntity {
+  @Column('uuid') schoolId!: string;
+  @Column() name!: string;
+  @Column({ default: '' }) className!: string;
+  @Column({ type: 'text', default: '' }) description!: string;
+  /** [{ groupId, qty }] — each references a KpPurchaseGroup. */
+  @Column({ type: 'jsonb', default: [] }) items!: Array<{ groupId: string; qty: number }>;
+  @Column({ default: true }) active!: boolean;
 }
 
 /** One participant's order inside a purchase group. */

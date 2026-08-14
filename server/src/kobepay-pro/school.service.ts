@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import { randomBytes } from 'crypto';
 import {
-  KpAccount, KpMerchant, KpMerchantApproval, KpSchool, KpStudent, KpTransaction,
+  KpAccount, KpMerchant, KpMerchantApproval, KpPurchaseGroup, KpSchool, KpStudent, KpSupplier, KpTransaction,
 } from './kobepay-pro.entity';
 import { LedgerService } from './ledger.service';
 
@@ -26,9 +26,31 @@ export class SchoolService {
     @InjectRepository(KpMerchantApproval) private readonly approvals: Repository<KpMerchantApproval>,
     @InjectRepository(KpTransaction) private readonly txns: Repository<KpTransaction>,
     @InjectRepository(KpAccount) private readonly accounts: Repository<KpAccount>,
+    @InjectRepository(KpSupplier) private readonly suppliers: Repository<KpSupplier>,
+    @InjectRepository(KpPurchaseGroup) private readonly groups: Repository<KpPurchaseGroup>,
     private readonly ledger: LedgerService,
     private readonly dataSource: DataSource,
   ) {}
+
+  /** Marketplace: merchants (with payable) and suppliers (with active orders) a school can approve. */
+  async marketplace(ownerId: string, schoolId?: string) {
+    const merchants = await this.merchants.find({ where: { ownerId }, order: { name: 'ASC' } });
+    const approvals = schoolId ? await this.approvals.find({ where: { ownerId, schoolId } }) : [];
+    const merchantRows = await Promise.all(merchants.map(async (m) => ({
+      id: m.id, name: m.name, code: m.merchantCode, category: m.category, status: m.status,
+      online: m.online, commissionPct: m.commissionPct,
+      payable: await this.ledger.owed(ownerId, 'MERCHANT', m.id),
+      approved: schoolId ? (approvals.find((a) => a.merchantId === m.id)?.allowed ?? false) : undefined,
+      hasApiKey: !!m.apiKeyHash,
+    })));
+    const suppliers = await this.suppliers.find({ where: { ownerId }, order: { name: 'ASC' } });
+    const supplierRows = await Promise.all(suppliers.map(async (s) => ({
+      id: s.id, name: s.name, code: s.code, status: s.status,
+      payable: await this.ledger.owed(ownerId, 'SUPPLIER', s.id),
+      activeOrders: await this.groups.count({ where: { ownerId, supplierId: s.id } }),
+    })));
+    return { merchants: merchantRows, suppliers: supplierRows };
+  }
 
   // ── Schools ──────────────────────────────────────────────────────────────
   async createSchool(ownerId: string, dto: { name: string; code?: string; bankModel?: string; bankAccountRef?: string; currency?: string }) {

@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import {
-  IsBoolean, IsIn, IsNumber, IsObject, IsOptional, IsString, MaxLength, Min,
+  ArrayNotEmpty, IsArray, IsBoolean, IsIn, IsNumber, IsObject, IsOptional, IsString, MaxLength, Min, ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { Public } from '../common/public.decorator';
@@ -11,6 +12,9 @@ import { PaymentService } from './payment.service';
 import { DepositEngineService } from './deposit-engine.service';
 import { LedgerService } from './ledger.service';
 import { GroupsService } from './groups.service';
+import { StarterPackService } from './starter-pack.service';
+import { PortalService } from './portal.service';
+import { ConnectService } from './connect.service';
 import type { SpendCategory } from './kobepay-pro.entity';
 
 const CATEGORIES = ['AVAILABLE', 'FOOD', 'TRANSPORT', 'BOOKS', 'SUPPLIES', 'ONLINE', 'GROUP', 'SAVINGS'];
@@ -105,6 +109,15 @@ class CollectDto {
   @IsOptional() @IsString() qrToken?: string;
   @IsOptional() @IsString() studentCode?: string;
 }
+class PackItemDto { @IsString() groupId!: string; @IsOptional() @IsNumber() @Min(1) qty?: number; }
+class CreatePackDto {
+  @IsString() schoolId!: string;
+  @IsString() @MaxLength(120) name!: string;
+  @IsOptional() @IsString() @MaxLength(60) className?: string;
+  @IsOptional() @IsString() @MaxLength(2000) description?: string;
+  @IsArray() @ArrayNotEmpty() @ValidateNested({ each: true }) @Type(() => PackItemDto) items!: PackItemDto[];
+}
+class BuyPackDto { @IsString() studentId!: string; }
 
 @UseGuards(JwtAuthGuard)
 @Controller('kobepay-pro')
@@ -116,6 +129,8 @@ export class KobepayProController {
     private readonly deposits: DepositEngineService,
     private readonly ledger: LedgerService,
     private readonly groupsSvc: GroupsService,
+    private readonly packsSvc: StarterPackService,
+    private readonly connect: ConnectService,
   ) {}
 
   // Schools
@@ -181,6 +196,42 @@ export class KobepayProController {
   @Post('groups/:id/collect') collect(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: CollectDto) { return this.groupsSvc.collect(uid, id, dto); }
   @Post('groups/:id/complete') complete(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.groupsSvc.completeAndPay(uid, id); }
   @Post('groups/:id/cancel') cancelGroup(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.groupsSvc.cancelGroup(uid, id); }
+
+  // Starter packs
+  @Get('packs') packs(@CurrentUser('id') uid: string, @Query('schoolId') schoolId?: string) { return this.packsSvc.listPacks(uid, schoolId); }
+  @Post('packs') createPack(@CurrentUser('id') uid: string, @Body() dto: CreatePackDto) { return this.packsSvc.createPack(uid, dto); }
+  @Get('packs/:id') pack(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.packsSvc.getPack(uid, id); }
+  @Post('packs/:id/buy') buyPack(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: BuyPackDto) { return this.packsSvc.buyPack(uid, id, dto); }
+
+  // Marketplace & Connect
+  @Get('marketplace') marketplace(@CurrentUser('id') uid: string, @Query('schoolId') schoolId?: string) { return this.schoolSvc.marketplace(uid, schoolId); }
+  @Post('merchants/:id/api-key') issueApiKey(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.connect.issueApiKey(uid, id); }
+}
+
+/** Public parent/student portal — accessed by the student's QR token (no login). */
+@Public()
+@Controller('kobepay-pro/me')
+export class StudentPortalController {
+  constructor(private readonly portal: PortalService) {}
+
+  @Get(':token') me(@Param('token') token: string) { return this.portal.portal(token); }
+  @Post(':token/groups/:groupId/join') join(@Param('token') token: string, @Param('groupId') groupId: string, @Body() dto: { qty?: number }) { return this.portal.join(token, groupId, dto?.qty); }
+  @Post(':token/packs/:packId/buy') buyPack(@Param('token') token: string, @Param('packId') packId: string) { return this.portal.buyPack(token, packId); }
+}
+
+/** Kobepay Connect — external sellers charge a student by API key (header X-Api-Key). */
+@Public()
+@Controller('kobepay-pro/connect')
+export class ConnectController {
+  constructor(private readonly connect: ConnectService) {}
+
+  @Post('charge')
+  charge(
+    @Headers('x-api-key') apiKey: string,
+    @Body() body: { studentCode?: string; nfcCardId?: string; qrToken?: string; amount: number; description?: string; reference?: string },
+  ) {
+    return this.connect.charge(apiKey, body);
+  }
 }
 
 /** Public supplier portal — a supplier manages fulfilment with a token, no login. */

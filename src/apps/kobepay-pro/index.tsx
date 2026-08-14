@@ -8,7 +8,7 @@ import {
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface School { id: string; name: string; code: string; bankModel: string; currency: string }
-interface Student { id: string; schoolId: string; name: string; studentCode: string; className: string; status: string; parentName: string; parentPhone: string; controls: Record<string, unknown> }
+interface Student { id: string; schoolId: string; name: string; studentCode: string; className: string; status: string; parentName: string; parentPhone: string; qrToken: string; controls: Record<string, unknown> }
 interface Merchant { id: string; name: string; merchantCode: string; category: string; commissionPct: number; status: string; online: boolean; allowed?: boolean }
 interface Deposit { id: string; bankTransactionId: string; amount: number; senderName: string; senderPhone: string; reference: string; status: string; source: string }
 interface Reconcile { bank: number; students: number; merchants: number; suppliers: number; escrow: number; fees: number; balanced: boolean; drift: number }
@@ -186,7 +186,8 @@ function StudentDrawer({ student, currency, onClose }: { student: Student; curre
       <div className="w-full max-w-md h-full bg-slate-900 border-l border-slate-800 overflow-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2 p-4 border-b border-slate-800 sticky top-0 bg-slate-900">
           <div><div className="font-bold">{student.name}</div><div className="text-[11px] text-slate-500">{student.studentCode}</div></div>
-          <button onClick={onClose} className="ml-auto text-slate-400"><X className="w-5 h-5" /></button>
+          <button onClick={() => { navigator.clipboard?.writeText(`${window.location.origin}/kobepay/me/${student.qrToken}`); }} className="ml-auto inline-flex items-center gap-1 text-[11px] text-emerald-400 hover:underline"><Copy className="w-3 h-3" />Parent link</button>
+          <button onClick={onClose} className="text-slate-400"><X className="w-5 h-5" /></button>
         </div>
         <div className="p-4 space-y-4">
           <div className="rounded-2xl border border-slate-800 bg-slate-950 p-4">
@@ -234,6 +235,11 @@ function Merchants({ schoolId }: { schoolId: string }) {
   };
   const approve = (m: Merchant, allowed: boolean) => api(`/kobepay-pro/schools/${schoolId}/merchants/${m.id}/approve`, { method: 'POST', body: JSON.stringify({ allowed }) }).then(load);
   const settle = async (m: Merchant) => { const r = await api<{ settled: number }>(`/kobepay-pro/merchants/${m.id}/settle`, { method: 'POST', body: '{}' }); alert(`Settled ${money(r.settled)}`); };
+  const apiKey = async (m: Merchant) => {
+    if (!confirm(`Issue a new Kobepay Connect API key for ${m.name}? Any existing key stops working.`)) return;
+    const r = await api<{ apiKey: string }>(`/kobepay-pro/merchants/${m.id}/api-key`, { method: 'POST', body: '{}' });
+    alert(`Connect API key for ${m.name} (shown once):\n\n${r.apiKey}\n\nUse it as header X-Api-Key when calling:\nPOST ${window.location.origin}/api/kobepay-pro/connect/charge\n{ "studentCode": "...", "amount": 5000 }`);
+  };
   return (
     <div className="p-4">
       <div className="flex items-center mb-3">
@@ -245,6 +251,7 @@ function Merchants({ schoolId }: { schoolId: string }) {
           <div key={m.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-slate-800/70">
             <div className="w-8 h-8 rounded-lg bg-slate-800 grid place-items-center"><Store className="w-4 h-4 text-slate-400" /></div>
             <div className="min-w-0 flex-1"><div className="text-sm font-semibold truncate">{m.name}</div><div className="text-[11px] text-slate-500">{m.category} · {m.commissionPct}% fee · {m.merchantCode}</div></div>
+            <button onClick={() => apiKey(m)} className="text-[11px] px-2 py-1 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800">Connect key</button>
             <button onClick={() => settle(m)} className="text-[11px] px-2 py-1 rounded-lg border border-slate-700 text-slate-300 hover:bg-slate-800">Settle</button>
             <button onClick={() => approve(m, !m.allowed)} className={`text-[11px] font-bold px-2.5 py-1 rounded-lg ${m.allowed ? 'bg-emerald-500/15 text-emerald-400' : 'bg-slate-700 text-slate-300'}`}>{m.allowed ? 'Approved' : 'Approve'}</button>
           </div>
@@ -326,15 +333,39 @@ interface GroupDetail {
 }
 const GROUP_STAGES = ['OPEN', 'ORDERED', 'PRODUCTION', 'IN_TRANSIT', 'DELIVERED', 'VERIFIED', 'COMPLETED'];
 
+interface PackRow { id: string; name: string; className: string; items: Array<{ groupId: string; qty: number }> }
 function Groups({ schoolId, currency }: { schoolId: string; currency: string }) {
   const [rows, setRows] = useState<Group[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [packs, setPacks] = useState<PackRow[]>([]);
   const [sel, setSel] = useState<string | null>(null);
   const load = useCallback(() => {
     api<Group[]>(`/kobepay-pro/groups?schoolId=${schoolId}`).then((r) => setRows(Array.isArray(r) ? r : [])).catch(() => setRows([]));
     api<Supplier[]>('/kobepay-pro/suppliers').then((r) => setSuppliers(Array.isArray(r) ? r : [])).catch(() => setSuppliers([]));
+    api<PackRow[]>(`/kobepay-pro/packs?schoolId=${schoolId}`).then((r) => setPacks(Array.isArray(r) ? r : [])).catch(() => setPacks([]));
   }, [schoolId]);
   useEffect(() => { load(); }, [load]);
+
+  const addPack = async () => {
+    const openGroups = rows.filter((g) => g.status === 'OPEN');
+    if (!openGroups.length) { alert('Create some open groups first, then bundle them into a pack.'); return; }
+    const name = prompt('Pack name (e.g. "Form 1 Starter Pack")')?.trim(); if (!name) return;
+    const refs = prompt(`Group references to include, comma-separated:\n${openGroups.map((g) => `${g.reference} = ${g.title}`).join('\n')}`)?.trim();
+    if (!refs) return;
+    const wanted = refs.split(',').map((s) => s.trim().toUpperCase());
+    const items = openGroups.filter((g) => wanted.includes(g.reference.toUpperCase())).map((g) => ({ groupId: g.id, qty: 1 }));
+    if (!items.length) { alert('No matching groups'); return; }
+    await api('/kobepay-pro/packs', { method: 'POST', body: JSON.stringify({ schoolId, name, items }) });
+    load();
+  };
+  const buyPack = async (p: PackRow) => {
+    const code = prompt(`Buy "${p.name}" for which student code?`)?.trim().toUpperCase(); if (!code) return;
+    const students = await api<Student[]>(`/kobepay-pro/students?schoolId=${schoolId}`);
+    const student = (Array.isArray(students) ? students : []).find((s) => s.studentCode === code);
+    if (!student) { alert('No student with that code'); return; }
+    try { const r = await api<{ bought: number; total: number }>(`/kobepay-pro/packs/${p.id}/buy`, { method: 'POST', body: JSON.stringify({ studentId: student.id }) }); alert(`Reserved ${r.bought} item(s), ${money(r.total, currency)} held.`); }
+    catch (e) { alert((e as Error).message); }
+  };
 
   const addGroup = async () => {
     const title = prompt('Product / group title (e.g. "Casio FX-991 Calculator")')?.trim();
@@ -387,6 +418,22 @@ function Groups({ schoolId, currency }: { schoolId: string; currency: string }) 
           </button>
         ))}
       </div>
+
+      <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
+        <div className="flex items-center mb-2">
+          <h2 className="text-xs font-bold uppercase tracking-wide text-slate-400">Starter packs · {packs.length}</h2>
+          <button onClick={addPack} className="ml-auto h-8 inline-flex items-center gap-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 px-3 text-xs font-bold"><Plus className="w-4 h-4" />New pack</button>
+        </div>
+        {packs.length === 0 ? <p className="text-[11px] text-slate-500">Bundle several open groups (books + uniform + calculator…) so a parent buys them in one tap.</p> : packs.map((p) => (
+          <div key={p.id} className="flex items-center gap-2 py-1.5 text-sm">
+            <Boxes className="w-4 h-4 text-slate-500" />
+            <span className="font-semibold">{p.name}</span>
+            <span className="text-[11px] text-slate-500">{p.items.length} item(s){p.className ? ` · ${p.className}` : ''}</span>
+            <button onClick={() => buyPack(p)} className="ml-auto text-[11px] px-2 py-0.5 rounded border border-slate-700 text-slate-300 hover:bg-slate-800">Buy for student</button>
+          </div>
+        ))}
+      </div>
+
       {sel && <GroupDrawer groupId={sel} currency={currency} schoolId={schoolId} suppliers={suppliers} onClose={() => { setSel(null); load(); }} />}
     </div>
   );
