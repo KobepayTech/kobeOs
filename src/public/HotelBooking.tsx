@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowRight, BedDouble, CalendarDays, CheckCircle2, ChevronDown, Clock, Loader2,
-  MapPin, Minus, Phone, Plus, ShoppingBag, Sparkles, UtensilsCrossed, Users,
+  MapPin, Minus, Phone, Plus, ShoppingBag, Sparkles, Truck, UtensilsCrossed, Users,
 } from 'lucide-react';
 import { Calendar as DateCalendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -35,7 +35,7 @@ interface Branding {
 }
 
 type SiteView = 'rooms' | 'food';
-type FoodDelivery = 'pickup' | 'room';
+type FoodDelivery = 'pickup' | 'room' | 'delivery';
 
 function dateFromKey(value: string): Date | undefined {
   if (!value) return undefined;
@@ -133,7 +133,7 @@ export default function HotelBooking({ slug }: { slug: string }) {
   const [error, setError] = useState<string | null>(null);
   const [category, setCategory] = useState('All');
   const [cart, setCart] = useState<Record<string, number>>({});
-  const [foodForm, setFoodForm] = useState({ guestName: '', guestPhone: '', delivery: 'pickup' as FoodDelivery, roomNumber: '', note: '' });
+  const [foodForm, setFoodForm] = useState({ guestName: '', guestPhone: '', delivery: 'pickup' as FoodDelivery, roomNumber: '', deliveryAddress: '', note: '' });
   const [orderBusy, setOrderBusy] = useState(false);
   const [orderDone, setOrderDone] = useState<PublicOrder | null>(null);
   const [foodError, setFoodError] = useState<string | null>(null);
@@ -241,12 +241,20 @@ export default function HotelBooking({ slug }: { slug: string }) {
       setFoodError('Enter the room number for room delivery.');
       return;
     }
+    if (foodForm.delivery === 'delivery' && !foodForm.deliveryAddress.trim()) {
+      setFoodError('Enter the outside delivery address.');
+      return;
+    }
     setOrderBusy(true);
     try {
       const order = await publicApi<PublicOrder>(`/public/hotel/${encodeURIComponent(slug)}/orders`, {
         method: 'POST',
         body: JSON.stringify({
-          roomNumber: foodForm.delivery === 'room' ? foodForm.roomNumber.trim() : 'Online pickup',
+          roomNumber: foodForm.delivery === 'room'
+            ? foodForm.roomNumber.trim()
+            : foodForm.delivery === 'delivery'
+              ? foodForm.deliveryAddress.trim()
+              : 'Online pickup',
           locationType: foodForm.delivery,
           guestName: foodForm.guestName.trim(),
           guestPhone: foodForm.guestPhone.trim(),
@@ -297,8 +305,8 @@ export default function HotelBooking({ slug }: { slug: string }) {
           <div className="flex items-center gap-3">
             {(branding?.logoUrl || tenant?.logoUrl) && <img src={publicAssetUrl(branding?.logoUrl || tenant?.logoUrl)} alt={hotelName} className="h-14 w-14 rounded-2xl object-cover ring-2 ring-white/40" />}
             <div>
-              <h1 className="text-2xl font-extrabold">{hotelName}</h1>
-              <p className="text-sm text-white/80">{branding?.tagline || 'Stay, dine and order online'}</p>
+              <h1 className="hotel-heading-animate text-2xl font-extrabold">{hotelName}</h1>
+              <p className="hotel-tagline-animate text-sm text-white/80">{branding?.tagline || 'Stay, dine and order online'}</p>
             </div>
           </div>
           {(address || contactPhone) && (
@@ -477,11 +485,21 @@ export default function HotelBooking({ slug }: { slug: string }) {
 
                   <div className="border-t border-slate-100 pt-4 space-y-3">
                     <StepTitle number={2}>Name and contact — final step</StepTitle>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-3 gap-2">
                       <button onClick={() => setFoodForm(current => ({ ...current, delivery: 'pickup' }))} className={`rounded-xl border px-3 py-2 text-xs font-bold ${foodForm.delivery === 'pickup' ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600'}`}>Pickup</button>
                       <button onClick={() => setFoodForm(current => ({ ...current, delivery: 'room' }))} className={`rounded-xl border px-3 py-2 text-xs font-bold ${foodForm.delivery === 'room' ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600'}`}>Deliver to room</button>
+                      <button onClick={() => setFoodForm(current => ({ ...current, delivery: 'delivery' }))} className={`rounded-xl border px-3 py-2 text-xs font-bold ${foodForm.delivery === 'delivery' ? 'border-indigo-500 bg-indigo-50 text-indigo-700' : 'border-slate-200 text-slate-600'}`}>Outside delivery</button>
                     </div>
                     {foodForm.delivery === 'room' && <input placeholder="Room number" value={foodForm.roomNumber} onChange={event => setFoodForm({ ...foodForm, roomNumber: event.target.value })} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />}
+                    {foodForm.delivery === 'delivery' && (
+                      <div className="space-y-1">
+                        <div className="relative">
+                          <Truck className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
+                          <input maxLength={160} autoComplete="street-address" placeholder="Delivery address or landmark" value={foodForm.deliveryAddress} onChange={event => setFoodForm({ ...foodForm, deliveryAddress: event.target.value })} className="h-11 w-full rounded-xl border border-slate-200 pl-10 pr-3 text-sm" />
+                        </div>
+                        <p className="text-[10px] text-slate-400">The hotel will confirm delivery availability and any delivery fee by phone.</p>
+                      </div>
+                    )}
                     <input autoComplete="name" placeholder="Your full name" value={foodForm.guestName} onChange={event => setFoodForm({ ...foodForm, guestName: event.target.value })} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
                     <input autoComplete="tel" inputMode="tel" placeholder="Phone number" value={foodForm.guestPhone} onChange={event => setFoodForm({ ...foodForm, guestPhone: event.target.value })} className="h-11 w-full rounded-xl border border-slate-200 px-3 text-sm" />
                     <textarea placeholder="Special instructions (optional)" value={foodForm.note} onChange={event => setFoodForm({ ...foodForm, note: event.target.value })} className="min-h-20 w-full resize-none rounded-xl border border-slate-200 p-3 text-sm" />

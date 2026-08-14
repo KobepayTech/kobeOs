@@ -254,7 +254,7 @@ interface ApiGuest { id: string; name: string; phone: string; email?: string | n
 interface ApiBooking { id: string; roomId: string; guestId: string; checkIn: string; checkOut: string; guestCount: number; status: 'PENDING' | 'CONFIRMED' | 'CHECKED_IN' | 'CHECKED_OUT' | 'CANCELLED'; totalAmount: number | string; currency: string; hotelId?: string | null; }
 interface ApiMenuItem { id: string; name: string; category: string; price: number | string; currency: string; available: boolean; station: 'kitchen' | 'bar' | 'other'; imageUrl?: string | null; hotelId?: string | null; }
 interface ApiOrderItem { menuItemId?: string; name: string; qty: number; price: number | string; station?: 'kitchen' | 'bar' | 'other'; }
-interface ApiOrder { id: string; roomNumber: string; locationType: 'room' | 'table' | 'pickup'; guestName?: string | null; guestPhone?: string | null; items: ApiOrderItem[]; total: number | string; currency: string; status: 'PENDING' | 'ACCEPTED' | 'PREPARING' | 'READY' | 'DELIVERED' | 'CANCELLED'; note: string; hotelId?: string | null; createdAt?: string; updatedAt?: string; }
+interface ApiOrder { id: string; roomNumber: string; locationType: 'room' | 'table' | 'pickup' | 'delivery'; guestName?: string | null; guestPhone?: string | null; items: ApiOrderItem[]; total: number | string; currency: string; status: 'PENDING' | 'ACCEPTED' | 'PREPARING' | 'READY' | 'DELIVERED' | 'CANCELLED'; note: string; hotelId?: string | null; createdAt?: string; updatedAt?: string; }
 interface ApiStaff { id: string; name: string; role: string; phone: string; email?: string | null; status: 'active' | 'off' | 'suspended'; hotelId?: string | null; }
 interface ApiParkingSpot { id: string; hotelId: string; spotNumber: string; type: 'car' | 'motorcycle' | 'bus' | 'handicap'; status: 'free' | 'occupied' | 'reserved' | 'maintenance'; vehiclePlate?: string; vehicleModel?: string; guestId?: string | null; ratePerDay: number | string; }
 interface ApiFinancialRecord { id: string; hotelId: string; category: string; amount: number | string; currency: string; recordDate: string; description: string; granularity: 'daily' | 'weekly' | 'monthly'; }
@@ -416,7 +416,13 @@ function buildHotelsFromApi(
       return {
         id: o.id,
         roomId: o.locationType === 'room' ? o.roomNumber : undefined,
-        tableId: o.locationType === 'table' ? o.roomNumber : o.locationType === 'pickup' ? 'Online pickup' : undefined,
+        tableId: o.locationType === 'table'
+          ? o.roomNumber
+          : o.locationType === 'pickup'
+            ? 'Online pickup'
+            : o.locationType === 'delivery'
+              ? `Delivery · ${o.roomNumber}`
+              : undefined,
         guestName: o.guestName ?? undefined,
         items,
         status: mapOrderStatus(o.status),

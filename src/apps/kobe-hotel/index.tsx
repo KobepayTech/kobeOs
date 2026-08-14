@@ -2138,7 +2138,11 @@ export default function KobeHotel() {
                             <div className="flex items-center justify-between mb-2">
                               <div>
                                 <p className="text-sm font-semibold">
-                                  {o.locationType === 'pickup' ? 'Online pickup' : `${o.locationType === 'table' ? 'Table' : 'Room'} ${o.roomNumber}`}
+                                  {o.locationType === 'pickup'
+                                    ? 'Online pickup'
+                                    : o.locationType === 'delivery'
+                                      ? `Outside delivery · ${o.roomNumber}`
+                                      : `${o.locationType === 'table' ? 'Table' : 'Room'} ${o.roomNumber}`}
                                 </p>
                                 <p className="text-[10px] text-gray-500 font-mono">{o.id.slice(0, 8)}</p>
                               </div>

@@ -101,8 +101,8 @@ export class OrderItemDto {
   @IsOptional() @IsEnum(['kitchen', 'bar', 'other']) station?: 'kitchen' | 'bar' | 'other';
 }
 export class CreateOrderDto {
-  @IsString() @MaxLength(40) roomNumber!: string;
-  @IsOptional() @IsEnum(['room', 'table', 'pickup']) locationType?: 'room' | 'table' | 'pickup';
+  @IsString() @MaxLength(160) roomNumber!: string;
+  @IsOptional() @IsEnum(['room', 'table', 'pickup', 'delivery']) locationType?: 'room' | 'table' | 'pickup' | 'delivery';
   @IsOptional() @IsString() @MaxLength(120) guestName?: string;
   @IsOptional() @IsString() @MaxLength(40) guestPhone?: string;
   @IsArray() @ValidateNested({ each: true }) @Type(() => OrderItemDto) items!: OrderItemDto[];

@@ -133,7 +133,7 @@ export interface PublicOrderItem {
 export interface PublicOrder {
   id: string;
   roomNumber: string;
-  locationType: 'room' | 'table' | 'pickup';
+  locationType: 'room' | 'table' | 'pickup' | 'delivery';
   guestName?: string | null;
   guestPhone?: string | null;
   items: PublicOrderItem[];

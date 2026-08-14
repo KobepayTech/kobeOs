@@ -180,7 +180,7 @@ export class HotelOrder extends OwnedEntity {
   /** 'room' for in-room orders, 'table' for restaurant tables, and
    *  'pickup' for orders placed from the public hotel website. */
   @Column({ default: 'room' })
-  locationType!: 'room' | 'table' | 'pickup';
+  locationType!: 'room' | 'table' | 'pickup' | 'delivery';
 
   @Column({ nullable: true, type: 'varchar' })
   guestName?: string | null;

@@ -19,7 +19,7 @@ export interface HotelOrderItem {
 export interface HotelOrder {
   id: string;
   roomNumber: string;
-  locationType: 'room' | 'table' | 'pickup';
+  locationType: 'room' | 'table' | 'pickup' | 'delivery';
   guestPhone?: string | null;
   guestName?: string | null;
   items: HotelOrderItem[];
