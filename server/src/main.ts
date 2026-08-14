@@ -14,6 +14,27 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true });
   const config = app.get(ConfigService);
 
+  // A deployed PWA can otherwise remain pinned to an old precache for hours
+  // when a CDN applies a blanket cache rule to sw.js. This maintenance page is
+  // deliberately under /api/ (which the service worker never intercepts) and
+  // clears only service-worker/CacheStorage state in the requesting browser.
+  app.use('/api/pwa-refresh', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('CDN-Cache-Control', 'no-store');
+    res.type('html').send(`<!doctype html><meta charset="utf-8"><title>Updating KobeOS</title>
+      <body style="font-family:system-ui;padding:2rem">Updating KobeOS…
+      <script>
+        Promise.all([
+          'serviceWorker' in navigator
+            ? navigator.serviceWorker.getRegistrations().then((items) => Promise.all(items.map((item) => item.unregister())))
+            : Promise.resolve(),
+          'caches' in window
+            ? caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
+            : Promise.resolve(),
+        ]).finally(() => location.replace('/?updated=' + Date.now()));
+      </script></body>`);
+  });
+
   // Prevent accidental schema sync in production — use migrations instead.
   if (
     config.get('DB_SYNCHRONIZE') === 'true' &&
@@ -48,7 +69,16 @@ async function bootstrap() {
   ].filter((p): p is string => !!p);
   const spaPath = spaCandidates.find((p) => existsSync(join(p, 'index.html'))) ?? spaCandidates[0];
   if (existsSync(join(spaPath, 'index.html'))) {
-    app.use(expressStatic(spaPath, { index: false }));
+    app.use(expressStatic(spaPath, {
+      index: false,
+      setHeaders: (res, filePath) => {
+        const name = basename(filePath);
+        if (name === 'sw.js' || name === 'registerSW.js' || name === 'index.html') {
+          res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+          res.setHeader('CDN-Cache-Control', 'no-store');
+        }
+      },
+    }));
     Logger.log(`Serving SPA static files from ${spaPath}`, 'Bootstrap');
   } else {
     Logger.warn(
@@ -141,6 +171,8 @@ async function bootstrap() {
     }
     const indexPath = join(spaPath, 'index.html');
     if (existsSync(indexPath)) {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+      res.setHeader('CDN-Cache-Control', 'no-store');
       res.sendFile(indexPath);
     } else {
       next();

@@ -15,6 +15,7 @@ electron/.staging/
 build/vcredist/vc_redist.x64.exe
 build/postgres/
 build/cloudflared/
+.runtime-update/
 build/ollama/*
 !build/ollama/.gitkeep
 tmp-screenshots/
