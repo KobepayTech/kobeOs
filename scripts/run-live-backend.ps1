@@ -25,6 +25,7 @@ $env:DB_DATABASE = 'kobeos'
 $env:DB_SYNCHRONIZE = 'false'
 $env:DB_MIGRATIONS_RUN = 'false'
 $env:CORS_ORIGIN = 'https://kobeos-app.pages.dev,https://*.kobeos-app.pages.dev,https://kobeapptz.com,https://*.kobeapptz.com'
+$env:TENANT_BASE_DOMAIN = 'kobeapptz.com'
 
 $logDir = Join-Path $repoRoot 'logs'
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null

@@ -14,6 +14,7 @@ export function PhotoUpload({
   onChange,
   label,
   aspect = 'square',
+  tone = 'dark',
   className,
   maxBytes = 5 * 1024 * 1024,
 }: {
@@ -22,6 +23,7 @@ export function PhotoUpload({
   onChange: (url: string | null) => void;
   label?: string;
   aspect?: 'square' | 'banner';
+  tone?: 'dark' | 'light';
   className?: string;
   maxBytes?: number;
 }) {
@@ -70,6 +72,7 @@ export function PhotoUpload({
   };
 
   const aspectClass = aspect === 'banner' ? 'aspect-[16/6]' : 'aspect-square';
+  const isLight = tone === 'light';
   const resolvedSrc = value
     ? value.startsWith('http')
       ? value
@@ -78,7 +81,7 @@ export function PhotoUpload({
 
   return (
     <div className={className}>
-      {label && <label className="text-xs text-white/60 block mb-1">{label}</label>}
+      {label && <label className={`text-xs block mb-1 ${isLight ? 'text-slate-600' : 'text-white/60'}`}>{label}</label>}
       {/* Off-screen, NOT hidden — some browsers refuse programmatic .click()
           on display:none / hidden file inputs. sr-only keeps it focusable. */}
       <input
@@ -99,7 +102,7 @@ export function PhotoUpload({
         }}
       />
       {resolvedSrc ? (
-        <div className={`relative ${aspectClass} bg-slate-900/40 border border-white/10 rounded overflow-hidden`}>
+        <div className={`relative ${aspectClass} rounded overflow-hidden ${isLight ? 'bg-slate-100 border border-slate-200' : 'bg-slate-900/40 border border-white/10'}`}>
           <img src={resolvedSrc} alt="" className="w-full h-full object-cover" />
           <div className="absolute inset-0 bg-black/0 hover:bg-black/40 transition-colors flex items-center justify-center gap-2 opacity-0 hover:opacity-100">
             <Button size="sm" type="button" variant="outline" onClick={() => fileRef.current?.click()} className="text-xs">
@@ -142,7 +145,9 @@ export function PhotoUpload({
           className={`${aspectClass} flex flex-col items-center justify-center gap-2 border-2 border-dashed rounded cursor-pointer transition-colors ${
             dragOver
               ? 'border-blue-400 bg-blue-500/10 text-blue-200'
-              : 'border-white/15 text-white/50 hover:border-white/25 hover:bg-white/[0.03]'
+              : isLight
+                ? 'border-slate-300 text-slate-500 hover:border-indigo-300 hover:bg-indigo-50/40'
+                : 'border-white/15 text-white/50 hover:border-white/25 hover:bg-white/[0.03]'
           }`}
         >
           {uploading ? (
@@ -160,7 +165,7 @@ export function PhotoUpload({
         </div>
       )}
       {error && (
-        <p className="text-[11px] text-rose-300 mt-1 flex items-center gap-1">
+        <p className={`text-[11px] mt-1 flex items-center gap-1 ${isLight ? 'text-rose-600' : 'text-rose-300'}`}>
           <X className="w-3 h-3" /> {error}
         </p>
       )}
@@ -170,7 +175,7 @@ export function PhotoUpload({
           const url = window.prompt('Paste an image URL:', value ?? '');
           if (url !== null) onChange(url || null);
         }}
-        className="text-[10px] text-white/40 hover:text-white/70 mt-1 underline-offset-2 hover:underline inline-flex items-center gap-1"
+        className={`text-[10px] mt-1 underline-offset-2 hover:underline inline-flex items-center gap-1 ${isLight ? 'text-slate-500 hover:text-slate-700' : 'text-white/40 hover:text-white/70'}`}
       >
         <Upload className="w-3 h-3" /> or paste a URL
       </button>

@@ -19,7 +19,14 @@ import {
 } from 'lucide-react';
 import type { Room, Booking, Guest, MenuCategory, MenuItem, StaffMember, Order, OrderItem } from '@/shared/types';
 import { formatCurrency, formatDate, getStatusColor, classNames } from '@/shared/utils';
-import { api } from '@/lib/api';
+import { API_BASE, api } from '@/lib/api';
+import { PhotoUpload } from '@/components/PhotoUpload';
+
+const resolveHotelImage = (value?: string | null): string => {
+  if (!value) return '';
+  if (/^https?:\/\//i.test(value) || value.startsWith('data:')) return value;
+  return `${API_BASE}${value.startsWith('/api') ? value.slice(4) : value}`;
+};
 
 // ── Tab Types ───────────────────────────────────────────────────────────────
 type TabType =
@@ -247,7 +254,7 @@ interface ApiGuest { id: string; name: string; phone: string; email?: string | n
 interface ApiBooking { id: string; roomId: string; guestId: string; checkIn: string; checkOut: string; guestCount: number; status: 'PENDING' | 'CONFIRMED' | 'CHECKED_IN' | 'CHECKED_OUT' | 'CANCELLED'; totalAmount: number | string; currency: string; hotelId?: string | null; }
 interface ApiMenuItem { id: string; name: string; category: string; price: number | string; currency: string; available: boolean; station: 'kitchen' | 'bar' | 'other'; imageUrl?: string | null; hotelId?: string | null; }
 interface ApiOrderItem { menuItemId?: string; name: string; qty: number; price: number | string; station?: 'kitchen' | 'bar' | 'other'; }
-interface ApiOrder { id: string; roomNumber: string; locationType: 'room' | 'table'; guestName?: string | null; items: ApiOrderItem[]; total: number | string; currency: string; status: 'PENDING' | 'ACCEPTED' | 'PREPARING' | 'READY' | 'DELIVERED' | 'CANCELLED'; note: string; hotelId?: string | null; createdAt?: string; updatedAt?: string; }
+interface ApiOrder { id: string; roomNumber: string; locationType: 'room' | 'table' | 'pickup'; guestName?: string | null; guestPhone?: string | null; items: ApiOrderItem[]; total: number | string; currency: string; status: 'PENDING' | 'ACCEPTED' | 'PREPARING' | 'READY' | 'DELIVERED' | 'CANCELLED'; note: string; hotelId?: string | null; createdAt?: string; updatedAt?: string; }
 interface ApiStaff { id: string; name: string; role: string; phone: string; email?: string | null; status: 'active' | 'off' | 'suspended'; hotelId?: string | null; }
 interface ApiParkingSpot { id: string; hotelId: string; spotNumber: string; type: 'car' | 'motorcycle' | 'bus' | 'handicap'; status: 'free' | 'occupied' | 'reserved' | 'maintenance'; vehiclePlate?: string; vehicleModel?: string; guestId?: string | null; ratePerDay: number | string; }
 interface ApiFinancialRecord { id: string; hotelId: string; category: string; amount: number | string; currency: string; recordDate: string; description: string; granularity: 'daily' | 'weekly' | 'monthly'; }
@@ -409,7 +416,7 @@ function buildHotelsFromApi(
       return {
         id: o.id,
         roomId: o.locationType === 'room' ? o.roomNumber : undefined,
-        tableId: o.locationType === 'table' ? o.roomNumber : undefined,
+        tableId: o.locationType === 'table' ? o.roomNumber : o.locationType === 'pickup' ? 'Online pickup' : undefined,
         guestName: o.guestName ?? undefined,
         items,
         status: mapOrderStatus(o.status),
@@ -488,6 +495,9 @@ export const HotelAdminDashboard: React.FC = () => {
   const [showAddGuest, setShowAddGuest] = useState(false);
   const [showAddHotel, setShowAddHotel] = useState(false);
   const [showAssignSpot, setShowAssignSpot] = useState(false);
+  const [editingRoomPhoto, setEditingRoomPhoto] = useState<Room | null>(null);
+  const [roomPhotoUrl, setRoomPhotoUrl] = useState('');
+  const [roomPhotoSaving, setRoomPhotoSaving] = useState(false);
   const [guestSearch, setGuestSearch] = useState('');
   const [financialPeriod, setFinancialPeriod] = useState<'today' | 'week' | 'month'>('today');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -566,6 +576,21 @@ export const HotelAdminDashboard: React.FC = () => {
     setRoomForm({ number: '', type: 'Standard', price: '', capacity: '', imageUrl: '' });
     setShowAddRoom(false);
   }, [roomForm, selectedHotel, hotels, liveData, loadHotels]);
+
+  const handleSaveRoomPhoto = useCallback(async () => {
+    if (!editingRoomPhoto || !liveData) return;
+    setRoomPhotoSaving(true);
+    try {
+      await api(`/hotel/rooms/${editingRoomPhoto.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ imageUrl: roomPhotoUrl.trim() }),
+      });
+      await loadHotels();
+      setEditingRoomPhoto(null);
+    } finally {
+      setRoomPhotoSaving(false);
+    }
+  }, [editingRoomPhoto, liveData, loadHotels, roomPhotoUrl]);
 
   const handleAddGuest = useCallback(async () => {
     const hotelId = selectedHotel?.id ?? hotels[0]?.id;
@@ -1077,7 +1102,15 @@ export const HotelAdminDashboard: React.FC = () => {
               {/* Room Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {aggregatedStats.allRooms.map(room => (
-                  <RoomCard key={room.id} room={room} currency={selectedHotel?.currency || 'TZS'} />
+                  <RoomCard
+                    key={room.id}
+                    room={room}
+                    currency={selectedHotel?.currency || 'TZS'}
+                    onEditPhoto={liveData ? () => {
+                      setEditingRoomPhoto(room);
+                      setRoomPhotoUrl(room.imageUrl ?? '');
+                    } : undefined}
+                  />
                 ))}
               </div>
               {/* Add Room Modal */}
@@ -1094,10 +1127,36 @@ export const HotelAdminDashboard: React.FC = () => {
                     <FormInput label="Floor" type="number" placeholder="1" />
                     <FormInput label="Price per Night" type="number" placeholder="85000" value={roomForm.price} onChange={v => setRoomForm(f => ({ ...f, price: v }))} />
                     <FormInput label="Capacity" type="number" placeholder="2" value={roomForm.capacity} onChange={v => setRoomForm(f => ({ ...f, capacity: v }))} />
-                    <FormInput label="Room image URL" placeholder="https://images.example.com/room.jpg" value={roomForm.imageUrl} onChange={v => setRoomForm(f => ({ ...f, imageUrl: v }))} />
+                    <PhotoUpload
+                      value={roomForm.imageUrl}
+                      onChange={imageUrl => setRoomForm(f => ({ ...f, imageUrl: imageUrl ?? '' }))}
+                      label="Room photo"
+                      aspect="banner"
+                      tone="light"
+                    />
                     <div className="flex gap-3 mt-2">
                       <button onClick={() => setShowAddRoom(false)} className="flex-1 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer hover:bg-white/50" style={{ border: '1px solid rgba(0,0,0,0.08)', color: 'var(--os-text-primary, #2D2B55)' }}>Cancel</button>
                       <button onClick={() => void handleAddRoom()} className="flex-1 py-2.5 rounded-xl text-sm font-medium text-white transition-all cursor-pointer hover:opacity-90" style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}>Add Room</button>
+                    </div>
+                  </div>
+                </Modal>
+              )}
+              {editingRoomPhoto && (
+                <Modal title={`Room ${editingRoomPhoto.number} Photo`} onClose={() => setEditingRoomPhoto(null)}>
+                  <div className="flex flex-col gap-4">
+                    <PhotoUpload
+                      value={roomPhotoUrl}
+                      onChange={imageUrl => setRoomPhotoUrl(imageUrl ?? '')}
+                      label="Upload the real room photo"
+                      aspect="banner"
+                      tone="light"
+                    />
+                    <p className="text-xs opacity-60">This photo appears on the hotel's public booking website.</p>
+                    <div className="flex gap-3">
+                      <button onClick={() => setEditingRoomPhoto(null)} className="flex-1 py-2.5 rounded-xl text-sm font-medium" style={{ border: '1px solid rgba(0,0,0,0.08)' }}>Cancel</button>
+                      <button disabled={roomPhotoSaving} onClick={() => void handleSaveRoomPhoto()} className="flex-1 py-2.5 rounded-xl text-sm font-medium text-white disabled:opacity-50" style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}>
+                        {roomPhotoSaving ? 'Saving…' : 'Save Photo'}
+                      </button>
                     </div>
                   </div>
                 </Modal>
@@ -1686,13 +1745,27 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
 };
 
 /** Room card with guest info */
-const RoomCard: React.FC<{ room: Room; currency: string }> = ({ room, currency }) => {
+const RoomCard: React.FC<{ room: Room; currency: string; onEditPhoto?: () => void }> = ({ room, currency, onEditPhoto }) => {
   const colors = getStatusColor(room.status);
   return (
     <div
       className="rounded-2xl p-4 flex flex-col gap-3 transition-all hover:shadow-lg border-l-4"
       style={{ background: 'rgba(255,255,255,0.30)', backdropFilter: 'blur(16px)', borderColor: 'rgba(255,255,255,0.40)', borderLeftColor: colors.text }}
     >
+      <div className="relative -mx-4 -mt-4 h-32 overflow-hidden rounded-t-2xl bg-gradient-to-br from-indigo-100 to-violet-100">
+        {room.imageUrl ? (
+          <img src={resolveHotelImage(room.imageUrl)} alt={`${room.type} room ${room.number}`} className="h-full w-full object-cover" />
+        ) : (
+          <div className="h-full w-full grid place-items-center text-indigo-400">
+            <Bed size={34} />
+          </div>
+        )}
+        {onEditPhoto && (
+          <button type="button" onClick={onEditPhoto} className="absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-lg bg-white/90 px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-white">
+            <Edit2 size={12} /> {room.imageUrl ? 'Change photo' : 'Add photo'}
+          </button>
+        )}
+      </div>
       <div className="flex items-center justify-between">
         <div>
           <div className="text-base font-bold" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Room {room.number}</div>

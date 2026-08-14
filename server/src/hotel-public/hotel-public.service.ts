@@ -136,7 +136,7 @@ export class HotelPublicService {
     }
 
     let room = dto.roomId
-      ? await this.rooms.findOne({ where: { ownerId, id: dto.roomId } })
+      ? await this.rooms.findOne({ where: { ownerId, id: dto.roomId, ...(hotelId ? { hotelId } : {}) } })
       : null;
     if (!room) {
       room = await this.rooms.findOne({

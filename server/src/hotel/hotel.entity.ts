@@ -177,12 +177,16 @@ export class HotelOrder extends OwnedEntity {
   @Column()
   roomNumber!: string;
 
-  /** 'room' for in-room orders, 'table' for restaurant table orders. */
+  /** 'room' for in-room orders, 'table' for restaurant tables, and
+   *  'pickup' for orders placed from the public hotel website. */
   @Column({ default: 'room' })
-  locationType!: 'room' | 'table';
+  locationType!: 'room' | 'table' | 'pickup';
 
   @Column({ nullable: true, type: 'varchar' })
   guestName?: string | null;
+
+  @Column({ nullable: true, type: 'varchar' })
+  guestPhone?: string | null;
 
   @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })
   items!: HotelOrderItem[];

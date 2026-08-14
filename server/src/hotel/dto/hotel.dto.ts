@@ -102,8 +102,9 @@ export class OrderItemDto {
 }
 export class CreateOrderDto {
   @IsString() @MaxLength(40) roomNumber!: string;
-  @IsOptional() @IsEnum(['room', 'table']) locationType?: 'room' | 'table';
+  @IsOptional() @IsEnum(['room', 'table', 'pickup']) locationType?: 'room' | 'table' | 'pickup';
   @IsOptional() @IsString() @MaxLength(120) guestName?: string;
+  @IsOptional() @IsString() @MaxLength(40) guestPhone?: string;
   @IsArray() @ValidateNested({ each: true }) @Type(() => OrderItemDto) items!: OrderItemDto[];
   @IsOptional() @IsString() @MaxLength(8) currency?: string;
   @IsOptional() @IsString() @MaxLength(500) note?: string;

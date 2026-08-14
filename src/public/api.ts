@@ -9,6 +9,13 @@ const PUBLIC_API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined) ??
   (import.meta.env.DEV ? 'http://localhost:3000/api' : '/api');
 
+/** Resolve uploaded `/api/media/...` paths against the configured API host. */
+export function publicAssetUrl(value?: string | null): string {
+  if (!value) return '';
+  if (/^https?:\/\//i.test(value) || value.startsWith('data:') || value.startsWith('blob:')) return value;
+  return `${PUBLIC_API_BASE}${value.startsWith('/api') ? value.slice(4) : value}`;
+}
+
 /**
  * If the OS is reached at `serenahotel.kobeapptz.com`, the first label is the
  * tenant slug. Reserved system subdomains (api, app, www, etc.) are NOT
@@ -99,6 +106,9 @@ export interface PublicTenant {
   brandColor?: string | null;
   logoUrl?: string | null;
   currency: string;
+  location?: string;
+  phone?: string;
+  email?: string;
 }
 
 export interface PublicMenuItem {
@@ -109,6 +119,7 @@ export interface PublicMenuItem {
   currency: string;
   available: boolean;
   station: 'kitchen' | 'bar' | 'other';
+  imageUrl?: string | null;
 }
 
 export interface PublicOrderItem {
@@ -122,7 +133,9 @@ export interface PublicOrderItem {
 export interface PublicOrder {
   id: string;
   roomNumber: string;
-  locationType: 'room' | 'table';
+  locationType: 'room' | 'table' | 'pickup';
+  guestName?: string | null;
+  guestPhone?: string | null;
   items: PublicOrderItem[];
   total: number | string;
   currency: string;

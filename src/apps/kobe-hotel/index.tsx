@@ -66,6 +66,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PhotoUpload } from '@/components/PhotoUpload';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -2026,12 +2027,12 @@ export default function KobeHotel() {
                   </div>
                 </div>
                 <div>
-                  <label className="text-xs text-gray-400 mb-1 block">Food image URL</label>
-                  <Input
+                  <PhotoUpload
                     value={menuEditor.imageUrl}
-                    onChange={e => setMenuEditor({ ...menuEditor, imageUrl: e.target.value })}
-                    placeholder="https://images.example.com/dish.jpg"
-                    className={darkMode ? 'bg-[#0a0a1a] border-white/10 text-white placeholder:text-gray-600' : ''}
+                    onChange={imageUrl => setMenuEditor({ ...menuEditor, imageUrl: imageUrl ?? '' })}
+                    label="Food photo"
+                    aspect="banner"
+                    tone={darkMode ? 'dark' : 'light'}
                   />
                   <p className="text-[10px] text-gray-500 mt-1">Used by the restaurant, QR menu, and public food list.</p>
                 </div>
@@ -2137,7 +2138,7 @@ export default function KobeHotel() {
                             <div className="flex items-center justify-between mb-2">
                               <div>
                                 <p className="text-sm font-semibold">
-                                  {o.locationType === 'table' ? 'Table' : 'Room'} {o.roomNumber}
+                                  {o.locationType === 'pickup' ? 'Online pickup' : `${o.locationType === 'table' ? 'Table' : 'Room'} ${o.roomNumber}`}
                                 </p>
                                 <p className="text-[10px] text-gray-500 font-mono">{o.id.slice(0, 8)}</p>
                               </div>

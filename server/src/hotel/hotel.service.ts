@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DeepPartial, FindOptionsWhere, Repository } from 'typeorm';
+import { DeepPartial, FindOptionsWhere, IsNull, Repository } from 'typeorm';
 import {
   HotelBooking, HotelGuest, HotelMenuItem, HotelOrder, HotelRoom, HotelServiceRequest, HotelTenant,
   HotelChain, HotelParkingSpot, HotelFinancialRecord,
@@ -118,6 +118,19 @@ export class BookingsService extends OwnedCrudService<HotelBooking> {
 @Injectable()
 export class MenuItemsService extends OwnedCrudService<HotelMenuItem> {
   constructor(@InjectRepository(HotelMenuItem) repo: Repository<HotelMenuItem>) { super(repo); }
+
+  /** Public menu for one property. Legacy/shared rows (hotelId NULL) remain
+   * visible, while another property's private menu can never leak in. */
+  listForHotel(ownerId: string, hotelId: string): Promise<HotelMenuItem[]> {
+    return this.repo.find({
+      where: [
+        { ownerId, hotelId, available: true },
+        { ownerId, hotelId: IsNull(), available: true },
+      ],
+      order: { category: 'ASC', name: 'ASC' },
+      take: 100,
+    });
+  }
 }
 
 // Guest orders placed via the QR portal — kitchen/bar staff transition status.
@@ -138,26 +151,48 @@ export class OrdersService extends OwnedCrudService<HotelOrder> {
     private readonly gateway: HotelGateway,
   ) { super(repo); }
 
-  async placeOrder(ownerId: string, dto: CreateOrderDto): Promise<HotelOrder> {
+  async placeOrder(
+    ownerId: string,
+    dto: CreateOrderDto,
+    enforcedHotelId?: string,
+    strictCatalog = false,
+  ): Promise<HotelOrder> {
     if (!dto.items || dto.items.length === 0) {
       throw new BadRequestException('Order must contain at least one item');
     }
 
     // Resolve station per line: prefer the menu item's station when present.
     const itemIds = dto.items.map((it) => it.menuItemId).filter((x): x is string => !!x);
-    const stationById = new Map<string, 'kitchen' | 'bar' | 'other'>();
+    const catalogById = new Map<string, HotelMenuItem>();
     if (itemIds.length > 0) {
       const known = await this.menuRepo.find({ where: itemIds.map((id) => ({ id, ownerId })) });
-      for (const m of known) stationById.set(m.id, m.station);
+      for (const m of known) catalogById.set(m.id, m);
     }
 
-    const items = dto.items.map((it) => ({
-      menuItemId: it.menuItemId,
-      name: it.name,
-      qty: it.qty,
-      price: it.price,
-      station: (it.menuItemId && stationById.get(it.menuItemId)) || it.station || 'kitchen',
-    }));
+    if (strictCatalog) {
+      for (const item of dto.items) {
+        const catalogItem = item.menuItemId ? catalogById.get(item.menuItemId) : undefined;
+        if (!catalogItem || !catalogItem.available) {
+          throw new BadRequestException(`Menu item '${item.name}' is unavailable`);
+        }
+        if (enforcedHotelId && catalogItem.hotelId && catalogItem.hotelId !== enforcedHotelId) {
+          throw new BadRequestException(`Menu item '${item.name}' does not belong to this hotel`);
+        }
+      }
+    }
+
+    const items = dto.items.map((it) => {
+      const catalogItem = it.menuItemId ? catalogById.get(it.menuItemId) : undefined;
+      return {
+        menuItemId: it.menuItemId,
+        name: catalogItem?.name ?? it.name,
+        qty: it.qty,
+        // Public callers cannot lower prices in the request body. Catalog
+        // price is authoritative whenever a menu item ID is supplied.
+        price: Number(catalogItem?.price ?? it.price),
+        station: catalogItem?.station || it.station || 'kitchen',
+      };
+    });
     // DTO prices may arrive as strings when forwarded from TypeORM entities —
     // parse explicitly to avoid string concatenation in the reduce.
     const total = parseFloat(
@@ -168,11 +203,13 @@ export class OrdersService extends OwnedCrudService<HotelOrder> {
       roomNumber: dto.roomNumber,
       locationType: dto.locationType ?? 'room',
       guestName: dto.guestName ?? null,
+      guestPhone: dto.guestPhone ?? null,
       items,
       total,
       currency: dto.currency ?? 'TZS',
       status: 'PENDING',
       note: dto.note ?? '',
+      hotelId: enforcedHotelId ?? dto.hotelId ?? null,
     };
     const created = await this.create(ownerId, data);
     this.gateway.emitOrder(ownerId, created, 'created');
