@@ -198,7 +198,7 @@ function PortalBody({ route }: { route: RouteParams }) {
   if (!tenant) return <BadLink />;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white pb-32">
+    <div className="h-[100dvh] overflow-y-auto touch-pan-y bg-slate-950 text-white pb-32">
       <header className="sticky top-0 z-10 backdrop-blur bg-slate-950/80 border-b border-white/10">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
           <div>
@@ -373,7 +373,7 @@ function OrderStatusModal({ order, brand, onClose }: { order: PublicOrder; brand
 
 function Splash({ brand, children }: { brand: string; children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-6">
+    <div className="h-[100dvh] overflow-y-auto touch-pan-y bg-slate-950 text-white flex items-center justify-center p-6">
       <div className="text-center">
         <div className="w-12 h-12 mx-auto mb-3 rounded-2xl flex items-center justify-center" style={{ background: brand }}>
           <Sparkles className="w-6 h-6 text-white" />
@@ -386,7 +386,7 @@ function Splash({ brand, children }: { brand: string; children: React.ReactNode 
 
 function BadLink() {
   return (
-    <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-6">
+    <div className="h-[100dvh] overflow-y-auto touch-pan-y bg-slate-950 text-white flex items-center justify-center p-6">
       <div className="max-w-sm text-center">
         <h1 className="text-lg font-semibold mb-2">Invalid link</h1>
         <p className="text-sm text-slate-400">

@@ -252,10 +252,10 @@ export default function HotelBooking({ slug }: { slug: string }) {
     }
   };
 
-  if (loading) return <div className="min-h-[100dvh] grid place-items-center bg-slate-50"><Loader2 className="w-6 h-6 animate-spin text-slate-400" /></div>;
+  if (loading) return <div className="h-[100dvh] overflow-y-auto touch-pan-y grid place-items-center bg-slate-50"><Loader2 className="w-6 h-6 animate-spin text-slate-400" /></div>;
 
   if (bookDone) return (
-    <div className="min-h-[100dvh] grid place-items-center bg-slate-50 p-6">
+    <div className="h-[100dvh] overflow-y-auto touch-pan-y grid place-items-center bg-slate-50 p-6">
       <div className="max-w-sm w-full bg-white rounded-3xl border border-slate-200 p-7 text-center shadow-sm">
         <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-3" />
         <h1 className="text-xl font-extrabold text-slate-900">Booking requested</h1>
@@ -272,7 +272,7 @@ export default function HotelBooking({ slug }: { slug: string }) {
   );
 
   return (
-    <div className="min-h-[100dvh] bg-slate-50 text-slate-900">
+    <div className="h-[100dvh] overflow-y-auto touch-pan-y bg-slate-50 text-slate-900">
       <header className="relative overflow-hidden text-white px-5 py-9" style={{ background: `linear-gradient(135deg, ${primary}, ${accent})` }}>
         {branding?.heroImageUrl && <img src={publicAssetUrl(branding.heroImageUrl)} alt="" className="absolute inset-0 h-full w-full object-cover opacity-30" />}
         <div className="relative max-w-5xl mx-auto">
