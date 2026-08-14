@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  BedDouble, CalendarDays, CheckCircle2, ChevronDown, Clock, Loader2,
-  MapPin, Minus, Phone, Plus, ShoppingBag, UtensilsCrossed, Users,
+  ArrowRight, BedDouble, CalendarDays, CheckCircle2, ChevronDown, Clock, Loader2,
+  MapPin, Minus, Phone, Plus, ShoppingBag, Sparkles, UtensilsCrossed, Users,
 } from 'lucide-react';
 import { Calendar as DateCalendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -125,6 +125,8 @@ export default function HotelBooking({ slug }: { slug: string }) {
   const [menu, setMenu] = useState<PublicMenuItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [sel, setSel] = useState<PublicRoom | null>(null);
+  const [showBooking, setShowBooking] = useState(false);
+  const bookingPanelRef = useRef<HTMLElement | null>(null);
   const [form, setForm] = useState({ guestName: '', guestPhone: '', checkIn: '', checkOut: '', guests: 1 });
   const [busy, setBusy] = useState(false);
   const [bookDone, setBookDone] = useState<{ room: string; nights: number; totalAmount: number; currency: string; payment?: { initiated: boolean; message: string } } | null>(null);
@@ -166,6 +168,12 @@ export default function HotelBooking({ slug }: { slug: string }) {
   const accent = branding?.accentColor || '#8b5cf6';
   const contactPhone = branding?.phone || tenant?.phone || '';
   const address = branding?.address || tenant?.location || '';
+  const availableRooms = useMemo(() => rooms.filter(room => room.available), [rooms]);
+  const roomTypeCount = useMemo(() => new Set(rooms.map(room => room.type)).size, [rooms]);
+  const lowestAvailableRoom = useMemo(
+    () => availableRooms.reduce<PublicRoom | null>((lowest, room) => !lowest || room.rate < lowest.rate ? room : lowest, null),
+    [availableRooms],
+  );
 
   const categories = useMemo(() => ['All', ...Array.from(new Set(menu.map(item => item.category))).sort()], [menu]);
   const visibleMenu = useMemo(() => category === 'All' ? menu : menu.filter(item => item.category === category), [category, menu]);
@@ -183,6 +191,16 @@ export default function HotelBooking({ slug }: { slug: string }) {
       else next[id] = qty;
       return next;
     });
+  };
+
+  const openBooking = () => {
+    if (!sel) {
+      setError('Select an available room first.');
+      return;
+    }
+    setError(null);
+    setShowBooking(true);
+    window.setTimeout(() => bookingPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
   };
 
   const book = async () => {
@@ -307,28 +325,36 @@ export default function HotelBooking({ slug }: { slug: string }) {
       <main className="max-w-5xl mx-auto p-4 pb-12">
         {view === 'rooms' ? (
           <div className="space-y-5">
-            {branding?.about && <div className="rounded-2xl border border-slate-200 bg-white p-5 text-sm leading-relaxed text-slate-600 whitespace-pre-line">{branding.about}</div>}
-            {branding?.amenities && branding.amenities.length > 0 && (
-              <div className="flex flex-wrap gap-2">{branding.amenities.map((amenity, index) => <span key={`${amenity}-${index}`} className="rounded-full bg-white border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600">{amenity}</span>)}</div>
-            )}
-
-            <section className="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
-              <StepTitle number={1}>Choose dates and guests</StepTitle>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                <DatePickerField label="Check-in" value={form.checkIn} min={today} onChange={(checkIn) => setForm(current => ({ ...current, checkIn, checkOut: current.checkOut && current.checkOut <= checkIn ? '' : current.checkOut }))} />
-                <DatePickerField label="Check-out" value={form.checkOut} min={form.checkIn ? nextDateKey(form.checkIn) : today} onChange={(checkOut) => setForm(current => ({ ...current, checkOut }))} />
-                <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-500"><span className="inline-flex items-center gap-1"><Users className="w-3 h-3" /> Guests</span>
-                  <input type="number" min={1} value={form.guests} onChange={(event) => setForm({ ...form, guests: Math.max(1, Number(event.target.value)) })} className="h-11 rounded-xl border border-slate-200 px-3 text-sm" />
-                </label>
-              </div>
-            </section>
-
             <section className="space-y-3">
-              <StepTitle number={2}>Choose your room</StepTitle>
+              <div>
+                <StepTitle number={1}>Choose your room</StepTitle>
+                <p className="mt-1 pl-8 text-sm text-slate-500">Browse the hotel's live room list before entering any booking details.</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="text-2xl font-extrabold text-slate-900">{availableRooms.length}</div>
+                  <div className="text-xs font-semibold text-slate-500">Available rooms</div>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="text-2xl font-extrabold text-slate-900">{roomTypeCount}</div>
+                  <div className="text-xs font-semibold text-slate-500">Room types</div>
+                </div>
+                <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="truncate text-base font-extrabold text-slate-900">{lowestAvailableRoom ? `${lowestAvailableRoom.currency} ${lowestAvailableRoom.rate.toLocaleString()}` : '—'}</div>
+                  <div className="text-xs font-semibold text-slate-500">Lowest nightly rate</div>
+                </div>
+                <button type="button" onClick={() => setView('food')} className="rounded-2xl border border-slate-200 bg-white p-4 text-left transition hover:border-orange-300 hover:shadow-sm">
+                  <div className="flex items-center justify-between"><UtensilsCrossed className="h-5 w-5 text-orange-500" /><ArrowRight className="h-4 w-4 text-slate-300" /></div>
+                  <div className="mt-2 text-base font-extrabold text-slate-900">{menu.length > 0 ? `${menu.length} menu items` : 'Restaurant'}</div>
+                  <div className="text-xs font-semibold text-slate-500">{menu.length > 0 ? 'Order food online' : 'Menu coming soon'}</div>
+                </button>
+              </div>
+
               {rooms.length === 0 && <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm text-slate-500">No rooms have been published yet. Please contact the hotel.</div>}
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {rooms.map(room => (
-                  <button key={room.id} type="button" disabled={!room.available} onClick={() => setSel(room)} className={`overflow-hidden rounded-2xl border bg-white text-left transition ${sel?.id === room.id ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-slate-200 hover:border-indigo-300 hover:shadow-md'} ${room.available ? '' : 'opacity-60'}`}>
+                  <button key={room.id} type="button" disabled={!room.available} onClick={() => { setSel(room); setShowBooking(false); setError(null); }} className={`overflow-hidden rounded-2xl border bg-white text-left transition ${sel?.id === room.id ? 'border-indigo-500 ring-2 ring-indigo-200' : 'border-slate-200 hover:border-indigo-300 hover:shadow-md'} ${room.available ? '' : 'opacity-60'}`}>
                     <div className="relative h-44 bg-gradient-to-br from-indigo-100 via-violet-50 to-slate-100">
                       {room.imageUrl ? (
                         <img src={publicAssetUrl(room.imageUrl)} alt={`${room.type} room ${room.roomNumber}`} className="h-full w-full object-cover" />
@@ -342,25 +368,59 @@ export default function HotelBooking({ slug }: { slug: string }) {
                         <div><div className="font-extrabold text-slate-900">{room.type}</div><div className="text-xs text-slate-500">Room {room.roomNumber} · Sleeps {room.capacity}</div></div>
                         <div className="text-right text-sm font-extrabold text-slate-900">{room.currency} {room.rate.toLocaleString()}<span className="block text-[10px] font-normal text-slate-400">per night</span></div>
                       </div>
+                      {sel?.id === room.id && <div className="mt-3 inline-flex items-center gap-1 text-xs font-bold" style={{ color: primary }}><CheckCircle2 className="h-3.5 w-3.5" />Selected for booking</div>}
                     </div>
                   </button>
                 ))}
               </div>
             </section>
 
-            <section className={`rounded-2xl border bg-white p-5 space-y-3 ${sel && form.checkIn && form.checkOut ? 'border-indigo-200 shadow-sm' : 'border-slate-200'}`}>
-              <StepTitle number={3}>Your name and contact — final step</StepTitle>
-              {sel && <div className="rounded-xl bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700">Selected: {sel.type}, room {sel.roomNumber}</div>}
-              <div className="grid gap-3 sm:grid-cols-2">
-                <input autoComplete="name" placeholder="Your full name" value={form.guestName} onChange={(event) => setForm({ ...form, guestName: event.target.value })} className="h-11 rounded-xl border border-slate-200 px-3 text-sm" />
-                <input autoComplete="tel" inputMode="tel" placeholder="Phone number" value={form.guestPhone} onChange={(event) => setForm({ ...form, guestPhone: event.target.value })} className="h-11 rounded-xl border border-slate-200 px-3 text-sm" />
-              </div>
-              {error && <div className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>}
-              <button onClick={() => void book()} disabled={busy || !sel || !form.checkIn || !form.checkOut} style={{ background: primary }} className="w-full h-12 rounded-xl text-white font-bold inline-flex items-center justify-center gap-2 disabled:opacity-50">
-                {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                {sel ? `Request ${sel.type} room ${sel.roomNumber}` : 'Choose a room above'}
+            {(branding?.about || (branding?.amenities && branding.amenities.length > 0)) && (
+              <section className="rounded-2xl border border-slate-200 bg-white p-5">
+                <div className="flex items-center gap-2 text-sm font-extrabold text-slate-800"><Sparkles className="h-4 w-4" style={{ color: primary }} />What this hotel offers</div>
+                {branding?.about && <p className="mt-2 text-sm leading-relaxed text-slate-600 whitespace-pre-line">{branding.about}</p>}
+                {branding?.amenities && branding.amenities.length > 0 && <div className="mt-3 flex flex-wrap gap-2">{branding.amenities.map((amenity, index) => <span key={`${amenity}-${index}`} className="rounded-full bg-slate-50 border border-slate-200 px-3 py-1 text-xs font-semibold text-slate-600">{amenity}</span>)}</div>}
+              </section>
+            )}
+
+            <section className={`rounded-3xl border p-5 text-center ${sel ? 'border-indigo-200 bg-white shadow-sm' : 'border-slate-200 bg-slate-100'}`}>
+              {sel ? <p className="mb-3 text-sm text-slate-600">Ready to book <strong className="text-slate-900">{sel.type}, room {sel.roomNumber}</strong>?</p> : <p className="mb-3 text-sm text-slate-500">Select an available room above to continue.</p>}
+              <button type="button" onClick={openBooking} disabled={!sel} className="inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl px-6 font-extrabold text-white disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto sm:min-w-64" style={{ background: primary }}>
+                Book now <ArrowRight className="h-4 w-4" />
               </button>
+              {!showBooking && error && <div className="mx-auto mt-3 max-w-md rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>}
             </section>
+
+            {showBooking && sel && (
+              <section ref={bookingPanelRef} className="scroll-mt-20 rounded-3xl border border-indigo-200 bg-white p-5 shadow-sm space-y-5">
+                <div>
+                  <h2 className="text-lg font-extrabold text-slate-900">Complete your booking</h2>
+                  <p className="text-sm text-slate-500">{sel.type}, room {sel.roomNumber} · {sel.currency} {sel.rate.toLocaleString()} per night</p>
+                </div>
+                <div className="space-y-3">
+                  <StepTitle number={2}>Choose dates and guests</StepTitle>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <DatePickerField label="Check-in" value={form.checkIn} min={today} onChange={(checkIn) => setForm(current => ({ ...current, checkIn, checkOut: current.checkOut && current.checkOut <= checkIn ? '' : current.checkOut }))} />
+                    <DatePickerField label="Check-out" value={form.checkOut} min={form.checkIn ? nextDateKey(form.checkIn) : today} onChange={(checkOut) => setForm(current => ({ ...current, checkOut }))} />
+                    <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-500"><span className="inline-flex items-center gap-1"><Users className="w-3 h-3" /> Guests</span>
+                      <input type="number" min={1} value={form.guests} onChange={(event) => setForm({ ...form, guests: Math.max(1, Number(event.target.value)) })} className="h-11 rounded-xl border border-slate-200 px-3 text-sm" />
+                    </label>
+                  </div>
+                </div>
+                <div className="space-y-3 border-t border-slate-100 pt-5">
+                  <StepTitle number={3}>Your name and contact — final step</StepTitle>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <input autoComplete="name" placeholder="Your full name" value={form.guestName} onChange={(event) => setForm({ ...form, guestName: event.target.value })} className="h-11 rounded-xl border border-slate-200 px-3 text-sm" />
+                    <input autoComplete="tel" inputMode="tel" placeholder="Phone number" value={form.guestPhone} onChange={(event) => setForm({ ...form, guestPhone: event.target.value })} className="h-11 rounded-xl border border-slate-200 px-3 text-sm" />
+                  </div>
+                  {error && <div className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{error}</div>}
+                  <button onClick={() => void book()} disabled={busy || !form.checkIn || !form.checkOut} style={{ background: primary }} className="w-full h-12 rounded-xl text-white font-bold inline-flex items-center justify-center gap-2 disabled:opacity-50">
+                    {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                    Confirm booking request
+                  </button>
+                </div>
+              </section>
+            )}
           </div>
         ) : (
           <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
