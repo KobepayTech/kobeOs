@@ -219,10 +219,10 @@ export class AiService {
    * best-effort {name, category, description, tags[]} the operator can edit.
    * Never invents price/cost. Falls back to a plain description on parse fail.
    */
-  async describeProductImage(image: string): Promise<{ name: string; category: string; description: string; tags: string[]; raw: string }> {
+  async describeProductImage(image: string): Promise<{ name: string; category: string; description: string; tags: string[]; colours: string[]; sizes: string[]; raw: string }> {
     const raw = await this.describeImage(
       image,
-      'You are cataloguing a product from its photo. Reply with ONLY a JSON object: {"name": short product name, "category": one category word, "description": one selling sentence, "tags": [3-6 short keywords]}. Do not invent price or brand you cannot see.',
+      'You are cataloguing a product from its photo. Reply with ONLY a JSON object: {"name": short product name, "category": one category word, "description": one selling sentence, "tags": [3-6 short keywords], "colours": [visible colours], "sizes": [visible or printed sizes]}. Do not invent price, brand, colour, or size you cannot see; use empty arrays when uncertain.',
       'You are a precise retail cataloguer. Output only JSON.',
     );
     try {
@@ -233,10 +233,12 @@ export class AiService {
         category: String(obj.category ?? '').slice(0, 60),
         description: String(obj.description ?? '').slice(0, 400),
         tags: Array.isArray(obj.tags) ? obj.tags.map((t: unknown) => String(t).slice(0, 40)).slice(0, 6) : [],
+        colours: Array.isArray(obj.colours) ? obj.colours.map((t: unknown) => String(t).slice(0, 40)).slice(0, 12) : [],
+        sizes: Array.isArray(obj.sizes) ? obj.sizes.map((t: unknown) => String(t).slice(0, 40)).slice(0, 12) : [],
         raw,
       };
     } catch {
-      return { name: '', category: '', description: raw.slice(0, 400), tags: [], raw };
+      return { name: '', category: '', description: raw.slice(0, 400), tags: [], colours: [], sizes: [], raw };
     }
   }
 

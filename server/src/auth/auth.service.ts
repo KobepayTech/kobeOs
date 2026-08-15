@@ -15,10 +15,22 @@ export function sha256(input: string): string {
   return createHash('sha256').update(input).digest('hex');
 }
 
+function normalizePhone(input: string): string {
+  const phone = input.trim().replace(/[^\d+]/g, '').replace(/(?!^)\+/g, '');
+  if (!/^\+?\d{7,15}$/.test(phone)) {
+    throw new BadRequestException('Enter a valid phone number with 7–15 digits');
+  }
+  return phone;
+}
+
+function internalEmailForPhone(phone: string): string {
+  return `phone_${sha256(phone).slice(0, 40)}@phone.kobeos.local`;
+}
+
 export interface IssuedTokens {
   accessToken: string;
   refreshToken: string;
-  user: { id: string; email: string; displayName?: string; role: 'user' | 'admin' };
+  user: { id: string; email: string; phone?: string | null; displayName?: string; role: 'user' | 'admin' };
 }
 
 @Injectable()
@@ -32,23 +44,31 @@ export class AuthService {
   ) {}
 
   async register(dto: RegisterDto): Promise<IssuedTokens> {
-    const existing = await this.users.findByEmail(dto.email);
-    if (existing) throw new ConflictException('Email already registered');
+    const email = dto.email?.trim().toLowerCase() || '';
+    const phone = dto.phone ? normalizePhone(dto.phone) : null;
+    if (!email && !phone) throw new BadRequestException('Provide an email address or phone number');
+    if (email && await this.users.findByEmail(email)) throw new ConflictException('Email already registered');
+    if (phone && await this.users.findByPhone(phone)) throw new ConflictException('Phone number already registered');
     const passwordHash = await bcrypt.hash(dto.password, 10);
     const user = await this.users.create({
-      email: dto.email,
+      email: email || internalEmailForPhone(phone!),
+      phone,
       passwordHash,
-      displayName: dto.displayName ?? dto.email.split('@')[0],
+      displayName: dto.displayName ?? (email ? email.split('@')[0] : 'KobeOS user'),
     });
-    return this.issue(user.id, user.email, user.displayName, user.role);
+    return this.issue(user.id, user.email, user.displayName, user.role, user.phone);
   }
 
   async login(dto: LoginDto): Promise<IssuedTokens> {
-    const user = await this.users.findByEmail(dto.email);
+    const identifier = (dto.identifier ?? dto.email ?? dto.phone ?? '').trim();
+    if (!identifier) throw new BadRequestException('Provide an email address or phone number');
+    const user = identifier.includes('@')
+      ? await this.users.findByEmail(identifier)
+      : await this.users.findByPhone(normalizePhone(identifier));
     if (!user) throw new UnauthorizedException('Invalid credentials');
     const ok = await bcrypt.compare(dto.password, user.passwordHash);
     if (!ok) throw new UnauthorizedException('Invalid credentials');
-    return this.issue(user.id, user.email, user.displayName, user.role);
+    return this.issue(user.id, user.email, user.displayName, user.role, user.phone);
   }
 
   /**
@@ -69,7 +89,7 @@ export class AuthService {
         displayName: profile.displayName?.trim() || email.split('@')[0],
       });
     }
-    return this.issue(user.id, user.email, user.displayName, user.role);
+    return this.issue(user.id, user.email, user.displayName, user.role, user.phone);
   }
 
   /** Verify a Google ID token (GIS credential) and sign the user in. */
@@ -190,7 +210,7 @@ export class AuthService {
     record.revokedAt = new Date();
     await this.refreshTokens.save(record);
 
-    return this.issue(user.id, user.email, user.displayName, user.role);
+    return this.issue(user.id, user.email, user.displayName, user.role, user.phone);
   }
 
   async logout(rawToken: string): Promise<{ ok: true }> {
@@ -212,6 +232,7 @@ export class AuthService {
     email: string,
     displayName: string | undefined,
     role: 'user' | 'admin',
+    phone?: string | null,
   ): Promise<IssuedTokens> {
     const accessExpires = this.config.get<string>('JWT_EXPIRES_IN', '15m');
     const refreshDays = Number(this.config.get<string>('REFRESH_EXPIRES_DAYS', '30'));
@@ -232,7 +253,7 @@ export class AuthService {
       }),
     );
 
-    return { accessToken, refreshToken, user: { id: sub, email, displayName, role } };
+    return { accessToken, refreshToken, user: { id: sub, email, phone, displayName, role } };
   }
 
   /** Nightly job: remove expired and revoked refresh tokens older than 7 days. */

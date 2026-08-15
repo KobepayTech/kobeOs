@@ -1128,7 +1128,7 @@ describe('New modules + ownership (e2e)', () => {
       lines: [{ productId: product.body.id, quantity: 2 }],
       paymentMethod: 'CASH',
       customerName: 'Public Buyer',
-      customerPhone: '+255700storefront',
+      customerPhone: '+255700000001',
     });
     expect(sale.status).toBe(201);
     expect(Number(sale.body.total)).toBe(24000);
@@ -1159,18 +1159,18 @@ describe('New modules + ownership (e2e)', () => {
       .send({ sku: 'BNPL-1', name: 'Big TV', price: 200000, stock: 5 });
 
     // Buyer with no credit profile under this owner.
-    const unknown = await request(http).get('/api/store/bnpl-shop/credit/eligibility?phone=%2B255700unknown');
+    const unknown = await request(http).get('/api/store/bnpl-shop/credit/eligibility?phone=%2B255700000002');
     expect(unknown.body).toEqual(expect.objectContaining({
       eligible: false, availableCredit: 0, reason: 'no_profile',
     }));
 
     // Owner sets up a credit profile for a known buyer.
     await request(http).post('/api/credit/profiles').set(bearer(t)).send({
-      customerPhone: '+255700buyer', customerName: 'Buyer One',
+      customerPhone: '+255700000003', customerName: 'Buyer One',
       creditLimit: 500000, riskGrade: 'B',
     });
 
-    const known = await request(http).get('/api/store/bnpl-shop/credit/eligibility?phone=%2B255700buyer');
+    const known = await request(http).get('/api/store/bnpl-shop/credit/eligibility?phone=%2B255700000003');
     expect(known.body.eligible).toBe(true);
     expect(Number(known.body.availableCredit)).toBe(500000);
 
@@ -1180,7 +1180,7 @@ describe('New modules + ownership (e2e)', () => {
       lines: [{ productId: product.body.id, quantity: 1 }],
       paymentMethod: 'BNPL',
       customerName: 'Buyer One',
-      customerPhone: '+255700buyer',
+      customerPhone: '+255700000003',
       installmentMonths: 6,
     });
     expect(sale.status).toBe(201);
@@ -1189,7 +1189,7 @@ describe('New modules + ownership (e2e)', () => {
     expect(Number(sale.body.receivable.amount)).toBe(200000);
 
     // Available credit dropped by the locked amount.
-    const after = await request(http).get('/api/store/bnpl-shop/credit/eligibility?phone=%2B255700buyer');
+    const after = await request(http).get('/api/store/bnpl-shop/credit/eligibility?phone=%2B255700000003');
     expect(Number(after.body.availableCredit)).toBe(300000);
 
     // Over-limit BNPL purchase is blocked.
@@ -1199,7 +1199,7 @@ describe('New modules + ownership (e2e)', () => {
       orderNumber: 'SHOP-BNPL-2',
       lines: [{ productId: product.body.id, quantity: 2 }],
       paymentMethod: 'BNPL',
-      customerPhone: '+255700buyer',
+      customerPhone: '+255700000003',
     });
     expect(denied.status).toBe(400);
     expect(denied.body.message).toMatch(/BNPL denied/);
@@ -1217,13 +1217,13 @@ describe('New modules + ownership (e2e)', () => {
       lines: [{ productId: product.body.id, quantity: 1 }],
       paymentMethod: 'CASH',
       customerName: 'Track Buyer',
-      customerPhone: '+255700track',
+      customerPhone: '+255700000004',
     });
     expect(sale.status).toBe(201);
 
     // Right phone → order data.
     const ok = await request(http)
-      .get('/api/store/track-shop/orders/SHOP-TRACK-1?phone=%2B255700track');
+      .get('/api/store/track-shop/orders/SHOP-TRACK-1?phone=%2B255700000004');
     expect(ok.status).toBe(200);
     expect(ok.body.orderNumber).toBe('SHOP-TRACK-1');
     expect(ok.body.items).toHaveLength(1);
@@ -1236,7 +1236,7 @@ describe('New modules + ownership (e2e)', () => {
 
     // Wrong order number → 404.
     const missing = await request(http)
-      .get('/api/store/track-shop/orders/SHOP-NOPE?phone=%2B255700track');
+      .get('/api/store/track-shop/orders/SHOP-NOPE?phone=%2B255700000004');
     expect(missing.status).toBe(404);
   });
 

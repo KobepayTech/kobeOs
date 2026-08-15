@@ -3,15 +3,19 @@ import { api } from '@/lib/api';
 import {
   Radio, Plus, Loader2, Pin, ShoppingBag, CheckCircle2, XCircle, Zap,
   MessageCircle, Package, Play, Square, TrendingUp, Link2, Copy, Send, AlertCircle, MonitorPlay, Star,
+  Instagram,
 } from 'lucide-react';
 
 /* ── Types ── */
-interface Session { id: string; title: string; platform: string; status: 'LIVE' | 'ENDED'; kind?: 'live' | 'post'; postUrl?: string; ingestToken: string; currency: string; totalSales: number | string; orderCount: number; createdAt: string; showOnStorefront?: boolean }
+interface Session { id: string; title: string; platform: string; status: 'LIVE' | 'ENDED'; kind?: 'live' | 'post'; postUrl?: string; ingestToken: string; currency: string; totalSales: number | string; orderCount: number; createdAt: string; showOnStorefront?: boolean; socialAccountId?: string | null }
 interface PinRow { id: string; code: string; productId: string; name: string; livePrice: number; catalogPrice: number; stock: number; soldQty: number; isFeatured: boolean }
 interface Comment { id: string; source: string; buyerHandle: string; buyerContact: string; text: string; matchedCode: string; qty: number; status: string; createdAt: string; reservationCode?: string; checkoutToken?: string; orderId?: string }
 interface Product { id: string; name: string; price: number | string; stock: number }
 interface Stats { totalSales: number; orderCount: number; pendingComments: number; convertedComments: number; pins: PinRow[] }
 interface OperatorContext { storefrontSlug: string; storefrontUrl: string; catalogUrl: string }
+type InstagramConnection =
+  | { connected: false }
+  | { connected: true; id: string; accountName: string; accountHandle: string; accountAvatar?: string | null; status: string; tokenExpiresAt?: string | null; webhookSubscribed: boolean; webhookUrl: string };
 
 const money = (n: number | string, c = 'TZS') => `${c === 'TZS' ? 'TSh ' : c === 'CNY' ? '¥' : c + ' '}${Number(n || 0).toLocaleString()}`;
 
@@ -20,6 +24,9 @@ export default function LiveSales() {
   const [active, setActive] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [context, setContext] = useState<OperatorContext>({ storefrontSlug: '', storefrontUrl: '', catalogUrl: '' });
+  const [instagram, setInstagram] = useState<InstagramConnection>({ connected: false });
+  const [notice, setNotice] = useState<string | null>(null);
+  const [retryingWebhook, setRetryingWebhook] = useState(false);
   const openKds = () => window.open('/display/orders', '_blank', 'noopener,noreferrer');
 
   const loadSessions = useCallback(async () => {
@@ -31,10 +38,63 @@ export default function LiveSales() {
       ]);
       setSessions(Array.isArray(s) ? s : []);
       setContext(ctx);
+      const ig = await api<InstagramConnection>('/live-sales/instagram/connection');
+      setInstagram(ig);
     }
     catch { setSessions([]); } finally { setLoading(false); }
   }, []);
   useEffect(() => { loadSessions(); }, [loadSessions]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const result = params.get('instagram');
+    if (!result) return;
+    if (result === 'connected') {
+      setNotice(params.get('instagram_webhook') === 'not_subscribed'
+        ? 'Instagram connected, but Meta has not accepted the webhook subscription yet.'
+        : 'Instagram connected. Start an Instagram live and comments will appear here.');
+      loadSessions();
+    } else if (result === 'error') {
+      setNotice(params.get('message') || 'Instagram connection failed.');
+    }
+    params.delete('instagram');
+    params.delete('instagram_webhook');
+    params.delete('message');
+    const query = params.toString();
+    window.history.replaceState({}, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
+  }, [loadSessions]);
+
+  const connectInstagram = async () => {
+    try {
+      const { url } = await api<{ url: string }>('/live-sales/instagram/oauth/url');
+      window.location.assign(url);
+    } catch (e) {
+      setNotice((e as Error).message || 'Instagram connection is not configured.');
+    }
+  };
+
+  const disconnectInstagram = async () => {
+    try {
+      await api('/live-sales/instagram/connection', { method: 'DELETE' });
+      setInstagram({ connected: false });
+      setNotice('Instagram disconnected.');
+    } catch (e) { setNotice((e as Error).message || 'Could not disconnect Instagram.'); }
+  };
+
+  const retryInstagramWebhook = async () => {
+    setRetryingWebhook(true);
+    try {
+      const connection = await api<InstagramConnection>('/live-sales/instagram/webhook/subscribe', { method: 'POST', body: '{}' });
+      setInstagram(connection);
+      setNotice(connection.connected && connection.webhookSubscribed
+        ? 'Instagram webhook is connected. Start an Instagram Live to receive comments.'
+        : 'Meta still has not accepted the webhook subscription. Check the Meta app configuration and try again.');
+    } catch (e) {
+      setNotice((e as Error).message || 'Could not subscribe the Instagram webhook.');
+    } finally {
+      setRetryingWebhook(false);
+    }
+  };
 
   const start = async () => {
     const title = prompt('Name this live session', 'Live Sale')?.trim();
@@ -42,7 +102,11 @@ export default function LiveSales() {
     const requestedPlatform = prompt('Platform: TikTok, Instagram, Facebook or YouTube', 'tiktok')?.trim().toLowerCase();
     if (requestedPlatform === undefined) return;
     const platform = ['tiktok', 'instagram', 'facebook', 'youtube'].includes(requestedPlatform) ? requestedPlatform : 'other';
-    const s = await api<Session>('/live-sales', { method: 'POST', body: JSON.stringify({ title: title || 'Live Sale', platform }) });
+    if (platform === 'instagram' && !instagram.connected) {
+      setNotice('Connect Instagram first, then start the Instagram live.');
+      return;
+    }
+    const s = await api<Session>('/live-sales', { method: 'POST', body: JSON.stringify({ title: title || 'Live Sale', platform, socialAccountId: instagram.connected ? instagram.id : undefined }) });
     await loadSessions(); setActive(s);
   };
 
@@ -72,6 +136,15 @@ export default function LiveSales() {
         </div>
         <div className="flex items-center gap-2">
           <button onClick={openKds} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-sm font-bold"><MonitorPlay className="w-4 h-4" /> Open KDS</button>
+          {instagram.connected ? (
+            <div className="inline-flex items-center gap-1.5 h-9 px-2.5 rounded-lg border border-pink-500/30 bg-pink-500/10 text-pink-300 text-xs font-bold" title={instagram.webhookSubscribed ? 'Instagram webhook connected' : 'Instagram connected; webhook needs Meta setup'}>
+              <Instagram className="w-4 h-4" /> {instagram.accountHandle}
+              {!instagram.webhookSubscribed && <button onClick={retryInstagramWebhook} disabled={retryingWebhook} className="text-amber-300 underline underline-offset-2 disabled:opacity-50">{retryingWebhook ? 'retrying…' : 'retry webhook'}</button>}
+              <button onClick={disconnectInstagram} className="ml-1 text-slate-400 hover:text-white" title="Disconnect Instagram">×</button>
+            </div>
+          ) : (
+            <button onClick={connectInstagram} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-pink-500/40 bg-pink-500/15 text-pink-200 text-sm font-bold"><Instagram className="w-4 h-4" /> Connect Instagram</button>
+          )}
           {context.catalogUrl && <button onClick={() => navigator.clipboard?.writeText(context.catalogUrl)} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-slate-700 bg-slate-800 text-slate-200 text-sm font-bold"><Copy className="w-4 h-4" /> Copy live shop</button>}
           <button onClick={startPost} className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-bold"><MessageCircle className="w-4 h-4" /> Post campaign</button>
           <button onClick={start} className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-sm font-bold"><Play className="w-4 h-4" /> Start Live Sales</button>
@@ -79,6 +152,13 @@ export default function LiveSales() {
       </div>
 
       <div className="p-5 space-y-6">
+        {notice && <div className="flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200"><span>{notice}</span><button onClick={() => setNotice(null)} className="text-amber-300 hover:text-white">×</button></div>}
+        {instagram.connected && !instagram.webhookSubscribed && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+            <span>Instagram is authorized, but Meta has not connected the Live Comments webhook yet. Finish the Meta app setup, then retry.</span>
+            <button onClick={() => { navigator.clipboard?.writeText(instagram.webhookUrl); setNotice('Instagram webhook URL copied. Add it in Meta for Developers.'); }} className="font-bold underline underline-offset-2">Copy webhook URL</button>
+          </div>
+        )}
         {loading ? <Center><Loader2 className="w-6 h-6 animate-spin text-slate-500" /></Center> : sessions.length === 0 ? (
           <div className="text-center text-slate-500 py-16">No sessions yet. Start a live-selling session, pin products, then use your permanent catalog link in the stream comments. Paid orders automatically enter POS, stock, accounting and KDS.</div>
         ) : (

@@ -89,7 +89,7 @@ export class MediaInboxController {
   @Post('generate-products')
   generateProducts(
     @CurrentUser('id') ownerId: string,
-    @Body() dto: { category?: string; includeFailed?: boolean },
+    @Body() dto: { category?: string; includeFailed?: boolean; sourceType?: 'QUICK_ADD_PHOTO' | 'QUICK_ADD_SCREENSHOT' | 'QUICK_ADD_MESSAGE' | 'QUICK_ADD_IMPORT' },
   ) {
     return this.service.generateGenericProducts(ownerId, dto ?? {});
   }

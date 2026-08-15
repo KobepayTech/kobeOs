@@ -30,14 +30,32 @@ jobs:
 
       - name: Deploy via SSH
         if: ${{ steps.deployment.outputs.ready == 'true' }}
+        env:
+          TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
+          TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
+          TIKTOK_REDIRECT_URI: ${{ secrets.TIKTOK_REDIRECT_URI }}
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
+          envs: TIKTOK_CLIENT_KEY,TIKTOK_CLIENT_SECRET,TIKTOK_REDIRECT_URI
           script: |
             set -e
             cd /opt/kobe-studio
+
+            # Keep TikTok OAuth credentials on the server. Values come from
+            # GitHub's production environment secrets and are never committed.
+            if [ -n "${TIKTOK_CLIENT_KEY:-}" ] && [ -n "${TIKTOK_CLIENT_SECRET:-}" ]; then
+              touch .env
+              tmp_env="$(mktemp)"
+              grep -vE '^(TIKTOK_CLIENT_KEY|TIKTOK_CLIENT_SECRET|TIKTOK_REDIRECT_URI)=' .env > "$tmp_env" || true
+              printf '%s\n' \
+                "TIKTOK_CLIENT_KEY=$TIKTOK_CLIENT_KEY" \
+                "TIKTOK_CLIENT_SECRET=$TIKTOK_CLIENT_SECRET" \
+                "TIKTOK_REDIRECT_URI=${TIKTOK_REDIRECT_URI:-https://api.kobeapptz.com/api/auth/oauth/tiktok/callback}" >> "$tmp_env"
+              mv "$tmp_env" .env
+            fi
 
             # Pull the latest registry-built API image; the web image
             # is rebuilt locally from the source tree (next step).
@@ -79,7 +97,7 @@ jobs:
             # Health checks: API + a HEAD on the SPA so we catch a broken
             # build artifact before customer traffic hits a 502.
             sleep 10
-            curl -sf http://localhost:3000/health || (docker compose -f docker-compose.prod.yml logs api --tail=50 && exit 1)
+            curl -sf http://localhost:3000/api/health || (docker compose -f docker-compose.prod.yml logs api --tail=50 && exit 1)
             curl -sfI http://localhost/ -H 'Host: kobeapptz.com' >/dev/null || \
               (docker compose -f docker-compose.prod.yml logs web nginx --tail=50 && exit 1)
 

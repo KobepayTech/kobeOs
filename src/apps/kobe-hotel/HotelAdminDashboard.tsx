@@ -286,7 +286,7 @@ function mapStation(s?: string): 'kitchen' | 'bar' | 'dessert' | 'grill' {
 /** Map the real backend rows onto the exact HotelRecord[] shape the UI consumes.
  *  Records whose hotelId is null / unknown (legacy single-hotel rows) are
  *  attached to the first property so nothing is dropped. Returns [] when there
- *  are no properties, signalling the caller to keep MOCK_HOTELS. */
+ *  are no properties, signalling the caller to show onboarding. */
 function buildHotelsFromApi(
   tenants: ApiTenant[],
   portfolio: ApiPortfolioEntry[],
@@ -509,10 +509,10 @@ export const HotelAdminDashboard: React.FC = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // ── Live data ───────────────────────────────────────────────────────────────
-  // Start from MOCK_HOTELS so the demo renders instantly, then hydrate from the
-  // real backend. `liveData` gates writes so the "Add …" dialogs only POST when
-  // we're on real (uuid-keyed) properties.
-  const [hotels, setHotels] = useState<HotelRecord[]>(MOCK_HOTELS);
+  // Hotel data comes from the authenticated backend. An account with no
+  // properties must stay empty so users never mistake demo records for data
+  // they can edit or attach rooms to.
+  const [hotels, setHotels] = useState<HotelRecord[]>([]);
   const [liveData, setLiveData] = useState(false);
 
   // Add-dialog form state.
@@ -520,6 +520,9 @@ export const HotelAdminDashboard: React.FC = () => {
   const [guestForm, setGuestForm] = useState({ name: '', phone: '', email: '', idType: 'passport', idNumber: '' });
   const [hotelForm, setHotelForm] = useState({ name: '', location: '', rooms: '', phone: '', email: '' });
   const [hotelError, setHotelError] = useState<string | null>(null);
+  const [roomError, setRoomError] = useState<string | null>(null);
+  const [savingHotel, setSavingHotel] = useState(false);
+  const [savingRoom, setSavingRoom] = useState(false);
 
   // ── Derived data ──────────────────────────────────────────────────────────
   const selectedHotel = useMemo(() =>
@@ -528,11 +531,37 @@ export const HotelAdminDashboard: React.FC = () => {
   );
 
   const allHotels = hotels;
+  const activeHotel: HotelRecord = selectedHotel ?? allHotels[0] ?? {
+    id: '', name: '', location: '', status: 'active', rooms: [], bookings: [],
+    guests: [], staff: [], menuCategories: [], orders: [], parkingSpots: [],
+    revenueToday: 0, revenueThisMonth: 0, expensesToday: 0, currency: 'TZS',
+    subdomain: '', phone: '', email: '', address: '',
+    settings: {
+      checkInTime: '14:00', checkOutTime: '11:00', currency: 'TZS', taxRate: 18,
+      serviceCharge: 5, enableQROrdering: false, enableRoomService: false,
+    },
+  };
 
   const loadHotels = useCallback(async () => {
+    let tenants: ApiTenant[];
     try {
-      const [tenants, portfolio, rooms, guests, bookings, menuItems, orders, staff] = await Promise.all([
-        api<ApiTenant[]>('/hotel/properties').catch(() => [] as ApiTenant[]),
+      // An authenticated new user with zero properties must see an empty
+      // onboarding state, not fake hotels that cannot receive real rooms.
+      tenants = await api<ApiTenant[]>('/hotel/properties');
+    } catch {
+      return;
+    }
+
+    setLiveData(true);
+    if (!tenants || tenants.length === 0) {
+      setHotels([]);
+      setSelectedHotelId('all');
+      setActiveTab('hotels');
+      return;
+    }
+
+    try {
+      const [portfolio, rooms, guests, bookings, menuItems, orders, staff] = await Promise.all([
         api<ApiPortfolioEntry[]>('/hotel/portfolio').catch(() => [] as ApiPortfolioEntry[]),
         api<ApiRoom[]>('/hotel/rooms?limit=100').catch(() => [] as ApiRoom[]),
         api<ApiGuest[]>('/hotel/guests?limit=100').catch(() => [] as ApiGuest[]),
@@ -541,7 +570,6 @@ export const HotelAdminDashboard: React.FC = () => {
         api<ApiOrder[]>('/hotel/orders?limit=100').catch(() => [] as ApiOrder[]),
         api<ApiStaff[]>('/hotel/staff').catch(() => [] as ApiStaff[]),
       ]);
-      if (!tenants || tenants.length === 0) return; // no real properties → keep MOCK_HOTELS
 
       const parkingByHotel: Record<string, ApiParkingSpot[]> = {};
       const financialsByHotel: Record<string, ApiFinancialRecord[]> = {};
@@ -553,10 +581,10 @@ export const HotelAdminDashboard: React.FC = () => {
       const built = buildHotelsFromApi(tenants, portfolio, rooms, guests, bookings, menuItems, orders, staff, parkingByHotel, financialsByHotel);
       if (built.length > 0) {
         setHotels(built);
-        setLiveData(true);
       }
     } catch {
-      // Backend unreachable → keep the MOCK_HOTELS fallback already in state.
+      // The properties request succeeded; retain the real shell even if an
+      // optional dashboard aggregate is temporarily unavailable.
     }
   }, []);
 
@@ -565,6 +593,20 @@ export const HotelAdminDashboard: React.FC = () => {
   // ── Create handlers (POST → reload) ─────────────────────────────────────────
   const handleAddRoom = useCallback(async () => {
     const hotelId = selectedHotel?.id ?? hotels[0]?.id;
+    if (!liveData || !hotelId) {
+      setRoomError('Create a hotel first, then add rooms to that hotel.');
+      setHotelError('Create your hotel first. After it is created, select it and add rooms.');
+      setActiveTab('hotels');
+      setShowAddRoom(false);
+      setShowAddHotel(true);
+      return;
+    }
+    if (!roomForm.number.trim()) {
+      setRoomError('Enter a room number first.');
+      return;
+    }
+    setSavingRoom(true);
+    setRoomError(null);
     try {
       await api('/hotel/rooms', {
         method: 'POST',
@@ -574,13 +616,17 @@ export const HotelAdminDashboard: React.FC = () => {
           rate: Number(roomForm.price) || 0,
           capacity: Number(roomForm.capacity) || 2,
           ...(roomForm.imageUrl.trim() ? { imageUrl: roomForm.imageUrl.trim() } : {}),
-          ...(liveData && hotelId ? { hotelId } : {}),
+          hotelId,
         }),
       });
-      if (liveData) await loadHotels();
-    } catch { /* offline / no backend — leave demo data intact */ }
-    setRoomForm({ number: '', type: 'Standard', price: '', capacity: '', imageUrl: '' });
-    setShowAddRoom(false);
+      await loadHotels();
+      setRoomForm({ number: '', type: 'Standard', price: '', capacity: '', imageUrl: '' });
+      setShowAddRoom(false);
+    } catch (err) {
+      setRoomError(err instanceof Error && err.message ? err.message : 'Could not add room.');
+    } finally {
+      setSavingRoom(false);
+    }
   }, [roomForm, selectedHotel, hotels, liveData, loadHotels]);
 
   const handleSaveRoomPhoto = useCallback(async () => {
@@ -628,6 +674,7 @@ export const HotelAdminDashboard: React.FC = () => {
       return slug.slice(0, 40).replace(/-+$/, '');
     };
     setHotelError(null);
+    setSavingHotel(true);
     try {
       const submit = (slug: string) => api<ApiTenant>('/hotel/properties', {
         method: 'POST',
@@ -644,11 +691,17 @@ export const HotelAdminDashboard: React.FC = () => {
         method: 'POST',
         body: JSON.stringify({ hotelId: created.id, roomNumber: String(101 + index), type: 'Standard', rate: 0, capacity: 2 }),
       })));
-      // Initialize and publish this property's independent hotel website.
-      await api(`/module-sites/hotel?hotelId=${encodeURIComponent(created.id)}`);
+      // Website setup is optional. A website failure must never make the
+      // hotel/rooms creation look like it failed or leave the modal stuck.
+      await api(`/module-sites/hotel?hotelId=${encodeURIComponent(created.id)}`).catch(() => undefined);
       await loadHotels();
       setSelectedHotelId(created.id);
-    } catch (err) { setHotelError((err as Error).message || 'Could not create hotel.'); return; }
+    } catch (err) {
+      setHotelError(err instanceof Error && err.message ? err.message : 'Could not create hotel.');
+      return;
+    } finally {
+      setSavingHotel(false);
+    }
     setHotelForm({ name: '', location: '', rooms: '', phone: '', email: '' });
     setShowAddHotel(false);
   }, [hotelForm, loadHotels]);
@@ -1015,13 +1068,23 @@ export const HotelAdminDashboard: React.FC = () => {
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-bold" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Multi-Hotel Management</h2>
                 <button
-                  onClick={() => setShowAddHotel(true)}
+                  onClick={() => { setHotelError(null); setShowAddHotel(true); }}
                   className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-white cursor-pointer transition-all hover:shadow-lg hover:opacity-90"
                   style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}
                 >
                   <Plus size={16} /> Add Hotel
                 </button>
               </div>
+              {allHotels.length === 0 && (
+                <GlassCard className="p-8 text-center">
+                  <Building2 size={36} className="mx-auto mb-3" style={{ color: '#6366F1' }} />
+                  <h3 className="text-base font-bold" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Set up your first hotel</h3>
+                  <p className="mx-auto mt-1 max-w-md text-xs opacity-60">Create the hotel profile first. You can add rooms, guests, bookings, and your public booking website immediately afterward.</p>
+                  <button onClick={() => { setHotelError(null); setShowAddHotel(true); }} className="mt-5 inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white" style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}>
+                    <Plus size={16} /> Create your hotel
+                  </button>
+                </GlassCard>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 {allHotels.map(h => {
                   const occ = h.rooms.length > 0 ? Math.round((h.rooms.filter(r => r.status === 'occupied').length / h.rooms.length) * 100) : 0;
@@ -1071,8 +1134,8 @@ export const HotelAdminDashboard: React.FC = () => {
                       <button onClick={() => setShowAddHotel(false)} className="flex-1 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer hover:bg-white/50" style={{ border: '1px solid rgba(0,0,0,0.08)', color: 'var(--os-text-primary, #2D2B55)' }}>
                         Cancel
                       </button>
-                      <button onClick={() => void handleAddHotel()} className="flex-1 py-2.5 rounded-xl text-sm font-medium text-white transition-all cursor-pointer hover:opacity-90" style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}>
-                        Create Hotel
+                      <button disabled={savingHotel} onClick={() => void handleAddHotel()} className="flex-1 py-2.5 rounded-xl text-sm font-medium text-white transition-all cursor-pointer hover:opacity-90 disabled:opacity-50" style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}>
+                        {savingHotel ? 'Creating…' : 'Create Hotel'}
                       </button>
                     </div>
                   </div>
@@ -1091,7 +1154,7 @@ export const HotelAdminDashboard: React.FC = () => {
                   Room Management {selectedHotel && `- ${selectedHotel.name}`}
                 </h2>
                 <button
-                  onClick={() => setShowAddRoom(true)}
+                  onClick={() => { setRoomError(null); setShowAddRoom(true); }}
                   className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-white cursor-pointer transition-all hover:shadow-lg"
                   style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}
                 >
@@ -1123,6 +1186,7 @@ export const HotelAdminDashboard: React.FC = () => {
               {showAddRoom && (
                 <Modal title="Add New Room" onClose={() => setShowAddRoom(false)}>
                   <div className="flex flex-col gap-4">
+                    {roomError && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{roomError}</div>}
                     <FormInput label="Room Number" placeholder="e.g., 101" value={roomForm.number} onChange={v => setRoomForm(f => ({ ...f, number: v }))} />
                     <div className="flex flex-col gap-1.5">
                       <label className="text-xs font-medium opacity-60">Room Type</label>
@@ -1142,7 +1206,7 @@ export const HotelAdminDashboard: React.FC = () => {
                     />
                     <div className="flex gap-3 mt-2">
                       <button onClick={() => setShowAddRoom(false)} className="flex-1 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer hover:bg-white/50" style={{ border: '1px solid rgba(0,0,0,0.08)', color: 'var(--os-text-primary, #2D2B55)' }}>Cancel</button>
-                      <button onClick={() => void handleAddRoom()} className="flex-1 py-2.5 rounded-xl text-sm font-medium text-white transition-all cursor-pointer hover:opacity-90" style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}>Add Room</button>
+                      <button disabled={savingRoom} onClick={() => void handleAddRoom()} className="flex-1 py-2.5 rounded-xl text-sm font-medium text-white transition-all cursor-pointer hover:opacity-90 disabled:opacity-50" style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}>{savingRoom ? 'Adding…' : 'Add Room'}</button>
                     </div>
                   </div>
                 </Modal>
@@ -1339,7 +1403,7 @@ export const HotelAdminDashboard: React.FC = () => {
               {/* Menu */}
               <div className="flex flex-col gap-4">
                 <h3 className="font-semibold text-sm" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Menu</h3>
-                {(selectedHotel || allHotels[0]).menuCategories.map(cat => (
+                {activeHotel.menuCategories.map(cat => (
                   <GlassCard key={cat.id} className="p-5">
                     <h4 className="font-semibold text-sm mb-3" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>{cat.name}</h4>
                     <div className="flex flex-col gap-2">
@@ -1395,7 +1459,7 @@ export const HotelAdminDashboard: React.FC = () => {
               </div>
               {/* Parking Grid */}
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-                {(selectedHotel || allHotels[0]).parkingSpots.map(spot => (
+                {activeHotel.parkingSpots.map(spot => (
                   <div
                     key={spot.id}
                     className={classNames(
@@ -1433,7 +1497,7 @@ export const HotelAdminDashboard: React.FC = () => {
                     <div className="flex flex-col gap-1.5">
                       <label className="text-xs font-medium opacity-60">Spot</label>
                       <select className="w-full px-3 py-2.5 rounded-xl text-sm border outline-none" style={{ background: 'rgba(255,255,255,0.50)', borderColor: 'rgba(0,0,0,0.08)', color: 'var(--os-text-primary, #2D2B55)' }}>
-                        {(selectedHotel || allHotels[0]).parkingSpots.filter(s => s.status === 'free').map(s => <option key={s.id} value={s.id}>{s.number} - {s.type}</option>)}
+                        {activeHotel.parkingSpots.filter(s => s.status === 'free').map(s => <option key={s.id} value={s.id}>{s.number} - {s.type}</option>)}
                       </select>
                     </div>
                     <FormInput label="Guest Name" placeholder="Guest name" />
@@ -1649,33 +1713,33 @@ export const HotelAdminDashboard: React.FC = () => {
                 <div className="flex items-center justify-between mb-6">
                   <div>
                     <h3 className="font-semibold text-base" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Public Website</h3>
-                    <p className="text-xs opacity-50 mt-1">Your hotel website is live at: <span className="font-medium" style={{ color: '#6366F1' }}>https://{(selectedHotel || allHotels[0]).subdomain}.kobeapptz.com/book</span></p>
+                    <p className="text-xs opacity-50 mt-1">Your hotel website is live at: <span className="font-medium" style={{ color: '#6366F1' }}>https://{activeHotel.subdomain || 'your-hotel'}.kobeapptz.com/book</span></p>
                   </div>
                   <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-white cursor-pointer transition-all hover:shadow-lg" style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}>
                     <Eye size={16} /> Preview
                   </button>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                  <FormInput label="Hotel Name" defaultValue={(selectedHotel || allHotels[0]).name} />
-                  <FormInput label="Subdomain" defaultValue={(selectedHotel || allHotels[0]).subdomain} />
-                  <FormInput label="Phone" defaultValue={(selectedHotel || allHotels[0]).phone} />
-                  <FormInput label="Email" defaultValue={(selectedHotel || allHotels[0]).email} />
+                  <FormInput label="Hotel Name" defaultValue={activeHotel.name} />
+                  <FormInput label="Subdomain" defaultValue={activeHotel.subdomain} />
+                  <FormInput label="Phone" defaultValue={activeHotel.phone} />
+                  <FormInput label="Email" defaultValue={activeHotel.email} />
                 </div>
                 <div className="mb-4">
                   <label className="text-xs font-medium opacity-60 mb-1.5 block">Address</label>
                   <textarea
-                    defaultValue={(selectedHotel || allHotels[0]).address}
+                    defaultValue={activeHotel.address}
                     className="w-full px-3 py-2.5 rounded-xl text-sm border outline-none focus:ring-2 resize-y min-h-[80px]"
                     style={{ background: 'rgba(255,255,255,0.50)', borderColor: 'rgba(0,0,0,0.08)', color: 'var(--os-text-primary, #2D2B55)' }}
                   />
                 </div>
                 <div className="flex flex-col gap-3 mb-6">
                   <label className="flex items-center gap-2.5 text-xs cursor-pointer" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>
-                    <input type="checkbox" defaultChecked={(selectedHotel || allHotels[0]).settings.enableQROrdering} className="rounded" />
+                    <input type="checkbox" defaultChecked={activeHotel.settings.enableQROrdering} className="rounded" />
                     Enable QR Ordering
                   </label>
                   <label className="flex items-center gap-2.5 text-xs cursor-pointer" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>
-                    <input type="checkbox" defaultChecked={(selectedHotel || allHotels[0]).settings.enableRoomService} className="rounded" />
+                    <input type="checkbox" defaultChecked={activeHotel.settings.enableRoomService} className="rounded" />
                     Enable Room Service
                   </label>
                 </div>

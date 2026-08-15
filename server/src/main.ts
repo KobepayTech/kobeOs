@@ -11,7 +11,7 @@ import { HttpExceptionFilter } from './common/http-exception.filter';
 import { buildOriginPredicate } from './common/cors';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
   const config = app.get(ConfigService);
 
   // A deployed PWA can otherwise remain pinned to an old precache for hours

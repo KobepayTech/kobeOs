@@ -104,11 +104,13 @@ export default function LoginScreen({
       return;
     }
     if (!email.trim()) {
-      setError('Enter your email address.');
+      setError('Enter your email address or phone number.');
       return;
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
-      setError('Enter a valid email address.');
+    const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+    const isPhone = /^\+?[\d\s().-]{7,20}$/.test(email.trim());
+    if (!isEmail && !isPhone) {
+      setError('Enter a valid email address or phone number.');
       return;
     }
     if (password.length < 8) {
@@ -133,9 +135,9 @@ export default function LoginScreen({
       onLogin(user, mode === 'create');
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
-        setError('An account already exists for this email. Choose Sign in.');
+        setError('An account already exists for this email or phone number. Choose Sign in.');
       } else if (err instanceof ApiError && err.status === 401) {
-        setError('The email or password is incorrect.');
+        setError('The email/phone or password is incorrect.');
       } else if (err instanceof ApiError) {
         setError(err.message || 'The account service rejected this request.');
       } else {
@@ -176,7 +178,10 @@ export default function LoginScreen({
   const [fpNewPass, setFpNewPass] = useState('');
   const [fpMsg, setFpMsg] = useState('');
   const sendResetCode = async () => {
-    if (!email.trim()) { setFpMsg('Enter your account email first.'); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setFpMsg('Password reset currently requires the account email address.');
+      return;
+    }
     setLoading(true); setFpMsg('');
     try {
       const res = await requestPasswordReset(email.trim());
@@ -359,16 +364,16 @@ export default function LoginScreen({
                   </label>
                 )}
                 <label htmlFor="login-email" className="block text-[10px] font-black uppercase tracking-wide text-slate-500">
-                  Email address
+                  Email or phone number
                   <div className="relative mt-2">
                     <Mail className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
                     <input
                       id="login-email"
                       name="email"
-                      type="email"
+                      type="text"
                       value={email}
                       onChange={(event) => setEmail(event.target.value)}
-                      placeholder="you@business.com"
+                      placeholder="you@business.com or +255712345678"
                       autoComplete="username"
                       className="h-12 rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm font-semibold outline-none focus:border-[#ff7616]"
                     />

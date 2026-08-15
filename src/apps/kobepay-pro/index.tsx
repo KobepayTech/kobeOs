@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import {
   GraduationCap, Plus, Users, Store, Inbox, Wallet, ShieldCheck, Scale,

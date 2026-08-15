@@ -42,6 +42,14 @@ interface StorableFile {
 
 const MAX_REMOTE_BYTES = 100 * 1024 * 1024; // 100MB, same ceiling as upload
 const FETCH_TIMEOUT_MS = 90_000;
+const QUICK_ADD_SOURCE_TYPES = ['QUICK_ADD_PHOTO', 'QUICK_ADD_SCREENSHOT', 'QUICK_ADD_MESSAGE', 'QUICK_ADD_IMPORT'] as const;
+type QuickAddSourceType = (typeof QUICK_ADD_SOURCE_TYPES)[number];
+
+function quickAddSourceType(value: unknown): QuickAddSourceType {
+  return QUICK_ADD_SOURCE_TYPES.includes(value as QuickAddSourceType)
+    ? value as QuickAddSourceType
+    : 'QUICK_ADD_PHOTO';
+}
 
 /** Pull a Google Drive file id out of the many shapes a Drive link can take. */
 function driveFileId(url: string): string | null {
@@ -292,12 +300,29 @@ export class MediaInboxService {
         tags: [],
       };
       try {
-        const response = await this.ai.complete(
-          `Suggest product metadata from this uploaded image filename and context.\nFilename: ${item.originalName}\nModule: ${dto.moduleId || 'erp'}\nCategory hint: ${dto.categoryHint || 'none'}\nReturn JSON only: {"name":"","category":"","subcategory":"","colour":"","description":"","tags":[""]}. Do not publish or invent prices.`,
-          'You create conservative catalogue suggestions. Return valid JSON only and mark uncertain values with empty strings.',
-        );
-        const parsed = JSON.parse(response.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')) as Record<string, unknown>;
-        suggestions = { ...suggestions, ...parsed };
+        const asset = await this.assets.findOne({ where: { ownerId, id: item.assetId } });
+        if (asset?.contentBinary && asset.contentBinary.length <= 8 * 1024 * 1024 && item.mimeType.startsWith('image/')) {
+          // Use the local vision model when the original image bytes are
+          // available. This makes Quick Add useful for supplier photos and
+          // screenshots instead of relying only on filenames.
+          const vision = await this.ai.describeProductImage(asset.contentBinary.toString('base64'));
+          suggestions = {
+            ...suggestions,
+            name: vision.name || suggestions.name,
+            category: vision.category || suggestions.category,
+            description: vision.description || '',
+            tags: vision.tags,
+            colours: vision.colours,
+            sizes: vision.sizes,
+          };
+        } else {
+          const response = await this.ai.complete(
+            `Suggest product metadata from this uploaded image filename and context.\nFilename: ${item.originalName}\nModule: ${dto.moduleId || 'erp'}\nCategory hint: ${dto.categoryHint || 'none'}\nReturn JSON only: {"name":"","category":"","subcategory":"","colour":"","description":"","tags":[""]}. Do not publish or invent prices.`,
+            'You create conservative catalogue suggestions. Return valid JSON only and mark uncertain values with empty strings.',
+          );
+          const parsed = JSON.parse(response.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')) as Record<string, unknown>;
+          suggestions = { ...suggestions, ...parsed };
+        }
       } catch {
         // Deterministic filename suggestion remains available offline.
       }
@@ -316,7 +341,7 @@ export class MediaInboxService {
    */
   async generateGenericProducts(
     ownerId: string,
-    opts: { category?: string; includeFailed?: boolean } = {},
+    opts: { category?: string; includeFailed?: boolean; sourceType?: 'QUICK_ADD_PHOTO' | 'QUICK_ADD_SCREENSHOT' | 'QUICK_ADD_MESSAGE' | 'QUICK_ADD_IMPORT' } = {},
   ): Promise<{ processed: number; results: unknown[] }> {
     const statuses = (opts.includeFailed
       ? ['UNPROCESSED', 'FAILED']
@@ -336,6 +361,7 @@ export class MediaInboxService {
         category: opts.category?.trim() || 'General',
         // Generic + published: active defaults true, a placeholder price/stock.
         defaults: { price: 0, stock: 0, active: true },
+        sourceType: quickAddSourceType(opts.sourceType),
       });
       processed += r.processed;
       results.push(...r.results);
@@ -383,6 +409,7 @@ export class MediaInboxService {
               category,
               price: number(metadata.price),
               stock: Math.floor(number(metadata.stock)),
+              imageUrl: item.url,
               imageUrls: [item.url],
               active: metadata.active !== false,
               taxRate: number(metadata.taxRate),
@@ -405,6 +432,7 @@ export class MediaInboxService {
                 dimensions: metadata.dimensions ?? null,
                 sourceMediaInboxId: item.id,
               },
+              sourceType: quickAddSourceType(dto.sourceType),
             }));
             entityId = product.id;
           }

@@ -8,9 +8,8 @@ import { Plus, Trash2, Loader2, CheckCircle2, X, ClipboardList, TrendingUp, User
  * lists the items + qty + cost + intended sell price, types the
  * transport / freight cost once, and the screen shows live cost,
  * revenue, profit, and margin. POSTs to /erp/supplier-capital/
- * purchase-orders; sell price + transport are packed into the notes
- * field as a structured JSON line until the backend gets a column for
- * them (so a future migration can backfill).
+ * purchase-orders with structured line items. The notes metadata remains as
+ * a backwards-compatible fallback for older server versions.
  */
 
 interface Supplier { id: string; name: string }
@@ -133,10 +132,8 @@ export default function MobilePO() {
     setSubmitting(true);
     try {
       const poNumber = `PO-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
-      // Pack the extended fields into notes so they survive the
-      // round-trip even though the backend DTO doesn't have columns
-      // for them yet. Format is "kobeos-po-meta:<json>\n<freeform notes>"
-      // so a future migration can grep + backfill.
+      // Keep the metadata line for older server versions while sending the
+      // structured fields to current KobeOS receiving.
       const meta = {
         transportCost: calc.transport,
         revenueTotal: calc.revenueTotal,
@@ -157,6 +154,13 @@ export default function MobilePO() {
           // landed-cost accounting consistent even though the backend
           // column is still called totalCny.
           totalCny: calc.costTotal,
+          transportCost: calc.transport,
+          items: lines.map((l) => ({
+            name: l.name,
+            qty: l.qty,
+            price: l.price,
+            sellPrice: l.sellPrice || undefined,
+          })),
           notes: notesPayload,
         }),
       });

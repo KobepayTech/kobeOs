@@ -22,6 +22,10 @@ export class LiveSession extends OwnedEntity {
   @Column({ default: 'other' })
   platform!: LivePlatform;
 
+  /** Connected social account that owns the live comments for this session. */
+  @Column('uuid', { nullable: true })
+  socialAccountId?: string | null;
+
   @Column({ default: 'LIVE' })
   status!: LiveStatus;
 
