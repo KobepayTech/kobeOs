@@ -39,6 +39,14 @@ class EnvVars {
   @IsOptional() @IsNumber() PALMPESA_USER_ID?: number;
   /** Public base URL of this server — used as PalmPesa callback base */
   @IsOptional() @IsString() APP_PUBLIC_URL?: string;
+  /** Meta Business Login for Instagram configuration. */
+  @IsOptional() @IsString() INSTAGRAM_APP_ID?: string;
+  @IsOptional() @IsString() INSTAGRAM_APP_SECRET?: string;
+  @IsOptional() @IsString() INSTAGRAM_REDIRECT_URI?: string;
+  @IsOptional() @IsString() INSTAGRAM_API_VERSION?: string;
+  @IsOptional() @IsString() INSTAGRAM_OAUTH_SCOPES?: string;
+  @IsOptional() @IsString() APP_FRONTEND_URL?: string;
+  @IsOptional() @IsString() IG_WEBHOOK_VERIFY_TOKEN?: string;
   /** HMAC-SHA256 secret for signing OS license tokens. Must match VITE_LICENSE_HMAC_SECRET in the frontend build. */
   @IsOptional() @IsString() LICENSE_HMAC_SECRET?: string;
 

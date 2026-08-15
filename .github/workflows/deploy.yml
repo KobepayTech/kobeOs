@@ -79,7 +79,7 @@ jobs:
             # Health checks: API + a HEAD on the SPA so we catch a broken
             # build artifact before customer traffic hits a 502.
             sleep 10
-            curl -sf http://localhost:3000/health || (docker compose -f docker-compose.prod.yml logs api --tail=50 && exit 1)
+            curl -sf http://localhost:3000/api/health || (docker compose -f docker-compose.prod.yml logs api --tail=50 && exit 1)
             curl -sfI http://localhost/ -H 'Host: kobeapptz.com' >/dev/null || \
               (docker compose -f docker-compose.prod.yml logs web nginx --tail=50 && exit 1)
 

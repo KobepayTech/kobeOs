@@ -97,12 +97,13 @@ export class LiveSaleService {
 
   /* ── Sessions ── */
 
-  async startSession(uid: string, dto: { title?: string; platform?: string; currency?: string; kind?: string; postUrl?: string }) {
+  async startSession(uid: string, dto: { title?: string; platform?: string; currency?: string; kind?: string; postUrl?: string; socialAccountId?: string }) {
     const kind: LiveSession['kind'] = dto.kind === 'post' ? 'post' : 'live';
     return this.sessions.save(this.sessions.create({
       ownerId: uid,
       title: dto.title?.trim() || (kind === 'post' ? 'Post / Ad Sale' : 'Live Sale'),
       platform: (dto.platform as LiveSession['platform']) || 'other',
+      socialAccountId: dto.socialAccountId || null,
       currency: dto.currency || 'TZS',
       status: 'LIVE',
       kind,
@@ -641,33 +642,4 @@ export class LiveSaleService {
     return this.ingestComment(session.ownerId, session.id, { ...dto, source: dto.source || 'bridge' });
   }
 
-  /**
-   * Official Instagram Graph API `live_comments` webhook. Extracts each live
-   * comment and feeds it into the ingest bridge for the session whose ingest
-   * token is configured as LIVE_IG_INGEST_TOKEN. Always resolves (never throws)
-   * so Meta doesn't retry-storm on a transient error.
-   */
-  async ingestInstagramWebhook(body: unknown): Promise<{ ok: true; ingested: number }> {
-    const token = process.env.LIVE_IG_INGEST_TOKEN;
-    if (!token) return { ok: true, ingested: 0 };
-    let ingested = 0;
-    try {
-      const entries = (body as { entry?: unknown[] })?.entry ?? [];
-      for (const entry of entries) {
-        const changes = (entry as { changes?: unknown[] })?.changes ?? [];
-        for (const change of changes) {
-          const ch = change as { field?: string; value?: { text?: string; message?: string; from?: { username?: string } } };
-          if (ch.field !== 'live_comments') continue;
-          const text = ch.value?.text ?? ch.value?.message ?? '';
-          const handle = ch.value?.from?.username ?? '';
-          if (!text.trim()) continue;
-          await this.ingestByToken(token, { source: 'instagram', buyerHandle: handle, text }).catch(() => undefined);
-          ingested += 1;
-        }
-      }
-    } catch (e) {
-      this.logger.warn(`IG webhook parse failed: ${(e as Error).message}`);
-    }
-    return { ok: true, ingested };
-  }
 }
