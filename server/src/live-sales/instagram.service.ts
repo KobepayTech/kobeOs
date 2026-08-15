@@ -295,11 +295,20 @@ export class InstagramService {
       const entry = rawEntry as { id?: string; changes?: unknown[] };
       const account = accounts.find((item) => String(item.metadata?.instagramUserId || '') === String(entry.id || ''));
       if (!account) continue;
-      const session = await this.sessions.findOne({ where: { ownerId: account.ownerId, socialAccountId: account.id, status: 'LIVE', kind: 'live' }, order: { createdAt: 'DESC' } });
-      if (!session) continue;
+      // Instagram sends `live_comments` for an active Live and `comments`
+      // for published posts/reels. Both use the same BUY-code → reservation
+      // → storefront checkout flow, but must be routed to the right campaign.
+      const sessions = await this.sessions.find({
+        where: { ownerId: account.ownerId, socialAccountId: account.id, status: 'LIVE' },
+        order: { createdAt: 'DESC' },
+      });
       for (const rawChange of entry.changes || []) {
         const change = rawChange as { field?: string; value?: { id?: string; text?: string; message?: string; from?: { username?: string; id?: string } } };
         if (change.field !== 'comments' && change.field !== 'live_comments') continue;
+        const session = change.field === 'live_comments'
+          ? sessions.find((item) => item.kind === 'live')
+          : sessions.find((item) => item.kind === 'post') || sessions.find((item) => item.kind === 'live');
+        if (!session) continue;
         const value = change.value || {};
         const text = String(value.text || value.message || '').trim();
         if (!text) continue;
