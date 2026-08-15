@@ -14,7 +14,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { UniversalProductForm, blankProduct, type UniversalProduct } from './UniversalProductForm';
-import { ProductWizard } from './ProductWizard';
+import MediaInboxApp from '@/apps/media-inbox';
 
 const tzs = (n: number) => `TZS ${n.toLocaleString()}`;
 
@@ -30,6 +30,7 @@ interface PosProductRow {
   stock: number;
   imageUrl?: string | null;
   active: boolean;
+  sourceType?: string;
 }
 
 /* Shape of /api/pos/orders rows. */
@@ -73,7 +74,6 @@ export default function ERPStore() {
   const [productModalOpen, setProductModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<PosProductRow | null>(null);
   const [form, setForm] = useState<UniversalProduct>(blankForm);
-  const [saving, setSaving] = useState(false);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -135,9 +135,7 @@ export default function ERPStore() {
   };
 
   const openAdd = () => {
-    setEditingProduct(null);
-    setForm(blankForm);
-    setProductModalOpen(true);
+    setTab('quick-add');
   };
 
   const openEdit = (product: PosProductRow) => {
@@ -157,7 +155,6 @@ export default function ERPStore() {
 
   const saveProduct = async () => {
     if (!form.name.trim() || !form.sku.trim()) return;
-    setSaving(true);
     try {
       // Universal product payload — backend accepts every field; older rows
       // without these columns simply ignore the extras.
@@ -186,17 +183,12 @@ export default function ERPStore() {
         active: form.active,
         featured: form.featured,
       };
-      if (editingProduct) {
-        await api(`/pos/products/${editingProduct.id}`, { method: 'PATCH', body: JSON.stringify(body) });
-      } else {
-        await api('/pos/products', { method: 'POST', body: JSON.stringify(body) });
-      }
+      if (!editingProduct) return;
+      await api(`/pos/products/${editingProduct.id}`, { method: 'PATCH', body: JSON.stringify(body) });
       setProductModalOpen(false);
       await reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Save failed');
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -219,8 +211,8 @@ export default function ERPStore() {
                 <TabsTrigger value="orders" className="text-xs data-[state=active]:bg-blue-600 data-[state=active]:text-white">
                   <ShoppingBag className="w-3 h-3 mr-1" /> Orders ({orders.length})
                 </TabsTrigger>
-                <TabsTrigger value="wizard" className="text-xs data-[state=active]:bg-blue-600 data-[state=active]:text-white">
-                  <Plus className="w-3 h-3 mr-1" /> Wizard
+                <TabsTrigger value="quick-add" className="text-xs data-[state=active]:bg-blue-600 data-[state=active]:text-white">
+                  <Plus className="w-3 h-3 mr-1" /> Quick Add Products
                 </TabsTrigger>
               </TabsList>
             </Tabs>
@@ -293,7 +285,7 @@ export default function ERPStore() {
                       </Button>
                     )}
                     <Button size="sm" onClick={openAdd} className="h-8 bg-blue-600 hover:bg-blue-500 text-white">
-                      <Plus className="w-3 h-3 mr-1" /> Add
+                      <Plus className="w-3 h-3 mr-1" /> Quick Add Products
                     </Button>
                   </div>
                 </div>
@@ -315,14 +307,15 @@ export default function ERPStore() {
                         <TableHead className="text-slate-400 text-xs">Price</TableHead>
                         <TableHead className="text-slate-400 text-xs">Stock</TableHead>
                         <TableHead className="text-slate-400 text-xs">Category</TableHead>
+                        <TableHead className="text-slate-400 text-xs">Source</TableHead>
                         <TableHead className="text-slate-400 text-xs">Status</TableHead>
                         <TableHead className="text-slate-400 text-xs text-right">Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {!loading && filteredProducts.length === 0 && (
-                        <TableRow className="border-slate-800"><TableCell colSpan={8} className="text-center text-xs text-slate-500 py-8">
-                          {products.length === 0 ? 'No products yet — click Add to create the first one.' : 'No products match the current filter.'}
+                        <TableRow className="border-slate-800"><TableCell colSpan={9} className="text-center text-xs text-slate-500 py-8">
+                          {products.length === 0 ? 'No products yet — click Quick Add Products to create the first one.' : 'No products match the current filter.'}
                         </TableCell></TableRow>
                       )}
                       {filteredProducts.map((p) => (
@@ -348,6 +341,7 @@ export default function ERPStore() {
                             </Badge>
                           </TableCell>
                           <TableCell className="text-xs text-slate-300">{p.category || '-'}</TableCell>
+                          <TableCell className="text-[10px] text-slate-400">{p.sourceType?.replace(/^QUICK_ADD_/, 'Quick Add · ').replace(/_/g, ' ') || 'Quick Add'}</TableCell>
                           <TableCell>
                             <Badge variant="outline" className={statusBadge(p.active ? 'Active' : 'Inactive')}>
                               {p.active ? 'Active' : 'Inactive'}
@@ -411,9 +405,9 @@ export default function ERPStore() {
           </Card>
         )}
 
-        {tab === 'wizard' && (
+        {tab === 'quick-add' && (
           <Card className="bg-slate-900/60 border-slate-800 overflow-hidden" style={{ height: '78vh' }}>
-            <ProductWizard onDone={() => { setTab('products'); reload(); }} />
+            <MediaInboxApp productMode />
           </Card>
         )}
       </div>
@@ -421,7 +415,7 @@ export default function ERPStore() {
       <Dialog open={productModalOpen} onOpenChange={setProductModalOpen}>
         <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-sm">{editingProduct ? 'Edit Product' : 'Add Product'}</DialogTitle>
+            <DialogTitle className="text-sm">Edit Product Details</DialogTitle>
           </DialogHeader>
           <UniversalProductForm
             value={form}

@@ -1,6 +1,13 @@
 import { IsArray, IsBoolean, IsEnum, IsInt, IsNumber, IsObject, IsOptional, IsString, IsUUID, MaxLength, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
-import type { ProductVariant } from '../pos.entity';
+import type { ProductSourceType, ProductVariant } from '../pos.entity';
+
+const QUICK_ADD_SOURCE_TYPES = [
+  'QUICK_ADD_PHOTO',
+  'QUICK_ADD_SCREENSHOT',
+  'QUICK_ADD_MESSAGE',
+  'QUICK_ADD_IMPORT',
+] as const;
 
 export class CreateProductDto {
   @IsString() @MaxLength(60) sku!: string;
@@ -26,6 +33,9 @@ export class CreateProductDto {
   @IsOptional() @IsArray() variants?: ProductVariant[];
   @IsOptional() @IsBoolean() active?: boolean;
   @IsOptional() @IsBoolean() featured?: boolean;
+  /** Direct product creation is Quick Add only; PO is reserved for receiving. */
+  @IsOptional() @IsEnum(QUICK_ADD_SOURCE_TYPES)
+  sourceType?: Exclude<ProductSourceType, 'PO'>;
 
   /** Jersey-specific product details */
   @IsOptional() @IsObject() jerseyDetails?: {

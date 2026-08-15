@@ -221,17 +221,18 @@ export default function MobilePOS() {
           taxRate: 0,
           active: true,
           imageUrl: newProduct.imageUrl.trim() || undefined,
+          sourceType: newProduct.imageUrl.trim() ? 'QUICK_ADD_PHOTO' : 'QUICK_ADD_MESSAGE',
         }),
       });
       const response = await api<unknown>('/pos/products');
       setProducts(apiArray<Product>(response, ['products']));
       setNewProduct({ name: '', sku: '', category: 'Other', price: '', stock: '', imageUrl: '' });
       setShowAddProduct(false);
-      setDoneTitle('Product added');
+      setDoneTitle('Quick Add complete');
       setDone('Available in Inventory, Store, and POS');
       setTimeout(() => setDone(null), 2500);
     } catch (e) {
-      setErr((e as Error).message || 'Could not add product.');
+      setErr((e as Error).message || 'Could not quick-add product.');
     } finally {
       setSavingProduct(false);
     }
@@ -269,8 +270,8 @@ export default function MobilePOS() {
           <button
             onClick={() => setShowAddProduct(true)}
             className="shrink-0 w-11 h-11 rounded-xl bg-emerald-600 text-white grid place-items-center active:bg-emerald-700"
-            title="Add product"
-            aria-label="Add product"
+            title="Quick Add Products"
+            aria-label="Quick Add Products"
           >
             <Plus className="w-5 h-5" />
           </button>
@@ -468,15 +469,15 @@ export default function MobilePOS() {
         </div>
       )}
 
-      {/* Add product — writes to the shared /pos/products catalogue, so the
-          new item also appears in Inventory, Store Builder, and desktop POS. */}
+      {/* Quick Add Products — a fast non-PO intake path shared with Inventory,
+          Store Builder, and desktop POS. */}
       {showAddProduct && (
         <div className="fixed inset-0 z-50 bg-black/45 flex items-end" onClick={() => setShowAddProduct(false)}>
           <div className="w-full max-h-[88vh] overflow-y-auto rounded-t-3xl bg-white p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-base font-extrabold text-slate-900">Add product</h3>
-                <p className="text-[10px] text-slate-500 mt-0.5">Shared with Inventory, storefront, and every POS.</p>
+                <h3 className="text-base font-extrabold text-slate-900">Quick Add Products</h3>
+                <p className="text-[10px] text-slate-500 mt-0.5">For stock not received from a Purchase Order.</p>
               </div>
               <button onClick={() => setShowAddProduct(false)} className="w-8 h-8 rounded-full bg-slate-100 grid place-items-center">
                 <X className="w-4 h-4 text-slate-600" />
@@ -545,7 +546,7 @@ export default function MobilePOS() {
             </div>
             <button onClick={createProduct} disabled={savingProduct} className="w-full h-12 rounded-xl bg-emerald-600 disabled:opacity-50 text-white font-extrabold text-sm inline-flex items-center justify-center gap-2">
               {savingProduct && <Loader2 className="w-4 h-4 animate-spin" />}
-              {savingProduct ? 'Saving…' : 'Save product'}
+              {savingProduct ? 'Saving…' : 'Quick-add product'}
             </button>
           </div>
         </div>

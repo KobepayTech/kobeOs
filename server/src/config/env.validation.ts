@@ -50,6 +50,9 @@ class EnvVars {
   /** HMAC-SHA256 secret for signing OS license tokens. Must match VITE_LICENSE_HMAC_SECRET in the frontend build. */
   @IsOptional() @IsString() LICENSE_HMAC_SECRET?: string;
 
+  /** Google Identity Services Web Client ID. Use the same value in VITE_GOOGLE_CLIENT_ID. */
+  @IsOptional() @IsString() GOOGLE_CLIENT_ID?: string;
+
   /** Beem Africa SMS / WhatsApp credentials (https://docs.beem.africa). When unset, channel sends are no-ops. */
   @IsOptional() @IsString() BEEM_API_KEY?: string;
   @IsOptional() @IsString() BEEM_SECRET_KEY?: string;

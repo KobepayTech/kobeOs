@@ -61,6 +61,13 @@ interface ItemEdit {
   description?: string;
 }
 
+type QuickAddSourceType = 'QUICK_ADD_PHOTO' | 'QUICK_ADD_SCREENSHOT' | 'QUICK_ADD_MESSAGE' | 'QUICK_ADD_IMPORT';
+
+export interface MediaInboxAppProps {
+  /** Product Manager embeds this as the canonical non-PO product-entry flow. */
+  productMode?: boolean;
+}
+
 const input = 'h-10 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100';
 const label = 'mb-1 block text-[10px] font-extrabold uppercase tracking-wide text-slate-500';
 const targets = [
@@ -77,7 +84,7 @@ function filenameName(filename: string) {
 function list(value: string) { return value.split(',').map((item) => item.trim()).filter(Boolean); }
 function mb(bytes: number) { return `${(Number(bytes || 0) / 1024 / 1024).toFixed(1)} MB`; }
 
-export default function MediaInboxApp() {
+export default function MediaInboxApp({ productMode = false }: MediaInboxAppProps) {
   const fileInput = useRef<HTMLInputElement>(null);
   const [status, setStatus] = useState<Status>('UNPROCESSED');
   const [items, setItems] = useState<MediaItem[]>([]);
@@ -85,6 +92,7 @@ export default function MediaInboxApp() {
   const [edits, setEdits] = useState<Record<string, ItemEdit>>({});
   const [query, setQuery] = useState('');
   const [targetKey, setTargetKey] = useState('erp:product');
+  const [sourceType, setSourceType] = useState<QuickAddSourceType>('QUICK_ADD_PHOTO');
   const [defaults, setDefaults] = useState<ItemEdit>({ category: '', subcategory: '', price: '0', cost: '0', stock: '0', sizes: '', colours: '', tags: '', supplier: '', description: '' });
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({ done: 0, total: 0, duplicates: 0 });
@@ -173,7 +181,7 @@ export default function MediaInboxApp() {
     if (!confirm('Create a generic, published product from every unprocessed image? You can edit names, prices and categories afterwards.')) return;
     setGenerating(true); setError(null); setNotice(null);
     try {
-      const res = await api<{ processed: number }>('/media/inbox/generate-products', { method: 'POST', body: JSON.stringify({ includeFailed: true }) });
+      const res = await api<{ processed: number }>('/media/inbox/generate-products', { method: 'POST', body: JSON.stringify({ includeFailed: true, sourceType }) });
       setNotice(`${res.processed} product${res.processed === 1 ? '' : 's'} created and published from your images.`);
       setStatus('PROCESSED');
       await load();
@@ -211,7 +219,8 @@ export default function MediaInboxApp() {
             name: String(suggestions.name || next[itemId]?.name || ''),
             category: String(suggestions.category || next[itemId]?.category || ''),
             subcategory: String(suggestions.subcategory || next[itemId]?.subcategory || ''),
-            colours: String(suggestions.colour || next[itemId]?.colours || ''),
+            colours: Array.isArray(suggestions.colours) ? suggestions.colours.join(', ') : String(suggestions.colour || next[itemId]?.colours || ''),
+            sizes: Array.isArray(suggestions.sizes) ? suggestions.sizes.join(', ') : String(next[itemId]?.sizes || ''),
             description: String(suggestions.description || next[itemId]?.description || ''),
             tags: Array.isArray(suggestions.tags) ? suggestions.tags.join(', ') : String(next[itemId]?.tags || ''),
           };
@@ -270,6 +279,7 @@ export default function MediaInboxApp() {
           defaults: defaultMetadata,
           overrides,
           createEntities: true,
+          sourceType,
         }),
       });
       setNotice(`${result.processed} image${result.processed === 1 ? '' : 's'} processed and moved to processed/${target.moduleId}/${target.entityType}.`);
@@ -289,7 +299,7 @@ export default function MediaInboxApp() {
       <header className="shrink-0 border-b border-slate-200 bg-white px-5 py-3">
         <div className="flex flex-wrap items-center gap-3">
           <div className="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-blue-600 to-violet-600 text-white"><Images className="h-5 w-5" /></div>
-          <div className="min-w-0 flex-1"><h1 className="font-extrabold">Shared Media Inbox</h1><p className="text-[11px] text-slate-500">Upload once, classify in a gallery, then attach to any KobeOS module</p></div>
+          <div className="min-w-0 flex-1"><h1 className="font-extrabold">{productMode ? 'Quick Add Products' : 'Shared Media Inbox'}</h1><p className="text-[11px] text-slate-500">{productMode ? 'Add non-PO stock from photos, screenshots, messages, or imports' : 'Upload once, classify in a gallery, then attach to any KobeOS module'}</p></div>
           <button onClick={() => void load()} className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 text-slate-500"><RefreshCw className="h-4 w-4" /></button>
           <button onClick={() => { setShowLinks((v) => !v); setLinkFails([]); }} className={`inline-flex h-9 items-center gap-1.5 rounded-xl border px-4 text-xs font-extrabold ${showLinks ? 'border-blue-600 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-600'}`}><Link2 className="h-4 w-4" />Paste links</button>
           <button onClick={() => void generateProducts()} disabled={generating} className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-emerald-300 bg-emerald-50 px-4 text-xs font-extrabold text-emerald-700 disabled:opacity-40">{generating ? <Loader2 className="h-4 w-4 animate-spin" /> : <PackagePlus className="h-4 w-4" />}Publish all as products</button>
@@ -343,8 +353,13 @@ export default function MediaInboxApp() {
         </section>
 
         <aside className="min-h-0 overflow-y-auto rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="flex items-center gap-2"><PackagePlus className="h-5 w-5 text-blue-600" /><div><h2 className="font-extrabold">Process selected images</h2><p className="text-[10px] text-slate-500">Bulk defaults apply to every selected image; individual edits override them.</p></div></div>
-          <label className="mt-4 block"><span className={label}>Destination</span><select value={targetKey} onChange={(event) => setTargetKey(event.target.value)} className={input}>{targets.map((item) => <option key={`${item.moduleId}:${item.entityType}`} value={`${item.moduleId}:${item.entityType}`}>{item.label}</option>)}</select></label>
+          <div className="flex items-center gap-2"><PackagePlus className="h-5 w-5 text-blue-600" /><div><h2 className="font-extrabold">{productMode ? 'Create product batch' : 'Process selected images'}</h2><p className="text-[10px] text-slate-500">Bulk defaults apply to every selected image; individual edits override them.</p></div></div>
+          {productMode ? (
+            <div className="mt-4 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800"><b>Destination:</b> Products → Inventory → Storefront</div>
+          ) : (
+            <label className="mt-4 block"><span className={label}>Destination</span><select value={targetKey} onChange={(event) => setTargetKey(event.target.value)} className={input}>{targets.map((item) => <option key={`${item.moduleId}:${item.entityType}`} value={`${item.moduleId}:${item.entityType}`}>{item.label}</option>)}</select></label>
+          )}
+          {productMode && <label className="mt-3 block"><span className={label}>Product source</span><select value={sourceType} onChange={(event) => setSourceType(event.target.value as QuickAddSourceType)} className={input}><option value="QUICK_ADD_PHOTO">Supplier / product photos</option><option value="QUICK_ADD_SCREENSHOT">Screenshot</option><option value="QUICK_ADD_MESSAGE">Supplier message</option><option value="QUICK_ADD_IMPORT">Imported batch</option></select></label>}
           <div className="mt-4 grid grid-cols-2 gap-3"><label><span className={label}>Category</span><input value={defaults.category} onChange={(event) => setDefaults({ ...defaults, category: event.target.value })} className={input} /></label><label><span className={label}>Subcategory</span><input value={defaults.subcategory} onChange={(event) => setDefaults({ ...defaults, subcategory: event.target.value })} className={input} /></label></div>
           {target.moduleId === 'erp' && target.entityType === 'product' && <><div className="mt-3 grid grid-cols-3 gap-2"><label><span className={label}>Price</span><input type="number" min="0" value={defaults.price} onChange={(event) => setDefaults({ ...defaults, price: event.target.value })} className={input} /></label><label><span className={label}>Cost</span><input type="number" min="0" value={defaults.cost} onChange={(event) => setDefaults({ ...defaults, cost: event.target.value })} className={input} /></label><label><span className={label}>Stock</span><input type="number" min="0" value={defaults.stock} onChange={(event) => setDefaults({ ...defaults, stock: event.target.value })} className={input} /></label></div><label className="mt-3 block"><span className={label}>Sizes (comma separated)</span><input value={defaults.sizes} onChange={(event) => setDefaults({ ...defaults, sizes: event.target.value })} className={input} placeholder="S, M, L, XL" /></label><label className="mt-3 block"><span className={label}>Colours</span><input value={defaults.colours} onChange={(event) => setDefaults({ ...defaults, colours: event.target.value })} className={input} placeholder="Black, Blue, Red" /></label><label className="mt-3 block"><span className={label}>Tags</span><input value={defaults.tags} onChange={(event) => setDefaults({ ...defaults, tags: event.target.value })} className={input} /></label><label className="mt-3 block"><span className={label}>Supplier</span><input value={defaults.supplier} onChange={(event) => setDefaults({ ...defaults, supplier: event.target.value })} className={input} /></label><label className="mt-3 block"><span className={label}>Description</span><textarea rows={3} value={defaults.description} onChange={(event) => setDefaults({ ...defaults, description: event.target.value })} className="w-full rounded-xl border border-slate-300 p-3 text-sm outline-none focus:border-blue-500" /></label></>}
 

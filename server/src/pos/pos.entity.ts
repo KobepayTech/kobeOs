@@ -2,6 +2,18 @@ import { Column, Entity, Index } from 'typeorm';
 import { OwnedEntity } from '../common/owned.entity';
 
 /**
+ * How a catalogue product first entered KobeOS.  PO receiving is the only
+ * path that may mark a product as PO; all direct/imported product creation is
+ * classified as a Quick Add source.
+ */
+export type ProductSourceType =
+  | 'PO'
+  | 'QUICK_ADD_PHOTO'
+  | 'QUICK_ADD_SCREENSHOT'
+  | 'QUICK_ADD_MESSAGE'
+  | 'QUICK_ADD_IMPORT';
+
+/**
  * Product variant — a single size/colour/style combo under one parent product.
  * Stored inline on PosProduct as JSON because variants are sparse and there's
  * no foreign-key access pattern (no joins, no per-variant indexes).
@@ -28,6 +40,11 @@ export class PosProduct extends OwnedEntity {
 
   @Column()
   name!: string;
+
+  /** Immutable origin classification used for inventory traceability. */
+  @Index('IDX_pos_products_source_type')
+  @Column({ name: 'source_type', length: 32, default: 'QUICK_ADD_IMPORT' })
+  sourceType!: ProductSourceType;
 
   @Column({ type: 'text', default: '' })
   description!: string;

@@ -6,6 +6,7 @@ import {
 export interface AuthUser {
   id: string;
   email: string;
+  phone?: string | null;
   displayName?: string;
 }
 
@@ -21,12 +22,12 @@ function persist(res: AuthResponse) {
   localStorage.setItem('kobeos_auth_user', JSON.stringify(res.user));
 }
 
-export async function login(email: string, password: string): Promise<AuthUser> {
+export async function login(identifier: string, password: string): Promise<AuthUser> {
   const res = await api<AuthResponse>('/auth/login', {
     method: 'POST',
     auth: false,
     offlineFallback: false,
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ identifier, password }),
   });
   persist(res);
   return res.user;
@@ -49,12 +50,19 @@ export function oauthConsume(accessToken: string, refreshToken: string): void {
   setRefreshToken(refreshToken);
 }
 
-export async function register(email: string, password: string, displayName?: string): Promise<AuthUser> {
+export async function register(identifier: string, password: string, displayName?: string): Promise<AuthUser> {
+  const trimmed = identifier.trim();
+  const isEmail = trimmed.includes('@');
   const res = await api<AuthResponse>('/auth/register', {
     method: 'POST',
     auth: false,
     offlineFallback: false,
-    body: JSON.stringify({ email, password, displayName }),
+    body: JSON.stringify({
+      email: isEmail ? trimmed : undefined,
+      phone: isEmail ? undefined : trimmed,
+      password,
+      displayName,
+    }),
   });
   persist(res);
   return res.user;

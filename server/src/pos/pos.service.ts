@@ -26,7 +26,14 @@ export class ProductsService {
   }
 
   create(uid: string, dto: CreateProductDto) {
-    return this.repo.save(this.repo.create({ ...dto, ownerId: uid }));
+    // Direct catalogue creation is deliberately treated as a Quick Add
+    // import. PO-origin products must be created by the receiving workflow so
+    // stock and costs remain linked to the purchase order.
+    return this.repo.save(this.repo.create({
+      ...dto,
+      ownerId: uid,
+      sourceType: dto.sourceType ?? 'QUICK_ADD_IMPORT',
+    }));
   }
 
   /**

@@ -11,7 +11,11 @@ export class UsersService {
   constructor(@InjectRepository(User) private readonly repo: Repository<User>) {}
 
   findByEmail(email: string) {
-    return this.repo.findOne({ where: { email } });
+    return this.repo.findOne({ where: { email: email.trim().toLowerCase() } });
+  }
+
+  findByPhone(phone: string) {
+    return this.repo.findOne({ where: { phone } });
   }
 
   findById(id: string) {
@@ -19,7 +23,7 @@ export class UsersService {
   }
 
   findAll() {
-    return this.repo.find({ select: ['id', 'email', 'displayName', 'avatarUrl', 'role', 'createdAt'] });
+    return this.repo.find({ select: ['id', 'email', 'phone', 'displayName', 'avatarUrl', 'role', 'createdAt'] });
   }
 
   async getProfile(id: string) {
@@ -30,7 +34,7 @@ export class UsersService {
     return rest;
   }
 
-  create(data: Pick<User, 'email' | 'passwordHash' | 'displayName'>) {
+  create(data: Pick<User, 'email' | 'passwordHash' | 'displayName'> & Partial<Pick<User, 'phone'>>) {
     return this.repo.save(this.repo.create(data));
   }
 
