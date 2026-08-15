@@ -92,12 +92,12 @@ function clean(name: string): string {
 
 function extractName(t: string): string {
   const patterns = [
-    /from\s+([A-Za-z][A-Za-z .'\-]+?)\s+New balance/i,          // M-Pesa person receive
-    /from\s+([0-9]{3,}\s*-\s*[A-Za-z][\w .'\-]*?)\s+on\b/i,      // M-Pesa paybill "922746 - TIPS-CRDB"
-    /from\s+([A-Za-z][A-Za-z .'\-]+?)\s+on\b/i,                  // M-Pesa generic "from X on"
-    /kutoka\s+([A-Za-z][\w .'\-,*]+?)\s+(?:tarehe|tar\b|saa)\b/i, // Swahili "kutoka X tarehe/Tar/saa"
-    /Ndugu\s+([A-Za-z][A-Za-z .'\-]+?)\s*,/i,                    // NBC "Ndugu NAME ,"
-    /([A-Za-z][A-Za-z .'\-]{2,40})\s+(?:\+?255\d{9}|0\d{9})/,     // name before a phone
+    /from\s+([A-Za-z][-A-Za-z .']+?)\s+New balance/i,          // M-Pesa person receive
+    /from\s+([0-9]{3,}\s*-\s*[A-Za-z][-\w .']*?)\s+on\b/i,      // M-Pesa paybill "922746 - TIPS-CRDB"
+    /from\s+([A-Za-z][-A-Za-z .']+?)\s+on\b/i,                  // M-Pesa generic "from X on"
+    /kutoka\s+([A-Za-z][-\w .',*]+?)\s+(?:tarehe|tar\b|saa)\b/i, // Swahili "kutoka X tarehe/Tar/saa"
+    /Ndugu\s+([A-Za-z][-A-Za-z .']+?)\s*,/i,                    // NBC "Ndugu NAME ,"
+    /([A-Za-z][-A-Za-z .']{2,40})\s+(?:\+?255\d{9}|0\d{9})/,     // name before a phone
   ];
   for (const re of patterns) {
     const m = t.match(re);
