@@ -155,12 +155,12 @@ export class HotelController {
   /** ─────────── Financial endpoints ─────────── */
 
   @Get('financials/:hotelId')
-  getFinancials(@Param('hotelId') hotelId: string, @Query() query: HotelAggregationQueryDto) {
-    return this.svc.getFinancials(hotelId, query);
+  getFinancials(@CurrentUser('id') uid: string, @Param('hotelId') hotelId: string, @Query() query: HotelAggregationQueryDto) {
+    return this.svc.getFinancials(uid, hotelId, query);
   }
 
   @Post('financials')
-  createFinancialRecord(@Body() dto: CreateFinancialRecordDto) {
-    return this.svc.createFinancialRecord(dto);
+  createFinancialRecord(@CurrentUser('id') uid: string, @Body() dto: CreateFinancialRecordDto) {
+    return this.svc.createFinancialRecord(uid, dto);
   }
 }

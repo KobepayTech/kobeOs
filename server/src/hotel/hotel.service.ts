@@ -659,11 +659,15 @@ export class HotelChainService {
   }
 
   /* ── Financials ── */
-  async getFinancials(hotelId: string, query: HotelAggregationQueryDto): Promise<HotelFinancialRecord[]> {
-    const where: FindOptionsWhere<HotelFinancialRecord> = { hotelId };
+  async getFinancials(ownerId: string, hotelId: string, query: HotelAggregationQueryDto): Promise<HotelFinancialRecord[]> {
+    const hotel = await this.tenantRepo.findOne({ where: { id: hotelId, ownerId } });
+    if (!hotel) throw new NotFoundException('Hotel not found');
+
+    const where: FindOptionsWhere<HotelFinancialRecord> = { ownerId, hotelId };
     if (query.from || query.to) {
       const qb = this.financialRepo.createQueryBuilder('f')
-        .where('f.hotelId = :hotelId', { hotelId });
+        .where('f.ownerId = :ownerId', { ownerId })
+        .andWhere('f.hotelId = :hotelId', { hotelId });
       if (query.from) qb.andWhere('f.recordDate >= :from', { from: query.from });
       if (query.to) qb.andWhere('f.recordDate <= :to', { to: query.to });
       return qb.orderBy('f.recordDate', 'DESC').getMany();
@@ -671,8 +675,12 @@ export class HotelChainService {
     return this.financialRepo.find({ where, order: { recordDate: 'DESC' } });
   }
 
-  async createFinancialRecord(dto: CreateFinancialRecordDto): Promise<HotelFinancialRecord> {
+  async createFinancialRecord(ownerId: string, dto: CreateFinancialRecordDto): Promise<HotelFinancialRecord> {
+    const hotel = await this.tenantRepo.findOne({ where: { id: dto.hotelId, ownerId } });
+    if (!hotel) throw new NotFoundException('Hotel not found');
+
     const record = this.financialRepo.create({
+      ownerId,
       hotelId: dto.hotelId,
       category: dto.category,
       amount: dto.amount,

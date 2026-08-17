@@ -21,6 +21,7 @@ import type { Room, Booking, Guest, MenuCategory, MenuItem, StaffMember, Order, 
 import { formatCurrency, formatDate, getStatusColor, classNames } from '@/shared/utils';
 import { API_BASE, api } from '@/lib/api';
 import { PhotoUpload } from '@/components/PhotoUpload';
+import HotelOperationsBoard from './HotelOperationsBoard';
 
 const resolveHotelImage = (value?: string | null): string => {
   if (!value) return '';
@@ -1516,7 +1517,8 @@ export const HotelAdminDashboard: React.FC = () => {
           {/* ═══════════════════════════════════════════════════════════ */}
           {/* FINANCIALS TAB (NEW)                                       */}
           {/* ═══════════════════════════════════════════════════════════ */}
-          {activeTab === 'financials' && (
+          {activeTab === 'financials' && <HotelOperationsBoard darkMode={false} />}
+          {false && activeTab === 'financials' && (
             <div className="flex flex-col gap-5">
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-bold" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Financials</h2>
