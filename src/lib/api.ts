@@ -420,6 +420,9 @@ async function refreshAccessToken(): Promise<boolean> {
   const rt = getRefreshToken();
   if (!rt) return false;
   refreshInFlight = (async () => {
+    // Network and temporary server failures intentionally propagate to the
+    // caller. Converting them to `false` would expose the original 401 and
+    // cause startup code to erase an otherwise valid saved session.
     try {
       const res = await fetch(`${apiBase()}/auth/refresh`, {
         method: 'POST',
@@ -447,11 +450,6 @@ async function refreshAccessToken(): Promise<boolean> {
       setToken(body.accessToken);
       setRefreshToken(body.refreshToken);
       return true;
-    } catch (err) {
-      // Let network and temporary server failures reach the caller. Returning
-      // false here would expose the original 401 and cause startup code to
-      // erase an otherwise valid saved session.
-      throw err;
     } finally {
       refreshInFlight = null;
     }

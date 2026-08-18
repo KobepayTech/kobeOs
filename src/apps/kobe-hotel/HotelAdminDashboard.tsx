@@ -23,6 +23,8 @@ import { API_BASE, api } from '@/lib/api';
 import { PhotoUpload } from '@/components/PhotoUpload';
 import HotelOperationsBoard from './HotelOperationsBoard';
 
+const SHOW_LEGACY_FINANCIALS = false;
+
 const resolveHotelImage = (value?: string | null): string => {
   if (!value) return '';
   if (/^https?:\/\//i.test(value) || value.startsWith('data:')) return value;
@@ -1518,7 +1520,7 @@ export const HotelAdminDashboard: React.FC = () => {
           {/* FINANCIALS TAB (NEW)                                       */}
           {/* ═══════════════════════════════════════════════════════════ */}
           {activeTab === 'financials' && <HotelOperationsBoard darkMode={false} />}
-          {false && activeTab === 'financials' && (
+          {SHOW_LEGACY_FINANCIALS && activeTab === 'financials' && (
             <div className="flex flex-col gap-5">
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-bold" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Financials</h2>
