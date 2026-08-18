@@ -170,6 +170,7 @@ export default function LoginScreen({
   };
 
   const signInWithTikTok = () => { window.location.href = `${API_BASE}/auth/oauth/tiktok`; };
+  const signInWithMeta = () => { window.location.href = `${API_BASE}/auth/oauth/meta`; };
 
   // Forgot password
   const [fpOpen, setFpOpen] = useState(false);
@@ -342,6 +343,27 @@ export default function LoginScreen({
                 ))}
               </div>
 
+              <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <button type="button" onClick={signInWithGoogle} disabled={loading || connection !== 'online'} className="flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 hover:border-slate-400 disabled:opacity-50">
+                  <span style={{ color: '#4285F4' }} className="text-base font-black">G</span>
+                  {mode === 'create' ? 'Create with Google' : 'Sign in with Google'}
+                </button>
+                <button type="button" onClick={signInWithTikTok} disabled={loading || connection !== 'online'} className="flex h-11 items-center justify-center gap-2 rounded-xl bg-black text-xs font-bold text-white hover:bg-slate-800 disabled:opacity-50">
+                  <span aria-hidden className="text-base">♪</span>
+                  {mode === 'create' ? 'Create with TikTok' : 'Sign in with TikTok'}
+                </button>
+                <button type="button" onClick={signInWithMeta} disabled={loading || connection !== 'online'} className="flex h-11 items-center justify-center gap-2 rounded-xl bg-[#0866ff] text-xs font-bold text-white hover:bg-[#075bd8] disabled:opacity-50">
+                  <span aria-hidden className="text-base font-black">f</span>
+                  {mode === 'create' ? 'Create with Meta' : 'Sign in with Meta'}
+                </button>
+              </div>
+
+              <div className="mb-4 flex items-center gap-3">
+                <div className="h-px flex-1 bg-slate-200" />
+                <span className="text-[10px] text-slate-400">or use email / phone</span>
+                <div className="h-px flex-1 bg-slate-200" />
+              </div>
+
               {/* A real <form> with named + identified fields so the browser's
                   password manager reliably offers to save the email/password
                   and autofills them on the next sign-in. */}
@@ -454,20 +476,6 @@ export default function LoginScreen({
                   {fpMsg && <p className="text-[10px] text-slate-500">{fpMsg}</p>}
                 </div>
               )}
-
-              <div className="mt-4 flex items-center gap-3">
-                <div className="h-px flex-1 bg-slate-200" />
-                <span className="text-[10px] text-slate-400">or continue with</span>
-                <div className="h-px flex-1 bg-slate-200" />
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-2">
-                <button type="button" onClick={signInWithGoogle} disabled={loading} className="flex h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 hover:border-slate-400 disabled:opacity-50">
-                  <span style={{ color: '#4285F4' }} className="text-base font-black">G</span> Google
-                </button>
-                <button type="button" onClick={signInWithTikTok} disabled={loading} className="flex h-10 items-center justify-center gap-2 rounded-xl bg-black text-xs font-bold text-white hover:bg-slate-800 disabled:opacity-50">
-                  <span aria-hidden className="text-base">♪</span> TikTok
-                </button>
-              </div>
 
               <p className="mt-4 text-center text-[9px] leading-4 text-slate-400">
                 By continuing, you agree to the KobeOS terms. Trials begin only when you install an app.

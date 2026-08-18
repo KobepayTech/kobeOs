@@ -1,6 +1,5 @@
 import { Body, Controller, Get, Post, Query, Res } from '@nestjs/common';
 import type { Response } from 'express';
-import { randomBytes } from 'crypto';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { PasswordResetService } from './password-reset.service';
@@ -54,7 +53,7 @@ export class AuthController {
     return this.resets.reset(dto.token, dto.newPassword);
   }
 
-  // ── OAuth (sign in / sign up with Google or TikTok) ─────────────────────────
+  // ── OAuth (sign in / sign up with Google, TikTok or Meta) ───────────────────
 
   /** GIS credential from the browser → verified → issues KobeOS tokens. */
   @Post('oauth/google')
@@ -69,10 +68,10 @@ export class AuthController {
     // 500 and no redirect. If TikTok isn't configured, bounce back to the app
     // with a readable error instead.
     try {
-      const state = randomBytes(12).toString('hex');
+      const state = this.auth.createOAuthState('tiktok');
       res.redirect(this.auth.tiktokAuthUrl(state));
     } catch (e) {
-      res.redirect(`/oauth/tiktok#error=${encodeURIComponent((e as Error).message)}`);
+      res.redirect(this.auth.oauthFrontendRedirect('tiktok', e as Error));
     }
   }
 
@@ -81,13 +80,49 @@ export class AuthController {
    * to the SPA via the URL fragment (never logged/sent to a server).
    */
   @Get('oauth/tiktok/callback')
-  async tiktokCallback(@Query('code') code: string, @Res() res: Response) {
+  async tiktokCallback(
+    @Query('code') code: string,
+    @Query('state') state: string,
+    @Query('error') providerErrorCode: string,
+    @Query('error_description') providerError: string,
+    @Res() res: Response,
+  ) {
     try {
+      this.auth.verifyOAuthState(state, 'tiktok');
+      if (providerError || providerErrorCode) throw new Error(providerError || providerErrorCode);
       const tokens = await this.auth.tiktokSignIn(code);
-      const frag = new URLSearchParams({ access_token: tokens.accessToken, refresh_token: tokens.refreshToken }).toString();
-      res.redirect(`/oauth/tiktok#${frag}`);
+      res.redirect(this.auth.oauthFrontendRedirect('tiktok', tokens));
     } catch (e) {
-      res.redirect(`/oauth/tiktok#error=${encodeURIComponent((e as Error).message)}`);
+      res.redirect(this.auth.oauthFrontendRedirect('tiktok', e as Error));
+    }
+  }
+
+  /** Start Facebook Login, presented in KobeOS as "Continue with Meta". */
+  @Get('oauth/meta')
+  metaStart(@Res() res: Response) {
+    try {
+      const state = this.auth.createOAuthState('meta');
+      res.redirect(this.auth.metaAuthUrl(state));
+    } catch (e) {
+      res.redirect(this.auth.oauthFrontendRedirect('meta', e as Error));
+    }
+  }
+
+  @Get('oauth/meta/callback')
+  async metaCallback(
+    @Query('code') code: string,
+    @Query('state') state: string,
+    @Query('error') providerErrorCode: string,
+    @Query('error_description') providerError: string,
+    @Res() res: Response,
+  ) {
+    try {
+      this.auth.verifyOAuthState(state, 'meta');
+      if (providerError || providerErrorCode) throw new Error(providerError || providerErrorCode);
+      const tokens = await this.auth.metaSignIn(code);
+      res.redirect(this.auth.oauthFrontendRedirect('meta', tokens));
+    } catch (e) {
+      res.redirect(this.auth.oauthFrontendRedirect('meta', e as Error));
     }
   }
 }

@@ -429,19 +429,29 @@ async function refreshAccessToken(): Promise<boolean> {
       // Another tab may have rotated the refresh token while this request was
       // in flight. Do not erase that newer session when the old token fails.
       if (!res.ok) {
-        if (getRefreshToken() === rt) clearTokens();
-        return false;
+        // Only a definitive authentication rejection should end the local
+        // session. Temporary gateway/rate-limit/server failures must leave the
+        // refresh token in place so the user remains signed in and can retry.
+        if (res.status === 400 || res.status === 401 || res.status === 403) {
+          if (getRefreshToken() === rt) clearTokens();
+          return false;
+        }
+        throw new ApiError(res.status, res.statusText || `HTTP ${res.status}`);
       }
       const body = (await res.json()) as { accessToken: string; refreshToken: string };
       if (!body.accessToken || !body.refreshToken) {
-        if (getRefreshToken() === rt) clearTokens();
-        return false;
+        // A malformed success response is a server problem, not proof that the
+        // stored credentials are invalid.
+        throw new ApiError(502, 'Token refresh returned an invalid response');
       }
       setToken(body.accessToken);
       setRefreshToken(body.refreshToken);
       return true;
-    } catch {
-      return false;
+    } catch (err) {
+      // Let network and temporary server failures reach the caller. Returning
+      // false here would expose the original 401 and cause startup code to
+      // erase an otherwise valid saved session.
+      throw err;
     } finally {
       refreshInFlight = null;
     }

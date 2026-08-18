@@ -131,9 +131,27 @@ export function getStoredAuthUser(): AuthUser | null {
 export async function ensureSession(): Promise<AuthUser> {
   if (isLoggedIn() || getRefreshToken()) {
     try {
-      return await api<AuthUser>('/users/me');
-    } catch {
-      clearTokens();
+      const user = await api<AuthUser>('/users/me');
+      // Offline reads can intentionally return an empty fallback. Keep using
+      // the last verified account instead of turning that into a logout.
+      if (user && typeof user === 'object' && typeof user.id === 'string') {
+        try { localStorage.setItem('kobeos_auth_user', JSON.stringify(user)); } catch { /* storage unavailable */ }
+        return user;
+      }
+      const stored = getStoredAuthUser();
+      if (stored) return stored;
+      throw new Error('Account verification is temporarily unavailable.');
+    } catch (err) {
+      // A rejected access/refresh token is the only condition that should
+      // remove a saved login. Network, CORS, Cloudflare and 5xx failures are
+      // temporary and must preserve the session for the next retry.
+      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+        clearTokens();
+      } else {
+        const stored = getStoredAuthUser();
+        if (stored) return stored;
+        throw err;
+      }
     }
   }
 

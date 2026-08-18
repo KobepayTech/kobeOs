@@ -34,13 +34,16 @@ jobs:
           TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
           TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
           TIKTOK_REDIRECT_URI: ${{ secrets.TIKTOK_REDIRECT_URI }}
+          META_APP_ID: ${{ secrets.META_APP_ID }}
+          META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
+          META_REDIRECT_URI: ${{ secrets.META_REDIRECT_URI }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: TIKTOK_CLIENT_KEY,TIKTOK_CLIENT_SECRET,TIKTOK_REDIRECT_URI,GOOGLE_CLIENT_ID
+          envs: TIKTOK_CLIENT_KEY,TIKTOK_CLIENT_SECRET,TIKTOK_REDIRECT_URI,META_APP_ID,META_APP_SECRET,META_REDIRECT_URI,GOOGLE_CLIENT_ID
           script: |
             set -e
             cd /opt/kobe-studio
@@ -61,6 +64,20 @@ jobs:
                 "TIKTOK_CLIENT_KEY=$TIKTOK_CLIENT_KEY" \
                 "TIKTOK_CLIENT_SECRET=$TIKTOK_CLIENT_SECRET" \
                 "TIKTOK_REDIRECT_URI=${TIKTOK_REDIRECT_URI:-https://api.kobeapptz.com/api/auth/oauth/tiktok/callback}" >> "$tmp_env"
+              mv "$tmp_env" "$ENV_FILE"
+            fi
+
+            # Meta/Facebook Login uses the same server-side OAuth pattern.
+            # Keep the app secret only in GitHub and the production .env.
+            if [ -n "${META_APP_ID:-}" ] && [ -n "${META_APP_SECRET:-}" ]; then
+              touch "$ENV_FILE"
+              tmp_env="$(mktemp)"
+              grep -vE '^(META_APP_ID|META_APP_SECRET|META_REDIRECT_URI|META_GRAPH_VERSION)=' "$ENV_FILE" > "$tmp_env" || true
+              printf '%s\n' \
+                "META_APP_ID=$META_APP_ID" \
+                "META_APP_SECRET=$META_APP_SECRET" \
+                "META_REDIRECT_URI=${META_REDIRECT_URI:-https://api.kobeapptz.com/api/auth/oauth/meta/callback}" \
+                "META_GRAPH_VERSION=v24.0" >> "$tmp_env"
               mv "$tmp_env" "$ENV_FILE"
             fi
 

@@ -34,7 +34,7 @@ export class UsersService {
     return rest;
   }
 
-  create(data: Pick<User, 'email' | 'passwordHash' | 'displayName'> & Partial<Pick<User, 'phone'>>) {
+  create(data: Pick<User, 'email' | 'passwordHash' | 'displayName'> & Partial<Pick<User, 'phone' | 'avatarUrl'>>) {
     return this.repo.save(this.repo.create(data));
   }
 

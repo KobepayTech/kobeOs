@@ -34,17 +34,10 @@ import { hydrateTokens } from './lib/api';
  */
 const pathname = window.location.pathname;
 
-// OAuth redirect landing (TikTok): tokens arrive in the URL fragment. Store them
-// and bounce to the app root, which then boots signed-in.
-if (pathname === '/oauth/tiktok') {
-  const frag = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-  const access = frag.get('access_token');
-  const refresh = frag.get('refresh_token');
-  import('./lib/auth').then(({ oauthConsume }) => {
-    if (access && refresh) oauthConsume(access, refresh);
-    window.location.replace('/');
-  });
-}
+// OAuth redirect landing. The dedicated screen stores provider tokens, verifies
+// /users/me, and persists the user profile before opening the app.
+const oauthMatch = pathname.match(/^\/oauth\/(tiktok|meta)\/?$/);
+const oauthProvider = oauthMatch?.[1] as 'tiktok' | 'meta' | undefined;
 
 const tenantSub = detectTenantSubdomain();
 const appSub = detectAppSubdomain();
@@ -169,7 +162,9 @@ const mount = (node: ReactNode) => {
   });
 };
 
-if (isOverlay) {
+if (oauthProvider) {
+  import('./components/OAuthCallback').then(({ default: OAuthCallback }) => mount(<OAuthCallback provider={oauthProvider} />));
+} else if (isOverlay) {
   import('./apps/kobe-sports/OverlayPage').then(({ default: OverlayPage }) => mount(<OverlayPage />));
 } else if (isPrintCard) {
   import('./public/QrCard').then(({ default: QrCard }) => mount(<QrCard />));
