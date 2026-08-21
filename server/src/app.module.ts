@@ -87,6 +87,7 @@ import { AppMarketplaceModule } from './app-marketplace/app-marketplace.module';
 import { DeveloperPlatformModule } from './developer-platform/developer-platform.module';
 import { MobileMoneyModule } from './mobile-money/mobile-money.module';
 import { KobepayProModule } from './kobepay-pro/kobepay-pro.module';
+import { TransitModule } from './transit/transit.module';
 
 @Module({
   imports: [
@@ -185,6 +186,7 @@ import { KobepayProModule } from './kobepay-pro/kobepay-pro.module';
     RemittanceModule,
     MobileMoneyModule,
     KobepayProModule,
+    TransitModule,
   ],
   controllers: [AppController],
   providers: [

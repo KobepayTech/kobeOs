@@ -86,6 +86,8 @@ const isMzigo = !isMzigoTrack && (subMzigo || seg('/mzigo'));
 const isPosys = subPosys || seg('/posys');
 const isCargoTz = subCargoTz || seg('/cargotz');
 const isCoach = seg('/coach');
+const isTransit = seg('/transit');
+const transitBoardMatch = pathname.match(/^\/transit-board\/([0-9a-f-]{36})\/?$/i);
 // Public tenant storefront: subdomain slug (kelvinfashion.kobeapptz.com)
 // or apex fallback (/shop/kelvinfashion). Regex validates that the slug
 // looks like a valid DNS label so a hand-crafted URL can't route
@@ -204,6 +206,13 @@ if (oauthProvider) {
   // Kobe Coach — installable coach/team-admin PWA (standalone at /coach).
   import('./apps/kobe-coach/index').then(({ default: KobeCoach }) =>
     mount(<div className="h-screen w-screen overflow-hidden"><KobeCoach /></div>));
+} else if (isTransit) {
+  // KobeOS Transit — installable operations/compliance PWA.
+  import('./apps/kobe-transit/index').then(({ default: KobeTransit }) =>
+    mount(<div className="h-screen w-screen overflow-hidden"><KobeTransit /></div>));
+} else if (transitBoardMatch) {
+  import('./public/TransitBoard').then(({ default: TransitBoard }) =>
+    mount(<TransitBoard ownerId={transitBoardMatch[1]} />));
 } else if (isHotelBooking && bookingSlug) {
   // Public hotel booking site: {slug}.kobeapptz.com/book or /book/{slug}
   import('./public/HotelBooking').then(({ default: HotelBooking }) => mount(<HotelBooking slug={bookingSlug} />));
