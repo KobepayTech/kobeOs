@@ -5,6 +5,7 @@ import { StoreSettings } from '../store-settings/store-settings.entity';
 import { ModuleSiteSettings } from '../store-settings/module-site-settings.entity';
 import { HotelRoom, HotelGuest, HotelBooking } from '../hotel/hotel.entity';
 import { PalmPesaService } from '../creators/palmpesa.service';
+import { PlatformEventsService } from '../platform/platform.service';
 
 export interface PublicBookDto {
   roomId?: string;
@@ -44,6 +45,7 @@ export class HotelPublicService {
     @InjectRepository(HotelGuest) private readonly guests: Repository<HotelGuest>,
     @InjectRepository(HotelBooking) private readonly bookings: Repository<HotelBooking>,
     private readonly palmpesa: PalmPesaService,
+    private readonly events: PlatformEventsService,
   ) {}
 
   private async settingsFor(slug: string): Promise<ResolvedHotelSite> {
@@ -176,6 +178,7 @@ export class HotelPublicService {
       currency: room.currency || 'TZS',
       hotelId: room.hotelId ?? null,
     }));
+    await this.events.emit({ ownerId, eventName: 'hotel.booking_created', aggregateType: 'HotelBooking', aggregateId: booking.id, payload: { hotelId: booking.hotelId, source: 'hotel_website', totalAmount: booking.totalAmount, currency: booking.currency } });
     await this.rooms.update({ ownerId, id: room.id, ...(hotelId ? { hotelId } : {}) }, { status: 'reserved' });
 
     let payment: { initiated: boolean; orderId?: string; message: string } = {

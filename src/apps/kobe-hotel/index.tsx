@@ -13,6 +13,7 @@ import BookingSiteTab from './BookingSiteTab';
 import RoomsBoard from './RoomsBoard';
 import FoodListBoard from './FoodListBoard';
 import HotelOperationsBoard from './HotelOperationsBoard';
+import LalaAndStatementsBoard from './LalaAndStatementsBoard';
 import MobileHotelDepartmentOrder from '@/mobile/MobileHotelDepartmentOrder';
 import type { Hotel as SharedHotel, Order as SharedOrder } from '@/shared/types';
 import { useHotelLive, type HotelOrder as LiveOrder } from './useHotelLive';
@@ -835,6 +836,8 @@ export default function KobeHotel() {
     { id: 'staff', label: 'Staff', icon: Users, color: 'text-sky-400 bg-sky-500/10 border-sky-500/20' },
     { id: 'accounting', label: 'Accounting', icon: Calculator, color: 'text-green-400 bg-green-500/10 border-green-500/20' },
     { id: 'hotel-operations', label: 'HR & Ops', icon: Users, color: 'text-indigo-400 bg-indigo-500/10 border-indigo-500/20' },
+    { id: 'erp', label: 'Hotels', icon: Building2, color: 'text-cyan-400 bg-cyan-500/10 border-cyan-500/20' },
+    { id: 'lala-statements', label: 'Lala & Books', icon: Globe2, color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' },
     { id: 'bar-order', label: 'Bar Request', icon: Wine, color: 'text-amber-400 bg-amber-500/10 border-amber-500/20' },
     { id: 'kitchen-order', label: 'Kitchen Request', icon: ChefHat, color: 'text-orange-400 bg-orange-500/10 border-orange-500/20' },
     { id: 'cleaning-order', label: 'Cleaning Request', icon: Brush, color: 'text-sky-400 bg-sky-500/10 border-sky-500/20' },
@@ -1593,6 +1596,7 @@ export default function KobeHotel() {
         )}
 
         {activeTab === 'hotel-operations' && <HotelOperationsBoard darkMode={darkMode} />}
+        {activeTab === 'lala-statements' && <LalaAndStatementsBoard />}
         {activeTab === 'bar-order' && <MobileHotelDepartmentOrder department="bar" />}
         {activeTab === 'kitchen-order' && <MobileHotelDepartmentOrder department="kitchen" />}
         {activeTab === 'cleaning-order' && <MobileHotelDepartmentOrder department="cleaning" />}

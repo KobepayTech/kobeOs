@@ -7,9 +7,10 @@ import { HotelWalletModule } from '../hotel/hotel-wallet.module';
 import { WebhookController } from './webhook.controller';
 import { WebhookGuard } from './webhook.guard';
 import { WebhookService } from './webhook.service';
+import { PlatformModule } from '../platform/platform.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([WebhookEvent, HotelBooking, HotelRoom]), HotelWalletModule],
+  imports: [TypeOrmModule.forFeature([WebhookEvent, HotelBooking, HotelRoom]), HotelWalletModule, PlatformModule],
   controllers: [WebhookController],
   providers: [WebhookGuard, WebhookService],
   exports: [WebhookService],

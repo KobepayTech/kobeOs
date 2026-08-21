@@ -31,11 +31,18 @@ export const STANDARD_ACCOUNTS: AccountCode[] = [
   { code: '4100', name: 'Sales Discounts',            type: 'Revenue' },
   { code: '4200', name: 'Exchange Profit/Loss',       type: 'Revenue' },
   { code: '4300', name: 'Transit Service Revenue',    type: 'Revenue' },
+  { code: '4400', name: 'Hotel Revenue',              type: 'Revenue' },
   { code: '5000', name: 'Cost of Goods Sold',         type: 'Expense' },
   { code: '5100', name: 'Bank Charges',               type: 'Expense' },
   { code: '5200', name: 'Mobile Money Charges',       type: 'Expense' },
   { code: '5300', name: 'Agent Commission',           type: 'Expense' },
   { code: '5400', name: 'Transaction Fees',           type: 'Expense' },
+  { code: '5500', name: 'Operating Expenses',         type: 'Expense' },
+  { code: '5600', name: 'Payroll Expense',            type: 'Expense' },
+  { code: '5700', name: 'Petty Cash Expense',         type: 'Expense' },
+  { code: '1500', name: 'Property, Plant & Equipment', type: 'Asset' },
+  { code: '2300', name: 'Loans Payable',              type: 'Liability' },
+  { code: '3000', name: 'Owner Capital',              type: 'Equity' },
 ];
 
 interface JournalLine {

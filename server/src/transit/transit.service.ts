@@ -1,12 +1,13 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { ConfigService } from '@nestjs/config';
-import { DataSource, EntityManager, In } from 'typeorm';
-import { randomUUID } from 'crypto';
+import { DataSource, EntityManager, In, IsNull } from 'typeorm';
+import { createHash, randomBytes, randomUUID } from 'crypto';
 import { JournalService } from '../erp/journal.service';
 import { BeemService } from '../notifications/beem.service';
 import { InboundPayment } from '../mobile-money/mobile-money.entity';
 import { PaymentTransaction } from '../payments/payments.entity';
+import { PlatformEventsService, PlatformNotificationService } from '../platform/platform.service';
 import {
   TransitBus,
   TransitCamera,
@@ -28,7 +29,14 @@ import {
   TransitRoute,
   TransitTrip,
   TransitTripStatus,
-  TransitUnpaidDetection,
+  TransitUnpaidDetection, TransitBusOperatorHistory,
+  TransitTripLocationEvent,
+  TransitTripFollower,
+  TransitArrivalAlert,
+  TransitTicket,
+  TransitPassengerManifest,
+  TransitVehicleCheckpointEvent,
+  TransitAuthorityGrant,
 } from './transit.entity';
 import {
   calculateCompliance,
@@ -37,12 +45,14 @@ import {
   normalizeTransitPlate,
   splitTransitFee,
   shouldAutomaticallyProcessAnpr,
+  tripFollowerAlertKind,
   TransitComplianceState,
 } from './transit.rules';
 
 const money = (value: unknown) => Math.round((Number(value) || 0) * 100) / 100;
 const code = (prefix: string) => `${prefix}-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${randomUUID().slice(0, 8).toUpperCase()}`;
 const asDate = (value: string | Date) => value instanceof Date ? value : new Date(value);
+const sha256 = (value: string) => createHash('sha256').update(value).digest('hex');
 
 interface CreateBusInput {
   operatorId: string;
@@ -73,6 +83,8 @@ export class TransitService {
     private readonly config: ConfigService,
     private readonly journal: JournalService,
     private readonly beem: BeemService,
+    private readonly events: PlatformEventsService,
+    private readonly notifications: PlatformNotificationService,
   ) {}
 
   private repo<T extends object>(target: new () => T) {
@@ -179,11 +191,21 @@ export class TransitService {
 
   async createCamera(uid: string, input: Partial<TransitCamera>) {
     if (!input.code?.trim() || !input.name?.trim()) throw new BadRequestException('Camera code and name are required');
-    return this.repo(TransitCamera).save(this.repo(TransitCamera).create({
+    const apiKey = randomBytes(32).toString('base64url');
+    const camera = await this.repo(TransitCamera).save(this.repo(TransitCamera).create({
       ownerId: uid, code: input.code.trim().toUpperCase(), name: input.name.trim(),
       checkpointId: input.checkpointId || null, location: input.location?.trim() ?? '',
       direction: input.direction ?? 'BOTH', confidenceThreshold: Number(input.confidenceThreshold ?? 0.85), active: true,
+      apiKeyHash: sha256(apiKey), lastHeartbeatAt: null,
     }));
+    return { camera, apiKey };
+  }
+
+  async rotateCameraKey(uid: string, id: string) {
+    const camera = await this.repo(TransitCamera).findOne({ where: { ownerId: uid, id } });
+    if (!camera) throw new NotFoundException('Camera not found');
+    const apiKey = randomBytes(32).toString('base64url'); camera.apiKeyHash = sha256(apiKey);
+    return { camera: await this.repo(TransitCamera).save(camera), apiKey };
   }
 
   listCameras(uid: string) {
@@ -199,7 +221,7 @@ export class TransitService {
       throw new BadRequestException('This plate is already registered');
     }
     const policy = await this.ensurePolicy(uid);
-    return this.ds.transaction(async (tx) => {
+    const result = await this.ds.transaction(async (tx) => {
       const busRepo = tx.getRepository(TransitBus);
       const bus = await busRepo.save(busRepo.create({
         ownerId: uid, operatorId: operator.id, vehicleIdentity: randomUUID(), name: input.name.trim(),
@@ -219,9 +241,12 @@ export class TransitService {
         periodDays: policy.periodDays, graceDays: policy.graceDays, dueSoonDays: policy.dueSoonDays,
       });
       await busRepo.save(bus);
+      await tx.getRepository(TransitBusOperatorHistory).save(tx.getRepository(TransitBusOperatorHistory).create({ ownerId: uid, busId: bus.id, operatorId: operator.id, effectiveFrom: new Date(), effectiveTo: null, reason: 'Initial registration', changedBy: 'SYSTEM' }));
       await this.audit(tx, uid, bus.id, plate.id, 'BUS_REGISTERED', `bus:${bus.id}:registered`, '', bus.complianceStatus, `${plate.plateNumber} registered`);
       return { bus, plate };
     });
+    await this.events.emit({ ownerId: uid, eventName: 'transit.bus_registered', aggregateType: 'TransitBus', aggregateId: result.bus.id, payload: { plateId: result.plate.id, plateNumber: result.plate.plateNumber } });
+    return result;
   }
 
   async changePlate(uid: string, busId: string, plateNumber: string) {
@@ -246,6 +271,24 @@ export class TransitService {
     });
   }
 
+  async changeBusOperator(uid: string, busId: string, operatorId: string, effectiveAt: string | undefined, reason: string, actor: string) {
+    const effectiveFrom = effectiveAt ? asDate(effectiveAt) : new Date();
+    return this.ds.transaction(async (tx) => {
+      const bus = await tx.getRepository(TransitBus).findOne({ where: { ownerId: uid, id: busId } });
+      const operator = await tx.getRepository(TransitOperator).findOne({ where: { ownerId: uid, id: operatorId, status: 'ACTIVE' } });
+      if (!bus || !operator) throw new NotFoundException('Bus or active operator not found');
+      if (bus.operatorId === operator.id) throw new BadRequestException('Bus already belongs to this operator');
+      const histories = tx.getRepository(TransitBusOperatorHistory);
+      let current = await histories.findOne({ where: { ownerId: uid, busId, effectiveTo: IsNull() } });
+      current ??= histories.create({ ownerId: uid, busId, operatorId: bus.operatorId, effectiveFrom: bus.createdAt, effectiveTo: null, reason: 'Backfilled historical operator', changedBy: 'SYSTEM' });
+      current.effectiveTo = effectiveFrom; await histories.save(current);
+      await histories.save(histories.create({ ownerId: uid, busId, operatorId: operator.id, effectiveFrom, effectiveTo: null, reason: reason?.trim() || 'Ownership/operator change', changedBy: actor }));
+      const previousOperatorId = bus.operatorId; bus.operatorId = operator.id; await tx.getRepository(TransitBus).save(bus);
+      await this.audit(tx, uid, bus.id, bus.currentPlateId, 'OPERATOR_CHANGED', `operator:${bus.id}:${effectiveFrom.toISOString()}`, bus.complianceStatus, bus.complianceStatus, `${previousOperatorId} changed to ${operator.id}`, { previousOperatorId, operatorId: operator.id, effectiveFrom, actor });
+      return { bus, previousOperatorId, operator, effectiveFrom };
+    });
+  }
+
   async listBuses(uid: string) {
     const [buses, plates, operators] = await Promise.all([
       this.repo(TransitBus).find({ where: { ownerId: uid }, order: { createdAt: 'DESC' } }),
@@ -263,13 +306,15 @@ export class TransitService {
     if (!bus) throw new NotFoundException('Bus not found');
     const scheduledDeparture = asDate(input.scheduledDeparture);
     const tripCode = input.tripCode?.trim().toUpperCase() || `${input.origin.slice(0, 3)}-${input.destination.slice(0, 3)}-${scheduledDeparture.toISOString().replace(/[-:T]/g, '').slice(0, 12)}`.toUpperCase();
-    return this.repo(TransitTrip).save(this.repo(TransitTrip).create({
+    const trip = await this.repo(TransitTrip).save(this.repo(TransitTrip).create({
       ownerId: uid, busId: bus.id, routeId: input.routeId || bus.routeId || null, tripCode,
       origin: input.origin.trim(), destination: input.destination.trim(), scheduledDeparture,
       scheduledArrival: input.scheduledArrival ? asDate(input.scheduledArrival) : null,
       eta: input.scheduledArrival ? asDate(input.scheduledArrival) : null,
       status: input.status ?? 'SCHEDULED', gate: input.gate?.trim() ?? '', currentCheckpoint: '', delayMinutes: 0,
     }));
+    await this.events.emit({ ownerId: uid, eventName: 'transit.trip_created', aggregateType: 'TransitTrip', aggregateId: trip.id, payload: { busId: trip.busId, routeId: trip.routeId } });
+    return trip;
   }
 
   listTrips(uid: string) {
@@ -410,6 +455,10 @@ export class TransitService {
       await this.journal.postTransitFeePaymentInTransaction(tx, uid, { grossAmount: expected, governmentAmount: governmentTotal, kobeAmount: kobeTotal, reference: payment.paymentReference });
       return { payment, allocations, idempotent: false };
     });
+    if (!result.idempotent) {
+      await this.events.emit({ ownerId: uid, eventName: 'transit.fee_paid', aggregateType: 'TransitFeePayment', aggregateId: result.payment.id, payload: { amount: result.payment.amount, busCount: result.payment.busCount, paymentReference: result.payment.paymentReference } });
+      await this.events.emit({ ownerId: uid, eventName: 'transit.government_share_accrued', aggregateType: 'TransitFeePayment', aggregateId: result.payment.id, payload: { governmentAmount: result.allocations.reduce((sum, row) => sum + Number(row.governmentAmount), 0) } });
+    }
     return result;
   }
 
@@ -487,6 +536,13 @@ export class TransitService {
       return { detection, action: 'OVERDUE_ALERT', alert, operatorPhone: operator?.phone ?? '', message };
     });
     if ('operatorPhone' in result && result.operatorPhone) await Promise.allSettled([this.beem.sendSms(result.operatorPhone, result.message)]);
+    await this.events.emit({ ownerId: uid, eventName: 'transit.plate_detected', aggregateType: 'TransitPlateDetection', aggregateId: result.detection.id, payload: { plate: result.detection.observedPlate, confidence: result.detection.confidence, action: result.action } });
+    if (result.detection.tripId) await this.notifyTripFollowers(uid, result.detection.tripId, result.detection.id);
+    if (result.action === 'OVERDUE_ALERT' && result.alert) {
+      await this.events.emit({ ownerId: uid, eventName: 'transit.unpaid_bus_detected', aggregateType: 'TransitPlateDetection', aggregateId: result.detection.id, payload: { alertId: result.alert.id, busId: result.detection.busId, imageUrl: result.detection.imageUrl } });
+      await this.events.emit({ ownerId: uid, eventName: 'transit.enforcement_alert_created', aggregateType: 'TransitEnforcementAlert', aggregateId: result.alert.id, payload: { detectionId: result.detection.id } });
+      await this.dispatchEnforcementWebhook(policy, result.alert, result.detection);
+    }
     return result;
   }
 
@@ -501,12 +557,16 @@ export class TransitService {
     if (input.status === 'REJECTED') { detection.reviewStatus = 'REJECTED'; return this.repo(TransitPlateDetection).save(detection); }
     if (!input.plateNumber) throw new BadRequestException('Confirmed plate is required');
     detection.observedPlate = displayTransitPlate(input.plateNumber); detection.normalizedPlate = normalizeTransitPlate(input.plateNumber); detection.reviewStatus = 'CONFIRMED';
-    return this.repo(TransitPlateDetection).save(detection);
+    await this.repo(TransitPlateDetection).save(detection);
+    const processed = await this.recordDetection(uid, { cameraId: detection.cameraId, plateNumber: input.plateNumber, confidence: 1, direction: detection.direction, imageUrl: detection.imageUrl, detectedAt: detection.detectedAt.toISOString() });
+    return { reviewedDetection: detection, processed };
   }
 
   async refreshComplianceForOwner(uid: string) {
     const policy = await this.ensurePolicy(uid);
     const notifications: Array<{ phone: string; message: string }> = [];
+    const complianceEvents: Array<{ busId: string; plateId: string | null; previous: TransitComplianceState; next: TransitComplianceState }> = [];
+    const feeEvents: Array<{ busId: string; plateId: string | null; state: 'DUE_SOON' | 'OVERDUE' }> = [];
     const changed = await this.ds.transaction(async (tx) => {
       const buses = await tx.getRepository(TransitBus).find({ where: { ownerId: uid, registrationStatus: In(['ACTIVE', 'SUSPENDED']) } });
       const plates = await tx.getRepository(TransitPlate).find({ where: { ownerId: uid, active: true } });
@@ -519,6 +579,7 @@ export class TransitService {
         if (previous !== next) {
           bus.complianceStatus = next; await tx.getRepository(TransitBus).save(bus); count++;
           await this.audit(tx, uid, bus.id, bus.currentPlateId, 'COMPLIANCE_CHANGED', `status:${bus.id}:${dayKey}:${next}`, previous, next, `Compliance changed from ${previous} to ${next}`);
+          complianceEvents.push({ busId: bus.id, plateId: bus.currentPlateId ?? null, previous, next });
         }
         if (next === 'DUE_SOON' || next === 'OVERDUE') {
           const key = `reminder:${bus.id}:${dayKey}:${next}`;
@@ -528,6 +589,7 @@ export class TransitService {
               ? `${plate?.plateNumber ?? bus.name} is overdue. Its Transit compliance status is now OVERDUE.`
               : `Transit fee for ${plate?.plateNumber ?? bus.name} is due soon.`;
             await this.audit(tx, uid, bus.id, bus.currentPlateId, 'PAYMENT_REMINDER', key, next, next, message);
+            feeEvents.push({ busId: bus.id, plateId: bus.currentPlateId ?? null, state: next });
             const operator = operators.find((item) => item.id === bus.operatorId);
             if (operator?.phone) notifications.push({ phone: operator.phone, message });
           }
@@ -536,6 +598,12 @@ export class TransitService {
       return count;
     });
     await Promise.allSettled(notifications.map((item) => this.beem.sendSms(item.phone, item.message)));
+    for (const event of complianceEvents) {
+      await this.events.emit({ ownerId: uid, eventName: 'transit.compliance_changed', aggregateType: 'TransitBus', aggregateId: event.busId, payload: { plateId: event.plateId, previous: event.previous, next: event.next } });
+    }
+    for (const event of feeEvents) {
+      await this.events.emit({ ownerId: uid, eventName: event.state === 'OVERDUE' ? 'transit.fee_overdue' : 'transit.fee_due', aggregateType: 'TransitBus', aggregateId: event.busId, payload: { plateId: event.plateId, state: event.state } });
+    }
     return { changed, reminders: notifications.length };
   }
 
@@ -573,17 +641,25 @@ export class TransitService {
     };
   }
 
-  async governmentOverview(uid: string, filters: { status?: string; operatorId?: string; plate?: string; method?: string; from?: string; to?: string }) {
+  async governmentOverview(uid: string, filters: { status?: string; operatorId?: string; plate?: string; method?: string; from?: string; to?: string; routeId?: string; region?: string; terminal?: string; busId?: string; week?: string; month?: string }) {
     const dashboard = await this.dashboard(uid);
     let buses = dashboard.buses;
     if (filters.status) buses = buses.filter((row) => row.complianceStatus === filters.status);
     if (filters.operatorId) buses = buses.filter((row) => row.operatorId === filters.operatorId);
+    if (filters.busId) buses = buses.filter((row) => row.id === filters.busId);
+    if (filters.routeId) buses = buses.filter((row) => row.routeId === filters.routeId);
+    if (filters.region) buses = buses.filter((row) => String(row.operator?.region ?? '').toLowerCase().includes(filters.region!.toLowerCase()));
+    if (filters.terminal) buses = buses.filter((row) => `${row.defaultOrigin} ${row.defaultDestination} ${row.currentLocation}`.toLowerCase().includes(filters.terminal!.toLowerCase()));
     if (filters.plate) { const q = normalizeTransitPlate(filters.plate); buses = buses.filter((row) => row.plate?.normalizedPlate.includes(q)); }
-    let payments = dashboard.recentPayments;
+    let payments = await this.repo(TransitFeePayment).find({ where: { ownerId: uid }, order: { createdAt: 'DESC' }, take: 5000 });
     if (filters.method) payments = payments.filter((row) => row.method === filters.method);
-    if (filters.from) payments = payments.filter((row) => new Date(row.createdAt) >= new Date(filters.from!));
-    if (filters.to) payments = payments.filter((row) => new Date(row.createdAt) <= new Date(filters.to!));
-    return { ...dashboard, buses, recentPayments: payments, appliedFilters: filters };
+    let periodFrom = filters.from; let periodTo = filters.to;
+    if (filters.month && /^\d{4}-\d{2}$/.test(filters.month)) { periodFrom = `${filters.month}-01`; const end = new Date(`${periodFrom}T00:00:00Z`); end.setUTCMonth(end.getUTCMonth() + 1); end.setUTCDate(0); periodTo = end.toISOString(); }
+    if (filters.week && /^\d{4}-W\d{2}$/.test(filters.week)) { const [year, week] = filters.week.split('-W').map(Number); const start = new Date(Date.UTC(year, 0, 4)); start.setUTCDate(start.getUTCDate() - ((start.getUTCDay() + 6) % 7) + (week - 1) * 7); const end = new Date(start); end.setUTCDate(end.getUTCDate() + 7); periodFrom = start.toISOString(); periodTo = end.toISOString(); }
+    if (periodFrom) payments = payments.filter((row) => new Date(row.createdAt) >= new Date(periodFrom!));
+    if (periodTo) payments = payments.filter((row) => new Date(row.createdAt) <= new Date(periodTo!));
+    const paymentIds = payments.map((payment) => payment.id); const allocations = paymentIds.length ? await this.repo(TransitFeeAllocation).find({ where: { ownerId: uid, paymentId: In(paymentIds) } }) : [];
+    return { ...dashboard, buses, recentPayments: payments.slice(0, 100), filteredSummary: { buses: buses.length, grossFees: money(payments.reduce((sum, payment) => sum + Number(payment.amount), 0)), governmentShare: money(allocations.reduce((sum, allocation) => sum + Number(allocation.governmentAmount), 0)), kobeShare: money(allocations.reduce((sum, allocation) => sum + Number(allocation.kobeAmount), 0)), payments: payments.length }, appliedFilters: filters };
   }
 
   async plateDrilldown(uid: string, plateNumber: string) {
@@ -591,7 +667,7 @@ export class TransitService {
     if (!plate) throw new NotFoundException('Plate not found');
     const bus = await this.repo(TransitBus).findOne({ where: { ownerId: uid, id: plate.busId } });
     if (!bus) throw new NotFoundException('Bus not found');
-    const [operator, periods, allocations, detections, alerts, audit, plateHistory] = await Promise.all([
+    const [operator, periods, allocations, detections, alerts, audit, plateHistory, operatorHistory] = await Promise.all([
       this.repo(TransitOperator).findOne({ where: { ownerId: uid, id: bus.operatorId } }),
       this.repo(TransitFeePeriod).find({ where: { ownerId: uid, busId: bus.id }, order: { periodStart: 'DESC' } }),
       this.repo(TransitFeeAllocation).find({ where: { ownerId: uid, busId: bus.id }, order: { createdAt: 'DESC' } }),
@@ -599,16 +675,17 @@ export class TransitService {
       this.repo(TransitEnforcementAlert).find({ where: { ownerId: uid, busId: bus.id }, order: { createdAt: 'DESC' } }),
       this.repo(TransitComplianceAudit).find({ where: { ownerId: uid, busId: bus.id }, order: { createdAt: 'DESC' } }),
       this.repo(TransitPlate).find({ where: { ownerId: uid, busId: bus.id }, order: { effectiveFrom: 'DESC' } }),
+      this.repo(TransitBusOperatorHistory).find({ where: { ownerId: uid, busId: bus.id }, order: { effectiveFrom: 'DESC' } }),
     ]);
     const paymentIds = [...new Set(allocations.map((row) => row.paymentId))];
     const payments = paymentIds.length ? await this.repo(TransitFeePayment).find({ where: { ownerId: uid, id: In(paymentIds) }, order: { createdAt: 'DESC' } }) : [];
-    return { plate, plateHistory, bus, operator, compliance: bus.complianceStatus, periods, payments, allocations, detections, alerts, audit };
+    return { plate, plateHistory, operatorHistory, bus, operator, compliance: bus.complianceStatus, periods, payments, allocations, detections, alerts, audit };
   }
 
   async createSettlement(uid: string, input: { periodStart: string; periodEnd: string }) {
     const periodStart = new Date(input.periodStart); const periodEnd = new Date(input.periodEnd);
     if (Number.isNaN(periodStart.getTime()) || Number.isNaN(periodEnd.getTime()) || periodEnd < periodStart) throw new BadRequestException('Enter a valid settlement period');
-    return this.ds.transaction(async (tx) => {
+    const settlement = await this.ds.transaction(async (tx) => {
       const allocations = await tx.getRepository(TransitFeeAllocation).createQueryBuilder('a')
         .setLock('pessimistic_write')
         .where('a.ownerId = :uid AND a.settlementStatus = :status', { uid, status: 'ACCRUED' })
@@ -625,6 +702,8 @@ export class TransitService {
       await tx.getRepository(TransitFeeAllocation).save(allocations);
       return settlement;
     });
+    await this.events.emit({ ownerId: uid, eventName: 'transit.government_settlement_created', aggregateType: 'TransitGovernmentSettlement', aggregateId: settlement.id, payload: { settlementReference: settlement.settlementReference, governmentAmount: settlement.governmentAmount, periodStart: settlement.periodStart, periodEnd: settlement.periodEnd } });
+    return settlement;
   }
 
   listSettlements(uid: string) {
@@ -633,7 +712,7 @@ export class TransitService {
 
   async settle(uid: string, id: string, input: { paymentReference: string; settledAmount?: number }) {
     if (!input.paymentReference?.trim()) throw new BadRequestException('Government payment reference is required');
-    return this.ds.transaction(async (tx) => {
+    const settlement = await this.ds.transaction(async (tx) => {
       const repo = tx.getRepository(TransitGovernmentSettlement);
       const settlement = await repo.findOne({ where: { ownerId: uid, id } });
       if (!settlement) throw new NotFoundException('Settlement not found');
@@ -649,6 +728,8 @@ export class TransitService {
       await this.journal.postTransitGovernmentSettlementInTransaction(tx, uid, settledAmount, settlement.settlementReference);
       return settlement;
     });
+    await this.events.emit({ ownerId: uid, eventName: 'transit.government_settlement_completed', aggregateType: 'TransitGovernmentSettlement', aggregateId: settlement.id, payload: { settlementReference: settlement.settlementReference, settledAmount: settlement.settledAmount, paymentReference: settlement.paymentReference } });
+    return settlement;
   }
 
   async reconcileSettlement(uid: string, id: string, note = '') {
@@ -669,11 +750,13 @@ export class TransitService {
   async createExemption(uid: string, input: Partial<TransitExemption>, actor: string) {
     if (!input.busId || !input.exemptionType || !input.authority || !input.reason || !input.effectiveAt || !input.expiresAt) throw new BadRequestException('Bus, type, authority, reason and dates are required');
     if (!await this.repo(TransitBus).findOne({ where: { ownerId: uid, id: input.busId } })) throw new NotFoundException('Bus not found');
-    return this.repo(TransitExemption).save(this.repo(TransitExemption).create({
+    const exemption = await this.repo(TransitExemption).save(this.repo(TransitExemption).create({
       ownerId: uid, busId: input.busId, exemptionType: input.exemptionType, authority: input.authority,
       reason: input.reason, effectiveAt: asDate(input.effectiveAt), expiresAt: asDate(input.expiresAt),
       supportingDocumentUrl: input.supportingDocumentUrl ?? '', createdBy: actor, approvedBy: '', status: 'PENDING',
     }));
+    await this.events.emit({ ownerId: uid, eventName: 'transit.exemption_created', aggregateType: 'TransitExemption', aggregateId: exemption.id, payload: { busId: exemption.busId, exemptionType: exemption.exemptionType, authority: exemption.authority } });
+    return exemption;
   }
 
   async decideExemption(uid: string, id: string, approved: boolean, actor: string) {
@@ -687,20 +770,171 @@ export class TransitService {
 
   async createOffRoad(uid: string, input: Partial<TransitOffRoadPeriod>) {
     if (!input.busId || !input.reason || !input.startsAt || !input.endsAt) throw new BadRequestException('Bus, reason and dates are required');
+    if (!await this.repo(TransitBus).findOne({ where: { ownerId: uid, id: input.busId } })) throw new NotFoundException('Bus not found');
+    if (asDate(input.endsAt) <= asDate(input.startsAt)) throw new BadRequestException('Off-road end must be after start');
     return this.repo(TransitOffRoadPeriod).save(this.repo(TransitOffRoadPeriod).create({
       ownerId: uid, busId: input.busId, reason: input.reason, startsAt: asDate(input.startsAt), endsAt: asDate(input.endsAt),
       evidenceUrl: input.evidenceUrl ?? '', approvedBy: '', status: 'PENDING', feeTreatment: input.feeTreatment ?? 'NORMAL',
     }));
   }
 
+  listOffRoad(uid: string) { return this.repo(TransitOffRoadPeriod).find({ where: { ownerId: uid }, order: { createdAt: 'DESC' } }); }
+
+  async decideOffRoad(uid: string, id: string, approved: boolean, actor: string) {
+    const period = await this.repo(TransitOffRoadPeriod).findOne({ where: { ownerId: uid, id } });
+    if (!period) throw new NotFoundException('Off-road request not found');
+    period.status = approved ? 'APPROVED' : 'REJECTED'; period.approvedBy = actor; await this.repo(TransitOffRoadPeriod).save(period);
+    await this.refreshComplianceForOwner(uid); return period;
+  }
+
   async createDispute(uid: string, input: Partial<TransitPaymentDispute>) {
     if (!input.busId || !input.transactionId || !input.amount || !input.paymentProvider || !input.paymentDate || !input.explanation) throw new BadRequestException('Complete all required dispute fields');
-    return this.repo(TransitPaymentDispute).save(this.repo(TransitPaymentDispute).create({
+    const dispute = await this.repo(TransitPaymentDispute).save(this.repo(TransitPaymentDispute).create({
       ownerId: uid, busId: input.busId, transactionId: input.transactionId, amount: money(input.amount),
       paymentProvider: input.paymentProvider, paymentDate: asDate(input.paymentDate), receiptUrl: input.receiptUrl ?? '',
       explanation: input.explanation, status: 'SUBMITTED', resolutionNote: '',
     }));
+    await this.events.emit({ ownerId: uid, eventName: 'transit.payment_dispute_created', aggregateType: 'TransitPaymentDispute', aggregateId: dispute.id, payload: { busId: dispute.busId, transactionId: dispute.transactionId, amount: dispute.amount, paymentProvider: dispute.paymentProvider } });
+    return dispute;
   }
 
   listDisputes(uid: string) { return this.repo(TransitPaymentDispute).find({ where: { ownerId: uid }, order: { createdAt: 'DESC' } }); }
+
+  async updateDispute(uid: string, id: string, status: TransitPaymentDispute['status'], resolutionNote = '') {
+    const dispute = await this.repo(TransitPaymentDispute).findOne({ where: { ownerId: uid, id } });
+    if (!dispute) throw new NotFoundException('Payment dispute not found');
+    dispute.status = status; dispute.resolutionNote = resolutionNote.trim(); return this.repo(TransitPaymentDispute).save(dispute);
+  }
+
+  async ingestCamera(cameraId: string, apiKey: string, input: { plateNumber: string; confidence: number; direction?: string; imageUrl?: string; detectedAt?: string }) {
+    const camera = await this.repo(TransitCamera).findOne({ where: { id: cameraId, active: true } });
+    if (!camera || !camera.apiKeyHash || sha256(apiKey || '') !== camera.apiKeyHash) throw new BadRequestException('Invalid camera credentials');
+    camera.lastHeartbeatAt = new Date(); await this.repo(TransitCamera).save(camera);
+    return this.recordDetection(camera.ownerId, { cameraId: camera.id, ...input });
+  }
+
+  async cameraHeartbeat(cameraId: string, apiKey: string) {
+    const camera = await this.repo(TransitCamera).findOne({ where: { id: cameraId, active: true } });
+    if (!camera || !camera.apiKeyHash || sha256(apiKey || '') !== camera.apiKeyHash) throw new BadRequestException('Invalid camera credentials');
+    camera.lastHeartbeatAt = new Date(); await this.repo(TransitCamera).save(camera);
+    return { ok: true, cameraId, at: camera.lastHeartbeatAt };
+  }
+
+  async followTrip(tripId: string, input: { phone: string; name?: string; pickupCheckpointId?: string; notifyBeforeMinutes?: number; channels?: string[] }) {
+    const trip = await this.repo(TransitTrip).findOne({ where: { id: tripId } });
+    if (!trip || ['ARRIVED', 'CANCELLED'].includes(trip.status)) throw new NotFoundException('Active trip not found');
+    const phone = input.phone.replace(/\s/g, ''); if (!phone) throw new BadRequestException('Phone is required');
+    let row = await this.repo(TransitTripFollower).findOne({ where: { ownerId: trip.ownerId, tripId, phone } });
+    row ??= this.repo(TransitTripFollower).create({ ownerId: trip.ownerId, tripId, phone, name: '', pickupCheckpointId: null, notifyBeforeMinutes: 30, channels: ['SMS', 'PUSH'], active: true });
+    row.name = input.name?.trim() ?? row.name; row.pickupCheckpointId = input.pickupCheckpointId ?? row.pickupCheckpointId;
+    row.notifyBeforeMinutes = Math.max(1, Number(input.notifyBeforeMinutes) || row.notifyBeforeMinutes); row.channels = input.channels?.length ? input.channels : row.channels; row.active = true;
+    return this.repo(TransitTripFollower).save(row);
+  }
+
+  private async notifyTripFollowers(ownerId: string, tripId: string, detectionId: string) {
+    const [trip, detection, followers] = await Promise.all([
+      this.repo(TransitTrip).findOne({ where: { ownerId, id: tripId } }),
+      this.repo(TransitPlateDetection).findOne({ where: { ownerId, id: detectionId } }),
+      this.repo(TransitTripFollower).find({ where: { ownerId, tripId, active: true } }),
+    ]);
+    if (!trip || !detection) return;
+    const checkpoint = detection.checkpointId ? await this.repo(TransitCheckpoint).findOne({ where: { ownerId, id: detection.checkpointId } }) : null;
+    await this.repo(TransitTripLocationEvent).save(this.repo(TransitTripLocationEvent).create({ ownerId, tripId, busId: trip.busId, checkpointId: checkpoint?.id ?? null, locationName: checkpoint?.name || trip.currentCheckpoint, latitude: checkpoint?.latitude ?? '', longitude: checkpoint?.longitude ?? '', source: 'CAMERA', sourceEventId: detection.id, occurredAt: detection.detectedAt, eta: trip.eta ?? null })).catch(() => undefined);
+    const eventKind: TransitArrivalAlert['kind'] = trip.status === 'ARRIVED' ? 'ARRIVED' : trip.status === 'DEPARTED' ? 'DEPARTED' : 'CHECKPOINT';
+    await this.events.emit({ ownerId, eventName: eventKind === 'DEPARTED' ? 'transit.trip_started' : 'transit.checkpoint_passed', aggregateType: 'TransitTrip', aggregateId: trip.id, payload: { checkpoint: trip.currentCheckpoint, eta: trip.eta?.toISOString() ?? null } });
+    if (trip.eta) await this.events.emit({ ownerId, eventName: 'transit.eta_updated', aggregateType: 'TransitTrip', aggregateId: trip.id, payload: { eta: trip.eta.toISOString(), checkpoint: trip.currentCheckpoint } });
+    for (const follower of followers) {
+      const minutes = trip.eta ? Math.max(0, Math.round((trip.eta.getTime() - Date.now()) / 60_000)) : null;
+      const kind: TransitArrivalAlert['kind'] = tripFollowerAlertKind({ tripStatus: trip.status, eta: trip.eta, notifyBeforeMinutes: follower.notifyBeforeMinutes, pickupCheckpointId: follower.pickupCheckpointId, currentCheckpointId: checkpoint?.id });
+      const eventKey = `${detection.id}:${kind}`;
+      if (await this.repo(TransitArrivalAlert).findOne({ where: { ownerId, followerId: follower.id, eventKey } })) continue;
+      const message = kind === 'DEPARTED' ? `Bus ${trip.tripCode} departed ${trip.origin}.`
+        : kind === 'ARRIVED' ? `Bus ${trip.tripCode} arrived at ${trip.destination}.`
+        : kind === 'PICKUP_ETA' ? `Bus ${trip.tripCode} is approximately ${minutes ?? 0} minutes from pickup.`
+        : `Bus ${trip.tripCode} passed ${trip.currentCheckpoint || 'a checkpoint'}${minutes !== null ? `; ETA ${minutes} minutes` : ''}.`;
+      const alert = await this.repo(TransitArrivalAlert).save(this.repo(TransitArrivalAlert).create({ ownerId, tripId, followerId: follower.id, eventKey, kind, message, status: 'PENDING' }));
+      const channels = follower.channels.filter((c): c is 'IN_APP' | 'PUSH' | 'SMS' | 'WHATSAPP' | 'EMAIL' | 'VOICE' => ['IN_APP', 'PUSH', 'SMS', 'WHATSAPP', 'EMAIL', 'VOICE'].includes(c));
+      await this.notifications.send({ ownerId, recipientKey: follower.id, phone: follower.phone, title: 'Kobe Transit update', body: message, actionUrl: `/transit-board/${ownerId}`, channels: channels.length ? channels : ['IN_APP', 'SMS'] });
+      alert.status = 'SENT'; alert.sentAt = new Date(); await this.repo(TransitArrivalAlert).save(alert);
+      await this.events.emit({ ownerId, eventName: 'transit.arrival_alert_triggered', aggregateType: 'TransitArrivalAlert', aggregateId: alert.id, payload: { tripId, followerId: follower.id, kind } });
+    }
+  }
+
+  async recordGps(ownerId: string, input: { tripId: string; latitude: string; longitude: string; locationName?: string; occurredAt?: string; eta?: string }) {
+    const trip = await this.repo(TransitTrip).findOne({ where: { ownerId, id: input.tripId } });
+    if (!trip) throw new NotFoundException('Trip not found');
+    const occurredAt = input.occurredAt ? new Date(input.occurredAt) : new Date();
+    if (input.eta) trip.eta = new Date(input.eta); trip.currentCheckpoint = input.locationName?.trim() || trip.currentCheckpoint;
+    if (trip.status === 'SCHEDULED' || trip.status === 'BOARDING') { trip.status = 'DEPARTED'; trip.actualDeparture ??= occurredAt; }
+    else if (trip.status !== 'ARRIVED') trip.status = 'IN_TRANSIT';
+    await this.repo(TransitTrip).save(trip);
+    const bus = await this.repo(TransitBus).findOne({ where: { ownerId, id: trip.busId } });
+    if (bus) { bus.currentLocation = trip.currentCheckpoint || `${input.latitude},${input.longitude}`; bus.lastSeenAt = occurredAt; await this.repo(TransitBus).save(bus); }
+    return this.repo(TransitTripLocationEvent).save(this.repo(TransitTripLocationEvent).create({ ownerId, tripId: trip.id, busId: trip.busId, checkpointId: null, locationName: trip.currentCheckpoint, latitude: input.latitude, longitude: input.longitude, source: 'GPS', sourceEventId: code('GPS'), occurredAt, eta: trip.eta ?? null }));
+  }
+
+  async publicTransportSearch(query: { origin?: string; destination?: string; date?: string }) {
+    const qb = this.repo(TransitTrip).createQueryBuilder('t').where("t.status IN ('SCHEDULED','BOARDING')");
+    if (query.origin) qb.andWhere('LOWER(t.origin) LIKE :origin', { origin: `%${query.origin.toLowerCase()}%` });
+    if (query.destination) qb.andWhere('LOWER(t.destination) LIKE :destination', { destination: `%${query.destination.toLowerCase()}%` });
+    if (query.date) qb.andWhere('DATE(t.scheduledDeparture) = :date', { date: query.date });
+    const trips = await qb.orderBy('t.scheduledDeparture', 'ASC').take(100).getMany();
+    return Promise.all(trips.map(async (trip) => {
+      const bus = await this.repo(TransitBus).findOne({ where: { id: trip.busId } });
+      const operator = bus && await this.repo(TransitOperator).findOne({ where: { id: bus.operatorId } });
+      const sold = await this.repo(TransitTicket).count({ where: { ownerId: trip.ownerId, tripId: trip.id, status: In(['RESERVED', 'PAID', 'BOARDED']) } });
+      return { trip, operator: operator?.name ?? '', bus: bus?.name ?? '', capacity: bus?.capacity ?? 0, availableSeats: Math.max(0, (bus?.capacity ?? 0) - sold), liveStatus: trip.status, canBuy: sold < (bus?.capacity ?? 0) };
+    }));
+  }
+
+  async reserveTicket(tripId: string, input: { passengerName: string; passengerPhone: string; seatNumber: string; fare: number; currency?: string }) {
+    const trip = await this.repo(TransitTrip).findOne({ where: { id: tripId } });
+    if (!trip || !['SCHEDULED', 'BOARDING'].includes(trip.status)) throw new NotFoundException('Bookable trip not found');
+    if (await this.repo(TransitTicket).findOne({ where: { ownerId: trip.ownerId, tripId, seatNumber: input.seatNumber, status: In(['RESERVED', 'PAID', 'BOARDED']) } })) throw new BadRequestException('Seat is unavailable');
+    const ticket = await this.repo(TransitTicket).save(this.repo(TransitTicket).create({ ownerId: trip.ownerId, tripId, ticketNumber: code('TKT'), passengerName: input.passengerName, passengerPhone: input.passengerPhone, seatNumber: input.seatNumber, fare: money(input.fare), currency: input.currency ?? 'TZS', status: 'RESERVED', paymentReference: '' }));
+    await this.repo(TransitPassengerManifest).save(this.repo(TransitPassengerManifest).create({ ownerId: trip.ownerId, tripId, ticketId: ticket.id, passengerName: ticket.passengerName, passengerPhone: ticket.passengerPhone, seatNumber: ticket.seatNumber, boarded: false }));
+    return ticket;
+  }
+
+  async recordVehicleCheckpoint(ownerId: string, input: { vehicleType: TransitVehicleCheckpointEvent['vehicleType']; vehicleId: string; checkpointId?: string; locationName?: string; source?: TransitVehicleCheckpointEvent['source']; occurredAt?: string; metadata?: Record<string, unknown> }) {
+    return this.repo(TransitVehicleCheckpointEvent).save(this.repo(TransitVehicleCheckpointEvent).create({ ownerId, vehicleType: input.vehicleType, vehicleId: input.vehicleId, checkpointId: input.checkpointId ?? null, locationName: input.locationName ?? '', source: input.source ?? 'MANUAL', occurredAt: input.occurredAt ? new Date(input.occurredAt) : new Date(), metadata: input.metadata ?? {} }));
+  }
+
+  async grantAuthority(ownerId: string, actor: string, input: { authorityUserId: string; role: TransitAuthorityGrant['role']; scope?: Record<string, unknown> }) {
+    let grant = await this.repo(TransitAuthorityGrant).findOne({ where: { ownerId, authorityUserId: input.authorityUserId, role: input.role } });
+    grant ??= this.repo(TransitAuthorityGrant).create({ ownerId, authorityUserId: input.authorityUserId, role: input.role, scope: {}, active: true, grantedBy: actor });
+    grant.scope = input.scope ?? grant.scope; grant.active = true; grant.grantedBy = actor; return this.repo(TransitAuthorityGrant).save(grant);
+  }
+
+  async governmentScope(requestingUserId: string, requestedOwnerId?: string, allowedRoles: TransitAuthorityGrant['role'][] = ['government_viewer', 'settlement_officer', 'compliance_officer', 'traffic_enforcement']) {
+    const ownerId = requestedOwnerId || requestingUserId;
+    if (ownerId === requestingUserId) return ownerId;
+    const grant = await this.repo(TransitAuthorityGrant).findOne({ where: { ownerId, authorityUserId: requestingUserId, active: true, role: In(allowedRoles) } });
+    if (!grant) throw new ForbiddenException('No permission for this transit authority scope');
+    return ownerId;
+  }
+
+  async analytics(ownerId: string) {
+    const [trips, buses, detections, periods, exemptions, disputes, cameras, locations] = await Promise.all([
+      this.repo(TransitTrip).find({ where: { ownerId }, take: 10_000 }), this.repo(TransitBus).find({ where: { ownerId }, take: 10_000 }),
+      this.repo(TransitPlateDetection).find({ where: { ownerId }, take: 20_000 }), this.repo(TransitFeePeriod).find({ where: { ownerId }, take: 20_000 }),
+      this.repo(TransitExemption).count({ where: { ownerId } }), this.repo(TransitPaymentDispute).count({ where: { ownerId } }),
+      this.repo(TransitCamera).find({ where: { ownerId } }), this.repo(TransitTripLocationEvent).find({ where: { ownerId }, take: 20_000 }),
+    ]);
+    const completed = trips.filter((t) => t.actualArrival && t.actualDeparture);
+    const onTime = trips.filter((t) => t.actualDeparture && t.actualDeparture <= t.scheduledDeparture).length;
+    const paid = periods.filter((p) => p.status === 'PAID').length;
+    const overdue = periods.filter((p) => p.status === 'OVERDUE').length;
+    return {
+      operational: { trips: trips.length, completedTrips: completed.length, onTimePercent: trips.length ? Math.round(onTime / trips.length * 10000) / 100 : 0, averageDelayMinutes: trips.length ? Math.round(trips.reduce((s, t) => s + t.delayMinutes, 0) / trips.length) : 0, locationEvents: locations.length },
+      compliance: { registeredBuses: buses.length, paidPeriods: paid, overduePeriods: overdue, collectionRate: paid + overdue ? Math.round(paid / (paid + overdue) * 10000) / 100 : 0, exemptions, disputes, repeatLatePayers: 0 },
+      cameras: { configured: cameras.length, online: cameras.filter((c) => c.lastHeartbeatAt && Date.now() - c.lastHeartbeatAt.getTime() < 10 * 60_000).length, detections: detections.length, failedDetections: detections.filter((d) => !d.busId).length, manualReviews: detections.filter((d) => d.reviewStatus === 'MANUAL_REVIEW').length, duplicateReads: 0, averageConfidence: detections.length ? detections.reduce((s, d) => s + d.confidence, 0) / detections.length : 0 },
+    };
+  }
+
+  private async dispatchEnforcementWebhook(policy: TransitFeePolicy, alert: TransitEnforcementAlert, detection: TransitPlateDetection) {
+    const url = String(policy.enforcementRules?.webhookUrl ?? ''); if (!url) return;
+    const secret = String(policy.enforcementRules?.webhookSecret ?? '');
+    await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json', ...(secret ? { authorization: `Bearer ${secret}` } : {}) }, body: JSON.stringify({ type: 'transit.enforcement_alert_created', alert, detection }) }).catch(() => undefined);
+  }
 }

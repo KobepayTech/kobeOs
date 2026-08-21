@@ -115,3 +115,18 @@ export function shouldAutomaticallyProcessAnpr(
 ): boolean {
   return registeredPlate && Number(confidence) >= Math.max(Number(cameraThreshold), Number(policyThreshold));
 }
+
+export function tripFollowerAlertKind(input: {
+  tripStatus: string;
+  eta?: Date | null;
+  now?: Date;
+  notifyBeforeMinutes: number;
+  pickupCheckpointId?: string | null;
+  currentCheckpointId?: string | null;
+}): 'DEPARTED' | 'ARRIVED' | 'CHECKPOINT' | 'PICKUP_ETA' {
+  const base = input.tripStatus === 'ARRIVED' ? 'ARRIVED' : input.tripStatus === 'DEPARTED' ? 'DEPARTED' : 'CHECKPOINT';
+  if (input.pickupCheckpointId && input.pickupCheckpointId === input.currentCheckpointId) return 'PICKUP_ETA';
+  const minutes = input.eta ? Math.max(0, Math.round((input.eta.getTime() - (input.now ?? new Date()).getTime()) / 60_000)) : null;
+  if (minutes !== null && minutes <= input.notifyBeforeMinutes && base !== 'ARRIVED') return 'PICKUP_ETA';
+  return base;
+}

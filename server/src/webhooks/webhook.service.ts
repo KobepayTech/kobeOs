@@ -5,6 +5,7 @@ import { WebhookEvent } from './webhook.entity';
 import { PalmPesaCallback } from '../creators/palmpesa.service';
 import { HotelBooking, HotelRoom } from '../hotel/hotel.entity';
 import { HotelWalletService } from '../hotel/hotel-wallet.service';
+import { PlatformEventsService } from '../platform/platform.service';
 
 @Injectable()
 export class WebhookService {
@@ -47,6 +48,7 @@ export class WebhookService {
     @InjectRepository(HotelRoom)
     private readonly rooms: Repository<HotelRoom>,
     private readonly hotelWallet: HotelWalletService,
+    private readonly events: PlatformEventsService,
   ) {}
 
   /**
@@ -131,6 +133,7 @@ export class WebhookService {
     if (payload.order_id) {
       const booking = await this.bookings.findOne({ where: { palmPesaOrderId: payload.order_id } });
       if (booking) {
+        await this.events.emit({ ownerId: booking.ownerId, eventName: 'hotel.payment_detected', aggregateType: 'HotelBooking', aggregateId: booking.id, payload: { hotelId: booking.hotelId, orderId: payload.order_id, paymentStatus: paymentStatus ?? 'UNKNOWN' } });
         if (paymentStatus === 'COMPLETED') {
           await this.bookings.update({ id: booking.id }, { status: 'CONFIRMED' });
           // Credit the hotel's platform wallet (net of commission). Keyed by
@@ -147,6 +150,7 @@ export class WebhookService {
           } catch (e) {
             this.logger.error(`Wallet credit failed for booking ${booking.id}: ${(e as Error).message}`);
           }
+          await this.events.emit({ ownerId: booking.ownerId, eventName: 'hotel.payment_matched', aggregateType: 'HotelBooking', aggregateId: booking.id, payload: { hotelId: booking.hotelId, orderId: payload.order_id, amount: booking.totalAmount, currency: booking.currency } });
           this.logger.log(`Hotel booking ${booking.id} auto-confirmed + wallet credited (owner ${booking.ownerId}).`);
         } else if (paymentStatus === 'FAILED') {
           await this.bookings.update({ id: booking.id }, { status: 'CANCELLED' });

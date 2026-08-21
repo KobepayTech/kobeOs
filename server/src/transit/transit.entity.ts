@@ -51,6 +51,8 @@ export class TransitCamera extends OwnedEntity {
   @Column({ default: 'BOTH' }) direction!: 'ENTRY' | 'EXIT' | 'BOTH';
   @Column({ type: 'float', default: 0.85 }) confidenceThreshold!: number;
   @Column({ default: true }) active!: boolean;
+  @Column({ default: '' }) apiKeyHash!: string;
+  @Column({ type: 'timestamptz', nullable: true }) lastHeartbeatAt?: Date | null;
 }
 
 @Entity('transit_buses')
@@ -87,6 +89,17 @@ export class TransitPlate extends OwnedEntity {
   @Column({ type: 'uuid', nullable: true }) replacedPlateId?: string | null;
 }
 
+@Entity('transit_bus_operator_history')
+@Index(['ownerId', 'busId', 'effectiveFrom'])
+export class TransitBusOperatorHistory extends OwnedEntity {
+  @Column('uuid') busId!: string;
+  @Column('uuid') operatorId!: string;
+  @Column({ type: 'timestamptz' }) effectiveFrom!: Date;
+  @Column({ type: 'timestamptz', nullable: true }) effectiveTo?: Date | null;
+  @Column({ default: '' }) reason!: string;
+  @Column({ default: '' }) changedBy!: string;
+}
+
 @Entity('transit_trips')
 @Index(['ownerId', 'tripCode'], { unique: true })
 @Index(['ownerId', 'busId', 'status'])
@@ -105,6 +118,94 @@ export class TransitTrip extends OwnedEntity {
   @Column({ default: '' }) gate!: string;
   @Column({ default: '' }) currentCheckpoint!: string;
   @Column({ type: 'int', default: 0 }) delayMinutes!: number;
+}
+
+@Entity('transit_trip_location_events')
+@Index(['ownerId', 'tripId', 'occurredAt'])
+export class TransitTripLocationEvent extends OwnedEntity {
+  @Column('uuid') tripId!: string;
+  @Column('uuid') busId!: string;
+  @Column({ type: 'uuid', nullable: true }) checkpointId?: string | null;
+  @Column({ default: '' }) locationName!: string;
+  @Column({ default: '' }) latitude!: string;
+  @Column({ default: '' }) longitude!: string;
+  @Column({ default: 'CAMERA' }) source!: 'CAMERA' | 'GPS' | 'MANUAL';
+  @Column({ default: '' }) sourceEventId!: string;
+  @Column({ type: 'timestamptz' }) occurredAt!: Date;
+  @Column({ type: 'timestamptz', nullable: true }) eta?: Date | null;
+}
+
+@Entity('transit_trip_followers')
+@Index(['ownerId', 'tripId', 'phone'], { unique: true })
+export class TransitTripFollower extends OwnedEntity {
+  @Column('uuid') tripId!: string;
+  @Column() phone!: string;
+  @Column({ default: '' }) name!: string;
+  @Column({ type: 'uuid', nullable: true }) pickupCheckpointId?: string | null;
+  @Column({ type: 'int', default: 30 }) notifyBeforeMinutes!: number;
+  @Column({ type: 'jsonb', default: ['SMS', 'PUSH'] }) channels!: string[];
+  @Column({ default: true }) active!: boolean;
+}
+
+@Entity('transit_arrival_alerts')
+@Index(['ownerId', 'followerId', 'eventKey'], { unique: true })
+export class TransitArrivalAlert extends OwnedEntity {
+  @Column('uuid') tripId!: string;
+  @Column('uuid') followerId!: string;
+  @Column() eventKey!: string;
+  @Column() kind!: 'DEPARTED' | 'CHECKPOINT' | 'PICKUP_ETA' | 'ARRIVED';
+  @Column({ type: 'text' }) message!: string;
+  @Column({ default: 'PENDING' }) status!: 'PENDING' | 'SENT' | 'FAILED';
+  @Column({ type: 'timestamptz', nullable: true }) sentAt?: Date | null;
+}
+
+@Entity('transit_tickets')
+@Index(['ownerId', 'ticketNumber'], { unique: true })
+@Index(['ownerId', 'tripId', 'seatNumber'], { unique: true })
+export class TransitTicket extends OwnedEntity {
+  @Column('uuid') tripId!: string;
+  @Column() ticketNumber!: string;
+  @Column() passengerName!: string;
+  @Column() passengerPhone!: string;
+  @Column() seatNumber!: string;
+  @Column({ type: 'decimal', precision: 18, scale: 2 }) fare!: number;
+  @Column({ default: 'TZS' }) currency!: string;
+  @Column({ default: 'RESERVED' }) status!: 'RESERVED' | 'PAID' | 'BOARDED' | 'CANCELLED';
+  @Column({ default: '' }) paymentReference!: string;
+}
+
+@Entity('transit_passenger_manifests')
+@Index(['ownerId', 'ticketId'], { unique: true })
+export class TransitPassengerManifest extends OwnedEntity {
+  @Column('uuid') tripId!: string;
+  @Column('uuid') ticketId!: string;
+  @Column() passengerName!: string;
+  @Column() passengerPhone!: string;
+  @Column() seatNumber!: string;
+  @Column({ default: false }) boarded!: boolean;
+  @Column({ type: 'timestamptz', nullable: true }) boardedAt?: Date | null;
+}
+
+@Entity('transit_vehicle_checkpoint_events')
+@Index(['ownerId', 'vehicleId', 'occurredAt'])
+export class TransitVehicleCheckpointEvent extends OwnedEntity {
+  @Column() vehicleType!: 'BUS' | 'TRUCK' | 'CARGO' | 'DELIVERY' | 'FLEET';
+  @Column() vehicleId!: string;
+  @Column({ type: 'uuid', nullable: true }) checkpointId?: string | null;
+  @Column({ default: '' }) locationName!: string;
+  @Column({ default: 'CAMERA' }) source!: 'CAMERA' | 'GPS' | 'MANUAL';
+  @Column({ type: 'timestamptz' }) occurredAt!: Date;
+  @Column({ type: 'jsonb', default: {} }) metadata!: Record<string, unknown>;
+}
+
+@Entity('transit_authority_grants')
+@Index(['ownerId', 'authorityUserId', 'role'], { unique: true })
+export class TransitAuthorityGrant extends OwnedEntity {
+  @Column('uuid') authorityUserId!: string;
+  @Column() role!: 'government_viewer' | 'settlement_officer' | 'compliance_officer' | 'traffic_enforcement';
+  @Column({ type: 'jsonb', default: {} }) scope!: Record<string, unknown>;
+  @Column({ default: true }) active!: boolean;
+  @Column({ default: '' }) grantedBy!: string;
 }
 
 @Entity('transit_plate_detections')
@@ -313,4 +414,7 @@ export const TRANSIT_ENTITIES = [
   TransitUnpaidDetection, TransitEnforcementAlert, TransitExemption,
   TransitOffRoadPeriod, TransitPaymentDispute, TransitGovernmentSettlement,
   TransitGovernmentSettlementLine, TransitComplianceAudit,
+  TransitTripLocationEvent, TransitTripFollower, TransitArrivalAlert, TransitTicket,
+  TransitPassengerManifest, TransitVehicleCheckpointEvent, TransitAuthorityGrant,
+  TransitBusOperatorHistory,
 ];

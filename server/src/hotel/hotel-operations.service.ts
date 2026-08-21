@@ -12,6 +12,7 @@ import type {
   CreateAssetDto, CreateHotelRequisitionDto, CreatePayrollDto, CreatePettyCashDto,
   HotelStatementQueryDto, ReviewHotelRequisitionDto,
 } from './hotel-operations.dto';
+import { PlatformEventsService } from '../platform/platform.service';
 
 const today = () => new Date().toISOString().slice(0, 10);
 const money = (v: unknown) => Number(v ?? 0) || 0;
@@ -46,6 +47,7 @@ export class HotelOperationsService {
     @InjectRepository(HotelOrder) private readonly orders: Repository<HotelOrder>,
     @InjectRepository(HotelRoom) private readonly rooms: Repository<HotelRoom>,
     @InjectRepository(HotelFinancialRecord) private readonly financials: Repository<HotelFinancialRecord>,
+    private readonly events: PlatformEventsService,
   ) {}
 
   private async post(ownerId: string, data: Partial<HotelLedgerEntry>) {
@@ -364,5 +366,12 @@ export class HotelOperationsService {
       definitions: ['Rooms revenue uses hotel financial records when posted; otherwise it allocates overlapping booking value by nights.', 'Food & beverage revenue uses hotel financial records when posted; otherwise it uses completed/non-cancelled restaurant orders.', 'Occupancy = rooms sold nights ÷ available room nights; ADR = rooms revenue ÷ rooms sold nights; RevPAR = rooms revenue ÷ available room nights.', 'Financial position is ledger-derived. Equity is the balancing figure until opening balances and all liability/equity accounts are posted.'],
       revenue, expenses, totalRevenue: current.revenue, totalExpenses: current.operatingExpenses + current.depreciation, netProfit: current.netProfit, fixedAssetsNet, ledgerCount: ledger.length,
     };
+  }
+
+  async dailyClose(ownerId: string, query: HotelStatementQueryDto = {}) {
+    const closeDate = dateOnly(query.to) || today();
+    const statement = await this.statements(ownerId, { ...query, from: closeDate, to: closeDate });
+    await this.events.emit({ ownerId, eventName: 'hotel.daily_close', aggregateType: 'HotelDailyClose', payload: { hotelId: query.hotelId ?? null, closeDate, closeKey: `${query.hotelId ?? 'all'}:${closeDate}`, totalRevenue: statement.totalRevenue, totalExpenses: statement.totalExpenses, netProfit: statement.netProfit, ledgerCount: statement.ledgerCount } });
+    return { status: 'CLOSED', closeDate, hotelId: query.hotelId ?? null, statement };
   }
 }

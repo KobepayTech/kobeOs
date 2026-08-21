@@ -87,6 +87,12 @@ const isPosys = subPosys || seg('/posys');
 const isCargoTz = subCargoTz || seg('/cargotz');
 const isCoach = seg('/coach');
 const isTransit = seg('/transit');
+const isJumla = appSub === 'jumla' || seg('/jumla');
+const isLala = appSub === 'lala' || seg('/lala');
+const lalaPassportMatch = pathname.match(/^\/lala\/passport\/([A-Za-z0-9_-]{16,})\/?$/) || (appSub === 'lala' ? pathname.match(/^\/passport\/([A-Za-z0-9_-]{16,})\/?$/) : null);
+const isCommercialClaim = seg('/claim-shop');
+const liteStoreMatch = pathname.match(/^\/lite-shop\/([a-z0-9][a-z0-9-]{0,61}[a-z0-9]|[a-z0-9])\/?$/i);
+const liteManageMatch = pathname.match(/^\/lite-manage\/([0-9a-f-]{36})\/?$/i);
 const transitBoardMatch = pathname.match(/^\/transit-board\/([0-9a-f-]{36})\/?$/i);
 // Public tenant storefront: subdomain slug (kelvinfashion.kobeapptz.com)
 // or apex fallback (/shop/kelvinfashion). Regex validates that the slug
@@ -210,6 +216,16 @@ if (oauthProvider) {
   // KobeOS Transit — installable operations/compliance PWA.
   import('./apps/kobe-transit/index').then(({ default: KobeTransit }) =>
     mount(<div className="h-screen w-screen overflow-hidden"><KobeTransit /></div>));
+} else if (isJumla) {
+  import('./public/Jumla').then(({ default: Jumla }) => mount(<Jumla />));
+} else if (lalaPassportMatch) {
+  import('./public/LalaPassport').then(({ default: LalaPassport }) => mount(<LalaPassport token={lalaPassportMatch[1]} />));
+} else if (isLala) {
+  import('./public/Lala').then(({ default: Lala }) => mount(<Lala />));
+} else if (isCommercialClaim) {
+  import('./public/CommercialClaim').then(({ default: CommercialClaim }) => mount(<CommercialClaim />));
+} else if (liteStoreMatch || liteManageMatch) {
+  import('./public/LiteStore').then(({ default: LiteStore }) => mount(<LiteStore slug={liteStoreMatch?.[1]?.toLowerCase()} businessId={liteManageMatch?.[1]} />));
 } else if (transitBoardMatch) {
   import('./public/TransitBoard').then(({ default: TransitBoard }) =>
     mount(<TransitBoard ownerId={transitBoardMatch[1]} />));

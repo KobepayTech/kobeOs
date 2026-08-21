@@ -25,7 +25,7 @@ export class AddKobeTransitCompliance1783400000000 implements MigrationInterface
       `CREATE INDEX IF NOT EXISTS "IDX_transit_checkpoint_route" ON "transit_checkpoints" ("ownerId", "routeId", "sequence")`,
       `CREATE INDEX IF NOT EXISTS "IDX_transit_checkpoint_owner" ON "transit_checkpoints" ("ownerId")`,
 
-      `CREATE TABLE IF NOT EXISTS "transit_cameras" (${base}, "code" varchar NOT NULL, "name" varchar NOT NULL, "checkpointId" uuid, "location" varchar NOT NULL DEFAULT '', "direction" varchar NOT NULL DEFAULT 'BOTH', "confidenceThreshold" double precision NOT NULL DEFAULT 0.85, "active" boolean NOT NULL DEFAULT true, CONSTRAINT "PK_transit_cameras" PRIMARY KEY ("id"))`,
+      `CREATE TABLE IF NOT EXISTS "transit_cameras" (${base}, "code" varchar NOT NULL, "name" varchar NOT NULL, "checkpointId" uuid, "location" varchar NOT NULL DEFAULT '', "direction" varchar NOT NULL DEFAULT 'BOTH', "confidenceThreshold" double precision NOT NULL DEFAULT 0.85, "apiKeyHash" varchar NOT NULL DEFAULT '', "lastHeartbeatAt" timestamptz, "active" boolean NOT NULL DEFAULT true, CONSTRAINT "PK_transit_cameras" PRIMARY KEY ("id"))`,
       `CREATE UNIQUE INDEX IF NOT EXISTS "IDX_transit_camera_owner_code" ON "transit_cameras" ("ownerId", "code")`,
       `CREATE INDEX IF NOT EXISTS "IDX_transit_camera_owner" ON "transit_cameras" ("ownerId")`,
 

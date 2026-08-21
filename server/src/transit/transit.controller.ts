@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import {
   ArrayNotEmpty, IsArray, IsDateString, IsEmail, IsIn, IsInt, IsNumber,
@@ -123,6 +123,14 @@ class DisputeDto {
   @IsOptional() @IsUrl({ require_tld: false }) receiptUrl?: string;
   @IsString() @MaxLength(3000) explanation!: string;
 }
+class OffRoadDto {
+  @IsUUID() busId!: string;
+  @IsString() @MaxLength(2000) reason!: string;
+  @IsDateString() startsAt!: string;
+  @IsDateString() endsAt!: string;
+  @IsOptional() @IsUrl({ require_tld: false }) evidenceUrl?: string;
+  @IsOptional() @IsIn(['NORMAL', 'EXEMPT']) feeTreatment?: 'NORMAL' | 'EXEMPT';
+}
 
 @UseGuards(JwtAuthGuard)
 @Controller('transit')
@@ -140,10 +148,12 @@ export class TransitController {
   @Post('checkpoints') createCheckpoint(@CurrentUser('id') uid: string, @Body() dto: CheckpointDto) { return this.transit.createCheckpoint(uid, dto); }
   @Get('cameras') cameras(@CurrentUser('id') uid: string) { return this.transit.listCameras(uid); }
   @Post('cameras') createCamera(@CurrentUser('id') uid: string, @Body() dto: CameraDto) { return this.transit.createCamera(uid, dto); }
+  @Post('cameras/:id/rotate-key') rotateCameraKey(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.transit.rotateCameraKey(uid, id); }
 
   @Get('buses') buses(@CurrentUser('id') uid: string) { return this.transit.listBuses(uid); }
   @Post('buses') createBus(@CurrentUser('id') uid: string, @Body() dto: BusDto) { return this.transit.createBus(uid, dto); }
   @Post('buses/:id/plate') changePlate(@CurrentUser('id') uid: string, @Param('id') id: string, @Body('plateNumber') plateNumber: string) { return this.transit.changePlate(uid, id, plateNumber); }
+  @Post('buses/:id/operator') changeOperator(@CurrentUser('id') uid: string, @CurrentUser('email') actor: string, @Param('id') id: string, @Body() body: { operatorId: string; effectiveAt?: string; reason?: string }) { return this.transit.changeBusOperator(uid, id, body.operatorId, body.effectiveAt, body.reason ?? '', actor); }
   @Get('trips') trips(@CurrentUser('id') uid: string) { return this.transit.listTrips(uid); }
   @Post('trips') createTrip(@CurrentUser('id') uid: string, @Body() dto: TripDto) { return this.transit.createTrip(uid, dto as never); }
 
@@ -155,18 +165,26 @@ export class TransitController {
   @Post('detections') recordDetection(@CurrentUser('id') uid: string, @Body() dto: DetectionDto) { return this.transit.recordDetection(uid, dto); }
   @Patch('detections/:id/review') reviewDetection(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: { status: 'CONFIRMED' | 'REJECTED'; plateNumber?: string }) { return this.transit.reviewDetection(uid, id, dto); }
 
-  @Get('government/overview') government(@CurrentUser('id') uid: string, @Query() filters: Record<string, string>) { return this.transit.governmentOverview(uid, filters); }
-  @Get('government/plates/:plate') plate(@CurrentUser('id') uid: string, @Param('plate') plate: string) { return this.transit.plateDrilldown(uid, plate); }
-  @Get('government/settlements') settlements(@CurrentUser('id') uid: string) { return this.transit.listSettlements(uid); }
-  @Post('government/settlements') createSettlement(@CurrentUser('id') uid: string, @Body() dto: SettlementDto) { return this.transit.createSettlement(uid, dto); }
-  @Post('government/settlements/:id/settle') settle(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: { paymentReference: string; settledAmount?: number }) { return this.transit.settle(uid, id, dto); }
-  @Post('government/settlements/:id/reconcile') reconcile(@CurrentUser('id') uid: string, @Param('id') id: string, @Body('note') note?: string) { return this.transit.reconcileSettlement(uid, id, note); }
+  @Get('government/overview') async government(@CurrentUser('id') uid: string, @Query() filters: Record<string, string>) { const ownerId = await this.transit.governmentScope(uid, filters.ownerId); return this.transit.governmentOverview(ownerId, filters); }
+  @Get('government/plates/:plate') async plate(@CurrentUser('id') uid: string, @Param('plate') plate: string, @Query('ownerId') requestedOwner?: string) { const ownerId = await this.transit.governmentScope(uid, requestedOwner); return this.transit.plateDrilldown(ownerId, plate); }
+  @Get('government/settlements') async settlements(@CurrentUser('id') uid: string, @Query('ownerId') requestedOwner?: string) { const ownerId = await this.transit.governmentScope(uid, requestedOwner); return this.transit.listSettlements(ownerId); }
+  @Post('government/settlements') async createSettlement(@CurrentUser('id') uid: string, @Query('ownerId') requestedOwner: string | undefined, @Body() dto: SettlementDto) { const ownerId = await this.transit.governmentScope(uid, requestedOwner, ['settlement_officer']); return this.transit.createSettlement(ownerId, dto); }
+  @Post('government/settlements/:id/settle') async settle(@CurrentUser('id') uid: string, @Param('id') id: string, @Query('ownerId') requestedOwner: string | undefined, @Body() dto: { paymentReference: string; settledAmount?: number }) { const ownerId = await this.transit.governmentScope(uid, requestedOwner, ['settlement_officer']); return this.transit.settle(ownerId, id, dto); }
+  @Post('government/settlements/:id/reconcile') async reconcile(@CurrentUser('id') uid: string, @Param('id') id: string, @Query('ownerId') requestedOwner: string | undefined, @Body('note') note?: string) { const ownerId = await this.transit.governmentScope(uid, requestedOwner, ['settlement_officer']); return this.transit.reconcileSettlement(ownerId, id, note); }
 
   @Get('exemptions') exemptions(@CurrentUser('id') uid: string) { return this.transit.listExemptions(uid); }
   @Post('exemptions') createExemption(@CurrentUser('id') uid: string, @CurrentUser('email') actor: string, @Body() dto: ExemptionDto) { return this.transit.createExemption(uid, dto as never, actor); }
   @Patch('exemptions/:id/decision') decideExemption(@CurrentUser('id') uid: string, @CurrentUser('email') actor: string, @Param('id') id: string, @Body('approved') approved: boolean) { return this.transit.decideExemption(uid, id, approved, actor); }
+  @Get('off-road') offRoad(@CurrentUser('id') uid: string) { return this.transit.listOffRoad(uid); }
+  @Post('off-road') createOffRoad(@CurrentUser('id') uid: string, @Body() dto: OffRoadDto) { return this.transit.createOffRoad(uid, dto as never); }
+  @Patch('off-road/:id/decision') decideOffRoad(@CurrentUser('id') uid: string, @CurrentUser('email') actor: string, @Param('id') id: string, @Body('approved') approved: boolean) { return this.transit.decideOffRoad(uid, id, approved, actor); }
   @Get('disputes') disputes(@CurrentUser('id') uid: string) { return this.transit.listDisputes(uid); }
   @Post('disputes') createDispute(@CurrentUser('id') uid: string, @Body() dto: DisputeDto) { return this.transit.createDispute(uid, dto as never); }
+  @Patch('disputes/:id') updateDispute(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() body: { status: 'SUBMITTED' | 'REVIEWING' | 'RESOLVED' | 'REJECTED'; resolutionNote?: string }) { return this.transit.updateDispute(uid, id, body.status, body.resolutionNote); }
+  @Post('gps') gps(@CurrentUser('id') uid: string, @Body() dto: { tripId: string; latitude: string; longitude: string; locationName?: string; occurredAt?: string; eta?: string }) { return this.transit.recordGps(uid, dto); }
+  @Post('vehicle-events') vehicleEvent(@CurrentUser('id') uid: string, @Body() dto: { vehicleType: 'BUS' | 'TRUCK' | 'CARGO' | 'DELIVERY' | 'FLEET'; vehicleId: string; checkpointId?: string; locationName?: string; source?: 'CAMERA' | 'GPS' | 'MANUAL'; occurredAt?: string; metadata?: Record<string, unknown> }) { return this.transit.recordVehicleCheckpoint(uid, dto); }
+  @Post('authority-grants') grant(@CurrentUser('id') uid: string, @CurrentUser('email') actor: string, @Body() dto: { authorityUserId: string; role: 'government_viewer' | 'settlement_officer' | 'compliance_officer' | 'traffic_enforcement'; scope?: Record<string, unknown> }) { return this.transit.grantAuthority(uid, actor, dto); }
+  @Get('analytics') analytics(@CurrentUser('id') uid: string) { return this.transit.analytics(uid); }
 }
 
 @Public()
@@ -174,4 +192,15 @@ export class TransitController {
 export class TransitPublicController {
   constructor(private readonly transit: TransitService) {}
   @Get(':ownerId/board') board(@Param('ownerId') ownerId: string) { return this.transit.publicBoard(ownerId); }
+  @Post('trips/:tripId/follow') follow(@Param('tripId') tripId: string, @Body() dto: { phone: string; name?: string; pickupCheckpointId?: string; notifyBeforeMinutes?: number; channels?: string[] }) { return this.transit.followTrip(tripId, dto); }
+  @Get('journeys/search') search(@Query() query: Record<string, string>) { return this.transit.publicTransportSearch(query); }
+  @Post('trips/:tripId/tickets') ticket(@Param('tripId') tripId: string, @Body() dto: { passengerName: string; passengerPhone: string; seatNumber: string; fare: number; currency?: string }) { return this.transit.reserveTicket(tripId, dto); }
+}
+
+@Public()
+@Controller('transit-camera')
+export class TransitCameraController {
+  constructor(private readonly transit: TransitService) {}
+  @Post(':cameraId/detections') detection(@Param('cameraId') cameraId: string, @Headers('x-camera-key') apiKey: string, @Body() dto: { plateNumber: string; confidence: number; direction?: string; imageUrl?: string; detectedAt?: string }) { return this.transit.ingestCamera(cameraId, apiKey, dto); }
+  @Post(':cameraId/heartbeat') heartbeat(@Param('cameraId') cameraId: string, @Headers('x-camera-key') apiKey: string) { return this.transit.cameraHeartbeat(cameraId, apiKey); }
 }

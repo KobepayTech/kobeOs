@@ -10,6 +10,7 @@ import { UsersService } from '../users/users.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { RefreshToken } from './refresh-token.entity';
+import type { User } from '../users/user.entity';
 
 export function sha256(input: string): string {
   return createHash('sha256').update(input).digest('hex');
@@ -30,7 +31,7 @@ function internalEmailForPhone(phone: string): string {
 export interface IssuedTokens {
   accessToken: string;
   refreshToken: string;
-  user: { id: string; email: string; phone?: string | null; displayName?: string; role: 'user' | 'admin' };
+  user: { id: string; email: string; phone?: string | null; displayName?: string; role: User['role'] };
 }
 
 type OAuthProvider = 'tiktok' | 'meta';
@@ -353,7 +354,7 @@ export class AuthService {
     sub: string,
     email: string,
     displayName: string | undefined,
-    role: 'user' | 'admin',
+    role: User['role'],
     phone?: string | null,
   ): Promise<IssuedTokens> {
     const accessExpires = this.config.get<string>('JWT_EXPIRES_IN', '15m');
