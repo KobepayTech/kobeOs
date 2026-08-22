@@ -66,9 +66,20 @@ export function MobileAssistant() {
     setError(null);
 
     try {
-      const response = await api<unknown>('/ai/gateway/status', { 
-        offlineFallback: false,
-        timeout: 10000,
+      const controller = new AbortController();
+const timeoutId = setTimeout(() => controller.abort(), 5000); // adjust timeout as needed
+
+try {
+  const response = await fetch(url, {
+    // ... keep all other options EXCEPT `timeout`
+    signal: controller.signal,
+  });
+  // ... handle the response as before
+} catch (error) {
+  // handle errors (including abort)
+} finally {
+  clearTimeout(timeoutId);
+
       });
       
       const status = apiObject<GatewayStatus>(response);
