@@ -5,6 +5,7 @@ import { basename, join, relative, resolve, sep } from 'path';
 import { promisify } from 'util';
 
 const execFileAsync = promisify(execFile);
+const BRANCH_PATTERN = new RegExp('^[a-zA-Z0-9._/-]{1,120}$');
 
 @Injectable()
 export class DeveloperGitService {
@@ -36,14 +37,14 @@ export class DeveloperGitService {
       if (depth > 2) return;
       let entries: Awaited<ReturnType<typeof fs.readdir>>;
       try { entries = await fs.readdir(dir, { withFileTypes: true }); } catch { return; }
-      if (entries.some((e) => e.isDirectory() && e.name === '.git')) {
+      if (entries.some((entry) => entry.isDirectory() && entry.name === '.git')) {
         const repo = relative(this.root, dir).replace(/\\/g, '/');
         if (repo) out.push({ repo, name: basename(dir) });
         return;
       }
-      for (const e of entries) {
-        if (!e.isDirectory() || e.name.startsWith('.') || e.name === 'node_modules') continue;
-        await scan(join(dir, e.name), depth + 1);
+      for (const entry of entries) {
+        if (!entry.isDirectory() || entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+        await scan(join(dir, entry.name), depth + 1);
       }
     };
     await scan(this.root, 0);
@@ -97,13 +98,14 @@ export class DeveloperGitService {
 
   async checkout(repo: string, branch: string, create = false) {
     const clean = String(branch || '').trim();
-    if (!/^[a-zA-Z0-9._\/-]{1,120}$/.test(clean) || clean.includes('..')) throw new BadRequestException('Invalid branch name');
+    if (!BRANCH_PATTERN.test(clean) || clean.includes('..')) throw new BadRequestException('Invalid branch name');
     await this.git(repo, create ? ['checkout', '-b', clean] : ['checkout', clean]);
     return this.status(repo);
   }
 
   async sync(repo: string, direction: 'pull' | 'push') {
-    await this.git(repo, [direction, '--ff-only'].filter((_, i) => direction === 'pull' || i === 0));
+    const args = direction === 'pull' ? ['pull', '--ff-only'] : ['push'];
+    await this.git(repo, args);
     return this.status(repo);
   }
 }
