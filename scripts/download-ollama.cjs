@@ -18,13 +18,19 @@ const REQUIRED = process.env.OLLAMA_REQUIRED === '1';
 function run(command, args, options = {}) {
   try {
     const result = execFileSync(command, args, {
-      stdio: ['ignore', 'pipe', 'inherit'],
+      stdio: ['ignore', 'pipe', 'pipe'],
+      encoding: 'utf8',
       ...options,
     });
-    if (!result) return '';
-    return result.toString().trim();
+    // Handle cases where result might be null, undefined, or empty
+    if (result === null || result === undefined) {
+      return '';
+    }
+    const str = String(result).trim();
+    return str;
   } catch (error) {
-    throw new Error(`Command failed: ${command} ${args.join(' ')}: ${error.message}`);
+    const errorMsg = error.stderr ? error.stderr.toString() : error.message;
+    throw new Error(`Command failed: ${command} ${args.join(' ')}: ${errorMsg}`);
   }
 }
 
@@ -115,24 +121,42 @@ function resolveVersion(env = process.env) {
       '-sIL', '-o', nullDevice, '-w', '%{url_effective}',
       `https://github.com/${REPO}/releases/latest`,
     ]);
-    const match = finalUrl.match(/\/tag\/(v[\w.\-]+)/);
-    if (match) return match[1];
-  } catch {
+    if (finalUrl) {
+      const match = finalUrl.match(/\/tag\/(v[\w.\-]+)/);
+      if (match) return match[1];
+    }
+  } catch (e) {
     // Fall through to the API request below.
+    console.debug('Redirect follow failed, trying API:', e.message);
   }
 
   const args = ['-L', '-f', '-s'];
   const token = env.GITHUB_TOKEN || env.GH_TOKEN;
   if (token) args.push('-H', `Authorization: Bearer ${token}`);
   args.push(`https://api.github.com/repos/${REPO}/releases/latest`);
-  const json = run('curl', args);
-  if (!json) {
+  
+  let json;
+  try {
+    json = run('curl', args);
+  } catch (e) {
+    throw new Error(`Failed to fetch Ollama release info from GitHub: ${e.message}`);
+  }
+
+  if (!json || typeof json !== 'string' || json.length === 0) {
     throw new Error('GitHub API returned empty response - check your network and GITHUB_TOKEN');
   }
-  const parsed = JSON.parse(json);
-  if (!parsed || !parsed.tag_name) {
+
+  let parsed;
+  try {
+    parsed = JSON.parse(json);
+  } catch (e) {
+    throw new Error(`Invalid JSON from GitHub API: ${e.message}\nResponse: ${json.substring(0, 200)}`);
+  }
+
+  if (!parsed || typeof parsed !== 'object' || !parsed.tag_name) {
     throw new Error('could not resolve latest Ollama release tag (invalid API response)');
   }
+  
   return parsed.tag_name;
 }
 
