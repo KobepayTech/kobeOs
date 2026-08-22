@@ -12,7 +12,18 @@ const productionSurfaces = [
   'src/apps/property/PropEasy.tsx',
   'src/apps/erp-admin/index.tsx',
   'src/apps/erp-rider/index.tsx',
+  'src/apps/erp-pos/index.tsx',
+  'src/apps/erp-store-editor/index.tsx',
   'src/apps/erp-shipments/useCargoShipments.ts',
+  'src/apps/cargo-welcome/index.tsx',
+  'src/apps/cargo-sender/index.tsx',
+  'src/apps/cargo-owner/index.tsx',
+  'src/apps/cargo-driver/index.tsx',
+  'src/apps/cargo-receiver/index.tsx',
+  'src/apps/cargo-company/index.tsx',
+  'src/apps/cargo-consolidation/index.tsx',
+  'src/apps/cargo-tz/index.tsx',
+  'src/apps/cargo-tz-ops/index.tsx',
   'src/modules/kobe-studio/KobeStudio.tsx',
   'src/apps/kobe-print/index.tsx',
   'src/apps/kobe-sports/index.tsx',
@@ -24,7 +35,9 @@ const productionSurfaces = [
   'src/apps/music-studio/index.tsx',
   'src/apps/screen-recorder/index.tsx',
   'src/apps/video-conference/index.tsx',
+  'src/lib/appMarketplace.ts',
   'src/os/store-modules.ts',
+  'server/src/pos/pos.controller.ts',
 ];
 
 const forbidden = [
@@ -36,6 +49,7 @@ const forbidden = [
   [/seed-demo/i, 'seed-demo endpoint'],
   [/fallback\s+to\s+demo/i, 'fallback to demo'],
   [/demo\s+fallback/i, 'demo fallback'],
+  [/launching\s+soon/i, 'launching soon placeholder'],
 ];
 
 const failures = [];
