@@ -1,11 +1,20 @@
-import { Construction } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Code2, Download, FilePlus2, FolderOpen, Play, Save, TerminalSquare } from 'lucide-react';
 
-export default function StubApp() {
-  return (
-    <div className="flex flex-col items-center justify-center h-full text-slate-400">
-      <Construction className="w-16 h-16 mb-4" />
-      <h2 className="text-xl font-semibold">Coming Soon</h2>
-      <p className="text-sm mt-1">This app is under development.</p>
-    </div>
-  );
+type Lang='html'|'javascript'|'typescript'|'css'|'json'|'text';
+const DEFAULT=`<!doctype html>\n<html>\n<head><meta charset="utf-8"><title>Kobe Code</title></head>\n<body>\n  <h1>Hello from KobeOS</h1>\n  <script>console.log('Kobe Code ready')</script>\n</body>\n</html>`;
+const languageFor=(name:string):Lang=>name.endsWith('.html')?'html':name.endsWith('.js')?'javascript':name.endsWith('.ts')?'typescript':name.endsWith('.css')?'css':name.endsWith('.json')?'json':'text';
+
+export default function CodeIDE(){
+  const [name,setName]=useState(()=>localStorage.getItem('kobe-code-name')||'index.html');
+  const [code,setCode]=useState(()=>localStorage.getItem('kobe-code-content')||DEFAULT);
+  const [lang,setLang]=useState<Lang>(()=>languageFor(localStorage.getItem('kobe-code-name')||'index.html'));
+  const [preview,setPreview]=useState(false); const [consoleLines,setConsoleLines]=useState<string[]>([]); const fileRef=useRef<HTMLInputElement>(null);
+  useEffect(()=>{const t=setTimeout(()=>{localStorage.setItem('kobe-code-name',name);localStorage.setItem('kobe-code-content',code);},300);return()=>clearTimeout(t);},[name,code]);
+  const newFile=()=>{setName('untitled.txt');setCode('');setLang('text');setPreview(false);setConsoleLines([]);};
+  const open=async(file:File)=>{const text=await file.text();setName(file.name);setCode(text);setLang(languageFor(file.name));setPreview(false);setConsoleLines([]);};
+  const download=()=>{const blob=new Blob([code],{type:'text/plain;charset=utf-8'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download=name||'untitled.txt';a.click();URL.revokeObjectURL(url);};
+  const run=()=>{setConsoleLines([]);if(lang==='html'){setPreview(true);return;}if(lang==='javascript'){try{const logs:string[]=[];const fakeConsole={log:(...args:unknown[])=>logs.push(args.map(String).join(' ')),error:(...args:unknown[])=>logs.push(`ERROR: ${args.map(String).join(' ')}`)};new Function('console',code)(fakeConsole);setConsoleLines(logs.length?logs:['Program completed.']);}catch(e){setConsoleLines([`ERROR: ${(e as Error).message}`]);}return;}if(lang==='json'){try{JSON.parse(code);setConsoleLines(['Valid JSON.']);}catch(e){setConsoleLines([`Invalid JSON: ${(e as Error).message}`]);}return;}setConsoleLines(['Preview/run is available for HTML, JavaScript and JSON.']);};
+  return <div className="h-full min-h-0 flex flex-col bg-[#0d1117] text-slate-100 overflow-hidden"><header className="shrink-0 h-14 px-3 border-b border-white/10 flex items-center gap-2"><Code2 className="h-5 w-5 text-blue-400"/><b>Kobe Code</b><input value={name} onChange={e=>{setName(e.target.value);setLang(languageFor(e.target.value));}} className="ml-3 h-8 min-w-0 flex-1 max-w-sm rounded-lg bg-white/5 border border-white/10 px-2 text-xs"/><span className="text-[10px] uppercase font-black text-slate-500">{lang}</span><input ref={fileRef} type="file" className="hidden" onChange={e=>{const f=e.target.files?.[0];if(f)void open(f);e.currentTarget.value='';}}/><Tool title="New" onClick={newFile}><FilePlus2/></Tool><Tool title="Open" onClick={()=>fileRef.current?.click()}><FolderOpen/></Tool><Tool title="Save/download" onClick={download}><Save/></Tool><Tool title="Run" onClick={run}><Play/></Tool></header><div className="flex-1 min-h-0 grid grid-rows-[1fr_auto]"><div className={`min-h-0 grid ${preview?'lg:grid-cols-2':'grid-cols-1'}`}><div className="min-h-0 relative"><div className="absolute left-0 top-0 bottom-0 w-10 bg-black/20 border-r border-white/5 text-right pr-2 pt-3 text-[11px] leading-5 text-slate-600 select-none overflow-hidden">{code.split('\n').map((_,i)=><div key={i}>{i+1}</div>)}</div><textarea value={code} onChange={e=>setCode(e.target.value)} spellCheck={false} className="w-full h-full resize-none bg-transparent pl-12 pr-3 py-3 font-mono text-[13px] leading-5 outline-none text-slate-200"/></div>{preview&&<iframe title="Preview" sandbox="allow-scripts" srcDoc={code} className="w-full h-full bg-white border-l border-white/10"/>}</div><div className="min-h-24 max-h-44 border-t border-white/10 bg-black/30 overflow-auto"><div className="h-8 px-3 flex items-center gap-2 border-b border-white/5 text-xs text-slate-400"><TerminalSquare className="h-4 w-4"/> Output</div><pre className="p-3 text-xs font-mono whitespace-pre-wrap text-slate-300">{consoleLines.length?consoleLines.join('\n'):'Run HTML, JavaScript or validate JSON. Changes are saved locally as you type.'}</pre></div></div></div>;
 }
+function Tool({title,onClick,children}:{title:string;onClick:()=>void;children:React.ReactElement}){return <button title={title} onClick={onClick} className="h-8 w-8 rounded-lg grid place-items-center text-slate-400 hover:text-white hover:bg-white/10">{children&&<span className="[&>svg]:h-4 [&>svg]:w-4">{children}</span>}</button>}
