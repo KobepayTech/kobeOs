@@ -23,5 +23,5 @@ export class User extends BaseEntity {
   avatarUrl?: string | null;
 
   @Column({ default: 'user' })
-  role!: 'user' | 'admin';
+  role!: 'user' | 'admin' | 'government_viewer' | 'settlement_officer' | 'compliance_officer' | 'traffic_enforcement';
 }

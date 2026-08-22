@@ -26,4 +26,5 @@ export class HotelOperationsController {
 
   @Get('ledger') ledger(@CurrentUser('id') uid: string) { return this.ops.listLedger(uid); }
   @Get('statements') statements(@CurrentUser('id') uid: string, @Query() query: HotelStatementQueryDto) { return this.ops.statements(uid, query); }
+  @Post('daily-close') dailyClose(@CurrentUser('id') uid: string, @Body() query: HotelStatementQueryDto) { return this.ops.dailyClose(uid, query); }
 }

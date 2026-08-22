@@ -9,6 +9,8 @@ const PUBLIC_API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined) ??
   (import.meta.env.DEV ? 'http://localhost:3000/api' : '/api');
 
+export function publicApiBase(): string { return PUBLIC_API_BASE; }
+
 /** Resolve uploaded `/api/media/...` paths against the configured API host. */
 export function publicAssetUrl(value?: string | null): string {
   if (!value) return '';
@@ -28,7 +30,7 @@ const RESERVED_SUBDOMAINS = new Set([
   // so the tenant detector doesn't treat them as a customer slug.
   'tuma', 'mzigo', 'me', 'track', 'posys', 'cargo', 'cargotz',
   // Property module subdomains (#9).
-  'property', 'estate', 'pay', 'contract',
+  'property', 'estate', 'pay', 'contract', 'jumla', 'lala',
 ]);
 
 /**
@@ -51,6 +53,8 @@ export const APP_SUBDOMAINS = {
   estate:  'estate',   // Tenant portal (token-gated)
   pay:     'pay',      // Bank/agent rent-collection panel
   contract: 'contract', // Lawyer contract portal
+  jumla: 'jumla',       // Live commerce discovery network
+  lala: 'lala',         // Live hotel discovery and rewards
 } as const;
 
 export type PublicAppId = (typeof APP_SUBDOMAINS)[keyof typeof APP_SUBDOMAINS];

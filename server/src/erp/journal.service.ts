@@ -26,14 +26,23 @@ export const STANDARD_ACCOUNTS: AccountCode[] = [
   { code: '1300', name: 'Inventory in Transit',       type: 'Asset' },
   { code: '2000', name: 'Sales Tax Payable',          type: 'Liability' },
   { code: '2100', name: 'Customer Deposit Liability', type: 'Liability' },
+  { code: '2200', name: 'Government Transit Fee Payable', type: 'Liability' },
   { code: '4000', name: 'Sales Revenue',              type: 'Revenue' },
   { code: '4100', name: 'Sales Discounts',            type: 'Revenue' },
   { code: '4200', name: 'Exchange Profit/Loss',       type: 'Revenue' },
+  { code: '4300', name: 'Transit Service Revenue',    type: 'Revenue' },
+  { code: '4400', name: 'Hotel Revenue',              type: 'Revenue' },
   { code: '5000', name: 'Cost of Goods Sold',         type: 'Expense' },
   { code: '5100', name: 'Bank Charges',               type: 'Expense' },
   { code: '5200', name: 'Mobile Money Charges',       type: 'Expense' },
   { code: '5300', name: 'Agent Commission',           type: 'Expense' },
   { code: '5400', name: 'Transaction Fees',           type: 'Expense' },
+  { code: '5500', name: 'Operating Expenses',         type: 'Expense' },
+  { code: '5600', name: 'Payroll Expense',            type: 'Expense' },
+  { code: '5700', name: 'Petty Cash Expense',         type: 'Expense' },
+  { code: '1500', name: 'Property, Plant & Equipment', type: 'Asset' },
+  { code: '2300', name: 'Loans Payable',              type: 'Liability' },
+  { code: '3000', name: 'Owner Capital',              type: 'Equity' },
 ];
 
 interface JournalLine {
@@ -285,6 +294,48 @@ export class JournalService {
     return this.postLines(tx, uid, date, [
       { code: '1000', debit: amount,  description: `${reference} payment` },
       { code: '1100', credit: amount, description: `${reference} payment` },
+    ]);
+  }
+
+  /**
+   * A verified transit collection is recognised once, at payment verification:
+   * cash received is split between the government's payable and Kobe revenue.
+   * The caller supplies the same EntityManager used to persist the immutable
+   * allocation rows, keeping the operational and accounting ledgers atomic.
+   */
+  async postTransitFeePaymentInTransaction(
+    tx: EntityManager,
+    uid: string,
+    input: { grossAmount: number; governmentAmount: number; kobeAmount: number; reference: string },
+  ): Promise<ErpTransaction[]> {
+    await this.ensureChartOfAccounts(tx, uid);
+    const gross = Number(input.grossAmount);
+    const government = Number(input.governmentAmount);
+    const kobe = Number(input.kobeAmount);
+    if (Math.abs(gross - government - kobe) > 0.01) {
+      throw new BadRequestException('Transit fee allocation does not balance');
+    }
+    const date = new Date().toISOString().slice(0, 10);
+    return this.postLines(tx, uid, date, [
+      { code: '1000', debit: gross, description: `${input.reference} collected` },
+      { code: '2200', credit: government, description: `${input.reference} government share accrued` },
+      { code: '4300', credit: kobe, description: `${input.reference} Kobe share` },
+    ].filter((line) => Number(line.debit ?? line.credit) > 0));
+  }
+
+  /** Record cash remitted to government and clear the accrued liability. */
+  async postTransitGovernmentSettlementInTransaction(
+    tx: EntityManager,
+    uid: string,
+    amount: number,
+    reference: string,
+  ): Promise<ErpTransaction[]> {
+    await this.ensureChartOfAccounts(tx, uid);
+    if (Number(amount) <= 0) throw new BadRequestException('Settlement amount must be greater than zero');
+    const date = new Date().toISOString().slice(0, 10);
+    return this.postLines(tx, uid, date, [
+      { code: '2200', debit: Number(amount), description: `${reference} government payable cleared` },
+      { code: '1000', credit: Number(amount), description: `${reference} cash remitted` },
     ]);
   }
 

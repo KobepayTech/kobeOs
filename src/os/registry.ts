@@ -90,6 +90,9 @@ import { manifest as erp_discounts } from '@/apps/erp-discounts/manifest';
 import { manifest as erp_shop } from '@/apps/erp-shop/manifest';
 import { manifest as erp_store_editor } from '@/apps/erp-store-editor/manifest';
 import { manifest as kobepay_pro } from '@/apps/kobepay-pro/manifest';
+import { manifest as kobe_transit } from '@/apps/kobe-transit/manifest';
+import { manifest as kobe_accountant } from '@/apps/kobe-accountant/manifest';
+import { manifest as kobe_commerce } from '@/apps/kobe-commerce/manifest';
 
 /** Every module compiled into this KobeOS build. */
 export const appCatalogue = [
@@ -107,7 +110,7 @@ export const appCatalogue = [
   cargo_consolidation, cargo_tz, kobe_print, creator, kobe_models, kobe_sports,
   kobe_hotel, kobe_assistant, kobe_agents, kobe_pay, china_cashier, live_sales,
   cargo_tz_ops, kobe_coach, kobe_studio, kobetech_admin, kobetech_devops,
-  erp_credit, erp_discounts, erp_shop, erp_store_editor, kobepay_pro,
+  erp_credit, erp_discounts, erp_shop, erp_store_editor, kobepay_pro, kobe_transit, kobe_accountant, kobe_commerce,
 ];
 
 /** Modules currently enabled for the launcher and window manager. */

@@ -53,6 +53,17 @@ class EnvVars {
   /** Google Identity Services Web Client ID. Use the same value in VITE_GOOGLE_CLIENT_ID. */
   @IsOptional() @IsString() GOOGLE_CLIENT_ID?: string;
 
+  /** TikTok Login Kit credentials and exact registered callback URL. */
+  @IsOptional() @IsString() TIKTOK_CLIENT_KEY?: string;
+  @IsOptional() @IsString() TIKTOK_CLIENT_SECRET?: string;
+  @IsOptional() @IsString() TIKTOK_REDIRECT_URI?: string;
+
+  /** Facebook Login credentials for the KobeOS "Continue with Meta" button. */
+  @IsOptional() @IsString() META_APP_ID?: string;
+  @IsOptional() @IsString() META_APP_SECRET?: string;
+  @IsOptional() @IsString() META_REDIRECT_URI?: string;
+  @IsOptional() @IsString() META_GRAPH_VERSION?: string;
+
   /** Beem Africa SMS / WhatsApp credentials (https://docs.beem.africa). When unset, channel sends are no-ops. */
   @IsOptional() @IsString() BEEM_API_KEY?: string;
   @IsOptional() @IsString() BEEM_SECRET_KEY?: string;

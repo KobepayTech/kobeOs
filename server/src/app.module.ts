@@ -87,6 +87,11 @@ import { AppMarketplaceModule } from './app-marketplace/app-marketplace.module';
 import { DeveloperPlatformModule } from './developer-platform/developer-platform.module';
 import { MobileMoneyModule } from './mobile-money/mobile-money.module';
 import { KobepayProModule } from './kobepay-pro/kobepay-pro.module';
+import { TransitModule } from './transit/transit.module';
+import { PlatformModule } from './platform/platform.module';
+import { CommerceModule } from './commerce/commerce.module';
+import { LalaModule } from './lala/lala.module';
+import { AccountantModule } from './accountant/accountant.module';
 
 @Module({
   imports: [
@@ -185,6 +190,11 @@ import { KobepayProModule } from './kobepay-pro/kobepay-pro.module';
     RemittanceModule,
     MobileMoneyModule,
     KobepayProModule,
+    TransitModule,
+    PlatformModule,
+    CommerceModule,
+    LalaModule,
+    AccountantModule,
   ],
   controllers: [AppController],
   providers: [

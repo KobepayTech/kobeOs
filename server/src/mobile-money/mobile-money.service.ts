@@ -27,6 +27,7 @@ export interface IngestResult {
 export type PaymentConsumer = (
   ownerId: string, txn: InboundPayment,
 ) => Promise<{ consumed: boolean; ref?: string } | void>;
+export type PaymentObserver = (ownerId: string, txn: InboundPayment) => Promise<void>;
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 function safeEqualHex(a: string, b: string): boolean {
@@ -38,6 +39,7 @@ function safeEqualHex(a: string, b: string): boolean {
 export class MobileMoneyService {
   private readonly logger = new Logger(MobileMoneyService.name);
   private readonly consumers = new Map<string, PaymentConsumer>();
+  private readonly observers = new Map<string, PaymentObserver>();
 
   constructor(
     @InjectRepository(SmsDevice) private readonly devices: Repository<SmsDevice>,
@@ -48,6 +50,12 @@ export class MobileMoneyService {
   registerConsumer(purpose: string, fn: PaymentConsumer) {
     this.consumers.set(purpose, fn);
     this.logger.log(`Payment consumer registered for purpose "${purpose}"`);
+  }
+
+  /** Register a non-claiming listener for every verified incoming payment. */
+  registerObserver(name: string, fn: PaymentObserver) {
+    this.observers.set(name, fn);
+    this.logger.log(`Payment observer registered as "${name}"`);
   }
 
   // ── Device registry ────────────────────────────────────────────────────────
@@ -120,6 +128,19 @@ export class MobileMoneyService {
 
     // Only genuine incoming money is dispatched to consumers.
     if (status === 'RECEIVED') {
+      const observerResults = await Promise.allSettled(
+        [...this.observers.entries()].map(async ([name, observer]) => {
+          try {
+            await observer(ownerId, txn);
+          } catch (error) {
+            this.logger.warn(`Observer "${name}" failed for ${parsed.transactionId}: ${(error as Error).message}`);
+            throw error;
+          }
+        }),
+      );
+      const failedObservers = observerResults.filter((result) => result.status === 'rejected').length;
+      if (failedObservers) this.logger.warn(`${failedObservers} payment observer(s) failed for ${parsed.transactionId}`);
+
       const consumer = this.consumers.get(purpose) ?? this.consumers.get('general');
       if (consumer) {
         try {

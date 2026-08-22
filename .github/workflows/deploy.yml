@@ -34,39 +34,76 @@ jobs:
           TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
           TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
           TIKTOK_REDIRECT_URI: ${{ secrets.TIKTOK_REDIRECT_URI }}
+          META_APP_ID: ${{ secrets.META_APP_ID }}
+          META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
+          META_REDIRECT_URI: ${{ secrets.META_REDIRECT_URI }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: TIKTOK_CLIENT_KEY,TIKTOK_CLIENT_SECRET,TIKTOK_REDIRECT_URI
+          envs: TIKTOK_CLIENT_KEY,TIKTOK_CLIENT_SECRET,TIKTOK_REDIRECT_URI,META_APP_ID,META_APP_SECRET,META_REDIRECT_URI,GOOGLE_CLIENT_ID
           script: |
             set -e
             cd /opt/kobe-studio
+            COMPOSE_FILE=server/docker-compose.prod.yml
+            ENV_FILE=server/.env
+
+            compose() {
+              docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+            }
 
             # Keep TikTok OAuth credentials on the server. Values come from
             # GitHub's production environment secrets and are never committed.
             if [ -n "${TIKTOK_CLIENT_KEY:-}" ] && [ -n "${TIKTOK_CLIENT_SECRET:-}" ]; then
-              touch .env
+              touch "$ENV_FILE"
               tmp_env="$(mktemp)"
-              grep -vE '^(TIKTOK_CLIENT_KEY|TIKTOK_CLIENT_SECRET|TIKTOK_REDIRECT_URI)=' .env > "$tmp_env" || true
+              grep -vE '^(TIKTOK_CLIENT_KEY|TIKTOK_CLIENT_SECRET|TIKTOK_REDIRECT_URI)=' "$ENV_FILE" > "$tmp_env" || true
               printf '%s\n' \
                 "TIKTOK_CLIENT_KEY=$TIKTOK_CLIENT_KEY" \
                 "TIKTOK_CLIENT_SECRET=$TIKTOK_CLIENT_SECRET" \
                 "TIKTOK_REDIRECT_URI=${TIKTOK_REDIRECT_URI:-https://api.kobeapptz.com/api/auth/oauth/tiktok/callback}" >> "$tmp_env"
-              mv "$tmp_env" .env
+              mv "$tmp_env" "$ENV_FILE"
+            fi
+
+            # Meta/Facebook Login uses the same server-side OAuth pattern.
+            # Keep the app secret only in GitHub and the production .env.
+            if [ -n "${META_APP_ID:-}" ] && [ -n "${META_APP_SECRET:-}" ]; then
+              touch "$ENV_FILE"
+              tmp_env="$(mktemp)"
+              grep -vE '^(META_APP_ID|META_APP_SECRET|META_REDIRECT_URI|META_GRAPH_VERSION)=' "$ENV_FILE" > "$tmp_env" || true
+              printf '%s\n' \
+                "META_APP_ID=$META_APP_ID" \
+                "META_APP_SECRET=$META_APP_SECRET" \
+                "META_REDIRECT_URI=${META_REDIRECT_URI:-https://api.kobeapptz.com/api/auth/oauth/meta/callback}" \
+                "META_GRAPH_VERSION=v24.0" >> "$tmp_env"
+              mv "$tmp_env" "$ENV_FILE"
+            fi
+
+            # Google uses one Web Client ID in both places: the API validates
+            # the ID token against it, and Vite embeds it in the web bundle.
+            # The value is optional until Google OAuth is configured.
+            if [ -n "${GOOGLE_CLIENT_ID:-}" ]; then
+              touch "$ENV_FILE"
+              tmp_env="$(mktemp)"
+              grep -vE '^(GOOGLE_CLIENT_ID|VITE_GOOGLE_CLIENT_ID)=' "$ENV_FILE" > "$tmp_env" || true
+              printf '%s\n' \
+                "GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID" \
+                "VITE_GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID" >> "$tmp_env"
+              mv "$tmp_env" "$ENV_FILE"
             fi
 
             # Pull the latest registry-built API image; the web image
             # is rebuilt locally from the source tree (next step).
-            docker compose -f docker-compose.prod.yml pull api
+            compose pull api
 
             # Pull latest source so Dockerfile.web sees fresh code, then
             # rebuild + tag the web image. `--pull` keeps the node:20-alpine
             # base layer current.
             if [ -d .git ]; then
               git pull --ff-only
-              docker compose -f docker-compose.prod.yml build --pull web
+              compose build --pull web
             else
               echo "⚠ /opt/kobe-studio is not a git checkout — skipping web rebuild."
               echo "  Provision a clone with: git clone <repo> /opt/kobe-studio"
@@ -75,30 +112,31 @@ jobs:
             # Auto-generate VAPID keys for Web Push on the first deploy
             # that introduces them. Idempotent — the script refuses to
             # overwrite existing VAPID_* lines, so re-runs are safe.
-            if [ -f .env ] && ! grep -q "^VAPID_PUBLIC_KEY=" .env; then
+            if [ -f "$ENV_FILE" ] && ! grep -q "^VAPID_PUBLIC_KEY=" "$ENV_FILE"; then
               echo "→ VAPID keys missing — generating now…"
-              docker compose -f docker-compose.prod.yml run --rm \
-                -v "$PWD/.env:/app/.env" \
+              compose run --rm \
+                -v "$PWD/$ENV_FILE:/app/.env" \
                 api npm run vapid:generate || \
-                echo "⚠ vapid:generate failed — push will stay disabled. Run manually: docker compose run --rm api npm run vapid:generate"
+                echo "⚠ vapid:generate failed — push will stay disabled. Run manually: docker compose --env-file $ENV_FILE -f $COMPOSE_FILE run --rm api npm run vapid:generate"
             fi
 
-            # Run migrations before swapping containers
-            docker compose -f docker-compose.prod.yml run --rm api \
-              node dist/main --migrate-only || true
+            # The API image has DB_MIGRATIONS_RUN=true. Its startup runs any
+            # pending migrations before the health check turns green, so a
+            # bad migration fails the deploy instead of being ignored.
+            compose up -d api web
 
-            # Rolling restart — zero downtime. nginx depends on both api +
+            # Rolling restart — zero downtime where the proxy can keep the
+            # old API while the replacement becomes healthy. nginx depends on both api +
             # web so omitting --no-deps lets it pick up new container IPs
             # if either backend service was rebuilt.
-            docker compose -f docker-compose.prod.yml up -d api web
-            docker compose -f docker-compose.prod.yml exec -T nginx nginx -s reload || \
-              docker compose -f docker-compose.prod.yml up -d --no-deps nginx
+            compose exec -T nginx nginx -s reload || \
+              compose up -d --no-deps nginx
 
             # Health checks: API + a HEAD on the SPA so we catch a broken
             # build artifact before customer traffic hits a 502.
             sleep 10
-            curl -sf http://localhost:3000/api/health || (docker compose -f docker-compose.prod.yml logs api --tail=50 && exit 1)
+            curl -sf http://localhost:3000/api/health || (compose logs api --tail=50 && exit 1)
             curl -sfI http://localhost/ -H 'Host: kobeapptz.com' >/dev/null || \
-              (docker compose -f docker-compose.prod.yml logs web nginx --tail=50 && exit 1)
+              (compose logs web nginx --tail=50 && exit 1)
 
             echo "Deploy complete: $(date)"

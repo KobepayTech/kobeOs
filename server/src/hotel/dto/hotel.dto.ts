@@ -7,7 +7,7 @@ export class CreateRoomDto {
   @IsNumber() @Min(0) rate!: number;
   @IsOptional() @IsString() @MaxLength(8) currency?: string;
   @IsOptional() @IsInt() @Min(1) capacity?: number;
-  @IsOptional() @IsEnum(['available', 'occupied', 'reserved', 'maintenance']) status?: 'available' | 'occupied' | 'reserved' | 'maintenance';
+  @IsOptional() @IsEnum(['available', 'occupied', 'reserved', 'cleaning', 'maintenance']) status?: 'available' | 'occupied' | 'reserved' | 'cleaning' | 'maintenance';
   @IsOptional() @IsUUID() hotelId?: string;
   @IsOptional() @IsString() imageUrl?: string;
 }
@@ -15,7 +15,7 @@ export class UpdateRoomDto {
   @IsOptional() @IsString() type?: string;
   @IsOptional() @IsNumber() @Min(0) rate?: number;
   @IsOptional() @IsInt() @Min(1) capacity?: number;
-  @IsOptional() @IsEnum(['available', 'occupied', 'reserved', 'maintenance']) status?: 'available' | 'occupied' | 'reserved' | 'maintenance';
+  @IsOptional() @IsEnum(['available', 'occupied', 'reserved', 'cleaning', 'maintenance']) status?: 'available' | 'occupied' | 'reserved' | 'cleaning' | 'maintenance';
   @IsOptional() @IsUUID() hotelId?: string;
   @IsOptional() @IsString() imageUrl?: string;
 }
