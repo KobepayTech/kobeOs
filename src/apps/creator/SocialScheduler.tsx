@@ -1,232 +1,160 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
-import { api } from '@/lib/api';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import {
-  Calendar, CalendarDays, PenLine, Link2, Image, BarChart3,
-  ChevronLeft, ChevronRight, Instagram, Twitter, Facebook,
-  Linkedin, Youtube, Video, Pin, AtSign, Cloud,
-  X, Plus, Clock, Eye, Heart, MessageSquare, Share2,
-  CheckCircle2, Upload, Search, Filter,
-  Trash2, TrendingUp, Hash
+  AlertTriangle, BarChart3, CalendarDays, CheckCircle2, Clock, ExternalLink,
+  Eye, Heart, Image as ImageIcon, Instagram, Link2, Loader2, MessageSquare,
+  PenLine, RefreshCw, Send, Share2, Trash2, Upload, Video,
 } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
+import { api, fetchObjectUrl, uploadFile } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
-// ═══════════════════════════════════════════════════
-// TYPES
-// ═══════════════════════════════════════════════════
+type SubView = 'calendar' | 'composer' | 'accounts' | 'media' | 'analytics';
+type PostStatus = 'draft' | 'scheduled' | 'publishing' | 'published' | 'failed';
 
 interface ScheduledPost {
   id: string;
   content: string;
   platforms: string[];
   mediaUrls: string[];
-  scheduledAt: string;
-  status: 'draft' | 'scheduled' | 'published' | 'failed';
-  engagement?: { likes: number; comments: number; shares: number; impressions: number };
+  scheduledAt: string | null;
+  status: PostStatus;
+  publishedAt?: string | null;
+  engagementStats?: { likes?: number; comments?: number; shares?: number; impressions?: number };
+  platformPostIds?: Record<string, string>;
+  createdAt?: string;
 }
 
-interface ConnectedAccount {
+interface PostList {
+  items: ScheduledPost[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+interface SocialAccount {
   id: string;
   platform: string;
   accountName: string;
-  handle: string;
+  accountHandle: string;
+  status: string;
+  accountAvatar?: string | null;
+  tokenExpiresAt?: string | null;
+  scopes?: string[];
+  lastSyncedAt?: string | null;
+}
+
+interface Capability {
+  platform: string;
   connected: boolean;
-  lastSynced: string | null;
-  avatar: string;
+  account: SocialAccount | null;
+  capabilities: {
+    profileRead: boolean;
+    mediaRead: boolean;
+    metricsRead: boolean;
+    publishImage: boolean;
+    publishVideo: boolean;
+  };
+  reason: string;
 }
 
-interface MediaItem {
+interface MediaAsset {
   id: string;
-  url: string;
-  type: 'image' | 'video';
+  kind: 'photo' | 'audio' | 'video' | 'image';
   name: string;
-  size: string;
-  uploadedAt: string;
+  mimeType?: string | null;
+  src: string;
+  size: number;
+  createdAt?: string;
 }
 
-type SubView = 'calendar' | 'composer' | 'accounts' | 'media' | 'analytics';
-
-// ═══════════════════════════════════════════════════
-// MOCK DATA
-// ═══════════════════════════════════════════════════
-
-const now = new Date();
-const currentYear = now.getFullYear();
-const currentMonth = now.getMonth();
-
-function d(day: number, monthOffset = 0) {
-  const m = currentMonth + monthOffset;
-  const y = currentYear + Math.floor(m / 12);
-  const mo = ((m % 12) + 12) % 12;
-  return new Date(y, mo, day).toISOString();
+interface AnalyticsResponse {
+  totalPosts: number;
+  totals: { likes: number; comments: number; shares: number; impressions: number };
+  platformBreakdown: Record<string, { posts: number; likes: number; comments: number; shares: number; impressions: number }>;
+  statusBreakdown: Record<string, number>;
 }
 
-const mockPosts: ScheduledPost[] = [
-  { id: 'p1', content: 'Excited to launch our summer collection! ☀️ Check out the new styles. #SummerVibes #Fashion', platforms: ['instagram', 'facebook'], mediaUrls: ['/mock/summer1.jpg'], scheduledAt: d(3), status: 'published', engagement: { likes: 1240, comments: 89, shares: 45, impressions: 15000 } },
-  { id: 'p2', content: 'Behind the scenes of our latest shoot 📸 What do you think?', platforms: ['instagram', 'tiktok'], mediaUrls: ['/mock/bts1.jpg', '/mock/bts2.jpg'], scheduledAt: d(5), status: 'published', engagement: { likes: 890, comments: 67, shares: 32, impressions: 12000 } },
-  { id: 'p3', content: 'Quick tips for boosting engagement on your posts 🧵👇', platforms: ['twitter'], mediaUrls: [], scheduledAt: d(8), status: 'published', engagement: { likes: 2340, comments: 156, shares: 890, impressions: 45000 } },
-  { id: 'p4', content: 'Join us live this Friday at 7pm EST! We are answering all your questions.', platforms: ['youtube', 'instagram'], mediaUrls: ['/mock/live-promo.jpg'], scheduledAt: d(10), status: 'scheduled' },
-  { id: 'p5', content: 'Our CEO shares insights on building a brand in 2025. Read the full article.', platforms: ['linkedin', 'twitter'], mediaUrls: [], scheduledAt: d(12), status: 'scheduled' },
-  { id: 'p6', content: 'New product drop alert! 🚨 Limited quantities available.', platforms: ['instagram', 'twitter', 'facebook'], mediaUrls: ['/mock/product-drop.jpg'], scheduledAt: d(15), status: 'scheduled' },
-  { id: 'p7', content: 'How we increased our conversion rate by 300%. Case study thread 🧵', platforms: ['twitter', 'linkedin'], mediaUrls: [], scheduledAt: d(18), status: 'draft' },
-  { id: 'p8', content: 'Tutorial: Setting up your workspace for maximum productivity', platforms: ['youtube'], mediaUrls: ['/mock/tutorial-thumb.jpg'], scheduledAt: d(20), status: 'draft' },
-  { id: 'p9', content: 'Monday motivation: Start your week with purpose 💪', platforms: ['instagram', 'facebook', 'linkedin'], mediaUrls: ['/mock/monday.jpg'], scheduledAt: d(22), status: 'scheduled' },
-  { id: 'p10', content: 'Pinterest boards for interior design inspiration ✨', platforms: ['pinterest'], mediaUrls: ['/mock/pin1.jpg', '/mock/pin2.jpg'], scheduledAt: d(25), status: 'scheduled' },
-  { id: 'p11', content: 'Bluesky is the future of social media. Here is why we are moving.', platforms: ['bluesky', 'twitter'], mediaUrls: [], scheduledAt: d(28), status: 'draft' },
-  { id: 'p12', content: 'Mastodon community update - new server rules and features.', platforms: ['mastodon'], mediaUrls: [], scheduledAt: d(28, 1), status: 'scheduled' },
-  { id: 'p13', content: 'Weekly recap of our best performing content 🏆', platforms: ['threads', 'instagram'], mediaUrls: ['/mock/recap.jpg'], scheduledAt: d(1, 1), status: 'scheduled' },
-  { id: 'p14', content: 'Holiday special preview! 🎄 Get 30% off sitewide.', platforms: ['instagram', 'facebook', 'twitter', 'tiktok'], mediaUrls: ['/mock/holiday.jpg'], scheduledAt: d(5, 1), status: 'draft' },
-  { id: 'p15', content: 'User-generated content spotlight: @sarah_creates', platforms: ['instagram'], mediaUrls: ['/mock/ugc.jpg'], scheduledAt: d(10, 1), status: 'scheduled' },
-];
+interface PublishResponse {
+  post: ScheduledPost;
+  results: Array<{ platform: string; ok: boolean; remoteId?: string; error?: string }>;
+}
 
-const mockAccounts: ConnectedAccount[] = [
-  { id: 'a1', platform: 'Instagram', accountName: 'Kobe Studio', handle: '@kobestudio', connected: true, lastSynced: '2025-06-10T14:30:00Z', avatar: 'KS' },
-  { id: 'a2', platform: 'Twitter / X', accountName: 'Kobe Studio', handle: '@kobestudio', connected: true, lastSynced: '2025-06-10T15:00:00Z', avatar: 'KS' },
-  { id: 'a3', platform: 'Facebook', accountName: 'Kobe Studio Official', handle: 'kobestudio', connected: true, lastSynced: '2025-06-09T12:00:00Z', avatar: 'KS' },
-  { id: 'a4', platform: 'LinkedIn', accountName: 'Kobe Studio', handle: 'company/kobestudio', connected: true, lastSynced: '2025-06-08T09:15:00Z', avatar: 'KS' },
-  { id: 'a5', platform: 'YouTube', accountName: 'Kobe Studio', handle: '@kobestudio', connected: false, lastSynced: null, avatar: 'KS' },
-  { id: 'a6', platform: 'TikTok', accountName: 'Kobe Studio', handle: '@kobestudio', connected: true, lastSynced: '2025-06-10T16:00:00Z', avatar: 'KS' },
-  { id: 'a7', platform: 'Pinterest', accountName: 'Kobe Studio', handle: 'kobestudio', connected: false, lastSynced: null, avatar: 'KS' },
-  { id: 'a8', platform: 'Threads', accountName: 'Kobe Studio', handle: '@kobestudio', connected: true, lastSynced: '2025-06-09T10:30:00Z', avatar: 'KS' },
-  { id: 'a9', platform: 'Bluesky', accountName: 'Kobe Studio', handle: '@kobestudio.bsky.social', connected: false, lastSynced: null, avatar: 'KS' },
-  { id: 'a10', platform: 'Mastodon', accountName: 'Kobe Studio', handle: '@kobestudio@mastodon.social', connected: false, lastSynced: null, avatar: 'KS' },
-];
-
-const mockMedia: MediaItem[] = [
-  { id: 'm1', url: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=400&h=400&fit=crop', type: 'image', name: 'summer-hero.jpg', size: '2.4 MB', uploadedAt: '2025-06-01T10:00:00Z' },
-  { id: 'm2', url: 'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?w=400&h=400&fit=crop', type: 'image', name: 'bts-shoot.jpg', size: '3.1 MB', uploadedAt: '2025-06-02T14:00:00Z' },
-  { id: 'm3', url: 'https://images.unsplash.com/photo-1492691527719-9d1e07e534b4?w=400&h=400&fit=crop', type: 'image', name: 'live-promo.jpg', size: '1.8 MB', uploadedAt: '2025-06-03T09:00:00Z' },
-  { id: 'm4', url: 'https://images.unsplash.com/photo-1558618666-fcd25c85f82e?w=400&h=400&fit=crop', type: 'image', name: 'product-drop.jpg', size: '4.2 MB', uploadedAt: '2025-06-04T16:00:00Z' },
-  { id: 'm5', url: 'https://images.unsplash.com/photo-1497366216548-37526070297c?w=400&h=400&fit=crop', type: 'image', name: 'workspace-setup.jpg', size: '2.9 MB', uploadedAt: '2025-06-05T11:00:00Z' },
-  { id: 'm6', url: 'https://images.unsplash.com/photo-1518495973542-4542c06a5843?w=400&h=400&fit=crop', type: 'image', name: 'monday-motivation.jpg', size: '1.5 MB', uploadedAt: '2025-06-06T08:00:00Z' },
-  { id: 'm7', url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400&h=400&fit=crop', type: 'image', name: 'design-pin.jpg', size: '3.6 MB', uploadedAt: '2025-06-07T13:00:00Z' },
-  { id: 'm8', url: 'https://images.unsplash.com/photo-1536240478700-b869070f9279?w=400&h=400&fit=crop', type: 'video', name: 'tutorial-preview.mp4', size: '18.5 MB', uploadedAt: '2025-06-08T15:00:00Z' },
-  { id: 'm9', url: 'https://images.unsplash.com/photo-1557804506-669a67965ba0?w=400&h=400&fit=crop', type: 'image', name: 'holiday-special.jpg', size: '2.7 MB', uploadedAt: '2025-06-09T10:00:00Z' },
-  { id: 'm10', url: 'https://images.unsplash.com/photo-1529156069898-49953e39b3ac?w=400&h=400&fit=crop', type: 'image', name: 'ugc-spotlight.jpg', size: '3.3 MB', uploadedAt: '2025-06-10T09:00:00Z' },
-];
-
-// ═══════════════════════════════════════════════════
-// HELPERS
-// ═══════════════════════════════════════════════════
-
-const PLATFORM_META: Record<string, { color: string; icon: React.ElementType; charLimit: number }> = {
-  instagram: { color: '#E4405F', icon: Instagram, charLimit: 2200 },
-  twitter: { color: '#1DA1F2', icon: Twitter, charLimit: 280 },
-  facebook: { color: '#1877F2', icon: Facebook, charLimit: 63206 },
-  linkedin: { color: '#0A66C2', icon: Linkedin, charLimit: 3000 },
-  youtube: { color: '#FF0000', icon: Youtube, charLimit: 5000 },
-  tiktok: { color: '#000000', icon: Video, charLimit: 2200 },
-  pinterest: { color: '#BD081C', icon: Pin, charLimit: 500 },
-  threads: { color: '#000000', icon: AtSign, charLimit: 500 },
-  bluesky: { color: '#0085ff', icon: Cloud, charLimit: 300 },
-  mastodon: { color: '#6364FF', icon: Hash, charLimit: 500 },
+const PLATFORM_LABELS: Record<string, string> = {
+  instagram: 'Instagram',
+  tiktok: 'TikTok',
+  facebook: 'Facebook',
+  twitter: 'X',
+  linkedin: 'LinkedIn',
+  youtube: 'YouTube',
+  threads: 'Threads',
+  pinterest: 'Pinterest',
+  bluesky: 'Bluesky',
+  mastodon: 'Mastodon',
 };
 
-function getPlatformMeta(platform: string) {
-  return PLATFORM_META[platform] || { color: '#94a3b8', icon: Hash, charLimit: 1000 };
+const formatBytes = (size: number) => {
+  if (!size) return '0 B';
+  if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+const formatDateTime = (value?: string | null) => value
+  ? new Date(value).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })
+  : 'Not scheduled';
+
+const statusClass: Record<PostStatus, string> = {
+  draft: 'bg-slate-500/15 text-slate-300 border-slate-500/20',
+  scheduled: 'bg-amber-500/15 text-amber-300 border-amber-500/20',
+  publishing: 'bg-cyan-500/15 text-cyan-300 border-cyan-500/20',
+  published: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/20',
+  failed: 'bg-red-500/15 text-red-300 border-red-500/20',
+};
+
+function StatusBadge({ status }: { status: PostStatus }) {
+  return <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${statusClass[status]}`}>{status}</span>;
 }
 
-function PlatformBadge({ platform, size = 'sm' }: { platform: string; size?: 'sm' | 'md' }) {
-  const meta = getPlatformMeta(platform);
-  const Icon = meta.icon;
-  const isSmall = size === 'sm';
+function EmptyState({ title, body }: { title: string; body: string }) {
   return (
-    <span
-      className={`inline-flex items-center gap-1 rounded-full border font-medium ${isSmall ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-1 text-xs'}`}
-      style={{ backgroundColor: meta.color + '18', color: meta.color, borderColor: meta.color + '30' }}
-    >
-      <Icon className={isSmall ? 'w-3 h-3' : 'w-3.5 h-3.5'} />
-      {platform.charAt(0).toUpperCase() + platform.slice(1)}
-    </span>
+    <div className="rounded-xl border border-dashed border-white/10 px-5 py-12 text-center">
+      <div className="text-sm font-semibold text-slate-300">{title}</div>
+      <div className="mt-1 text-xs text-slate-500">{body}</div>
+    </div>
   );
 }
-
-function PostStatusBadge({ status }: { status: string }) {
-  const styles: Record<string, string> = {
-    draft: 'bg-slate-500/15 text-slate-400 border-slate-500/25',
-    scheduled: 'bg-amber-500/15 text-amber-400 border-amber-500/25',
-    published: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/25',
-    failed: 'bg-red-500/15 text-red-400 border-red-500/25',
-  };
-  return (
-    <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${styles[status] || styles.draft}`}>
-      {status.charAt(0).toUpperCase() + status.slice(1)}
-    </span>
-  );
-}
-
-function daysInMonth(year: number, month: number) {
-  return new Date(year, month + 1, 0).getDate();
-}
-
-function firstDayOfMonth(year: number, month: number) {
-  return new Date(year, month, 1).getDay();
-}
-
-function monthLabel(year: number, month: number) {
-  return new Date(year, month).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-}
-
-function sameDay(a: string, b: string) {
-  const da = new Date(a);
-  const db = new Date(b);
-  return da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth() && da.getDate() === db.getDate();
-}
-
-function isTodayDate(year: number, month: number, day: number) {
-  const t = new Date();
-  return t.getFullYear() === year && t.getMonth() === month && t.getDate() === day;
-}
-
-// ═══════════════════════════════════════════════════
-// MAIN COMPONENT
-// ═══════════════════════════════════════════════════
 
 export function SocialScheduler() {
   const [activeView, setActiveView] = useState<SubView>('calendar');
-
-  const navItems: { id: SubView; icon: React.ElementType; label: string }[] = [
-    { id: 'calendar', icon: CalendarDays, label: 'Post Calendar' },
-    { id: 'composer', icon: PenLine, label: 'Composer' },
-    { id: 'accounts', icon: Link2, label: 'Accounts' },
-    { id: 'media', icon: Image, label: 'Media Library' },
-    { id: 'analytics', icon: BarChart3, label: 'Analytics' },
+  const nav = [
+    { id: 'calendar' as const, icon: CalendarDays, label: 'Post Calendar' },
+    { id: 'composer' as const, icon: PenLine, label: 'Composer' },
+    { id: 'accounts' as const, icon: Link2, label: 'Accounts' },
+    { id: 'media' as const, icon: ImageIcon, label: 'Media Library' },
+    { id: 'analytics' as const, icon: BarChart3, label: 'Analytics' },
   ];
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
-      {/* Sub-navigation tabs */}
-      <div className="shrink-0 px-6 pt-5 pb-0">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h1 className="text-xl font-bold text-white">Social Scheduler</h1>
-            <p className="text-sm text-slate-400 mt-0.5">Plan, compose, and schedule posts across all platforms</p>
-          </div>
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[#0c0c15] text-white">
+      <div className="shrink-0 border-b border-white/[0.06] px-6 pt-5">
+        <div className="mb-4">
+          <h1 className="text-xl font-extrabold">Social Publishing</h1>
+          <p className="mt-1 text-sm text-slate-400">Real connected accounts, real uploads, real scheduling, and provider-confirmed publishing.</p>
         </div>
-        <div className="flex gap-1 border-b border-white/[0.06]">
-          {navItems.map((item) => (
+        <div className="flex gap-1 overflow-x-auto">
+          {nav.map(({ id, icon: Icon, label }) => (
             <button
-              key={item.id}
-              onClick={() => setActiveView(item.id)}
-              className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-t-lg transition-all border-b-2 -mb-[1px] ${
-                activeView === item.id
-                  ? 'text-cyan-400 border-cyan-400 bg-cyan-500/10'
-                  : 'text-slate-400 border-transparent hover:text-slate-200 hover:bg-white/[0.03]'
-              }`}
+              key={id}
+              onClick={() => setActiveView(id)}
+              className={`-mb-px inline-flex shrink-0 items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-semibold transition ${activeView === id ? 'border-cyan-400 text-cyan-300' : 'border-transparent text-slate-400 hover:text-white'}`}
             >
-              <item.icon className="w-4 h-4" />
-              {item.label}
+              <Icon className="h-4 w-4" />{label}
             </button>
           ))}
         </div>
       </div>
-
-      {/* Content area */}
-      <div className="flex-1 overflow-hidden">
-        {activeView === 'calendar' && <CalendarView />}
+      <div className="min-h-0 flex-1 overflow-hidden">
+        {activeView === 'calendar' && <CalendarView onCompose={() => setActiveView('composer')} />}
         {activeView === 'composer' && <ComposerView />}
         {activeView === 'accounts' && <AccountsView />}
         {activeView === 'media' && <MediaLibraryView />}
@@ -236,967 +164,358 @@ export function SocialScheduler() {
   );
 }
 
-// ═══════════════════════════════════════════════════
-// A. POST CALENDAR VIEW
-// ═══════════════════════════════════════════════════
-
-function CalendarView() {
-  const [viewMonth, setViewMonth] = useState(currentMonth);
-  const [viewYear, setViewYear] = useState(currentYear);
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [posts, setPosts] = useState<ScheduledPost[]>(mockPosts);
-
-  const prevMonth = () => {
-    if (viewMonth === 0) { setViewMonth(11); setViewYear(viewYear - 1); }
-    else setViewMonth(viewMonth - 1);
-  };
-
-  const nextMonth = () => {
-    if (viewMonth === 11) { setViewMonth(0); setViewYear(viewYear + 1); }
-    else setViewMonth(viewMonth + 1);
-  };
-
-  const totalDays = daysInMonth(viewYear, viewMonth);
-  const firstDay = firstDayOfMonth(viewYear, viewMonth);
-
-  const postsForDay = useCallback((day: number) => {
-    const dateStr = new Date(viewYear, viewMonth, day).toISOString();
-    return posts.filter(p => {
-      const pd = new Date(p.scheduledAt);
-      return pd.getFullYear() === viewYear && pd.getMonth() === viewMonth && pd.getDate() === day;
-    });
-  }, [posts, viewYear, viewMonth]);
-
-  const selectedDayPosts = useMemo(() => {
-    if (!selectedDate) return [];
-    return posts.filter(p => sameDay(p.scheduledAt, selectedDate));
-  }, [selectedDate, posts]);
-
-  const handleDrop = (day: number, postId: string) => {
-    const newDate = new Date(viewYear, viewMonth, day);
-    setPosts(prev => prev.map(p => p.id === postId ? { ...p, scheduledAt: newDate.toISOString() } : p));
-  };
-
-  const weekDays = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-  return (
-    <div className="h-full overflow-y-auto">
-      <div className="p-6 space-y-5">
-        {/* Calendar header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <Button variant="outline" size="sm" className="bg-white/5 border-white/10 text-white hover:bg-white/10" onClick={prevMonth}>
-              <ChevronLeft className="w-4 h-4" />
-            </Button>
-            <h2 className="text-lg font-semibold text-white min-w-[200px] text-center">{monthLabel(viewYear, viewMonth)}</h2>
-            <Button variant="outline" size="sm" className="bg-white/5 border-white/10 text-white hover:bg-white/10" onClick={nextMonth}>
-              <ChevronRight className="w-4 h-4" />
-            </Button>
-          </div>
-          <div className="flex items-center gap-4 text-xs">
-            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500/60" /> Published</div>
-            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-amber-500/60" /> Scheduled</div>
-            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-slate-500/60" /> Draft</div>
-            <div className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-500/60" /> Failed</div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-7 gap-px bg-white/[0.06] rounded-xl overflow-hidden border border-white/[0.06]">
-          {/* Weekday headers */}
-          {weekDays.map(d => (
-            <div key={d} className="bg-[#0f0f1a] px-3 py-2 text-xs font-medium text-slate-400 text-center">{d}</div>
-          ))}
-          {/* Empty cells */}
-          {Array.from({ length: firstDay }, (_, i) => (
-            <div key={`empty-${i}`} className="bg-[#0f0f1a] min-h-[100px]" />
-          ))}
-          {/* Day cells */}
-          {Array.from({ length: totalDays }, (_, i) => {
-            const day = i + 1;
-            const dayPosts = postsForDay(day);
-            const today = isTodayDate(viewYear, viewMonth, day);
-            const isSelected = selectedDate && new Date(selectedDate).getDate() === day && new Date(selectedDate).getMonth() === viewMonth;
-
-            return (
-              <DayCell
-                key={day}
-                day={day}
-                posts={dayPosts}
-                today={today}
-                selected={!!isSelected}
-                onClick={() => setSelectedDate(new Date(viewYear, viewMonth, day).toISOString())}
-                onDropPost={handleDrop}
-              />
-            );
-          })}
-        </div>
-
-        {/* Selected day detail panel */}
-        {selectedDate && (
-          <Card className="bg-[#13131f] border-white/[0.06]">
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-semibold text-white">
-                  {new Date(selectedDate).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
-                </h3>
-                <button onClick={() => setSelectedDate(null)} className="text-slate-500 hover:text-white transition-colors">
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-              {selectedDayPosts.length === 0 ? (
-                <p className="text-sm text-slate-500">No posts scheduled for this date.</p>
-              ) : (
-                <div className="space-y-2">
-                  {selectedDayPosts.map(post => (
-                    <div key={post.id} className="flex items-center gap-3 p-3 rounded-lg bg-white/[0.03] hover:bg-white/[0.05] transition-colors">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-slate-200 truncate">{post.content}</p>
-                        <div className="flex items-center gap-2 mt-1.5">
-                          <PostStatusBadge status={post.status} />
-                          <span className="text-xs text-slate-500">{new Date(post.scheduledAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                        </div>
-                      </div>
-                      <div className="flex gap-1 shrink-0">
-                        {post.platforms.map(p => (
-                          <div key={p} className="w-6 h-6 rounded flex items-center justify-center" style={{ backgroundColor: getPlatformMeta(p).color + '20' }}>
-                            {(() => { const Icon = getPlatformMeta(p).icon; return <Icon className="w-3 h-3" style={{ color: getPlatformMeta(p).color }} />; })()}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function DayCell({ day, posts, today, selected, onClick, onDropPost }: {
-  day: number; posts: ScheduledPost[]; today: boolean; selected: boolean;
-  onClick: () => void; onDropPost: (day: number, postId: string) => void;
-}) {
-  const [isOver, setIsOver] = useState(false);
-  const [draggedPost, setDraggedPost] = useState<string | null>(null);
-
-  const statusCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    posts.forEach(p => { counts[p.status] = (counts[p.status] || 0) + 1; });
-    return counts;
-  }, [posts]);
-
-  const statusColors: Record<string, string> = {
-    published: '#10b981', scheduled: '#f59e0b', draft: '#64748b', failed: '#ef4444',
-  };
-
-  return (
-    <div
-      className={`bg-[#0f0f1a] min-h-[100px] p-2 cursor-pointer transition-all ${isOver ? 'bg-cyan-500/10 ring-2 ring-cyan-500/30' : ''} ${selected ? 'ring-2 ring-cyan-500/40' : 'hover:bg-[#13131f]'}`}
-      onClick={onClick}
-      onDragOver={(e) => { e.preventDefault(); setIsOver(true); }}
-      onDragLeave={() => setIsOver(false)}
-      onDrop={(e) => {
-        e.preventDefault();
-        setIsOver(false);
-        const postId = e.dataTransfer.getData('postId');
-        if (postId) onDropPost(day, postId);
-      }}
-    >
-      <div className={`text-xs font-medium mb-1 w-6 h-6 rounded-full flex items-center justify-center ${today ? 'bg-cyan-500 text-white' : 'text-slate-400'}`}>
-        {day}
-      </div>
-      <div className="space-y-1">
-        {Object.entries(statusCounts).slice(0, 3).map(([status, count]) => (
-          <div key={status} className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: statusColors[status] || '#64748b' }} />
-            <span className="text-[10px] text-slate-400">{count} {status}</span>
-          </div>
-        ))}
-        {posts.length > 0 && (
-          <div className="flex gap-0.5 mt-1 flex-wrap">
-            {Array.from(new Set(posts.flatMap(p => p.platforms))).slice(0, 4).map(p => {
-              const meta = getPlatformMeta(p);
-              const Icon = meta.icon;
-              return (
-                <div key={p} className="w-4 h-4 rounded flex items-center justify-center" style={{ backgroundColor: meta.color + '25' }}>
-                  <Icon className="w-2.5 h-2.5" style={{ color: meta.color }} />
-                </div>
-              );
-            })}
-            {Array.from(new Set(posts.flatMap(p => p.platforms))).length > 4 && (
-              <span className="text-[9px] text-slate-500">+{Array.from(new Set(posts.flatMap(p => p.platforms))).length - 4}</span>
-            )}
-          </div>
-        )}
-      </div>
-      {/* Draggable post items */}
-      {posts.length > 0 && (
-        <div className="mt-1 space-y-0.5">
-          {posts.slice(0, 2).map(post => (
-            <div
-              key={post.id}
-              draggable
-              onDragStart={(e) => { e.dataTransfer.setData('postId', post.id); setDraggedPost(post.id); }}
-              onDragEnd={() => setDraggedPost(null)}
-              className="text-[9px] text-slate-300 truncate bg-white/[0.04] rounded px-1 py-0.5 cursor-grab active:cursor-grabbing hover:bg-white/[0.08]"
-            >
-              {post.content.slice(0, 30)}...
-            </div>
-          ))}
-          {posts.length > 2 && <div className="text-[9px] text-slate-500">+{posts.length - 2} more</div>}
-        </div>
-      )}
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════
-// B. POST COMPOSER VIEW
-// ═══════════════════════════════════════════════════
-
-function ComposerView() {
-  const [content, setContent] = useState('');
-  const [selectedPlatforms, setSelectedPlatforms] = useState<string[]>(['instagram', 'twitter']);
-  const [scheduleDate, setScheduleDate] = useState('');
-  const [scheduleTime, setScheduleTime] = useState('09:00');
-  const [mediaFiles, setMediaFiles] = useState<string[]>([]);
-  const [showPreview, setShowPreview] = useState(false);
-  const [scheduledPosts, setScheduledPosts] = useState<ScheduledPost[]>(mockPosts);
-
-  const platformList = Object.entries(PLATFORM_META).map(([key, meta]) => ({ key, ...meta }));
-
-  const togglePlatform = (key: string) => {
-    setSelectedPlatforms(prev => prev.includes(key) ? prev.filter(p => p !== key) : [...prev, key]);
-  };
-
-  const handleSchedule = () => {
-    if (!content.trim() || selectedPlatforms.length === 0) return;
-    const scheduledAt = scheduleDate
-      ? new Date(`${scheduleDate}T${scheduleTime}`).toISOString()
-      : new Date(Date.now() + 86400000).toISOString();
-
-    const newPost: ScheduledPost = {
-      id: `new-${Date.now()}`,
-      content,
-      platforms: [...selectedPlatforms],
-      mediaUrls: [...mediaFiles],
-      scheduledAt,
-      status: 'scheduled',
-    };
-    setScheduledPosts(prev => [...prev, newPost]);
-    setContent('');
-    setMediaFiles([]);
-    setShowPreview(false);
-  };
-
-  const handleFileDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    // Simulate file upload
-    setMediaFiles(prev => [...prev, `/mock/uploaded-${Date.now()}.jpg`]);
-  };
-
-  const removeMedia = (idx: number) => {
-    setMediaFiles(prev => prev.filter((_, i) => i !== idx));
-  };
-
-  return (
-    <div className="h-full overflow-y-auto">
-      <div className="p-6 space-y-5">
-        <div className="grid grid-cols-5 gap-5">
-          {/* Left: Editor */}
-          <div className="col-span-3 space-y-4">
-            {/* Content Editor */}
-            <Card className="bg-[#13131f] border-white/[0.06]">
-              <CardContent className="p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                    <PenLine className="w-4 h-4 text-cyan-400" /> Content
-                  </h3>
-                  <Button size="sm" variant="ghost" className="text-slate-400 hover:text-white h-7 text-xs" onClick={() => setShowPreview(!showPreview)}>
-                    <Eye className="w-3.5 h-3.5 mr-1" /> Preview
-                  </Button>
-                </div>
-                <textarea
-                  className="w-full min-h-[160px] bg-white/5 border border-white/10 rounded-lg p-3 text-sm text-white placeholder-slate-500 resize-none focus:outline-none focus:ring-2 focus:ring-cyan-500/30 focus:border-cyan-500/30 transition-all"
-                  placeholder="What's on your mind? Write your post content here..."
-                  value={content}
-                  onChange={(e) => setContent(e.target.value)}
-                />
-                {/* Media upload zone */}
-                <div
-                  className="border-2 border-dashed border-white/10 rounded-lg p-6 text-center hover:border-cyan-500/30 hover:bg-cyan-500/5 transition-all cursor-pointer"
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={handleFileDrop}
-                  onClick={() => setMediaFiles(prev => [...prev, `/mock/uploaded-${Date.now()}.jpg`])}
-                >
-                  <Upload className="w-6 h-6 text-slate-500 mx-auto mb-2" />
-                  <p className="text-xs text-slate-400">Drag & drop images/videos here or click to browse</p>
-                </div>
-                {/* Attached media */}
-                {mediaFiles.length > 0 && (
-                  <div className="flex gap-2 flex-wrap">
-                    {mediaFiles.map((f, i) => (
-                      <div key={i} className="relative w-16 h-16 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center">
-                        <Image className="w-5 h-5 text-slate-500" />
-                        <button onClick={(e) => { e.stopPropagation(); removeMedia(i); }} className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white flex items-center justify-center">
-                          <X className="w-3 h-3" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Schedule settings */}
-            <Card className="bg-[#13131f] border-white/[0.06]">
-              <CardContent className="p-4 space-y-3">
-                <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-amber-400" /> Schedule
-                </h3>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs text-slate-400 mb-1 block">Date</label>
-                    <Input type="date" className="bg-white/5 border-white/10 text-white" value={scheduleDate} onChange={e => setScheduleDate(e.target.value)} />
-                  </div>
-                  <div>
-                    <label className="text-xs text-slate-400 mb-1 block">Time</label>
-                    <Input type="time" className="bg-white/5 border-white/10 text-white" value={scheduleTime} onChange={e => setScheduleTime(e.target.value)} />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Right: Platform selector + preview */}
-          <div className="col-span-2 space-y-4">
-            {/* Platform Selector */}
-            <Card className="bg-[#13131f] border-white/[0.06]">
-              <CardContent className="p-4 space-y-3">
-                <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                  <Share2 className="w-4 h-4 text-violet-400" /> Platforms
-                </h3>
-                <div className="space-y-2">
-                  {platformList.map(({ key, color, icon: Icon, charLimit }) => {
-                    const selected = selectedPlatforms.includes(key);
-                    const charCount = content.length;
-                    const nearLimit = charCount > charLimit * 0.8;
-                    return (
-                      <button
-                        key={key}
-                        onClick={() => togglePlatform(key)}
-                        className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border transition-all text-left ${
-                          selected ? 'border-white/15 bg-white/[0.05]' : 'border-transparent bg-white/[0.02] hover:bg-white/[0.04]'
-                        }`}
-                      >
-                        <div className={`w-5 h-5 rounded border flex items-center justify-center shrink-0 transition-all ${
-                          selected ? 'border-cyan-500 bg-cyan-500/20' : 'border-white/20'
-                        }`}>
-                          {selected && <CheckCircle2 className="w-3.5 h-3.5 text-cyan-400" />}
-                        </div>
-                        <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: color + '20' }}>
-                          <Icon className="w-4 h-4" style={{ color }} />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm text-slate-200 capitalize">{key}</div>
-                          {selected && (
-                            <div className="text-[10px] mt-0.5">
-                              <span className={nearLimit ? 'text-red-400' : 'text-slate-500'}>
-                                {charCount}/{charLimit} chars
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Live Preview */}
-            {showPreview && content && (
-              <Card className="bg-[#13131f] border-white/[0.06]">
-                <CardContent className="p-4 space-y-3">
-                  <h3 className="text-sm font-semibold text-white">Preview</h3>
-                  {selectedPlatforms.length === 0 ? (
-                    <p className="text-xs text-slate-500">Select a platform to see preview</p>
-                  ) : (
-                    selectedPlatforms.slice(0, 2).map(p => {
-                      const meta = getPlatformMeta(p);
-                      const Icon = meta.icon;
-                      return (
-                        <div key={p} className="rounded-lg bg-white/[0.03] border border-white/[0.06] p-3">
-                          <div className="flex items-center gap-2 mb-2">
-                            <Icon className="w-4 h-4" style={{ color: meta.color }} />
-                            <span className="text-xs text-slate-400 capitalize">{p}</span>
-                          </div>
-                          <p className="text-sm text-slate-200 whitespace-pre-wrap">{content}</p>
-                          {mediaFiles.length > 0 && (
-                            <div className="flex gap-1 mt-2">
-                              {mediaFiles.map((_, i) => (
-                                <div key={i} className="w-12 h-12 rounded bg-white/5 border border-white/10 flex items-center justify-center">
-                                  <Image className="w-4 h-4 text-slate-500" />
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })
-                  )}
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Schedule button */}
-            <Button
-              className="w-full bg-cyan-500 hover:bg-cyan-600 text-white h-11 text-sm font-medium"
-              onClick={handleSchedule}
-              disabled={!content.trim() || selectedPlatforms.length === 0}
-            >
-              <Calendar className="w-4 h-4 mr-2" />
-              Schedule Post
-            </Button>
-
-            {scheduledPosts.length > mockPosts.length && (
-              <div className="text-xs text-emerald-400 text-center bg-emerald-500/10 rounded-lg p-2 border border-emerald-500/20">
-                <CheckCircle2 className="w-3.5 h-3.5 inline mr-1" />
-                Post scheduled successfully!
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════
-// C. CONNECTED ACCOUNTS VIEW
-// ═══════════════════════════════════════════════════
-
-/** Backend SocialAccount row shape (server/src/social-scheduler/social-account.entity.ts). */
-interface ApiSocialAccount {
-  id: string; platform: string; accountName: string; accountHandle: string;
-  status: string; accountAvatar?: string | null; updatedAt?: string; createdAt?: string;
-}
-
-const CONNECTABLE_PLATFORMS = ['Instagram', 'TikTok', 'Facebook', 'YouTube', 'Twitter / X', 'LinkedIn', 'Threads'];
-
-function AccountsView() {
-  const [accounts, setAccounts] = useState<ConnectedAccount[]>([]);
+function CalendarView({ onCompose }: { onCompose: () => void }) {
+  const [posts, setPosts] = useState<ScheduledPost[]>([]);
   const [loading, setLoading] = useState(true);
-  const [connectingId, setConnectingId] = useState<string | null>(null);
-  const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState({ platform: 'Instagram', accountName: '', handle: '' });
-  const [saving, setSaving] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const mapRow = (a: ApiSocialAccount): ConnectedAccount => ({
-    id: a.id,
-    platform: a.platform,
-    accountName: a.accountName,
-    handle: a.accountHandle,
-    connected: a.status === 'connected',
-    lastSynced: a.updatedAt ?? a.createdAt ?? null,
-    avatar: (a.accountName || a.platform).slice(0, 2).toUpperCase(),
-  });
-
   const load = useCallback(async () => {
-    setLoading(true);
+    setLoading(true); setError(null);
     try {
-      const rows = await api<ApiSocialAccount[]>('/social-scheduler/accounts');
-      setAccounts(Array.isArray(rows) ? rows.map(mapRow) : []);
-    } catch { setAccounts([]); }
-    finally { setLoading(false); }
+      const result = await api<PostList>('/social-scheduler/posts?limit=100');
+      setPosts(Array.isArray(result?.items) ? result.items : []);
+    } catch (e) {
+      setError((e as Error).message || 'Could not load scheduled posts.');
+    } finally { setLoading(false); }
   }, []);
-  useEffect(() => { load(); }, [load]);
 
-  const addAccount = async () => {
-    if (!form.accountName.trim() || !form.handle.trim()) { setError('Enter an account name and handle.'); return; }
-    setSaving(true); setError(null);
+  useEffect(() => { void load(); }, [load]);
+
+  const publish = async (post: ScheduledPost) => {
+    setBusyId(post.id); setError(null);
     try {
-      // No OAuth yet — link the handle so it persists and shows. accessToken
-      // is a placeholder until the official Graph OAuth flow is added.
-      await api('/social-scheduler/accounts', {
+      const result = await api<PublishResponse>(`/social-scheduler/posts/${post.id}/publish`, { method: 'POST' });
+      setPosts((rows) => rows.map((row) => row.id === post.id ? result.post : row));
+      const failures = result.results.filter((row) => !row.ok);
+      if (failures.length) setError(failures.map((row) => `${PLATFORM_LABELS[row.platform] || row.platform}: ${row.error}`).join(' · '));
+    } catch (e) { setError((e as Error).message || 'Publishing failed.'); }
+    finally { setBusyId(null); }
+  };
+
+  const remove = async (id: string) => {
+    setBusyId(id); setError(null);
+    try {
+      await api(`/social-scheduler/posts/${id}`, { method: 'DELETE' });
+      setPosts((rows) => rows.filter((row) => row.id !== id));
+    } catch (e) { setError((e as Error).message || 'Could not delete post.'); }
+    finally { setBusyId(null); }
+  };
+
+  const sections = useMemo(() => {
+    const buckets = new Map<string, ScheduledPost[]>();
+    for (const post of posts) {
+      const key = post.scheduledAt ? new Date(post.scheduledAt).toISOString().slice(0, 10) : 'drafts';
+      const rows = buckets.get(key) ?? [];
+      rows.push(post); buckets.set(key, rows);
+    }
+    return [...buckets.entries()].sort(([a], [b]) => a === 'drafts' ? 1 : b === 'drafts' ? -1 : a.localeCompare(b));
+  }, [posts]);
+
+  return (
+    <div className="h-full overflow-y-auto p-6">
+      <div className="mx-auto max-w-6xl space-y-5">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-bold">Publishing queue</h2>
+            <p className="text-xs text-slate-500">Only database records appear here. Nothing is pre-seeded.</p>
+          </div>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => void load()} className="border-white/10 bg-white/5 text-slate-200"><RefreshCw className="mr-1 h-3.5 w-3.5" />Refresh</Button>
+            <Button size="sm" onClick={onCompose} className="bg-cyan-600 hover:bg-cyan-500"><PenLine className="mr-1 h-3.5 w-3.5" />Compose</Button>
+          </div>
+        </div>
+        {error && <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-300"><AlertTriangle className="mr-1 inline h-4 w-4" />{error}</div>}
+        {loading ? <div className="grid place-items-center py-16"><Loader2 className="h-6 w-6 animate-spin text-cyan-400" /></div> : posts.length === 0 ? (
+          <EmptyState title="No posts yet" body="Create a post and it will appear here after the backend saves it." />
+        ) : sections.map(([key, rows]) => (
+          <section key={key} className="space-y-2">
+            <div className="text-xs font-bold uppercase tracking-wider text-slate-500">{key === 'drafts' ? 'Drafts / unscheduled' : new Date(`${key}T12:00:00`).toLocaleDateString([], { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}</div>
+            {rows.map((post) => (
+              <Card key={post.id} className="border-white/[0.07] bg-[#13131f]">
+                <CardContent className="p-4">
+                  <div className="flex items-start gap-4">
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-2 flex flex-wrap items-center gap-2"><StatusBadge status={post.status} />{post.platforms.map((p) => <span key={p} className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-slate-400">{PLATFORM_LABELS[p] || p}</span>)}</div>
+                      <p className="whitespace-pre-wrap text-sm text-slate-200">{post.content}</p>
+                      <div className="mt-2 flex flex-wrap gap-4 text-[11px] text-slate-500"><span><Clock className="mr-1 inline h-3 w-3" />{formatDateTime(post.scheduledAt)}</span><span>{post.mediaUrls.length} media item{post.mediaUrls.length === 1 ? '' : 's'}</span>{post.publishedAt && <span>Published {formatDateTime(post.publishedAt)}</span>}</div>
+                    </div>
+                    <div className="flex shrink-0 gap-2">
+                      {(post.status === 'draft' || post.status === 'failed') && <Button size="sm" disabled={busyId === post.id} onClick={() => void publish(post)} className="h-8 bg-emerald-600 text-xs hover:bg-emerald-500">{busyId === post.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="mr-1 h-3.5 w-3.5" />}Publish</Button>}
+                      {post.status !== 'publishing' && post.status !== 'published' && <Button size="sm" variant="outline" disabled={busyId === post.id} onClick={() => void remove(post.id)} className="h-8 border-red-500/20 bg-transparent text-red-300 hover:bg-red-500/10"><Trash2 className="h-3.5 w-3.5" /></Button>}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </section>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ComposerView() {
+  const fileInput = useRef<HTMLInputElement | null>(null);
+  const [capabilities, setCapabilities] = useState<Capability[]>([]);
+  const [content, setContent] = useState('');
+  const [platforms, setPlatforms] = useState<string[]>([]);
+  const [media, setMedia] = useState<MediaAsset[]>([]);
+  const [scheduleDate, setScheduleDate] = useState('');
+  const [scheduleTime, setScheduleTime] = useState('09:00');
+  const [loadingCaps, setLoadingCaps] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadCaps = useCallback(async () => {
+    setLoadingCaps(true);
+    try {
+      const rows = await api<Capability[]>('/social-scheduler/capabilities');
+      setCapabilities(Array.isArray(rows) ? rows : []);
+    } catch (e) { setError((e as Error).message || 'Could not load publishing capabilities.'); }
+    finally { setLoadingCaps(false); }
+  }, []);
+  useEffect(() => { void loadCaps(); }, [loadCaps]);
+
+  const enabled = useMemo(() => capabilities.filter((row) => row.capabilities.publishImage || row.capabilities.publishVideo), [capabilities]);
+
+  const choosePlatform = (platform: string) => setPlatforms((rows) => rows.includes(platform) ? rows.filter((p) => p !== platform) : [...rows, platform]);
+
+  const upload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = [...(event.target.files ?? [])];
+    if (!files.length) return;
+    setUploading(true); setError(null); setMessage(null);
+    try {
+      const uploaded: MediaAsset[] = [];
+      for (const file of files) {
+        const kind = file.type.startsWith('video/') ? 'video' : 'image';
+        uploaded.push(await uploadFile<MediaAsset>(`/media/upload?kind=${kind}`, file));
+      }
+      setMedia((rows) => [...rows, ...uploaded]);
+    } catch (e) { setError((e as Error).message || 'Media upload failed.'); }
+    finally { setUploading(false); event.target.value = ''; }
+  };
+
+  const save = async (publishNow: boolean) => {
+    setSaving(true); setError(null); setMessage(null);
+    try {
+      if (!content.trim()) throw new Error('Write a caption first.');
+      if (!platforms.length) throw new Error('Select at least one publishing-capable connected account.');
+      let scheduledAt: string | undefined;
+      if (!publishNow) {
+        if (!scheduleDate || !scheduleTime) throw new Error('Choose a date and time to schedule this post.');
+        const parsed = new Date(`${scheduleDate}T${scheduleTime}`);
+        if (Number.isNaN(parsed.getTime())) throw new Error('Invalid schedule date or time.');
+        scheduledAt = parsed.toISOString();
+      }
+      const post = await api<ScheduledPost>('/social-scheduler/posts', {
         method: 'POST',
         body: JSON.stringify({
-          platform: form.platform,
-          accountName: form.accountName.trim(),
-          accountHandle: form.handle.trim().startsWith('@') ? form.handle.trim() : `@${form.handle.trim()}`,
-          accessToken: 'manual-link',
-          metadata: { linkType: 'manual' },
+          content: content.trim(),
+          platforms,
+          mediaUrls: media.map((item) => item.src),
+          ...(scheduledAt ? { scheduledAt, status: 'scheduled' } : { status: 'draft' }),
         }),
       });
-      setShowAdd(false); setForm({ platform: 'Instagram', accountName: '', handle: '' });
-      await load();
-    } catch (e) { setError((e as Error).message || 'Could not link account.'); }
+      if (publishNow) {
+        const result = await api<PublishResponse>(`/social-scheduler/posts/${post.id}/publish`, { method: 'POST' });
+        const failures = result.results.filter((row) => !row.ok);
+        if (failures.length) throw new Error(failures.map((row) => `${PLATFORM_LABELS[row.platform] || row.platform}: ${row.error}`).join(' · '));
+        setMessage(`Published successfully${result.results[0]?.remoteId ? ` · provider ID ${result.results[0].remoteId}` : ''}.`);
+      } else {
+        setMessage(`Scheduled for ${formatDateTime(scheduledAt)}.`);
+      }
+      setContent(''); setPlatforms([]); setMedia([]); setScheduleDate('');
+    } catch (e) { setError((e as Error).message || 'Could not save post.'); }
     finally { setSaving(false); }
   };
 
-  const handleConnect = async (id: string) => {
-    // "Sync" — touch the row so lastSynced updates (real API sync lands with OAuth).
-    setConnectingId(id);
-    await load();
-    setConnectingId(null);
-  };
-
-  const handleDisconnect = async (id: string) => {
-    try { await api(`/social-scheduler/accounts/${id}`, { method: 'DELETE' }); } catch { /* ignore */ }
-    setAccounts(prev => prev.filter(a => a.id !== id));
-  };
-
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="p-6 space-y-5">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-white">Connected Accounts</h2>
-            <p className="text-sm text-slate-400 mt-0.5">Link your social accounts. Live API sync arrives with the official connect flow.</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="text-xs text-slate-500">{accounts.filter(a => a.connected).length} connected</div>
-            <Button size="sm" className="h-8 text-xs bg-cyan-500/15 text-cyan-400 hover:bg-cyan-500/25 border border-cyan-500/20" onClick={() => setShowAdd(true)}>
-              <Plus className="w-3.5 h-3.5 mr-1" /> Link account
-            </Button>
-          </div>
+    <div className="h-full overflow-y-auto p-6">
+      <div className="mx-auto grid max-w-6xl gap-5 lg:grid-cols-[1.6fr_1fr]">
+        <div className="space-y-4">
+          <Card className="border-white/[0.07] bg-[#13131f]"><CardContent className="space-y-3 p-4">
+            <div className="flex items-center justify-between"><h2 className="font-bold">Compose</h2><span className="text-[11px] text-slate-500">{content.length}/2000</span></div>
+            <textarea value={content} maxLength={2000} onChange={(e) => setContent(e.target.value)} placeholder="Write the content that will actually be sent to the provider…" className="min-h-44 w-full resize-y rounded-xl border border-white/10 bg-black/20 p-3 text-sm outline-none focus:border-cyan-500/50" />
+            <input ref={fileInput} type="file" multiple accept="image/*,video/*" className="hidden" onChange={(e) => void upload(e)} />
+            <Button variant="outline" onClick={() => fileInput.current?.click()} disabled={uploading} className="border-white/10 bg-white/5 text-slate-200">{uploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}Upload real media</Button>
+            {media.length > 0 && <div className="space-y-2">{media.map((item) => <div key={item.id} className="flex items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.025] p-2"><div className="grid h-9 w-9 place-items-center rounded bg-white/5">{item.kind === 'video' ? <Video className="h-4 w-4 text-fuchsia-300" /> : <ImageIcon className="h-4 w-4 text-cyan-300" />}</div><div className="min-w-0 flex-1"><div className="truncate text-xs font-semibold">{item.name}</div><div className="text-[10px] text-slate-500">{formatBytes(item.size)}</div></div><button onClick={() => setMedia((rows) => rows.filter((row) => row.id !== item.id))} className="p-2 text-slate-500 hover:text-red-300"><Trash2 className="h-4 w-4" /></button></div>)}</div>}
+          </CardContent></Card>
+          <Card className="border-white/[0.07] bg-[#13131f]"><CardContent className="p-4"><div className="mb-3 flex items-center gap-2 text-sm font-bold"><Clock className="h-4 w-4 text-amber-300" />Schedule</div><div className="grid grid-cols-2 gap-3"><Input type="date" value={scheduleDate} onChange={(e) => setScheduleDate(e.target.value)} className="border-white/10 bg-black/20" /><Input type="time" value={scheduleTime} onChange={(e) => setScheduleTime(e.target.value)} className="border-white/10 bg-black/20" /></div></CardContent></Card>
         </div>
-
-        {loading && <div className="text-sm text-slate-500 py-8 text-center">Loading accounts…</div>}
-        {!loading && accounts.length === 0 && (
-          <div className="text-sm text-slate-500 py-10 text-center border border-dashed border-white/10 rounded-xl">
-            No accounts linked yet. Click <span className="text-cyan-400 font-semibold">Link account</span> to add your Instagram, TikTok, or others.
-          </div>
-        )}
-
-        <Dialog open={showAdd} onOpenChange={setShowAdd}>
-          <DialogContent className="bg-[#13131f] border-white/10 text-white max-w-sm">
-            <DialogHeader><DialogTitle>Link a social account</DialogTitle></DialogHeader>
-            <div className="space-y-3">
-              <select value={form.platform} onChange={e => setForm({ ...form, platform: e.target.value })} className="w-full h-10 px-3 rounded-lg bg-black/30 border border-white/10 text-sm">
-                {CONNECTABLE_PLATFORMS.map(p => <option key={p} value={p}>{p}</option>)}
-              </select>
-              <Input placeholder="Account name (e.g. Kobe Studio)" value={form.accountName} onChange={e => setForm({ ...form, accountName: e.target.value })} className="bg-black/30 border-white/10" />
-              <Input placeholder="Handle (e.g. kobestudio)" value={form.handle} onChange={e => setForm({ ...form, handle: e.target.value })} className="bg-black/30 border-white/10" />
-              {error && <div className="text-xs text-red-400">{error}</div>}
-              <Button onClick={addAccount} disabled={saving} className="w-full bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30">
-                {saving ? 'Linking…' : 'Link account'}
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
-
-        <div className="grid grid-cols-2 gap-4">
-          {accounts.map((account) => {
-            const meta = getPlatformMeta(account.platform.toLowerCase().split(' ')[0]);
-            const Icon = meta.icon;
-
-            return (
-              <Card key={account.id} className={`bg-[#13131f] border-white/[0.06] overflow-hidden transition-all ${account.connected ? 'border-l-2' : ''}`}
-                style={account.connected ? { borderLeftColor: meta.color } : {}}>
-                <CardContent className="p-4">
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: meta.color + '20' }}>
-                      <Icon className="w-6 h-6" style={{ color: meta.color }} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-semibold text-white">{account.platform}</div>
-                      <div className="text-xs text-slate-400">{account.connected ? account.handle : 'Not connected'}</div>
-                    </div>
-                    <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${account.connected ? 'bg-emerald-500' : 'bg-slate-600'}`} />
-                  </div>
-
-                  {account.connected && (
-                    <div className="space-y-2 mb-3">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-slate-500">Account</span>
-                        <span className="text-slate-300">{account.accountName}</span>
-                      </div>
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-slate-500">Last synced</span>
-                        <span className="text-slate-300">
-                          {account.lastSynced ? new Date(account.lastSynced).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-
-                  <div className="flex gap-2">
-                    {account.connected ? (
-                      <>
-                        <Button size="sm" variant="outline" className="flex-1 h-8 text-xs bg-white/5 border-white/10 text-slate-300 hover:bg-white/10 hover:text-white"
-                          onClick={() => handleConnect(account.id)}>
-                          <CheckCircle2 className="w-3.5 h-3.5 mr-1" /> Sync
-                        </Button>
-                        <Button size="sm" variant="outline" className="h-8 text-xs bg-transparent border-red-500/20 text-red-400 hover:bg-red-500/10 hover:text-red-300"
-                          onClick={() => handleDisconnect(account.id)}>
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
-                      </>
-                    ) : (
-                      <Button
-                        size="sm"
-                        className="w-full h-8 text-xs bg-cyan-500/15 text-cyan-400 hover:bg-cyan-500/25 border border-cyan-500/20"
-                        onClick={() => handleConnect(account.id)}
-                        disabled={connectingId === account.id}
-                      >
-                        {connectingId === account.id ? 'Connecting...' : (
-                          <><Link2 className="w-3.5 h-3.5 mr-1" /> Connect</>
-                        )}
-                      </Button>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+        <div className="space-y-4">
+          <Card className="border-white/[0.07] bg-[#13131f]"><CardContent className="space-y-3 p-4"><div className="flex items-center justify-between"><h3 className="text-sm font-bold">Authorized publishers</h3><Button size="sm" variant="ghost" onClick={() => void loadCaps()} className="h-7 text-slate-400"><RefreshCw className="h-3.5 w-3.5" /></Button></div>{loadingCaps ? <Loader2 className="h-5 w-5 animate-spin text-cyan-400" /> : capabilities.map((row) => { const canPublish = row.capabilities.publishImage || row.capabilities.publishVideo; const selected = platforms.includes(row.platform); return <button key={row.platform} disabled={!canPublish} onClick={() => choosePlatform(row.platform)} className={`w-full rounded-xl border p-3 text-left transition ${selected ? 'border-cyan-500/50 bg-cyan-500/10' : canPublish ? 'border-white/10 bg-white/[0.025] hover:bg-white/5' : 'cursor-not-allowed border-white/5 bg-black/10 opacity-60'}`}><div className="flex items-center justify-between gap-2"><div className="text-sm font-semibold">{PLATFORM_LABELS[row.platform] || row.platform}</div>{canPublish ? <CheckCircle2 className="h-4 w-4 text-emerald-400" /> : <AlertTriangle className="h-4 w-4 text-amber-400" />}</div><div className="mt-1 text-[11px] text-slate-500">{canPublish ? `Authorized as ${row.account?.accountHandle || row.account?.accountName || 'connected account'}` : row.reason}</div></button>; })}{!loadingCaps && enabled.length === 0 && <div className="rounded-lg bg-amber-500/10 p-3 text-xs text-amber-200">No account currently has a live publishing capability. Connect and authorize a supported provider first.</div>}</CardContent></Card>
+          {error && <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-300">{error}</div>}
+          {message && <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-3 text-xs text-emerald-300">{message}</div>}
+          <Button disabled={saving || !content.trim() || !platforms.length} onClick={() => void save(true)} className="w-full bg-emerald-600 hover:bg-emerald-500">{saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}Publish now</Button>
+          <Button disabled={saving || !content.trim() || !platforms.length || !scheduleDate} onClick={() => void save(false)} variant="outline" className="w-full border-cyan-500/30 bg-cyan-500/10 text-cyan-200 hover:bg-cyan-500/20"><CalendarDays className="mr-2 h-4 w-4" />Schedule on server</Button>
         </div>
       </div>
     </div>
   );
 }
 
-// ═══════════════════════════════════════════════════
-// D. MEDIA LIBRARY VIEW
-// ═══════════════════════════════════════════════════
+function AccountsView() {
+  const [accounts, setAccounts] = useState<SocialAccount[]>([]);
+  const [capabilities, setCapabilities] = useState<Capability[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const [a, c] = await Promise.all([
+        api<SocialAccount[]>('/social-scheduler/accounts'),
+        api<Capability[]>('/social-scheduler/capabilities'),
+      ]);
+      setAccounts(Array.isArray(a) ? a : []); setCapabilities(Array.isArray(c) ? c : []);
+    } catch (e) { setError((e as Error).message || 'Could not load connected accounts.'); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const handler = () => { void load(); };
+    window.addEventListener('focus', handler);
+    return () => window.removeEventListener('focus', handler);
+  }, [load]);
+
+  const connectInstagram = async () => {
+    setBusy(true); setError(null);
+    try {
+      const result = await api<{ url: string }>('/live-sales/instagram/oauth/url');
+      if (!result.url) throw new Error('Instagram OAuth URL was not returned by the server.');
+      const popup = window.open(result.url, '_blank', 'noopener,noreferrer');
+      if (!popup) window.location.assign(result.url);
+    } catch (e) { setError((e as Error).message || 'Instagram connection could not start.'); }
+    finally { setBusy(false); }
+  };
+
+  const disconnect = async (account: SocialAccount) => {
+    setBusy(true); setError(null);
+    try {
+      await api(`/social-scheduler/accounts/${account.id}`, { method: 'DELETE' });
+      await load();
+    } catch (e) { setError((e as Error).message || 'Could not disconnect account.'); }
+    finally { setBusy(false); }
+  };
+
+  const instagramCapability = capabilities.find((row) => row.platform === 'instagram');
+  const tiktokCapability = capabilities.find((row) => row.platform === 'tiktok');
+
+  return (
+    <div className="h-full overflow-y-auto p-6"><div className="mx-auto max-w-5xl space-y-5">
+      <div className="flex items-center justify-between"><div><h2 className="text-lg font-bold">Connected accounts</h2><p className="text-xs text-slate-500">OAuth tokens are kept server-side; the UI never receives them.</p></div><Button size="sm" variant="outline" onClick={() => void load()} className="border-white/10 bg-white/5 text-slate-200"><RefreshCw className="mr-1 h-3.5 w-3.5" />Refresh</Button></div>
+      {error && <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-300">{error}</div>}
+      <div className="grid gap-4 md:grid-cols-2">
+        <Card className="border-white/[0.07] bg-[#13131f]"><CardContent className="p-4"><div className="flex items-start gap-3"><div className="grid h-11 w-11 place-items-center rounded-xl bg-pink-500/15"><Instagram className="h-5 w-5 text-pink-300" /></div><div className="min-w-0 flex-1"><div className="font-bold">Instagram Professional</div><div className="mt-1 text-xs text-slate-500">{instagramCapability?.connected ? `Connected: ${instagramCapability.account?.accountHandle || instagramCapability.account?.accountName}` : 'Not connected'}</div></div>{instagramCapability?.connected && <CheckCircle2 className="h-5 w-5 text-emerald-400" />}</div><div className="mt-4 rounded-lg bg-black/20 p-3 text-xs text-slate-400">{instagramCapability?.capabilities.publishImage ? 'Content publishing permission is active.' : instagramCapability?.reason || 'Connect an Instagram Professional account using official OAuth.'}</div><div className="mt-4 flex gap-2"><Button disabled={busy} onClick={() => void connectInstagram()} className="flex-1 bg-pink-600 hover:bg-pink-500">{instagramCapability?.connected ? 'Reconnect permissions' : 'Connect Instagram'}<ExternalLink className="ml-2 h-3.5 w-3.5" /></Button>{instagramCapability?.account && <Button disabled={busy} variant="outline" onClick={() => void disconnect(instagramCapability.account!)} className="border-red-500/20 bg-transparent text-red-300"><Trash2 className="h-4 w-4" /></Button>}</div></CardContent></Card>
+        <Card className="border-white/[0.07] bg-[#13131f]"><CardContent className="p-4"><div className="flex items-start gap-3"><div className="grid h-11 w-11 place-items-center rounded-xl bg-white/10"><Video className="h-5 w-5 text-white" /></div><div className="flex-1"><div className="font-bold">TikTok</div><div className="mt-1 text-xs text-slate-500">{tiktokCapability?.connected ? `Connected: ${tiktokCapability.account?.accountHandle || tiktokCapability.account?.accountName}` : 'No Content Posting connection'}</div></div></div><div className="mt-4 rounded-lg border border-amber-500/15 bg-amber-500/10 p-3 text-xs text-amber-100">{tiktokCapability?.reason || 'KobeOS will expose TikTok Direct Post only when the app has the required provider approval and the user authorizes the publishing scope.'}</div></CardContent></Card>
+      </div>
+      {loading ? <div className="grid place-items-center py-8"><Loader2 className="h-5 w-5 animate-spin text-cyan-400" /></div> : accounts.length > 0 && <Card className="border-white/[0.07] bg-[#13131f]"><CardContent className="p-0"><div className="divide-y divide-white/[0.05]">{accounts.map((account) => <div key={account.id} className="flex items-center gap-3 p-4"><div className="grid h-9 w-9 place-items-center rounded-lg bg-white/5 text-xs font-black">{(account.accountName || account.platform).slice(0, 2).toUpperCase()}</div><div className="min-w-0 flex-1"><div className="text-sm font-semibold">{PLATFORM_LABELS[account.platform] || account.platform}</div><div className="truncate text-[11px] text-slate-500">{account.accountHandle} · {account.status} · last sync {formatDateTime(account.lastSyncedAt)}</div></div><button disabled={busy} onClick={() => void disconnect(account)} className="p-2 text-slate-500 hover:text-red-300"><Trash2 className="h-4 w-4" /></button></div>)}</div></CardContent></Card>}
+    </div></div>
+  );
+}
+
+function AssetPreview({ asset }: { asset: MediaAsset }) {
+  const [src, setSrc] = useState<string>('');
+  useEffect(() => {
+    let alive = true; let objectUrl = '';
+    void (async () => {
+      try {
+        if (asset.src.startsWith('/api/')) objectUrl = await fetchObjectUrl(asset.src.replace(/^\/api/, ''));
+        else objectUrl = asset.src;
+        if (alive) setSrc(objectUrl);
+      } catch { if (alive) setSrc(''); }
+    })();
+    return () => { alive = false; if (objectUrl.startsWith('blob:')) URL.revokeObjectURL(objectUrl); };
+  }, [asset.src]);
+  if (!src) return <div className="grid h-full place-items-center"><ImageIcon className="h-7 w-7 text-slate-600" /></div>;
+  return asset.kind === 'video' ? <video src={src} muted className="h-full w-full object-cover" /> : <img src={src} alt={asset.name} className="h-full w-full object-cover" />;
+}
 
 function MediaLibraryView() {
-  const [media, setMedia] = useState<MediaItem[]>(mockMedia);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [typeFilter, setTypeFilter] = useState<'all' | 'image' | 'video'>('all');
-  const [selectedItems, setSelectedItems] = useState<string[]>([]);
+  const fileInput = useRef<HTMLInputElement | null>(null);
+  const [assets, setAssets] = useState<MediaAsset[]>([]);
+  const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const filtered = useMemo(() => {
-    return media.filter(m => {
-      const matchesSearch = m.name.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchesType = typeFilter === 'all' || m.type === typeFilter;
-      return matchesSearch && matchesType;
-    });
-  }, [media, searchQuery, typeFilter]);
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    try {
+      const [images, videos] = await Promise.all([api<MediaAsset[]>('/media/assets?kind=image'), api<MediaAsset[]>('/media/assets?kind=video')]);
+      setAssets([...(Array.isArray(images) ? images : []), ...(Array.isArray(videos) ? videos : [])].sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))));
+    } catch (e) { setError((e as Error).message || 'Could not load media.'); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
 
-  const toggleSelect = (id: string) => {
-    setSelectedItems(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
+  const upload = async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = [...(event.target.files ?? [])]; if (!files.length) return;
+    setUploading(true); setError(null);
+    try {
+      for (const file of files) await uploadFile(`/media/upload?kind=${file.type.startsWith('video/') ? 'video' : 'image'}`, file);
+      await load();
+    } catch (e) { setError((e as Error).message || 'Upload failed.'); }
+    finally { setUploading(false); event.target.value = ''; }
   };
 
-  const handleUpload = () => {
-    setUploading(true);
-    setTimeout(() => {
-      const newMedia: MediaItem = {
-        id: `m${Date.now()}`,
-        url: `https://images.unsplash.com/photo-${1500000000000 + Math.floor(Math.random() * 500000)}?w=400&h=400&fit=crop`,
-        type: Math.random() > 0.3 ? 'image' : 'video',
-        name: `upload-${Date.now()}.${Math.random() > 0.3 ? 'jpg' : 'mp4'}`,
-        size: `${(Math.random() * 10 + 1).toFixed(1)} MB`,
-        uploadedAt: new Date().toISOString(),
-      };
-      setMedia(prev => [newMedia, ...prev]);
-      setUploading(false);
-    }, 1500);
+  const remove = async (id: string) => {
+    try { await api(`/media/assets/${id}`, { method: 'DELETE' }); setAssets((rows) => rows.filter((row) => row.id !== id)); }
+    catch (e) { setError((e as Error).message || 'Could not delete media.'); }
   };
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="p-6 space-y-5">
-        {/* Header controls */}
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex-1 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-            <Input
-              className="pl-9 bg-white/5 border-white/10 text-white"
-              placeholder="Search media..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-            />
-          </div>
-          <div className="flex gap-1 bg-white/5 rounded-lg p-0.5">
-            {(['all', 'image', 'video'] as const).map(t => (
-              <button
-                key={t}
-                onClick={() => setTypeFilter(t)}
-                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${typeFilter === t ? 'bg-cyan-500/20 text-cyan-400' : 'text-slate-400 hover:text-slate-200'}`}
-              >
-                {t.charAt(0).toUpperCase() + t.slice(1)}
-              </button>
-            ))}
-          </div>
-          <Button className="bg-cyan-500 hover:bg-cyan-600 text-white gap-2" size="sm" onClick={handleUpload} disabled={uploading}>
-            {uploading ? 'Uploading...' : <><Upload className="w-4 h-4" /> Upload</>}
-          </Button>
-        </div>
-
-        {/* Selection bar */}
-        {selectedItems.length > 0 && (
-          <div className="flex items-center gap-3 bg-cyan-500/10 rounded-lg p-3 border border-cyan-500/20">
-            <span className="text-sm text-cyan-400">{selectedItems.length} selected</span>
-            <Button size="sm" variant="ghost" className="h-7 text-xs text-slate-400 hover:text-white" onClick={() => setSelectedItems([])}>
-              Clear
-            </Button>
-            <Button size="sm" className="h-7 text-xs bg-cyan-500/20 text-cyan-400 hover:bg-cyan-500/30 ml-auto">
-              Use in Post
-            </Button>
-          </div>
-        )}
-
-        {/* Media Grid */}
-        <div className="grid grid-cols-5 gap-3">
-          {filtered.map((item) => (
-            <div
-              key={item.id}
-              onClick={() => toggleSelect(item.id)}
-              className={`relative group rounded-xl overflow-hidden border cursor-pointer transition-all ${
-                selectedItems.includes(item.id)
-                  ? 'ring-2 ring-cyan-500 border-cyan-500/50'
-                  : 'border-white/[0.06] hover:border-white/15'
-              }`}
-            >
-              <div className="aspect-square bg-[#1a1a2e] relative">
-                <img src={item.url} alt={item.name} className="w-full h-full object-cover" loading="lazy" />
-                {/* Overlay */}
-                <div className={`absolute inset-0 transition-all ${selectedItems.includes(item.id) ? 'bg-cyan-500/20' : 'bg-transparent group-hover:bg-black/30'}`} />
-                {/* Checkbox */}
-                <div className={`absolute top-2 left-2 w-5 h-5 rounded border flex items-center justify-center transition-all ${
-                  selectedItems.includes(item.id) ? 'bg-cyan-500 border-cyan-500' : 'border-white/40 bg-black/40'
-                }`}>
-                  {selectedItems.includes(item.id) && <CheckCircle2 className="w-3.5 h-3.5 text-white" />}
-                </div>
-                {/* Type badge */}
-                <div className="absolute top-2 right-2 px-1.5 py-0.5 rounded text-[10px] font-medium bg-black/60 text-white backdrop-blur-sm">
-                  {item.type === 'video' ? 'VIDEO' : 'IMG'}
-                </div>
-              </div>
-              <div className="p-2.5 bg-[#13131f]">
-                <p className="text-xs text-slate-300 truncate">{item.name}</p>
-                <div className="flex items-center justify-between mt-1">
-                  <span className="text-[10px] text-slate-500">{item.size}</span>
-                  <span className="text-[10px] text-slate-500">{new Date(item.uploadedAt).toLocaleDateString()}</span>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {filtered.length === 0 && (
-          <div className="text-center py-16">
-            <Image className="w-12 h-12 text-slate-600 mx-auto mb-3" />
-            <p className="text-sm text-slate-500">No media found matching your filters.</p>
-          </div>
-        )}
-      </div>
-    </div>
+    <div className="h-full overflow-y-auto p-6"><div className="mx-auto max-w-6xl space-y-5">
+      <div className="flex items-center justify-between"><div><h2 className="text-lg font-bold">Media library</h2><p className="text-xs text-slate-500">Files shown here were actually uploaded to KobeOS.</p></div><div className="flex gap-2"><Button size="sm" variant="outline" onClick={() => void load()} className="border-white/10 bg-white/5 text-slate-200"><RefreshCw className="h-3.5 w-3.5" /></Button><input ref={fileInput} type="file" multiple accept="image/*,video/*" className="hidden" onChange={(e) => void upload(e)} /><Button size="sm" disabled={uploading} onClick={() => fileInput.current?.click()} className="bg-cyan-600 hover:bg-cyan-500">{uploading ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <Upload className="mr-1 h-3.5 w-3.5" />}Upload</Button></div></div>
+      {error && <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-300">{error}</div>}
+      {loading ? <div className="grid place-items-center py-16"><Loader2 className="h-6 w-6 animate-spin text-cyan-400" /></div> : assets.length === 0 ? <EmptyState title="No uploaded media" body="Upload an image or video; KobeOS will store the real file and make it available to the composer." /> : <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">{assets.map((asset) => <div key={asset.id} className="overflow-hidden rounded-xl border border-white/[0.07] bg-[#13131f]"><div className="aspect-square bg-black/30"><AssetPreview asset={asset} /></div><div className="flex items-center gap-2 p-2.5"><div className="min-w-0 flex-1"><div className="truncate text-xs font-semibold">{asset.name}</div><div className="text-[10px] text-slate-500">{formatBytes(asset.size)} · {asset.kind}</div></div><button onClick={() => void remove(asset.id)} className="p-1.5 text-slate-500 hover:text-red-300"><Trash2 className="h-3.5 w-3.5" /></button></div></div>)}</div>}
+    </div></div>
   );
 }
-
-// ═══════════════════════════════════════════════════
-// E. ANALYTICS VIEW
-// ═══════════════════════════════════════════════════
 
 function AnalyticsView() {
-  const [platformFilter, setPlatformFilter] = useState('all');
-  const [dateRange, setDateRange] = useState('30');
+  const [range, setRange] = useState('30');
+  const [platform, setPlatform] = useState('');
+  const [analytics, setAnalytics] = useState<AnalyticsResponse | null>(null);
+  const [posts, setPosts] = useState<ScheduledPost[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const publishedPosts = mockPosts.filter(p => p.status === 'published' && p.engagement);
+  const load = useCallback(async () => {
+    setLoading(true); setError(null);
+    const from = new Date(Date.now() - Number(range) * 86_400_000).toISOString();
+    const params = new URLSearchParams({ from, to: new Date().toISOString() });
+    if (platform) params.set('platform', platform);
+    try {
+      const [summary, list] = await Promise.all([
+        api<AnalyticsResponse>(`/social-scheduler/analytics?${params}`),
+        api<PostList>(`/social-scheduler/posts?status=published&limit=100${platform ? `&platform=${encodeURIComponent(platform)}` : ''}`),
+      ]);
+      setAnalytics(summary); setPosts(Array.isArray(list.items) ? list.items : []);
+    } catch (e) { setError((e as Error).message || 'Could not load analytics.'); }
+    finally { setLoading(false); }
+  }, [platform, range]);
+  useEffect(() => { void load(); }, [load]);
 
-  const filteredPosts = useMemo(() => {
-    return publishedPosts.filter(p => {
-      if (platformFilter === 'all') return true;
-      return p.platforms.includes(platformFilter);
-    });
-  }, [platformFilter]);
-
-  const totalEngagement = useMemo(() => {
-    return filteredPosts.reduce((acc, p) => ({
-      likes: acc.likes + (p.engagement?.likes || 0),
-      comments: acc.comments + (p.engagement?.comments || 0),
-      shares: acc.shares + (p.engagement?.shares || 0),
-      impressions: acc.impressions + (p.engagement?.impressions || 0),
-    }), { likes: 0, comments: 0, shares: 0, impressions: 0 });
-  }, [filteredPosts]);
-
-  const chartData = useMemo(() => {
-    const byPlatform: Record<string, { platform: string; likes: number; comments: number; shares: number; impressions: number }> = {};
-    filteredPosts.forEach(p => {
-      p.platforms.forEach(pl => {
-        if (!byPlatform[pl]) byPlatform[pl] = { platform: pl, likes: 0, comments: 0, shares: 0, impressions: 0 };
-        byPlatform[pl].likes += p.engagement?.likes || 0;
-        byPlatform[pl].comments += p.engagement?.comments || 0;
-        byPlatform[pl].shares += p.engagement?.shares || 0;
-        byPlatform[pl].impressions += p.engagement?.impressions || 0;
-      });
-    });
-    return Object.values(byPlatform);
-  }, [filteredPosts]);
-
-  const topPosts = [...filteredPosts].sort((a, b) => (b.engagement?.likes || 0) - (a.engagement?.likes || 0)).slice(0, 5);
+  const totals = analytics?.totals ?? { likes: 0, comments: 0, shares: 0, impressions: 0 };
+  const topPosts = useMemo(() => [...posts].sort((a, b) => Number(b.engagementStats?.impressions || 0) - Number(a.engagementStats?.impressions || 0)).slice(0, 10), [posts]);
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="p-6 space-y-5">
-        {/* Filters */}
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-slate-400" />
-            <select
-              className="bg-white/5 border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
-              value={platformFilter}
-              onChange={e => setPlatformFilter(e.target.value)}
-            >
-              <option value="all">All Platforms</option>
-              {Object.keys(PLATFORM_META).map(p => (
-                <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>
-              ))}
-            </select>
-            <select
-              className="bg-white/5 border border-white/10 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-cyan-500/30"
-              value={dateRange}
-              onChange={e => setDateRange(e.target.value)}
-            >
-              <option value="7">Last 7 days</option>
-              <option value="30">Last 30 days</option>
-              <option value="90">Last 90 days</option>
-            </select>
-          </div>
-        </div>
-
-        {/* KPI Cards */}
-        <div className="grid grid-cols-4 gap-4">
-          {[
-            { label: 'Total Likes', value: totalEngagement.likes.toLocaleString(), icon: Heart, color: '#ec4899' },
-            { label: 'Comments', value: totalEngagement.comments.toLocaleString(), icon: MessageSquare, color: '#8b5cf6' },
-            { label: 'Shares', value: totalEngagement.shares.toLocaleString(), icon: Share2, color: '#10b981' },
-            { label: 'Impressions', value: totalEngagement.impressions.toLocaleString(), icon: Eye, color: '#06b6d4' },
-          ].map((kpi, i) => (
-            <Card key={i} className="bg-[#13131f] border-white/[0.06]">
-              <CardContent className="p-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ backgroundColor: `${kpi.color}20`, color: kpi.color }}>
-                    <kpi.icon className="w-4 h-4" />
-                  </div>
-                </div>
-                <div className="text-2xl font-bold text-white">{kpi.value}</div>
-                <div className="text-xs text-slate-400">{kpi.label}</div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          {/* Engagement Bar Chart */}
-          <Card className="bg-[#13131f] border-white/[0.06]">
-            <CardContent className="p-4">
-              <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
-                <TrendingUp className="w-4 h-4 text-cyan-400" /> Engagement by Platform
-              </h3>
-              {chartData.length === 0 ? (
-                <p className="text-sm text-slate-500 text-center py-8">No data available for selected filters.</p>
-              ) : (
-                <ResponsiveContainer width="100%" height={240}>
-                  <BarChart data={chartData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                    <XAxis dataKey="platform" stroke="#64748b" fontSize={12} tickFormatter={(v: string) => v.charAt(0).toUpperCase() + v.slice(1)} />
-                    <YAxis stroke="#64748b" fontSize={12} />
-                    <Tooltip contentStyle={{ backgroundColor: '#1e1e2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', color: '#fff' }} />
-                    <Bar dataKey="likes" fill="#ec4899" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="comments" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="shares" fill="#10b981" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Top Performing Posts */}
-          <Card className="bg-[#13131f] border-white/[0.06]">
-            <CardContent className="p-4">
-              <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
-                <Star className="w-4 h-4 text-amber-400" /> Top Performing Posts
-              </h3>
-              <div className="space-y-3">
-                {topPosts.map((post, i) => (
-                  <div key={post.id} className="flex items-start gap-3 p-3 rounded-lg bg-white/[0.03]">
-                    <div className="w-6 h-6 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center text-xs font-bold shrink-0 mt-0.5">
-                      {i + 1}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs text-slate-300 truncate">{post.content}</p>
-                      <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                        {post.platforms.slice(0, 3).map(p => (
-                          <PlatformBadge key={p} platform={p} size="sm" />
-                        ))}
-                      </div>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <div className="text-sm font-semibold text-white">{(post.engagement?.likes || 0).toLocaleString()}</div>
-                      <div className="text-[10px] text-slate-500">likes</div>
-                    </div>
-                  </div>
-                ))}
-                {topPosts.length === 0 && (
-                  <p className="text-sm text-slate-500 text-center py-4">No published posts match the selected filters.</p>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Performance Table */}
-        <Card className="bg-[#13131f] border-white/[0.06]">
-          <CardContent className="p-4">
-            <h3 className="text-sm font-semibold text-white mb-3">Post Performance Details</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-xs text-slate-400 border-b border-white/[0.06]">
-                    <th className="text-left py-2 px-3">Content</th>
-                    <th className="text-left py-2 px-3">Platforms</th>
-                    <th className="text-left py-2 px-3">Status</th>
-                    <th className="text-right py-2 px-3">Likes</th>
-                    <th className="text-right py-2 px-3">Comments</th>
-                    <th className="text-right py-2 px-3">Shares</th>
-                    <th className="text-right py-2 px-3">Impressions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredPosts.map(post => (
-                    <tr key={post.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
-                      <td className="py-2.5 px-3 max-w-[300px]">
-                        <p className="text-slate-200 truncate text-xs">{post.content}</p>
-                      </td>
-                      <td className="py-2.5 px-3">
-                        <div className="flex gap-1 flex-wrap">
-                          {post.platforms.map(p => (
-                            <span key={p} className="w-5 h-5 rounded flex items-center justify-center" style={{ backgroundColor: getPlatformMeta(p).color + '20' }}>
-                              {(() => { const Icon = getPlatformMeta(p).icon; return <Icon className="w-3 h-3" style={{ color: getPlatformMeta(p).color }} />; })()}
-                            </span>
-                          ))}
-                        </div>
-                      </td>
-                      <td className="py-2.5 px-3"><PostStatusBadge status={post.status} /></td>
-                      <td className="py-2.5 px-3 text-right text-slate-300">{(post.engagement?.likes || 0).toLocaleString()}</td>
-                      <td className="py-2.5 px-3 text-right text-slate-300">{(post.engagement?.comments || 0).toLocaleString()}</td>
-                      <td className="py-2.5 px-3 text-right text-slate-300">{(post.engagement?.shares || 0).toLocaleString()}</td>
-                      <td className="py-2.5 px-3 text-right text-slate-300">{(post.engagement?.impressions || 0).toLocaleString()}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  );
-}
-
-// Star icon for analytics top posts
-function Star({ className }: { className?: string }) {
-  return (
-    <svg className={className} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-    </svg>
+    <div className="h-full overflow-y-auto p-6"><div className="mx-auto max-w-6xl space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3"><div><h2 className="text-lg font-bold">Verified publishing analytics</h2><p className="text-xs text-slate-500">Values come from stored provider/first-party metrics only; no generated sample numbers.</p></div><div className="flex gap-2"><select value={platform} onChange={(e) => setPlatform(e.target.value)} className="rounded-lg border border-white/10 bg-[#13131f] px-3 text-xs"><option value="">All platforms</option>{Object.entries(PLATFORM_LABELS).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select><select value={range} onChange={(e) => setRange(e.target.value)} className="rounded-lg border border-white/10 bg-[#13131f] px-3 text-xs"><option value="7">7 days</option><option value="30">30 days</option><option value="90">90 days</option></select></div></div>
+      {error && <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-300">{error}</div>}
+      {loading ? <div className="grid place-items-center py-16"><Loader2 className="h-6 w-6 animate-spin text-cyan-400" /></div> : <>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{[
+          { label: 'Impressions', value: totals.impressions, icon: Eye },
+          { label: 'Likes', value: totals.likes, icon: Heart },
+          { label: 'Comments', value: totals.comments, icon: MessageSquare },
+          { label: 'Shares', value: totals.shares, icon: Share2 },
+        ].map(({ label, value, icon: Icon }) => <Card key={label} className="border-white/[0.07] bg-[#13131f]"><CardContent className="p-4"><Icon className="mb-3 h-4 w-4 text-cyan-300" /><div className="text-2xl font-black">{Number(value || 0).toLocaleString()}</div><div className="text-xs text-slate-500">{label}</div></CardContent></Card>)}</div>
+        <div className="grid gap-4 lg:grid-cols-2"><Card className="border-white/[0.07] bg-[#13131f]"><CardContent className="p-4"><h3 className="mb-4 text-sm font-bold">By platform</h3><div className="space-y-3">{Object.entries(analytics?.platformBreakdown ?? {}).map(([id, row]) => <div key={id} className="rounded-lg bg-white/[0.025] p-3"><div className="flex items-center justify-between"><div className="text-sm font-semibold">{PLATFORM_LABELS[id] || id}</div><div className="text-xs text-slate-400">{row.posts} post{row.posts === 1 ? '' : 's'}</div></div><div className="mt-2 grid grid-cols-4 gap-2 text-[10px] text-slate-500"><span>{row.impressions.toLocaleString()} views</span><span>{row.likes.toLocaleString()} likes</span><span>{row.comments.toLocaleString()} comments</span><span>{row.shares.toLocaleString()} shares</span></div></div>)}{Object.keys(analytics?.platformBreakdown ?? {}).length === 0 && <div className="text-xs text-slate-500">No published metrics in this period.</div>}</div></CardContent></Card><Card className="border-white/[0.07] bg-[#13131f]"><CardContent className="p-4"><h3 className="mb-4 text-sm font-bold">Published posts</h3><div className="space-y-2">{topPosts.map((post) => <div key={post.id} className="rounded-lg border border-white/[0.05] p-3"><div className="truncate text-xs font-semibold">{post.content}</div><div className="mt-1 flex justify-between text-[10px] text-slate-500"><span>{post.platforms.map((p) => PLATFORM_LABELS[p] || p).join(', ')}</span><span>{Number(post.engagementStats?.impressions || 0).toLocaleString()} impressions</span></div></div>)}{topPosts.length === 0 && <div className="text-xs text-slate-500">No published posts in this view.</div>}</div></CardContent></Card></div>
+      </>}
+    </div></div>
   );
 }
