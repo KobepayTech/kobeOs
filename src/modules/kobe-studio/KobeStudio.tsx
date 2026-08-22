@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { CheckCircle2, ExternalLink, Film, Loader2, Plus, RefreshCw, Sparkles, XCircle } from 'lucide-react';
 import {
   createStudioMediaJob,
   createStudioMediaProject,
@@ -13,162 +14,136 @@ interface VideoJobResponse {
   id: string;
   status: string;
   progressPercent: number;
-  outputPath?: string | null;
   outputUrl?: string | null;
   errorMessage?: string | null;
 }
 
-type StudioSectionId = 'media-studios' | 'creator-marketplace' | 'football-analytics' | 'brand-studio';
-type StudioFormat = 'short-video' | 'ad-video' | 'creator-package' | 'product-video' | 'match-analysis';
+type StudioSectionId = StudioMediaProjectRecord['section'];
+type StudioFormat = StudioMediaProjectRecord['format'];
 
-const demoProjects: StudioMediaProjectRecord[] = [
-  { id: 'project-1', title: 'Hotel Booking Promo', section: 'media-studios', format: 'ad-video', language: 'English', status: 'draft', engine: 'MoneyPrinterTurbo', prompt: 'Hotel booking promo' },
-  { id: 'project-2', title: 'KobePay Merchant Short', section: 'media-studios', format: 'short-video', language: 'Swahili', status: 'generating', engine: 'MoneyPrinterTurbo', prompt: 'Merchant short video' },
-  { id: 'project-3', title: 'Creator Brand Deal Pack', section: 'creator-marketplace', format: 'creator-package', language: 'Mixed', status: 'ready', engine: 'Kobe Manual Studio', prompt: 'Creator brand deal pack' },
-  { id: 'project-4', title: 'Football Highlight Breakdown', section: 'football-analytics', format: 'match-analysis', language: 'English', status: 'draft', engine: 'Kobe Vision', prompt: 'Football highlight breakdown' },
+const SECTIONS: Array<{ id: StudioSectionId; title: string; description: string; formats: StudioFormat[] }> = [
+  { id: 'media-studios', title: 'Media Studio', description: 'AI-generated short videos and adverts using the configured media engine.', formats: ['short-video', 'ad-video', 'product-video'] },
+  { id: 'creator-marketplace', title: 'Creator Studio', description: 'Persistent creative briefs and creator deliverable packages.', formats: ['creator-package', 'short-video', 'ad-video'] },
+  { id: 'brand-studio', title: 'Brand Studio', description: 'Product and business campaign assets tied to real Studio projects.', formats: ['ad-video', 'product-video', 'short-video'] },
+  { id: 'football-analytics', title: 'Football Studio', description: 'Match-analysis media projects using real uploaded/processed match data.', formats: ['match-analysis'] },
 ];
 
-const studioSections: Array<{ id: StudioSectionId; title: string; description: string; engine: string }> = [
-  { id: 'media-studios', title: 'Media Studios', description: 'AI short videos, ads, scripts, voiceovers, subtitles, music, and stock-footage video generation.', engine: 'MoneyPrinterTurbo' },
-  { id: 'creator-marketplace', title: 'Creator Marketplace Studio', description: 'Creator campaigns, influencer deliverables, brand deals, proposals, captions, and reports.', engine: 'Kobe Creator workflow' },
-  { id: 'brand-studio', title: 'Brand Studio', description: 'Business ad packs, hotel promos, product promos, indoor TV screen ads, and campaign assets.', engine: 'Kobe Brand workflow' },
-  { id: 'football-analytics', title: 'Football Analytics Studio', description: 'Future workspace for match analysis, highlights, possession clips, player clips, and tactical reports.', engine: 'Kobe Vision' },
-];
-
-function statusClasses(status: StudioMediaProjectRecord['status']) {
-  switch (status) {
-    case 'published': return 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30';
-    case 'ready': return 'bg-blue-500/15 text-blue-300 border-blue-500/30';
-    case 'generating': return 'bg-yellow-500/15 text-yellow-300 border-yellow-500/30';
-    case 'failed': return 'bg-red-500/15 text-red-300 border-red-500/30';
-    default: return 'bg-slate-500/15 text-slate-300 border-slate-500/30';
-  }
-}
+const statusClass = (status: string) => status === 'ready' || status === 'completed' || status === 'published'
+  ? 'bg-emerald-500/10 text-emerald-300'
+  : status === 'failed'
+    ? 'bg-rose-500/10 text-rose-300'
+    : status === 'generating' || status === 'running'
+      ? 'bg-amber-500/10 text-amber-300'
+      : 'bg-slate-700 text-slate-300';
 
 export default function KobeStudio() {
-  const [topic, setTopic] = useState('Create a 30 second video about KobeHotel online bookings');
-  const [selectedSection, setSelectedSection] = useState<StudioSectionId>('media-studios');
-  const [selectedFormat, setSelectedFormat] = useState<StudioFormat>('short-video');
-  const [projects, setProjects] = useState<StudioMediaProjectRecord[]>(demoProjects);
+  const [section, setSection] = useState<StudioSectionId>('media-studios');
+  const [format, setFormat] = useState<StudioFormat>('short-video');
+  const [topic, setTopic] = useState('');
+  const [language, setLanguage] = useState('English');
+  const [projects, setProjects] = useState<StudioMediaProjectRecord[]>([]);
   const [jobs, setJobs] = useState<StudioMediaJobRecord[]>([]);
-  const [dataSource, setDataSource] = useState<'backend' | 'demo'>('demo');
+  const [videoJob, setVideoJob] = useState<VideoJobResponse | null>(null);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
 
-  async function refresh() {
-    const [projectResult, jobResult] = await Promise.allSettled([listStudioMediaProjects(), listStudioMediaJobs()]);
-    const backendProjects = projectResult.status === 'fulfilled' ? projectResult.value : [];
-    const backendJobs = jobResult.status === 'fulfilled' ? jobResult.value : [];
-    if (backendProjects.length > 0 || backendJobs.length > 0) {
-      setProjects(backendProjects.length > 0 ? backendProjects : demoProjects);
-      setJobs(backendJobs);
-      setDataSource('backend');
-    } else {
-      setProjects(demoProjects);
-      setJobs([]);
-      setDataSource('demo');
-    }
-  }
-
-  useEffect(() => { refresh(); }, []);
-
-  const filteredProjects = useMemo(() => projects.filter((project) => project.section === selectedSection), [selectedSection, projects]);
-  const readyProjects = useMemo(() => projects.filter((project) => project.status === 'ready' || project.status === 'published'), [projects]);
-
-  const createProject = async () => {
-    setSaving(true);
+  const refresh = async () => {
+    setLoading(true); setError('');
     try {
-      const savedProject = await createStudioMediaProject({
-        title: topic.slice(0, 80) || 'Untitled media project',
-        section: selectedSection,
-        format: selectedFormat,
-        language: 'English',
-        status: 'draft',
-        engine: selectedSection === 'media-studios' ? 'MoneyPrinterTurbo' : 'Kobe Studio',
-        prompt: topic,
-      });
-      setProjects((current) => [savedProject, ...current.filter((item) => item.id !== savedProject.id)]);
-      await createStudioMediaJob({
-        projectId: savedProject.id,
-        status: 'queued',
-        engine: savedProject.engine,
-        request: { topic, format: selectedFormat, section: selectedSection },
-      });
-
-      // Trigger the actual MoneyPrinterTurbo render via the video-generation
-      // endpoint. Job is async — backend polls upstream every 4 s and updates
-      // status. We don't await completion here; the job ledger handles that.
-      try {
-        const job = await api<VideoJobResponse>('/videos/generate', {
-          method: 'POST',
-          body: JSON.stringify({
-            title: savedProject.title,
-            topic,
-            aspect: selectedFormat === 'short-video' ? '9:16' : '16:9',
-            count: 1,
-            subtitlesEnabled: true,
-          }),
-        });
-        setVideoJob(job);
-      } catch (err) {
-        // No upstream available — keep the project record, surface the error.
-        setVideoJob({ id: '', status: 'failed', progressPercent: 0, errorMessage: (err as Error).message });
-      }
-
-      await refresh();
-    } catch {
-      // Shared api() queues offline writes when possible.
-    } finally {
-      setSaving(false);
-    }
+      const [p, j] = await Promise.all([listStudioMediaProjects(), listStudioMediaJobs()]);
+      setProjects(Array.isArray(p) ? p : []);
+      setJobs(Array.isArray(j) ? j : []);
+    } catch (e) {
+      setProjects([]); setJobs([]);
+      setError((e as Error).message || 'Could not load Studio projects.');
+    } finally { setLoading(false); }
   };
 
-  const [videoJob, setVideoJob] = useState<VideoJobResponse | null>(null);
+  useEffect(() => { void refresh(); }, []);
 
-  // Poll the active video job until it reaches a terminal state.
   useEffect(() => {
-    if (!videoJob?.id || videoJob.status === 'completed' || videoJob.status === 'failed') return;
-    const t = setInterval(async () => {
-      try {
-        const updated = await api<VideoJobResponse>(`/videos/jobs/${videoJob.id}`);
-        setVideoJob(updated);
-      } catch { /* ignore poll errors */ }
+    const allowed = SECTIONS.find((s) => s.id === section)?.formats ?? ['short-video'];
+    if (!allowed.includes(format)) setFormat(allowed[0]);
+  }, [section, format]);
+
+  useEffect(() => {
+    if (!videoJob?.id || ['completed', 'failed', 'cancelled'].includes(videoJob.status)) return;
+    const timer = window.setInterval(async () => {
+      try { setVideoJob(await api<VideoJobResponse>(`/videos/jobs/${videoJob.id}`, { offlineFallback: false })); }
+      catch { /* keep last known state; refresh remains available */ }
     }, 3000);
-    return () => clearInterval(t);
+    return () => window.clearInterval(timer);
   }, [videoJob?.id, videoJob?.status]);
 
+  const filtered = useMemo(() => projects.filter((p) => p.section === section), [projects, section]);
+  const jobByProject = useMemo(() => {
+    const map = new Map<string, StudioMediaJobRecord>();
+    jobs.forEach((job) => { if (!map.has(job.projectId)) map.set(job.projectId, job); });
+    return map;
+  }, [jobs]);
+
+  const create = async () => {
+    if (!topic.trim()) return;
+    setSaving(true); setError(''); setVideoJob(null);
+    try {
+      const project = await createStudioMediaProject({
+        title: topic.trim().slice(0, 80), section, format, language,
+        status: 'draft', engine: section === 'media-studios' || section === 'brand-studio' ? 'MoneyPrinterTurbo' : 'Kobe Studio', prompt: topic.trim(),
+      });
+      await createStudioMediaJob({ projectId: project.id, status: 'queued', engine: project.engine, request: { topic: topic.trim(), format, section, language } });
+
+      if (['short-video', 'ad-video', 'product-video'].includes(format)) {
+        try {
+          const job = await api<VideoJobResponse>('/videos/generate', {
+            method: 'POST', offlineFallback: false,
+            body: JSON.stringify({ title: project.title, topic: topic.trim(), aspect: format === 'short-video' ? '9:16' : '16:9', count: 1, subtitlesEnabled: true }),
+          });
+          setVideoJob(job);
+        } catch (e) {
+          setVideoJob({ id: '', status: 'failed', progressPercent: 0, errorMessage: (e as Error).message || 'Media rendering engine is unavailable.' });
+        }
+      }
+      setTopic('');
+      await refresh();
+    } catch (e) { setError((e as Error).message || 'Could not create Studio project.'); }
+    finally { setSaving(false); }
+  };
+
   return (
-    <div className="h-full overflow-y-auto bg-slate-950 text-white">
-      <div className="border-b border-white/10 bg-slate-900/80 px-6 py-4">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <p className="text-sm uppercase tracking-[0.3em] text-pink-300">KobeOS Module</p>
-            <h1 className="mt-1 text-3xl font-bold">Kobe Studio</h1>
-            <p className="mt-1 max-w-3xl text-sm text-slate-400">Studio workspace for Media Studios, creator campaigns, brand ads, football analysis, and publishing workflows.</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="rounded-full border border-pink-500/30 bg-pink-500/10 px-4 py-2 text-sm text-pink-200">Media Studios engine: MoneyPrinterTurbo</span>
-            <span className="rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-slate-300">Data: {dataSource}</span>
-            <button onClick={refresh} className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm hover:bg-white/10">Refresh</button>
-          </div>
+    <div className="h-full min-h-0 flex flex-col bg-slate-950 text-white overflow-hidden">
+      <header className="shrink-0 border-b border-white/10 bg-slate-900/80 px-5 py-4 flex items-center gap-3">
+        <div className="h-10 w-10 rounded-xl bg-pink-500/15 text-pink-300 grid place-items-center"><Film className="h-5 w-5" /></div>
+        <div><h1 className="font-black">Kobe Studio</h1><p className="text-[11px] text-slate-500">Persistent media projects and real render jobs</p></div>
+        <button onClick={() => void refresh()} disabled={loading} className="ml-auto h-9 w-9 rounded-lg border border-white/10 grid place-items-center text-slate-400 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button>
+      </header>
+
+      <main className="flex-1 min-h-0 overflow-y-auto p-5 space-y-5">
+        {error && <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 text-rose-200 px-3 py-2 text-sm">{error}</div>}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <Stat label="Projects" value={projects.length} /><Stat label="Jobs" value={jobs.length} /><Stat label="Ready" value={projects.filter((p) => p.status === 'ready' || p.status === 'published').length} /><Stat label="Running" value={jobs.filter((j) => j.status === 'running' || j.status === 'queued').length} />
         </div>
-      </div>
 
-      <div className="grid gap-4 p-6 lg:grid-cols-4">
-        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><p className="text-sm text-slate-400">Studio sections</p><p className="mt-2 text-3xl font-bold">{studioSections.length}</p><p className="mt-1 text-xs text-slate-500">Media, creator, brand, football</p></div>
-        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><p className="text-sm text-slate-400">Projects</p><p className="mt-2 text-3xl font-bold">{projects.length}</p><p className="mt-1 text-xs text-slate-500">Backend + fallback</p></div>
-        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><p className="text-sm text-slate-400">Ready</p><p className="mt-2 text-3xl font-bold">{readyProjects.length}</p><p className="mt-1 text-xs text-slate-500">Ready for review or publish</p></div>
-        <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><p className="text-sm text-slate-400">Jobs</p><p className="mt-2 text-3xl font-bold">{jobs.length}</p><p className="mt-1 text-xs text-slate-500">Generation queue</p></div>
-      </div>
+        <div className="grid xl:grid-cols-[320px_1fr] gap-5">
+          <section className="rounded-2xl border border-white/10 bg-slate-900/60 p-4 space-y-2">{SECTIONS.map((s) => <button key={s.id} onClick={() => setSection(s.id)} className={`w-full text-left rounded-xl border p-3 ${section === s.id ? 'border-pink-400/50 bg-pink-500/10' : 'border-white/10 bg-white/[0.02] hover:bg-white/[0.05]'}`}><b className="text-sm">{s.title}</b><p className="text-xs text-slate-500 mt-1">{s.description}</p></button>)}</section>
+          <section className="rounded-2xl border border-white/10 bg-slate-900/60 p-5">
+            <div className="flex items-center gap-2"><Sparkles className="h-5 w-5 text-pink-300" /><h2 className="font-black">Create project</h2></div>
+            <div className="mt-4 grid gap-3">
+              <label className="grid gap-1 text-xs text-slate-400">Brief / prompt<textarea value={topic} onChange={(e) => setTopic(e.target.value)} rows={5} className="rounded-xl border border-white/10 bg-slate-950 p-3 text-sm outline-none focus:border-pink-400/50" placeholder="Describe the real asset you want Studio to create…" /></label>
+              <div className="grid sm:grid-cols-2 gap-3"><label className="grid gap-1 text-xs text-slate-400">Format<select value={format} onChange={(e) => setFormat(e.target.value as StudioFormat)} className="h-10 rounded-xl border border-white/10 bg-slate-950 px-3 text-sm">{(SECTIONS.find((s) => s.id === section)?.formats ?? []).map((f) => <option key={f} value={f}>{f.replace(/-/g, ' ')}</option>)}</select></label><label className="grid gap-1 text-xs text-slate-400">Language<input value={language} onChange={(e) => setLanguage(e.target.value)} className="h-10 rounded-xl border border-white/10 bg-slate-950 px-3 text-sm" /></label></div>
+              <button onClick={() => void create()} disabled={saving || !topic.trim()} className="h-11 rounded-xl bg-pink-600 hover:bg-pink-500 text-white font-black disabled:opacity-50 inline-flex items-center justify-center gap-2">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Create and queue</button>
+            </div>
+            {videoJob && <div className="mt-4 rounded-xl border border-white/10 bg-slate-950 p-3"><div className="flex items-center gap-2"><span className={`text-[10px] font-black rounded-full px-2 py-1 ${statusClass(videoJob.status)}`}>{videoJob.status.toUpperCase()}</span><span className="ml-auto text-xs text-slate-500">{videoJob.progressPercent ?? 0}%</span></div><div className="mt-2 h-2 rounded-full bg-white/5 overflow-hidden"><div className="h-full bg-pink-500" style={{ width: `${Math.max(0, Math.min(100, videoJob.progressPercent ?? 0))}%` }} /></div>{videoJob.errorMessage && <p className="text-xs text-rose-300 mt-2">{videoJob.errorMessage}</p>}{videoJob.outputUrl && <a href={videoJob.outputUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs text-pink-300 underline">Open output <ExternalLink className="h-3 w-3" /></a>}</div>}
+          </section>
+        </div>
 
-      <div className="grid gap-6 px-6 pb-6 xl:grid-cols-[0.8fr_1.2fr]">
-        <section className="rounded-2xl border border-white/10 bg-slate-900/70 p-5"><h2 className="text-xl font-semibold">Studio sections</h2><div className="mt-4 space-y-3">{studioSections.map((section) => <button key={section.id} onClick={() => setSelectedSection(section.id)} className={`w-full rounded-2xl border p-4 text-left transition ${selectedSection === section.id ? 'border-pink-400/60 bg-pink-500/10' : 'border-white/10 bg-white/[0.03] hover:bg-white/[0.06]'}`}><h3 className="font-semibold">{section.title}</h3><p className="mt-2 text-sm text-slate-400">{section.description}</p><p className="mt-3 rounded-xl border border-white/10 bg-slate-950 p-2 text-xs text-slate-300">Engine: {section.engine}</p></button>)}</div></section>
-        <section className="rounded-2xl border border-white/10 bg-slate-900/70 p-5"><h2 className="text-xl font-semibold">Media Studios</h2><p className="mt-1 text-sm text-slate-400">Create a persistent Studio Media project and queue a backend job record.</p><div className="mt-5 space-y-4"><div><label className="text-sm text-slate-400">Topic / prompt</label><textarea value={topic} onChange={(event) => setTopic(event.target.value)} rows={5} className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950 p-3 text-sm outline-none focus:border-pink-400/70" /></div><div><label className="text-sm text-slate-400">Format</label><div className="mt-2 grid gap-2 md:grid-cols-2">{(['short-video', 'ad-video', 'creator-package', 'product-video'] as const).map((format) => <button key={format} onClick={() => setSelectedFormat(format)} className={`rounded-xl border px-3 py-2 text-left text-sm capitalize ${selectedFormat === format ? 'border-pink-400/60 bg-pink-500/10 text-pink-100' : 'border-white/10 bg-white/[0.03] text-slate-300'}`}>{format.replace('-', ' ')}</button>)}</div></div><button onClick={createProject} disabled={saving} className="rounded-xl bg-pink-600 px-4 py-2 text-sm font-medium hover:bg-pink-500 disabled:opacity-60">{saving ? 'Saving...' : 'Save project + render with MoneyPrinterTurbo'}</button>{videoJob && (<div className="rounded-2xl border border-white/10 bg-slate-950 p-4 text-sm"><div className="flex items-center justify-between mb-2"><span className="font-semibold">Render job {videoJob.id ? videoJob.id.slice(0, 8) : ''}</span><span className={`px-2 py-0.5 rounded-full text-xs ${videoJob.status === 'completed' ? 'bg-emerald-500/15 text-emerald-300' : videoJob.status === 'failed' ? 'bg-rose-500/15 text-rose-300' : 'bg-amber-500/15 text-amber-300'}`}>{videoJob.status}</span></div><div className="h-2 rounded-full bg-white/[0.05] overflow-hidden"><div className="h-full bg-pink-500 transition-all" style={{ width: `${videoJob.progressPercent ?? 0}%` }} /></div>{videoJob.errorMessage && <p className="mt-2 text-xs text-rose-300">{videoJob.errorMessage}</p>}{videoJob.outputUrl && (<a href={videoJob.outputUrl} target="_blank" rel="noopener noreferrer" className="mt-3 inline-block text-xs text-pink-300 underline">Open rendered video →</a>)}</div>)}<div className="rounded-2xl border border-white/10 bg-slate-950 p-4"><h3 className="font-semibold">Engine commands</h3><pre className="mt-3 overflow-x-auto rounded-xl bg-black/40 p-3 text-xs text-slate-200">npm run studio:media:clone{`\n`}npm run studio:media:docker</pre><p className="mt-3 text-xs text-slate-500">Open Web UI at http://localhost:8501 and API docs at http://localhost:8080/docs.</p></div></div></section>
-      </div>
-
-      <div className="grid gap-6 px-6 pb-6 xl:grid-cols-2">
-        <section className="rounded-2xl border border-white/10 bg-slate-900/70 p-5"><h2 className="text-xl font-semibold">Projects</h2><div className="mt-4 space-y-3">{filteredProjects.map((project) => <div key={project.id} className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><div className="flex items-start justify-between gap-3"><div><h3 className="font-semibold">{project.title}</h3><p className="mt-1 text-sm text-slate-400">{project.format} • {project.language} • {project.engine}</p></div><span className={`rounded-full border px-2 py-1 text-xs ${statusClasses(project.status)}`}>{project.status}</span></div></div>)}{filteredProjects.length === 0 && <p className="text-sm text-slate-400">No projects in this section yet.</p>}</div></section>
-        <section className="rounded-2xl border border-white/10 bg-slate-900/70 p-5"><h2 className="text-xl font-semibold">Jobs and attribution</h2><div className="mt-4 space-y-3 text-sm text-slate-300">{jobs.slice(0, 6).map((job) => <div key={job.id} className="rounded-xl border border-white/10 bg-white/[0.03] p-4"><p className="font-medium">{job.engine}</p><p className="text-xs text-slate-500">{job.status} • project {job.projectId}</p>{job.outputUrl && <p className="mt-1 break-all text-xs text-slate-400">{job.outputUrl}</p>}</div>)}<div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">MoneyPrinterTurbo remains the upstream open-source video generation engine.</div><div className="rounded-xl border border-yellow-500/20 bg-yellow-500/10 p-4 text-yellow-100">Do not remove upstream MIT license notices from the cloned engine.</div></div></section>
-      </div>
+        <section className="rounded-2xl border border-white/10 bg-slate-900/60 overflow-hidden">
+          <div className="px-4 py-3 border-b border-white/10 flex items-center"><h2 className="font-black">{SECTIONS.find((s) => s.id === section)?.title} projects</h2><span className="ml-auto text-xs text-slate-500">{filtered.length}</span></div>
+          {loading && !projects.length ? <div className="py-16 grid place-items-center text-slate-500"><Loader2 className="h-6 w-6 animate-spin" /></div> : !filtered.length ? <div className="py-14 text-center text-slate-500"><CheckCircle2 className="h-9 w-9 mx-auto mb-2 text-slate-700" />No projects in this section yet.</div> : <div className="divide-y divide-white/10">{filtered.map((p) => { const job = jobByProject.get(p.id); return <div key={p.id} className="px-4 py-3 flex items-start gap-3"><div className={`h-9 w-9 rounded-xl grid place-items-center ${p.status === 'failed' ? 'bg-rose-500/10 text-rose-300' : 'bg-pink-500/10 text-pink-300'}`}>{p.status === 'failed' ? <XCircle className="h-4 w-4" /> : <Film className="h-4 w-4" />}</div><div className="min-w-0 flex-1"><b className="block truncate">{p.title}</b><span className="text-xs text-slate-500">{p.format} · {p.language} · {p.engine}</span>{job?.errorMessage && <span className="block text-[10px] text-rose-300 mt-1">{job.errorMessage}</span>}</div><div className="text-right"><span className={`text-[10px] font-black px-2 py-1 rounded-full ${statusClass(job?.status ?? p.status)}`}>{(job?.status ?? p.status).toUpperCase()}</span>{(job?.outputUrl || p.outputUrl) && <a href={job?.outputUrl || p.outputUrl || '#'} target="_blank" rel="noreferrer" className="block mt-2 text-[10px] text-pink-300 underline">Output</a>}</div></div>; })}</div>}
+        </section>
+      </main>
     </div>
   );
 }
+
+function Stat({ label, value }: { label: string; value: number }) { return <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"><span className="text-xs text-slate-500">{label}</span><b className="block text-2xl mt-1">{value}</b></div>; }

@@ -1,24 +1,27 @@
 import { Body, Controller, Delete, Get, Headers, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { IsNumber, IsOptional, IsString, Min } from 'class-validator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { EodService } from './eod.service';
 import type { ExpenseCategory, ShopExpense } from './eod.entity';
 
+// Fields need class-validator decorators or the global whitelist:true
+// ValidationPipe strips them (breaking expense creation / day close).
 class CreateExpenseDto {
-  shopId?: string;
-  amount!: number;
-  currency?: string;
-  category?: ExpenseCategory;
-  description?: string;
-  receiptUrl?: string | null;
-  paidVia?: ShopExpense['paidVia'];
+  @IsOptional() @IsString() shopId?: string;
+  @IsNumber() @Min(0) amount!: number;
+  @IsOptional() @IsString() currency?: string;
+  @IsOptional() @IsString() category?: ExpenseCategory;
+  @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsString() receiptUrl?: string | null;
+  @IsOptional() @IsString() paidVia?: ShopExpense['paidVia'];
 }
 
 class CloseDayDto {
-  shopId?: string;
-  tradingDate?: string;
-  countedCash!: number;
-  notes?: string;
+  @IsOptional() @IsString() shopId?: string;
+  @IsOptional() @IsString() tradingDate?: string;
+  @IsNumber() @Min(0) countedCash!: number;
+  @IsOptional() @IsString() notes?: string;
 }
 
 /**

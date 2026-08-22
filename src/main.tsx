@@ -2,8 +2,9 @@ import type { ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './index.css';
 import './styles/global.css';
-import { Desktop } from './os/Desktop';
+import App from './App';
 import { detectAppSubdomain, detectTenantSubdomain } from './public/api';
+import { hydrateTokens } from './lib/api';
 
 /**
  * Routing for the standalone web bundle.
@@ -18,6 +19,7 @@ import { detectAppSubdomain, detectTenantSubdomain } from './public/api';
  *   /me                                  me.kobeapptz.com
  *   /track/{ref}                         track.kobeapptz.com/{ref}
  *   /posys                               posys.kobeapptz.com
+ *   /cargotz                             cargotz.kobeapptz.com
  *   /shop/{slug}                         {slug}.kobeapptz.com
  *
  * Special routes that don't follow the pattern:
@@ -31,6 +33,12 @@ import { detectAppSubdomain, detectTenantSubdomain } from './public/api';
  * Everything else mounts the full OS shell.
  */
 const pathname = window.location.pathname;
+
+// OAuth redirect landing. The dedicated screen stores provider tokens, verifies
+// /users/me, and persists the user profile before opening the app.
+const oauthMatch = pathname.match(/^\/oauth\/(tiktok|meta)\/?$/);
+const oauthProvider = oauthMatch?.[1] as 'tiktok' | 'meta' | undefined;
+
 const tenantSub = detectTenantSubdomain();
 const appSub = detectAppSubdomain();
 
@@ -41,6 +49,17 @@ const subMzigo = appSub === 'mzigo';
 const subMe    = appSub === 'me';
 const subTrack = appSub === 'track';
 const subPosys = appSub === 'posys';
+const subCargoTz = appSub === 'cargotz';
+// Property module subdomains (#9)
+const subProperty = appSub === 'property';
+const subEstate   = appSub === 'estate';
+const subPay      = appSub === 'pay';
+const subContract = appSub === 'contract';
+
+// Path helper — match a URL segment exactly (either the whole path is
+// the segment, or the segment is followed by `/`). Prevents /me from
+// eating /menu, /medical, /membership etc.
+const seg = (p: string) => pathname === p || pathname.startsWith(p + '/');
 
 const isOverlay           = pathname.startsWith('/sports/overlay');
 const isPrintCard         = pathname.startsWith('/print/qr-card');
@@ -50,22 +69,110 @@ const isPublicGuest =
   (tenantSub !== null && /^\/(room|table)\//i.test(pathname));
 const isMobileWebapp    = pathname.startsWith('/m/');
 const isKdsDisplay      = pathname.startsWith('/display/orders');
-const isPublicTracking  = subTrack || pathname.startsWith('/track/');
-const isCustomerPortal  = subMe    || pathname.startsWith('/me');
-const isTuma            = subTuma  || pathname.startsWith('/tuma');
-// Mzigo subdomain hosts both the public Mzigo console and the waybill
-// tracker at /track/{waybill} → keep both behaviors.
+// Mzigo subdomain hosts both the public Mzigo console AND the waybill
+// tracker at /track/{waybill}. Compute isMzigoTrack FIRST so its
+// dispatch order in the if/else chain wins on mzigo.kobeapptz.com/track/…
 const isMzigoTrack = (subMzigo && /^\/track\//i.test(pathname)) ||
                      pathname.startsWith('/mzigo/track/');
-const isMzigo = !isMzigoTrack && (subMzigo || pathname.startsWith('/mzigo'));
-const isPosys = subPosys || pathname.startsWith('/posys');
+// Cargo tracking — only on the track subdomain or the /track/ apex
+// path. Explicitly NOT when we're already on the mzigo subdomain,
+// so mzigo.kobeapptz.com/track/… falls through to MzigoTrack.
+const isPublicTracking  = !isMzigoTrack && (subTrack || pathname.startsWith('/track/'));
+// Use `seg(…)` (whole-segment match) so /me doesn't eat /menu / /medical
+// / /membership etc., and same for /tuma → /tumar, /posys → /posyss.
+const isCustomerPortal  = subMe    || seg('/me');
+const isTuma            = subTuma  || seg('/tuma');
+const isMzigo = !isMzigoTrack && (subMzigo || seg('/mzigo'));
+const isPosys = subPosys || seg('/posys');
+const isCargoTz = subCargoTz || seg('/cargotz');
+const isCoach = seg('/coach');
+const isTransit = seg('/transit');
+const isJumla = appSub === 'jumla' || seg('/jumla');
+const isLala = appSub === 'lala' || seg('/lala');
+const lalaPassportMatch = pathname.match(/^\/lala\/passport\/([A-Za-z0-9_-]{16,})\/?$/) || (appSub === 'lala' ? pathname.match(/^\/passport\/([A-Za-z0-9_-]{16,})\/?$/) : null);
+const isCommercialClaim = seg('/claim-shop');
+const liteStoreMatch = pathname.match(/^\/lite-shop\/([a-z0-9][a-z0-9-]{0,61}[a-z0-9]|[a-z0-9])\/?$/i);
+const liteManageMatch = pathname.match(/^\/lite-manage\/([0-9a-f-]{36})\/?$/i);
+const transitBoardMatch = pathname.match(/^\/transit-board\/([0-9a-f-]{36})\/?$/i);
+// Public tenant storefront: subdomain slug (kelvinfashion.kobeapptz.com)
+// or apex fallback (/shop/kelvinfashion). Regex validates that the slug
+// looks like a valid DNS label so a hand-crafted URL can't route
+// arbitrary strings into the ErpShop query.
 const shopPathMatch = pathname.match(/^\/shop\/([a-z0-9][a-z0-9-]{0,61}[a-z0-9]|[a-z0-9])\/?/i);
 const shopSlug = tenantSub ?? (shopPathMatch?.[1]?.toLowerCase() ?? null);
 
-const mount = (node: ReactNode) =>
-  createRoot(document.getElementById('root')!).render(node);
+// Public hotel booking site: {slug}.kobeapptz.com/book or /book/{slug}
+const bookPathMatch = pathname.match(/^\/book\/([a-z0-9][a-z0-9-]{0,61}[a-z0-9]|[a-z0-9])\/?/i);
+const bookingSlug = tenantSub ?? (bookPathMatch?.[1]?.toLowerCase() ?? null);
+const isHotelBooking = seg('/book') && !!bookingSlug;
 
-if (isOverlay) {
+// Public payout-receipt view — the China Cashier receipt QR lands here.
+// /r/{token} shows the receipt details + Pending/Paid status, no auth.
+const receiptMatch = pathname.match(/^\/r\/([a-f0-9]{8,})\/?$/i);
+const receiptToken = receiptMatch?.[1] ?? null;
+
+// Public Cargo TZ parcel tracker — the parcel QR opens /ctz/{tracking}.
+// Also reachable as bare /ctz to type a number.
+const ctzMatch = pathname.match(/^\/ctz(?:\/([A-Za-z0-9-]+))?\/?$/);
+const isCtzTrack = !!ctzMatch;
+const ctzTracking = ctzMatch?.[1] ?? '';
+
+// On a module subdomain (pay./estate./contract.) the token may be the first
+// path segment, e.g. pay.kobeapptz.com/D8487KXS.
+const bareCode = (pathname.match(/^\/([A-Za-z0-9]{8})\/?$/)?.[1] ?? '').toUpperCase();
+
+// Public rent-collection panel for banks/agents: /pay, /pay/{CODE}, or pay.*
+const payMatch = pathname.match(/^\/pay(?:\/([A-Za-z0-9]{1,8}))?\/?$/i);
+const isRentPay = !!payMatch || subPay;
+const rentPayCode = (payMatch?.[1]?.toUpperCase()) || (subPay ? bareCode : '');
+
+// Public tenant portal (scanned estate QR): /estate, /estate/{CODE}, or estate.*
+const estateMatch = pathname.match(/^\/estate(?:\/([A-Za-z0-9]{1,8}))?\/?$/i);
+const isEstate = !!estateMatch || subEstate;
+const estateCode = (estateMatch?.[1]?.toUpperCase()) || (subEstate ? bareCode : '');
+
+// Public lawyer/contract portal: /contract, /contract/{CODE}, or contract.*
+const contractMatch = pathname.match(/^\/contract(?:\/([A-Za-z0-9]{1,8}))?\/?$/i);
+const isContract = !!contractMatch || subContract;
+const contractCode = (contractMatch?.[1]?.toUpperCase()) || (subContract ? bareCode : '');
+
+// Public branded cargo landing: /cg/{slug}.
+const cargoSiteMatch = pathname.match(/^\/cg\/([a-z0-9][a-z0-9-]{0,61}[a-z0-9]|[a-z0-9])\/?$/i);
+const cargoSiteSlug = cargoSiteMatch?.[1] ?? '';
+const isCargoSite = !!cargoSiteSlug;
+
+// KobePay remittance: sender live portal /remit/{portalToken}; cashier /rc/{CODE}
+const remitMatch = pathname.match(/^\/remit\/([A-Za-z0-9_-]{16,})\/?$/);
+const remitPortalToken = remitMatch?.[1] ?? '';
+const remitCashierMatch = pathname.match(/^\/rc\/([A-Za-z0-9]{8})\/?$/);
+const remitCashierCode = (remitCashierMatch?.[1] ?? '').toUpperCase();
+
+// Live-sale buyer checkout (from the BUY reservation link): /live/pay/{token}
+const livePayMatch = pathname.match(/^\/live\/pay\/([A-Za-z0-9_-]{16,})\/?$/);
+const livePayToken = livePayMatch?.[1] ?? '';
+
+// Permanent Kobe Live Catalog: /live (uses the store subdomain) or /@seller
+const liveHandleMatch = pathname.match(/^\/@([a-z0-9_.-]{2,40})\/?$/i);
+const isLiveCatalog = !livePayToken && (pathname.replace(/\/$/, '') === '/live' || !!liveHandleMatch);
+const liveCatalogSlug = liveHandleMatch?.[1] ?? (tenantSub ?? '');
+
+// Kobepay Pro supplier portal (tokenised, no login): /kobepay/supplier/{token}
+const supplierPortalMatch = pathname.match(/^\/kobepay\/supplier\/([A-Za-z0-9_-]{16,})\/?$/);
+const supplierPortalToken = supplierPortalMatch?.[1] ?? '';
+
+// Kobepay Pro parent/student wallet (tokenised, no login): /kobepay/me/{token}
+const studentPortalMatch = pathname.match(/^\/kobepay\/me\/([A-Za-z0-9_-]{16,})\/?$/);
+const studentPortalToken = studentPortalMatch?.[1] ?? '';
+
+const mount = (node: ReactNode) => {
+  void hydrateTokens().finally(() => {
+    createRoot(document.getElementById('root')!).render(node);
+  });
+};
+
+if (oauthProvider) {
+  import('./components/OAuthCallback').then(({ default: OAuthCallback }) => mount(<OAuthCallback provider={oauthProvider} />));
+} else if (isOverlay) {
   import('./apps/kobe-sports/OverlayPage').then(({ default: OverlayPage }) => mount(<OverlayPage />));
 } else if (isPrintCard) {
   import('./public/QrCard').then(({ default: QrCard }) => mount(<QrCard />));
@@ -91,6 +198,80 @@ if (isOverlay) {
   // POSys lives as a desktop OS app but is also reachable standalone
   // via posys.kobeapptz.com / /posys. Same module, no wrapper needed.
   import('./apps/posys/index').then(({ default: Posys }) => mount(<Posys />));
+} else if (isCargoTz) {
+  // Cargo TZ — the domestic bus-cargo operations module (3 roles: receive,
+  // warehouse, owner), runnable standalone via cargotz.kobeapptz.com /
+  // /cargotz. Full-height shell so its `h-full` layout fills the viewport.
+  import('./apps/cargo-tz-ops/index').then(({ default: CargoTzOps }) => {
+    // /cargotz/{receive|warehouse|owner} deep-links (and installs) a role.
+    const roleSeg = pathname.replace(/^\/cargotz\/?/, '').split('/')[0];
+    const role = roleSeg === 'warehouse' ? 'warehouse' : roleSeg === 'owner' ? 'dashboard' : roleSeg === 'receive' ? 'intake' : undefined;
+    mount(<div className="h-screen w-screen overflow-hidden"><CargoTzOps role={role as 'intake' | 'warehouse' | 'dashboard' | undefined} /></div>);
+  });
+} else if (isCoach) {
+  // Kobe Coach — installable coach/team-admin PWA (standalone at /coach).
+  import('./apps/kobe-coach/index').then(({ default: KobeCoach }) =>
+    mount(<div className="h-screen w-screen overflow-hidden"><KobeCoach /></div>));
+} else if (isTransit) {
+  // KobeOS Transit — installable operations/compliance PWA.
+  import('./apps/kobe-transit/index').then(({ default: KobeTransit }) =>
+    mount(<div className="h-screen w-screen overflow-hidden"><KobeTransit /></div>));
+} else if (isJumla) {
+  import('./public/Jumla').then(({ default: Jumla }) => mount(<Jumla />));
+} else if (lalaPassportMatch) {
+  import('./public/LalaPassport').then(({ default: LalaPassport }) => mount(<LalaPassport token={lalaPassportMatch[1]} />));
+} else if (isLala) {
+  import('./public/Lala').then(({ default: Lala }) => mount(<Lala />));
+} else if (isCommercialClaim) {
+  import('./public/CommercialClaim').then(({ default: CommercialClaim }) => mount(<CommercialClaim />));
+} else if (liteStoreMatch || liteManageMatch) {
+  import('./public/LiteStore').then(({ default: LiteStore }) => mount(<LiteStore slug={liteStoreMatch?.[1]?.toLowerCase()} businessId={liteManageMatch?.[1]} />));
+} else if (transitBoardMatch) {
+  import('./public/TransitBoard').then(({ default: TransitBoard }) =>
+    mount(<TransitBoard ownerId={transitBoardMatch[1]} />));
+} else if (isHotelBooking && bookingSlug) {
+  // Public hotel booking site: {slug}.kobeapptz.com/book or /book/{slug}
+  import('./public/HotelBooking').then(({ default: HotelBooking }) => mount(<HotelBooking slug={bookingSlug} />));
+} else if (receiptToken) {
+  // Public payout-receipt view (scanned QR): /r/{token}
+  import('./public/Receipt').then(({ default: Receipt }) => mount(<Receipt token={receiptToken} />));
+} else if (isCtzTrack) {
+  // Public Cargo TZ parcel tracker (scanned QR): /ctz/{tracking}
+  import('./public/CargoTzTrack').then(({ default: CargoTzTrack }) => mount(<CargoTzTrack tracking={ctzTracking} />));
+} else if (isRentPay) {
+  // Public bank/agent rent-collection panel: /pay or /pay/{CODE}
+  import('./public/RentPay').then(({ default: RentPay }) => mount(<RentPay code={rentPayCode} />));
+} else if (isEstate) {
+  // Public tenant portal (scanned estate QR): /estate or /estate/{CODE}
+  import('./public/PropertyPortal').then(({ default: PropertyPortal }) => mount(<PropertyPortal code={estateCode} />));
+} else if (isContract) {
+  // Public lawyer/contract portal: /contract or /contract/{CODE}
+  import('./public/LawyerPortal').then(({ default: LawyerPortal }) => mount(<LawyerPortal code={contractCode} />));
+} else if (remitPortalToken) {
+  // Sender's live remittance portal: /remit/{portalToken}
+  import('./public/Remittance').then(({ default: Remittance }) => mount(<Remittance portalToken={remitPortalToken} />));
+} else if (remitCashierCode) {
+  // Cashier redeem page for a scanned remittance QR: /rc/{CODE}
+  import('./public/RemittanceCashier').then(({ default: RemittanceCashier }) => mount(<RemittanceCashier code={remitCashierCode} />));
+} else if (livePayToken) {
+  // Live-sale buyer checkout from the BUY reservation link: /live/pay/{token}
+  import('./public/LivePay').then(({ default: LivePay }) => mount(<LivePay token={livePayToken} />));
+} else if (isLiveCatalog) {
+  // Permanent Kobe Live Catalog: /live or /@seller
+  import('./public/LiveCatalog').then(({ default: LiveCatalog }) => mount(<LiveCatalog slug={liveCatalogSlug} />));
+} else if (supplierPortalToken) {
+  // Kobepay Pro supplier portal: /kobepay/supplier/{token}
+  import('./public/SupplierPortal').then(({ default: SupplierPortal }) => mount(<SupplierPortal token={supplierPortalToken} />));
+} else if (studentPortalToken) {
+  // Kobepay Pro parent/student wallet: /kobepay/me/{token}
+  import('./public/StudentWallet').then(({ default: StudentWallet }) => mount(<StudentWallet token={studentPortalToken} />));
+} else if (isCargoSite) {
+  // Public branded cargo landing: /cg/{slug}
+  import('./public/CargoSite').then(({ default: CargoSite }) => mount(<CargoSite slug={cargoSiteSlug} />));
+} else if (subProperty) {
+  // Property management app, standalone via property.kobeapptz.com (#9)
+  import('./apps/property/PropEasy').then(({ default: PropEasy }) =>
+    mount(<div className="h-screen w-screen overflow-hidden"><PropEasy /></div>));
 } else if (shopSlug) {
   // Any non-reserved wildcard subdomain is a public shop storefront:
   //   https://kelvinfashion.kobeapptz.com
@@ -98,5 +279,5 @@ if (isOverlay) {
   //   https://kobeapptz.com/shop/kelvinfashion
   import('./apps/erp-shop/index').then(({ default: ErpShop }) => mount(<ErpShop data={{ slug: shopSlug }} />));
 } else {
-  mount(<Desktop />);
+  mount(<App />);
 }

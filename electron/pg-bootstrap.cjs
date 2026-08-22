@@ -33,27 +33,46 @@ const BIN_EXT = process.platform === 'win32' ? '.exe' : '';
 // hanging the splash screen indefinitely.
 const INITDB_TIMEOUT_MS = 120_000;
 
-/**
- * Resolve the directory containing postgres binaries.
- * In packaged mode: app.asar.unpacked/node_modules/<platform-pkg>/native/bin
- * In dev mode:      node_modules/<platform-pkg>/native/bin
- */
-function resolveBinDir(resourcesPath, isPackaged) {
-  const base = isPackaged
-    ? path.join(resourcesPath, 'app.asar.unpacked', 'node_modules', PLATFORM_PKG)
-    : path.join(__dirname, '..', 'node_modules', PLATFORM_PKG);
+function resolveBinDirs(resourcesPath, isPackaged) {
+  if (isPackaged) {
+    return [
+      // Primary path: copied as a direct extraResource during packaging. This
+      // avoids any dependency on ASAR unpack behavior for native executables.
+      path.join(resourcesPath, 'postgres', 'bin'),
+      // Backward-compatible path used by existing 1.x installers.
+      path.join(resourcesPath, 'app.asar.unpacked', 'node_modules', PLATFORM_PKG, 'native', 'bin'),
+      // Fallback for unpacked/no-ASAR package layouts.
+      path.join(resourcesPath, 'node_modules', PLATFORM_PKG, 'native', 'bin'),
+    ];
+  }
 
-  return path.join(base, 'native', 'bin');
+  return [
+    path.join(__dirname, '..', 'build', 'postgres', 'bin'),
+    path.join(__dirname, '..', 'node_modules', PLATFORM_PKG, 'native', 'bin'),
+  ];
 }
 
 function getBinPaths(resourcesPath, isPackaged) {
-  const binDir = resolveBinDir(resourcesPath, isPackaged);
-  return {
-    initdb:   path.join(binDir, `initdb${BIN_EXT}`),
+  const searched = resolveBinDirs(resourcesPath, isPackaged);
+  const pathsFor = (binDir) => ({
+    initdb: path.join(binDir, `initdb${BIN_EXT}`),
     postgres: path.join(binDir, `postgres${BIN_EXT}`),
-    pg_ctl:   path.join(binDir, `pg_ctl${BIN_EXT}`),
+    pg_ctl: path.join(binDir, `pg_ctl${BIN_EXT}`),
     binDir,
-  };
+  });
+
+  for (const binDir of searched) {
+    const candidate = pathsFor(binDir);
+    if (
+      fs.existsSync(candidate.initdb) &&
+      fs.existsSync(candidate.postgres) &&
+      fs.existsSync(candidate.pg_ctl)
+    ) {
+      return { ...candidate, searched };
+    }
+  }
+
+  return { ...pathsFor(searched[0]), searched };
 }
 
 // ── Port availability ─────────────────────────────────────────────────────────
@@ -99,11 +118,17 @@ class PostgresManager {
       throw new Error(`Unsupported platform: ${process.platform}`);
     }
     const bins = getBinPaths(this.resourcesPath, this.isPackaged);
-    if (!fs.existsSync(bins.initdb)) {
+    const missing = ['initdb', 'postgres', 'pg_ctl'].filter((name) => !fs.existsSync(bins[name]));
+    if (missing.length > 0) {
+      const isRunnerBuild = /[\\/]actions-runner[\\/]/i.test(this.resourcesPath);
       throw new Error(
-        `PostgreSQL binary not found: ${bins.initdb}\n` +
+        `Embedded PostgreSQL is incomplete (missing: ${missing.join(', ')}).\n` +
         `Platform package: ${PLATFORM_PKG}\n` +
-        `Make sure it is listed in package.json optionalDependencies and asarUnpack.`
+        `Searched:\n${bins.searched.map((dir) => `  ${dir}`).join('\n')}\n\n` +
+        (isRunnerBuild
+          ? `This KobeOS copy is running from a GitHub runner build folder that is incomplete or was cleaned. ` +
+            `Close it and launch the installed KobeOS application instead.`
+          : `Reinstall KobeOS using the latest installer. Your business data in the KobeOS user-data folder will be preserved.`)
       );
     }
     this._bins = bins;

@@ -46,8 +46,17 @@ export const CargoKanban: React.FC<CargoKanbanProps> = ({
 
   useEffect(() => {
     if (shipmentsProp) return;
-    api<Shipment[]>('/cargo/shipments')
-      .then(setInternalShipments)
+    api<Shipment[] | { items?: Shipment[]; data?: Shipment[] }>('/cargo/shipments')
+      .then((response) => {
+        const rows = Array.isArray(response)
+          ? response
+          : Array.isArray(response.items)
+            ? response.items
+            : Array.isArray(response.data)
+              ? response.data
+              : [];
+        setInternalShipments(rows);
+      })
       .catch(console.error);
   }, [shipmentsProp]);
 

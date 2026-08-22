@@ -1552,7 +1552,7 @@ export default function KobetechAdmin() {
   };
 
   return (
-    <div className="flex h-screen bg-[#0a0a1a] text-slate-200 overflow-hidden">
+    <div className="flex h-full bg-[#0a0a1a] text-slate-200 overflow-hidden">
       {/* Sidebar */}
       <aside className="w-64 bg-[#13131f] border-r border-white/[0.06] flex flex-col shrink-0">
         <div className="p-4 border-b border-white/[0.06]">

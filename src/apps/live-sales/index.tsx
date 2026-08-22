@@ -1,0 +1,452 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { api } from '@/lib/api';
+import {
+  Radio, Plus, Loader2, Pin, ShoppingBag, CheckCircle2, XCircle, Zap,
+  MessageCircle, Package, Play, Square, TrendingUp, Link2, Copy, Send, AlertCircle, MonitorPlay, Star,
+  Instagram,
+} from 'lucide-react';
+
+/* ── Types ── */
+interface Session { id: string; title: string; platform: string; status: 'LIVE' | 'ENDED'; kind?: 'live' | 'post'; postUrl?: string; ingestToken: string; currency: string; totalSales: number | string; orderCount: number; createdAt: string; showOnStorefront?: boolean; socialAccountId?: string | null }
+interface PinRow { id: string; code: string; productId: string; name: string; livePrice: number; catalogPrice: number; stock: number; soldQty: number; isFeatured: boolean }
+interface Comment { id: string; source: string; buyerHandle: string; buyerContact: string; text: string; matchedCode: string; qty: number; status: string; createdAt: string; reservationCode?: string; checkoutToken?: string; orderId?: string }
+interface Product { id: string; name: string; price: number | string; stock: number }
+interface Stats { totalSales: number; orderCount: number; pendingComments: number; convertedComments: number; pins: PinRow[] }
+interface OperatorContext { storefrontSlug: string; storefrontUrl: string; catalogUrl: string }
+type InstagramConnection =
+  | { connected: false }
+  | { connected: true; id: string; accountName: string; accountHandle: string; accountAvatar?: string | null; status: string; tokenExpiresAt?: string | null; webhookSubscribed: boolean; webhookUrl: string };
+
+const money = (n: number | string, c = 'TZS') => `${c === 'TZS' ? 'TSh ' : c === 'CNY' ? '¥' : c + ' '}${Number(n || 0).toLocaleString()}`;
+
+export default function LiveSales() {
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [active, setActive] = useState<Session | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [context, setContext] = useState<OperatorContext>({ storefrontSlug: '', storefrontUrl: '', catalogUrl: '' });
+  const [instagram, setInstagram] = useState<InstagramConnection>({ connected: false });
+  const [notice, setNotice] = useState<string | null>(null);
+  const [retryingWebhook, setRetryingWebhook] = useState(false);
+  const openKds = () => window.open('/display/orders', '_blank', 'noopener,noreferrer');
+
+  const loadSessions = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [s, ctx] = await Promise.all([
+        api<Session[]>('/live-sales'),
+        api<OperatorContext>('/live-sales/operator/context'),
+      ]);
+      setSessions(Array.isArray(s) ? s : []);
+      setContext(ctx);
+      const ig = await api<InstagramConnection>('/live-sales/instagram/connection');
+      setInstagram(ig);
+    }
+    catch { setSessions([]); } finally { setLoading(false); }
+  }, []);
+  useEffect(() => { loadSessions(); }, [loadSessions]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const result = params.get('instagram');
+    if (!result) return;
+    if (result === 'connected') {
+      setNotice(params.get('instagram_webhook') === 'not_subscribed'
+        ? 'Instagram connected, but Meta has not accepted the webhook subscription yet.'
+        : 'Instagram connected. Start an Instagram live and comments will appear here.');
+      loadSessions();
+    } else if (result === 'error') {
+      setNotice(params.get('message') || 'Instagram connection failed.');
+    }
+    params.delete('instagram');
+    params.delete('instagram_webhook');
+    params.delete('message');
+    const query = params.toString();
+    window.history.replaceState({}, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
+  }, [loadSessions]);
+
+  const connectInstagram = async () => {
+    try {
+      const { url } = await api<{ url: string }>('/live-sales/instagram/oauth/url');
+      window.location.assign(url);
+    } catch (e) {
+      setNotice((e as Error).message || 'Instagram connection is not configured.');
+    }
+  };
+
+  const disconnectInstagram = async () => {
+    try {
+      await api('/live-sales/instagram/connection', { method: 'DELETE' });
+      setInstagram({ connected: false });
+      setNotice('Instagram disconnected.');
+    } catch (e) { setNotice((e as Error).message || 'Could not disconnect Instagram.'); }
+  };
+
+  const retryInstagramWebhook = async () => {
+    setRetryingWebhook(true);
+    try {
+      const connection = await api<InstagramConnection>('/live-sales/instagram/webhook/subscribe', { method: 'POST', body: '{}' });
+      setInstagram(connection);
+      setNotice(connection.connected && connection.webhookSubscribed
+        ? 'Instagram webhook is connected. Start an Instagram Live to receive comments.'
+        : 'Meta still has not accepted the webhook subscription. Check the Meta app configuration and try again.');
+    } catch (e) {
+      setNotice((e as Error).message || 'Could not subscribe the Instagram webhook.');
+    } finally {
+      setRetryingWebhook(false);
+    }
+  };
+
+  const start = async () => {
+    const title = prompt('Name this live session', 'Live Sale')?.trim();
+    if (title === undefined) return;
+    const requestedPlatform = prompt('Platform: TikTok, Instagram, Facebook or YouTube', 'tiktok')?.trim().toLowerCase();
+    if (requestedPlatform === undefined) return;
+    const platform = ['tiktok', 'instagram', 'facebook', 'youtube'].includes(requestedPlatform) ? requestedPlatform : 'other';
+    if (platform === 'instagram' && !instagram.connected) {
+      setNotice('Connect Instagram first, then start the Instagram live.');
+      return;
+    }
+    const s = await api<Session>('/live-sales', { method: 'POST', body: JSON.stringify({ title: title || 'Live Sale', platform, socialAccountId: instagram.connected ? instagram.id : undefined }) });
+    await loadSessions(); setActive(s);
+  };
+
+  // Non-live: an ad/post campaign whose comments are polled (Apify) and land
+  // in the same reserve→checkout flow, but tracked separately from lives.
+  const startPost = async () => {
+    const postUrl = prompt('Paste the post or ad URL to watch for BUY comments')?.trim();
+    if (!postUrl) return;
+    const platform = /tiktok/i.test(postUrl) ? 'tiktok' : 'instagram';
+    const title = prompt('Name this campaign', 'Post campaign')?.trim();
+    if (title === undefined) return;
+    const s = await api<Session>('/live-sales', { method: 'POST', body: JSON.stringify({ title: title || 'Post campaign', platform, kind: 'post', postUrl }) });
+    await loadSessions(); setActive(s);
+  };
+
+  if (active) return <SessionConsole session={active} context={context} onOpenKds={openKds} onBack={() => { setActive(null); loadSessions(); }} />;
+
+  const lives = sessions.filter((s) => s.kind !== 'post');
+  const posts = sessions.filter((s) => s.kind === 'post');
+
+  return (
+    <div className="h-full bg-slate-950 text-slate-100 overflow-auto">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
+        <div className="flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-fuchsia-500 to-rose-600 grid place-items-center"><Radio className="w-4.5 h-4.5 text-white" /></div>
+          <div><h1 className="text-sm font-bold">Live Sales</h1><p className="text-[10px] text-slate-500">Sell live · comment orders → real-time stock</p></div>
+        </div>
+        <div className="flex items-center gap-2">
+          <button onClick={openKds} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-sm font-bold"><MonitorPlay className="w-4 h-4" /> Open KDS</button>
+          {instagram.connected ? (
+            <div className="inline-flex items-center gap-1.5 h-9 px-2.5 rounded-lg border border-pink-500/30 bg-pink-500/10 text-pink-300 text-xs font-bold" title={instagram.webhookSubscribed ? 'Instagram webhook connected' : 'Instagram connected; webhook needs Meta setup'}>
+              <Instagram className="w-4 h-4" /> {instagram.accountHandle}
+              {!instagram.webhookSubscribed && <button onClick={retryInstagramWebhook} disabled={retryingWebhook} className="text-amber-300 underline underline-offset-2 disabled:opacity-50">{retryingWebhook ? 'retrying…' : 'retry webhook'}</button>}
+              <button onClick={disconnectInstagram} className="ml-1 text-slate-400 hover:text-white" title="Disconnect Instagram">×</button>
+            </div>
+          ) : (
+            <button onClick={connectInstagram} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-pink-500/40 bg-pink-500/15 text-pink-200 text-sm font-bold"><Instagram className="w-4 h-4" /> Connect Instagram</button>
+          )}
+          {context.catalogUrl && <button onClick={() => navigator.clipboard?.writeText(context.catalogUrl)} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-slate-700 bg-slate-800 text-slate-200 text-sm font-bold"><Copy className="w-4 h-4" /> Copy live shop</button>}
+          <button onClick={startPost} className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-bold"><MessageCircle className="w-4 h-4" /> Post campaign</button>
+          <button onClick={start} className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-sm font-bold"><Play className="w-4 h-4" /> Start Live Sales</button>
+        </div>
+      </div>
+
+      <div className="p-5 space-y-6">
+        {notice && <div className="flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200"><span>{notice}</span><button onClick={() => setNotice(null)} className="text-amber-300 hover:text-white">×</button></div>}
+        {instagram.connected && !instagram.webhookSubscribed && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
+            <span>Instagram is authorized, but Meta has not connected the Live Comments webhook yet. Finish the Meta app setup, then retry.</span>
+            <button onClick={() => { navigator.clipboard?.writeText(instagram.webhookUrl); setNotice('Instagram webhook URL copied. Add it in Meta for Developers.'); }} className="font-bold underline underline-offset-2">Copy webhook URL</button>
+          </div>
+        )}
+        {loading ? <Center><Loader2 className="w-6 h-6 animate-spin text-slate-500" /></Center> : sessions.length === 0 ? (
+          <div className="text-center text-slate-500 py-16">No sessions yet. Start a live-selling session, pin products, then use your permanent catalog link in the stream comments. Paid orders automatically enter POS, stock, accounting and KDS.</div>
+        ) : (
+          <>
+            <SessionGroup label="Live sessions" hint="Realtime stream comments" items={lives} onOpen={setActive} />
+            <SessionGroup label="Post & ad campaigns" hint="Non-live · comments polled from the post" items={posts} onOpen={setActive} />
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* A titled group of sessions (Live sessions / Post & ad campaigns). */
+function SessionGroup({ label, hint, items, onOpen }: { label: string; hint: string; items: Session[]; onOpen: (s: Session) => void }) {
+  if (items.length === 0) return null;
+  return (
+    <div className="space-y-2">
+      <div className="flex items-baseline gap-2 px-1">
+        <span className="text-xs font-bold text-slate-300 uppercase tracking-wide">{label}</span>
+        <span className="text-[10px] text-slate-600">{hint}</span>
+        <span className="ml-auto text-[11px] text-slate-500">{items.length}</span>
+      </div>
+      {items.map((s) => (
+        <button key={s.id} onClick={() => onOpen(s)} className="w-full text-left rounded-xl border border-slate-800 bg-slate-900/50 p-4 flex items-center justify-between hover:border-slate-700">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-bold">{s.title}</span>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${s.status === 'LIVE' ? 'bg-rose-500/20 text-rose-400' : 'bg-slate-700 text-slate-400'}`}>{s.status === 'LIVE' ? (s.kind === 'post' ? '● WATCHING' : '● LIVE') : 'ENDED'}</span>
+              <span className="text-[10px] text-slate-500 uppercase">{s.platform}</span>
+            </div>
+            <div className="text-[11px] text-slate-500 mt-0.5">{new Date(s.createdAt).toLocaleString()}</div>
+          </div>
+          <div className="text-right">
+            <div className="font-extrabold text-emerald-400">{money(s.totalSales, s.currency)}</div>
+            <div className="text-[11px] text-slate-500">{s.orderCount} orders</div>
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* ─────────────────────── Session console ─────────────────────── */
+function SessionConsole({ session, context, onOpenKds, onBack }: { session: Session; context: OperatorContext; onOpenKds: () => void; onBack: () => void }) {
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
+  const [showPin, setShowPin] = useState(false);
+  const [manualText, setManualText] = useState('');
+  const [manualHandle, setManualHandle] = useState('');
+  const [busy, setBusy] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+  const [ended, setEnded] = useState(session.status === 'ENDED');
+  const [onShop, setOnShop] = useState(session.showOnStorefront !== false);
+  const toggleShop = async () => {
+    const next = !onShop; setOnShop(next);
+    try { await api(`/live-sales/${session.id}/storefront`, { method: 'POST', body: JSON.stringify({ show: next }) }); } catch { setOnShop(!next); }
+  };
+  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const [st, cs] = await Promise.all([
+        api<Stats>(`/live-sales/${session.id}/stats`),
+        api<Comment[]>(`/live-sales/${session.id}/comments`),
+      ]);
+      setStats(st); setComments(Array.isArray(cs) ? cs : []);
+    } catch { /* offline */ }
+  }, [session.id]);
+
+  useEffect(() => {
+    refresh();
+    api<Product[]>('/pos/products').then((p) => setProducts(Array.isArray(p) ? p : [])).catch(() => {});
+  }, [refresh]);
+
+  // Poll the comment feed while live (assisted + bridge comments both land here).
+  useEffect(() => {
+    if (ended) return;
+    timer.current = setInterval(refresh, 4000);
+    return () => { if (timer.current) clearInterval(timer.current); };
+  }, [ended, refresh]);
+
+  const flash = (m: string) => { setToast(m); setTimeout(() => setToast(null), 2600); };
+
+  const addManual = async () => {
+    if (!manualText.trim()) return;
+    await api(`/live-sales/${session.id}/comments`, { method: 'POST', body: JSON.stringify({ text: manualText.trim(), buyerHandle: manualHandle.trim() || '@guest' }) });
+    setManualText(''); setManualHandle(''); refresh();
+  };
+
+  const convert = async (c: Comment) => {
+    setBusy(c.id);
+    try {
+      const phone = c.buyerContact || prompt(`Buyer phone for payment request (optional) — ${c.buyerHandle}`, '') || '';
+      const res = await api<{ lineTotal: number; remainingStock: number; payment: { message: string } }>(`/live-sales/comments/${c.id}/convert`, {
+        method: 'POST', body: JSON.stringify({ buyerContact: phone || undefined }),
+      });
+      flash(`Sold ${money(res.lineTotal, session.currency)} · ${res.payment.message}`);
+      refresh();
+    } catch (e) { flash((e as Error).message || 'Convert failed'); }
+    finally { setBusy(null); }
+  };
+
+  const ignore = async (c: Comment) => { await api(`/live-sales/comments/${c.id}/ignore`, { method: 'POST', body: '{}' }); refresh(); };
+
+  const feature = async (pinId: string) => {
+    await api(`/live-sales/${session.id}/featured`, { method: 'POST', body: JSON.stringify({ pinId }) });
+    flash('Now-showing product updated');
+    refresh();
+  };
+
+  const end = async () => { await api(`/live-sales/${session.id}/end`, { method: 'POST', body: '{}' }); setEnded(true); };
+
+  const bridgeUrl = `${window.location.origin}/api/live-sales/ingest/${session.ingestToken}`;
+
+  return (
+    <div className="h-full flex flex-col bg-slate-950 text-slate-100 overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 shrink-0">
+        <div className="flex items-center gap-2">
+          <button onClick={onOpenKds} className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-xs font-semibold"><MonitorPlay className="w-3.5 h-3.5" /> KDS</button>
+          {context.catalogUrl && <button onClick={() => { navigator.clipboard?.writeText(context.catalogUrl); flash('Customer live-catalog link copied'); }} className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-700 bg-slate-800 text-slate-300 text-xs font-semibold"><Copy className="w-3.5 h-3.5" /> Catalog link</button>}
+          <button onClick={onBack} className="text-slate-400 hover:text-white text-sm">←</button>
+          <span className="font-bold">{session.title}</span>
+          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${ended ? 'bg-slate-700 text-slate-400' : 'bg-rose-500/20 text-rose-400'}`}>{ended ? 'ENDED' : '● LIVE'}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          {!ended && (
+            <button onClick={toggleShop} title="Show this live as a shoppable banner on your online storefront"
+              className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-xs font-semibold border ${onShop ? 'bg-fuchsia-600/20 border-fuchsia-500/40 text-fuchsia-300' : 'bg-slate-800 border-slate-700 text-slate-400'}`}>
+              <ShoppingBag className="w-3.5 h-3.5" /> {onShop ? 'On shop' : 'Off shop'}
+            </button>
+          )}
+          {!ended && <button onClick={end} className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold"><Square className="w-3.5 h-3.5" /> End live</button>}
+        </div>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-4 gap-2 p-3 shrink-0">
+        <Stat label="Sales" value={money(stats?.totalSales ?? 0, session.currency)} Icon={TrendingUp} tone="text-emerald-400" />
+        <Stat label="Orders" value={String(stats?.orderCount ?? 0)} Icon={ShoppingBag} tone="text-indigo-400" />
+        <Stat label="Waiting" value={String(stats?.pendingComments ?? 0)} Icon={MessageCircle} tone="text-amber-400" />
+        <Stat label="Pinned" value={String(stats?.pins.length ?? 0)} Icon={Pin} tone="text-fuchsia-400" />
+      </div>
+
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-3 px-3 pb-3 min-h-0">
+        {/* Pinned products */}
+        <div className="rounded-xl border border-slate-800 bg-slate-900/40 flex flex-col min-h-0">
+          <div className="flex items-center justify-between px-3 py-2 border-b border-slate-800">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wide">Pinned products</span>
+            {!ended && <button onClick={() => setShowPin(true)} className="inline-flex items-center gap-1 text-xs font-bold text-fuchsia-400"><Plus className="w-3.5 h-3.5" /> Pin</button>}
+          </div>
+          <div className="flex-1 overflow-auto p-2 space-y-1.5">
+            {(stats?.pins ?? []).length === 0 ? <p className="text-xs text-slate-500 text-center py-6">Pin products with a buy-code (e.g. A1) that you announce on the live.</p> :
+              stats!.pins.map((p) => (
+                <div key={p.id} className={`flex items-center justify-between rounded-lg border px-3 py-2 ${p.isFeatured ? 'border-fuchsia-500/50 bg-fuchsia-500/10' : 'border-slate-800 bg-slate-950'}`}>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="font-mono font-extrabold text-fuchsia-400 bg-fuchsia-500/10 rounded px-2 py-0.5 text-sm">{p.code}</span>
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold truncate">{p.name}</div>
+                      <div className="text-[11px] text-slate-500">{money(p.livePrice > 0 ? p.livePrice : p.catalogPrice, session.currency)} · sold {p.soldQty}</div>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0 pl-2 flex items-center gap-2">
+                    {!ended && <button onClick={() => feature(p.id)} title="Make this the NOW SHOWING product" className={`p-1.5 rounded ${p.isFeatured ? 'bg-fuchsia-500 text-white' : 'bg-slate-800 text-slate-400 hover:text-fuchsia-300'}`}><Star className={`w-3.5 h-3.5 ${p.isFeatured ? 'fill-current' : ''}`} /></button>}
+                    <div className={`text-sm font-bold ${p.stock <= 0 ? 'text-rose-400' : p.stock <= 3 ? 'text-amber-400' : 'text-slate-300'}`}>{p.stock <= 0 ? 'SOLD OUT' : `${p.stock} left`}</div>
+                  </div>
+                </div>
+              ))}
+          </div>
+        </div>
+
+        {/* Comment feed */}
+        <div className="rounded-xl border border-slate-800 bg-slate-900/40 flex flex-col min-h-0">
+          <div className="px-3 py-2 border-b border-slate-800 flex items-center justify-between">
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-wide">Comments → orders</span>
+            <span className="text-[10px] text-slate-500">{ended ? 'ended' : 'live · auto-refresh'}</span>
+          </div>
+          {!ended && (
+            <div className="p-2 border-b border-slate-800 flex gap-1.5">
+              <input value={manualHandle} onChange={(e) => setManualHandle(e.target.value)} placeholder="@buyer" className="w-24 h-9 px-2 rounded-lg bg-slate-950 border border-slate-700 text-xs" />
+              <input value={manualText} onChange={(e) => setManualText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addManual(); }} placeholder='Type a comment e.g. "A1 x2"' className="flex-1 h-9 px-2 rounded-lg bg-slate-950 border border-slate-700 text-xs" />
+              <button onClick={addManual} className="h-9 px-3 rounded-lg bg-slate-700 hover:bg-slate-600 text-white"><Send className="w-3.5 h-3.5" /></button>
+            </div>
+          )}
+          <div className="flex-1 overflow-auto p-2 space-y-1.5">
+            {comments.length === 0 ? <p className="text-xs text-slate-500 text-center py-6">Comments appear here — typed by you, or forwarded by a bridge.</p> :
+              comments.map((c) => (
+                <div key={c.id} className={`rounded-lg border px-3 py-2 ${c.status === 'CONVERTED' ? 'border-emerald-800 bg-emerald-500/5' : c.status === 'MATCHED' || c.status === 'RESERVED' ? 'border-amber-800 bg-amber-500/5' : 'border-slate-800 bg-slate-950'}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <span className="text-xs font-bold text-slate-300">{c.buyerHandle || '@guest'}</span>
+                      {c.matchedCode && <span className="ml-1.5 font-mono text-[10px] text-fuchsia-400">{c.matchedCode}×{c.qty}</span>}
+                      <span className="ml-1.5 text-[9px] text-slate-600 uppercase">{c.source}</span>
+                      <div className="text-sm text-slate-400 truncate">{c.text}</div>
+                      {c.status === 'RESERVED' && (
+                        <div className="mt-1 flex items-center gap-2 text-[10px] text-amber-300">
+                          <span>Reserved · code <b className="font-mono">{c.reservationCode}</b></span>
+                          {c.checkoutToken && context.storefrontUrl && (
+                            <button onClick={() => { navigator.clipboard?.writeText(`${context.storefrontUrl}/live/pay/${c.checkoutToken}`); flash('Buyer checkout link copied'); }} className="underline underline-offset-2">Copy checkout</button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    <div className="shrink-0">
+                      {c.status === 'CONVERTED' ? <span className="text-[10px] font-bold text-emerald-400 inline-flex items-center gap-0.5"><CheckCircle2 className="w-3 h-3" /> SOLD</span>
+                        : c.status === 'IGNORED' ? <span className="text-[10px] text-slate-500">ignored</span>
+                        : c.status === 'FAILED' ? <span className="text-[10px] text-rose-400">failed</span>
+                        : !ended && (
+                          <div className="flex gap-1">
+                            <button onClick={() => convert(c)} disabled={busy === c.id || !c.matchedCode} title={c.matchedCode ? 'Convert to sale' : 'No buy-code matched'}
+                              className="inline-flex items-center gap-1 h-7 px-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold disabled:opacity-40">
+                              {busy === c.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />} Sell
+                            </button>
+                            <button onClick={() => ignore(c)} className="text-slate-500 hover:text-slate-300"><XCircle className="w-4 h-4" /></button>
+                          </div>
+                        )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+          </div>
+          {/* Bridge URL */}
+          <div className="px-3 py-2 border-t border-slate-800 flex items-center gap-2">
+            <Link2 className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+            <input readOnly value={bridgeUrl} className="flex-1 bg-transparent text-[10px] text-slate-500 truncate outline-none" />
+            <button onClick={() => { navigator.clipboard?.writeText(bridgeUrl); flash('Bridge URL copied'); }} className="text-slate-400 hover:text-white"><Copy className="w-3.5 h-3.5" /></button>
+          </div>
+        </div>
+      </div>
+
+      {toast && <div className="fixed bottom-4 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-sm font-semibold px-4 py-2 rounded-lg shadow-xl z-50 inline-flex items-center gap-2"><AlertCircle className="w-4 h-4" /> {toast}</div>}
+      {showPin && <PinDialog session={session} products={products} onClose={() => setShowPin(false)} onPinned={() => { setShowPin(false); refresh(); }} />}
+    </div>
+  );
+}
+
+function PinDialog({ session, products, onClose, onPinned }: { session: Session; products: Product[]; onClose: () => void; onPinned: () => void }) {
+  const [productId, setProductId] = useState('');
+  const [code, setCode] = useState('');
+  const [livePrice, setLivePrice] = useState('');
+  const [q, setQ] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const filtered = products.filter((p) => p.name.toLowerCase().includes(q.toLowerCase())).slice(0, 30);
+
+  const pin = async () => {
+    if (!productId || !code.trim()) { setErr('Pick a product and a buy-code.'); return; }
+    setBusy(true); setErr(null);
+    try { await api(`/live-sales/${session.id}/pins`, { method: 'POST', body: JSON.stringify({ productId, code: code.trim(), livePrice: Number(livePrice) || 0 }) }); onPinned(); }
+    catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 grid place-items-center p-4" onClick={onClose}>
+      <div className="w-full max-w-md bg-slate-900 rounded-2xl border border-slate-700 p-4 space-y-3" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2 font-bold"><Pin className="w-4 h-4 text-fuchsia-400" /> Pin a product</div>
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search products…" className="w-full h-9 px-3 rounded-lg bg-slate-950 border border-slate-700 text-sm" />
+        <div className="max-h-48 overflow-auto rounded-lg border border-slate-800 divide-y divide-slate-800">
+          {filtered.map((p) => (
+            <button key={p.id} onClick={() => setProductId(p.id)} className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between ${productId === p.id ? 'bg-fuchsia-500/15 text-white' : 'text-slate-300 hover:bg-slate-800'}`}>
+              <span className="truncate"><Package className="w-3.5 h-3.5 inline mr-1 text-slate-500" />{p.name}</span>
+              <span className="text-[11px] text-slate-500 shrink-0">{money(p.price, session.currency)} · {p.stock} left</span>
+            </button>
+          ))}
+          {filtered.length === 0 && <div className="px-3 py-4 text-xs text-slate-500">No products. Add some in POS first.</div>}
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="Buy-code e.g. A1" className="h-10 px-3 rounded-lg bg-slate-950 border border-slate-700 text-sm font-mono" />
+          <input value={livePrice} onChange={(e) => setLivePrice(e.target.value.replace(/\D/g, ''))} placeholder="Live price (optional)" className="h-10 px-3 rounded-lg bg-slate-950 border border-slate-700 text-sm" />
+        </div>
+        {err && <div className="text-xs text-rose-400">{err}</div>}
+        <div className="flex gap-2">
+          <button onClick={onClose} className="flex-1 h-10 rounded-lg bg-slate-800 text-slate-300 text-sm font-semibold">Cancel</button>
+          <button onClick={pin} disabled={busy} className="flex-1 h-10 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-sm font-bold disabled:opacity-50">{busy ? 'Pinning…' : 'Pin product'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Center({ children }: { children: React.ReactNode }) { return <div className="grid place-items-center py-16">{children}</div>; }
+function Stat({ label, value, Icon, tone }: { label: string; value: string; Icon: typeof TrendingUp; tone: string }) {
+  return (
+    <div className="rounded-xl border border-slate-800 bg-slate-900/40 p-3">
+      <div className="flex items-center justify-between"><span className="text-[10px] text-slate-500 uppercase tracking-wide">{label}</span><Icon className={`w-3.5 h-3.5 ${tone}`} /></div>
+      <div className={`text-lg font-extrabold mt-0.5 ${tone}`}>{value}</div>
+    </div>
+  );
+}

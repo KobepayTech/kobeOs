@@ -409,7 +409,7 @@ export default function KobePay() {
 
   // ─── RENDER ─────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-[#0a0a1a] text-white">
+    <div className="min-h-screen bg-[#07101f] text-white" data-surface="pay-dark" data-module="kobepay">
       {/* Toast */}
       {toast.visible && (
         <div className="fixed top-4 right-4 z-[70] bg-emerald-500 text-white px-4 py-3 rounded-lg shadow-lg flex items-center gap-2 animate-in fade-in slide-in-from-top-2 duration-300">
@@ -419,18 +419,22 @@ export default function KobePay() {
       )}
 
       {/* Header */}
-      <header className="sticky top-0 z-50 bg-[#0a0a1a]/80 backdrop-blur-md border-b border-white/[0.06]">
+      <header className="sticky top-0 z-50 bg-[#07101f]/90 backdrop-blur-md border-b border-white/[0.10]">
         <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-emerald-500 flex items-center justify-center">
+            <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-emerald-400 to-cyan-500 flex items-center justify-center shadow-[0_8px_20px_rgba(16,185,129,0.25)]">
               <Wallet className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h1 className="text-lg font-bold tracking-tight">KOBE Pay</h1>
-              <p className="text-xs text-slate-600">Trade Finance Wallet</p>
+              <h1 className="text-lg font-bold tracking-[0.02em]">KOBE Pay</h1>
+              <p className="text-xs text-slate-400">Trade Finance Wallet</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <div className="hidden lg:flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-400/20 text-[10px] text-emerald-300">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              Wallet protected
+            </div>
             <div className="text-right hidden sm:block">
               <p className="text-xs text-slate-600">Customer</p>
               <p className="text-sm font-medium">Stephene Sosteri</p>
@@ -443,10 +447,10 @@ export default function KobePay() {
       </header>
 
       {/* Tabs */}
-      <div className="sticky top-[57px] z-40 bg-[#0a0a1a]/80 backdrop-blur-md border-b border-white/[0.06]">
+      <div className="sticky top-[57px] z-40 bg-[#07101f]/90 backdrop-blur-md border-b border-white/[0.10]">
         <div className="max-w-7xl mx-auto px-4">
           <Tabs value={activeTab} onValueChange={setActiveTab}>
-            <TabsList className="bg-transparent h-12 gap-1">
+            <TabsList className="bg-transparent h-14 gap-1">
               <TabsTrigger value="wallet" className="data-[state=active]:bg-emerald-500/20 data-[state=active]:text-emerald-400 data-[state=active]:border-emerald-500/30 text-xs px-3 py-1.5 rounded-lg border border-transparent">
                 <Wallet className="w-3.5 h-3.5 mr-1.5" />Wallet
               </TabsTrigger>
@@ -502,7 +506,7 @@ export default function KobePay() {
             const cust = customers.find(c => c.id === depCustomerId);
             if (!cust) return null;
             return (
-              <Card className="bg-[#13131f] border-blue-500/20">
+              <Card className="bg-[#101d32] border-blue-400/20 shadow-[0_12px_28px_rgba(2,8,23,0.18)]">
                 <CardContent className="p-4">
                   <div className="flex items-center gap-4">
                     <div className="w-12 h-12 rounded-full bg-blue-500/15 flex items-center justify-center">
@@ -527,8 +531,8 @@ export default function KobePay() {
           })()}
 
           {/* Hero Balance Card */}
-          <Card className="bg-[#13131f] border-white/[0.06] overflow-hidden relative">
-            <div className="absolute inset-0 bg-emerald-500/[0.03]" />
+          <Card className="bg-[#101d32] border-white/[0.10] overflow-hidden relative shadow-[0_16px_36px_rgba(2,8,23,0.22)]">
+            <div className="absolute inset-0 bg-gradient-to-br from-emerald-500/[0.10] via-transparent to-cyan-500/[0.06]" />
             <CardContent className="p-6 relative">
               <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
                 <div className="space-y-4">

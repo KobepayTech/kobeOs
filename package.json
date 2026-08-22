@@ -1,10 +1,10 @@
 {
   "name": "kobeos",
   "private": true,
-  "version": "1.6.1",
+  "version": "1.7.2",
   "main": "electron/main.cjs",
   "scripts": {
-    "prepare": "git config core.hooksPath .githooks 2>/dev/null || true",
+    "prepare": "node scripts/setup-hooks.cjs",
     "dev": "vite",
     "typecheck": "tsc -b",
     "build:frontend": "vite build",
@@ -18,11 +18,13 @@
     "core:manifest": "node scripts/generate-core-manifest.js",
     "prepare:postgres": "node scripts/prepare-postgres-resources.cjs",
     "download:cloudflared": "node scripts/download-cloudflared.cjs",
-    "electron:build": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && electron-builder",
-    "electron:build:linux": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && electron-builder --linux",
-    "electron:build:win": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && electron-builder --win",
-    "electron:build:win:fast": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && electron-builder --win --publish never",
-    "electron:build:mac": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && electron-builder --mac",
+    "download:ollama": "node scripts/download-ollama.cjs",
+    "fetch:models": "node scripts/fetch-bundled-models.cjs",
+    "electron:build": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && npm run download:ollama && electron-builder",
+    "electron:build:linux": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && npm run download:ollama && electron-builder --linux",
+    "electron:build:win": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && npm run download:ollama && electron-builder --win",
+    "electron:build:win:fast": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && npm run download:ollama && electron-builder --win --publish never",
+    "electron:build:mac": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && npm run download:ollama && electron-builder --mac",
     "iso:build": "npm run electron:build:linux && node scripts/build-iso.cjs",
     "iso:package": "node scripts/build-iso.cjs",
     "models:checksums": "node scripts/fetch-model-checksums.js",
@@ -176,8 +178,20 @@
         "to": "core-manifest.json"
       },
       {
+        "from": "build/postgres",
+        "to": "postgres"
+      },
+      {
         "from": "build/cloudflared",
         "to": "cloudflared"
+      },
+      {
+        "from": "build/ollama",
+        "to": "ollama"
+      },
+      {
+        "from": "models/bundled",
+        "to": "models"
       }
     ],
     "linux": {
@@ -230,10 +244,10 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "differentialPackage": false,
+      "differentialPackage": true,
       "installerIcon": "build/kobeos-icon.ico",
       "uninstallerIcon": "build/kobeos-icon.ico",
-      "createDesktopShortcut": true,
+      "createDesktopShortcut": "always",
       "createStartMenuShortcut": true,
       "shortcutName": "KobeOS",
       "artifactName": "KobeOS-Setup-${version}.exe",
@@ -276,7 +290,8 @@
       "node_modules/embedded-postgres/**",
       "node_modules/@embedded-postgres/**",
       "node_modules/bindings/**",
-      "node_modules/file-uri-to-path/**"
+      "node_modules/file-uri-to-path/**",
+      "dist/**"
     ],
     "dmg": {
       "title": "KobeOS ${version}",

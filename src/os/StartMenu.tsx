@@ -10,7 +10,7 @@ interface StartMenuProps {
 }
 
 export function StartMenu({ open, onClose }: StartMenuProps) {
-  const { apps, settings, launchApp, pinApp, unpinApp } = useOSStore();
+  const { apps, installedAppIds, settings, launchApp, pinApp, unpinApp } = useOSStore();
   const [query, setQuery] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -22,14 +22,17 @@ export function StartMenu({ open, onClose }: StartMenuProps) {
 
   const filtered = useMemo(() => {
     const q = query.toLowerCase();
-    if (!q) return apps;
+    // No query: show installed apps grouped (clean default). While searching,
+    // search EVERY registered module so nothing is hidden just because it isn't
+    // installed yet — non-installed matches get an Install action below.
+    if (!q) return apps.filter((app) => installedAppIds.includes(app.id));
     return apps.filter(
       (a) =>
         a.name.toLowerCase().includes(q) ||
         a.description.toLowerCase().includes(q) ||
         a.category.toLowerCase().includes(q)
     );
-  }, [apps, query]);
+  }, [apps, installedAppIds, query]);
 
   const byCategory = useMemo(() => {
     const map: Record<string, typeof apps> = {};
@@ -86,7 +89,7 @@ export function StartMenu({ open, onClose }: StartMenuProps) {
             Pinned
           </div>
           <div className="grid grid-cols-6 gap-2">
-            {settings.pinnedApps.slice(0, 12).map((appId) => {
+            {settings.pinnedApps.filter((appId) => installedAppIds.includes(appId)).slice(0, 12).map((appId) => {
               const app = apps.find((a) => a.id === appId);
               if (!app) return null;
               const Icon = (icons[app.icon as keyof typeof icons] as LucideIcon | undefined) ?? icons.Circle;
@@ -121,10 +124,13 @@ export function StartMenu({ open, onClose }: StartMenuProps) {
               {list.map((app) => {
                 const Icon = (icons[app.icon as keyof typeof icons] as LucideIcon | undefined) ?? icons.Circle;
                 const pinned = settings.pinnedApps.includes(app.id);
+                const installed = installedAppIds.includes(app.id);
                 return (
                   <button
                     key={app.id}
                     className="flex items-center gap-3 px-2 py-1.5 rounded-lg hover:bg-white/5 transition-colors text-left group"
+                    // Installed -> opens; not installed -> launchApp starts the
+                    // install flow, so every module is reachable from search.
                     onClick={() => {
                       launchApp(app.id);
                       onClose();
@@ -134,16 +140,20 @@ export function StartMenu({ open, onClose }: StartMenuProps) {
                       if (pinned) unpinApp(app.id);
                       else pinApp(app.id);
                     }}
+                    title={installed ? `Open ${app.name}` : `Install ${app.name}`}
                   >
                     <div className="w-7 h-7 flex items-center justify-center rounded-md bg-white/5 shrink-0">
                       <Icon className="w-4 h-4 text-os-text-primary" />
                     </div>
                     <span className="text-sm text-os-text-primary flex-1">{app.name}</span>
-                    <span
-                      className="text-[10px] px-1.5 py-0.5 rounded-md border border-white/5 text-os-text-muted"
-                    >
-                      {app.version}
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-md border border-white/5 text-os-text-muted opacity-0 group-hover:opacity-100">
+                      {installed ? 'Open' : app.category}
                     </span>
+                    {!installed && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-[var(--os-accent)]/20 text-[var(--os-accent)] border border-[var(--os-accent)]/30 inline-flex items-center gap-1">
+                        <icons.Download className="w-3 h-3" /> Install
+                      </span>
+                    )}
                   </button>
                 );
               })}

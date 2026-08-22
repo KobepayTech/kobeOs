@@ -5,14 +5,28 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { LessThan, Repository } from 'typeorm';
 import { randomInt } from 'crypto';
 import {
-  Property, PropertyExpense, PropertyLease, PropertyUnit, PropertyWorkOrder,
+  Property, PropertyExpense, PropertyLease, PropertySetting, PropertyUnit, PropertyVendor, PropertyWorkOrder,
   RentCharge, RentPayment, Tenant,
 } from './property.entity';
 import { PropertyPaymentToken } from './posys.entity';
 
-const TOKEN_ALPHABET_DIGITS = '0123456789';
-const TOKEN_LEN = 6;
-const TOKEN_TTL_MS = 30 * 60 * 1000;
+// 8-char tokens with BOTH letters and digits, minus ambiguous glyphs
+// (0/O, 1/I/L) so they read cleanly off a phone and type easily at a bank.
+const TOKEN_LETTERS = 'ABCDEFGHJKMNPQRSTUVWXYZ';
+const TOKEN_DIGITS = '23456789';
+const TOKEN_ALPHABET = TOKEN_LETTERS + TOKEN_DIGITS;
+const TOKEN_LEN = 8;
+// A rent token is the tenant's payment id for the whole period, so it lives
+// long enough to accept partial payments across weeks (45 days), not minutes.
+const TOKEN_TTL_MS = 45 * 24 * 60 * 60 * 1000;
+
+/** 8-char code guaranteed to contain at least one letter and one digit. */
+function genTokenCode(): string {
+  for (;;) {
+    const code = Array.from({ length: TOKEN_LEN }, () => TOKEN_ALPHABET[randomInt(0, TOKEN_ALPHABET.length)]).join('');
+    if (/[A-Z]/.test(code) && /[0-9]/.test(code)) return code;
+  }
+}
 
 export interface BuildingMapUnit {
   id: string;
@@ -75,7 +89,75 @@ export class PosysService {
     @InjectRepository(PropertyWorkOrder) private readonly workOrders: Repository<PropertyWorkOrder>,
     @InjectRepository(RentCharge)      private readonly charges: Repository<RentCharge>,
     @InjectRepository(PropertyPaymentToken) private readonly tokens: Repository<PropertyPaymentToken>,
+    @InjectRepository(PropertyVendor) private readonly vendors: Repository<PropertyVendor>,
+    @InjectRepository(PropertySetting) private readonly settingsRepo: Repository<PropertySetting>,
   ) {}
+
+  /**
+   * Public tenant portal (#11), keyed by a rent token. A tenant scans the
+   * estate QR, enters their token, and sees: their rent status for the period,
+   * the landlord's team/technician contacts (#10), and the property list.
+   * Token-gated — no token, no personal data. Owner-safe (no ids leaked).
+   */
+  async portalByToken(code: string) {
+    const token = await this.tokens.findOne({ where: { code } });
+    if (!token) throw new NotFoundException('Token not found');
+    const ownerId = token.ownerId;
+    const [tenant, unit, vendors, props, siteRow] = await Promise.all([
+      this.tenants.findOne({ where: { id: token.tenantId } }),
+      token.unitId ? this.units.findOne({ where: { id: token.unitId } }) : Promise.resolve(null),
+      this.vendors.find({ where: { ownerId } }),
+      this.props.find({ where: { ownerId } }),
+      this.settingsRepo.findOne({ where: { ownerId, key: 'siteConfig' } }),
+    ]);
+    let site: Record<string, unknown> = {};
+    try { site = siteRow?.value ? JSON.parse(siteRow.value) : {}; } catch { site = {}; }
+    const expected = Number(token.amount);
+    const paid = Number(token.usedAmount);
+    const expired = token.status === 'ACTIVE' && token.expiresAt.getTime() < Date.now();
+    return {
+      tenant: {
+        name: tenant?.name ?? 'Tenant',
+        unitLabel: unit?.unitNumber ?? '',
+        status: expired ? 'EXPIRED' : token.status,
+        expected,
+        paid,
+        remaining: Math.max(0, expected - paid),
+        currency: token.currency,
+        fullyPaid: token.status === 'USED',
+      },
+      staff: vendors
+        .filter((v) => v.name)
+        .map((v) => ({ name: v.name, role: v.category, phone: v.phone })),
+      properties: props.map((p) => ({ name: p.name, address: p.address })),
+      site,
+    };
+  }
+
+  /**
+   * Contract-drafting data for the lawyer portal (#8), keyed by a rent token —
+   * same access model as the bank page. Returns the tenant, unit, property and
+   * rent terms a lawyer needs to fill and print a tenancy agreement.
+   */
+  async contractByToken(code: string) {
+    const token = await this.tokens.findOne({ where: { code } });
+    if (!token) throw new NotFoundException('Token not found');
+    const tenant = await this.tenants.findOne({ where: { id: token.tenantId } });
+    const unit = token.unitId ? await this.units.findOne({ where: { id: token.unitId } }) : null;
+    const property = unit?.propertyId ? await this.props.findOne({ where: { id: unit.propertyId } }) : null;
+    return {
+      tenant: {
+        name: tenant?.name ?? '',
+        phone: tenant?.phone ?? '',
+        leaseStart: tenant?.leaseStart ?? null,
+        leaseEnd: tenant?.leaseEnd ?? null,
+      },
+      unit: { label: unit?.unitNumber ?? '', rent: Number(unit?.rentAmount ?? token.amount) },
+      property: { name: property?.name ?? '', address: property?.address ?? '' },
+      annualRent: Number(token.amount),
+      currency: token.currency,
+    };
+  }
 
   // ── Payment tokens ─────────────────────────────────────────────
 
@@ -94,7 +176,7 @@ export class PosysService {
     if (dto.amount <= 0) throw new BadRequestException('amount must be > 0');
     const expiresAt = new Date(Date.now() + TOKEN_TTL_MS);
     for (let i = 0; i < 6; i++) {
-      const code = Array.from({ length: TOKEN_LEN }, () => TOKEN_ALPHABET_DIGITS[randomInt(0, TOKEN_ALPHABET_DIGITS.length)]).join('');
+      const code = genTokenCode();
       const exists = await this.tokens.findOne({ where: { code, status: 'ACTIVE' } });
       if (exists) continue;
       return this.tokens.save(this.tokens.create({
@@ -113,27 +195,322 @@ export class PosysService {
     throw new BadRequestException('Could not generate a unique token; please retry');
   }
 
-  /** Public-ish lookup for an agent. Auto-expires stale rows. */
-  async lookupToken(code: string): Promise<PropertyPaymentToken> {
+  /**
+   * Read-only lookup for the public agent endpoint. Does NOT mutate
+   * — so a prefetcher, link-preview crawler, or generic
+   * at-least-once retry middleware hitting the URL cannot flip an
+   * ACTIVE token to EXPIRED before the cashier's real scan reads it.
+   * Callers derive display-side expiry from `expiresAt` vs now.
+   */
+  async lookupTokenReadOnly(code: string): Promise<PropertyPaymentToken> {
     const row = await this.tokens.findOne({ where: { code } });
     if (!row) throw new NotFoundException('Token not found');
-    if (row.status === 'ACTIVE' && row.expiresAt.getTime() < Date.now()) {
-      row.status = 'EXPIRED';
-      await this.tokens.save(row);
-    }
     return row;
   }
 
-  /** Agent redeems the token; records actual amount received. */
-  async redeemToken(code: string, dto: { amountReceived: number; agentId?: string }): Promise<PropertyPaymentToken> {
-    const row = await this.lookupToken(code);
-    if (row.status !== 'ACTIVE') throw new BadRequestException(`Token is ${row.status.toLowerCase()}`);
+  /**
+   * Enriched, owner-safe view of a token for the public bank/agent page:
+   * the tenant's name (so the clerk confirms who they're collecting for),
+   * the expected amount, what's already been paid against this token, and
+   * what remains. Never exposes ownerId or internal ids.
+   */
+  async lookupTokenForAgent(code: string, ownerId?: string) {
+    const row = await this.tokens.findOne({
+      where: ownerId ? { code, ownerId } : { code },
+    });
+    if (!row) throw new NotFoundException('Token not found');
+    const tenant = await this.tenants.findOne({ where: { id: row.tenantId, ownerId: row.ownerId } });
+    const expired = row.status === 'ACTIVE' && row.expiresAt.getTime() < Date.now();
+    const expected = Number(row.amount);
+    const paid = Number(row.usedAmount);
+    return {
+      code: row.code,
+      status: expired ? 'EXPIRED' : row.status,
+      tenantName: tenant?.name ?? 'Tenant',
+      expected,
+      paid,
+      remaining: Math.max(0, expected - paid),
+      currency: row.currency,
+      expiresAt: row.expiresAt,
+      fullyPaid: row.status === 'USED',
+    };
+  }
+
+  /**
+   * Redeem a token atomically. The transaction opens a
+   * `SELECT … FOR UPDATE` row-lock so two concurrent redeems can't
+   * both pass the ACTIVE check — the second call sees status='USED'
+   * and rejects with "Token is used". Also sweeps EXPIRED here so an
+   * expired-past-TTL row is refused inside the same critical section.
+   */
+  async redeemToken(code: string, dto: { amountReceived: number; agentId?: string; idempotencyKey?: string; method?: string; reference?: string }, ownerId?: string): Promise<{
+    code: string;
+    status: PropertyPaymentToken['status'];
+    expected: number;
+    paid: number;
+    remaining: number;
+    currency: string;
+    fullyPaid: boolean;
+  }> {
     if (dto.amountReceived <= 0) throw new BadRequestException('amountReceived must be > 0');
-    row.status = 'USED';
-    row.usedAt = new Date();
-    row.usedAmount = dto.amountReceived;
-    row.agentId = dto.agentId ?? null;
-    return this.tokens.save(row);
+    return this.tokens.manager.transaction(async (tx) => {
+      const repo = tx.getRepository(PropertyPaymentToken);
+      const row = await repo.createQueryBuilder('t')
+        .setLock('pessimistic_write')
+        .where(
+          ownerId ? 't.code = :code AND t.ownerId = :ownerId' : 't.code = :code',
+          ownerId ? { code, ownerId } : { code },
+        )
+        .getOne();
+      if (!row) throw new NotFoundException('Token not found');
+      // Fold expiry-sweep into the same critical section.
+      if (row.status === 'ACTIVE' && row.expiresAt.getTime() < Date.now()) {
+        row.status = 'EXPIRED';
+        await repo.save(row);
+        throw new BadRequestException('Token is expired');
+      }
+      const expected = Number(row.amount);
+      const key = dto.idempotencyKey?.trim();
+
+      // Idempotency: a retried redeem carrying a key we've already applied is a
+      // no-op — return the current state without adding the amount again or
+      // inserting a duplicate RentPayment.
+      if (key && Array.isArray(row.redeemedKeys) && row.redeemedKeys.includes(key)) {
+        const paid = Number(row.usedAmount);
+        return { code: row.code, status: row.status, expected, paid, remaining: Math.max(0, expected - paid), currency: row.currency, fullyPaid: paid >= expected };
+      }
+
+      if (row.status !== 'ACTIVE') throw new BadRequestException(`Token is ${row.status.toLowerCase()}`);
+
+      // Overpayment cap: never accept more than the remaining balance, so the
+      // recorded rent can't exceed what was actually owed on this token.
+      const remaining = expected - Number(row.usedAmount);
+      if (dto.amountReceived > remaining + 1e-6) {
+        throw new BadRequestException(`Amount exceeds remaining balance (${Math.max(0, remaining)} ${row.currency})`);
+      }
+
+      // Accumulate — a half payment leaves the SAME token ACTIVE so the tenant
+      // completes it later with the same code. The token only closes (USED)
+      // once the total received reaches the expected amount.
+      row.usedAmount = Number(row.usedAmount) + dto.amountReceived;
+      row.usedAt = new Date();
+      row.agentId = dto.agentId ?? null;
+      if (key) row.redeemedKeys = [...(row.redeemedKeys ?? []), key];
+      const fullyPaid = row.usedAmount >= expected;
+      if (fullyPaid) row.status = 'USED';
+      await repo.save(row);
+
+      // Record the actual money received as a RentPayment. Entering the token
+      // is the ONLY path that records rent — no token, no payment. unitId is
+      // required on a payment, so fall back to the tenant's unit when the token
+      // wasn't tied to one.
+      let unitId = row.unitId ?? null;
+      if (!unitId) {
+        const tenant = await tx.getRepository(Tenant).findOne({ where: { id: row.tenantId } });
+        unitId = tenant?.unitId ?? null;
+      }
+      if (unitId) {
+        const payRepo = tx.getRepository(RentPayment);
+        const now = new Date();
+        await payRepo.save(payRepo.create({
+          ownerId: row.ownerId,
+          tenantId: row.tenantId,
+          unitId,
+          amount: dto.amountReceived,
+          currency: row.currency,
+          forMonth: new Date(now.getFullYear(), now.getMonth(), 1),
+          paidAt: now,
+          method: dto.method ?? 'TOKEN',
+          reference: dto.reference?.trim() || row.code,
+        }));
+      }
+
+      return {
+        code: row.code,
+        status: row.status,
+        expected,
+        paid: row.usedAmount,
+        remaining: Math.max(0, expected - row.usedAmount),
+        currency: row.currency,
+        fullyPaid,
+      };
+    });
+  }
+
+  /**
+   * Market-rent manifest (#7). Every unit on the platform contributes to an
+   * anonymised, aggregated view of rents by bedroom count, so an owner can see
+   * trending market rates and how their own rents compare. No owner data is
+   * exposed — only averages/ranges and the caller's own averages.
+   */
+  async marketRents(ownerId: string) {
+    const all = await this.units.find();
+    const bucketOf = (u: PropertyUnit) => {
+      const b = Number(u.bedrooms || 0);
+      return b <= 0 ? 'Studio / other' : `${b} bed`;
+    };
+
+    const market = new Map<string, { count: number; sum: number; min: number; max: number }>();
+    const own = new Map<string, { count: number; sum: number }>();
+    for (const u of all) {
+      const rent = Number(u.rentAmount || 0);
+      if (rent <= 0) continue;
+      const k = bucketOf(u);
+      const m = market.get(k) ?? { count: 0, sum: 0, min: Infinity, max: 0 };
+      m.count += 1; m.sum += rent; m.min = Math.min(m.min, rent); m.max = Math.max(m.max, rent);
+      market.set(k, m);
+      if (u.ownerId === ownerId) {
+        const o = own.get(k) ?? { count: 0, sum: 0 };
+        o.count += 1; o.sum += rent; own.set(k, o);
+      }
+    }
+
+    const buckets = [...market.entries()]
+      .map(([key, v]) => {
+        const avgRent = Math.round(v.sum / v.count);
+        const o = own.get(key);
+        const ownerAvg = o ? Math.round(o.sum / o.count) : null;
+        return {
+          key,
+          count: v.count,
+          avgRent,
+          minRent: v.min === Infinity ? 0 : v.min,
+          maxRent: v.max,
+          ownerAvg,
+          deltaPct: ownerAvg != null && avgRent > 0 ? Math.round(((ownerAvg - avgRent) / avgRent) * 100) : null,
+        };
+      })
+      .sort((a, b) => a.key.localeCompare(b.key));
+
+    return { currency: 'TZS', totalUnitsSampled: all.filter((u) => Number(u.rentAmount) > 0).length, buckets };
+  }
+
+  // ── Rent dashboard (#2): collected vs expected + monthly breakdown ──────
+
+  /** Month key like "2026-07" from a Date. */
+  private monthKey(d: Date): string {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  /** The month a payment applies to (its billing month, else when it was paid). */
+  private paymentMonth(p: RentPayment): string {
+    return this.monthKey(new Date(p.forMonth ?? p.paidAt));
+  }
+
+  /**
+   * Collected-vs-expected rollup for the owner's portfolio. Expected rent is
+   * the sum of unit rents (per month); collected is the sum of recorded
+   * payments (which now only come from redeemed tokens). Returns the last 6
+   * months and a per-property breakdown so the UI can drill in.
+   */
+  async rentDashboard(ownerId: string) {
+    const [props, units, payments] = await Promise.all([
+      this.props.find({ where: { ownerId } }),
+      this.units.find({ where: { ownerId } }),
+      this.payments.find({ where: { ownerId } }),
+    ]);
+
+    const monthlyExpected = units.reduce((s, u) => s + Number(u.rentAmount || 0), 0);
+    const now = new Date();
+    const thisKey = this.monthKey(now);
+
+    const months: Array<{ period: string; label: string; expected: number; collected: number; pending: number }> = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = this.monthKey(d);
+      const collected = payments
+        .filter((p) => this.paymentMonth(p) === key)
+        .reduce((s, p) => s + Number(p.amount), 0);
+      months.push({
+        period: key,
+        label: d.toLocaleString('en', { month: 'short', year: '2-digit' }),
+        expected: monthlyExpected,
+        collected,
+        pending: Math.max(0, monthlyExpected - collected),
+      });
+    }
+
+    const collectedThisMonth = payments
+      .filter((p) => this.paymentMonth(p) === thisKey)
+      .reduce((s, p) => s + Number(p.amount), 0);
+
+    const properties = props.map((pr) => {
+      const punits = units.filter((u) => u.propertyId === pr.id);
+      const expected = punits.reduce((s, u) => s + Number(u.rentAmount || 0), 0);
+      const unitIds = new Set(punits.map((u) => u.id));
+      const collected = payments
+        .filter((p) => p.unitId && unitIds.has(p.unitId) && this.paymentMonth(p) === thisKey)
+        .reduce((s, p) => s + Number(p.amount), 0);
+      return {
+        propertyId: pr.id,
+        name: pr.name,
+        units: punits.length,
+        expected,
+        collected,
+        pending: Math.max(0, expected - collected),
+      };
+    });
+
+    return {
+      currency: 'TZS',
+      expectedMonthly: monthlyExpected,
+      collectedThisMonth,
+      pendingThisMonth: Math.max(0, monthlyExpected - collectedThisMonth),
+      collectionRate: monthlyExpected > 0 ? Math.round((collectedThisMonth / monthlyExpected) * 100) : 0,
+      months,
+      properties,
+    };
+  }
+
+  /**
+   * Tenants with rent still owing — the drill-down behind "pending". Computes
+   * this-month shortfall and, from lease start, how many whole months they're
+   * behind. Includes phone so the UI can fire a WhatsApp reminder.
+   */
+  async pendingTenants(ownerId: string) {
+    const [units, tenants, payments] = await Promise.all([
+      this.units.find({ where: { ownerId } }),
+      this.tenants.find({ where: { ownerId } }),
+      this.payments.find({ where: { ownerId } }),
+    ]);
+    const unitById = new Map(units.map((u) => [u.id, u]));
+    const now = new Date();
+    const thisKey = this.monthKey(now);
+
+    const rows = tenants.map((t) => {
+      const unit = t.unitId ? unitById.get(t.unitId) : undefined;
+      const rent = unit ? Number(unit.rentAmount || 0) : 0;
+
+      const paidThisMonth = payments
+        .filter((p) => p.tenantId === t.id && this.paymentMonth(p) === thisKey)
+        .reduce((s, p) => s + Number(p.amount), 0);
+      const pendingThisMonth = Math.max(0, rent - paidThisMonth);
+
+      const start = t.leaseStart ? new Date(t.leaseStart) : null;
+      const monthsElapsed = start && !isNaN(start.getTime())
+        ? Math.max(1, (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth()) + 1)
+        : 1;
+      const totalExpected = rent * monthsElapsed;
+      const totalPaid = payments
+        .filter((p) => p.tenantId === t.id)
+        .reduce((s, p) => s + Number(p.amount), 0);
+      const totalPending = Math.max(0, totalExpected - totalPaid);
+      const monthsDue = rent > 0 ? Math.floor(totalPending / rent) : 0;
+
+      return {
+        tenantId: t.id,
+        name: t.name,
+        phone: t.phone ?? '',
+        unitLabel: unit?.unitNumber ?? '',
+        rent,
+        pendingThisMonth,
+        totalPending,
+        monthsDue,
+      };
+    }).filter((r) => r.totalPending > 0);
+
+    rows.sort((a, b) => b.totalPending - a.totalPending);
+    return rows;
   }
 
   async cancelToken(ownerId: string, id: string): Promise<PropertyPaymentToken> {
@@ -144,10 +521,11 @@ export class PosysService {
     return this.tokens.save(row);
   }
 
-  listTokens(ownerId: string) {
-    // Sweep obviously-stale ACTIVE rows up to the caller's view so
-    // they don't dominate the inbox.
-    void this.tokens.update(
+  async listTokens(ownerId: string) {
+    // Sweep obviously-stale ACTIVE rows up to the caller's view before
+    // returning results. Previously used `void update` which lost the
+    // race with the SELECT and returned rows still marked ACTIVE.
+    await this.tokens.update(
       { ownerId, status: 'ACTIVE', expiresAt: LessThan(new Date()) },
       { status: 'EXPIRED' },
     );
@@ -289,8 +667,16 @@ export class PosysService {
     }
     const overdue = leases.filter((l) => {
       if (l.status !== 'active' || !l.unitId) return false;
-      const last = recentPaymentByUnit.get(l.unitId) ?? 0;
-      return last > 0 && (now - last) > 35 * 86400_000;
+      const last = recentPaymentByUnit.get(l.unitId);
+      // Overdue also covers the never-paid case: a fresh active lease
+      // that hasn't received a payment in 35+ days since it started.
+      // Previously `last > 0 && ...` silently dropped exactly the
+      // tenants most worth chasing.
+      if (last == null) {
+        const started = new Date(l.startDate).getTime();
+        return started > 0 && (now - started) > 35 * 86400_000;
+      }
+      return (now - last) > 35 * 86400_000;
     });
     if (overdue.length > 0) {
       out.push({

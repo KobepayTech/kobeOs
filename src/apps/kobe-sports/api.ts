@@ -112,6 +112,8 @@ export interface MatchPlayerStat {
   distanceKm: number;
   sprints: number;
   topSpeedKmh: number;
+  passes: number;
+  passAccuracy: number;
   goals: number;
   assists: number;
   yellowCards: number;
@@ -337,4 +339,46 @@ export const aiSportsApi = {
     req<{ report: string }>('/ai/sports/report', { method: 'POST', body: JSON.stringify(body) }),
   formation: (body: { team: string; players: string[]; opposition: string }) =>
     req<{ formation: string; reasoning: string }>('/ai/sports/formation', { method: 'POST', body: JSON.stringify(body) }),
+};
+
+// ── Boxing ───────────────────────────────────────────────────────────────────
+export interface BoxingFighter {
+  id: string; name: string; nickname?: string; weightClass?: string; stance?: string;
+  country?: string; reachCm?: number | null; heightCm?: number | null;
+  wins: number; losses: number; draws: number; kos: number; ranking?: number | null; avatarUrl?: string;
+}
+export interface RoundScore { round: number; judge: string; a: number; b: number }
+export interface BoutTally { perJudge: { judge: string; a: number; bt: number; rounds: number; lead: string }[]; aCards: number; bCards: number; leader: string }
+export interface BoxingBout {
+  id: string; eventName: string; date?: string | null; venue?: string;
+  fighterAId: string; fighterAName: string; fighterBId: string; fighterBName: string;
+  weightClass?: string; title?: string; scheduledRounds: number; cardPosition: 'MAIN' | 'CO_MAIN' | 'UNDERCARD';
+  status: 'SCHEDULED' | 'LIVE' | 'FINISHED' | 'CANCELLED'; currentRound: number;
+  judges: string[]; roundScores: RoundScore[]; method: string; winnerId?: string | null; endRound?: number | null;
+  tally?: BoutTally;
+}
+export const boxingApi = {
+  fighters: () => req<BoxingFighter[]>('/sports/boxing/fighters'),
+  createFighter: (b: Partial<BoxingFighter>) => req<BoxingFighter>('/sports/boxing/fighters', { method: 'POST', body: JSON.stringify(b) }),
+  updateFighter: (id: string, b: Partial<BoxingFighter>) => req<BoxingFighter>(`/sports/boxing/fighters/${id}`, { method: 'PATCH', body: JSON.stringify(b) }),
+  deleteFighter: (id: string) => req<void>(`/sports/boxing/fighters/${id}`, { method: 'DELETE' }),
+  bouts: (params = '') => req<BoxingBout[]>(`/sports/boxing/bouts${params}`),
+  bout: (id: string) => req<BoxingBout>(`/sports/boxing/bouts/${id}`),
+  createBout: (b: Partial<BoxingBout> & { fighterAId: string; fighterBId: string }) => req<BoxingBout>('/sports/boxing/bouts', { method: 'POST', body: JSON.stringify(b) }),
+  deleteBout: (id: string) => req<void>(`/sports/boxing/bouts/${id}`, { method: 'DELETE' }),
+  score: (id: string, b: { round: number; judge: string; a: number; b: number }) => req<BoxingBout>(`/sports/boxing/bouts/${id}/score`, { method: 'POST', body: JSON.stringify(b) }),
+  finish: (id: string, b: { method: string; winnerId?: string; endRound?: number }) => req<BoxingBout>(`/sports/boxing/bouts/${id}/finish`, { method: 'POST', body: JSON.stringify(b) }),
+};
+
+// ── Sport registry ───────────────────────────────────────────────────────────
+export interface SportModule { id: string; label: string; icon: string }
+export interface SportDescriptor {
+  id: string; name: string; icon: string; kind: string; live: boolean;
+  competitor: { singular: string; plural: string; sideA: string; sideB: string };
+  modules: SportModule[]; eventTypes: string[];
+  scoring: { type: string; description: string }; statuses: string[];
+  overlay: 'match' | 'bout' | null; apiBase: string;
+}
+export const registryApi = {
+  get: () => req<{ sports: SportDescriptor[]; liveCount: number; total: number }>('/sports/registry'),
 };

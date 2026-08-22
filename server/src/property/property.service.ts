@@ -69,3 +69,9 @@ export class RentPaymentsService extends OwnedCrudService<RentPayment> {
     await this.chargesRepo.save(charge);
   }
 }
+
+import { PropertyDocument } from './property-document.entity';
+@Injectable()
+export class PropertyDocumentsService extends OwnedCrudService<PropertyDocument> {
+  constructor(@InjectRepository(PropertyDocument) repo: Repository<PropertyDocument>) { super(repo); }
+}

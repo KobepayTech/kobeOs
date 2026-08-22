@@ -117,6 +117,12 @@ export class ShopsService {
    * spill writes across tenants.
    */
   async assertOwned(ownerId: string, shopId: string): Promise<Shop> {
+    // An empty shopId means the caller had no active shop (no X-Active-Shop-Id
+    // header / shopId query) — fall back to the owner's default shop
+    // (auto-created if needed) rather than running a `WHERE id = ''` query,
+    // which throws "invalid input syntax for type uuid" on the uuid column
+    // and 500s the EOD list/summary endpoints for brand-new accounts.
+    if (!shopId) return this.getDefault(ownerId);
     const shop = await this.repo.findOne({ where: { ownerId, id: shopId } });
     if (!shop) throw new NotFoundException('Shop not found for this owner');
     return shop;

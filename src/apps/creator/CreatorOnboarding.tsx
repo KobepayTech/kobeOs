@@ -36,7 +36,6 @@ import {
   TrendingUp,
   BarChart3,
   DollarSign,
-  Globe,
   Star,
   AlertCircle,
   FileText,

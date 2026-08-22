@@ -6,21 +6,30 @@
 // parking, financials, analytics, and website builder.
 // ============================================================================
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   LayoutDashboard, Building2, Bed, Calendar, Users,
   UtensilsCrossed, Car, DollarSign, BarChart3, Globe,
   Bell, ChevronDown, Search, Plus, Edit2, Trash2, Eye,
-  CheckCircle, X, TrendingUp, TrendingDown, Minus,
-  ChefHat, QrCode, Star, Percent, Phone, Mail, MapPin,
-  Clock, ArrowUpRight, ArrowDownRight, Filter, Download,
-  Settings, LogOut, Shield, Wifi, Coffee, Waves, Dumbbell,
-  CreditCard, Receipt, Wallet, CircleDollarSign, UserPlus,
-  CarFront, Bike, ParkingSquare, FileText, MoreHorizontal,
-  XCircle, HelpCircle, Megaphone
+  CheckCircle, X, TrendingUp, Minus,
+  ChefHat, QrCode, Star, Percent, MapPin,
+  Clock, ArrowUpRight, ArrowDownRight,
+  Settings, Receipt, Wallet, CircleDollarSign, UserPlus,
+  CarFront, Bike, ParkingSquare
 } from 'lucide-react';
-import type { Hotel, Room, Booking, Guest, MenuCategory, StaffMember, Order } from '@/shared/types';
+import type { Room, Booking, Guest, MenuCategory, MenuItem, StaffMember, Order, OrderItem } from '@/shared/types';
 import { formatCurrency, formatDate, getStatusColor, classNames } from '@/shared/utils';
+import { API_BASE, api } from '@/lib/api';
+import { PhotoUpload } from '@/components/PhotoUpload';
+import HotelOperationsBoard from './HotelOperationsBoard';
+
+const SHOW_LEGACY_FINANCIALS = false;
+
+const resolveHotelImage = (value?: string | null): string => {
+  if (!value) return '';
+  if (/^https?:\/\//i.test(value) || value.startsWith('data:')) return value;
+  return `${API_BASE}${value.startsWith('/api') ? value.slice(4) : value}`;
+};
 
 // ── Tab Types ───────────────────────────────────────────────────────────────
 type TabType =
@@ -240,6 +249,249 @@ MOCK_HOTELS.forEach((hotel, hi) => {
   ];
 });
 
+// ── Backend row shapes (server/src/hotel) ───────────────────────────────────
+interface ApiTenant { id: string; slug: string; name: string; brandColor?: string | null; logoUrl?: string | null; currency: string; location?: string; phone?: string; email?: string; }
+interface ApiPortfolioEntry { id: string; slug: string; name: string; currency: string; roomsTotal: number; occupied: number; occupancyRate: number; revenueToday: number; alerts: number; }
+interface ApiRoom { id: string; roomNumber: string; type: string; rate: number | string; currency: string; capacity: number; status: 'available' | 'occupied' | 'reserved' | 'maintenance'; imageUrl?: string | null; hotelId?: string | null; }
+interface ApiGuest { id: string; name: string; phone: string; email?: string | null; nationality?: string | null; idType?: string | null; idNumber?: string | null; hotelId?: string | null; }
+interface ApiBooking { id: string; roomId: string; guestId: string; checkIn: string; checkOut: string; guestCount: number; status: 'PENDING' | 'CONFIRMED' | 'CHECKED_IN' | 'CHECKED_OUT' | 'CANCELLED'; totalAmount: number | string; currency: string; hotelId?: string | null; }
+interface ApiMenuItem { id: string; name: string; category: string; price: number | string; currency: string; available: boolean; station: 'kitchen' | 'bar' | 'other'; imageUrl?: string | null; hotelId?: string | null; }
+interface ApiOrderItem { menuItemId?: string; name: string; qty: number; price: number | string; station?: 'kitchen' | 'bar' | 'other'; }
+interface ApiOrder { id: string; roomNumber: string; locationType: 'room' | 'table' | 'pickup' | 'delivery'; guestName?: string | null; guestPhone?: string | null; items: ApiOrderItem[]; total: number | string; currency: string; status: 'PENDING' | 'ACCEPTED' | 'PREPARING' | 'READY' | 'DELIVERED' | 'CANCELLED'; note: string; hotelId?: string | null; createdAt?: string; updatedAt?: string; }
+interface ApiStaff { id: string; name: string; role: string; phone: string; email?: string | null; status: 'active' | 'off' | 'suspended'; hotelId?: string | null; }
+interface ApiParkingSpot { id: string; hotelId: string; spotNumber: string; type: 'car' | 'motorcycle' | 'bus' | 'handicap'; status: 'free' | 'occupied' | 'reserved' | 'maintenance'; vehiclePlate?: string; vehicleModel?: string; guestId?: string | null; ratePerDay: number | string; }
+interface ApiFinancialRecord { id: string; hotelId: string; category: string; amount: number | string; currency: string; recordDate: string; description: string; granularity: 'daily' | 'weekly' | 'monthly'; }
+
+const num = (v: unknown): number => (typeof v === 'number' ? v : parseFloat(String(v ?? 0)) || 0);
+
+function mapBookingStatus(s: ApiBooking['status']): Booking['status'] {
+  switch (s) {
+    case 'CHECKED_IN': return 'checked-in';
+    case 'CHECKED_OUT': return 'checked-out';
+    case 'CANCELLED': return 'cancelled';
+    default: return 'confirmed';
+  }
+}
+function mapOrderStatus(s: ApiOrder['status']): Order['status'] {
+  switch (s) {
+    case 'ACCEPTED':
+    case 'PREPARING': return 'preparing';
+    case 'READY': return 'ready';
+    case 'DELIVERED': return 'served';
+    case 'CANCELLED': return 'cancelled';
+    default: return 'pending';
+  }
+}
+function mapStation(s?: string): 'kitchen' | 'bar' | 'dessert' | 'grill' {
+  return s === 'bar' ? 'bar' : 'kitchen';
+}
+
+/** Map the real backend rows onto the exact HotelRecord[] shape the UI consumes.
+ *  Records whose hotelId is null / unknown (legacy single-hotel rows) are
+ *  attached to the first property so nothing is dropped. Returns [] when there
+ *  are no properties, signalling the caller to show onboarding. */
+function buildHotelsFromApi(
+  tenants: ApiTenant[],
+  portfolio: ApiPortfolioEntry[],
+  rooms: ApiRoom[],
+  guests: ApiGuest[],
+  bookings: ApiBooking[],
+  menuItems: ApiMenuItem[],
+  orders: ApiOrder[],
+  staff: ApiStaff[],
+  parkingByHotel: Record<string, ApiParkingSpot[]>,
+  financialsByHotel: Record<string, ApiFinancialRecord[]>,
+): HotelRecord[] {
+  if (tenants.length === 0) return [];
+  const primaryId = tenants[0].id;
+  const known = new Set(tenants.map(t => t.id));
+  const hotelIdOf = (hid?: string | null): string => (hid && known.has(hid) ? hid : primaryId);
+
+  const guestById = new Map(guests.map(g => [g.id, g]));
+  const bookingCount = new Map<string, number>();
+  for (const b of bookings) bookingCount.set(b.guestId, (bookingCount.get(b.guestId) ?? 0) + 1);
+  const portfolioById = new Map(portfolio.map(p => [p.id, p]));
+
+  return tenants.map(t => {
+    const hRooms = rooms.filter(r => hotelIdOf(r.hotelId) === t.id);
+    const hBookings = bookings.filter(b => hotelIdOf(b.hotelId) === t.id);
+    const hGuests = guests.filter(g => hotelIdOf(g.hotelId) === t.id);
+    const hMenu = menuItems.filter(m => hotelIdOf(m.hotelId) === t.id);
+    const hOrders = orders.filter(o => hotelIdOf(o.hotelId) === t.id);
+    const hStaff = staff.filter(s => hotelIdOf(s.hotelId) === t.id);
+
+    const mappedBookings: Booking[] = hBookings.map(b => ({
+      id: b.id,
+      guestId: guestById.get(b.guestId)?.name ?? b.guestId,
+      roomId: b.roomId,
+      checkIn: String(b.checkIn),
+      checkOut: String(b.checkOut),
+      status: mapBookingStatus(b.status),
+      totalAmount: num(b.totalAmount),
+      paidAmount: 0,
+      source: 'online',
+    }));
+
+    const rawByRoom = new Map<string, ApiBooking[]>();
+    for (const b of hBookings) {
+      const arr = rawByRoom.get(b.roomId) ?? [];
+      arr.push(b); rawByRoom.set(b.roomId, arr);
+    }
+    const mappedByRoom = new Map<string, Booking[]>();
+    for (const b of mappedBookings) {
+      const arr = mappedByRoom.get(b.roomId) ?? [];
+      arr.push(b); mappedByRoom.set(b.roomId, arr);
+    }
+
+    const mappedRooms: Room[] = hRooms.map(r => {
+      const active = (rawByRoom.get(r.id) ?? []).find(b => b.status === 'CHECKED_IN');
+      const g = active ? guestById.get(active.guestId) : undefined;
+      return {
+        id: r.id,
+        number: r.roomNumber,
+        type: r.type,
+        floor: 1,
+        pricePerNight: num(r.rate),
+        status: r.status,
+        capacity: r.capacity,
+        imageUrl: r.imageUrl ?? undefined,
+        amenities: [],
+        qrCode: undefined,
+        currentGuest: r.status === 'occupied' && active ? {
+          id: g?.id ?? active.guestId,
+          name: g?.name ?? 'Guest',
+          phone: g?.phone ?? '',
+          email: g?.email ?? undefined,
+          checkInDate: String(active.checkIn),
+          checkOutDate: String(active.checkOut),
+          idNumber: g?.idNumber ?? undefined,
+        } : undefined,
+        bookings: mappedByRoom.get(r.id) ?? [],
+      };
+    });
+
+    const mappedGuests: GuestProfile[] = hGuests.map(g => ({
+      id: g.id,
+      name: g.name,
+      phone: g.phone,
+      email: g.email ?? undefined,
+      nationality: g.nationality ?? undefined,
+      idType: (g.idType as GuestProfile['idType']) ?? undefined,
+      idNumber: g.idNumber ?? undefined,
+      checkInCount: bookingCount.get(g.id) ?? 0,
+      checkInDate: '',
+      checkOutDate: '',
+    }));
+
+    const catMap = new Map<string, MenuItem[]>();
+    hMenu.forEach(m => {
+      const arr = catMap.get(m.category) ?? [];
+      arr.push({
+        id: m.id,
+        categoryId: m.category,
+        name: m.name,
+        description: '',
+        price: num(m.price),
+        isAvailable: m.available,
+        preparationTime: 0,
+        station: mapStation(m.station),
+        image: m.imageUrl ?? undefined,
+      });
+      catMap.set(m.category, arr);
+    });
+    const menuCategories: MenuCategory[] = Array.from(catMap.entries()).map(([name, items], i) => ({
+      id: `${t.id}-cat-${i}`, name, sortOrder: i + 1, items,
+    }));
+
+    const mappedOrders: Order[] = hOrders.map(o => {
+      const items: OrderItem[] = (o.items ?? []).map((it, i) => ({
+        id: `${o.id}-${i}`,
+        menuItemId: it.menuItemId ?? '',
+        name: it.name,
+        quantity: it.qty,
+        unitPrice: num(it.price),
+        totalPrice: num(it.price) * it.qty,
+        station: mapStation(it.station),
+        status: 'pending',
+      }));
+      const stations = new Set(items.map(it => it.station));
+      const station: Order['station'] = items.length === 0 ? 'kitchen' : stations.size > 1 ? 'mixed' : items[0].station;
+      return {
+        id: o.id,
+        roomId: o.locationType === 'room' ? o.roomNumber : undefined,
+        tableId: o.locationType === 'table'
+          ? o.roomNumber
+          : o.locationType === 'pickup'
+            ? 'Online pickup'
+            : o.locationType === 'delivery'
+              ? `Delivery · ${o.roomNumber}`
+              : undefined,
+        guestName: o.guestName ?? undefined,
+        items,
+        status: mapOrderStatus(o.status),
+        subtotal: num(o.total),
+        tax: 0,
+        serviceCharge: 0,
+        total: num(o.total),
+        paymentStatus: 'unpaid',
+        station,
+        createdAt: o.createdAt ?? new Date().toISOString(),
+        updatedAt: o.updatedAt ?? new Date().toISOString(),
+      };
+    });
+
+    const mappedStaff: StaffMember[] = hStaff.map(s => ({
+      id: s.id,
+      name: s.name,
+      phone: s.phone,
+      email: s.email ?? undefined,
+      role: (s.role as StaffMember['role']) ?? 'receptionist',
+      pin: '',
+      isActive: s.status === 'active',
+      permissions: [],
+    }));
+
+    const mappedParking: ParkingSpot[] = (parkingByHotel[t.id] ?? []).map(p => ({
+      id: p.id,
+      number: p.spotNumber,
+      type: p.type === 'motorcycle' ? 'motorcycle' : 'car',
+      status: p.status === 'occupied' ? 'occupied' : p.status === 'free' ? 'free' : 'reserved',
+      vehiclePlate: p.vehiclePlate,
+      vehicleModel: p.vehicleModel,
+      guestName: p.guestId ? guestById.get(p.guestId)?.name : undefined,
+    }));
+
+    const fin = financialsByHotel[t.id] ?? [];
+    const revenueThisMonth = fin.filter(f => f.category.includes('revenue')).reduce((s, f) => s + num(f.amount), 0);
+    const expensesToday = fin.filter(f => f.category.includes('expense')).reduce((s, f) => s + num(f.amount), 0);
+    const pf = portfolioById.get(t.id);
+    const revenueToday = pf ? num(pf.revenueToday) : 0;
+
+    return {
+      id: t.id,
+      name: t.name,
+      location: t.location ?? '',
+      status: 'active',
+      currency: t.currency,
+      revenueToday,
+      revenueThisMonth: revenueThisMonth || revenueToday,
+      expensesToday,
+      subdomain: t.slug,
+      phone: t.phone ?? '',
+      email: t.email ?? '',
+      address: t.location ?? '',
+      settings: { checkInTime: '14:00', checkOutTime: '11:00', currency: t.currency, taxRate: 18, serviceCharge: 5, enableQROrdering: true, enableRoomService: true },
+      staff: mappedStaff,
+      parkingSpots: mappedParking,
+      bookings: mappedBookings,
+      rooms: mappedRooms,
+      menuCategories,
+      orders: mappedOrders,
+      guests: mappedGuests,
+    };
+  });
+}
+
 // ── Component ───────────────────────────────────────────────────────────────
 
 export const HotelAdminDashboard: React.FC = () => {
@@ -252,17 +504,210 @@ export const HotelAdminDashboard: React.FC = () => {
   const [showAddGuest, setShowAddGuest] = useState(false);
   const [showAddHotel, setShowAddHotel] = useState(false);
   const [showAssignSpot, setShowAssignSpot] = useState(false);
+  const [editingRoomPhoto, setEditingRoomPhoto] = useState<Room | null>(null);
+  const [roomPhotoUrl, setRoomPhotoUrl] = useState('');
+  const [roomPhotoSaving, setRoomPhotoSaving] = useState(false);
   const [guestSearch, setGuestSearch] = useState('');
   const [financialPeriod, setFinancialPeriod] = useState<'today' | 'week' | 'month'>('today');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
+  // ── Live data ───────────────────────────────────────────────────────────────
+  // Hotel data comes from the authenticated backend. An account with no
+  // properties must stay empty so users never mistake demo records for data
+  // they can edit or attach rooms to.
+  const [hotels, setHotels] = useState<HotelRecord[]>([]);
+  const [liveData, setLiveData] = useState(false);
+
+  // Add-dialog form state.
+  const [roomForm, setRoomForm] = useState({ number: '', type: 'Standard', price: '', capacity: '', imageUrl: '' });
+  const [guestForm, setGuestForm] = useState({ name: '', phone: '', email: '', idType: 'passport', idNumber: '' });
+  const [hotelForm, setHotelForm] = useState({ name: '', location: '', rooms: '', phone: '', email: '' });
+  const [hotelError, setHotelError] = useState<string | null>(null);
+  const [roomError, setRoomError] = useState<string | null>(null);
+  const [savingHotel, setSavingHotel] = useState(false);
+  const [savingRoom, setSavingRoom] = useState(false);
+
   // ── Derived data ──────────────────────────────────────────────────────────
   const selectedHotel = useMemo(() =>
-    MOCK_HOTELS.find(h => h.id === selectedHotelId),
-    [selectedHotelId]
+    hotels.find(h => h.id === selectedHotelId),
+    [selectedHotelId, hotels]
   );
 
-  const allHotels = MOCK_HOTELS;
+  const allHotels = hotels;
+  const activeHotel: HotelRecord = selectedHotel ?? allHotels[0] ?? {
+    id: '', name: '', location: '', status: 'active', rooms: [], bookings: [],
+    guests: [], staff: [], menuCategories: [], orders: [], parkingSpots: [],
+    revenueToday: 0, revenueThisMonth: 0, expensesToday: 0, currency: 'TZS',
+    subdomain: '', phone: '', email: '', address: '',
+    settings: {
+      checkInTime: '14:00', checkOutTime: '11:00', currency: 'TZS', taxRate: 18,
+      serviceCharge: 5, enableQROrdering: false, enableRoomService: false,
+    },
+  };
+
+  const loadHotels = useCallback(async () => {
+    let tenants: ApiTenant[];
+    try {
+      // An authenticated new user with zero properties must see an empty
+      // onboarding state, not fake hotels that cannot receive real rooms.
+      tenants = await api<ApiTenant[]>('/hotel/properties');
+    } catch {
+      return;
+    }
+
+    setLiveData(true);
+    if (!tenants || tenants.length === 0) {
+      setHotels([]);
+      setSelectedHotelId('all');
+      setActiveTab('hotels');
+      return;
+    }
+
+    try {
+      const [portfolio, rooms, guests, bookings, menuItems, orders, staff] = await Promise.all([
+        api<ApiPortfolioEntry[]>('/hotel/portfolio').catch(() => [] as ApiPortfolioEntry[]),
+        api<ApiRoom[]>('/hotel/rooms?limit=100').catch(() => [] as ApiRoom[]),
+        api<ApiGuest[]>('/hotel/guests?limit=100').catch(() => [] as ApiGuest[]),
+        api<ApiBooking[]>('/hotel/bookings?limit=100').catch(() => [] as ApiBooking[]),
+        api<ApiMenuItem[]>('/hotel/menu-items?limit=100').catch(() => [] as ApiMenuItem[]),
+        api<ApiOrder[]>('/hotel/orders?limit=100').catch(() => [] as ApiOrder[]),
+        api<ApiStaff[]>('/hotel/staff').catch(() => [] as ApiStaff[]),
+      ]);
+
+      const parkingByHotel: Record<string, ApiParkingSpot[]> = {};
+      const financialsByHotel: Record<string, ApiFinancialRecord[]> = {};
+      await Promise.all(tenants.map(async t => {
+        parkingByHotel[t.id] = await api<ApiParkingSpot[]>(`/hotel/parking/${t.id}`).catch(() => [] as ApiParkingSpot[]);
+        financialsByHotel[t.id] = await api<ApiFinancialRecord[]>(`/hotel/financials/${t.id}`).catch(() => [] as ApiFinancialRecord[]);
+      }));
+
+      const built = buildHotelsFromApi(tenants, portfolio, rooms, guests, bookings, menuItems, orders, staff, parkingByHotel, financialsByHotel);
+      if (built.length > 0) {
+        setHotels(built);
+      }
+    } catch {
+      // The properties request succeeded; retain the real shell even if an
+      // optional dashboard aggregate is temporarily unavailable.
+    }
+  }, []);
+
+  useEffect(() => { void loadHotels(); }, [loadHotels]);
+
+  // ── Create handlers (POST → reload) ─────────────────────────────────────────
+  const handleAddRoom = useCallback(async () => {
+    const hotelId = selectedHotel?.id ?? hotels[0]?.id;
+    if (!liveData || !hotelId) {
+      setRoomError('Create a hotel first, then add rooms to that hotel.');
+      setHotelError('Create your hotel first. After it is created, select it and add rooms.');
+      setActiveTab('hotels');
+      setShowAddRoom(false);
+      setShowAddHotel(true);
+      return;
+    }
+    if (!roomForm.number.trim()) {
+      setRoomError('Enter a room number first.');
+      return;
+    }
+    setSavingRoom(true);
+    setRoomError(null);
+    try {
+      await api('/hotel/rooms', {
+        method: 'POST',
+        body: JSON.stringify({
+          roomNumber: roomForm.number,
+          type: roomForm.type,
+          rate: Number(roomForm.price) || 0,
+          capacity: Number(roomForm.capacity) || 2,
+          ...(roomForm.imageUrl.trim() ? { imageUrl: roomForm.imageUrl.trim() } : {}),
+          hotelId,
+        }),
+      });
+      await loadHotels();
+      setRoomForm({ number: '', type: 'Standard', price: '', capacity: '', imageUrl: '' });
+      setShowAddRoom(false);
+    } catch (err) {
+      setRoomError(err instanceof Error && err.message ? err.message : 'Could not add room.');
+    } finally {
+      setSavingRoom(false);
+    }
+  }, [roomForm, selectedHotel, hotels, liveData, loadHotels]);
+
+  const handleSaveRoomPhoto = useCallback(async () => {
+    if (!editingRoomPhoto || !liveData) return;
+    setRoomPhotoSaving(true);
+    try {
+      await api(`/hotel/rooms/${editingRoomPhoto.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ imageUrl: roomPhotoUrl.trim() }),
+      });
+      await loadHotels();
+      setEditingRoomPhoto(null);
+    } finally {
+      setRoomPhotoSaving(false);
+    }
+  }, [editingRoomPhoto, liveData, loadHotels, roomPhotoUrl]);
+
+  const handleAddGuest = useCallback(async () => {
+    const hotelId = selectedHotel?.id ?? hotels[0]?.id;
+    try {
+      await api('/hotel/guests', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: guestForm.name,
+          phone: guestForm.phone,
+          ...(guestForm.email ? { email: guestForm.email } : {}),
+          idType: guestForm.idType,
+          ...(guestForm.idNumber ? { idNumber: guestForm.idNumber } : {}),
+          ...(liveData && hotelId ? { hotelId } : {}),
+        }),
+      });
+      if (liveData) await loadHotels();
+    } catch { /* offline / no backend */ }
+    setGuestForm({ name: '', phone: '', email: '', idType: 'passport', idNumber: '' });
+    setShowAddGuest(false);
+  }, [guestForm, selectedHotel, hotels, liveData, loadHotels]);
+
+  const handleAddHotel = useCallback(async () => {
+    const name = hotelForm.name.trim();
+    if (name.length < 2) { setHotelError('Enter a hotel name first.'); return; }
+    const makeSlug = (suffix = '') => {
+      let slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+      slug = slug.slice(0, 40 - suffix.length).replace(/-+$/, '') + suffix;
+      if (slug.length < 3) slug = `${slug || 'hotel'}-${Math.random().toString(36).slice(2, 6)}`;
+      return slug.slice(0, 40).replace(/-+$/, '');
+    };
+    setHotelError(null);
+    setSavingHotel(true);
+    try {
+      const submit = (slug: string) => api<ApiTenant>('/hotel/properties', {
+        method: 'POST',
+        body: JSON.stringify({ slug, name, location: hotelForm.location.trim(), phone: hotelForm.phone.trim(), email: hotelForm.email.trim() }),
+      });
+      let created: ApiTenant;
+      try { created = await submit(makeSlug()); }
+      catch (err) {
+        if (!/already taken/i.test((err as Error).message)) throw err;
+        created = await submit(makeSlug(`-${Math.random().toString(36).slice(2, 5)}`));
+      }
+      const roomCount = Math.max(0, Math.min(500, Number(hotelForm.rooms) || 0));
+      await Promise.all(Array.from({ length: roomCount }, (_, index) => api('/hotel/rooms', {
+        method: 'POST',
+        body: JSON.stringify({ hotelId: created.id, roomNumber: String(101 + index), type: 'Standard', rate: 0, capacity: 2 }),
+      })));
+      // Website setup is optional. A website failure must never make the
+      // hotel/rooms creation look like it failed or leave the modal stuck.
+      await api(`/module-sites/hotel?hotelId=${encodeURIComponent(created.id)}`).catch(() => undefined);
+      await loadHotels();
+      setSelectedHotelId(created.id);
+    } catch (err) {
+      setHotelError(err instanceof Error && err.message ? err.message : 'Could not create hotel.');
+      return;
+    } finally {
+      setSavingHotel(false);
+    }
+    setHotelForm({ name: '', location: '', rooms: '', phone: '', email: '' });
+    setShowAddHotel(false);
+  }, [hotelForm, loadHotels]);
 
   const aggregatedStats = useMemo(() => {
     const hotels = selectedHotel ? [selectedHotel] : allHotels;
@@ -322,7 +767,7 @@ export const HotelAdminDashboard: React.FC = () => {
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="flex h-screen w-full overflow-hidden" style={{ background: 'var(--os-wallpaper, linear-gradient(135deg, #E8E4F0 0%, #D4CCE8 50%, #EDE8F5 100%))' }}>
+    <div data-surface="light" data-theme="light" className="flex h-full w-full overflow-hidden" style={{ background: 'var(--os-wallpaper, linear-gradient(135deg, #E8E4F0 0%, #D4CCE8 50%, #EDE8F5 100%))' }}>
 
       {/* ── Sidebar ───────────────────────────────────────────────────────── */}
       <aside
@@ -626,13 +1071,23 @@ export const HotelAdminDashboard: React.FC = () => {
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-bold" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Multi-Hotel Management</h2>
                 <button
-                  onClick={() => setShowAddHotel(true)}
+                  onClick={() => { setHotelError(null); setShowAddHotel(true); }}
                   className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-white cursor-pointer transition-all hover:shadow-lg hover:opacity-90"
                   style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}
                 >
                   <Plus size={16} /> Add Hotel
                 </button>
               </div>
+              {allHotels.length === 0 && (
+                <GlassCard className="p-8 text-center">
+                  <Building2 size={36} className="mx-auto mb-3" style={{ color: '#6366F1' }} />
+                  <h3 className="text-base font-bold" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Set up your first hotel</h3>
+                  <p className="mx-auto mt-1 max-w-md text-xs opacity-60">Create the hotel profile first. You can add rooms, guests, bookings, and your public booking website immediately afterward.</p>
+                  <button onClick={() => { setHotelError(null); setShowAddHotel(true); }} className="mt-5 inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold text-white" style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}>
+                    <Plus size={16} /> Create your hotel
+                  </button>
+                </GlassCard>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                 {allHotels.map(h => {
                   const occ = h.rooms.length > 0 ? Math.round((h.rooms.filter(r => r.status === 'occupied').length / h.rooms.length) * 100) : 0;
@@ -672,17 +1127,18 @@ export const HotelAdminDashboard: React.FC = () => {
               {showAddHotel && (
                 <Modal title="Add New Hotel" onClose={() => setShowAddHotel(false)}>
                   <div className="flex flex-col gap-4">
-                    <FormInput label="Hotel Name" placeholder="e.g., Kobe Plaza Hotel" />
-                    <FormInput label="Location" placeholder="e.g., Mwanza, TZ" />
-                    <FormInput label="Number of Rooms" type="number" placeholder="e.g., 20" />
-                    <FormInput label="Phone" placeholder="+255 744 000 000" />
-                    <FormInput label="Email" placeholder="hotel@kobe.co.tz" />
+                    {hotelError && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{hotelError}</div>}
+                    <FormInput label="Hotel Name" placeholder="e.g., Kobe Plaza Hotel" value={hotelForm.name} onChange={v => setHotelForm(f => ({ ...f, name: v }))} />
+                    <FormInput label="Location" placeholder="e.g., Mwanza, TZ" value={hotelForm.location} onChange={v => setHotelForm(f => ({ ...f, location: v }))} />
+                    <FormInput label="Number of Rooms" type="number" placeholder="e.g., 20" value={hotelForm.rooms} onChange={v => setHotelForm(f => ({ ...f, rooms: v }))} />
+                    <FormInput label="Phone" placeholder="+255 744 000 000" value={hotelForm.phone} onChange={v => setHotelForm(f => ({ ...f, phone: v }))} />
+                    <FormInput label="Email" placeholder="hotel@kobe.co.tz" value={hotelForm.email} onChange={v => setHotelForm(f => ({ ...f, email: v }))} />
                     <div className="flex gap-3 mt-2">
                       <button onClick={() => setShowAddHotel(false)} className="flex-1 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer hover:bg-white/50" style={{ border: '1px solid rgba(0,0,0,0.08)', color: 'var(--os-text-primary, #2D2B55)' }}>
                         Cancel
                       </button>
-                      <button onClick={() => setShowAddHotel(false)} className="flex-1 py-2.5 rounded-xl text-sm font-medium text-white transition-all cursor-pointer hover:opacity-90" style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}>
-                        Create Hotel
+                      <button disabled={savingHotel} onClick={() => void handleAddHotel()} className="flex-1 py-2.5 rounded-xl text-sm font-medium text-white transition-all cursor-pointer hover:opacity-90 disabled:opacity-50" style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}>
+                        {savingHotel ? 'Creating…' : 'Create Hotel'}
                       </button>
                     </div>
                   </div>
@@ -701,7 +1157,7 @@ export const HotelAdminDashboard: React.FC = () => {
                   Room Management {selectedHotel && `- ${selectedHotel.name}`}
                 </h2>
                 <button
-                  onClick={() => setShowAddRoom(true)}
+                  onClick={() => { setRoomError(null); setShowAddRoom(true); }}
                   className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-white cursor-pointer transition-all hover:shadow-lg"
                   style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}
                 >
@@ -718,26 +1174,62 @@ export const HotelAdminDashboard: React.FC = () => {
               {/* Room Grid */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {aggregatedStats.allRooms.map(room => (
-                  <RoomCard key={room.id} room={room} currency={selectedHotel?.currency || 'TZS'} />
+                  <RoomCard
+                    key={room.id}
+                    room={room}
+                    currency={selectedHotel?.currency || 'TZS'}
+                    onEditPhoto={liveData ? () => {
+                      setEditingRoomPhoto(room);
+                      setRoomPhotoUrl(room.imageUrl ?? '');
+                    } : undefined}
+                  />
                 ))}
               </div>
               {/* Add Room Modal */}
               {showAddRoom && (
                 <Modal title="Add New Room" onClose={() => setShowAddRoom(false)}>
                   <div className="flex flex-col gap-4">
-                    <FormInput label="Room Number" placeholder="e.g., 101" />
+                    {roomError && <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">{roomError}</div>}
+                    <FormInput label="Room Number" placeholder="e.g., 101" value={roomForm.number} onChange={v => setRoomForm(f => ({ ...f, number: v }))} />
                     <div className="flex flex-col gap-1.5">
                       <label className="text-xs font-medium opacity-60">Room Type</label>
-                      <select className="w-full px-3 py-2.5 rounded-xl text-sm border outline-none focus:ring-2" style={{ background: 'rgba(255,255,255,0.50)', borderColor: 'rgba(0,0,0,0.08)', color: 'var(--os-text-primary, #2D2B55)' }}>
+                      <select value={roomForm.type} onChange={e => setRoomForm(f => ({ ...f, type: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl text-sm border outline-none focus:ring-2" style={{ background: 'rgba(255,255,255,0.50)', borderColor: 'rgba(0,0,0,0.08)', color: 'var(--os-text-primary, #2D2B55)' }}>
                         <option>Standard</option><option>Deluxe</option><option>Suite</option><option>Presidential</option>
                       </select>
                     </div>
                     <FormInput label="Floor" type="number" placeholder="1" />
-                    <FormInput label="Price per Night" type="number" placeholder="85000" />
-                    <FormInput label="Capacity" type="number" placeholder="2" />
+                    <FormInput label="Price per Night" type="number" placeholder="85000" value={roomForm.price} onChange={v => setRoomForm(f => ({ ...f, price: v }))} />
+                    <FormInput label="Capacity" type="number" placeholder="2" value={roomForm.capacity} onChange={v => setRoomForm(f => ({ ...f, capacity: v }))} />
+                    <PhotoUpload
+                      value={roomForm.imageUrl}
+                      onChange={imageUrl => setRoomForm(f => ({ ...f, imageUrl: imageUrl ?? '' }))}
+                      label="Room photo"
+                      aspect="banner"
+                      tone="light"
+                    />
                     <div className="flex gap-3 mt-2">
                       <button onClick={() => setShowAddRoom(false)} className="flex-1 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer hover:bg-white/50" style={{ border: '1px solid rgba(0,0,0,0.08)', color: 'var(--os-text-primary, #2D2B55)' }}>Cancel</button>
-                      <button onClick={() => setShowAddRoom(false)} className="flex-1 py-2.5 rounded-xl text-sm font-medium text-white transition-all cursor-pointer hover:opacity-90" style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}>Add Room</button>
+                      <button disabled={savingRoom} onClick={() => void handleAddRoom()} className="flex-1 py-2.5 rounded-xl text-sm font-medium text-white transition-all cursor-pointer hover:opacity-90 disabled:opacity-50" style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}>{savingRoom ? 'Adding…' : 'Add Room'}</button>
+                    </div>
+                  </div>
+                </Modal>
+              )}
+              {editingRoomPhoto && (
+                <Modal title={`Room ${editingRoomPhoto.number} Photo`} onClose={() => setEditingRoomPhoto(null)}>
+                  <div className="flex flex-col gap-4">
+                    <PhotoUpload
+                      value={roomPhotoUrl}
+                      onChange={imageUrl => setRoomPhotoUrl(imageUrl ?? '')}
+                      label="Upload the real room photo"
+                      aspect="banner"
+                      tone="light"
+                    />
+                    <p className="text-xs opacity-60">This photo appears on the hotel's public booking website.</p>
+                    <div className="flex gap-3">
+                      <button onClick={() => setEditingRoomPhoto(null)} className="flex-1 py-2.5 rounded-xl text-sm font-medium" style={{ border: '1px solid rgba(0,0,0,0.08)' }}>Cancel</button>
+                      <button disabled={roomPhotoSaving} onClick={() => void handleSaveRoomPhoto()} className="flex-1 py-2.5 rounded-xl text-sm font-medium text-white disabled:opacity-50" style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}>
+                        {roomPhotoSaving ? 'Saving…' : 'Save Photo'}
+                      </button>
                     </div>
                   </div>
                 </Modal>
@@ -859,19 +1351,19 @@ export const HotelAdminDashboard: React.FC = () => {
               {showAddGuest && (
                 <Modal title="Add New Guest" onClose={() => setShowAddGuest(false)}>
                   <div className="flex flex-col gap-4">
-                    <FormInput label="Full Name" placeholder="e.g., John Doe" />
-                    <FormInput label="Phone" placeholder="+255 744 000 000" />
-                    <FormInput label="Email" placeholder="guest@email.com" />
+                    <FormInput label="Full Name" placeholder="e.g., John Doe" value={guestForm.name} onChange={v => setGuestForm(f => ({ ...f, name: v }))} />
+                    <FormInput label="Phone" placeholder="+255 744 000 000" value={guestForm.phone} onChange={v => setGuestForm(f => ({ ...f, phone: v }))} />
+                    <FormInput label="Email" placeholder="guest@email.com" value={guestForm.email} onChange={v => setGuestForm(f => ({ ...f, email: v }))} />
                     <div className="flex flex-col gap-1.5">
                       <label className="text-xs font-medium opacity-60">ID Type</label>
-                      <select className="w-full px-3 py-2.5 rounded-xl text-sm border outline-none" style={{ background: 'rgba(255,255,255,0.50)', borderColor: 'rgba(0,0,0,0.08)', color: 'var(--os-text-primary, #2D2B55)' }}>
-                        <option>Passport</option><option>National ID</option><option>Driving License</option>
+                      <select value={guestForm.idType} onChange={e => setGuestForm(f => ({ ...f, idType: e.target.value }))} className="w-full px-3 py-2.5 rounded-xl text-sm border outline-none" style={{ background: 'rgba(255,255,255,0.50)', borderColor: 'rgba(0,0,0,0.08)', color: 'var(--os-text-primary, #2D2B55)' }}>
+                        <option value="passport">Passport</option><option value="national_id">National ID</option><option value="driving_license">Driving License</option>
                       </select>
                     </div>
-                    <FormInput label="ID Number" placeholder="e.g., AB123456" />
+                    <FormInput label="ID Number" placeholder="e.g., AB123456" value={guestForm.idNumber} onChange={v => setGuestForm(f => ({ ...f, idNumber: v }))} />
                     <div className="flex gap-3 mt-2">
                       <button onClick={() => setShowAddGuest(false)} className="flex-1 py-2.5 rounded-xl text-sm font-medium transition-all cursor-pointer hover:bg-white/50" style={{ border: '1px solid rgba(0,0,0,0.08)', color: 'var(--os-text-primary, #2D2B55)' }}>Cancel</button>
-                      <button onClick={() => setShowAddGuest(false)} className="flex-1 py-2.5 rounded-xl text-sm font-medium text-white transition-all cursor-pointer hover:opacity-90" style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}>Add Guest</button>
+                      <button onClick={() => void handleAddGuest()} className="flex-1 py-2.5 rounded-xl text-sm font-medium text-white transition-all cursor-pointer hover:opacity-90" style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}>Add Guest</button>
                     </div>
                   </div>
                 </Modal>
@@ -914,7 +1406,7 @@ export const HotelAdminDashboard: React.FC = () => {
               {/* Menu */}
               <div className="flex flex-col gap-4">
                 <h3 className="font-semibold text-sm" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Menu</h3>
-                {(selectedHotel || allHotels[0]).menuCategories.map(cat => (
+                {activeHotel.menuCategories.map(cat => (
                   <GlassCard key={cat.id} className="p-5">
                     <h4 className="font-semibold text-sm mb-3" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>{cat.name}</h4>
                     <div className="flex flex-col gap-2">
@@ -970,7 +1462,7 @@ export const HotelAdminDashboard: React.FC = () => {
               </div>
               {/* Parking Grid */}
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-                {(selectedHotel || allHotels[0]).parkingSpots.map(spot => (
+                {activeHotel.parkingSpots.map(spot => (
                   <div
                     key={spot.id}
                     className={classNames(
@@ -1008,7 +1500,7 @@ export const HotelAdminDashboard: React.FC = () => {
                     <div className="flex flex-col gap-1.5">
                       <label className="text-xs font-medium opacity-60">Spot</label>
                       <select className="w-full px-3 py-2.5 rounded-xl text-sm border outline-none" style={{ background: 'rgba(255,255,255,0.50)', borderColor: 'rgba(0,0,0,0.08)', color: 'var(--os-text-primary, #2D2B55)' }}>
-                        {(selectedHotel || allHotels[0]).parkingSpots.filter(s => s.status === 'free').map(s => <option key={s.id} value={s.id}>{s.number} - {s.type}</option>)}
+                        {activeHotel.parkingSpots.filter(s => s.status === 'free').map(s => <option key={s.id} value={s.id}>{s.number} - {s.type}</option>)}
                       </select>
                     </div>
                     <FormInput label="Guest Name" placeholder="Guest name" />
@@ -1027,7 +1519,8 @@ export const HotelAdminDashboard: React.FC = () => {
           {/* ═══════════════════════════════════════════════════════════ */}
           {/* FINANCIALS TAB (NEW)                                       */}
           {/* ═══════════════════════════════════════════════════════════ */}
-          {activeTab === 'financials' && (
+          {activeTab === 'financials' && <HotelOperationsBoard darkMode={false} />}
+          {SHOW_LEGACY_FINANCIALS && activeTab === 'financials' && (
             <div className="flex flex-col gap-5">
               <div className="flex items-center justify-between">
                 <h2 className="text-xl font-bold" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Financials</h2>
@@ -1224,33 +1717,33 @@ export const HotelAdminDashboard: React.FC = () => {
                 <div className="flex items-center justify-between mb-6">
                   <div>
                     <h3 className="font-semibold text-base" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Public Website</h3>
-                    <p className="text-xs opacity-50 mt-1">Your hotel website is live at: <span className="font-medium" style={{ color: '#6366F1' }}>https://{(selectedHotel || allHotels[0]).subdomain}.kobe</span></p>
+                    <p className="text-xs opacity-50 mt-1">Your hotel website is live at: <span className="font-medium" style={{ color: '#6366F1' }}>https://{activeHotel.subdomain || 'your-hotel'}.kobeapptz.com/book</span></p>
                   </div>
                   <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-white cursor-pointer transition-all hover:shadow-lg" style={{ background: 'linear-gradient(135deg, #6366F1, #8B5CF6)' }}>
                     <Eye size={16} /> Preview
                   </button>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                  <FormInput label="Hotel Name" defaultValue={(selectedHotel || allHotels[0]).name} />
-                  <FormInput label="Subdomain" defaultValue={(selectedHotel || allHotels[0]).subdomain} />
-                  <FormInput label="Phone" defaultValue={(selectedHotel || allHotels[0]).phone} />
-                  <FormInput label="Email" defaultValue={(selectedHotel || allHotels[0]).email} />
+                  <FormInput label="Hotel Name" defaultValue={activeHotel.name} />
+                  <FormInput label="Subdomain" defaultValue={activeHotel.subdomain} />
+                  <FormInput label="Phone" defaultValue={activeHotel.phone} />
+                  <FormInput label="Email" defaultValue={activeHotel.email} />
                 </div>
                 <div className="mb-4">
                   <label className="text-xs font-medium opacity-60 mb-1.5 block">Address</label>
                   <textarea
-                    defaultValue={(selectedHotel || allHotels[0]).address}
+                    defaultValue={activeHotel.address}
                     className="w-full px-3 py-2.5 rounded-xl text-sm border outline-none focus:ring-2 resize-y min-h-[80px]"
                     style={{ background: 'rgba(255,255,255,0.50)', borderColor: 'rgba(0,0,0,0.08)', color: 'var(--os-text-primary, #2D2B55)' }}
                   />
                 </div>
                 <div className="flex flex-col gap-3 mb-6">
                   <label className="flex items-center gap-2.5 text-xs cursor-pointer" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>
-                    <input type="checkbox" defaultChecked={(selectedHotel || allHotels[0]).settings.enableQROrdering} className="rounded" />
+                    <input type="checkbox" defaultChecked={activeHotel.settings.enableQROrdering} className="rounded" />
                     Enable QR Ordering
                   </label>
                   <label className="flex items-center gap-2.5 text-xs cursor-pointer" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>
-                    <input type="checkbox" defaultChecked={(selectedHotel || allHotels[0]).settings.enableRoomService} className="rounded" />
+                    <input type="checkbox" defaultChecked={activeHotel.settings.enableRoomService} className="rounded" />
                     Enable Room Service
                   </label>
                 </div>
@@ -1326,13 +1819,27 @@ const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
 };
 
 /** Room card with guest info */
-const RoomCard: React.FC<{ room: Room; currency: string }> = ({ room, currency }) => {
+const RoomCard: React.FC<{ room: Room; currency: string; onEditPhoto?: () => void }> = ({ room, currency, onEditPhoto }) => {
   const colors = getStatusColor(room.status);
   return (
     <div
       className="rounded-2xl p-4 flex flex-col gap-3 transition-all hover:shadow-lg border-l-4"
       style={{ background: 'rgba(255,255,255,0.30)', backdropFilter: 'blur(16px)', borderColor: 'rgba(255,255,255,0.40)', borderLeftColor: colors.text }}
     >
+      <div className="relative -mx-4 -mt-4 h-32 overflow-hidden rounded-t-2xl bg-gradient-to-br from-indigo-100 to-violet-100">
+        {room.imageUrl ? (
+          <img src={resolveHotelImage(room.imageUrl)} alt={`${room.type} room ${room.number}`} className="h-full w-full object-cover" />
+        ) : (
+          <div className="h-full w-full grid place-items-center text-indigo-400">
+            <Bed size={34} />
+          </div>
+        )}
+        {onEditPhoto && (
+          <button type="button" onClick={onEditPhoto} className="absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-lg bg-white/90 px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 shadow-sm hover:bg-white">
+            <Edit2 size={12} /> {room.imageUrl ? 'Change photo' : 'Add photo'}
+          </button>
+        )}
+      </div>
       <div className="flex items-center justify-between">
         <div>
           <div className="text-base font-bold" style={{ color: 'var(--os-text-primary, #2D2B55)' }}>Room {room.number}</div>
@@ -1411,13 +1918,16 @@ const Modal: React.FC<{ title: string; children: React.ReactNode; onClose: () =>
 );
 
 /** Form input field */
-const FormInput: React.FC<{ label: string; type?: string; placeholder?: string; defaultValue?: string }> = ({ label, type = 'text', placeholder, defaultValue }) => (
+const FormInput: React.FC<{
+  label: string; type?: string; placeholder?: string; defaultValue?: string;
+  value?: string; onChange?: (v: string) => void;
+}> = ({ label, type = 'text', placeholder, defaultValue, value, onChange }) => (
   <div className="flex flex-col gap-1.5">
     <label className="text-xs font-medium opacity-60">{label}</label>
     <input
       type={type}
       placeholder={placeholder}
-      defaultValue={defaultValue}
+      {...(onChange ? { value: value ?? '', onChange: (e) => onChange(e.target.value) } : { defaultValue })}
       className="w-full px-3 py-2.5 rounded-xl text-sm border outline-none focus:ring-2 transition-all"
       style={{ background: 'rgba(255,255,255,0.50)', borderColor: 'rgba(0,0,0,0.08)', color: 'var(--os-text-primary, #2D2B55)' }}
     />

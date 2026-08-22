@@ -293,7 +293,7 @@ export class PropertyVendor extends OwnedEntity {
   name!: string;
 
   @Column({ default: 'general' })
-  category!: 'plumber' | 'electrician' | 'hvac' | 'handyman' | 'cleaning' | 'landscaping' | 'general';
+  category!: 'plumber' | 'electrician' | 'hvac' | 'handyman' | 'cleaning' | 'landscaping' | 'security' | 'manager' | 'general';
 
   @Column({ default: '' })
   phone!: string;

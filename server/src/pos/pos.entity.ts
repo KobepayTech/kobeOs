@@ -2,6 +2,18 @@ import { Column, Entity, Index } from 'typeorm';
 import { OwnedEntity } from '../common/owned.entity';
 
 /**
+ * How a catalogue product first entered KobeOS.  PO receiving is the only
+ * path that may mark a product as PO; all direct/imported product creation is
+ * classified as a Quick Add source.
+ */
+export type ProductSourceType =
+  | 'PO'
+  | 'QUICK_ADD_PHOTO'
+  | 'QUICK_ADD_SCREENSHOT'
+  | 'QUICK_ADD_MESSAGE'
+  | 'QUICK_ADD_IMPORT';
+
+/**
  * Product variant — a single size/colour/style combo under one parent product.
  * Stored inline on PosProduct as JSON because variants are sparse and there's
  * no foreign-key access pattern (no joins, no per-variant indexes).
@@ -28,6 +40,11 @@ export class PosProduct extends OwnedEntity {
 
   @Column()
   name!: string;
+
+  /** Immutable origin classification used for inventory traceability. */
+  @Index('IDX_pos_products_source_type')
+  @Column({ name: 'source_type', length: 32, default: 'QUICK_ADD_IMPORT' })
+  sourceType!: ProductSourceType;
 
   @Column({ type: 'text', default: '' })
   description!: string;
@@ -105,6 +122,11 @@ export class PosProduct extends OwnedEntity {
 
   @Column({ type: 'jsonb', default: [] })
   tags!: string[];
+
+  // Free-form extra attributes (bulk-import metadata: supplier, cost, sizes,
+  // colours, subcategory, source, etc.). Keeps the core columns lean.
+  @Column({ type: 'jsonb', default: {} })
+  customData!: Record<string, unknown>;
 
   /** Jersey-specific product details — team, type, season, badges, size, kit type, name/number printing */
   @Column({ type: 'jsonb', default: {} })
@@ -191,6 +213,28 @@ export class PosOrder extends OwnedEntity {
 
   @Column({ nullable: true, type: 'varchar' })
   customerPhone?: string | null;
+
+  /** Where this sale originated. Examples: pos, storefront,
+   * instagram-live, tiktok-live, instagram-post. This is independent of the
+   * payment method so a mobile-money payment can still be attributed to an
+   * Instagram Live campaign. */
+  @Index()
+  @Column({ default: 'pos' })
+  salesChannel!: string;
+
+  /** Validated live/post campaign attribution. These are populated by the
+   * server from a reservation token; public checkout callers cannot choose
+   * another seller's session or comment. */
+  @Index()
+  @Column('uuid', { nullable: true })
+  liveSessionId?: string | null;
+
+  @Index()
+  @Column('uuid', { nullable: true })
+  liveCommentId?: string | null;
+
+  @Column({ default: '' })
+  attributionCode!: string;
 
   @Column({ default: false })
   isBnpl!: boolean;

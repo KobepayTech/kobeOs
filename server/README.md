@@ -18,7 +18,7 @@ cp .env.example .env
 npm run start:dev
 ```
 
-The API listens on `http://localhost:3000/api`. With `DB_SYNCHRONIZE=true` (default in dev), schema is auto-created on boot.
+The API listens on `http://localhost:3000/api`. Development uses tracked migrations by default; set `DB_SYNCHRONIZE=true` only for a throwaway local database when you explicitly want entity-driven schema sync.
 
 ## Auth
 
@@ -170,10 +170,10 @@ multipart upload round-trip for `/api/files` and `/api/media`. 11 tests total.
 
 ## Migrations
 
-Schema changes are tracked under `src/migrations`. Dev mode uses
-`DB_SYNCHRONIZE=true` (entity-driven sync) and ignores migrations. Production
-should use `DB_SYNCHRONIZE=false` + `DB_MIGRATIONS_RUN=true` and rely on
-migrations.
+Schema changes are tracked under `src/migrations`. Development and production
+use migrations by default. `DB_SYNCHRONIZE=true` is available only for an
+explicit throwaway development database; production must use
+`DB_SYNCHRONIZE=false` + `DB_MIGRATIONS_RUN=true`.
 
 ```bash
 # Generate a new migration from current entity changes:

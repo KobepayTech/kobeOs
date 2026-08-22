@@ -3,6 +3,8 @@
 interface ImportMetaEnv {
   readonly VITE_API_BASE?: string;
   readonly VITE_API_URL?: string;
+  /** Google Identity Services Web Client ID used by the production web bundle. */
+  readonly VITE_GOOGLE_CLIENT_ID?: string;
   /** HMAC-SHA256 secret for offline license verification. Must match backend LICENSE_HMAC_SECRET. */
   readonly VITE_LICENSE_HMAC_SECRET?: string;
 }

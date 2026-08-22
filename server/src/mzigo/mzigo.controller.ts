@@ -5,8 +5,13 @@ import { MzigoService } from './mzigo.service';
 /** Synthetic ownerId used to attribute manifests submitted via the
  *  public /mzigo page (warehouse clerks don't have JWT logins, by
  *  design). Group all anonymous submissions under one bucket so they
- *  can be filtered later if a back-office wants to claim them. */
-const PUBLIC_OWNER_ID = '00000000-0000-0000-0000-00000000mzg0';
+ *  can be filtered later if a back-office wants to claim them.
+ *
+ *  Must be a syntactically-valid UUID because MzigoTruckManifest
+ *  extends OwnedEntity → Postgres uuid column. Previously used
+ *  '00000000-0000-0000-0000-00000000mzg0' which contains non-hex
+ *  chars and rejected every insert with 'invalid input syntax'. */
+const PUBLIC_OWNER_ID = '00000000-0000-0000-0000-000000ff0000';
 
 /**
  * Mostly-public Kobe Mzigo endpoints. The packager + agent +

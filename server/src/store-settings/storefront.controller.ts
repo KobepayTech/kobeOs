@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { IsArray, IsBoolean, IsNumber, IsObject, IsOptional, IsString } from 'class-validator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Public } from '../common/public.decorator';
@@ -10,43 +11,46 @@ import {
   StoreHomepageSection,
 } from './storefront.entity';
 
+// class-validator decorators are required: the global whitelist:true
+// ValidationPipe strips any undecorated property, which silently broke
+// section/collection create + update.
 class CreateSectionDto {
-  sectionType!: HomepageSectionType;
-  config?: Record<string, unknown>;
+  @IsString() sectionType!: HomepageSectionType;
+  @IsOptional() @IsObject() config?: Record<string, unknown>;
 }
 
 class UpdateSectionDto {
-  sectionType?: HomepageSectionType;
-  visible?: boolean;
-  config?: Record<string, unknown>;
+  @IsOptional() @IsString() sectionType?: HomepageSectionType;
+  @IsOptional() @IsBoolean() visible?: boolean;
+  @IsOptional() @IsObject() config?: Record<string, unknown>;
 }
 
 class ReorderSectionsDto {
-  orderedIds!: string[];
+  @IsArray() @IsString({ each: true }) orderedIds!: string[];
 }
 
 class CreateCollectionDto implements Partial<StoreCollection> {
-  name!: string;
-  slug?: string;
-  description?: string;
-  type?: CollectionType;
-  productIds?: string[];
-  rules?: Record<string, unknown>;
-  visible?: boolean;
-  imageUrl?: string | null;
-  order?: number;
+  @IsString() name!: string;
+  @IsOptional() @IsString() slug?: string;
+  @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsString() type?: CollectionType;
+  @IsOptional() @IsArray() @IsString({ each: true }) productIds?: string[];
+  @IsOptional() @IsObject() rules?: Record<string, unknown>;
+  @IsOptional() @IsBoolean() visible?: boolean;
+  @IsOptional() @IsString() imageUrl?: string | null;
+  @IsOptional() @IsNumber() order?: number;
 }
 
 class UpdateCollectionDto implements Partial<StoreCollection> {
-  name?: string;
-  slug?: string;
-  description?: string;
-  type?: CollectionType;
-  productIds?: string[];
-  rules?: Record<string, unknown>;
-  visible?: boolean;
-  imageUrl?: string | null;
-  order?: number;
+  @IsOptional() @IsString() name?: string;
+  @IsOptional() @IsString() slug?: string;
+  @IsOptional() @IsString() description?: string;
+  @IsOptional() @IsString() type?: CollectionType;
+  @IsOptional() @IsArray() @IsString({ each: true }) productIds?: string[];
+  @IsOptional() @IsObject() rules?: Record<string, unknown>;
+  @IsOptional() @IsBoolean() visible?: boolean;
+  @IsOptional() @IsString() imageUrl?: string | null;
+  @IsOptional() @IsNumber() order?: number;
 }
 
 /**

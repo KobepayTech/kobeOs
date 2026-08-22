@@ -6,6 +6,7 @@ import { Public } from '../common/public.decorator';
 import { StoreSettingsService } from './store-settings.service';
 import { UpsertStoreSettingsDto } from './dto/store-settings.dto';
 import { PublishService } from './publish.service';
+import { StoreSettings } from './store-settings.entity';
 
 const MAX_SLUG_QUERY_LENGTH = 64;
 
@@ -35,17 +36,32 @@ export class StoreSettingsController {
     const slugChanged = saved.domainSlug && saved.domainSlug !== before.domainSlug;
     const needsFirstPublish = saved.domainSlug && !saved.isPublished;
     if (slugChanged || needsFirstPublish) {
-      try {
-        return await this.publishSvc.publish(uid);
-      } catch (err) {
-        // Surface in logs only; the saved settings still come back to the UI.
-        // The editor displays cfStatus + has a manual Publish button for retry.
-        console.warn(
-          `[store-settings] auto-publish skipped for ${saved.domainSlug}: ${(err as Error).message}`,
-        );
-      }
+      // Auto-publish is best-effort and must NEVER make saving the store name
+      // feel slow. In hosted mode it's a fast DB flip; in self-hosted mode it
+      // makes Cloudflare/network calls that can hang for many seconds. Cap the
+      // wait: if publish finishes quickly, return the published settings so the
+      // UI flips to "Published" immediately; otherwise return the saved
+      // settings now and let publish finish in the background (its result
+      // lands on the next GET / manual Publish).
+      const published = await this.raceAutoPublish(uid, saved.domainSlug);
+      if (published) return published;
     }
     return saved;
+  }
+
+  /**
+   * Run auto-publish but never block the save for more than AUTO_PUBLISH_MS.
+   * The publish promise keeps running in the background if it loses the race
+   * (its .catch swallows failures so it can't become an unhandled rejection).
+   */
+  private raceAutoPublish(uid: string, slug: string): Promise<StoreSettings | null> {
+    const AUTO_PUBLISH_MS = 3000;
+    const publishing = this.publishSvc.publish(uid).catch((err) => {
+      console.warn(`[store-settings] auto-publish skipped for ${slug}: ${(err as Error).message}`);
+      return null;
+    });
+    const timeout = new Promise<null>((resolve) => setTimeout(resolve, AUTO_PUBLISH_MS, null));
+    return Promise.race([publishing, timeout]);
   }
 
   /**
@@ -56,6 +72,17 @@ export class StoreSettingsController {
   @Post('publish')
   publish(@CurrentUser('id') uid: string) {
     return this.publishSvc.publish(uid);
+  }
+
+  /**
+   * Onboarding hook — "install → sign in → live". Provisions the shop's
+   * subdomain and (self-hosted) its own tunnel, returning the cloudflared run
+   * token so the desktop app can persist it and start the tunnel automatically.
+   * POST /api/store-settings/provision
+   */
+  @Post('provision')
+  provision(@CurrentUser('id') uid: string) {
+    return this.publishSvc.provisionShop(uid);
   }
 
   /**
@@ -85,12 +112,15 @@ export class StoreSettingsController {
   @Public()
   @Throttle({ 'public-lookup': { limit: 20, ttl: 60_000 } })
   @Get('check-slug')
-  checkSlug(@Query('slug') slug: string) {
+  checkSlug(
+    @Query('slug') slug: string,
+    @Query('ownerId') ownerId?: string,
+  ) {
     const trimmed = (slug ?? '').trim();
     if (trimmed.length > MAX_SLUG_QUERY_LENGTH) {
       throw new BadRequestException(`slug query is too long (max ${MAX_SLUG_QUERY_LENGTH} chars)`);
     }
-    return this.svc.checkSlugAvailability(trimmed);
+    return this.svc.checkSlugAvailability(trimmed, ownerId);
   }
 
   /**
@@ -132,5 +162,18 @@ export class StoreSettingsController {
   @Post('install-cloudflared')
   installCloudflared() {
     return this.publishSvc.installCloudflared();
+  }
+
+  /**
+   * Publish-readiness preflight — a single checklist answering "can this
+   * install put a store live at {slug}.kobeapptz.com?". Lets the Store
+   * Editor show exactly what's missing (deployment mode, Cloudflare
+   * credentials, wildcard bootstrap, cloudflared binary) instead of a
+   * silent failure. Secret-free — presence booleans only.
+   * GET /api/store-settings/publish-readiness
+   */
+  @Get('publish-readiness')
+  publishReadiness() {
+    return this.publishSvc.publishReadiness();
   }
 }

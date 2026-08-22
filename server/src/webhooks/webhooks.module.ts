@@ -2,12 +2,15 @@ import { Module, OnModuleInit } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { WebhookEvent } from './webhook.entity';
+import { HotelBooking, HotelRoom } from '../hotel/hotel.entity';
+import { HotelWalletModule } from '../hotel/hotel-wallet.module';
 import { WebhookController } from './webhook.controller';
 import { WebhookGuard } from './webhook.guard';
 import { WebhookService } from './webhook.service';
+import { PlatformModule } from '../platform/platform.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([WebhookEvent])],
+  imports: [TypeOrmModule.forFeature([WebhookEvent, HotelBooking, HotelRoom]), HotelWalletModule, PlatformModule],
   controllers: [WebhookController],
   providers: [WebhookGuard, WebhookService],
   exports: [WebhookService],
@@ -36,6 +39,26 @@ export class WebhooksModule implements OnModuleInit {
       if (svc) this.webhookService.setLicenseService(svc);
     } catch {
       // LicenseModule not loaded — skip
+    }
+
+    try {
+      const { MobileSubscriptionService } = await import(
+        '../mobile-subscription/mobile-subscription.service'
+      );
+      const svc = this.moduleRef.get(MobileSubscriptionService, { strict: false });
+      if (svc) this.webhookService.setMobileSubscriptionService(svc);
+    } catch {
+      // MobileSubscriptionModule not loaded — skip
+    }
+
+    try {
+      const { AppMarketplaceService } = await import(
+        '../app-marketplace/app-marketplace.service'
+      );
+      const svc = this.moduleRef.get(AppMarketplaceService, { strict: false });
+      if (svc) this.webhookService.setAppMarketplaceService(svc);
+    } catch {
+      // AppMarketplaceModule not loaded — skip
     }
   }
 }

@@ -5,21 +5,50 @@ import type { LucideIcon } from 'lucide-react';
 import { useOSStore } from './store';
 import { StartMenu } from './StartMenu';
 import { useAutoUpdater } from '@/hooks/useAutoUpdater';
+import { useBackendHealth, type BackendStatus } from '@/hooks/useBackendHealth';
+
+// Presentation for each backend connection state — dot colour, label, and the
+// one-line explanation shown in the tray popover.
+const CONN_META: Record<BackendStatus, { dot: string; label: string; detail: string }> = {
+  connecting: {
+    dot: '#f59e0b',
+    label: 'Connecting…',
+    detail: 'Reaching the KobeOS platform and database.',
+  },
+  online: {
+    dot: '#10b981',
+    label: 'Connected to KobeOS',
+    detail: 'Platform and database are online. Your data is syncing in real time.',
+  },
+  degraded: {
+    dot: '#f59e0b',
+    label: 'Database unavailable',
+    detail: 'The server is reachable but the database is down. Some data may not load.',
+  },
+  offline: {
+    dot: '#ef4444',
+    label: 'Offline',
+    detail: 'Cannot reach KobeOS. Working offline — changes sync when the connection is back.',
+  },
+};
 
 export function Taskbar() {
   const {
     windows,
     settings,
+    installedAppIds,
     getApp,
     focusWindow,
     launchApp,
   } = useOSStore();
   const unreadCount = useOSStore((s) => s.unreadCount);
   const { state: updaterState, download, install } = useAutoUpdater();
+  const backend = useBackendHealth();
 
   const [startOpen, setStartOpen] = useState(false);
   const [calendarOpen, setCalendarOpen] = useState(false);
   const [volumeOpen, setVolumeOpen] = useState(false);
+  const [connOpen, setConnOpen] = useState(false);
   const [time, setTime] = useState(new Date());
   const [updateDismissed, setUpdateDismissed] = useState(false);
 
@@ -85,9 +114,13 @@ export function Taskbar() {
         {/* Divider */}
         <div className="w-px h-6 mx-1" style={{ background: 'rgba(45,43,85,0.12)' }} />
 
-        {/* Pinned + Open Windows */}
-        <div className="flex items-center gap-0.5 overflow-hidden">
-          {settings.pinnedApps.map((appId) => {
+        {/* Pinned + Open Windows — grows to fill the bar, scrolls horizontally
+            when there are more tabs than fit (dynamic width) instead of clipping. */}
+        <div
+          className="flex items-center gap-0.5 flex-1 min-w-0 overflow-x-auto overflow-y-hidden"
+          style={{ scrollbarWidth: 'thin' }}
+        >
+          {settings.pinnedApps.filter((appId) => installedAppIds.includes(appId)).map((appId) => {
             const app = getApp(appId);
             if (!app) return null;
             const Icon = (icons[app.icon as keyof typeof icons] as LucideIcon | undefined) ?? icons.Circle;
@@ -193,13 +226,75 @@ export function Taskbar() {
             </AnimatePresence>
           </div>
 
-          <button
-            className="w-9 h-9 flex items-center justify-center rounded-full transition-colors"
-            onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(123,140,222,0.12)')}
-            onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
-          >
-            <icons.Wifi className="w-4 h-4" style={{ color: 'var(--os-text-primary)' }} />
-          </button>
+          <div className="relative">
+            <button
+              className="w-9 h-9 flex items-center justify-center rounded-full transition-colors relative"
+              title={CONN_META[backend.status].label}
+              onClick={() => {
+                setConnOpen((c) => !c);
+                setVolumeOpen(false);
+                setCalendarOpen(false);
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = 'rgba(123,140,222,0.12)')}
+              onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
+            >
+              <icons.Wifi className="w-4 h-4" style={{ color: 'var(--os-text-primary)' }} />
+              <span
+                className="absolute bottom-1 right-1 w-2 h-2 rounded-full border border-white/70"
+                style={{
+                  background: CONN_META[backend.status].dot,
+                  boxShadow: `0 0 6px ${CONN_META[backend.status].dot}`,
+                }}
+              />
+            </button>
+            <AnimatePresence>
+              {connOpen && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 10 }}
+                  className="absolute p-4 rounded-2xl shadow-2xl"
+                  style={{
+                    bottom: 56,
+                    right: 0,
+                    width: 244,
+                    background: 'rgba(255,255,255,0.40)',
+                    backdropFilter: 'blur(24px)',
+                    WebkitBackdropFilter: 'blur(24px)',
+                    border: '1px solid rgba(255,255,255,0.50)',
+                    boxShadow: '0 25px 80px rgba(123,140,222,0.20)',
+                  }}
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <span
+                      className="w-2.5 h-2.5 rounded-full"
+                      style={{ background: CONN_META[backend.status].dot, boxShadow: `0 0 8px ${CONN_META[backend.status].dot}` }}
+                    />
+                    <span className="text-sm font-semibold" style={{ color: 'var(--os-text-primary)' }}>
+                      {CONN_META[backend.status].label}
+                    </span>
+                  </div>
+                  <p className="text-xs leading-snug" style={{ color: 'var(--os-text-secondary)' }}>
+                    {CONN_META[backend.status].detail}
+                  </p>
+                  <div className="mt-3 pt-2 flex items-center justify-between text-[11px]" style={{ borderTop: '1px solid rgba(45,43,85,0.10)' }}>
+                    <span style={{ color: 'var(--os-text-muted)' }}>Database</span>
+                    <span className="font-medium" style={{ color: backend.dbConnected ? 'var(--os-success)' : 'var(--os-text-muted)' }}>
+                      {backend.dbConnected ? 'Connected' : '—'}
+                    </span>
+                  </div>
+                  {backend.lastChecked > 0 && (
+                    <div className="mt-1 flex items-center justify-between text-[11px]">
+                      <span style={{ color: 'var(--os-text-muted)' }}>Last checked</span>
+                      <span style={{ color: 'var(--os-text-secondary)' }}>
+                        {new Date(backend.lastChecked).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}
+                      </span>
+                    </div>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
 
           <div className="relative">
             <button

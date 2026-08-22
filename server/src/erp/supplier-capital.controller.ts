@@ -7,6 +7,7 @@ import {
   AttachReceiptToSupplierDto,
   CreateKobePayLinkDto,
   CreatePurchaseOrderDto,
+  ReceivePurchaseOrderDto,
   CreateSupplierDto,
   KobePaySupplierReceiptWebhookDto,
   MarkReceiptDto,
@@ -57,6 +58,16 @@ export class SupplierCapitalController {
   @Post('purchase-orders')
   createPurchaseOrder(@CurrentUser('id') uid: string, @Body() dto: CreatePurchaseOrderDto) {
     return this.svc.createPurchaseOrder(uid, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('purchase-orders/:id/receive')
+  receivePurchaseOrder(
+    @CurrentUser('id') uid: string,
+    @Param('id') id: string,
+    @Body() dto: ReceivePurchaseOrderDto,
+  ) {
+    return this.svc.receivePurchaseOrder(uid, id, dto);
   }
 
   @UseGuards(JwtAuthGuard)

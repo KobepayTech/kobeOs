@@ -13,8 +13,13 @@ live-build/
 electron/server-bundle/
 electron/.staging/
 build/vcredist/vc_redist.x64.exe
+build/postgres/
 build/cloudflared/
+.runtime-update/
+build/ollama/*
+!build/ollama/.gitkeep
 tmp-screenshots/
+logs/
 
 # Secrets — keep .env.example tracked, never commit real env files.
 .env

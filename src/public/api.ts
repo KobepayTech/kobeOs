@@ -3,9 +3,20 @@
  * that the guest QR pages talk to. Mirrors the base-URL resolution in
  * src/lib/api.ts so the same .env settings drive both.
  */
+// Same-origin '/api' in production so public apps served at {slug}.kobeapptz.com
+// call their own backend through the same tunnel (no cross-origin CORS).
 const PUBLIC_API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined) ??
-  (import.meta.env.DEV ? 'http://localhost:3000/api' : 'https://api.kobeapptz.com/api');
+  (import.meta.env.DEV ? 'http://localhost:3000/api' : '/api');
+
+export function publicApiBase(): string { return PUBLIC_API_BASE; }
+
+/** Resolve uploaded `/api/media/...` paths against the configured API host. */
+export function publicAssetUrl(value?: string | null): string {
+  if (!value) return '';
+  if (/^https?:\/\//i.test(value) || value.startsWith('data:') || value.startsWith('blob:')) return value;
+  return `${PUBLIC_API_BASE}${value.startsWith('/api') ? value.slice(4) : value}`;
+}
 
 /**
  * If the OS is reached at `serenahotel.kobeapptz.com`, the first label is the
@@ -17,7 +28,9 @@ const RESERVED_SUBDOMAINS = new Set([
   'www', 'api', 'app', 'admin', 'desktop', 'staff', 'kobeos', 'docs', 'help', 'status',
   // Public app subdomains — see APP_SUBDOMAINS below. Listed here too
   // so the tenant detector doesn't treat them as a customer slug.
-  'tuma', 'mzigo', 'me', 'track', 'posys', 'cargo',
+  'tuma', 'mzigo', 'me', 'track', 'posys', 'cargo', 'cargotz',
+  // Property module subdomains (#9).
+  'property', 'estate', 'pay', 'contract', 'jumla', 'lala',
 ]);
 
 /**
@@ -34,6 +47,14 @@ export const APP_SUBDOMAINS = {
   track:  'track',    // Public cargo tracking
   posys:  'posys',    // POSys property + hotel ops (bilingual)
   cargo:  'mzigo',    // Friendly alias → Mzigo
+  cargotz: 'cargotz', // Cargo TZ — domestic ground transport, standalone
+  // Property module (#9) — reachable from anywhere via subdomain.
+  property: 'property', // Property management app (standalone)
+  estate:  'estate',   // Tenant portal (token-gated)
+  pay:     'pay',      // Bank/agent rent-collection panel
+  contract: 'contract', // Lawyer contract portal
+  jumla: 'jumla',       // Live commerce discovery network
+  lala: 'lala',         // Live hotel discovery and rewards
 } as const;
 
 export type PublicAppId = (typeof APP_SUBDOMAINS)[keyof typeof APP_SUBDOMAINS];
@@ -89,6 +110,9 @@ export interface PublicTenant {
   brandColor?: string | null;
   logoUrl?: string | null;
   currency: string;
+  location?: string;
+  phone?: string;
+  email?: string;
 }
 
 export interface PublicMenuItem {
@@ -99,6 +123,7 @@ export interface PublicMenuItem {
   currency: string;
   available: boolean;
   station: 'kitchen' | 'bar' | 'other';
+  imageUrl?: string | null;
 }
 
 export interface PublicOrderItem {
@@ -112,7 +137,9 @@ export interface PublicOrderItem {
 export interface PublicOrder {
   id: string;
   roomNumber: string;
-  locationType: 'room' | 'table';
+  locationType: 'room' | 'table' | 'pickup' | 'delivery';
+  guestName?: string | null;
+  guestPhone?: string | null;
   items: PublicOrderItem[];
   total: number | string;
   currency: string;

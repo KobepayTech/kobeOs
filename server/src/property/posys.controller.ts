@@ -1,8 +1,10 @@
 import {
   Body, Controller, Delete, Get, Param, Post, Query, UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
+import { Public } from '../common/public.decorator';
 import { PosysService } from './posys.service';
 
 @UseGuards(JwtAuthGuard)
@@ -59,6 +61,23 @@ export class PosysController {
     return this.svc.listTokens(uid);
   }
 
+  // ── Rent dashboard (#2) ────────────────────────────────────────
+  @Get('rent-dashboard')
+  rentDashboard(@CurrentUser('id') uid: string) {
+    return this.svc.rentDashboard(uid);
+  }
+
+  @Get('pending-tenants')
+  pendingTenants(@CurrentUser('id') uid: string) {
+    return this.svc.pendingTenants(uid);
+  }
+
+  // Market-rent manifest (#7) — platform-wide aggregate + owner comparison.
+  @Get('market-rents')
+  marketRents(@CurrentUser('id') uid: string) {
+    return this.svc.marketRents(uid);
+  }
+
   @Delete('tokens/:id')
   cancelToken(@CurrentUser('id') uid: string, @Param('id') id: string) {
     return this.svc.cancelToken(uid, id);
@@ -66,24 +85,39 @@ export class PosysController {
 }
 
 /**
- * Token lookup + redeem live on a separate, optionally-authed
- * controller so an agent terminal can verify a token without holding
- * the landlord's session.
+ * Public token lookup and tenant/lawyer portals. Cash redemption is handled
+ * by PropertyCollectionPortalController, which requires an authenticated
+ * collection-partner session before it can change token state.
+ *
+ * `lookup` intentionally does NOT mutate — expiry sweeps happen in
+ * `listTokens` and are also checked at `redeem` time. That keeps
+ * GET idempotent so prefetchers, link-preview crawlers, or generic
+ * at-least-once retry middleware can't flip a token to EXPIRED before
+ * the cashier's real scan reads it.
  */
+@Public()
 @Controller('property/tokens')
 export class PosysTokensController {
   constructor(private readonly svc: PosysService) {}
 
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   @Get(':code')
   lookup(@Param('code') code: string) {
-    return this.svc.lookupToken(code.trim().toUpperCase());
+    return this.svc.lookupTokenForAgent(code.trim().toUpperCase());
   }
 
-  @Post(':code/redeem')
-  redeem(
-    @Param('code') code: string,
-    @Body() dto: { amountReceived: number; agentId?: string },
-  ) {
-    return this.svc.redeemToken(code.trim().toUpperCase(), dto);
+  // Public tenant portal (#11): rent status + landlord contacts/services.
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Get(':code/portal')
+  portal(@Param('code') code: string) {
+    return this.svc.portalByToken(code.trim().toUpperCase());
   }
+
+  // Lawyer contract-drafting data (#8): tenant + unit + property + terms.
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  @Get(':code/contract')
+  contract(@Param('code') code: string) {
+    return this.svc.contractByToken(code.trim().toUpperCase());
+  }
+
 }

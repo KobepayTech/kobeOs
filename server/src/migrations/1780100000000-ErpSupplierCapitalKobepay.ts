@@ -91,6 +91,23 @@ export class ErpSupplierCapitalKobepay1780100000000 implements MigrationInterfac
       "description" text NOT NULL DEFAULT ''
     )`);
 
+    // Reconcile pre-existing tables from ErpModule (1778900001003), which
+    // created erp_suppliers / erp_purchase_orders with an OLDER schema
+    // (supplier/total vs supplierId/totalCny). The CREATE TABLE IF NOT EXISTS
+    // statements above are no-ops when the tables already exist, so add the
+    // newer columns explicitly (nullable, so it works on tables with rows)
+    // before the indexes below reference them.
+    await q.query(`ALTER TABLE "erp_suppliers" ADD COLUMN IF NOT EXISTS "currency" varchar NOT NULL DEFAULT 'CNY'`);
+    await q.query(`ALTER TABLE "erp_suppliers" ADD COLUMN IF NOT EXISTS "cnyAccount" varchar NOT NULL DEFAULT ''`);
+    await q.query(`ALTER TABLE "erp_suppliers" ADD COLUMN IF NOT EXISTS "contactPerson" varchar NOT NULL DEFAULT ''`);
+    await q.query(`ALTER TABLE "erp_suppliers" ADD COLUMN IF NOT EXISTS "notes" text NOT NULL DEFAULT ''`);
+    await q.query(`ALTER TABLE "erp_purchase_orders" ADD COLUMN IF NOT EXISTS "supplierId" uuid`);
+    await q.query(`ALTER TABLE "erp_purchase_orders" ADD COLUMN IF NOT EXISTS "totalCny" decimal(18,4) NOT NULL DEFAULT 0`);
+    await q.query(`ALTER TABLE "erp_purchase_orders" ADD COLUMN IF NOT EXISTS "paidCny" decimal(18,4) NOT NULL DEFAULT 0`);
+    await q.query(`ALTER TABLE "erp_purchase_orders" ADD COLUMN IF NOT EXISTS "remainingCny" decimal(18,4) NOT NULL DEFAULT 0`);
+    await q.query(`ALTER TABLE "erp_purchase_orders" ADD COLUMN IF NOT EXISTS "expectedDate" date`);
+    await q.query(`ALTER TABLE "erp_purchase_orders" ADD COLUMN IF NOT EXISTS "notes" text NOT NULL DEFAULT ''`);
+
     await q.query(`CREATE INDEX IF NOT EXISTS "IDX_erp_kobepay_links_owner" ON "erp_kobepay_links" ("ownerId")`);
     await q.query(`CREATE INDEX IF NOT EXISTS "IDX_erp_kobepay_links_business_phone" ON "erp_kobepay_links" ("kobepayBusinessId", "customerPhone")`);
     await q.query(`CREATE INDEX IF NOT EXISTS "IDX_erp_suppliers_owner_phone" ON "erp_suppliers" ("ownerId", "phone")`);

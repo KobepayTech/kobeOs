@@ -1,18 +1,10 @@
-import { getToken } from '@/lib/api';
-
-const BASE = '/api';
+import { api } from '@/lib/api';
 
 async function req<T>(path: string, options?: RequestInit): Promise<T> {
-  const token = getToken();
-  const res = await fetch(`${BASE}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+  return api<T>(path, {
     ...options,
+    offlineFallback: false,
   });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-  return res.json();
 }
 
 export type ModelCategory = 'chat' | 'coding' | 'vision' | 'speech' | 'video' | 'image' | 'sports' | 'embedding' | 'translation';

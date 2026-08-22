@@ -28,7 +28,7 @@ function createSplashWindow() {
     resizable: false,
     webPreferences: {
       nodeIntegration: false,
-      contextIsolation: false,
+      contextIsolation: true,
       preload: path.join(__dirname, 'splash-preload.cjs'),
     },
   });
@@ -72,10 +72,7 @@ const SERVER_BUNDLE = IS_PACKAGED
 // 'desktop'  = embedded postgres on persistent userData directory
 // 'installed' = legacy: system postgres (Linux kiosk installs only)
 
-function getSystemMode() {
-  // Packaged desktop app always uses embedded postgres
-  if (IS_PACKAGED) return 'desktop';
-  // Dev mode: use embedded postgres too (no system postgres required)
+function isLiveUsb() {
   try {
     const mounts = fs.readFileSync('/proc/mounts', 'utf8');
     if (
@@ -84,9 +81,21 @@ function getSystemMode() {
       mounts.includes('squashfs') ||
       mounts.includes('overlay') ||
       mounts.includes('aufs')
-    ) return 'live-usb';
+    ) return true;
   } catch { /* not Linux */ }
-  return 'desktop';
+  return false;
+}
+
+function getSystemMode() {
+  // The runtime uses this internal value to choose embedded vs system
+  // PostgreSQL. Packaged KobeOS uses embedded PostgreSQL even when installed.
+  return isLiveUsb() ? 'live-usb' : 'desktop';
+}
+
+function getUiSystemMode() {
+  // Keep the renderer contract limited to the modes it can display. The
+  // internal "desktop" mode is equivalent to an installed system in the UI.
+  return isLiveUsb() ? 'live-usb' : 'installed';
 }
 
 // ── Embedded PostgreSQL (live-usb mode) ───────────────────────────────────────
@@ -173,10 +182,21 @@ function startBackend(dbConfig) {
     // sees both NODE_ENV=production and DB_SYNCHRONIZE=true. Schema is
     // applied via migrations on boot (migrationsRun=true when !isDev).
     KOBEOS_DESKTOP: 'true',   // signals embedded desktop mode to bypass prod guards
+    // Per-shop model: each PC runs its OWN local DB + serves its OWN PWA over
+    // its OWN Cloudflare Tunnel on {slug}.kobeapptz.com. self-hosted publishing
+    // creates a dedicated tunnel per shop (vs the shared wildcard tunnel), so
+    // shops are isolated from each other. Override with KOBEOS_DEPLOYMENT.
+    KOBEOS_DEPLOYMENT: process.env.KOBEOS_DEPLOYMENT || 'self-hosted',
     // Path to the bundled resources directory so PublishService can resolve
     // the cloudflared binary that's shipped alongside the installer rather
     // than depending on the user having it on PATH.
     KOBEOS_RESOURCES_PATH: IS_PACKAGED ? process.resourcesPath : path.join(__dirname, '..'),
+    // Where the backend (plain Node, not asar-aware) can read the built SPA to
+    // serve public storefronts (slug.kobeapptz.com). dist is asarUnpack'd, so
+    // it lives under app.asar.unpacked/dist when packaged.
+    KOBEOS_SPA_PATH: IS_PACKAGED
+      ? path.join(process.resourcesPath, 'app.asar.unpacked', 'dist')
+      : path.join(__dirname, '..', 'dist'),
     JWT_SECRET: getOrCreateJwtSecret(),
     CORS_ORIGIN: 'file://',
     // Cloudflare Tunnel credentials for store publishing.
@@ -187,6 +207,15 @@ function startBackend(dbConfig) {
     CF_ACCOUNT_ID:  process.env.CF_ACCOUNT_ID  || 'd379a7d03f3714377f11cc7e22c96b5d',
     CF_ZONE_ID:     process.env.CF_ZONE_ID     || 'c5f9da50402b712eaa6dd0c83751198b',
     CF_DOMAIN:      process.env.CF_DOMAIN      || 'kobeapptz.com',
+    // CORS: allow this shop's own storefront subdomains (*.kobeapptz.com) to
+    // call the backend through the tunnel, or every browser fetch from the
+    // published store fails preflight ("failed to fetch").
+    TENANT_BASE_DOMAIN: process.env.TENANT_BASE_DOMAIN || process.env.CF_DOMAIN || 'kobeapptz.com',
+    // Local AI: point the backend at the bundled Ollama and make the bundled
+    // gguf model the default the "Ask Kobe" assistant talks to (falls back to
+    // the AiService default if no model is bundled).
+    OLLAMA_URL:    process.env.OLLAMA_URL    || 'http://127.0.0.1:11434',
+    OLLAMA_MODEL:  process.env.OLLAMA_MODEL  || defaultBundledModel() || 'deepseek-r1:8b',
   };
   // Kill any stale process on port 3000 before starting
   try {
@@ -258,7 +287,12 @@ function startCloudflared() {
     return;
   }
   const bin = resolveCloudflaredBinary();
-  cloudflaredProcess = spawn(bin, ['tunnel', '--no-autoupdate', 'run', '--token', token], {
+  // `--protocol http2` forces the tunnel over TCP/443 instead of the default
+  // QUIC (UDP 7844), which home/office firewalls routinely block — the usual
+  // cause of a tunnel that starts but shows "0 active connections". Overridable
+  // via CLOUDFLARED_PROTOCOL (auto | quic | http2) for networks where QUIC works.
+  const protocol = process.env.CLOUDFLARED_PROTOCOL || 'http2';
+  cloudflaredProcess = spawn(bin, ['tunnel', '--no-autoupdate', '--protocol', protocol, 'run', '--token', token], {
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: false,
   });
@@ -285,6 +319,232 @@ function persistCloudflaredToken(token) {
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e.message };
+  }
+}
+
+/**
+ * Auto-start the tunnel on boot with ZERO manual steps.
+ *
+ *  1. If a run token is already persisted (or in CLOUDFLARED_TOKEN) → just
+ *     start cloudflared (existing behaviour).
+ *  2. Otherwise, if CF_API_TOKEN + CF_ACCOUNT_ID are configured, fetch the
+ *     shared `kobeos-storefronts` tunnel's run token straight from the
+ *     Cloudflare API, persist it, and start cloudflared. The shop owner never
+ *     runs `cloudflared` by hand.
+ *
+ * Fails soft: any problem just logs and leaves the tunnel down (the app + local
+ * data still work; publishing can be retried from System Settings).
+ */
+async function autoBootstrapTunnel() {
+  if (readPersistedToken() || process.env.CLOUDFLARED_TOKEN) {
+    startCloudflared();
+    return;
+  }
+  const apiToken = process.env.CF_API_TOKEN;
+  const acct = process.env.CF_ACCOUNT_ID;
+  if (!apiToken || !acct) {
+    console.log('[KobeOS] tunnel auto-start skipped — no CF_API_TOKEN/ACCOUNT set. Publish once from the Store Editor to set it up.');
+    return;
+  }
+  const API = 'https://api.cloudflare.com/client/v4';
+  const headers = { Authorization: `Bearer ${apiToken}`, 'content-type': 'application/json' };
+  try {
+    if (typeof fetch !== 'function') {
+      console.log('[KobeOS] global fetch unavailable — skipping tunnel auto-start.');
+      return;
+    }
+    const list = await fetch(`${API}/accounts/${acct}/cfd_tunnel?name=kobeos-storefronts&is_deleted=false`, { headers }).then((r) => r.json());
+    const tunnel = list?.result?.[0];
+    if (!tunnel?.id) {
+      console.log('[KobeOS] shared tunnel "kobeos-storefronts" not found — run deploy/cf-setup.sh --apply once, then relaunch.');
+      return;
+    }
+    const tokResp = await fetch(`${API}/accounts/${acct}/cfd_tunnel/${tunnel.id}/token`, { headers }).then((r) => r.json());
+    const runToken = tokResp?.result;
+    if (typeof runToken === 'string' && runToken.length > 20) {
+      persistCloudflaredToken(runToken); // persists + starts cloudflared (http2)
+      console.log(`[KobeOS] tunnel auto-started (${tunnel.id})`);
+    } else {
+      console.log('[KobeOS] could not fetch tunnel run token (token needs Account → Cloudflare Tunnel → Edit).');
+    }
+  } catch (e) {
+    console.error('[KobeOS] tunnel auto-start failed:', e.message);
+  }
+}
+
+// ── Ollama (local AI runtime for the "Ask Kobe" assistant) ─────────────────────
+// KobeOS bundles the Ollama runtime (scripts/download-ollama.cjs → extraResources)
+// and starts `ollama serve` on boot so the AI assistant works with zero manual
+// install. Models live under userData so they survive app updates. Everything is
+// fail-soft: no bundled binary + no system Ollama → the assistant just reports
+// the model is offline, the rest of the OS is unaffected.
+
+let ollamaProcess = null;
+
+function ollamaModelsDir() {
+  return path.join(USER_DATA, 'ollama-models');
+}
+
+function resolveOllamaBinary() {
+  if (process.env.OLLAMA_BIN && fs.existsSync(process.env.OLLAMA_BIN)) return process.env.OLLAMA_BIN;
+  const resourcesRoot = IS_PACKAGED ? process.resourcesPath : path.join(__dirname, '..', 'build');
+  const rel =
+    process.platform === 'win32' ? path.join('ollama', 'win-x64', 'ollama.exe')
+    : process.platform === 'darwin' ? path.join('ollama', process.arch === 'arm64' ? 'mac-arm64' : 'mac-x64', 'ollama')
+    : path.join('ollama', 'linux-x64', 'bin', 'ollama');
+  const candidate = path.join(resourcesRoot, rel);
+  if (fs.existsSync(candidate)) return candidate;
+  return 'ollama'; // PATH fallback (user already has Ollama installed)
+}
+
+function startOllama() {
+  if (ollamaProcess) return;
+  const bin = resolveOllamaBinary();
+  try { fs.mkdirSync(ollamaModelsDir(), { recursive: true }); } catch { /* ignore */ }
+  const host = process.env.OLLAMA_HOST || '127.0.0.1:11434';
+  const env = { ...process.env, OLLAMA_HOST: host, OLLAMA_MODELS: process.env.OLLAMA_MODELS || ollamaModelsDir() };
+  try {
+    ollamaProcess = spawn(bin, ['serve'], { stdio: ['ignore', 'pipe', 'pipe'], detached: false, env });
+  } catch (e) {
+    console.log(`[KobeOS] ollama not started (${e.message}). AI assistant will be offline until Ollama is available.`);
+    ollamaProcess = null;
+    return;
+  }
+  ollamaProcess.stdout.on('data', (d) => console.log('[ollama]', d.toString().trim()));
+  ollamaProcess.stderr.on('data', (d) => console.log('[ollama]', d.toString().trim()));
+  ollamaProcess.on('error', (e) => { console.log('[KobeOS] ollama error:', e.message); ollamaProcess = null; });
+  ollamaProcess.on('exit', (code, signal) => {
+    console.log(`[KobeOS] ollama exited code=${code} signal=${signal}`);
+    ollamaProcess = null;
+  });
+  console.log(`[KobeOS] ollama started pid=${ollamaProcess.pid} bin=${bin} host=${host}`);
+}
+
+function stopOllama() {
+  if (ollamaProcess) { ollamaProcess.kill('SIGTERM'); ollamaProcess = null; }
+}
+
+// ── Bundled gguf models → import into Ollama on first boot ─────────────────────
+// The installer bakes the shop's .gguf files into resources/models (see
+// models/bundled + extraResources). On first boot we register each one as a
+// named Ollama model via `ollama create` so the AI assistant works fully
+// offline. Import is one-time (Ollama stores the weights under userData) and
+// fail-soft.
+
+function resolveBundledModelsDir() {
+  return IS_PACKAGED
+    ? path.join(process.resourcesPath, 'models')
+    : path.join(__dirname, '..', 'models', 'bundled');
+}
+
+/** Read the optional models.json and merge with auto-discovered *.gguf files. */
+function readBundledModels() {
+  const dir = resolveBundledModelsDir();
+  if (!fs.existsSync(dir)) return { dir, default: '', models: [] };
+
+  let manifest = { default: '', models: [] };
+  const manifestPath = path.join(dir, 'models.json');
+  if (fs.existsSync(manifestPath)) {
+    try { manifest = { default: '', models: [], ...JSON.parse(fs.readFileSync(manifestPath, 'utf8')) }; }
+    catch (e) { console.log('[KobeOS] models.json unreadable:', e.message); }
+  }
+
+  const byFile = new Map((manifest.models || []).filter((m) => m && m.file).map((m) => [m.file, m]));
+  const ggufs = fs.readdirSync(dir).filter((f) => f.toLowerCase().endsWith('.gguf'));
+  const models = [];
+  for (const file of ggufs) {
+    const m = byFile.get(file);
+    const slug = file.replace(/\.gguf$/i, '').replace(/[^a-z0-9_-]+/gi, '-').toLowerCase();
+    models.push({
+      name: (m && m.name) || `kobe-${slug}`,
+      file,
+      system: (m && m.system) || '',
+      parameters: (m && m.parameters) || {},
+    });
+  }
+  // Manifest-listed models whose gguf isn't present are skipped (with a note).
+  for (const m of manifest.models || []) {
+    if (m && m.file && !ggufs.includes(m.file)) console.log(`[KobeOS] models.json references missing gguf "${m.file}" — skipped.`);
+  }
+
+  const def = manifest.default || (models[0] && models[0].name) || '';
+  return { dir, default: def, models };
+}
+
+/** Name of the default bundled model (for OLLAMA_MODEL), or '' if none/unreadable. */
+function defaultBundledModel() {
+  try { return readBundledModels().default || ''; } catch { return ''; }
+}
+
+/** GET http://{host}/api/tags → array of installed model names (empty on error). */
+function ollamaInstalledTags(host) {
+  return new Promise((resolve) => {
+    const http = require('http');
+    const req = http.get(`http://${host}/api/tags`, (res) => {
+      let body = '';
+      res.on('data', (c) => (body += c));
+      res.on('end', () => {
+        try { resolve((JSON.parse(body).models || []).map((m) => m.name)); }
+        catch { resolve([]); }
+      });
+    });
+    req.on('error', () => resolve([]));
+    req.setTimeout(4000, () => { req.destroy(); resolve([]); });
+  });
+}
+
+/** Poll Ollama's API until it answers or timeout elapses. */
+function waitForOllama(host, timeoutMs) {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    const http = require('http');
+    const tick = () => {
+      const req = http.get(`http://${host}/api/tags`, (res) => { res.resume(); resolve(true); });
+      req.on('error', () => (Date.now() - start > timeoutMs ? resolve(false) : setTimeout(tick, 500)));
+      req.setTimeout(2000, () => { req.destroy(); Date.now() - start > timeoutMs ? resolve(false) : setTimeout(tick, 500); });
+    };
+    tick();
+  });
+}
+
+/** Register each bundled gguf as a named Ollama model (skips ones already present). */
+async function importBundledModels() {
+  const host = process.env.OLLAMA_HOST || '127.0.0.1:11434';
+  const { dir, models } = readBundledModels();
+  if (!models.length) { console.log('[KobeOS] no bundled gguf models to import.'); return; }
+
+  const up = await waitForOllama(host, 30000);
+  if (!up) { console.log('[KobeOS] Ollama not responding — skipping model import (will retry next boot).'); return; }
+
+  const installed = new Set(await ollamaInstalledTags(host));
+  const bin = resolveOllamaBinary();
+  const env = { ...process.env, OLLAMA_HOST: host, OLLAMA_MODELS: process.env.OLLAMA_MODELS || ollamaModelsDir() };
+
+  for (const m of models) {
+    // Ollama tags default to ":latest" when no tag is given.
+    if (installed.has(m.name) || installed.has(`${m.name}:latest`)) { console.log(`[KobeOS] model "${m.name}" already imported — skip.`); continue; }
+
+    const ggufPath = path.join(dir, m.file);
+    if (!fs.existsSync(ggufPath)) { console.log(`[KobeOS] gguf missing for "${m.name}": ${ggufPath} — skip.`); continue; }
+
+    const lines = [`FROM "${ggufPath}"`];
+    if (m.system) lines.push(`SYSTEM """${m.system}"""`);
+    for (const [k, v] of Object.entries(m.parameters || {})) lines.push(`PARAMETER ${k} ${v}`);
+    const modelfilePath = path.join(app.getPath('userData'), `Modelfile.${m.name}`);
+    try {
+      fs.mkdirSync(path.dirname(modelfilePath), { recursive: true });
+      fs.writeFileSync(modelfilePath, lines.join('\n') + '\n');
+    } catch (e) { console.log(`[KobeOS] could not write Modelfile for "${m.name}":`, e.message); continue; }
+
+    console.log(`[KobeOS] importing model "${m.name}" from ${m.file} …`);
+    await new Promise((resolve) => {
+      const p = spawn(bin, ['create', m.name, '-f', modelfilePath], { stdio: ['ignore', 'pipe', 'pipe'], env });
+      p.stdout.on('data', (d) => console.log('[ollama create]', d.toString().trim()));
+      p.stderr.on('data', (d) => console.log('[ollama create]', d.toString().trim()));
+      p.on('error', (e) => { console.log(`[KobeOS] import "${m.name}" failed:`, e.message); resolve(); });
+      p.on('exit', (code) => { console.log(`[KobeOS] import "${m.name}" exit=${code}`); resolve(); });
+    });
+    try { fs.unlinkSync(modelfilePath); } catch { /* ignore */ }
   }
 }
 
@@ -324,9 +584,17 @@ async function bootServices() {
   sendBootProgress(65, 'Waiting for backend…');
   await waitForBackend(3000, 15000);
 
-  // Spin up cloudflared so any previously-published storefronts stay reachable.
-  // No-ops silently if no token was persisted yet (admin hasn't bootstrapped).
-  startCloudflared();
+  // Start the local AI runtime for the "Ask Kobe" assistant. Non-blocking: it
+  // warms up in the background while the desktop loads (fail-soft if absent).
+  sendBootProgress(80, 'Starting local AI…');
+  startOllama();
+  // Import any bundled gguf models into Ollama on first boot (one-time, in the
+  // background so it never blocks the desktop from appearing).
+  importBundledModels().catch((e) => console.log('[KobeOS] model import error:', e.message));
+
+  // Auto-start the tunnel: uses a persisted token if present, else fetches the
+  // shared tunnel's run token via CF_API_TOKEN — no manual cloudflared setup.
+  await autoBootstrapTunnel();
 
   sendBootProgress(90, 'Loading KobeOS…');
   await new Promise((r) => setTimeout(r, 300));
@@ -497,6 +765,7 @@ app.on('window-all-closed', async () => {
   lanServer.stop();
   localdb.close();
   stopCloudflared();
+  stopOllama();
   stopBackend();
   await stopEmbeddedPostgres();
   if (process.platform !== 'darwin') app.quit();
@@ -508,6 +777,7 @@ app.on('before-quit', async () => {
   lanServer.stop();
   localdb.close();
   stopCloudflared();
+  stopOllama();
   stopBackend();
   await stopEmbeddedPostgres();
 });
@@ -566,7 +836,7 @@ ipcMain.handle('system-reboot', async () => {
   });
   return { confirmed: true };
 });
-ipcMain.handle('get-system-mode', () => getSystemMode());
+ipcMain.handle('get-system-mode', () => getUiSystemMode());
 
 ipcMain.handle('toggle-fullscreen', () => {
   if (!mainWindow) return false;
@@ -599,8 +869,12 @@ ipcMain.handle('install-to-disk', async (event, diskPath, options = {}) => {
   }
 
   // options.luksPassphrase: string — if provided, root partition is LUKS-encrypted
-  const luksPassphrase = typeof options.luksPassphrase === 'string' ? options.luksPassphrase : '';
-  const useLuks = luksPassphrase.length >= 8;
+  const safeOptions = options && typeof options === 'object' ? options : {};
+  const luksPassphrase = typeof safeOptions.luksPassphrase === 'string' ? safeOptions.luksPassphrase : '';
+  if (luksPassphrase && (luksPassphrase.length < 8 || luksPassphrase.length > 512 || luksPassphrase.includes('\0'))) {
+    return { success: false, error: 'LUKS passphrase must be between 8 and 512 characters.' };
+  }
+  const useLuks = luksPassphrase.length > 0;
 
   const ok = await confirmDestructive({
     title: 'Install KobeOS to disk',
@@ -655,8 +929,8 @@ mkfs.ext4 -F -L KOBEOS_REC "$PART_REC"
 ${useLuks ? `
 echo "Setting up LUKS encryption on root partition..."
 apt-get install -y --no-install-recommends cryptsetup 2>/dev/null || true
-printf '%s' ${shellEscapeSingleQuote(luksPassphrase)} | cryptsetup luksFormat --type luks2 --batch-mode "$PART_ROOT" -
-printf '%s' ${shellEscapeSingleQuote(luksPassphrase)} | cryptsetup open "$PART_ROOT" kobeos_root -
+printf '%s' "$KOBEOS_LUKS_PASSPHRASE" | cryptsetup luksFormat --type luks2 --batch-mode "$PART_ROOT" -
+printf '%s' "$KOBEOS_LUKS_PASSPHRASE" | cryptsetup open "$PART_ROOT" kobeos_root -
 mkfs.ext4 -F -L KOBEOS_ROOT /dev/mapper/kobeos_root
 ROOT_DEV=/dev/mapper/kobeos_root
 ` : `
@@ -838,7 +1112,10 @@ ${useLuks ? 'cryptsetup close kobeos_root 2>/dev/null || true' : ''}
 echo "INSTALL_COMPLETE"
 `;
   return new Promise((resolve) => {
-    execFile('/bin/bash', ['-c', script], { timeout: 900_000 }, (error, stdout, stderr) => {
+    execFile('/bin/bash', ['-c', script], {
+      timeout: 900_000,
+      env: { ...process.env, KOBEOS_LUKS_PASSPHRASE: luksPassphrase },
+    }, (error, stdout, stderr) => {
       resolve({ success: !error, output: stdout, error: stderr });
     });
   });

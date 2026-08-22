@@ -6,10 +6,10 @@ import CargoPaymentWorkflow from './CargoPaymentWorkflow';
 import {
   LayoutDashboard, BarChart3, Package, ShieldCheck, Warehouse, Plane,
   Wallet, MapPin, Truck, Search, CheckCircle2, ArrowRight, Box,
-  AlertTriangle, Bell, TrendingUp, Minus, X, Clock, AlertCircle,
+  AlertTriangle, Bell, TrendingUp, Minus, Clock, AlertCircle,
   Container, Weight, Ruler, Settings, Plus, Loader2, Receipt,
-  Printer, DollarSign, Phone, Calendar, XCircle, CircleDot, Circle,
-  Fuel, Navigation, Eye, Sparkles,
+  DollarSign, Phone, Calendar, CircleDot, Circle,
+  Navigation,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,9 +17,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Card, CardContent } from '@/components/ui/card';
 import { QRCodeSVG } from 'qrcode.react';
 import {
-  BarChart, Bar, PieChart, Pie, Cell, Line, XAxis, YAxis,
+  BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis,
   CartesianGrid, Tooltip, ResponsiveContainer, Legend,
-  ComposedChart,
 } from 'recharts';
 
 /* ═══════════════════════════════════════════
@@ -84,15 +83,14 @@ const cargoSections = [
 
 /* ─── GLASSMORPHISM STYLES (constants) ─── */
 const G = {
-  page: 'h-full flex bg-gradient-to-br from-slate-100 via-purple-50 to-indigo-100',
-  // Bumped contrast: cards now have a solider white so dark text shows,
-  // and every text tone shifts one step darker (slate-400 was nearly
-  // invisible on the previous translucent surface).
-  card: 'bg-white/80 backdrop-blur-xl border border-slate-200 rounded-2xl shadow-lg',
+  page: 'h-full flex bg-[#f6f8fc]',
+  // Solid surfaces keep the operational data dense and easy to scan while
+  // preserving the rounded KobeOS visual language.
+  card: 'bg-white border border-slate-200 rounded-2xl shadow-[0_8px_24px_rgba(15,23,42,0.06)]',
   cardHeader: 'text-xs font-semibold text-slate-900',
   text: 'text-slate-800',
   muted: 'text-slate-600',
-  sidebar: 'w-60 h-full flex flex-col bg-white/85 backdrop-blur-2xl border-r border-slate-200',
+  sidebar: 'w-60 h-full flex flex-col bg-white border-r border-slate-200',
   input: 'bg-white border-slate-300 text-slate-900 placeholder:text-slate-700 rounded-xl',
   kpiGrid: 'grid grid-cols-2 lg:grid-cols-4 gap-3',
   chartGrid: 'grid grid-cols-1 lg:grid-cols-2 gap-3',
@@ -229,11 +227,28 @@ function useApi<T>(path: string, deps: React.DependencyList = []) {
   return { data, loading, error, refresh, setData };
 }
 
+/**
+ * Cargo list endpoints have existed in both bare-array and paginated forms.
+ * Normalise either response shape before the UI calls array methods so a
+ * stale server, offline cache, or future pagination wrapper cannot crash the
+ * whole module with "filter is not a function".
+ */
+function asList<T>(value: unknown): T[] {
+  if (Array.isArray(value)) return value as T[];
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    for (const key of ['items', 'data', 'rows', 'results']) {
+      if (Array.isArray(record[key])) return record[key] as T[];
+    }
+  }
+  return [];
+}
+
 /* ─── SIDEBAR ─── */
 function CargoSidebar({ activeTab, onTabChange }: { activeTab: Tab; onTabChange: (t: Tab) => void }) {
   return (
     <div className={G.sidebar}>
-      <div className="shrink-0 px-4 py-3.5 border-b border-white/[0.30]">
+      <div className="shrink-0 px-4 py-3.5 border-b border-slate-200">
         <div className="flex items-center gap-2.5">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg">
             <Plane className="w-4 h-4 text-white" />
@@ -255,7 +270,7 @@ function CargoSidebar({ activeTab, onTabChange }: { activeTab: Tab; onTabChange:
                   return (
                     <button key={tile.key} onClick={() => onTabChange(tile.key)}
                       className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-left transition-all group ${
-                        isActive ? `${tile.bg} border ${tile.border} shadow-sm` : 'bg-white/[0.15] border border-transparent hover:bg-white/30'
+                        isActive ? `${tile.bg} border ${tile.border} shadow-sm` : 'bg-transparent border border-transparent hover:bg-slate-50'
                       }`}>
                       <div className={`w-8 h-8 rounded-lg ${tile.bg} flex items-center justify-center shrink-0 transition-transform group-hover:scale-105`}>
                         <tile.icon className={`w-[16px] h-[16px] ${tile.color}`} />
@@ -284,10 +299,13 @@ function DashboardTab() {
   const { data: payments, loading: pLoading } = useApi<Transaction[]>('/cargo/payments');
   const { data: customs } = useApi<{ customs: Array<{ shipmentId: string; import: CClear; export: CClear }> }>('/cargo/air/customs');
 
-  const sh = shipments || [];
-  const fl = flights || [];
-  const tx = payments || [];
-  const cu = customs?.customs || [];
+  const sh = useMemo(() => asList<Shipment>(shipments), [shipments]);
+  const fl = useMemo(() => asList<Flight>(flights), [flights]);
+  const tx = useMemo(() => asList<Transaction>(payments), [payments]);
+  const cu = useMemo(
+    () => asList<{ shipmentId: string; import: CClear; export: CClear }>(customs?.customs),
+    [customs],
+  );
 
   const activeCount = sh.filter(s => s.status !== 'DELIVERED' && s.status !== 'CANCELLED').length;
   const inTransit = sh.filter(s => s.status === 'IN_TRANSIT' || s.status === 'ARRIVED').length;
@@ -411,7 +429,7 @@ function ShipmentsTab({ search }: { search: string }) {
   const [events, setEvents] = useState<TEvent[]>([]);
   const [evLoading, setEvLoading] = useState(false);
 
-  const sh = shipments || [];
+  const sh = asList<Shipment>(shipments);
   const filtered = useMemo(() => sh.filter(s => {
     const ms = !search || s.number.toLowerCase().includes(search.toLowerCase()) || s.customer.toLowerCase().includes(search.toLowerCase())
       || s.origin.toLowerCase().includes(search.toLowerCase()) || s.destination.toLowerCase().includes(search.toLowerCase());
@@ -423,7 +441,7 @@ function ShipmentsTab({ search }: { search: string }) {
 
   const loadEvents = async (sid: string) => {
     setEvLoading(true);
-    try { const res = await api<TEvent[]>(`/cargo/air/events?shipmentId=${sid}`); setEvents(res || []); }
+    try { const res = await api<TEvent[]>(`/cargo/air/events?shipmentId=${sid}`); setEvents(asList<TEvent>(res)); }
     catch { setEvents([]); }
     finally { setEvLoading(false); }
   };
@@ -544,8 +562,8 @@ function CustomsTab({ search }: { search: string }) {
   const [jurisdiction, setJurisdiction] = useState<'EXPORT' | 'IMPORT'>('EXPORT');
   const [updating, setUpdating] = useState<string | null>(null);
 
-  const sh = shipments || [];
-  const cu = customs?.customs || [];
+  const sh = asList<Shipment>(shipments);
+  const cu = asList<{ shipmentId: string; export: CClear; import: CClear }>(customs?.customs);
 
   const filtered = useMemo(() => {
     return sh.filter(s => !search || s.number.toLowerCase().includes(search.toLowerCase()) || s.customer.toLowerCase().includes(search.toLowerCase()));
@@ -627,15 +645,15 @@ function WarehouseTab() {
   const [found, setFound] = useState<Pkg | null>(null);
 
   const handleScan = () => {
-    const p = (pkgs || []).find(pkg => pkg.qrCode === scan || pkg.id === scan);
+    const p = asList<Pkg>(pkgs).find(pkg => pkg.qrCode === scan || pkg.id === scan);
     setFound(p || null);
   };
 
   if (bLoading || uLoading || pLoading) return <Loading />;
   if (bErr) return <Err m={bErr} />;
 
-  const binList = (bins as unknown as Bin[]) || [];
-  const uldList = (ulds as unknown as ULD[]) || [];
+  const binList = asList<Bin>(bins);
+  const uldList = asList<ULD>(ulds);
   // Note: bins from /cargo/parcels may not be Bin[] — show what we have
   const safeBins: Bin[] = Array.isArray(binList) ? binList.filter(b => b && typeof b === 'object' && b.number) : [];
 
@@ -721,7 +739,7 @@ function FlightsTab({ search }: { search: string }) {
   const [view, setView] = useState<Flight | null>(null);
   const [showBoard, setShowBoard] = useState(false);
 
-  const fl = flights || [];
+  const fl = asList<Flight>(flights);
   const filtered = useMemo(() => fl.filter(f => !search || f.number.toLowerCase().includes(search.toLowerCase()) || f.airline.toLowerCase().includes(search.toLowerCase())), [fl, search]);
 
   if (showBoard) {
@@ -805,7 +823,7 @@ function FlightsTab({ search }: { search: string }) {
                   <div className="bg-white/30 rounded-lg p-2 border border-white/[0.30]"><div className="text-slate-600">Utilization</div><div className="text-slate-700">{view.capacity > 0 ? Math.round((view.weight / view.capacity) * 100) : 0}%</div></div>
                 </div>
                 <h4 className="text-xs font-medium text-slate-600">ULDs</h4>
-                {(ulds || []).filter((u: ULD) => u.flight === view.number).map((u: ULD) => (
+                {asList<ULD>(ulds).filter((u) => u.flight === view.number).map((u) => (
                   <div key={u.id} className="flex items-center gap-2 p-2 bg-white/20 rounded-lg">
                     <Container className="w-4 h-4 text-indigo-500" /><span className="text-slate-600">{u.number}</span><span className="text-slate-600 ml-auto">{u.weight}kg</span>
                   </div>
@@ -827,9 +845,9 @@ function DeliveryTab({ search }: { search: string }) {
   const { data: shipments } = useApi<Shipment[]>('/cargo/shipments');
   const [updating, setUpdating] = useState<string | null>(null);
 
-  const del = (deliveries as unknown as Delivery[]) || [];
-  const sh = shipments || [];
-  const dr = drivers || [];
+  const del = asList<Delivery>(deliveries);
+  const sh = asList<Shipment>(shipments);
+  const dr = asList<Driver>(drivers);
 
   const filtered = useMemo(() => del.filter(d => !search || d.driver.toLowerCase().includes(search.toLowerCase()) || d.address.toLowerCase().includes(search.toLowerCase())), [del, search]);
   const steps = ['ASSIGNED', 'OUT_FOR_DELIVERY', 'DELIVERED'];
@@ -930,7 +948,7 @@ function PaymentsTab() {
   const { data: payments, loading, error, refresh } = useApi<Transaction[]>('/cargo/payments');
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  const tx = (payments as unknown as Transaction[]) || [];
+  const tx = asList<Transaction>(payments);
 
   if (loading) return <Loading />;
   if (error) return <Err m={error} />;
@@ -1022,14 +1040,14 @@ function TrackingTab({ search: initialSearch }: { search: string }) {
   const [events, setEvents] = useState<TEvent[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const sh = shipments || [];
+  const sh = asList<Shipment>(shipments);
 
   const handleSearch = async () => {
     const s = sh.find(x => x.masterAWB === search || x.number.toLowerCase() === search.toLowerCase() || x.houseAWB === search);
     if (!s) { setFound(null); setEvents([]); return; }
     setFound(s);
     setLoading(true);
-    try { const res = await api<TEvent[]>(`/cargo/air/events?shipmentId=${s.id}`); setEvents(res || []); }
+    try { const res = await api<TEvent[]>(`/cargo/air/events?shipmentId=${s.id}`); setEvents(asList<TEvent>(res)); }
     catch { setEvents([]); }
     finally { setLoading(false); }
   };
@@ -1113,8 +1131,13 @@ function AnalyticsTab() {
   const { data: payments } = useApi<Transaction[]>('/cargo/payments');
   const [chartView, setChartView] = useState<'volume' | 'cost' | 'customers'>('volume');
 
-  const sh = shipments || [];
-  const tx = (payments as unknown as Transaction[]) || [];
+  const sh = useMemo(() => asList<Shipment>(shipments), [shipments]);
+  const tx = useMemo(() => asList<Transaction>(payments), [payments]);
+  const totalRevenue = sh.reduce((sum, shipment) => sum + (shipment.value || 0), 0);
+  const totalCosts = sh.reduce((sum, shipment) => sum + (shipment.cost || 0), 0);
+  const averageMargin = totalRevenue > 0
+    ? ((totalRevenue - totalCosts) / totalRevenue) * 100
+    : 0;
 
   // Monthly volume from real shipment data
   const monthlyVolume = useMemo(() => {
@@ -1251,9 +1274,9 @@ function AnalyticsTab() {
       {/* Summary Stats */}
       <div className={G.kpiGrid}>
         <KPI t="Total Shipments" v={String(sh.length)} i={Package} c="blue" />
-        <KPI t="Total Revenue" v={usd(sh.reduce((s, x) => s + (x.value || 0), 0))} i={DollarSign} c="emerald" />
-        <KPI t="Total Costs" v={usd(sh.reduce((s, x) => s + (x.cost || 0), 0))} i={DollarSign} c="rose" />
-        <KPI t="Avg Margin" v={`${sh.length > 0 ? (sh.reduce((s, x) => s + ((x.value || 0) - (x.cost || 0)), 0) / sh.reduce((s, x) => s + (x.value || 0), 0) * 100).toFixed(1) : '0.0'}%`} i={TrendingUp} c="indigo" />
+        <KPI t="Total Revenue" v={usd(totalRevenue)} i={DollarSign} c="emerald" />
+        <KPI t="Total Costs" v={usd(totalCosts)} i={DollarSign} c="rose" />
+        <KPI t="Avg Margin" v={`${averageMargin.toFixed(1)}%`} i={TrendingUp} c="indigo" />
       </div>
     </div></div>
   );
@@ -1374,18 +1397,22 @@ export default function KOBECARGO() {
   };
 
   return (
-    <div className={G.page} data-surface="light">
+    <div className={G.page} data-surface="light" data-module="cargo">
       {/* Sidebar */}
       <CargoSidebar activeTab={tab} onTabChange={setTab} />
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Top Bar */}
-        <div className="shrink-0 px-4 pt-3 pb-2 flex items-center justify-between gap-3 border-b border-white/[0.30] bg-white/10 backdrop-blur-xl">
-          <div className="flex items-center gap-2">
-            <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-500/[0.08] border border-blue-500/15">
-              <Plane className="w-3 h-3 text-blue-500" />
-              <span className="text-[10px] text-blue-600 font-medium">KOBECARGO</span>
+        <div className="shrink-0 px-4 py-2.5 flex items-center justify-between gap-3 border-b border-slate-200 bg-white">
+          <div className="flex items-center gap-2.5">
+            <div className="hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-blue-50 border border-blue-100">
+              <Plane className="w-3 h-3 text-blue-600" />
+              <span className="text-[10px] text-blue-700 font-semibold tracking-wide">KOBECARGO</span>
+            </div>
+            <div className="hidden md:flex items-center gap-1.5 text-[10px] text-slate-500">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+              Network live · China → Tanzania
             </div>
           </div>
           <div className="relative w-48 sm:w-56">

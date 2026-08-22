@@ -24,11 +24,12 @@ export class StorefrontService implements OnModuleInit {
     @InjectRepository(StoreSettings) private readonly settings: Repository<StoreSettings>,
   ) {}
 
-  /** Resolve a public-facing slug or custom domain to the owner uid behind it. */
+  /** Resolve a public-facing slug or custom domain to the owner uid behind it.
+   *  Only resolves published stores — unpublished stores return 404. */
   async resolveOwnerBySlug(slug: string): Promise<string> {
     const found =
-      (await this.settings.findOne({ where: { domainSlug: slug } })) ??
-      (await this.settings.findOne({ where: { customDomain: slug } }));
+      (await this.settings.findOne({ where: { domainSlug: slug, isPublished: true } })) ??
+      (await this.settings.findOne({ where: { customDomain: slug, isPublished: true } }));
     if (!found) throw new NotFoundException('Store not found');
     return found.ownerId;
   }

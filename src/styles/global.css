@@ -420,3 +420,19 @@ tr:hover td {
 [data-surface='light'] :is(.text-white\/80, .text-white\/90, .text-white):not([data-keep-muted]) {
   color: rgb(15 23 42);     /* slate-900 */
 }
+
+/* KOBE Pay uses a dark finance workspace. Lift the muted utility tones so
+   labels, table metadata, and secondary actions remain readable on navy
+   surfaces without changing the light cargo consoles. */
+[data-surface='pay-dark'] :is(.text-slate-500, .text-slate-600) {
+  color: rgb(148 163 184);
+}
+[data-surface='pay-dark'] .text-white\/20 {
+  color: rgb(100 116 139);
+}
+[data-surface='pay-dark'] .text-white\/30 {
+  color: rgb(148 163 184);
+}
+[data-surface='pay-dark'] .text-white\/40 {
+  color: rgb(203 213 225);
+}

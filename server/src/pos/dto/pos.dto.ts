@@ -1,6 +1,13 @@
 import { IsArray, IsBoolean, IsEnum, IsInt, IsNumber, IsObject, IsOptional, IsString, IsUUID, MaxLength, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
-import type { ProductVariant } from '../pos.entity';
+import type { ProductSourceType, ProductVariant } from '../pos.entity';
+
+const QUICK_ADD_SOURCE_TYPES = [
+  'QUICK_ADD_PHOTO',
+  'QUICK_ADD_SCREENSHOT',
+  'QUICK_ADD_MESSAGE',
+  'QUICK_ADD_IMPORT',
+] as const;
 
 export class CreateProductDto {
   @IsString() @MaxLength(60) sku!: string;
@@ -26,6 +33,9 @@ export class CreateProductDto {
   @IsOptional() @IsArray() variants?: ProductVariant[];
   @IsOptional() @IsBoolean() active?: boolean;
   @IsOptional() @IsBoolean() featured?: boolean;
+  /** Direct product creation is Quick Add only; PO is reserved for receiving. */
+  @IsOptional() @IsEnum(QUICK_ADD_SOURCE_TYPES)
+  sourceType?: Exclude<ProductSourceType, 'PO'>;
 
   /** Jersey-specific product details */
   @IsOptional() @IsObject() jerseyDetails?: {
@@ -101,6 +111,20 @@ export class CreateOrderDto {
   @IsOptional() @IsString() bnplPlan?: string;
   @IsOptional() @IsString() customerName?: string;
   @IsOptional() @IsString() customerPhone?: string;
+  /** Storefront-only delivery address, saved to the customer's lightweight profile. */
+  @IsOptional() @IsString() @MaxLength(500) customerAddress?: string;
+  /** Storefront loyalty member number used to authorize a reward redemption. */
+  @IsOptional() @IsString() @MaxLength(32) loyaltyCode?: string;
+  /** Storefront-only: one eligible cart line to make free using a jersey credit. */
+  @IsOptional() @IsUUID() redeemFreeJerseyProductId?: string;
+  /** Public storefront token issued by a Live comment/catalog reservation.
+   * StoreService validates it and derives all attribution fields server-side. */
+  @IsOptional() @IsString() @MaxLength(80) liveCheckoutToken?: string;
+  /** Internal, server-derived sale attribution persisted on the POS order. */
+  @IsOptional() @IsString() @MaxLength(64) salesChannel?: string;
+  @IsOptional() @IsUUID() liveSessionId?: string;
+  @IsOptional() @IsUUID() liveCommentId?: string;
+  @IsOptional() @IsString() @MaxLength(32) attributionCode?: string;
   /** BNPL only — number of monthly installments (defaults to 1 = lump sum). */
   @IsOptional() @IsInt() @Min(1) installmentMonths?: number;
 }

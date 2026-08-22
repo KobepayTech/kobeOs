@@ -1,4 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { IsOptional, IsString } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { HotelRoomReviewsService, HotelRoomSignalLinksService, HotelSecurityDashboardService } from './hotel-security.service';
@@ -11,16 +12,18 @@ import {
   UpdateHotelRoomSignalLinkDto,
 } from './dto/hotel-security.dto';
 
+// Decorators required — the global whitelist:true ValidationPipe strips
+// undecorated properties (badge scans / flag resolution would arrive empty).
 class StaffBadgeScanDto {
-  staffId!: string;
-  staffName!: string;
-  staffRole!: StaffBadgeRole;
-  roomId!: string;
-  roomNumber!: string;
+  @IsString() staffId!: string;
+  @IsString() staffName!: string;
+  @IsString() staffRole!: StaffBadgeRole;
+  @IsString() roomId!: string;
+  @IsString() roomNumber!: string;
 }
 
 class ResolveFlagDto {
-  notes?: string;
+  @IsOptional() @IsString() notes?: string;
 }
 
 @UseGuards(JwtAuthGuard)

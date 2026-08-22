@@ -2,9 +2,17 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } f
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { PropertiesService, RentPaymentsService, TenantsService, UnitsService } from './property.service';
+import { PropertyOnboardingService } from './property-onboarding.service';
 import {
-  CreatePaymentDto, CreatePropertyDto, CreateTenantDto, CreateUnitDto,
-  UpdatePropertyDto, UpdateTenantDto, UpdateUnitDto,
+  CreatePaymentDto,
+  CreatePropertyDto,
+  CreateTenantDto,
+  CreateUnitDto,
+  LayoutProposalDto,
+  OnboardPropertyDto,
+  UpdatePropertyDto,
+  UpdateTenantDto,
+  UpdateUnitDto,
 } from './dto/property.dto';
 
 @UseGuards(JwtAuthGuard)
@@ -15,7 +23,23 @@ export class PropertyController {
     private readonly units: UnitsService,
     private readonly tenants: TenantsService,
     private readonly payments: RentPaymentsService,
+    private readonly onboarding: PropertyOnboardingService,
   ) {}
+
+  @Post('layout/proposal')
+  proposeLayout(@Body() dto: LayoutProposalDto) {
+    return this.onboarding.propose(dto);
+  }
+
+  @Post('properties/onboard')
+  onboardProperty(@CurrentUser('id') uid: string, @Body() dto: OnboardPropertyDto) {
+    return this.onboarding.onboard(uid, dto);
+  }
+
+  @Get('properties/:id/layout')
+  propertyLayout(@CurrentUser('id') uid: string, @Param('id') id: string) {
+    return this.onboarding.getLayout(uid, id);
+  }
 
   @Get('properties') listProps(@CurrentUser('id') uid: string) { return this.props.list(uid); }
   @Post('properties') createProp(@CurrentUser('id') uid: string, @Body() dto: CreatePropertyDto) { return this.props.create(uid, dto); }

@@ -1,12 +1,14 @@
 import { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
+import { QRCodeSVG } from 'qrcode.react';
 import {
   TrendingUp, TrendingDown, ShoppingCart, Users, Package, DollarSign,
   Receipt, ShoppingBag, Palette, BarChart3, Store, Warehouse,
   FileText, ShieldCheck, Truck, Heart, UserCircle,
   ChevronRight, Boxes, CircleDollarSign,
   Globe, LayoutDashboard, CreditCard, Percent,
-  NotebookPen, Calculator,
+  NotebookPen, Calculator, Smartphone, ExternalLink, Images,
+  Radio,
 } from 'lucide-react';
 import { useOSStore } from '@/os/store';
 import {
@@ -79,6 +81,8 @@ const moduleSections = [
       { id: 'shop', appId: 'erp-shop', label: 'Online Shop', desc: 'Customer storefront', icon: ShoppingBag, color: 'text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/20' },
       { id: 'store', appId: 'erp-store', label: 'Product Manager', desc: 'SKU, inventory & pricing', icon: Store, color: 'text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20' },
       { id: 'store-editor', appId: 'erp-store-editor', label: 'Store Editor', desc: 'Customize your storefront', icon: Palette, color: 'text-violet-400', bg: 'bg-violet-500/10', border: 'border-violet-500/20' },
+      { id: 'media-inbox', appId: 'media-inbox', label: 'Media Inbox', desc: 'Bulk images/videos -> products', icon: Images, color: 'text-fuchsia-400', bg: 'bg-fuchsia-500/10', border: 'border-fuchsia-500/20' },
+      { id: 'live-sales', appId: 'live-sales', label: 'Live Stream Sales', desc: 'Start a live catalog, capture comments & send paid orders to KDS', icon: Radio, color: 'text-fuchsia-400', bg: 'bg-fuchsia-500/10', border: 'border-fuchsia-500/20' },
       { id: 'credit', appId: 'erp-credit', label: 'Credit & Collections', desc: 'Customer credit & balances', icon: CreditCard, color: 'text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/20' },
       { id: 'discounts', appId: 'erp-discounts', label: 'Discounts & Promos', desc: 'Rules, campaigns & coupons', icon: Percent, color: 'text-pink-400', bg: 'bg-pink-500/10', border: 'border-pink-500/20' },
     ] as ModuleTile[],
@@ -192,6 +196,111 @@ function Sidebar({ activeModule, onModuleChange, launchApp }: {
   );
 }
 
+/* ─── MOBILE PWA APPS ─── */
+// The staff-facing mobile web apps live at {base}/m/{slug}/… (see
+// src/mobile/MobileRoot). Surfacing them here lets an owner open each one in a
+// tab or scan the QR to install the workspace as a PWA on a phone.
+const MOBILE_PWA_APPS: { path: string; label: string; icon: typeof Receipt }[] = [
+  { path: 'pos', label: 'POS', icon: Receipt },
+  { path: 'orders', label: 'Orders', icon: ShoppingCart },
+  { path: 'inventory', label: 'Inventory', icon: Boxes },
+  { path: 'po', label: 'Purchase Orders', icon: Package },
+  { path: 'prepare', label: 'Prepare', icon: ShoppingBag },
+  { path: 'eod', label: 'End of Day', icon: CircleDollarSign },
+  { path: 'summary', label: 'Sales & Expenses', icon: BarChart3 },
+  { path: 'image-order', label: 'Image Order', icon: FileText },
+  { path: 'cargo', label: 'Cargo', icon: Truck },
+  { path: 'dispatch', label: 'Dispatch', icon: Truck },
+];
+
+function MobilePwaApps({ launchApp }: { launchApp: (appId: string) => void }) {
+  const [slug, setSlug] = useState<string | null>(null);
+  const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    api<{ domainSlug?: string; publishedUrl?: string }>('/store-settings')
+      .then((d) => { setSlug(d?.domainSlug || null); setPublishedUrl(d?.publishedUrl || null); })
+      .catch(() => { /* leave null — panel shows the setup hint */ })
+      .finally(() => setLoaded(true));
+  }, []);
+
+  // Prefer the published HTTPS subdomain; fall back to the current origin so
+  // links still work for an operator testing before publishing.
+  const base = publishedUrl
+    ? publishedUrl.replace(/\/+$/, '')
+    : (typeof window !== 'undefined' ? window.location.origin : '');
+  const homeUrl = slug ? `${base}/m/${slug}` : '';
+  const urlFor = (p: string) => `${base}/m/${slug}${p ? `/${p}` : ''}`;
+
+  if (!loaded) return null;
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-3">
+        <Smartphone className="w-3.5 h-3.5 text-slate-400" />
+        <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Mobile Apps (PWA)</span>
+      </div>
+
+      {!slug ? (
+        <div className="flex items-center justify-between gap-3 p-3 rounded-xl bg-[#13131f] border border-amber-500/20">
+          <p className="text-[11px] text-white/60">
+            Save your store name in the Store Editor to unlock the mobile workspaces
+            (POS, Orders, EOD…) at <span className="font-mono text-white/40">{'{store}'}.kobeapptz.com/m/…</span>
+          </p>
+          <button
+            onClick={() => launchApp('erp-store-editor')}
+            className="shrink-0 h-7 px-3 text-[11px] rounded-lg bg-violet-500/15 text-violet-300 border border-violet-500/30 hover:bg-violet-500/25 transition-colors"
+          >
+            Open Store Editor
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-col lg:flex-row gap-3">
+          {/* App links grid */}
+          <div className="flex-1 grid grid-cols-2 lg:grid-cols-4 gap-2">
+            {MOBILE_PWA_APPS.map((app) => (
+              <a
+                key={app.path}
+                href={urlFor(app.path)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="group flex items-center gap-2.5 p-2.5 rounded-xl bg-[#13131f] border border-white/[0.06] hover:border-indigo-500/40 transition-all hover:scale-[1.02] active:scale-[0.98]"
+              >
+                <div className="w-8 h-8 rounded-lg bg-indigo-500/15 text-indigo-400 flex items-center justify-center shrink-0 group-hover:bg-indigo-500/25 transition-colors">
+                  <app.icon className="w-4 h-4" />
+                </div>
+                <span className="text-[11px] font-medium text-white/80 truncate flex-1">{app.label}</span>
+                <ExternalLink className="w-3 h-3 text-white/20 group-hover:text-indigo-400 shrink-0" />
+              </a>
+            ))}
+          </div>
+
+          {/* QR to install the whole workspace on a phone */}
+          <div className="shrink-0 flex flex-row lg:flex-col items-center gap-3 p-3 rounded-xl bg-[#13131f] border border-white/[0.06]">
+            <div className="bg-white rounded-lg p-2 grid place-items-center">
+              <QRCodeSVG value={homeUrl} size={92} level="M" />
+            </div>
+            <div className="text-center">
+              <p className="text-[10px] text-white/60 leading-snug max-w-[130px]">
+                Scan on a phone, then <span className="text-white/80">Add to Home Screen</span> to install.
+              </p>
+              <a
+                href={homeUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1 inline-block text-[10px] text-indigo-300/80 font-mono hover:text-indigo-200 underline underline-offset-2 truncate max-w-[140px]"
+              >
+                /m/{slug}
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── MAIN CONTENT: DASHBOARD OVERVIEW ─── */
 function DashboardOverview({ launchApp }: { launchApp: (appId: string) => void }) {
   const erpData = useErpDashboard();
@@ -249,6 +358,7 @@ function DashboardOverview({ launchApp }: { launchApp: (appId: string) => void }
           {[
             { appId: 'erp-pos', label: 'POS System', desc: 'Point of sale', icon: Receipt, color: 'bg-amber-500/15 text-amber-400 hover:bg-amber-500/25', border: 'border-amber-500/20 hover:border-amber-500/40' },
             { appId: 'erp-shop', label: 'Online Shop', desc: 'Customer storefront', icon: ShoppingBag, color: 'bg-blue-500/15 text-blue-400 hover:bg-blue-500/25', border: 'border-blue-500/20 hover:border-blue-500/40' },
+            { appId: 'live-sales', label: 'Start Live Sales', desc: 'Comments → web checkout → KDS', icon: Radio, color: 'bg-fuchsia-500/15 text-fuchsia-400 hover:bg-fuchsia-500/25', border: 'border-fuchsia-500/20 hover:border-fuchsia-500/40' },
             { appId: 'erp-warehouse', label: 'Warehouse', desc: 'Stock management', icon: Warehouse, color: 'bg-orange-500/15 text-orange-400 hover:bg-orange-500/25', border: 'border-orange-500/20 hover:border-orange-500/40' },
             { appId: 'erp-accounting', label: 'Accounting', desc: 'Financial records', icon: CircleDollarSign, color: 'bg-green-500/15 text-green-400 hover:bg-green-500/25', border: 'border-green-500/20 hover:border-green-500/40' },
             { appId: 'erp-reports', label: 'Reports', desc: 'Analytics & insights', icon: FileText, color: 'bg-indigo-500/15 text-indigo-400 hover:bg-indigo-500/25', border: 'border-indigo-500/20 hover:border-indigo-500/40' },
@@ -274,6 +384,9 @@ function DashboardOverview({ launchApp }: { launchApp: (appId: string) => void }
           ))}
         </div>
       </div>
+
+      {/* Mobile apps (PWA) — installable staff workspaces on {slug}/m/… */}
+      <MobilePwaApps launchApp={launchApp} />
 
       {/* Charts */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">

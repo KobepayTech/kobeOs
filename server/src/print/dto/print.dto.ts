@@ -3,7 +3,7 @@ import { IsBoolean, IsEnum, IsNumber, IsOptional, IsString, MaxLength, Min } fro
 // ── Print Job DTOs ────────────────────────────────────────────────────────────
 
 export class CreatePrintJobDto {
-  @IsString() @MaxLength(40)  jobNumber!: string;
+  @IsOptional() @IsString() @MaxLength(40) jobNumber?: string;
   @IsString() @MaxLength(200) product!: string;
   @IsOptional() @IsString() @MaxLength(200) customer?: string;
   @IsOptional() @IsString() customerPhone?: string;

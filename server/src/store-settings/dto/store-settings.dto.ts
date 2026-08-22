@@ -124,4 +124,15 @@ export class UpsertStoreSettingsDto {
   /** Storefront design config — fully validated (see JerseyConfigDto). */
   @IsOptional() @IsObject() @ValidateNested() @Type(() => JerseyConfigDto)
   jerseyConfig?: JerseyConfigDto;
+
+  /** Storefront preview template. 'generic'/'jerseys' render the shop;
+   *  'site' renders the simple one-page business website (no catalogue). */
+  @IsOptional() @IsString() @IsIn(['generic', 'jerseys', 'site']) @MaxLength(40)
+  template?: 'generic' | 'jerseys' | 'site';
+
+  /** Simple-website content blob (template='site'). Persisted as-is; it's
+   *  the owner's own brochure content, so we accept the object wholesale
+   *  rather than field-by-field. */
+  @IsOptional() @IsObject()
+  siteConfig?: Record<string, unknown>;
 }

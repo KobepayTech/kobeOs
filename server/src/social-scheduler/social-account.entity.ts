@@ -1,11 +1,10 @@
 import { Column, Entity, Index } from 'typeorm';
 import { BaseEntity } from '../common/base.entity';
+import { socialTokenTransformer } from './social-token.transformer';
 
 /**
- * A connected social media account (e.g. Instagram, Twitter/X, Facebook,
- * LinkedIn, YouTube, TikTok, Pinterest, Threads, Bluesky, Mastodon).
- * Stores OAuth tokens and account metadata for publishing on the owner's
- * behalf.
+ * A connected social media account. OAuth tokens are encrypted transparently
+ * before they are written to PostgreSQL and decrypted only inside the backend.
  */
 @Entity('social_accounts')
 export class SocialAccount extends BaseEntity {
@@ -13,39 +12,34 @@ export class SocialAccount extends BaseEntity {
   @Column('uuid')
   ownerId!: string;
 
-  /** Platform key — e.g. 'instagram', 'twitter', 'facebook', 'linkedin' */
+  /** Platform key — e.g. 'instagram', 'tiktok', 'facebook'. */
   @Column()
   platform!: string;
 
-  /** Human-readable account name (e.g. "KobeOS Official") */
   @Column()
   accountName!: string;
 
-  /** Platform handle/username (e.g. "@kobeos") */
   @Column()
   accountHandle!: string;
 
-  /** OAuth access token for API calls */
-  @Column({ type: 'text' })
+  /** OAuth access token — encrypted at rest by socialTokenTransformer. */
+  @Column({ type: 'text', transformer: socialTokenTransformer })
   accessToken!: string;
 
-  /** OAuth refresh token (nullable for platforms that don't use refresh) */
-  @Column({ type: 'text', nullable: true })
+  /** OAuth refresh token — encrypted at rest. */
+  @Column({ type: 'text', nullable: true, transformer: socialTokenTransformer })
   refreshToken!: string | null;
 
-  /** When the access token expires — null if no expiry */
   @Column({ type: 'timestamptz', nullable: true })
   tokenExpiresAt!: Date | null;
 
-  /** Connection state: connected | expired | disconnected */
   @Column({ default: 'connected' })
   status!: 'connected' | 'expired' | 'disconnected';
 
-  /** Avatar/profile image URL */
   @Column({ type: 'text', nullable: true })
   accountAvatar!: string | null;
 
-  /** Extra platform-specific metadata (user ID, page ID, scopes, etc.) */
+  /** IDs, granted scopes, provider capability metadata, sync timestamps, etc. */
   @Column({ type: 'jsonb', default: {} })
   metadata!: Record<string, unknown>;
 }

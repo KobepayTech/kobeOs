@@ -45,6 +45,22 @@ export class PropertySettingsService {
     }
     return this.get(ownerId);
   }
+
+  /** Read the owner's public site config (JSON blob under key 'siteConfig'). */
+  async getSite(ownerId: string): Promise<Record<string, unknown>> {
+    const row = await this.repo.findOne({ where: { ownerId, key: 'siteConfig' } });
+    if (!row?.value) return {};
+    try { return JSON.parse(row.value) as Record<string, unknown>; } catch { return {}; }
+  }
+
+  /** Persist the owner's public site config. */
+  async saveSite(ownerId: string, config: Record<string, unknown>) {
+    let row = await this.repo.findOne({ where: { ownerId, key: 'siteConfig' } });
+    if (!row) row = this.repo.create({ ownerId, key: 'siteConfig', value: '' });
+    row.value = JSON.stringify(config ?? {});
+    await this.repo.save(row);
+    return this.getSite(ownerId);
+  }
 }
 
 @Injectable()

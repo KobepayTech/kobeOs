@@ -2,6 +2,11 @@ name: Build Windows Installer
 
 on:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish a release so desktop apps auto-update (no tag needed)'
+        type: boolean
+        default: false
   push:
     branches: [master, main]
     tags: ['v*']
@@ -109,6 +114,9 @@ jobs:
             if ($src) { Copy-Item $src -Destination $binDir -Force; Write-Host "Bundled (optional): $d" }
           }
 
+      - name: Prepare direct PostgreSQL resources
+        run: npm run prepare:postgres
+
       - name: Download Visual C++ 2015-2022 x64 Redistributable
         run: |
           $url = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
@@ -127,9 +135,34 @@ jobs:
       - name: Download cloudflared
         run: npm run download:cloudflared
 
+      - name: Download Ollama (local AI runtime)
+        run: npm run download:ollama
+        continue-on-error: true
+
+      # Bundle the offline AI models into the installer. Runs only when the
+      # BUNDLE_AI_MODELS repo variable is 'true'. Sources (see
+      # scripts/fetch-bundled-models.cjs): KOBE_MODELS_DIR for a self-hosted
+      # runner with the GGUFs on local disk, or per-model `url` in
+      # models/bundled/models.json for a GitHub-hosted runner. Fail-soft unless
+      # KOBE_MODELS_REQUIRED=1.
+      - name: Fetch bundled AI models
+        if: vars.BUNDLE_AI_MODELS == 'true'
+        run: npm run fetch:models
+        continue-on-error: true
+        env:
+          KOBE_MODELS_DIR: ${{ vars.KOBE_MODELS_DIR }}
+          KOBE_MODELS_AUTH: ${{ secrets.KOBE_MODELS_AUTH }}
+          KOBE_MODELS_REQUIRED: ${{ vars.KOBE_MODELS_REQUIRED }}
+
       # ── Build installer ─────────────────────────────────────────────────────
+      # PUBLISH the update feed to the GitHub Release (installer + latest.yml +
+      # .blockmap for delta updates) either on a version tag OR when the
+      # "publish" input is checked on a manual run — the latter lets you ship an
+      # auto-update with one click from the Actions tab, no git tag required.
+      # electron-builder creates the release for the current package.json version.
+      # Other builds publish nothing.
       - name: Build Windows installer
-        run: npx electron-builder --win --publish never
+        run: npx electron-builder --win --publish ${{ (startsWith(github.ref, 'refs/tags/v') || github.event.inputs.publish == 'true') && 'always' || 'never' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -186,6 +219,27 @@ jobs:
 
       - name: 'Smoke test: verify postgres binaries and VC++ runtime'
         run: |
+          $directBin = "release\win-unpacked\resources\postgres\bin"
+          foreach ($binary in @("initdb.exe","postgres.exe","pg_ctl.exe")) {
+            $target = Join-Path $directBin $binary
+            if (!(Test-Path $target)) {
+              Write-Error "Direct PostgreSQL resource missing: $target"
+              exit 1
+            }
+            if ((Get-Item $target).Length -lt 100KB) {
+              Write-Error "Direct PostgreSQL binary is suspiciously small: $target"
+              exit 1
+            }
+          }
+          foreach ($dll in @("vcruntime140.dll","vcruntime140_1.dll","msvcp140.dll")) {
+            $target = Join-Path $directBin $dll
+            if (!(Test-Path $target)) {
+              Write-Error "Direct PostgreSQL VC++ runtime missing: $target"
+              exit 1
+            }
+          }
+          Write-Host "Direct PostgreSQL resources present: $directBin"
+
           $unpackedRoot = "release\win-unpacked\resources\app.asar.unpacked\node_modules"
           $unpacked = "$unpackedRoot\@embedded-postgres\windows-x64"
 
@@ -240,10 +294,14 @@ jobs:
             release/vc_redist.x64.exe
           retention-days: 30
 
-      - name: Attach to GitHub Release (tags only)
+      # electron-builder --publish always (above) already uploaded the installer,
+      # latest.yml and .blockmap to the tag's Release. Here we only ADD the
+      # VC++ redistributable to that same Release (electron-builder doesn't
+      # publish it), so a first-time manual download has everything.
+      - name: Add vc_redist to GitHub Release (tags only)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v1
         with:
-          files: release/*.exe
+          files: release/vc_redist.x64.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

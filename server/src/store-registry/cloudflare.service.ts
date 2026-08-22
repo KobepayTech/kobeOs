@@ -61,6 +61,20 @@ export class CloudflareService {
         && Boolean(this.config.get<string>('CF_ACCOUNT_ID', ''));
   }
 
+  /**
+   * Non-throwing, secret-free view of the Cloudflare config for the
+   * publish-readiness preflight. Reports only presence booleans + the
+   * (non-secret) zone/domain, never the token or account id.
+   */
+  readiness() {
+    return {
+      apiTokenSet:  Boolean(this.config.get<string>('CF_API_TOKEN', '')),
+      accountIdSet: Boolean(this.config.get<string>('CF_ACCOUNT_ID', '')),
+      zoneId: this.zoneId,
+      domain: this.domain,
+    };
+  }
+
   private get accountId(): string {
     const a = this.config.get<string>('CF_ACCOUNT_ID', '');
     if (!a) throw new InternalServerErrorException('CF_ACCOUNT_ID is not set in server/.env');
@@ -209,13 +223,19 @@ export class CloudflareService {
    * Creates (or reuses):
    *   • a single shared tunnel "kobeos-storefronts"
    *   • a wildcard CNAME "*.kobeapptz.com" → <tunnelId>.cfargotunnel.com
-   *   • ingress: catch-all → http://localhost:<port>
+   *   • ingress: catch-all → <ingressTarget> (default: http://localhost:<port>)
    *
    * After this runs once, ANY new store slug works instantly — publishing
    * becomes a database flag flip with zero Cloudflare API calls. Returns
    * the run token so the operator can persist it (e.g. CLOUDFLARED_TOKEN
    * env var) and run `cloudflared tunnel run --token <...>` as a system
    * service.
+   *
+   * The ingressTarget should be the ENTRY POINT of your stack — the nginx
+   * reverse proxy in Docker deployments (e.g. "http://nginx:80"), or the
+   * backend directly in single-process deployments ("http://localhost:3000").
+   * Routing `*.kobeapptz.com` to the API backend directly breaks storefronts
+   * because the SPA lives in a separate web container.
    *
    * Idempotent — safe to re-run; reuses the existing tunnel + record.
    *
@@ -278,12 +298,14 @@ export class CloudflareService {
     }
 
     // 4. Push a catch-all ingress rule (no per-store rules needed).
+    // *.kobeapptz.com → this NestJS server which serves both the API
+    // and the storefront SPA (static files + index.html fallback).
     await this.cfFetch(`/accounts/${this.accountId}/cfd_tunnel/${tunnelId}/configurations`, {
       method: 'PUT',
       body: JSON.stringify({
         config: {
           ingress: [
-            { service: `http://localhost:${localPort}` },  // catch-all → backend
+            { service: `http://localhost:${localPort}` },
           ],
         },
       }),

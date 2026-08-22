@@ -11,6 +11,7 @@ import {
   StickyNote,
   Bell,
   ShoppingCart,
+  Store as StoreIcon,
   Play,
   Circle,
   CheckCircle2,
@@ -20,19 +21,22 @@ import {
   BarChart3,
   Building2,
   Zap,
-  Plane, Printer, Users, Wallet, Shield, Code2, Clapperboard,
+  Plane, Printer, Users, Wallet, Shield, Code2, Clapperboard, Sparkles,
   Sun,
-  CloudSun,
   StickyNote as NotepadIcon,
   MessageCircle,
   CheckSquare,
   Wifi, Bluetooth, PlaneTakeoff, Moon, User as UserIcon, type LucideIcon,
 } from 'lucide-react';
 import { useOSStore } from './store';
-import { API_BASE, getToken } from '@/lib/api';
+import { API_BASE } from '@/lib/api';
+import { listAppEntitlements, CORE_APP_IDS } from '@/lib/appMarketplace';
 import { ContextMenu } from './ContextMenu';
 import { WindowManager } from './WindowManager';
 import { Taskbar } from './Taskbar';
+import { GlobalAssistant } from './GlobalAssistant';
+import SafeModeBanner from './SafeModeBanner';
+import { ContextualInstallPrompt } from './ContextualInstallPrompt';
 
 /* ------------------------------------------------------------------ */
 /*  Bokeh orb background  - lavender/purple tones                     */
@@ -355,6 +359,8 @@ interface Task {
 /*  App shortcut data                                                  */
 /* ------------------------------------------------------------------ */
 const appShortcuts = [
+  { id: 'package-manager', label: 'App Store', icon: StoreIcon, appId: 'package-manager', iconBg: 'linear-gradient(135deg, rgba(255,118,22,0.28), rgba(251,146,60,0.18))' },
+  { id: 'kobe-assistant', label: 'Ask Kobe', icon: Sparkles, appId: 'kobe-assistant', iconBg: 'linear-gradient(135deg, rgba(99,102,241,0.30), rgba(147,51,234,0.22))' },
   { id: 'chat', label: 'Messages', icon: MessageSquare, appId: 'chat', iconBg: 'linear-gradient(135deg, rgba(123,140,222,0.25), rgba(167,139,250,0.20))' },
   { id: 'calendar', label: 'Calendar', icon: Calendar, appId: 'calendar', iconBg: 'linear-gradient(135deg, rgba(96,165,250,0.25), rgba(123,140,222,0.20))' },
   { id: 'files', label: 'Files', icon: FolderOpen, appId: 'file-manager', iconBg: 'linear-gradient(135deg, rgba(167,139,250,0.25), rgba(192,132,252,0.20))' },
@@ -377,35 +383,34 @@ const appShortcuts = [
 /*  Desktop component                                                  */
 /* ------------------------------------------------------------------ */
 export function Desktop() {
-  const { launchApp, showContextMenu, hideContextMenu, contextMenu, setApps, refreshLicense, activateLicense } = useOSStore();
+  const {
+    launchApp,
+    showContextMenu,
+    hideContextMenu,
+    contextMenu,
+    setApps,
+    setAppEntitlements,
+    installedAppIds,
+  } = useOSStore();
 
-  // Register all apps and verify the stored license token on first mount.
-  // If no license is stored and the user is signed in, auto-claim the free
-  // 7-day trial — operator gets a working OS immediately, the paywall only
-  // shows once the trial expires.
+  // Register the full catalogue, then restore only the apps this account has
+  // installed. Trials and paid periods are authoritative on Kobe Cloud.
   useEffect(() => {
     setApps(appRegistry);
-    (async () => {
-      await refreshLicense();
-      const status = useOSStore.getState().licenseStatus;
-      if (status === 'none') {
-        try {
-          const token = getToken();
-          if (!token) return; // not signed in — paywall handles it later
-          const res = await fetch(`${API_BASE}/license/start-trial`, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          if (!res.ok) return;
-          const body = await res.json() as { token?: string; status?: string };
-          if (body.status === 'active' && body.token) {
-            await activateLicense(body.token);
-          }
-        } catch { /* offline / network — paywall will kick in when needed */ }
-      }
-    })().catch(err => console.error('[KobeOS] License boot error:', err));
+    listAppEntitlements()
+      .then(setAppEntitlements)
+      .catch(() => {
+        // The entitlement backend is unreachable (offline / self-hosted backend
+        // down). Don't strand the user with only the 3 core apps: if nothing
+        // beyond core is installed, make the whole catalogue usable locally.
+        // Real entitlements reconcile when the backend is reachable again.
+        const s = useOSStore.getState();
+        const hasRealApps = s.installedAppIds.some((id) => !CORE_APP_IDS.includes(id as typeof CORE_APP_IDS[number]));
+        if (!hasRealApps) s.enableOfflineAppFallback();
+      });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -510,7 +515,10 @@ export function Desktop() {
     [showContextMenu, launchApp]
   );
 
-  const filteredApps = appShortcuts.filter((a) =>
+  const availableShortcuts = appShortcuts.filter((app) =>
+    installedAppIds.includes(app.appId)
+  );
+  const filteredApps = availableShortcuts.filter((a) =>
     a.label.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
@@ -524,9 +532,6 @@ export function Desktop() {
       onContextMenu={handleBgRightClick}
     >
       <BokehBackground />
-
-      {/* Trial countdown — shown only while a free trial is active */}
-      <TrialBanner />
 
       {/* OTA update banner — appears when the backend reports a new build hash */}
       <UpdateBanner />
@@ -682,7 +687,7 @@ export function Desktop() {
 
           {/* App shortcuts grid (widget row is now in the left rail) */}
           <div className="w-full grid grid-cols-4 gap-3 mb-6 mt-4">
-            {(searchQuery ? filteredApps : appShortcuts).map((app) => {
+            {(searchQuery ? filteredApps : availableShortcuts).map((app) => {
               const Icon = app.icon;
               return (
                 <button
@@ -883,8 +888,16 @@ export function Desktop() {
       {/* Open application windows */}
       <WindowManager />
 
+      {/* Self-healing safe-mode banner (AI offline / DB recovering) */}
+      <SafeModeBanner />
+
       {/* Taskbar */}
       <Taskbar />
+
+      {/* Global AI co-pilot — floating assistant available inside every module */}
+      <GlobalAssistant />
+
+      <ContextualInstallPrompt />
 
       {/* Context menu */}
       {contextMenu && (
@@ -900,30 +913,6 @@ export function Desktop() {
 }
 
 /* ─────────────────────────── Trial countdown banner ─────────────────────────── */
-
-function TrialBanner() {
-  const licenseStatus = useOSStore((s) => s.licenseStatus);
-  const licensePayload = useOSStore((s) => s.licensePayload);
-  const launchApp = useOSStore((s) => s.launchApp);
-
-  if (licenseStatus !== 'valid' || licensePayload?.plan !== 'trial' || !licensePayload?.expiresAt) return null;
-  const msRemaining = licensePayload.expiresAt - Date.now();
-  if (msRemaining <= 0) return null;
-  const daysRemaining = Math.ceil(msRemaining / 86_400_000);
-
-  return (
-    <div className="absolute top-3 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500/20 backdrop-blur-md border border-amber-400/40 text-amber-100 text-xs font-semibold shadow-lg">
-      <span className="inline-block w-1.5 h-1.5 rounded-full bg-amber-300 animate-pulse" />
-      Free trial · {daysRemaining} day{daysRemaining === 1 ? '' : 's'} left
-      <button
-        onClick={() => launchApp('settings')}
-        className="ml-1 px-2 py-0.5 rounded-full bg-amber-300 text-amber-900 text-[10px] hover:bg-amber-200 transition-colors"
-      >
-        Upgrade
-      </button>
-    </div>
-  );
-}
 
 /* ─────────────────────────── OTA update banner ─────────────────────────── */
 

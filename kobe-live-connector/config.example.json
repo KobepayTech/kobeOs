@@ -1,0 +1,14 @@
+{
+  "backendUrl": "http://127.0.0.1:3000",
+  "ingestToken": "PASTE-THE-SESSION-INGEST-TOKEN",
+  "autoReplyWebhook": "",
+  "tiktok": {
+    "username": "your_tiktok_handle",
+    "signHost": "",
+    "eulerApiKey": "",
+    "sessionId": ""
+  },
+  "ssn": {
+    "wsUrl": ""
+  }
+}

@@ -5,8 +5,9 @@
  * Falls back to demo data when offline.
  */
 import { useState, useEffect, useRef } from 'react';
+import { ObsClient } from '../obs';
 import { useSportsSocket, type MatchEvent } from '../useSportsSocket';
-import { matchesApi, type Match } from '../api';
+import { matchesApi, boxingApi, type Match } from '../api';
 
 // ── Demo fallback ─────────────────────────────────────────────────────────────
 
@@ -129,6 +130,9 @@ export default function Broadcast({ matchId: propMatchId }: BroadcastProps) {
   }, [propMatchId]);
   const [view, setView] = useState<'preview' | 'builder'>('preview');
   const [widgets, setWidgets] = useState({ score: true, possession: true, xg: true, speed: true });
+  const [overlaySport, setOverlaySport] = useState<'football' | 'boxing'>('football');
+  const [bouts, setBouts] = useState<{ id: string; fighterAName: string; fighterBName: string; status: string }[]>([]);
+  const [boutId, setBoutId] = useState('');
   const [banners, setBanners] = useState<Array<MatchEvent & { uid: string }>>([]);
   const bannerIdRef = useRef(0);
 
@@ -158,12 +162,17 @@ export default function Broadcast({ matchId: propMatchId }: BroadcastProps) {
   const dismissBanner = (uid: string) => setBanners((b) => b.filter((x) => x.uid !== uid));
 
   useEffect(() => {
-    matchesApi.list(1, 50).then((r) => { if (r.data.length) { setMatches(r.data); setSelectedId(r.data[0].id); } }).catch(() => {});
+    // The /sports list endpoints return a raw array; the client types it as
+    // {data,total}. Normalise either shape.
+    matchesApi.list(1, 50).then((r) => { const rows = (Array.isArray(r) ? r : r.data) ?? []; if (rows.length) { setMatches(rows); setSelectedId(rows[0].id); } }).catch(() => {});
+    boxingApi.bouts().then((r) => { const rows = Array.isArray(r) ? r : []; setBouts(rows); if (rows.length) setBoutId(rows[0].id); }).catch(() => {});
   }, []);
 
   const toggle = (k: keyof typeof widgets) => setWidgets((v) => ({ ...v, [k]: !v[k] }));
 
-  const obsUrl = `${window.location.origin}/sports/overlay?match=${selectedId}`;
+  const obsUrl = overlaySport === 'boxing'
+    ? `${window.location.origin}/sports/overlay?bout=${boutId}`
+    : `${window.location.origin}/sports/overlay?match=${selectedId}`;
 
   return (
     <div className="flex flex-col h-full">
@@ -272,6 +281,21 @@ export default function Broadcast({ matchId: propMatchId }: BroadcastProps) {
             {/* OBS export */}
             <div className="rounded-xl bg-gray-900 border border-gray-800 p-4 space-y-3">
               <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">OBS Browser Source</h4>
+              {/* Overlay source: football scoreboard or boxing scorecard */}
+              <div className="flex items-center gap-2">
+                {(['football', 'boxing'] as const).map((s) => (
+                  <button key={s} onClick={() => setOverlaySport(s)}
+                    className={`px-3 h-8 rounded-lg text-xs font-bold ${overlaySport === s ? 'bg-rose-600 text-white' : 'bg-gray-800 text-gray-400'}`}>
+                    {s === 'football' ? '⚽ Football' : '🥊 Boxing'}
+                  </button>
+                ))}
+                {overlaySport === 'boxing' && (
+                  <select value={boutId} onChange={(e) => setBoutId(e.target.value)} className="flex-1 h-8 px-2 rounded-lg bg-gray-800 border border-gray-700 text-xs text-white">
+                    {bouts.length === 0 && <option value="">No bouts — create one in Boxing</option>}
+                    {bouts.map((b) => <option key={b.id} value={b.id}>{b.fighterAName} vs {b.fighterBName} ({b.status})</option>)}
+                  </select>
+                )}
+              </div>
               <p className="text-xs text-gray-500">Add this URL as a Browser Source in OBS at 1920×1080 with transparent background.</p>
               <div className="flex gap-2">
                 <div className="flex-1 bg-gray-800 rounded-lg px-3 py-2 text-xs text-gray-400 font-mono truncate">{obsUrl}</div>
@@ -288,9 +312,88 @@ export default function Broadcast({ matchId: propMatchId }: BroadcastProps) {
                 <p>✓ Refresh browser when scene becomes active</p>
               </div>
             </div>
+
+            {/* Auto-connect + control OBS via its WebSocket server */}
+            <ObsControlPanel overlayUrl={obsUrl} />
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Connect KobeSports directly to OBS (OBS 28+ ships a WebSocket server:
+ * Tools → WebSocket Server Settings). Once connected we can drop the overlay
+ * in as a Browser Source and start/stop the stream from here.
+ */
+function ObsControlPanel({ overlayUrl }: { overlayUrl: string }) {
+  const [host, setHost] = useState('ws://localhost:4455');
+  const [password, setPassword] = useState('');
+  const [status, setStatus] = useState<'idle' | 'connecting' | 'connected'>('idle');
+  const [streaming, setStreaming] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const clientRef = useRef<ObsClient | null>(null);
+
+  const flash = (m: string) => { setMsg(m); setTimeout(() => setMsg(null), 3000); };
+
+  const connect = async () => {
+    setErr(null); setStatus('connecting');
+    const c = new ObsClient();
+    try {
+      await c.connect(host.trim(), password);
+      clientRef.current = c;
+      setStatus('connected');
+      setStreaming(await c.streamStatus().catch(() => false));
+      flash('Connected to OBS');
+    } catch (e) { setErr((e as Error).message); setStatus('idle'); }
+  };
+  const addOverlay = async () => {
+    try { await clientRef.current?.addOverlay(overlayUrl); flash('Overlay added to your current OBS scene'); }
+    catch (e) { setErr((e as Error).message); }
+  };
+  const toggleStream = async () => {
+    const c = clientRef.current; if (!c) return;
+    try {
+      if (streaming) { await c.stopStream(); setStreaming(false); flash('Stream stopped'); }
+      else { await c.startStream(); setStreaming(true); flash('Stream started'); }
+    } catch (e) { setErr((e as Error).message); }
+  };
+
+  return (
+    <div className="rounded-xl bg-gray-900 border border-gray-800 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Connect OBS (auto)</h4>
+        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${status === 'connected' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-gray-700 text-gray-400'}`}>
+          {status === 'connected' ? '● Connected' : status === 'connecting' ? 'Connecting…' : 'Not connected'}
+        </span>
+      </div>
+
+      {status !== 'connected' ? (
+        <>
+          <p className="text-xs text-gray-500">In OBS: <span className="text-gray-300">Tools → WebSocket Server Settings → Enable</span>. Then connect below — KobeSports adds the overlay and controls the stream for you.</p>
+          <div className="grid grid-cols-2 gap-2">
+            <input value={host} onChange={(e) => setHost(e.target.value)} placeholder="ws://localhost:4455" className="h-9 px-2 rounded-lg bg-gray-800 border border-gray-700 text-xs text-gray-200" />
+            <input value={password} onChange={(e) => setPassword(e.target.value)} type="password" placeholder="WebSocket password" className="h-9 px-2 rounded-lg bg-gray-800 border border-gray-700 text-xs text-gray-200" />
+          </div>
+          <div className="flex gap-2">
+            <button onClick={connect} disabled={status === 'connecting'} className="flex-1 h-9 rounded-lg bg-blue-600 hover:bg-blue-500 text-xs text-white font-bold disabled:opacity-50">Connect to OBS</button>
+            <a href="https://obsproject.com/download" target="_blank" rel="noreferrer" className="h-9 px-3 rounded-lg bg-gray-800 border border-gray-700 text-xs text-gray-300 inline-flex items-center">Download OBS</a>
+          </div>
+        </>
+      ) : (
+        <div className="flex gap-2 flex-wrap">
+          <button onClick={addOverlay} className="flex-1 h-9 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-xs text-white font-bold">Add overlay to OBS</button>
+          <button onClick={toggleStream} className={`flex-1 h-9 rounded-lg text-xs font-bold text-white ${streaming ? 'bg-rose-600 hover:bg-rose-500' : 'bg-emerald-600 hover:bg-emerald-500'}`}>
+            {streaming ? '■ Stop stream' : '● Go live'}
+          </button>
+          <button onClick={() => { clientRef.current?.disconnect(); setStatus('idle'); }} className="h-9 px-3 rounded-lg bg-gray-800 border border-gray-700 text-xs text-gray-400">Disconnect</button>
+        </div>
+      )}
+      {msg && <div className="text-xs text-emerald-400">{msg}</div>}
+      {err && <div className="text-xs text-rose-400">{err}</div>}
+      <p className="text-[10px] text-gray-600">Set your stream target (YouTube/Facebook key) once in OBS → Settings → Stream. TikTok needs LIVE access via TikTok Live Studio; Instagram Live can’t be streamed from OBS.</p>
     </div>
   );
 }

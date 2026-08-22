@@ -1,5 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
+import { DataSource } from 'typeorm';
 import { bootTestApp, resetDb } from './setup';
 
 /**
@@ -15,14 +16,27 @@ describe('New modules + ownership (e2e)', () => {
   afterAll(async () => { await app.close(); });
   beforeEach(async () => { await resetDb(app); });
 
-  const token = async (email: string): Promise<string> => {
+  const token = async (email: string, role: 'user' | 'admin' = 'user'): Promise<string> => {
     const r = await request(http).post('/api/auth/register').send({ email, password: 'secret123' });
-    return r.body.accessToken as string;
+    if (r.status !== 201 || typeof r.body.accessToken !== 'string') {
+      throw new Error(`Could not register ${email}: HTTP ${r.status} ${JSON.stringify(r.body)}`);
+    }
+    if (role === 'user') return r.body.accessToken;
+
+    await app.get(DataSource).query(
+      'UPDATE "users" SET "role" = $1 WHERE "email" = $2',
+      [role, email],
+    );
+    const login = await request(http).post('/api/auth/login').send({ email, password: 'secret123' });
+    if (login.status !== 201 || typeof login.body.accessToken !== 'string') {
+      throw new Error(`Could not log in ${email}: HTTP ${login.status} ${JSON.stringify(login.body)}`);
+    }
+    return login.body.accessToken;
   };
   const bearer = (t: string) => ({ Authorization: `Bearer ${t}` });
 
   it('CRUD round-trips across print / admin / devops / erp', async () => {
-    const t = await token('crud@e2e.test');
+    const t = await token('crud@e2e.test', 'admin');
 
     const job = await request(http).post('/api/print/jobs').set(bearer(t))
       .send({ product: 'Corporate Polo', customer: 'CRDB', qty: 25, priority: 'High' });
@@ -34,7 +48,7 @@ describe('New modules + ownership (e2e)', () => {
     expect(patched.body.status).toBe('Completed');
 
     const company = await request(http).post('/api/admin/companies').set(bearer(t))
-      .send({ name: 'Acme', plan: 'Pro', revenue: 1000 });
+      .send({ name: 'Acme', email: 'admin@acme.e2e.test' });
     expect(company.status).toBe(201);
 
     const list = await request(http).get('/api/admin/companies').set(bearer(t));
@@ -112,7 +126,7 @@ describe('New modules + ownership (e2e)', () => {
       paymentMethod: 'CASH',
     });
     expect(sale.status).toBe(201);
-    expect(sale.body.total).toBe(36000);
+    expect(Number(sale.body.total)).toBe(36000);
     expect(sale.body.receipt.text).toContain('SO-1001');
     expect(sale.body.receipt.text).toContain('Rice 5kg');
     expect(sale.body.receipt.text).toContain('TOTAL');
@@ -165,8 +179,8 @@ describe('New modules + ownership (e2e)', () => {
     });
     expect(sale.status).toBe(201);
     // 10000 subtotal - 5% rule (500) - 10% coupon (1000) = 8500.
-    expect(sale.body.discountAmount).toBe(1500);
-    expect(sale.body.total).toBe(8500);
+    expect(Number(sale.body.discountAmount)).toBe(1500);
+    expect(Number(sale.body.total)).toBe(8500);
     expect(sale.body.discount.breakdown).toHaveLength(2);
 
     // Coupon usage was incremented.
@@ -194,7 +208,7 @@ describe('New modules + ownership (e2e)', () => {
       approvedBy: 'manager-asha',
     });
     expect(approved.status).toBe(201);
-    expect(approved.body.total).toBe(700);
+    expect(Number(approved.body.total)).toBe(700);
   });
 
   it('BNPL sale creates receivable, decrements available credit, accepts payment', async () => {
@@ -220,13 +234,13 @@ describe('New modules + ownership (e2e)', () => {
     });
     expect(sale.status).toBe(201);
     expect(sale.body.isBnpl).toBe(true);
-    expect(sale.body.receivable.amount).toBe(300000);
+    expect(Number(sale.body.receivable.amount)).toBe(300000);
     expect(sale.body.receivable.installmentMonths).toBe(3);
-    expect(sale.body.receivable.monthlyAmount).toBe(100000);
+    expect(Number(sale.body.receivable.monthlyAmount)).toBe(100000);
 
     const profile = await request(http).get('/api/credit/profiles/by-phone/+255700000001').set(bearer(t));
-    expect(profile.body.outstanding).toBe(300000);
-    expect(profile.body.availableCredit).toBe(200000);
+    expect(Number(profile.body.outstanding)).toBe(300000);
+    expect(Number(profile.body.availableCredit)).toBe(200000);
 
     // Second BNPL purchase exceeding remaining limit is rejected.
     const denied = await request(http).post('/api/pos/orders').set(bearer(t)).send({
@@ -243,11 +257,11 @@ describe('New modules + ownership (e2e)', () => {
     const paid = await request(http).patch(`/api/credit/receivables/${receivableId}/pay`).set(bearer(t))
       .send({ amount: 100000 });
     expect(paid.body.status).toBe('PARTIAL');
-    expect(paid.body.paid).toBe(100000);
+    expect(Number(paid.body.paid)).toBe(100000);
 
     const after = await request(http).get('/api/credit/profiles/by-phone/+255700000001').set(bearer(t));
-    expect(after.body.outstanding).toBe(200000);
-    expect(after.body.availableCredit).toBe(300000);
+    expect(Number(after.body.outstanding)).toBe(200000);
+    expect(Number(after.body.availableCredit)).toBe(300000);
   });
 
   it('BNPL without a credit profile is rejected', async () => {
@@ -320,7 +334,7 @@ describe('New modules + ownership (e2e)', () => {
       taxAmount: 100,
     });
     expect(sale.status).toBe(201);
-    expect(sale.body.total).toBe(5100);
+    expect(Number(sale.body.total)).toBe(5100);
     expect(Array.isArray(sale.body.journal)).toBe(true);
 
     // Lines posted: DR Cash 5100, CR Revenue 5000, CR Tax 100.
@@ -1114,10 +1128,10 @@ describe('New modules + ownership (e2e)', () => {
       lines: [{ productId: product.body.id, quantity: 2 }],
       paymentMethod: 'CASH',
       customerName: 'Public Buyer',
-      customerPhone: '+255700storefront',
+      customerPhone: '+255700000001',
     });
     expect(sale.status).toBe(201);
-    expect(sale.body.total).toBe(24000);
+    expect(Number(sale.body.total)).toBe(24000);
     expect(sale.body.receipt.text).toContain('SHOP-TEST-1');
     expect(sale.body.pickTicket.ticketNumber).toBe('PT-SHOP-TEST-1');
 
@@ -1145,18 +1159,18 @@ describe('New modules + ownership (e2e)', () => {
       .send({ sku: 'BNPL-1', name: 'Big TV', price: 200000, stock: 5 });
 
     // Buyer with no credit profile under this owner.
-    const unknown = await request(http).get('/api/store/bnpl-shop/credit/eligibility?phone=%2B255700unknown');
+    const unknown = await request(http).get('/api/store/bnpl-shop/credit/eligibility?phone=%2B255700000002');
     expect(unknown.body).toEqual(expect.objectContaining({
       eligible: false, availableCredit: 0, reason: 'no_profile',
     }));
 
     // Owner sets up a credit profile for a known buyer.
     await request(http).post('/api/credit/profiles').set(bearer(t)).send({
-      customerPhone: '+255700buyer', customerName: 'Buyer One',
+      customerPhone: '+255700000003', customerName: 'Buyer One',
       creditLimit: 500000, riskGrade: 'B',
     });
 
-    const known = await request(http).get('/api/store/bnpl-shop/credit/eligibility?phone=%2B255700buyer');
+    const known = await request(http).get('/api/store/bnpl-shop/credit/eligibility?phone=%2B255700000003');
     expect(known.body.eligible).toBe(true);
     expect(Number(known.body.availableCredit)).toBe(500000);
 
@@ -1166,7 +1180,7 @@ describe('New modules + ownership (e2e)', () => {
       lines: [{ productId: product.body.id, quantity: 1 }],
       paymentMethod: 'BNPL',
       customerName: 'Buyer One',
-      customerPhone: '+255700buyer',
+      customerPhone: '+255700000003',
       installmentMonths: 6,
     });
     expect(sale.status).toBe(201);
@@ -1175,7 +1189,7 @@ describe('New modules + ownership (e2e)', () => {
     expect(Number(sale.body.receivable.amount)).toBe(200000);
 
     // Available credit dropped by the locked amount.
-    const after = await request(http).get('/api/store/bnpl-shop/credit/eligibility?phone=%2B255700buyer');
+    const after = await request(http).get('/api/store/bnpl-shop/credit/eligibility?phone=%2B255700000003');
     expect(Number(after.body.availableCredit)).toBe(300000);
 
     // Over-limit BNPL purchase is blocked.
@@ -1185,7 +1199,7 @@ describe('New modules + ownership (e2e)', () => {
       orderNumber: 'SHOP-BNPL-2',
       lines: [{ productId: product.body.id, quantity: 2 }],
       paymentMethod: 'BNPL',
-      customerPhone: '+255700buyer',
+      customerPhone: '+255700000003',
     });
     expect(denied.status).toBe(400);
     expect(denied.body.message).toMatch(/BNPL denied/);
@@ -1203,13 +1217,13 @@ describe('New modules + ownership (e2e)', () => {
       lines: [{ productId: product.body.id, quantity: 1 }],
       paymentMethod: 'CASH',
       customerName: 'Track Buyer',
-      customerPhone: '+255700track',
+      customerPhone: '+255700000004',
     });
     expect(sale.status).toBe(201);
 
     // Right phone → order data.
     const ok = await request(http)
-      .get('/api/store/track-shop/orders/SHOP-TRACK-1?phone=%2B255700track');
+      .get('/api/store/track-shop/orders/SHOP-TRACK-1?phone=%2B255700000004');
     expect(ok.status).toBe(200);
     expect(ok.body.orderNumber).toBe('SHOP-TRACK-1');
     expect(ok.body.items).toHaveLength(1);
@@ -1222,7 +1236,7 @@ describe('New modules + ownership (e2e)', () => {
 
     // Wrong order number → 404.
     const missing = await request(http)
-      .get('/api/store/track-shop/orders/SHOP-NOPE?phone=%2B255700track');
+      .get('/api/store/track-shop/orders/SHOP-NOPE?phone=%2B255700000004');
     expect(missing.status).toBe(404);
   });
 

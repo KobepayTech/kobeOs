@@ -98,15 +98,17 @@ interface JerseyShopChromeProps {
   onOpenCart: () => void;
   onGoStores: () => void;
   onPickNav?: (
-    view: 'new-arrivals' | 'offers' | 'brands' | 'wishlist' | 'track-order',
+    view: 'new-arrivals' | 'best-sellers' | 'offers' | 'brands' | 'wishlist' | 'track-order' | 'loyalty' | 'bnpl',
   ) => void;
+  onSignup?: () => void;
+  customerName?: string;
   config?: JerseyConfig;
   children: React.ReactNode;
 }
 
 /* ─── Announcement Bar ──────────────────────────────────────────────── */
 
-export function AnnouncementBar() {
+export function AnnouncementBar({ onSignup, onShopNow }: { onSignup?: () => void; onShopNow?: () => void }) {
   return (
     <div className="bg-[#f5f5f5] text-[11px] text-[#666] border-b border-[#e5e5e5]">
       <div className="max-w-7xl mx-auto px-4 py-1.5">
@@ -115,9 +117,10 @@ export function AnnouncementBar() {
           <select
             className="bg-transparent border-none text-[11px] text-[#666] focus:outline-none cursor-pointer"
             aria-label="Currency"
-            defaultValue="USD"
+            defaultValue="TZS"
           >
-            <option>USD / US$</option>
+            <option value="TZS">TZS / TSh</option>
+            <option value="USD">USD / US$</option>
             <option>EUR / €</option>
             <option>GBP / £</option>
           </select>
@@ -141,7 +144,7 @@ export function AnnouncementBar() {
           <span className="font-semibold text-[#1a1a1a]">
             SIGN UP GET 15% OFF
           </span>
-          <button className="border border-[#999] text-[#1a1a1a] px-3 py-0.5 text-[11px] font-medium hover:border-[#c8102e] hover:text-[#c8102e] transition-colors">
+          <button onClick={onSignup} className="border border-[#999] text-[#1a1a1a] px-3 py-0.5 text-[11px] font-medium hover:border-[#c8102e] hover:text-[#c8102e] transition-colors">
             Sign up
           </button>
         </div>
@@ -152,7 +155,7 @@ export function AnnouncementBar() {
             Free Shipping Worldwide
           </span>
           <span className="text-[#ccc]">|</span>
-          <button className="underline hover:text-[#c8102e] transition-colors">
+          <button onClick={onShopNow} className="underline hover:text-[#c8102e] transition-colors">
             See terms
           </button>
           <span className="text-[#ccc]">|</span>
@@ -172,31 +175,46 @@ export function AnnouncementBar() {
 
 /* ─── Header ────────────────────────────────────────────────────────── */
 
+/** Renders a store's name as a two-tone wordmark (first word accented),
+ *  so the storefront brand tracks the actual store name. */
+function StoreWordmark({ name, accent, rest }: { name: string; accent: string; rest: string }) {
+  const parts = (name || 'My Store').trim().split(/\s+/);
+  return (
+    <span className="text-[22px] font-black tracking-wider" style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}>
+      <span style={{ color: accent }}>{parts[0].toUpperCase()}</span>
+      {parts.length > 1 && <span style={{ color: rest }}> {parts.slice(1).join(' ').toUpperCase()}</span>}
+    </span>
+  );
+}
+
 export function Header({
+  storeName,
+  logoUrl,
   searchQuery,
   onSearchChange,
   cartCount,
   onOpenCart,
   onPickNav,
+  onSignup,
+  customerName,
 }: {
+  storeName: string;
+  logoUrl?: string;
   searchQuery: string;
   onSearchChange: (q: string) => void;
   cartCount: number;
   onOpenCart: () => void;
   onPickNav?: JerseyShopChromeProps['onPickNav'];
+  onSignup?: () => void;
+  customerName?: string;
 }) {
   return (
     <header className="bg-white border-b border-[#e5e5e5]">
       <div className="max-w-7xl mx-auto px-4 h-[70px] flex items-center gap-6">
-        {/* Logo */}
-        <a href="/" className="shrink-0 flex items-center gap-0">
-          <span
-            className="text-[22px] font-black tracking-wider"
-            style={{ fontFamily: 'Arial, Helvetica, sans-serif' }}
-          >
-            <span className="text-[#c8102e]">PRO</span>
-            <span className="text-[#1a1a1a]">JERSEY SHOP</span>
-          </span>
+        {/* Logo — the store's own name/logo (was hardcoded "PRO JERSEY SHOP"). */}
+        <a href="/" className="shrink-0 flex items-center gap-2">
+          {logoUrl && <img src={logoUrl} alt={storeName} className="h-9 w-auto max-w-[140px] object-contain" />}
+          {!logoUrl && <StoreWordmark name={storeName} accent="#c8102e" rest="#1a1a1a" />}
         </a>
 
         {/* Search */}
@@ -213,7 +231,10 @@ export function Header({
 
         {/* Right actions */}
         <div className="flex items-center gap-5 text-[12px] text-[#1a1a1a]">
-          <button className="hidden lg:flex items-center gap-1.5 hover:text-[#c8102e] transition-colors">
+          <button
+            onClick={() => onPickNav?.('track-order')}
+            className="hidden lg:flex items-center gap-1.5 hover:text-[#c8102e] transition-colors"
+          >
             <Truck className="w-4 h-4" />
             Track Order
           </button>
@@ -222,11 +243,11 @@ export function Header({
             Download App
           </button>
           <button
-            onClick={() => onPickNav?.('track-order')}
+            onClick={onSignup}
             className="flex items-center gap-1.5 hover:text-[#c8102e] transition-colors"
           >
             <User className="w-4 h-4" />
-            Login
+            {customerName ? customerName.split(' ')[0] : 'Sign up'}
           </button>
           <button
             onClick={onOpenCart}
@@ -248,31 +269,27 @@ export function Header({
 
 /* ─── Main Nav ──────────────────────────────────────────────────────── */
 
-const NAV_ITEMS = [
-  'WORLD CUP 2026',
-  'CLUBS',
-  'APPAREL',
-  'RETRO',
-  'KIDS',
-  'Buy 3 Get 1 FREE',
-  'PLAYERS',
-  'NBA',
-  'NEW',
-];
-
 export function MainNav({
+  categories,
   selectedCategory,
   onSelectCategory,
 }: {
+  categories: string[];
   selectedCategory: string;
   onSelectCategory: (cat: string) => void;
 }) {
+  // These are permanent, deep-linkable jersey departments. Real store
+  // categories are appended so custom departments continue to work too.
+  const core = ['Club Jerseys', 'Kids', 'National Teams', 'Retro', 'Training'];
+  const realCats = (categories ?? []).filter((c) => c !== 'All');
+  const normalized = new Set(core.map((c) => c.toLowerCase().replace(/[^a-z0-9]/g, '')));
+  const extras = realCats.filter((c) => !normalized.has(c.toLowerCase().replace(/[^a-z0-9]/g, '')));
+  const items = ['All', ...core, ...extras];
   return (
     <nav className="bg-white border-t border-b border-[#e5e5e5]">
       <div className="max-w-7xl mx-auto px-4 flex items-center gap-0 overflow-x-auto">
-        {NAV_ITEMS.map((item) => {
+        {items.map((item) => {
           const isActive = selectedCategory === item;
-          const isPromo = item === 'Buy 3 Get 1 FREE';
           return (
             <button
               key={item}
@@ -281,7 +298,7 @@ export function MainNav({
                 isActive
                   ? 'border-[#c8102e] text-[#c8102e]'
                   : 'border-transparent text-[#1a1a1a] hover:text-[#c8102e]'
-              } ${isPromo ? 'text-[#c8102e]' : ''}`}
+              }`}
             >
               {item}
             </button>
@@ -294,59 +311,63 @@ export function MainNav({
 
 /* ─── Category Quick Icons ──────────────────────────────────────────── */
 
-const CATEGORY_ICONS = [
-  {
-    label: 'Clubs',
-    gradient: 'from-green-400 to-green-600',
-    Icon: CircleDot,
-  },
-  {
-    label: 'World Cup',
-    gradient: 'from-amber-400 to-amber-600',
-    Icon: Trophy,
-  },
-  {
-    label: 'Buy 3 Get 1',
-    gradient: 'from-red-400 to-red-600',
-    Icon: Gift,
-  },
-  {
-    label: '26/27 New',
-    gradient: 'from-blue-400 to-blue-600',
-    Icon: Sparkles,
-  },
-  {
-    label: 'UCL',
-    gradient: 'from-violet-400 to-violet-600',
-    Icon: Star,
-  },
-  {
-    label: '2026 F1',
-    gradient: 'from-orange-400 to-orange-600',
-    Icon: Fuel,
-  },
+// Rotating icon/gradient styling applied to the store's REAL categories, so
+// each quick-icon actually filters the grid (previously these were hardcoded
+// marketing labels with no onClick — clicking did nothing).
+const QUICK_ICON_SET = [CircleDot, Trophy, Gift, Sparkles, Star, Fuel];
+const QUICK_ICON_GRADIENTS = [
+  'from-green-400 to-green-600',
+  'from-amber-400 to-amber-600',
+  'from-red-400 to-red-600',
+  'from-blue-400 to-blue-600',
+  'from-violet-400 to-violet-600',
+  'from-orange-400 to-orange-600',
 ];
 
-export function CategoryIcons() {
+export function CategoryIcons({
+  categories,
+  selectedCategory,
+  onSelectCategory,
+}: {
+  categories: string[];
+  selectedCategory: string;
+  onSelectCategory: (cat: string) => void;
+}) {
+  // Quick-icons are for REAL categories only — never the "All" reset (that
+  // was the stray green circle). Hidden when the store has no categories yet.
+  const items = (categories ?? []).filter((c) => c !== 'All').slice(0, 8);
+  if (items.length === 0) return null;
   return (
     <section className="bg-white border-b border-[#e5e5e5]">
       <div className="max-w-7xl mx-auto px-4 py-5">
-        <div className="flex items-center justify-center gap-8 md:gap-12">
-          {CATEGORY_ICONS.map(({ label, gradient, Icon }) => (
-            <button
-              key={label}
-              className="flex flex-col items-center gap-2 group"
-            >
-              <div
-                className={`w-14 h-14 rounded-full bg-gradient-to-br ${gradient} flex items-center justify-center text-white shadow-md group-hover:scale-110 transition-transform`}
+        <div className="flex items-center justify-center gap-8 md:gap-12 overflow-x-auto">
+          {items.map((label, i) => {
+            const Icon = QUICK_ICON_SET[i % QUICK_ICON_SET.length];
+            const gradient = QUICK_ICON_GRADIENTS[i % QUICK_ICON_GRADIENTS.length];
+            const isActive = selectedCategory === label;
+            return (
+              <button
+                key={label}
+                onClick={() => onSelectCategory(label)}
+                className="flex flex-col items-center gap-2 group shrink-0"
               >
-                <Icon className="w-6 h-6" />
-              </div>
-              <span className="text-[12px] text-[#1a1a1a] font-medium whitespace-nowrap">
-                {label}
-              </span>
-            </button>
-          ))}
+                <div
+                  className={`w-14 h-14 rounded-full bg-gradient-to-br ${gradient} flex items-center justify-center text-white shadow-md group-hover:scale-110 transition-transform ${
+                    isActive ? 'ring-2 ring-offset-2 ring-[#c8102e]' : ''
+                  }`}
+                >
+                  <Icon className="w-6 h-6" />
+                </div>
+                <span
+                  className={`text-[12px] font-medium whitespace-nowrap ${
+                    isActive ? 'text-[#c8102e]' : 'text-[#1a1a1a]'
+                  }`}
+                >
+                  {label}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
     </section>
@@ -456,12 +477,14 @@ export function JerseyProductCard({
   onAddToCart,
   onAddToWishlist,
   onOpen,
+  onOpenReviews,
   wished,
 }: {
   product: JerseyProduct;
   onAddToCart: (p: JerseyProduct) => void;
   onAddToWishlist: (p: JerseyProduct) => void;
   onOpen: (p: JerseyProduct) => void;
+  onOpenReviews?: (p: JerseyProduct) => void;
   wished: boolean;
 }) {
   const newRecent = useMemo(() => {
@@ -495,8 +518,11 @@ export function JerseyProductCard({
   return (
     <div className="group bg-white rounded-lg border border-[#e5e5e5] overflow-hidden flex flex-col hover:shadow-md transition-shadow">
       {/* Image area */}
-      <button
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => onOpen(product)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onOpen(product); }}
         className="relative aspect-square bg-[#f8f8f8] overflow-hidden"
       >
         {product.imageUrl ? (
@@ -548,7 +574,7 @@ export function JerseyProductCard({
             QUICK VIEW
           </button>
         </div>
-      </button>
+      </div>
 
       {/* Info area */}
       <div className="p-3 flex-1 flex flex-col gap-1.5">
@@ -563,8 +589,12 @@ export function JerseyProductCard({
           {displayPrice}
         </div>
 
-        {/* Star rating placeholder */}
-        <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => (onOpenReviews ?? onOpen)(product)}
+          className="flex items-center gap-1 w-fit rounded px-1.5 py-1 -ml-1.5 text-[#666] hover:bg-amber-50 hover:text-[#c8102e] transition-colors"
+          aria-label={`Read or write reviews for ${product.name}`}
+        >
           <div className="flex">
             {[1, 2, 3, 4, 5].map((s) => (
               <Star
@@ -573,8 +603,8 @@ export function JerseyProductCard({
               />
             ))}
           </div>
-          <span className="text-[11px] text-[#999]">(211)</span>
-        </div>
+          <span className="text-[11px] font-semibold underline underline-offset-2">REVIEWS</span>
+        </button>
 
         <Button
           size="sm"
@@ -1029,8 +1059,7 @@ export function Footer({
         {/* Brand column */}
         <div className="col-span-2 md:col-span-1">
           <div className="text-[16px] font-black mb-2">
-            <span className="text-[#c8102e]">PRO</span>
-            <span className="text-white">JERSEY SHOP</span>
+            <StoreWordmark name={storeName} accent="#c8102e" rest="#ffffff" />
           </div>
           <p className="text-[#999] mb-4">
             {tagline ?? 'Your #1 Source for Premium Soccer Jerseys Since 2017.'}
@@ -1135,7 +1164,7 @@ export function JerseyShopChrome({
   bannerSubtext,
   bannerCta,
   bannerVisible = true,
-  categories: _categories,
+  categories,
   selectedCategory,
   onSelectCategory,
   searchQuery,
@@ -1144,35 +1173,44 @@ export function JerseyShopChrome({
   onOpenCart,
   onGoStores: _onGoStores,
   onPickNav,
+  onSignup,
+  customerName,
   config,
   children,
 }: JerseyShopChromeProps) {
-  // _logoUrl, _categories, _onGoStores kept for backward compatibility
-  void _logoUrl;
-  void _categories;
+  // _logoUrl, _onGoStores kept for backward compatibility
   void _onGoStores;
   return (
     <div className="flex flex-col min-h-screen bg-white text-[#1a1a1a] font-sans">
       {/* Announcement Bar */}
-      <AnnouncementBar />
+      <AnnouncementBar onSignup={onSignup} onShopNow={() => onSelectCategory('All')} />
 
       {/* Header */}
       <Header
+        storeName={storeName}
+        logoUrl={_logoUrl}
         searchQuery={searchQuery}
         onSearchChange={onSearchChange}
         cartCount={cartCount}
         onOpenCart={onOpenCart}
         onPickNav={onPickNav}
+        onSignup={onSignup}
+        customerName={customerName}
       />
 
-      {/* Main Navigation */}
+      {/* Main Navigation — real product categories */}
       <MainNav
+        categories={categories}
         selectedCategory={selectedCategory}
         onSelectCategory={onSelectCategory}
       />
 
-      {/* Category Quick Icons */}
-      <CategoryIcons />
+      {/* Category Quick Icons — clickable, filter by real categories */}
+      <CategoryIcons
+        categories={categories}
+        selectedCategory={selectedCategory}
+        onSelectCategory={onSelectCategory}
+      />
 
       {/* Hero Banner */}
       <HeroBanner

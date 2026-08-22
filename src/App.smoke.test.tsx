@@ -1,5 +1,6 @@
 import { render, act } from '@testing-library/react';
 import App from './App';
+import { useOSStore } from './os/store';
 
 /** Labels shown on the real OS Desktop shortcuts (see src/os/Desktop.tsx appShortcuts) */
 const desktopShortcuts = [
@@ -23,7 +24,46 @@ const desktopShortcuts = [
 describe('KobeOS launcher smoke test (real OS shell)', () => {
   beforeEach(() => {
     localStorage.clear();
-    localStorage.setItem('kobeos_user', 'Smoke Tester');
+    localStorage.setItem('kobe_auth_token', 'smoke-test-token');
+    localStorage.setItem('kobeos_auth_user', JSON.stringify({
+      id: 'smoke-test-user',
+      email: 'smoke@example.com',
+      displayName: 'Smoke Tester',
+    }));
+    localStorage.setItem(
+      'kobeos_store_onboarding_complete:smoke-test-user',
+      'true',
+    );
+    localStorage.setItem('kobeos_entitlement_owner', 'smoke-test-user');
+
+    // The launcher now shows only apps installed for the signed-in account.
+    // Seed the smoke account with the catalogue used by these launcher tests.
+    const now = Date.now();
+    useOSStore.getState().setAppEntitlements([
+      'chat',
+      'calendar',
+      'erp-dashboard',
+      'property',
+      'image-viewer',
+      'notepad',
+      'cargo',
+      'kobe-print',
+      'kobe-studio',
+      'kobe-hotel',
+      'kobe-pay',
+      'kobetech-admin',
+      'kobetech-devops',
+    ].map((appId) => ({
+      appId,
+      access: 'trial' as const,
+      installedAt: now,
+      trialEndsAt: now + 14 * 86_400_000,
+      periodEndsAt: null,
+      daysRemaining: 14,
+      priceTzs: 25_000,
+      priceUsd: 10,
+      paymentProviders: { palmPesa: true, paypal: true },
+    })));
   });
 
   it('renders the real OS desktop with all shortcut labels', () => {
@@ -66,7 +106,7 @@ describe('KobeOS launcher smoke test (real OS shell)', () => {
   });
 
   it('filters shortcuts when typing in the search bar', () => {
-    const { getByPlaceholderText, getByText, queryByText } = render(<App />);
+    const { getByPlaceholderText, getByText } = render(<App />);
 
     const searchInput = getByPlaceholderText(/Search Apps/i);
 

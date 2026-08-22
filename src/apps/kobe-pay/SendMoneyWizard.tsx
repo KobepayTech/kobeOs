@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   Loader2, X, Check, ChevronDown, ArrowRight, ArrowLeft,
-  Search, Send, ScanLine, Download, Calendar, Plus,
+  Search, Send, ScanLine, Download, Calendar,
 } from 'lucide-react';
 import { SupplierPaymentReconcileDialog } from './SupplierPaymentReconcileDialog';
 

@@ -18,15 +18,16 @@ mkdir -p src/components src/hooks
 cat > src/hooks/useSystemMode.ts << 'HOOK'
 import { useState, useEffect } from 'react';
 export type SystemMode = 'live-usb' | 'installed' | 'development' | 'unknown';
+
+function hasElectronSystemMode(): boolean {
+  return typeof window !== 'undefined' && typeof window.kobeOS?.system?.getSystemMode === 'function';
+}
+
 export function useSystemMode(): SystemMode {
-  const [mode, setMode] = useState<SystemMode>('unknown');
+  const [mode, setMode] = useState<SystemMode>(() => hasElectronSystemMode() ? 'unknown' : 'development');
   useEffect(() => {
-    const isElectron = window.navigator.userAgent.toLowerCase().includes('electron');
-    if (!isElectron) { setMode('development'); return; }
-    fetch('file:///proc/mounts').then(r => r.text()).then(m => {
-      if (m.includes('/dev/sr0') || m.includes('overlay')) setMode('live-usb');
-      else setMode('installed');
-    }).catch(() => setMode('installed'));
+    if (!hasElectronSystemMode()) return;
+    void window.kobeOS.system.getSystemMode().then(setMode).catch(() => setMode('unknown'));
   }, []);
   return mode;
 }

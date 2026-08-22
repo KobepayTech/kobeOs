@@ -34,10 +34,12 @@ export class EodService {
   // ── Expenses ────────────────────────────────────────────────────────────
 
   async listExpenses(ownerId: string, shopId: string, fromIso?: string, toIso?: string) {
-    await this.shops.assertOwned(ownerId, shopId);
+    // assertOwned resolves an empty shopId to the default shop — use the
+    // RESOLVED id in the query (the raw param may be '' → invalid uuid).
+    const shop = await this.shops.assertOwned(ownerId, shopId);
     const { from, to } = this.parseRange(fromIso, toIso);
     return this.expenses.find({
-      where: { ownerId, shopId, createdAt: Between(from, to) },
+      where: { ownerId, shopId: shop.id, createdAt: Between(from, to) },
       order: { createdAt: 'DESC' },
     });
   }
@@ -92,7 +94,7 @@ export class EodService {
       .filter((o) => (o.paymentMethod ?? '').toUpperCase() === 'CASH' && o.status !== 'CANCELLED')
       .reduce((s, o) => s + Number(o.total), 0);
 
-    const expenseRows = await this.expenses.find({ where: { ownerId, shopId, createdAt: Between(from, to) } });
+    const expenseRows = await this.expenses.find({ where: { ownerId, shopId: shop.id, createdAt: Between(from, to) } });
     const cashExpenses = expenseRows
       .filter((e) => e.paidVia === 'cash')
       .reduce((s, e) => s + Number(e.amount), 0);
@@ -164,10 +166,10 @@ export class EodService {
   }
 
   async listCashCounts(ownerId: string, shopId: string, fromIso?: string, toIso?: string) {
-    await this.shops.assertOwned(ownerId, shopId);
+    const shop = await this.shops.assertOwned(ownerId, shopId);
     const { from, to } = this.parseRange(fromIso, toIso);
     return this.counts.find({
-      where: { ownerId, shopId, closedAt: Between(from, to) },
+      where: { ownerId, shopId: shop.id, closedAt: Between(from, to) },
       order: { closedAt: 'DESC' },
     });
   }

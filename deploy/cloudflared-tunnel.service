@@ -1,0 +1,45 @@
+# KobeOS shared storefront tunnel — systemd unit.
+#
+# Install:
+#   1. Put the run token in a root-only env file (NOT in this unit file,
+#      which is world-readable):
+#        sudo install -d -m 700 /etc/cloudflared
+#        sudo tee /etc/cloudflared/kobeos.env >/dev/null <<'EOF'
+#        TUNNEL_TOKEN=<your-cloudflared-run-token>
+#        EOF
+#        sudo chmod 600 /etc/cloudflared/kobeos.env
+#
+#   2. Install this unit + start it:
+#        sudo cp deploy/cloudflared-tunnel.service /etc/systemd/system/
+#        sudo systemctl daemon-reload
+#        sudo systemctl enable --now cloudflared-tunnel
+#
+#   3. Watch it connect:
+#        sudo systemctl status cloudflared-tunnel
+#        journalctl -u cloudflared-tunnel -f       # look for "Registered tunnel connection"
+#
+# `cloudflared tunnel run` reads TUNNEL_TOKEN from the environment, so the
+# token never appears in `ps`, shell history, or this unit file.
+
+[Unit]
+Description=Cloudflare Tunnel - kobeos-storefronts
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Adjust the path if cloudflared lives elsewhere (`which cloudflared`).
+EnvironmentFile=/etc/cloudflared/kobeos.env
+ExecStart=/usr/local/bin/cloudflared tunnel --no-autoupdate run
+Restart=on-failure
+RestartSec=5
+# Run unprivileged — the tunnel is outbound-only, no ports to bind.
+DynamicUser=yes
+# Hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

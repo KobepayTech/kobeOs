@@ -3,8 +3,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Loader2, Heart, PackageSearch, CreditCard, Star, Award } from 'lucide-react';
+import { API_BASE } from '@/lib/api';
+import { QRCodeSVG } from 'qrcode.react';
 
-const API = (import.meta as { env?: { VITE_API_URL?: string } }).env?.VITE_API_URL ?? 'http://localhost:3000/api';
+// Use the SAME base as the rest of the app (VITE_API_BASE → '/api' in prod).
+// Previously this read a different var (VITE_API_URL) and defaulted to
+// localhost:3000, so collections/brands/track pages called localhost in
+// production while everything else used VITE_API_BASE.
+const API = API_BASE;
 
 interface Product {
   id: string;
@@ -260,28 +266,122 @@ export function TrackOrderPage({ slug }: { slug: string }) {
   );
 }
 
-export function LoyaltyPage({ phone, setPhone }: { phone: string; setPhone: (s: string) => void }) {
+export interface LoyaltyProfile {
+  id: string;
+  name: string;
+  phone: string;
+  address?: string;
+  loyaltyCode: string;
+  points: number;
+  visits: number;
+  purchaseCount: number;
+  freeJerseyCredits: number;
+  couponCode?: string | null;
+  joinedAt?: string;
+}
+
+export function LoyaltyPage({
+  slug,
+  phone,
+  setPhone,
+  profile,
+  onProfile,
+  onSignup,
+}: {
+  slug: string;
+  phone: string;
+  setPhone: (s: string) => void;
+  profile: LoyaltyProfile | null;
+  onProfile: (profile: LoyaltyProfile) => void;
+  onSignup: () => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const lookup = async () => {
+    if (phone.replace(/\D/g, '').length < 9) {
+      setError('Enter the phone number used for signup.');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API}/store/${encodeURIComponent(slug)}/customers/profile?phone=${encodeURIComponent(phone.trim())}`);
+      if (!res.ok) throw new Error(res.status === 404 ? 'No membership found for this phone.' : `Lookup failed (${res.status})`);
+      onProfile(await res.json() as LoyaltyProfile);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not load membership.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <div className="p-4 space-y-3 max-w-md">
+    <div className="p-6 space-y-4 max-w-2xl mx-auto text-[#1a1a1a]">
       <div className="flex items-center gap-2">
-        <Star className="w-4 h-4 text-amber-300" />
-        <h2 className="text-base font-semibold">Loyalty Program</h2>
+        <Star className="w-5 h-5 text-amber-500 fill-amber-500" />
+        <h2 className="text-xl font-bold">Loyalty Program</h2>
       </div>
-      <Card className="bg-gradient-to-br from-amber-500/15 to-orange-500/15 border-amber-500/30">
-        <CardContent className="p-4 space-y-2">
-          <div className="text-xs text-amber-200/80">Welcome to KobePay Loyalty</div>
-          <div className="text-2xl font-bold">Earn 1 point per TZS 1,000</div>
-          <p className="text-xs text-white/70">
-            Spend points at checkout for store credit. New customers get 100 bonus points on signup.
+      <Card className="bg-gradient-to-br from-amber-50 to-orange-50 border-amber-200">
+        <CardContent className="p-5 space-y-2">
+          <div className="text-xs text-amber-700 font-semibold uppercase tracking-wide">Kobe loyalty</div>
+          <div className="text-2xl font-black">Your first purchase unlocks a free jersey</div>
+          <p className="text-sm text-slate-600">
+            Signup earns 100 points and a single-use 15% coupon. Every TZS 1,000 spent earns one more point.
           </p>
         </CardContent>
       </Card>
-      <div className="space-y-2">
-        <label className="text-xs text-slate-400">Lookup your balance</label>
-        <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" className="bg-white/5 border-white/10 text-sm" />
-        <p className="text-[11px] text-slate-500">Loyalty balance lookups will arrive once the loyalty backend ships.</p>
+
+      <Card className="bg-white border-slate-200">
+        <CardContent className="p-5 space-y-3">
+          <label className="text-xs font-semibold text-slate-600">Find your membership by phone</label>
+          <div className="flex gap-2">
+            <Input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" className="border-slate-300 text-sm" />
+            <Button onClick={lookup} disabled={loading} className="bg-[#c8102e] hover:bg-[#a00d24] text-white">
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Lookup'}
+            </Button>
+          </div>
+          {error && <p className="text-xs text-rose-600">{error}</p>}
+          {!profile && <button onClick={onSignup} className="text-xs font-semibold text-[#c8102e] underline underline-offset-2">Not registered? Sign up with name and phone.</button>}
+        </CardContent>
+      </Card>
+
+      {profile && (
+        <Card className="overflow-hidden border-slate-200 shadow-sm">
+          <CardContent className="p-0">
+            <div className="bg-[#151515] text-white p-5 flex flex-col sm:flex-row gap-5 items-center">
+              <div className="bg-white p-3 rounded-xl shrink-0">
+                <QRCodeSVG value={`KOBE-LOYALTY:${slug}:${profile.loyaltyCode}`} size={132} />
+              </div>
+              <div className="text-center sm:text-left min-w-0">
+                <div className="text-xs text-amber-300 uppercase tracking-[0.16em]">Member</div>
+                <h3 className="text-2xl font-black mt-1">{profile.name}</h3>
+                <p className="font-mono text-lg text-white/90 mt-1 break-all">{profile.loyaltyCode}</p>
+                <p className="text-xs text-white/60 mt-1">Show this QR or code at checkout.</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 divide-x divide-slate-200 bg-white">
+              {[
+                ['Points', profile.points.toLocaleString()],
+                ['Purchases', profile.purchaseCount.toLocaleString()],
+                ['Visits', profile.visits.toLocaleString()],
+                ['Free jerseys', profile.freeJerseyCredits.toLocaleString()],
+              ].map(([label, value]) => (
+                <div key={label} className="p-4 text-center">
+                  <div className="text-xl font-black">{value}</div>
+                  <div className="text-[11px] text-slate-500 uppercase">{label}</div>
+                </div>
+              ))}
+            </div>
+            {profile.couponCode && (
+              <div className="m-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+                Available 15% coupon: <span className="font-mono font-bold">{profile.couponCode}</span>. It will be entered automatically at checkout.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
       </div>
-    </div>
   );
 }
 

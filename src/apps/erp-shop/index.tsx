@@ -1,10 +1,13 @@
 import { useState, useMemo, useEffect } from 'react';
 import {
   ShoppingBag, Search, Plus, Minus, Trash2, Package,
-  ShoppingCart, CreditCard, Truck, CheckCircle2,
-  Smartphone, Building2, Banknote, Loader2, AlertCircle,
+  ShoppingCart, CreditCard, CheckCircle2,
+  Smartphone, Building2, Banknote, Loader2, AlertCircle, Pencil,
+  Gift,
 } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import { api } from '@/lib/api';
+import HandwrittenQuantityOverlay from '@/components/handwriting/HandwrittenQuantityOverlay';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -12,7 +15,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Card, CardContent } from '@/components/ui/card';
-import { StorefrontNav, type StorefrontView } from './StorefrontNav';
+import { type StorefrontView } from './StorefrontNav';
 import {
   BnplPage,
   BrandsPage,
@@ -22,6 +25,8 @@ import {
   WishlistPage,
 } from './StorefrontPages';
 import { JerseyShopChrome, JerseyProductCard, type JerseyConfig } from './JerseyShopLayout';
+import SimpleSite from './SimpleSite';
+import LiveShoppingBanner from './LiveShoppingBanner';
 
 /* ------------------------------------------------------------------ */
 /*  TYPES                                                               */
@@ -53,6 +58,27 @@ interface StoreSettings {
   showCartIcon: boolean;
   footerText: string;
   headingSize: string;
+  /** 'generic'/'jerseys' = shop; 'site' = simple one-page website. */
+  template?: 'generic' | 'jerseys' | 'site';
+  /** Simple-website content (template='site'). */
+  siteConfig?: SiteConfig;
+}
+
+export interface SiteConfig {
+  heroImageUrl?: string;
+  about?: string;
+  services?: Array<{ title: string; desc?: string; icon?: string }>;
+  amenities?: string[];
+  hours?: Array<{ day: string; open: string }>;
+  phone?: string;
+  whatsapp?: string;
+  email?: string;
+  address?: string;
+  mapQuery?: string;
+  socials?: { facebook?: string; instagram?: string; tiktok?: string; x?: string };
+  ctaLabel?: string;
+  ctaHref?: string;
+  cargoTracking?: boolean;
 }
 
 interface Product {
@@ -86,6 +112,41 @@ interface BnplEligibility {
   reason?: 'no_profile' | 'inactive' | 'no_phone';
 }
 
+interface LiveReservationCheckout {
+  token: string;
+  status: string;
+  expired: boolean;
+  reservedUntil: string | null;
+  qty: number;
+  unitPrice: number;
+  currency: string;
+  sessionTitle: string;
+  sessionId: string;
+  platform: string;
+  reservationCode: string;
+  product: { id: string; sku: string; name: string; imageUrl: string | null } | null;
+}
+
+interface LiveReservationStart {
+  checkoutToken: string;
+  reservationCode: string;
+  storefrontPath: string;
+}
+
+export interface StoreCustomerProfile {
+  id: string;
+  name: string;
+  phone: string;
+  address?: string;
+  loyaltyCode: string;
+  points: number;
+  visits: number;
+  purchaseCount: number;
+  freeJerseyCredits: number;
+  couponCode?: string | null;
+  joinedAt?: string;
+}
+
 interface TrackedOrder {
   orderNumber: string;
   status: string;
@@ -102,9 +163,13 @@ interface TrackedOrder {
 /*  HELPERS                                                             */
 /* ------------------------------------------------------------------ */
 
+// Same-origin '/api' in production: the store at {slug}.kobeapptz.com calls its
+// OWN backend through the same tunnel (no cross-origin, no CORS). Previously
+// this hit https://api.kobeapptz.com which failed cross-origin ("failed to
+// fetch"). Override with VITE_API_BASE for a central/split deployment.
 const API =
   (import.meta.env.VITE_API_BASE as string | undefined) ??
-  (import.meta.env.DEV ? 'http://localhost:3000/api' : 'https://api.kobeapptz.com/api');
+  (import.meta.env.DEV ? 'http://localhost:3000/api' : '/api');
 const SHIPPING_COST = 5000;
 
 function formatPrice(price: number, currency = 'TZS'): string {
@@ -136,6 +201,39 @@ const CATEGORY_GRADIENTS: Record<string, string> = {
 };
 function productGradient(category: string): string {
   return CATEGORY_GRADIENTS[category] ?? 'from-slate-600 to-slate-700';
+}
+
+const CATEGORY_ALIASES: Record<string, string[]> = {
+  'clubjerseys': ['club', 'clubs', 'clubjersey', 'clubjerseys'],
+  'kids': ['kid', 'kids', 'children', 'child', 'youth'],
+  'nationalteams': ['national', 'nationalteam', 'nationalteams', 'country', 'countries'],
+  'retro': ['retro', 'classic', 'vintage'],
+  'training': ['training', 'trainingwear', 'tracksuit', 'tracksuits', 'trainingkit'],
+};
+
+function normalizedCategory(value: string): string {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function productMatchesCategory(actual: string, selected: string): boolean {
+  if (selected === 'All') return true;
+  const actualKey = normalizedCategory(actual);
+  const selectedKey = normalizedCategory(selected);
+  const aliases = CATEGORY_ALIASES[selectedKey] ?? [selectedKey];
+  return aliases.some((alias) => actualKey === alias || actualKey.includes(alias));
+}
+
+function isJerseyProduct(product: Product): boolean {
+  return /jersey|shirt|kit|retro|national|club/i.test(`${product.name} ${product.category}`);
+}
+
+function isPublicCatalogueProduct(product: Product): boolean {
+  // Bulk-import mistakes in the current Johsport data created active rows
+  // named only after UUIDs, with no price/stock/image. Do not let those
+  // internal placeholders crowd out real sellable products on the public shop.
+  const compactName = product.name.replace(/[()\s-]/g, '');
+  const looksLikeRawId = /^[0-9a-f]{30,}\d*$/i.test(compactName);
+  return !looksLikeRawId;
 }
 
 /* ------------------------------------------------------------------ */
@@ -193,6 +291,92 @@ function detectSubdomainSlug(): string {
   return '';
 }
 
+interface StoreReview { id: string; rating: number; title?: string; comment?: string; customerName?: string; createdAt?: string }
+
+/** Real product reviews + submit, backed by /store/:slug/products/:id/reviews. */
+function ProductReviews({
+  slug,
+  productId,
+  defaultName = '',
+  defaultPhone = '',
+}: {
+  slug: string;
+  productId: string;
+  defaultName?: string;
+  defaultPhone?: string;
+}) {
+  const [reviews, setReviews] = useState<StoreReview[]>([]);
+  const [rating, setRating] = useState(5);
+  const [comment, setComment] = useState('');
+  const [name, setName] = useState(defaultName);
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    try { const r = await api<StoreReview[]>(`/store/${encodeURIComponent(slug)}/products/${productId}/reviews`, { auth: false }); setReviews(Array.isArray(r) ? r : []); }
+    catch { /* none */ }
+  };
+  useEffect(() => { if (slug && productId) load(); }, [slug, productId]);
+
+  const avg = reviews.length ? reviews.reduce((s, r) => s + (r.rating || 0), 0) / reviews.length : 0;
+  const submit = async () => {
+    if (!comment.trim()) return;
+    setBusy(true);
+    try {
+      await api(`/store/${encodeURIComponent(slug)}/products/${productId}/reviews`, { method: 'POST', auth: false, body: JSON.stringify({ rating, comment: comment.trim(), customerName: name.trim() || 'Customer', customerPhone: defaultPhone || undefined }) });
+      setComment('');
+      await load();
+    } catch { /* ignore */ } finally { setBusy(false); }
+  };
+  const stars = (n: number) => '★★★★★'.slice(0, Math.round(n)) + '☆☆☆☆☆'.slice(0, 5 - Math.round(n));
+
+  return (
+    <div id="product-reviews" className="mt-4 border-t border-white/10 pt-3 scroll-mt-4">
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-sm font-semibold">Reviews</span>
+        {reviews.length > 0 && <span className="text-xs text-amber-400">{stars(avg)} {avg.toFixed(1)} · {reviews.length}</span>}
+      </div>
+      <div className="space-y-2 max-h-32 overflow-y-auto mb-3">
+        {reviews.length === 0 ? (
+          <p className="text-xs text-slate-400">No reviews yet — be the first.</p>
+        ) : reviews.slice(0, 20).map((r) => (
+          <div key={r.id} className="text-xs">
+            <div className="text-amber-400">{stars(r.rating)} <span className="text-slate-300 font-medium">{r.customerName || 'Customer'}</span></div>
+            {r.comment && <div className="text-slate-400">{r.comment}</div>}
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center gap-2 mb-2">
+        <select value={rating} onChange={(e) => setRating(Number(e.target.value))} className="h-8 px-2 rounded bg-white/5 border border-white/10 text-xs text-white">
+          {[5, 4, 3, 2, 1].map((n) => <option key={n} value={n} className="bg-slate-800">{n} ★</option>)}
+        </select>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" className="h-8 px-2 rounded bg-white/5 border border-white/10 text-xs text-white flex-1 min-w-0" />
+      </div>
+      <div className="flex items-center gap-2">
+        <input value={comment} onChange={(e) => setComment(e.target.value)} placeholder="Write a review…" className="h-8 px-2 rounded bg-white/5 border border-white/10 text-xs text-white flex-1 min-w-0" />
+        <Button size="sm" className="h-8 text-xs bg-blue-600 hover:bg-blue-700 shrink-0" onClick={submit} disabled={busy || !comment.trim()}>{busy ? '…' : 'Post'}</Button>
+      </div>
+    </div>
+  );
+}
+
+/** Placeholder product card shown when the catalogue is empty (or loading) —
+ *  the "shadow box" where a product image, title, price and Add button go. */
+function ProductSkeleton() {
+  return (
+    <div className="rounded-xl border border-slate-200 overflow-hidden bg-white animate-pulse">
+      <div className="aspect-square bg-slate-200/80" />
+      <div className="p-3 space-y-2">
+        <div className="h-3.5 rounded bg-slate-200 w-4/5" />
+        <div className="h-3 rounded bg-slate-100 w-2/5" />
+        <div className="flex items-center justify-between pt-1">
+          <div className="h-4 rounded bg-slate-200 w-1/3" />
+          <div className="h-8 w-8 rounded-lg bg-slate-200" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
   // Priority: prop > subdomain auto-detect > empty (shows SlugPicker)
   const initialSlug =
@@ -211,7 +395,15 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [reviewsRequested, setReviewsRequested] = useState(false);
   const [isCheckout, setIsCheckout] = useState(false);
+  const [isSignupOpen, setIsSignupOpen] = useState(false);
+  const [signupForm, setSignupForm] = useState({ name: '', phone: '' });
+  const [signupBusy, setSignupBusy] = useState(false);
+  const [signupError, setSignupError] = useState<string | null>(null);
+  const [customerProfile, setCustomerProfile] = useState<StoreCustomerProfile | null>(null);
+  const [redeemFreeJerseyProductId, setRedeemFreeJerseyProductId] = useState('');
+  const [loyaltyMessage, setLoyaltyMessage] = useState<string | null>(null);
   const [orderConfirmed, setOrderConfirmed] = useState(false);
   const [orderNumber, setOrderNumber] = useState('');
   const [orderReceipt, setOrderReceipt] = useState<string | null>(null);
@@ -222,6 +414,13 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
   const [checkoutForm, setCheckoutForm] = useState<CheckoutForm>({
     name: '', phone: '', address: '', paymentMethod: 'cod',
   });
+  const [liveCheckoutToken, setLiveCheckoutToken] = useState(() => {
+    try { return new URLSearchParams(window.location.search).get('live')?.trim() || ''; }
+    catch { return ''; }
+  });
+  const [liveReservation, setLiveReservation] = useState<LiveReservationCheckout | null>(null);
+  const [liveReservationApplied, setLiveReservationApplied] = useState(false);
+  const [liveReservationError, setLiveReservationError] = useState<string | null>(null);
   // Top-level storefront view (home / collection / portal pages).
   const [view, setView] = useState<StorefrontView>('home');
   const [wishlistIds, setWishlistIds] = useState<string[]>(() => {
@@ -245,7 +444,133 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
   const toggleWishlist = (id: string) =>
     setWishlistIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
-  const wishlistProducts = useMemo(() => products.filter((p) => wishlistIds.includes(p.id)), [products, wishlistIds]);
+  const catalogueProducts = useMemo(() => products.filter(isPublicCatalogueProduct), [products]);
+  const wishlistProducts = useMemo(() => catalogueProducts.filter((p) => wishlistIds.includes(p.id)), [catalogueProducts, wishlistIds]);
+
+  const rememberCustomer = (profile: StoreCustomerProfile) => {
+    setCustomerProfile(profile);
+    setSignupForm({ name: profile.name, phone: profile.phone });
+    setLoyaltyPhone(profile.phone);
+    setCheckoutForm((current) => ({
+      ...current,
+      name: profile.name,
+      phone: profile.phone,
+      address: profile.address || current.address,
+    }));
+    if (profile.couponCode) setCouponCode(profile.couponCode);
+    try { window.localStorage.setItem(`kobeshop:customer:${slug}`, profile.phone); } catch { /* storage disabled */ }
+  };
+
+  const lookupCustomer = async (phone: string): Promise<StoreCustomerProfile | null> => {
+    if (!slug || phone.replace(/\D/g, '').length < 9) return null;
+    try {
+      const profile = await api<StoreCustomerProfile>(
+        `/store/${encodeURIComponent(slug)}/customers/profile?phone=${encodeURIComponent(phone.trim())}`,
+        { auth: false },
+      );
+      rememberCustomer(profile);
+      return profile;
+    } catch {
+      return null;
+    }
+  };
+
+  const handleCustomerSignup = async () => {
+    if (!signupForm.name.trim() || signupForm.phone.replace(/\D/g, '').length < 9) {
+      setSignupError('Enter your name and a valid phone number.');
+      return;
+    }
+    setSignupBusy(true);
+    setSignupError(null);
+    try {
+      const profile = await api<StoreCustomerProfile>(
+        `/store/${encodeURIComponent(slug)}/customers/signup`,
+        { method: 'POST', auth: false, body: JSON.stringify({ name: signupForm.name.trim(), phone: signupForm.phone.trim() }) },
+      );
+      rememberCustomer(profile);
+    } catch (error) {
+      setSignupError(error instanceof Error ? error.message : 'Could not create your membership.');
+    } finally {
+      setSignupBusy(false);
+    }
+  };
+
+  // Restore a returning customer's name, phone and available coupon on the
+  // same device. Signup itself remains only name + phone.
+  useEffect(() => {
+    if (!slug) return;
+    try {
+      const savedPhone = window.localStorage.getItem(`kobeshop:customer:${slug}`);
+      if (savedPhone) void lookupCustomer(savedPhone);
+    } catch { /* storage disabled */ }
+  }, [slug]);
+
+  // A comment/DM reservation opens the normal storefront with ?live={token}.
+  // Validate it with the backend, preload the held item at its Live price, and
+  // leave the buyer on the full catalogue to add anything else they want.
+  useEffect(() => {
+    if (!slug || !liveCheckoutToken || products.length === 0 || liveReservationApplied) return;
+    let cancelled = false;
+    api<LiveReservationCheckout>(`/live-sales/public/checkout/${encodeURIComponent(liveCheckoutToken)}`, { auth: false })
+      .then((reservation) => {
+        if (cancelled) return;
+        if (reservation.expired || reservation.status !== 'RESERVED') {
+          setLiveReservationError('This Live reservation has expired. Return to the Live and reserve again.');
+          setLiveReservationApplied(true);
+          return;
+        }
+        const product = reservation.product
+          ? products.find((candidate) => candidate.id === reservation.product!.id)
+          : null;
+        if (!product) {
+          setLiveReservationError('The reserved Live product is no longer available in this store.');
+          setLiveReservationApplied(true);
+          return;
+        }
+        const liveProduct: Product = {
+          ...product,
+          price: Number(reservation.unitPrice || product.price),
+          imageUrl: reservation.product?.imageUrl || product.imageUrl,
+        };
+        setCart((current) => {
+          const existing = current.find((item) => item.product.id === liveProduct.id);
+          if (existing) {
+            return current.map((item) => item.product.id === liveProduct.id
+              ? { product: liveProduct, quantity: Math.max(item.quantity, reservation.qty) }
+              : item);
+          }
+          return [{ product: liveProduct, quantity: Math.min(reservation.qty, liveProduct.stock) }, ...current];
+        });
+        setLiveReservation(reservation);
+        setLiveReservationApplied(true);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setLiveReservationError(error instanceof Error ? error.message : 'Could not open the Live reservation.');
+          setLiveReservationApplied(true);
+        }
+      });
+    return () => { cancelled = true; };
+  }, [slug, products, liveCheckoutToken, liveReservationApplied]);
+
+  // If a returning buyer types their registered phone during checkout, fill
+  // their name and coupon automatically after a short debounce.
+  useEffect(() => {
+    if (!isCheckout) return;
+    const phone = checkoutForm.phone.trim();
+    if (phone.replace(/\D/g, '').length < 9) return;
+    if (customerProfile && normalizedCategory(customerProfile.phone) === normalizedCategory(phone)) return;
+    const timer = setTimeout(() => { void lookupCustomer(phone); }, 450);
+    return () => clearTimeout(timer);
+  }, [isCheckout, checkoutForm.phone]);
+
+  useEffect(() => {
+    if (!selectedProduct || !reviewsRequested) return;
+    const timer = window.setTimeout(() => {
+      document.getElementById('product-reviews')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [selectedProduct, reviewsRequested]);
 
   // BNPL eligibility — fetched whenever the buyer picks BNPL + has a phone.
   const [bnplEligibility, setBnplEligibility] = useState<BnplEligibility | null>(null);
@@ -282,21 +607,49 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
   }, [slug]);
 
   const categories = useMemo(() => {
-    const cats = [...new Set(products.map((p) => p.category))].sort();
+    const cats = [...new Set(catalogueProducts.map((p) => p.category))].filter(Boolean).sort();
     return ['All', ...cats];
-  }, [products]);
+  }, [catalogueProducts]);
+
+  useEffect(() => {
+    try {
+      const requested = new URLSearchParams(window.location.search).get('category');
+      if (requested) setSelectedCategory(requested);
+    } catch { /* malformed URL is harmless */ }
+  }, []);
+
+  const selectShopCategory = (category: string) => {
+    setView('home');
+    setSelectedCategory(category);
+    try {
+      const url = new URL(window.location.href);
+      if (category === 'All') url.searchParams.delete('category');
+      else url.searchParams.set('category', category);
+      window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+    } catch { /* embedded webview may reject history updates */ }
+    window.setTimeout(() => document.getElementById('store-product-grid')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+  };
 
   const filteredProducts = useMemo(() => {
-    return products.filter((p) => {
-      const matchCat = selectedCategory === 'All' || p.category === selectedCategory;
+    return catalogueProducts.filter((p) => {
+      const matchCat = productMatchesCategory(p.category, selectedCategory);
       const q = searchQuery.toLowerCase();
       const matchSearch = !q || p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q);
       return matchCat && matchSearch;
     });
-  }, [products, searchQuery, selectedCategory]);
+  }, [catalogueProducts, searchQuery, selectedCategory]);
 
   const cartTotal = useMemo(() => cart.reduce((s, i) => s + i.product.price * i.quantity, 0), [cart]);
   const cartCount = useMemo(() => cart.reduce((s, i) => s + i.quantity, 0), [cart]);
+  const rewardJerseys = useMemo(() => cart.filter((item) => isJerseyProduct(item.product)), [cart]);
+
+  useEffect(() => {
+    if ((customerProfile?.freeJerseyCredits ?? 0) > 0 && rewardJerseys.length > 0) {
+      setRedeemFreeJerseyProductId((current) => current || rewardJerseys[0].product.id);
+    } else {
+      setRedeemFreeJerseyProductId('');
+    }
+  }, [customerProfile?.freeJerseyCredits, rewardJerseys]);
 
   const addToCart = (product: Product) => {
     setCart((prev) => {
@@ -311,6 +664,20 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
       return [...prev, { product, quantity: 1 }];
     });
   };
+
+  // Handwritten quantity → SET the cart line to an exact quantity (2 → 5),
+  // clamped to stock. A quantity of 0 removes the line.
+  const setCartQuantity = (product: Product, writtenQuantity: number) => {
+    const quantity = Math.max(0, Math.min(writtenQuantity, product.stock));
+    if (quantity === 0) { removeFromCart(product.id); return; }
+    setCart((current) => {
+      const existing = current.find((item) => item.product.id === product.id);
+      if (existing) return current.map((item) => (item.product.id === product.id ? { ...item, quantity } : item));
+      return [...current, { product, quantity }];
+    });
+  };
+  // Product whose quantity is being handwritten (null = overlay closed).
+  const [writeQtyProduct, setWriteQtyProduct] = useState<Product | null>(null);
 
   const removeFromCart = (id: string) => setCart((p) => p.filter((i) => i.product.id !== id));
 
@@ -327,7 +694,31 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
   const clearCart = () => setCart([]);
 
   const handleCheckout = () => {
-    if (cart.length) { setIsCartOpen(false); setIsCheckout(true); }
+    if (cart.length) {
+      if (customerProfile?.couponCode) setCouponCode(customerProfile.couponCode);
+      setIsCartOpen(false);
+      setIsCheckout(true);
+    }
+  };
+
+  const reserveFromLiveBanner = async (product: { code: string }) => {
+    const reservation = await api<LiveReservationStart>(
+      `/live-sales/public/${encodeURIComponent(slug)}/reserve`,
+      {
+        method: 'POST',
+        auth: false,
+        body: JSON.stringify({ code: product.code, qty: 1 }),
+      },
+    );
+    setLiveReservation(null);
+    setLiveReservationError(null);
+    setLiveReservationApplied(false);
+    setLiveCheckoutToken(reservation.checkoutToken);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('live', reservation.checkoutToken);
+      window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+    } catch { /* embedded webview may reject history updates */ }
   };
 
   // Pre-flight BNPL check: whenever the buyer is on the BNPL payment
@@ -387,6 +778,7 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
     if (!checkoutForm.name || !checkoutForm.phone || !checkoutForm.address) return;
     if (!slug || cart.length === 0) return;
     setOrderError(null);
+    setLoyaltyMessage(null);
     setPlacingOrder(true);
     // Map UI payment method codes to POS service's vocabulary.
     const paymentMethod =
@@ -402,6 +794,10 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
       couponCode: couponCode.trim() || undefined,
       customerName: checkoutForm.name,
       customerPhone: checkoutForm.phone,
+      customerAddress: checkoutForm.address,
+      loyaltyCode: customerProfile?.loyaltyCode,
+      redeemFreeJerseyProductId: redeemFreeJerseyProductId || undefined,
+      liveCheckoutToken: liveCheckoutToken || undefined,
     };
     if (isBnpl) orderDto.installmentMonths = installmentMonths;
     try {
@@ -410,6 +806,8 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
         receipt?: { text: string };
         pickTicket?: { ticketNumber: string };
         discount?: { discountAmount: number; breakdown: Array<{ source: string; label: string; amount: number }> };
+        loyalty?: StoreCustomerProfile | null;
+        rewardRedeemed?: boolean;
       }>(`/store/${slug}/orders`, {
         method: 'POST',
         auth: false,
@@ -418,11 +816,35 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
       setOrderNumber(sale.orderNumber ?? orderDto.orderNumber);
       setOrderReceipt(sale.receipt?.text ?? null);
       setOrderDiscount(sale.discount ?? null);
+      if (sale.loyalty) {
+        const previousCredits = customerProfile?.freeJerseyCredits ?? 0;
+        rememberCustomer(sale.loyalty);
+        if (!sale.rewardRedeemed && previousCredits === 0 && sale.loyalty.freeJerseyCredits > 0) {
+          setLoyaltyMessage('Your first purchase unlocked one free jersey. It is ready in your loyalty account.');
+        } else if (sale.rewardRedeemed) {
+          setLoyaltyMessage('Your free-jersey reward was applied to this order.');
+        }
+      }
       setIsCheckout(false);
       setOrderConfirmed(true);
       clearCart();
-      setCheckoutForm({ name: '', phone: '', address: '', paymentMethod: 'cod' });
-      setCouponCode('');
+      setCheckoutForm((current) => ({
+        name: sale.loyalty?.name ?? current.name,
+        phone: sale.loyalty?.phone ?? current.phone,
+        address: sale.loyalty?.address ?? current.address,
+        paymentMethod: 'cod',
+      }));
+      setCouponCode(sale.loyalty?.couponCode ?? '');
+      setRedeemFreeJerseyProductId('');
+      if (liveCheckoutToken) {
+        setLiveCheckoutToken('');
+        setLiveReservation(null);
+        try {
+          const url = new URL(window.location.href);
+          url.searchParams.delete('live');
+          window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+        } catch { /* embedded webview may reject history updates */ }
+      }
     } catch (err) {
       setOrderError(err instanceof Error ? err.message : 'Order could not be placed. Try again.');
     } finally {
@@ -455,11 +877,33 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
 
   if (!settings) return null;
 
+  // Simple one-page business website — no catalogue, no cart.
+  if (settings.template === 'site') {
+    return <SimpleSite settings={settings} />;
+  }
+
   const cols = settings.gridColumns ?? 3;
-  const gridClass = cols === 2 ? 'grid-cols-2' : cols >= 4 ? 'grid-cols-4' : 'grid-cols-3';
+  const gridClass = cols === 2
+    ? 'grid-cols-1 sm:grid-cols-2'
+    : cols >= 4
+      ? 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4'
+      : 'grid-cols-2 md:grid-cols-3';
 
   return (
-    <div className="h-full overflow-hidden">
+    <div className="h-full overflow-auto">
+      {liveReservation && (
+        <div className="bg-gradient-to-r from-fuchsia-700 to-indigo-700 text-white">
+          <div className="max-w-6xl mx-auto px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+            <div className="font-extrabold">{liveReservation.platform.toUpperCase()} LIVE reservation added to your cart</div>
+            <div className="text-xs text-white/80">Code {liveReservation.reservationCode} · Add more products—this complete order will be tracked to {liveReservation.sessionTitle}.</div>
+          </div>
+        </div>
+      )}
+      {liveReservationError && (
+        <div className="bg-amber-600 text-white text-center text-sm font-semibold px-4 py-2">{liveReservationError}</div>
+      )}
+      {/* Live shopping — shows when the shop is live-selling (opt-in per session) */}
+      <LiveShoppingBanner slug={slug} onReserve={reserveFromLiveBanner} />
       <JerseyShopChrome
         storeName={settings.storeName}
         tagline={settings.tagline}
@@ -470,13 +914,15 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
         bannerVisible={view === 'home' && settings.bannerVisible}
         categories={categories}
         selectedCategory={selectedCategory}
-        onSelectCategory={setSelectedCategory}
+        onSelectCategory={selectShopCategory}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         cartCount={cartCount}
         onOpenCart={() => setIsCartOpen(true)}
         onGoStores={() => setSlug('')}
         onPickNav={(v) => setView(v as StorefrontView)}
+        onSignup={() => setIsSignupOpen(true)}
+        customerName={customerProfile?.name}
         config={settings.jerseyConfig}
       >
       {/* ----- The dark "header" block below is retained only for the
@@ -551,10 +997,34 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
             />
           ) : view === 'loyalty' ? (
             <LoyaltyPage
-              phone={loyaltyPhone}
-              setPhone={setLoyaltyPhone}
+            <CollectionPage
+              slug={slug}
+              collectionSlug="new-arrivals"
+              title="New Arrivals"
+              empty="No new arrivals right now."
+              wishlist={wishlistIds}
+              onAddToCart={addToCart}
+              onAddToWishlist={(p) => toggleWishlist(p.id)}
             />
-          ) : view === 'new-arrivals' ? (
+          ) : view === 'best-sellers' ? (
+            <CollectionPage
+              slug={slug}
+              collectionSlug="best-sellers"
+              title="Best Sellers"
+              empty="No best sellers yet."
+              ...
+            />
+          ) : view === 'offers' ? (
+            <CollectionPage
+              slug={slug}
+              collectionSlug="offers"
+              title="Offers"
+              empty="No active offers right now."
+              ...
+            />
+          ) : (
+            ...
+          )}
             <CollectionPage
               slug={slug}
               collectionSlug="new-arrivals"
@@ -586,22 +1056,37 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
             />
           ) : (
             <>
-              <div className={`grid gap-4 p-6 ${gridClass}`}>
+              <div id="store-product-grid" className={`grid gap-4 p-6 scroll-mt-4 ${gridClass}`}>
                 {filteredProducts.map((p) => (
                   <JerseyProductCard
                     key={p.id}
                     product={p}
                     wished={wishlistIds.includes(p.id)}
-                    onOpen={setSelectedProduct}
-                    onAddToCart={addToCart}
-                    onAddToWishlist={(product) => toggleWishlist(product.id)}
+          ) : (view === 'new-arrivals' || view === 'best-sellers' || view === 'offers') ? (
+            <CollectionPage
+              slug={slug}
+              collectionSlug="new-arrivals"
+              title="New Arrivals"
+              ...
+            />
+          ) : view === 'best-sellers' ? (
+            ... best-sellers ...
+          ) : view === 'offers' ? (
+            ... offers ...
+          ) : (
                   />
+                ))}
+                {/* Empty catalogue: show placeholder "shadow" cards so the shop
+                    reads as a shop-in-progress, not a broken page. */}
+                {filteredProducts.length === 0 && Array.from({ length: cols >= 4 ? 8 : 6 }).map((_, i) => (
+                  <ProductSkeleton key={`sk-${i}`} />
                 ))}
               </div>
               {filteredProducts.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-16 text-slate-500">
-                  <ShoppingBag className="w-10 h-10 mb-3 opacity-40" />
-                  <p className="font-medium">No products found</p>
+                <div className="flex flex-col items-center justify-center pb-10 -mt-4 text-slate-400">
+                  <ShoppingBag className="w-8 h-8 mb-2 opacity-40" />
+                  <p className="text-sm font-medium">Products coming soon</p>
+                  <p className="text-xs text-slate-500">Your items will appear here once added.</p>
                 </div>
               )}
             </>
@@ -611,8 +1096,8 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
       </JerseyShopChrome>
 
       {/* Product Detail Dialog */}
-      <Dialog open={!!selectedProduct} onOpenChange={() => setSelectedProduct(null)}>
-        <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-md">
+      <Dialog open={!!selectedProduct} onOpenChange={(open) => { if (!open) { setSelectedProduct(null); setReviewsRequested(false); } }}>
+        <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-md max-h-[90vh] overflow-y-auto">
           {selectedProduct && (
             <>
               <DialogHeader><DialogTitle>{selectedProduct.name}</DialogTitle></DialogHeader>
@@ -628,15 +1113,87 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
                   <span>{getStockLabel(selectedProduct.stock)} ({selectedProduct.stock} available)</span>
                 </div>
               </div>
-              <Button
-                onClick={() => { addToCart(selectedProduct); setSelectedProduct(null); }}
-                disabled={selectedProduct.stock <= 0}
-                className="w-full mt-4 bg-blue-600 hover:bg-blue-700"
-              >
-                Add to Cart
-              </Button>
+              <div className="flex gap-2 mt-4">
+                <Button
+                  onClick={() => { addToCart(selectedProduct); setSelectedProduct(null); }}
+                  disabled={selectedProduct.stock <= 0}
+                  className="flex-1 bg-blue-600 hover:bg-blue-700"
+                >
+                  Add to Cart
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setWriteQtyProduct(selectedProduct)}
+                  disabled={selectedProduct.stock <= 0}
+                  title="Write a quantity"
+                  className="px-3 border-white/20 bg-white/5 hover:bg-white/10"
+                >
+                  <Pencil className="w-4 h-4" />
+                </Button>
+              </div>
+              {slug && (
+                <ProductReviews
+                  slug={slug}
+                  productId={selectedProduct.id}
+                  defaultName={customerProfile?.name}
+                  defaultPhone={customerProfile?.phone}
+                />
+              )}
             </>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Handwritten quantity overlay */}
+      {writeQtyProduct && (
+        <HandwrittenQuantityOverlay
+          productName={writeQtyProduct.name}
+          stock={writeQtyProduct.stock}
+          currentQuantity={cart.find((i) => i.product.id === writeQtyProduct.id)?.quantity ?? 0}
+          imageUrl={writeQtyProduct.imageUrl}
+          onSet={(quantity) => setCartQuantity(writeQtyProduct, quantity)}
+          onClose={() => { setWriteQtyProduct(null); setSelectedProduct(null); }}
+        />
+      )}
+
+      {/* Simple customer membership — name + phone only. */}
+      <Dialog open={isSignupOpen} onOpenChange={setIsSignupOpen}>
+        <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>{customerProfile ? 'Your loyalty membership' : 'Sign up in seconds'}</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-slate-400">Use only your name and phone. We will remember them for faster checkout on this device.</p>
+            <Input
+              placeholder="Full name"
+              value={signupForm.name}
+              onChange={(e) => setSignupForm({ ...signupForm, name: e.target.value })}
+              className="bg-white/10 border-white/20 text-white"
+            />
+            <Input
+              placeholder="Phone number"
+              value={signupForm.phone}
+              onChange={(e) => setSignupForm({ ...signupForm, phone: e.target.value })}
+              className="bg-white/10 border-white/20 text-white"
+            />
+            {signupError && <div className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded p-2">{signupError}</div>}
+            <Button onClick={handleCustomerSignup} disabled={signupBusy} className="w-full bg-[#c8102e] hover:bg-[#a00d24]">
+              {signupBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : customerProfile ? 'Update my details' : 'Create my membership'}
+            </Button>
+            {customerProfile && (
+              <div className="rounded-xl border border-amber-400/30 bg-gradient-to-br from-amber-500/15 to-orange-500/10 p-4">
+                <div className="flex gap-4 items-center">
+                  <div className="bg-white p-2 rounded-lg shrink-0">
+                    <QRCodeSVG value={`KOBE-LOYALTY:${slug}:${customerProfile.loyaltyCode}`} size={92} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs text-amber-300 uppercase tracking-wide">Your unique code</p>
+                    <p className="font-mono font-black text-xl text-white break-all">{customerProfile.loyaltyCode}</p>
+                    <p className="text-xs text-slate-300 mt-1">{customerProfile.points.toLocaleString()} points · {customerProfile.freeJerseyCredits} free jersey credit</p>
+                    {customerProfile.couponCode && <p className="text-xs text-emerald-300 mt-1">15% coupon ready: {customerProfile.couponCode}</p>}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -654,9 +1211,17 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
               {cart.map((item) => (
                 <Card key={item.product.id} className="bg-white/5 border-white/10">
                   <CardContent className="p-3 flex items-center gap-3">
+                    <div className="w-16 h-16 rounded-lg overflow-hidden bg-slate-800 shrink-0 grid place-items-center">
+                      {item.product.imageUrl ? (
+                        <img src={item.product.imageUrl} alt={item.product.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <Package className="w-6 h-6 text-slate-500" />
+                      )}
+                    </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-white truncate">{item.product.name}</p>
                       <p className="text-sm text-blue-400">{formatPrice(item.product.price, item.product.currency)}</p>
+                      {liveReservation?.product?.id === item.product.id && <p className="text-[10px] font-bold text-fuchsia-300">LIVE RESERVED PRICE</p>}
                     </div>
                     <div className="flex items-center gap-1">
                       <Button size="icon" variant="ghost" onClick={() => updateQuantity(item.product.id, -1)} className="h-7 w-7">
@@ -688,13 +1253,53 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
 
       {/* Checkout Dialog */}
       <Dialog open={isCheckout} onOpenChange={setIsCheckout}>
-        <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-md">
+        <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Checkout</DialogTitle></DialogHeader>
           <div className="space-y-4">
+            {liveReservation && (
+              <div className="rounded-lg border border-fuchsia-500/30 bg-fuchsia-500/10 p-3 text-sm text-fuchsia-100">
+                This complete basket is attributed to {liveReservation.platform} Live · {liveReservation.sessionTitle}.
+              </div>
+            )}
             <Input placeholder="Full Name" value={checkoutForm.name} onChange={(e) => setCheckoutForm({ ...checkoutForm, name: e.target.value })} className="bg-white/10 border-white/20 text-white" />
             <Input placeholder="Phone Number" value={checkoutForm.phone} onChange={(e) => setCheckoutForm({ ...checkoutForm, phone: e.target.value })} className="bg-white/10 border-white/20 text-white" />
             <Input placeholder="Delivery Address" value={checkoutForm.address} onChange={(e) => setCheckoutForm({ ...checkoutForm, address: e.target.value })} className="bg-white/10 border-white/20 text-white" />
             <Input placeholder="Coupon code (optional)" value={couponCode} onChange={(e) => setCouponCode(e.target.value)} className="bg-white/10 border-white/20 text-white" />
+            {customerProfile?.couponCode && couponCode === customerProfile.couponCode && (
+              <div className="flex items-center gap-2 text-xs text-emerald-300 rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-2">
+                <CheckCircle2 className="w-4 h-4 shrink-0" /> Your available 15% member coupon was entered automatically.
+              </div>
+            )}
+            {(customerProfile?.freeJerseyCredits ?? 0) > 0 && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 space-y-2">
+                <div className="flex items-center gap-2 text-sm font-semibold text-amber-200">
+                  <Gift className="w-4 h-4" /> Free jersey reward available
+                </div>
+                {rewardJerseys.length > 0 ? (
+                  <>
+                    <label className="flex items-center gap-2 text-xs text-slate-200">
+                      <input
+                        type="checkbox"
+                        checked={!!redeemFreeJerseyProductId}
+                        onChange={(e) => setRedeemFreeJerseyProductId(e.target.checked ? rewardJerseys[0].product.id : '')}
+                      />
+                      Apply one free-jersey credit to this order
+                    </label>
+                    {redeemFreeJerseyProductId && rewardJerseys.length > 1 && (
+                      <select
+                        value={redeemFreeJerseyProductId}
+                        onChange={(e) => setRedeemFreeJerseyProductId(e.target.value)}
+                        className="w-full rounded bg-slate-800 border border-white/10 p-2 text-xs text-white"
+                      >
+                        {rewardJerseys.map((item) => <option key={item.product.id} value={item.product.id}>{item.product.name}</option>)}
+                      </select>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-xs text-slate-300">Add an eligible jersey to the cart to use this reward.</p>
+                )}
+              </div>
+            )}
             <div>
               <p className="text-sm text-slate-400 mb-2">Payment Method</p>
               <div className="grid grid-cols-2 gap-2">
@@ -778,6 +1383,12 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
             <p className="text-2xl font-mono font-bold text-blue-400 mb-4">{orderNumber}</p>
             {orderReceipt && (
               <pre className="text-left text-xs bg-black/40 rounded-lg p-3 overflow-auto max-h-40 whitespace-pre-wrap mb-4">{orderReceipt}</pre>
+            )}
+            {loyaltyMessage && (
+              <div className="text-left text-sm text-amber-100 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 mb-4 flex items-start gap-2">
+                <Gift className="w-4 h-4 mt-0.5 shrink-0" />
+                <span>{loyaltyMessage}</span>
+              </div>
             )}
             <p className="text-sm text-slate-500">We will contact you shortly to confirm delivery.</p>
           </div>

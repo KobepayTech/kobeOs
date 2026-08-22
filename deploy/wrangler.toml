@@ -1,0 +1,41 @@
+# ═══════════════════════════════════════════════════════════════════════════════
+# Cloudflare Pages config for the KobeOS storefront SPA  (publishing "Option 2")
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# One Pages project (kobeos-app) serves the whole app AND every tenant
+# storefront from Cloudflare's edge — no tunnel, no origin server for the
+# frontend. A wildcard custom domain (*.kobeapptz.com) points every
+# subdomain at this same project; the SPA reads window.location.hostname
+# to figure out which tenant/slug it is (see src/main.tsx).
+#
+# Deploy with the CLI (recommended — see deploy/pages-deploy.sh):
+#   npx wrangler pages deploy ../dist --project-name kobeos-app
+#
+# The build output (../dist) is produced by `npm run build` at repo root.
+# We do NOT bake VITE_API_BASE here: pages-deploy.sh builds with the
+# absolute backend URL (https://api.kobeapptz.com/api) so the SPA talks to
+# the API cross-origin. The backend CORS already allows the apex and every
+# *.kobeapptz.com subdomain (see server/src/common/cors.ts), so no proxy
+# hop is required. dist/_redirects only handles the SPA fallback.
+
+name = "kobeos-app"
+compatibility_date = "2024-01-01"
+
+# Modern Pages projects read the build output directory from here. When you
+# run `wrangler pages deploy <dir>` the CLI arg wins, so this is just the
+# default for `wrangler pages deploy` with no path.
+pages_build_output_dir = "../dist"
+
+# ── Custom domains (add these once in the dashboard or via API) ────────────────
+#   kobeapptz.com          apex — the marketing/app entry
+#   www.kobeapptz.com      redirect/alias
+#   *.kobeapptz.com        wildcard — every published tenant storefront
+#
+# Pages → your project → Custom domains → Set up a domain. Cloudflare issues
+# the certs (Universal SSL covers the apex + one-level wildcard automatically).
+#
+# ── Routes / API ───────────────────────────────────────────────────────────────
+# Pages routing is driven by dist/_redirects (SPA fallback). The API is a
+# separate origin at api.kobeapptz.com — it is NOT served by Pages. Point
+# api.kobeapptz.com at the NestJS backend (proxied DNS record or a small
+# api-only tunnel); CORS handles the cross-origin XHR from the storefronts.

@@ -112,8 +112,14 @@ function setupAutoUpdater(win) {
   // Schedule boot-ok stamp after 30s of clean running
   bootOkTimer = setTimeout(markBootOk, BOOT_OK_DELAY);
 
-  autoUpdater.autoDownload = false;
-  autoUpdater.autoInstallOnAppQuit = false; // we control install timing
+  // Hands-off self-update (default ON; set KOBE_AUTO_UPDATE=off to disable).
+  // Safe pattern: download the update in the background, verify its GPG
+  // signature (see the 'update-downloaded' handler), then install on the NEXT
+  // quit — never interrupting the user mid-work. A failed signature check
+  // disables the on-quit install so a bad update is never applied.
+  const handsOff = String(process.env.KOBE_AUTO_UPDATE || 'on').toLowerCase() !== 'off';
+  autoUpdater.autoDownload = handsOff;
+  autoUpdater.autoInstallOnAppQuit = handsOff;
   autoUpdater.allowPrerelease = false;
   autoUpdater.allowDowngrade = false;
   // Delta (differential) updates: electron-updater downloads only changed blocks
@@ -154,6 +160,8 @@ function setupAutoUpdater(win) {
         if (!result.valid && !result.skipped) {
           console.error('[updater] Signature verification failed — aborting install:', result.reason);
           emit({ event: 'error', message: `Signature verification failed: ${result.reason}` });
+          // Block the hands-off on-quit install so a bad update is never applied.
+          autoUpdater.autoInstallOnAppQuit = false;
           // Restore boot stamp so we don't false-rollback
           markBootOk();
           return;

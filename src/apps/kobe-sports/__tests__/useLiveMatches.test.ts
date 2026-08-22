@@ -1,125 +1,89 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { renderHook, act, waitFor } from '@testing-library/react';
 
-// ── WebSocket mock ────────────────────────────────────────────────────────────
+// ── socket.io-client mock ─────────────────────────────────────────────────────
 
-class MockWebSocket {
-  static instances: MockWebSocket[] = [];
-  url: string;
-  onopen: (() => void) | null = null;
-  onmessage: ((e: { data: string }) => void) | null = null;
-  onclose: (() => void) | null = null;
-  onerror: (() => void) | null = null;
-  sentMessages: string[] = [];
+const socketHandlers: Record<string, (...args: unknown[]) => void> = {};
+const mockSocket = {
+  on: vi.fn((event: string, cb: (...args: unknown[]) => void) => {
+    socketHandlers[event] = cb;
+    return mockSocket;
+  }),
+  emit: vi.fn(),
+  disconnect: vi.fn(),
+};
+vi.mock('socket.io-client', () => ({ io: vi.fn(() => mockSocket) }));
 
-  constructor(url: string) {
-    this.url = url;
-    MockWebSocket.instances.push(this);
-  }
+// ── REST feed mock ────────────────────────────────────────────────────────────
 
-  send(data: string) { this.sentMessages.push(data); }
-  close() { this.onclose?.(); }
+const getLive = vi.fn(async (): Promise<unknown[]> => []);
+vi.mock('../api', () => ({ matchesApi: { getLive: () => getLive() } }));
 
-  // Test helpers
-  simulateOpen() { act(() => { this.onopen?.(); }); }
-  simulateMessage(data: string) { act(() => { this.onmessage?.({ data }); }); }
-  simulateError() { act(() => { this.onerror?.(); }); }
-}
-
-vi.stubGlobal('WebSocket', MockWebSocket);
+const fire = (event: string, ...args: unknown[]) => act(() => { socketHandlers[event]?.(...args); });
 
 describe('useLiveMatches', () => {
   beforeEach(() => {
-    MockWebSocket.instances = [];
-    // Mock window.location
-    Object.defineProperty(window, 'location', {
-      value: { protocol: 'http:', host: 'localhost:5173' },
-      writable: true,
-      configurable: true,
-    });
+    for (const k of Object.keys(socketHandlers)) delete socketHandlers[k];
+    mockSocket.on.mockClear();
+    mockSocket.disconnect.mockClear();
+    getLive.mockReset();
+    getLive.mockResolvedValue([]);
   });
 
-  afterEach(() => {
-    vi.clearAllTimers();
-  });
-
-  it('starts disconnected', async () => {
+  it('starts disconnected and empty', async () => {
     const { useLiveMatches } = await import('../useLiveMatches');
     const { result } = renderHook(() => useLiveMatches());
-
     expect(result.current.connected).toBe(false);
     expect(result.current.liveMatches).toEqual([]);
   });
 
-  it('sets connected=true on WebSocket open', async () => {
+  it('registers a socket.io connection and lifecycle handlers', async () => {
+    const { useLiveMatches } = await import('../useLiveMatches');
+    renderHook(() => useLiveMatches());
+    expect(socketHandlers.connect).toBeDefined();
+    expect(socketHandlers.disconnect).toBeDefined();
+    expect(socketHandlers['match:started']).toBeDefined();
+  });
+
+  it('sets connected=true on socket connect', async () => {
     const { useLiveMatches } = await import('../useLiveMatches');
     const { result } = renderHook(() => useLiveMatches());
-
-    const ws = MockWebSocket.instances[0];
-    expect(ws).toBeDefined();
-
-    ws.simulateOpen();
+    fire('connect');
     expect(result.current.connected).toBe(true);
   });
 
-  it('sends connect and get-live-matches packets on open', async () => {
-    const { useLiveMatches } = await import('../useLiveMatches');
-    renderHook(() => useLiveMatches());
-
-    const ws = MockWebSocket.instances[0];
-    ws.simulateOpen();
-
-    expect(ws.sentMessages).toContain('40/sports,');
-    expect(ws.sentMessages).toContain('42/sports,["get-live-matches"]');
-  });
-
-  it('parses live-matches event and updates state', async () => {
+  it('loads live matches from the REST feed', async () => {
+    getLive.mockResolvedValue([
+      { id: 'm1', homeTeam: 'Kobe FC', awayTeam: 'City United', status: 'LIVE', homeScore: 1, awayScore: 0 },
+    ]);
     const { useLiveMatches } = await import('../useLiveMatches');
     const { result } = renderHook(() => useLiveMatches());
-
-    const ws = MockWebSocket.instances[0];
-    ws.simulateOpen();
-
-    const matches = [
-      { id: 'm1', homeTeam: 'Kobe FC', awayTeam: 'City United', status: 'LIVE', homeScore: 1, awayScore: 0 },
-    ];
-    ws.simulateMessage(`42/sports,["live-matches",${JSON.stringify(matches)}]`);
-
-    expect(result.current.liveMatches).toHaveLength(1);
+    await waitFor(() => expect(result.current.liveMatches).toHaveLength(1));
     expect(result.current.liveMatches[0].homeTeam).toBe('Kobe FC');
   });
 
-  it('ignores non-sports namespace messages', async () => {
+  it('refetches when a match lifecycle event arrives', async () => {
     const { useLiveMatches } = await import('../useLiveMatches');
-    const { result } = renderHook(() => useLiveMatches());
-
-    const ws = MockWebSocket.instances[0];
-    ws.simulateOpen();
-    ws.simulateMessage('42["some-other-event",{}]');
-
-    expect(result.current.liveMatches).toEqual([]);
+    renderHook(() => useLiveMatches());
+    await waitFor(() => expect(getLive).toHaveBeenCalled());
+    const before = getLive.mock.calls.length;
+    fire('match:started');
+    expect(getLive.mock.calls.length).toBeGreaterThan(before);
   });
 
-  it('sets connected=false on close', async () => {
+  it('sets connected=false on disconnect', async () => {
     const { useLiveMatches } = await import('../useLiveMatches');
     const { result } = renderHook(() => useLiveMatches());
-
-    const ws = MockWebSocket.instances[0];
-    ws.simulateOpen();
+    fire('connect');
     expect(result.current.connected).toBe(true);
-
-    act(() => { ws.onclose?.(); });
+    fire('disconnect');
     expect(result.current.connected).toBe(false);
   });
 
-  it('closes WebSocket on unmount', async () => {
+  it('disconnects the socket on unmount', async () => {
     const { useLiveMatches } = await import('../useLiveMatches');
     const { unmount } = renderHook(() => useLiveMatches());
-
-    const ws = MockWebSocket.instances[0];
-    const closeSpy = vi.spyOn(ws, 'close');
-
     unmount();
-    expect(closeSpy).toHaveBeenCalled();
+    expect(mockSocket.disconnect).toHaveBeenCalled();
   });
 });

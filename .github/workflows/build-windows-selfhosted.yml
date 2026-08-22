@@ -1,0 +1,458 @@
+name: Build Windows Installer (self-hosted, offline AI)
+
+# Builds the Windows installer ON YOUR OWN PC via a self-hosted GitHub Actions
+# runner, so it can copy your local GGUF models straight off disk and bake them
+# into the installer - no cloud, no upload, no URLs.
+#
+# Prerequisites (one-time):
+#   1. Register your Windows PC as a self-hosted runner:
+#        GitHub repo -> Settings -> Actions -> Runners -> New self-hosted runner
+#        (choose Windows x64 and follow the shown commands). Give it the label
+#        `windows` (default) so `runs-on: [self-hosted, windows]` matches.
+#   2. Put your downloaded .gguf files in a folder, e.g. C:\KobeOS\Models, and
+#      make the filenames match the `file` fields in models/bundled/models.json.
+#   3. (Optional) repo Settings -> Secrets and variables -> Actions:
+#        - Variable KOBE_MODELS_DIR to override the default C:\KobeOS\Models
+#        - Secret   KOBE_MODELS_AUTH if any model uses a private download URL
+#
+# Then run it manually: Actions tab -> this workflow -> "Run workflow".
+# (Kept manual on purpose so it doesn't double-build with the cloud workflow on
+#  every push. To make it push-triggered instead, add an `on: push:` block and
+#  disable Build Windows Installer for the branches you build here.)
+
+on:
+  workflow_dispatch:
+    inputs:
+      models_dir:
+        description: 'Folder on this PC holding the .gguf files'
+        required: false
+        default: 'C:\KobeOS\Models'
+      ollama_dir:
+        description: 'Existing Ollama install to reuse without downloading'
+        required: false
+        default: 'C:\Users\HomePC\AppData\Local\Programs\Ollama'
+      require_models:
+        description: 'Fail the build if a listed model is missing'
+        type: boolean
+        required: false
+        default: true
+      recover_existing_installers:
+        description: 'Copy installers from the runner service Desktop without rebuilding'
+        type: boolean
+        required: false
+        default: false
+
+concurrency:
+  group: windows-selfhosted-installer
+  cancel-in-progress: false
+
+jobs:
+  recover-existing-installers:
+    if: ${{ inputs.recover_existing_installers }}
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+    steps:
+      - name: Copy existing installers to an accessible folder
+        run: |
+          $source = Join-Path ([Environment]::GetFolderPath('Desktop')) 'KobeOS-Installers'
+          $out = if ($env:KOBE_OUTPUT_DIR) { $env:KOBE_OUTPUT_DIR } else { 'C:\KobeOS\Installers' }
+          $artifacts = @(
+            Get-ChildItem $source -File -ErrorAction SilentlyContinue |
+              Where-Object { $_.Extension -eq '.exe' -or $_.Name -like '*.nsis.7z' }
+          )
+          if (!($artifacts | Where-Object Extension -eq '.exe')) {
+            throw "No existing installers found in the runner service output: $source"
+          }
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          $artifacts | Copy-Item -Destination $out -Force
+          Write-Host "Recovered installer artifacts to: $out"
+          $artifacts | ForEach-Object {
+            Write-Host ("  " + $_.Name + "  " + [math]::Round($_.Length/1MB,1) + " MB")
+          }
+        env:
+          KOBE_OUTPUT_DIR: ${{ vars.KOBE_OUTPUT_DIR }}
+
+  build-windows-selfhosted:
+    if: ${{ !inputs.recover_existing_installers }}
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 120
+    permissions:
+      contents: write
+    env:
+      # Never build into the reusable checkout. An app launched interactively
+      # from an older release is owned by the desktop user, while the runner
+      # service may run as NETWORK SERVICE and cannot terminate it.
+      KOBE_RELEASE_NAME: kobeos-release-${{ github.run_id }}-${{ github.run_attempt }}
+
+    # Self-hosted Windows runners often have PowerShell execution policy set to
+    # Restricted, which blocks the temp .ps1 wrapper GitHub uses for run: steps
+    # ("running scripts is disabled on this system"). Invoke pwsh with
+    # -ExecutionPolicy Bypass so every run: step works without changing the
+    # machine's policy. (Alternatively, set the policy once on the runner:
+    #   Set-ExecutionPolicy -Scope LocalMachine RemoteSigned )
+    defaults:
+      run:
+        # Use Windows PowerShell 5.1 (`powershell`, always present) rather than
+        # pwsh (PowerShell 7, not installed on this runner), with
+        # -ExecutionPolicy Bypass to defeat a Restricted policy.
+        shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+        working-directory: source
+
+    steps:
+      # The default self-hosted workspace may contain a legacy win-unpacked app
+      # that a desktop user is actively testing. Check out into a clean child
+      # directory so checkout never tries to delete that locked sibling.
+      - uses: actions/checkout@v5
+        with:
+          path: source
+          clean: true
+
+      # Each run gets an isolated output directory under RUNNER_TEMP. This avoids
+      # cross-user EBUSY failures if a desktop user is testing a previous
+      # win-unpacked build while the runner service starts a new job.
+      - name: Prepare isolated build output
+        run: |
+          $runnerTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\') + '\'
+          $release = [IO.Path]::GetFullPath((Join-Path $runnerTemp $env:KOBE_RELEASE_NAME))
+          if (!$release.StartsWith($runnerTemp, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Refusing to prepare an output path outside RUNNER_TEMP: $release"
+          }
+
+          if (Test-Path -LiteralPath $release) {
+            Remove-Item -LiteralPath $release -Recurse -Force -ErrorAction Stop
+          }
+          New-Item -ItemType Directory -Path $release -Force | Out-Null
+          Add-Content -Path $env:GITHUB_ENV -Value "KOBE_RELEASE_DIR=$release" -Encoding UTF8
+          Write-Host "Build output: $release"
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          # No `cache: npm` here on purpose: this is a self-hosted runner, so the
+          # global npm cache already persists on disk between runs. setup-node's
+          # cache save (tar of the cache into the Actions backend) is redundant
+          # and was failing on Windows with "tar.exe exit code 2" on the
+          # 'C:\Program Files' path - a noisy, pointless post-job failure.
+
+      # -- Frontend ------------------------------------------------------------
+      - name: Install frontend dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Check Windows build scripts
+        run: node scripts/check-windows-build-scripts.mjs
+
+      - name: Build frontend with TypeScript check
+        run: npm run build
+
+      # -- Backend -------------------------------------------------------------
+      - name: Install server dependencies
+        run: npm install --legacy-peer-deps
+        working-directory: source/server
+
+      - name: Bundle NestJS backend
+        run: npm run build:bundle
+
+      # -- Pre-build steps -----------------------------------------------------
+      - name: Regenerate core integrity manifest
+        run: npm run core:manifest
+
+      - name: Verify manifest was generated
+        run: |
+          if (!(Test-Path "build/core-manifest.json")) {
+            Write-Error "core-manifest.json was not generated"
+            exit 1
+          }
+          $manifest = Get-Content "build/core-manifest.json" | ConvertFrom-Json
+          $count = ($manifest.files | Get-Member -MemberType NoteProperty).Count
+          Write-Host "Manifest contains $count files"
+          if ($count -eq 0) {
+            Write-Error "Manifest is empty"
+            exit 1
+          }
+
+      - name: Bundle Visual C++ runtime next to PostgreSQL binaries
+        run: |
+          # The MSVC-built PostgreSQL binaries depend on the VC++ runtime. Without
+          # it, initdb.exe fails to launch with 0xC0000135 (STATUS_DLL_NOT_FOUND).
+          $binDir = "node_modules/@embedded-postgres/windows-x64/native/bin"
+          if (!(Test-Path $binDir)) { Write-Error "Postgres bin dir not found: $binDir"; exit 1 }
+
+          function Find-Dll($name) {
+            $sys = Join-Path $env:WINDIR "System32\$name"
+            if (Test-Path $sys) { return $sys }
+            $redist = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\*\*\VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT\$name" -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($redist) { return $redist.FullName }
+            return $null
+          }
+
+          $required = @("vcruntime140.dll","vcruntime140_1.dll","msvcp140.dll")
+          $optional = @("msvcp140_1.dll","msvcp140_2.dll","concrt140.dll","vccorlib140.dll")
+
+          foreach ($d in $required) {
+            $src = Find-Dll $d
+            if (!$src) { Write-Error "Required runtime DLL not found on runner: $d"; exit 1 }
+            Copy-Item $src -Destination $binDir -Force
+            Write-Host "Bundled (required): $d  <- $src"
+          }
+          foreach ($d in $optional) {
+            $src = Find-Dll $d
+            if ($src) { Copy-Item $src -Destination $binDir -Force; Write-Host "Bundled (optional): $d" }
+          }
+
+      - name: Prepare direct PostgreSQL resources
+        run: npm run prepare:postgres
+
+      - name: Download Visual C++ 2015-2022 x64 Redistributable
+        run: |
+          $url = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+          $dest = "build\vcredist\vc_redist.x64.exe"
+          New-Item -ItemType Directory -Force -Path "build\vcredist" | Out-Null
+          Write-Host "Downloading vc_redist.x64.exe from $url"
+          Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing
+          $size = (Get-Item $dest).Length
+          Write-Host "Downloaded: $([math]::Round($size/1MB, 1)) MB"
+          if ($size -lt 5MB) {
+            Write-Error "vc_redist.x64.exe is suspiciously small -- download may have failed"
+            exit 1
+          }
+
+      - name: Download cloudflared
+        run: npm run download:cloudflared
+
+      # The AI is the whole point of this build, so a missing Ollama runtime is
+      # a hard failure (OLLAMA_REQUIRED=1). GITHUB_TOKEN raises the API rate
+      # limit so version resolution never silently fails on a busy runner.
+      - name: Prepare Ollama runtime (reuse local or download)
+        run: npm run download:ollama
+        env:
+          OLLAMA_REQUIRED: '1'
+          OLLAMA_LOCAL_DIR: ${{ github.event.inputs.ollama_dir || vars.KOBE_OLLAMA_DIR }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # This is the whole point of the self-hosted build: copy YOUR local GGUFs
+      # into models/bundled/ so electron-builder bakes them into the installer.
+      - name: Bundle offline AI models from this PC
+        run: npm run fetch:models
+        env:
+          KOBE_MODELS_DIR: ${{ github.event.inputs.models_dir || vars.KOBE_MODELS_DIR || 'C:\KobeOS\Models' }}
+          KOBE_MODELS_AUTH: ${{ secrets.KOBE_MODELS_AUTH }}
+          KOBE_MODELS_REQUIRED: ${{ github.event.inputs.require_models == 'false' && '0' || '1' }}
+
+      # -- Build installer -----------------------------------------------------
+      # Offline AI pushes the app package beyond NSIS's 4 GiB embedded-file
+      # ceiling. nsis-web deliberately keeps the package as a sidecar .7z. When
+      # the setup EXE and sidecar are in the same folder, installation is fully
+      # offline; the configured URL is only a fallback if the sidecar is absent.
+      - name: Build Windows offline setup and sidecar package
+        run: npx electron-builder --win nsis-web --publish never --config.directories.output="$env:KOBE_RELEASE_DIR"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Copy vc_redist.x64.exe next to installer
+        run: |
+          $package = Get-ChildItem $env:KOBE_RELEASE_DIR -Recurse -File -Filter "*.nsis.7z" | Select-Object -First 1
+          if (!$package) {
+            Write-Error "NSIS sidecar package was not produced"
+            exit 1
+          }
+          Copy-Item "build\vcredist\vc_redist.x64.exe" (Join-Path $package.DirectoryName "vc_redist.x64.exe") -Force
+          Write-Host "Copied vc_redist.x64.exe next to the offline setup: $($package.DirectoryName)"
+
+      # -- Smoke tests ---------------------------------------------------------
+      - name: 'Smoke test: verify setup and sidecar package'
+        run: |
+          $packages = @(Get-ChildItem $env:KOBE_RELEASE_DIR -Recurse -File -Filter "*.nsis.7z")
+          if ($packages.Count -ne 1) {
+            Write-Error "Expected exactly one .nsis.7z sidecar, found $($packages.Count)"
+            exit 1
+          }
+          $setups = @(
+            Get-ChildItem $packages[0].DirectoryName -File -Filter "*.exe" |
+              Where-Object Name -ne "vc_redist.x64.exe"
+          )
+          if ($setups.Count -ne 1) {
+            Write-Error "Expected exactly one setup EXE next to the sidecar, found $($setups.Count)"
+            exit 1
+          }
+          # nsis-web produces a SMALL web-bootstrapper .exe by design; the real
+          # payload is the .nsis.7z sidecar (validated below). Only guard against
+          # a genuinely broken/empty stub, not against it being under 1 MB.
+          if ($setups[0].Length -lt 50KB) {
+            Write-Error "$($setups[0].Name) is corrupt/empty ($([math]::Round($setups[0].Length/1KB)) KB)"
+            exit 1
+          }
+          if ($packages[0].Length -lt 100MB) {
+            Write-Error "$($packages[0].Name) is suspiciously small (under 100 MB) - payload did not pack"
+            exit 1
+          }
+          if ($setups[0].DirectoryName -ne $packages[0].DirectoryName) {
+            Write-Error "Setup and sidecar must be in the same folder for offline installation"
+            exit 1
+          }
+          Write-Host "Setup:   $($setups[0].FullName) ($([math]::Round($setups[0].Length/1MB, 1)) MB)"
+          Write-Host "Sidecar: $($packages[0].FullName) ($([math]::Round($packages[0].Length/1MB, 1)) MB)"
+          Write-Host "Offline setup smoke test passed"
+
+      - name: 'Smoke test: verify bundled AI models are present in the installer'
+        run: |
+          $models = Join-Path $env:KOBE_RELEASE_DIR "win-unpacked\resources\models"
+          if (Test-Path $models) {
+            $ggufs = @(Get-ChildItem "$models\*.gguf" -ErrorAction SilentlyContinue)
+            Write-Host ("Bundled models in installer: " + $ggufs.Count)
+            foreach ($g in $ggufs) {
+              $mb = [math]::Round($g.Length / 1MB, 1)
+              Write-Host ("  " + $g.Name + "  " + $mb + " MB")
+            }
+            if ($ggufs.Count -eq 0) {
+              Write-Host "WARNING: no .gguf in resources/models; installer will rely on side-loaded models."
+            }
+          } else {
+            Write-Host "WARNING: resources/models not found in the built app."
+          }
+
+      - name: 'Smoke test: verify Ollama runtime is bundled'
+        run: |
+          $ollama = Join-Path $env:KOBE_RELEASE_DIR "win-unpacked\resources\ollama\win-x64\ollama.exe"
+          if (!(Test-Path $ollama)) {
+            Write-Error "ollama.exe was NOT bundled at $ollama - the AI assistant would report 'cannot reach Ollama'. The download:ollama step must succeed."
+            exit 1
+          }
+          $mb = [math]::Round((Get-Item $ollama).Length / 1MB, 1)
+          Write-Host "Ollama runtime bundled: $ollama ($mb MB)"
+
+      - name: 'Smoke test: verify asar contains core files'
+        run: |
+          $asar = Join-Path $env:KOBE_RELEASE_DIR "win-unpacked\resources\app.asar"
+          if (!(Test-Path $asar)) {
+            Write-Error "app.asar not found at $asar"
+            exit 1
+          }
+          $asarFiles = @(npx asar list $asar | ForEach-Object { $_ -replace '\\', '/' })
+          foreach ($required in @(
+            "electron/main.cjs",
+            "electron/preload.cjs",
+            "electron/update-manager.cjs",
+            "electron/pg-bootstrap.cjs",
+            "electron/splash.html",
+            "electron/splash.css",
+            "electron/splash-preload.cjs"
+          )) {
+            if (!($asarFiles | Select-String -SimpleMatch $required)) {
+              Write-Error "Required ASAR file missing: $required"
+              exit 1
+            }
+          }
+          Write-Host "Core files present in asar"
+
+      - name: 'Smoke test: verify PostgreSQL binaries and VC++ runtime'
+        run: |
+          $binDir = Join-Path $env:KOBE_RELEASE_DIR "win-unpacked\resources\postgres\bin"
+          foreach ($binary in @("initdb.exe","postgres.exe","pg_ctl.exe")) {
+            $target = Join-Path $binDir $binary
+            if (!(Test-Path $target)) {
+              Write-Error "PostgreSQL binary missing: $target"
+              exit 1
+            }
+            if ((Get-Item $target).Length -lt 100KB) {
+              Write-Error "PostgreSQL binary is suspiciously small: $target"
+              exit 1
+            }
+          }
+          foreach ($dll in @("vcruntime140.dll","vcruntime140_1.dll","msvcp140.dll")) {
+            $target = Join-Path $binDir $dll
+            if (!(Test-Path $target)) {
+              Write-Error "PostgreSQL VC++ runtime missing: $target"
+              exit 1
+            }
+          }
+          Write-Host "PostgreSQL binaries and VC++ runtime are bundled correctly"
+
+      # -- Artifacts -----------------------------------------------------------
+      - name: List release artifacts
+        run: |
+          Write-Host "=== Release Artifacts ==="
+          Get-ChildItem $env:KOBE_RELEASE_DIR -Recurse | Select-Object FullName, @{N="SizeMB";E={[math]::Round($_.Length/1MB,1)}}
+
+      # The runner IS your PC, so the fastest way to get the (multi-GB, offline-AI)
+      # installer is a local copy - no slow/flaky upload to GitHub needed. Set the
+      # KOBE_OUTPUT_DIR variable to change the destination (default: the user's
+      # C:\KobeOS\Installers).
+      - name: Copy installer to a local output folder
+        run: |
+          $out = if ($env:KOBE_OUTPUT_DIR) { $env:KOBE_OUTPUT_DIR } else { 'C:\KobeOS\Installers' }
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          $package = Get-ChildItem $env:KOBE_RELEASE_DIR -Recurse -File -Filter "*.nsis.7z" | Select-Object -First 1
+          if (!$package) {
+            Write-Error "Refusing to publish an offline setup without its sidecar package"
+            exit 1
+          }
+          $deliverables = @(
+            Get-ChildItem $package.DirectoryName -File |
+              Where-Object { $_.Extension -eq ".exe" -or $_.Name -like "*.nsis.7z" }
+          )
+          $deliverables | Copy-Item -Destination $out -Force
+          Write-Host "Offline setup files copied to: $out"
+          $deliverables | ForEach-Object { Write-Host ("  " + $_.Name + "  " + [math]::Round($_.Length/1MB,1) + " MB") }
+        env:
+          KOBE_OUTPUT_DIR: ${{ vars.KOBE_OUTPUT_DIR }}
+
+      # The multi-GB offline-AI installer can't reliably upload to GitHub over a
+      # home connection - it hits ECONNRESET or the pre-signed upload token
+      # expires mid-upload ("Server failed to authenticate... signature"). The
+      # local copy above is the real deliverable, so this upload is OFF by
+      # default. Set the UPLOAD_ARTIFACT repo variable to 'true' to enable it
+      # (only sensible for a small, model-less build).
+      - name: Upload Windows installer artifact (optional)
+        if: vars.UPLOAD_ARTIFACT == 'true'
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: KobeOS-Windows-Setup-offline-ai
+          path: |
+            ${{ runner.temp }}/${{ env.KOBE_RELEASE_NAME }}/nsis-web/*.exe
+            ${{ runner.temp }}/${{ env.KOBE_RELEASE_NAME }}/nsis-web/*.nsis.7z
+            ${{ runner.temp }}/${{ env.KOBE_RELEASE_NAME }}/nsis-web/vc_redist.x64.exe
+          retention-days: 30
+
+      # Keep RUNNER_TEMP from accumulating multi-GB build directories. The
+      # installer has already been copied locally and optionally uploaded.
+      - name: Clean isolated build output
+        if: always()
+        run: |
+          $runnerTemp = [IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\') + '\'
+          $release = [IO.Path]::GetFullPath($env:KOBE_RELEASE_DIR)
+          if (!$release.StartsWith($runnerTemp, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Refusing to clean an output path outside RUNNER_TEMP: $release"
+          }
+
+          for ($pass = 1; $pass -le 4; $pass++) {
+            $processes = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+              $_.ExecutablePath -and
+              [IO.Path]::GetFullPath($_.ExecutablePath).StartsWith($release, [StringComparison]::OrdinalIgnoreCase)
+            })
+            if ($processes.Count -eq 0) { break }
+            foreach ($process in ($processes | Sort-Object ProcessId -Descending)) {
+              Write-Host "Stopping build-output process: $($process.Name) (PID $($process.ProcessId))"
+              Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+            }
+            Start-Sleep -Seconds 2
+          }
+
+          if (Test-Path -LiteralPath $release) {
+            for ($attempt = 1; $attempt -le 5; $attempt++) {
+              try {
+                Remove-Item -LiteralPath $release -Recurse -Force -ErrorAction Stop
+                break
+              } catch {
+                Write-Warning "isolated output cleanup attempt $attempt failed: $($_.Exception.Message)"
+                Start-Sleep -Seconds 3
+              }
+            }
+          }
+
+          if (Test-Path -LiteralPath $release) {
+            throw "Temporary build output remains locked: $release"
+          }

@@ -114,6 +114,14 @@ export class StoreSettings extends BaseEntity {
   bodySize!: string;
 
   /**
+   * Storefront preview template — 'generic' = original mockup; 'jerseys' uses
+   * the projerseyshop.es-style preview (clubs grid, kit cards,
+   * customizer CTA, trust strip).
+   */
+  @Column({ default: 'generic' })
+  template!: string;
+
+  /**
    * Jersey-shop layout config — top promo bar, hero, trust strip, footer
    * columns. Stored as JSON so the editor can iterate without a migration
    * per new field. Defaults applied client-side in JerseyShopChrome when
@@ -130,6 +138,32 @@ export class StoreSettings extends BaseEntity {
     languages?: Array<{ code: string; label: string }>;
     trustpilot?: { businessUnitId?: string; templateId?: string };
     paymentLogos?: string[];
+  };
+
+  /**
+   * Simple one-page business website content (template='site'). For
+   * businesses that just want a lightweight brochure site — hero, about,
+   * services, hours, contact — with no product catalogue or cart. Stored
+   * as JSON so the editor can add fields without a migration.
+   */
+  @Column({ type: 'jsonb', default: {} })
+  siteConfig!: {
+    heroImageUrl?: string;
+    about?: string;
+    services?: Array<{ title: string; desc?: string; icon?: string }>;
+    /** Hotel booking-site amenities (WiFi, Pool, Parking…). */
+    amenities?: string[];
+    hours?: Array<{ day: string; open: string }>;
+    phone?: string;
+    whatsapp?: string;
+    email?: string;
+    address?: string;
+    mapQuery?: string;
+    socials?: { facebook?: string; instagram?: string; tiktok?: string; x?: string };
+    ctaLabel?: string;
+    ctaHref?: string;
+    /** Cargo TZ: show a "track your parcel" box that opens /ctz/{number}. */
+    cargoTracking?: boolean;
   };
 
   // Publish state (managed by publish/unpublish endpoints)

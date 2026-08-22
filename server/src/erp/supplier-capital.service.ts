@@ -1,10 +1,12 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { FindOptionsWhere, Repository } from 'typeorm';
+import { DataSource, FindOptionsWhere, Repository } from 'typeorm';
+import { PosProduct, ProductSourceType } from '../pos/pos.entity';
 import {
   ErpKobePayLink,
   ErpKobePaySupplierReceipt,
   ErpPurchaseOrder,
+  ErpPurchaseOrderItem,
   ErpSupplier,
   ErpSupplierCapitalLedger,
 } from './supplier-capital.entity';
@@ -13,6 +15,7 @@ import {
   CreatePurchaseOrderDto,
   CreateSupplierDto,
   KobePaySupplierReceiptWebhookDto,
+  ReceivePurchaseOrderDto,
 } from './dto/supplier-capital.dto';
 
 const UNMATCHED_KOBEPAY_OWNER_ID = '00000000-0000-0000-0000-000000000000';
@@ -23,7 +26,57 @@ function n(value: unknown): number {
 }
 
 function normalizePhone(phone: string) {
-  return (phone || '').replace(/\s+/g, '').replace(/[()\-]/g, '');
+  return (phone || '').replace(/\s+/g, '').replace(/[()-]/g, '');
+}
+
+const isUuid = (value: string | undefined): value is string =>
+  !!value && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+
+function normalizePoItems(value: unknown): ErpPurchaseOrderItem[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const row = item as Record<string, unknown>;
+    const name = String(row.name ?? '').trim();
+    const qty = n(row.qty);
+    if (!name || qty <= 0) return [];
+    return [{
+      name,
+      qty,
+      price: Math.max(0, n(row.price)),
+      ...(n(row.sellPrice) > 0 ? { sellPrice: n(row.sellPrice) } : {}),
+      ...(String(row.sku ?? '').trim() ? { sku: String(row.sku).trim() } : {}),
+      ...(String(row.category ?? '').trim() ? { category: String(row.category).trim() } : {}),
+      ...(String(row.currency ?? '').trim() ? { currency: String(row.currency).trim() } : {}),
+      ...(n(row.receivedQty) > 0 ? { receivedQty: n(row.receivedQty) } : {}),
+      ...(n(row.damagedQty) > 0 ? { damagedQty: n(row.damagedQty) } : {}),
+      ...(isUuid(String(row.productId ?? '')) ? { productId: String(row.productId) } : {}),
+    } satisfies ErpPurchaseOrderItem];
+  });
+}
+
+function parsePoMeta(notes?: string): { items: ErpPurchaseOrderItem[]; transportCost?: number } {
+  const match = (notes ?? '').match(/(?:^|\n)kobeos-po-meta:(\{[\s\S]*?\})(?:\n|$)/);
+  if (!match) return { items: [] };
+  try {
+    const meta = JSON.parse(match[1]) as Record<string, unknown>;
+    return {
+      items: normalizePoItems(meta.lines),
+      transportCost: n(meta.transportCost),
+    };
+  } catch {
+    return { items: [] };
+  }
+}
+
+function poItems(po: ErpPurchaseOrder): ErpPurchaseOrderItem[] {
+  const stored = normalizePoItems(po.items);
+  return stored.length > 0 ? stored : parsePoMeta(po.notes).items;
+}
+
+function poTransportCost(po: ErpPurchaseOrder): number {
+  const stored = n(po.transportCost);
+  return stored > 0 ? stored : n(parsePoMeta(po.notes).transportCost);
 }
 
 @Injectable()
@@ -34,6 +87,8 @@ export class SupplierCapitalService {
     @InjectRepository(ErpPurchaseOrder) private readonly poRepo: Repository<ErpPurchaseOrder>,
     @InjectRepository(ErpKobePaySupplierReceipt) private readonly receiptsRepo: Repository<ErpKobePaySupplierReceipt>,
     @InjectRepository(ErpSupplierCapitalLedger) private readonly ledgerRepo: Repository<ErpSupplierCapitalLedger>,
+    @InjectRepository(PosProduct) private readonly productsRepo: Repository<PosProduct>,
+    private readonly dataSource: DataSource,
   ) {}
 
   listLinks(ownerId: string) {
@@ -63,14 +118,28 @@ export class SupplierCapitalService {
     }));
   }
 
-  listPurchaseOrders(ownerId: string, supplierId?: string) {
-    return this.poRepo.find({
+  async listPurchaseOrders(ownerId: string, supplierId?: string) {
+    const pos = await this.poRepo.find({
       where: supplierId ? { ownerId, supplierId } : { ownerId },
       order: { createdAt: 'DESC' },
     });
+    const supplierIds = Array.from(new Set(pos.map((po) => po.supplierId).filter((id): id is string => !!id)));
+    const suppliers = supplierIds.length
+      ? await this.suppliersRepo.find({ where: supplierIds.map((id) => ({ ownerId, id })) })
+      : [];
+    const supplierNames = new Map(suppliers.map((supplier) => [supplier.id, supplier.name]));
+    return pos.map((po) => ({
+      ...po,
+      items: poItems(po),
+      transportCost: poTransportCost(po),
+      supplierName: po.supplierId ? supplierNames.get(po.supplierId) ?? '' : '',
+      inventoryStatus: po.inventoryStatus ?? 'PENDING',
+    }));
   }
 
   async createPurchaseOrder(ownerId: string, dto: CreatePurchaseOrderDto) {
+    const legacyMeta = parsePoMeta(dto.notes);
+    const items = normalizePoItems(dto.items?.length ? dto.items : legacyMeta.items);
     const po = this.poRepo.create({
       ownerId,
       poNumber: dto.poNumber,
@@ -81,8 +150,179 @@ export class SupplierCapitalService {
       status: 'open',
       expectedDate: dto.expectedDate ? new Date(dto.expectedDate) : null,
       notes: dto.notes ?? '',
+      items,
+      transportCost: dto.transportCost ?? legacyMeta.transportCost ?? 0,
+      inventoryStatus: 'PENDING',
+      receivedAt: null,
     });
     return this.poRepo.save(po);
+  }
+
+  /**
+   * Receive a PO into the POS catalogue. New SKUs are created with source
+   * PO; an existing SKU is replenished without changing its original source.
+   * The PO row is locked in a transaction, so repeated taps or two receiving
+   * screens cannot add the same quantity twice.
+   */
+  async receivePurchaseOrder(ownerId: string, poId: string, dto: ReceivePurchaseOrderDto) {
+    if (!isUuid(poId)) throw new NotFoundException('Purchase order not found for this ERP user');
+    return this.dataSource.transaction(async (manager) => {
+      const poRepository = manager.getRepository(ErpPurchaseOrder);
+      const productRepository = manager.getRepository(PosProduct);
+      const supplierRepository = manager.getRepository(ErpSupplier);
+      const po = await poRepository
+        .createQueryBuilder('po')
+        .setLock('pessimistic_write')
+        .where('po.id = :poId AND po.ownerId = :ownerId', { poId, ownerId })
+        .getOne();
+      if (!po) throw new NotFoundException('Purchase order not found for this ERP user');
+      if (po.status === 'cancelled') throw new ConflictException('Cancelled purchase orders cannot be received');
+
+      const items = poItems(po);
+      if (items.length === 0) {
+        throw new BadRequestException('This PO has no structured line items. Edit the PO and add products before receiving it.');
+      }
+
+      const supplier = po.supplierId
+        ? await supplierRepository.findOne({ where: { ownerId, id: po.supplierId } })
+        : null;
+      const transportCost = dto.transportCost !== undefined ? n(dto.transportCost) : poTransportCost(po);
+      const totalOrderedQty = items.reduce((sum, item) => sum + n(item.qty), 0);
+      const freightPerUnit = totalOrderedQty > 0 ? transportCost / totalOrderedQty : 0;
+      const requested = new Map<number, { quantityReceived: number; damagedQuantity: number }>();
+      for (const line of dto.lines ?? []) {
+        if (!Number.isInteger(line.lineIndex) || line.lineIndex < 0 || line.lineIndex >= items.length) {
+          throw new BadRequestException(`Invalid PO line index: ${line.lineIndex}`);
+        }
+        const prior = requested.get(line.lineIndex) ?? { quantityReceived: 0, damagedQuantity: 0 };
+        requested.set(line.lineIndex, {
+          quantityReceived: prior.quantityReceived + n(line.quantityReceived),
+          damagedQuantity: prior.damagedQuantity + n(line.damagedQuantity),
+        });
+      }
+
+      const received: Array<{
+        lineIndex: number;
+        productId: string;
+        stockAdded: number;
+        damagedQuantity: number;
+        unitCost: number;
+      }> = [];
+      const epsilon = 0.0001;
+
+      for (let lineIndex = 0; lineIndex < items.length; lineIndex += 1) {
+        const item = items[lineIndex];
+        const alreadyReceived = n(item.receivedQty);
+        const alreadyDamaged = n(item.damagedQty);
+        const remaining = Math.max(0, n(item.qty) - alreadyReceived - alreadyDamaged);
+        if (remaining <= epsilon) continue;
+
+        const lineRequest = requested.get(lineIndex);
+        const quantityReceived = dto.lines ? n(lineRequest?.quantityReceived) : remaining;
+        const damagedQuantity = dto.lines ? n(lineRequest?.damagedQuantity) : 0;
+        if (quantityReceived + damagedQuantity > remaining + epsilon) {
+          throw new BadRequestException(
+            `${item.name}: receiving ${quantityReceived + damagedQuantity} but only ${remaining} remains on the PO`,
+          );
+        }
+        if (quantityReceived <= epsilon && damagedQuantity <= epsilon) continue;
+
+        const unitCost = n(item.price) + freightPerUnit;
+        const sku = String(item.sku ?? '').trim() || `PO-${po.poNumber}-${lineIndex + 1}`;
+        let product: PosProduct | null = null;
+        if (isUuid(item.productId)) {
+          product = await productRepository.findOne({ where: { ownerId, id: item.productId } });
+        }
+        if (!product) {
+          product = await productRepository.findOne({ where: { ownerId, sku } });
+        }
+        // When the operator did not provide a SKU, an exact name match is a
+        // useful replenishment path for a product that entered through Quick
+        // Add. A supplied SKU remains authoritative, so distinct SKUs with
+        // the same display name are never merged accidentally.
+        if (!product && !String(item.sku ?? '').trim()) {
+          product = await productRepository.findOne({ where: { ownerId, name: item.name } });
+        }
+
+        const salesCurrency = item.currency || 'TZS';
+        const purchaseCurrency = supplier?.currency || salesCurrency;
+        if (product) {
+          const customData = product.customData && typeof product.customData === 'object' ? product.customData : {};
+          const previousPoIds = Array.isArray(customData.purchaseOrderIds)
+            ? customData.purchaseOrderIds.filter((id): id is string => typeof id === 'string')
+            : [];
+          product.stock = n(product.stock) + quantityReceived;
+          product.cost = unitCost;
+          if (!product.supplier && supplier) product.supplier = supplier.name;
+          if (n(product.price) <= 0 && n(item.sellPrice) > 0) product.price = n(item.sellPrice);
+          product.customData = {
+            ...customData,
+            purchaseOrderId: po.id,
+            purchaseOrderNumber: po.poNumber,
+            purchaseOrderIds: Array.from(new Set([...previousPoIds, po.id])),
+            lastReceivedAt: new Date().toISOString(),
+            purchaseCurrency,
+          };
+        } else {
+          product = productRepository.create({
+            ownerId,
+            sku,
+            name: item.name,
+            description: `Received from PO ${po.poNumber}${supplier ? ` · ${supplier.name}` : ''}`,
+            category: item.category || '',
+            supplier: supplier?.name ?? null,
+            price: n(item.sellPrice) > 0 ? n(item.sellPrice) : unitCost,
+            cost: unitCost,
+            currency: salesCurrency,
+            unit: 'piece',
+            decimalQuantity: false,
+            stock: quantityReceived,
+            reservedStock: 0,
+            estimatedStock: 0,
+            sourceType: 'PO' satisfies ProductSourceType,
+            imageUrls: [],
+            variants: [],
+            tags: [],
+            customData: {
+              purchaseOrderId: po.id,
+              purchaseOrderNumber: po.poNumber,
+              purchaseOrderLine: lineIndex,
+              purchaseCurrency,
+              lastReceivedAt: new Date().toISOString(),
+            },
+            active: true,
+            featured: false,
+            publishedAt: new Date(),
+            unitsSold: 0,
+          });
+        }
+
+        const savedProduct = await productRepository.save(product);
+        item.receivedQty = alreadyReceived + quantityReceived;
+        item.damagedQty = alreadyDamaged + damagedQuantity;
+        item.productId = savedProduct.id;
+        item.sku = savedProduct.sku;
+        received.push({
+          lineIndex,
+          productId: savedProduct.id,
+          stockAdded: quantityReceived,
+          damagedQuantity,
+          unitCost,
+        });
+      }
+
+      const fullyProcessed = items.every((item) => n(item.receivedQty) + n(item.damagedQty) >= n(item.qty) - epsilon);
+      po.items = items;
+      po.transportCost = transportCost;
+      po.inventoryStatus = fullyProcessed ? 'RECEIVED' : 'PENDING';
+      po.receivedAt = fullyProcessed ? (po.receivedAt ?? new Date()) : null;
+      const savedPo = await poRepository.save(po);
+      return {
+        po: savedPo,
+        received,
+        alreadyReceived: received.length === 0 && fullyProcessed,
+      };
+    });
   }
 
   async importKobePayReceipt(dto: KobePaySupplierReceiptWebhookDto) {

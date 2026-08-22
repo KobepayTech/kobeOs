@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
 import {
   BedDouble, CalendarCheck, LogOut, Bookmark, ChevronDown,
@@ -129,14 +129,12 @@ export default function HotelBookersDashboard() {
   // Replace the seeded demo portfolio with the real backend list on mount.
   // Falls back to demo if the user is offline / unauthenticated / hasn't
   // configured any properties yet.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const real = await fetchPortfolio();
-      if (!cancelled && real && real.length > 0) setPortfolio(real);
-    })();
-    return () => { cancelled = true; };
+  const reloadPortfolio = useCallback(async () => {
+    const real = await fetchPortfolio();
+    if (real && real.length > 0) setPortfolio(real);
   }, []);
+
+  useEffect(() => { void reloadPortfolio(); }, [reloadPortfolio]);
 
   useEffect(() => {
     let cancelled = false;
@@ -263,7 +261,7 @@ export default function HotelBookersDashboard() {
       </div>
 
       {isPortfolio ? (
-        <HotelPortfolioDashboard hotels={portfolio} onSelectHotel={setSelectedHotelId} />
+        <HotelPortfolioDashboard hotels={portfolio} onSelectHotel={setSelectedHotelId} onRefresh={reloadPortfolio} />
       ) : (
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
           <section className="xl:col-span-2 space-y-5">

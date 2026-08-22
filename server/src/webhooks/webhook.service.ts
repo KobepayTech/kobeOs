@@ -1,17 +1,20 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { WebhookEvent } from './webhook.entity';
 import { PalmPesaCallback } from '../creators/palmpesa.service';
+import { HotelBooking, HotelRoom } from '../hotel/hotel.entity';
+import { HotelWalletService } from '../hotel/hotel-wallet.service';
+import { PlatformEventsService } from '../platform/platform.service';
 
 @Injectable()
 export class WebhookService {
   private readonly logger = new Logger(WebhookService.name);
 
-  // Injected lazily to avoid circular module dependency
-  // Set by WebhooksModule after CreatorsModule / LicenseModule are loaded
   private creatorSubSvc?: import('../creators/creator-subscription.service').CreatorSubscriptionService;
   private licenseSvc?: import('../license/license.service').LicenseService;
+  private mobileSubSvc?: import('../mobile-subscription/mobile-subscription.service').MobileSubscriptionService;
+  private appMarketplaceSvc?: import('../app-marketplace/app-marketplace.service').AppMarketplaceService;
 
   setCreatorSubscriptionService(
     svc: import('../creators/creator-subscription.service').CreatorSubscriptionService,
@@ -23,15 +26,29 @@ export class WebhookService {
     this.licenseSvc = svc;
   }
 
+  setMobileSubscriptionService(
+    svc: import('../mobile-subscription/mobile-subscription.service').MobileSubscriptionService,
+  ) {
+    this.mobileSubSvc = svc;
+  }
+
+  setAppMarketplaceService(
+    svc: import('../app-marketplace/app-marketplace.service').AppMarketplaceService,
+  ) {
+    this.appMarketplaceSvc = svc;
+  }
+
   constructor(
     @InjectRepository(WebhookEvent)
     private readonly repo: Repository<WebhookEvent>,
+    @InjectRepository(HotelBooking)
+    private readonly bookings: Repository<HotelBooking>,
+    @InjectRepository(HotelRoom)
+    private readonly rooms: Repository<HotelRoom>,
+    private readonly hotelWallet: HotelWalletService,
+    private readonly events: PlatformEventsService,
   ) {}
 
-  /**
-   * Persist the raw webhook payload, then dispatch to the appropriate handler.
-   * Returns the saved event record.
-   */
   async receive(
     provider: string,
     eventType: string,
@@ -45,7 +62,6 @@ export class WebhookService {
     });
     const saved = await this.repo.save(event);
 
-    // Dispatch asynchronously — do not block the HTTP response
     this.dispatch(saved).catch((err: Error) => {
       this.logger.error(`Webhook dispatch failed for ${saved.id}: ${err.message}`);
     });
@@ -69,12 +85,8 @@ export class WebhookService {
     }
   }
 
-  // ── Provider handlers ────────────────────────────────────────────────────
-
   private async handlePalmPesa(event: WebhookEvent): Promise<void> {
     const payload = event.payload as unknown as PalmPesaCallback;
-
-    // PalmPesa callbacks carry payment_status directly (not via eventType header)
     const paymentStatus = payload.payment_status
       ?? (event.eventType === 'payment.completed' ? 'COMPLETED' : undefined);
 
@@ -82,20 +94,62 @@ export class WebhookService {
       `PalmPesa callback: order=${payload.order_id ?? '—'} status=${paymentStatus ?? event.eventType}`,
     );
 
-    // Route OS license payments (reference starts with "lic_") to LicenseService
     const ref = payload.reference ?? '';
     if (ref.startsWith('lic_') && this.licenseSvc) {
       await this.licenseSvc.handleCallback(payload);
       return;
     }
 
-    // Route creator subscription payments to CreatorSubscriptionService
+    if (ref.startsWith('msub_') && this.mobileSubSvc) {
+      await this.mobileSubSvc.handleCallback(payload);
+      return;
+    }
+
+    if (ref.startsWith('appsub_') && this.appMarketplaceSvc) {
+      await this.appMarketplaceSvc.handlePalmPesaCallback(payload);
+      return;
+    }
+
+    if (payload.order_id) {
+      const booking = await this.bookings.findOne({ where: { palmPesaOrderId: payload.order_id } });
+      if (booking) {
+        await this.events.emit({ ownerId: booking.ownerId, eventName: 'hotel.payment_detected', aggregateType: 'HotelBooking', aggregateId: booking.id, payload: { hotelId: booking.hotelId, orderId: payload.order_id, paymentStatus: paymentStatus ?? 'UNKNOWN' } });
+        if (paymentStatus === 'COMPLETED') {
+          await this.bookings.update({ id: booking.id }, { status: 'CONFIRMED' });
+          try {
+            await this.hotelWallet.creditForBooking(booking.ownerId, {
+              bookingId: booking.id,
+              amount: Number(booking.totalAmount) || 0,
+              currency: booking.currency || 'TZS',
+              hotelId: booking.hotelId ?? null,
+              description: `Room booking ${booking.id} paid online`,
+            });
+          } catch (e) {
+            this.logger.error(`Wallet credit failed for booking ${booking.id}: ${(e as Error).message}`);
+          }
+          await this.events.emit({ ownerId: booking.ownerId, eventName: 'hotel.payment_matched', aggregateType: 'HotelBooking', aggregateId: booking.id, payload: { hotelId: booking.hotelId, orderId: payload.order_id, amount: booking.totalAmount, currency: booking.currency } });
+          this.logger.log(`Hotel booking ${booking.id} auto-confirmed + wallet credited (owner ${booking.ownerId}).`);
+        } else if (paymentStatus === 'FAILED') {
+          await this.bookings.update({ id: booking.id }, { status: 'CANCELLED' });
+          const room = await this.rooms.findOne({ where: { ownerId: booking.ownerId, id: booking.roomId } });
+          // A future reservation no longer globally marks a room reserved. Never
+          // turn an occupied/cleaning/maintenance room into "available" because
+          // an unrelated future payment failed; only release this booking's
+          // active reservation marker.
+          if (room?.status === 'reserved') {
+            await this.rooms.update({ ownerId: booking.ownerId, id: booking.roomId }, { status: 'available' });
+          }
+          this.logger.warn(`Hotel booking ${booking.id} cancelled — payment failed.`);
+        }
+        return;
+      }
+    }
+
     if (payload.order_id && this.creatorSubSvc) {
       await this.creatorSubSvc.handleCallback(payload);
       return;
     }
 
-    // Fallback for non-subscription PalmPesa payments
     switch (paymentStatus ?? event.eventType) {
       case 'COMPLETED':
       case 'payment.completed':
@@ -112,7 +166,6 @@ export class WebhookService {
 
   private async handleMpesa(event: WebhookEvent): Promise<void> {
     const { eventType, payload } = event;
-    // M-Pesa C2B / B2C callbacks use different field names
     const ref = payload['BillRefNumber'] ?? payload['TransID'] ?? payload['reference'] ?? '—';
     const amount = payload['TransAmount'] ?? payload['amount'] ?? '—';
     this.logger.log(`M-Pesa ${eventType}: ref=${String(ref)} amount=${String(amount)}`);
@@ -120,10 +173,10 @@ export class WebhookService {
     switch (eventType) {
       case 'c2b.payment':
       case 'payment.completed':
-        // TODO: credit wallet by matching BillRefNumber to an order/invoice
+        // M-Pesa C2B matching is a separate provider integration and is not
+        // presented as a live Hotel payment option until a reference mapper exists.
         break;
       case 'b2c.result':
-        // TODO: mark payout as completed
         break;
       default:
         this.logger.debug(`M-Pesa: unhandled event type "${eventType}"`);
@@ -136,16 +189,11 @@ export class WebhookService {
 
     switch (eventType) {
       case 'payment_intent.succeeded':
-        // TODO: credit wallet / fulfill order
-        break;
       case 'payment_intent.payment_failed':
-        // TODO: mark transaction FAILED, notify user
-        break;
       case 'charge.refunded':
-        // TODO: reverse transaction
-        break;
       case 'invoice.paid':
-        // TODO: activate/extend subscription
+        // Stripe is not exposed as a working Hotel payment channel until its
+        // Hotel-specific fulfillment adapter is implemented.
         break;
       default:
         this.logger.debug(`Stripe: unhandled event type "${eventType}"`);
@@ -155,8 +203,6 @@ export class WebhookService {
   private async handleCustom(event: WebhookEvent): Promise<void> {
     this.logger.log(`Custom webhook (${event.provider}/${event.eventType}) persisted — no handler registered`);
   }
-
-  // ── Helpers ──────────────────────────────────────────────────────────────
 
   private normalizeProvider(raw: string): WebhookEvent['provider'] {
     const p = raw.toLowerCase();
