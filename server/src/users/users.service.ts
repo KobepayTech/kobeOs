@@ -5,6 +5,7 @@ import * as bcrypt from 'bcryptjs';
 import { User } from './user.entity';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { CreateUserDto } from './dto/create-user.dto';
+import { AdminUpdateUserDto } from './dto/admin-update-user.dto';
 
 @Injectable()
 export class UsersService {
@@ -23,13 +24,15 @@ export class UsersService {
   }
 
   findAll() {
-    return this.repo.find({ select: ['id', 'email', 'phone', 'displayName', 'avatarUrl', 'role', 'createdAt'] });
+    return this.repo.find({
+      select: ['id', 'email', 'phone', 'displayName', 'avatarUrl', 'role', 'createdAt'],
+      order: { createdAt: 'DESC' },
+    });
   }
 
   async getProfile(id: string) {
     const user = await this.findById(id);
     if (!user) throw new NotFoundException('User not found');
-
     const { passwordHash, ...rest } = user;
     return rest;
   }
@@ -38,12 +41,6 @@ export class UsersService {
     return this.repo.save(this.repo.create(data));
   }
 
-  /**
-   * Admin creates a full account and sets its initial password. The password
-   * is hashed here (never stored in the clear); the caller returns the safe
-   * profile (no passwordHash). Rejects a duplicate email up front so the admin
-   * gets a clear 409 instead of a raw unique-constraint error.
-   */
   async createByAdmin(dto: CreateUserDto) {
     const email = dto.email.trim().toLowerCase();
     const existing = await this.findByEmail(email);
@@ -62,6 +59,16 @@ export class UsersService {
 
   async update(id: string, dto: UpdateUserDto) {
     await this.repo.update(id, dto);
+    return this.getProfile(id);
+  }
+
+  async adminUpdate(id: string, dto: AdminUpdateUserDto) {
+    const user = await this.findById(id);
+    if (!user) throw new NotFoundException('User not found');
+    const patch: Partial<User> = {};
+    if (dto.displayName !== undefined) patch.displayName = dto.displayName.trim();
+    if (dto.role !== undefined) patch.role = dto.role;
+    if (Object.keys(patch).length) await this.repo.update(id, patch);
     return this.getProfile(id);
   }
 
