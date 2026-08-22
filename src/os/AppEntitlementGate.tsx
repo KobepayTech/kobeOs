@@ -19,6 +19,7 @@ import {
   startPayPalAppPayment,
   type AppAccess,
 } from '@/lib/appMarketplace';
+import { entitlementIdForApp } from './store-modules';
 
 function currentAccess(
   access: AppAccess,
@@ -45,7 +46,8 @@ export function AppEntitlementGate({
     createdAt: number;
   };
 
-  const record = useOSStore((state) => state.appEntitlements[app.id]);
+  const entitlementId = entitlementIdForApp(app.id);
+  const record = useOSStore((state) => state.appEntitlements[entitlementId] ?? state.appEntitlements[app.id]);
   const setAppEntitlements = useOSStore((state) => state.setAppEntitlements);
   const [msisdn, setMsisdn] = useState('');
   const [provider, setProvider] = useState<'paypal' | 'palmpesa' | null>(null);
@@ -63,6 +65,7 @@ export function AppEntitlementGate({
     if (!record) return 'expired';
     return currentAccess(record.access, record.trialEndsAt, record.periodEndsAt, now);
   }, [app.id, now, record]);
+
   const refresh = async () => {
     const records = await listAppEntitlements();
     setAppEntitlements(records);
@@ -74,7 +77,7 @@ export function AppEntitlementGate({
       const result = await getAppPaymentStatus(transactionId);
       if (result.status === 'active') {
         await refresh();
-        setMessage('Payment confirmed. Your app is unlocked.');
+        setMessage('Payment confirmed. Your module is unlocked.');
         setProvider(null);
         return;
       }
@@ -94,8 +97,8 @@ export function AppEntitlementGate({
     setError('');
     setMessage('Sending a secure PalmPesa prompt to your phone…');
     try {
-      const payment = await startPalmPesaAppPayment(app.id, msisdn);
-      setMessage('Approve the payment on your phone. KobeOS will unlock the app automatically.');
+      const payment = await startPalmPesaAppPayment(entitlementId, msisdn);
+      setMessage('Approve the payment on your phone. KobeOS will unlock the whole module automatically.');
       await waitForPalmPesa(payment.transactionId);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'PalmPesa payment could not be started.');
@@ -104,11 +107,9 @@ export function AppEntitlementGate({
   };
 
   const startPayPal = async () => {
-    // Open synchronously while the click still has browser user activation.
-    // Opening only after the create-order request resolves is commonly blocked.
     const popup = window.open(
       'about:blank',
-      `kobeos-paypal-${app.id}`,
+      `kobeos-paypal-${entitlementId}`,
       'popup,width=520,height=720',
     );
     if (!popup) {
@@ -121,13 +122,11 @@ export function AppEntitlementGate({
     setError('');
     setMessage('Opening the secure PayPal approval page…');
     try {
-      const pendingKey = `kobeos_pending_paypal:${app.id}`;
+      const pendingKey = `kobeos_pending_paypal:${entitlementId}`;
       let payment: { orderId: string; approvalUrl: string };
       let saved: Partial<PendingPayPalOrder> | null = null;
       try {
-        saved = JSON.parse(localStorage.getItem(pendingKey) ?? 'null') as
-          | Partial<PendingPayPalOrder>
-          | null;
+        saved = JSON.parse(localStorage.getItem(pendingKey) ?? 'null') as Partial<PendingPayPalOrder> | null;
       } catch { /* storage may be unavailable or contain stale data */ }
 
       if (
@@ -139,12 +138,9 @@ export function AppEntitlementGate({
         payment = { orderId: saved.orderId, approvalUrl: saved.approvalUrl };
       } else {
         try { localStorage.removeItem(pendingKey); } catch { /* ignore */ }
-        payment = await startPayPalAppPayment(app.id);
+        payment = await startPayPalAppPayment(entitlementId);
         try {
-          localStorage.setItem(pendingKey, JSON.stringify({
-            ...payment,
-            createdAt: Date.now(),
-          }));
+          localStorage.setItem(pendingKey, JSON.stringify({ ...payment, createdAt: Date.now() }));
         } catch { /* recovery still works while this window remains open */ }
       }
 
@@ -155,12 +151,12 @@ export function AppEntitlementGate({
       for (let attempt = 0; attempt < 60; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 5_000));
         try {
-          const result = await capturePayPalAppPayment(app.id, payment.orderId);
+          const result = await capturePayPalAppPayment(entitlementId, payment.orderId);
           if (result.status === 'active') {
             await refresh();
-            try { localStorage.removeItem(`kobeos_pending_paypal:${app.id}`); } catch { /* ignore */ }
+            try { localStorage.removeItem(`kobeos_pending_paypal:${entitlementId}`); } catch { /* ignore */ }
             if (!popup.closed) popup.close();
-            setMessage('PayPal payment captured. Your app is unlocked.');
+            setMessage('PayPal payment captured. Your module is unlocked.');
             setProvider(null);
             return;
           }
@@ -180,34 +176,21 @@ export function AppEntitlementGate({
   };
 
   if (access === 'active' || access === 'trial') {
-    return (
-      <div className="relative h-full min-h-0">
-        {children}
-      </div>
-    );
+    return <div className="relative h-full min-h-0">{children}</div>;
   }
 
   return (
-    <div
-      className="flex h-full min-h-[420px] items-center justify-center overflow-auto bg-white p-5 text-[#0a1728]"
-      style={{
-        '--bg-input': '#ffffff',
-        '--border-secondary': '#cbd5e1',
-        '--border-focus': '#ff7616',
-        '--text-primary': '#0a1728',
-        '--text-placeholder': '#94a3b8',
-      } as React.CSSProperties}
-    >
+    <div className="flex h-full min-h-[420px] items-center justify-center overflow-auto bg-white p-5 text-[#0a1728]">
       <div className="w-full max-w-md text-center">
         <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100 text-slate-600">
           <LockKeyhole className="h-6 w-6" />
         </span>
         <p className="mt-5 text-[10px] font-black uppercase tracking-[0.18em] text-[#ff7616]">
-          {access === 'pending' ? 'Payment pending' : '14-day trial complete'}
+          {access === 'pending' ? 'Payment pending' : '14-day module trial complete'}
         </p>
         <h2 className="mt-2 text-2xl font-black tracking-[-0.03em]">{app.name}</h2>
         <p className="mx-auto mt-2 max-w-sm text-xs leading-5 text-slate-500">
-          App content is hidden until payment is confirmed. Choose PayPal or PalmPesa to activate 30 days of access.
+          This screen belongs to a KobeOS module. One module subscription unlocks every included screen and tool.
         </p>
 
         <div className="mt-6 grid grid-cols-2 gap-3">
@@ -233,12 +216,7 @@ export function AppEntitlementGate({
 
         <div className="mt-3 flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3">
           <Smartphone className="h-4 w-4 shrink-0 text-slate-400" />
-          <input
-            value={msisdn}
-            onChange={(event) => setMsisdn(event.target.value)}
-            placeholder="PalmPesa mobile number"
-            className="h-11 min-w-0 flex-1 border-0 bg-transparent px-0 text-sm font-semibold outline-none"
-          />
+          <input value={msisdn} onChange={(event) => setMsisdn(event.target.value)} placeholder="PalmPesa mobile number" className="h-11 min-w-0 flex-1 border-0 bg-transparent px-0 text-sm font-semibold outline-none" />
         </div>
 
         {message && (
@@ -249,10 +227,7 @@ export function AppEntitlementGate({
         )}
         {error && <div className="mt-4 rounded-xl bg-red-50 p-3 text-left text-[10px] font-semibold leading-4 text-red-700">{error}</div>}
 
-        <button
-          onClick={() => refresh().catch((err) => setError(err instanceof Error ? err.message : 'Access refresh failed.'))}
-          className="mt-5 inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-black text-slate-500 hover:bg-slate-100"
-        >
+        <button onClick={() => refresh().catch((err) => setError(err instanceof Error ? err.message : 'Access refresh failed.'))} className="mt-5 inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-black text-slate-500 hover:bg-slate-100">
           <RefreshCw className="h-3.5 w-3.5" /> Refresh access
         </button>
         <div className="mt-4 flex items-center justify-center gap-2 text-[9px] font-semibold text-slate-400">
