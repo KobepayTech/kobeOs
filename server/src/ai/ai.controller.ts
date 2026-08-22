@@ -36,7 +36,10 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { AiService, ChatCompletionOptions, MODEL_CATALOGUE, ModelCategory } from './ai.service';
 import { KobeAgentService } from './agent.service';
 import { AiDocsService } from './ai-docs.service';
+import { getErrorMessage } from '../utils/error';
 
+// In catch blocks:
+this.logger.error(`Stats analysis failed: ${getErrorMessage(error)}`);
 // ─── DTOs ─────────────────────────────────────────────────────────────────────
 
 class MessageHistoryDto {
