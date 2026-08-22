@@ -1,5 +1,5 @@
 // MobileAssistant.tsx
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo, type ChangeEvent } from 'react';
 import { Cpu, Loader2, RefreshCw, Sparkles, X, AlertCircle, CheckCircle, WifiOff } from 'lucide-react';
 import KobeAssistant from '@/apps/kobe-assistant';
 import { api, apiObject } from '@/lib/api';
@@ -195,7 +195,7 @@ export function MobileAssistant() {
     void refreshModels();
   }, [refreshModels]);
 
-  const handleModelChange = useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
+  const handleModelChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
     void selectModel(event.target.value);
   }, [selectModel]);
 
