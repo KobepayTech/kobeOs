@@ -410,6 +410,7 @@ export function Desktop() {
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
   const [searchQuery, setSearchQuery] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);

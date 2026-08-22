@@ -60,7 +60,8 @@ export class TransactionsService {
         const ok = await wRepo
           .createQueryBuilder()
           .update(Wallet)
-          .set({ balance: () => `balance + ${txAmount}` })
+          .set({ balance: () => 'balance + :txAmount' })
+          .setParameter('txAmount', txAmount)
           .where('id = :id AND "ownerId" = :uid', { id: dto.walletId, uid })
           .execute();
         if (ok.affected === 0) throw new NotFoundException('Wallet not found');
@@ -68,7 +69,8 @@ export class TransactionsService {
         const ok = await wRepo
           .createQueryBuilder()
           .update(Wallet)
-          .set({ balance: () => `balance - ${txAmount}` })
+          .set({ balance: () => 'balance - :txAmount' })
+          .setParameter('txAmount', txAmount)
           .where('id = :id AND "ownerId" = :uid AND balance >= :amt', {
             id: dto.walletId, uid, amt: txAmount,
           })
@@ -122,7 +124,8 @@ export class TransactionsService {
       const debit = await wRepo
         .createQueryBuilder()
         .update(Wallet)
-        .set({ balance: () => `balance - ${txAmount}` })
+        .set({ balance: () => 'balance - :txAmount' })
+        .setParameter('txAmount', txAmount)
         .where('id = :id AND "ownerId" = :uid AND balance >= :amt', {
           id: from.id, uid, amt: txAmount,
         })
@@ -131,7 +134,8 @@ export class TransactionsService {
       await wRepo
         .createQueryBuilder()
         .update(Wallet)
-        .set({ balance: () => `balance + ${txAmount}` })
+        .set({ balance: () => 'balance + :txAmount' })
+        .setParameter('txAmount', txAmount)
         .where('id = :id', { id: to.id })
         .execute();
 

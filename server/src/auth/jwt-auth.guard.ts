@@ -25,11 +25,17 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
 
     // Embedded desktop edition: the backend runs as a local Electron child
     // process (KOBEOS_DESKTOP=true) bound to localhost with no cloud login.
-    // Treat every request as one local admin so the bundled apps work offline
-    // without an auth flow. The hosted server never sets this env var.
+    // Treat every request from localhost as one local admin so the bundled
+    // apps work offline without an auth flow. The hosted server never sets
+    // this env var, and non-localhost requests are still JWT-validated.
     if (process.env.KOBEOS_DESKTOP === 'true') {
-      context.switchToHttp().getRequest().user = DESKTOP_USER;
-      return true;
+      const req = context.switchToHttp().getRequest();
+      const ip: string = req.ip ?? req.socket?.remoteAddress ?? '';
+      const isLocal = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(ip);
+      if (isLocal) {
+        req.user = DESKTOP_USER;
+        return true;
+      }
     }
 
     return super.canActivate(context);

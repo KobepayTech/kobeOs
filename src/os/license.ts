@@ -165,7 +165,7 @@ export async function loadLicense(): Promise<{ status: LicenseStatus; payload: L
   const payload = await verifyToken(raw);
   if (!payload) return { status: 'invalid', payload: null };
 
-  if (Date.now() > payload.expiresAt) return { status: 'expired', payload };
+  if (Date.now() >= payload.expiresAt) return { status: 'expired', payload };
 
   return { status: 'valid', payload };
 }
