@@ -3,7 +3,7 @@ import { IsArray, IsIn, IsObject, IsOptional, IsString, MaxLength } from 'class-
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
-import { AiService, ChatCompletionOptions, ModelCategory } from './ai.service';
+import { AiService, ChatCompletionOptions, MODEL_CATALOGUE, ModelCategory } from './ai.service';
 import { KobeAgentService } from './agent.service';
 import { AiDocsService } from './ai-docs.service';
 
@@ -106,11 +106,58 @@ export class AiController {
     return { skills: this.agent.listSkills() };
   }
 
-  // ── Health ────────────────────────────────────────────────────────────────
+  // ── Health / authenticated phone gateway ─────────────────────────────────
 
   @Get('health')
   @ApiOperation({ summary: 'Ollama status, installed models, active model' })
   health() { return this.ai.health(); }
+
+  /**
+   * Single discovery endpoint for KobeOS phone/PWA clients. The phone never
+   * talks to Ollama directly; it authenticates to KobeOS and KobeOS proxies the
+   * request to models installed on this node. The same endpoint works over a
+   * LAN URL or the shop's authenticated Cloudflare tunnel.
+   */
+  @Get('gateway/status')
+  @ApiOperation({ summary: 'Kobe AI node status and capabilities for mobile clients' })
+  async gatewayStatus() {
+    const [health, installed] = await Promise.all([this.ai.health(), this.ai.listInstalled()]);
+    const installedNames = new Set(installed.map((model) => model.name));
+    const installedCategories = new Set(
+      MODEL_CATALOGUE
+        .filter((model) => installedNames.has(model.id))
+        .map((model) => model.category),
+    );
+    const capabilities = new Set<string>();
+    if (installed.length) capabilities.add('CHAT');
+    if (installedCategories.has('coding')) capabilities.add('CODE');
+    if (installedCategories.has('vision') || installedCategories.has('multimodal')) capabilities.add('VISION');
+    if (installedCategories.has('embedding')) capabilities.add('EMBEDDINGS');
+    if (installedCategories.has('translation')) capabilities.add('TRANSLATION');
+    if (installedCategories.has('speech')) {
+      capabilities.add('SPEECH');
+      capabilities.add('STT_TTS');
+    }
+
+    return {
+      online: health.running,
+      node: process.env.KOBEOS_DESKTOP === 'true' ? 'desktop' : 'server',
+      transport: 'authenticated-kobe-api',
+      directOllamaExposure: false,
+      activeModel: health.activeModel,
+      installedModels: installed,
+      capabilities: Array.from(capabilities),
+      remoteReady: process.env.KOBEOS_DESKTOP === 'true',
+    };
+  }
+
+  /** Stable mobile/remote inference endpoint; clients should prefer this over
+   * addressing Ollama or any individual model runtime directly. */
+  @Post('gateway/chat')
+  @ApiOperation({ summary: 'Authenticated model-gateway chat for phone and remote clients' })
+  gatewayChat(@Body() options: ChatCompletionOptions) {
+    return this.ai.chatCompletion(options);
+  }
 
   // ── Model registry ────────────────────────────────────────────────────────
 
@@ -185,7 +232,7 @@ export class AiController {
     return this.ai.describeProductImage(body.image);
   }
 
-  // ── Specialised ───────────────────────────────────────────────────────────
+  // ── Specialised ────────────────────────────────────────────────────────────
 
   @Post('video-script')
   @ApiOperation({ summary: 'Generate video script' })
