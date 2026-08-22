@@ -13,9 +13,9 @@ export interface StoreModule {
 }
 
 /**
- * The App Store sells business modules, not every internal screen/package.
- * Internal app ids stay intact for the window manager and backwards
- * compatibility, but one entitlement owns all apps in a module.
+ * KobeOS sells complete modules, never the individual implementation apps
+ * inside them. Internal app ids stay intact for the launcher/window manager,
+ * while entitlements are resolved at the parent module boundary.
  */
 const MODULE_DEFINITIONS: Array<Omit<StoreModule, 'version'>> = [
   {
@@ -31,7 +31,7 @@ const MODULE_DEFINITIONS: Array<Omit<StoreModule, 'version'>> = [
       'erp-loyalty', 'erp-rider', 'erp-credit', 'erp-discounts', 'erp-shop',
       'erp-store-editor', 'posys',
     ],
-    features: ['POS', 'Inventory', 'Orders', 'Warehouse', 'Sourcing', 'Discounts', 'Storefront'],
+    features: ['POS', 'Inventory', 'Orders', 'Warehouse', 'Sourcing', 'Discounts', 'Storefront', 'Delivery'],
   },
   {
     id: 'kobe-accountant',
@@ -49,8 +49,8 @@ const MODULE_DEFINITIONS: Array<Omit<StoreModule, 'version'>> = [
     category: 'erp',
     primaryAppId: 'cargo',
     appIds: [
-      'cargo', 'cargo-sender', 'cargo-owner', 'cargo-driver', 'cargo-receiver',
-      'cargo-company', 'cargo-consolidation', 'cargo-tz', 'cargo-tz-ops',
+      'cargo', 'cargo-welcome', 'cargo-sender', 'cargo-owner', 'cargo-driver',
+      'cargo-receiver', 'cargo-company', 'cargo-consolidation', 'cargo-tz', 'cargo-tz-ops',
     ],
     features: ['Receiving', 'Packing', 'Consolidation', 'Dispatch', 'Tracking', 'Owner dashboard'],
   },
@@ -70,16 +70,16 @@ const MODULE_DEFINITIONS: Array<Omit<StoreModule, 'version'>> = [
     category: 'erp',
     primaryAppId: 'kobe-hotel',
     appIds: ['kobe-hotel'],
-    features: ['Bookings', 'Rooms', 'Operations', 'Departments', 'Reporting'],
+    features: ['Bookings', 'Rooms', 'Operations', 'Departments', 'Reporting', 'Lala'],
   },
   {
     id: 'kobe-property',
     name: 'Kobe Property',
-    description: 'Property portfolio, tenants, rent collection and payment tracking.',
+    description: 'Property portfolio, units, tenants, rent collection and payment tracking.',
     category: 'erp',
     primaryAppId: 'property',
     appIds: ['property', 'property-payments'],
-    features: ['Properties', 'Tenants', 'Rent', 'Payments', 'Collections'],
+    features: ['Properties', 'Units', 'Tenants', 'Rent', 'Payments', 'Collections'],
   },
   {
     id: 'kobe-pay',
@@ -102,11 +102,11 @@ const MODULE_DEFINITIONS: Array<Omit<StoreModule, 'version'>> = [
   {
     id: 'kobe-sports',
     name: 'Kobe Sports',
-    description: 'Sports competition operations, team and coach tools.',
+    description: 'Sports competition operations, team, coach, analytics and broadcast tools.',
     category: 'sports',
     primaryAppId: 'kobe-sports',
     appIds: ['kobe-sports', 'kobe-coach'],
-    features: ['Competitions', 'Teams', 'Coaches', 'Live operations'],
+    features: ['Competitions', 'Teams', 'Coaches', 'Analytics', 'Live operations'],
   },
   {
     id: 'kobe-transit',
@@ -126,39 +126,71 @@ const MODULE_DEFINITIONS: Array<Omit<StoreModule, 'version'>> = [
     appIds: ['live-sales'],
     features: ['Live sessions', 'Comments', 'Reservations', 'Orders'],
   },
+  {
+    id: 'kobe-office',
+    name: 'Kobe Office',
+    description: 'Documents, spreadsheets, presentations, notes, tasks, planning and everyday office work.',
+    category: 'productivity',
+    primaryAppId: 'spreadsheet',
+    appIds: ['calculator', 'text-editor', 'notepad', 'calendar', 'tasks', 'notes', 'spreadsheet', 'presentation', 'draw', 'kanban'],
+    features: ['Documents', 'Spreadsheets', 'Presentations', 'Notes', 'Tasks', 'Calendar', 'Kanban'],
+  },
+  {
+    id: 'kobe-connect',
+    name: 'Kobe Connect',
+    description: 'Business communication tools for email, chat, contacts and video meetings.',
+    category: 'communication',
+    primaryAppId: 'chat',
+    appIds: ['email', 'chat', 'contacts', 'video-conference'],
+    features: ['Email', 'Chat', 'Contacts', 'Video meetings'],
+  },
+  {
+    id: 'kobe-media',
+    name: 'Kobe Media',
+    description: 'Media playback, image viewing, audio recording, camera and screen recording tools.',
+    category: 'media',
+    primaryAppId: 'media-player',
+    appIds: ['media-player', 'image-viewer', 'music-studio', 'camera', 'screen-recorder'],
+    features: ['Media player', 'Images', 'Audio studio', 'Camera', 'Screen recorder'],
+  },
+  {
+    id: 'kobe-developer',
+    name: 'Kobe Developer',
+    description: 'Coding and developer tools bundled as one complete KobeOS developer module.',
+    category: 'development',
+    primaryAppId: 'code-ide',
+    appIds: ['code-ide', 'database-manager', 'api-tester', 'git-client', 'regex-tester', 'json-formatter', 'color-picker', 'markdown-preview'],
+    features: ['IDE', 'Database manager', 'API tester', 'Git', 'Regex', 'JSON', 'Markdown'],
+  },
+  {
+    id: 'kobe-games',
+    name: 'Kobe Games',
+    description: 'The built-in KobeOS casual game collection.',
+    category: 'games',
+    primaryAppId: 'chess',
+    appIds: ['snake', 'tetris', 'chess', 'solitaire'],
+    features: ['Snake', 'Tetris', 'Chess', 'Solitaire'],
+  },
 ];
 
-// AI runtime, model management and assistants are platform services. They remain
-// installed/launchable in KobeOS but are intentionally not sold as separate App
-// Store products.
+/** Platform/internal services ship with KobeOS and are never store products. */
 export const PLATFORM_SERVICE_APP_IDS = new Set([
-  'kobe-assistant', 'kobe-models', 'kobe-agents',
+  'app-store', 'file-manager', 'terminal', 'settings', 'system-settings',
+  'task-manager', 'package-manager', 'backup-restore', 'password-manager',
+  'browser', 'kobe-assistant', 'kobe-models', 'kobe-agents',
+  'kobetech-admin', 'kobetech-devops',
 ]);
 
 const byId = new Map(appCatalogue.map((app) => [app.id, app]));
-const groupedAppIds = new Set(MODULE_DEFINITIONS.flatMap((module) => module.appIds));
 
-export const storeModules: StoreModule[] = [
-  ...MODULE_DEFINITIONS.map((module) => ({
-    ...module,
-    version: byId.get(module.primaryAppId)?.version ?? '1.0.0',
-  })),
-  // Any app that is not a feature of a larger module remains a standalone
-  // module. This prevents breaking older utility/developer apps while ensuring
-  // related ERP/cargo/property components are never listed separately.
-  ...appCatalogue
-    .filter((app) => !groupedAppIds.has(app.id) && !PLATFORM_SERVICE_APP_IDS.has(app.id))
-    .map((app) => ({
-      id: app.id,
-      name: app.name,
-      description: app.description,
-      category: app.category,
-      primaryAppId: app.id,
-      appIds: [app.id],
-      features: [],
-      version: app.version,
-    })),
-];
+/** Only explicitly defined modules are sold. There is intentionally no fallback
+ * that turns an arbitrary internal app into a store product. */
+export const storeModules: StoreModule[] = MODULE_DEFINITIONS.map((module) => ({
+  ...module,
+  version: byId.get(module.primaryAppId)?.version ?? '1.0.0',
+}));
+
+export const STORE_MODULE_APP_IDS = new Set(storeModules.flatMap((module) => module.appIds));
 
 const moduleById = new Map(storeModules.map((module) => [module.id, module]));
 const entitlementByAppId = new Map<string, string>();
