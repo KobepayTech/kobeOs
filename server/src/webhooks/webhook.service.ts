@@ -11,8 +11,6 @@ import { PlatformEventsService } from '../platform/platform.service';
 export class WebhookService {
   private readonly logger = new Logger(WebhookService.name);
 
-  // Injected lazily to avoid circular module dependency
-  // Set by WebhooksModule after CreatorsModule / LicenseModule are loaded
   private creatorSubSvc?: import('../creators/creator-subscription.service').CreatorSubscriptionService;
   private licenseSvc?: import('../license/license.service').LicenseService;
   private mobileSubSvc?: import('../mobile-subscription/mobile-subscription.service').MobileSubscriptionService;
@@ -51,10 +49,6 @@ export class WebhookService {
     private readonly events: PlatformEventsService,
   ) {}
 
-  /**
-   * Persist the raw webhook payload, then dispatch to the appropriate handler.
-   * Returns the saved event record.
-   */
   async receive(
     provider: string,
     eventType: string,
@@ -68,7 +62,6 @@ export class WebhookService {
     });
     const saved = await this.repo.save(event);
 
-    // Dispatch asynchronously — do not block the HTTP response
     this.dispatch(saved).catch((err: Error) => {
       this.logger.error(`Webhook dispatch failed for ${saved.id}: ${err.message}`);
     });
@@ -92,12 +85,8 @@ export class WebhookService {
     }
   }
 
-  // ── Provider handlers ────────────────────────────────────────────────────
-
   private async handlePalmPesa(event: WebhookEvent): Promise<void> {
     const payload = event.payload as unknown as PalmPesaCallback;
-
-    // PalmPesa callbacks carry payment_status directly (not via eventType header)
     const paymentStatus = payload.payment_status
       ?? (event.eventType === 'payment.completed' ? 'COMPLETED' : undefined);
 
@@ -105,40 +94,28 @@ export class WebhookService {
       `PalmPesa callback: order=${payload.order_id ?? '—'} status=${paymentStatus ?? event.eventType}`,
     );
 
-    // Route OS license payments (reference starts with "lic_") to LicenseService
     const ref = payload.reference ?? '';
     if (ref.startsWith('lic_') && this.licenseSvc) {
       await this.licenseSvc.handleCallback(payload);
       return;
     }
 
-    // Route mobile-workspace subscription payments (reference "msub_") to
-    // MobileSubscriptionService.
     if (ref.startsWith('msub_') && this.mobileSubSvc) {
       await this.mobileSubSvc.handleCallback(payload);
       return;
     }
 
-    // Per-app OS subscription (each installed app owns its 14-day trial and
-    // paid renewal independently).
     if (ref.startsWith('appsub_') && this.appMarketplaceSvc) {
       await this.appMarketplaceSvc.handlePalmPesaCallback(payload);
       return;
     }
 
-    // Auto-confirm hotel bookings paid online. The order_id is globally unique
-    // and stored on exactly ONE booking, which belongs to exactly ONE hotel
-    // (via ownerId) — so a single shared PalmPesa merchant + webhook confirms
-    // the right hotel's booking with no cross-tenant ambiguity.
     if (payload.order_id) {
       const booking = await this.bookings.findOne({ where: { palmPesaOrderId: payload.order_id } });
       if (booking) {
         await this.events.emit({ ownerId: booking.ownerId, eventName: 'hotel.payment_detected', aggregateType: 'HotelBooking', aggregateId: booking.id, payload: { hotelId: booking.hotelId, orderId: payload.order_id, paymentStatus: paymentStatus ?? 'UNKNOWN' } });
         if (paymentStatus === 'COMPLETED') {
           await this.bookings.update({ id: booking.id }, { status: 'CONFIRMED' });
-          // Credit the hotel's platform wallet (net of commission). Keyed by
-          // the booking's ownerId, so on a shared merchant each hotel's
-          // balance is credited independently — idempotent per bookingId.
           try {
             await this.hotelWallet.creditForBooking(booking.ownerId, {
               bookingId: booking.id,
@@ -154,21 +131,25 @@ export class WebhookService {
           this.logger.log(`Hotel booking ${booking.id} auto-confirmed + wallet credited (owner ${booking.ownerId}).`);
         } else if (paymentStatus === 'FAILED') {
           await this.bookings.update({ id: booking.id }, { status: 'CANCELLED' });
-          // Release the room the failed booking was holding.
-          await this.rooms.update({ ownerId: booking.ownerId, id: booking.roomId }, { status: 'available' });
+          const room = await this.rooms.findOne({ where: { ownerId: booking.ownerId, id: booking.roomId } });
+          // A future reservation no longer globally marks a room reserved. Never
+          // turn an occupied/cleaning/maintenance room into "available" because
+          // an unrelated future payment failed; only release this booking's
+          // active reservation marker.
+          if (room?.status === 'reserved') {
+            await this.rooms.update({ ownerId: booking.ownerId, id: booking.roomId }, { status: 'available' });
+          }
           this.logger.warn(`Hotel booking ${booking.id} cancelled — payment failed.`);
         }
         return;
       }
     }
 
-    // Route creator subscription payments to CreatorSubscriptionService
     if (payload.order_id && this.creatorSubSvc) {
       await this.creatorSubSvc.handleCallback(payload);
       return;
     }
 
-    // Fallback for non-subscription PalmPesa payments
     switch (paymentStatus ?? event.eventType) {
       case 'COMPLETED':
       case 'payment.completed':
@@ -185,7 +166,6 @@ export class WebhookService {
 
   private async handleMpesa(event: WebhookEvent): Promise<void> {
     const { eventType, payload } = event;
-    // M-Pesa C2B / B2C callbacks use different field names
     const ref = payload['BillRefNumber'] ?? payload['TransID'] ?? payload['reference'] ?? '—';
     const amount = payload['TransAmount'] ?? payload['amount'] ?? '—';
     this.logger.log(`M-Pesa ${eventType}: ref=${String(ref)} amount=${String(amount)}`);
@@ -193,10 +173,10 @@ export class WebhookService {
     switch (eventType) {
       case 'c2b.payment':
       case 'payment.completed':
-        // TODO: credit wallet by matching BillRefNumber to an order/invoice
+        // M-Pesa C2B matching is a separate provider integration and is not
+        // presented as a live Hotel payment option until a reference mapper exists.
         break;
       case 'b2c.result':
-        // TODO: mark payout as completed
         break;
       default:
         this.logger.debug(`M-Pesa: unhandled event type "${eventType}"`);
@@ -209,16 +189,11 @@ export class WebhookService {
 
     switch (eventType) {
       case 'payment_intent.succeeded':
-        // TODO: credit wallet / fulfill order
-        break;
       case 'payment_intent.payment_failed':
-        // TODO: mark transaction FAILED, notify user
-        break;
       case 'charge.refunded':
-        // TODO: reverse transaction
-        break;
       case 'invoice.paid':
-        // TODO: activate/extend subscription
+        // Stripe is not exposed as a working Hotel payment channel until its
+        // Hotel-specific fulfillment adapter is implemented.
         break;
       default:
         this.logger.debug(`Stripe: unhandled event type "${eventType}"`);
@@ -228,8 +203,6 @@ export class WebhookService {
   private async handleCustom(event: WebhookEvent): Promise<void> {
     this.logger.log(`Custom webhook (${event.provider}/${event.eventType}) persisted — no handler registered`);
   }
-
-  // ── Helpers ──────────────────────────────────────────────────────────────
 
   private normalizeProvider(raw: string): WebhookEvent['provider'] {
     const p = raw.toLowerCase();
