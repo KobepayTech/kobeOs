@@ -1,3 +1,4 @@
+// store-modules.ts
 import { appCatalogue } from './registry';
 import type { AppCategory, AppManifest } from './types';
 
@@ -173,7 +174,10 @@ const MODULE_DEFINITIONS: Array<Omit<StoreModule, 'version'>> = [
   },
 ];
 
-/** Platform/internal services ship with KobeOS and are never store products. */
+/**
+ * Platform/internal services ship with KobeOS and are never store products.
+ * They are not part of any sellable module.
+ */
 export const PLATFORM_SERVICE_APP_IDS = new Set([
   'app-store', 'file-manager', 'terminal', 'settings', 'system-settings',
   'task-manager', 'package-manager', 'backup-restore', 'password-manager',
@@ -183,8 +187,10 @@ export const PLATFORM_SERVICE_APP_IDS = new Set([
 
 const byId = new Map(appCatalogue.map((app) => [app.id, app]));
 
-/** Only explicitly defined modules are sold. There is intentionally no fallback
- * that turns an arbitrary internal app into a store product. */
+/**
+ * Only explicitly defined modules are sold. There is intentionally no fallback
+ * that turns an arbitrary internal app into a store product.
+ */
 export const storeModules: StoreModule[] = MODULE_DEFINITIONS.map((module) => ({
   ...module,
   version: byId.get(module.primaryAppId)?.version ?? '1.0.0',
@@ -195,7 +201,9 @@ export const STORE_MODULE_APP_IDS = new Set(storeModules.flatMap((module) => mod
 const moduleById = new Map(storeModules.map((module) => [module.id, module]));
 const entitlementByAppId = new Map<string, string>();
 for (const module of storeModules) {
-  for (const appId of module.appIds) entitlementByAppId.set(appId, module.id);
+  for (const appId of module.appIds) {
+    entitlementByAppId.set(appId, module.id);
+  }
 }
 
 export function getStoreModule(moduleId: string): StoreModule | undefined {
