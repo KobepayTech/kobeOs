@@ -1,3 +1,4 @@
+// store-modules.ts
 import { appCatalogue } from './registry';
 import type { AppCategory, AppManifest } from './types';
 
@@ -13,10 +14,9 @@ export interface StoreModule {
 }
 
 /**
- * The KobeOS App Store sells complete modules, never the individual screens,
- * tools or implementation apps inside a module. Internal app ids stay intact
- * for the launcher/window manager and backwards compatibility; entitlement is
- * resolved at the module boundary.
+ * KobeOS sells complete modules, never the individual implementation apps
+ * inside them. Internal app ids stay intact for the launcher/window manager,
+ * while entitlements are resolved at the parent module boundary.
  */
 const MODULE_DEFINITIONS: Array<Omit<StoreModule, 'version'>> = [
   {
@@ -32,7 +32,7 @@ const MODULE_DEFINITIONS: Array<Omit<StoreModule, 'version'>> = [
       'erp-loyalty', 'erp-rider', 'erp-credit', 'erp-discounts', 'erp-shop',
       'erp-store-editor', 'posys',
     ],
-    features: ['POS', 'Inventory', 'Orders', 'Warehouse', 'Sourcing', 'Discounts', 'Storefront'],
+    features: ['POS', 'Inventory', 'Orders', 'Warehouse', 'Sourcing', 'Discounts', 'Storefront', 'Delivery'],
   },
   {
     id: 'kobe-accountant',
@@ -71,16 +71,16 @@ const MODULE_DEFINITIONS: Array<Omit<StoreModule, 'version'>> = [
     category: 'erp',
     primaryAppId: 'kobe-hotel',
     appIds: ['kobe-hotel'],
-    features: ['Bookings', 'Rooms', 'Operations', 'Departments', 'Reporting'],
+    features: ['Bookings', 'Rooms', 'Operations', 'Departments', 'Reporting', 'Lala'],
   },
   {
     id: 'kobe-property',
     name: 'Kobe Property',
-    description: 'Property portfolio, tenants, rent collection and payment tracking.',
+    description: 'Property portfolio, units, tenants, rent collection and payment tracking.',
     category: 'erp',
     primaryAppId: 'property',
     appIds: ['property', 'property-payments'],
-    features: ['Properties', 'Tenants', 'Rent', 'Payments', 'Collections'],
+    features: ['Properties', 'Units', 'Tenants', 'Rent', 'Payments', 'Collections'],
   },
   {
     id: 'kobe-pay',
@@ -103,11 +103,11 @@ const MODULE_DEFINITIONS: Array<Omit<StoreModule, 'version'>> = [
   {
     id: 'kobe-sports',
     name: 'Kobe Sports',
-    description: 'Sports competition operations, team and coach tools.',
+    description: 'Sports competition operations, team, coach, analytics and broadcast tools.',
     category: 'sports',
     primaryAppId: 'kobe-sports',
     appIds: ['kobe-sports', 'kobe-coach'],
-    features: ['Competitions', 'Teams', 'Coaches', 'Live operations'],
+    features: ['Competitions', 'Teams', 'Coaches', 'Analytics', 'Live operations'],
   },
   {
     id: 'kobe-transit',
@@ -148,11 +148,11 @@ const MODULE_DEFINITIONS: Array<Omit<StoreModule, 'version'>> = [
   {
     id: 'kobe-media',
     name: 'Kobe Media',
-    description: 'Everyday media playback, image viewing, music creation, camera and screen recording tools.',
+    description: 'Media playback, image viewing, audio recording, camera and screen recording tools.',
     category: 'media',
     primaryAppId: 'media-player',
     appIds: ['media-player', 'image-viewer', 'music-studio', 'camera', 'screen-recorder'],
-    features: ['Media player', 'Images', 'Music studio', 'Camera', 'Screen recorder'],
+    features: ['Media player', 'Images', 'Audio studio', 'Camera', 'Screen recorder'],
   },
   {
     id: 'kobe-developer',
@@ -175,55 +175,35 @@ const MODULE_DEFINITIONS: Array<Omit<StoreModule, 'version'>> = [
 ];
 
 /**
- * Platform and internal services are part of KobeOS itself. They may remain
- * launchable, but they are never separate App Store products.
+ * Platform/internal services ship with KobeOS and are never store products.
+ * They are not part of any sellable module.
  */
 export const PLATFORM_SERVICE_APP_IDS = new Set([
-  'app-store',
-  'file-manager',
-  'terminal',
-  'settings',
-  'system-settings',
-  'task-manager',
-  'package-manager',
-  'backup-restore',
-  'password-manager',
-  'browser',
-  'kobe-assistant',
-  'kobe-models',
-  'kobe-agents',
-  'kobetech-admin',
-  'kobetech-devops',
+  'app-store', 'file-manager', 'terminal', 'settings', 'system-settings',
+  'task-manager', 'package-manager', 'backup-restore', 'password-manager',
+  'browser', 'kobe-assistant', 'kobe-models', 'kobe-agents',
+  'kobetech-admin', 'kobetech-devops',
 ]);
 
 const byId = new Map(appCatalogue.map((app) => [app.id, app]));
-const groupedAppIds = new Set(MODULE_DEFINITIONS.flatMap((module) => module.appIds));
 
-export const storeModules: StoreModule[] = [
-  ...MODULE_DEFINITIONS.map((module) => ({
-    ...module,
-    version: byId.get(module.primaryAppId)?.version ?? '1.0.0',
-  })),
-  // True standalone products can still appear as one-item modules. Anything
-  // identified as platform infrastructure above is intentionally excluded.
-  ...appCatalogue
-    .filter((app) => !groupedAppIds.has(app.id) && !PLATFORM_SERVICE_APP_IDS.has(app.id))
-    .map((app) => ({
-      id: app.id,
-      name: app.name,
-      description: app.description,
-      category: app.category,
-      primaryAppId: app.id,
-      appIds: [app.id],
-      features: [],
-      version: app.version,
-    })),
-];
+/**
+ * Only explicitly defined modules are sold. There is intentionally no fallback
+ * that turns an arbitrary internal app into a store product.
+ */
+export const storeModules: StoreModule[] = MODULE_DEFINITIONS.map((module) => ({
+  ...module,
+  version: byId.get(module.primaryAppId)?.version ?? '1.0.0',
+}));
+
+export const STORE_MODULE_APP_IDS = new Set(storeModules.flatMap((module) => module.appIds));
 
 const moduleById = new Map(storeModules.map((module) => [module.id, module]));
 const entitlementByAppId = new Map<string, string>();
 for (const module of storeModules) {
-  for (const appId of module.appIds) entitlementByAppId.set(appId, module.id);
+  for (const appId of module.appIds) {
+    entitlementByAppId.set(appId, module.id);
+  }
 }
 
 export function getStoreModule(moduleId: string): StoreModule | undefined {

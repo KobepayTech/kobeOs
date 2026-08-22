@@ -1,12 +1,16 @@
-import { useEffect, useState } from 'react';
-import { Cpu, Loader2, RefreshCw, Sparkles, X } from 'lucide-react';
+// MobileAssistant.tsx
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { Cpu, Loader2, RefreshCw, Sparkles, X, AlertCircle, CheckCircle, WifiOff } from 'lucide-react';
 import KobeAssistant from '@/apps/kobe-assistant';
 import { api, apiObject } from '@/lib/api';
+
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 interface InstalledModel {
   name: string;
   size?: number;
   modifiedAt?: string;
+  id?: string;
 }
 
 interface GatewayStatus {
@@ -20,129 +24,350 @@ interface GatewayStatus {
   remoteReady: boolean;
 }
 
+// ─── Component ──────────────────────────────────────────────────────────────
+
 /**
- * Ask Kobe from the mobile staff PWA. The phone never downloads or directly
- * connects to Ollama. It authenticates to the KobeOS API and the Kobe AI
- * gateway runs inference on the models installed on that KobeOS node. This is
- * the same contract whether the phone reaches the computer through its store
- * tunnel or another authenticated KobeOS URL.
+ * Mobile uses the authenticated KobeOS model gateway. The phone never downloads
+ * a model and never gets direct Ollama access; inference remains on the KobeOS
+ * computer/server serving this workspace.
  */
 export function MobileAssistant() {
-  const [open, setOpen] = useState(false);
+  // ─── State ────────────────────────────────────────────────────────────────
+  const [isOpen, setIsOpen] = useState(false);
+  const [gateway, setGateway] = useState<GatewayStatus | null>(null);
   const [models, setModels] = useState<InstalledModel[]>([]);
   const [activeModel, setActiveModel] = useState('');
-  const [gateway, setGateway] = useState<GatewayStatus | null>(null);
-  const [modelBusy, setModelBusy] = useState(false);
-  const [modelError, setModelError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
 
-  const refreshModels = async () => {
-    setModelBusy(true);
-    setModelError('');
+  // ─── Refs ──────────────────────────────────────────────────────────────────
+  const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isMountedRef = useRef(true);
+
+  // ─── Computed Values ──────────────────────────────────────────────────────
+
+  const nodeLabel = useMemo(() => {
+    if (!gateway) return 'Connecting...';
+    return gateway.node === 'desktop' ? 'KobeOS PC' : 'KobeOS Server';
+  }, [gateway]);
+
+  const connectionStatus = useMemo(() => {
+    if (!gateway) return 'connecting';
+    return gateway.online ? 'online' : 'offline';
+  }, [gateway]);
+
+  const modelCount = useMemo(() => models.length, [models]);
+
+  // ─── API Calls ────────────────────────────────────────────────────────────
+
+  const refreshModels = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+
     try {
-      const response = await api<unknown>('/ai/gateway/status', { offlineFallback: false });
+      const response = await api<unknown>('/ai/gateway/status', { 
+        offlineFallback: false,
+        timeout: 10000,
+      });
+      
       const status = apiObject<GatewayStatus>(response);
-      if (!status) throw new Error('Invalid gateway response');
+      if (!status) {
+        throw new Error('Invalid gateway response');
+      }
+
+      if (!isMountedRef.current) return;
+
       setGateway(status);
-      setModels(status.installedModels ?? []);
+      setModels(Array.isArray(status.installedModels) ? status.installedModels : []);
       setActiveModel(status.activeModel ?? '');
-      if (!status.online) setModelError('The Kobe AI runtime on this node is offline. Start the local model runtime and retry.');
-    } catch {
+      setLastRefreshed(new Date());
+
+      if (!status.online) {
+        setError('The Kobe AI runtime on this node is offline. Please ensure Ollama is running.');
+      }
+    } catch (err) {
+      if (!isMountedRef.current) return;
+
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      console.error('Failed to fetch gateway status:', errorMessage);
+      
       setGateway(null);
       setModels([]);
-      setModelError('This phone could not reach the authenticated Kobe AI gateway.');
+      setActiveModel('');
+      setError('This phone could not reach the authenticated Kobe AI gateway.');
     } finally {
-      setModelBusy(false);
+      if (isMountedRef.current) {
+        setIsLoading(false);
+      }
     }
-  };
+  }, []);
 
-  useEffect(() => {
-    if (open) void refreshModels();
-  }, [open]);
+  const selectModel = useCallback(async (model: string) => {
+    if (!model || model === activeModel || isLoading) return;
 
-  const selectModel = async (model: string) => {
-    if (!model || model === activeModel) return;
-    setModelBusy(true);
-    setModelError('');
+    setIsLoading(true);
+    setError(null);
+
     try {
       await api('/ai/models/active', {
         method: 'PUT',
         body: JSON.stringify({ model }),
         offlineFallback: false,
+        timeout: 15000,
       });
-      setActiveModel(model);
-      setGateway((current) => current ? { ...current, activeModel: model } : current);
-    } catch {
-      setModelError('KobeOS could not switch the active model.');
-    } finally {
-      setModelBusy(false);
-    }
-  };
 
-  const nodeLabel = gateway?.node === 'desktop' ? 'KobeOS PC' : 'KobeOS server';
+      if (!isMountedRef.current) return;
+
+      setActiveModel(model);
+      setGateway((current) => 
+        current ? { ...current, activeModel: model } : current
+      );
+      
+      console.log(`Model switched to: ${model}`);
+    } catch (err) {
+      if (!isMountedRef.current) return;
+
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      console.error('Failed to switch model:', errorMessage);
+      
+      setError(`KobeOS could not switch the active model. ${errorMessage}`);
+      
+      // Refresh to get current state
+      await refreshModels();
+    } finally {
+      if (isMountedRef.current) {
+        setIsLoading(false);
+      }
+    }
+  }, [activeModel, isLoading, refreshModels]);
+
+  // ─── Effects ──────────────────────────────────────────────────────────────
+
+  // Cleanup on unmount
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+        refreshIntervalRef.current = null;
+      }
+    };
+  }, []);
+
+  // Fetch status when opened and set up auto-refresh
+  useEffect(() => {
+    if (isOpen) {
+      // Initial fetch
+      refreshModels();
+      
+      // Auto-refresh every 30 seconds
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+      }
+      
+      refreshIntervalRef.current = setInterval(() => {
+        if (isMountedRef.current && isOpen) {
+          refreshModels();
+        }
+      }, 30000);
+      
+      return () => {
+        if (refreshIntervalRef.current) {
+          clearInterval(refreshIntervalRef.current);
+          refreshIntervalRef.current = null;
+        }
+      };
+    } else {
+      // Clean up when closed
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+        refreshIntervalRef.current = null;
+      }
+    }
+  }, [isOpen, refreshModels]);
+
+  // ─── Event Handlers ──────────────────────────────────────────────────────
+
+  const handleToggle = useCallback(() => {
+    setIsOpen(prev => !prev);
+  }, []);
+
+  const handleClose = useCallback(() => {
+    setIsOpen(false);
+  }, []);
+
+  const handleRefresh = useCallback(() => {
+    refreshModels();
+  }, [refreshModels]);
+
+  const handleModelChange = useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
+    selectModel(event.target.value);
+  }, [selectModel]);
+
+  // ─── Render ──────────────────────────────────────────────────────────────
 
   return (
     <>
-      {open && (
+      {isOpen && (
         <div className="fixed inset-0 z-[9998]">
-          <div className="absolute inset-0 bg-black/30" onClick={() => setOpen(false)} />
-          <div className="absolute inset-x-0 bottom-0 flex h-[88dvh] flex-col overflow-hidden rounded-t-2xl bg-[#071321] shadow-2xl">
-            <div className="shrink-0 border-b border-white/10 px-3 py-2 text-white">
+          {/* Backdrop */}
+          <div 
+            className="absolute inset-0 bg-black/30 backdrop-blur-sm transition-opacity" 
+            onClick={handleClose}
+            aria-hidden="true"
+          />
+          
+          {/* Modal */}
+          <div className="absolute inset-x-0 bottom-0 flex h-[88dvh] flex-col overflow-hidden rounded-t-2xl bg-[#071321] shadow-2xl animate-slide-up">
+            {/* Header */}
+            <div className="shrink-0 border-b border-white/10 px-3 py-2 text-white bg-white/5 backdrop-blur-sm">
               <div className="flex items-center gap-2">
-                <Cpu className="h-4 w-4 text-violet-300" />
+                <div className="relative">
+                  <Cpu className="h-4 w-4 text-violet-300" />
+                  {connectionStatus === 'online' && (
+                    <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-emerald-400 ring-2 ring-[#071321]" />
+                  )}
+                </div>
+                
                 <div className="min-w-0 flex-1">
-                  <p className="text-[10px] font-black uppercase tracking-[0.14em] text-violet-300">Kobe AI model gateway</p>
+                  <p className="text-[10px] font-black uppercase tracking-[0.14em] text-violet-300 flex items-center gap-1.5">
+                    Kobe AI model gateway
+                    {connectionStatus === 'online' && (
+                      <CheckCircle className="h-3 w-3 text-emerald-400" />
+                    )}
+                    {connectionStatus === 'offline' && (
+                      <WifiOff className="h-3 w-3 text-amber-400" />
+                    )}
+                  </p>
                   <p className="truncate text-[10px] text-slate-400">
                     {gateway
-                      ? `${nodeLabel} · ${models.length} model${models.length === 1 ? '' : 's'} · ${gateway.online ? 'online' : 'offline'}`
-                      : 'Connecting to your KobeOS AI node'}
+                      ? `${nodeLabel} · ${modelCount} model${modelCount === 1 ? '' : 's'} · ${connectionStatus}`
+                      : 'Connecting to your KobeOS AI node...'}
                   </p>
                 </div>
+
+                {/* Model Selector */}
                 <select
                   aria-label="AI model"
                   value={activeModel}
-                  onChange={(event) => void selectModel(event.target.value)}
-                  disabled={modelBusy || models.length === 0}
-                  className="max-w-[42%] rounded-lg border border-white/10 bg-white/10 px-2 py-1.5 text-[10px] font-bold text-white outline-none disabled:opacity-50"
+                  onChange={handleModelChange}
+                  disabled={isLoading || modelCount === 0 || connectionStatus === 'offline'}
+                  className="max-w-[42%] rounded-lg border border-white/10 bg-white/10 px-2 py-1.5 text-[10px] font-bold text-white outline-none transition-all hover:bg-white/20 focus:border-violet-400 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {!activeModel && <option value="">Auto</option>}
                   {models.map((item) => (
-                    <option key={item.name} value={item.name} className="text-black">{item.name}</option>
+                    <option key={item.name || item.id} value={item.name || item.id} className="text-black">
+                      {item.name || item.id}
+                    </option>
                   ))}
                 </select>
-                <button onClick={() => void refreshModels()} disabled={modelBusy} className="grid h-8 w-8 place-items-center rounded-lg bg-white/10 text-white/80 disabled:opacity-50" aria-label="Refresh models">
-                  {modelBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+
+                {/* Action Buttons */}
+                <button
+                  onClick={handleRefresh}
+                  disabled={isLoading}
+                  className="grid h-8 w-8 place-items-center rounded-lg bg-white/10 text-white/80 transition-all hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                  aria-label="Refresh models"
+                >
+                  {isLoading ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4" />
+                  )}
                 </button>
-                <button onClick={() => setOpen(false)} className="grid h-8 w-8 place-items-center rounded-lg bg-white/10 text-white/80" aria-label="Close assistant">
+                <button
+                  onClick={handleClose}
+                  className="grid h-8 w-8 place-items-center rounded-lg bg-white/10 text-white/80 transition-all hover:bg-white/20 hover:text-white"
+                  aria-label="Close assistant"
+                >
                   <X className="h-4 w-4" />
                 </button>
               </div>
-              {gateway?.capabilities?.length ? (
-                <div className="mt-2 flex gap-1 overflow-x-auto pb-0.5">
+
+              {/* Capabilities */}
+              {gateway?.capabilities && gateway.capabilities.length > 0 && (
+                <div className="mt-2 flex gap-1 overflow-x-auto pb-0.5 scrollbar-hide">
                   {gateway.capabilities.map((capability) => (
-                    <span key={capability} className="shrink-0 rounded-full bg-white/10 px-2 py-1 text-[8px] font-black tracking-wide text-slate-300">
+                    <span
+                      key={capability}
+                      className="shrink-0 rounded-full bg-white/10 px-2 py-1 text-[8px] font-black tracking-wide text-slate-300 border border-white/5"
+                    >
                       {capability.replace(/_/g, ' ')}
                     </span>
                   ))}
                 </div>
-              ) : null}
+              )}
             </div>
-            {modelError && <div className="shrink-0 bg-amber-400/10 px-3 py-1.5 text-[10px] font-semibold text-amber-200">{modelError}</div>}
+
+            {/* Error Message */}
+            {error && (
+              <div className="shrink-0 bg-amber-400/10 border-b border-amber-400/20 px-3 py-1.5 flex items-center gap-2">
+                <AlertCircle className="h-3.5 w-3.5 text-amber-200 flex-shrink-0" />
+                <p className="text-[10px] font-semibold text-amber-200 flex-1">{error}</p>
+              </div>
+            )}
+
+            {/* Last Refreshed */}
+            {lastRefreshed && !error && (
+              <div className="shrink-0 px-4 py-0.5 text-right">
+                <span className="text-[8px] text-slate-500">
+                  Updated {lastRefreshed.toLocaleTimeString()}
+                </span>
+              </div>
+            )}
+
+            {/* Chat Interface */}
             <div className="min-h-0 flex-1">
-              <KobeAssistant responseMode="fast" contextLabel="KobeOS mobile" />
+              <KobeAssistant 
+                responseMode="fast" 
+                contextLabel="KobeOS mobile" 
+              />
             </div>
           </div>
         </div>
       )}
 
-      {!open && (
+      {/* Floating Action Button */}
+      {!isOpen && (
         <button
-          onClick={() => setOpen(true)}
-          className="fixed bottom-20 right-4 z-[9997] grid h-14 w-14 place-items-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-xl transition-transform active:scale-95"
+          onClick={handleToggle}
+          className="fixed bottom-20 right-4 z-[9997] group grid h-14 w-14 place-items-center rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-xl shadow-purple-500/30 transition-all hover:scale-105 hover:shadow-purple-500/50 active:scale-95"
           aria-label="Ask Kobe AI"
         >
-          <Sparkles className="h-6 w-6" />
+          <Sparkles className="h-6 w-6 transition-transform group-hover:rotate-12" />
+          <span className="absolute -top-0.5 -right-0.5 h-3 w-3 rounded-full bg-emerald-400 ring-2 ring-[#071321] animate-pulse" />
         </button>
       )}
     </>
   );
 }
+
+// ─── Add to global CSS ──────────────────────────────────────────────────────
+
+/*
+@keyframes slide-up {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+*/

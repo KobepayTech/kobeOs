@@ -35,11 +35,39 @@ export const CORE_APP_IDS = [
   'file-manager',
 ] as const;
 
+const ENTITLEMENT_CACHE_KEY = 'kobeos.app.entitlements.v1';
+
+function readCachedEntitlements(): AppEntitlementSnapshot[] {
+  try {
+    const raw = localStorage.getItem(ENTITLEMENT_CACHE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((row): row is AppEntitlementSnapshot => Boolean(row && typeof row === 'object' && typeof (row as { appId?: unknown }).appId === 'string'));
+  } catch {
+    return [];
+  }
+}
+
+function writeCachedEntitlements(rows: AppEntitlementSnapshot[]) {
+  try { localStorage.setItem(ENTITLEMENT_CACHE_KEY, JSON.stringify(rows)); }
+  catch { /* Storage can be unavailable in restricted browser contexts. */ }
+}
+
 export async function listAppEntitlements() {
-  const response = await api<unknown>('/app-marketplace/apps', {
-    offlineFallback: false,
-  });
-  return apiArray<AppEntitlementSnapshot>(response, ['entitlements', 'apps']);
+  try {
+    const response = await api<unknown>('/app-marketplace/apps', {
+      offlineFallback: false,
+    });
+    const rows = apiArray<AppEntitlementSnapshot>(response, ['entitlements', 'apps']);
+    writeCachedEntitlements(rows);
+    return rows;
+  } catch {
+    // Offline KobeOS may continue using the last entitlement snapshot that was
+    // actually issued by the backend. On a first offline launch there is no
+    // fabricated entitlement: only CORE_APP_IDS remain available.
+    return readCachedEntitlements();
+  }
 }
 
 export async function installMarketplaceApp(appId: string) {
@@ -49,6 +77,8 @@ export async function installMarketplaceApp(appId: string) {
   );
   const record = apiObject<AppEntitlementSnapshot>(response);
   if (!record?.appId) throw new Error('The App Store returned an invalid installation record.');
+  const cached = readCachedEntitlements().filter((row) => row.appId !== record.appId);
+  writeCachedEntitlements([...cached, record]);
   return record;
 }
 

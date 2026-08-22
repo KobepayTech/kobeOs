@@ -19,9 +19,7 @@ export class KobePayReceiptsController {
   }
 
   @Get('dashboard')
-  dashboard(@CurrentUser('id') uid: string) {
-    return this.receipts.dashboard(uid);
-  }
+  dashboard(@CurrentUser('id') uid: string) { return this.receipts.dashboard(uid); }
 
   @Get('analytics')
   analytics(
@@ -44,7 +42,6 @@ export class KobePayReceiptsController {
     return this.receipts.list(uid, { status, q });
   }
 
-  /** Load customer details and every receipt using a mobile number. */
   @Get('by-customer/:phone')
   byCustomer(@CurrentUser('id') uid: string, @Param('phone') phone: string) {
     return this.receipts.getByCustomerPhone(uid, phone);
@@ -78,11 +75,6 @@ export class KobePayReceiptsController {
   ) {
     return this.receipts.pay(uid, await this.ctx(uid, pin), id, dto);
   }
-
-  @Post('seed-demo')
-  async seedDemo(@CurrentUser('id') uid: string, @Headers('x-kobepay-pin') pin: string) {
-    return this.receipts.seedDemo(uid, await this.ctx(uid, pin));
-  }
 }
 
 @Public()
@@ -91,7 +83,5 @@ export class PublicReceiptController {
   constructor(private readonly receipts: KobePayReceiptsService) {}
 
   @Get(':token')
-  view(@Param('token') token: string) {
-    return this.receipts.getPublic(token);
-  }
+  view(@Param('token') token: string) { return this.receipts.getPublic(token); }
 }

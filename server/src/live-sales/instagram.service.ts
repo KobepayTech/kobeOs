@@ -61,6 +61,26 @@ export class InstagramService {
     return body;
   }
 
+  /**
+   * Every Instagram connection is a production Creator connection, not a
+   * cosmetic login. Always request the scopes required by the working Kobe
+   * workflows even if an older deployment's env list omitted them.
+   */
+  private oauthScopes(): string[] {
+    const configured = this.value('INSTAGRAM_OAUTH_SCOPES')
+      .split(',')
+      .map((scope) => scope.trim())
+      .filter(Boolean);
+    return [...new Set([
+      ...configured,
+      'instagram_business_basic',
+      'instagram_business_content_publish',
+      'instagram_business_manage_comments',
+      'instagram_business_manage_messages',
+      'instagram_business_manage_insights',
+    ])];
+  }
+
   private signState(payload: InstagramState): string {
     const encoded = Buffer.from(JSON.stringify(payload)).toString('base64url');
     const signature = createHmac('sha256', this.required('JWT_SECRET')).update(encoded).digest('base64url');
@@ -96,11 +116,7 @@ export class InstagramService {
   getOAuthUrl(ownerId: string) {
     const clientId = this.required('INSTAGRAM_APP_ID');
     const redirectUri = this.required('INSTAGRAM_REDIRECT_URI');
-    const scope = this.value('INSTAGRAM_OAUTH_SCOPES') || [
-      'instagram_business_basic',
-      'instagram_business_manage_comments',
-      'instagram_business_manage_messages',
-    ].join(',');
+    const scope = this.oauthScopes().join(',');
     const state = this.signState({ ownerId, nonce: randomBytes(16).toString('hex'), exp: Date.now() + 10 * 60_000 });
     const url = new URL('https://www.instagram.com/oauth/authorize');
     url.search = new URLSearchParams({
@@ -174,9 +190,10 @@ export class InstagramService {
     account.metadata = {
       ...(account.metadata || {}),
       instagramUserId: profile.id || exchanged.userId,
-      scopes: (this.value('INSTAGRAM_OAUTH_SCOPES') || '').split(',').map((scope) => scope.trim()).filter(Boolean),
+      scopes: this.oauthScopes(),
       webhookSubscribed,
       webhookPath: INSTAGRAM_WEBHOOK_PATH,
+      lastSyncedAt: new Date().toISOString(),
     };
     await this.accounts.save(account);
     return { webhookSubscribed, account: this.safe(account) };
@@ -225,7 +242,7 @@ export class InstagramService {
     const userId = String(account.metadata?.instagramUserId || '');
     if (!userId) throw new BadRequestException('Instagram account metadata is incomplete; reconnect the account');
     const webhookSubscribed = await this.subscribeWebhooks(userId, account.accessToken);
-    account.metadata = { ...(account.metadata || {}), webhookSubscribed };
+    account.metadata = { ...(account.metadata || {}), webhookSubscribed, lastSyncedAt: new Date().toISOString() };
     await this.accounts.save(account);
     return this.safe(account);
   }
@@ -295,9 +312,6 @@ export class InstagramService {
       const entry = rawEntry as { id?: string; changes?: unknown[] };
       const account = accounts.find((item) => String(item.metadata?.instagramUserId || '') === String(entry.id || ''));
       if (!account) continue;
-      // Instagram sends `live_comments` for an active Live and `comments`
-      // for published posts/reels. Both use the same BUY-code → reservation
-      // → storefront checkout flow, but must be routed to the right campaign.
       const sessions = await this.sessions.find({
         where: { ownerId: account.ownerId, socialAccountId: account.id, status: 'LIVE' },
         order: { createdAt: 'DESC' },
