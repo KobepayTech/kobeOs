@@ -1,825 +1,245 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
-import { api } from '@/lib/api';
-import { ensureSession } from '@/lib/auth';
-
-interface BackendProfile { id: string; customerPhone: string; customerName: string; creditLimit: string | number; outstanding: string | number; riskGrade: string; currency: string; active: boolean; }
-interface BackendReceivable { id: string; profileId: string; orderId: string | null; customerPhone: string; amount: string | number; paid: string | number; currency: string; installmentMonths: number; monthlyAmount: string | number; dueDate: string; status: 'OUTSTANDING' | 'PARTIAL' | 'PAID' | 'OVERDUE' | 'WRITTEN_OFF'; createdAt: string; }
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  CreditCard, Search, DollarSign, AlertTriangle, CheckCircle2, Clock,
-  User, Phone, Send, Plus, X,
-  Wallet, Receipt
+  AlertTriangle, CheckCircle2, CreditCard, Loader2, Plus, RefreshCw,
+  Search, ShieldCheck, UserRound, Wallet, X,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { api } from '@/lib/api';
 
-/* ────────────────────────────────────────────
-   Types
-   ──────────────────────────────────────────── */
-interface Customer {
-  id: string;
-  name: string;
-  phone: string;
-  creditLimit: number;
-  balanceOwed: number;
-  paidToDate: number;
-  status: 'Active' | 'Overdue' | 'Blocked';
-}
+type ReceivableStatus = 'OUTSTANDING' | 'PARTIAL' | 'PAID' | 'OVERDUE' | 'WRITTEN_OFF';
+type RiskGrade = 'A+' | 'A' | 'B' | 'C' | 'D';
 
-interface Transaction {
+interface CreditProfile {
   id: string;
-  date: string;
-  invoiceNo: string;
-  customerId: string;
+  customerPhone: string;
   customerName: string;
-  type: 'Sale' | 'Payment';
-  subType: 'Cash Sale' | 'Credit Sale' | 'Partial Payment' | 'Full Payment';
-  amount: number;
-  balance: number;
-  dueDate?: string;
-  status: 'Paid' | 'Pending' | 'Overdue';
+  creditLimit: number | string;
+  outstanding: number | string;
+  riskGrade: RiskGrade;
+  currency: string;
+  active: boolean;
 }
 
-/* ────────────────────────────────────────────
-   Mock Data
-   ──────────────────────────────────────────── */
-const CUSTOMERS: Customer[] = [
-  { id: 'C001', name: 'Juma Abdallah', phone: '+255 712 345 678', creditLimit: 500_000, balanceOwed: 320_000, paidToDate: 180_000, status: 'Active' },
-  { id: 'C002', name: 'Amina Hassan', phone: '+255 713 456 789', creditLimit: 1_000_000, balanceOwed: 890_000, paidToDate: 110_000, status: 'Overdue' },
-  { id: 'C003', name: 'Rajab Mwinyi', phone: '+255 714 567 890', creditLimit: 300_000, balanceOwed: 0, paidToDate: 450_000, status: 'Active' },
-  { id: 'C004', name: 'Fatima Said', phone: '+255 715 678 901', creditLimit: 750_000, balanceOwed: 680_000, paidToDate: 70_000, status: 'Overdue' },
-  { id: 'C005', name: 'Peter Omondi', phone: '+255 716 789 012', creditLimit: 200_000, balanceOwed: 120_000, paidToDate: 80_000, status: 'Active' },
-  { id: 'C006', name: 'Grace Mushi', phone: '+255 717 890 123', creditLimit: 600_000, balanceOwed: 410_000, paidToDate: 190_000, status: 'Active' },
-  { id: 'C007', name: 'Khalid Omar', phone: '+255 718 901 234', creditLimit: 400_000, balanceOwed: 395_000, paidToDate: 5_000, status: 'Overdue' },
-  { id: 'C008', name: 'Lucy Nkatha', phone: '+255 719 012 345', creditLimit: 350_000, balanceOwed: 0, paidToDate: 620_000, status: 'Active' },
-  { id: 'C009', name: 'Moses Kibona', phone: '+255 720 123 456', creditLimit: 800_000, balanceOwed: 720_000, paidToDate: 80_000, status: 'Overdue' },
-  { id: 'C010', name: 'Sofia Juma', phone: '+255 721 234 567', creditLimit: 250_000, balanceOwed: 95_000, paidToDate: 155_000, status: 'Active' },
-  { id: 'C011', name: 'Daniel Mrosso', phone: '+255 722 345 678', creditLimit: 500_000, balanceOwed: 0, paidToDate: 340_000, status: 'Active' },
-  { id: 'C012', name: 'Halima Rajab', phone: '+255 723 456 789', creditLimit: 1_200_000, balanceOwed: 1_050_000, paidToDate: 150_000, status: 'Overdue' },
-  { id: 'C013', name: 'Samwel Kavishe', phone: '+255 724 567 890', creditLimit: 450_000, balanceOwed: 280_000, paidToDate: 170_000, status: 'Active' },
-  { id: 'C014', name: 'Rehema Saidi', phone: '+255 725 678 901', creditLimit: 150_000, balanceOwed: 145_000, paidToDate: 5_000, status: 'Blocked' },
-  { id: 'C015', name: 'Innocent Bya', phone: '+255 726 789 012', creditLimit: 700_000, balanceOwed: 45_000, paidToDate: 655_000, status: 'Active' },
-  { id: 'C016', name: 'Martha Lema', phone: '+255 727 890 123', creditLimit: 550_000, balanceOwed: 380_000, paidToDate: 170_000, status: 'Active' },
-  { id: 'C017', name: 'Joseph Mwanga', phone: '+255 728 901 234', creditLimit: 900_000, balanceOwed: 620_000, paidToDate: 280_000, status: 'Active' },
-  { id: 'C018', name: 'Zubeda Ally', phone: '+255 729 012 345', creditLimit: 200_000, balanceOwed: 180_000, paidToDate: 20_000, status: 'Overdue' },
-  { id: 'C019', name: 'Frank Joseph', phone: '+255 730 123 456', creditLimit: 1_500_000, balanceOwed: 200_000, paidToDate: 1_100_000, status: 'Active' },
-  { id: 'C020', name: 'Asha Ramadhani', phone: '+255 731 234 567', creditLimit: 300_000, balanceOwed: 0, paidToDate: 580_000, status: 'Active' },
-  { id: 'C021', name: 'Emmanuel Festo', phone: '+255 732 345 678', creditLimit: 650_000, balanceOwed: 560_000, paidToDate: 90_000, status: 'Active' },
-  { id: 'C022', name: 'Catherine Julius', phone: '+255 733 456 789', creditLimit: 180_000, balanceOwed: 175_000, paidToDate: 5_000, status: 'Blocked' },
-  { id: 'C023', name: 'Hassan Mtoro', phone: '+255 734 567 890', creditLimit: 1_000_000, balanceOwed: 0, paidToDate: 920_000, status: 'Active' },
-  { id: 'C024', name: 'Winfrida Mallya', phone: '+255 735 678 901', creditLimit: 420_000, balanceOwed: 310_000, paidToDate: 110_000, status: 'Active' },
-];
-
-const TRANSACTIONS: Transaction[] = [
-  { id: 'T001', date: '2025-01-18', invoiceNo: 'INV-2025-001', customerId: 'C001', customerName: 'Juma Abdallah', type: 'Sale', subType: 'Credit Sale', amount: 250_000, balance: 250_000, dueDate: '2025-02-18', status: 'Pending' },
-  { id: 'T002', date: '2025-01-15', invoiceNo: 'INV-2025-002', customerId: 'C001', customerName: 'Juma Abdallah', type: 'Sale', subType: 'Credit Sale', amount: 250_000, balance: 70_000, dueDate: '2025-02-15', status: 'Pending' },
-  { id: 'T003', date: '2025-01-20', invoiceNo: 'PAY-2025-003', customerId: 'C001', customerName: 'Juma Abdallah', type: 'Payment', subType: 'Partial Payment', amount: 180_000, balance: 0, status: 'Paid' },
-  { id: 'T004', date: '2025-01-22', invoiceNo: 'INV-2025-004', customerId: 'C002', customerName: 'Amina Hassan', type: 'Sale', subType: 'Credit Sale', amount: 500_000, balance: 500_000, dueDate: '2024-12-22', status: 'Overdue' },
-  { id: 'T005', date: '2025-01-10', invoiceNo: 'INV-2025-005', customerId: 'C002', customerName: 'Amina Hassan', type: 'Sale', subType: 'Credit Sale', amount: 500_000, balance: 390_000, dueDate: '2025-02-10', status: 'Overdue' },
-  { id: 'T006', date: '2025-01-25', invoiceNo: 'PAY-2025-006', customerId: 'C002', customerName: 'Amina Hassan', type: 'Payment', subType: 'Partial Payment', amount: 110_000, balance: 0, status: 'Paid' },
-  { id: 'T007', date: '2025-01-20', invoiceNo: 'INV-2025-007', customerId: 'C003', customerName: 'Rajab Mwinyi', type: 'Sale', subType: 'Cash Sale', amount: 180_000, balance: 0, status: 'Paid' },
-  { id: 'T008', date: '2025-01-18', invoiceNo: 'INV-2025-008', customerId: 'C003', customerName: 'Rajab Mwinyi', type: 'Sale', subType: 'Credit Sale', amount: 150_000, balance: 0, dueDate: '2025-02-18', status: 'Paid' },
-  { id: 'T009', date: '2025-01-25', invoiceNo: 'PAY-2025-009', customerId: 'C003', customerName: 'Rajab Mwinyi', type: 'Payment', subType: 'Full Payment', amount: 150_000, balance: 0, status: 'Paid' },
-  { id: 'T010', date: '2025-01-22', invoiceNo: 'INV-2025-010', customerId: 'C004', customerName: 'Fatima Said', type: 'Sale', subType: 'Credit Sale', amount: 400_000, balance: 400_000, dueDate: '2024-12-22', status: 'Overdue' },
-  { id: 'T011', date: '2025-01-15', invoiceNo: 'INV-2025-011', customerId: 'C004', customerName: 'Fatima Said', type: 'Sale', subType: 'Credit Sale', amount: 350_000, balance: 280_000, dueDate: '2025-02-15', status: 'Overdue' },
-  { id: 'T012', date: '2025-01-28', invoiceNo: 'PAY-2025-012', customerId: 'C004', customerName: 'Fatima Said', type: 'Payment', subType: 'Partial Payment', amount: 70_000, balance: 0, status: 'Paid' },
-  { id: 'T013', date: '2025-01-25', invoiceNo: 'INV-2025-013', customerId: 'C005', customerName: 'Peter Omondi', type: 'Sale', subType: 'Credit Sale', amount: 120_000, balance: 120_000, dueDate: '2025-02-25', status: 'Pending' },
-  { id: 'T014', date: '2025-01-22', invoiceNo: 'PAY-2025-014', customerId: 'C005', customerName: 'Peter Omondi', type: 'Payment', subType: 'Full Payment', amount: 80_000, balance: 0, status: 'Paid' },
-  { id: 'T015', date: '2025-01-20', invoiceNo: 'INV-2025-015', customerId: 'C006', customerName: 'Grace Mushi', type: 'Sale', subType: 'Credit Sale', amount: 300_000, balance: 220_000, dueDate: '2025-02-20', status: 'Pending' },
-  { id: 'T016', date: '2025-01-18', invoiceNo: 'INV-2025-016', customerId: 'C006', customerName: 'Grace Mushi', type: 'Sale', subType: 'Cash Sale', amount: 110_000, balance: 0, status: 'Paid' },
-  { id: 'T017', date: '2025-01-25', invoiceNo: 'INV-2025-017', customerId: 'C006', customerName: 'Grace Mushi', type: 'Sale', subType: 'Credit Sale', amount: 110_000, balance: 110_000, dueDate: '2025-02-25', status: 'Pending' },
-  { id: 'T018', date: '2025-01-25', invoiceNo: 'PAY-2025-018', customerId: 'C006', customerName: 'Grace Mushi', type: 'Payment', subType: 'Partial Payment', amount: 190_000, balance: 0, status: 'Paid' },
-  { id: 'T019', date: '2025-01-15', invoiceNo: 'INV-2025-019', customerId: 'C007', customerName: 'Khalid Omar', type: 'Sale', subType: 'Credit Sale', amount: 400_000, balance: 395_000, dueDate: '2024-12-15', status: 'Overdue' },
-  { id: 'T020', date: '2025-01-10', invoiceNo: 'PAY-2025-020', customerId: 'C007', customerName: 'Khalid Omar', type: 'Payment', subType: 'Partial Payment', amount: 5_000, balance: 0, status: 'Paid' },
-  { id: 'T021', date: '2025-01-28', invoiceNo: 'INV-2025-021', customerId: 'C008', customerName: 'Lucy Nkatha', type: 'Sale', subType: 'Cash Sale', amount: 250_000, balance: 0, status: 'Paid' },
-  { id: 'T022', date: '2025-01-22', invoiceNo: 'INV-2025-022', customerId: 'C009', customerName: 'Moses Kibona', type: 'Sale', subType: 'Credit Sale', amount: 500_000, balance: 500_000, dueDate: '2024-12-22', status: 'Overdue' },
-  { id: 'T023', date: '2025-01-20', invoiceNo: 'INV-2025-023', customerId: 'C009', customerName: 'Moses Kibona', type: 'Sale', subType: 'Credit Sale', amount: 300_000, balance: 220_000, dueDate: '2025-02-20', status: 'Overdue' },
-  { id: 'T024', date: '2025-01-18', invoiceNo: 'PAY-2025-024', customerId: 'C009', customerName: 'Moses Kibona', type: 'Payment', subType: 'Partial Payment', amount: 80_000, balance: 0, status: 'Paid' },
-  { id: 'T025', date: '2025-01-25', invoiceNo: 'INV-2025-025', customerId: 'C010', customerName: 'Sofia Juma', type: 'Sale', subType: 'Credit Sale', amount: 120_000, balance: 40_000, dueDate: '2025-02-25', status: 'Pending' },
-  { id: 'T026', date: '2025-01-22', invoiceNo: 'INV-2025-026', customerId: 'C010', customerName: 'Sofia Juma', type: 'Sale', subType: 'Cash Sale', amount: 55_000, balance: 0, status: 'Paid' },
-  { id: 'T027', date: '2025-01-20', invoiceNo: 'PAY-2025-027', customerId: 'C010', customerName: 'Sofia Juma', type: 'Payment', subType: 'Partial Payment', amount: 155_000, balance: 0, status: 'Paid' },
-  { id: 'T028', date: '2025-01-28', invoiceNo: 'INV-2025-028', customerId: 'C011', customerName: 'Daniel Mrosso', type: 'Sale', subType: 'Cash Sale', amount: 200_000, balance: 0, status: 'Paid' },
-  { id: 'T029', date: '2025-01-15', invoiceNo: 'INV-2025-029', customerId: 'C012', customerName: 'Halima Rajab', type: 'Sale', subType: 'Credit Sale', amount: 700_000, balance: 700_000, dueDate: '2024-12-15', status: 'Overdue' },
-  { id: 'T030', date: '2025-01-20', invoiceNo: 'INV-2025-030', customerId: 'C012', customerName: 'Halima Rajab', type: 'Sale', subType: 'Credit Sale', amount: 500_000, balance: 350_000, dueDate: '2025-02-20', status: 'Overdue' },
-  { id: 'T031', date: '2025-01-25', invoiceNo: 'PAY-2025-031', customerId: 'C012', customerName: 'Halima Rajab', type: 'Payment', subType: 'Partial Payment', amount: 150_000, balance: 0, status: 'Paid' },
-  { id: 'T032', date: '2025-01-22', invoiceNo: 'INV-2025-032', customerId: 'C013', customerName: 'Samwel Kavishe', type: 'Sale', subType: 'Credit Sale', amount: 280_000, balance: 280_000, dueDate: '2025-02-22', status: 'Pending' },
-  { id: 'T033', date: '2025-01-18', invoiceNo: 'INV-2025-033', customerId: 'C013', customerName: 'Samwel Kavishe', type: 'Sale', subType: 'Cash Sale', amount: 120_000, balance: 0, status: 'Paid' },
-  { id: 'T034', date: '2025-01-25', invoiceNo: 'PAY-2025-034', customerId: 'C013', customerName: 'Samwel Kavishe', type: 'Payment', subType: 'Partial Payment', amount: 170_000, balance: 0, status: 'Paid' },
-  { id: 'T035', date: '2025-01-15', invoiceNo: 'INV-2025-035', customerId: 'C014', customerName: 'Rehema Saidi', type: 'Sale', subType: 'Credit Sale', amount: 150_000, balance: 145_000, dueDate: '2024-11-15', status: 'Overdue' },
-  { id: 'T036', date: '2025-01-10', invoiceNo: 'PAY-2025-036', customerId: 'C014', customerName: 'Rehema Saidi', type: 'Payment', subType: 'Partial Payment', amount: 5_000, balance: 0, status: 'Paid' },
-  { id: 'T037', date: '2025-01-28', invoiceNo: 'INV-2025-037', customerId: 'C015', customerName: 'Innocent Bya', type: 'Sale', subType: 'Credit Sale', amount: 250_000, balance: 45_000, dueDate: '2025-02-28', status: 'Pending' },
-  { id: 'T038', date: '2025-01-22', invoiceNo: 'INV-2025-038', customerId: 'C016', customerName: 'Martha Lema', type: 'Sale', subType: 'Credit Sale', amount: 250_000, balance: 250_000, dueDate: '2025-02-22', status: 'Pending' },
-  { id: 'T039', date: '2025-01-18', invoiceNo: 'INV-2025-039', customerId: 'C016', customerName: 'Martha Lema', type: 'Sale', subType: 'Cash Sale', amount: 130_000, balance: 0, status: 'Paid' },
-  { id: 'T040', date: '2025-01-25', invoiceNo: 'PAY-2025-040', customerId: 'C016', customerName: 'Martha Lema', type: 'Payment', subType: 'Partial Payment', amount: 170_000, balance: 0, status: 'Paid' },
-];
-
-const AGING_DATA = [
-  { bucket: 'Current', amount: 2_150_000 },
-  { bucket: '1-30 Days', amount: 3_680_000 },
-  { bucket: '31-60 Days', amount: 2_890_000 },
-  { bucket: '61-90 Days', amount: 1_820_000 },
-  { bucket: '90+ Days', amount: 1_560_000 },
-];
-
-const AGING_CUSTOMERS = [
-  { name: 'Halima Rajab', current: 0, days1_30: 0, days31_60: 350_000, days61_90: 0, days90plus: 700_000 },
-  { name: 'Amina Hassan', current: 0, days1_30: 390_000, days31_60: 0, days61_90: 500_000, days90plus: 0 },
-  { name: 'Moses Kibona', current: 0, days1_30: 220_000, days31_60: 0, days61_90: 500_000, days90plus: 0 },
-  { name: 'Fatima Said', current: 0, days1_30: 0, days31_60: 280_000, days61_90: 400_000, days90plus: 0 },
-  { name: 'Khalid Omar', current: 0, days1_30: 0, days31_60: 0, days61_90: 0, days90plus: 395_000 },
-  { name: 'Martha Lema', current: 130_000, days1_30: 250_000, days31_60: 0, days61_90: 0, days90plus: 0 },
-  { name: 'Rehema Saidi', current: 0, days1_30: 0, days31_60: 0, days61_90: 0, days90plus: 145_000 },
-  { name: 'Joseph Mwanga', current: 200_000, days1_30: 420_000, days31_60: 0, days61_90: 0, days90plus: 0 },
-  { name: 'Zubeda Ally', current: 0, days1_30: 0, days31_60: 180_000, days61_90: 0, days90plus: 0 },
-  { name: 'Emmanuel Festo', current: 110_000, days1_30: 0, days31_60: 450_000, days61_90: 0, days90plus: 0 },
-  { name: 'Juma Abdallah', current: 70_000, days1_30: 250_000, days31_60: 0, days61_90: 0, days90plus: 0 },
-  { name: 'Innocent Bya', current: 45_000, days1_30: 0, days31_60: 0, days61_90: 0, days90plus: 0 },
-];
-
-/* ────────────────────────────────────────────
-   Helpers
-   ──────────────────────────────────────────── */
-const fmt = (n: number) => 'TSh ' + n.toLocaleString('en-US');
-
-const now = new Date('2025-01-29');
-
-function daysOverdue(dueDate?: string): number {
-  if (!dueDate) return 0;
-  const d = new Date(dueDate);
-  return Math.max(0, Math.floor((now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24)));
+interface CreditReceivable {
+  id: string;
+  profileId: string;
+  orderId?: string | null;
+  customerPhone: string;
+  amount: number | string;
+  paid: number | string;
+  currency: string;
+  installmentMonths: number;
+  monthlyAmount: number | string;
+  dueDate: string;
+  status: ReceivableStatus;
+  createdAt: string;
 }
 
-/* ────────────────────────────────────────────
-   Status Badge
-   ──────────────────────────────────────────── */
-function StatusBadge({ status }: { status: string }) {
-  const map: Record<string, string> = {
-    Active: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
-    Overdue: 'bg-red-500/15 text-red-400 border-red-500/20',
-    Blocked: 'bg-slate-500/15 text-slate-400 border-slate-500/20',
-    Paid: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
-    Pending: 'bg-amber-500/15 text-amber-400 border-amber-500/20',
-  };
-  return (
-    <Badge variant="outline" className={`${map[status] || map.Pending} text-xs font-medium`}>
-      {status}
-    </Badge>
-  );
+interface Instalment {
+  id: string;
+  receivableId: string;
+  sequence: number;
+  amountDue: number | string;
+  amountPaid: number | string;
+  currency: string;
+  dueDate: string;
+  status: 'DUE' | 'PARTIAL' | 'PAID' | 'OVERDUE';
+  paidAt?: string | null;
 }
 
-/* ────────────────────────────────────────────
-   Main Component
-   ──────────────────────────────────────────── */
-export default function CreditCollectionsModule() {
-  const [activeTab, setActiveTab] = useState('ledger');
+type Tab = 'customers' | 'receivables' | 'aging';
+
+const money = (value: number | string, currency = 'TZS') =>
+  `${currency === 'TZS' ? 'TSh ' : `${currency} `}${Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+const day = (value: string) => new Date(value).toLocaleDateString();
+
+export default function ERPCredit() {
+  const [tab, setTab] = useState<Tab>('customers');
+  const [profiles, setProfiles] = useState<CreditProfile[]>([]);
+  const [receivables, setReceivables] = useState<CreditReceivable[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [search, setSearch] = useState('');
-  const [txnFilter, setTxnFilter] = useState('All');
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-  const [detailOpen, setDetailOpen] = useState(false);
+  const [editing, setEditing] = useState<CreditProfile | null | undefined>(undefined);
+  const [selected, setSelected] = useState<CreditReceivable | null>(null);
 
-  /* Live state hydrated from /api/credit. Falls back to demo arrays
-   * before the first round-trip lands. */
-  const [customers, setCustomers] = useState<Customer[]>(CUSTOMERS);
-  const [transactions, setTransactions] = useState<Transaction[]>(TRANSACTIONS);
-  const [receivableByCustomer, setReceivableByCustomer] = useState<Record<string, BackendReceivable[]>>({});
-  const [payError, setPayError] = useState<string | null>(null);
-
-  /* Payment form state */
-  const [payCustomerId, setPayCustomerId] = useState('');
-  const [payAmount, setPayAmount] = useState('');
-  const [payMethod, setPayMethod] = useState('Cash');
-  const [payDate, setPayDate] = useState('2025-01-29');
-  const [payNotes, setPayNotes] = useState('');
-  const [paySuccess, setPaySuccess] = useState(false);
-
-  /* Sales toggle */
-  const [showCreditSales, setShowCreditSales] = useState(true);
-
-  const reloadAll = useCallback(async () => {
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
     try {
-      const [profiles, receivables] = await Promise.all([
-        api<BackendProfile[]>('/credit/profiles'),
-        api<BackendReceivable[]>('/credit/receivables'),
+      const [p, r] = await Promise.all([
+        api<CreditProfile[]>('/credit/profiles', { offlineFallback: false }),
+        api<CreditReceivable[]>('/credit/receivables', { offlineFallback: false }),
       ]);
-      const byCust: Record<string, BackendReceivable[]> = {};
-      for (const r of receivables) {
-        if (!byCust[r.profileId]) byCust[r.profileId] = [];
-        byCust[r.profileId].push(r);
-      }
-      setReceivableByCustomer(byCust);
-      setCustomers(profiles.map((p) => {
-        const rs = byCust[p.id] ?? [];
-        const paidToDate = rs.reduce((s, r) => s + Number(r.paid), 0);
-        const hasOverdue = rs.some((r) => r.status === 'OVERDUE');
-        return {
-          id: p.id,
-          name: p.customerName || p.customerPhone,
-          phone: p.customerPhone,
-          creditLimit: Number(p.creditLimit),
-          balanceOwed: Number(p.outstanding),
-          paidToDate,
-          status: !p.active ? 'Blocked' : hasOverdue ? 'Overdue' : 'Active',
-        };
-      }));
-      setTransactions(receivables.map((r) => {
-        const paid = Number(r.paid);
-        const amount = Number(r.amount);
-        const balance = amount - paid;
-        return {
-          id: r.id,
-          date: r.createdAt.slice(0, 10),
-          invoiceNo: r.orderId ? `INV-${r.orderId.slice(0, 8)}` : `AR-${r.id.slice(0, 8)}`,
-          customerId: r.profileId,
-          customerName: r.customerPhone,
-          type: 'Sale',
-          subType: 'Credit Sale',
-          amount,
-          balance,
-          dueDate: r.dueDate.slice(0, 10),
-          status: r.status === 'PAID' ? 'Paid' : r.status === 'OVERDUE' ? 'Overdue' : 'Pending',
-        };
-      }));
-    } catch { /* keep demo state */ }
+      setProfiles(Array.isArray(p) ? p : []);
+      setReceivables(Array.isArray(r) ? r : []);
+    } catch (e) {
+      setProfiles([]);
+      setReceivables([]);
+      setError((e as Error).message || 'Could not load credit data.');
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try { await ensureSession(); } catch { /* offline */ }
-      if (!cancelled) await reloadAll();
-    })();
-    return () => { cancelled = true; };
-  }, [reloadAll]);
+  useEffect(() => { void load(); }, [load]);
 
-  /* Derived data */
-  const totalReceivables = useMemo(() => customers.reduce((s, c) => s + c.balanceOwed, 0), [customers]);
-  const totalOverdue = useMemo(() => customers.filter(c => c.status === 'Overdue').reduce((s, c) => s + c.balanceOwed, 0), [customers]);
-  const paidThisMonth = useMemo(() => customers.reduce((s, c) => s + c.paidToDate, 0), [customers]);
-  const activeAccounts = useMemo(() => customers.filter(c => c.status === 'Active').length, [customers]);
-  const cashSales = useMemo(() => transactions.filter(t => t.subType === 'Cash Sale').reduce((s, t) => s + t.amount, 0), [transactions]);
-  const creditSales = useMemo(() => transactions.filter(t => t.subType === 'Credit Sale').reduce((s, t) => s + t.amount, 0), [transactions]);
+  const totals = useMemo(() => {
+    const creditLimit = profiles.reduce((sum, p) => sum + Number(p.creditLimit || 0), 0);
+    const outstanding = profiles.reduce((sum, p) => sum + Number(p.outstanding || 0), 0);
+    const overdue = receivables
+      .filter((r) => r.status === 'OVERDUE')
+      .reduce((sum, r) => sum + Math.max(0, Number(r.amount) - Number(r.paid)), 0);
+    const currency = profiles[0]?.currency ?? receivables[0]?.currency ?? 'TZS';
+    return { creditLimit, outstanding, overdue, currency };
+  }, [profiles, receivables]);
 
-  const filteredCustomers = useMemo(() => {
-    if (!search.trim()) return customers;
-    const q = search.toLowerCase();
-    return customers.filter(c => c.name.toLowerCase().includes(q) || c.phone.includes(q) || c.id.toLowerCase().includes(q));
-  }, [search, customers]);
-
-  const filteredTxns = useMemo(() => {
-    let list = transactions;
-    if (txnFilter === 'Cash Sales') list = list.filter(t => t.subType === 'Cash Sale');
-    else if (txnFilter === 'Credit Sales') list = list.filter(t => t.subType === 'Credit Sale');
-    else if (txnFilter === 'Payments') list = list.filter(t => t.type === 'Payment');
-    else if (txnFilter === 'Overdue') list = list.filter(t => t.status === 'Overdue');
-    return list;
-  }, [txnFilter, transactions]);
-
-  const customerTxns = useMemo(() => {
-    if (!selectedCustomer) return [];
-    return transactions.filter(t => t.customerId === selectedCustomer.id);
-  }, [selectedCustomer, transactions]);
-
-  const payCustomer = useMemo(() => customers.find(c => c.id === payCustomerId) || null, [payCustomerId, customers]);
-
-  function handleViewCustomer(c: Customer) {
-    setSelectedCustomer(c);
-    setDetailOpen(true);
-  }
-
-  async function handleRecordPayment(e: React.FormEvent) {
-    e.preventDefault();
-    setPayError(null);
-    if (!payCustomerId || !payAmount) return;
-    const amountTotal = parseFloat(payAmount);
-    if (!isFinite(amountTotal) || amountTotal <= 0) {
-      setPayError('Payment amount must be greater than zero');
-      return;
-    }
-    // Allocate the payment across receivables oldest-first so an excess
-    // payment doesn't silently disappear (previously we PATCH'd only the
-    // oldest invoice and dropped the remainder on the floor).
-    const outstanding = (receivableByCustomer[payCustomerId] ?? [])
-      .filter((r) => r.status !== 'PAID' && r.status !== 'WRITTEN_OFF')
-      .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
-    if (outstanding.length === 0) {
-      setPayError('No outstanding receivables for this customer');
-      return;
-    }
-    const totalOutstanding = outstanding.reduce(
-      (s, r) => s + (Number(r.amount) - Number(r.paid)),
-      0,
-    );
-    let remaining = amountTotal;
-    const errors: string[] = [];
-    const appliedReceivables: string[] = [];
-    try {
-      for (const r of outstanding) {
-        if (remaining <= 0.0001) break;
-        const due = Number(r.amount) - Number(r.paid);
-        if (due <= 0) continue;
-        const applied = Math.min(due, remaining);
-        try {
-          await api(`/credit/receivables/${r.id}/pay`, {
-            method: 'PATCH',
-            body: JSON.stringify({ amount: applied, reference: payNotes || undefined }),
-          });
-          appliedReceivables.push(r.id);
-          remaining -= applied;
-        } catch (innerErr) {
-          // Capture and keep allocating — partial success is still better
-          // than dropping the rest of the payment.
-          errors.push(`${r.id.slice(0, 8)}: ${(innerErr as Error).message}`);
-        }
-      }
-      await reloadAll();
-      // If the payment exceeded total outstanding, flag the excess so
-      // the cashier can decide what to do with it (issue a credit note,
-      // refund, or apply on next invoice).
-      if (amountTotal > totalOutstanding + 0.01) {
-        const excess = (amountTotal - totalOutstanding).toFixed(2);
-        setPayError(
-          `Allocated ${appliedReceivables.length} invoice${appliedReceivables.length === 1 ? '' : 's'}; ${excess} excess remains unallocated.`,
-        );
-        return;
-      }
-      if (errors.length > 0) {
-        setPayError(`Partial: applied to ${appliedReceivables.length} invoice(s). Errors: ${errors.join('; ')}`);
-        return;
-      }
-      setPaySuccess(true);
-      setTimeout(() => {
-        setPaySuccess(false);
-        setPayCustomerId('');
-        setPayAmount('');
-        setPayNotes('');
-      }, 2500);
-    } catch (err) {
-      setPayError(err instanceof Error ? err.message : String(err));
-    }
-  }
-
-  /* ── KPI Cards ── */
-  const kpiCards = [
-    { label: 'Total Receivables', value: fmt(totalReceivables), icon: DollarSign, color: 'text-blue-400', bg: 'bg-blue-500/10' },
-    { label: 'Overdue Amount', value: fmt(totalOverdue), icon: AlertTriangle, color: 'text-red-400', bg: 'bg-red-500/10' },
-    { label: 'Paid This Month', value: fmt(paidThisMonth), icon: CheckCircle2, color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
-    { label: 'Active Credit Accounts', value: String(activeAccounts), icon: User, color: 'text-cyan-400', bg: 'bg-cyan-500/10' },
-  ];
+  const q = search.trim().toLowerCase();
+  const filteredProfiles = profiles.filter((p) => !q || `${p.customerName} ${p.customerPhone}`.toLowerCase().includes(q));
+  const profileById = useMemo(() => new Map(profiles.map((p) => [p.id, p])), [profiles]);
+  const filteredReceivables = receivables.filter((r) => {
+    const p = profileById.get(r.profileId);
+    return !q || `${p?.customerName ?? ''} ${r.customerPhone} ${r.orderId ?? ''}`.toLowerCase().includes(q);
+  });
 
   return (
-    <div className="min-h-screen bg-[#0a0a1a] text-slate-100 p-6">
-      {/* Header */}
-      <div className="mb-8 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="rounded-xl bg-blue-500/10 p-3">
-            <CreditCard className="h-6 w-6 text-blue-400" />
-          </div>
+    <div className="h-full min-h-0 flex flex-col bg-slate-950 text-slate-100 overflow-hidden">
+      <header className="shrink-0 border-b border-slate-800 bg-slate-900/80">
+        <div className="h-16 px-4 flex items-center gap-3">
+          <div className="h-10 w-10 rounded-xl bg-rose-500/15 text-rose-300 grid place-items-center"><CreditCard className="h-5 w-5" /></div>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-white">People Who Owe Us</h1>
-            <p className="text-sm text-slate-400">Money Out (red) by customer — track who owes and when each instalment turns green.</p>
+            <h1 className="font-black">Credit & Collections</h1>
+            <p className="text-[11px] text-slate-500">Live customer limits, receivables, instalments and payments</p>
           </div>
-        </div>
-        <div className="flex items-center gap-2 rounded-lg bg-[#13131f] border border-white/[0.06] p-1">
-          <button
-            onClick={() => setShowCreditSales(false)}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${!showCreditSales ? 'bg-blue-500/20 text-blue-400' : 'text-slate-400 hover:text-white'}`}
-          >
-            Cash Sales {fmt(cashSales)}
+          <button onClick={() => void load()} disabled={loading} className="ml-auto h-9 w-9 rounded-lg border border-slate-700 grid place-items-center text-slate-400 disabled:opacity-50" title="Refresh">
+            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
           </button>
-          <button
-            onClick={() => setShowCreditSales(true)}
-            className={`px-4 py-2 rounded-md text-sm font-medium transition-all ${showCreditSales ? 'bg-blue-500/20 text-blue-400' : 'text-slate-400 hover:text-white'}`}
-          >
-            Credit Sales {fmt(creditSales)}
+          <button onClick={() => setEditing(null)} className="h-9 px-3 rounded-lg bg-rose-600 hover:bg-rose-500 text-xs font-black inline-flex items-center gap-1.5">
+            <Plus className="h-4 w-4" /> Credit customer
           </button>
         </div>
-      </div>
+        <nav className="px-4 flex items-center gap-1 overflow-x-auto">
+          {([['customers', 'Customers'], ['receivables', 'Receivables'], ['aging', 'Aging']] as const).map(([id, label]) => (
+            <button key={id} onClick={() => setTab(id)} className={`h-10 px-3 text-xs font-black border-b-2 ${tab === id ? 'text-rose-300 border-rose-300' : 'text-slate-500 border-transparent'}`}>{label}</button>
+          ))}
+        </nav>
+      </header>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        {kpiCards.map(k => (
-          <Card key={k.label} className="bg-[#13131f] border-white/[0.06]">
-            <CardContent className="p-5">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs text-slate-400 uppercase tracking-wider mb-1">{k.label}</p>
-                  <p className="text-xl font-bold text-white">{k.value}</p>
-                </div>
-                <div className={`rounded-lg ${k.bg} p-3`}>
-                  <k.icon className={`h-5 w-5 ${k.color}`} />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      <main className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
+        {error && <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">{error}</div>}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          <Metric label="Credit customers" value={String(profiles.length)} icon={<UserRound />} />
+          <Metric label="Total limits" value={money(totals.creditLimit, totals.currency)} icon={<ShieldCheck />} />
+          <Metric label="Outstanding" value={money(totals.outstanding, totals.currency)} icon={<Wallet />} />
+          <Metric label="Overdue" value={money(totals.overdue, totals.currency)} danger icon={<AlertTriangle />} />
+        </div>
 
-      {/* Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="bg-[#13131f] border border-white/[0.06] mb-6">
-          <TabsTrigger value="ledger" className="data-[state=active]:bg-blue-500/20 data-[state=active]:text-blue-400 text-slate-400">
-            <Receipt className="h-4 w-4 mr-2" /> Customer Ledger
-          </TabsTrigger>
-          <TabsTrigger value="transactions" className="data-[state=active]:bg-blue-500/20 data-[state=active]:text-blue-400 text-slate-400">
-            <Wallet className="h-4 w-4 mr-2" /> Transactions
-          </TabsTrigger>
-          <TabsTrigger value="aging" className="data-[state=active]:bg-blue-500/20 data-[state=active]:text-blue-400 text-slate-400">
-            <Clock className="h-4 w-4 mr-2" /> Aging Report
-          </TabsTrigger>
-          <TabsTrigger value="payment" className="data-[state=active]:bg-blue-500/20 data-[state=active]:text-blue-400 text-slate-400">
-            <Plus className="h-4 w-4 mr-2" /> Record Payment
-          </TabsTrigger>
-        </TabsList>
+        <div className="relative max-w-lg">
+          <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search customer, phone or order…" className="w-full h-10 rounded-xl bg-slate-900 border border-slate-800 pl-9 pr-3 text-sm outline-none focus:border-rose-500/60" />
+        </div>
 
-        {/* ── Tab 1: Customer Ledger ── */}
-        <TabsContent value="ledger">
-          <Card className="bg-[#13131f] border-white/[0.06]">
-            <CardContent className="p-5">
-              <div className="flex items-center gap-3 mb-5">
-                <div className="relative flex-1 max-w-md">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-500" />
-                  <Input
-                    placeholder="Search by name, phone, or ID..."
-                    value={search}
-                    onChange={e => setSearch(e.target.value)}
-                    className="pl-10 bg-[#0a0a1a] border-white/[0.06] text-slate-100 placeholder:text-slate-500"
-                  />
-                </div>
-                <Badge variant="outline" className="bg-white/[0.02] text-slate-400 border-white/[0.06]">
-                  {filteredCustomers.length} customers
-                </Badge>
-              </div>
-
-              <ScrollArea className="h-[520px]">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-white/[0.06]">
-                      {['Customer', 'Phone', 'Credit Limit', 'Balance Owed', 'Paid To Date', 'Credit Available', 'Status', 'Actions'].map(h => (
-                        <th key={h} className="text-left py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredCustomers.map((c, i) => (
-                      <tr key={c.id} className={`${i % 2 === 0 ? 'bg-white/[0.02]' : 'bg-white/[0.01]'} hover:bg-white/[0.04] transition-colors`}>
-                        <td className="py-3 px-3">
-                          <div className="font-medium text-white">{c.name}</div>
-                          <div className="text-xs text-slate-500">{c.id}</div>
-                        </td>
-                        <td className="py-3 px-3 text-slate-400">
-                          <div className="flex items-center gap-1"><Phone className="h-3 w-3" /> {c.phone}</div>
-                        </td>
-                        <td className="py-3 px-3 text-slate-300">{fmt(c.creditLimit)}</td>
-                        <td className={`py-3 px-3 font-semibold ${c.balanceOwed > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>{fmt(c.balanceOwed)}</td>
-                        <td className="py-3 px-3 text-emerald-400">{fmt(c.paidToDate)}</td>
-                        <td className="py-3 px-3 text-slate-300">{fmt(c.creditLimit - c.balanceOwed)}</td>
-                        <td className="py-3 px-3"><StatusBadge status={c.status} /></td>
-                        <td className="py-3 px-3">
-                          <div className="flex items-center gap-1">
-                            <Button size="sm" variant="ghost" className="h-7 text-blue-400 hover:text-blue-300 hover:bg-blue-500/10" onClick={() => handleViewCustomer(c)}>
-                              View
-                            </Button>
-                            <Button size="sm" variant="ghost" className="h-7 text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10" onClick={() => { setPayCustomerId(c.id); setActiveTab('payment'); }}>
-                              Pay
-                            </Button>
-                            <Button size="sm" variant="ghost" className="h-7 text-amber-400 hover:text-amber-300 hover:bg-amber-500/10">
-                              <Send className="h-3 w-3" />
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </ScrollArea>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* ── Tab 2: Transactions ── */}
-        <TabsContent value="transactions">
-          <Card className="bg-[#13131f] border-white/[0.06]">
-            <CardContent className="p-5">
-              <div className="flex items-center gap-2 mb-5 flex-wrap">
-                {['All', 'Cash Sales', 'Credit Sales', 'Payments', 'Overdue'].map(f => (
-                  <Button
-                    key={f}
-                    size="sm"
-                    variant={txnFilter === f ? 'default' : 'outline'}
-                    onClick={() => setTxnFilter(f)}
-                    className={txnFilter === f ? 'bg-blue-500/20 text-blue-400 border-blue-500/30' : 'bg-transparent text-slate-400 border-white/[0.06] hover:text-white'}
-                  >
-                    {f}
-                  </Button>
-                ))}
-                <Badge variant="outline" className="bg-white/[0.02] text-slate-400 border-white/[0.06] ml-auto">
-                  {filteredTxns.length} transactions
-                </Badge>
-              </div>
-
-              <ScrollArea className="h-[520px]">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-white/[0.06]">
-                      {['Date', 'Invoice #', 'Customer', 'Type', 'Amount', 'Balance', 'Due Date', 'Status'].map(h => (
-                        <th key={h} className="text-left py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredTxns.map((t, i) => (
-                      <tr key={t.id} className={`${i % 2 === 0 ? 'bg-white/[0.02]' : 'bg-white/[0.01]'} hover:bg-white/[0.04] transition-colors`}>
-                        <td className="py-3 px-3 text-slate-300">{t.date}</td>
-                        <td className="py-3 px-3 text-blue-400 font-mono text-xs">{t.invoiceNo}</td>
-                        <td className="py-3 px-3 text-white font-medium">{t.customerName}</td>
-                        <td className="py-3 px-3">
-                          <span className={`text-xs px-2 py-1 rounded-full ${t.type === 'Sale' ? (t.subType === 'Cash Sale' ? 'bg-blue-500/15 text-blue-400' : 'bg-amber-500/15 text-amber-400') : 'bg-emerald-500/15 text-emerald-400'}`}>
-                            {t.subType}
-                          </span>
-                        </td>
-                        <td className="py-3 px-3 text-slate-200 font-medium">{fmt(t.amount)}</td>
-                        <td className={`py-3 px-3 ${t.balance > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>{fmt(t.balance)}</td>
-                        <td className="py-3 px-3 text-slate-400">
-                          {t.dueDate ? (
-                            <span className={t.status === 'Overdue' ? 'text-red-400' : ''}>
-                              {t.dueDate} {t.status === 'Overdue' && <span className="text-xs">({daysOverdue(t.dueDate)}d)</span>}
-                            </span>
-                          ) : '—'}
-                        </td>
-                        <td className="py-3 px-3"><StatusBadge status={t.status} /></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </ScrollArea>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* ── Tab 3: Aging Report ── */}
-        <TabsContent value="aging">
-          <div className="space-y-6">
-            {/* Chart */}
-            <Card className="bg-[#13131f] border-white/[0.06]">
-              <CardContent className="p-5">
-                <h3 className="text-lg font-semibold text-white mb-4">Aging Buckets</h3>
-                <ResponsiveContainer width="100%" height={260}>
-                  <BarChart data={AGING_DATA}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                    <XAxis dataKey="bucket" stroke="#94a3b8" fontSize={12} />
-                    <YAxis stroke="#94a3b8" fontSize={12} tickFormatter={v => `TSh ${(v / 1_000_000).toFixed(1)}M`} />
-                    <Tooltip
-                      contentStyle={{ backgroundColor: '#13131f', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#fff' }}
-                      formatter={(value: number) => fmt(value)}
-                    />
-                    <Bar dataKey="amount" fill="#3b82f6" radius={[6, 6, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-
-            {/* Aging Table */}
-            <Card className="bg-[#13131f] border-white/[0.06]">
-              <CardContent className="p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-lg font-semibold text-white">Customer Aging Detail</h3>
-                  <Button size="sm" className="bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:bg-amber-500/30">
-                    <Send className="h-4 w-4 mr-2" /> Send Reminders (90+)
-                  </Button>
-                </div>
-                <ScrollArea className="h-[340px]">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-white/[0.06]">
-                        {['Customer', 'Current', '1-30 Days', '31-60 Days', '61-90 Days', '90+ Days', 'Total Overdue'].map(h => (
-                          <th key={h} className="text-left py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wider">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {AGING_CUSTOMERS.map((c, i) => {
-                        const total = c.days1_30 + c.days31_60 + c.days61_90 + c.days90plus;
-                        return (
-                          <tr key={c.name} className={`${i % 2 === 0 ? 'bg-white/[0.02]' : 'bg-white/[0.01]'} hover:bg-white/[0.04] transition-colors`}>
-                            <td className="py-3 px-3 font-medium text-white">{c.name}</td>
-                            <td className="py-3 px-3 text-emerald-400">{c.current > 0 ? fmt(c.current) : '—'}</td>
-                            <td className="py-3 px-3 text-slate-300">{c.days1_30 > 0 ? fmt(c.days1_30) : '—'}</td>
-                            <td className="py-3 px-3 text-amber-400">{c.days31_60 > 0 ? fmt(c.days31_60) : '—'}</td>
-                            <td className="py-3 px-3 text-orange-400">{c.days61_90 > 0 ? fmt(c.days61_90) : '—'}</td>
-                            <td className="py-3 px-3 text-red-400 font-medium">{c.days90plus > 0 ? fmt(c.days90plus) : '—'}</td>
-                            <td className="py-3 px-3 font-bold text-red-400">{total > 0 ? fmt(total) : '—'}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </ScrollArea>
-                <div className="mt-4 pt-4 border-t border-white/[0.06] flex justify-between items-center">
-                  <span className="text-sm text-slate-400">Total Overdue:</span>
-                  <span className="text-lg font-bold text-red-400">{fmt(AGING_DATA.reduce((s, d) => s + d.amount, 0))}</span>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
-
-        {/* ── Tab 4: Record Payment ── */}
-        <TabsContent value="payment">
-          <Card className="bg-[#13131f] border-white/[0.06] max-w-2xl mx-auto">
-            <CardContent className="p-6">
-              <h3 className="text-lg font-semibold text-white mb-5">Record New Payment</h3>
-
-              {paySuccess && (
-                <div className="mb-5 flex items-center gap-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20 p-4 text-emerald-400">
-                  <CheckCircle2 className="h-5 w-5" />
-                  <span className="font-medium">Payment recorded successfully!</span>
-                </div>
-              )}
-              {payError && (
-                <div className="mb-5 flex items-center gap-3 rounded-lg bg-rose-500/10 border border-rose-500/20 p-4 text-rose-300 text-sm">
-                  <AlertTriangle className="h-5 w-5" />
-                  <span>{payError}</span>
-                </div>
-              )}
-
-              <form onSubmit={handleRecordPayment} className="space-y-5">
-                {/* Customer Selector */}
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">Customer</label>
-                  <select
-                    value={payCustomerId}
-                    onChange={e => setPayCustomerId(e.target.value)}
-                    className="w-full rounded-lg bg-[#0a0a1a] border border-white/[0.06] text-slate-100 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                  >
-                    <option value="">Select customer...</option>
-                    {CUSTOMERS.map(c => (
-                      <option key={c.id} value={c.id}>{c.name} — {c.id}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Balance Display */}
-                {payCustomer && (
-                  <div className="rounded-lg bg-white/[0.02] border border-white/[0.06] p-4 flex items-center justify-between">
-                    <div>
-                      <p className="text-xs text-slate-400 uppercase tracking-wider">Current Balance</p>
-                      <p className={`text-xl font-bold ${payCustomer.balanceOwed > 0 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                        {fmt(payCustomer.balanceOwed)}
-                      </p>
+        {loading && !profiles.length && !receivables.length ? (
+          <div className="py-24 grid place-items-center text-slate-500"><Loader2 className="h-6 w-6 animate-spin" /></div>
+        ) : tab === 'customers' ? (
+          <section className="rounded-2xl border border-slate-800 bg-slate-900/50 overflow-hidden">
+            {!filteredProfiles.length ? <Empty title="No credit customers" body="Create a customer credit profile to set a limit and start tracking receivables." /> : (
+              <div className="divide-y divide-slate-800">
+                {filteredProfiles.map((p) => {
+                  const used = Number(p.outstanding || 0);
+                  const limit = Number(p.creditLimit || 0);
+                  const percent = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
+                  return <button key={p.id} onClick={() => setEditing(p)} className="w-full text-left px-4 py-3 hover:bg-slate-800/40">
+                    <div className="flex items-start gap-3">
+                      <div className="h-9 w-9 rounded-xl bg-slate-800 grid place-items-center"><UserRound className="h-4 w-4 text-slate-400" /></div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex gap-2 items-center"><b className="truncate">{p.customerName || p.customerPhone}</b><span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${p.active ? 'bg-emerald-500/10 text-emerald-300' : 'bg-slate-700 text-slate-400'}`}>{p.active ? 'ACTIVE' : 'PAUSED'}</span><span className="text-[10px] text-slate-500">Risk {p.riskGrade}</span></div>
+                        <div className="text-xs text-slate-500 mt-0.5">{p.customerPhone}</div>
+                        <div className="mt-2 h-1.5 rounded-full bg-slate-800 overflow-hidden"><div className="h-full bg-rose-500" style={{ width: `${percent}%` }} /></div>
+                      </div>
+                      <div className="text-right text-xs"><b className="block text-sm">{money(used, p.currency)}</b><span className="text-slate-500">of {money(limit, p.currency)}</span></div>
                     </div>
-                    <div>
-                      <p className="text-xs text-slate-400 uppercase tracking-wider text-right">Credit Limit</p>
-                      <p className="text-sm text-slate-300 text-right">{fmt(payCustomer.creditLimit)}</p>
-                    </div>
-                  </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">Amount (TSh)</label>
-                    <Input
-                      type="number"
-                      placeholder="e.g. 50000"
-                      value={payAmount}
-                      onChange={e => setPayAmount(e.target.value)}
-                      className="bg-[#0a0a1a] border-white/[0.06] text-slate-100 placeholder:text-slate-600"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-300 mb-2">Payment Method</label>
-                    <select
-                      value={payMethod}
-                      onChange={e => setPayMethod(e.target.value)}
-                      className="w-full rounded-lg bg-[#0a0a1a] border border-white/[0.06] text-slate-100 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
-                    >
-                      <option>Cash</option>
-                      <option>Bank Transfer</option>
-                      <option>M-Pesa</option>
-                      <option>Card</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">Payment Date</label>
-                  <Input
-                    type="date"
-                    value={payDate}
-                    onChange={e => setPayDate(e.target.value)}
-                    className="bg-[#0a0a1a] border-white/[0.06] text-slate-100"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-2">Notes</label>
-                  <textarea
-                    value={payNotes}
-                    onChange={e => setPayNotes(e.target.value)}
-                    placeholder="Optional notes..."
-                    rows={3}
-                    className="w-full rounded-lg bg-[#0a0a1a] border border-white/[0.06] text-slate-100 px-3 py-2.5 text-sm placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500/30 resize-none"
-                  />
-                </div>
-
-                <Button
-                  type="submit"
-                  className="w-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30 h-11 text-sm font-semibold"
-                >
-                  <CheckCircle2 className="h-4 w-4 mr-2" /> Record Payment
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
-
-      {/* ── Customer Detail Dialog ── */}
-      <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="bg-[#13131f] border-white/[0.06] text-slate-100 max-w-3xl max-h-[80vh] p-0 gap-0">
-          <DialogHeader className="p-6 pb-4 border-b border-white/[0.06]">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="rounded-full bg-blue-500/10 p-2.5">
-                  <User className="h-5 w-5 text-blue-400" />
-                </div>
-                <div>
-                  <DialogTitle className="text-lg font-bold text-white">{selectedCustomer?.name}</DialogTitle>
-                  <p className="text-xs text-slate-400 mt-0.5">{selectedCustomer?.id} • {selectedCustomer?.phone}</p>
-                </div>
+                  </button>;
+                })}
               </div>
-              <div className="flex items-center gap-3">
-                <StatusBadge status={selectedCustomer?.status || ''} />
-                <Button size="sm" variant="ghost" className="h-8 w-8 p-0 text-slate-400 hover:text-white" onClick={() => setDetailOpen(false)}>
-                  <X className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          </DialogHeader>
+            )}
+          </section>
+        ) : tab === 'receivables' ? (
+          <Receivables rows={filteredReceivables} profileById={profileById} onOpen={setSelected} />
+        ) : (
+          <Aging rows={filteredReceivables} profileById={profileById} />
+        )}
+      </main>
 
-          {selectedCustomer && (
-            <div className="p-6 space-y-6">
-              {/* Summary Cards */}
-              <div className="grid grid-cols-3 gap-3">
-                <div className="rounded-lg bg-white/[0.02] border border-white/[0.06] p-3 text-center">
-                  <p className="text-xs text-slate-400 mb-1">Credit Limit</p>
-                  <p className="text-base font-bold text-white">{fmt(selectedCustomer.creditLimit)}</p>
-                </div>
-                <div className="rounded-lg bg-amber-500/10 border border-amber-500/15 p-3 text-center">
-                  <p className="text-xs text-amber-400/70 mb-1">Balance Owed</p>
-                  <p className="text-base font-bold text-amber-400">{fmt(selectedCustomer.balanceOwed)}</p>
-                </div>
-                <div className="rounded-lg bg-emerald-500/10 border border-emerald-500/15 p-3 text-center">
-                  <p className="text-xs text-emerald-400/70 mb-1">Paid To Date</p>
-                  <p className="text-base font-bold text-emerald-400">{fmt(selectedCustomer.paidToDate)}</p>
-                </div>
-              </div>
-
-              {/* Transaction History */}
-              <div>
-                <h4 className="text-sm font-semibold text-slate-300 mb-3 flex items-center gap-2">
-                  <Receipt className="h-4 w-4 text-blue-400" /> Transaction History
-                </h4>
-                <ScrollArea className="h-[280px]">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-white/[0.06]">
-                        {['Date', 'Invoice #', 'Type', 'Amount', 'Balance', 'Status'].map(h => (
-                          <th key={h} className="text-left py-2.5 px-2 text-xs font-semibold text-slate-400 uppercase">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {customerTxns.map((t, i) => (
-                        <tr key={t.id} className={`${i % 2 === 0 ? 'bg-white/[0.02]' : 'bg-white/[0.01]'}`}>
-                          <td className="py-2.5 px-2 text-slate-400">{t.date}</td>
-                          <td className="py-2.5 px-2 text-blue-400 font-mono text-xs">{t.invoiceNo}</td>
-                          <td className="py-2.5 px-2">
-                            <span className={`text-xs ${t.type === 'Sale' ? (t.subType === 'Cash Sale' ? 'text-blue-400' : 'text-amber-400') : 'text-emerald-400'}`}>
-                              {t.subType}
-                            </span>
-                          </td>
-                          <td className="py-2.5 px-2 text-slate-200 font-medium">{fmt(t.amount)}</td>
-                          <td className="py-2.5 px-2 text-slate-400">{fmt(t.balance)}</td>
-                          <td className="py-2.5 px-2"><StatusBadge status={t.status} /></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </ScrollArea>
-                {customerTxns.length === 0 && (
-                  <p className="text-center text-slate-500 py-8">No transactions found</p>
-                )}
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+      {editing !== undefined && <ProfileModal profile={editing} onClose={() => setEditing(undefined)} onSaved={async () => { setEditing(undefined); await load(); }} />}
+      {selected && <ReceivableDrawer row={selected} profile={profileById.get(selected.profileId)} onClose={() => setSelected(null)} onChanged={load} />}
     </div>
   );
 }
+
+function Receivables({ rows, profileById, onOpen }: { rows: CreditReceivable[]; profileById: Map<string, CreditProfile>; onOpen: (r: CreditReceivable) => void }) {
+  if (!rows.length) return <section className="rounded-2xl border border-slate-800 bg-slate-900/50"><Empty title="No receivables" body="Credit receivables are created by real credit sales and will appear here." /></section>;
+  return <section className="rounded-2xl border border-slate-800 bg-slate-900/50 overflow-hidden"><div className="divide-y divide-slate-800">{rows.map((r) => {
+    const p = profileById.get(r.profileId);
+    const balance = Math.max(0, Number(r.amount) - Number(r.paid));
+    return <button key={r.id} onClick={() => onOpen(r)} className="w-full px-4 py-3 text-left hover:bg-slate-800/40 flex items-center gap-3">
+      <Status status={r.status} />
+      <div className="min-w-0 flex-1"><b className="block truncate">{p?.customerName || r.customerPhone}</b><span className="text-xs text-slate-500">{r.orderId ? `Order ${r.orderId.slice(0, 8)} · ` : ''}Due {day(r.dueDate)} · {r.installmentMonths} instalment{r.installmentMonths === 1 ? '' : 's'}</span></div>
+      <div className="text-right"><b>{money(balance, r.currency)}</b><span className="block text-[10px] text-slate-500">of {money(r.amount, r.currency)}</span></div>
+    </button>;
+  })}</div></section>;
+}
+
+function Aging({ rows, profileById }: { rows: CreditReceivable[]; profileById: Map<string, CreditProfile> }) {
+  const now = Date.now();
+  const buckets = [
+    { label: 'Current', min: -Infinity, max: 0 },
+    { label: '1–30 days', min: 1, max: 30 },
+    { label: '31–60 days', min: 31, max: 60 },
+    { label: '61–90 days', min: 61, max: 90 },
+    { label: '90+ days', min: 91, max: Infinity },
+  ].map((bucket) => {
+    const matching = rows.filter((r) => {
+      if (r.status === 'PAID' || r.status === 'WRITTEN_OFF') return false;
+      const daysLate = Math.floor((now - new Date(r.dueDate).getTime()) / 86_400_000);
+      return daysLate >= bucket.min && daysLate <= bucket.max;
+    });
+    return { ...bucket, rows: matching, amount: matching.reduce((sum, r) => sum + Math.max(0, Number(r.amount) - Number(r.paid)), 0) };
+  });
+  const currency = rows[0]?.currency ?? 'TZS';
+  return <div className="space-y-4"><div className="grid grid-cols-2 lg:grid-cols-5 gap-3">{buckets.map((b) => <div key={b.label} className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4"><span className="text-xs text-slate-500">{b.label}</span><b className="block text-lg mt-1">{money(b.amount, currency)}</b><span className="text-[10px] text-slate-600">{b.rows.length} receivable{b.rows.length === 1 ? '' : 's'}</span></div>)}</div><section className="rounded-2xl border border-slate-800 bg-slate-900/50 overflow-hidden">{rows.filter((r) => r.status !== 'PAID' && r.status !== 'WRITTEN_OFF').length ? <div className="divide-y divide-slate-800">{rows.filter((r) => r.status !== 'PAID' && r.status !== 'WRITTEN_OFF').sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime()).map((r) => <div key={r.id} className="px-4 py-3 flex gap-3"><div className="flex-1"><b>{profileById.get(r.profileId)?.customerName || r.customerPhone}</b><span className="block text-xs text-slate-500">Due {day(r.dueDate)}</span></div><b>{money(Math.max(0, Number(r.amount) - Number(r.paid)), r.currency)}</b></div>)}</div> : <Empty title="Nothing outstanding" body="There are no open receivables." />}</section></div>;
+}
+
+function ProfileModal({ profile, onClose, onSaved }: { profile: CreditProfile | null; onClose: () => void; onSaved: () => Promise<void> }) {
+  const [form, setForm] = useState({
+    customerName: profile?.customerName ?? '', customerPhone: profile?.customerPhone ?? '', creditLimit: String(profile?.creditLimit ?? ''),
+    riskGrade: profile?.riskGrade ?? 'C' as RiskGrade, currency: profile?.currency ?? 'TZS', active: profile?.active ?? true,
+  });
+  const [busy, setBusy] = useState(false); const [error, setError] = useState('');
+  const save = async () => {
+    if (!form.customerPhone.trim() || Number(form.creditLimit) < 0) return;
+    setBusy(true); setError('');
+    try {
+      await api('/credit/profiles', { method: 'POST', offlineFallback: false, body: JSON.stringify({ ...form, customerPhone: form.customerPhone.trim(), customerName: form.customerName.trim(), creditLimit: Number(form.creditLimit) }) });
+      await onSaved();
+    } catch (e) { setError((e as Error).message || 'Could not save credit profile.'); } finally { setBusy(false); }
+  };
+  return <Modal onClose={onClose}><div className="flex items-center justify-between"><h2 className="font-black">{profile ? 'Edit credit customer' : 'New credit customer'}</h2><button onClick={onClose}><X className="h-4 w-4" /></button></div><div className="mt-4 grid gap-3"><Field label="Name"><input value={form.customerName} onChange={(e) => setForm({ ...form, customerName: e.target.value })} className="control" /></Field><Field label="Phone"><input value={form.customerPhone} disabled={!!profile} onChange={(e) => setForm({ ...form, customerPhone: e.target.value })} className="control disabled:opacity-50" /></Field><Field label="Credit limit"><input type="number" min="0" value={form.creditLimit} onChange={(e) => setForm({ ...form, creditLimit: e.target.value })} className="control" /></Field><div className="grid grid-cols-2 gap-3"><Field label="Risk"><select value={form.riskGrade} onChange={(e) => setForm({ ...form, riskGrade: e.target.value as RiskGrade })} className="control">{(['A+', 'A', 'B', 'C', 'D'] as const).map((v) => <option key={v}>{v}</option>)}</select></Field><Field label="Currency"><input value={form.currency} onChange={(e) => setForm({ ...form, currency: e.target.value.toUpperCase() })} className="control" /></Field></div><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={form.active} onChange={(e) => setForm({ ...form, active: e.target.checked })} /> Allow new credit</label>{error && <p className="text-xs text-rose-300">{error}</p>}<button onClick={() => void save()} disabled={busy} className="h-10 rounded-xl bg-rose-600 text-white font-black disabled:opacity-50">{busy ? 'Saving…' : 'Save profile'}</button></div></Modal>;
+}
+
+function ReceivableDrawer({ row, profile, onClose, onChanged }: { row: CreditReceivable; profile?: CreditProfile; onClose: () => void; onChanged: () => Promise<void> }) {
+  const [instalments, setInstalments] = useState<Instalment[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState(''); const [busy, setBusy] = useState(false);
+  useEffect(() => { api<Instalment[]>(`/credit/receivables/${row.id}/instalments`, { offlineFallback: false }).then((v) => setInstalments(Array.isArray(v) ? v : [])).catch((e) => setError((e as Error).message)).finally(() => setLoading(false)); }, [row.id]);
+  const pay = async () => {
+    const amount = Number(window.prompt('Payment amount', String(Math.max(0, Number(row.amount) - Number(row.paid))))); if (!(amount > 0)) return;
+    const reference = window.prompt('Payment reference (optional)', '') ?? '';
+    setBusy(true); setError(''); try { await api(`/credit/receivables/${row.id}/pay`, { method: 'PATCH', offlineFallback: false, body: JSON.stringify({ amount, reference: reference.trim() || undefined }) }); await onChanged(); onClose(); } catch (e) { setError((e as Error).message || 'Payment failed.'); } finally { setBusy(false); }
+  };
+  return <div className="fixed inset-0 z-50 bg-black/50 flex justify-end" onClick={onClose}><aside onClick={(e) => e.stopPropagation()} className="w-full max-w-md h-full bg-slate-950 border-l border-slate-800 p-5 overflow-y-auto"><div className="flex items-center"><div><h2 className="font-black">{profile?.customerName || row.customerPhone}</h2><p className="text-xs text-slate-500">{row.customerPhone}</p></div><button onClick={onClose} className="ml-auto"><X className="h-5 w-5" /></button></div><div className="mt-5 grid grid-cols-2 gap-3"><Mini label="Original" value={money(row.amount, row.currency)} /><Mini label="Paid" value={money(row.paid, row.currency)} /><Mini label="Balance" value={money(Math.max(0, Number(row.amount) - Number(row.paid)), row.currency)} /><Mini label="Due" value={day(row.dueDate)} /></div><div className="mt-5"><h3 className="text-xs uppercase tracking-widest text-slate-500 font-black">Instalments</h3>{loading ? <Loader2 className="h-5 w-5 animate-spin mt-4 text-slate-500" /> : instalments.length ? <div className="mt-2 space-y-2">{instalments.map((i) => <div key={i.id} className="rounded-xl border border-slate-800 p-3 flex items-center"><div><b className="text-sm">#{i.sequence} · {day(i.dueDate)}</b><span className="block text-xs text-slate-500">{money(i.amountPaid, i.currency)} / {money(i.amountDue, i.currency)}</span></div><span className="ml-auto text-[10px] font-black text-slate-400">{i.status}</span></div>)}</div> : <p className="mt-3 text-sm text-slate-500">No instalment rows.</p>}</div>{error && <p className="mt-4 text-xs text-rose-300">{error}</p>}{row.status !== 'PAID' && row.status !== 'WRITTEN_OFF' && <button onClick={() => void pay()} disabled={busy} className="mt-5 w-full h-11 rounded-xl bg-emerald-600 text-white font-black disabled:opacity-50">{busy ? 'Recording…' : 'Record payment'}</button>}</aside></div>;
+}
+
+function Status({ status }: { status: ReceivableStatus }) { const cls = status === 'PAID' ? 'bg-emerald-500/10 text-emerald-300' : status === 'OVERDUE' ? 'bg-rose-500/10 text-rose-300' : status === 'PARTIAL' ? 'bg-amber-500/10 text-amber-300' : 'bg-blue-500/10 text-blue-300'; return <span className={`shrink-0 text-[9px] font-black px-2 py-1 rounded-full ${cls}`}>{status}</span>; }
+function Metric({ label, value, icon, danger }: { label: string; value: string; icon: React.ReactNode; danger?: boolean }) { return <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4"><div className={`h-8 w-8 rounded-lg grid place-items-center ${danger ? 'bg-rose-500/10 text-rose-300' : 'bg-slate-800 text-slate-400'}`}>{icon}</div><span className="block mt-3 text-xs text-slate-500">{label}</span><b className="block mt-1 truncate">{value}</b></div>; }
+function Empty({ title, body }: { title: string; body: string }) { return <div className="py-16 text-center px-6"><CheckCircle2 className="h-9 w-9 mx-auto text-slate-700" /><b className="block mt-3 text-slate-300">{title}</b><p className="text-sm text-slate-500 mt-1">{body}</p></div>; }
+function Modal({ children, onClose }: { children: React.ReactNode; onClose: () => void }) { return <div className="fixed inset-0 z-50 bg-black/55 grid place-items-center p-4" onMouseDown={onClose}><div onMouseDown={(e) => e.stopPropagation()} className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-950 p-5 shadow-2xl">{children}</div></div>; }
+function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label className="grid gap-1 text-xs text-slate-400">{label}{children}</label>; }
+function Mini({ label, value }: { label: string; value: string }) { return <div className="rounded-xl border border-slate-800 p-3"><span className="text-[10px] text-slate-500">{label}</span><b className="block text-sm mt-1">{value}</b></div>; }
