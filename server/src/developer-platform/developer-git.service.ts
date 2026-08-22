@@ -33,10 +33,10 @@ export class DeveloperGitService {
   async listRepos() {
     await fs.mkdir(this.root, { recursive: true });
     const out: Array<{ repo: string; name: string }> = [];
-    const scan = async (dir: string, depth: number) => {
+    const scan = async (dir: string, depth: number): Promise<void> => {
       if (depth > 2) return;
-      let entries: Awaited<ReturnType<typeof fs.readdir>>;
-      try { entries = await fs.readdir(dir, { withFileTypes: true }); } catch { return; }
+      let entries;
+      try { entries = await fs.readdir(dir, { withFileTypes: true, encoding: 'utf8' }); } catch { return; }
       if (entries.some((entry) => entry.isDirectory() && entry.name === '.git')) {
         const repo = relative(this.root, dir).replace(/\\/g, '/');
         if (repo) out.push({ repo, name: basename(dir) });
