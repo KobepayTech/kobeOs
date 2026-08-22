@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertCircle, Loader2, RefreshCw } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Loader2, RefreshCw } from 'lucide-react';
 import { ensureSession, oauthConsume } from '@/lib/auth';
 
 type OAuthProvider = 'tiktok' | 'meta';
@@ -9,15 +9,19 @@ const providerNames: Record<OAuthProvider, string> = {
   meta: 'Meta',
 };
 
-/** Completes a provider redirect, persists both tokens and the verified user, then opens KobeOS. */
+/** Completes a provider redirect, persists both tokens and the verified user,
+ * then either opens the normal web KobeOS shell or hands the cloud credentials
+ * back to a desktop OAuth popup's opener for local-session exchange. */
 export default function OAuthCallback({ provider }: { provider: OAuthProvider }) {
   const credentials = useRef<{ access: string; refresh: string } | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(true);
+  const [completed, setCompleted] = useState(false);
   const name = providerNames[provider];
 
   const complete = useCallback(async () => {
     setBusy(true);
+    setCompleted(false);
     setError('');
     try {
       const fragment = new URLSearchParams(window.location.hash.replace(/^#/, ''));
@@ -34,14 +38,34 @@ export default function OAuthCallback({ provider }: { provider: OAuthProvider })
       }
 
       oauthConsume(credentials.current.access, credentials.current.refresh);
-      // This also persists kobeos_auth_user, which the app needs on reload.
-      await ensureSession();
+      // On the hosted callback this verifies the cloud token against Kobe Cloud
+      // and persists the profile. The desktop opener will exchange the same
+      // cloud identity for its own local embedded-backend session.
+      const user = await ensureSession();
+
+      if (window.opener && !window.opener.closed) {
+        // The desktop renderer is file:// (opaque origin), so a concrete
+        // targetOrigin cannot be used. The opener validates this message's
+        // sender origin before accepting any credentials.
+        window.opener.postMessage({
+          type: 'kobeos-oauth-complete',
+          provider,
+          accessToken: credentials.current.access,
+          refreshToken: credentials.current.refresh,
+          user,
+        }, '*');
+        setBusy(false);
+        setCompleted(true);
+        window.close();
+        return;
+      }
+
       window.location.replace('/');
     } catch (err) {
       setError(err instanceof Error ? err.message : `${name} sign-in failed.`);
       setBusy(false);
     }
-  }, [name]);
+  }, [name, provider]);
 
   useEffect(() => { void complete(); }, [complete]);
 
@@ -53,6 +77,12 @@ export default function OAuthCallback({ provider }: { provider: OAuthProvider })
             <Loader2 className="mx-auto h-9 w-9 animate-spin text-[#ff7616]" />
             <h1 className="mt-5 text-xl font-black">Finishing {name} signup</h1>
             <p className="mt-2 text-sm text-slate-400">Saving your account securely and opening KobeOS…</p>
+          </>
+        ) : completed ? (
+          <>
+            <CheckCircle2 className="mx-auto h-9 w-9 text-emerald-400" />
+            <h1 className="mt-5 text-xl font-black">{name} sign-in complete</h1>
+            <p className="mt-2 text-sm leading-6 text-slate-300">Return to the KobeOS window. You can close this window if it did not close automatically.</p>
           </>
         ) : (
           <>
