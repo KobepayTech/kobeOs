@@ -42,6 +42,31 @@ export interface LiveFrame {
   players: LivePlayer[];
 }
 
+export interface PassNetworkNode {
+  key: string;
+  trackId: number;
+  jerseyNumber?: number;
+  x: number; y: number;
+  passes: number;
+}
+export interface PassNetworkEdge { from: string; to: string; count: number }
+export interface TeamPassNetwork { nodes: PassNetworkNode[]; edges: PassNetworkEdge[] }
+export interface PassNetwork { home: TeamPassNetwork; away: TeamPassNetwork }
+
+export interface PassEvent {
+  frameNumber: number;
+  minute: number;
+  team: 'home' | 'away';
+  fromTrackId: number;
+  fromJersey?: number;
+  toTrackId?: number;
+  toJersey?: number;
+  fromX: number; fromY: number;
+  toX: number; toY: number;
+  completed: boolean;
+  intercepted: boolean;
+}
+
 export interface MatchStateSnapshot {
   matchId: string;
   matchClock: number;
@@ -53,6 +78,8 @@ export interface MatchStateSnapshot {
   events: MatchEvent[];
   heatmaps: { home: number[][]; away: number[][] };
   ball: LiveBall | null;
+  passingNetwork?: PassNetwork;
+  passes?: PassEvent[];
 }
 
 export interface MatchEvent {

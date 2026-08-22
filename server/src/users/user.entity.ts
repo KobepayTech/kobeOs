@@ -7,6 +7,12 @@ export class User extends BaseEntity {
   @Column()
   email!: string;
 
+  /** Optional phone identifier. Phone-only accounts use an internal email
+   * alias for legacy services while authenticating with this normalized value. */
+  @Index('IDX_users_phone_unique', { unique: true, where: '"phone" IS NOT NULL' })
+  @Column({ nullable: true, type: 'varchar' })
+  phone?: string | null;
+
   @Column()
   passwordHash!: string;
 
@@ -17,5 +23,5 @@ export class User extends BaseEntity {
   avatarUrl?: string | null;
 
   @Column({ default: 'user' })
-  role!: 'user' | 'admin';
+  role!: 'user' | 'admin' | 'government_viewer' | 'settlement_officer' | 'compliance_officer' | 'traffic_enforcement';
 }

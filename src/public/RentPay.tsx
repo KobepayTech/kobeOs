@@ -19,9 +19,11 @@ import {
 } from 'lucide-react';
 import { publicApi } from './api';
 import { useQRScanner } from '@/hooks/useQRScanner';
+import { usePwaManifest } from '@/hooks/usePwaManifest';
 
 type Channel = 'CASH' | 'BANK' | 'MOBILE_MONEY' | 'CARD';
 type OrderStatus = 'CREATED' | 'ACTIVE' | 'PARTIALLY_PAID' | 'PAID' | 'EXPIRED' | 'CANCELLED';
+type LegacyTokenStatus = 'ACTIVE' | 'USED' | 'EXPIRED' | 'CANCELLED';
 
 interface PartnerSession {
   sessionToken: string;
@@ -52,6 +54,30 @@ interface PaymentOrder {
   allowedChannels: Channel[];
   expiresAt: string;
   partner: { name: string; type: 'BANK' | 'AGENT'; branch: string };
+  legacyToken?: boolean;
+}
+
+interface LegacyTokenLookup {
+  code: string;
+  status: LegacyTokenStatus;
+  tenantName: string;
+  expected: number;
+  paid: number;
+  remaining: number;
+  currency: string;
+  expiresAt: string;
+  fullyPaid: boolean;
+  partner?: { name: string; type: 'BANK' | 'AGENT'; branch: string };
+}
+
+interface LegacyTokenRedeemResult {
+  code: string;
+  status: LegacyTokenStatus;
+  expected: number;
+  paid: number;
+  remaining: number;
+  currency: string;
+  fullyPaid: boolean;
 }
 
 interface CollectionReceipt {
@@ -77,6 +103,14 @@ const money = (amount: number, currency = 'TZS') => `${currency} ${Number(amount
 const requestKey = () => globalThis.crypto?.randomUUID?.() || `collect-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 export default function RentPay({ code: initialCode = '' }: { code?: string }) {
+  usePwaManifest({
+    name: 'Kobe Property Cashier',
+    shortName: 'Property Cashier',
+    startUrl: initialCode ? `/pay/${initialCode}` : '/pay',
+    themeColor: '#0f766e',
+    backgroundColor: '#f1f5f9',
+  });
+
   const [session, setSession] = useState<PartnerSession | null>(() => {
     try {
       const raw = sessionStorage.getItem(SESSION_KEY);
@@ -144,7 +178,35 @@ export default function RentPay({ code: initialCode = '' }: { code?: string }) {
     }
     setPhase('looking');
     try {
-      const found = await call<PaymentOrder>(`/property/collection/orders/${encodeURIComponent(value)}`);
+      let found: PaymentOrder;
+      try {
+        found = await call<PaymentOrder>(`/property/collection/orders/${encodeURIComponent(value)}`);
+      } catch (primaryError) {
+        try {
+          const legacy = await call<LegacyTokenLookup>(`/property/collection/tokens/${encodeURIComponent(value)}`);
+          found = {
+            code: legacy.code,
+            publicToken: legacy.code,
+            status: legacyStatus(legacy.status),
+            payer: { name: legacy.tenantName, phone: '' },
+            property: { name: '', unit: '', address: '' },
+            invoiceReference: `RENT-${legacy.code}`,
+            expectedAmount: legacy.expected,
+            paidAmount: legacy.paid,
+            remainingAmount: legacy.remaining,
+            currency: legacy.currency,
+            partialAllowed: true,
+            allowedVariance: 0,
+            allowedChannels: ['CASH'],
+            expiresAt: legacy.expiresAt,
+            partner: legacy.partner ?? { name: session?.partner.name ?? '', type: session?.partner.type ?? 'AGENT', branch: session?.partner.branch ?? '' },
+            legacyToken: true,
+          };
+        } catch {
+          // Preserve the primary order error for new-order codes.
+          throw primaryError;
+        }
+      }
       setOrder(found);
       setOrderCode(found.code);
       setAmount(String(found.remainingAmount || ''));
@@ -178,15 +240,44 @@ export default function RentPay({ code: initialCode = '' }: { code?: string }) {
     }
     setPhase('collecting');
     try {
-      const result = await call<CollectionReceipt>(`/property/collection/orders/${encodeURIComponent(order.publicToken)}/redeem`, {
-        method: 'POST',
-        body: JSON.stringify({
-          amountReceived: received,
-          channel,
-          reference: reference.trim() || undefined,
-          idempotencyKey,
-        }),
-      });
+      let result: CollectionReceipt;
+      if (order.legacyToken) {
+        const legacy = await call<LegacyTokenRedeemResult>(`/property/collection/tokens/${encodeURIComponent(order.code)}/redeem`, {
+          method: 'POST',
+          body: JSON.stringify({
+            amountReceived: received,
+            reference: reference.trim() || undefined,
+            idempotencyKey,
+          }),
+        });
+        result = {
+          receiptId: `${legacy.code}-${idempotencyKey.slice(0, 8)}`,
+          orderCode: legacy.code,
+          payerName: order.payer.name,
+          unitNumber: order.property.unit || '—',
+          amount: received,
+          currency: legacy.currency,
+          channel: 'CASH',
+          reference: reference.trim(),
+          partnerName: session!.partner.name,
+          partnerType: session!.partner.type,
+          commissionAmount: 0,
+          receivedAt: new Date().toISOString(),
+          orderStatus: legacyStatus(legacy.status),
+          totalPaid: legacy.paid,
+          remainingAmount: legacy.remaining,
+        };
+      } else {
+        result = await call<CollectionReceipt>(`/property/collection/orders/${encodeURIComponent(order.publicToken)}/redeem`, {
+          method: 'POST',
+          body: JSON.stringify({
+            amountReceived: received,
+            channel,
+            reference: reference.trim() || undefined,
+            idempotencyKey,
+          }),
+        });
+      }
       setReceipt(result);
       setPhase('done');
     } catch (reason) {
@@ -253,7 +344,7 @@ export default function RentPay({ code: initialCode = '' }: { code?: string }) {
         {(phase === 'found' || phase === 'collecting') && order && (
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
             <section className="overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-sm">
-              <div className="flex items-center justify-between border-b border-slate-200 bg-slate-950 px-5 py-4 text-white"><div><div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Payment order</div><div className="font-mono text-xl font-extrabold tracking-wider">{order.code}</div></div><Status status={order.status} /></div>
+              <div className="flex items-center justify-between border-b border-slate-200 bg-slate-950 px-5 py-4 text-white"><div><div className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{order.legacyToken ? 'Payment token' : 'Payment order'}</div><div className="font-mono text-xl font-extrabold tracking-wider">{order.code}</div></div><Status status={order.status} /></div>
               <div className="space-y-4 p-5">
                 <button onClick={reset} className="inline-flex items-center gap-1 text-xs font-bold text-slate-500 hover:text-slate-800"><ArrowLeft className="h-3.5 w-3.5" />Different token</button>
                 <div className="grid grid-cols-2 gap-4 rounded-2xl bg-slate-50 p-4 text-sm"><Field label="Payer" value={order.payer.name} /><Field label="Mobile" value={order.payer.phone || '—'} /><Field label="Property" value={order.property.name || '—'} /><Field label="Unit" value={order.property.unit || '—'} /><Field label="Invoice" value={order.invoiceReference || '—'} /><Field label="Expires" value={new Date(order.expiresAt).toLocaleString()} /></div>
@@ -300,6 +391,7 @@ function extractCode(raw: string): string {
   const tokenMatch = value.match(/(?:pay|collection)\/([A-Za-z0-9]{8,64})(?:[/?#]|$)/i);
   return (tokenMatch?.[1] || value).trim().toUpperCase();
 }
+function legacyStatus(status: LegacyTokenStatus): OrderStatus { return status === 'USED' ? 'PAID' : status; }
 function Field({ label, value }: { label: string; value: string }) { return <div><div className="text-[9px] font-bold uppercase tracking-wide text-slate-400">{label}</div><div className="break-words text-sm font-bold text-slate-800">{value}</div></div>; }
 function AmountCard({ label, value, strong }: { label: string; value: string; strong?: boolean }) { return <div className={`rounded-xl border p-3 text-center ${strong ? 'border-blue-200 bg-blue-50' : 'border-slate-200 bg-white'}`}><div className="text-[9px] font-bold uppercase tracking-wide text-slate-500">{label}</div><div className={`mt-1 text-xs font-extrabold ${strong ? 'text-blue-700' : 'text-slate-900'}`}>{value}</div></div>; }
 function ErrorBox({ message }: { message: string }) { return <div className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-semibold text-rose-700"><AlertCircle className="h-4 w-4 shrink-0" />{message}</div>; }

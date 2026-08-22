@@ -17,7 +17,6 @@ import {
 } from 'crypto';
 import { Property, PropertyUnit, RentCharge, RentPayment, Tenant } from './property.entity';
 import {
-  CollectionChannel,
   PropertyCollectionPartner,
   PropertyPaymentOrder,
   PropertyPaymentRedemption,
@@ -27,8 +26,10 @@ import {
   CreateCollectionPartnerDto,
   CreatePropertyPaymentOrderDto,
   PartnerLoginDto,
+  RedeemLegacyPropertyTokenDto,
   RedeemPropertyPaymentOrderDto,
 } from './dto/property-payment-order.dto';
+import { PosysService } from './posys.service';
 
 const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
@@ -87,6 +88,7 @@ export class PropertyPaymentOrderService {
     @InjectRepository(RentCharge)
     private readonly charges: Repository<RentCharge>,
     private readonly dataSource: DataSource,
+    private readonly posys: PosysService,
     config: ConfigService,
   ) {
     this.sessionSecret = config.get<string>('PROPERTY_COLLECTION_SESSION_SECRET')
@@ -428,6 +430,35 @@ export class PropertyPaymentOrderService {
 
       return this.receiptFor(manager, redemption, order, partner);
     });
+  }
+
+  /**
+   * Compatibility bridge for the original Property payment tokens. They are
+   * still issued by PropEasy, so the cashier must be able to look them up and
+   * redeem them without falling back to an unauthenticated public endpoint.
+   */
+  async lookupLegacyTokenForPartner(sessionToken: string, code: string) {
+    const { partner } = await this.partnerFromSession(sessionToken);
+    const token = await this.posys.lookupTokenForAgent(code.trim().toUpperCase(), partner.ownerId);
+    return {
+      ...token,
+      partner: { name: partner.name, type: partner.type, branch: partner.branch },
+    };
+  }
+
+  async redeemLegacyToken(sessionToken: string, code: string, dto: RedeemLegacyPropertyTokenDto) {
+    const { partner } = await this.partnerFromSession(sessionToken);
+    return this.posys.redeemToken(
+      code.trim().toUpperCase(),
+      {
+        amountReceived: Number(dto.amountReceived),
+        agentId: partner.id,
+        idempotencyKey: dto.idempotencyKey,
+        method: 'TOKEN_CASH',
+        reference: dto.reference,
+      },
+      partner.ownerId,
+    );
   }
 
   private async receiptFor(

@@ -16,6 +16,7 @@ import { memoryStorage } from 'multer';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import {
+  ImportUrlsDto,
   ProcessMediaInboxDto,
   SuggestMediaMetadataDto,
   UpdateMediaInboxItemDto,
@@ -31,9 +32,10 @@ export class MediaInboxController {
   @Post('upload')
   @UseInterceptors(FilesInterceptor('files', 100, {
     storage: memoryStorage(),
-    limits: { fileSize: 15 * 1024 * 1024, files: 100 },
+    limits: { fileSize: 100 * 1024 * 1024, files: 100 }, // 100MB — accommodates short videos
     fileFilter: (_request, file, callback) => {
-      callback(file.mimetype.startsWith('image/') ? null : new Error('Only image files are allowed'), file.mimetype.startsWith('image/'));
+      const ok = file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/');
+      callback(ok ? null : new Error('Only image or video files are allowed'), ok);
     },
   }))
   upload(
@@ -41,6 +43,12 @@ export class MediaInboxController {
     @UploadedFiles() files: Express.Multer.File[],
   ) {
     return this.service.upload(ownerId, files ?? []);
+  }
+
+  /** Bulk-add by pasting a list of image/video links (Drive or any host). */
+  @Post('import-urls')
+  importUrls(@CurrentUser('id') ownerId: string, @Body() dto: ImportUrlsDto) {
+    return this.service.importFromUrls(ownerId, dto.urls);
   }
 
   @Get()
@@ -75,5 +83,14 @@ export class MediaInboxController {
   @Post('process')
   process(@CurrentUser('id') ownerId: string, @Body() dto: ProcessMediaInboxDto) {
     return this.service.process(ownerId, dto);
+  }
+
+  /** One-tap: turn every unprocessed image into a generic, published product. */
+  @Post('generate-products')
+  generateProducts(
+    @CurrentUser('id') ownerId: string,
+    @Body() dto: { category?: string; includeFailed?: boolean; sourceType?: 'QUICK_ADD_PHOTO' | 'QUICK_ADD_SCREENSHOT' | 'QUICK_ADD_MESSAGE' | 'QUICK_ADD_IMPORT' },
+  ) {
+    return this.service.generateGenericProducts(ownerId, dto ?? {});
   }
 }

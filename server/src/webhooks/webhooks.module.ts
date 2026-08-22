@@ -7,9 +7,10 @@ import { HotelWalletModule } from '../hotel/hotel-wallet.module';
 import { WebhookController } from './webhook.controller';
 import { WebhookGuard } from './webhook.guard';
 import { WebhookService } from './webhook.service';
+import { PlatformModule } from '../platform/platform.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([WebhookEvent, HotelBooking, HotelRoom]), HotelWalletModule],
+  imports: [TypeOrmModule.forFeature([WebhookEvent, HotelBooking, HotelRoom]), HotelWalletModule, PlatformModule],
   controllers: [WebhookController],
   providers: [WebhookGuard, WebhookService],
   exports: [WebhookService],
@@ -48,6 +49,16 @@ export class WebhooksModule implements OnModuleInit {
       if (svc) this.webhookService.setMobileSubscriptionService(svc);
     } catch {
       // MobileSubscriptionModule not loaded — skip
+    }
+
+    try {
+      const { AppMarketplaceService } = await import(
+        '../app-marketplace/app-marketplace.service'
+      );
+      const svc = this.moduleRef.get(AppMarketplaceService, { strict: false });
+      if (svc) this.webhookService.setAppMarketplaceService(svc);
+    } catch {
+      // AppMarketplaceModule not loaded — skip
     }
   }
 }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Clock, Minus, Plus, ShoppingBag, Sparkles, Utensils, Wine, X } from 'lucide-react';
 import {
-  detectTenantSubdomain, publicApi,
+  detectTenantSubdomain, publicApi, publicAssetUrl,
   type PublicMenuItem, type PublicOrder, type PublicTenant,
 } from './api';
 
@@ -198,7 +198,7 @@ function PortalBody({ route }: { route: RouteParams }) {
   if (!tenant) return <BadLink />;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-white pb-32">
+    <div className="h-[100dvh] overflow-y-auto touch-pan-y bg-slate-950 text-white pb-32">
       <header className="sticky top-0 z-10 backdrop-blur bg-slate-950/80 border-b border-white/10">
         <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
           <div>
@@ -265,16 +265,21 @@ function PortalBody({ route }: { route: RouteParams }) {
               <button
                 key={m.id}
                 onClick={() => addToCart(m)}
-                className="text-left rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 px-3 py-2 flex items-center justify-between gap-2"
+                className="text-left rounded-xl border border-white/10 bg-white/5 hover:bg-white/10 overflow-hidden flex items-center justify-between gap-2"
               >
-                <div className="min-w-0">
+                {m.imageUrl ? (
+                  <img src={publicAssetUrl(m.imageUrl)} alt={m.name} className="w-20 h-20 object-cover shrink-0" />
+                ) : (
+                  <div className="w-20 h-20 bg-white/5 grid place-items-center shrink-0"><Utensils className="w-5 h-5 text-slate-600" /></div>
+                )}
+                <div className="min-w-0 flex-1 py-2">
                   <p className="text-sm font-medium truncate">{m.name}</p>
                   <p className="text-[11px] text-slate-500 flex items-center gap-1">
                     {m.station === 'bar' ? <Wine className="w-3 h-3" /> : <Utensils className="w-3 h-3" />}
                     {m.category}
                   </p>
                 </div>
-                <span className="text-sm font-semibold" style={{ color: brand }}>
+                <span className="text-sm font-semibold pr-3" style={{ color: brand }}>
                   {Number(m.price).toLocaleString()} {m.currency}
                 </span>
               </button>
@@ -368,7 +373,7 @@ function OrderStatusModal({ order, brand, onClose }: { order: PublicOrder; brand
 
 function Splash({ brand, children }: { brand: string; children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-6">
+    <div className="h-[100dvh] overflow-y-auto touch-pan-y bg-slate-950 text-white flex items-center justify-center p-6">
       <div className="text-center">
         <div className="w-12 h-12 mx-auto mb-3 rounded-2xl flex items-center justify-center" style={{ background: brand }}>
           <Sparkles className="w-6 h-6 text-white" />
@@ -381,7 +386,7 @@ function Splash({ brand, children }: { brand: string; children: React.ReactNode 
 
 function BadLink() {
   return (
-    <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center p-6">
+    <div className="h-[100dvh] overflow-y-auto touch-pan-y bg-slate-950 text-white flex items-center justify-center p-6">
       <div className="max-w-sm text-center">
         <h1 className="text-lg font-semibold mb-2">Invalid link</h1>
         <p className="text-sm text-slate-400">

@@ -1,5 +1,5 @@
 import {
-  IsEnum, IsInt, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min,
+  IsEnum, IsInt, IsNumber, IsOptional, IsString, MaxLength, Min,
 } from 'class-validator';
 
 export class CreateAllocationDto {

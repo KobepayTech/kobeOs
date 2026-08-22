@@ -6,7 +6,7 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { ErpService } from './erp.service';
 import { JournalService } from './journal.service';
 import { SupplierPaymentsService, RecordPaymentDto } from './supplier-payments.service';
-import { LoyaltyCustomer, Supplier } from './erp.entity';
+import { LoyaltyCustomer, PurchaseOrder, Supplier } from './erp.entity';
 
 @UseGuards(JwtAuthGuard)
 @Controller('erp')
@@ -17,9 +17,11 @@ export class ErpController {
     private readonly supplierPayments: SupplierPaymentsService,
     @InjectRepository(Supplier) private readonly suppliers: Repository<Supplier>,
     @InjectRepository(LoyaltyCustomer) private readonly loyaltyCustomers: Repository<LoyaltyCustomer>,
+    @InjectRepository(PurchaseOrder) private readonly purchaseOrders: Repository<PurchaseOrder>,
   ) {}
 
   @Get('dashboard')  dashboard(@CurrentUser('id') uid: string) { return this.svc.getDashboard(uid); }
+  @Get('summary')    summary(@CurrentUser('id') uid: string) { return this.svc.getDashboard(uid); }
   @Get('accounting') accounting(@CurrentUser('id') uid: string) { return this.svc.getAccounting(uid); }
   @Get('reports')    reports(@CurrentUser('id') uid: string) { return this.svc.getReports(uid); }
   @Get('loyalty')    loyalty(@CurrentUser('id') uid: string) { return this.svc.getLoyalty(uid); }
@@ -27,6 +29,41 @@ export class ErpController {
 
   @Get('accounts') accounts(@CurrentUser('id') uid: string) { return this.journal.listAccounts(uid); }
   @Get('journal')  journal_(@CurrentUser('id') uid: string) { return this.journal.list(uid); }
+
+  /** Backwards-compatible purchase-order endpoints used by older KobeERP clients. */
+  @Get('purchase-orders')
+  listPurchaseOrders(@CurrentUser('id') uid: string) {
+    return this.purchaseOrders.find({
+      where: { ownerId: uid },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  @Post('purchase-orders')
+  createPurchaseOrder(
+    @CurrentUser('id') uid: string,
+    @Body() dto: {
+      poNumber: string;
+      supplier?: string;
+      total?: number;
+      status?: PurchaseOrder['status'];
+      date?: string;
+      deliveryDate?: string;
+      items?: PurchaseOrder['items'];
+    },
+  ) {
+    const items = dto.items ?? [];
+    const total = dto.total ?? items.reduce(
+      (sum, item) => sum + Number(item.qty) * Number(item.price),
+      0,
+    );
+    return this.purchaseOrders.save(this.purchaseOrders.create({
+      ...dto,
+      items,
+      total,
+      ownerId: uid,
+    }));
+  }
 
   /**
    * Post a manual journal entry from the Accounting UI. Validates lines

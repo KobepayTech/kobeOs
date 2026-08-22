@@ -52,8 +52,8 @@ export class ErpPurchaseOrder extends OwnedEntity {
   poNumber!: string;
 
   @Index()
-  @Column('uuid')
-  supplierId!: string;
+  @Column('uuid', { nullable: true })
+  supplierId!: string | null;
 
   @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
   totalCny!: number;
@@ -72,6 +72,36 @@ export class ErpPurchaseOrder extends OwnedEntity {
 
   @Column({ type: 'text', default: '' })
   notes!: string;
+
+  /** Structured PO lines. This is simple-json/text for compatibility with
+   * the legacy erp_purchase_orders table, which already used a text `items`
+   * column before supplier-capital POs were introduced. */
+  @Column({ type: 'simple-json', nullable: true })
+  items?: ErpPurchaseOrderItem[] | null;
+
+  /** Freight entered when the PO is created or confirmed at receiving. */
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
+  transportCost!: number;
+
+  /** Inventory receiving is separate from supplier payment status. */
+  @Column({ default: 'PENDING' })
+  inventoryStatus!: 'PENDING' | 'RECEIVED';
+
+  @Column({ type: 'timestamptz', nullable: true })
+  receivedAt?: Date | null;
+}
+
+export interface ErpPurchaseOrderItem {
+  name: string;
+  qty: number;
+  price: number;
+  sellPrice?: number;
+  sku?: string;
+  category?: string;
+  currency?: string;
+  receivedQty?: number;
+  damagedQty?: number;
+  productId?: string;
 }
 
 @Entity('erp_kobepay_supplier_receipts')

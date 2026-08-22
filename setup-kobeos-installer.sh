@@ -24,10 +24,10 @@ mkdir -p "$KOBEOS_DIR/electron"
 mkdir -p "$KOBEOS_DIR/scripts"
 mkdir -p "$KOBEOS_DIR/src/types"
 
-cat > "$KOBEOS_DIR/electron/main.js" << 'ELECTRON_MAIN'
+cat > "$KOBEOS_DIR/electron/main.cjs" << 'ELECTRON_MAIN'
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
-const { exec } = require('child_process');
+const { exec, execFile } = require('child_process');
 
 let mainWindow;
 
@@ -36,8 +36,10 @@ function createWindow() {
     width: 1920, height: 1080, fullscreen: true, kiosk: true,
     autoHideMenuBar: true, frame: false,
     webPreferences: {
-      nodeIntegration: true, contextIsolation: false,
-      enableRemoteModule: true, webSecurity: false
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js'),
+      webSecurity: true
     }
   });
 
@@ -68,6 +70,9 @@ ipcMain.handle('system-reboot', () => {
 });
 
 ipcMain.handle('install-to-disk', async (event, diskPath) => {
+  if (typeof diskPath !== 'string' || !/^\/dev\/(sd[a-z]|hd[a-z]|vd[a-z]|nvme\d+n\d+|mmcblk\d+)$/.test(diskPath)) {
+    return { success: false, error: `Invalid disk path: ${diskPath}` };
+  }
   return new Promise((resolve) => {
     const script = `
       echo "Installing KobeOS to ${diskPath}..."
@@ -83,7 +88,7 @@ ipcMain.handle('install-to-disk', async (event, diskPath) => {
       umount -R /mnt/kobeos
       echo "INSTALL_COMPLETE"
     `;
-    exec(script, { timeout: 300000 }, (error, stdout, stderr) => {
+    execFile('/bin/bash', ['-c', script], { timeout: 300000 }, (error, stdout, stderr) => {
       resolve({ success: !error, output: stdout, error: stderr });
     });
   });
@@ -119,7 +124,7 @@ echo -e "${GREEN}✓ Electron wrapper created${NC}"
 echo -e "\n${YELLOW}[STEP 2/6] Updating package.json...${NC}"
 cat > "$KOBEOS_DIR/package.json" << 'PACKAGE_JSON'
 {
-  "name": "kobeos", "private": true, "version": "1.0.0", "type": "module", "main": "electron/main.js",
+  "name": "kobeos", "private": true, "version": "1.0.0", "type": "module", "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite", "build": "tsc -b && vite build", "lint": "eslint .", "preview": "vite preview",
     "electron": "electron .",
@@ -459,7 +464,7 @@ echo -e "${GREEN}  ✅ ALL STEPS COMPLETE! KobeOS Installer System Ready${NC}"
 echo -e "${GREEN}═══════════════════════════════════════════════════════════════${NC}"
 
 echo -e "\n${BLUE}📁 Files created:${NC}"
-echo "   • electron/main.js           - Electron main process"
+echo "   • electron/main.cjs          - Electron main process"
 echo "   • electron/preload.js        - Secure API bridge"
 echo "   • scripts/build-iso.js       - ISO generator"
 echo "   • src/components/KobeOSInstaller.tsx - Windows-style installer UI"

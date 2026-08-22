@@ -27,7 +27,17 @@ export class PrintJobsService {
   }
 
   create(uid: string, dto: CreatePrintJobDto) {
-    return this.repo.save(this.repo.create({ ...dto, ownerId: uid, status: 'Pending', priority: dto.priority ?? 'Medium', qty: dto.qty ?? 1 }));
+    const jobNumber =
+      dto.jobNumber?.trim() ||
+      `JOB-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+    return this.repo.save(this.repo.create({
+      ...dto,
+      jobNumber,
+      ownerId: uid,
+      status: 'Pending',
+      priority: dto.priority ?? 'Medium',
+      qty: dto.qty ?? 1,
+    }));
   }
 
   async update(uid: string, id: string, dto: UpdatePrintJobDto) {

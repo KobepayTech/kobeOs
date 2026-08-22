@@ -8,7 +8,8 @@
  * The pitch SVG uses pitch-normalised coordinates (0–100 × 0–100).
  */
 import { useState, useEffect, useRef } from 'react';
-import { useSportsSocket, type LivePlayer, type OffsideResult } from '../useSportsSocket';
+import { useSportsSocket, type LivePlayer, type OffsideResult, type TeamPassNetwork } from '../useSportsSocket';
+import { matchesApi, type MatchPlayerStat } from '../api';
 
 // ── Demo data ─────────────────────────────────────────────────────────────────
 
@@ -43,20 +44,58 @@ interface PlayerRating {
   speed: number;
 }
 
-function buildRatings(players: LivePlayer[]): PlayerRating[] {
+const clampRating = (n: number, lo = 40, hi = 99) => Math.max(lo, Math.min(hi, Math.round(n)));
+// Stable 0..1 value from a track id — used only for demo/no-data mode so the
+// panel stays steady instead of flickering with random noise.
+const stableFrac = (n: number) => {
+  const x = Math.sin(n * 12.9898) * 43758.5453;
+  return x - Math.floor(x);
+};
+
+/**
+ * Build rating cards from REAL per-player match stats (distance, sprints, top
+ * speed, goals, xG, rating) computed server-side from the vision pipeline,
+ * keyed by team + jersey. Sub-scores are derived deterministically from those
+ * measured metrics. When no backend stat exists yet (demo / not tracking), fall
+ * back to stable per-player placeholders seeded by track id — never random.
+ */
+function buildRatings(players: LivePlayer[], stats: Map<string, MatchPlayerStat>): PlayerRating[] {
   return players.map((p) => {
-    const base = 60 + Math.random() * 30;
+    const team: 'home' | 'away' = p.class.includes('home') ? 'home' : 'away';
+    const stat = p.jerseyNumber != null ? stats.get(`${team}:${p.jerseyNumber}`) : undefined;
+
+    if (stat) {
+      const attacking = clampRating(45 + stat.goals * 14 + stat.xg * 16 + Math.max(0, stat.topSpeedKmh - 24) * 1.2);
+      const workRate = clampRating(38 + stat.distanceKm * 4.5 + stat.sprints * 0.6);
+      // Passing is now measured: completion rate + volume from pass detection.
+      const passing = stat.passes > 0
+        ? clampRating(42 + stat.passAccuracy * 0.42 + Math.min(stat.passes, 80) * 0.28)
+        : clampRating(48 + stat.minutesPlayed * 0.22 + stat.distanceKm * 1.4);
+      const defending = clampRating(stat.rating - (attacking - 55) * 0.35 - stat.yellowCards * 5 - stat.redCards * 15);
+      return {
+        trackId: p.trackId,
+        jerseyNumber: p.jerseyNumber,
+        team,
+        overall: clampRating(stat.rating, 1, 99),
+        passing, defending, attacking, workRate,
+        distanceKm: stat.distanceKm,
+        sprints: stat.sprints,
+        speed: p.speed,
+      };
+    }
+
+    const base = 62 + stableFrac(p.trackId) * 24;
     return {
       trackId: p.trackId,
       jerseyNumber: p.jerseyNumber,
-      team: p.class.includes('home') ? 'home' : 'away',
+      team,
       overall: Math.round(base),
-      passing: Math.round(base + (Math.random() - 0.5) * 20),
-      defending: Math.round(base + (Math.random() - 0.5) * 20),
-      attacking: Math.round(base + (Math.random() - 0.5) * 20),
-      workRate: Math.round(base + (Math.random() - 0.5) * 20),
-      distanceKm: parseFloat((5 + Math.random() * 7).toFixed(1)),
-      sprints: Math.round(10 + Math.random() * 30),
+      passing: clampRating(base + (stableFrac(p.trackId + 1) - 0.5) * 16),
+      defending: clampRating(base + (stableFrac(p.trackId + 2) - 0.5) * 16),
+      attacking: clampRating(base + (stableFrac(p.trackId + 3) - 0.5) * 16),
+      workRate: clampRating(base + (stableFrac(p.trackId + 4) - 0.5) * 16),
+      distanceKm: parseFloat((6 + stableFrac(p.trackId + 5) * 5).toFixed(1)),
+      sprints: Math.round(12 + stableFrac(p.trackId + 6) * 24),
       speed: p.speed,
     };
   });
@@ -163,6 +202,94 @@ function FootballPitch({
   );
 }
 
+// ── Pass map (tracking map) ─────────────────────────────────────────────────
+//
+// A passing network: each node sits at a player's AVERAGE position over the
+// match, sized by how many passes they completed; each edge is a pass link
+// weighted by how many times that pass was played. Built entirely from the
+// pass-detection engine's data — no fabricated numbers.
+
+function PassMap({ networks, teamFilter }: { networks: { home: TeamPassNetwork; away: TeamPassNetwork }; teamFilter: 'all' | 'home' | 'away' }) {
+  // Fit either coordinate convention (0–100 or already 0–65) into the pitch box.
+  const sy = (y: number) => (y > 66 ? y * 0.65 : y);
+  const sides: Array<{ side: 'home' | 'away'; net: TeamPassNetwork; color: string }> = [];
+  if (teamFilter !== 'away') sides.push({ side: 'home', net: networks.home, color: '#3b82f6' });
+  if (teamFilter !== 'home') sides.push({ side: 'away', net: networks.away, color: '#f97316' });
+
+  const maxEdge = Math.max(
+    1,
+    ...sides.flatMap((s) => s.net.edges.map((e) => e.count)),
+  );
+
+  const hasData = sides.some((s) => s.net.edges.length > 0 || s.net.nodes.some((n) => n.passes > 0));
+
+  return (
+    <div className="space-y-2">
+      <svg
+        viewBox="0 0 100 65"
+        className="w-full rounded-xl border border-green-900/40"
+        style={{ background: 'linear-gradient(180deg, #0d3b0d 0%, #0a2e0a 100%)' }}
+      >
+        <g stroke="#1e5c1e" strokeWidth="0.4" fill="none">
+          <rect x="1" y="1" width="98" height="63" />
+          <line x1="50" y1="1" x2="50" y2="64" />
+          <circle cx="50" cy="32.5" r="9.15" />
+          <rect x="1" y="19.5" width="16.5" height="26" />
+          <rect x="82.5" y="19.5" width="16.5" height="26" />
+        </g>
+
+        {sides.map(({ side, net, color }) => {
+          const nodeByKey = new Map(net.nodes.map((n) => [n.key, n]));
+          return (
+            <g key={side}>
+              {/* Pass links */}
+              {net.edges.map((e, i) => {
+                const a = nodeByKey.get(e.from);
+                const b = nodeByKey.get(e.to);
+                if (!a || !b) return null;
+                return (
+                  <line
+                    key={`${side}-e-${i}`}
+                    x1={a.x} y1={sy(a.y)} x2={b.x} y2={sy(b.y)}
+                    stroke={color}
+                    strokeWidth={0.25 + (e.count / maxEdge) * 2}
+                    strokeOpacity={0.15 + (e.count / maxEdge) * 0.5}
+                    strokeLinecap="round"
+                  />
+                );
+              })}
+              {/* Player nodes at average position */}
+              {net.nodes.map((n) => {
+                const r = 1.6 + Math.sqrt(Math.max(0, n.passes)) * 0.6;
+                return (
+                  <g key={`${side}-n-${n.key}`}>
+                    <circle cx={n.x} cy={sy(n.y)} r={r} fill={color} fillOpacity="0.85" stroke="#000" strokeWidth="0.25" />
+                    <text x={n.x} y={sy(n.y) + 0.8} textAnchor="middle" fontSize="1.8" fill="white" fontWeight="bold">
+                      {n.jerseyNumber ?? ''}
+                    </text>
+                  </g>
+                );
+              })}
+            </g>
+          );
+        })}
+      </svg>
+
+      {!hasData && (
+        <p className="text-xs text-gray-500 text-center py-3">
+          The pass map fills in as the vision pipeline detects passes. Start tracking a live match to see the network build.
+        </p>
+      )}
+
+      <div className="flex items-center gap-4 text-xs text-gray-500">
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-blue-500 inline-block" /> Home</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded-full bg-orange-500 inline-block" /> Away</span>
+        <span>Node size = passes completed · line thickness = pass volume · position = average location</span>
+      </div>
+    </div>
+  );
+}
+
 function RatingBar({ label, value }: { label: string; value: number }) {
   const c = value >= 80 ? 'bg-green-500' : value >= 65 ? 'bg-blue-500' : value >= 50 ? 'bg-yellow-500' : 'bg-red-500';
   return (
@@ -183,7 +310,7 @@ interface TrackingProps {
 }
 
 export default function Tracking({ matchId }: TrackingProps) {
-  const { connected, frame, latestOffside, offsideHistory } = useSportsSocket(matchId ?? null);
+  const { connected, frame, matchState, latestOffside, offsideHistory } = useSportsSocket(matchId ?? null);
 
   // Demo fallback state
   const [demoPlayers, setDemoPlayers] = useState<LivePlayer[]>(makeDemoPlayers);
@@ -206,6 +333,25 @@ export default function Tracking({ matchId }: TrackingProps) {
     return () => { if (demoRef.current) clearInterval(demoRef.current); };
   }, [connected]);
 
+  // Real per-player stats from the vision pipeline (distance, sprints, top
+  // speed, goals, xG, rating), refreshed while a match is selected.
+  const [statMap, setStatMap] = useState<Map<string, MatchPlayerStat>>(new Map());
+  useEffect(() => {
+    if (!matchId) { setStatMap(new Map()); return; }
+    let active = true;
+    const load = () => matchesApi.playerStats(matchId)
+      .then((rows) => {
+        if (!active) return;
+        const map = new Map<string, MatchPlayerStat>();
+        (rows ?? []).forEach((s) => map.set(`${s.team}:${s.jerseyNumber}`, s));
+        setStatMap(map);
+      })
+      .catch(() => { /* not tracking yet — fall back to placeholders */ });
+    load();
+    const t = setInterval(load, 5000);
+    return () => { active = false; clearInterval(t); };
+  }, [matchId]);
+
   const players = frame?.players ?? demoPlayers;
   const ball = frame?.ball ?? null;
   const clock = frame?.matchClock ?? 0;
@@ -213,10 +359,10 @@ export default function Tracking({ matchId }: TrackingProps) {
   const minute = Math.floor(clock / 60);
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [view, setView] = useState<'pitch' | 'ratings' | 'offside'>('pitch');
+  const [view, setView] = useState<'pitch' | 'map' | 'ratings' | 'offside'>('pitch');
   const [teamFilter, setTeamFilter] = useState<'all' | 'home' | 'away'>('all');
 
-  const ratings = buildRatings(players);
+  const ratings = buildRatings(players, statMap);
   const selectedRating = ratings.find((r) => r.trackId === selectedId);
   const selectedPlayer = players.find((p) => p.trackId === selectedId);
   const visibleRatings = ratings.filter((r) => teamFilter === 'all' || r.team === teamFilter);
@@ -227,10 +373,10 @@ export default function Tracking({ matchId }: TrackingProps) {
       {/* Toolbar */}
       <div className="flex items-center gap-2 p-3 border-b border-gray-800 shrink-0 flex-wrap">
         <div className="flex gap-1">
-          {(['pitch', 'ratings', 'offside'] as const).map((v) => (
+          {(['pitch', 'map', 'ratings', 'offside'] as const).map((v) => (
             <button key={v} onClick={() => setView(v)}
               className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-colors ${view === v ? 'bg-blue-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}>
-              {v === 'pitch' ? '🏟 Pitch' : v === 'ratings' ? '⭐ Ratings' : '🚩 Offside'}
+              {v === 'pitch' ? '🏟 Pitch' : v === 'map' ? '🕸 Pass map' : v === 'ratings' ? '⭐ Ratings' : '🚩 Offside'}
             </button>
           ))}
         </div>
@@ -315,6 +461,35 @@ export default function Tracking({ matchId }: TrackingProps) {
                   <RatingBar label="Defending" value={selectedRating.defending} />
                   <RatingBar label="Attacking" value={selectedRating.attacking} />
                   <RatingBar label="Work Rate" value={selectedRating.workRate} />
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── Pass map (tracking map) ── */}
+        {view === 'map' && (
+          <>
+            <PassMap
+              networks={matchState?.passingNetwork ?? { home: { nodes: [], edges: [] }, away: { nodes: [], edges: [] } }}
+              teamFilter={teamFilter}
+            />
+            {matchState?.passes && matchState.passes.length > 0 && (
+              <div className="rounded-xl bg-gray-900 border border-gray-800 p-3">
+                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Recent passes</h3>
+                <div className="space-y-1 max-h-56 overflow-auto">
+                  {[...matchState.passes].reverse().slice(0, 20).map((p, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs">
+                      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${p.team === 'home' ? 'bg-blue-500' : 'bg-orange-500'}`} />
+                      <span className="text-gray-500 w-8">{p.minute}'</span>
+                      <span className="text-white">#{p.fromJersey ?? p.fromTrackId}</span>
+                      <span className="text-gray-500">→</span>
+                      <span className="text-white">#{p.toJersey ?? p.toTrackId ?? '?'}</span>
+                      <span className={`ml-auto text-[10px] font-semibold ${p.completed ? 'text-green-400' : 'text-red-400'}`}>
+                        {p.completed ? 'completed' : p.intercepted ? 'intercepted' : 'lost'}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}

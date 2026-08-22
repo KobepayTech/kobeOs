@@ -2,8 +2,9 @@ import type { ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import './index.css';
 import './styles/global.css';
-import { Desktop } from './os/Desktop';
+import App from './App';
 import { detectAppSubdomain, detectTenantSubdomain } from './public/api';
+import { hydrateTokens } from './lib/api';
 
 /**
  * Routing for the standalone web bundle.
@@ -32,6 +33,12 @@ import { detectAppSubdomain, detectTenantSubdomain } from './public/api';
  * Everything else mounts the full OS shell.
  */
 const pathname = window.location.pathname;
+
+// OAuth redirect landing. The dedicated screen stores provider tokens, verifies
+// /users/me, and persists the user profile before opening the app.
+const oauthMatch = pathname.match(/^\/oauth\/(tiktok|meta)\/?$/);
+const oauthProvider = oauthMatch?.[1] as 'tiktok' | 'meta' | undefined;
+
 const tenantSub = detectTenantSubdomain();
 const appSub = detectAppSubdomain();
 
@@ -79,6 +86,14 @@ const isMzigo = !isMzigoTrack && (subMzigo || seg('/mzigo'));
 const isPosys = subPosys || seg('/posys');
 const isCargoTz = subCargoTz || seg('/cargotz');
 const isCoach = seg('/coach');
+const isTransit = seg('/transit');
+const isJumla = appSub === 'jumla' || seg('/jumla');
+const isLala = appSub === 'lala' || seg('/lala');
+const lalaPassportMatch = pathname.match(/^\/lala\/passport\/([A-Za-z0-9_-]{16,})\/?$/) || (appSub === 'lala' ? pathname.match(/^\/passport\/([A-Za-z0-9_-]{16,})\/?$/) : null);
+const isCommercialClaim = seg('/claim-shop');
+const liteStoreMatch = pathname.match(/^\/lite-shop\/([a-z0-9][a-z0-9-]{0,61}[a-z0-9]|[a-z0-9])\/?$/i);
+const liteManageMatch = pathname.match(/^\/lite-manage\/([0-9a-f-]{36})\/?$/i);
+const transitBoardMatch = pathname.match(/^\/transit-board\/([0-9a-f-]{36})\/?$/i);
 // Public tenant storefront: subdomain slug (kelvinfashion.kobeapptz.com)
 // or apex fallback (/shop/kelvinfashion). Regex validates that the slug
 // looks like a valid DNS label so a hand-crafted URL can't route
@@ -126,10 +141,38 @@ const cargoSiteMatch = pathname.match(/^\/cg\/([a-z0-9][a-z0-9-]{0,61}[a-z0-9]|[
 const cargoSiteSlug = cargoSiteMatch?.[1] ?? '';
 const isCargoSite = !!cargoSiteSlug;
 
-const mount = (node: ReactNode) =>
-  createRoot(document.getElementById('root')!).render(node);
+// KobePay remittance: sender live portal /remit/{portalToken}; cashier /rc/{CODE}
+const remitMatch = pathname.match(/^\/remit\/([A-Za-z0-9_-]{16,})\/?$/);
+const remitPortalToken = remitMatch?.[1] ?? '';
+const remitCashierMatch = pathname.match(/^\/rc\/([A-Za-z0-9]{8})\/?$/);
+const remitCashierCode = (remitCashierMatch?.[1] ?? '').toUpperCase();
 
-if (isOverlay) {
+// Live-sale buyer checkout (from the BUY reservation link): /live/pay/{token}
+const livePayMatch = pathname.match(/^\/live\/pay\/([A-Za-z0-9_-]{16,})\/?$/);
+const livePayToken = livePayMatch?.[1] ?? '';
+
+// Permanent Kobe Live Catalog: /live (uses the store subdomain) or /@seller
+const liveHandleMatch = pathname.match(/^\/@([a-z0-9_.-]{2,40})\/?$/i);
+const isLiveCatalog = !livePayToken && (pathname.replace(/\/$/, '') === '/live' || !!liveHandleMatch);
+const liveCatalogSlug = liveHandleMatch?.[1] ?? (tenantSub ?? '');
+
+// Kobepay Pro supplier portal (tokenised, no login): /kobepay/supplier/{token}
+const supplierPortalMatch = pathname.match(/^\/kobepay\/supplier\/([A-Za-z0-9_-]{16,})\/?$/);
+const supplierPortalToken = supplierPortalMatch?.[1] ?? '';
+
+// Kobepay Pro parent/student wallet (tokenised, no login): /kobepay/me/{token}
+const studentPortalMatch = pathname.match(/^\/kobepay\/me\/([A-Za-z0-9_-]{16,})\/?$/);
+const studentPortalToken = studentPortalMatch?.[1] ?? '';
+
+const mount = (node: ReactNode) => {
+  void hydrateTokens().finally(() => {
+    createRoot(document.getElementById('root')!).render(node);
+  });
+};
+
+if (oauthProvider) {
+  import('./components/OAuthCallback').then(({ default: OAuthCallback }) => mount(<OAuthCallback provider={oauthProvider} />));
+} else if (isOverlay) {
   import('./apps/kobe-sports/OverlayPage').then(({ default: OverlayPage }) => mount(<OverlayPage />));
 } else if (isPrintCard) {
   import('./public/QrCard').then(({ default: QrCard }) => mount(<QrCard />));
@@ -169,6 +212,23 @@ if (isOverlay) {
   // Kobe Coach — installable coach/team-admin PWA (standalone at /coach).
   import('./apps/kobe-coach/index').then(({ default: KobeCoach }) =>
     mount(<div className="h-screen w-screen overflow-hidden"><KobeCoach /></div>));
+} else if (isTransit) {
+  // KobeOS Transit — installable operations/compliance PWA.
+  import('./apps/kobe-transit/index').then(({ default: KobeTransit }) =>
+    mount(<div className="h-screen w-screen overflow-hidden"><KobeTransit /></div>));
+} else if (isJumla) {
+  import('./public/Jumla').then(({ default: Jumla }) => mount(<Jumla />));
+} else if (lalaPassportMatch) {
+  import('./public/LalaPassport').then(({ default: LalaPassport }) => mount(<LalaPassport token={lalaPassportMatch[1]} />));
+} else if (isLala) {
+  import('./public/Lala').then(({ default: Lala }) => mount(<Lala />));
+} else if (isCommercialClaim) {
+  import('./public/CommercialClaim').then(({ default: CommercialClaim }) => mount(<CommercialClaim />));
+} else if (liteStoreMatch || liteManageMatch) {
+  import('./public/LiteStore').then(({ default: LiteStore }) => mount(<LiteStore slug={liteStoreMatch?.[1]?.toLowerCase()} businessId={liteManageMatch?.[1]} />));
+} else if (transitBoardMatch) {
+  import('./public/TransitBoard').then(({ default: TransitBoard }) =>
+    mount(<TransitBoard ownerId={transitBoardMatch[1]} />));
 } else if (isHotelBooking && bookingSlug) {
   // Public hotel booking site: {slug}.kobeapptz.com/book or /book/{slug}
   import('./public/HotelBooking').then(({ default: HotelBooking }) => mount(<HotelBooking slug={bookingSlug} />));
@@ -187,6 +247,24 @@ if (isOverlay) {
 } else if (isContract) {
   // Public lawyer/contract portal: /contract or /contract/{CODE}
   import('./public/LawyerPortal').then(({ default: LawyerPortal }) => mount(<LawyerPortal code={contractCode} />));
+} else if (remitPortalToken) {
+  // Sender's live remittance portal: /remit/{portalToken}
+  import('./public/Remittance').then(({ default: Remittance }) => mount(<Remittance portalToken={remitPortalToken} />));
+} else if (remitCashierCode) {
+  // Cashier redeem page for a scanned remittance QR: /rc/{CODE}
+  import('./public/RemittanceCashier').then(({ default: RemittanceCashier }) => mount(<RemittanceCashier code={remitCashierCode} />));
+} else if (livePayToken) {
+  // Live-sale buyer checkout from the BUY reservation link: /live/pay/{token}
+  import('./public/LivePay').then(({ default: LivePay }) => mount(<LivePay token={livePayToken} />));
+} else if (isLiveCatalog) {
+  // Permanent Kobe Live Catalog: /live or /@seller
+  import('./public/LiveCatalog').then(({ default: LiveCatalog }) => mount(<LiveCatalog slug={liveCatalogSlug} />));
+} else if (supplierPortalToken) {
+  // Kobepay Pro supplier portal: /kobepay/supplier/{token}
+  import('./public/SupplierPortal').then(({ default: SupplierPortal }) => mount(<SupplierPortal token={supplierPortalToken} />));
+} else if (studentPortalToken) {
+  // Kobepay Pro parent/student wallet: /kobepay/me/{token}
+  import('./public/StudentWallet').then(({ default: StudentWallet }) => mount(<StudentWallet token={studentPortalToken} />));
 } else if (isCargoSite) {
   // Public branded cargo landing: /cg/{slug}
   import('./public/CargoSite').then(({ default: CargoSite }) => mount(<CargoSite slug={cargoSiteSlug} />));
@@ -201,5 +279,5 @@ if (isOverlay) {
   //   https://kobeapptz.com/shop/kelvinfashion
   import('./apps/erp-shop/index').then(({ default: ErpShop }) => mount(<ErpShop data={{ slug: shopSlug }} />));
 } else {
-  mount(<Desktop />);
+  mount(<App />);
 }

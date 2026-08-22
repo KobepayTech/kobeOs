@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import { api } from '@/lib/api';
 import { useQRScanner } from '@/hooks/useQRScanner';
 import {
-  Loader2, QrCode, PackageCheck, Truck, ClipboardCheck,
+  Loader2, QrCode, PackageCheck, Truck,
   ChevronRight, ArrowLeft, X, CheckCircle2, AlertTriangle,
   Clock, Box, Search, ScanLine,
 } from 'lucide-react';

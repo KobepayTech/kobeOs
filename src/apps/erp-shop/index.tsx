@@ -1,9 +1,11 @@
 import { useState, useMemo, useEffect } from 'react';
 import {
   ShoppingBag, Search, Plus, Minus, Trash2, Package,
-  ShoppingCart, CreditCard, Truck, CheckCircle2,
+  ShoppingCart, CreditCard, CheckCircle2,
   Smartphone, Building2, Banknote, Loader2, AlertCircle, Pencil,
+  Gift,
 } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import { api } from '@/lib/api';
 import HandwrittenQuantityOverlay from '@/components/handwriting/HandwrittenQuantityOverlay';
 import { Button } from '@/components/ui/button';
@@ -13,7 +15,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Card, CardContent } from '@/components/ui/card';
-import { StorefrontNav, type StorefrontView } from './StorefrontNav';
+import { type StorefrontView } from './StorefrontNav';
 import {
   BnplPage,
   BrandsPage,
@@ -110,6 +112,41 @@ interface BnplEligibility {
   reason?: 'no_profile' | 'inactive' | 'no_phone';
 }
 
+interface LiveReservationCheckout {
+  token: string;
+  status: string;
+  expired: boolean;
+  reservedUntil: string | null;
+  qty: number;
+  unitPrice: number;
+  currency: string;
+  sessionTitle: string;
+  sessionId: string;
+  platform: string;
+  reservationCode: string;
+  product: { id: string; sku: string; name: string; imageUrl: string | null } | null;
+}
+
+interface LiveReservationStart {
+  checkoutToken: string;
+  reservationCode: string;
+  storefrontPath: string;
+}
+
+export interface StoreCustomerProfile {
+  id: string;
+  name: string;
+  phone: string;
+  address?: string;
+  loyaltyCode: string;
+  points: number;
+  visits: number;
+  purchaseCount: number;
+  freeJerseyCredits: number;
+  couponCode?: string | null;
+  joinedAt?: string;
+}
+
 interface TrackedOrder {
   orderNumber: string;
   status: string;
@@ -164,6 +201,39 @@ const CATEGORY_GRADIENTS: Record<string, string> = {
 };
 function productGradient(category: string): string {
   return CATEGORY_GRADIENTS[category] ?? 'from-slate-600 to-slate-700';
+}
+
+const CATEGORY_ALIASES: Record<string, string[]> = {
+  'clubjerseys': ['club', 'clubs', 'clubjersey', 'clubjerseys'],
+  'kids': ['kid', 'kids', 'children', 'child', 'youth'],
+  'nationalteams': ['national', 'nationalteam', 'nationalteams', 'country', 'countries'],
+  'retro': ['retro', 'classic', 'vintage'],
+  'training': ['training', 'trainingwear', 'tracksuit', 'tracksuits', 'trainingkit'],
+};
+
+function normalizedCategory(value: string): string {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function productMatchesCategory(actual: string, selected: string): boolean {
+  if (selected === 'All') return true;
+  const actualKey = normalizedCategory(actual);
+  const selectedKey = normalizedCategory(selected);
+  const aliases = CATEGORY_ALIASES[selectedKey] ?? [selectedKey];
+  return aliases.some((alias) => actualKey === alias || actualKey.includes(alias));
+}
+
+function isJerseyProduct(product: Product): boolean {
+  return /jersey|shirt|kit|retro|national|club/i.test(`${product.name} ${product.category}`);
+}
+
+function isPublicCatalogueProduct(product: Product): boolean {
+  // Bulk-import mistakes in the current Johsport data created active rows
+  // named only after UUIDs, with no price/stock/image. Do not let those
+  // internal placeholders crowd out real sellable products on the public shop.
+  const compactName = product.name.replace(/[()\s-]/g, '');
+  const looksLikeRawId = /^[0-9a-f]{30,}\d*$/i.test(compactName);
+  return !looksLikeRawId;
 }
 
 /* ------------------------------------------------------------------ */
@@ -224,11 +294,21 @@ function detectSubdomainSlug(): string {
 interface StoreReview { id: string; rating: number; title?: string; comment?: string; customerName?: string; createdAt?: string }
 
 /** Real product reviews + submit, backed by /store/:slug/products/:id/reviews. */
-function ProductReviews({ slug, productId }: { slug: string; productId: string }) {
+function ProductReviews({
+  slug,
+  productId,
+  defaultName = '',
+  defaultPhone = '',
+}: {
+  slug: string;
+  productId: string;
+  defaultName?: string;
+  defaultPhone?: string;
+}) {
   const [reviews, setReviews] = useState<StoreReview[]>([]);
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState('');
-  const [name, setName] = useState('');
+  const [name, setName] = useState(defaultName);
   const [busy, setBusy] = useState(false);
 
   const load = async () => {
@@ -242,15 +322,15 @@ function ProductReviews({ slug, productId }: { slug: string; productId: string }
     if (!comment.trim()) return;
     setBusy(true);
     try {
-      await api(`/store/${encodeURIComponent(slug)}/products/${productId}/reviews`, { method: 'POST', auth: false, body: JSON.stringify({ rating, comment: comment.trim(), customerName: name.trim() || 'Customer' }) });
-      setComment(''); setName('');
+      await api(`/store/${encodeURIComponent(slug)}/products/${productId}/reviews`, { method: 'POST', auth: false, body: JSON.stringify({ rating, comment: comment.trim(), customerName: name.trim() || 'Customer', customerPhone: defaultPhone || undefined }) });
+      setComment('');
       await load();
     } catch { /* ignore */ } finally { setBusy(false); }
   };
   const stars = (n: number) => '★★★★★'.slice(0, Math.round(n)) + '☆☆☆☆☆'.slice(0, 5 - Math.round(n));
 
   return (
-    <div className="mt-4 border-t border-white/10 pt-3">
+    <div id="product-reviews" className="mt-4 border-t border-white/10 pt-3 scroll-mt-4">
       <div className="flex items-center justify-between mb-2">
         <span className="text-sm font-semibold">Reviews</span>
         {reviews.length > 0 && <span className="text-xs text-amber-400">{stars(avg)} {avg.toFixed(1)} · {reviews.length}</span>}
@@ -315,7 +395,15 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [reviewsRequested, setReviewsRequested] = useState(false);
   const [isCheckout, setIsCheckout] = useState(false);
+  const [isSignupOpen, setIsSignupOpen] = useState(false);
+  const [signupForm, setSignupForm] = useState({ name: '', phone: '' });
+  const [signupBusy, setSignupBusy] = useState(false);
+  const [signupError, setSignupError] = useState<string | null>(null);
+  const [customerProfile, setCustomerProfile] = useState<StoreCustomerProfile | null>(null);
+  const [redeemFreeJerseyProductId, setRedeemFreeJerseyProductId] = useState('');
+  const [loyaltyMessage, setLoyaltyMessage] = useState<string | null>(null);
   const [orderConfirmed, setOrderConfirmed] = useState(false);
   const [orderNumber, setOrderNumber] = useState('');
   const [orderReceipt, setOrderReceipt] = useState<string | null>(null);
@@ -326,6 +414,13 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
   const [checkoutForm, setCheckoutForm] = useState<CheckoutForm>({
     name: '', phone: '', address: '', paymentMethod: 'cod',
   });
+  const [liveCheckoutToken, setLiveCheckoutToken] = useState(() => {
+    try { return new URLSearchParams(window.location.search).get('live')?.trim() || ''; }
+    catch { return ''; }
+  });
+  const [liveReservation, setLiveReservation] = useState<LiveReservationCheckout | null>(null);
+  const [liveReservationApplied, setLiveReservationApplied] = useState(false);
+  const [liveReservationError, setLiveReservationError] = useState<string | null>(null);
   // Top-level storefront view (home / collection / portal pages).
   const [view, setView] = useState<StorefrontView>('home');
   const [wishlistIds, setWishlistIds] = useState<string[]>(() => {
@@ -349,7 +444,133 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
   const toggleWishlist = (id: string) =>
     setWishlistIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
-  const wishlistProducts = useMemo(() => products.filter((p) => wishlistIds.includes(p.id)), [products, wishlistIds]);
+  const catalogueProducts = useMemo(() => products.filter(isPublicCatalogueProduct), [products]);
+  const wishlistProducts = useMemo(() => catalogueProducts.filter((p) => wishlistIds.includes(p.id)), [catalogueProducts, wishlistIds]);
+
+  const rememberCustomer = (profile: StoreCustomerProfile) => {
+    setCustomerProfile(profile);
+    setSignupForm({ name: profile.name, phone: profile.phone });
+    setLoyaltyPhone(profile.phone);
+    setCheckoutForm((current) => ({
+      ...current,
+      name: profile.name,
+      phone: profile.phone,
+      address: profile.address || current.address,
+    }));
+    if (profile.couponCode) setCouponCode(profile.couponCode);
+    try { window.localStorage.setItem(`kobeshop:customer:${slug}`, profile.phone); } catch { /* storage disabled */ }
+  };
+
+  const lookupCustomer = async (phone: string): Promise<StoreCustomerProfile | null> => {
+    if (!slug || phone.replace(/\D/g, '').length < 9) return null;
+    try {
+      const profile = await api<StoreCustomerProfile>(
+        `/store/${encodeURIComponent(slug)}/customers/profile?phone=${encodeURIComponent(phone.trim())}`,
+        { auth: false },
+      );
+      rememberCustomer(profile);
+      return profile;
+    } catch {
+      return null;
+    }
+  };
+
+  const handleCustomerSignup = async () => {
+    if (!signupForm.name.trim() || signupForm.phone.replace(/\D/g, '').length < 9) {
+      setSignupError('Enter your name and a valid phone number.');
+      return;
+    }
+    setSignupBusy(true);
+    setSignupError(null);
+    try {
+      const profile = await api<StoreCustomerProfile>(
+        `/store/${encodeURIComponent(slug)}/customers/signup`,
+        { method: 'POST', auth: false, body: JSON.stringify({ name: signupForm.name.trim(), phone: signupForm.phone.trim() }) },
+      );
+      rememberCustomer(profile);
+    } catch (error) {
+      setSignupError(error instanceof Error ? error.message : 'Could not create your membership.');
+    } finally {
+      setSignupBusy(false);
+    }
+  };
+
+  // Restore a returning customer's name, phone and available coupon on the
+  // same device. Signup itself remains only name + phone.
+  useEffect(() => {
+    if (!slug) return;
+    try {
+      const savedPhone = window.localStorage.getItem(`kobeshop:customer:${slug}`);
+      if (savedPhone) void lookupCustomer(savedPhone);
+    } catch { /* storage disabled */ }
+  }, [slug]);
+
+  // A comment/DM reservation opens the normal storefront with ?live={token}.
+  // Validate it with the backend, preload the held item at its Live price, and
+  // leave the buyer on the full catalogue to add anything else they want.
+  useEffect(() => {
+    if (!slug || !liveCheckoutToken || products.length === 0 || liveReservationApplied) return;
+    let cancelled = false;
+    api<LiveReservationCheckout>(`/live-sales/public/checkout/${encodeURIComponent(liveCheckoutToken)}`, { auth: false })
+      .then((reservation) => {
+        if (cancelled) return;
+        if (reservation.expired || reservation.status !== 'RESERVED') {
+          setLiveReservationError('This Live reservation has expired. Return to the Live and reserve again.');
+          setLiveReservationApplied(true);
+          return;
+        }
+        const product = reservation.product
+          ? products.find((candidate) => candidate.id === reservation.product!.id)
+          : null;
+        if (!product) {
+          setLiveReservationError('The reserved Live product is no longer available in this store.');
+          setLiveReservationApplied(true);
+          return;
+        }
+        const liveProduct: Product = {
+          ...product,
+          price: Number(reservation.unitPrice || product.price),
+          imageUrl: reservation.product?.imageUrl || product.imageUrl,
+        };
+        setCart((current) => {
+          const existing = current.find((item) => item.product.id === liveProduct.id);
+          if (existing) {
+            return current.map((item) => item.product.id === liveProduct.id
+              ? { product: liveProduct, quantity: Math.max(item.quantity, reservation.qty) }
+              : item);
+          }
+          return [{ product: liveProduct, quantity: Math.min(reservation.qty, liveProduct.stock) }, ...current];
+        });
+        setLiveReservation(reservation);
+        setLiveReservationApplied(true);
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setLiveReservationError(error instanceof Error ? error.message : 'Could not open the Live reservation.');
+          setLiveReservationApplied(true);
+        }
+      });
+    return () => { cancelled = true; };
+  }, [slug, products, liveCheckoutToken, liveReservationApplied]);
+
+  // If a returning buyer types their registered phone during checkout, fill
+  // their name and coupon automatically after a short debounce.
+  useEffect(() => {
+    if (!isCheckout) return;
+    const phone = checkoutForm.phone.trim();
+    if (phone.replace(/\D/g, '').length < 9) return;
+    if (customerProfile && normalizedCategory(customerProfile.phone) === normalizedCategory(phone)) return;
+    const timer = setTimeout(() => { void lookupCustomer(phone); }, 450);
+    return () => clearTimeout(timer);
+  }, [isCheckout, checkoutForm.phone]);
+
+  useEffect(() => {
+    if (!selectedProduct || !reviewsRequested) return;
+    const timer = window.setTimeout(() => {
+      document.getElementById('product-reviews')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [selectedProduct, reviewsRequested]);
 
   // BNPL eligibility — fetched whenever the buyer picks BNPL + has a phone.
   const [bnplEligibility, setBnplEligibility] = useState<BnplEligibility | null>(null);
@@ -386,21 +607,49 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
   }, [slug]);
 
   const categories = useMemo(() => {
-    const cats = [...new Set(products.map((p) => p.category))].sort();
+    const cats = [...new Set(catalogueProducts.map((p) => p.category))].filter(Boolean).sort();
     return ['All', ...cats];
-  }, [products]);
+  }, [catalogueProducts]);
+
+  useEffect(() => {
+    try {
+      const requested = new URLSearchParams(window.location.search).get('category');
+      if (requested) setSelectedCategory(requested);
+    } catch { /* malformed URL is harmless */ }
+  }, []);
+
+  const selectShopCategory = (category: string) => {
+    setView('home');
+    setSelectedCategory(category);
+    try {
+      const url = new URL(window.location.href);
+      if (category === 'All') url.searchParams.delete('category');
+      else url.searchParams.set('category', category);
+      window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+    } catch { /* embedded webview may reject history updates */ }
+    window.setTimeout(() => document.getElementById('store-product-grid')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 0);
+  };
 
   const filteredProducts = useMemo(() => {
-    return products.filter((p) => {
-      const matchCat = selectedCategory === 'All' || p.category === selectedCategory;
+    return catalogueProducts.filter((p) => {
+      const matchCat = productMatchesCategory(p.category, selectedCategory);
       const q = searchQuery.toLowerCase();
       const matchSearch = !q || p.name.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q);
       return matchCat && matchSearch;
     });
-  }, [products, searchQuery, selectedCategory]);
+  }, [catalogueProducts, searchQuery, selectedCategory]);
 
   const cartTotal = useMemo(() => cart.reduce((s, i) => s + i.product.price * i.quantity, 0), [cart]);
   const cartCount = useMemo(() => cart.reduce((s, i) => s + i.quantity, 0), [cart]);
+  const rewardJerseys = useMemo(() => cart.filter((item) => isJerseyProduct(item.product)), [cart]);
+
+  useEffect(() => {
+    if ((customerProfile?.freeJerseyCredits ?? 0) > 0 && rewardJerseys.length > 0) {
+      setRedeemFreeJerseyProductId((current) => current || rewardJerseys[0].product.id);
+    } else {
+      setRedeemFreeJerseyProductId('');
+    }
+  }, [customerProfile?.freeJerseyCredits, rewardJerseys]);
 
   const addToCart = (product: Product) => {
     setCart((prev) => {
@@ -445,7 +694,31 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
   const clearCart = () => setCart([]);
 
   const handleCheckout = () => {
-    if (cart.length) { setIsCartOpen(false); setIsCheckout(true); }
+    if (cart.length) {
+      if (customerProfile?.couponCode) setCouponCode(customerProfile.couponCode);
+      setIsCartOpen(false);
+      setIsCheckout(true);
+    }
+  };
+
+  const reserveFromLiveBanner = async (product: { code: string }) => {
+    const reservation = await api<LiveReservationStart>(
+      `/live-sales/public/${encodeURIComponent(slug)}/reserve`,
+      {
+        method: 'POST',
+        auth: false,
+        body: JSON.stringify({ code: product.code, qty: 1 }),
+      },
+    );
+    setLiveReservation(null);
+    setLiveReservationError(null);
+    setLiveReservationApplied(false);
+    setLiveCheckoutToken(reservation.checkoutToken);
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set('live', reservation.checkoutToken);
+      window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+    } catch { /* embedded webview may reject history updates */ }
   };
 
   // Pre-flight BNPL check: whenever the buyer is on the BNPL payment
@@ -505,6 +778,7 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
     if (!checkoutForm.name || !checkoutForm.phone || !checkoutForm.address) return;
     if (!slug || cart.length === 0) return;
     setOrderError(null);
+    setLoyaltyMessage(null);
     setPlacingOrder(true);
     // Map UI payment method codes to POS service's vocabulary.
     const paymentMethod =
@@ -520,6 +794,10 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
       couponCode: couponCode.trim() || undefined,
       customerName: checkoutForm.name,
       customerPhone: checkoutForm.phone,
+      customerAddress: checkoutForm.address,
+      loyaltyCode: customerProfile?.loyaltyCode,
+      redeemFreeJerseyProductId: redeemFreeJerseyProductId || undefined,
+      liveCheckoutToken: liveCheckoutToken || undefined,
     };
     if (isBnpl) orderDto.installmentMonths = installmentMonths;
     try {
@@ -528,6 +806,8 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
         receipt?: { text: string };
         pickTicket?: { ticketNumber: string };
         discount?: { discountAmount: number; breakdown: Array<{ source: string; label: string; amount: number }> };
+        loyalty?: StoreCustomerProfile | null;
+        rewardRedeemed?: boolean;
       }>(`/store/${slug}/orders`, {
         method: 'POST',
         auth: false,
@@ -536,11 +816,35 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
       setOrderNumber(sale.orderNumber ?? orderDto.orderNumber);
       setOrderReceipt(sale.receipt?.text ?? null);
       setOrderDiscount(sale.discount ?? null);
+      if (sale.loyalty) {
+        const previousCredits = customerProfile?.freeJerseyCredits ?? 0;
+        rememberCustomer(sale.loyalty);
+        if (!sale.rewardRedeemed && previousCredits === 0 && sale.loyalty.freeJerseyCredits > 0) {
+          setLoyaltyMessage('Your first purchase unlocked one free jersey. It is ready in your loyalty account.');
+        } else if (sale.rewardRedeemed) {
+          setLoyaltyMessage('Your free-jersey reward was applied to this order.');
+        }
+      }
       setIsCheckout(false);
       setOrderConfirmed(true);
       clearCart();
-      setCheckoutForm({ name: '', phone: '', address: '', paymentMethod: 'cod' });
-      setCouponCode('');
+      setCheckoutForm((current) => ({
+        name: sale.loyalty?.name ?? current.name,
+        phone: sale.loyalty?.phone ?? current.phone,
+        address: sale.loyalty?.address ?? current.address,
+        paymentMethod: 'cod',
+      }));
+      setCouponCode(sale.loyalty?.couponCode ?? '');
+      setRedeemFreeJerseyProductId('');
+      if (liveCheckoutToken) {
+        setLiveCheckoutToken('');
+        setLiveReservation(null);
+        try {
+          const url = new URL(window.location.href);
+          url.searchParams.delete('live');
+          window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+        } catch { /* embedded webview may reject history updates */ }
+      }
     } catch (err) {
       setOrderError(err instanceof Error ? err.message : 'Order could not be placed. Try again.');
     } finally {
@@ -579,12 +883,27 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
   }
 
   const cols = settings.gridColumns ?? 3;
-  const gridClass = cols === 2 ? 'grid-cols-2' : cols >= 4 ? 'grid-cols-4' : 'grid-cols-3';
+  const gridClass = cols === 2
+    ? 'grid-cols-1 sm:grid-cols-2'
+    : cols >= 4
+      ? 'grid-cols-2 md:grid-cols-3 lg:grid-cols-4'
+      : 'grid-cols-2 md:grid-cols-3';
 
   return (
     <div className="h-full overflow-auto">
+      {liveReservation && (
+        <div className="bg-gradient-to-r from-fuchsia-700 to-indigo-700 text-white">
+          <div className="max-w-6xl mx-auto px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+            <div className="font-extrabold">{liveReservation.platform.toUpperCase()} LIVE reservation added to your cart</div>
+            <div className="text-xs text-white/80">Code {liveReservation.reservationCode} · Add more products—this complete order will be tracked to {liveReservation.sessionTitle}.</div>
+          </div>
+        </div>
+      )}
+      {liveReservationError && (
+        <div className="bg-amber-600 text-white text-center text-sm font-semibold px-4 py-2">{liveReservationError}</div>
+      )}
       {/* Live shopping — shows when the shop is live-selling (opt-in per session) */}
-      <LiveShoppingBanner slug={slug} onAdd={addToCart} />
+      <LiveShoppingBanner slug={slug} onReserve={reserveFromLiveBanner} />
       <JerseyShopChrome
         storeName={settings.storeName}
         tagline={settings.tagline}
@@ -595,13 +914,15 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
         bannerVisible={view === 'home' && settings.bannerVisible}
         categories={categories}
         selectedCategory={selectedCategory}
-        onSelectCategory={setSelectedCategory}
+        onSelectCategory={selectShopCategory}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         cartCount={cartCount}
         onOpenCart={() => setIsCartOpen(true)}
         onGoStores={() => setSlug('')}
         onPickNav={(v) => setView(v as StorefrontView)}
+        onSignup={() => setIsSignupOpen(true)}
+        customerName={customerProfile?.name}
         config={settings.jerseyConfig}
       >
       {/* ----- The dark "header" block below is retained only for the
@@ -669,7 +990,14 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
           ) : view === 'brands' ? (
             <BrandsPage slug={slug} onPickBrand={(brand) => setSelectedCategory(brand)} />
           ) : view === 'loyalty' ? (
-            <LoyaltyPage phone={loyaltyPhone} setPhone={setLoyaltyPhone} />
+            <LoyaltyPage
+              slug={slug}
+              phone={loyaltyPhone}
+              setPhone={setLoyaltyPhone}
+              profile={customerProfile}
+              onProfile={rememberCustomer}
+              onSignup={() => setIsSignupOpen(true)}
+            />
           ) : (view === 'new-arrivals' || view === 'best-sellers' || view === 'offers') ? (
             <CollectionPage
               slug={slug}
@@ -682,13 +1010,14 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
             />
           ) : (
             <>
-              <div className={`grid gap-4 p-6 ${gridClass}`}>
+              <div id="store-product-grid" className={`grid gap-4 p-6 scroll-mt-4 ${gridClass}`}>
                 {filteredProducts.map((p) => (
                   <JerseyProductCard
                     key={p.id}
                     product={p}
                     wished={wishlistIds.includes(p.id)}
-                    onOpen={(prod) => setSelectedProduct(prod)}
+                    onOpen={(prod) => { setReviewsRequested(false); setSelectedProduct(prod); }}
+                    onOpenReviews={(prod) => { setReviewsRequested(true); setSelectedProduct(prod); }}
                     onAddToCart={(prod) => addToCart(prod)}
                     onAddToWishlist={(prod) => toggleWishlist(prod.id)}
                   />
@@ -713,8 +1042,8 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
       </JerseyShopChrome>
 
       {/* Product Detail Dialog */}
-      <Dialog open={!!selectedProduct} onOpenChange={() => setSelectedProduct(null)}>
-        <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-md">
+      <Dialog open={!!selectedProduct} onOpenChange={(open) => { if (!open) { setSelectedProduct(null); setReviewsRequested(false); } }}>
+        <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-md max-h-[90vh] overflow-y-auto">
           {selectedProduct && (
             <>
               <DialogHeader><DialogTitle>{selectedProduct.name}</DialogTitle></DialogHeader>
@@ -748,7 +1077,14 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
                   <Pencil className="w-4 h-4" />
                 </Button>
               </div>
-              {slug && <ProductReviews slug={slug} productId={selectedProduct.id} />}
+              {slug && (
+                <ProductReviews
+                  slug={slug}
+                  productId={selectedProduct.id}
+                  defaultName={customerProfile?.name}
+                  defaultPhone={customerProfile?.phone}
+                />
+              )}
             </>
           )}
         </DialogContent>
@@ -766,6 +1102,47 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
         />
       )}
 
+      {/* Simple customer membership — name + phone only. */}
+      <Dialog open={isSignupOpen} onOpenChange={setIsSignupOpen}>
+        <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader><DialogTitle>{customerProfile ? 'Your loyalty membership' : 'Sign up in seconds'}</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-slate-400">Use only your name and phone. We will remember them for faster checkout on this device.</p>
+            <Input
+              placeholder="Full name"
+              value={signupForm.name}
+              onChange={(e) => setSignupForm({ ...signupForm, name: e.target.value })}
+              className="bg-white/10 border-white/20 text-white"
+            />
+            <Input
+              placeholder="Phone number"
+              value={signupForm.phone}
+              onChange={(e) => setSignupForm({ ...signupForm, phone: e.target.value })}
+              className="bg-white/10 border-white/20 text-white"
+            />
+            {signupError && <div className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded p-2">{signupError}</div>}
+            <Button onClick={handleCustomerSignup} disabled={signupBusy} className="w-full bg-[#c8102e] hover:bg-[#a00d24]">
+              {signupBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : customerProfile ? 'Update my details' : 'Create my membership'}
+            </Button>
+            {customerProfile && (
+              <div className="rounded-xl border border-amber-400/30 bg-gradient-to-br from-amber-500/15 to-orange-500/10 p-4">
+                <div className="flex gap-4 items-center">
+                  <div className="bg-white p-2 rounded-lg shrink-0">
+                    <QRCodeSVG value={`KOBE-LOYALTY:${slug}:${customerProfile.loyaltyCode}`} size={92} />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-xs text-amber-300 uppercase tracking-wide">Your unique code</p>
+                    <p className="font-mono font-black text-xl text-white break-all">{customerProfile.loyaltyCode}</p>
+                    <p className="text-xs text-slate-300 mt-1">{customerProfile.points.toLocaleString()} points · {customerProfile.freeJerseyCredits} free jersey credit</p>
+                    {customerProfile.couponCode && <p className="text-xs text-emerald-300 mt-1">15% coupon ready: {customerProfile.couponCode}</p>}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
       {/* Cart Dialog */}
       <Dialog open={isCartOpen} onOpenChange={setIsCartOpen}>
         <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-md">
@@ -780,9 +1157,17 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
               {cart.map((item) => (
                 <Card key={item.product.id} className="bg-white/5 border-white/10">
                   <CardContent className="p-3 flex items-center gap-3">
+                    <div className="w-16 h-16 rounded-lg overflow-hidden bg-slate-800 shrink-0 grid place-items-center">
+                      {item.product.imageUrl ? (
+                        <img src={item.product.imageUrl} alt={item.product.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <Package className="w-6 h-6 text-slate-500" />
+                      )}
+                    </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-medium text-white truncate">{item.product.name}</p>
                       <p className="text-sm text-blue-400">{formatPrice(item.product.price, item.product.currency)}</p>
+                      {liveReservation?.product?.id === item.product.id && <p className="text-[10px] font-bold text-fuchsia-300">LIVE RESERVED PRICE</p>}
                     </div>
                     <div className="flex items-center gap-1">
                       <Button size="icon" variant="ghost" onClick={() => updateQuantity(item.product.id, -1)} className="h-7 w-7">
@@ -814,13 +1199,53 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
 
       {/* Checkout Dialog */}
       <Dialog open={isCheckout} onOpenChange={setIsCheckout}>
-        <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-md">
+        <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader><DialogTitle>Checkout</DialogTitle></DialogHeader>
           <div className="space-y-4">
+            {liveReservation && (
+              <div className="rounded-lg border border-fuchsia-500/30 bg-fuchsia-500/10 p-3 text-sm text-fuchsia-100">
+                This complete basket is attributed to {liveReservation.platform} Live · {liveReservation.sessionTitle}.
+              </div>
+            )}
             <Input placeholder="Full Name" value={checkoutForm.name} onChange={(e) => setCheckoutForm({ ...checkoutForm, name: e.target.value })} className="bg-white/10 border-white/20 text-white" />
             <Input placeholder="Phone Number" value={checkoutForm.phone} onChange={(e) => setCheckoutForm({ ...checkoutForm, phone: e.target.value })} className="bg-white/10 border-white/20 text-white" />
             <Input placeholder="Delivery Address" value={checkoutForm.address} onChange={(e) => setCheckoutForm({ ...checkoutForm, address: e.target.value })} className="bg-white/10 border-white/20 text-white" />
             <Input placeholder="Coupon code (optional)" value={couponCode} onChange={(e) => setCouponCode(e.target.value)} className="bg-white/10 border-white/20 text-white" />
+            {customerProfile?.couponCode && couponCode === customerProfile.couponCode && (
+              <div className="flex items-center gap-2 text-xs text-emerald-300 rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-2">
+                <CheckCircle2 className="w-4 h-4 shrink-0" /> Your available 15% member coupon was entered automatically.
+              </div>
+            )}
+            {(customerProfile?.freeJerseyCredits ?? 0) > 0 && (
+              <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 space-y-2">
+                <div className="flex items-center gap-2 text-sm font-semibold text-amber-200">
+                  <Gift className="w-4 h-4" /> Free jersey reward available
+                </div>
+                {rewardJerseys.length > 0 ? (
+                  <>
+                    <label className="flex items-center gap-2 text-xs text-slate-200">
+                      <input
+                        type="checkbox"
+                        checked={!!redeemFreeJerseyProductId}
+                        onChange={(e) => setRedeemFreeJerseyProductId(e.target.checked ? rewardJerseys[0].product.id : '')}
+                      />
+                      Apply one free-jersey credit to this order
+                    </label>
+                    {redeemFreeJerseyProductId && rewardJerseys.length > 1 && (
+                      <select
+                        value={redeemFreeJerseyProductId}
+                        onChange={(e) => setRedeemFreeJerseyProductId(e.target.value)}
+                        className="w-full rounded bg-slate-800 border border-white/10 p-2 text-xs text-white"
+                      >
+                        {rewardJerseys.map((item) => <option key={item.product.id} value={item.product.id}>{item.product.name}</option>)}
+                      </select>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-xs text-slate-300">Add an eligible jersey to the cart to use this reward.</p>
+                )}
+              </div>
+            )}
             <div>
               <p className="text-sm text-slate-400 mb-2">Payment Method</p>
               <div className="grid grid-cols-2 gap-2">
@@ -904,6 +1329,12 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
             <p className="text-2xl font-mono font-bold text-blue-400 mb-4">{orderNumber}</p>
             {orderReceipt && (
               <pre className="text-left text-xs bg-black/40 rounded-lg p-3 overflow-auto max-h-40 whitespace-pre-wrap mb-4">{orderReceipt}</pre>
+            )}
+            {loyaltyMessage && (
+              <div className="text-left text-sm text-amber-100 bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 mb-4 flex items-start gap-2">
+                <Gift className="w-4 h-4 mt-0.5 shrink-0" />
+                <span>{loyaltyMessage}</span>
+              </div>
             )}
             <p className="text-sm text-slate-500">We will contact you shortly to confirm delivery.</p>
           </div>

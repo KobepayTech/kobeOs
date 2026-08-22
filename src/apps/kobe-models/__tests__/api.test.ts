@@ -9,10 +9,20 @@ vi.stubGlobal('localStorage', {
 });
 
 function ok(data: unknown) {
-  return Promise.resolve({ ok: true, status: 200, statusText: 'OK', json: () => Promise.resolve(data) } as Response);
+  return Promise.resolve({
+    ok: true,
+    status: 200,
+    statusText: 'OK',
+    text: () => Promise.resolve(data === undefined ? '' : JSON.stringify(data)),
+  } as Response);
 }
 function fail(status: number) {
-  return Promise.resolve({ ok: false, status, statusText: 'Error', json: () => Promise.resolve({}) } as Response);
+  return Promise.resolve({
+    ok: false,
+    status,
+    statusText: 'Error',
+    text: () => Promise.resolve(JSON.stringify({ message: `HTTP ${status}` })),
+  } as Response);
 }
 
 describe('KobeModels API', () => {
@@ -26,7 +36,7 @@ describe('KobeModels API', () => {
       const { catalogueApi } = await import('../api');
       const result = await catalogueApi.all();
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/kobe-models/catalogue', expect.any(Object));
+      expect(mockFetch).toHaveBeenCalledWith(expect.stringMatching(/\/api\/kobe-models\/catalogue$/), expect.any(Object));
       expect(result.version).toBe('1.0.0');
     });
 
@@ -36,7 +46,7 @@ describe('KobeModels API', () => {
       const { catalogueApi } = await import('../api');
       const result = await catalogueApi.recommended();
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/kobe-models/catalogue/recommended', expect.any(Object));
+      expect(mockFetch).toHaveBeenCalledWith(expect.stringMatching(/\/api\/kobe-models\/catalogue\/recommended$/), expect.any(Object));
       expect(result[0].recommended).toBe(true);
     });
 
@@ -46,7 +56,7 @@ describe('KobeModels API', () => {
       const { catalogueApi } = await import('../api');
       const result = await catalogueApi.byCategory('coding');
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/kobe-models/catalogue/category/coding', expect.any(Object));
+      expect(mockFetch).toHaveBeenCalledWith(expect.stringMatching(/\/api\/kobe-models\/catalogue\/category\/coding$/), expect.any(Object));
       expect(result[0].category).toBe('coding');
     });
 
@@ -54,7 +64,7 @@ describe('KobeModels API', () => {
       mockFetch.mockReturnValueOnce(fail(404));
 
       const { catalogueApi } = await import('../api');
-      await expect(catalogueApi.byId('nonexistent:model')).rejects.toThrow('404');
+      await expect(catalogueApi.byId('nonexistent:model')).rejects.toThrow('HTTP 404');
     });
   });
 
@@ -67,7 +77,7 @@ describe('KobeModels API', () => {
       const result = await downloadApi.start('mistral:7b');
 
       expect(mockFetch).toHaveBeenCalledWith(
-        '/api/kobe-models/download',
+        expect.stringMatching(/\/api\/kobe-models\/download$/),
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({ modelId: 'mistral:7b' }),
@@ -84,7 +94,7 @@ describe('KobeModels API', () => {
       const { downloadApi } = await import('../api');
       const result = await downloadApi.job('j1');
 
-      expect(mockFetch).toHaveBeenCalledWith('/api/kobe-models/jobs/j1', expect.any(Object));
+      expect(mockFetch).toHaveBeenCalledWith(expect.stringMatching(/\/api\/kobe-models\/jobs\/j1$/), expect.any(Object));
       expect(result.progressPct).toBe(42);
     });
 
@@ -115,7 +125,7 @@ describe('KobeModels API', () => {
       await installedApi.setActive('mistral:7b');
 
       expect(mockFetch).toHaveBeenCalledWith(
-        '/api/ai/models/active',
+        expect.stringMatching(/\/api\/ai\/models\/active$/),
         expect.objectContaining({ method: 'PUT' }),
       );
     });
@@ -127,7 +137,7 @@ describe('KobeModels API', () => {
       await installedApi.delete('mistral:7b');
 
       expect(mockFetch).toHaveBeenCalledWith(
-        '/api/ai/models/mistral%3A7b',
+        expect.stringMatching(/\/api\/ai\/models\/mistral%3A7b$/),
         expect.objectContaining({ method: 'DELETE' }),
       );
     });

@@ -11,11 +11,11 @@ import { Radio, Zap, X } from 'lucide-react';
 interface LiveProduct { productId: string; code: string; name: string; livePrice: number; catalogPrice: number; stock: number; currency: string }
 interface LiveResp { live: boolean; title?: string; currency?: string; products?: LiveProduct[] }
 
-interface CartProduct { id: string; name: string; sku: string; price: number; stock: number; category: string; imageUrl?: string | null; currency: string }
-
-export default function LiveShoppingBanner({ slug, onAdd }: { slug: string; onAdd: (p: CartProduct) => void }) {
+export default function LiveShoppingBanner({ slug, onReserve }: { slug: string; onReserve: (p: LiveProduct) => Promise<void> }) {
   const [data, setData] = useState<LiveResp | null>(null);
   const [open, setOpen] = useState(true);
+  const [reservingCode, setReservingCode] = useState<string | null>(null);
+  const [reserveError, setReserveError] = useState<string | null>(null);
 
   useEffect(() => {
     let off = false;
@@ -59,16 +59,23 @@ export default function LiveShoppingBanner({ slug, onAdd }: { slug: string; onAd
                 </div>
                 <div className="text-[10px] text-white/70">{soldOut ? 'Sold out' : `${p.stock} left`}</div>
                 <button
-                  disabled={soldOut}
-                  onClick={() => onAdd({ id: p.productId, name: p.name, sku: p.code, price: p.livePrice, stock: p.stock, category: 'LIVE', currency: cur })}
+                  disabled={soldOut || reservingCode !== null}
+                  onClick={async () => {
+                    setReservingCode(p.code);
+                    setReserveError(null);
+                    try { await onReserve(p); }
+                    catch (error) { setReserveError(error instanceof Error ? error.message : 'Could not reserve this item.'); }
+                    finally { setReservingCode(null); }
+                  }}
                   className="w-full mt-1.5 h-8 rounded-lg bg-white text-rose-700 text-xs font-extrabold inline-flex items-center justify-center gap-1 disabled:opacity-50"
                 >
-                  <Zap className="w-3 h-3" /> {soldOut ? 'Sold out' : 'Add'}
+                  <Zap className="w-3 h-3" /> {soldOut ? 'Sold out' : reservingCode === p.code ? 'Reserving…' : 'Add & shop'}
                 </button>
               </div>
             );
           })}
         </div>
+        {reserveError && <div className="mt-1 text-xs font-semibold text-white">{reserveError}</div>}
       </div>
     </div>
   );

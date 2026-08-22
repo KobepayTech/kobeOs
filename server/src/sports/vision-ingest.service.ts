@@ -50,6 +50,51 @@ export interface LivePlayerState {
   /** Previous position for distance calculation */
   prevX: number;
   prevY: number;
+  /** Pass involvement (detected from possession transitions) */
+  passes: number;           // pass attempts (completed + intercepted)
+  passesCompleted: number;  // reached a team-mate
+  keyPasses: number;        // pass that led directly to a goal
+  assists: number;          // key pass that was scored
+  interceptions: number;    // won the ball from an opponent's pass
+  tackles: number;          // dispossessed an opponent at close range
+  /** Running sum of positions → average position for the pass-network node */
+  sumX: number;
+  sumY: number;
+  posSamples: number;
+}
+
+/** A single detected pass/turnover, kept for the live map + assist linking. */
+export interface PassEvent {
+  frameNumber: number;
+  minute: number;
+  team: 'home' | 'away';
+  fromTrackId: number;
+  fromJersey?: number;
+  toTrackId?: number;
+  toJersey?: number;
+  fromX: number; fromY: number;
+  toX: number; toY: number;
+  completed: boolean;   // reached a team-mate
+  intercepted: boolean; // won by the opponent in flight
+}
+
+export interface PassNetworkNode {
+  key: string;
+  trackId: number;
+  jerseyNumber?: number;
+  x: number; y: number; // average position
+  passes: number;
+}
+export interface PassNetworkEdge { from: string; to: string; count: number }
+export interface TeamPassNetwork { nodes: PassNetworkNode[]; edges: PassNetworkEdge[] }
+export interface PassNetwork { home: TeamPassNetwork; away: TeamPassNetwork }
+
+interface BallControl {
+  trackId: number;
+  team: 'home' | 'away';
+  jerseyNumber?: number;
+  x: number; y: number;
+  sinceFrame: number;
 }
 
 export interface LiveMatchState {
@@ -73,6 +118,17 @@ export interface LiveMatchState {
   lastPersistFrame: number;
   /** Detected formations */
   formations: { home: string; away: string };
+  /** Player currently in control of the ball (drives pass detection) */
+  control: BallControl | null;
+  /** Recent detected passes/turnovers (capped) */
+  passEvents: PassEvent[];
+  /** Aggregated pass-network edge counts, keyed `${team}:${fromKey}->${toKey}` */
+  edgeCounts: Record<string, number>;
+  /** Last completed pass per team, for linking an assist when a goal follows */
+  lastCompletedPass: {
+    home: { trackId: number; jerseyNumber?: number; frameNumber: number } | null;
+    away: { trackId: number; jerseyNumber?: number; frameNumber: number } | null;
+  };
 }
 
 export interface DetectedEvent {
@@ -156,6 +212,9 @@ export class VisionIngestService {
     // Accumulate possession (ball proximity)
     this.updatePossession(state, ball, homePlayers, awayPlayers);
 
+    // Detect passes / turnovers from possession transitions
+    this.updatePasses(state, ball, homePlayers, awayPlayers);
+
     // Accumulate heatmaps
     this.updateHeatmaps(state, homePlayers, awayPlayers);
 
@@ -217,19 +276,149 @@ export class VisionIngestService {
     }
   }
 
+  // ── Pass detection ───────────────────────────────────────────────────────────
+
+  /**
+   * Detect passes and turnovers from ball-possession transitions.
+   *
+   * The player nearest the ball (within a control radius) is the "controller".
+   * When control moves to a different track we classify the transition:
+   *   - same team, ball travelled ≥ MIN_PASS_DIST  → completed pass
+   *   - other team, ball travelled ≥ MIN_PASS_DIST  → intercepted pass attempt
+   *   - other team, short distance                  → tackle / dispossession
+   * We intentionally do NOT clear `control` when nobody is in radius, so a pass
+   * in flight (ball between players) still resolves when the receiver takes it.
+   */
+  private updatePasses(
+    state: LiveMatchState,
+    ball: TrackedObject | undefined,
+    home: TrackedObject[],
+    away: TrackedObject[],
+  ) {
+    if (!ball) return;
+    const CONTROL_RADIUS = 3.2; // pitch units (~3.4m)
+    const MIN_PASS_DIST = 6;    // players this far apart → a genuine pass, not a touch
+
+    const nearestOf = (objs: TrackedObject[], team: 'home' | 'away') =>
+      objs.reduce<{ obj: TrackedObject | null; team: 'home' | 'away'; d: number }>(
+        (best, o) => {
+          const d = Math.hypot(o.x - ball.x, o.y - ball.y);
+          return d < best.d ? { obj: o, team, d } : best;
+        },
+        { obj: null, team, d: Infinity },
+      );
+
+    const h = nearestOf(home, 'home');
+    const a = nearestOf(away, 'away');
+    const winner = h.d <= a.d ? h : a;
+    if (!winner.obj || winner.d > CONTROL_RADIUS) return; // ball uncontrolled — keep prior control
+
+    const controller: BallControl = {
+      trackId: winner.obj.trackId,
+      team: winner.team,
+      jerseyNumber: winner.obj.jerseyNumber,
+      x: winner.obj.x,
+      y: winner.obj.y,
+      sinceFrame: state.frameNumber,
+    };
+
+    const prev = state.control;
+    if (!prev) { state.control = controller; return; }
+    if (prev.trackId === controller.trackId) {
+      // Same player still in control — refresh position, keep possession start.
+      prev.x = controller.x; prev.y = controller.y;
+      return;
+    }
+
+    const travel = Math.hypot(controller.x - prev.x, controller.y - prev.y);
+    const minute = Math.floor(state.matchClock / 60);
+    const fromPlayer = state.players.find((p) => p.trackId === prev.trackId);
+    const toPlayer = state.players.find((p) => p.trackId === controller.trackId);
+
+    if (prev.team === controller.team) {
+      if (travel >= MIN_PASS_DIST && fromPlayer) {
+        fromPlayer.passes++;
+        fromPlayer.passesCompleted++;
+        this.countEdge(state, prev.team, this.nodeKey(prev.trackId, prev.jerseyNumber), this.nodeKey(controller.trackId, controller.jerseyNumber));
+        state.lastCompletedPass[prev.team] = {
+          trackId: prev.trackId, jerseyNumber: prev.jerseyNumber, frameNumber: state.frameNumber,
+        };
+        this.pushPass(state, {
+          frameNumber: state.frameNumber, minute, team: prev.team,
+          fromTrackId: prev.trackId, fromJersey: prev.jerseyNumber,
+          toTrackId: controller.trackId, toJersey: controller.jerseyNumber,
+          fromX: prev.x, fromY: prev.y, toX: controller.x, toY: controller.y,
+          completed: true, intercepted: false,
+        });
+      }
+    } else {
+      if (travel >= MIN_PASS_DIST) {
+        // A pass attempt that the opponent read and intercepted.
+        if (fromPlayer) fromPlayer.passes++;
+        if (toPlayer) toPlayer.interceptions++;
+        this.pushPass(state, {
+          frameNumber: state.frameNumber, minute, team: prev.team,
+          fromTrackId: prev.trackId, fromJersey: prev.jerseyNumber,
+          toTrackId: controller.trackId, toJersey: controller.jerseyNumber,
+          fromX: prev.x, fromY: prev.y, toX: controller.x, toY: controller.y,
+          completed: false, intercepted: true,
+        });
+      } else if (toPlayer) {
+        // Won the ball at close range — a tackle, not a failed pass.
+        toPlayer.tackles++;
+      }
+    }
+
+    state.control = controller;
+  }
+
+  private nodeKey(trackId: number, jersey?: number): string {
+    return jersey != null ? `#${jersey}` : `t${trackId}`;
+  }
+
+  private countEdge(state: LiveMatchState, team: 'home' | 'away', fromKey: string, toKey: string) {
+    const key = `${team}:${fromKey}->${toKey}`;
+    state.edgeCounts[key] = (state.edgeCounts[key] ?? 0) + 1;
+  }
+
+  private pushPass(state: LiveMatchState, ev: PassEvent) {
+    state.passEvents.push(ev);
+    if (state.passEvents.length > 100) state.passEvents.shift();
+  }
+
+  /** Build the pass network (nodes at average positions, weighted edges). */
+  buildPassNetwork(state: LiveMatchState): PassNetwork {
+    const team = (side: 'home' | 'away'): TeamPassNetwork => {
+      const players = state.players.filter((p) => p.class.includes(side) && p.posSamples > 0);
+      const nodes: PassNetworkNode[] = players.map((p) => ({
+        key: this.nodeKey(p.trackId, p.jerseyNumber),
+        trackId: p.trackId,
+        jerseyNumber: p.jerseyNumber,
+        x: p.sumX / p.posSamples,
+        y: p.sumY / p.posSamples,
+        passes: p.passesCompleted,
+      }));
+      const prefix = `${side}:`;
+      const edges: PassNetworkEdge[] = Object.entries(state.edgeCounts)
+        .filter(([k]) => k.startsWith(prefix))
+        .map(([k, count]) => {
+          const [, pair] = k.split(':');
+          const [from, to] = pair.split('->');
+          return { from, to, count };
+        });
+      return { nodes, edges };
+    };
+    return { home: team('home'), away: team('away') };
+  }
+
   // ── Heatmaps ───────────────────────────────────────────────────────────────
 
   private updateHeatmaps(state: LiveMatchState, home: TrackedObject[], away: TrackedObject[]) {
-    for (const p of home) {
-      const row = Math.min(HEATMAP_ROWS - 1, Math.floor((p.y / 100) * HEATMAP_ROWS));
-      const col = Math.min(HEATMAP_COLS - 1, Math.floor((p.x / 100) * HEATMAP_COLS));
-      state.heatmaps.home[row][col]++;
-    }
-    for (const p of away) {
-      const row = Math.min(HEATMAP_ROWS - 1, Math.floor((p.y / 100) * HEATMAP_ROWS));
-      const col = Math.min(HEATMAP_COLS - 1, Math.floor((p.x / 100) * HEATMAP_COLS));
-      state.heatmaps.away[row][col]++;
-    }
+    // Clamp BOTH bounds: an out-of-pitch coordinate (y<0) would otherwise give a
+    // negative index and crash on `heatmaps[-1][col]`.
+    const cell = (v: number, n: number) => Math.max(0, Math.min(n - 1, Math.floor((v / 100) * n)));
+    for (const p of home) state.heatmaps.home[cell(p.y, HEATMAP_ROWS)][cell(p.x, HEATMAP_COLS)]++;
+    for (const p of away) state.heatmaps.away[cell(p.y, HEATMAP_ROWS)][cell(p.x, HEATMAP_COLS)]++;
   }
 
   // ── Player state updates ───────────────────────────────────────────────────
@@ -248,6 +437,9 @@ export class VisionIngestService {
         existing.speed = obj.speed ?? 0;
         existing.prevX = obj.x;
         existing.prevY = obj.y;
+        existing.sumX += obj.x;
+        existing.sumY += obj.y;
+        existing.posSamples++;
         if (obj.jerseyNumber !== undefined) existing.jerseyNumber = obj.jerseyNumber;
       } else {
         state.players.push({
@@ -258,6 +450,9 @@ export class VisionIngestService {
           jerseyNumber: obj.jerseyNumber,
           distanceM: 0, sprints: 0,
           prevX: obj.x, prevY: obj.y,
+          passes: 0, passesCompleted: 0, keyPasses: 0, assists: 0,
+          interceptions: 0, tackles: 0,
+          sumX: obj.x, sumY: obj.y, posSamples: 1,
         });
       }
     }
@@ -323,6 +518,25 @@ export class VisionIngestService {
       else if (team === 'away') state.xg.away += detected.xg;
     }
 
+    // Credit an assist to the last completed pass by the scoring team (≤15s ago).
+    let assistName: string | undefined;
+    if (type === 'GOAL' && (team === 'home' || team === 'away')) {
+      const last = state.lastCompletedPass[team];
+      if (last && state.frameNumber - last.frameNumber <= 450) {
+        const passer = state.players.find((p) => p.trackId === last.trackId);
+        if (passer) {
+          passer.assists++;
+          passer.keyPasses++;
+          assistName = await this.jerseyToName(matchId, team, last.jerseyNumber);
+          detected.metadata = {
+            ...detected.metadata,
+            assistJersey: last.jerseyNumber,
+            ...(assistName ? { assistedBy: assistName } : {}),
+          };
+        }
+      }
+    }
+
     state.events.push(detected);
 
     // Persist significant events to DB immediately
@@ -340,13 +554,25 @@ export class VisionIngestService {
               minute,
               team: team ?? undefined,
               description: String(event['description'] ?? ''),
-              metadata: event,
+              metadata: detected.metadata ?? event,
             }),
           );
         }
       } catch (err) {
         this.logger.warn(`Failed to persist event ${type}: ${(err as Error).message}`);
       }
+    }
+  }
+
+  /** Map a jersey number to a player name using the match lineup (for assists). */
+  private async jerseyToName(matchId: string, team: 'home' | 'away', jersey?: number): Promise<string | undefined> {
+    if (jersey == null) return undefined;
+    try {
+      const match = await this.matchesRepo.findOne({ where: { id: matchId } });
+      const lineup = ((team === 'home' ? match?.homeLineup : match?.awayLineup) ?? []) as unknown as Array<{ jerseyNumber?: number; name?: string }>;
+      return lineup.find((p) => p.jerseyNumber === jersey)?.name || undefined;
+    } catch {
+      return undefined;
     }
   }
 
@@ -399,6 +625,7 @@ export class VisionIngestService {
         heatmaps: { home: normalise(state.heatmaps.home), away: normalise(state.heatmaps.away) } as unknown as Record<string, unknown>,
         xgData: { home: [...state.xgTimeline.home], away: [...state.xgTimeline.away] } as unknown as Record<string, unknown>,
         formations: state.formations as unknown as Record<string, unknown>,
+        passingNetwork: this.buildPassNetwork(state) as unknown as Record<string, unknown>,
         playerTracking: {
           players: state.players.map((p) => ({
             trackId: p.trackId,
@@ -408,6 +635,11 @@ export class VisionIngestService {
             jerseyNumber: p.jerseyNumber,
             distanceKm: parseFloat((p.distanceM / 1000).toFixed(2)),
             sprints: p.sprints,
+            passes: p.passes,
+            passesCompleted: p.passesCompleted,
+            interceptions: p.interceptions,
+            tackles: p.tackles,
+            assists: p.assists,
           })),
           ball: state.ball,
           frameNumber: state.frameNumber,
@@ -446,6 +678,10 @@ export class VisionIngestService {
       events: [],
       lastPersistFrame: 0,
       formations: { home: '?', away: '?' },
+      control: null,
+      passEvents: [],
+      edgeCounts: {},
+      lastCompletedPass: { home: null, away: null },
     };
   }
 }

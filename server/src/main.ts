@@ -11,8 +11,29 @@ import { HttpExceptionFilter } from './common/http-exception.filter';
 import { buildOriginPredicate } from './common/cors';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
   const config = app.get(ConfigService);
+
+  // A deployed PWA can otherwise remain pinned to an old precache for hours
+  // when a CDN applies a blanket cache rule to sw.js. This maintenance page is
+  // deliberately under /api/ (which the service worker never intercepts) and
+  // clears only service-worker/CacheStorage state in the requesting browser.
+  app.use('/api/pwa-refresh', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('CDN-Cache-Control', 'no-store');
+    res.type('html').send(`<!doctype html><meta charset="utf-8"><title>Updating KobeOS</title>
+      <body style="font-family:system-ui;padding:2rem">Updating KobeOS…
+      <script>
+        Promise.all([
+          'serviceWorker' in navigator
+            ? navigator.serviceWorker.getRegistrations().then((items) => Promise.all(items.map((item) => item.unregister())))
+            : Promise.resolve(),
+          'caches' in window
+            ? caches.keys().then((keys) => Promise.all(keys.map((key) => caches.delete(key))))
+            : Promise.resolve(),
+        ]).finally(() => location.replace('/?updated=' + Date.now()));
+      </script></body>`);
+  });
 
   // Prevent accidental schema sync in production — use migrations instead.
   if (
@@ -48,7 +69,16 @@ async function bootstrap() {
   ].filter((p): p is string => !!p);
   const spaPath = spaCandidates.find((p) => existsSync(join(p, 'index.html'))) ?? spaCandidates[0];
   if (existsSync(join(spaPath, 'index.html'))) {
-    app.use(expressStatic(spaPath, { index: false }));
+    app.use(expressStatic(spaPath, {
+      index: false,
+      setHeaders: (res, filePath) => {
+        const name = basename(filePath);
+        if (name === 'sw.js' || name === 'registerSW.js' || name === 'index.html') {
+          res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+          res.setHeader('CDN-Cache-Control', 'no-store');
+        }
+      },
+    }));
     Logger.log(`Serving SPA static files from ${spaPath}`, 'Bootstrap');
   } else {
     Logger.warn(
@@ -66,7 +96,25 @@ async function bootstrap() {
   app.useGlobalFilters(new HttpExceptionFilter());
 
   const cors = buildOriginPredicate();
-  app.enableCors({ origin: cors.predicate, credentials: true });
+  // Developer API preflights cannot carry the project Authorization header,
+  // and third-party web apps are intentionally outside KobeOS's first-party
+  // origin list. Use a request-aware CORS policy so only /developer/v1 can
+  // reflect a third-party origin. The controller still validates every actual
+  // request against the API key project's allowedOrigins list.
+  app.enableCors((req, callback) => {
+    const path = typeof req.path === 'string' ? req.path : req.url;
+    if (path.startsWith('/api/developer/v1')) {
+      callback(null, {
+        origin: true,
+        credentials: false,
+        methods: ['POST', 'OPTIONS'],
+        allowedHeaders: ['Authorization', 'Content-Type'],
+        maxAge: 86_400,
+      });
+      return;
+    }
+    callback(null, { origin: cors.predicate, credentials: true });
+  });
   // Log the effective CORS config at boot so a misconfig is loud
   // instead of silently 4xx'ing every browser fetch (which the SPA
   // then reports as "Backend unreachable" via OfflineWriteQueuedError).
@@ -123,6 +171,8 @@ async function bootstrap() {
     }
     const indexPath = join(spaPath, 'index.html');
     if (existsSync(indexPath)) {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+      res.setHeader('CDN-Cache-Control', 'no-store');
       res.sendFile(indexPath);
     } else {
       next();

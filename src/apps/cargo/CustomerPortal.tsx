@@ -5,15 +5,14 @@ import {
   CheckCircle2, ArrowRight, ArrowLeft, Search,
   Box, Clock, DollarSign, Shield, ChevronRight,
   Truck, Wifi, WifiOff, FileText, Upload, Download,
-  ScanLine, Phone, Mail, Globe, Star, X, Navigation,
-  ClipboardList, TrendingUp, CalendarDays, Loader2,
-  ChevronDown,
+  ScanLine,
+  ClipboardList, Loader2,
 } from 'lucide-react';
 import { useCargoParcels, type ApiParcel } from '@/hooks/useCargoParcels';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';

@@ -1,5 +1,5 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import MobileShell, { MobileHome } from './MobileShell';
+import MobileShell, { MobileHome, MobileModules } from './MobileShell';
 import MobilePOS from './MobilePOS';
 import MobilePO from './MobilePO';
 import MobileImageOrder from './MobileImageOrder';
@@ -13,6 +13,9 @@ import MobileCargoPack from './MobileCargoPack';
 import MobileDispatch from './MobileDispatch';
 import MobileHotel from './MobileHotel';
 import MobileLipa from './MobileLipa';
+import MobileDiscountApprovals from './MobileDiscountApprovals';
+import MobileLiveSales from './MobileLiveSales';
+import MobileHotelDepartmentOrder from './MobileHotelDepartmentOrder';
 
 /**
  * Self-contained router for the /m/:slug mobile webapp. main.tsx dispatches
@@ -26,8 +29,10 @@ export default function MobileRoot() {
       <Routes>
         <Route path="/m/:slug" element={<MobileShell />}>
           <Route index element={<MobileHome />} />
+          <Route path="modules" element={<MobileModules />} />
           <Route path="pos" element={<MobilePOS />} />
           <Route path="po" element={<MobilePO />} />
+          <Route path="discounts" element={<MobileDiscountApprovals />} />
           <Route path="image-order" element={<MobileImageOrder />} />
           <Route path="eod" element={<MobileEod />} />
           <Route path="summary" element={<MobileSummary />} />
@@ -38,7 +43,12 @@ export default function MobileRoot() {
           <Route path="cargo-pack" element={<MobileCargoPack />} />
           <Route path="dispatch" element={<MobileDispatch />} />
           <Route path="hotel" element={<MobileHotel />} />
+          <Route path="hotel/bar" element={<MobileHotelDepartmentOrder department="bar" />} />
+          <Route path="hotel/kitchen" element={<MobileHotelDepartmentOrder department="kitchen" />} />
+          <Route path="hotel/cleaning" element={<MobileHotelDepartmentOrder department="cleaning" />} />
+          <Route path="hotel/room-amenities" element={<MobileHotelDepartmentOrder department="room-amenities" />} />
           <Route path="lipa" element={<MobileLipa />} />
+          <Route path="live-sales" element={<MobileLiveSales />} />
         </Route>
       </Routes>
     </BrowserRouter>

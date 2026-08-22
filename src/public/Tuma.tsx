@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/ban-ts-comment */
 // @ts-nocheck
 import { useState, useEffect, useRef, useMemo } from "react";
 import {
@@ -1104,7 +1105,7 @@ function PayView({ t, onPaid }) {
 
 function BookView({ t, transfers, reload }) {
   const [q, setQ] = useState("");
-  useEffect(() => { reload(); /* eslint-disable-next-line */ }, []);
+  useEffect(() => { reload();   }, []);
 
   const today = new Date().toDateString();
   const paidToday = transfers.filter((x) => x.paidAt && new Date(x.paidAt).toDateString() === today);
@@ -1158,3 +1159,5 @@ function BookView({ t, transfers, reload }) {
     </div>
   );
 }
+/* eslint-disable @typescript-eslint/ban-ts-comment */
+// @ts-nocheck

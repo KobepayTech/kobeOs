@@ -13,6 +13,8 @@ export interface ChatCompletionOptions {
   model?: string;
   temperature?: number;
   maxTokens?: number;
+  /** Lower-latency profile used by the phone/web assistant. */
+  mode?: 'fast' | 'quality';
   /** Cancels the Ollama request when the client disconnects or presses Stop. */
   signal?: AbortSignal;
 }
@@ -145,8 +147,9 @@ export class AiService {
     }
     const release = await this.acquireSlot(options.signal);
     try {
-      const messages = this.prepareMessages(options.messages);
-      const model = await this.routeModel(options.model, messages);
+      const fast = options.mode === 'fast';
+      const messages = this.prepareMessages(options.messages, fast);
+      const model = await this.routeModel(options.model, messages, fast);
       const res = await this.fetchWithRetry(`${this.ollamaUrl}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -154,13 +157,15 @@ export class AiService {
           model,
           messages,
           stream: false,
+          keep_alive: '30m',
           options: {
             temperature: options.temperature ?? 0.45,
-            num_predict: Math.min(Math.max(options.maxTokens ?? 2048, 64), 8192),
+            num_ctx: fast ? 4096 : 8192,
+            num_predict: Math.min(Math.max(options.maxTokens ?? (fast ? 384 : 2048), 64), 8192),
           },
         }),
         signal: options.signal,
-      }, this.requestTimeoutMs, 2);
+      }, fast ? Math.min(this.requestTimeoutMs, 45_000) : this.requestTimeoutMs, fast ? 0 : 2);
       const data = await res.json() as {
         message?: { content?: string };
         model?: string;
@@ -214,10 +219,10 @@ export class AiService {
    * best-effort {name, category, description, tags[]} the operator can edit.
    * Never invents price/cost. Falls back to a plain description on parse fail.
    */
-  async describeProductImage(image: string): Promise<{ name: string; category: string; description: string; tags: string[]; raw: string }> {
+  async describeProductImage(image: string): Promise<{ name: string; category: string; description: string; tags: string[]; colours: string[]; sizes: string[]; raw: string }> {
     const raw = await this.describeImage(
       image,
-      'You are cataloguing a product from its photo. Reply with ONLY a JSON object: {"name": short product name, "category": one category word, "description": one selling sentence, "tags": [3-6 short keywords]}. Do not invent price or brand you cannot see.',
+      'You are cataloguing a product from its photo. Reply with ONLY a JSON object: {"name": short product name, "category": one category word, "description": one selling sentence, "tags": [3-6 short keywords], "colours": [visible colours], "sizes": [visible or printed sizes]}. Do not invent price, brand, colour, or size you cannot see; use empty arrays when uncertain.',
       'You are a precise retail cataloguer. Output only JSON.',
     );
     try {
@@ -228,10 +233,12 @@ export class AiService {
         category: String(obj.category ?? '').slice(0, 60),
         description: String(obj.description ?? '').slice(0, 400),
         tags: Array.isArray(obj.tags) ? obj.tags.map((t: unknown) => String(t).slice(0, 40)).slice(0, 6) : [],
+        colours: Array.isArray(obj.colours) ? obj.colours.map((t: unknown) => String(t).slice(0, 40)).slice(0, 12) : [],
+        sizes: Array.isArray(obj.sizes) ? obj.sizes.map((t: unknown) => String(t).slice(0, 40)).slice(0, 12) : [],
         raw,
       };
     } catch {
-      return { name: '', category: '', description: raw.slice(0, 400), tags: [], raw };
+      return { name: '', category: '', description: raw.slice(0, 400), tags: [], colours: [], sizes: [], raw };
     }
   }
 
@@ -325,12 +332,12 @@ export class AiService {
     } catch (error) { return { success: false, message: this.friendlyError(error).message }; }
   }
 
-  private prepareMessages(input: ChatMessage[]): ChatMessage[] {
+  private prepareMessages(input: ChatMessage[], fast = false): ChatMessage[] {
     const valid = input
       .filter((message) => ['system', 'user', 'assistant'].includes(message.role) && typeof message.content === 'string')
       .map((message) => ({ ...message, content: message.content.slice(0, 20_000), images: message.images?.slice(0, 4) }));
     const system = valid.filter((message) => message.role === 'system').slice(-1);
-    const conversation = valid.filter((message) => message.role !== 'system').slice(-30);
+    const conversation = valid.filter((message) => message.role !== 'system').slice(fast ? -8 : -30);
     const languageRule: ChatMessage = {
       role: 'system',
       content: 'Answer in the same language as the user. Be accurate and concise. Never claim that an external or business action succeeded unless a confirmed tool result says it succeeded. Do not reveal hidden reasoning.',
@@ -345,7 +352,7 @@ export class AiService {
       .trim();
   }
 
-  private async routeModel(requested: string | undefined, messages: ChatMessage[]): Promise<string> {
+  private async routeModel(requested: string | undefined, messages: ChatMessage[], fast = false): Promise<string> {
     const installed = await this.getInstalledModelNames();
     if (!installed.length) {
       throw new Error('Ollama is running but no model is installed. Install a recommended chat model in Kobe Models.');
@@ -358,7 +365,9 @@ export class AiService {
     const needsVision = messages.some((message) => message.images?.length);
     const preferred = needsVision
       ? [this.config.get('OLLAMA_VISION_MODEL', 'qwen2.5vl:7b'), 'llava:7b', 'moondream:1.8b']
-      : [this.activeModel, 'qwen2.5:7b', 'mistral:7b', 'llama3:8b', 'phi3:mini'];
+      : fast
+        ? [this.config.get('OLLAMA_FAST_MODEL', 'kobechat-fast'), 'phi3:mini', this.activeModel, 'qwen2.5:7b', 'mistral:7b']
+        : [this.activeModel, 'qwen2.5:7b', 'mistral:7b', 'llama3:8b', 'phi3:mini'];
     return preferred.find((candidate) => installed.some((name) => name === candidate || name.split(':')[0] === candidate.split(':')[0]))
       || installed[0];
   }

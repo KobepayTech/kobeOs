@@ -58,4 +58,12 @@ export class PropertyPaymentToken extends OwnedEntity {
 
   @Column('uuid', { nullable: true })
   agentId?: string | null;
+
+  /**
+   * Idempotency keys already applied to this token. A retried redeem carrying a
+   * key we've seen is a no-op (returns the current state) instead of adding the
+   * amount / inserting a duplicate RentPayment.
+   */
+  @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })
+  redeemedKeys!: string[];
 }

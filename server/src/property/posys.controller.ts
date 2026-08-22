@@ -85,10 +85,9 @@ export class PosysController {
 }
 
 /**
- * Token lookup + redeem for an agent terminal that doesn't hold the
- * landlord's JWT session. Rate-limited hard so the 6-digit code space
- * (1M entries) can't be brute-forced: 20 lookups per minute per IP,
- * 5 redeems per minute per IP.
+ * Public token lookup and tenant/lawyer portals. Cash redemption is handled
+ * by PropertyCollectionPortalController, which requires an authenticated
+ * collection-partner session before it can change token state.
  *
  * `lookup` intentionally does NOT mutate — expiry sweeps happen in
  * `listTokens` and are also checked at `redeem` time. That keeps
@@ -121,12 +120,4 @@ export class PosysTokensController {
     return this.svc.contractByToken(code.trim().toUpperCase());
   }
 
-  @Throttle({ default: { limit: 5, ttl: 60_000 } })
-  @Post(':code/redeem')
-  redeem(
-    @Param('code') code: string,
-    @Body() dto: { amountReceived: number; agentId?: string },
-  ) {
-    return this.svc.redeemToken(code.trim().toUpperCase(), dto);
-  }
 }

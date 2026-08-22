@@ -15,7 +15,7 @@
  * RuView transition for that room within 5 minutes gets attributed to the
  * staff member. The right gate for "only cleaner can enter after checkout".
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';

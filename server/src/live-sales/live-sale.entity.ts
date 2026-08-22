@@ -11,6 +11,7 @@ import { OwnedEntity } from '../common/owned.entity';
  */
 export type LivePlatform = 'instagram' | 'tiktok' | 'facebook' | 'youtube' | 'other';
 export type LiveStatus = 'LIVE' | 'ENDED';
+export type LiveKind = 'live' | 'post';
 
 @Entity('live_sessions')
 @Index(['ownerId', 'status'])
@@ -21,8 +22,22 @@ export class LiveSession extends OwnedEntity {
   @Column({ default: 'other' })
   platform!: LivePlatform;
 
+  /** Connected social account that owns the live comments for this session. */
+  @Column('uuid', { nullable: true })
+  socialAccountId?: string | null;
+
   @Column({ default: 'LIVE' })
   status!: LiveStatus;
+
+  /** 'live' = a livestream session; 'post' = an ad/post campaign whose comments
+   *  are polled (e.g. via Apify) rather than streamed. Post campaigns aren't
+   *  gated by LIVE status. */
+  @Column({ default: 'live' })
+  kind!: LiveKind;
+
+  /** For a 'post' campaign: the ad/post URL whose comments we poll. */
+  @Column({ default: '' })
+  postUrl!: string;
 
   /** Opaque token an external comment-bridge uses to POST into the public
    *  ingest endpoint without a JWT. Rotated by starting a new session. */
@@ -73,11 +88,15 @@ export class LivePin extends OwnedEntity {
   @Column({ type: 'decimal', precision: 18, scale: 2, default: 0 })
   livePrice!: number;
 
+  /** The "NOW SHOWING" product on the live catalog. One per session. */
+  @Column({ default: false })
+  isFeatured!: boolean;
+
   @Column({ default: 0 })
   soldQty!: number;
 }
 
-export type LiveCommentStatus = 'NEW' | 'MATCHED' | 'CONVERTED' | 'IGNORED' | 'FAILED';
+export type LiveCommentStatus = 'NEW' | 'MATCHED' | 'RESERVED' | 'CONVERTED' | 'IGNORED' | 'FAILED' | 'EXPIRED';
 
 @Entity('live_comments')
 @Index(['ownerId', 'sessionId', 'status'])
@@ -89,6 +108,11 @@ export class LiveComment extends OwnedEntity {
   /** Where the comment came from: manual console, an external bridge, etc. */
   @Column({ default: 'manual' })
   source!: string;
+
+  /** Platform's own comment id, used to de-duplicate polled (Apify) comments. */
+  @Index()
+  @Column({ default: '' })
+  externalId!: string;
 
   @Column({ default: '' })
   buyerHandle!: string;
@@ -117,6 +141,21 @@ export class LiveComment extends OwnedEntity {
   @Index()
   @Column('uuid', { nullable: true })
   orderId?: string | null;
+
+  /** Public checkout token — the buyer opens /live/pay/{token} to pay. */
+  @Index()
+  @Column({ default: '' })
+  checkoutToken!: string;
+
+  /** Short human code the moderator reads out (e.g. "K7Q4") so the buyer can
+   *  pull up their reservation on the catalog page. */
+  @Index()
+  @Column({ default: '' })
+  reservationCode!: string;
+
+  /** RESERVED expiry — stock is held until this time, then auto-released. */
+  @Column({ type: 'timestamptz', nullable: true })
+  reservedUntil?: Date | null;
 
   @Column({ type: 'text', default: '' })
   note!: string;

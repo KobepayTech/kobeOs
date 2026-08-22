@@ -22,52 +22,125 @@ const REFRESH_KEY = 'kobe_refresh_token';
 const LEGACY_TOKEN_KEYS = ['kobe_access_token', 'kobeos_access_token', 'access_token'] as const;
 const LEGACY_REFRESH_KEYS = ['kobe_refresh_token', 'kobeos_refresh_token'] as const;
 
+// The Electron KV store is asynchronous, while most callers need a
+// synchronous token read when constructing request headers. Keep a small
+// in-memory cache that is hydrated before the React tree mounts. This also
+// keeps sessions working when browser localStorage is disabled or cleared.
+let cachedToken: string | null | undefined;
+let cachedRefreshToken: string | null | undefined;
+let tokenHydration: Promise<void> | null = null;
+
 function db() {
   return (window as any).kobeOS?.db ?? null;
 }
 
+function readStorage(key: string): string | null {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+
+function writeStorage(key: string, value: string | null): void {
+  try {
+    if (value) localStorage.setItem(key, value);
+    else localStorage.removeItem(key);
+  } catch { /* private mode or storage disabled */ }
+}
+
+/**
+ * Hydrate the synchronous request cache from the Electron KV store. The
+ * browser path resolves immediately. Calling this once before mounting the
+ * app prevents a valid desktop session from being mistaken for a logged-out
+ * session after a restart.
+ */
+export async function hydrateTokens(): Promise<void> {
+  if (tokenHydration) return tokenHydration;
+  tokenHydration = (async () => {
+    const localToken = readStorage(TOKEN_KEY) ?? migrateLegacyToken();
+    const localRefresh = readStorage(REFRESH_KEY) ?? migrateLegacyRefreshToken();
+    let storedToken: string | null = null;
+    let storedRefresh: string | null = null;
+    const localDb = db();
+    if (localDb?.kvGet) {
+      [storedToken, storedRefresh] = await Promise.all([
+        Promise.resolve(localDb.kvGet(TOKEN_KEY)).catch(() => null),
+        Promise.resolve(localDb.kvGet(REFRESH_KEY)).catch(() => null),
+      ]);
+    }
+
+    const token = localToken ?? storedToken;
+    const refresh = localRefresh ?? storedRefresh;
+    cachedToken = token;
+    cachedRefreshToken = refresh;
+
+    // Backfill localStorage so code outside this module and future launches
+    // see the same session, while retaining the DB copy for Electron.
+    if (!localToken && token) writeStorage(TOKEN_KEY, token);
+    if (!localRefresh && refresh) writeStorage(REFRESH_KEY, refresh);
+  })().catch(() => {
+    // Never block app startup because local persistence is unavailable.
+    cachedToken = readStorage(TOKEN_KEY) ?? migrateLegacyToken();
+    cachedRefreshToken = readStorage(REFRESH_KEY) ?? migrateLegacyRefreshToken();
+  });
+  return tokenHydration;
+}
+
 export function getToken(): string | null {
+  if (cachedToken !== undefined) return cachedToken;
   try {
     const primary = localStorage.getItem(TOKEN_KEY);
-    if (primary) return primary;
+    if (primary) {
+      cachedToken = primary;
+      return primary;
+    }
     // Fall back to legacy keys AND migrate forward so the shim
     // self-retires on the next read.
-    return migrateLegacyToken();
+    const migrated = migrateLegacyToken();
+    cachedToken = migrated;
+    return migrated;
   } catch { return null; }
 }
 
 export function setToken(token: string | null) {
+  cachedToken = token;
   try {
     if (token) {
       localStorage.setItem(TOKEN_KEY, token);
-      db()?.kvSet(TOKEN_KEY, token);
+      void db()?.kvSet(TOKEN_KEY, token).catch(() => {});
     } else {
       localStorage.removeItem(TOKEN_KEY);
-      db()?.kvDel(TOKEN_KEY);
+      void db()?.kvDel(TOKEN_KEY).catch(() => {});
     }
   } catch { /* ignore */ }
 }
 
 export function getRefreshToken(): string | null {
+  if (cachedRefreshToken !== undefined) return cachedRefreshToken;
   try {
     const primary = localStorage.getItem(REFRESH_KEY);
-    if (primary) return primary;
+    if (primary) {
+      cachedRefreshToken = primary;
+      return primary;
+    }
     for (const k of LEGACY_REFRESH_KEYS) {
       const v = localStorage.getItem(k);
-      if (v) return v;
+      if (v) {
+        cachedRefreshToken = v;
+        return v;
+      }
     }
+    cachedRefreshToken = null;
     return null;
   } catch { return null; }
 }
 
 export function setRefreshToken(token: string | null) {
+  cachedRefreshToken = token;
   try {
     if (token) {
       localStorage.setItem(REFRESH_KEY, token);
-      db()?.kvSet(REFRESH_KEY, token);
+      void db()?.kvSet(REFRESH_KEY, token).catch(() => {});
     } else {
       localStorage.removeItem(REFRESH_KEY);
-      db()?.kvDel(REFRESH_KEY);
+      void db()?.kvDel(REFRESH_KEY).catch(() => {});
     }
   } catch { /* ignore */ }
 }
@@ -105,6 +178,21 @@ function migrateLegacyToken(): string | null {
   return null;
 }
 
+function migrateLegacyRefreshToken(): string | null {
+  try {
+    for (const k of LEGACY_REFRESH_KEYS) {
+      if (k === REFRESH_KEY) continue;
+      const v = localStorage.getItem(k);
+      if (v) {
+        localStorage.setItem(REFRESH_KEY, v);
+        localStorage.removeItem(k);
+        return v;
+      }
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
 // ── API base URL ──────────────────────────────────────────────────────────────
 
 function isElectronRenderer(): boolean {
@@ -126,6 +214,17 @@ export const API_BASE =
   (isElectronRenderer()
     ? 'http://127.0.0.1:3000/api'
     : import.meta.env.DEV ? 'http://localhost:3000/api' : '/api');
+
+// Runtime override: when the internet base is unreachable, LAN failover points
+// the app at the server's WiFi address instead (see src/lib/lan.ts). apiBase()
+// is the effective base every request uses; API_BASE stays the default.
+let _runtimeBase: string | null = null;
+export function apiBase(): string {
+  return _runtimeBase ?? API_BASE;
+}
+export function setRuntimeApiBase(base: string | null): void {
+  _runtimeBase = base;
+}
 
 // ── Backend reachability ──────────────────────────────────────────────────────
 
@@ -321,19 +420,36 @@ async function refreshAccessToken(): Promise<boolean> {
   const rt = getRefreshToken();
   if (!rt) return false;
   refreshInFlight = (async () => {
+    // Network and temporary server failures intentionally propagate to the
+    // caller. Converting them to `false` would expose the original 401 and
+    // cause startup code to erase an otherwise valid saved session.
     try {
-      const res = await fetch(`${API_BASE}/auth/refresh`, {
+      const res = await fetch(`${apiBase()}/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refreshToken: rt }),
       });
-      if (!res.ok) { clearTokens(); return false; }
+      // Another tab may have rotated the refresh token while this request was
+      // in flight. Do not erase that newer session when the old token fails.
+      if (!res.ok) {
+        // Only a definitive authentication rejection should end the local
+        // session. Temporary gateway/rate-limit/server failures must leave the
+        // refresh token in place so the user remains signed in and can retry.
+        if (res.status === 400 || res.status === 401 || res.status === 403) {
+          if (getRefreshToken() === rt) clearTokens();
+          return false;
+        }
+        throw new ApiError(res.status, res.statusText || `HTTP ${res.status}`);
+      }
       const body = (await res.json()) as { accessToken: string; refreshToken: string };
+      if (!body.accessToken || !body.refreshToken) {
+        // A malformed success response is a server problem, not proof that the
+        // stored credentials are invalid.
+        throw new ApiError(502, 'Token refresh returned an invalid response');
+      }
       setToken(body.accessToken);
       setRefreshToken(body.refreshToken);
       return true;
-    } catch {
-      return false;
     } finally {
       refreshInFlight = null;
     }
@@ -368,7 +484,7 @@ async function rawFetch(path: string, init: RequestInit, attachAuth: boolean): P
   } catch {
     /* storage disabled */
   }
-  return fetch(`${API_BASE}${path}`, { ...init, headers });
+  return fetch(`${apiBase()}${path}`, { ...init, headers });
 }
 
 // ── Main api() ────────────────────────────────────────────────────────────────
@@ -492,4 +608,57 @@ export async function fetchObjectUrl(path: string): Promise<string> {
 
 function safeJson(s: string): unknown {
   try { return JSON.parse(s); } catch { return s; }
+}
+
+/**
+ * Convert the list shapes used by current, paginated, and legacy KobeOS APIs
+ * into a plain array. Keeping this at the HTTP boundary prevents a malformed
+ * or wrapped response from crashing an entire module with `.map`/`.filter`
+ * errors.
+ */
+export function apiArray<T>(
+  value: unknown,
+  preferredKeys: readonly string[] = [],
+): T[] {
+  if (Array.isArray(value)) return value as T[];
+  if (!value || typeof value !== 'object') return [];
+
+  const record = value as Record<string, unknown>;
+  const keys = [
+    ...preferredKeys,
+    'items',
+    'data',
+    'rows',
+    'results',
+    'records',
+    'models',
+    'projects',
+    'apps',
+    'entitlements',
+  ];
+
+  for (const key of [...new Set(keys)]) {
+    const candidate = record[key];
+    if (Array.isArray(candidate)) return candidate as T[];
+    if (candidate && typeof candidate === 'object') {
+      const nested = candidate as Record<string, unknown>;
+      for (const nestedKey of ['items', 'rows', 'results', 'records', ...preferredKeys]) {
+        if (Array.isArray(nested[nestedKey])) return nested[nestedKey] as T[];
+      }
+    }
+  }
+  return [];
+}
+
+/** Unwrap common `{ data: value }` / `{ result: value }` response envelopes. */
+export function apiObject<T>(value: unknown): T | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  for (const key of ['data', 'result']) {
+    const candidate = record[key];
+    if (candidate && typeof candidate === 'object' && !Array.isArray(candidate)) {
+      return candidate as T;
+    }
+  }
+  return value as T;
 }

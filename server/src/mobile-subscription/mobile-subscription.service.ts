@@ -6,12 +6,45 @@ import {
   MobileSubscription,
   MOBILE_SUB_PRICE_TZS,
   MOBILE_TRIAL_MS,
+  MOBILE_MODULE_TRIAL_MS,
   MOBILE_PERIOD_MS,
+  type MobileSubStatus,
 } from './mobile-subscription.entity';
 import { PalmPesaService } from '../creators/palmpesa.service';
 import type { PalmPesaCallback } from '../creators/palmpesa.service';
 
 export type MobileAccess = 'active' | 'trial' | 'expired';
+
+export interface MobileModuleDefinition {
+  id: string;
+  name: string;
+  description: string;
+  priceTzs: number;
+  included: boolean;
+}
+
+/**
+ * Mobile modules are products of their own. Core selling tools ship with the
+ * base mobile subscription; operational add-ons are hidden until purchased.
+ */
+export const MOBILE_MODULE_CATALOG: MobileModuleDefinition[] = [
+  { id: 'pos', name: 'POS', description: 'Sell products and take payment from a phone.', priceTzs: 0, included: true },
+  { id: 'inventory', name: 'Inventory', description: 'Check shared stock and product availability.', priceTzs: 0, included: true },
+  { id: 'orders', name: 'Orders', description: 'Review store and POS orders.', priceTzs: 0, included: true },
+  { id: 'image-order', name: 'Order from image', description: 'Turn an annotated customer image into an order.', priceTzs: 0, included: true },
+  { id: 'po', name: 'Purchasing', description: 'Create and receive purchase orders.', priceTzs: 0, included: true },
+  { id: 'discounts', name: 'Discount approvals', description: 'Approve, counter, or reject cashier discount requests.', priceTzs: 0, included: true },
+  { id: 'dispatch', name: 'Dispatch', description: 'Pack, assign, and dispatch deliveries.', priceTzs: 35_000, included: false },
+  { id: 'hotel', name: 'Hotel', description: 'Run hotel operations as a separate mobile app.', priceTzs: 50_000, included: false },
+  { id: 'lipa', name: 'Lipa', description: 'Mobile collections and payment operations.', priceTzs: 30_000, included: false },
+  { id: 'eod', name: 'Till & EOD', description: 'Close tills and complete end-of-day checks.', priceTzs: 20_000, included: false },
+  { id: 'summary', name: 'Business summary', description: 'Mobile sales and expense summaries.', priceTzs: 20_000, included: false },
+];
+
+export interface MobileModuleAccess extends MobileModuleDefinition {
+  enabled: boolean;
+  expiresAt: number | null;
+}
 
 export interface MobileAccessResult {
   slug: string;
@@ -23,6 +56,8 @@ export interface MobileAccessResult {
   periodEndsAt: number | null;
   /** Whole hours left in the trial (0 unless access === 'trial'). */
   hoursRemaining: number;
+  modules: MobileModuleAccess[];
+  enabledModules: string[];
 }
 
 /** PalmPesa reference prefix — routes callbacks back here (see WebhookService). */
@@ -42,8 +77,14 @@ export class MobileSubscriptionService {
     return (slug ?? '').trim().toLowerCase();
   }
 
+  private baseStatus(sub: MobileSubscription, now = Date.now()): MobileSubStatus {
+    if (sub.currentPeriodEndsAt && sub.currentPeriodEndsAt.getTime() > now) return 'active';
+    if (!sub.currentPeriodEndsAt && sub.trialEndsAt && sub.trialEndsAt.getTime() > now) return 'trialing';
+    return 'expired';
+  }
+
   /**
-   * Resolve a shop's current access. Lazily starts the 48h trial the first
+   * Resolve a shop's current access. Lazily starts the 14-day trial the first
    * time a shop is seen. Access is derived from timestamps (paid period wins,
    * else an unused trial that's still valid, else expired) so it can't drift
    * from a stale status column.
@@ -63,7 +104,17 @@ export class MobileSubscriptionService {
           amountTzs: 0,
         }),
       );
-      this.logger.log(`Mobile trial started for shop "${slug}" (48h).`);
+      this.logger.log(`Mobile trial started for shop "${slug}" (14 days).`);
+    }
+
+    // Upgrade active legacy 48-hour trials to the current 14-day policy
+    // without restarting trials for shops older than fourteen days.
+    if (!sub.currentPeriodEndsAt && sub.trialEndsAt && sub.createdAt) {
+      const policyEnd = sub.createdAt.getTime() + MOBILE_TRIAL_MS;
+      if (sub.trialEndsAt.getTime() < policyEnd && policyEnd > now) {
+        sub.trialEndsAt = new Date(policyEnd);
+        await this.repo.save(sub);
+      }
     }
 
     const paidActive = !!sub.currentPeriodEndsAt && sub.currentPeriodEndsAt.getTime() > now;
@@ -80,6 +131,17 @@ export class MobileSubscriptionService {
       await this.repo.save(sub);
     }
 
+    const entitlements = sub.moduleEntitlements ?? {};
+    const modules = MOBILE_MODULE_CATALOG.map<MobileModuleAccess>((module) => {
+      const parsedExpiry = module.included ? NaN : Date.parse(entitlements[module.id] ?? '');
+      const expiresAt = Number.isFinite(parsedExpiry) ? parsedExpiry : null;
+      return {
+        ...module,
+        enabled: module.included || (expiresAt !== null && expiresAt > now),
+        expiresAt,
+      };
+    });
+
     return {
       slug,
       access,
@@ -89,6 +151,8 @@ export class MobileSubscriptionService {
       hoursRemaining: trialActive
         ? Math.max(0, Math.ceil((sub.trialEndsAt!.getTime() - now) / 3_600_000))
         : 0,
+      modules,
+      enabledModules: modules.filter((module) => module.enabled).map((module) => module.id),
     };
   }
 
@@ -117,17 +181,109 @@ export class MobileSubscriptionService {
     sub.palmPesaOrderId = order_id;
     sub.amountTzs = MOBILE_SUB_PRICE_TZS;
     sub.status = 'pending';
+    sub.pendingModuleId = null;
     sub.lastPaidByUserId = userId ?? null;
+    sub.callbackPayload = null;
+    sub.palmPesaTransId = null;
+    sub.channel = null;
     await this.repo.save(sub);
 
     return { transactionId, orderId: order_id, amount: MOBILE_SUB_PRICE_TZS, slug };
+  }
+
+  /** Install one optional module without requiring a configured payment
+   * provider. The first install gets a single 14-day trial. An expired
+   * entitlement remains in the JSON map, which prevents trial resets. */
+  async installModuleTrial(slugRaw: string, moduleId: string) {
+    const slug = this.norm(slugRaw);
+    if (!slug) throw new BadRequestException('slug is required');
+    const module = MOBILE_MODULE_CATALOG.find((item) => item.id === moduleId);
+    if (!module) throw new BadRequestException('Unknown mobile module');
+    if (module.included) {
+      return { moduleId, status: 'active', trialEndsAt: null, included: true };
+    }
+
+    const access = await this.getAccess(slug);
+    if (access.access === 'expired') {
+      throw new BadRequestException('Renew the base mobile subscription before adding modules');
+    }
+
+    const sub = await this.repo.findOne({ where: { slug } });
+    if (!sub) throw new NotFoundException('Mobile subscription not found');
+    const previous = sub.moduleEntitlements?.[module.id];
+    const previousExpiry = Date.parse(previous ?? '');
+    if (Number.isFinite(previousExpiry) && previousExpiry > Date.now()) {
+      return { moduleId, status: 'active', trialEndsAt: previousExpiry, included: false };
+    }
+    if (previous) {
+      throw new BadRequestException(
+        `${module.name} trial has ended. Configure PalmPesa to renew this module.`,
+      );
+    }
+
+    const trialEndsAt = Date.now() + MOBILE_MODULE_TRIAL_MS;
+    sub.moduleEntitlements = {
+      ...(sub.moduleEntitlements ?? {}),
+      [module.id]: new Date(trialEndsAt).toISOString(),
+    };
+    await this.repo.save(sub);
+    this.logger.log(`Mobile module "${module.id}" trial ACTIVE for shop "${slug}" (14 days).`);
+    return { moduleId, status: 'trial', trialEndsAt, included: false };
+  }
+
+  /** Start a separate 30-day subscription for one optional mobile module. */
+  async subscribeModule(slugRaw: string, userId: string, msisdn: string, moduleId: string) {
+    const slug = this.norm(slugRaw);
+    if (!slug) throw new BadRequestException('slug is required');
+    const module = MOBILE_MODULE_CATALOG.find((item) => item.id === moduleId);
+    if (!module || module.included) throw new BadRequestException('Unknown or included module');
+
+    const access = await this.getAccess(slug);
+    if (access.access === 'expired') {
+      throw new BadRequestException('Renew the base mobile subscription before adding modules');
+    }
+    if (access.enabledModules.includes(module.id)) {
+      throw new BadRequestException(`${module.name} is already active`);
+    }
+
+    const transactionId = `${TX_PREFIX}${randomUUID()}`;
+    const { order_id } = await this.palmPesa.initiatePayment({
+      name: `KobeOS ${module.name} ${slug}`,
+      email: `${slug}@kobeos.local`,
+      phone: msisdn,
+      amountTzs: module.priceTzs,
+      transactionId,
+      description: `${module.name} mobile module (${slug}) — 30 days`,
+    });
+
+    const sub = await this.repo.findOne({ where: { slug } });
+    if (!sub) throw new NotFoundException('Mobile subscription not found');
+    sub.transactionId = transactionId;
+    sub.palmPesaOrderId = order_id;
+    sub.amountTzs = module.priceTzs;
+    sub.status = 'pending';
+    sub.pendingModuleId = module.id;
+    sub.lastPaidByUserId = userId ?? null;
+    sub.callbackPayload = null;
+    sub.palmPesaTransId = null;
+    sub.channel = null;
+    await this.repo.save(sub);
+
+    return { transactionId, orderId: order_id, amount: module.priceTzs, slug, moduleId: module.id };
   }
 
   /** Client polls this after the USSD push to learn when payment settled. */
   async getStatus(transactionId: string) {
     const sub = await this.repo.findOne({ where: { transactionId } });
     if (!sub) throw new NotFoundException('Transaction not found');
-    const result: Record<string, unknown> = { status: sub.status };
+    const moduleId = sub.pendingModuleId ?? null;
+    const moduleExpiry = moduleId ? Date.parse(sub.moduleEntitlements?.[moduleId] ?? '') : NaN;
+    const moduleActive = Number.isFinite(moduleExpiry) && moduleExpiry > Date.now();
+    const result: Record<string, unknown> = {
+      status: moduleId && moduleActive ? 'active' : sub.status,
+      moduleId,
+      moduleActive,
+    };
     if (sub.status === 'active' && sub.currentPeriodEndsAt) {
       result['periodEndsAt'] = sub.currentPeriodEndsAt.getTime();
     }
@@ -145,14 +301,40 @@ export class MobileSubscriptionService {
       return;
     }
 
+    const previousCallback = sub.callbackPayload as PalmPesaCallback | null | undefined;
+    if (
+      payload.payment_status === 'COMPLETED' &&
+      previousCallback?.payment_status === 'COMPLETED'
+    ) {
+      this.logger.log(`Ignoring duplicate mobile payment callback for ${transactionId}.`);
+      return;
+    }
     sub.callbackPayload = payload as unknown as Record<string, unknown>;
 
     if (payload.payment_status === 'COMPLETED') {
-      sub.status = 'active';
-      sub.currentPeriodEndsAt = new Date(Date.now() + MOBILE_PERIOD_MS);
+      const module = sub.pendingModuleId
+        ? MOBILE_MODULE_CATALOG.find((item) => item.id === sub.pendingModuleId)
+        : null;
+      if (module && !module.included) {
+        const now = Date.now();
+        const currentExpiry = Date.parse(sub.moduleEntitlements?.[module.id] ?? '');
+        const startsAt = Number.isFinite(currentExpiry) && currentExpiry > now ? currentExpiry : now;
+        sub.moduleEntitlements = {
+          ...(sub.moduleEntitlements ?? {}),
+          [module.id]: new Date(startsAt + MOBILE_PERIOD_MS).toISOString(),
+        };
+        sub.status = this.baseStatus(sub, now);
+        this.logger.log(`Mobile module "${module.id}" ACTIVE for shop "${sub.slug}" (30 days).`);
+      } else {
+        const now = Date.now();
+        const existingEnd = sub.currentPeriodEndsAt?.getTime() ?? 0;
+        const startsAt = Math.max(now, existingEnd);
+        sub.status = 'active';
+        sub.currentPeriodEndsAt = new Date(startsAt + MOBILE_PERIOD_MS);
+        this.logger.log(`Mobile subscription ACTIVE for shop "${sub.slug}" (30 days).`);
+      }
       sub.palmPesaTransId = payload.data?.[0]?.transid ?? null;
       sub.channel = payload.data?.[0]?.channel ?? null;
-      this.logger.log(`Mobile subscription ACTIVE for shop "${sub.slug}" (30 days).`);
     } else if (payload.payment_status === 'FAILED') {
       sub.status = 'failed';
       this.logger.warn(`Mobile subscription payment FAILED for shop "${sub.slug}".`);

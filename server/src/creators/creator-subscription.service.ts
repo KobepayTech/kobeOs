@@ -9,7 +9,6 @@ import { LessThan, Repository } from 'typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import {
   CreatorSubscription,
-  CreatorSubStatus,
   CreatorTier,
   TIER_PRICES,
 } from './creator-subscription.entity';

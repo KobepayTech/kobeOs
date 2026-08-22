@@ -20,12 +20,11 @@ export class HotelRoom extends OwnedEntity {
   capacity!: number;
 
   @Column({ default: 'available' })
-  status!: 'available' | 'occupied' | 'reserved' | 'maintenance';
+  status!: 'available' | 'occupied' | 'reserved' | 'cleaning' | 'maintenance';
 
-  /** Property this room belongs to (HotelTenant.id). Nullable for legacy rows
-   *  predating the multi-property switch — the controller treats missing
-   *  hotelId as "any property" so the legacy single-hotel dashboard keeps
-   *  working unchanged. */
+  @Column({ nullable: true, type: 'varchar' })
+  imageUrl?: string | null;
+
   @Index()
   @Column({ type: 'uuid', nullable: true })
   hotelId?: string | null;
@@ -88,8 +87,6 @@ export class HotelBooking extends OwnedEntity {
   @Column({ type: 'uuid', nullable: true })
   hotelId?: string | null;
 
-  /** PalmPesa order_id for an online booking — the webhook matches on this to
-   *  auto-confirm the right booking, unambiguously, even across many hotels. */
   @Index()
   @Column({ type: 'varchar', nullable: true })
   palmPesaOrderId?: string | null;
@@ -112,6 +109,15 @@ export class HotelTenant extends OwnedEntity {
 
   @Column({ default: 'TZS' })
   currency!: string;
+
+  @Column({ default: '' })
+  location!: string;
+
+  @Column({ default: '' })
+  phone!: string;
+
+  @Column({ default: '' })
+  email!: string;
 }
 
 @Entity('hotel_menu_items')
@@ -131,12 +137,12 @@ export class HotelMenuItem extends OwnedEntity {
   @Column({ default: true })
   available!: boolean;
 
-  /** Which station prepares this item — drives KDS routing. */
   @Column({ default: 'kitchen' })
   station!: 'kitchen' | 'bar' | 'other';
 
-  /** Scope to a single property when set; null = shared across the owner's
-   *  properties (common for small chains that run one menu). */
+  @Column({ nullable: true, type: 'varchar' })
+  imageUrl?: string | null;
+
   @Index()
   @Column({ type: 'uuid', nullable: true })
   hotelId?: string | null;
@@ -160,12 +166,14 @@ export class HotelOrder extends OwnedEntity {
   @Column()
   roomNumber!: string;
 
-  /** 'room' for in-room orders, 'table' for restaurant table orders. */
   @Column({ default: 'room' })
-  locationType!: 'room' | 'table';
+  locationType!: 'room' | 'table' | 'pickup' | 'delivery';
 
   @Column({ nullable: true, type: 'varchar' })
   guestName?: string | null;
+
+  @Column({ nullable: true, type: 'varchar' })
+  guestPhone?: string | null;
 
   @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })
   items!: HotelOrderItem[];
@@ -193,7 +201,6 @@ export class HotelServiceRequest extends OwnedEntity {
   @Column()
   roomNumber!: string;
 
-  /** HOUSEKEEPING | TOWELS | WAKE_UP | EXTEND_STAY | CHECKOUT | OTHER */
   @Column()
   kind!: string;
 

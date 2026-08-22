@@ -1,11 +1,8 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { api } from '@/lib/api';
 import {
-  Truck, MapPin, Phone, CheckCircle2, X, ArrowLeft,
-  Package, Clock, TrendingUp, Star, ChevronRight,
-  Navigation, CircleDot, Camera, PenLine, AlertTriangle,
-  LogOut, User, Wifi, WifiOff, Sun, Moon, Zap,
-  Smartphone, Signature, Send, Loader2,
+  Truck, MapPin, Phone, CheckCircle2, X, ArrowLeft, Clock, TrendingUp, Star, ChevronRight, CircleDot, Camera, PenLine, AlertTriangle,
+  LogOut, User, Signature,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';

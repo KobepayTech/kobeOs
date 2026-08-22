@@ -214,10 +214,12 @@ export class PosysService {
    * the expected amount, what's already been paid against this token, and
    * what remains. Never exposes ownerId or internal ids.
    */
-  async lookupTokenForAgent(code: string) {
-    const row = await this.tokens.findOne({ where: { code } });
+  async lookupTokenForAgent(code: string, ownerId?: string) {
+    const row = await this.tokens.findOne({
+      where: ownerId ? { code, ownerId } : { code },
+    });
     if (!row) throw new NotFoundException('Token not found');
-    const tenant = await this.tenants.findOne({ where: { id: row.tenantId } });
+    const tenant = await this.tenants.findOne({ where: { id: row.tenantId, ownerId: row.ownerId } });
     const expired = row.status === 'ACTIVE' && row.expiresAt.getTime() < Date.now();
     const expected = Number(row.amount);
     const paid = Number(row.usedAmount);
@@ -241,7 +243,7 @@ export class PosysService {
    * and rejects with "Token is used". Also sweeps EXPIRED here so an
    * expired-past-TTL row is refused inside the same critical section.
    */
-  async redeemToken(code: string, dto: { amountReceived: number; agentId?: string }): Promise<{
+  async redeemToken(code: string, dto: { amountReceived: number; agentId?: string; idempotencyKey?: string; method?: string; reference?: string }, ownerId?: string): Promise<{
     code: string;
     status: PropertyPaymentToken['status'];
     expected: number;
@@ -255,7 +257,10 @@ export class PosysService {
       const repo = tx.getRepository(PropertyPaymentToken);
       const row = await repo.createQueryBuilder('t')
         .setLock('pessimistic_write')
-        .where('t.code = :code', { code })
+        .where(
+          ownerId ? 't.code = :code AND t.ownerId = :ownerId' : 't.code = :code',
+          ownerId ? { code, ownerId } : { code },
+        )
         .getOne();
       if (!row) throw new NotFoundException('Token not found');
       // Fold expiry-sweep into the same critical section.
@@ -264,7 +269,25 @@ export class PosysService {
         await repo.save(row);
         throw new BadRequestException('Token is expired');
       }
+      const expected = Number(row.amount);
+      const key = dto.idempotencyKey?.trim();
+
+      // Idempotency: a retried redeem carrying a key we've already applied is a
+      // no-op — return the current state without adding the amount again or
+      // inserting a duplicate RentPayment.
+      if (key && Array.isArray(row.redeemedKeys) && row.redeemedKeys.includes(key)) {
+        const paid = Number(row.usedAmount);
+        return { code: row.code, status: row.status, expected, paid, remaining: Math.max(0, expected - paid), currency: row.currency, fullyPaid: paid >= expected };
+      }
+
       if (row.status !== 'ACTIVE') throw new BadRequestException(`Token is ${row.status.toLowerCase()}`);
+
+      // Overpayment cap: never accept more than the remaining balance, so the
+      // recorded rent can't exceed what was actually owed on this token.
+      const remaining = expected - Number(row.usedAmount);
+      if (dto.amountReceived > remaining + 1e-6) {
+        throw new BadRequestException(`Amount exceeds remaining balance (${Math.max(0, remaining)} ${row.currency})`);
+      }
 
       // Accumulate — a half payment leaves the SAME token ACTIVE so the tenant
       // completes it later with the same code. The token only closes (USED)
@@ -272,7 +295,7 @@ export class PosysService {
       row.usedAmount = Number(row.usedAmount) + dto.amountReceived;
       row.usedAt = new Date();
       row.agentId = dto.agentId ?? null;
-      const expected = Number(row.amount);
+      if (key) row.redeemedKeys = [...(row.redeemedKeys ?? []), key];
       const fullyPaid = row.usedAmount >= expected;
       if (fullyPaid) row.status = 'USED';
       await repo.save(row);
@@ -297,8 +320,8 @@ export class PosysService {
           currency: row.currency,
           forMonth: new Date(now.getFullYear(), now.getMonth(), 1),
           paidAt: now,
-          method: 'TOKEN',
-          reference: row.code,
+          method: dto.method ?? 'TOKEN',
+          reference: dto.reference?.trim() || row.code,
         }));
       }
 

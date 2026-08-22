@@ -1,4 +1,16 @@
-import { IsDateString, IsEnum, IsNumber, IsOptional, IsString, IsUUID } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  IsArray,
+  IsDateString,
+  IsEnum,
+  IsInt,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 
 export class CreateKobePayLinkDto {
   @IsString() kobepayBusinessId!: string;
@@ -24,6 +36,33 @@ export class CreatePurchaseOrderDto {
   @IsNumber() totalCny!: number;
   @IsOptional() @IsDateString() expectedDate?: string;
   @IsOptional() @IsString() notes?: string;
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => PurchaseOrderLineDto)
+  items?: PurchaseOrderLineDto[];
+  @IsOptional() @IsNumber() @Min(0)
+  transportCost?: number;
+}
+
+export class PurchaseOrderLineDto {
+  @IsString() name!: string;
+  @IsNumber() @Min(0.0001) qty!: number;
+  @IsNumber() @Min(0) price!: number;
+  @IsOptional() @IsNumber() @Min(0) sellPrice?: number;
+  @IsOptional() @IsString() sku?: string;
+  @IsOptional() @IsString() category?: string;
+  @IsOptional() @IsString() currency?: string;
+}
+
+export class ReceivePurchaseOrderLineDto {
+  @IsInt() @Min(0) lineIndex!: number;
+  @IsNumber() @Min(0) quantityReceived!: number;
+  @IsNumber() @Min(0) damagedQuantity!: number;
+}
+
+export class ReceivePurchaseOrderDto {
+  @IsOptional() @IsNumber() @Min(0)
+  transportCost?: number;
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => ReceivePurchaseOrderLineDto)
+  lines?: ReceivePurchaseOrderLineDto[];
 }
 
 export class CreatePoFromReceiptDto {

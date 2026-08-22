@@ -1,4 +1,5 @@
 import type { ComponentType, LazyExoticComponent } from 'react';
+import type { AppEntitlementSnapshot } from '@/lib/appMarketplace';
 
 /**
  * Represents a running window instance on the desktop.
@@ -109,6 +110,8 @@ export interface OSSettings {
   pinnedApps: string[];
   desktopIcons: DesktopIcon[];
 }
+
+export type AppEntitlements = Record<string, AppEntitlementSnapshot>;
 
 /**
  * Context menu item definition.

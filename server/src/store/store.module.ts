@@ -9,10 +9,17 @@ import { StoreController, StoreReviewsController } from './store.controller';
 import { TenantMiddleware } from '../store-settings/tenant.middleware';
 import { PosModule } from '../pos/pos.module';
 import { CreditModule } from '../credit/credit.module';
+import { Coupon } from '../discounts/discount.entity';
+import { LoyaltyCustomer, LoyaltyPointsEntry } from '../erp/erp.entity';
+import { LiveComment, LivePin, LiveSession } from '../live-sales/live-sale.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([StoreSettings, PosProduct, PosOrder, PosOrderItem, WarehousePickTicket, ProductReview]),
+    TypeOrmModule.forFeature([
+      StoreSettings, PosProduct, PosOrder, PosOrderItem, WarehousePickTicket, ProductReview,
+      Coupon, LoyaltyCustomer, LoyaltyPointsEntry,
+      LiveComment, LivePin, LiveSession,
+    ]),
     PosModule,
     CreditModule,
   ],

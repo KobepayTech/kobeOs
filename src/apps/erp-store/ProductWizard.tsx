@@ -5,8 +5,9 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
-import { Plus, Trash2, ChevronLeft, ChevronRight, Save, FileText, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Plus, Trash2, ChevronLeft, ChevronRight, Save, FileText, Loader2, CheckCircle2, AlertTriangle, Images } from 'lucide-react';
 import { PhotoUpload } from '@/components/PhotoUpload';
+import { StoreMediaGallery } from '@/components/StoreMediaGallery';
 import type { JerseyDetails } from './UniversalProductForm';
 
 /**
@@ -791,8 +792,17 @@ function StepPricing({ value, onChange }: { value: WizardProduct; onChange: (p: 
 // ── Step 4 — Photos ──────────────────────────────────────────────────────────
 
 function StepPhotos({ value, onChange }: { value: WizardProduct; onChange: (p: Partial<WizardProduct>) => void }) {
+  const [galleryOpen, setGalleryOpen] = useState(false);
   return (
     <div className="space-y-4 max-w-2xl">
+      <button
+        type="button"
+        onClick={() => setGalleryOpen(true)}
+        className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-indigo-400/40 bg-indigo-500/10 text-sm font-bold text-indigo-100 hover:bg-indigo-500/20"
+      >
+        <Images className="h-4 w-4" />
+        Choose from store gallery & fill product details
+      </button>
       <PhotoUpload
         label="Main photo"
         value={value.imageUrl}
@@ -829,6 +839,17 @@ function StepPhotos({ value, onChange }: { value: WizardProduct; onChange: (p: P
           className={inputCls}
         />
       </Field>
+      <StoreMediaGallery
+        open={galleryOpen}
+        onClose={() => setGalleryOpen(false)}
+        onSelect={({ url, suggestion }) => onChange({
+          imageUrl: url,
+          name: suggestion.name || value.name,
+          category: suggestion.category || value.category,
+          description: suggestion.description || value.description,
+          tags: suggestion.tags?.length ? suggestion.tags : value.tags,
+        })}
+      />
     </div>
   );
 }

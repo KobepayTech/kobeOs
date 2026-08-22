@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { API_BASE, markBackendReachable } from '@/lib/api';
+import { API_BASE, apiBase, markBackendReachable, setRuntimeApiBase } from '@/lib/api';
+import { discoverLanBase, probeBase } from '@/lib/lan';
 import { useOSStore } from '@/os/store';
 
 /**
@@ -67,11 +68,27 @@ export function useBackendHealth(): BackendHealth {
       }
     };
 
+    // When the current base can't be reached, try to find the same server on
+    // the local WiFi and switch to it. Returns true if it switched (so the
+    // caller re-probes against the new base next tick).
+    const tryLanFailover = async (): Promise<boolean> => {
+      const origin = typeof window !== 'undefined' ? window.location.origin : '';
+      const found = await discoverLanBase(origin);
+      if (!found || found === apiBase()) return false;
+      setRuntimeApiBase(found);
+      markBackendReachable();
+      if (!cancelled) {
+        setHealth({ status: 'online', dbConnected: true, lastChecked: Date.now() });
+        addNotification({ type: 'success', title: 'Connected over WiFi', message: 'No internet — KobeOS is talking to the server directly on your local network.' });
+      }
+      return true;
+    };
+
     const probe = async () => {
       const controller = new AbortController();
       const to = setTimeout(() => controller.abort(), TIMEOUT_MS);
       try {
-        const res = await fetch(`${API_BASE}/health`, {
+        const res = await fetch(`${apiBase()}/health`, {
           signal: controller.signal,
           headers: { accept: 'application/json' },
         });
@@ -90,11 +107,20 @@ export function useBackendHealth(): BackendHealth {
             : ct.includes('application/json')
               ? 'degraded' // reached the API, but SELECT 1 failed
               : 'offline'; // 200 but not our JSON (parked page / wrong origin)
-        if (next === 'online') markBackendReachable();
+        if (next === 'offline' && (await tryLanFailover())) return; // switched to WiFi; re-probe
+        if (next === 'online') {
+          markBackendReachable();
+          // If we're on a LAN override but the internet base is reachable again,
+          // return to it so the app isn't stuck on WiFi after the network's back.
+          if (apiBase() !== API_BASE) {
+            probeBase(API_BASE).then((ok) => { if (ok && !cancelled) setRuntimeApiBase(null); });
+          }
+        }
         setHealth({ status: next, dbConnected: db, lastChecked: Date.now() });
         notifyTransition(next);
       } catch {
         if (cancelled) return;
+        if (await tryLanFailover()) return; // internet gone — try the server over WiFi
         setHealth((h) => ({ ...h, status: 'offline', dbConnected: false, lastChecked: Date.now() }));
         notifyTransition('offline');
       } finally {
@@ -105,7 +131,9 @@ export function useBackendHealth(): BackendHealth {
 
     probe();
     // Re-probe immediately when the tab regains focus / network comes back.
-    const onWake = () => { if (!cancelled) probe(); };
+    // Clear the pending scheduled probe before a manual one, so tab focus /
+    // network-online events can't compound into multiple parallel poll loops.
+    const onWake = () => { if (!cancelled) { if (timer) clearTimeout(timer); probe(); } };
     window.addEventListener('online', onWake);
     window.addEventListener('focus', onWake);
 

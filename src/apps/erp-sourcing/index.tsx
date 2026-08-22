@@ -24,7 +24,47 @@ const initialSuppliers = [
   { id: 6, name: 'Kampala Packaging', contact: 'Grace Namuli', phone: '+256 772 987654', country: 'Uganda', rating: 3.8, status: 'Active' },
 ];
 
-const initialPOs = [
+type SourcingPOItem = {
+  name: string;
+  qty: number;
+  price: number;
+  sellPrice?: number;
+  receivedQty?: number;
+  damagedQty?: number;
+  sku?: string;
+  category?: string;
+  currency?: string;
+  productId?: string;
+};
+
+type SourcingPO = {
+  id: string;
+  backendId?: string;
+  supplier: string;
+  total: number;
+  status: string;
+  date: string;
+  items: SourcingPOItem[];
+  deliveryDate: string;
+  transportCost?: number;
+  inventoryStatus?: 'PENDING' | 'RECEIVED';
+  receivedAt?: string | null;
+};
+
+function readPoItems(value: unknown): SourcingPOItem[] {
+  if (Array.isArray(value)) return value as SourcingPOItem[];
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed as SourcingPOItem[] : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+const initialPOs: SourcingPO[] = [
   { id: 'PO-2026-0101', supplier: 'China Electronics Ltd', total: 2800000, status: 'Delivered', date: '2026-04-15', items: [{ name: 'Samsung Galaxy A14', qty: 20, price: 280000 }, { name: 'Earbuds Wireless', qty: 50, price: 15000 }], deliveryDate: '2026-05-02' },
   { id: 'PO-2026-0102', supplier: 'Mumbai Textiles Co', total: 950000, status: 'In Transit', date: '2026-04-22', items: [{ name: "Men's Cotton T-Shirt", qty: 100, price: 4500 }, { name: 'Kitenge Dress', qty: 40, price: 12500 }], deliveryDate: '2026-05-15' },
   { id: 'PO-2026-0103', supplier: 'Nairobi Grain Millers', total: 620000, status: 'Delivered', date: '2026-04-10', items: [{ name: 'Rice 25kg Bulk', qty: 30, price: 14000 }, { name: 'Wheat Flour 25kg', qty: 20, price: 11000 }], deliveryDate: '2026-04-20' },
@@ -40,6 +80,8 @@ const initialPOs = [
 const statusBadge = (status: string) => {
   const map: Record<string, string> = {
     Delivered: 'bg-green-500/10 text-green-400 border-green-500/20',
+    Received: 'bg-green-500/10 text-green-400 border-green-500/20',
+    'Partially Received': 'bg-amber-500/10 text-amber-400 border-amber-500/20',
     'In Transit': 'bg-blue-500/10 text-blue-400 border-blue-500/20',
     Pending: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
     Cancelled: 'bg-red-500/10 text-red-400 border-red-500/20',
@@ -52,7 +94,7 @@ const statusBadge = (status: string) => {
 export default function ERPSourcing() {
   const [tab, setTab] = useState('suppliers');
   const [suppliers, setSuppliers] = useState(initialSuppliers);
-  const [pos, setPos] = useState(initialPOs);
+  const [pos, setPos] = useState<SourcingPO[]>(initialPOs);
   const [liveSummary, setLiveSummary] = useState<{ suppliers: number; totalItems: number; lowStock: number; totalValue: number } | null>(null);
   const [lowStockItems, setLowStockItems] = useState<{ id: string; name: string; sku: string; quantity: number; reorderLevel: number }[]>([]);
 
@@ -64,11 +106,40 @@ export default function ERPSourcing() {
         if (d.lowStockItems) setLowStockItems(d.lowStockItems);
       })
       .catch(() => {});
+    api<unknown>('/erp/supplier-capital/purchase-orders')
+      .then((data) => {
+        if (!Array.isArray(data) || data.length === 0) return;
+        const rows: SourcingPO[] = data.map((value) => {
+          const row = value as Record<string, unknown>;
+          const inventoryStatus = row.inventoryStatus === 'RECEIVED' ? 'RECEIVED' : 'PENDING';
+          return {
+            id: String(row.poNumber ?? row.id),
+            backendId: String(row.id),
+            supplier: String(row.supplierName || row.supplierId || 'Supplier'),
+            total: Number(row.totalCny ?? 0),
+            status: inventoryStatus === 'RECEIVED' ? 'Received' : row.status === 'cancelled' ? 'Cancelled' : 'Pending',
+            date: String(row.createdAt ?? '').slice(0, 10),
+            items: readPoItems(row.items),
+            deliveryDate: String(row.expectedDate ?? '').slice(0, 10),
+            transportCost: Number(row.transportCost ?? 0),
+            inventoryStatus,
+            receivedAt: row.receivedAt ? String(row.receivedAt) : null,
+          };
+        });
+        setPos(rows);
+      })
+      .catch(() => {});
   }, []);
   const [search, setSearch] = useState('');
   const [supplierModalOpen, setSupplierModalOpen] = useState(false);
   const [poModalOpen, setPoModalOpen] = useState(false);
-  const [poDetail, setPoDetail] = useState<typeof initialPOs[0] | null>(null);
+  const [poDetail, setPoDetail] = useState<SourcingPO | null>(null);
+  const [receiving, setReceiving] = useState(false);
+  const [receiveBusy, setReceiveBusy] = useState(false);
+  const [receiveError, setReceiveError] = useState<string | null>(null);
+  const [receiveNotice, setReceiveNotice] = useState<string | null>(null);
+  const [receiveTransport, setReceiveTransport] = useState('');
+  const [receiveQuantities, setReceiveQuantities] = useState<Record<number, { received: string; damaged: string }>>({});
   const [supplierForm, setSupplierForm] = useState({ name: '', contact: '', phone: '', country: '', rating: 4 });
   const [poForm, setPoForm] = useState<{
     supplier: string;
@@ -137,7 +208,69 @@ export default function ERPSourcing() {
     const netMargin    = revenueTotal > 0 ? (netProfit / revenueTotal) * 100 : 0;
     return { lines, goodsTotal, costTotal, revenueTotal, transport, freightPerUnit, totalQty, landedCost: costTotal, netProfit, netMargin };
   })();
-  const poTotal = poCalc.landedCost;
+  const openPoDetail = (po: SourcingPO) => {
+    setPoDetail(po);
+    setReceiving(false);
+    setReceiveBusy(false);
+    setReceiveError(null);
+    setReceiveNotice(null);
+    setReceiveTransport(String(po.transportCost ?? 0));
+    setReceiveQuantities(Object.fromEntries(po.items.map((item, index) => {
+      const remaining = Math.max(0, Number(item.qty) - Number(item.receivedQty ?? 0) - Number(item.damagedQty ?? 0));
+      return [index, { received: String(remaining), damaged: '0' }];
+    })));
+    setPoModalOpen(true);
+  };
+
+  const startReceiving = () => {
+    if (!poDetail?.backendId) return;
+    setReceiveError(null);
+    setReceiveNotice(null);
+    setReceiving(true);
+  };
+
+  const receivePo = async () => {
+    if (!poDetail?.backendId || receiveBusy) return;
+    setReceiveBusy(true);
+    setReceiveError(null);
+    setReceiveNotice(null);
+    try {
+      const lines = poDetail.items.map((_, lineIndex) => ({
+        lineIndex,
+        quantityReceived: Math.max(0, Number(receiveQuantities[lineIndex]?.received ?? 0)),
+        damagedQuantity: Math.max(0, Number(receiveQuantities[lineIndex]?.damaged ?? 0)),
+      }));
+      const result = await api<{ po: Record<string, unknown>; received: Array<{ stockAdded: number }>; alreadyReceived: boolean }>(
+        `/erp/supplier-capital/purchase-orders/${poDetail.backendId}/receive`,
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            transportCost: Math.max(0, Number(receiveTransport) || 0),
+            lines,
+          }),
+        },
+      );
+      const backendPo = result.po;
+      const next: SourcingPO = {
+        ...poDetail,
+        items: readPoItems(backendPo.items).length > 0 ? readPoItems(backendPo.items) : poDetail.items,
+        total: Number(backendPo.totalCny ?? poDetail.total),
+        transportCost: Number(backendPo.transportCost ?? receiveTransport ?? 0),
+        inventoryStatus: backendPo.inventoryStatus === 'RECEIVED' ? 'RECEIVED' : 'PENDING',
+        status: backendPo.inventoryStatus === 'RECEIVED' ? 'Received' : 'Partially Received',
+        receivedAt: backendPo.receivedAt ? String(backendPo.receivedAt) : null,
+      };
+      setPoDetail(next);
+      setPos((previous) => previous.map((po) => po.backendId === next.backendId ? next : po));
+      setReceiving(false);
+      const added = (result.received ?? []).reduce((sum, row) => sum + Number(row.stockAdded || 0), 0);
+      setReceiveNotice(result.alreadyReceived ? 'This PO was already received. No stock was added again.' : `${added} unit${added === 1 ? '' : 's'} added to inventory.`);
+    } catch (err) {
+      setReceiveError((err as Error).message);
+    } finally {
+      setReceiveBusy(false);
+    }
+  };
 
   // Persist a purchase order via /erp/supplier-capital/purchase-orders.
   // Previously the "Create PO" button only closed the modal — the form
@@ -148,13 +281,9 @@ export default function ERPSourcing() {
     const supplierMatch = suppliers.find((s) => s.name === poForm.supplier);
     const poNumber = `PO-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
     const isUuid = supplierMatch && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(supplierMatch.id));
+    let backendId: string | undefined;
     if (isUuid) {
       try {
-        // Backend DTO doesn't yet have columns for sellPrice / transport;
-        // pack them into notes as kobeos-po-meta:<json> so a future
-        // migration can grep + backfill into proper columns. Format
-        // matches the mobile PO encoding so both clients round-trip
-        // the same way.
         const meta = {
           transportCost: poCalc.transport,
           revenueTotal: poCalc.revenueTotal,
@@ -163,17 +292,23 @@ export default function ERPSourcing() {
         };
         const summary = `${poForm.items.length} line${poForm.items.length === 1 ? '' : 's'}: ${poForm.items.map((i) => `${i.name} x${i.qty}`).join(', ')}`;
         const notes = `kobeos-po-meta:${JSON.stringify(meta)}\n${summary}`.slice(0, 2000);
-        await api('/erp/supplier-capital/purchase-orders', {
+        const created = await api<{ id?: string }>('/erp/supplier-capital/purchase-orders', {
           method: 'POST',
           body: JSON.stringify({
             poNumber,
             supplierId: String(supplierMatch.id),
-            // totalCny = landed cost (goods + transport) so accounting
-            // sees the all-in figure, not just goods.
             totalCny: poCalc.landedCost,
+            transportCost: poCalc.transport,
+            items: poForm.items.map((l) => ({
+              name: l.name,
+              qty: l.qty,
+              price: l.price,
+              sellPrice: l.sellPrice || undefined,
+            })),
             notes,
           }),
         });
+        backendId = created.id;
       } catch (err) {
         console.warn('[sourcing] PO persist failed, keeping local entry only:', (err as Error).message);
       }
@@ -181,12 +316,15 @@ export default function ERPSourcing() {
     setPos((prev) => [
       {
         id: poNumber,
+        backendId,
         supplier: poForm.supplier,
         total: poCalc.landedCost,
         status: 'Pending',
         date: new Date().toISOString().slice(0, 10),
         items: poForm.items,
         deliveryDate: '',
+        transportCost: poCalc.transport,
+        inventoryStatus: 'PENDING',
       },
       ...prev,
     ]);
@@ -299,7 +437,7 @@ export default function ERPSourcing() {
                 <Search className="w-4 h-4 absolute left-2 top-1/2 -translate-y-1/2 text-slate-500" />
                 <Input placeholder="Search POs..." className="pl-8 h-8 bg-slate-900 border-slate-700 text-xs" />
               </div>
-              <Button size="sm" onClick={() => setPoModalOpen(true)} className="h-8 bg-blue-600 hover:bg-blue-500 text-white text-xs">
+              <Button size="sm" onClick={() => { setPoDetail(null); setPoModalOpen(true); }} className="h-8 bg-blue-600 hover:bg-blue-500 text-white text-xs">
                 <Plus className="w-3 h-3 mr-1" /> Create PO
               </Button>
             </div>
@@ -332,7 +470,7 @@ export default function ERPSourcing() {
                           <TableCell className="text-xs text-slate-400">{po.date}</TableCell>
                           <TableCell className="text-xs text-slate-400">{po.deliveryDate}</TableCell>
                           <TableCell className="text-right">
-                            <button onClick={() => { setPoDetail(po); setPoModalOpen(true); }} className="text-slate-400 hover:text-blue-400">
+                            <button onClick={() => openPoDetail(po)} className="text-slate-400 hover:text-blue-400">
                               <Eye className="w-4 h-4" />
                             </button>
                           </TableCell>
@@ -386,22 +524,87 @@ export default function ERPSourcing() {
                 <span className="text-slate-200">{poDetail.supplier}</span>
               </div>
               <div className="flex items-center justify-between text-xs">
-                <span className="text-slate-400">Status</span>
+                <span className="text-slate-400">Inventory</span>
                 <Badge variant="outline" className={statusBadge(poDetail.status)}>{poDetail.status}</Badge>
               </div>
-              <div className="border-t border-slate-800 pt-2 space-y-2">
-                {poDetail.items.map((item, i) => (
-                  <div key={i} className="flex justify-between text-xs">
-                    <span className="text-slate-300">{item.name} x{item.qty}</span>
-                    <span className="text-slate-200">{tzs(item.price * item.qty)}</span>
+
+              {receiveError && <div className="rounded-md border border-rose-500/30 bg-rose-500/10 p-2 text-xs text-rose-300">{receiveError}</div>}
+              {receiveNotice && <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-2 text-xs text-emerald-300 inline-flex items-center gap-1.5"><CheckCircle2 className="w-3.5 h-3.5" />{receiveNotice}</div>}
+
+              {!receiving ? (
+                <>
+                  <div className="border-t border-slate-800 pt-2 space-y-2">
+                    {poDetail.items.map((item, i) => {
+                      const received = Number(item.receivedQty ?? 0);
+                      const damaged = Number(item.damagedQty ?? 0);
+                      return (
+                        <div key={i} className="rounded-md bg-slate-800/40 px-2 py-2 text-xs">
+                          <div className="flex justify-between gap-2">
+                            <span className="text-slate-200">{item.name} × {item.qty}</span>
+                            <span className="text-slate-300">{tzs(item.price * item.qty)}</span>
+                          </div>
+                          <div className="mt-1 text-[10px] text-slate-500">Received {received} · Damaged/missing {damaged} · Remaining {Math.max(0, item.qty - received - damaged)}</div>
+                        </div>
+                      );
+                    })}
                   </div>
-                ))}
-              </div>
-              <div className="border-t border-slate-800 pt-2 flex justify-between text-sm font-bold">
-                <span className="text-slate-200">Total</span>
-                <span className="text-blue-400">{tzs(poDetail.total)}</span>
-              </div>
-              <Button onClick={() => setPoModalOpen(false)} className="w-full bg-blue-600 hover:bg-blue-500 text-white">Close</Button>
+                  <div className="border-t border-slate-800 pt-2 flex justify-between text-sm font-bold">
+                    <span className="text-slate-200">Total</span>
+                    <span className="text-blue-400">{tzs(poDetail.total)}</span>
+                  </div>
+                  {poDetail.backendId && poDetail.inventoryStatus !== 'RECEIVED' ? (
+                    <Button onClick={startReceiving} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white">
+                      <Package className="w-4 h-4 mr-1.5" /> Receive Goods into Inventory
+                    </Button>
+                  ) : !poDetail.backendId ? (
+                    <div className="rounded-md bg-slate-800/60 p-2 text-[10px] text-slate-500">This demo PO is local-only. Create a PO with a saved supplier to enable receiving.</div>
+                  ) : null}
+                  <Button onClick={() => setPoModalOpen(false)} className="w-full bg-blue-600 hover:bg-blue-500 text-white">Close</Button>
+                </>
+              ) : (
+                <>
+                  <div className="rounded-md border border-emerald-500/30 bg-emerald-500/10 p-2 text-[11px] text-emerald-200">
+                    Confirm what physically arrived. Accepted quantity becomes stock; damaged/missing quantity is recorded but not added to stock.
+                  </div>
+                  <label className="block text-xs text-slate-400">
+                    Actual transport / freight cost
+                    <Input
+                      type="number"
+                      min="0"
+                      value={receiveTransport}
+                      onChange={(e) => setReceiveTransport(e.target.value)}
+                      className="h-8 bg-slate-800 border-slate-700 text-xs text-right mt-1"
+                    />
+                  </label>
+                  <div className="space-y-2 max-h-64 overflow-auto pr-1">
+                    {poDetail.items.map((item, i) => {
+                      const previous = Number(item.receivedQty ?? 0) + Number(item.damagedQty ?? 0);
+                      const remaining = Math.max(0, item.qty - previous);
+                      const values = receiveQuantities[i] ?? { received: String(remaining), damaged: '0' };
+                      return (
+                        <div key={i} className="rounded-md border border-slate-800 p-2 space-y-1.5">
+                          <div className="text-xs font-medium text-slate-200">{item.name} <span className="text-slate-500">({remaining} remaining)</span></div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <label className="text-[10px] text-slate-500">Accepted into stock
+                              <Input type="number" min="0" value={values.received} onChange={(e) => setReceiveQuantities((prev) => ({ ...prev, [i]: { received: e.target.value, damaged: prev[i]?.damaged ?? '0' } }))} className="h-8 bg-slate-800 border-slate-700 text-xs text-right mt-0.5" />
+                            </label>
+                            <label className="text-[10px] text-slate-500">Damaged / missing
+                              <Input type="number" min="0" value={values.damaged} onChange={(e) => setReceiveQuantities((prev) => ({ ...prev, [i]: { received: prev[i]?.received ?? String(remaining), damaged: e.target.value } }))} className="h-8 bg-slate-800 border-slate-700 text-xs text-right mt-0.5" />
+                            </label>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={() => setReceiving(false)} disabled={receiveBusy} className="flex-1 border-slate-700 text-slate-300 hover:bg-slate-800">Cancel</Button>
+                    <Button onClick={receivePo} disabled={receiveBusy} className="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white">
+                      {receiveBusy ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-1.5" />}
+                      {receiveBusy ? 'Updating…' : 'Confirm Receipt'}
+                    </Button>
+                  </div>
+                </>
+              )}
             </div>
           ) : (
             <div className="space-y-3">

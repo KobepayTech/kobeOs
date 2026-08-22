@@ -37,6 +37,8 @@ beforeEach(() => {
     windows: [],
     nextZIndex: 100,
     apps: [],
+    installedAppIds: ['package-manager', 'settings', 'file-manager'],
+    appEntitlements: {},
     selectedIconId: null,
     contextMenu: null,
     notifications: [],
@@ -214,6 +216,39 @@ describe('isAppOpen', () => {
     const win = useOSStore.getState().openWindow('test-app')!;
     useOSStore.getState().minimizeWindow(win.id);
     expect(useOSStore.getState().isAppOpen('test-app')).toBe(true);
+  });
+});
+
+describe('app installation state', () => {
+  it('normalizes wrapped entitlement responses and installs only returned apps', () => {
+    useOSStore.getState().setAppEntitlements({
+      data: {
+        entitlements: [{
+          appId: 'cargo',
+          access: 'trial',
+          installedAt: 1,
+          trialEndsAt: 2,
+          periodEndsAt: null,
+          daysRemaining: 14,
+          priceTzs: 25_000,
+          priceUsd: 10,
+          paymentProviders: { palmPesa: true, paypal: true },
+        }],
+      },
+    });
+
+    expect(useOSStore.getState().installedAppIds).toEqual(
+      expect.arrayContaining(['package-manager', 'settings', 'file-manager', 'cargo']),
+    );
+    expect(useOSStore.getState().installedAppIds).not.toContain('property');
+    expect(useOSStore.getState().appEntitlements.cargo?.access).toBe('trial');
+  });
+
+  it('rejects malformed entitlement payloads instead of crashing', () => {
+    expect(() => useOSStore.getState().setAppEntitlements({ error: 'bad response' })).not.toThrow();
+    expect(useOSStore.getState().installedAppIds).toEqual(
+      expect.arrayContaining(['package-manager', 'settings', 'file-manager']),
+    );
   });
 });
 

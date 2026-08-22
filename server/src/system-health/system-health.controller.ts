@@ -14,7 +14,7 @@ export class SystemHealthController {
    * exempt (polled like /health), and never throws — it reports failures rather
    * than becoming one.
    */
-  @SkipThrottle()
+  @SkipThrottle({ default: true, auth: true, 'public-lookup': true })
   @Public()
   @Get('health')
   @ApiOperation({ summary: 'Self-healing subsystem status (mode + banner message)' })

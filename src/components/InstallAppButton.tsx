@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Download, Check, Share2, Copy } from 'lucide-react';
+import { Download, Check, Share2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { usePwaInstall } from '@/hooks/usePwaInstall';
 

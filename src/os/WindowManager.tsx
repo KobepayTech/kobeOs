@@ -1,9 +1,9 @@
 import { Suspense } from 'react';
 import { AnimatePresence } from 'framer-motion';
 import { AppWindow } from './AppWindow';
-import { SubscriptionGate } from './SubscriptionGate';
 import { AppErrorBoundary } from './ErrorBoundary';
 import { useOSStore } from './store';
+import { AppEntitlementGate } from './AppEntitlementGate';
 
 /**
  * Renders all open windows managed by the OS store.
@@ -21,14 +21,13 @@ export function WindowManager() {
           const app = apps.find((a) => a.id === win.appId);
           if (!app) return null;
           const Component = app.component;
-          const tier = app.subscriptionTier ?? 'free';
           return (
             // Each window is sized and positioned by AppWindow itself.
             // Do NOT use inset-0 here — that would make every wrapper cover
             // the full desktop and intercept clicks meant for windows below.
             <div key={win.id} className="pointer-events-none" style={{ position: 'absolute', inset: 0 }}>
               <AppWindow window={win}>
-                <SubscriptionGate required={tier}>
+                <AppEntitlementGate app={app}>
                   <AppErrorBoundary appName={app.name}>
                     <Suspense
                       fallback={
@@ -40,7 +39,7 @@ export function WindowManager() {
                       <Component />
                     </Suspense>
                   </AppErrorBoundary>
-                </SubscriptionGate>
+                </AppEntitlementGate>
               </AppWindow>
             </div>
           );

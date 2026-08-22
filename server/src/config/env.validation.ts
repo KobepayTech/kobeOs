@@ -39,8 +39,30 @@ class EnvVars {
   @IsOptional() @IsNumber() PALMPESA_USER_ID?: number;
   /** Public base URL of this server — used as PalmPesa callback base */
   @IsOptional() @IsString() APP_PUBLIC_URL?: string;
+  /** Meta Business Login for Instagram configuration. */
+  @IsOptional() @IsString() INSTAGRAM_APP_ID?: string;
+  @IsOptional() @IsString() INSTAGRAM_APP_SECRET?: string;
+  @IsOptional() @IsString() INSTAGRAM_REDIRECT_URI?: string;
+  @IsOptional() @IsString() INSTAGRAM_API_VERSION?: string;
+  @IsOptional() @IsString() INSTAGRAM_OAUTH_SCOPES?: string;
+  @IsOptional() @IsString() APP_FRONTEND_URL?: string;
+  @IsOptional() @IsString() IG_WEBHOOK_VERIFY_TOKEN?: string;
   /** HMAC-SHA256 secret for signing OS license tokens. Must match VITE_LICENSE_HMAC_SECRET in the frontend build. */
   @IsOptional() @IsString() LICENSE_HMAC_SECRET?: string;
+
+  /** Google Identity Services Web Client ID. Use the same value in VITE_GOOGLE_CLIENT_ID. */
+  @IsOptional() @IsString() GOOGLE_CLIENT_ID?: string;
+
+  /** TikTok Login Kit credentials and exact registered callback URL. */
+  @IsOptional() @IsString() TIKTOK_CLIENT_KEY?: string;
+  @IsOptional() @IsString() TIKTOK_CLIENT_SECRET?: string;
+  @IsOptional() @IsString() TIKTOK_REDIRECT_URI?: string;
+
+  /** Facebook Login credentials for the KobeOS "Continue with Meta" button. */
+  @IsOptional() @IsString() META_APP_ID?: string;
+  @IsOptional() @IsString() META_APP_SECRET?: string;
+  @IsOptional() @IsString() META_REDIRECT_URI?: string;
+  @IsOptional() @IsString() META_GRAPH_VERSION?: string;
 
   /** Beem Africa SMS / WhatsApp credentials (https://docs.beem.africa). When unset, channel sends are no-ops. */
   @IsOptional() @IsString() BEEM_API_KEY?: string;
