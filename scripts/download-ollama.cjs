@@ -16,10 +16,16 @@ const REPO = 'ollama/ollama';
 const REQUIRED = process.env.OLLAMA_REQUIRED === '1';
 
 function run(command, args, options = {}) {
-  return execFileSync(command, args, {
-    stdio: ['ignore', 'pipe', 'inherit'],
-    ...options,
-  }).toString().trim();
+  try {
+    const result = execFileSync(command, args, {
+      stdio: ['ignore', 'pipe', 'inherit'],
+      ...options,
+    });
+    if (!result) return '';
+    return result.toString().trim();
+  } catch (error) {
+    throw new Error(`Command failed: ${command} ${args.join(' ')}: ${error.message}`);
+  }
 }
 
 function getPlatformTarget(platform = process.platform, arch = process.arch) {
@@ -120,6 +126,9 @@ function resolveVersion(env = process.env) {
   if (token) args.push('-H', `Authorization: Bearer ${token}`);
   args.push(`https://api.github.com/repos/${REPO}/releases/latest`);
   const json = run('curl', args);
+  if (!json) {
+    throw new Error('GitHub API returned empty response - check your network and GITHUB_TOKEN');
+  }
   const parsed = JSON.parse(json);
   if (!parsed || !parsed.tag_name) {
     throw new Error('could not resolve latest Ollama release tag (invalid API response)');
