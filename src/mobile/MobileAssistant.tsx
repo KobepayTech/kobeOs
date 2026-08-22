@@ -66,22 +66,9 @@ export function MobileAssistant() {
     setError(null);
 
     try {
-      const controller = new AbortController();
-const timeoutId = setTimeout(() => controller.abort(), 5000); // adjust timeout as needed
-
-try {
-  const response = await fetch(url, {
-    // ... keep all other options EXCEPT `timeout`
-    signal: controller.signal,
-  });
-  // ... handle the response as before
-} catch (error) {
-  // handle errors (including abort)
-} finally {
-  clearTimeout(timeoutId);
-
+      const response = await api<unknown>('/ai/gateway/status', {
+        offlineFallback: false,
       });
-      
       const status = apiObject<GatewayStatus>(response);
       if (!status) {
         throw new Error('Invalid gateway response');
@@ -102,7 +89,7 @@ try {
 
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       console.error('Failed to fetch gateway status:', errorMessage);
-      
+
       setGateway(null);
       setModels([]);
       setActiveModel('');
@@ -114,46 +101,35 @@ try {
     }
   }, []);
 
- const selectModel = useCallback(async (model: string) => {
+  const selectModel = useCallback(async (model: string) => {
     if (!model || model === activeModel || isLoading) return;
 
-    // ... any code before the fetch ...
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000); // adjust timeout as needed
+    setIsLoading(true);
+    setError(null);
 
     try {
-        const response = await fetch(someUrl, {
-            // ... keep all other options except `timeout`
-            signal: controller.signal,
-        });
-        // ... handle the response (e.g., parse JSON, update state)
-    } catch (error) {
-        // handle fetch/abort errors
-    } finally {
-        clearTimeout(timeoutId);
-    }
-
-    // ... rest of the function
-}
+      await api('/ai/models/active', {
+        method: 'PUT',
+        body: JSON.stringify({ model }),
+        offlineFallback: false,
+      });
 
       if (!isMountedRef.current) return;
 
       setActiveModel(model);
-      setGateway((current) => 
+      setGateway((current) =>
         current ? { ...current, activeModel: model } : current
       );
-      
+
       console.log(`Model switched to: ${model}`);
     } catch (err) {
       if (!isMountedRef.current) return;
 
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       console.error('Failed to switch model:', errorMessage);
-      
+
       setError(`KobeOS could not switch the active model. ${errorMessage}`);
-      
-      // Refresh to get current state
+
       await refreshModels();
     } finally {
       if (isMountedRef.current) {
@@ -179,39 +155,36 @@ try {
   // Fetch status when opened and set up auto-refresh
   useEffect(() => {
     if (isOpen) {
-      // Initial fetch
-      refreshModels();
-      
-      // Auto-refresh every 30 seconds
+      void refreshModels();
+
       if (refreshIntervalRef.current) {
         clearInterval(refreshIntervalRef.current);
       }
-      
+
       refreshIntervalRef.current = setInterval(() => {
         if (isMountedRef.current && isOpen) {
-          refreshModels();
+          void refreshModels();
         }
       }, 30000);
-      
+
       return () => {
         if (refreshIntervalRef.current) {
           clearInterval(refreshIntervalRef.current);
           refreshIntervalRef.current = null;
         }
       };
-    } else {
-      // Clean up when closed
-      if (refreshIntervalRef.current) {
-        clearInterval(refreshIntervalRef.current);
-        refreshIntervalRef.current = null;
-      }
+    }
+
+    if (refreshIntervalRef.current) {
+      clearInterval(refreshIntervalRef.current);
+      refreshIntervalRef.current = null;
     }
   }, [isOpen, refreshModels]);
 
   // ─── Event Handlers ──────────────────────────────────────────────────────
 
   const handleToggle = useCallback(() => {
-    setIsOpen(prev => !prev);
+    setIsOpen((prev) => !prev);
   }, []);
 
   const handleClose = useCallback(() => {
@@ -219,11 +192,11 @@ try {
   }, []);
 
   const handleRefresh = useCallback(() => {
-    refreshModels();
+    void refreshModels();
   }, [refreshModels]);
 
   const handleModelChange = useCallback((event: React.ChangeEvent<HTMLSelectElement>) => {
-    selectModel(event.target.value);
+    void selectModel(event.target.value);
   }, [selectModel]);
 
   // ─── Render ──────────────────────────────────────────────────────────────
@@ -233,12 +206,12 @@ try {
       {isOpen && (
         <div className="fixed inset-0 z-[9998]">
           {/* Backdrop */}
-          <div 
-            className="absolute inset-0 bg-black/30 backdrop-blur-sm transition-opacity" 
+          <div
+            className="absolute inset-0 bg-black/30 backdrop-blur-sm transition-opacity"
             onClick={handleClose}
             aria-hidden="true"
           />
-          
+
           {/* Modal */}
           <div className="absolute inset-x-0 bottom-0 flex h-[88dvh] flex-col overflow-hidden rounded-t-2xl bg-[#071321] shadow-2xl animate-slide-up">
             {/* Header */}
@@ -250,7 +223,7 @@ try {
                     <span className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-emerald-400 ring-2 ring-[#071321]" />
                   )}
                 </div>
-                
+
                 <div className="min-w-0 flex-1">
                   <p className="text-[10px] font-black uppercase tracking-[0.14em] text-violet-300 flex items-center gap-1.5">
                     Kobe AI model gateway
@@ -277,11 +250,15 @@ try {
                   className="max-w-[42%] rounded-lg border border-white/10 bg-white/10 px-2 py-1.5 text-[10px] font-bold text-white outline-none transition-all hover:bg-white/20 focus:border-violet-400 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {!activeModel && <option value="">Auto</option>}
-                  {models.map((item) => (
-                    <option key={item.name || item.id} value={item.name || item.id} className="text-black">
-                      {item.name || item.id}
-                    </option>
-                  ))}
+                  {models.map((item) => {
+                    const value = item.name || item.id;
+                    if (!value) return null;
+                    return (
+                      <option key={value} value={value} className="text-black">
+                        {value}
+                      </option>
+                    );
+                  })}
                 </select>
 
                 {/* Action Buttons */}
@@ -340,9 +317,9 @@ try {
 
             {/* Chat Interface */}
             <div className="min-h-0 flex-1">
-              <KobeAssistant 
-                responseMode="fast" 
-                contextLabel="KobeOS mobile" 
+              <KobeAssistant
+                responseMode="fast"
+                contextLabel="KobeOS mobile"
               />
             </div>
           </div>
