@@ -1,373 +1,80 @@
-import { useState } from 'react';
-import {
-  Shield, Plus, Trash2, Edit3, CheckCircle, XCircle, Search, Activity,
-  UserCog, Store, Truck, DollarSign, BarChart3, Package,
-} from 'lucide-react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Switch } from '@/components/ui/switch';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Edit3, Loader2, Plus, RefreshCw, Search, Shield, Trash2, UserCog, X } from 'lucide-react';
 import { api } from '@/lib/api';
 
-const roles = ['Owner', 'Manager', 'Seller', 'Accountant', 'Warehouse', 'Rider', 'Admin'];
-
-const roleIcon = (role: string) => {
-  const map: Record<string, typeof Shield> = {
-    Owner: Shield,
-    Manager: BarChart3,
-    Seller: Store,
-    Accountant: DollarSign,
-    Warehouse: Package,
-    Rider: Truck,
-    Admin: UserCog,
-  };
-  return map[role] || UserCog;
-};
-
-const roleColor = (role: string) => {
-  const map: Record<string, string> = {
-    Owner: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
-    Manager: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-    Seller: 'bg-green-500/10 text-green-400 border-green-500/20',
-    Accountant: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
-    Warehouse: 'bg-orange-500/10 text-orange-400 border-orange-500/20',
-    Rider: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
-    Admin: 'bg-red-500/10 text-red-400 border-red-500/20',
-  };
-  return map[role] || 'bg-slate-500/10 text-slate-400';
-};
-
-const initialUsers = [
-  { id: 1, name: 'Joseph Kibebe', email: 'joseph@kobe.co.tz', role: 'Owner', active: true, lastLogin: '2026-05-08 08:15' },
-  { id: 2, name: 'Grace Mwakasege', email: 'grace@kobe.co.tz', role: 'Manager', active: true, lastLogin: '2026-05-08 07:42' },
-  { id: 3, name: 'Juma Bakari', email: 'juma@kobe.co.tz', role: 'Seller', active: true, lastLogin: '2026-05-07 16:30' },
-  { id: 4, name: 'Asha Mrema', email: 'asha@kobe.co.tz', role: 'Accountant', active: true, lastLogin: '2026-05-08 09:00' },
-  { id: 5, name: 'John Daudi', email: 'john@kobe.co.tz', role: 'Warehouse', active: true, lastLogin: '2026-05-07 14:20' },
-  { id: 6, name: 'Peter Omari', email: 'peter@kobe.co.tz', role: 'Rider', active: true, lastLogin: '2026-05-06 11:10' },
-  { id: 7, name: 'Halima Saidi', email: 'halima@kobe.co.tz', role: 'Admin', active: false, lastLogin: '2026-04-28 10:05' },
-  { id: 8, name: 'David Njoroge', email: 'david@kobe.co.tz', role: 'Seller', active: true, lastLogin: '2026-05-08 08:50' },
-];
-
-const activityLog = [
-  { action: 'User login', user: 'Joseph Kibebe', time: '2026-05-08 08:15', type: 'info' },
-  { action: 'Invoice #1042 created', user: 'Asha Mrema', time: '2026-05-08 09:03', type: 'success' },
-  { action: 'Product price updated', user: 'Grace Mwakasege', time: '2026-05-08 09:15', type: 'warning' },
-  { action: 'Order #1041 processed', user: 'Juma Bakari', time: '2026-05-08 09:22', type: 'success' },
-  { action: 'Inventory adjusted', user: 'John Daudi', time: '2026-05-07 14:35', type: 'warning' },
-  { action: 'Shipment #SH-004 delayed', user: 'Peter Omari', time: '2026-05-07 11:00', type: 'error' },
-  { action: 'New user created', user: 'Halima Saidi', time: '2026-04-28 10:05', type: 'info' },
-  { action: 'Report exported', user: 'Asha Mrema', time: '2026-05-06 16:45', type: 'success' },
-];
+type UserRole = 'user' | 'admin' | 'government_viewer' | 'settlement_officer' | 'compliance_officer' | 'traffic_enforcement';
+interface UserRow { id: string; email: string; phone?: string | null; displayName?: string; avatarUrl?: string | null; role: UserRole; createdAt: string }
+const ROLES: UserRole[] = ['user', 'admin', 'government_viewer', 'settlement_officer', 'compliance_officer', 'traffic_enforcement'];
+const roleLabel = (role: UserRole) => role.split('_').map((x) => x[0].toUpperCase() + x.slice(1)).join(' ');
 
 export default function ERPAdmin() {
-  const [users, setUsers] = useState(initialUsers);
+  const [users, setUsers] = useState<UserRow[]>([]);
   const [search, setSearch] = useState('');
-  const [modalOpen, setModalOpen] = useState(false);
-  const [editingUser, setEditingUser] = useState<typeof initialUsers[0] | null>(null);
-  const [form, setForm] = useState({ name: '', email: '', role: 'Seller', active: true, password: '' });
-  const [saving, setSaving] = useState(false);
-  const [saveErr, setSaveErr] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [editing, setEditing] = useState<UserRow | null | undefined>(undefined);
 
-  // Admin sets the initial password at creation. Generates a strong random
-  // one so the admin can hand off working credentials without inventing a
-  // weak password themselves.
-  const genPassword = () => {
-    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%';
-    const arr = new Uint32Array(14);
-    crypto.getRandomValues(arr);
-    let p = '';
-    for (let i = 0; i < arr.length; i++) p += chars[arr[i] % chars.length];
-    setForm((f) => ({ ...f, password: p }));
-  };
-
-  const filteredUsers = users.filter((u) =>
-    u.name.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase())
-  );
-
-  const openAdd = () => {
-    setEditingUser(null);
-    setForm({ name: '', email: '', role: 'Seller', active: true, password: '' });
-    setSaveErr(null);
-    setModalOpen(true);
-  };
-
-  const openEdit = (user: typeof initialUsers[0]) => {
-    setEditingUser(user);
-    setForm({ name: user.name, email: user.email, role: user.role, active: user.active, password: '' });
-    setSaveErr(null);
-    setModalOpen(true);
-  };
-
-  const saveUser = async () => {
-    setSaveErr(null);
-    if (editingUser) {
-      // Editing stays a local update (no admin password-reset endpoint yet).
-      setUsers((prev) =>
-        prev.map((u) =>
-          u.id === editingUser.id
-            ? { ...u, name: form.name, email: form.email, role: form.role, active: form.active }
-            : u,
-        ),
-      );
-      setModalOpen(false);
-      return;
-    }
-
-    // Creating a real login account — admin supplies the initial password.
-    if (!form.email.trim()) { setSaveErr('Email is required.'); return; }
-    if (form.password.length < 8) { setSaveErr('Password must be at least 8 characters.'); return; }
-    setSaving(true);
+  const load = useCallback(async () => {
+    setLoading(true); setError('');
     try {
-      // Backend role is user|admin; map the elevated business roles to admin.
-      const role = form.role === 'Admin' || form.role === 'Owner' ? 'admin' : 'user';
-      await api('/users', {
-        method: 'POST',
-        body: JSON.stringify({
-          email: form.email.trim(),
-          password: form.password,
-          displayName: form.name.trim(),
-          role,
-        }),
-      });
-      const newId = Math.max(...users.map((u) => u.id), 0) + 1;
-      setUsers((prev) => [
-        ...prev,
-        { id: newId, name: form.name, email: form.email, role: form.role, active: form.active, lastLogin: 'Never' },
-      ]);
-      setModalOpen(false);
+      const rows = await api<UserRow[]>('/users', { offlineFallback: false });
+      setUsers(Array.isArray(rows) ? rows : []);
     } catch (e) {
-      setSaveErr(e instanceof Error ? e.message : 'Could not create the user.');
-    } finally {
-      setSaving(false);
-    }
-  };
+      setUsers([]);
+      setError((e as Error).message || 'Admin access is required to manage users.');
+    } finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
 
-  const deleteUser = (id: number) => {
-    setUsers((prev) => prev.filter((u) => u.id !== id));
-  };
+  const q = search.trim().toLowerCase();
+  const filtered = users.filter((u) => !q || `${u.displayName ?? ''} ${u.email} ${u.phone ?? ''} ${u.role}`.toLowerCase().includes(q));
+  const roleCounts = useMemo(() => Object.fromEntries(ROLES.map((r) => [r, users.filter((u) => u.role === r).length])) as Record<UserRole, number>, [users]);
 
-  const toggleActive = (id: number) => {
-    setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, active: !u.active } : u)));
+  const remove = async (user: UserRow) => {
+    if (!window.confirm(`Delete ${user.displayName || user.email}? This removes the login account.`)) return;
+    try { await api(`/users/${user.id}`, { method: 'DELETE', offlineFallback: false }); await load(); }
+    catch (e) { setError((e as Error).message || 'Could not delete user.'); }
   };
 
   return (
-    <div className="h-full bg-slate-950 text-slate-100 overflow-auto">
-      <div className="p-4 space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Shield className="w-5 h-5 text-blue-400" />
-            <h1 className="text-lg font-semibold">Admin Panel</h1>
-          </div>
-          <Button size="sm" onClick={openAdd} className="bg-blue-600 hover:bg-blue-500 text-white">
-            <Plus className="w-3 h-3 mr-1" /> Add User
-          </Button>
+    <div className="h-full min-h-0 flex flex-col bg-slate-950 text-slate-100 overflow-hidden">
+      <header className="shrink-0 h-16 px-4 flex items-center gap-3 border-b border-slate-800 bg-slate-900/80">
+        <div className="h-10 w-10 rounded-xl bg-blue-500/15 text-blue-300 grid place-items-center"><Shield className="h-5 w-5" /></div>
+        <div><h1 className="font-black">Administration</h1><p className="text-[11px] text-slate-500">Real KobeOS login accounts and platform roles</p></div>
+        <button onClick={() => void load()} disabled={loading} className="ml-auto h-9 w-9 rounded-lg border border-slate-700 grid place-items-center text-slate-400 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button>
+        <button onClick={() => setEditing(null)} className="h-9 px-3 rounded-lg bg-blue-600 text-white text-xs font-black inline-flex items-center gap-1.5"><Plus className="h-4 w-4" /> Add user</button>
+      </header>
+
+      <main className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
+        {error && <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">{error}</div>}
+        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-6 gap-3">
+          {ROLES.map((role) => <div key={role} className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4"><span className="text-[10px] uppercase tracking-wide text-slate-500">{roleLabel(role)}</span><b className="block text-2xl mt-1">{roleCounts[role]}</b></div>)}
         </div>
-
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <Card className="bg-slate-900/60 border-slate-800">
-            <CardContent className="p-3">
-              <div className="text-xs text-slate-400">Total Users</div>
-              <div className="text-xl font-bold">{users.length}</div>
-            </CardContent>
-          </Card>
-          <Card className="bg-slate-900/60 border-slate-800">
-            <CardContent className="p-3">
-              <div className="text-xs text-slate-400">Active</div>
-              <div className="text-xl font-bold text-green-400">{users.filter((u) => u.active).length}</div>
-            </CardContent>
-          </Card>
-          <Card className="bg-slate-900/60 border-slate-800">
-            <CardContent className="p-3">
-              <div className="text-xs text-slate-400">Inactive</div>
-              <div className="text-xl font-bold text-red-400">{users.filter((u) => !u.active).length}</div>
-            </CardContent>
-          </Card>
-          <Card className="bg-slate-900/60 border-slate-800">
-            <CardContent className="p-3">
-              <div className="text-xs text-slate-400">Roles</div>
-              <div className="text-xl font-bold">{roles.length}</div>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <Card className="lg:col-span-2 bg-slate-900/60 border-slate-800">
-            <CardHeader className="pb-2">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-sm font-medium">User Management</CardTitle>
-                <div className="relative">
-                  <Search className="w-4 h-4 absolute left-2 top-1/2 -translate-y-1/2 text-slate-500" />
-                  <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search users..." className="pl-8 h-8 w-56 bg-slate-900 border-slate-700 text-xs" />
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <ScrollArea className="h-[400px]">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="border-slate-800 hover:bg-transparent">
-                      <TableHead className="text-slate-400 text-xs">User</TableHead>
-                      <TableHead className="text-slate-400 text-xs">Role</TableHead>
-                      <TableHead className="text-slate-400 text-xs">Status</TableHead>
-                      <TableHead className="text-slate-400 text-xs">Last Login</TableHead>
-                      <TableHead className="text-slate-400 text-xs text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredUsers.map((u) => {
-                      const Icon = roleIcon(u.role);
-                      return (
-                        <TableRow key={u.id} className="border-slate-800 hover:bg-slate-800/40">
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              <div className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700">
-                                <Icon className="w-4 h-4 text-blue-400" />
-                              </div>
-                              <div>
-                                <div className="text-xs font-medium">{u.name}</div>
-                                <div className="text-[10px] text-slate-400">{u.email}</div>
-                              </div>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className={roleColor(u.role)}>
-                              {u.role}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <button onClick={() => toggleActive(u.id)} className="flex items-center gap-1">
-                              {u.active ? (
-                                <CheckCircle className="w-4 h-4 text-green-400" />
-                              ) : (
-                                <XCircle className="w-4 h-4 text-red-400" />
-                              )}
-                            </button>
-                          </TableCell>
-                          <TableCell className="text-xs text-slate-400">{u.lastLogin}</TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex items-center justify-end gap-2">
-                              <button onClick={() => openEdit(u)} className="text-slate-400 hover:text-blue-400">
-                                <Edit3 className="w-4 h-4" />
-                              </button>
-                              <button onClick={() => deleteUser(u.id)} className="text-slate-400 hover:text-red-400">
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </ScrollArea>
-            </CardContent>
-          </Card>
-
-          <Card className="bg-slate-900/60 border-slate-800">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium flex items-center gap-2">
-                <Activity className="w-4 h-4 text-blue-400" /> Activity Log
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <ScrollArea className="h-[400px]">
-                <div className="space-y-2">
-                  {activityLog.map((log, i) => {
-                    const colors: Record<string, string> = {
-                      info: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-                      success: 'bg-green-500/10 text-green-400 border-green-500/20',
-                      warning: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
-                      error: 'bg-red-500/10 text-red-400 border-red-500/20',
-                    };
-                    return (
-                      <div key={i} className="p-2 rounded-lg bg-slate-800/50 border border-slate-700/50">
-                        <div className="flex items-center justify-between">
-                          <Badge variant="outline" className={colors[log.type]}>
-                            {log.type}
-                          </Badge>
-                          <span className="text-[10px] text-slate-500">{log.time}</span>
-                        </div>
-                        <div className="text-xs text-slate-300 mt-1">{log.action}</div>
-                        <div className="text-[10px] text-slate-400">by {log.user}</div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </ScrollArea>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-
-      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="text-sm">{editingUser ? 'Edit User' : 'Add User'}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <label className="text-xs text-slate-400 block mb-1">Full Name</label>
-              <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className="bg-slate-800 border-slate-700 text-slate-100" />
-            </div>
-            <div>
-              <label className="text-xs text-slate-400 block mb-1">Email</label>
-              <Input value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} className="bg-slate-800 border-slate-700 text-slate-100" />
-            </div>
-            <div>
-              <label className="text-xs text-slate-400 block mb-1">Role</label>
-              <select
-                value={form.role}
-                onChange={(e) => setForm((f) => ({ ...f, role: e.target.value }))}
-                className="w-full h-9 px-2 rounded-md bg-slate-800 border border-slate-700 text-xs text-slate-300"
-              >
-                {roles.map((r) => <option key={r} value={r}>{r}</option>)}
-              </select>
-            </div>
-            {/* Password — admin sets the initial credential at creation. */}
-            {!editingUser && (
-              <div>
-                <label className="text-xs text-slate-400 block mb-1">Password</label>
-                <div className="flex gap-2">
-                  <Input
-                    value={form.password}
-                    onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-                    placeholder="Min 8 characters"
-                    className="bg-slate-800 border-slate-700 text-slate-100 font-mono"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={genPassword}
-                    className="shrink-0 px-2 text-xs border-slate-700 text-slate-300 hover:bg-slate-800"
-                  >
-                    Generate
-                  </Button>
-                </div>
-                <p className="text-[10px] text-slate-500 mt-1">
-                  You set the initial password — share it with the staff member; they can change it after signing in.
-                </p>
-              </div>
-            )}
-            <div className="flex items-center gap-2">
-              <Switch checked={form.active} onCheckedChange={(v) => setForm((f) => ({ ...f, active: v }))} />
-              <span className="text-xs text-slate-300">Active</span>
-            </div>
-            {saveErr && <p className="text-[11px] text-rose-400">{saveErr}</p>}
-            <div className="flex gap-2 pt-2">
-              <Button variant="outline" onClick={() => setModalOpen(false)} className="flex-1 border-slate-700 text-slate-300 hover:bg-slate-800">
-                Cancel
-              </Button>
-              <Button onClick={saveUser} disabled={saving} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-60">
-                {saving ? 'Creating…' : editingUser ? 'Save' : 'Create user'}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+        <div className="relative max-w-lg"><Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search accounts…" className="w-full h-10 rounded-xl bg-slate-900 border border-slate-800 pl-9 pr-3 text-sm outline-none focus:border-blue-500/60" /></div>
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/50 overflow-hidden">
+          {loading && !users.length ? <div className="py-20 grid place-items-center text-slate-500"><Loader2 className="h-6 w-6 animate-spin" /></div> : !filtered.length ? <div className="py-16 text-center text-slate-500">No users found.</div> : <div className="divide-y divide-slate-800">{filtered.map((u) => <div key={u.id} className="px-4 py-3 flex items-center gap-3"><div className="h-10 w-10 rounded-full bg-slate-800 grid place-items-center"><UserCog className="h-4 w-4 text-slate-400" /></div><div className="min-w-0 flex-1"><b className="block truncate">{u.displayName || u.email}</b><span className="text-xs text-slate-500">{u.email}{u.phone ? ` · ${u.phone}` : ''}</span><span className="block text-[10px] text-slate-600">Created {new Date(u.createdAt).toLocaleDateString()}</span></div><span className="text-[10px] font-black px-2 py-1 rounded-full bg-blue-500/10 text-blue-300">{roleLabel(u.role)}</span><button onClick={() => setEditing(u)} className="h-8 w-8 rounded-lg border border-slate-700 grid place-items-center text-slate-400 hover:text-white"><Edit3 className="h-4 w-4" /></button><button onClick={() => void remove(u)} className="h-8 w-8 rounded-lg border border-slate-700 grid place-items-center text-slate-400 hover:text-rose-300"><Trash2 className="h-4 w-4" /></button></div>)}</div>}
+        </section>
+      </main>
+      {editing !== undefined && <UserModal user={editing} onClose={() => setEditing(undefined)} onSaved={async () => { setEditing(undefined); await load(); }} />}
     </div>
   );
+}
+
+function UserModal({ user, onClose, onSaved }: { user: UserRow | null; onClose: () => void; onSaved: () => Promise<void> }) {
+  const [form, setForm] = useState({ displayName: user?.displayName ?? '', email: user?.email ?? '', role: user?.role ?? 'user' as UserRole, password: '' });
+  const [busy, setBusy] = useState(false); const [error, setError] = useState('');
+  const save = async () => {
+    setBusy(true); setError('');
+    try {
+      if (user) await api(`/users/${user.id}`, { method: 'PATCH', offlineFallback: false, body: JSON.stringify({ displayName: form.displayName.trim(), role: form.role }) });
+      else await api('/users', { method: 'POST', offlineFallback: false, body: JSON.stringify({ email: form.email.trim(), password: form.password, displayName: form.displayName.trim(), role: form.role }) });
+      await onSaved();
+    } catch (e) { setError((e as Error).message || 'Could not save user.'); } finally { setBusy(false); }
+  };
+  const generate = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%';
+    const bytes = new Uint32Array(16); crypto.getRandomValues(bytes);
+    setForm((f) => ({ ...f, password: Array.from(bytes, (n) => chars[n % chars.length]).join('') }));
+  };
+  return <div className="fixed inset-0 z-50 bg-black/55 grid place-items-center p-4" onMouseDown={onClose}><div onMouseDown={(e) => e.stopPropagation()} className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-950 p-5"><div className="flex items-center"><h2 className="font-black">{user ? 'Edit account' : 'Create account'}</h2><button onClick={onClose} className="ml-auto"><X className="h-5 w-5" /></button></div><div className="mt-4 grid gap-3"><label className="grid gap-1 text-xs text-slate-400">Display name<input className="control" value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} /></label>{!user && <label className="grid gap-1 text-xs text-slate-400">Email<input type="email" className="control" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></label>}<label className="grid gap-1 text-xs text-slate-400">Role<select className="control" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value as UserRole })}>{ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}</select></label>{!user && <label className="grid gap-1 text-xs text-slate-400">Initial password<div className="flex gap-2"><input className="control flex-1" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} /><button type="button" onClick={generate} className="px-3 rounded-xl border border-slate-700 text-xs font-black">Generate</button></div></label>}{error && <p className="text-xs text-rose-300">{error}</p>}<button onClick={() => void save()} disabled={busy || (!user && (!form.email.trim() || form.password.length < 8))} className="h-10 rounded-xl bg-blue-600 text-white font-black disabled:opacity-50">{busy ? 'Saving…' : 'Save account'}</button></div></div></div>;
 }
