@@ -980,79 +980,33 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
           {view === 'wishlist' ? (
             <WishlistPage
               products={wishlistProducts}
-              onAddToCart={addToCart}
-              onRemove={toggleWishlist}
+              onAddToCart={(p) => addToCart(p)}
+              onRemove={(id) => toggleWishlist(id)}
             />
           ) : view === 'track-order' ? (
             <TrackOrderPage slug={slug} />
           ) : view === 'bnpl' ? (
             <BnplPage slug={slug} />
           ) : view === 'brands' ? (
-            <BrandsPage
-              slug={slug}
-              onPickBrand={(brand) => {
-                setSearchQuery(brand);
-                setView('home');
-              }}
-            />
+            <BrandsPage slug={slug} onPickBrand={(brand) => setSelectedCategory(brand)} />
           ) : view === 'loyalty' ? (
             <LoyaltyPage
+              slug={slug}
+              phone={loyaltyPhone}
+              setPhone={setLoyaltyPhone}
+              profile={customerProfile}
+              onProfile={rememberCustomer}
+              onSignup={() => setIsSignupOpen(true)}
+            />
+          ) : (view === 'new-arrivals' || view === 'best-sellers' || view === 'offers') ? (
             <CollectionPage
               slug={slug}
-              collectionSlug="new-arrivals"
-              title="New Arrivals"
-              empty="No new arrivals right now."
-              wishlist={wishlistIds}
-              onAddToCart={addToCart}
+              collectionSlug={view}
+              title={view === 'new-arrivals' ? 'New Arrivals' : view === 'best-sellers' ? 'Best Sellers' : 'Offers'}
+              empty={view === 'new-arrivals' ? 'No new arrivals yet.' : view === 'best-sellers' ? 'No best sellers yet.' : 'No offers yet.'}
+              onAddToCart={(p) => addToCart(p)}
               onAddToWishlist={(p) => toggleWishlist(p.id)}
-            />
-          ) : view === 'best-sellers' ? (
-            <CollectionPage
-              slug={slug}
-              collectionSlug="best-sellers"
-              title="Best Sellers"
-              empty="No best sellers yet."
-              ...
-            />
-          ) : view === 'offers' ? (
-            <CollectionPage
-              slug={slug}
-              collectionSlug="offers"
-              title="Offers"
-              empty="No active offers right now."
-              ...
-            />
-          ) : (
-            ...
-          )}
-            <CollectionPage
-              slug={slug}
-              collectionSlug="new-arrivals"
-              title="New Arrivals"
-              empty="No new arrivals right now."
               wishlist={wishlistIds}
-              onAddToCart={addToCart}
-              onAddToWishlist={(p) => toggleWishlist(p.id)}
-            />
-          ) : view === 'best-sellers' ? (
-            <CollectionPage
-              slug={slug}
-              collectionSlug="best-sellers"
-              title="Best Sellers"
-              empty="No best sellers yet."
-              wishlist={wishlistIds}
-              onAddToCart={addToCart}
-              onAddToWishlist={(p) => toggleWishlist(p.id)}
-            />
-          ) : view === 'offers' ? (
-            <CollectionPage
-              slug={slug}
-              collectionSlug="offers"
-              title="Offers"
-              empty="No active offers right now."
-              wishlist={wishlistIds}
-              onAddToCart={addToCart}
-              onAddToWishlist={(p) => toggleWishlist(p.id)}
             />
           ) : (
             <>
@@ -1062,18 +1016,10 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
                     key={p.id}
                     product={p}
                     wished={wishlistIds.includes(p.id)}
-          ) : (view === 'new-arrivals' || view === 'best-sellers' || view === 'offers') ? (
-            <CollectionPage
-              slug={slug}
-              collectionSlug="new-arrivals"
-              title="New Arrivals"
-              ...
-            />
-          ) : view === 'best-sellers' ? (
-            ... best-sellers ...
-          ) : view === 'offers' ? (
-            ... offers ...
-          ) : (
+                    onOpen={(prod) => { setReviewsRequested(false); setSelectedProduct(prod); }}
+                    onOpenReviews={(prod) => { setReviewsRequested(true); setSelectedProduct(prod); }}
+                    onAddToCart={(prod) => addToCart(prod)}
+                    onAddToWishlist={(prod) => toggleWishlist(prod.id)}
                   />
                 ))}
                 {/* Empty catalogue: show placeholder "shadow" cards so the shop
