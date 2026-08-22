@@ -132,9 +132,9 @@ export default function LoginScreen({
   useEffect(() => {
     if (!IS_DESKTOP) return;
 
-    const receiveOAuth = async (event: MessageEvent<DesktopOAuthMessage>) => {
+    const receiveOAuth = async (event: MessageEvent) => {
       if (!DESKTOP_OAUTH_ORIGINS.has(event.origin)) return;
-      const data = event.data;
+      const data = event.data as DesktopOAuthMessage;
       if (!data || data.type !== 'kobeos-oauth-complete') return;
       if ((data.provider !== 'tiktok' && data.provider !== 'meta') || !data.accessToken) return;
 
@@ -155,8 +155,8 @@ export default function LoginScreen({
       }
     };
 
-    window.addEventListener('message', receiveOAuth as EventListener);
-    return () => window.removeEventListener('message', receiveOAuth as EventListener);
+    window.addEventListener('message', receiveOAuth);
+    return () => window.removeEventListener('message', receiveOAuth);
   }, [checkConnection, onLogin]);
 
   const submit = async () => {
