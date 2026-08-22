@@ -25,36 +25,21 @@ import {
 export class SocialSchedulerController {
   constructor(private readonly service: SocialSchedulerService) {}
 
-  /* ─────────────── Posts ─────────────── */
-
-  /** Create a new social media post (draft or scheduled). */
   @Post('posts')
-  createPost(
-    @CurrentUser('id') uid: string,
-    @Body() dto: CreateSocialPostDto,
-  ) {
+  createPost(@CurrentUser('id') uid: string, @Body() dto: CreateSocialPostDto) {
     return this.service.createPost(uid, dto);
   }
 
-  /** List posts with optional status, platform, and date range filters. */
   @Get('posts')
-  listPosts(
-    @CurrentUser('id') uid: string,
-    @Query() filters: PostFiltersDto,
-  ) {
+  listPosts(@CurrentUser('id') uid: string, @Query() filters: PostFiltersDto) {
     return this.service.getPosts(uid, filters);
   }
 
-  /** Get a single post by ID. */
   @Get('posts/:id')
-  getPost(
-    @CurrentUser('id') uid: string,
-    @Param('id') id: string,
-  ) {
+  getPost(@CurrentUser('id') uid: string, @Param('id') id: string) {
     return this.service.getPostById(id, uid);
   }
 
-  /** Update an existing post. */
   @Patch('posts/:id')
   updatePost(
     @CurrentUser('id') uid: string,
@@ -64,55 +49,41 @@ export class SocialSchedulerController {
     return this.service.updatePost(id, uid, dto);
   }
 
-  /** Delete a post. */
   @Delete('posts/:id')
-  deletePost(
-    @CurrentUser('id') uid: string,
-    @Param('id') id: string,
-  ) {
+  deletePost(@CurrentUser('id') uid: string, @Param('id') id: string) {
     return this.service.deletePost(id, uid);
   }
 
-  /** Publish a post immediately. */
+  /** Publish against the user's authorized provider account(s). */
   @Post('posts/:id/publish')
-  publishPost(@Param('id') id: string) {
-    return this.service.publishPost(id);
+  publishPost(@CurrentUser('id') uid: string, @Param('id') id: string) {
+    return this.service.publishPost(id, uid);
   }
 
-  /* ─────────────── Accounts ─────────────── */
+  /** Capability registry derived from real account, scope, and adapter state. */
+  @Get('capabilities')
+  capabilities(@CurrentUser('id') uid: string) {
+    return this.service.getCapabilities(uid);
+  }
 
-  /** Connect a new social media account. */
+  /** Legacy token-based API connector; the production UI uses official OAuth. */
   @Post('accounts')
-  connectAccount(
-    @CurrentUser('id') uid: string,
-    @Body() dto: CreateSocialAccountDto,
-  ) {
+  connectAccount(@CurrentUser('id') uid: string, @Body() dto: CreateSocialAccountDto) {
     return this.service.createAccount(uid, dto);
   }
 
-  /** List all connected social media accounts. */
   @Get('accounts')
   listAccounts(@CurrentUser('id') uid: string) {
     return this.service.getAccounts(uid);
   }
 
-  /** Disconnect a social media account. */
   @Delete('accounts/:id')
-  disconnectAccount(
-    @CurrentUser('id') uid: string,
-    @Param('id') id: string,
-  ) {
+  disconnectAccount(@CurrentUser('id') uid: string, @Param('id') id: string) {
     return this.service.disconnectAccount(id, uid);
   }
 
-  /* ─────────────── Analytics ─────────────── */
-
-  /** Get aggregated analytics for published posts. */
   @Get('analytics')
-  getAnalytics(
-    @CurrentUser('id') uid: string,
-    @Query() filters: AnalyticsFiltersDto,
-  ) {
+  getAnalytics(@CurrentUser('id') uid: string, @Query() filters: AnalyticsFiltersDto) {
     return this.service.getAnalytics(uid, filters);
   }
 }

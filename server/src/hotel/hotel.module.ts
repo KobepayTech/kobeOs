@@ -16,6 +16,8 @@ import { HotelGateway } from './hotel.gateway';
 import { HotelInventoryItem, HotelStaff, HotelChannel } from './hotel-extras.entity';
 import { HotelInventoryService, HotelStaffService, HotelChannelsService } from './hotel-extras.service';
 import { HotelExtrasController } from './hotel-extras.controller';
+import { HotelFrontDeskService } from './hotel-front-desk.service';
+import { HotelFrontDeskController } from './hotel-front-desk.controller';
 
 @Module({
   imports: [
@@ -32,13 +34,13 @@ import { HotelExtrasController } from './hotel-extras.controller';
       }),
     }),
   ],
-  // BookingsService needs HotelRoom repo to check availability and update room status.
   providers: [
     RoomsService, GuestsService, BookingsService,
     MenuItemsService, OrdersService, ServiceRequestsService,
     TenantsService, HotelChainService, HotelGateway,
     HotelInventoryService, HotelStaffService, HotelChannelsService,
+    HotelFrontDeskService,
   ],
-  controllers: [HotelController, PublicHotelController, HotelExtrasController],
+  controllers: [HotelController, PublicHotelController, HotelExtrasController, HotelFrontDeskController],
 })
 export class HotelModule {}

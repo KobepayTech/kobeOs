@@ -1,10 +1,9 @@
 import { IsEmail, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
-/**
- * Admin-supplied new-user payload. Unlike self-service registration, an admin
- * sets the account's initial password directly here so they can hand off
- * working credentials to a staff member.
- */
+export const USER_ROLES = ['user', 'admin', 'government_viewer', 'settlement_officer', 'compliance_officer', 'traffic_enforcement'] as const;
+export type UserRole = typeof USER_ROLES[number];
+
+/** Admin creates a real login and assigns the platform role it needs. */
 export class CreateUserDto {
   @IsEmail()
   email!: string;
@@ -20,6 +19,6 @@ export class CreateUserDto {
   displayName?: string;
 
   @IsOptional()
-  @IsIn(['user', 'admin'])
-  role?: 'user' | 'admin';
+  @IsIn(USER_ROLES)
+  role?: UserRole;
 }

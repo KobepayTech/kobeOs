@@ -7,6 +7,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
+import { Public } from '../common/public.decorator';
 import { MediaAssetsService, PlaylistsService } from './media.service';
 import { CreateAssetDto, CreatePlaylistDto, UpdateAssetDto, UpdatePlaylistDto } from './dto/media.dto';
 import { MediaAsset } from './media.entity';
@@ -67,6 +68,16 @@ export class MediaController {
     res.end(asset.contentBinary);
   }
 
+  /** Generate a short-lived public fetch URL for an uploaded asset. */
+  @Get('assets/:id/public-url')
+  publicUrl(
+    @CurrentUser('id') uid: string,
+    @Param('id') id: string,
+    @Query('ttl') ttl?: string,
+  ) {
+    return this.assets.createPublicUrl(uid, id, ttl ? Number(ttl) : 3600).then((url) => ({ url }));
+  }
+
   @Patch('assets/:id') updateAsset(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: UpdateAssetDto) { return this.assets.update(uid, id, dto); }
   @Delete('assets/:id') removeAsset(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.assets.remove(uid, id); }
 
@@ -74,4 +85,28 @@ export class MediaController {
   @Post('playlists') createPlaylist(@CurrentUser('id') uid: string, @Body() dto: CreatePlaylistDto) { return this.playlists.create(uid, dto); }
   @Patch('playlists/:id') updatePlaylist(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: UpdatePlaylistDto) { return this.playlists.update(uid, id, dto); }
   @Delete('playlists/:id') removePlaylist(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.playlists.remove(uid, id); }
+}
+
+/**
+ * Capability URL consumed by Instagram/TikTok. The HMAC query parameters are
+ * the authorization, so no user token is exposed to the social platform.
+ */
+@Public()
+@Controller('media/public')
+export class PublicMediaController {
+  constructor(private readonly assets: MediaAssetsService) {}
+
+  @Get(':id')
+  @Header('Cache-Control', 'public, max-age=300')
+  async get(
+    @Param('id') id: string,
+    @Query('exp') exp: string,
+    @Query('sig') sig: string,
+    @Res() res: Response,
+  ) {
+    const asset = await this.assets.getPublicBlob(id, exp, sig);
+    res.setHeader('Content-Type', asset.mimeType ?? 'application/octet-stream');
+    res.setHeader('Content-Length', String(asset.size));
+    res.end(asset.contentBinary);
+  }
 }
