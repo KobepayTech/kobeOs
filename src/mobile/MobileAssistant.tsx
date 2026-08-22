@@ -114,19 +114,28 @@ try {
     }
   }, []);
 
-  const selectModel = useCallback(async (model: string) => {
+ const selectModel = useCallback(async (model: string) => {
     if (!model || model === activeModel || isLoading) return;
 
-    setIsLoading(true);
-    setError(null);
+    // ... any code before the fetch ...
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // adjust timeout as needed
 
     try {
-      await api('/ai/models/active', {
-        method: 'PUT',
-        body: JSON.stringify({ model }),
-        offlineFallback: false,
-        timeout: 15000,
-      });
+        const response = await fetch(someUrl, {
+            // ... keep all other options except `timeout`
+            signal: controller.signal,
+        });
+        // ... handle the response (e.g., parse JSON, update state)
+    } catch (error) {
+        // handle fetch/abort errors
+    } finally {
+        clearTimeout(timeoutId);
+    }
+
+    // ... rest of the function
+}
 
       if (!isMountedRef.current) return;
 
