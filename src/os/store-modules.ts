@@ -13,9 +13,10 @@ export interface StoreModule {
 }
 
 /**
- * The App Store sells business modules, not every internal screen/package.
- * Internal app ids stay intact for the window manager and backwards
- * compatibility, but one entitlement owns all apps in a module.
+ * The KobeOS App Store sells complete modules, never the individual screens,
+ * tools or implementation apps inside a module. Internal app ids stay intact
+ * for the launcher/window manager and backwards compatibility; entitlement is
+ * resolved at the module boundary.
  */
 const MODULE_DEFINITIONS: Array<Omit<StoreModule, 'version'>> = [
   {
@@ -49,8 +50,8 @@ const MODULE_DEFINITIONS: Array<Omit<StoreModule, 'version'>> = [
     category: 'erp',
     primaryAppId: 'cargo',
     appIds: [
-      'cargo', 'cargo-sender', 'cargo-owner', 'cargo-driver', 'cargo-receiver',
-      'cargo-company', 'cargo-consolidation', 'cargo-tz', 'cargo-tz-ops',
+      'cargo', 'cargo-welcome', 'cargo-sender', 'cargo-owner', 'cargo-driver',
+      'cargo-receiver', 'cargo-company', 'cargo-consolidation', 'cargo-tz', 'cargo-tz-ops',
     ],
     features: ['Receiving', 'Packing', 'Consolidation', 'Dispatch', 'Tracking', 'Owner dashboard'],
   },
@@ -126,13 +127,73 @@ const MODULE_DEFINITIONS: Array<Omit<StoreModule, 'version'>> = [
     appIds: ['live-sales'],
     features: ['Live sessions', 'Comments', 'Reservations', 'Orders'],
   },
+  {
+    id: 'kobe-office',
+    name: 'Kobe Office',
+    description: 'Documents, spreadsheets, presentations, notes, tasks, planning and everyday office work.',
+    category: 'productivity',
+    primaryAppId: 'spreadsheet',
+    appIds: ['calculator', 'text-editor', 'notepad', 'calendar', 'tasks', 'notes', 'spreadsheet', 'presentation', 'draw', 'kanban'],
+    features: ['Documents', 'Spreadsheets', 'Presentations', 'Notes', 'Tasks', 'Calendar', 'Kanban'],
+  },
+  {
+    id: 'kobe-connect',
+    name: 'Kobe Connect',
+    description: 'Business communication tools for email, chat, contacts and video meetings.',
+    category: 'communication',
+    primaryAppId: 'chat',
+    appIds: ['email', 'chat', 'contacts', 'video-conference'],
+    features: ['Email', 'Chat', 'Contacts', 'Video meetings'],
+  },
+  {
+    id: 'kobe-media',
+    name: 'Kobe Media',
+    description: 'Everyday media playback, image viewing, music creation, camera and screen recording tools.',
+    category: 'media',
+    primaryAppId: 'media-player',
+    appIds: ['media-player', 'image-viewer', 'music-studio', 'camera', 'screen-recorder'],
+    features: ['Media player', 'Images', 'Music studio', 'Camera', 'Screen recorder'],
+  },
+  {
+    id: 'kobe-developer',
+    name: 'Kobe Developer',
+    description: 'Coding and developer tools bundled as one complete KobeOS developer module.',
+    category: 'development',
+    primaryAppId: 'code-ide',
+    appIds: ['code-ide', 'database-manager', 'api-tester', 'git-client', 'regex-tester', 'json-formatter', 'color-picker', 'markdown-preview'],
+    features: ['IDE', 'Database manager', 'API tester', 'Git', 'Regex', 'JSON', 'Markdown'],
+  },
+  {
+    id: 'kobe-games',
+    name: 'Kobe Games',
+    description: 'The built-in KobeOS casual game collection.',
+    category: 'games',
+    primaryAppId: 'chess',
+    appIds: ['snake', 'tetris', 'chess', 'solitaire'],
+    features: ['Snake', 'Tetris', 'Chess', 'Solitaire'],
+  },
 ];
 
-// AI runtime, model management and assistants are platform services. They remain
-// installed/launchable in KobeOS but are intentionally not sold as separate App
-// Store products.
+/**
+ * Platform and internal services are part of KobeOS itself. They may remain
+ * launchable, but they are never separate App Store products.
+ */
 export const PLATFORM_SERVICE_APP_IDS = new Set([
-  'kobe-assistant', 'kobe-models', 'kobe-agents',
+  'app-store',
+  'file-manager',
+  'terminal',
+  'settings',
+  'system-settings',
+  'task-manager',
+  'package-manager',
+  'backup-restore',
+  'password-manager',
+  'browser',
+  'kobe-assistant',
+  'kobe-models',
+  'kobe-agents',
+  'kobetech-admin',
+  'kobetech-devops',
 ]);
 
 const byId = new Map(appCatalogue.map((app) => [app.id, app]));
@@ -143,9 +204,8 @@ export const storeModules: StoreModule[] = [
     ...module,
     version: byId.get(module.primaryAppId)?.version ?? '1.0.0',
   })),
-  // Any app that is not a feature of a larger module remains a standalone
-  // module. This prevents breaking older utility/developer apps while ensuring
-  // related ERP/cargo/property components are never listed separately.
+  // True standalone products can still appear as one-item modules. Anything
+  // identified as platform infrastructure above is intentionally excluded.
   ...appCatalogue
     .filter((app) => !groupedAppIds.has(app.id) && !PLATFORM_SERVICE_APP_IDS.has(app.id))
     .map((app) => ({
