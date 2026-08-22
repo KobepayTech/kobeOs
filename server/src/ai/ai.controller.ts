@@ -785,7 +785,8 @@ export class AiController {
         generatedAt: new Date().toISOString()
       };
     } catch (error) {
-      this.logger.error(`Stats analysis failed: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+this.logger.error(`Some message: ${message}`);
       throw new InternalServerErrorException('Stats analysis failed');
     }
   }
@@ -802,7 +803,8 @@ export class AiController {
         generatedAt: new Date().toISOString()
       };
     } catch (error) {
-      this.logger.error(`Match report generation failed: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+this.logger.error(`Some message: ${message}`);
       throw new InternalServerErrorException('Match report generation failed');
     }
   }
@@ -822,7 +824,8 @@ export class AiController {
         }
       };
     } catch (error) {
-      this.logger.error(`Formation prediction failed: ${error.message}`);
+      const message = error instanceof Error ? error.message : String(error);
+this.logger.error(`Some message: ${message}`);
       throw new InternalServerErrorException('Formation prediction failed');
     }
   }
