@@ -1,15 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  Activity, Camera, CheckCircle2, Loader2, Plus, RefreshCw, Search,
-  Shield, Trophy, UserRound, X,
-} from 'lucide-react';
-import {
-  analyticsApi, camerasApi, matchesApi, playersApi, teamsApi,
-  type Analytics, type Camera as CameraRow, type Match, type Player, type Team,
-} from './api';
+import { useCallback, useEffect, useState } from 'react';
+import { Activity, Camera, Loader2, Plus, RefreshCw, Search, Shield, Trophy, UserRound, X } from 'lucide-react';
+import { analyticsApi, camerasApi, matchesApi, playersApi, teamsApi, type Analytics, type Camera as CameraRow, type Match, type Player, type Team } from './api';
 
 type Tab = 'matches' | 'teams' | 'players' | 'analytics' | 'cameras';
-const dateTime = (value: string) => new Date(value).toLocaleString();
+type CreateMode = 'match' | 'team' | 'player' | 'camera';
 
 export default function KobeSports() {
   const [tab, setTab] = useState<Tab>('matches');
@@ -19,113 +13,160 @@ export default function KobeSports() {
   const [cameras, setCameras] = useState<CameraRow[]>([]);
   const [selectedMatchId, setSelectedMatchId] = useState('');
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
+  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [analyticsBusy, setAnalyticsBusy] = useState(false);
   const [error, setError] = useState('');
-  const [search, setSearch] = useState('');
-  const [modal, setModal] = useState<'match' | 'team' | 'player' | 'camera' | null>(null);
+  const [createMode, setCreateMode] = useState<CreateMode | null>(null);
 
   const load = useCallback(async () => {
-    setLoading(true); setError('');
+    setLoading(true);
+    setError('');
     try {
-      const [m, t, p, c] = await Promise.all([
-        matchesApi.list(1, 100), teamsApi.list(1, 100), playersApi.list(1, 200), camerasApi.list(),
+      const [matchRows, teamRows, playerRows, cameraRows] = await Promise.all([
+        matchesApi.list(1, 100),
+        teamsApi.list(1, 100),
+        playersApi.list(1, 200),
+        camerasApi.list(),
       ]);
-      setMatches(Array.isArray(m.data) ? m.data : []);
-      setTeams(Array.isArray(t.data) ? t.data : []);
-      setPlayers(Array.isArray(p.data) ? p.data : []);
-      setCameras(Array.isArray(c) ? c : []);
-      setSelectedMatchId((current) => current || m.data?.[0]?.id || '');
-    } catch (e) {
+      setMatches(Array.isArray(matchRows.data) ? matchRows.data : []);
+      setTeams(Array.isArray(teamRows.data) ? teamRows.data : []);
+      setPlayers(Array.isArray(playerRows.data) ? playerRows.data : []);
+      setCameras(Array.isArray(cameraRows) ? cameraRows : []);
+      setSelectedMatchId((current) => current || matchRows.data?.[0]?.id || '');
+    } catch (cause) {
+      setError((cause as Error).message || 'Kobe Sports could not load live records.');
       setMatches([]); setTeams([]); setPlayers([]); setCameras([]);
-      setError((e as Error).message || 'Could not load Kobe Sports.');
-    } finally { setLoading(false); }
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  useEffect(() => { void load(); }, [load]);
-
   const loadAnalytics = useCallback(async (matchId: string) => {
-    if (!matchId) { setAnalytics(null); return; }
-    setAnalyticsBusy(true); setError('');
+    if (!matchId) {
+      setAnalytics(null);
+      return;
+    }
+    setAnalyticsBusy(true);
     try { setAnalytics(await analyticsApi.forMatch(matchId)); }
     catch { setAnalytics(null); }
     finally { setAnalyticsBusy(false); }
   }, []);
 
+  useEffect(() => { void load(); }, [load]);
   useEffect(() => { if (tab === 'analytics') void loadAnalytics(selectedMatchId); }, [tab, selectedMatchId, loadAnalytics]);
 
-  const q = search.trim().toLowerCase();
-  const visibleMatches = matches.filter((m) => !q || `${m.homeTeam} ${m.awayTeam} ${m.competition ?? ''} ${m.venue ?? ''}`.toLowerCase().includes(q));
-  const visibleTeams = teams.filter((t) => !q || `${t.name} ${t.shortName ?? ''} ${t.competition ?? ''} ${t.country ?? ''}`.toLowerCase().includes(q));
-  const visiblePlayers = players.filter((p) => !q || `${p.name} ${p.teamName ?? ''} ${p.position ?? ''} ${p.nationality ?? ''}`.toLowerCase().includes(q));
-  const liveCount = matches.filter((m) => m.status === 'LIVE' || m.status === 'HT').length;
+  const query = search.trim().toLowerCase();
+  const filteredMatches = matches.filter((row) => !query || `${row.homeTeam} ${row.awayTeam} ${row.competition ?? ''} ${row.venue ?? ''}`.toLowerCase().includes(query));
+  const filteredTeams = teams.filter((row) => !query || `${row.name} ${row.shortName ?? ''} ${row.competition ?? ''} ${row.country ?? ''}`.toLowerCase().includes(query));
+  const filteredPlayers = players.filter((row) => !query || `${row.name} ${row.teamName ?? ''} ${row.position ?? ''} ${row.nationality ?? ''}`.toLowerCase().includes(query));
+  const liveCount = matches.filter((row) => row.status === 'LIVE' || row.status === 'HT').length;
 
-  const lifecycle = async (match: Match, action: 'start' | 'halftime' | 'end' | 'postpone') => {
+  const matchAction = async (row: Match, action: 'start' | 'halftime' | 'end' | 'postpone') => {
+    setError('');
     try {
-      if (action === 'start') await matchesApi.start(match.id);
-      if (action === 'halftime') await matchesApi.halftime(match.id);
-      if (action === 'end') await matchesApi.end(match.id);
-      if (action === 'postpone') await matchesApi.postpone(match.id);
+      if (action === 'start') await matchesApi.start(row.id);
+      if (action === 'halftime') await matchesApi.halftime(row.id);
+      if (action === 'end') await matchesApi.end(row.id);
+      if (action === 'postpone') await matchesApi.postpone(row.id);
       await load();
-    } catch (e) { setError((e as Error).message || 'Could not update match.'); }
+    } catch (cause) { setError((cause as Error).message || 'Could not update match.'); }
   };
 
-  const score = async (match: Match) => {
-    const home = Number(window.prompt(`${match.homeTeam} score`, String(match.homeScore)));
+  const updateScore = async (row: Match) => {
+    const home = Number(window.prompt(`${row.homeTeam} score`, String(row.homeScore)));
     if (!Number.isFinite(home) || home < 0) return;
-    const away = Number(window.prompt(`${match.awayTeam} score`, String(match.awayScore)));
+    const away = Number(window.prompt(`${row.awayTeam} score`, String(row.awayScore)));
     if (!Number.isFinite(away) || away < 0) return;
-    try { await matchesApi.updateScore(match.id, { homeScore: home, awayScore: away }); await load(); }
-    catch (e) { setError((e as Error).message || 'Could not update score.'); }
+    try { await matchesApi.updateScore(row.id, { homeScore: home, awayScore: away }); await load(); }
+    catch (cause) { setError((cause as Error).message || 'Could not update score.'); }
   };
 
-  const report = async () => {
+  const generateReport = async () => {
     if (!selectedMatchId) return;
-    setAnalyticsBusy(true); setError('');
-    try { await analyticsApi.tacticalReport(selectedMatchId); await loadAnalytics(selectedMatchId); }
-    catch (e) { setError((e as Error).message || 'AI tactical report is unavailable.'); }
+    setAnalyticsBusy(true);
+    setError('');
+    try {
+      await analyticsApi.tacticalReport(selectedMatchId);
+      await loadAnalytics(selectedMatchId);
+    } catch (cause) { setError((cause as Error).message || 'Tactical report is unavailable.'); }
     finally { setAnalyticsBusy(false); }
   };
 
+  const openCreate = () => setCreateMode(tab === 'matches' ? 'match' : tab === 'teams' ? 'team' : tab === 'players' ? 'player' : 'camera');
+
   return (
-    <div className="h-full min-h-0 flex flex-col bg-gray-950 text-white overflow-hidden">
-      <header className="shrink-0 bg-gray-900 border-b border-gray-800">
-        <div className="h-16 px-4 flex items-center gap-3">
-          <div className="h-10 w-10 rounded-xl bg-amber-400/15 text-amber-300 grid place-items-center"><Trophy className="h-5 w-5" /></div>
-          <div><h1 className="font-black">Kobe Sports</h1><p className="text-[11px] text-gray-500">Real fixtures · teams · players · cameras · match analytics</p></div>
-          <button onClick={() => void load()} disabled={loading} className="ml-auto h-9 w-9 rounded-lg border border-gray-700 grid place-items-center text-gray-400 disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button>
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-gray-950 text-white">
+      <header className="shrink-0 border-b border-gray-800 bg-gray-900">
+        <div className="flex h-16 items-center gap-3 px-4">
+          <div className="grid h-10 w-10 place-items-center rounded-xl bg-amber-400/15 text-amber-300"><Trophy className="h-5 w-5" /></div>
+          <div><h1 className="font-black">Kobe Sports</h1><p className="text-[11px] text-gray-500">Fixtures, teams, players, cameras and match analytics</p></div>
+          <button onClick={() => void load()} disabled={loading} className="ml-auto grid h-9 w-9 place-items-center rounded-lg border border-gray-700 text-gray-400"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button>
         </div>
-        <nav className="px-3 flex overflow-x-auto">{([['matches','Matches',Trophy],['teams','Teams',Shield],['players','Players',UserRound],['analytics','Analytics',Activity],['cameras','Cameras',Camera]] as const).map(([id,label,Icon]) => <button key={id} onClick={() => setTab(id)} className={`h-11 px-3 inline-flex items-center gap-2 text-xs font-black border-b-2 ${tab === id ? 'text-amber-300 border-amber-300' : 'text-gray-500 border-transparent'}`}><Icon className="h-4 w-4" />{label}</button>)}</nav>
+        <nav className="flex overflow-x-auto px-3">
+          {([['matches', 'Matches', Trophy], ['teams', 'Teams', Shield], ['players', 'Players', UserRound], ['analytics', 'Analytics', Activity], ['cameras', 'Cameras', Camera]] as const).map(([id, label, Icon]) => <button key={id} onClick={() => setTab(id)} className={`inline-flex h-11 items-center gap-2 border-b-2 px-3 text-xs font-black ${tab === id ? 'border-amber-300 text-amber-300' : 'border-transparent text-gray-500'}`}><Icon className="h-4 w-4" />{label}</button>)}
+        </nav>
       </header>
 
-      <main className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
+      <main className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
         {error && <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">{error}</div>}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3"><Metric label="Matches" value={matches.length} /><Metric label="Live now" value={liveCount} /><Metric label="Teams" value={teams.length} /><Metric label="Players" value={players.length} /></div>
-        <div className="flex gap-2 items-center">
-          <div className="relative flex-1 max-w-lg"><Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search sports records…" className="w-full h-10 rounded-xl bg-gray-900 border border-gray-800 pl-9 pr-3 text-sm outline-none focus:border-amber-500/50" /></div>
-          {tab !== 'analytics' && <button onClick={() => setModal(tab === 'matches' ? 'match' : tab === 'teams' ? 'team' : tab === 'players' ? 'player' : 'camera')} className="h-10 px-3 rounded-xl bg-amber-500 text-gray-950 text-xs font-black inline-flex items-center gap-1.5"><Plus className="h-4 w-4" /> Add {tab === 'matches' ? 'match' : tab === 'teams' ? 'team' : tab === 'players' ? 'player' : 'camera'}</button>}
-        </div>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4"><Metric label="Matches" value={matches.length} /><Metric label="Live now" value={liveCount} /><Metric label="Teams" value={teams.length} /><Metric label="Players" value={players.length} /></div>
+        <div className="flex gap-2"><div className="relative max-w-lg flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search live sports records" className="h-10 w-full rounded-xl border border-gray-800 bg-gray-900 pl-9 pr-3 text-sm" /></div>{tab !== 'analytics' && <button onClick={openCreate} className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-amber-500 px-3 text-xs font-black text-gray-950"><Plus className="h-4 w-4" />Add</button>}</div>
 
-        {loading && !matches.length && !teams.length && !players.length ? <div className="py-24 grid place-items-center text-gray-500"><Loader2 className="h-6 w-6 animate-spin" /></div> : tab === 'matches' ? <Matches rows={visibleMatches} onAction={lifecycle} onScore={score} onAnalyse={(id) => { setSelectedMatchId(id); setTab('analytics'); }} /> : tab === 'teams' ? <Teams rows={visibleTeams} /> : tab === 'players' ? <Players rows={visiblePlayers} /> : tab === 'cameras' ? <Cameras rows={cameras} matches={matches} onChanged={load} /> : <AnalyticsPanel matches={matches} selectedId={selectedMatchId} setSelectedId={setSelectedMatchId} data={analytics} busy={analyticsBusy} onRefresh={() => loadAnalytics(selectedMatchId)} onReport={report} />}
+        {loading ? <div className="grid place-items-center py-24 text-gray-500"><Loader2 className="h-6 w-6 animate-spin" /></div> : tab === 'matches' ? (
+          <section className="rounded-2xl border border-gray-800 bg-gray-900/60 px-4">{filteredMatches.map((row) => <div key={row.id} className="flex flex-col gap-3 border-b border-gray-800 py-3 lg:flex-row lg:items-center"><div className="min-w-0 flex-1"><div className="flex items-center gap-2"><Status value={row.status} /><b className="truncate">{row.homeTeam} vs {row.awayTeam}</b></div><span className="mt-1 block text-xs text-gray-500">{new Date(row.kickoff).toLocaleString()}{row.competition ? ` · ${row.competition}` : ''}{row.venue ? ` · ${row.venue}` : ''}</span></div><button onClick={() => void updateScore(row)} className="h-10 min-w-24 rounded-xl border border-gray-700 bg-gray-950 font-black">{row.homeScore} – {row.awayScore}</button><div className="flex flex-wrap gap-1.5">{row.status === 'SCHEDULED' && <Action label="Start" onClick={() => void matchAction(row, 'start')} />}{row.status === 'LIVE' && <Action label="Half time" onClick={() => void matchAction(row, 'halftime')} />}{(row.status === 'LIVE' || row.status === 'HT') && <Action label="End" onClick={() => void matchAction(row, 'end')} />}{row.status === 'SCHEDULED' && <Action label="Postpone" onClick={() => void matchAction(row, 'postpone')} />}<Action label="Analytics" onClick={() => { setSelectedMatchId(row.id); setTab('analytics'); }} /></div></div>)}{!filteredMatches.length && <Empty body="No matches found. Create the first real fixture." />}</section>
+        ) : tab === 'teams' ? (
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{filteredTeams.map((row) => <div key={row.id} className="rounded-2xl border border-gray-800 bg-gray-900/60 p-4"><div className="grid h-10 w-10 place-items-center rounded-xl bg-blue-500/10 text-blue-300"><Shield className="h-5 w-5" /></div><b className="mt-3 block">{row.name}</b><span className="text-xs text-gray-500">{row.competition || 'No competition'}{row.country ? ` · ${row.country}` : ''}</span><div className="mt-4 grid grid-cols-4 gap-2"><Mini label="P" value={row.played} /><Mini label="W" value={row.won} /><Mini label="D" value={row.drawn} /><Mini label="Pts" value={row.points} /></div></div>)}{!filteredTeams.length && <div className="md:col-span-2 xl:col-span-3"><Empty body="No teams found." /></div>}</div>
+        ) : tab === 'players' ? (
+          <section className="rounded-2xl border border-gray-800 bg-gray-900/60 px-4">{filteredPlayers.map((row) => <div key={row.id} className="flex items-center gap-3 border-b border-gray-800 py-3"><div className="grid h-10 w-10 place-items-center rounded-full bg-gray-800 text-xs font-black">{row.jerseyNumber ?? row.name.slice(0, 2).toUpperCase()}</div><div className="min-w-0 flex-1"><b className="block truncate">{row.name}</b><span className="text-xs text-gray-500">{row.teamName || 'Unassigned'}{row.position ? ` · ${row.position}` : ''}{row.nationality ? ` · ${row.nationality}` : ''}</span></div><b className="text-amber-300">{Number(row.rating || 0).toFixed(1)}</b></div>)}{!filteredPlayers.length && <Empty body="No players found." />}</section>
+        ) : tab === 'cameras' ? (
+          <section className="rounded-2xl border border-gray-800 bg-gray-900/60 px-4">{cameras.map((row) => <CameraRowView key={row.id} row={row} matches={matches} onChanged={load} />)}{!cameras.length && <Empty body="No cameras registered. Add a real stream before enabling tracking." />}</section>
+        ) : <AnalyticsView matches={matches} selectedMatchId={selectedMatchId} setSelectedMatchId={setSelectedMatchId} analytics={analytics} busy={analyticsBusy} refresh={loadAnalytics} report={generateReport} />}
       </main>
-      {modal && <CreateModal mode={modal} teams={teams} onClose={() => setModal(null)} onSaved={async () => { setModal(null); await load(); }} />}
+
+      {createMode && <CreateDialog mode={createMode} teams={teams} onClose={() => setCreateMode(null)} onSaved={async () => { setCreateMode(null); await load(); }} />}
     </div>
   );
 }
 
-function Matches({ rows, onAction, onScore, onAnalyse }: { rows: Match[]; onAction: (m: Match, a: 'start'|'halftime'|'end'|'postpone') => Promise<void>; onScore: (m: Match) => Promise<void>; onAnalyse: (id: string) => void }) {
-  if (!rows.length) return <Panel><Empty title="No matches" body="Create a fixture. Live scores and analytics will stay attached to that real match." /></Panel>;
-  return <Panel><div className="divide-y divide-gray-800">{rows.map((m) => <div key={m.id} className="py-3 flex flex-col lg:flex-row lg:items-center gap-3"><div className="min-w-0 flex-1"><div className="flex gap-2 items-center"><Status value={m.status} /><b className="truncate">{m.homeTeam} vs {m.awayTeam}</b></div><span className="block text-xs text-gray-500 mt-1">{dateTime(m.kickoff)}{m.competition ? ` · ${m.competition}` : ''}{m.venue ? ` · ${m.venue}` : ''}</span></div><button onClick={() => void onScore(m)} className="h-10 min-w-24 rounded-xl bg-gray-900 border border-gray-700 font-black">{m.homeScore} – {m.awayScore}</button><div className="flex flex-wrap gap-1.5 text-xs">{m.status === 'SCHEDULED' && <Action label="Start" onClick={() => void onAction(m,'start')} />}{m.status === 'LIVE' && <Action label="Half time" onClick={() => void onAction(m,'halftime')} />}{(m.status === 'LIVE' || m.status === 'HT') && <Action label="End" onClick={() => void onAction(m,'end')} />}{m.status === 'SCHEDULED' && <Action label="Postpone" onClick={() => void onAction(m,'postpone')} />}<Action label="Analytics" onClick={() => onAnalyse(m.id)} /></div></div>)}</div></Panel>;
+function CameraRowView({ row, matches, onChanged }: { row: CameraRow; matches: Match[]; onChanged: () => Promise<void> }) {
+  const assign = async () => {
+    const matchId = window.prompt('Match ID to assign', matches.find((match) => match.status === 'LIVE')?.id || matches[0]?.id || '');
+    if (!matchId) return;
+    await camerasApi.assign(row.id, matchId);
+    await onChanged();
+  };
+  return <div className="flex items-center gap-3 border-b border-gray-800 py-3"><div className={`grid h-10 w-10 place-items-center rounded-xl ${row.status === 'ONLINE' ? 'bg-emerald-500/10 text-emerald-300' : 'bg-gray-800 text-gray-500'}`}><Camera className="h-5 w-5" /></div><div className="min-w-0 flex-1"><b className="block truncate">{row.label}</b><span className="text-xs text-gray-500">{row.role} · {row.status} · {row.fps} fps{row.resolution ? ` · ${row.resolution}` : ''}</span></div>{row.activeMatchId ? <Action label="Release" onClick={() => void camerasApi.release(row.id).then(onChanged)} /> : <Action label="Assign" onClick={() => void assign()} />}</div>;
 }
-function Teams({ rows }: { rows: Team[] }) { if (!rows.length) return <Panel><Empty title="No teams" body="Add competing teams to start building fixtures and player rosters." /></Panel>; return <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-3">{rows.map((t) => <div key={t.id} className="rounded-2xl border border-gray-800 bg-gray-900/60 p-4"><div className="flex items-start"><div className="h-10 w-10 rounded-xl bg-blue-500/10 text-blue-300 grid place-items-center"><Shield className="h-5 w-5" /></div><span className="ml-auto text-[10px] text-gray-500">{t.country || '—'}</span></div><b className="block mt-3">{t.name}</b><span className="text-xs text-gray-500">{t.competition || 'No competition'}{t.stadium ? ` · ${t.stadium}` : ''}</span><div className="grid grid-cols-4 gap-2 mt-4"><Mini label="P" value={t.played} /><Mini label="W" value={t.won} /><Mini label="D" value={t.drawn} /><Mini label="Pts" value={t.points} /></div></div>)}</div>; }
-function Players({ rows }: { rows: Player[] }) { if (!rows.length) return <Panel><Empty title="No players" body="Add players and assign them to real teams." /></Panel>; return <Panel><div className="divide-y divide-gray-800">{rows.map((p) => <div key={p.id} className="py-3 flex items-center gap-3"><div className="h-10 w-10 rounded-full bg-gray-800 grid place-items-center font-black text-xs">{p.jerseyNumber ?? p.name.slice(0,2).toUpperCase()}</div><div className="min-w-0 flex-1"><b className="block truncate">{p.name}</b><span className="text-xs text-gray-500">{p.teamName || 'Unassigned'}{p.position ? ` · ${p.position}` : ''}{p.nationality ? ` · ${p.nationality}` : ''}</span></div><div className="text-right"><b className="text-amber-300">{Number(p.rating || 0).toFixed(1)}</b><span className="block text-[10px] text-gray-600">rating</span></div></div>)}</div></Panel>; }
-function Cameras({ rows, matches, onChanged }: { rows: CameraRow[]; matches: Match[]; onChanged: () => Promise<void> }) { const assign = async (c: CameraRow) => { const matchId = window.prompt('Match ID to assign', matches.find((m) => m.status === 'LIVE')?.id || matches[0]?.id || ''); if (!matchId) return; await camerasApi.assign(c.id, matchId); await onChanged(); }; if (!rows.length) return <Panel><Empty title="No cameras" body="Register a camera stream before enabling automated match tracking." /></Panel>; return <Panel><div className="divide-y divide-gray-800">{rows.map((c) => <div key={c.id} className="py-3 flex items-center gap-3"><div className={`h-10 w-10 rounded-xl grid place-items-center ${c.status === 'ONLINE' ? 'bg-emerald-500/10 text-emerald-300' : 'bg-gray-800 text-gray-500'}`}><Camera className="h-5 w-5" /></div><div className="flex-1 min-w-0"><b className="block truncate">{c.label}</b><span className="text-xs text-gray-500">{c.role} · {c.status} · {c.fps} fps{c.resolution ? ` · ${c.resolution}` : ''}</span></div><span className="text-[10px] font-black text-gray-500">{c.calibrated ? 'CALIBRATED' : 'NEEDS CALIBRATION'}</span>{c.activeMatchId ? <Action label="Release" onClick={() => void camerasApi.release(c.id).then(onChanged)} /> : <Action label="Assign" onClick={() => void assign(c)} />}</div>)}</div></Panel>; }
-function AnalyticsPanel({ matches, selectedId, setSelectedId, data, busy, onRefresh, onReport }: { matches: Match[]; selectedId: string; setSelectedId: (id:string)=>void; data: Analytics|null; busy:boolean; onRefresh:()=>Promise<void>; onReport:()=>Promise<void> }) { const match = matches.find((m) => m.id === selectedId); return <div className="space-y-4"><div className="flex flex-wrap gap-2 items-center"><select value={selectedId} onChange={(e) => setSelectedId(e.target.value)} className="h-10 rounded-xl bg-gray-900 border border-gray-800 px-3 text-sm min-w-72"><option value="">Select match</option>{matches.map((m) => <option key={m.id} value={m.id}>{m.homeTeam} vs {m.awayTeam}</option>)}</select><button onClick={() => void onRefresh()} disabled={!selectedId || busy} className="h-10 px-3 rounded-xl border border-gray-700 text-xs font-black">Refresh</button><button onClick={() => void onReport()} disabled={!selectedId || busy} className="h-10 px-3 rounded-xl bg-amber-500 text-gray-950 text-xs font-black">Generate tactical report</button></div>{busy ? <div className="py-20 grid place-items-center text-gray-500"><Loader2 className="h-6 w-6 animate-spin" /></div> : !selectedId ? <Panel><Empty title="Select a match" body="Analytics is shown only for a real match record." /></Panel> : !data ? <Panel><Empty title="No analytics yet" body="Start tracking or ingest match data, then refresh. No demo statistics are substituted." /></Panel> : <><div className="grid grid-cols-2 lg:grid-cols-4 gap-3"><Metric label="Status" value={data.status} /><Metric label="Home possession" value={data.possession ? `${data.possession.home}%` : '—'} /><Metric label="Away possession" value={data.possession ? `${data.possession.away}%` : '—'} /><Metric label="Match" value={match ? `${match.homeScore}-${match.awayScore}` : '—'} /></div><div className="grid lg:grid-cols-2 gap-4"><Panel><h3 className="font-black">Formation</h3><div className="mt-3 grid grid-cols-2 gap-3"><Mini label={match?.homeTeam || 'Home'} value={data.formations?.home || '—'} /><Mini label={match?.awayTeam || 'Away'} value={data.formations?.away || '—'} /></div></Panel><Panel><h3 className="font-black">xG timeline</h3><div className="mt-3 grid grid-cols-2 gap-3"><Mini label="Home xG" value={data.xgData?.home?.at(-1)?.toFixed(2) ?? '—'} /><Mini label="Away xG" value={data.xgData?.away?.at(-1)?.toFixed(2) ?? '—'} /></div></Panel></div>{data.aiTacticalReport && <Panel><h3 className="font-black">AI tactical report</h3><p className="mt-3 text-sm leading-6 text-gray-300 whitespace-pre-wrap">{data.aiTacticalReport}</p></Panel>}{data.aiCommentary && <Panel><h3 className="font-black">AI commentary</h3><p className="mt-3 text-sm leading-6 text-gray-300 whitespace-pre-wrap">{data.aiCommentary}</p></Panel>}</>}</div>; }
-function CreateModal({ mode, teams, onClose, onSaved }: { mode:'match'|'team'|'player'|'camera'; teams:Team[]; onClose:()=>void; onSaved:()=>Promise<void> }) { const [form,setForm]=useState<Record<string,string>>({ kickoff:new Date(Date.now()+3600000).toISOString().slice(0,16), sport:'football', status:'SCHEDULED', role:'wide', fps:'30' }); const [busy,setBusy]=useState(false); const [error,setError]=useState(''); const set=(k:string,v:string)=>setForm((f)=>({...f,[k]:v})); const save=async()=>{setBusy(true);setError('');try{if(mode==='team') await teamsApi.create({name:form.name,shortName:form.shortName||undefined,competition:form.competition||undefined,country:form.country||undefined,stadium:form.stadium||undefined}); if(mode==='player') await playersApi.create({name:form.name,teamId:form.teamId||undefined,teamName:teams.find((t)=>t.id===form.teamId)?.name,position:form.position||undefined,nationality:form.nationality||undefined,jerseyNumber:form.jerseyNumber?Number(form.jerseyNumber):undefined}); if(mode==='match') await matchesApi.create({sport:form.sport||'football',homeTeam:form.homeTeam,awayTeam:form.awayTeam,kickoff:new Date(form.kickoff).toISOString(),status:'SCHEDULED',homeScore:0,awayScore:0,competition:form.competition||undefined,venue:form.venue||undefined}); if(mode==='camera') await camerasApi.register({label:form.label,role:form.role||'wide',streamUrl:form.streamUrl,resolution:form.resolution||undefined}); await onSaved();}catch(e){setError((e as Error).message||'Could not save sports record.');}finally{setBusy(false);}}; return <div className="fixed inset-0 z-50 bg-black/60 grid place-items-center p-4" onMouseDown={onClose}><div onMouseDown={(e)=>e.stopPropagation()} className="w-full max-w-md rounded-2xl border border-gray-800 bg-gray-950 p-5"><div className="flex"><h2 className="font-black capitalize">Add {mode}</h2><button onClick={onClose} className="ml-auto"><X className="h-5 w-5" /></button></div><div className="mt-4 grid gap-3">{mode==='team'&&<><Input label="Team name" value={form.name} onChange={(v)=>set('name',v)}/><div className="grid grid-cols-2 gap-3"><Input label="Short name" value={form.shortName} onChange={(v)=>set('shortName',v)}/><Input label="Country" value={form.country} onChange={(v)=>set('country',v)}/></div><Input label="Competition" value={form.competition} onChange={(v)=>set('competition',v)}/><Input label="Stadium" value={form.stadium} onChange={(v)=>set('stadium',v)}/></>}{mode==='player'&&<><Input label="Player name" value={form.name} onChange={(v)=>set('name',v)}/><label className="grid gap-1 text-xs text-gray-400">Team<select value={form.teamId||''} onChange={(e)=>set('teamId',e.target.value)} className="field"><option value="">Unassigned</option>{teams.map((t)=><option key={t.id} value={t.id}>{t.name}</option>)}</select></label><div className="grid grid-cols-2 gap-3"><Input label="Position" value={form.position} onChange={(v)=>set('position',v)}/><Input label="Jersey #" type="number" value={form.jerseyNumber} onChange={(v)=>set('jerseyNumber',v)}/></div><Input label="Nationality" value={form.nationality} onChange={(v)=>set('nationality',v)}/></>}{mode==='match'&&<><div className="grid grid-cols-2 gap-3"><Input label="Home team" value={form.homeTeam} onChange={(v)=>set('homeTeam',v)}/><Input label="Away team" value={form.awayTeam} onChange={(v)=>set('awayTeam',v)}/></div><Input label="Kickoff" type="datetime-local" value={form.kickoff} onChange={(v)=>set('kickoff',v)}/><Input label="Competition" value={form.competition} onChange={(v)=>set('competition',v)}/><Input label="Venue" value={form.venue} onChange={(v)=>set('venue',v)}/></>}{mode==='camera'&&<><Input label="Camera label" value={form.label} onChange={(v)=>set('label',v)}/><Input label="Stream URL" value={form.streamUrl} onChange={(v)=>set('streamUrl',v)}/><div className="grid grid-cols-2 gap-3"><Input label="Role" value={form.role} onChange={(v)=>set('role',v)}/><Input label="Resolution" value={form.resolution} onChange={(v)=>set('resolution',v)}/></div></>}{error&&<p className="text-xs text-rose-300">{error}</p>}<button onClick={()=>void save()} disabled={busy} className="h-10 rounded-xl bg-amber-500 text-gray-950 font-black disabled:opacity-50">{busy?'Saving…':'Save'}</button></div></div></div>; }
-function Input({label,value,onChange,type='text'}:{label:string;value?:string;onChange:(v:string)=>void;type?:string}){return <label className="grid gap-1 text-xs text-gray-400">{label}<input type={type} value={value||''} onChange={(e)=>onChange(e.target.value)} className="h-10 rounded-xl bg-gray-900 border border-gray-700 px-3 text-sm" /></label>;}
-function Panel({children}:{children:React.ReactNode}){return <section className="rounded-2xl border border-gray-800 bg-gray-900/60 p-4">{children}</section>;}
-function Metric({label,value}:{label:string;value:string|number}){return <div className="rounded-2xl border border-gray-800 bg-gray-900/60 p-4"><span className="text-xs text-gray-500">{label}</span><b className="block text-xl mt-1 truncate">{value}</b></div>;}
-function Mini({label,value}:{label:string;value:string|number}){return <div className="rounded-xl bg-gray-950 p-2"><span className="text-[10px] text-gray-500">{label}</span><b className="block text-sm mt-0.5 truncate">{value}</b></div>;}
-function Empty({title,body}:{title:string;body:string}){return <div className="py-14 text-center"><CheckCircle2 className="h-9 w-9 mx-auto text-gray-700"/><b className="block mt-3">{title}</b><p className="text-sm text-gray-500 mt-1">{body}</p></div>;}
-function Action({label,onClick}:{label:string;onClick:()=>void}){return <button onClick={onClick} className="h-8 px-2.5 rounded-lg border border-gray-700 hover:bg-gray-800 font-bold">{label}</button>;}
-function Status({value}:{value:Match['status']}){const cls=value==='LIVE'?'bg-rose-500/15 text-rose-300':value==='FT'?'bg-emerald-500/10 text-emerald-300':'bg-gray-800 text-gray-400';return <span className={`text-[9px] font-black px-2 py-1 rounded-full ${cls}`}>{value}</span>;}
+
+function AnalyticsView({ matches, selectedMatchId, setSelectedMatchId, analytics, busy, refresh, report }: { matches: Match[]; selectedMatchId: string; setSelectedMatchId: (id: string) => void; analytics: Analytics | null; busy: boolean; refresh: (id: string) => Promise<void>; report: () => Promise<void> }) {
+  const match = matches.find((row) => row.id === selectedMatchId);
+  return <div className="space-y-4"><div className="flex flex-wrap gap-2"><select value={selectedMatchId} onChange={(event) => setSelectedMatchId(event.target.value)} className="h-10 min-w-72 rounded-xl border border-gray-800 bg-gray-900 px-3 text-sm"><option value="">Select match</option>{matches.map((row) => <option key={row.id} value={row.id}>{row.homeTeam} vs {row.awayTeam}</option>)}</select><Action label="Refresh" onClick={() => void refresh(selectedMatchId)} disabled={!selectedMatchId || busy} /><Action label="Generate tactical report" onClick={() => void report()} disabled={!selectedMatchId || busy} /></div>{busy ? <div className="grid place-items-center py-20"><Loader2 className="h-6 w-6 animate-spin text-amber-300" /></div> : !match ? <Empty body="Select a match to inspect persisted analytics." /> : !analytics ? <Empty body="No analytics record exists for this match yet." /> : <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4"><Metric label="Status" value={analytics.status} /><Metric label="Possession" value={analytics.possession ? `${analytics.possession.home}% / ${analytics.possession.away}%` : '—'} /><Metric label="Formation" value={analytics.formations ? `${analytics.formations.home} / ${analytics.formations.away}` : '—'} /><Metric label="xG samples" value={String((analytics.xgData?.home?.length || 0) + (analytics.xgData?.away?.length || 0))} />{analytics.aiTacticalReport && <div className="md:col-span-2 xl:col-span-4 rounded-2xl border border-gray-800 bg-gray-900/60 p-4"><h3 className="font-black">AI tactical report</h3><p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-gray-300">{analytics.aiTacticalReport}</p></div>}</div>}</div>;
+}
+
+function CreateDialog({ mode, teams, onClose, onSaved }: { mode: CreateMode; teams: Team[]; onClose: () => void; onSaved: () => Promise<void> }) {
+  const [form, setForm] = useState<Record<string, string>>({ sport: 'football', status: 'SCHEDULED', kickoff: new Date().toISOString().slice(0, 16), fps: '25' });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const set = (key: string, value: string) => setForm((current) => ({ ...current, [key]: value }));
+  const save = async () => {
+    setBusy(true); setError('');
+    try {
+      if (mode === 'match') await matchesApi.create({ sport: form.sport || 'football', homeTeam: form.homeTeam, awayTeam: form.awayTeam, kickoff: new Date(form.kickoff).toISOString(), venue: form.venue || undefined, competition: form.competition || undefined, status: 'SCHEDULED', homeScore: 0, awayScore: 0 });
+      if (mode === 'team') await teamsApi.create({ name: form.name, shortName: form.shortName || undefined, competition: form.competition || undefined, country: form.country || undefined, stadium: form.stadium || undefined });
+      if (mode === 'player') await playersApi.create({ name: form.name, teamId: form.teamId || undefined, position: form.position || undefined, nationality: form.nationality || undefined, jerseyNumber: form.jerseyNumber ? Number(form.jerseyNumber) : undefined, rating: 0 });
+      if (mode === 'camera') await camerasApi.register({ label: form.label, role: form.role || 'broadcast', streamUrl: form.streamUrl, resolution: form.resolution || undefined });
+      await onSaved();
+    } catch (cause) { setError((cause as Error).message || 'Could not save sports record.'); }
+    finally { setBusy(false); }
+  };
+  return <div className="fixed inset-0 z-[10000] grid place-items-center bg-black/70 p-4"><div className="w-full max-w-md rounded-2xl border border-gray-700 bg-gray-900 p-4"><div className="flex items-center"><h2 className="text-lg font-black capitalize">Add {mode}</h2><button onClick={onClose} className="ml-auto grid h-8 w-8 place-items-center rounded-lg border border-gray-700"><X className="h-4 w-4" /></button></div><div className="mt-4 space-y-3">{mode === 'match' && <><Field label="Home team" value={form.homeTeam} onChange={(value) => set('homeTeam', value)} /><Field label="Away team" value={form.awayTeam} onChange={(value) => set('awayTeam', value)} /><Field label="Kickoff" type="datetime-local" value={form.kickoff} onChange={(value) => set('kickoff', value)} /><Field label="Competition" value={form.competition} onChange={(value) => set('competition', value)} /><Field label="Venue" value={form.venue} onChange={(value) => set('venue', value)} /></>}{mode === 'team' && <><Field label="Name" value={form.name} onChange={(value) => set('name', value)} /><Field label="Short name" value={form.shortName} onChange={(value) => set('shortName', value)} /><Field label="Competition" value={form.competition} onChange={(value) => set('competition', value)} /><Field label="Country" value={form.country} onChange={(value) => set('country', value)} /><Field label="Stadium" value={form.stadium} onChange={(value) => set('stadium', value)} /></>}{mode === 'player' && <><Field label="Name" value={form.name} onChange={(value) => set('name', value)} /><Select label="Team" value={form.teamId} onChange={(value) => set('teamId', value)} options={teams.map((team) => [team.id, team.name])} /><Field label="Position" value={form.position} onChange={(value) => set('position', value)} /><Field label="Nationality" value={form.nationality} onChange={(value) => set('nationality', value)} /><Field label="Jersey number" type="number" value={form.jerseyNumber} onChange={(value) => set('jerseyNumber', value)} /></>}{mode === 'camera' && <><Field label="Label" value={form.label} onChange={(value) => set('label', value)} /><Field label="Role" value={form.role} onChange={(value) => set('role', value)} /><Field label="Stream URL" value={form.streamUrl} onChange={(value) => set('streamUrl', value)} /><Field label="Resolution" value={form.resolution} onChange={(value) => set('resolution', value)} /></>}{error && <p className="text-sm text-rose-300">{error}</p>}<button onClick={() => void save()} disabled={busy} className="inline-flex h-11 w-full items-center justify-center rounded-xl bg-amber-500 font-black text-gray-950 disabled:opacity-50">{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save live record'}</button></div></div></div>;
+}
+
+function Metric({ label, value }: { label: string; value: string | number }) { return <div className="rounded-2xl border border-gray-800 bg-gray-900/60 p-4"><div className="text-lg font-black">{value}</div><div className="mt-1 text-[11px] text-gray-500">{label}</div></div>; }
+function Mini({ label, value }: { label: string; value: number }) { return <div className="rounded-lg bg-gray-950 p-2 text-center"><b className="block text-sm">{value}</b><span className="text-[9px] text-gray-600">{label}</span></div>; }
+function Status({ value }: { value: string }) { const active = value === 'LIVE' || value === 'HT'; return <span className={`rounded-full border px-2 py-0.5 text-[10px] font-black ${active ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' : 'border-gray-700 bg-gray-950 text-gray-400'}`}>{value}</span>; }
+function Action({ label, onClick, disabled = false }: { label: string; onClick: () => void; disabled?: boolean }) { return <button onClick={onClick} disabled={disabled} className="h-8 rounded-lg border border-gray-700 px-2 text-xs font-black text-gray-300 disabled:opacity-40">{label}</button>; }
+function Empty({ body }: { body: string }) { return <div className="rounded-2xl border border-dashed border-gray-800 py-14 text-center text-sm text-gray-500">{body}</div>; }
+function Field({ label, value, onChange, type = 'text' }: { label: string; value?: string; onChange: (value: string) => void; type?: string }) { return <label className="grid gap-1 text-xs text-gray-400">{label}<input type={type} value={value || ''} onChange={(event) => onChange(event.target.value)} className="h-10 rounded-xl border border-gray-700 bg-black/20 px-3 text-sm text-white" /></label>; }
+function Select({ label, value, onChange, options }: { label: string; value?: string; onChange: (value: string) => void; options: Array<[string, string]> }) { return <label className="grid gap-1 text-xs text-gray-400">{label}<select value={value || ''} onChange={(event) => onChange(event.target.value)} className="h-10 rounded-xl border border-gray-700 bg-black/20 px-3 text-sm text-white"><option value="">Select</option>{options.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>; }
