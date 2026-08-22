@@ -120,9 +120,11 @@ function resolveVersion(env = process.env) {
   if (token) args.push('-H', `Authorization: Bearer ${token}`);
   args.push(`https://api.github.com/repos/${REPO}/releases/latest`);
   const json = run('curl', args);
-  const tag = JSON.parse(json).tag_name;
-  if (!tag) throw new Error('could not resolve latest Ollama release tag');
-  return tag;
+  const parsed = JSON.parse(json);
+  if (!parsed || !parsed.tag_name) {
+    throw new Error('could not resolve latest Ollama release tag (invalid API response)');
+  }
+  return parsed.tag_name;
 }
 
 function extractArchive(archivePath, platformDir, asset) {
