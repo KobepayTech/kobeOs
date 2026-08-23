@@ -42,6 +42,8 @@ interface SocialAccount {
   tokenExpiresAt?: string | null;
   scopes?: string[];
   lastSyncedAt?: string | null;
+  tiktokPrivacyLevel?: string;
+  tiktokPrivacyOptions?: string[];
 }
 
 interface Capability {
@@ -382,14 +384,38 @@ function AccountsView() {
     return () => window.removeEventListener('focus', handler);
   }, [load]);
 
-  const connectInstagram = async () => {
+  const openOAuth = async (endpoint: string, provider: string) => {
     setBusy(true); setError(null);
     try {
-      const result = await api<{ url: string }>('/live-sales/instagram/oauth/url');
-      if (!result.url) throw new Error('Instagram OAuth URL was not returned by the server.');
+      const result = await api<{ url: string }>(endpoint);
+      if (!result.url) throw new Error(`${provider} OAuth URL was not returned by the server.`);
       const popup = window.open(result.url, '_blank', 'noopener,noreferrer');
       if (!popup) window.location.assign(result.url);
-    } catch (e) { setError((e as Error).message || 'Instagram connection could not start.'); }
+    } catch (e) { setError((e as Error).message || `${provider} connection could not start.`); }
+    finally { setBusy(false); }
+  };
+
+  const connectInstagram = () => openOAuth('/live-sales/instagram/oauth/url', 'Instagram');
+  const connectTikTok = () => openOAuth('/social-scheduler/tiktok/oauth/url', 'TikTok');
+
+  const refreshTikTok = async () => {
+    setBusy(true); setError(null);
+    try {
+      await api('/social-scheduler/tiktok/refresh', { method: 'POST' });
+      await load();
+    } catch (e) { setError((e as Error).message || 'TikTok account refresh failed.'); }
+    finally { setBusy(false); }
+  };
+
+  const setTikTokPrivacy = async (privacyLevel: string) => {
+    setBusy(true); setError(null);
+    try {
+      await api('/social-scheduler/tiktok/preferences', {
+        method: 'PUT',
+        body: JSON.stringify({ privacyLevel }),
+      });
+      await load();
+    } catch (e) { setError((e as Error).message || 'Could not update TikTok privacy.'); }
     finally { setBusy(false); }
   };
 
@@ -404,6 +430,8 @@ function AccountsView() {
 
   const instagramCapability = capabilities.find((row) => row.platform === 'instagram');
   const tiktokCapability = capabilities.find((row) => row.platform === 'tiktok');
+  const tiktokAccount = tiktokCapability?.account;
+  const tiktokPrivacyOptions = tiktokAccount?.tiktokPrivacyOptions ?? [];
 
   return (
     <div className="h-full overflow-y-auto p-6"><div className="mx-auto max-w-5xl space-y-5">
@@ -411,7 +439,7 @@ function AccountsView() {
       {error && <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-300">{error}</div>}
       <div className="grid gap-4 md:grid-cols-2">
         <Card className="border-white/[0.07] bg-[#13131f]"><CardContent className="p-4"><div className="flex items-start gap-3"><div className="grid h-11 w-11 place-items-center rounded-xl bg-pink-500/15"><Instagram className="h-5 w-5 text-pink-300" /></div><div className="min-w-0 flex-1"><div className="font-bold">Instagram Professional</div><div className="mt-1 text-xs text-slate-500">{instagramCapability?.connected ? `Connected: ${instagramCapability.account?.accountHandle || instagramCapability.account?.accountName}` : 'Not connected'}</div></div>{instagramCapability?.connected && <CheckCircle2 className="h-5 w-5 text-emerald-400" />}</div><div className="mt-4 rounded-lg bg-black/20 p-3 text-xs text-slate-400">{instagramCapability?.capabilities.publishImage ? 'Content publishing permission is active.' : instagramCapability?.reason || 'Connect an Instagram Professional account using official OAuth.'}</div><div className="mt-4 flex gap-2"><Button disabled={busy} onClick={() => void connectInstagram()} className="flex-1 bg-pink-600 hover:bg-pink-500">{instagramCapability?.connected ? 'Reconnect permissions' : 'Connect Instagram'}<ExternalLink className="ml-2 h-3.5 w-3.5" /></Button>{instagramCapability?.account && <Button disabled={busy} variant="outline" onClick={() => void disconnect(instagramCapability.account!)} className="border-red-500/20 bg-transparent text-red-300"><Trash2 className="h-4 w-4" /></Button>}</div></CardContent></Card>
-        <Card className="border-white/[0.07] bg-[#13131f]"><CardContent className="p-4"><div className="flex items-start gap-3"><div className="grid h-11 w-11 place-items-center rounded-xl bg-white/10"><Video className="h-5 w-5 text-white" /></div><div className="flex-1"><div className="font-bold">TikTok</div><div className="mt-1 text-xs text-slate-500">{tiktokCapability?.connected ? `Connected: ${tiktokCapability.account?.accountHandle || tiktokCapability.account?.accountName}` : 'No Content Posting connection'}</div></div></div><div className="mt-4 rounded-lg border border-amber-500/15 bg-amber-500/10 p-3 text-xs text-amber-100">{tiktokCapability?.reason || 'KobeOS will expose TikTok Direct Post only when the app has the required provider approval and the user authorizes the publishing scope.'}</div></CardContent></Card>
+        <Card className="border-white/[0.07] bg-[#13131f]"><CardContent className="p-4"><div className="flex items-start gap-3"><div className="grid h-11 w-11 place-items-center rounded-xl bg-white/10"><Video className="h-5 w-5 text-white" /></div><div className="min-w-0 flex-1"><div className="font-bold">TikTok Creator</div><div className="mt-1 text-xs text-slate-500">{tiktokCapability?.connected ? `Connected: ${tiktokAccount?.accountHandle || tiktokAccount?.accountName}` : 'Not connected to Content Posting'}</div></div>{tiktokCapability?.connected && <CheckCircle2 className="h-5 w-5 text-emerald-400" />}</div><div className={`mt-4 rounded-lg border p-3 text-xs ${tiktokCapability?.capabilities.publishVideo ? 'border-emerald-500/15 bg-emerald-500/10 text-emerald-100' : 'border-amber-500/15 bg-amber-500/10 text-amber-100'}`}>{tiktokCapability?.capabilities.publishVideo ? 'TikTok Direct Post is authorized for this account.' : tiktokCapability?.reason || 'Connect TikTok and authorize video.publish.'}</div>{tiktokCapability?.connected && tiktokPrivacyOptions.length > 0 && <label className="mt-4 block text-xs text-slate-400"><span className="mb-1 block font-semibold text-slate-300">Default TikTok privacy</span><select value={tiktokAccount?.tiktokPrivacyLevel || tiktokPrivacyOptions[0]} disabled={busy} onChange={(e) => void setTikTokPrivacy(e.target.value)} className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-xs text-white">{tiktokPrivacyOptions.map((option) => <option key={option} value={option}>{option.replace(/_/g, ' ')}</option>)}</select></label>}<div className="mt-4 flex gap-2"><Button disabled={busy} onClick={() => void connectTikTok()} className="flex-1 bg-white text-black hover:bg-slate-200">{tiktokCapability?.connected ? 'Reconnect permissions' : 'Connect TikTok'}<ExternalLink className="ml-2 h-3.5 w-3.5" /></Button>{tiktokCapability?.connected && <Button disabled={busy} variant="outline" onClick={() => void refreshTikTok()} className="border-white/10 bg-transparent text-slate-200"><RefreshCw className="h-4 w-4" /></Button>}{tiktokAccount && <Button disabled={busy} variant="outline" onClick={() => void disconnect(tiktokAccount)} className="border-red-500/20 bg-transparent text-red-300"><Trash2 className="h-4 w-4" /></Button>}</div></CardContent></Card>
       </div>
       {loading ? <div className="grid place-items-center py-8"><Loader2 className="h-5 w-5 animate-spin text-cyan-400" /></div> : accounts.length > 0 && <Card className="border-white/[0.07] bg-[#13131f]"><CardContent className="p-0"><div className="divide-y divide-white/[0.05]">{accounts.map((account) => <div key={account.id} className="flex items-center gap-3 p-4"><div className="grid h-9 w-9 place-items-center rounded-lg bg-white/5 text-xs font-black">{(account.accountName || account.platform).slice(0, 2).toUpperCase()}</div><div className="min-w-0 flex-1"><div className="text-sm font-semibold">{PLATFORM_LABELS[account.platform] || account.platform}</div><div className="truncate text-[11px] text-slate-500">{account.accountHandle} · {account.status} · last sync {formatDateTime(account.lastSyncedAt)}</div></div><button disabled={busy} onClick={() => void disconnect(account)} className="p-2 text-slate-500 hover:text-red-300"><Trash2 className="h-4 w-4" /></button></div>)}</div></CardContent></Card>}
     </div></div>
