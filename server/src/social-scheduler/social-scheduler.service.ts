@@ -5,6 +5,7 @@ import { LessThanOrEqual, Repository } from 'typeorm';
 import { MediaAssetsService } from '../media/media.service';
 import { SocialPost } from './social-post.entity';
 import { SocialAccount } from './social-account.entity';
+import { TikTokService } from './tiktok.service';
 import {
   CreateSocialPostDto,
   UpdateSocialPostDto,
@@ -27,6 +28,7 @@ export class SocialSchedulerService {
     @InjectRepository(SocialAccount)
     private readonly accountRepo: Repository<SocialAccount>,
     private readonly media: MediaAssetsService,
+    private readonly tiktok: TikTokService,
   ) {}
 
   private normalizePlatform(value: string): string {
@@ -120,6 +122,10 @@ export class SocialSchedulerService {
       status: account.status,
       accountAvatar: account.accountAvatar,
       scopes,
+      tiktokPrivacyLevel: String(account.metadata?.tiktokPrivacyLevel || ''),
+      tiktokPrivacyOptions: Array.isArray(account.metadata?.tiktokPrivacyOptions)
+        ? (account.metadata.tiktokPrivacyOptions as unknown[]).map(String)
+        : [],
       lastSyncedAt: account.metadata?.lastSyncedAt ?? account.updatedAt,
       createdAt: account.createdAt,
       updatedAt: account.updatedAt,
@@ -147,11 +153,12 @@ export class SocialSchedulerService {
             ? ''
             : 'Reconnect Instagram after enabling instagram_business_content_publish in the Meta app.';
       } else if (platform === 'tiktok') {
+        publish = !!connected && scopes.has('video.publish');
         reason = !connected
-          ? 'Connect TikTok after the Kobe app is approved for Content Posting API.'
-          : scopes.has('video.publish')
-            ? 'TikTok publishing adapter is not enabled until Direct Post approval is active.'
-            : 'TikTok must grant and the user must authorize video.publish.';
+          ? 'Connect TikTok and authorize the Content Posting API.'
+          : publish
+            ? ''
+            : 'Reconnect TikTok after video.publish is approved and enabled for the app.';
       }
       return {
         platform,
@@ -297,8 +304,10 @@ export class SocialSchedulerService {
         continue;
       }
       try {
-        if (platform !== 'instagram') throw new BadRequestException(`Live publishing adapter for ${platform} is not enabled`);
-        const remoteId = await this.publishInstagram(post, account);
+        let remoteId: string;
+        if (platform === 'instagram') remoteId = await this.publishInstagram(post, account);
+        else if (platform === 'tiktok') remoteId = await this.tiktok.publish(post, account);
+        else throw new BadRequestException(`Live publishing adapter for ${platform} is not enabled`);
         remoteIds[platform] = remoteId;
         results.push({ platform, ok: true, remoteId });
       } catch (error) {
