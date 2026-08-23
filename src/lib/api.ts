@@ -196,13 +196,23 @@ function migrateLegacyRefreshToken(): string | null {
 // ── API base URL ──────────────────────────────────────────────────────────────
 
 function isElectronRenderer(): boolean {
-  return typeof window !== 'undefined' && Boolean((window as any).kobeOS);
+  if (typeof window === 'undefined') return false;
+  // The preload bridge is the preferred signal, but a packaged Electron
+  // window can briefly render before the bridge has finished exposing
+  // `kobeOS`.  `file:` and Electron's user agent are stable fallbacks; without
+  // them the renderer can resolve `/api` relative to file:// and never reach
+  // the local backend, which makes signup look disabled/broken.
+  return Boolean(
+    (window as any).kobeOS ||
+    window.location.protocol === 'file:' ||
+    window.navigator.userAgent.includes('Electron'),
+  );
 }
 
 /**
  * API base URL. Resolution order:
- *   1. VITE_API_BASE env var (set at build time) — use this for explicit control
- *   2. Electron desktop app → localhost:3000/api
+ *   1. Electron desktop app → localhost:3000/api
+ *   2. VITE_API_BASE env var (set at build time) — use this for web deployments
  *   3. Local dev → localhost:3000/api
  *   4. Production (Cloudflare Pages, etc.) → '' (relative /api/* is proxied)
  *
@@ -210,10 +220,21 @@ function isElectronRenderer(): boolean {
  * via _redirects, so relative paths work without hardcoding a domain.
  */
 export const API_BASE =
-  (import.meta.env.VITE_API_BASE as string | undefined) ??
   (isElectronRenderer()
     ? 'http://127.0.0.1:3000/api'
-    : import.meta.env.DEV ? 'http://localhost:3000/api' : '/api');
+    : (import.meta.env.VITE_API_BASE as string | undefined) ??
+      (import.meta.env.DEV ? 'http://localhost:3000/api' : '/api'));
+
+/**
+ * Account OAuth must use the central HTTPS service in the desktop build.
+ * Meta and TikTok only redirect to pre-registered public HTTPS callbacks, so
+ * sending an installed client through its private localhost API can never
+ * complete the provider flow reliably.
+ */
+export const ACCOUNT_API_BASE =
+  ((import.meta.env.VITE_ACCOUNT_API_BASE as string | undefined) ??
+    (isElectronRenderer() ? 'https://api.kobeapptz.com/api' : API_BASE))
+    .replace(/\/+$/, '');
 
 // Runtime override: when the internet base is unreachable, LAN failover points
 // the app at the server's WiFi address instead (see src/lib/lan.ts). apiBase()
@@ -221,6 +242,9 @@ export const API_BASE =
 let _runtimeBase: string | null = null;
 export function apiBase(): string {
   return _runtimeBase ?? API_BASE;
+}
+export function accountApiBase(): string {
+  return ACCOUNT_API_BASE;
 }
 export function setRuntimeApiBase(base: string | null): void {
   _runtimeBase = base;

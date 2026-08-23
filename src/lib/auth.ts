@@ -53,7 +53,7 @@ export async function login(identifier: string, password: string): Promise<AuthU
     method: 'POST',
     auth: false,
     offlineFallback: false,
-    body: JSON.stringify({ identifier, password }),
+    body: JSON.stringify({ identifier: identifier.trim(), password }),
   });
   persist(res);
   return res.user;
@@ -125,8 +125,7 @@ export async function register(identifier: string, password: string, displayName
     auth: false,
     offlineFallback: false,
     body: JSON.stringify({
-      email: isEmail ? trimmed : undefined,
-      phone: isEmail ? undefined : trimmed,
+      ...(isEmail ? { email: trimmed } : { phone: trimmed }),
       password,
       displayName,
     }),

@@ -31,7 +31,7 @@ import {
   desktopResetPassword,
   type AuthUser,
 } from '@/lib/auth';
-import { API_BASE, ApiError } from '@/lib/api';
+import { accountApiBase, apiBase, ApiError } from '@/lib/api';
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
 const IS_DESKTOP = typeof window !== 'undefined' && Boolean((window as any).kobeOS);
@@ -82,19 +82,12 @@ export default function LoginScreen({
   const [loading, setLoading] = useState(false);
 
   const checkConnection = useCallback(async () => {
-    if (!navigator.onLine) {
-      setConnection('offline');
-      return;
-    }
     setConnection('checking');
     try {
-      // In desktop mode, go through the embedded backend. That endpoint checks
-      // Kobe Cloud server-side, so file:// never needs cross-origin access to
-      // the public API and we verify both halves of account setup at once.
-      const endpoint = IS_DESKTOP
-        ? `${API_BASE}/auth/desktop/cloud-status`
-        : `${API_BASE}/system/version`;
-      const response = await fetch(endpoint, {
+      // Authentication only depends on the API and database being alive. Do
+      // not gate sign-in on optional build metadata from /system/version; an
+      // older API can still authenticate users correctly.
+      const response = await fetch(`${apiBase()}/health`, {
         cache: 'no-store',
         signal: AbortSignal.timeout(8_000),
       });
@@ -102,14 +95,13 @@ export default function LoginScreen({
       const body = contentType.includes('application/json')
         ? await response.json() as Record<string, unknown>
         : null;
-      const isKobeCloud = response.ok &&
-        !!body &&
-        typeof body.version === 'string' &&
-        typeof body.buildHash === 'string' &&
-        typeof body.startedAt === 'string';
+      // Health is an advisory gate only. Keep the form usable when an older
+      // API returns a compatible 200 response without the newest `db` field;
+      // the auth request is the authoritative check.
+      const isKobeCloud = response.ok && !!body && body.status === 'ok';
       setConnection(isKobeCloud ? 'online' : 'server-down');
     } catch {
-      setConnection('server-down');
+      setConnection(navigator.onLine ? 'server-down' : 'offline');
     }
   }, []);
 
@@ -160,10 +152,6 @@ export default function LoginScreen({
   }, [checkConnection, onLogin]);
 
   const submit = async () => {
-    if (connection !== 'online') {
-      setError('Connect this computer to the internet before creating or signing into an account.');
-      return;
-    }
     if (!email.trim()) {
       setError('Enter your email address or phone number.');
       return;
@@ -239,28 +227,19 @@ export default function LoginScreen({
     } catch (e) { setError((e as Error).message); }
   };
 
-  const openDesktopOAuth = (provider: SocialProvider) => {
-    setError('');
-    const popup = window.open(
-      `${KOBE_CLOUD_API}/auth/oauth/${provider}`,
-      `kobe-${provider}-oauth`,
-      'popup=yes,width=560,height=760,resizable=yes,scrollbars=yes',
-    );
-    if (!popup) {
-      setError(`KobeOS could not open the ${provider === 'meta' ? 'Meta' : 'TikTok'} sign-in window. Allow popups and try again.`);
+  const openProviderAuth = (provider: 'meta' | 'tiktok') => {
+    const url = `${accountApiBase()}/auth/oauth/${provider}`;
+    const openExternal = window.kobeOS?.system?.openExternal;
+    if (openExternal) {
+      void openExternal(url).catch(() => setError(`${provider === 'meta' ? 'Meta' : 'TikTok'} sign-in could not be opened.`));
       return;
     }
-    popup.focus();
+    // Web deployments keep the OAuth flow in the same origin so the callback
+    // page can consume the returned token fragment.
+    window.location.href = url;
   };
-
-  const signInWithTikTok = () => {
-    if (IS_DESKTOP) openDesktopOAuth('tiktok');
-    else window.location.href = `${API_BASE}/auth/oauth/tiktok`;
-  };
-  const signInWithMeta = () => {
-    if (IS_DESKTOP) openDesktopOAuth('meta');
-    else window.location.href = `${API_BASE}/auth/oauth/meta`;
-  };
+  const signInWithTikTok = () => openProviderAuth('tiktok');
+  const signInWithMeta = () => openProviderAuth('meta');
 
   // Forgot password
   const [fpOpen, setFpOpen] = useState(false);
@@ -460,7 +439,7 @@ export default function LoginScreen({
               {/* A real <form> with named + identified fields so the browser's
                   password manager reliably offers to save the email/password
                   and autofills them on the next sign-in. */}
-              <form onSubmit={(event) => { event.preventDefault(); if (!loading && connection === 'online') submit(); }} className="space-y-3">
+              <form onSubmit={(event) => { event.preventDefault(); if (!loading) submit(); }} className="space-y-3">
                 {mode === 'create' && (
                   <label htmlFor="login-name" className="block text-[10px] font-black uppercase tracking-wide text-slate-500">
                     Your name or business
@@ -540,7 +519,7 @@ export default function LoginScreen({
 
                 <button
                   type="submit"
-                  disabled={loading || connection !== 'online'}
+                  disabled={loading}
                   className="mt-5 flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-[#0a1728] text-sm font-black text-white transition hover:bg-[#14253b] disabled:cursor-not-allowed disabled:opacity-45"
                 >
                   {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : mode === 'create' ? 'Create account and choose apps' : 'Sign in and open App Store'}
