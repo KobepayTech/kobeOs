@@ -34,16 +34,20 @@ jobs:
           TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
           TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
           TIKTOK_REDIRECT_URI: ${{ secrets.TIKTOK_REDIRECT_URI }}
+          TIKTOK_CREATOR_REDIRECT_URI: ${{ secrets.TIKTOK_CREATOR_REDIRECT_URI }}
           META_APP_ID: ${{ secrets.META_APP_ID }}
           META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
           META_REDIRECT_URI: ${{ secrets.META_REDIRECT_URI }}
+          INSTAGRAM_APP_ID: ${{ secrets.INSTAGRAM_APP_ID }}
+          INSTAGRAM_APP_SECRET: ${{ secrets.INSTAGRAM_APP_SECRET }}
+          IG_WEBHOOK_VERIFY_TOKEN: ${{ secrets.IG_WEBHOOK_VERIFY_TOKEN }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: TIKTOK_CLIENT_KEY,TIKTOK_CLIENT_SECRET,TIKTOK_REDIRECT_URI,META_APP_ID,META_APP_SECRET,META_REDIRECT_URI,GOOGLE_CLIENT_ID
+          envs: TIKTOK_CLIENT_KEY,TIKTOK_CLIENT_SECRET,TIKTOK_REDIRECT_URI,TIKTOK_CREATOR_REDIRECT_URI,META_APP_ID,META_APP_SECRET,META_REDIRECT_URI,INSTAGRAM_APP_ID,INSTAGRAM_APP_SECRET,IG_WEBHOOK_VERIFY_TOKEN,GOOGLE_CLIENT_ID
           script: |
             set -e
             cd /opt/kobe-studio
@@ -54,21 +58,23 @@ jobs:
               docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
             }
 
-            # Keep TikTok OAuth credentials on the server. Values come from
-            # GitHub's production environment secrets and are never committed.
+            # TikTok Login Kit + Creator Social Publishing use the same app
+            # credentials but separate registered callbacks. Provider secrets
+            # never enter the source tree.
             if [ -n "${TIKTOK_CLIENT_KEY:-}" ] && [ -n "${TIKTOK_CLIENT_SECRET:-}" ]; then
               touch "$ENV_FILE"
               tmp_env="$(mktemp)"
-              grep -vE '^(TIKTOK_CLIENT_KEY|TIKTOK_CLIENT_SECRET|TIKTOK_REDIRECT_URI)=' "$ENV_FILE" > "$tmp_env" || true
+              grep -vE '^(TIKTOK_CLIENT_KEY|TIKTOK_CLIENT_SECRET|TIKTOK_REDIRECT_URI|TIKTOK_CREATOR_REDIRECT_URI|TIKTOK_CREATOR_OAUTH_SCOPES)=' "$ENV_FILE" > "$tmp_env" || true
               printf '%s\n' \
                 "TIKTOK_CLIENT_KEY=$TIKTOK_CLIENT_KEY" \
                 "TIKTOK_CLIENT_SECRET=$TIKTOK_CLIENT_SECRET" \
-                "TIKTOK_REDIRECT_URI=${TIKTOK_REDIRECT_URI:-https://api.kobeapptz.com/api/auth/oauth/tiktok/callback}" >> "$tmp_env"
+                "TIKTOK_REDIRECT_URI=${TIKTOK_REDIRECT_URI:-https://api.kobeapptz.com/api/auth/oauth/tiktok/callback}" \
+                "TIKTOK_CREATOR_REDIRECT_URI=${TIKTOK_CREATOR_REDIRECT_URI:-https://api.kobeapptz.com/api/social-scheduler/tiktok/oauth/callback}" \
+                "TIKTOK_CREATOR_OAUTH_SCOPES=user.info.basic,user.info.profile,user.info.stats,video.list,video.publish" >> "$tmp_env"
               mv "$tmp_env" "$ENV_FILE"
             fi
 
-            # Meta/Facebook Login uses the same server-side OAuth pattern.
-            # Keep the app secret only in GitHub and the production .env.
+            # Meta/Facebook Login is used for the global Kobe account login.
             if [ -n "${META_APP_ID:-}" ] && [ -n "${META_APP_SECRET:-}" ]; then
               touch "$ENV_FILE"
               tmp_env="$(mktemp)"
@@ -77,7 +83,24 @@ jobs:
                 "META_APP_ID=$META_APP_ID" \
                 "META_APP_SECRET=$META_APP_SECRET" \
                 "META_REDIRECT_URI=${META_REDIRECT_URI:-https://api.kobeapptz.com/api/auth/oauth/meta/callback}" \
-                "META_GRAPH_VERSION=v24.0" >> "$tmp_env"
+                "META_GRAPH_VERSION=v26.0" >> "$tmp_env"
+              mv "$tmp_env" "$ENV_FILE"
+            fi
+
+            # Instagram Professional uses Instagram Login through the Meta app.
+            # Keep its app secret and webhook verify token in GitHub Environment
+            # secrets; only write them to the server-side production .env.
+            if [ -n "${INSTAGRAM_APP_ID:-}" ] && [ -n "${INSTAGRAM_APP_SECRET:-}" ]; then
+              touch "$ENV_FILE"
+              tmp_env="$(mktemp)"
+              grep -vE '^(INSTAGRAM_APP_ID|INSTAGRAM_APP_SECRET|INSTAGRAM_REDIRECT_URI|INSTAGRAM_API_VERSION|INSTAGRAM_OAUTH_SCOPES|IG_WEBHOOK_VERIFY_TOKEN)=' "$ENV_FILE" > "$tmp_env" || true
+              printf '%s\n' \
+                "INSTAGRAM_APP_ID=$INSTAGRAM_APP_ID" \
+                "INSTAGRAM_APP_SECRET=$INSTAGRAM_APP_SECRET" \
+                "INSTAGRAM_REDIRECT_URI=https://api.kobeapptz.com/api/live-sales/instagram/oauth/callback" \
+                "INSTAGRAM_API_VERSION=v26.0" \
+                "INSTAGRAM_OAUTH_SCOPES=instagram_business_basic,instagram_business_content_publish,instagram_business_manage_comments,instagram_business_manage_messages,instagram_business_manage_insights" \
+                "IG_WEBHOOK_VERIFY_TOKEN=${IG_WEBHOOK_VERIFY_TOKEN:-}" >> "$tmp_env"
               mv "$tmp_env" "$ENV_FILE"
             fi
 
