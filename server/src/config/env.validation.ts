@@ -53,10 +53,15 @@ class EnvVars {
   /** Google Identity Services Web Client ID. Use the same value in VITE_GOOGLE_CLIENT_ID. */
   @IsOptional() @IsString() GOOGLE_CLIENT_ID?: string;
 
-  /** TikTok Login Kit credentials and exact registered callback URL. */
+  /** TikTok Login Kit credentials and registered callback URLs. */
   @IsOptional() @IsString() TIKTOK_CLIENT_KEY?: string;
   @IsOptional() @IsString() TIKTOK_CLIENT_SECRET?: string;
+  /** Kobe account sign-in callback. */
   @IsOptional() @IsString() TIKTOK_REDIRECT_URI?: string;
+  /** Creator/social account callback used by Social Publishing. */
+  @IsOptional() @IsString() TIKTOK_CREATOR_REDIRECT_URI?: string;
+  /** Creator scopes, e.g. user.info.basic,user.info.profile,user.info.stats,video.list,video.publish. */
+  @IsOptional() @IsString() TIKTOK_CREATOR_OAUTH_SCOPES?: string;
 
   /** Facebook Login credentials for the KobeOS "Continue with Meta" button. */
   @IsOptional() @IsString() META_APP_ID?: string;
