@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Put, Query, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Post, Put, Query, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -20,8 +20,10 @@ export class TikTokController {
     return this.tiktok.getOAuthUrl(uid);
   }
 
-  @PostRefreshPlaceholder()
-  private unused(): void {}
+  @Post('refresh')
+  refresh(@CurrentUser('id') uid: string) {
+    return this.tiktok.refresh(uid);
+  }
 
   @Put('preferences')
   preferences(@CurrentUser('id') uid: string, @Body() body: { privacyLevel?: string }) {
@@ -58,14 +60,4 @@ export class TikTokPublicController {
     }
     res.redirect(redirect.toString());
   }
-}
-
-/**
- * Tiny method decorator kept local to avoid exposing provider token refresh as
- * a GET. It expands to POST('refresh') without adding another import at callsites.
- */
-function PostRefreshPlaceholder(): MethodDecorator {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { Post } = require('@nestjs/common') as typeof import('@nestjs/common');
-  return Post('refresh');
 }
