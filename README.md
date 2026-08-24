@@ -67,6 +67,13 @@ bootstrap to prevent accidental schema rewrites.
 Health probe: `GET http://localhost:3000/api/health` returns
 `{ status, db, timestamp }`. Swagger UI is at `/api/docs`.
 
+## Self-hosted web stack
+
+For a browser-based self-hosted deployment with no desktop installer, see
+[`SELF-HOSTED.md`](SELF-HOSTED.md). It runs the API, SPA, Postgres, and Redis
+with `docker-compose.self-hosted.yml` on localhost and does not require
+Cloudflare Tunnel or TLS certificate mounts.
+
 ## Desktop edition
 
 ```bash

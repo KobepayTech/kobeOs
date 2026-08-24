@@ -1,0 +1,103 @@
+name: kobeos-self-hosted
+
+# Local self-hosted stack. It deliberately does not include Cloudflare Tunnel
+# or TLS termination; put an operator-managed reverse proxy in front of the
+# web/API ports when exposing this stack beyond localhost.
+#
+# First run:
+#   Copy-Item .env.self-hosted.example .env.self-hosted
+#   docker compose --env-file .env.self-hosted -f docker-compose.self-hosted.yml up -d --build
+#
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-kobe}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required in .env.self-hosted}
+      POSTGRES_DB: ${DB_DATABASE:-kobeos}
+    volumes:
+      - kobeos-self-hosted-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - kobeos
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - kobeos-self-hosted-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - kobeos
+
+  api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+      target: runtime
+    restart: unless-stopped
+    env_file:
+      - ./.env.self-hosted
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_SYNCHRONIZE: "false"
+      DB_MIGRATIONS_RUN: "true"
+      REDIS_URL: redis://redis:6379
+      KOBEOS_DEPLOYMENT: self-hosted
+      APP_PUBLIC_URL: ${APP_PUBLIC_URL:-http://localhost:8080}
+      APP_FRONTEND_URL: ${APP_FRONTEND_URL:-http://localhost:8080/}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://localhost:8080}
+      TENANT_BASE_DOMAIN: ""
+    ports:
+      - "${API_PORT:-3000}:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - kobeos
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      args:
+        VITE_API_BASE: ${VITE_API_BASE:-http://localhost:3000/api}
+        VITE_TENANT_BASE_DOMAIN: ${VITE_TENANT_BASE_DOMAIN:-}
+        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - kobeos
+
+volumes:
+  kobeos-self-hosted-pgdata:
+  kobeos-self-hosted-redis:
+
+networks:
+  kobeos:
+    driver: bridge

@@ -39,11 +39,6 @@ ENV VITE_API_BASE=${VITE_API_BASE} \
 # the page origin and 404s in prod.
 RUN [ -n "$VITE_API_BASE" ] || (echo 'VITE_API_BASE must not be empty'; exit 1)
 
-# Fail fast if a caller passed an explicitly-empty build arg — a
-# blank VITE_API_BASE silently produces a bundle whose fetch('') hits
-# the page origin and 404s in prod.
-RUN [ -n "$VITE_API_BASE" ] || (echo 'VITE_API_BASE must not be empty'; exit 1)
-
 RUN npm run build
 
 # ── Stage 2: Serve via nginx ─────────────────────────────────────────────────
