@@ -430,7 +430,7 @@ export class TikTokService {
   }
 
   async publish(post: SocialPost, rawAccount: SocialAccount): Promise<string> {
-    let account = await this.ensureFresh(rawAccount);
+    const account = await this.ensureFresh(rawAccount);
     const scopes = Array.isArray(account.metadata?.scopes) ? (account.metadata.scopes as unknown[]).map(String) : [];
     if (!scopes.includes('video.publish')) {
       throw new BadRequestException('TikTok Direct Post is not authorized; reconnect TikTok with video.publish');
