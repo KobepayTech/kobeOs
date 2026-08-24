@@ -5,6 +5,7 @@ export interface KobeOSSystemAPI {
   scanDisks:        () => Promise<Array<{ name: string; size: string; model: string; path: string }>>;
   getSystemMode:    () => Promise<'live-usb' | 'installed'>;
   getBackendStatus: () => Promise<{ running: boolean; pid: number | null; embeddedPg: boolean }>;
+  openExternal:     (url: string) => Promise<boolean>;
 }
 
 export type UpdaterEvent =

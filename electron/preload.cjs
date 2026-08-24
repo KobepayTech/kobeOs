@@ -124,6 +124,7 @@ contextBridge.exposeInMainWorld('kobeOS', {
     scanDisks:        ()     => ipcRenderer.invoke('scan-disks'),
     getSystemMode:    ()     => ipcRenderer.invoke('get-system-mode'),
     getBackendStatus: ()     => ipcRenderer.invoke('get-backend-status'),
+    openExternal:     (url)  => ipcRenderer.invoke('open-external', url),
     toggleFullscreen: ()     => ipcRenderer.invoke('toggle-fullscreen'),
     isFullscreen:     ()     => ipcRenderer.invoke('is-fullscreen'),
     // Subscribe to fullscreen state changes. Returns unsubscribe fn.

@@ -1,7 +1,7 @@
 {
   "name": "kobeos",
   "private": true,
-  "version": "1.7.2",
+  "version": "1.7.4",
   "main": "electron/main.cjs",
   "scripts": {
     "prepare": "node scripts/setup-hooks.cjs",
@@ -33,7 +33,7 @@
     "models:football:train": "python3 scripts/build-football-vision.py --mode train",
     "models:football:export": "python3 scripts/build-football-vision.py --mode export",
     "models:football:bundle": "python3 scripts/build-football-vision.py --mode bundle",
-    "build:bundle": "cd server && npx ncc build src/main.ts -o ../electron/server-bundle --minify --no-source-map-register",
+    "build:bundle": "cd server && npx ncc build src/main.ts -o ../electron/server-bundle --minify --no-source-map-register && node ../scripts/copy-sharp-runtime.cjs && node ../scripts/ensure-commonjs-bundle.cjs",
     "usb:write": "sudo node scripts/write-usb.js",
     "security:engine:clone": "node scripts/install-kobe-security-engine.cjs",
     "security:engine:docker": "docker compose -f docker/ruview-kobe-security.compose.yml up -d",

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, net, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, net, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { exec, execFile, spawn } = require('child_process');
@@ -199,6 +199,23 @@ function startBackend(dbConfig) {
       : path.join(__dirname, '..', 'dist'),
     JWT_SECRET: getOrCreateJwtSecret(),
     CORS_ORIGIN: 'file://',
+    // Account authentication is public even though the desktop business API
+    // is local. OAuth providers must return to the stable tunnel URL, which
+    // then hands the result back to the KobeOS web origin.
+    APP_FRONTEND_URL: process.env.APP_FRONTEND_URL || 'https://kobeapptz.com/',
+    META_REDIRECT_URI: process.env.META_REDIRECT_URI
+      || 'https://api.kobeapptz.com/api/auth/oauth/meta/callback',
+    TIKTOK_REDIRECT_URI: process.env.TIKTOK_REDIRECT_URI
+      || 'https://api.kobeapptz.com/api/auth/oauth/tiktok/callback',
+    // OAuth client credentials are supplied at runtime so secrets never ship
+    // in the ASAR or the checked-in source tree. The Meta app ID is public and
+    // may be provided by the environment when a different app is used.
+    META_APP_ID: process.env.META_APP_ID || '1746089383246060',
+    META_APP_SECRET: process.env.META_APP_SECRET || '',
+    TIKTOK_CLIENT_KEY: process.env.TIKTOK_CLIENT_KEY || '',
+    TIKTOK_CLIENT_SECRET: process.env.TIKTOK_CLIENT_SECRET || '',
+    META_LOGIN_CONFIG_ID: process.env.META_LOGIN_CONFIG_ID || '',
+    META_GRAPH_VERSION: process.env.META_GRAPH_VERSION || 'v24.0',
     // Cloudflare Tunnel credentials for store publishing.
     // These are set at build time via environment variables on the build machine
     // (CI/CD or developer machine running electron:build).
@@ -837,6 +854,15 @@ ipcMain.handle('system-reboot', async () => {
   return { confirmed: true };
 });
 ipcMain.handle('get-system-mode', () => getUiSystemMode());
+
+ipcMain.handle('open-external', async (_event, target) => {
+  const url = new URL(String(target));
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    throw new Error('Only HTTP(S) links can be opened outside KobeOS.');
+  }
+  await shell.openExternal(url.toString());
+  return true;
+});
 
 ipcMain.handle('toggle-fullscreen', () => {
   if (!mainWindow) return false;

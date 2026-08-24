@@ -67,6 +67,7 @@ class EnvVars {
   @IsOptional() @IsString() META_APP_ID?: string;
   @IsOptional() @IsString() META_APP_SECRET?: string;
   @IsOptional() @IsString() META_REDIRECT_URI?: string;
+  @IsOptional() @IsString() META_LOGIN_CONFIG_ID?: string;
   @IsOptional() @IsString() META_GRAPH_VERSION?: string;
 
   /** Beem Africa SMS / WhatsApp credentials (https://docs.beem.africa). When unset, channel sends are no-ops. */

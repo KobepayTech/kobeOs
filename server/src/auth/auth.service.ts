@@ -207,13 +207,19 @@ export class AuthService {
     const redirectUri = this.config.get<string>('META_REDIRECT_URI');
     const version = this.config.get<string>('META_GRAPH_VERSION') || 'v24.0';
     if (!appId || !redirectUri) throw new BadRequestException('Meta sign-in is not configured');
+    const configId = this.config.get<string>('META_LOGIN_CONFIG_ID')?.trim();
     const params = new URLSearchParams({
       client_id: appId,
       redirect_uri: redirectUri,
       response_type: 'code',
-      scope: 'public_profile,email',
       state,
     });
+    // Facebook Login for Business uses a dashboard configuration instead of
+    // arbitrary OAuth scopes. Keep the fallback compatible with the standard
+    // Facebook Login product, while never requesting Meta's invalid `email`
+    // scope for account creation.
+    if (configId) params.set('config_id', configId);
+    else params.set('scope', 'public_profile');
     return `https://www.facebook.com/${version}/dialog/oauth?${params.toString()}`;
   }
 
@@ -243,7 +249,7 @@ export class AuthService {
 
     const profileUrl = new URL(`https://graph.facebook.com/${version}/me`);
     profileUrl.search = new URLSearchParams({
-      fields: 'id,name,email,picture.type(large)',
+      fields: 'id,name,picture.type(large)',
       access_token: tokenBody.access_token,
     }).toString();
     const profileResponse = await fetch(profileUrl).catch(() => null);

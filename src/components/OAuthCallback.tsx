@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertCircle, CheckCircle2, Loader2, RefreshCw } from 'lucide-react';
+import { AlertCircle, ArrowLeft, CheckCircle2, Loader2, RefreshCw } from 'lucide-react';
 import { ensureSession, oauthConsume } from '@/lib/auth';
+import { clearTokens } from '@/lib/api';
 
 type OAuthProvider = 'tiktok' | 'meta';
 
@@ -14,12 +15,14 @@ const providerNames: Record<OAuthProvider, string> = {
  * back to a desktop OAuth popup's opener for local-session exchange. */
 export default function OAuthCallback({ provider }: { provider: OAuthProvider }) {
   const credentials = useRef<{ access: string; refresh: string } | null>(null);
+  const cancelled = useRef(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(true);
   const [completed, setCompleted] = useState(false);
   const name = providerNames[provider];
 
   const complete = useCallback(async () => {
+    if (cancelled.current) return;
     setBusy(true);
     setCompleted(false);
     setError('');
@@ -42,6 +45,7 @@ export default function OAuthCallback({ provider }: { provider: OAuthProvider })
       // and persists the profile. The desktop opener will exchange the same
       // cloud identity for its own local embedded-backend session.
       const user = await ensureSession();
+      if (cancelled.current) return;
 
       if (window.opener && !window.opener.closed) {
         // The desktop renderer is file:// (opaque origin), so a concrete
@@ -69,6 +73,17 @@ export default function OAuthCallback({ provider }: { provider: OAuthProvider })
 
   useEffect(() => { void complete(); }, [complete]);
 
+  const backToSignup = () => {
+    cancelled.current = true;
+    credentials.current = null;
+    clearTokens();
+    if (window.opener && !window.opener.closed) {
+      window.close();
+      return;
+    }
+    window.location.replace('/');
+  };
+
   return (
     <main className="grid min-h-screen place-items-center bg-[#071321] p-6 text-white">
       <section className="w-full max-w-sm rounded-3xl border border-white/10 bg-white/[0.06] p-7 text-center shadow-2xl">
@@ -77,6 +92,13 @@ export default function OAuthCallback({ provider }: { provider: OAuthProvider })
             <Loader2 className="mx-auto h-9 w-9 animate-spin text-[#ff7616]" />
             <h1 className="mt-5 text-xl font-black">Finishing {name} signup</h1>
             <p className="mt-2 text-sm text-slate-400">Saving your account securely and opening KobeOS…</p>
+            <button
+              type="button"
+              onClick={backToSignup}
+              className="mt-6 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.06] text-sm font-black text-slate-200 hover:bg-white/[0.12]"
+            >
+              <ArrowLeft className="h-4 w-4" /> Back to other sign-up methods
+            </button>
           </>
         ) : completed ? (
           <>
@@ -96,7 +118,13 @@ export default function OAuthCallback({ provider }: { provider: OAuthProvider })
             >
               <RefreshCw className="h-4 w-4" /> Retry
             </button>
-            <a href="/" className="mt-4 block text-xs font-bold text-slate-400 hover:text-white">Return to sign in</a>
+            <button
+              type="button"
+              onClick={backToSignup}
+              className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/[0.06] text-sm font-black text-slate-200 hover:bg-white/[0.12]"
+            >
+              <ArrowLeft className="h-4 w-4" /> Back to other sign-up methods
+            </button>
           </>
         )}
       </section>
