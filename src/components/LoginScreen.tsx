@@ -117,6 +117,36 @@ export default function LoginScreen({
     };
   }, [checkConnection]);
 
+  // The global OS shell intentionally hides document scrolling. The signup
+  // screen is the one full-page exception: restore document scrolling while
+  // it is mounted so short windows can always reach the submit controls.
+  useEffect(() => {
+    const root = document.getElementById('root');
+    const previous = {
+      htmlOverflowY: document.documentElement.style.overflowY,
+      bodyOverflowY: document.body.style.overflowY,
+      rootHeight: root?.style.height ?? '',
+      rootMinHeight: root?.style.minHeight ?? '',
+      rootOverflowY: root?.style.overflowY ?? '',
+    };
+    document.documentElement.style.overflowY = 'auto';
+    document.body.style.overflowY = 'auto';
+    if (root) {
+      root.style.height = 'auto';
+      root.style.minHeight = '100%';
+      root.style.overflowY = 'auto';
+    }
+    return () => {
+      document.documentElement.style.overflowY = previous.htmlOverflowY;
+      document.body.style.overflowY = previous.bodyOverflowY;
+      if (root) {
+        root.style.height = previous.rootHeight;
+        root.style.minHeight = previous.rootMinHeight;
+        root.style.overflowY = previous.rootOverflowY;
+      }
+    };
+  }, []);
+
   // Desktop social OAuth runs in a popup hosted by Kobe Cloud. The hosted
   // callback verifies the provider login, then posts the cloud credentials
   // back here. We accept messages only from Kobe-owned HTTPS origins and then
@@ -305,7 +335,7 @@ export default function LoginScreen({
 
   return (
     <div
-      className="max-h-[100dvh] min-h-[100dvh] overflow-y-auto overscroll-y-contain bg-[#071321] text-[#0a1728]"
+      className="min-h-[100dvh] overflow-y-auto overscroll-y-contain bg-[#071321] text-[#0a1728]"
       data-surface="startup"
       style={{
         '--bg-input': '#ffffff',
@@ -315,8 +345,8 @@ export default function LoginScreen({
         '--text-placeholder': '#94a3b8',
       } as React.CSSProperties}
     >
-      <div className="relative grid min-h-[100dvh] lg:h-[100dvh] lg:min-h-0 lg:grid-cols-[.9fr_1.1fr]">
-        <section className="relative hidden h-full overflow-hidden bg-[#071321] p-10 text-white lg:flex lg:flex-col">
+      <div className="relative grid min-h-[100dvh] lg:grid-cols-[.9fr_1.1fr]">
+        <section className="relative hidden min-h-[100dvh] overflow-hidden bg-[#071321] p-10 text-white lg:flex lg:flex-col">
           <div className="absolute -left-40 top-1/3 h-96 w-96 rounded-full bg-blue-600/20 blur-3xl" />
           <div className="absolute -right-40 bottom-0 h-96 w-96 rounded-full bg-[#ff7616]/20 blur-3xl" />
           <div className="relative flex items-center gap-3">
@@ -361,7 +391,7 @@ export default function LoginScreen({
           </div>
         </section>
 
-        <section className="flex min-h-[100dvh] items-start justify-center bg-[#f4f6fa] px-4 py-6 sm:px-8 sm:py-8 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain">
+        <section className="flex min-h-[100dvh] items-start justify-center bg-[#f4f6fa] px-4 py-6 sm:px-8 sm:py-8">
           <div className="w-full max-w-lg pb-6">
             <div className="mb-7 lg:hidden">
               <div className="flex items-center gap-2">
