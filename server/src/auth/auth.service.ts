@@ -205,7 +205,7 @@ export class AuthService {
   metaAuthUrl(state: string): string {
     const appId = this.config.get<string>('META_APP_ID') || this.config.get<string>('INSTAGRAM_APP_ID');
     const redirectUri = this.config.get<string>('META_REDIRECT_URI');
-    const version = this.config.get<string>('META_GRAPH_VERSION') || 'v24.0';
+    const version = this.config.get<string>('META_GRAPH_VERSION') || 'v26.0';
     if (!appId || !redirectUri) throw new BadRequestException('Meta sign-in is not configured');
     const configId = this.config.get<string>('META_LOGIN_CONFIG_ID')?.trim();
     const params = new URLSearchParams({
@@ -228,7 +228,7 @@ export class AuthService {
     const appId = this.config.get<string>('META_APP_ID') || this.config.get<string>('INSTAGRAM_APP_ID');
     const appSecret = this.config.get<string>('META_APP_SECRET') || this.config.get<string>('INSTAGRAM_APP_SECRET');
     const redirectUri = this.config.get<string>('META_REDIRECT_URI');
-    const version = this.config.get<string>('META_GRAPH_VERSION') || 'v24.0';
+    const version = this.config.get<string>('META_GRAPH_VERSION') || 'v26.0';
     if (!appId || !appSecret || !redirectUri) throw new BadRequestException('Meta sign-in is not configured');
     if (!code) throw new BadRequestException('Missing Meta authorization code');
 
