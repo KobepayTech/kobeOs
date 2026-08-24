@@ -22,12 +22,6 @@ export class UsersController {
   @Roles('admin')
   create(@Body() dto: CreateUserDto) { return this.users.createByAdmin(dto); }
 
-  @Post()
-  @Roles('admin')
-  create(@Body() dto: CreateUserDto) {
-    return this.users.createByAdmin(dto);
-  }
-
   @Get()
   @Roles('admin')
   findAll() { return this.users.findAll(); }
