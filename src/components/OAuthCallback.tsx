@@ -106,6 +106,12 @@ export default function OAuthCallback({ provider }: { provider: OAuthProvider })
             <h1 className="mt-5 text-xl font-black">{name} sign-in complete</h1>
             <p className="mt-2 text-sm leading-6 text-slate-300">Return to the KobeOS window. You can close this window if it did not close automatically.</p>
           </>
+        ) : completed ? (
+          <>
+            <CheckCircle2 className="mx-auto h-9 w-9 text-emerald-400" />
+            <h1 className="mt-5 text-xl font-black">{name} sign-in complete</h1>
+            <p className="mt-2 text-sm leading-6 text-slate-300">Return to the KobeOS window. You can close this window if it did not close automatically.</p>
+          </>
         ) : (
           <>
             <AlertCircle className="mx-auto h-9 w-9 text-amber-400" />

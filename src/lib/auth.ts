@@ -154,6 +154,26 @@ export async function desktopRegister(identifier: string, password: string, disp
   return res.user;
 }
 
+/** Desktop registration creates the global Kobe account first, then provisions
+ * the matching local identity used by the embedded backend. */
+export async function desktopRegister(identifier: string, password: string, displayName?: string): Promise<AuthUser> {
+  const trimmed = identifier.trim();
+  const isEmail = trimmed.includes('@');
+  const res = await api<DesktopAuthResponse>('/auth/desktop/register', {
+    method: 'POST',
+    auth: false,
+    offlineFallback: false,
+    body: JSON.stringify({
+      email: isEmail ? trimmed : undefined,
+      phone: isEmail ? undefined : trimmed,
+      password,
+      displayName,
+    }),
+  });
+  persistDesktop(res);
+  return res.user;
+}
+
 export async function logout(): Promise<void> {
   const refreshToken = getRefreshToken();
   if (refreshToken) {
