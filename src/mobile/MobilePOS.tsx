@@ -644,6 +644,45 @@ export default function MobilePOS() {
           </div>
         </div>
       )}
+
+      {/* QR Scanner overlay */}
+      {showScanner && (
+        <div className="fixed inset-0 z-50 bg-black flex flex-col">
+          <div className="shrink-0 flex items-center justify-between px-4 py-3 bg-black/80">
+            <button
+              onClick={() => { setShowScanner(false); stopScan(); }}
+              className="inline-flex items-center gap-1 text-white text-sm font-bold"
+            >
+              <X className="w-5 h-5" /> Cancel
+            </button>
+            <span className="text-white text-xs font-bold">Scan product barcode</span>
+            <div className="w-16" />
+          </div>
+          <div className="flex-1 relative">
+            <video
+              ref={videoRef}
+              autoPlay
+              playsInline
+              muted
+              className="absolute inset-0 w-full h-full object-cover"
+            />
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div className="w-56 h-32 border-2 border-white/60 rounded-xl relative">
+                <div className="absolute -top-1 -left-1 w-6 h-6 border-t-4 border-l-4 border-indigo-400 rounded-tl-lg" />
+                <div className="absolute -top-1 -right-1 w-6 h-6 border-t-4 border-r-4 border-indigo-400 rounded-tr-lg" />
+                <div className="absolute -bottom-1 -left-1 w-6 h-6 border-b-4 border-l-4 border-indigo-400 rounded-bl-lg" />
+                <div className="absolute -bottom-1 -right-1 w-6 h-6 border-b-4 border-r-4 border-indigo-400 rounded-br-lg" />
+                <div className="absolute inset-x-0 top-1/2 h-0.5 bg-indigo-400/30 -translate-y-1/2" />
+              </div>
+            </div>
+            <div className="absolute bottom-8 left-0 right-0 text-center pointer-events-none">
+              <span className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-black/60 text-white text-xs font-bold">
+                <QrCode className="w-4 h-4 animate-pulse" /> Point camera at product barcode
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
