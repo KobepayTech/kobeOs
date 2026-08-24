@@ -305,7 +305,7 @@ export default function LoginScreen({
 
   return (
     <div
-      className="h-screen min-h-0 overflow-hidden bg-[#071321] text-[#0a1728]"
+      className="max-h-[100dvh] min-h-[100dvh] overflow-y-auto overscroll-y-contain bg-[#071321] text-[#0a1728]"
       data-surface="startup"
       style={{
         '--bg-input': '#ffffff',
@@ -315,7 +315,7 @@ export default function LoginScreen({
         '--text-placeholder': '#94a3b8',
       } as React.CSSProperties}
     >
-      <div className="relative grid h-full min-h-0 lg:grid-cols-[.9fr_1.1fr]">
+      <div className="relative grid min-h-[100dvh] lg:h-[100dvh] lg:min-h-0 lg:grid-cols-[.9fr_1.1fr]">
         <section className="relative hidden h-full overflow-hidden bg-[#071321] p-10 text-white lg:flex lg:flex-col">
           <div className="absolute -left-40 top-1/3 h-96 w-96 rounded-full bg-blue-600/20 blur-3xl" />
           <div className="absolute -right-40 bottom-0 h-96 w-96 rounded-full bg-[#ff7616]/20 blur-3xl" />
@@ -361,7 +361,7 @@ export default function LoginScreen({
           </div>
         </section>
 
-        <section className="flex h-full min-h-0 items-start justify-center overflow-y-auto overscroll-contain bg-[#f4f6fa] px-4 py-6 sm:px-8 sm:py-8">
+        <section className="flex min-h-[100dvh] items-start justify-center bg-[#f4f6fa] px-4 py-6 sm:px-8 sm:py-8 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:overscroll-contain">
           <div className="w-full max-w-lg pb-6">
             <div className="mb-7 lg:hidden">
               <div className="flex items-center gap-2">
