@@ -77,7 +77,11 @@ interface LegacyTokenRedeemResult {
   paid: number;
   remaining: number;
   currency: string;
-  fullyPaid: boolean;
+  partialAllowed: boolean;
+  allowedVariance: number;
+  allowedChannels: Channel[];
+  expiresAt: string;
+  partner: { name: string; type: 'BANK' | 'AGENT'; branch: string };
 }
 
 interface CollectionReceipt {
