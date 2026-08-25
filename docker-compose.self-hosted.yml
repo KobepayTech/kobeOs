@@ -82,7 +82,9 @@ services:
       context: .
       dockerfile: Dockerfile.web
       args:
-        VITE_API_BASE: ${VITE_API_BASE:-http://localhost:3000/api}
+        # Use same-origin /api by default so a QR scanned from another device
+        # keeps working on the self-hosted LAN hostname.
+        VITE_API_BASE: ${VITE_API_BASE:-/api}
         VITE_TENANT_BASE_DOMAIN: ${VITE_TENANT_BASE_DOMAIN:-}
         VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
     restart: unless-stopped

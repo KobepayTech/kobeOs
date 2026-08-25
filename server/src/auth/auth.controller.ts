@@ -253,10 +253,10 @@ export class AuthController {
 
   /** Start Facebook Login, presented in KobeOS as "Continue with Meta". */
   @Get('oauth/meta')
-  metaStart(@Res() res: Response) {
+  async metaStart(@Res() res: Response) {
     try {
       const state = this.auth.createOAuthState('meta');
-      res.redirect(this.auth.metaAuthUrl(state));
+      res.redirect(await this.auth.metaAuthUrl(state));
     } catch (e) {
       res.redirect(this.auth.oauthFrontendRedirect('meta', e as Error));
     }

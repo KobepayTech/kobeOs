@@ -46,6 +46,8 @@ class EnvVars {
   @IsOptional() @IsString() INSTAGRAM_API_VERSION?: string;
   @IsOptional() @IsString() INSTAGRAM_OAUTH_SCOPES?: string;
   @IsOptional() @IsString() APP_FRONTEND_URL?: string;
+  /** Explicitly marks the disposable self-hosted test compose profile. */
+  @IsOptional() @IsString() KOBEOS_TEST_MODE?: string;
   @IsOptional() @IsString() IG_WEBHOOK_VERIFY_TOKEN?: string;
   /** HMAC-SHA256 secret for signing OS license tokens. Must match VITE_LICENSE_HMAC_SECRET in the frontend build. */
   @IsOptional() @IsString() LICENSE_HMAC_SECRET?: string;
@@ -88,6 +90,9 @@ class EnvVars {
 }
 
 export function validateEnv(config: Record<string, unknown>) {
+  if (config.KOBEOS_TEST_MODE === 'true' && config.NODE_ENV === 'production') {
+    throw new Error('KOBEOS_TEST_MODE cannot run with NODE_ENV=production');
+  }
   const validated = plainToInstance(EnvVars, config, { enableImplicitConversion: true });
   const errors = validateSync(validated, { skipMissingProperties: false });
   if (errors.length) {

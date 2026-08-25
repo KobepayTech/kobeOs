@@ -34,6 +34,11 @@ import { hydrateTokens } from './lib/api';
  */
 const pathname = window.location.pathname;
 
+// One-time provider setup page opened from the admin QR pairing flow.
+const metaSetupToken = pathname === '/setup/meta' || pathname === '/setup/meta/'
+  ? new URLSearchParams(window.location.search).get('token') || undefined
+  : undefined;
+
 // OAuth redirect landing. The dedicated screen stores provider tokens, verifies
 // /users/me, and persists the user profile before opening the app.
 const oauthMatch = pathname.match(/^\/oauth\/(tiktok|meta)\/?$/);
@@ -170,7 +175,9 @@ const mount = (node: ReactNode) => {
   });
 };
 
-if (oauthProvider) {
+if (metaSetupToken) {
+  import('./components/MetaSetupPage').then(({ default: MetaSetupPage }) => mount(<MetaSetupPage token={metaSetupToken} />));
+} else if (oauthProvider) {
   import('./components/OAuthCallback').then(({ default: OAuthCallback }) => mount(<OAuthCallback provider={oauthProvider} />));
 } else if (isOverlay) {
   import('./apps/kobe-sports/OverlayPage').then(({ default: OverlayPage }) => mount(<OverlayPage />));

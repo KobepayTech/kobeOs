@@ -11,6 +11,7 @@ import { PasswordReset } from './password-reset.entity';
 import { PasswordResetService } from './password-reset.service';
 import { UsersModule } from '../users/users.module';
 import { MailerModule } from '../mailer/mailer.module';
+import { SystemModule } from '../system/system.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { MailerModule } from '../mailer/mailer.module';
     TypeOrmModule.forFeature([RefreshToken, PasswordReset]),
     UsersModule,
     MailerModule,
+    SystemModule,
   ],
   providers: [AuthService, JwtStrategy, PasswordResetService],
   controllers: [AuthController],

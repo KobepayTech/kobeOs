@@ -40,6 +40,20 @@ promotes an existing user or changes an existing password automatically.
 Open [http://localhost:8080](http://localhost:8080). The API health endpoint
 is [http://localhost:3000/api/health](http://localhost:3000/api/health).
 
+### Disposable test profile
+
+For a throwaway test instance that does not require creating an `.env.self-hosted`
+file, use the test-only compose overlay:
+
+```bash
+docker compose -f docker-compose.self-hosted.yml \
+  -f docker-compose.self-hosted.test.yml up -d --build
+```
+
+That overlay contains public test-only database and JWT values. It is marked
+`NODE_ENV=test` and must never be used with production data. Stop and remove
+its disposable data with `docker compose ... down -v` when the test is finished.
+
 The API runs tracked migrations with `DB_SYNCHRONIZE=false`; it never rewrites
 the schema from entities in production mode. Postgres and Redis data persist
 in named Docker volumes.

@@ -13,12 +13,14 @@ import {
   Check,
   Loader2,
   Cloud,
+  KeyRound,
 } from 'lucide-react';
 import { getToken } from '@/lib/api';
+import MetaSetupPanel from '@/components/MetaSetupPanel';
 
 /* ───────────────────────────── types ───────────────────────────── */
 
-type TabKey = 'appearance' | 'language' | 'storage' | 'system' | 'notifications' | 'tunnel';
+type TabKey = 'appearance' | 'language' | 'storage' | 'system' | 'notifications' | 'tunnel' | 'providers';
 
 interface SystemSettingsState {
   theme: 'light' | 'dark' | 'auto';
@@ -65,6 +67,7 @@ const tabs: TabDef[] = [
   { key: 'system', label: 'System Info', icon: Info },
   { key: 'notifications', label: 'Notifications', icon: Bell },
   { key: 'tunnel', label: 'Cloudflare Tunnel', icon: Cloud },
+  { key: 'providers', label: 'Meta sign-in', icon: KeyRound },
 ];
 
 /* ═══════════════════════════ main component ═══════════════════════════ */
@@ -85,7 +88,7 @@ export default function SystemSettingsApp() {
   return (
     <div className="flex h-full text-sm text-os-text-primary bg-[#0f172a] select-none">
       {/* ────────── sidebar ────────── */}
-      <div className="w-56 border-r border-white/[0.08] flex flex-col bg-[#0f172a] shrink-0">
+      <div className="w-56 border-r border-white/[0.08] flex flex-col bg-[#0f172a] shrink-0 overflow-y-auto">
         <div className="px-4 pt-5 pb-3">
           <h2 className="text-base font-semibold tracking-tight">System Settings</h2>
           <p className="text-[11px] text-os-text-muted mt-0.5">Configure your device</p>
@@ -142,6 +145,7 @@ export default function SystemSettingsApp() {
             {activeTab === 'system' && <SystemInfoSection />}
             {activeTab === 'notifications' && <NotificationsSection settings={settings} update={update} />}
             {activeTab === 'tunnel' && <TunnelSection />}
+            {activeTab === 'providers' && <MetaSetupPanel />}
           </motion.div>
         </AnimatePresence>
       </div>

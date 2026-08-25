@@ -1,7 +1,16 @@
-import { Controller, Get } from '@nestjs/common';
+import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
+import type { Request } from 'express';
 import { Public } from '../common/public.decorator';
+import { Roles } from '../common/roles.decorator';
+import { CurrentUser } from '../auth/current-user.decorator';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import {
+  ActivateMetaProviderConfigDto,
+  MetaProviderConfigDto,
+  ProviderConfigService,
+} from './provider-config.service';
 
 /**
  * Public version endpoint used by the OTA-update poll on every running
@@ -66,6 +75,8 @@ function readBuildHash(): string {
 
 @Controller('system')
 export class SystemController {
+  constructor(private readonly providerConfig: ProviderConfigService) {}
+
   @Public()
   @Get('version')
   version(): VersionInfo {
@@ -78,5 +89,49 @@ export class SystemController {
       };
     }
     return CACHED;
+  }
+
+  /** Admin-only status; never returns the Meta app secret. */
+  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @Get('meta-setup/status')
+  metaSetupStatus() {
+    return this.providerConfig.status();
+  }
+
+  /** Create a short-lived QR pairing URL. The URL contains no credentials. */
+  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @Post('meta-setup/session')
+  createMetaSetupSession(@CurrentUser('id') userId: string, @Req() req: Request) {
+    const browserOrigin = String(req.headers.origin || '').trim();
+    const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+    const forwardedHost = String(req.headers['x-forwarded-host'] || '').split(',')[0].trim();
+    const origin = /^https?:\/\//i.test(browserOrigin) ? browserOrigin : forwardedHost
+      ? `${forwardedProto || req.protocol}://${forwardedHost}`
+      : `${req.protocol}://${req.get('host')}`;
+    return this.providerConfig.createSetupSession(userId, origin);
+  }
+
+  /** Save directly from the authenticated admin settings box. */
+  @UseGuards(JwtAuthGuard)
+  @Roles('admin')
+  @Post('meta-setup/save')
+  saveMetaSetup(
+    @Body() dto: MetaProviderConfigDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.providerConfig.saveMetaConfig(dto, userId);
+  }
+
+  /**
+   * Public only in the narrow sense that the scanned phone need not already
+   * be logged into KobeOS. Possession of the one-time, expiring QR token is
+   * required, and the submitted secret is encrypted immediately on the server.
+   */
+  @Public()
+  @Post('meta-setup/activate')
+  activateMetaSetup(@Body() dto: ActivateMetaProviderConfigDto) {
+    return this.providerConfig.activateWithToken(dto.token, dto);
   }
 }

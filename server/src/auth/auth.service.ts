@@ -11,6 +11,7 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { RefreshToken } from './refresh-token.entity';
 import type { User } from '../users/user.entity';
+import { ProviderConfigService } from '../system/provider-config.service';
 
 export function sha256(input: string): string {
   return createHash('sha256').update(input).digest('hex');
@@ -45,6 +46,7 @@ export class AuthService {
     private readonly config: ConfigService,
     @InjectRepository(RefreshToken)
     private readonly refreshTokens: Repository<RefreshToken>,
+    private readonly providerConfig: ProviderConfigService,
   ) {}
 
   async register(dto: RegisterDto): Promise<IssuedTokens> {
@@ -202,12 +204,13 @@ export class AuthService {
   }
 
   /** The Facebook Login consent URL used for "Continue with Meta". */
-  metaAuthUrl(state: string): string {
-    const appId = this.config.get<string>('META_APP_ID') || this.config.get<string>('INSTAGRAM_APP_ID');
-    const redirectUri = this.config.get<string>('META_REDIRECT_URI');
-    const version = this.config.get<string>('META_GRAPH_VERSION') || 'v26.0';
+  async metaAuthUrl(state: string): Promise<string> {
+    const meta = await this.providerConfig.assertConfigured();
+    const appId = meta.appId;
+    const redirectUri = meta.redirectUri;
+    const version = meta.graphVersion;
     if (!appId || !redirectUri) throw new BadRequestException('Meta sign-in is not configured');
-    const configId = this.config.get<string>('META_LOGIN_CONFIG_ID')?.trim();
+    const configId = meta.loginConfigId?.trim();
     const params = new URLSearchParams({
       client_id: appId,
       redirect_uri: redirectUri,
@@ -225,10 +228,11 @@ export class AuthService {
 
   /** Exchange a Meta authorization code, load the profile, and create/sign in the Kobe account. */
   async metaSignIn(code: string): Promise<IssuedTokens> {
-    const appId = this.config.get<string>('META_APP_ID') || this.config.get<string>('INSTAGRAM_APP_ID');
-    const appSecret = this.config.get<string>('META_APP_SECRET') || this.config.get<string>('INSTAGRAM_APP_SECRET');
-    const redirectUri = this.config.get<string>('META_REDIRECT_URI');
-    const version = this.config.get<string>('META_GRAPH_VERSION') || 'v26.0';
+    const meta = await this.providerConfig.assertConfigured();
+    const appId = meta.appId;
+    const appSecret = meta.appSecret;
+    const redirectUri = meta.redirectUri;
+    const version = meta.graphVersion;
     if (!appId || !appSecret || !redirectUri) throw new BadRequestException('Meta sign-in is not configured');
     if (!code) throw new BadRequestException('Missing Meta authorization code');
 
