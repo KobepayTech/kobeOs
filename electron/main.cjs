@@ -215,7 +215,7 @@ function startBackend(dbConfig) {
     TIKTOK_CLIENT_KEY: process.env.TIKTOK_CLIENT_KEY || '',
     TIKTOK_CLIENT_SECRET: process.env.TIKTOK_CLIENT_SECRET || '',
     META_LOGIN_CONFIG_ID: process.env.META_LOGIN_CONFIG_ID || '',
-    META_GRAPH_VERSION: process.env.META_GRAPH_VERSION || 'v24.0',
+    META_GRAPH_VERSION: process.env.META_GRAPH_VERSION || 'v26.0',
     // Cloudflare Tunnel credentials for store publishing.
     // These are set at build time via environment variables on the build machine
     // (CI/CD or developer machine running electron:build).
