@@ -48,16 +48,20 @@ export default function OAuthCallback({ provider }: { provider: OAuthProvider })
       if (cancelled.current) return;
 
       if (window.opener && !window.opener.closed) {
-        // The desktop renderer is file:// (opaque origin), so a concrete
-        // targetOrigin cannot be used. The opener validates this message's
-        // sender origin before accepting any credentials.
+        // SECURITY: only the desktop (Electron) opener is file:// (opaque
+        // origin) and needs a wildcard targetOrigin — and that receiver
+        // additionally validates the sender origin + IS_DESKTOP. On a normal
+        // web browser we MUST target our own exact origin, otherwise a
+        // malicious page that opened this popup would receive the tokens.
+        const isElectron = typeof navigator !== 'undefined' && /electron/i.test(navigator.userAgent);
+        const targetOrigin = isElectron ? '*' : window.location.origin;
         window.opener.postMessage({
           type: 'kobeos-oauth-complete',
           provider,
           accessToken: credentials.current.access,
           refreshToken: credentials.current.refresh,
           user,
-        }, '*');
+        }, targetOrigin);
         setBusy(false);
         setCompleted(true);
         window.close();
