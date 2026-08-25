@@ -214,7 +214,9 @@ function startBackend(dbConfig) {
     META_APP_SECRET: process.env.META_APP_SECRET || '',
     TIKTOK_CLIENT_KEY: process.env.TIKTOK_CLIENT_KEY || '',
     TIKTOK_CLIENT_SECRET: process.env.TIKTOK_CLIENT_SECRET || '',
-    META_LOGIN_CONFIG_ID: process.env.META_LOGIN_CONFIG_ID || '',
+    // Public Meta Login for Business configuration for the default KobeOS app.
+    // Keep the app secret environment-only; config IDs are not credentials.
+    META_LOGIN_CONFIG_ID: process.env.META_LOGIN_CONFIG_ID || '1589072156006100',
     META_GRAPH_VERSION: process.env.META_GRAPH_VERSION || 'v26.0',
     // Cloudflare Tunnel credentials for store publishing.
     // These are set at build time via environment variables on the build machine
