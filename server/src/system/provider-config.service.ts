@@ -79,12 +79,13 @@ export class ProviderConfigService {
   ) {}
 
   private encryptionKey(): Buffer {
-    // JWT_SECRET is already mandatory for every KobeOS server. Reusing it as
-    // the key derivation input avoids introducing a second deployment secret;
-    // the Meta secret itself never enters the browser or QR payload.
-    return createHash('sha256')
-      .update(this.env.getOrThrow<string>('JWT_SECRET'))
-      .digest();
+    // Dedicated, FIXED key for provider secrets so routine JWT_SECRET rotation
+    // never makes the stored Meta secret undecryptable. Set PROVIDER_ENCRYPTION_KEY
+    // once and keep it stable. Falls back to JWT_SECRET only for older
+    // deployments that never set the dedicated key.
+    const key = this.env.get<string>('PROVIDER_ENCRYPTION_KEY')?.trim()
+      || this.env.getOrThrow<string>('JWT_SECRET');
+    return createHash('sha256').update(key).digest();
   }
 
   private encrypt(value: string): string {

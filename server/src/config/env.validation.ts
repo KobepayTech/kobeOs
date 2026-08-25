@@ -21,6 +21,9 @@ class EnvVars {
   @IsOptional() @IsString() OLLAMA_MODEL?: string;
   @IsOptional() @IsString() FOOTBALL_DATA_API_KEY?: string;
   @IsOptional() @IsString() API_FOOTBALL_KEY?: string;
+  /** Dedicated, fixed key for encrypting provider (Meta) secrets at rest.
+   *  Keep it stable — rotating it makes stored provider secrets unreadable. */
+  @IsOptional() @IsString() @MinLength(16) PROVIDER_ENCRYPTION_KEY?: string;
   /** Base URL of the Kobe Model CDN, e.g. https://models.kobe or a self-hosted MinIO endpoint */
   @IsOptional() @IsString() KOBE_MODELS_CDN_URL?: string;
   /** Cloudflare API token with Zone:DNS:Edit permission (required for store publishing) */

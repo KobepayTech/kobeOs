@@ -259,21 +259,26 @@ export default function LoginScreen({
 
   const openProviderAuth = (provider: 'meta' | 'tiktok') => {
     const url = `${accountApiBase()}/auth/oauth/${provider}`;
-    // Keep the OAuth flow in a child window so the KobeOS signup screen stays
-    // mounted. OAuthCallback posts the result back to this window and closes
-    // the child after the account session is stored. Using shell.openExternal
-    // here launched Chrome from the desktop app, which made signup appear to
-    // leave KobeOS and broke the opener-based callback handoff.
-    const popup = window.open(
-      url,
-      `kobeos-${provider}-oauth`,
-      'popup=yes,width=560,height=760,resizable=yes,scrollbars=yes',
-    );
-    if (!popup) {
-      setError(`${provider === 'meta' ? 'Meta' : 'TikTok'} sign-in could not open inside KobeOS. Allow popups and try again.`);
+    if (IS_DESKTOP) {
+      // Desktop renderer is file:// and can't redirect out to a hosted URL and
+      // back, so it keeps the child-window handoff. OAuthCallback posts the
+      // result back to this window (origin-validated) and closes the child.
+      const popup = window.open(
+        url,
+        `kobeos-${provider}-oauth`,
+        'popup=yes,width=560,height=760,resizable=yes,scrollbars=yes',
+      );
+      if (!popup) {
+        setError(`${provider === 'meta' ? 'Meta' : 'TikTok'} sign-in could not open inside KobeOS. Allow popups and try again.`);
+        return;
+      }
+      popup.focus();
       return;
     }
-    popup.focus();
+    // Web: navigate the whole page to the provider. No popup (works in embedded
+    // browsers/Cowork and with popup blockers); the callback lands back in this
+    // same tab, persists the session and returns home.
+    window.location.assign(url);
   };
   const signInWithTikTok = () => openProviderAuth('tiktok');
   const signInWithMeta = () => openProviderAuth('meta');
