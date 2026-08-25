@@ -70,6 +70,11 @@ class EnvVars {
   @IsOptional() @IsString() META_LOGIN_CONFIG_ID?: string;
   @IsOptional() @IsString() META_GRAPH_VERSION?: string;
 
+  /** One-time self-hosted first-admin bootstrap; remove after first boot. */
+  @IsOptional() @IsString() KOBEOS_BOOTSTRAP_ADMIN_EMAIL?: string;
+  @IsOptional() @IsString() KOBEOS_BOOTSTRAP_ADMIN_PASSWORD?: string;
+  @IsOptional() @IsString() KOBEOS_BOOTSTRAP_ADMIN_DISPLAY_NAME?: string;
+
   /** Beem Africa SMS / WhatsApp credentials (https://docs.beem.africa). When unset, channel sends are no-ops. */
   @IsOptional() @IsString() BEEM_API_KEY?: string;
   @IsOptional() @IsString() BEEM_SECRET_KEY?: string;

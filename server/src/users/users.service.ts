@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcryptjs';
@@ -8,8 +8,42 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { AdminUpdateUserDto } from './dto/admin-update-user.dto';
 
 @Injectable()
-export class UsersService {
+export class UsersService implements OnModuleInit {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(@InjectRepository(User) private readonly repo: Repository<User>) {}
+
+  /**
+   * Create the first self-hosted admin only when the operator explicitly
+   * supplies bootstrap credentials. The variables should be removed after
+   * the first successful boot; existing users are never promoted implicitly.
+   */
+  async onModuleInit(): Promise<void> {
+    const email = process.env.KOBEOS_BOOTSTRAP_ADMIN_EMAIL?.trim().toLowerCase();
+    const password = process.env.KOBEOS_BOOTSTRAP_ADMIN_PASSWORD;
+    if (!email && !password) return;
+    if (!email || !password) {
+      throw new Error('KOBEOS_BOOTSTRAP_ADMIN_EMAIL and KOBEOS_BOOTSTRAP_ADMIN_PASSWORD must be set together');
+    }
+    if (password.length < 12) {
+      throw new Error('KOBEOS_BOOTSTRAP_ADMIN_PASSWORD must contain at least 12 characters');
+    }
+
+    const existing = await this.findByEmail(email);
+    if (existing) {
+      this.logger.warn(`Bootstrap admin skipped because ${email} already exists; no role or password was changed`);
+      return;
+    }
+
+    const passwordHash = await bcrypt.hash(password, 12);
+    await this.repo.save(this.repo.create({
+      email,
+      passwordHash,
+      displayName: process.env.KOBEOS_BOOTSTRAP_ADMIN_DISPLAY_NAME?.trim() || 'KobeOS Admin',
+      role: 'admin',
+    }));
+    this.logger.log(`Bootstrap admin ${email} created; remove KOBEOS_BOOTSTRAP_ADMIN_* after signing in`);
+  }
 
   findByEmail(email: string) {
     return this.repo.findOne({ where: { email: email.trim().toLowerCase() } });

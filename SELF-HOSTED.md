@@ -17,6 +17,8 @@ PowerShell:
 ```powershell
 Copy-Item .env.self-hosted.example .env.self-hosted
 # Edit .env.self-hosted and replace DB_PASSWORD and JWT_SECRET.
+# Optional: set KOBEOS_BOOTSTRAP_ADMIN_EMAIL and
+# KOBEOS_BOOTSTRAP_ADMIN_PASSWORD (12+ characters) for the first boot.
 docker compose --env-file .env.self-hosted -f docker-compose.self-hosted.yml up -d --build
 ```
 
@@ -25,8 +27,15 @@ Linux/macOS:
 ```bash
 cp .env.self-hosted.example .env.self-hosted
 # Edit .env.self-hosted and replace DB_PASSWORD and JWT_SECRET.
+# Optional: set KOBEOS_BOOTSTRAP_ADMIN_EMAIL and
+# KOBEOS_BOOTSTRAP_ADMIN_PASSWORD (12+ characters) for the first boot.
 docker compose --env-file .env.self-hosted -f docker-compose.self-hosted.yml up -d --build
 ```
+
+If the bootstrap variables are set, the API creates that account with the
+`admin` role only when the email does not already exist. Remove all
+`KOBEOS_BOOTSTRAP_ADMIN_*` lines and restart after signing in; the API never
+promotes an existing user or changes an existing password automatically.
 
 Open [http://localhost:8080](http://localhost:8080). The API health endpoint
 is [http://localhost:3000/api/health](http://localhost:3000/api/health).
