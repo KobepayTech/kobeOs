@@ -34,6 +34,15 @@ type DesktopAuthResponse = IssuedTokens & {
   cloudRefreshToken: string;
 };
 
+/**
+ * Raised when Kobe Cloud cannot be reached at all (DNS/TLS/timeout or an
+ * upstream gateway error) — as opposed to the cloud answering with an
+ * authoritative 4xx (e.g. "email already registered", "wrong password").
+ * Only the former should fall back to a purely local account; the latter is a
+ * real answer we must surface to the user.
+ */
+class CloudUnavailableError extends Error {}
+
 @Public()
 @Controller('auth')
 @Throttle({
@@ -107,11 +116,17 @@ export class AuthController {
     }).catch(() => null);
 
     if (!response) {
-      throw new HttpException('Kobe Cloud is unavailable. Check the internet connection and try again.', 503);
+      throw new CloudUnavailableError('Kobe Cloud is unreachable');
     }
 
     const body = await response.json().catch(() => ({})) as Record<string, unknown>;
     if (!response.ok) {
+      // Gateway-class failures mean the cloud service itself is down/unreachable,
+      // not that the request was rejected — treat them like a network failure so
+      // the desktop can still fall back to a local account.
+      if (response.status === 502 || response.status === 503 || response.status === 504) {
+        throw new CloudUnavailableError(`Kobe Cloud returned HTTP ${response.status}`);
+      }
       const rawMessage = body.message ?? body.error;
       const message = Array.isArray(rawMessage)
         ? rawMessage.join(', ')
@@ -123,6 +138,13 @@ export class AuthController {
     return body as T;
   }
 
+  /** Wrap a local IssuedTokens result in the desktop response shape. A locally
+   * created account has no cloud session yet; the tokens sync on the next
+   * successful cloud sign-in. */
+  private localOnly(local: IssuedTokens): DesktopAuthResponse {
+    return { ...local, cloudAccessToken: '', cloudRefreshToken: '' };
+  }
+
   private async exchangeCloudIdentity(
     cloudAccessToken: string,
     cloudRefreshToken = '',
@@ -131,6 +153,13 @@ export class AuthController {
 
     const profile = await this.cloudRequest<CloudProfile>('/users/me', {
       headers: { Authorization: `Bearer ${cloudAccessToken}` },
+    }).catch((e) => {
+      // A social sign-in can only be verified by the cloud — there is no local
+      // fallback, so present unreachability as a clean 503.
+      if (e instanceof CloudUnavailableError) {
+        throw new HttpException('Kobe Cloud is unavailable. Check the internet connection and try again.', 503);
+      }
+      throw e;
     });
     if (!profile?.email) throw new UnauthorizedException('Kobe Cloud account has no verified email');
 
@@ -150,27 +179,49 @@ export class AuthController {
   @Get('desktop/cloud-status')
   async desktopCloudStatus() {
     this.assertDesktopBridge();
-    return this.cloudRequest<Record<string, unknown>>('/system/version');
+    try {
+      const version = await this.cloudRequest<Record<string, unknown>>('/system/version');
+      return { reachable: true, cloud: version };
+    } catch (e) {
+      if (e instanceof CloudUnavailableError) return { reachable: false };
+      throw e;
+    }
   }
 
   @Post('desktop/register')
   async desktopRegister(@Body() dto: RegisterDto) {
     this.assertDesktopBridge();
-    const cloud = await this.cloudRequest<CloudAuthResponse>('/auth/register', {
-      method: 'POST',
-      body: JSON.stringify(dto),
-    });
-    return this.exchangeCloudIdentity(cloud.accessToken, cloud.refreshToken);
+    try {
+      const cloud = await this.cloudRequest<CloudAuthResponse>('/auth/register', {
+        method: 'POST',
+        body: JSON.stringify(dto),
+      });
+      return this.exchangeCloudIdentity(cloud.accessToken, cloud.refreshToken);
+    } catch (e) {
+      // Self-hosted / offline: if Kobe Cloud can't be reached, create the
+      // account directly against the embedded backend so the OS is fully
+      // usable. A cloud rejection (email taken, invalid input) is authoritative
+      // and rethrown.
+      if (e instanceof CloudUnavailableError) return this.localOnly(await this.auth.register(dto));
+      throw e;
+    }
   }
 
   @Post('desktop/login')
   async desktopLogin(@Body() dto: LoginDto) {
     this.assertDesktopBridge();
-    const cloud = await this.cloudRequest<CloudAuthResponse>('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify(dto),
-    });
-    return this.exchangeCloudIdentity(cloud.accessToken, cloud.refreshToken);
+    try {
+      const cloud = await this.cloudRequest<CloudAuthResponse>('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify(dto),
+      });
+      return this.exchangeCloudIdentity(cloud.accessToken, cloud.refreshToken);
+    } catch (e) {
+      // Fall back to the local account when the cloud is unreachable so an
+      // already-provisioned desktop user can still sign in offline.
+      if (e instanceof CloudUnavailableError) return this.localOnly(await this.auth.login(dto));
+      throw e;
+    }
   }
 
   @Post('desktop/google')
@@ -192,19 +243,29 @@ export class AuthController {
   @Post('desktop/forgot-password')
   async desktopForgotPassword(@Body() dto: ForgotPasswordDto) {
     this.assertDesktopBridge();
-    return this.cloudRequest<{ ok: true; resetToken?: string }>('/auth/forgot-password', {
-      method: 'POST',
-      body: JSON.stringify(dto),
-    });
+    try {
+      return await this.cloudRequest<{ ok: true; resetToken?: string }>('/auth/forgot-password', {
+        method: 'POST',
+        body: JSON.stringify(dto),
+      });
+    } catch (e) {
+      if (e instanceof CloudUnavailableError) return this.resets.createToken(dto.email);
+      throw e;
+    }
   }
 
   @Post('desktop/reset-password')
   async desktopResetPassword(@Body() dto: ResetPasswordDto) {
     this.assertDesktopBridge();
-    return this.cloudRequest<{ ok: true }>('/auth/reset-password', {
-      method: 'POST',
-      body: JSON.stringify(dto),
-    });
+    try {
+      return await this.cloudRequest<{ ok: true }>('/auth/reset-password', {
+        method: 'POST',
+        body: JSON.stringify(dto),
+      });
+    } catch (e) {
+      if (e instanceof CloudUnavailableError) return this.resets.reset(dto.token, dto.newPassword);
+      throw e;
+    }
   }
 
   // ── OAuth (sign in / sign up with Google, TikTok or Meta) ───────────────────

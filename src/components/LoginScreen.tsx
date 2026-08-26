@@ -117,6 +117,17 @@ export default function LoginScreen({
     };
   }, [checkConnection]);
 
+  // The embedded desktop backend (and its database) can take a few seconds to
+  // finish booting after the window appears. Without this, the first health
+  // check fails and the banner stays stuck on "unavailable" until the user
+  // manually hits retry. Poll automatically while we are not yet online so the
+  // form unblocks itself the moment the backend is ready.
+  useEffect(() => {
+    if (connection === 'online' || connection === 'checking') return;
+    const t = setInterval(() => { checkConnection(); }, 3_000);
+    return () => clearInterval(t);
+  }, [connection, checkConnection]);
+
   // The global OS shell intentionally hides document scrolling. The signup
   // screen is the one full-page exception: restore document scrolling while
   // it is mounted so short windows can always reach the submit controls.
