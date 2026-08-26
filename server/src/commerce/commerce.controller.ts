@@ -51,12 +51,17 @@ class CustomerDto {
   @IsString() @MaxLength(40) phone!: string;
   @IsOptional() @IsEmail() email?: string;
 }
+class CartAttributionDto {
+  @IsOptional() @IsString() @MaxLength(32) code?: string;
+  @IsOptional() @IsString() @MaxLength(64) clickId?: string;
+}
 class CartDto {
   @ValidateNested() @Type(() => CustomerDto) customer!: CustomerDto;
   @IsIn(['PICKUP', 'DELIVERY']) fulfillment!: 'PICKUP' | 'DELIVERY';
   @IsOptional() @IsString() @MaxLength(500) deliveryAddress?: string;
   @IsOptional() @IsString() @MaxLength(2000) note?: string;
   @IsArray() @ArrayMinSize(1) @ValidateNested({ each: true }) @Type(() => CartLineDto) lines!: CartLineDto[];
+  @IsOptional() @ValidateNested() @Type(() => CartAttributionDto) attribution?: CartAttributionDto;
 }
 class VehicleListingDto {
   @IsOptional() @IsArray() @IsString({ each: true }) highlights?: string[];

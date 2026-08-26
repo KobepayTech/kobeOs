@@ -14,6 +14,7 @@ import {
   KobeNode, MerchantClaim, MerchantOrder, MerchantQuota, NodeHeartbeat, ProductSnippet, PropertyFloor,
 } from './commerce.entity';
 import { LITE_FREE_ORDER_LIMIT, extractCaptionProductMetadata, groupByMerchant, isNodeOnline, merchantOrderAccess, missingRequiredOptions, normalizePhone, panelCrops, shopCode, vehicleEconomics } from './commerce.rules';
+import { CreatorCommerceService } from '../creator-commerce/creator-commerce.service';
 import { CommerceVehicle, VehicleBuyerRequest, VehicleListingMetadata, VehicleMedia, VehicleReservation } from './cars.entity';
 import { VideoGenerationService } from '../video-generation/video-generation.service';
 
@@ -40,6 +41,7 @@ export class CommerceService {
     private readonly videoGeneration: VideoGenerationService,
     private readonly events: PlatformEventsService,
     private readonly notifications: PlatformNotificationService,
+    private readonly creatorCommerce: CreatorCommerceService,
   ) {}
 
   private repo<T extends object>(entity: new () => T): Repository<T> { return this.ds.getRepository(entity); }
@@ -533,7 +535,10 @@ export class CommerceService {
   async submitCart(input: {
     customer: { phone: string; name: string; email?: string }; fulfillment: 'PICKUP' | 'DELIVERY'; deliveryAddress?: string; note?: string;
     lines: Array<{ productId: string; quantity: number; selectedOptions?: Record<string, string> }>;
+    attribution?: { code?: string; clickId?: string };
   }) {
+    const attributionCode = (input.attribution?.code ?? '').trim();
+    const clickId = (input.attribution?.clickId ?? '').trim();
     if (!input.lines?.length) throw new BadRequestException('Cart is empty');
     if (input.fulfillment === 'DELIVERY' && !input.deliveryAddress?.trim()) throw new BadRequestException('Delivery address is required');
     const ids = [...new Set(input.lines.map((l) => l.productId))];
@@ -573,6 +578,7 @@ export class CommerceService {
         const order = await tx.getRepository(MerchantOrder).save(tx.getRepository(MerchantOrder).create({
           orderNumber: humanCode('JML'), businessId, customerId: customer.id, cartId: cart.id, status: access.status,
           fulfillment: input.fulfillment, deliveryAddress: input.deliveryAddress?.trim() ?? '', customerNote: input.note?.trim() ?? '', total, currency: 'TZS', merchantLocked: access.locked, channel: 'jumla',
+          attributionCode, clickId,
         }));
         await tx.getRepository(CommerceOrderLine).save(lines.map((line) => {
           const p = productMap.get(line.productId)!;
@@ -595,6 +601,16 @@ export class CommerceService {
       if (quota?.submittedOrders === 40) await this.events.emit({ ownerId: business?.ownerUserId, eventName: 'lite.quota_warning', aggregateType: 'MerchantQuota', aggregateId: quota.id, payload: { used: 40, limit: quota.freeOrderLimit } });
       if (quota?.submittedOrders === 48 && business) await this.notifications.send({ ownerId: business.ownerUserId, recipientKey: business.businessId, phone: business.phone, title: 'Only 2 free Jumla orders remain', body: 'You have used 48 of your 50 free orders. Activate KobeOS now to keep full merchant order access.', actionUrl: '/commerce', channels: ['IN_APP', 'PUSH', 'SMS', 'WHATSAPP'] });
       if (quota && quota.submittedOrders === quota.freeOrderLimit) await this.events.emit({ ownerId: business?.ownerUserId, eventName: 'lite.quota_reached', aggregateType: 'MerchantQuota', aggregateId: quota.id, payload: { used: quota.submittedOrders, limit: quota.freeOrderLimit } });
+    }
+    // Creator attribution is best-effort: a stale or bad code must never block a
+    // real order. Each merchant order in a multi-shop cart is attributed to the
+    // same creator link (they all came from that one creator click).
+    if (attributionCode) {
+      for (const order of created.merchantOrders) {
+        try {
+          await this.creatorCommerce.attributeOrder({ code: attributionCode, clickId, orderId: order.id, revenue: Number(order.total), currency: order.currency });
+        } catch { /* attribution is advisory; never fail the order on it */ }
+      }
     }
     return { success: true, message: 'Order sent successfully', cartId: created.cart.id, orders: created.merchantOrders.map((o) => ({ orderNumber: o.orderNumber, businessId: o.businessId, status: 'SUBMITTED', total: o.total })) };
   }
@@ -619,6 +635,15 @@ export class CommerceService {
     const allowed: MerchantOrder['status'][] = ['VIEWED', 'ACCEPTED', 'RESERVED', 'PAYMENT_PENDING', 'PAID', 'PREPARING', 'READY', 'COMPLETED', 'CANCELLED', 'UNAVAILABLE'];
     if (!allowed.includes(status)) throw new BadRequestException('Invalid merchant order status');
     order.status = status; await this.orders.save(order);
+    // Drive creator-commission state off the sale lifecycle: a completed sale
+    // earns the commission; a cancelled/unavailable order reverses it so no
+    // commission is paid for a sale that never happened.
+    if (order.attributionCode) {
+      try {
+        if (status === 'COMPLETED') await this.creatorCommerce.markOrderCompleted(order.id);
+        else if (status === 'CANCELLED' || status === 'UNAVAILABLE') await this.creatorCommerce.reverseOrder(order.id, `order_${status.toLowerCase()}`);
+      } catch { /* attribution is advisory; never fail the status change on it */ }
+    }
     const customer = await this.repo(CommerceCustomer).findOne({ where: { id: order.customerId } });
     if (customer?.phone) await this.notifications.send({ ownerId: business.ownerUserId ?? undefined, recipientKey: customer.id, phone: customer.phone, title: `Order ${order.orderNumber}: ${status.replace(/_/g, ' ')}`, body: `${business.name} updated your order to ${status.replace(/_/g, ' ').toLowerCase()}.`, actionUrl: `/jumla/order/${order.orderNumber}`, channels: ['IN_APP', 'PUSH', 'SMS', 'WHATSAPP'] });
     return order;

@@ -18,7 +18,9 @@ export type KobeDomainEventName =
   | 'transit.fee_due' | 'transit.fee_paid' | 'transit.fee_overdue' | 'transit.compliance_changed'
   | 'transit.unpaid_bus_detected' | 'transit.enforcement_alert_created'
   | 'transit.government_share_accrued' | 'transit.government_settlement_created'
-  | 'transit.government_settlement_completed' | 'transit.payment_dispute_created' | 'transit.exemption_created';
+  | 'transit.government_settlement_completed' | 'transit.payment_dispute_created' | 'transit.exemption_created'
+  | 'creator.link_created' | 'creator.attribution_clicked' | 'creator.order_attributed'
+  | 'creator.sale_attributed' | 'creator.commission_earned' | 'creator.commission_reversed';
 
 @Injectable()
 export class PlatformEventsService {

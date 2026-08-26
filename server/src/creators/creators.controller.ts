@@ -13,7 +13,7 @@ import { CreatorSubscriptionService } from './creator-subscription.service';
 import { CreatorTier } from './creator-subscription.entity';
 import { CreateCreatorDto, SearchCreatorsDto, SyncCreatorDto, UpdateCreatorDto } from './dto/creator.dto';
 import {
-  CreateCampaignDto, RespondOfferDto, SendOfferDto,
+  CreateCampaignDto, PromoteProductDto, RespondOfferDto, SendOfferDto,
   SubmitProofDto, UpdateCampaignDto,
 } from './dto/campaign.dto';
 import { AddReviewDto, CampaignAnalyticsDto, SetPackagesDto } from './dto/marketplace.dto';
@@ -86,6 +86,12 @@ export class CreatorsController {
   @Post('campaigns')
   createCampaign(@CurrentUser('id') uid: string, @Body() dto: CreateCampaignDto) {
     return this.campaigns.create(uid, dto);
+  }
+
+  /** "Promote With Creators" — spawn a campaign from a real product id. */
+  @Post('campaigns/from-product')
+  promoteProduct(@CurrentUser('id') uid: string, @Body() dto: PromoteProductDto) {
+    return this.campaigns.createFromProduct(uid, dto);
   }
 
   @Patch('campaigns/:id')

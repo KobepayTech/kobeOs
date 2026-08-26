@@ -49,7 +49,10 @@ export interface CreatorOffer {
   notes?: string;
 }
 
-@Entity('campaigns')
+// NB: a distinct table from the legacy marketing `campaigns` (discounts module).
+// Sharing that name silently broke every creator-campaign insert in production
+// (the marketing table's NOT NULL startDate/endDate were never satisfied).
+@Entity('creator_campaigns')
 export class Campaign extends OwnedEntity {
   /** ownerId = advertiser's user ID */
 
@@ -92,4 +95,28 @@ export class Campaign extends OwnedEntity {
   /** Escrow record ID once funds are locked */
   @Column({ nullable: true, type: 'uuid' })
   escrowId?: string | null;
+
+  // ── Product-linked promotion ("Promote With Creators") ─────────────────────
+  // A campaign spawned from a real KobeOS product references it directly — the
+  // product is never recreated inside the creator marketplace.
+  @Index()
+  @Column({ nullable: true, type: 'uuid' })
+  productId?: string | null;
+
+  @Column({ default: '' })
+  productName!: string;
+
+  @Column({ type: 'decimal', precision: 18, scale: 2, default: 0 })
+  productPrice!: number;
+
+  /** Commission (%) paid to the creator per completed attributed sale. */
+  @Column({ type: 'float', default: 0 })
+  commissionPercent!: number;
+
+  /** Where a creator link for this campaign should send buyers. */
+  @Column({ default: 'jumla' })
+  destination!: 'jumla' | 'store' | 'url';
+
+  @Column({ type: 'text', default: '' })
+  destinationUrl!: string;
 }

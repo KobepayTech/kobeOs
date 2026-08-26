@@ -14,6 +14,7 @@ import { Creator } from './creator.entity';
 import { Wallet } from '../payments/payments.entity';
 import {
   CreateCampaignDto,
+  PromoteProductDto,
   RespondOfferDto,
   SendOfferDto,
   SubmitProofDto,
@@ -60,6 +61,34 @@ export class CampaignService {
       endsAt: dto.endsAt ? new Date(dto.endsAt) : null,
       status: 'draft',
       offers: [],
+    });
+    return this.campaigns.save(campaign);
+  }
+
+  /**
+   * "Promote With Creators": spawn a campaign from a real KobeOS product. The
+   * product is referenced by id (never recreated in the marketplace), and the
+   * campaign opens for creator applications immediately.
+   */
+  createFromProduct(advertiserId: string, dto: PromoteProductDto) {
+    const campaign = this.campaigns.create({
+      ownerId: advertiserId,
+      name: dto.name?.trim() || `Promote ${dto.productName}`,
+      description: '',
+      brand: '',
+      niche: dto.niche ?? '',
+      budgetTzs: dto.budgetTzs ?? 0,
+      platformFeePercent: dto.platformFeePercent ?? 10,
+      requirements: dto.requirements ?? [],
+      endsAt: dto.endsAt ? new Date(dto.endsAt) : null,
+      status: 'open',
+      offers: [],
+      productId: dto.productId,
+      productName: dto.productName,
+      productPrice: dto.productPrice,
+      commissionPercent: dto.commissionPercent,
+      destination: dto.destination ?? 'jumla',
+      destinationUrl: dto.destinationUrl ?? `/jumla?product=${dto.productId}`,
     });
     return this.campaigns.save(campaign);
   }

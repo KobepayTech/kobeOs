@@ -90,6 +90,7 @@ import { KobepayProModule } from './kobepay-pro/kobepay-pro.module';
 import { TransitModule } from './transit/transit.module';
 import { PlatformModule } from './platform/platform.module';
 import { CommerceModule } from './commerce/commerce.module';
+import { CreatorCommerceModule } from './creator-commerce/creator-commerce.module';
 import { LalaModule } from './lala/lala.module';
 import { AccountantModule } from './accountant/accountant.module';
 
@@ -193,6 +194,7 @@ import { AccountantModule } from './accountant/accountant.module';
     TransitModule,
     PlatformModule,
     CommerceModule,
+    CreatorCommerceModule,
     LalaModule,
     AccountantModule,
   ],

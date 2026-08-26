@@ -1,6 +1,6 @@
 import {
-  IsArray, IsEnum, IsNumber, IsOptional, IsString,
-  IsUUID, MaxLength, Min, ValidateNested,
+  IsArray, IsEnum, IsIn, IsNumber, IsOptional, IsString,
+  IsUUID, Max, MaxLength, Min, ValidateNested,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { CampaignRequirement } from '../campaign.entity';
@@ -23,6 +23,22 @@ export class CreateCampaignDto {
   @IsOptional() @IsNumber() platformFeePercent?: number;
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => RequirementDto)
   requirements?: RequirementDto[];
+  @IsOptional() @IsString() endsAt?: string;
+}
+
+export class PromoteProductDto {
+  @IsUUID() productId!: string;
+  @IsString() @MaxLength(160) productName!: string;
+  @IsNumber() @Min(0) productPrice!: number;
+  @IsNumber() @Min(0) @Max(100) commissionPercent!: number;
+  @IsOptional() @IsString() @MaxLength(120) name?: string;
+  @IsOptional() @IsNumber() @Min(0) budgetTzs?: number;
+  @IsOptional() @IsNumber() platformFeePercent?: number;
+  @IsOptional() @IsString() niche?: string;
+  @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => RequirementDto)
+  requirements?: RequirementDto[];
+  @IsOptional() @IsIn(['jumla', 'store', 'url']) destination?: 'jumla' | 'store' | 'url';
+  @IsOptional() @IsString() @MaxLength(500) destinationUrl?: string;
   @IsOptional() @IsString() endsAt?: string;
 }
 

@@ -25,6 +25,18 @@ export default function Jumla() {
   usePwaManifest({ name: 'Jumla', shortName: 'Jumla', startUrl: '/jumla', iconBase: '/jumla', themeColor: '#071d18', enabled: true });
 
   useEffect(() => { localStorage.setItem('jumla_cart', JSON.stringify(cart)); }, [cart]);
+
+  // Creator attribution: a creator link (kobe.app/c/<code>) redirects here with
+  // ?kc=<code>&kcid=<clickId>. Persist them so the eventual order attributes the
+  // sale (and the creator's commission) back to that creator, even across a
+  // reload or a browse before checkout.
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const kc = params.get('kc'); const kcid = params.get('kcid');
+      if (kc) { localStorage.setItem('jumla_attr_code', kc); if (kcid) localStorage.setItem('jumla_attr_click', kcid); }
+    } catch { /* ignore */ }
+  }, []);
   useEffect(() => {
     const timer = window.setTimeout(async () => {
       setLoading(true); setError(''); setIndex(0);
@@ -52,7 +64,9 @@ export default function Jumla() {
   const submit = async () => {
     setSending(true); setError(''); setSuccess('');
     try {
-      const response = await publicApi<{ orders: Array<{ orderNumber: string }> }>('/commerce-public/jumla/orders', { method: 'POST', body: JSON.stringify({ customer: { name: checkout.name, phone: checkout.phone }, fulfillment: checkout.fulfillment, deliveryAddress: checkout.address, note: checkout.note, lines: cart.map((line) => ({ productId: line.item.productId, quantity: line.quantity, selectedOptions: line.selectedOptions })) }) });
+      const attrCode = (() => { try { return localStorage.getItem('jumla_attr_code') || ''; } catch { return ''; } })();
+      const attrClick = (() => { try { return localStorage.getItem('jumla_attr_click') || ''; } catch { return ''; } })();
+      const response = await publicApi<{ orders: Array<{ orderNumber: string }> }>('/commerce-public/jumla/orders', { method: 'POST', body: JSON.stringify({ customer: { name: checkout.name, phone: checkout.phone }, fulfillment: checkout.fulfillment, deliveryAddress: checkout.address, note: checkout.note, lines: cart.map((line) => ({ productId: line.item.productId, quantity: line.quantity, selectedOptions: line.selectedOptions })), ...(attrCode ? { attribution: { code: attrCode, clickId: attrClick } } : {}) }) });
       setSuccess(`Order sent: ${response.orders.map((o) => o.orderNumber).join(', ')}`); setCart([]);
     } catch (e) { setError((e as Error).message); }
     finally { setSending(false); }

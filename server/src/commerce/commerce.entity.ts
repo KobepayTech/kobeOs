@@ -184,6 +184,11 @@ export class MerchantOrder extends BaseEntity {
   @Column({ default: 'TZS' }) currency!: string;
   @Column({ default: false }) merchantLocked!: boolean;
   @Column({ default: 'jumla' }) channel!: string;
+  // Creator-commerce attribution: which creator link (if any) drove this order.
+  @Column({ default: '' }) attributionCode!: string;
+  @Column({ default: '' }) clickId!: string;
+  @Column({ type: 'uuid', nullable: true }) creatorId?: string | null;
+  @Column({ type: 'uuid', nullable: true }) campaignId?: string | null;
 }
 
 @Entity('commerce_order_lines')
