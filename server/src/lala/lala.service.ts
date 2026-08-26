@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes } from 'crypto';
 import { DataSource, In, Repository } from 'typeorm';
-import { HotelBooking, HotelGuest, HotelRoom, HotelTenant } from '../hotel/hotel.entity';
+import { HotelBooking, HotelGuest, HotelMenuItem, HotelRoom, HotelTenant } from '../hotel/hotel.entity';
 import { PlatformEventsService, PlatformNotificationService } from '../platform/platform.service';
 import { normalizePhone } from '../commerce/commerce.rules';
 import {
@@ -89,24 +89,49 @@ export class LalaService {
   }
 
   async search(query: { destination?: string; checkIn?: string; checkOut?: string; guests?: string; maxPrice?: string; amenity?: string; lastMinute?: string }) {
-    const profiles = await this.profiles.find({ where: { listed: true } });
-    const hotelIds = profiles.map((p) => p.hotelId);
-    if (!hotelIds.length) return [];
-    const hotels = await this.hotels.find({ where: { id: In(hotelIds) } });
+    // Every hotel appears on Lala by default. The Lala profile is optional
+    // enrichment (photos, description, rating); the only thing that hides a
+    // hotel is an explicit `hiddenFromLala` opt-out. A hotel still needs at
+    // least one bookable room for the dates to show up.
+    const [hotels, profiles] = await Promise.all([
+      this.hotels.find({ order: { createdAt: 'ASC' } }),
+      this.profiles.find(),
+    ]);
     const pmap = new Map(profiles.map((p) => [p.hotelId, p]));
-    const rows: Array<{ hotel: Record<string, unknown>; profile: LalaHotelProfile; availableRooms: Array<Record<string, unknown>>; verifiedAvailabilityAt: string }> = [];
+
+    // One pass over available menu items → which hotels can take food orders.
+    // A menu item is either hotel-specific (hotelId) or owner-global (hotelId
+    // NULL, applies to all that owner's hotels).
+    const menuItems = await this.repo(HotelMenuItem).find({ where: { available: true } });
+    const foodHotelIds = new Set<string>();
+    const foodOwnerIds = new Set<string>();
+    for (const m of menuItems) {
+      if (m.hotelId) foodHotelIds.add(m.hotelId);
+      else if (m.ownerId) foodOwnerIds.add(m.ownerId);
+    }
+
+    const defaultProfile = { description: '', amenities: [] as string[], images: [] as string[], guestRating: 0, verifiedReviewCount: 0, lastMinuteEnabled: true, reverseOffersEnabled: true };
+    const rows: Array<{ hotel: Record<string, unknown>; profile: Record<string, unknown>; availableRooms: Array<Record<string, unknown>>; foodAvailable: boolean; verifiedAvailabilityAt: string }> = [];
     for (const hotel of hotels) {
-      const profile = pmap.get(hotel.id)!;
+      const profile = pmap.get(hotel.id);
+      if (profile?.hiddenFromLala) continue;
+      const amenities = profile?.amenities ?? [];
       if (query.destination && !`${hotel.name} ${hotel.location}`.toLowerCase().includes(query.destination.toLowerCase())) continue;
-      if (query.amenity && !profile.amenities.some((a) => a.toLowerCase().includes(query.amenity!.toLowerCase()))) continue;
-      if (query.lastMinute === 'true' && !profile.lastMinuteEnabled) continue;
+      if (query.amenity && !amenities.some((a) => a.toLowerCase().includes(query.amenity!.toLowerCase()))) continue;
+      if (query.lastMinute === 'true' && !(profile?.lastMinuteEnabled ?? true)) continue;
       const available = await this.availableRoomIds(hotel.id, query.checkIn, query.checkOut);
       const guestCount = Number(query.guests) || 1;
       const eligible = available.filter((r) => r.capacity >= guestCount && (!query.maxPrice || Number(r.rate) <= Number(query.maxPrice)));
       if (!eligible.length) continue;
-      rows.push({ hotel: { id: hotel.id, slug: hotel.slug, name: hotel.name, location: hotel.location, phone: hotel.phone, currency: hotel.currency, logoUrl: hotel.logoUrl }, profile, availableRooms: eligible.map((r) => ({ id: r.id, roomNumber: r.roomNumber, type: r.type, rate: Number(r.rate), currency: r.currency, capacity: r.capacity, imageUrl: r.imageUrl ?? '' })), verifiedAvailabilityAt: new Date().toISOString() });
+      rows.push({
+        hotel: { id: hotel.id, slug: hotel.slug, name: hotel.name, location: hotel.location, phone: hotel.phone, currency: hotel.currency, logoUrl: hotel.logoUrl },
+        profile: profile ? { description: profile.description, amenities: profile.amenities, images: profile.images, guestRating: profile.guestRating, verifiedReviewCount: profile.verifiedReviewCount, lastMinuteEnabled: profile.lastMinuteEnabled, reverseOffersEnabled: profile.reverseOffersEnabled } : defaultProfile,
+        availableRooms: eligible.map((r) => ({ id: r.id, roomNumber: r.roomNumber, type: r.type, rate: Number(r.rate), currency: r.currency, capacity: r.capacity, imageUrl: r.imageUrl ?? '' })),
+        foodAvailable: foodHotelIds.has(hotel.id) || foodOwnerIds.has(hotel.ownerId),
+        verifiedAvailabilityAt: new Date().toISOString(),
+      });
     }
-    return rows.sort((a, b) => b.profile.guestRating - a.profile.guestRating);
+    return rows.sort((a, b) => Number(b.profile.guestRating) - Number(a.profile.guestRating));
   }
 
   async passport(input: { phone: string; name: string; email?: string; nationality?: string; preferences?: Record<string, unknown>; privacy?: Record<string, boolean> }) {

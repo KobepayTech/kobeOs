@@ -7,6 +7,9 @@ import { OwnedEntity } from '../common/owned.entity';
 export class LalaHotelProfile extends OwnedEntity {
   @Column('uuid') hotelId!: string;
   @Column({ default: false }) listed!: boolean;
+  // Explicit opt-OUT from the public Lala network. Every hotel with bookable
+  // rooms appears on Lala by default; an owner sets this to hide theirs.
+  @Column({ default: false }) hiddenFromLala!: boolean;
   @Column({ type: 'text', default: '' }) description!: string;
   @Column({ type: 'float', default: 0 }) starRating!: number;
   @Column({ type: 'jsonb', default: [] }) amenities!: string[];
