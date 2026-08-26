@@ -51,7 +51,9 @@ export default function LivePay({ token }: { token: string }) {
   if (!data) return <Center><div className="text-white/60">Loading your reservation…</div></Center>;
 
   const total = data.unitPrice * data.qty;
-  const expired = data.expired || (data.reservedUntil && left <= 0 && !done);
+  // Compute expiry straight from reservedUntil so a still-valid reservation
+  // doesn't flash "expired" on the first render (before the countdown ticks).
+  const expired = data.expired || (!!data.reservedUntil && new Date(data.reservedUntil).getTime() <= Date.now() && !done);
 
   return (
     <div className="min-h-screen bg-[#0b0b16] text-white/90 grid place-items-center px-4 py-8">

@@ -89,7 +89,9 @@ const isCustomerPortal  = subMe    || seg('/me');
 const isTuma            = subTuma  || seg('/tuma');
 const isMzigo = !isMzigoTrack && (subMzigo || seg('/mzigo'));
 const isPosys = subPosys || seg('/posys');
-const isCargoTz = subCargoTz || seg('/cargotz');
+// Exclude the public /ctz parcel tracker so it isn't shadowed by the ops
+// console on the cargotz subdomain (where subCargoTz matches every path).
+const isCargoTz = (subCargoTz || seg('/cargotz')) && !/^\/ctz(\/|$)/.test(pathname);
 const isCoach = seg('/coach');
 const isTransit = seg('/transit');
 const isJumla = appSub === 'jumla' || seg('/jumla');

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { kobePrompt } from '@/lib/prompt';
 import {
   GraduationCap, Plus, Users, Store, Inbox, Wallet, ShieldCheck, Scale,
   RefreshCw, X, PiggyBank, Lock, ArrowRightLeft, Loader2, CheckCircle2, AlertTriangle,
@@ -37,7 +38,7 @@ export default function KobepayPro() {
   useEffect(() => { void loadSchools(); }, [loadSchools]);
 
   const newSchool = async () => {
-    const name = prompt('School name')?.trim();
+    const name = (await kobePrompt('School name'))?.trim();
     if (!name) return;
     const s = await api<School>('/kobepay-pro/schools', { method: 'POST', body: JSON.stringify({ name }) });
     await loadSchools(); setSchoolId(s.id);
@@ -142,8 +143,8 @@ function Students({ schoolId, currency }: { schoolId: string; currency: string }
   useEffect(() => { load(); }, [load]);
 
   const add = async () => {
-    const name = prompt('Student name')?.trim(); if (!name) return;
-    const parentPhone = prompt('Parent phone (optional)')?.trim() || '';
+    const name = (await kobePrompt('Student name'))?.trim(); if (!name) return;
+    const parentPhone = (await kobePrompt('Parent phone (optional)'))?.trim() || '';
     await api('/kobepay-pro/students', { method: 'POST', body: JSON.stringify({ schoolId, name, parentPhone }) });
     load();
   };
@@ -169,16 +170,21 @@ function Students({ schoolId, currency }: { schoolId: string; currency: string }
 
 function StudentDrawer({ student, currency, onClose }: { student: Student; currency: string; onClose: () => void }) {
   const [w, setW] = useState<WalletView | null>(null);
+  const [stu, setStu] = useState<Student>(student);
   const [busy, setBusy] = useState(false);
-  const load = useCallback(() => { api<WalletView>(`/kobepay-pro/students/${student.id}/wallet`).then(setW).catch(() => setW(null)); }, [student.id]);
+  const load = useCallback(() => {
+    api<WalletView>(`/kobepay-pro/students/${student.id}/wallet`).then(setW).catch(() => setW(null));
+    // Refresh the student too, so spending controls reflect the latest save.
+    api<Student>(`/kobepay-pro/students/${student.id}`).then(setStu).catch(() => undefined);
+  }, [student.id]);
   useEffect(() => { load(); }, [load]);
 
-  const controls = (student.controls ?? {}) as Record<string, unknown>;
+  const controls = (stu.controls ?? {}) as Record<string, unknown>;
   const act = async (fn: () => Promise<unknown>) => { setBusy(true); try { await fn(); load(); } finally { setBusy(false); } };
-  const deposit = () => { const a = Number(prompt('Deposit amount')); if (a > 0) act(() => api(`/kobepay-pro/students/${student.id}/deposit`, { method: 'POST', body: JSON.stringify({ amount: a }) })); };
-  const allocate = () => { const from = prompt('From pool', 'AVAILABLE')?.toUpperCase(); const to = prompt('To pool', 'FOOD')?.toUpperCase(); const a = Number(prompt('Amount')); if (from && to && a > 0) act(() => api(`/kobepay-pro/students/${student.id}/allocate`, { method: 'POST', body: JSON.stringify({ from, to, amount: a }) })); };
-  const reserve = () => { const a = Number(prompt('Reserve amount')); const purpose = prompt('Purpose', 'Group order') || 'Reserved'; if (a > 0) act(() => api(`/kobepay-pro/students/${student.id}/reserve`, { method: 'POST', body: JSON.stringify({ amount: a, purpose }) })); };
-  const setLimit = () => { const v = prompt('Daily limit (blank = none)', String(controls.dailyLimit ?? '')); const dailyLimit = v === '' ? null : Number(v); act(() => api(`/kobepay-pro/students/${student.id}/controls`, { method: 'PATCH', body: JSON.stringify({ controls: { dailyLimit } }) })); };
+  const deposit = async () => { const a = Number(await kobePrompt('Deposit amount')); if (a > 0) act(() => api(`/kobepay-pro/students/${student.id}/deposit`, { method: 'POST', body: JSON.stringify({ amount: a }) })); };
+  const allocate = async () => { const from = (await kobePrompt('From pool', 'AVAILABLE'))?.toUpperCase(); const to = (await kobePrompt('To pool', 'FOOD'))?.toUpperCase(); const a = Number(await kobePrompt('Amount')); if (from && to && a > 0) act(() => api(`/kobepay-pro/students/${student.id}/allocate`, { method: 'POST', body: JSON.stringify({ from, to, amount: a }) })); };
+  const reserve = async () => { const a = Number(await kobePrompt('Reserve amount')); const purpose = await kobePrompt('Purpose', 'Group order') || 'Reserved'; if (a > 0) act(() => api(`/kobepay-pro/students/${student.id}/reserve`, { method: 'POST', body: JSON.stringify({ amount: a, purpose }) })); };
+  const setLimit = async () => { const v = await kobePrompt('Daily limit (blank = none)', String(controls.dailyLimit ?? '')); const dailyLimit = v === '' ? null : Number(v); act(() => api(`/kobepay-pro/students/${student.id}/controls`, { method: 'PATCH', body: JSON.stringify({ controls: { dailyLimit } }) })); };
   const toggleOnline = () => act(() => api(`/kobepay-pro/students/${student.id}/controls`, { method: 'PATCH', body: JSON.stringify({ controls: { onlineAllowed: !(controls.onlineAllowed !== false) } }) }));
 
   return (
@@ -214,7 +220,7 @@ function StudentDrawer({ student, currency, onClose }: { student: Student; curre
             <div className="text-xs font-bold uppercase tracking-wide text-slate-400 mb-1">Parent controls</div>
             <Row label="Daily limit" value={controls.dailyLimit != null ? money(Number(controls.dailyLimit), currency) : 'None'} onEdit={setLimit} />
             <Row label="Online purchases" value={controls.onlineAllowed === false ? 'OFF' : 'ON'} onEdit={toggleOnline} />
-            <Row label="Approval above" value={controls.approvalThreshold != null ? money(Number(controls.approvalThreshold), currency) : 'None'} onEdit={() => { const v = prompt('Require approval at/above (blank = none)', String(controls.approvalThreshold ?? '')); const approvalThreshold = v === '' ? null : Number(v); act(() => api(`/kobepay-pro/students/${student.id}/controls`, { method: 'PATCH', body: JSON.stringify({ controls: { approvalThreshold } }) })); }} />
+            <Row label="Approval above" value={controls.approvalThreshold != null ? money(Number(controls.approvalThreshold), currency) : 'None'} onEdit={async () => { const v = await kobePrompt('Require approval at/above (blank = none)', String(controls.approvalThreshold ?? '')); const approvalThreshold = v === '' ? null : Number(v); act(() => api(`/kobepay-pro/students/${student.id}/controls`, { method: 'PATCH', body: JSON.stringify({ controls: { approvalThreshold } }) })); }} />
           </div>
         </div>
       </div>
@@ -228,8 +234,8 @@ function Merchants({ schoolId }: { schoolId: string }) {
   const load = useCallback(() => { api<Merchant[]>(`/kobepay-pro/schools/${schoolId}/merchants`).then((r) => setRows(Array.isArray(r) ? r : [])).catch(() => setRows([])); }, [schoolId]);
   useEffect(() => { load(); }, [load]);
   const add = async () => {
-    const name = prompt('Merchant name')?.trim(); if (!name) return;
-    const category = (prompt('Category (FOOD/BOOKS/SUPPLIES/ONLINE/AVAILABLE)', 'FOOD') || 'AVAILABLE').toUpperCase();
+    const name = (await kobePrompt('Merchant name'))?.trim(); if (!name) return;
+    const category = (await kobePrompt('Category (FOOD/BOOKS/SUPPLIES/ONLINE/AVAILABLE)', 'FOOD') || 'AVAILABLE').toUpperCase();
     await api('/kobepay-pro/merchants', { method: 'POST', body: JSON.stringify({ name, category, status: 'ACTIVE' }) });
     load();
   };
@@ -274,7 +280,7 @@ function Deposits({ schoolId }: { schoolId: string; onChange: () => void }) {
   }, [schoolId]);
   useEffect(() => { load(); }, [load]);
   const match = async (d: Deposit) => {
-    const code = prompt(`Match ${money(d.amount)} from ${d.senderName || d.senderPhone} to which student code?`)?.trim().toUpperCase();
+    const code = (await kobePrompt(`Match ${money(d.amount)} from ${d.senderName || d.senderPhone} to which student code?`))?.trim().toUpperCase();
     if (!code) return;
     const student = students.find((s) => s.studentCode === code);
     if (!student) { alert('No student with that code'); return; }
@@ -282,7 +288,7 @@ function Deposits({ schoolId }: { schoolId: string; onChange: () => void }) {
     load();
   };
   const addDevice = async () => {
-    const label = prompt('Name this phone (e.g. "Front office iPhone")')?.trim();
+    const label = (await kobePrompt('Name this phone (e.g. "Front office iPhone")'))?.trim();
     if (label === undefined) return;
     const deviceId = `KOBE-MPESA-${Math.random().toString(36).slice(2, 7).toUpperCase()}`;
     const r = await api<{ device: SmsDevice; gatewayKey: string }>('/mobile-money/devices', { method: 'POST', body: JSON.stringify({ deviceId, label: label || deviceId, purpose: 'kobepay-pro' }) });
@@ -349,8 +355,8 @@ function Groups({ schoolId, currency }: { schoolId: string; currency: string }) 
   const addPack = async () => {
     const openGroups = rows.filter((g) => g.status === 'OPEN');
     if (!openGroups.length) { alert('Create some open groups first, then bundle them into a pack.'); return; }
-    const name = prompt('Pack name (e.g. "Form 1 Starter Pack")')?.trim(); if (!name) return;
-    const refs = prompt(`Group references to include, comma-separated:\n${openGroups.map((g) => `${g.reference} = ${g.title}`).join('\n')}`)?.trim();
+    const name = (await kobePrompt('Pack name (e.g. "Form 1 Starter Pack")'))?.trim(); if (!name) return;
+    const refs = (await kobePrompt(`Group references to include, comma-separated:\n${openGroups.map((g) => `${g.reference} = ${g.title}`).join('\n')}`))?.trim();
     if (!refs) return;
     const wanted = refs.split(',').map((s) => s.trim().toUpperCase());
     const items = openGroups.filter((g) => wanted.includes(g.reference.toUpperCase())).map((g) => ({ groupId: g.id, qty: 1 }));
@@ -359,7 +365,7 @@ function Groups({ schoolId, currency }: { schoolId: string; currency: string }) 
     load();
   };
   const buyPack = async (p: PackRow) => {
-    const code = prompt(`Buy "${p.name}" for which student code?`)?.trim().toUpperCase(); if (!code) return;
+    const code = (await kobePrompt(`Buy "${p.name}" for which student code?`))?.trim().toUpperCase(); if (!code) return;
     const students = await api<Student[]>(`/kobepay-pro/students?schoolId=${schoolId}`);
     const student = (Array.isArray(students) ? students : []).find((s) => s.studentCode === code);
     if (!student) { alert('No student with that code'); return; }
@@ -368,17 +374,17 @@ function Groups({ schoolId, currency }: { schoolId: string; currency: string }) 
   };
 
   const addGroup = async () => {
-    const title = prompt('Product / group title (e.g. "Casio FX-991 Calculator")')?.trim();
+    const title = (await kobePrompt('Product / group title (e.g. "Casio FX-991 Calculator")'))?.trim();
     if (!title) return;
-    const groupPrice = Number(prompt('Group price per unit (what each parent pays)')); if (!(groupPrice > 0)) return;
-    const normalPrice = Number(prompt('Normal retail price (optional)', '0')) || 0;
-    const minParticipants = Number(prompt('Minimum participants', '1')) || 1;
-    const deliveryLocation = prompt('Delivery location', 'School office') || '';
+    const groupPrice = Number(await kobePrompt('Group price per unit (what each parent pays)')); if (!(groupPrice > 0)) return;
+    const normalPrice = Number(await kobePrompt('Normal retail price (optional)', '0')) || 0;
+    const minParticipants = Number(await kobePrompt('Minimum participants', '1')) || 1;
+    const deliveryLocation = await kobePrompt('Delivery location', 'School office') || '';
     await api('/kobepay-pro/groups', { method: 'POST', body: JSON.stringify({ schoolId, title, groupPrice, normalPrice, minParticipants, deliveryLocation }) });
     load();
   };
   const addSupplier = async () => {
-    const name = prompt('Supplier name')?.trim(); if (!name) return;
+    const name = (await kobePrompt('Supplier name'))?.trim(); if (!name) return;
     const r = await api<Supplier>('/kobepay-pro/suppliers', { method: 'POST', body: JSON.stringify({ name }) });
     const url = `${window.location.origin}/kobepay/supplier/${r.portalToken}`;
     alert(`Supplier "${r.name}" created (${r.code}).\n\nPortal link (no login) — share with the supplier:\n${url}`);
@@ -454,22 +460,22 @@ function GroupDrawer({ groupId, currency, schoolId, suppliers, onClose }: { grou
   const g = d.group;
   const stageIdx = GROUP_STAGES.indexOf(g.status);
 
-  const join = () => {
-    const code = prompt('Student code to add to this group')?.trim().toUpperCase(); if (!code) return;
+  const join = async () => {
+    const code = (await kobePrompt('Student code to add to this group'))?.trim().toUpperCase(); if (!code) return;
     const student = students.find((s) => s.studentCode === code);
     if (!student) { alert('No student with that code'); return; }
-    const qty = Number(prompt('Quantity', '1')) || 1;
+    const qty = Number(await kobePrompt('Quantity', '1')) || 1;
     act(() => api(`/kobepay-pro/groups/${groupId}/join`, { method: 'POST', body: JSON.stringify({ studentId: student.id, qty }) }));
   };
-  const assign = () => {
+  const assign = async () => {
     if (!suppliers.length) { alert('Add a supplier first'); return; }
-    const code = prompt(`Supplier code (${suppliers.map((s) => s.code).join(', ')})`)?.trim().toUpperCase();
+    const code = (await kobePrompt(`Supplier code (${suppliers.map((s) => s.code).join(', ')})`))?.trim().toUpperCase();
     const supplier = suppliers.find((s) => s.code === code); if (!supplier) { alert('Unknown supplier'); return; }
-    const cost = Number(prompt('Supplier unit cost (what the supplier charges per unit)')); if (!(cost >= 0)) return;
+    const cost = Number(await kobePrompt('Supplier unit cost (what the supplier charges per unit)')); if (!(cost >= 0)) return;
     act(() => api(`/kobepay-pro/groups/${groupId}/supplier`, { method: 'POST', body: JSON.stringify({ supplierId: supplier.id, supplierUnitCost: cost }) }));
   };
   const consolidate = () => act(() => api(`/kobepay-pro/groups/${groupId}/consolidate`, { method: 'POST', body: JSON.stringify({ force: !d.minReached && confirm('Minimum not reached. Order anyway?') }) }));
-  const collect = () => { const code = prompt('Scan/enter the collecting student code')?.trim().toUpperCase(); if (!code) return; act(() => api(`/kobepay-pro/groups/${groupId}/collect`, { method: 'POST', body: JSON.stringify({ studentCode: code }) }).then((r) => alert(`Collected: ${(r as { student: { name: string } }).student.name}`))); };
+  const collect = async () => { const code = (await kobePrompt('Scan/enter the collecting student code'))?.trim().toUpperCase(); if (!code) return; act(() => api(`/kobepay-pro/groups/${groupId}/collect`, { method: 'POST', body: JSON.stringify({ studentCode: code }) }).then((r) => alert(`Collected: ${(r as { student: { name: string } }).student.name}`))); };
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/50" onClick={onClose}>
