@@ -499,7 +499,14 @@ export class KobePayPayoutsService {
     return this.ds.transaction(async (tx) => {
       const payRepo = tx.getRepository(PaymentPayout);
       const supRepo = tx.getRepository(PaymentSupplier);
-      const p = await payRepo.findOne({ where: { id, ownerId: uid } });
+      // Lock the payout row so two concurrent PAID transitions can't both pass
+      // the transition check and double-credit the supplier balance / double-post
+      // the payout-paid journal entry. The loser then sees status already PAID
+      // and is rejected as an illegal transition.
+      const p = await tx.createQueryBuilder(PaymentPayout, 'p')
+        .setLock('pessimistic_write')
+        .where('p.id = :id AND p.ownerId = :uid', { id, uid })
+        .getOne();
       if (!p) throw new NotFoundException();
       const allowed = PAYOUT_TRANSITIONS[p.status];
       if (!allowed.includes(dto.status)) {

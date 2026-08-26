@@ -189,7 +189,15 @@ export class CreditService {
       const profileRepo = tx.getRepository(CreditProfile);
       const instalmentRepo = tx.getRepository(CreditInstalment);
 
-      const r = await recRepo.findOne({ where: { id: receivableId, ownerId: uid } });
+      // Lock the receivable row so two concurrent payments can't both read the
+      // same `paid` total, each pass the outstanding-cap check, and over-apply —
+      // double-decrementing the profile's outstanding and double-posting the GL
+      // entry. Serializing here also keeps instalment allocation consistent
+      // (every payment for a receivable takes this same lock).
+      const r = await tx.createQueryBuilder(CreditReceivable, 'r')
+        .setLock('pessimistic_write')
+        .where('r.id = :id AND r.ownerId = :uid', { id: receivableId, uid })
+        .getOne();
       if (!r) throw new NotFoundException();
 
       const newPaid = parseFloat((Number(r.paid) + dto.amount).toFixed(4));
