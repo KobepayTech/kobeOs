@@ -57,12 +57,16 @@ export class HotelWalletService {
       const wRepo = tx.getRepository(HotelWallet);
       const tRepo = tx.getRepository(HotelWalletTxn);
 
+      // Lock the wallet row FIRST so concurrent callbacks serialize — this makes
+      // both the idempotency check and the balance update race-free.
+      let wallet = await wRepo.findOne({ where: { ownerId } });
+      if (!wallet) wallet = await wRepo.save(wRepo.create({ ownerId, currency: input.currency ?? 'TZS', balance: 0 }));
+      wallet = await tx.createQueryBuilder(HotelWallet, 'w')
+        .setLock('pessimistic_write').where('w.ownerId = :ownerId', { ownerId }).getOne() as HotelWallet;
+
       // Idempotency guard — already credited this booking?
       const existing = await tRepo.findOne({ where: { ownerId, bookingId: input.bookingId, type: 'CREDIT' } });
       if (existing) return;
-
-      let wallet = await wRepo.findOne({ where: { ownerId } });
-      if (!wallet) wallet = await wRepo.save(wRepo.create({ ownerId, currency: input.currency ?? 'TZS', balance: 0 }));
 
       const pct = wallet.commissionRatePct != null ? Number(wallet.commissionRatePct) : this.defaultCommissionPct;
       const commission = money((gross * pct) / 100);
@@ -119,8 +123,12 @@ export class HotelWalletService {
       const pRepo = tx.getRepository(HotelPayout);
       const tRepo = tx.getRepository(HotelWalletTxn);
 
-      const wallet = await wRepo.findOne({ where: { ownerId } });
-      if (!wallet) throw new BadRequestException('No wallet — nothing to pay out yet');
+      const exists = await wRepo.findOne({ where: { ownerId } });
+      if (!exists) throw new BadRequestException('No wallet — nothing to pay out yet');
+      // Lock the wallet row so two concurrent payout requests can't both pass
+      // the balance check and overdraw.
+      const wallet = await tx.createQueryBuilder(HotelWallet, 'w')
+        .setLock('pessimistic_write').where('w.ownerId = :ownerId', { ownerId }).getOne() as HotelWallet;
       if (amount > Number(wallet.balance)) throw new BadRequestException(`Amount exceeds balance (${wallet.balance} ${wallet.currency})`);
 
       const payout = await pRepo.save(pRepo.create({

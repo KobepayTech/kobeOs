@@ -168,16 +168,20 @@ export class SchoolService {
   async settleMerchant(ownerId: string, merchantId: string) {
     const merchant = await this.merchants.findOne({ where: { ownerId, id: merchantId } });
     if (!merchant) throw new NotFoundException('Merchant not found');
-    const payable = await this.ledger.owed(ownerId, 'MERCHANT', merchantId);
-    if (payable <= 0) return { settled: 0, reference: null };
-    const txn = await this.dataSource.transaction((m) => this.ledger.post(m, {
-      ownerId, kind: 'SETTLEMENT', amount: payable, merchantId,
-      description: `Settlement to ${merchant.name}`,
-      metadata: { method: merchant.settlementMethod, account: merchant.settlementAccount },
-    }, [
-      { type: 'MERCHANT', refId: merchantId, debit: payable },
-      { type: 'BANK', credit: payable },
-    ]));
-    return { settled: payable, reference: txn.reference, transactionId: txn.id };
+    return this.dataSource.transaction(async (m) => {
+      // Read the payable under a write lock and post it in the same txn so two
+      // concurrent settlements can't pay the same balance out twice.
+      const payable = await this.ledger.owedLocked(m, ownerId, 'MERCHANT', merchantId);
+      if (payable <= 0) return { settled: 0, reference: null };
+      const txn = await this.ledger.post(m, {
+        ownerId, kind: 'SETTLEMENT', amount: payable, merchantId,
+        description: `Settlement to ${merchant.name}`,
+        metadata: { method: merchant.settlementMethod, account: merchant.settlementAccount },
+      }, [
+        { type: 'MERCHANT', refId: merchantId, debit: payable },
+        { type: 'BANK', credit: payable },
+      ]);
+      return { settled: payable, reference: txn.reference, transactionId: txn.id };
+    });
   }
 }

@@ -275,6 +275,9 @@ export class KpStarterPack extends OwnedEntity {
 @Entity('kp_group_orders')
 @Index(['ownerId', 'groupId'])
 @Index(['ownerId', 'studentId'])
+// A student can hold only ONE active (RESERVED) order per group — prevents a
+// concurrent double-join from charging them twice.
+@Index('UQ_kp_group_order_active', ['ownerId', 'groupId', 'studentId'], { unique: true, where: "status = 'RESERVED'" })
 export class KpGroupOrder extends OwnedEntity {
   @Column('uuid') groupId!: string;
   @Column('uuid') schoolId!: string;

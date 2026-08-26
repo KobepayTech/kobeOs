@@ -7,6 +7,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import { createHash, randomBytes } from 'crypto';
 import { basename, extname } from 'path';
+import { lookup } from 'dns/promises';
+import { isIP } from 'net';
 import { MediaAsset } from './media.entity';
 import { MediaInboxItem } from './media-inbox.entity';
 import { MediaAssetsService } from './media.service';
@@ -49,6 +51,50 @@ function quickAddSourceType(value: unknown): QuickAddSourceType {
   return QUICK_ADD_SOURCE_TYPES.includes(value as QuickAddSourceType)
     ? value as QuickAddSourceType
     : 'QUICK_ADD_PHOTO';
+}
+
+/** Block SSRF: reject private / loopback / link-local / cloud-metadata targets. */
+function isPrivateIp(ip: string): boolean {
+  const v = isIP(ip);
+  if (v === 4) {
+    const p = ip.split('.').map(Number);
+    if (p.length !== 4 || p.some((n) => Number.isNaN(n))) return true;
+    const [a, b] = p;
+    if (a === 10 || a === 127 || a === 0) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 169 && b === 254) return true;        // link-local + AWS/GCP metadata
+    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+    if (a >= 224) return true;                        // multicast/reserved
+    return false;
+  }
+  const lower = ip.toLowerCase();
+  if (lower === '::1' || lower === '::' ) return true;
+  if (lower.startsWith('fe80') || lower.startsWith('fc') || lower.startsWith('fd')) return true; // link-local / ULA
+  if (lower.startsWith('::ffff:')) return isPrivateIp(lower.slice(7)); // IPv4-mapped
+  return false;
+}
+
+/** Validate a user-supplied URL is a public http(s) endpoint (defeats SSRF). */
+async function assertPublicHttpUrl(raw: string): Promise<void> {
+  let u: URL;
+  try { u = new URL(raw); } catch { throw new BadRequestException('Invalid URL'); }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+    throw new BadRequestException('Only http(s) links are allowed');
+  }
+  const host = u.hostname.replace(/^\[|\]$/g, '');
+  if (isIP(host)) {
+    if (isPrivateIp(host)) throw new BadRequestException('That link points to a private address');
+    return;
+  }
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.internal')) {
+    throw new BadRequestException('That link points to a private host');
+  }
+  let addrs: Array<{ address: string }>;
+  try { addrs = await lookup(host, { all: true }); } catch { throw new BadRequestException('Could not resolve the link host'); }
+  if (!addrs.length || addrs.some((a) => isPrivateIp(a.address))) {
+    throw new BadRequestException('That link resolves to a private address');
+  }
 }
 
 /** Pull a Google Drive file id out of the many shapes a Drive link can take. */
@@ -207,29 +253,61 @@ export class MediaInboxService {
       target = `https://drive.usercontent.google.com/download?id=${driveId}&export=download&confirm=t`;
     }
 
+    // Follow redirects manually so every hop (incl. redirect targets) is
+    // re-validated against the SSRF allowlist — a public URL can 302 to an
+    // internal one. Cap the streamed body so a huge endpoint can't exhaust heap.
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     let res: Response;
     try {
-      res = await fetch(target, { redirect: 'follow', signal: controller.signal });
+      let current = target;
+      let hops = 0;
+      for (;;) {
+        await assertPublicHttpUrl(current);
+        res = await fetch(current, { redirect: 'manual', signal: controller.signal });
+        if (res.status >= 300 && res.status < 400 && res.headers.get('location')) {
+          if (++hops > 4) throw new Error('Too many redirects');
+          current = new URL(res.headers.get('location')!, current).toString();
+          continue;
+        }
+        break;
+      }
     } catch (e) {
+      clearTimeout(timer);
+      if (e instanceof BadRequestException) throw e;
       throw new Error(`Could not reach the link (${(e as Error).message})`);
+    }
+    let contentType = '';
+    let buffer: Buffer = Buffer.alloc(0);
+    try {
+      if (!res.ok) throw new Error(`Link returned HTTP ${res.status}`);
+
+      contentType = (res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+      if (contentType.startsWith('text/html')) {
+        if (driveId) {
+          throw new Error('Google Drive did not return the file — set the file\'s sharing to "Anyone with the link" and try again');
+        }
+        throw new Error('Link returned a web page, not an image');
+      }
+      const declared = Number(res.headers.get('content-length') || '0');
+      if (declared > MAX_REMOTE_BYTES) throw new Error(`File is larger than ${MAX_REMOTE_BYTES / 1024 / 1024}MB`);
+
+      // Stream with a hard cap so a lying/absent Content-Length can't OOM us.
+      const chunks: Buffer[] = [];
+      let total = 0;
+      const body = res.body as AsyncIterable<Uint8Array> | null;
+      if (body) {
+        for await (const chunk of body) {
+          total += chunk.length;
+          if (total > MAX_REMOTE_BYTES) { controller.abort(); throw new Error(`File is larger than ${MAX_REMOTE_BYTES / 1024 / 1024}MB`); }
+          chunks.push(Buffer.from(chunk));
+        }
+      }
+      buffer = Buffer.concat(chunks);
+      if (!buffer.length) throw new Error('The link returned an empty file');
     } finally {
       clearTimeout(timer);
     }
-    if (!res.ok) throw new Error(`Link returned HTTP ${res.status}`);
-
-    const contentType = (res.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
-    if (contentType.startsWith('text/html')) {
-      if (driveId) {
-        throw new Error('Google Drive did not return the file — set the file\'s sharing to "Anyone with the link" and try again');
-      }
-      throw new Error('Link returned a web page, not an image');
-    }
-
-    const buffer = Buffer.from(await res.arrayBuffer());
-    if (!buffer.length) throw new Error('The link returned an empty file');
-    if (buffer.length > MAX_REMOTE_BYTES) throw new Error(`File is larger than ${MAX_REMOTE_BYTES / 1024 / 1024}MB`);
 
     let mime = contentType;
     if (!mime.startsWith('image/') && !mime.startsWith('video/')) {

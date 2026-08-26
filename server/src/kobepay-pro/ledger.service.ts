@@ -134,6 +134,19 @@ export class LedgerService {
     return acct ? round(-acct.balance) : 0;
   }
 
+  /**
+   * Owed amount read under a write lock inside the caller's transaction, so a
+   * settlement computes the payable and posts it atomically — concurrent settle
+   * calls serialize on this row and can't pay the same balance out twice.
+   */
+  async owedLocked(m: EntityManager, ownerId: string, type: KpAccountType, refId = ''): Promise<number> {
+    const acct = await m.createQueryBuilder(KpAccount, 'a')
+      .setLock('pessimistic_write')
+      .where('a.ownerId = :ownerId AND a.type = :type AND a.refId = :refId', { ownerId, type, refId })
+      .getOne();
+    return acct ? round(-acct.balance) : 0;
+  }
+
   /** Bank asset balance (debit-normal) = rawBalance. */
   async bankBalance(ownerId: string): Promise<number> {
     const acct = await this.accounts.findOne({ where: { ownerId, type: 'BANK', refId: '' } });
@@ -148,12 +161,20 @@ export class LedgerService {
   async reconcile(ownerId: string): Promise<{
     bank: number; students: number; merchants: number; suppliers: number;
     escrow: number; fees: number; balanced: boolean; drift: number;
+    solvent: boolean; overdrawn: Array<{ type: KpAccountType; refId: string; owed: number }>;
   }> {
     const all = await this.accounts.find({ where: { ownerId } });
     const sumOwed = (t: KpAccountType) =>
       round(all.filter((a) => a.type === t).reduce((s, a) => s + -a.balance, 0));
     const bank = round(all.filter((a) => a.type === 'BANK').reduce((s, a) => s + a.balance, 0));
     const drift = round(all.reduce((s, a) => s + a.balance, 0));
+    // Double-entry always nets to 0, so `drift` never catches an overspend.
+    // Solvency = no liability account is negative (owed < 0 means we paid out
+    // more than was funded) and bank is non-negative.
+    const LIABILITY: KpAccountType[] = ['STUDENT', 'MERCHANT', 'SUPPLIER', 'ESCROW', 'FEES'];
+    const overdrawn = all
+      .filter((a) => LIABILITY.includes(a.type) && -a.balance < -0.0001)
+      .map((a) => ({ type: a.type, refId: a.refId, owed: round(-a.balance) }));
     return {
       bank,
       students: sumOwed('STUDENT'),
@@ -163,6 +184,8 @@ export class LedgerService {
       fees: sumOwed('FEES'),
       balanced: Math.abs(drift) < 0.0001,
       drift,
+      solvent: overdrawn.length === 0 && bank >= -0.0001,
+      overdrawn,
     };
   }
 }

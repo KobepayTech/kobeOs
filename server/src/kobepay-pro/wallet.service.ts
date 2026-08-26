@@ -22,12 +22,12 @@ export interface WalletView {
 }
 
 /**
- * The spendable overlay on top of the ledger. A student's ledger balance is the
- * total Kobepay owes them; this service splits that total across Available,
- * Restricted category buckets, Reserved holds and Savings. The invariant
- *   available + savings + Σ buckets + Σ reserved === ledger owed(STUDENT)
- * is preserved by every method here (deposits move the ledger too; internal
- * reclassification/reserve keep the total constant).
+ * The spendable overlay on top of the ledger. Reserving money moves it to the
+ * ESCROW ledger account, so the invariants are:
+ *   available + savings + Σ buckets            === ledger owed(STUDENT)
+ *   Σ active reserved holds (per student)       === that student's share of ESCROW
+ * The student's displayed total (available + savings + buckets + reserved) is
+ * therefore owed(STUDENT) + their reserved. Every method preserves this.
  */
 @Injectable()
 export class WalletService {
@@ -46,6 +46,22 @@ export class WalletService {
       w = m.create(KpWallet, { ownerId, studentId, available: 0, savings: 0, currency, spentToday: 0 });
       await m.save(w);
     }
+    return w;
+  }
+
+  /**
+   * Load the wallet with a write lock so concurrent spend/reserve/deposit on the
+   * SAME student serialize — the balance guard is a read-then-write, which
+   * without this lock double-spends under concurrency. Must be called inside a
+   * transaction.
+   */
+  private async lockWallet(m: EntityManager, ownerId: string, studentId: string, currency = 'TZS'): Promise<KpWallet> {
+    await this.ensureWallet(m, ownerId, studentId, currency); // create row if missing
+    const w = await m.createQueryBuilder(KpWallet, 'w')
+      .setLock('pessimistic_write')
+      .where('w.ownerId = :ownerId AND w.studentId = :studentId', { ownerId, studentId })
+      .getOne();
+    if (!w) throw new BadRequestException('Wallet not found');
     return w;
   }
 
@@ -87,22 +103,30 @@ export class WalletService {
     opts: { bankTransactionId?: string; schoolId?: string; description?: string; source?: string } = {},
   ): Promise<KpTransaction> {
     if (amount <= 0) throw new BadRequestException('Deposit amount must be positive');
-    return this.dataSource.transaction(async (m) => {
-      const wallet = await this.ensureWallet(m, ownerId, studentId);
-      const txn = await this.ledger.post(m, {
-        ownerId, kind: 'DEPOSIT', amount, currency: wallet.currency,
-        schoolId: opts.schoolId ?? null, studentId, category: 'AVAILABLE',
-        description: opts.description ?? 'Parent deposit',
-        bankTransactionId: opts.bankTransactionId ?? '',
-        metadata: { source: opts.source ?? 'MANUAL' },
-      }, [
-        { type: 'BANK', debit: amount },
-        { type: 'STUDENT', refId: studentId, credit: amount },
-      ]);
-      wallet.available = round(wallet.available + amount);
-      await m.save(wallet);
-      return txn;
-    });
+    return this.dataSource.transaction((m) => this.applyDepositIn(m, ownerId, studentId, amount, opts));
+  }
+
+  /** Credit a deposit inside the caller's transaction (so the credit and the
+   *  deposit-row status flip commit together — no double-credit on retry). */
+  async applyDepositIn(
+    m: EntityManager, ownerId: string, studentId: string, amount: number,
+    opts: { bankTransactionId?: string; schoolId?: string; description?: string; source?: string } = {},
+  ): Promise<KpTransaction> {
+    if (amount <= 0) throw new BadRequestException('Deposit amount must be positive');
+    const wallet = await this.lockWallet(m, ownerId, studentId);
+    const txn = await this.ledger.post(m, {
+      ownerId, kind: 'DEPOSIT', amount, currency: wallet.currency,
+      schoolId: opts.schoolId ?? null, studentId, category: 'AVAILABLE',
+      description: opts.description ?? 'Parent deposit',
+      bankTransactionId: opts.bankTransactionId ?? '',
+      metadata: { source: opts.source ?? 'MANUAL' },
+    }, [
+      { type: 'BANK', debit: amount },
+      { type: 'STUDENT', refId: studentId, credit: amount },
+    ]);
+    wallet.available = round(wallet.available + amount);
+    await m.save(wallet);
+    return txn;
   }
 
   /** Reclassify money between pools (Available ⇄ category bucket ⇄ Savings). No ledger movement. */
@@ -112,7 +136,7 @@ export class WalletService {
     if (amount <= 0) throw new BadRequestException('Allocation must be positive');
     if (from === to) throw new BadRequestException('Choose two different pools');
     await this.dataSource.transaction(async (m) => {
-      const wallet = await this.ensureWallet(m, ownerId, studentId);
+      const wallet = await this.lockWallet(m, ownerId, studentId);
       await this.movePool(m, ownerId, studentId, wallet, from, -amount);
       await this.movePool(m, ownerId, studentId, wallet, to, amount);
       await m.save(wallet);
@@ -138,7 +162,7 @@ export class WalletService {
     m: EntityManager, ownerId: string, studentId: string, amount: number, purpose: string, groupId?: string,
   ): Promise<KpReservedHold> {
     if (amount <= 0) throw new BadRequestException('Reserve amount must be positive');
-    const wallet = await this.ensureWallet(m, ownerId, studentId);
+    const wallet = await this.lockWallet(m, ownerId, studentId);
     if (wallet.available < amount) throw new BadRequestException('Insufficient available balance to reserve');
     wallet.available = round(wallet.available - amount);
     await m.save(wallet);
@@ -171,7 +195,7 @@ export class WalletService {
     const hold = await m.findOne(KpReservedHold, { where: { ownerId, id: holdId } });
     if (!hold) throw new NotFoundException('Reserved hold not found');
     if (hold.status !== 'RESERVED') throw new BadRequestException('Hold is not active');
-    const wallet = await this.ensureWallet(m, ownerId, hold.studentId);
+    const wallet = await this.lockWallet(m, ownerId, hold.studentId);
     hold.status = 'RELEASED';
     await m.save(hold);
     wallet.available = round(wallet.available + hold.amount);
@@ -199,7 +223,12 @@ export class WalletService {
     const hold = await m.findOne(KpReservedHold, { where: { ownerId, id: holdId } });
     if (!hold) throw new NotFoundException('Reserved hold not found');
     if (hold.status !== 'RESERVED') throw new BadRequestException('Hold is not active');
-    const supShare = Math.max(0, Math.min(round(supplierShare), hold.amount));
+    const supShare = round(Math.max(0, supplierShare));
+    // The escrowed amount must cover the supplier cost — a group priced below
+    // cost would otherwise silently underpay the supplier.
+    if (supShare > hold.amount + 0.0001) {
+      throw new BadRequestException('Reserved amount does not cover the supplier cost for this order');
+    }
     const margin = round(hold.amount - supShare);
     hold.status = 'CAPTURED';
     await m.save(hold);
@@ -224,7 +253,7 @@ export class WalletService {
   async spendFrom(
     m: EntityManager, ownerId: string, studentId: string, category: SpendCategory, amount: number,
   ): Promise<{ fromBucket: number; fromAvailable: number }> {
-    const wallet = await this.ensureWallet(m, ownerId, studentId);
+    const wallet = await this.lockWallet(m, ownerId, studentId);
     let remaining = round(amount);
     let fromBucket = 0;
 

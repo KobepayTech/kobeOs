@@ -53,16 +53,18 @@ export class GroupsService {
   async settleSupplier(ownerId: string, supplierId: string) {
     const supplier = await this.suppliers.findOne({ where: { ownerId, id: supplierId } });
     if (!supplier) throw new NotFoundException('Supplier not found');
-    const payable = await this.ledger.owed(ownerId, 'SUPPLIER', supplierId);
-    if (payable <= 0) return { settled: 0, reference: null };
-    const txn = await this.dataSource.transaction((m) => this.ledger.post(m, {
-      ownerId, kind: 'SETTLEMENT', amount: payable, description: `Settlement to ${supplier.name}`,
-      metadata: { supplierId, method: supplier.settlementMethod, account: supplier.settlementAccount },
-    }, [
-      { type: 'SUPPLIER', refId: supplierId, debit: payable },
-      { type: 'BANK', credit: payable },
-    ]));
-    return { settled: payable, reference: txn.reference, transactionId: txn.id };
+    return this.dataSource.transaction(async (m) => {
+      const payable = await this.ledger.owedLocked(m, ownerId, 'SUPPLIER', supplierId);
+      if (payable <= 0) return { settled: 0, reference: null };
+      const txn = await this.ledger.post(m, {
+        ownerId, kind: 'SETTLEMENT', amount: payable, description: `Settlement to ${supplier.name}`,
+        metadata: { supplierId, method: supplier.settlementMethod, account: supplier.settlementAccount },
+      }, [
+        { type: 'SUPPLIER', refId: supplierId, debit: payable },
+        { type: 'BANK', credit: payable },
+      ]);
+      return { settled: payable, reference: txn.reference, transactionId: txn.id };
+    });
   }
 
   // ── Groups ─────────────────────────────────────────────────────────────────
@@ -131,12 +133,20 @@ export class GroupsService {
 
       const amount = round(group.groupPrice * qty);
       const hold = await this.wallets.reserveIn(m, ownerId, dto.studentId, amount, `Group: ${group.title}`, groupId);
-      const order = await m.save(m.create(KpGroupOrder, {
-        ownerId, groupId, schoolId: group.schoolId, studentId: dto.studentId,
-        reference: `KO${short(6)}`, qty, unitPrice: group.groupPrice, amount,
-        holdId: hold.id, status: 'RESERVED',
-      }));
-      return order;
+      try {
+        return await m.save(m.create(KpGroupOrder, {
+          ownerId, groupId, schoolId: group.schoolId, studentId: dto.studentId,
+          reference: `KO${short(6)}`, qty, unitPrice: group.groupPrice, amount,
+          holdId: hold.id, status: 'RESERVED',
+        }));
+      } catch (e) {
+        // Unique partial index (one active order per student+group) — a
+        // concurrent double-join; the whole txn (incl. the reserve) rolls back.
+        if ((e as { code?: string }).code === '23505') {
+          throw new BadRequestException('This student already joined this group');
+        }
+        throw e;
+      }
     });
   }
 
@@ -211,7 +221,10 @@ export class GroupsService {
   /** Complete the group: capture every escrowed order to the supplier, recognise the margin as fees. */
   async completeAndPay(ownerId: string, groupId: string) {
     return this.dataSource.transaction(async (m) => {
-      const group = await m.findOne(KpPurchaseGroup, { where: { ownerId, id: groupId } });
+      const group = await m.createQueryBuilder(KpPurchaseGroup, 'g')
+        .setLock('pessimistic_write')
+        .where('g.ownerId = :ownerId AND g.id = :groupId', { ownerId, groupId })
+        .getOne();
       if (!group) throw new NotFoundException('Group not found');
       if (group.status !== 'VERIFIED') throw new BadRequestException('Verify delivery before paying the supplier');
       if (!group.supplierId) throw new BadRequestException('No supplier assigned');
@@ -234,9 +247,13 @@ export class GroupsService {
   /** Cancel a group and refund every reserved participant. */
   async cancelGroup(ownerId: string, groupId: string) {
     return this.dataSource.transaction(async (m) => {
-      const group = await m.findOne(KpPurchaseGroup, { where: { ownerId, id: groupId } });
+      const group = await m.createQueryBuilder(KpPurchaseGroup, 'g')
+        .setLock('pessimistic_write')
+        .where('g.ownerId = :ownerId AND g.id = :groupId', { ownerId, groupId })
+        .getOne();
       if (!group) throw new NotFoundException('Group not found');
       if (group.status === 'COMPLETED') throw new BadRequestException('Completed groups cannot be cancelled');
+      if (group.status === 'CANCELLED') throw new BadRequestException('Group already cancelled');
       const active = await m.find(KpGroupOrder, { where: { ownerId, groupId, status: 'RESERVED' } });
       for (const order of active) {
         if (order.holdId) await this.wallets.releaseHold(m, ownerId, order.holdId);

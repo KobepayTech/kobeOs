@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { KpBankDeposit, KpStudent, DepositSource } from './kobepay-pro.entity';
 import { WalletService } from './wallet.service';
 import { MobileMoneyService } from '../mobile-money/mobile-money.service';
@@ -31,6 +31,7 @@ export class DepositEngineService implements OnModuleInit {
     @InjectRepository(KpStudent) private readonly students: Repository<KpStudent>,
     private readonly wallets: WalletService,
     private readonly mobileMoney: MobileMoneyService,
+    private readonly dataSource: DataSource,
   ) {}
 
   onModuleInit() {
@@ -66,9 +67,9 @@ export class DepositEngineService implements OnModuleInit {
     if (!txId) return { ok: false, status: 'REJECTED', reason: 'Missing transaction id' };
     if (!(input.amount > 0)) return { ok: false, status: 'REJECTED', reason: 'Missing/invalid amount' };
 
-    const existing = await this.deposits.findOne({ where: { bankTransactionId: txId } });
+    const existing = await this.deposits.findOne({ where: { ownerId, bankTransactionId: txId } });
     if (existing) {
-      // Already processed — never credit twice.
+      // Already processed for THIS owner — never credit twice.
       return {
         ok: true, status: 'DUPLICATE', depositId: existing.id,
         matchedStudentId: existing.matchedStudentId ?? null, reason: 'Duplicate transaction id',
@@ -90,7 +91,7 @@ export class DepositEngineService implements OnModuleInit {
       }));
     } catch (e) {
       // Unique-constraint race: another request inserted the same id first.
-      const again = await this.deposits.findOne({ where: { bankTransactionId: txId } });
+      const again = await this.deposits.findOne({ where: { ownerId, bankTransactionId: txId } });
       if (again) return { ok: true, status: 'DUPLICATE', depositId: again.id, reason: 'Duplicate transaction id' };
       throw e;
     }
@@ -119,20 +120,28 @@ export class DepositEngineService implements OnModuleInit {
   }
 
   private async postDeposit(ownerId: string, deposit: KpBankDeposit, student: KpStudent): Promise<IngestResult> {
-    const txn = await this.wallets.applyDeposit(ownerId, student.id, deposit.amount, {
-      bankTransactionId: deposit.bankTransactionId,
-      schoolId: student.schoolId,
-      description: `Deposit from ${deposit.senderName || deposit.senderPhone || 'parent'}`,
-      source: deposit.source,
+    // Atomically claim the deposit (status → POSTED only if not already), then
+    // credit the wallet in the SAME transaction, so a concurrent auto-match +
+    // manual-match (or a retry) can never credit the same deposit twice.
+    return this.dataSource.transaction(async (m) => {
+      const claimed = await m.update(KpBankDeposit,
+        { id: deposit.id, ownerId, status: deposit.status },
+        { status: 'POSTED', matchedStudentId: student.id });
+      if (!claimed.affected) {
+        return { ok: true, status: 'DUPLICATE', depositId: deposit.id, matchedStudentId: student.id, reason: 'Deposit already posted' };
+      }
+      const txn = await this.wallets.applyDepositIn(m, ownerId, student.id, deposit.amount, {
+        bankTransactionId: deposit.bankTransactionId,
+        schoolId: student.schoolId,
+        description: `Deposit from ${deposit.senderName || deposit.senderPhone || 'parent'}`,
+        source: deposit.source,
+      });
+      this.logger.log(`Deposit ${deposit.bankTransactionId} → ${student.name} (${deposit.amount})`);
+      return {
+        ok: true, status: 'POSTED' as const, depositId: deposit.id,
+        transactionId: txn.id, matchedStudentId: student.id,
+      };
     });
-    deposit.matchedStudentId = student.id;
-    deposit.status = 'POSTED';
-    await this.deposits.save(deposit);
-    this.logger.log(`Deposit ${deposit.bankTransactionId} → ${student.name} (${deposit.amount})`);
-    return {
-      ok: true, status: 'POSTED', depositId: deposit.id,
-      transactionId: txn.id, matchedStudentId: student.id,
-    };
   }
 
   private async findStudentByReference(

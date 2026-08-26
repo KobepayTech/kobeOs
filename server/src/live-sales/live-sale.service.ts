@@ -6,9 +6,11 @@ import { randomBytes } from 'crypto';
 
 const RESERVE_MINUTES = 5;
 const CODE_ALPHABET = 'ACDEFGHJKMNPQRTUVWXY34679'; // no ambiguous 0/O/1/I/L/B8/S5/2Z
-/** Short human reservation code the moderator reads out, e.g. "K7Q4". */
+/** Short human reservation code the moderator reads out, e.g. "K7Q4M9".
+ *  6 chars over a 25-char alphabet (~2.4e8) + a 5-min TTL + active-only lookup
+ *  makes guessing a live reservation infeasible. */
 function genReservationCode(): string {
-  return Array.from({ length: 4 }, () => CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)]).join('');
+  return Array.from({ length: 6 }, () => CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)]).join('');
 }
 import { LiveSession, LivePin, LiveComment } from './live-sale.entity';
 import { PosOrder, PosProduct } from '../pos/pos.entity';
@@ -278,7 +280,9 @@ export class LiveSaleService {
 
   /** Look up a reservation by its short code (method 2 — the moderator's K7Q4). */
   async checkoutByCode(code: string) {
-    const c = await this.comments.findOne({ where: { reservationCode: (code || '').toUpperCase() } });
+    // Only an ACTIVE reservation is resolvable by its short code (an already
+    // converted/expired/ignored comment must not be reachable by guessing).
+    const c = await this.comments.findOne({ where: { reservationCode: (code || '').toUpperCase(), status: 'RESERVED' } });
     if (!c || !c.checkoutToken) throw new NotFoundException('Reservation code not found or expired');
     return this.checkoutByToken(c.checkoutToken);
   }
@@ -505,6 +509,15 @@ export class LiveSaleService {
     const negotiatedPrice = live > 0 && live <= catalog ? live : undefined;
     const contact = (dto.buyerContact || c.buyerContact || '').trim();
     const session = await this.getSession(uid, c.sessionId);
+
+    // Atomically claim this comment so a concurrent pay (buyer double-tap /
+    // auto+manual) can't create two orders + two payment requests. Only the
+    // request that flips the status proceeds; a failed order reverts it below.
+    const claim = await this.comments.createQueryBuilder()
+      .update(LiveComment).set({ status: 'CONVERTED' })
+      .where('id = :id AND ownerId = :uid AND status != :done', { id: c.id, uid, done: 'CONVERTED' })
+      .execute();
+    if (!claim.affected) throw new BadRequestException('Already converted to a sale');
 
     let order;
     try {
