@@ -76,20 +76,25 @@ export class SportsController {
 
   @Post('vision/ingest/:matchId')
   @ApiOperation({ summary: 'Ingest a processed vision frame from the AI pipeline' })
-  ingestFrame(@Param('matchId') matchId: string, @Body() dto: IngestFrameDto) {
+  async ingestFrame(@CurrentUser('id') uid: string, @Param('matchId') matchId: string, @Body() dto: IngestFrameDto) {
+    await this.matches.get(uid, matchId); // 404s unless the match belongs to this owner
     return this.vision.ingestFrame(matchId, dto);
   }
 
   @Get('vision/state/:matchId')
   @ApiOperation({ summary: 'Get current live match state from vision pipeline' })
-  getLiveState(@Param('matchId') matchId: string) {
+  async getLiveState(@CurrentUser('id') uid: string, @Param('matchId') matchId: string) {
+    await this.matches.get(uid, matchId);
     return this.vision.getLiveState(matchId);
   }
 
   @Get('vision/active')
   @ApiOperation({ summary: 'List matches currently being tracked by the vision pipeline' })
-  getActiveMatches() {
-    return this.vision.getActiveMatches();
+  async getActiveMatches(@CurrentUser('id') uid: string) {
+    const active = this.vision.getActiveMatches();
+    const owned = await Promise.all(active.map((a) =>
+      this.matches.get(uid, a.matchId).then(() => a).catch(() => null)));
+    return owned.filter(Boolean);
   }
 
   // ── Offside detection ─────────────────────────────────────────────────────

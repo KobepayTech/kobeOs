@@ -355,7 +355,12 @@ export class KobePayDepositsService {
     return this.ds.transaction(async (tx) => {
       const depRepo = tx.getRepository(PaymentDeposit);
       const custRepo = tx.getRepository(PaymentCustomer);
-      const d = await depRepo.findOne({ where: { id, ownerId: uid } });
+      // Lock the deposit row so two concurrent status changes can't both apply
+      // the balance delta (double-credit).
+      const d = await tx.createQueryBuilder(PaymentDeposit, 'd')
+        .setLock('pessimistic_write')
+        .where('d.id = :id AND d.ownerId = :uid', { id, uid })
+        .getOne();
       if (!d) throw new NotFoundException();
 
       if (d.status === dto.status) return d;
