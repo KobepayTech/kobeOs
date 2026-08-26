@@ -180,6 +180,26 @@ export class CreatorsController {
     return this.svc.get(uid, id).then(() => this.metrics.syncCreator(id));
   }
 
+  // ── TikTok account connection (reuses the shared social OAuth/token store) ──
+
+  /** OAuth URL for the creator to connect their TikTok account. */
+  @Get(':id/tiktok/connect')
+  tiktokConnect(@CurrentUser('id') uid: string, @Param('id') id: string) {
+    return this.svc.tiktokConnectUrl(uid, id);
+  }
+
+  /** Normalized TikTok connection state (CONNECTED/TOKEN_EXPIRING/…). */
+  @Get(':id/tiktok/connection')
+  tiktokConnection(@CurrentUser('id') uid: string, @Param('id') id: string) {
+    return this.svc.tiktokConnection(uid, id);
+  }
+
+  /** Pull verified TikTok profile/stats into the creator profile. */
+  @Post(':id/tiktok/sync')
+  tiktokSync(@CurrentUser('id') uid: string, @Param('id') id: string) {
+    return this.svc.syncFromTikTok(uid, id);
+  }
+
   // ── Subscription ────────────────────────────────────────────────────────────
 
   /**

@@ -14,6 +14,7 @@ import { MetricsEngineService } from './metrics-engine.service';
 import { CreatorsCronService } from './creators-cron.service';
 import { PalmPesaService } from './palmpesa.service';
 import { CreatorSubscriptionService } from './creator-subscription.service';
+import { SocialSchedulerModule } from '../social-scheduler/social-scheduler.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { CreatorSubscriptionService } from './creator-subscription.service';
       Creator, Campaign, CreatorEscrow, CreatorSubscription,
       Wallet, PaymentTransaction,
     ]),
+    SocialSchedulerModule,
   ],
   providers: [
     ScrapeCreatorsService,

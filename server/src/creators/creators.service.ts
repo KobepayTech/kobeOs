@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { Creator } from './creator.entity';
+import { Creator, PlatformStats } from './creator.entity';
+import { TikTokService } from '../social-scheduler/tiktok.service';
 import { OwnedCrudService } from '../common/owned.service';
 import { ScrapeCreatorsService } from './scrape-creators.service';
 import { MetricsEngineService } from './metrics-engine.service';
@@ -14,8 +15,79 @@ export class CreatorsService extends OwnedCrudService<Creator> {
     @InjectRepository(Creator) repo: Repository<Creator>,
     private readonly scraper: ScrapeCreatorsService,
     private readonly metricsEngine: MetricsEngineService,
+    private readonly tiktok: TikTokService,
   ) {
     super(repo);
+  }
+
+  // ── TikTok account connection (reuses the shared social-scheduler OAuth +
+  // encrypted token store; no second TikTok OAuth system) ────────────────────
+
+  /** OAuth URL to connect the creator's TikTok. The creator's owner account is
+   * the one the token is stored against, so the whole ecosystem shares it. */
+  async tiktokConnectUrl(ownerId: string, id: string) {
+    const creator = await this.getOrThrow(ownerId, id);
+    return this.tiktok.getOAuthUrl(creator.ownerId);
+  }
+
+  /**
+   * Normalized connection state for the creator's TikTok, mapped to the spec's
+   * vocabulary so the UI never presents stale tokens as live-verified data.
+   */
+  async tiktokConnection(ownerId: string, id: string) {
+    const creator = await this.getOrThrow(ownerId, id);
+    const conn = await this.tiktok.getConnection(creator.ownerId);
+    if (!conn.connected) return { platform: 'tiktok' as const, state: 'DISCONNECTED' as const };
+    const expiresAt = conn.tokenExpiresAt ? new Date(conn.tokenExpiresAt).getTime() : 0;
+    const now = Date.now();
+    const state =
+      conn.status === 'disconnected' ? 'REVOKED'
+      : conn.status === 'expired' ? 'REFRESH_REQUIRED'
+      : expiresAt && expiresAt - now < 24 * 60 * 60_000 ? 'TOKEN_EXPIRING'
+      : 'CONNECTED';
+    return {
+      platform: 'tiktok' as const, state,
+      handle: conn.accountHandle, name: conn.accountName, avatar: conn.accountAvatar,
+      scopes: conn.scopes, tokenExpiresAt: conn.tokenExpiresAt, lastSyncedAt: conn.lastSyncedAt,
+      stats: conn.stats ?? null,
+    };
+  }
+
+  /**
+   * Pull the creator's verified TikTok profile/stats from the connected account
+   * into their platformStats, marked as platform-verified (not self-reported).
+   */
+  async syncFromTikTok(ownerId: string, id: string) {
+    const creator = await this.getOrThrow(ownerId, id);
+    const conn = await this.tiktok.getConnection(creator.ownerId);
+    if (!conn.connected) throw new BadRequestException('Connect TikTok first');
+    const stats = (conn.stats ?? {}) as Record<string, number>;
+    const followers = Number(stats.follower_count ?? stats.followers ?? 0);
+    const entry: PlatformStats = {
+      platform: 'tiktok',
+      handle: conn.accountHandle || conn.accountName || '',
+      followers,
+      avgViews: Number(stats.avg_views ?? 0),
+      avgLikes: Number(stats.likes_count ?? stats.avg_likes ?? 0),
+      avgComments: 0,
+      engagementRate: Number(creator.engagement ?? 0),
+      totalPosts: Number(stats.video_count ?? 0),
+      bestPostViews: 0,
+      lastSyncedAt: new Date().toISOString(),
+    };
+    const others = (creator.platformStats ?? []).filter((s) => s.platform !== 'tiktok');
+    creator.platformStats = [...others, entry];
+    if (!creator.platforms.includes('tiktok')) creator.platforms = [...creator.platforms, 'tiktok'];
+    creator.verified = true;
+    if (!creator.avatarUrl && conn.accountAvatar) creator.avatarUrl = conn.accountAvatar;
+    creator.followers = others.reduce((sum, s) => sum + Number(s.followers || 0), followers);
+    creator.lastSyncedAt = new Date();
+    await this.repo.save(creator);
+    return this.tiktokConnection(ownerId, id);
+  }
+
+  private getOrThrow(ownerId: string, id: string) {
+    return super.get(ownerId, id);
   }
 
   // Typed wrappers so the controller can pass DTOs without casting at call site
