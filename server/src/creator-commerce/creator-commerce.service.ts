@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes } from 'crypto';
 import { DataSource, Repository } from 'typeorm';
 import { PlatformEventsService } from '../platform/platform.service';
+import { Creator } from '../creators/creator.entity';
 import {
   CommissionState, CreatorAttributionEvent, CreatorAttributionLink, CreatorCommission,
 } from './creator-commerce.entity';
@@ -35,8 +36,26 @@ export class CreatorCommerceService {
     @InjectRepository(CreatorAttributionLink) private readonly links: Repository<CreatorAttributionLink>,
     @InjectRepository(CreatorAttributionEvent) private readonly eventsRepo: Repository<CreatorAttributionEvent>,
     @InjectRepository(CreatorCommission) private readonly commissions: Repository<CreatorCommission>,
+    @InjectRepository(Creator) private readonly creators: Repository<Creator>,
     private readonly platform: PlatformEventsService,
   ) {}
+
+  /**
+   * Safe, public "shopping <creator>'s pick" info for a link code — the display
+   * identity of the creator plus the promoted product. No tokens, no owner ids.
+   */
+  async publicLinkInfo(code: string) {
+    const link = await this.links.findOne({ where: { code: code.toUpperCase() } });
+    if (!link || !link.active) return null;
+    const creator = await this.creators.findOne({ where: { id: link.creatorId } });
+    return {
+      code: link.code,
+      productId: link.productId ?? null,
+      campaignId: link.campaignId ?? null,
+      promoCode: link.promoCode || null,
+      creator: creator ? { handle: creator.handle, name: creator.name, avatarUrl: creator.avatarUrl ?? null } : null,
+    };
+  }
 
   // ── Links ────────────────────────────────────────────────────────────────
 

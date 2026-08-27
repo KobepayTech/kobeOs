@@ -50,6 +50,14 @@ describe('Creator commerce attribution (e2e)', () => {
     const code = link.body.code as string;
     expect(code).toHaveLength(6);
 
+    // Public "creator pick" info (drives the Jumla banner) resolves without a
+    // redirect and never leaks owner/token data.
+    const pick = await request(http).get(`/api/c/${code}/info`);
+    expect(pick.status).toBe(200);
+    expect(pick.body.code).toBe(code);
+    expect(pick.body.productId).toBe(productId);
+    expect(pick.body).not.toHaveProperty('ownerId');
+
     // Public click → 302 redirect carrying kc + kcid.
     const click = await request(http).get(`/api/c/${code}`).redirects(0);
     expect(click.status).toBe(302);

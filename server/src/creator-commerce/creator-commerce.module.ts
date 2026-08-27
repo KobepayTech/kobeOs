@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { PlatformModule } from '../platform/platform.module';
+import { Creator } from '../creators/creator.entity';
 import { CREATOR_COMMERCE_ENTITIES } from './creator-commerce.entity';
 import { CreatorCommerceService } from './creator-commerce.service';
 import { CreatorCommerceController, CreatorLinkPublicController } from './creator-commerce.controller';
@@ -12,7 +13,7 @@ import { CreatorCommerceController, CreatorLinkPublicController } from './creato
  * links without duplicating the ledger.
  */
 @Module({
-  imports: [TypeOrmModule.forFeature([...CREATOR_COMMERCE_ENTITIES]), PlatformModule],
+  imports: [TypeOrmModule.forFeature([...CREATOR_COMMERCE_ENTITIES, Creator]), PlatformModule],
   providers: [CreatorCommerceService],
   controllers: [CreatorCommerceController, CreatorLinkPublicController],
   exports: [CreatorCommerceService],

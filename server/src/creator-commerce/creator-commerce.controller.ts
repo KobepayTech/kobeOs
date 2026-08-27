@@ -68,6 +68,12 @@ export class CreatorCommerceController {
 export class CreatorLinkPublicController {
   constructor(private readonly svc: CreatorCommerceService) {}
 
+  /** Safe display info for a link ("Amina's pick") — no redirect, no tracking. */
+  @Get(':code/info')
+  info(@Param('code') code: string) {
+    return this.svc.publicLinkInfo(code);
+  }
+
   @Get(':code')
   async resolve(
     @Param('code') code: string,
