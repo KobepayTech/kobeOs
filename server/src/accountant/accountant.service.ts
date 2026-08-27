@@ -62,6 +62,22 @@ export class AccountantService implements OnModuleInit {
     }
   }
 
+  /**
+   * Record a creator-commission payout as a classified marketing expense so it
+   * flows into the books automatically (no owner question needed). Idempotent
+   * on the payout id.
+   */
+  async recordCreatorPayout(ownerId: string, input: { payoutId: string; amount: number; currency: string; counterparty: string; reference: string }) {
+    const { row } = await this.saveSource(ownerId, {
+      sourceType: 'CREATOR_PAYOUT', sourceId: input.payoutId, direction: 'OUT',
+      amount: input.amount, currency: input.currency, counterparty: input.counterparty,
+      reference: input.reference, description: `Creator commission payout ${input.reference}`,
+      detectedAt: new Date(), status: 'CLASSIFIED',
+      raw: { type: 'expense', category: 'Creator marketing', accountCode: '6300' },
+    });
+    return row;
+  }
+
   async captureSms(ownerId: string, payment: InboundPayment) {
     const result = await this.saveSource(ownerId, {
       sourceType: 'SMS_PAYMENT', sourceId: payment.id, direction: payment.direction === 'RECEIVED' ? 'IN' : 'OUT',

@@ -21,7 +21,8 @@ export type KobeDomainEventName =
   | 'transit.government_settlement_completed' | 'transit.payment_dispute_created' | 'transit.exemption_created'
   | 'creator.link_created' | 'creator.attribution_clicked' | 'creator.order_attributed'
   | 'creator.sale_attributed' | 'creator.commission_earned' | 'creator.commission_reversed'
-  | 'creator.content_published' | 'creator.content_verified' | 'creator.content_removed';
+  | 'creator.content_published' | 'creator.content_verified' | 'creator.content_removed'
+  | 'creator.commission_payable' | 'creator.payout_released';
 
 @Injectable()
 export class PlatformEventsService {

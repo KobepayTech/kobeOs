@@ -159,8 +159,50 @@ export class CreatorCommission extends BaseEntity {
   earnedAt?: Date | null;
 }
 
+/**
+ * A settled batch of a creator's commissions. Created when an advertiser/merchant
+ * pays out the creator; the covered commissions move to PAID and an accounting
+ * record is posted to Kobe Accountant.
+ */
+@Entity('creator_payouts')
+export class CreatorPayout extends BaseEntity {
+  @Index()
+  @Column('uuid')
+  creatorId!: string;
+
+  /** The advertiser/merchant who paid (owes the commissions). */
+  @Index()
+  @Column('uuid')
+  ownerId!: string;
+
+  @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
+  amount!: number;
+
+  @Column({ default: 'TZS' })
+  currency!: string;
+
+  @Column({ type: 'int', default: 0 })
+  commissionCount!: number;
+
+  @Column({ type: 'jsonb', default: '[]' })
+  commissionIds!: string[];
+
+  @Column({ default: 'PAID' })
+  status!: 'PENDING' | 'PAID';
+
+  @Column({ default: '' })
+  reference!: string;
+
+  @Column({ default: '' })
+  financialTransactionId!: string;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  paidAt?: Date | null;
+}
+
 export const CREATOR_COMMERCE_ENTITIES = [
   CreatorAttributionLink,
   CreatorAttributionEvent,
   CreatorCommission,
+  CreatorPayout,
 ];

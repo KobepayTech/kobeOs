@@ -4,8 +4,9 @@ import { randomBytes } from 'crypto';
 import { DataSource, Repository } from 'typeorm';
 import { PlatformEventsService } from '../platform/platform.service';
 import { Creator } from '../creators/creator.entity';
+import { AccountantService } from '../accountant/accountant.service';
 import {
-  CommissionState, CreatorAttributionEvent, CreatorAttributionLink, CreatorCommission,
+  CommissionState, CreatorAttributionEvent, CreatorAttributionLink, CreatorCommission, CreatorPayout,
 } from './creator-commerce.entity';
 
 /** URL-safe, unambiguous short code (no 0/O/1/I). */
@@ -36,8 +37,10 @@ export class CreatorCommerceService {
     @InjectRepository(CreatorAttributionLink) private readonly links: Repository<CreatorAttributionLink>,
     @InjectRepository(CreatorAttributionEvent) private readonly eventsRepo: Repository<CreatorAttributionEvent>,
     @InjectRepository(CreatorCommission) private readonly commissions: Repository<CreatorCommission>,
+    @InjectRepository(CreatorPayout) private readonly payouts: Repository<CreatorPayout>,
     @InjectRepository(Creator) private readonly creators: Repository<Creator>,
     private readonly platform: PlatformEventsService,
+    private readonly accountant: AccountantService,
   ) {}
 
   /**
@@ -116,15 +119,39 @@ export class CreatorCommerceService {
 
   // ── Order attribution ──────────────────────────────────────────────────────
 
+  /** Resolve a creator discount code (e.g. AMINA10) to its link — a second
+   * attribution path that needs no prior click. */
+  resolvePromoCode(promoCode: string) {
+    return this.links.findOne({ where: { promoCode: promoCode.trim().toUpperCase(), active: true } });
+  }
+
+  /** Safe public info for a promo code (creator + product), for checkout display. */
+  async publicPromoInfo(promoCode: string) {
+    const link = await this.resolvePromoCode(promoCode);
+    if (!link) return null;
+    const creator = await this.creators.findOne({ where: { id: link.creatorId } });
+    return {
+      code: link.code,
+      promoCode: link.promoCode,
+      productId: link.productId ?? null,
+      creator: creator ? { handle: creator.handle, name: creator.name, avatarUrl: creator.avatarUrl ?? null } : null,
+    };
+  }
+
   /**
-   * Record an order against an attribution code. Idempotent per (order, link):
-   * creates ORDER + SALE funnel events and a PENDING commission. Best-effort —
-   * callers wrap this so a bad code never blocks a real order.
+   * Record an order against an attribution code OR a creator promo code.
+   * Idempotent per (order, link): creates ORDER + SALE funnel events and a
+   * PENDING commission. Best-effort — callers wrap this so a bad code never
+   * blocks a real order.
    */
   async attributeOrder(params: {
-    code: string; clickId?: string; orderId: string; revenue: number; currency?: string; productId?: string | null;
+    code?: string; promoCode?: string; clickId?: string; orderId: string; revenue: number; currency?: string; productId?: string | null;
   }): Promise<CreatorCommission | null> {
-    const link = await this.links.findOne({ where: { code: params.code.toUpperCase() } });
+    const link = params.code
+      ? await this.links.findOne({ where: { code: params.code.toUpperCase() } })
+      : params.promoCode
+        ? await this.resolvePromoCode(params.promoCode)
+        : null;
     if (!link || !link.active) return null;
     const currency = params.currency ?? link.currency ?? 'TZS';
     const revenue = Number(params.revenue) || 0;
@@ -176,7 +203,104 @@ export class CreatorCommerceService {
     }
   }
 
+  // ── Payouts (EARNED → PAYABLE → PAID) ──────────────────────────────────────
+
+  /** Stage a creator's EARNED commissions (from this owner) as PAYABLE. */
+  async markPayable(ownerId: string, creatorId: string) {
+    const rows = await this.commissions.find({ where: { ownerId, creatorId, state: 'EARNED' } });
+    for (const c of rows) { c.state = 'PAYABLE'; }
+    if (rows.length) await this.commissions.save(rows);
+    return { moved: rows.length };
+  }
+
+  /**
+   * Pay out a creator's owed commissions (EARNED + PAYABLE) from one advertiser/
+   * merchant. Marks them PAID, records a CreatorPayout, and posts a classified
+   * marketing expense to Kobe Accountant. Idempotent-safe: recomputes from
+   * current state each call and no-ops when nothing is owed.
+   */
+  async payoutCreator(ownerId: string, creatorId: string) {
+    return this.ds.transaction(async (tx) => {
+      const commRepo = tx.getRepository(CreatorCommission);
+      const owed = await commRepo.createQueryBuilder('c')
+        .setLock('pessimistic_write')
+        .where('c.ownerId = :ownerId AND c.creatorId = :creatorId', { ownerId, creatorId })
+        .andWhere("c.state IN ('EARNED','PAYABLE')")
+        .getMany();
+      if (!owed.length) throw new BadRequestException('No earned commissions to pay out');
+      const currency = owed[0].currency || 'TZS';
+      const amount = Math.round(owed.reduce((s, c) => s + Number(c.amount), 0) * 10000) / 10000;
+      const reference = `JCP-${randomBytes(4).toString('hex').toUpperCase()}`;
+
+      const payout = await tx.getRepository(CreatorPayout).save(tx.getRepository(CreatorPayout).create({
+        creatorId, ownerId, amount, currency, commissionCount: owed.length,
+        commissionIds: owed.map((c) => c.id), status: 'PAID', reference, paidAt: new Date(),
+      }));
+      for (const c of owed) { c.state = 'PAID'; }
+      await commRepo.save(owed);
+
+      // Post to Kobe Accountant as a marketing expense (best-effort; never fail
+      // the payout on a bookkeeping hiccup).
+      try {
+        const creator = await tx.getRepository(Creator).findOne({ where: { id: creatorId } });
+        const ft = await this.accountant.recordCreatorPayout(ownerId, {
+          payoutId: payout.id, amount, currency,
+          counterparty: creator ? (creator.handle || creator.name) : 'Creator',
+          reference,
+        });
+        payout.financialTransactionId = ft?.id ?? '';
+        await tx.getRepository(CreatorPayout).save(payout);
+      } catch { /* accounting is advisory here */ }
+
+      await this.platform.emit({ ownerId, eventName: 'creator.payout_released', aggregateType: 'CreatorPayout', aggregateId: payout.id, payload: { creatorId, amount, currency, commissionCount: owed.length } });
+      return payout;
+    });
+  }
+
+  payoutsForOwner(ownerId: string) {
+    return this.payouts.find({ where: { ownerId }, order: { createdAt: 'DESC' } });
+  }
+
+  payoutsForCreator(creatorId: string) {
+    return this.payouts.find({ where: { creatorId }, order: { createdAt: 'DESC' } });
+  }
+
   // ── Reporting ──────────────────────────────────────────────────────────────
+
+  /**
+   * Creator commerce scorecard: the "verified sales generated" numbers that make
+   * a creator's revenue their headline metric (spec §198, §203). Only counts
+   * non-reversed commissions.
+   */
+  async creatorStats(creatorId: string) {
+    const [links, commissions, payouts] = await Promise.all([
+      this.links.find({ where: { creatorId } }),
+      this.commissions.find({ where: { creatorId } }),
+      this.payouts.find({ where: { creatorId } }),
+    ]);
+    const clicks = links.reduce((sum, l) => sum + Number(l.clicks), 0);
+    const live = commissions.filter((c) => c.state !== 'REVERSED');
+    const revenue = live.reduce((s, c) => s + Number(c.baseAmount), 0);
+    const orders = live.length;
+    const paidOut = payouts.reduce((s, p) => s + Number(p.amount), 0);
+    const byState = (s: CommissionState) => live.filter((c) => c.state === s).reduce((sum, c) => sum + Number(c.amount), 0);
+    return {
+      creatorId,
+      links: links.length,
+      clicks,
+      orders,
+      revenue,                 // verified sales the creator generated
+      avgOrderValue: orders ? Math.round((revenue / orders) * 100) / 100 : 0,
+      conversionRate: clicks > 0 ? Math.round((orders / clicks) * 10000) / 100 : 0,
+      commission: {
+        pending: byState('PENDING'),
+        earned: byState('EARNED'),
+        payable: byState('PAYABLE'),
+        paid: byState('PAID'),
+      },
+      paidOut,
+    };
+  }
 
   commissionsForCreator(creatorId: string) {
     return this.commissions.find({ where: { creatorId }, order: { createdAt: 'DESC' } });

@@ -49,6 +49,36 @@ export class CreatorCommerceController {
     return this.svc.commissionsForOwner(uid);
   }
 
+  /** Creator commerce scorecard (verified sales, conversion, commission split). */
+  @Get('creators/:creatorId/stats')
+  creatorStats(@Param('creatorId') creatorId: string) {
+    return this.svc.creatorStats(creatorId);
+  }
+
+  /** Stage this creator's EARNED commissions (from the caller) as PAYABLE. */
+  @Post('creators/:creatorId/mark-payable')
+  markPayable(@CurrentUser('id') uid: string, @Param('creatorId') creatorId: string) {
+    return this.svc.markPayable(uid, creatorId);
+  }
+
+  /** Pay out this creator's owed commissions and book the expense. */
+  @Post('creators/:creatorId/payout')
+  payout(@CurrentUser('id') uid: string, @Param('creatorId') creatorId: string) {
+    return this.svc.payoutCreator(uid, creatorId);
+  }
+
+  /** Payouts this advertiser/merchant has made. */
+  @Get('payouts')
+  ownerPayouts(@CurrentUser('id') uid: string) {
+    return this.svc.payoutsForOwner(uid);
+  }
+
+  /** A creator's received payouts. */
+  @Get('creators/:creatorId/payouts')
+  creatorPayouts(@Param('creatorId') creatorId: string) {
+    return this.svc.payoutsForCreator(creatorId);
+  }
+
   /** Campaign-level performance rollup (clicks → orders → revenue → commission). */
   @Get('campaigns/:campaignId/performance')
   campaignPerformance(@CurrentUser('id') uid: string, @Param('campaignId') campaignId: string) {
@@ -67,6 +97,13 @@ export class CreatorCommerceController {
 @Controller('c')
 export class CreatorLinkPublicController {
   constructor(private readonly svc: CreatorCommerceService) {}
+
+  /** Validate a creator discount code (e.g. AMINA10) at checkout — resolves the
+   * creator + product so Jumla can show whose code it is. */
+  @Get('promo/:code')
+  promo(@Param('code') code: string) {
+    return this.svc.publicPromoInfo(code);
+  }
 
   /** Safe display info for a link ("Amina's pick") — no redirect, no tracking. */
   @Get(':code/info')

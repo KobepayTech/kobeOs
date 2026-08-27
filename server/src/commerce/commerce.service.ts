@@ -535,10 +535,17 @@ export class CommerceService {
   async submitCart(input: {
     customer: { phone: string; name: string; email?: string }; fulfillment: 'PICKUP' | 'DELIVERY'; deliveryAddress?: string; note?: string;
     lines: Array<{ productId: string; quantity: number; selectedOptions?: Record<string, string> }>;
-    attribution?: { code?: string; clickId?: string };
+    attribution?: { code?: string; clickId?: string; promoCode?: string };
   }) {
-    const attributionCode = (input.attribution?.code ?? '').trim();
     const clickId = (input.attribution?.clickId ?? '').trim();
+    const promoCode = (input.attribution?.promoCode ?? '').trim();
+    // Resolve a promo code to its link code up front so promo-only orders carry
+    // the same attributionCode as click orders (status transitions key off it).
+    let attributionCode = (input.attribution?.code ?? '').trim();
+    if (!attributionCode && promoCode) {
+      const promoLink = await this.creatorCommerce.resolvePromoCode(promoCode).catch(() => null);
+      if (promoLink) attributionCode = promoLink.code;
+    }
     if (!input.lines?.length) throw new BadRequestException('Cart is empty');
     if (input.fulfillment === 'DELIVERY' && !input.deliveryAddress?.trim()) throw new BadRequestException('Delivery address is required');
     const ids = [...new Set(input.lines.map((l) => l.productId))];
