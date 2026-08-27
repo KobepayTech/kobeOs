@@ -48,8 +48,10 @@ export class CreatorsService extends OwnedCrudService<Creator> {
     return {
       platform: 'tiktok' as const, state,
       handle: conn.accountHandle, name: conn.accountName, avatar: conn.accountAvatar,
-      scopes: conn.scopes, tokenExpiresAt: conn.tokenExpiresAt, lastSyncedAt: conn.lastSyncedAt,
-      stats: conn.stats ?? null,
+      openId: conn.openId ?? null, unionId: conn.unionId ?? null,
+      profileUrl: conn.profileUrl ?? null, bio: conn.bio ?? null, verified: conn.verified === true,
+      scopes: conn.scopes, tokenExpiresAt: conn.tokenExpiresAt, refreshExpiresAt: conn.refreshExpiresAt ?? null,
+      lastSyncedAt: conn.lastSyncedAt, stats: conn.stats ?? null,
     };
   }
 
@@ -80,6 +82,7 @@ export class CreatorsService extends OwnedCrudService<Creator> {
     if (!creator.platforms.includes('tiktok')) creator.platforms = [...creator.platforms, 'tiktok'];
     creator.verified = true;
     if (!creator.avatarUrl && conn.accountAvatar) creator.avatarUrl = conn.accountAvatar;
+    if (!creator.bio && conn.bio) creator.bio = conn.bio;
     creator.followers = others.reduce((sum, s) => sum + Number(s.followers || 0), followers);
     creator.lastSyncedAt = new Date();
     await this.repo.save(creator);
