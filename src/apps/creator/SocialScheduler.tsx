@@ -4,10 +4,18 @@ import {
   Eye, Heart, Image as ImageIcon, Instagram, Link2, Loader2, MessageSquare,
   PenLine, RefreshCw, Send, Share2, Trash2, Upload, Video,
 } from 'lucide-react';
-import { api, fetchObjectUrl, uploadFile } from '@/lib/api';
+import { api, cloudApi, cloudFetchObjectUrl, cloudUploadFile, fetchObjectUrl, hasCloudSession, uploadFile } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+
+// Social publishing (OAuth connections, posting, media, analytics) is cloud-owned.
+// On the desktop build the embedded backend can't be the HTTPS OAuth redirect
+// target, so route the whole view to Kobe Cloud; web keeps its own backend.
+const IS_DESKTOP = typeof window !== 'undefined' && Boolean((window as { kobeOS?: unknown }).kobeOS);
+const sapi = IS_DESKTOP ? cloudApi : api;
+const supload = IS_DESKTOP ? cloudUploadFile : uploadFile;
+const sObjUrl = IS_DESKTOP ? cloudFetchObjectUrl : fetchObjectUrl;
 
 type SubView = 'calendar' | 'composer' | 'accounts' | 'media' | 'analytics';
 type PostStatus = 'draft' | 'scheduled' | 'publishing' | 'published' | 'failed';
@@ -175,7 +183,7 @@ function CalendarView({ onCompose }: { onCompose: () => void }) {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const result = await api<PostList>('/social-scheduler/posts?limit=100');
+      const result = await sapi<PostList>('/social-scheduler/posts?limit=100');
       setPosts(Array.isArray(result?.items) ? result.items : []);
     } catch (e) {
       setError((e as Error).message || 'Could not load scheduled posts.');
@@ -187,7 +195,7 @@ function CalendarView({ onCompose }: { onCompose: () => void }) {
   const publish = async (post: ScheduledPost) => {
     setBusyId(post.id); setError(null);
     try {
-      const result = await api<PublishResponse>(`/social-scheduler/posts/${post.id}/publish`, { method: 'POST' });
+      const result = await sapi<PublishResponse>(`/social-scheduler/posts/${post.id}/publish`, { method: 'POST' });
       setPosts((rows) => rows.map((row) => row.id === post.id ? result.post : row));
       const failures = result.results.filter((row) => !row.ok);
       if (failures.length) setError(failures.map((row) => `${PLATFORM_LABELS[row.platform] || row.platform}: ${row.error}`).join(' · '));
@@ -198,7 +206,7 @@ function CalendarView({ onCompose }: { onCompose: () => void }) {
   const remove = async (id: string) => {
     setBusyId(id); setError(null);
     try {
-      await api(`/social-scheduler/posts/${id}`, { method: 'DELETE' });
+      await sapi(`/social-scheduler/posts/${id}`, { method: 'DELETE' });
       setPosts((rows) => rows.filter((row) => row.id !== id));
     } catch (e) { setError((e as Error).message || 'Could not delete post.'); }
     finally { setBusyId(null); }
@@ -274,7 +282,7 @@ function ComposerView() {
   const loadCaps = useCallback(async () => {
     setLoadingCaps(true);
     try {
-      const rows = await api<Capability[]>('/social-scheduler/capabilities');
+      const rows = await sapi<Capability[]>('/social-scheduler/capabilities');
       setCapabilities(Array.isArray(rows) ? rows : []);
     } catch (e) { setError((e as Error).message || 'Could not load publishing capabilities.'); }
     finally { setLoadingCaps(false); }
@@ -312,7 +320,7 @@ function ComposerView() {
         if (Number.isNaN(parsed.getTime())) throw new Error('Invalid schedule date or time.');
         scheduledAt = parsed.toISOString();
       }
-      const post = await api<ScheduledPost>('/social-scheduler/posts', {
+      const post = await sapi<ScheduledPost>('/social-scheduler/posts', {
         method: 'POST',
         body: JSON.stringify({
           content: content.trim(),
@@ -322,7 +330,7 @@ function ComposerView() {
         }),
       });
       if (publishNow) {
-        const result = await api<PublishResponse>(`/social-scheduler/posts/${post.id}/publish`, { method: 'POST' });
+        const result = await sapi<PublishResponse>(`/social-scheduler/posts/${post.id}/publish`, { method: 'POST' });
         const failures = result.results.filter((row) => !row.ok);
         if (failures.length) throw new Error(failures.map((row) => `${PLATFORM_LABELS[row.platform] || row.platform}: ${row.error}`).join(' · '));
         setMessage(`Published successfully${result.results[0]?.remoteId ? ` · provider ID ${result.results[0].remoteId}` : ''}.`);
@@ -370,8 +378,8 @@ function AccountsView() {
     setLoading(true); setError(null);
     try {
       const [a, c] = await Promise.all([
-        api<SocialAccount[]>('/social-scheduler/accounts'),
-        api<Capability[]>('/social-scheduler/capabilities'),
+        sapi<SocialAccount[]>('/social-scheduler/accounts'),
+        sapi<Capability[]>('/social-scheduler/capabilities'),
       ]);
       setAccounts(Array.isArray(a) ? a : []); setCapabilities(Array.isArray(c) ? c : []);
     } catch (e) { setError((e as Error).message || 'Could not load connected accounts.'); }
@@ -385,12 +393,29 @@ function AccountsView() {
   }, [load]);
 
   const openOAuth = async (endpoint: string, provider: string) => {
+    // Desktop routes social OAuth through Kobe Cloud (the HTTPS callback owner),
+    // which needs the cloud session minted at online sign-in.
+    if (IS_DESKTOP && !hasCloudSession()) {
+      setError(`Sign in to Kobe Cloud (connect this computer to the internet and sign in online) before linking ${provider}.`);
+      return;
+    }
     setBusy(true); setError(null);
     try {
-      const result = await api<{ url: string }>(endpoint);
+      const result = await sapi<{ url: string }>(endpoint);
       if (!result.url) throw new Error(`${provider} OAuth URL was not returned by the server.`);
       const popup = window.open(result.url, '_blank', 'noopener,noreferrer');
       if (!popup) window.location.assign(result.url);
+      // The popup lands on the cloud callback page; when the user returns to the
+      // app the existing focus handler reloads the connection. Also poll briefly
+      // so the connected state appears even if focus doesn't fire.
+      if (IS_DESKTOP) {
+        let tries = 0;
+        const timer = window.setInterval(() => {
+          tries += 1;
+          void load();
+          if (tries >= 40) window.clearInterval(timer); // ~2 min
+        }, 3000);
+      }
     } catch (e) { setError((e as Error).message || `${provider} connection could not start.`); }
     finally { setBusy(false); }
   };
@@ -401,7 +426,7 @@ function AccountsView() {
   const refreshTikTok = async () => {
     setBusy(true); setError(null);
     try {
-      await api('/social-scheduler/tiktok/refresh', { method: 'POST' });
+      await sapi('/social-scheduler/tiktok/refresh', { method: 'POST' });
       await load();
     } catch (e) { setError((e as Error).message || 'TikTok account refresh failed.'); }
     finally { setBusy(false); }
@@ -410,7 +435,7 @@ function AccountsView() {
   const setTikTokPrivacy = async (privacyLevel: string) => {
     setBusy(true); setError(null);
     try {
-      await api('/social-scheduler/tiktok/preferences', {
+      await sapi('/social-scheduler/tiktok/preferences', {
         method: 'PUT',
         body: JSON.stringify({ privacyLevel }),
       });
@@ -422,7 +447,7 @@ function AccountsView() {
   const disconnect = async (account: SocialAccount) => {
     setBusy(true); setError(null);
     try {
-      await api(`/social-scheduler/accounts/${account.id}`, { method: 'DELETE' });
+      await sapi(`/social-scheduler/accounts/${account.id}`, { method: 'DELETE' });
       await load();
     } catch (e) { setError((e as Error).message || 'Could not disconnect account.'); }
     finally { setBusy(false); }
@@ -452,7 +477,7 @@ function AssetPreview({ asset }: { asset: MediaAsset }) {
     let alive = true; let objectUrl = '';
     void (async () => {
       try {
-        if (asset.src.startsWith('/api/')) objectUrl = await fetchObjectUrl(asset.src.replace(/^\/api/, ''));
+        if (asset.src.startsWith('/api/')) objectUrl = await sObjUrl(asset.src.replace(/^\/api/, ''));
         else objectUrl = asset.src;
         if (alive) setSrc(objectUrl);
       } catch { if (alive) setSrc(''); }
@@ -473,7 +498,7 @@ function MediaLibraryView() {
   const load = useCallback(async () => {
     setLoading(true); setError(null);
     try {
-      const [images, videos] = await Promise.all([api<MediaAsset[]>('/media/assets?kind=image'), api<MediaAsset[]>('/media/assets?kind=video')]);
+      const [images, videos] = await Promise.all([sapi<MediaAsset[]>('/media/assets?kind=image'), sapi<MediaAsset[]>('/media/assets?kind=video')]);
       setAssets([...(Array.isArray(images) ? images : []), ...(Array.isArray(videos) ? videos : [])].sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))));
     } catch (e) { setError((e as Error).message || 'Could not load media.'); }
     finally { setLoading(false); }
@@ -484,14 +509,14 @@ function MediaLibraryView() {
     const files = [...(event.target.files ?? [])]; if (!files.length) return;
     setUploading(true); setError(null);
     try {
-      for (const file of files) await uploadFile(`/media/upload?kind=${file.type.startsWith('video/') ? 'video' : 'image'}`, file);
+      for (const file of files) await supload(`/media/upload?kind=${file.type.startsWith('video/') ? 'video' : 'image'}`, file);
       await load();
     } catch (e) { setError((e as Error).message || 'Upload failed.'); }
     finally { setUploading(false); event.target.value = ''; }
   };
 
   const remove = async (id: string) => {
-    try { await api(`/media/assets/${id}`, { method: 'DELETE' }); setAssets((rows) => rows.filter((row) => row.id !== id)); }
+    try { await sapi(`/media/assets/${id}`, { method: 'DELETE' }); setAssets((rows) => rows.filter((row) => row.id !== id)); }
     catch (e) { setError((e as Error).message || 'Could not delete media.'); }
   };
 
@@ -519,8 +544,8 @@ function AnalyticsView() {
     if (platform) params.set('platform', platform);
     try {
       const [summary, list] = await Promise.all([
-        api<AnalyticsResponse>(`/social-scheduler/analytics?${params}`),
-        api<PostList>(`/social-scheduler/posts?status=published&limit=100${platform ? `&platform=${encodeURIComponent(platform)}` : ''}`),
+        sapi<AnalyticsResponse>(`/social-scheduler/analytics?${params}`),
+        sapi<PostList>(`/social-scheduler/posts?status=published&limit=100${platform ? `&platform=${encodeURIComponent(platform)}` : ''}`),
       ]);
       setAnalytics(summary); setPosts(Array.isArray(list.items) ? list.items : []);
     } catch (e) { setError((e as Error).message || 'Could not load analytics.'); }

@@ -628,6 +628,66 @@ export async function fetchObjectUrl(path: string): Promise<string> {
   return URL.createObjectURL(blob);
 }
 
+// ── Cloud API (desktop → Kobe Cloud) ──────────────────────────────────────────
+// Social connections (TikTok/Instagram OAuth + tokens) are cloud-owned: the
+// HTTPS OAuth callback and server-side token exchange live on Kobe Cloud. The
+// desktop build's embedded backend (127.0.0.1) can't be an HTTPS redirect
+// target, so on desktop these features talk to the cloud using the cloud session
+// token minted at desktop sign-in. On web, accountApiBase()===API_BASE.
+
+const CLOUD_ACCESS_KEY = 'kobe_cloud_access_token';
+/** True when a Kobe Cloud session token is available (desktop online sign-in). */
+export function hasCloudSession(): boolean {
+  try { return !!localStorage.getItem(CLOUD_ACCESS_KEY); } catch { return false; }
+}
+function cloudAuthToken(): string | null {
+  try { return localStorage.getItem(CLOUD_ACCESS_KEY); } catch { return null; }
+}
+
+/** Like api(), but targets Kobe Cloud with the cloud session token, no offline
+ * fallback (cloud features are inherently online). */
+export async function cloudApi<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers);
+  const isFormData = typeof FormData !== 'undefined' && init.body instanceof FormData;
+  if (!isFormData && !headers.has('Content-Type') && init.body) headers.set('Content-Type', 'application/json');
+  const token = cloudAuthToken();
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  const res = await fetch(`${accountApiBase()}${path}`, { ...init, headers });
+  const text = await res.text();
+  const body = text ? safeJson(text) : undefined;
+  if (!res.ok) {
+    const bag = body && typeof body === 'object' ? (body as Record<string, unknown>) : undefined;
+    const msgField = bag?.message; const errField = bag?.error;
+    const msg =
+      (typeof msgField === 'string' && msgField) ||
+      (Array.isArray(msgField) && msgField.length && typeof msgField[0] === 'string' && msgField.join(', ')) ||
+      (typeof errField === 'string' && errField) ||
+      res.statusText || `HTTP ${res.status}`;
+    throw new ApiError(res.status, msg as string, body);
+  }
+  return body as T;
+}
+
+export async function cloudUploadFile<T = unknown>(
+  path: string, file: File | Blob,
+  opts: { fieldName?: string; filename?: string; extraFields?: Record<string, string> } = {},
+): Promise<T> {
+  const form = new FormData();
+  const filename = opts.filename ?? (file instanceof File ? file.name : 'upload.bin');
+  form.append(opts.fieldName ?? 'file', file, filename);
+  if (opts.extraFields) for (const [k, v] of Object.entries(opts.extraFields)) form.append(k, v);
+  return cloudApi<T>(path, { method: 'POST', body: form });
+}
+
+export async function cloudFetchObjectUrl(path: string): Promise<string> {
+  const headers = new Headers();
+  const token = cloudAuthToken();
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  const res = await fetch(`${accountApiBase()}${path}`, { headers });
+  if (!res.ok) throw new ApiError(res.status, res.statusText);
+  return URL.createObjectURL(await res.blob());
+}
+
 // ── Util ──────────────────────────────────────────────────────────────────────
 
 function safeJson(s: string): unknown {
