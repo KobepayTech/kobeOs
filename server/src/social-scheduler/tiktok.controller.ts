@@ -36,28 +36,58 @@ export class TikTokController {
   }
 }
 
+/** Shared TikTok OAuth callback: exchange the code, then bounce back to the app. */
+async function completeTikTokCallback(
+  tiktok: TikTokService, res: Response,
+  params: { code: string; state: string; providerErrorCode?: string; providerError?: string },
+) {
+  const redirect = new URL(tiktok.frontendRedirectUrl());
+  try {
+    if (params.providerError || params.providerErrorCode) throw new Error(params.providerError || params.providerErrorCode);
+    await tiktok.completeOAuth(params.code, params.state);
+    redirect.searchParams.set('tiktok', 'connected');
+  } catch (error) {
+    redirect.searchParams.set('tiktok', 'error');
+    redirect.searchParams.set('message', (error as Error).message || 'TikTok connection failed');
+  }
+  res.redirect(redirect.toString());
+}
+
 @Public()
 @Controller('social-scheduler/tiktok')
 export class TikTokPublicController {
   constructor(private readonly tiktok: TikTokService) {}
 
   @Get('oauth/callback')
-  async oauthCallback(
+  oauthCallback(
     @Query('code') code: string,
     @Query('state') state: string,
     @Query('error') providerErrorCode: string,
     @Query('error_description') providerError: string,
     @Res() res: Response,
   ) {
-    const redirect = new URL(this.tiktok.frontendRedirectUrl());
-    try {
-      if (providerError || providerErrorCode) throw new Error(providerError || providerErrorCode);
-      await this.tiktok.completeOAuth(code, state);
-      redirect.searchParams.set('tiktok', 'connected');
-    } catch (error) {
-      redirect.searchParams.set('tiktok', 'error');
-      redirect.searchParams.set('message', (error as Error).message || 'TikTok connection failed');
-    }
-    res.redirect(redirect.toString());
+    return completeTikTokCallback(this.tiktok, res, { code, state, providerErrorCode, providerError });
+  }
+}
+
+/**
+ * Alias callback at the canonical integrations path
+ * (https://creator.kobeapptz.com/api/integrations/tiktok/callback) so the TikTok
+ * app can register that redirect URI. Same flow as the social-scheduler callback.
+ */
+@Public()
+@Controller('integrations/tiktok')
+export class TikTokIntegrationsController {
+  constructor(private readonly tiktok: TikTokService) {}
+
+  @Get('callback')
+  callback(
+    @Query('code') code: string,
+    @Query('state') state: string,
+    @Query('error') providerErrorCode: string,
+    @Query('error_description') providerError: string,
+    @Res() res: Response,
+  ) {
+    return completeTikTokCallback(this.tiktok, res, { code, state, providerErrorCode, providerError });
   }
 }

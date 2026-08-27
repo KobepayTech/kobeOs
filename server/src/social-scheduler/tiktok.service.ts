@@ -80,7 +80,8 @@ export class TikTokService {
     if (explicit) return explicit;
     const publicUrl = this.value('APP_PUBLIC_URL');
     if (!publicUrl) throw new BadRequestException('TikTok is not configured: missing TIKTOK_CREATOR_REDIRECT_URI');
-    return `${publicUrl.replace(/\/+$/, '')}/api/social-scheduler/tiktok/oauth/callback`;
+    // Canonical integrations callback (register this URI in the TikTok app).
+    return `${publicUrl.replace(/\/+$/, '')}/api/integrations/tiktok/callback`;
   }
 
   private scopes(): string[] {

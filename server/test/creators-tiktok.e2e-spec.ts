@@ -33,4 +33,10 @@ describe('Creator TikTok connection (e2e)', () => {
     const sync = await request(http).post(`/api/creators/${id}/tiktok/sync`).set(auth(token)).send({});
     expect(sync.status).toBe(400);
   });
+
+  it('exposes the canonical integrations callback (public, redirects on a bad code)', async () => {
+    const cb = await request(http).get('/api/integrations/tiktok/callback?error=access_denied').redirects(0);
+    expect(cb.status).toBe(302); // route is wired + public; bounces back to the app with an error
+    expect(cb.headers.location).toContain('tiktok=error');
+  });
 });
