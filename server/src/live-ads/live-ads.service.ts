@@ -233,6 +233,10 @@ export class LiveAdsService {
     return saved;
   }
 
+  listCampaigns(ownerId: string) {
+    return this.campaigns.find({ where: { ownerId }, order: { createdAt: 'DESC' } });
+  }
+
   private async ownedCampaign(ownerId: string, id: string) {
     const c = await this.campaigns.findOne({ where: { id, ownerId } });
     if (!c) throw new NotFoundException('Campaign not found');
@@ -276,6 +280,31 @@ export class LiveAdsService {
     const live = await this.creatorsLive.findOne({ where: { id: slot.liveCreatorId, ownerId } });
     if (!live) throw new ForbiddenException('Not your slot');
     slot.status = 'ENDED'; return this.slots.save(slot);
+  }
+
+  /** What the OBS overlay should render right now for this creator. */
+  async overlayState(overlayToken: string) {
+    const live = await this.byOverlayToken(overlayToken);
+    const session = await this.activeSession(live.id);
+    if (!session) return { handle: live.handle, live: false, slot: null };
+    const slot = await this.slots.findOne({ where: { sessionId: session.id, status: 'CTA_ACTIVE' }, order: { ctaStart: 'DESC' } });
+    if (!slot || new Date(slot.ctaEnd).getTime() < Date.now()) return { handle: live.handle, live: true, slot: null };
+    const campaign = await this.campaigns.findOne({ where: { id: slot.campaignId } });
+    if (!campaign || campaign.status !== 'APPROVED') return { handle: live.handle, live: true, slot: null };
+    return {
+      handle: live.handle,
+      live: true,
+      slot: {
+        slotId: slot.id,
+        code: slot.code,
+        sponsor: campaign.sponsorName,
+        offerText: campaign.offerText,
+        couponCode: campaign.couponCode || null,
+        creativeVideoUrl: campaign.creativeVideoUrl ?? null,
+        playbackEnd: new Date(slot.playbackEnd).toISOString(),
+        ctaEnd: new Date(slot.ctaEnd).toISOString(),
+      },
+    };
   }
 
   /** Overlay reports a creative actually played on screen (proof-of-play). */

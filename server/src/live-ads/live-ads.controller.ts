@@ -56,6 +56,8 @@ export class LiveAdsController {
   pause(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.svc.setCampaignStatus(uid, id, 'PAUSED'); }
   @Post('campaigns/:id/resume')
   resume(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.svc.setCampaignStatus(uid, id, 'APPROVED'); }
+  @Get('campaigns/mine')
+  myCampaigns(@CurrentUser('id') uid: string) { return this.svc.listCampaigns(uid); }
   @Get('campaigns/:id/stats')
   campaignStats(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.svc.campaignAdStats(uid, id); }
 
@@ -112,6 +114,8 @@ export class LiveAdsPublicController {
   }
 
   // Overlay / Kobe Broadcaster session control
+  @Get('overlay/:token/state')
+  overlayState(@Param('token') token: string) { return this.svc.overlayState(token); }
   @Post('overlay/:token/heartbeat')
   heartbeat(@Param('token') token: string) { return this.svc.heartbeat(token); }
   @Post('overlay/:token/end')

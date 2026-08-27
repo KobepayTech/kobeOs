@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { AlertTriangle, CheckCircle2, Globe2, LayoutDashboard, Loader2, Megaphone, RefreshCw, Search, Send, Star, Users, Wallet } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Globe2, LayoutDashboard, Loader2, Megaphone, Radio, RefreshCw, Search, Send, Star, Users, Wallet } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { CreatorOnboarding } from './CreatorOnboarding';
 import { SocialScheduler } from './SocialScheduler';
+import LiveAdsPanel from './LiveAdsPanel';
 
-type View = 'overview' | 'marketplace' | 'campaigns' | 'escrow' | 'profile' | 'social';
+type View = 'overview' | 'marketplace' | 'campaigns' | 'escrow' | 'profile' | 'social' | 'liveads';
 type Creator = { id: string; name: string; handle: string; niche: string; country: string; followers: number; engagement: number; avgViews: number; verified: boolean; weeklyRateTzs: number | string; platforms: string[]; bio?: string | null; subscriptionTier: string; platformStats?: Array<{ platform: string; handle: string; followers: number; avgViews: number; engagementRate: number; lastSyncedAt: string }> };
 type Offer = { id: string; creatorId: string; creatorName: string; creatorHandle: string; amountTzs: number | string; status: string; verifiedViews?: number; sentAt: string };
 type Campaign = { id: string; name: string; brand: string; niche: string; description: string; status: string; budgetTzs: number | string; offers: Offer[]; endsAt?: string | null };
@@ -55,7 +56,7 @@ export default function ProductionCreator() {
 
   const nav: Array<[View, string, typeof LayoutDashboard]> = [
     ['overview', 'Overview', LayoutDashboard], ['marketplace', 'Marketplace', Globe2], ['campaigns', 'Campaigns', Megaphone],
-    ['escrow', 'Deals & Escrow', Wallet], ['profile', 'Creator Profile', Star], ['social', 'Social Publishing', Send],
+    ['escrow', 'Deals & Escrow', Wallet], ['profile', 'Creator Profile', Star], ['social', 'Social Publishing', Send], ['liveads', 'Live Ads', Radio],
   ];
 
   return <div className="flex h-full min-h-0 bg-[#0a0a16] text-white">
@@ -71,6 +72,7 @@ export default function ProductionCreator() {
       {view === 'escrow' && <Escrows brand={brandEscrow} creator={creatorEscrow} loading={loading} refresh={refresh} />}
       {view === 'profile' && <Profiles rows={mine} loading={loading} refresh={refresh} />}
       {view === 'social' && <SocialScheduler />}
+      {view === 'liveads' && <LiveAdsPanel creators={mine.map((c) => ({ id: c.id, name: c.name, handle: c.handle }))} />}
     </main>
   </div>;
 }

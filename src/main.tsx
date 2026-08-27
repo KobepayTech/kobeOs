@@ -171,6 +171,16 @@ const supplierPortalToken = supplierPortalMatch?.[1] ?? '';
 const studentPortalMatch = pathname.match(/^\/kobepay\/me\/([A-Za-z0-9_-]{16,})\/?$/);
 const studentPortalToken = studentPortalMatch?.[1] ?? '';
 
+// Kobe Live Ads public surfaces. Live on the kobe.live domain at /@handle,
+// /a/<code>, /overlay/<token>; on the main app they live under /kobelive/* so
+// they never collide with the live-sales /@seller catalog.
+const isKobeLiveHost = window.location.hostname === 'kobe.live' || window.location.hostname.startsWith('live.');
+const liveAdsActive = isKobeLiveHost || pathname.startsWith('/kobelive');
+const liveAdsPath = isKobeLiveHost ? pathname : (pathname.replace(/^\/kobelive/, '') || '/');
+const liveOverlayMatch = liveAdsActive ? liveAdsPath.match(/^\/overlay\/([a-f0-9]{16,})\/?$/i) : null;
+const liveQrMatch = liveAdsActive ? liveAdsPath.match(/^\/a\/([A-Za-z0-9]{4,})\/?$/) : null;
+const liveSponsorMatch = liveAdsActive ? liveAdsPath.match(/^\/@([a-z0-9_.-]{2,40})\/?$/i) : null;
+
 const mount = (node: ReactNode) => {
   void hydrateTokens().finally(() => {
     createRoot(document.getElementById('root')!).render(node);
@@ -181,6 +191,12 @@ if (metaSetupToken) {
   import('./components/MetaSetupPage').then(({ default: MetaSetupPage }) => mount(<MetaSetupPage token={metaSetupToken} />));
 } else if (oauthProvider) {
   import('./components/OAuthCallback').then(({ default: OAuthCallback }) => mount(<OAuthCallback provider={oauthProvider} />));
+} else if (liveOverlayMatch) {
+  import('./public/LiveOverlay').then(({ default: LiveOverlay }) => mount(<LiveOverlay token={liveOverlayMatch[1]} />));
+} else if (liveQrMatch) {
+  import('./public/LiveSponsor').then(({ default: LiveSponsor }) => mount(<LiveSponsor code={liveQrMatch[1]} />));
+} else if (liveSponsorMatch) {
+  import('./public/LiveSponsor').then(({ default: LiveSponsor }) => mount(<LiveSponsor handle={liveSponsorMatch[1]} />));
 } else if (isOverlay) {
   import('./apps/kobe-sports/OverlayPage').then(({ default: OverlayPage }) => mount(<OverlayPage />));
 } else if (isPrintCard) {
