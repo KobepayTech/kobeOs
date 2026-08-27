@@ -2,6 +2,7 @@ import type { INestApplication } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import request from 'supertest';
 import { bootTestApp, resetDb } from './setup';
+import { LiveAdsService } from '../src/live-ads/live-ads.service';
 
 /**
  * Kobe Live Ads — the permanent-link performance-ad flow end to end:
@@ -117,5 +118,35 @@ describe('Kobe Live Ads (e2e)', () => {
     expect(stats.body.impressions).toBeGreaterThanOrEqual(1);
     expect(stats.body.ctaClicks).toBeGreaterThanOrEqual(1);
     expect(Number(stats.body.creatorEarnings)).toBeGreaterThan(0);
+  });
+
+  it('auto-delivers ads on a rotation while the creator is live', async () => {
+    const brayo = await register(`rot_${Date.now()}@test.io`);
+    const advertiser = await register(`radv_${Date.now()}@test.io`);
+    const admin = await register(`radm_${Date.now()}@test.io`, 'admin');
+
+    const creator = await request(http).post('/api/creators').set(auth(brayo)).send({ name: 'Rot', handle: `rot${Date.now()}` });
+    const creatorId = creator.body.id as string;
+    const overlay = (await request(http).post('/api/live-ads/identity').set(auth(brayo)).send({ creatorId })).body.overlayToken as string;
+
+    const dest = await request(http).post('/api/live-ads/destinations').set(auth(advertiser)).send({ url: 'https://sponsor.co.tz/x' });
+    const camp = await request(http).post('/api/live-ads/campaigns').set(auth(advertiser)).send({ title: 'Rot', sponsorName: 'RotoCola', destinationId: dest.body.id, creativeFormat: 'FULLSCREEN', offerText: 'Deal' });
+    await request(http).post(`/api/live-ads/campaigns/${camp.body.id}/submit`).set(auth(advertiser)).expect(201);
+    await request(http).post(`/api/live-ads/campaigns/${camp.body.id}/approve`).set(auth(admin)).send({}).expect(201);
+
+    // Configure auto-delivery and go live.
+    await request(http).post(`/api/live-ads/creators/${creatorId}/rotation`).set(auth(brayo)).send({ campaignIds: [camp.body.id], everySeconds: 300, playbackSeconds: 10 }).expect(201);
+    await request(http).post(`/api/live/overlay/${overlay}/heartbeat`).expect(201);
+
+    // Drive the rotation tick directly (the cron calls this every 20s).
+    const svc = app.get(LiveAdsService);
+    expect(await svc.runRotationsOnce()).toBe(1);         // starts a sponsor slot
+    expect(await svc.runRotationsOnce()).toBe(0);         // interval not elapsed → no duplicate
+
+    // The bio link now serves the rotated sponsor, and the overlay knows the format.
+    const bio = await request(http).get(`/api/live/resolve/${creator.body.handle}`);
+    expect(bio.body.sponsor.name).toBe('RotoCola');
+    const state = await request(http).get(`/api/live/overlay/${overlay}/state`);
+    expect(state.body.slot.creativeFormat).toBe('FULLSCREEN');
   });
 });

@@ -6,7 +6,7 @@ import { Cron } from '@nestjs/schedule';
 import { PlatformEventsService } from '../platform/platform.service';
 import { Creator } from '../creators/creator.entity';
 import {
-  AdDestination, LiveAdCampaign, LiveAdEvent, LiveAdSession, LiveAdSlot,
+  AdDestination, LiveAdCampaign, LiveAdEvent, LiveAdRotation, LiveAdSession, LiveAdSlot,
   LiveCreator, LiveHandleAlias,
 } from './live-ads.entity';
 
@@ -36,6 +36,7 @@ export class LiveAdsService {
     @InjectRepository(LiveAdCampaign) private readonly campaigns: Repository<LiveAdCampaign>,
     @InjectRepository(LiveAdSlot) private readonly slots: Repository<LiveAdSlot>,
     @InjectRepository(LiveAdEvent) private readonly events: Repository<LiveAdEvent>,
+    @InjectRepository(LiveAdRotation) private readonly rotations: Repository<LiveAdRotation>,
     @InjectRepository(Creator) private readonly creators: Repository<Creator>,
     private readonly platform: PlatformEventsService,
   ) {}
@@ -187,14 +188,17 @@ export class LiveAdsService {
 
   async createCampaign(ownerId: string, dto: {
     title: string; sponsorName: string; destinationId: string; routingMode?: 'SPONSOR_PAGE' | 'DIRECT_REDIRECT';
+    creativeFormat?: 'CARD' | 'BANNER' | 'FULLSCREEN' | 'VIDEO';
     offerText?: string; couponCode?: string; creativeVideoUrl?: string;
     pricePerSlot?: number; costPerClick?: number; creatorSharePercent?: number; currency?: string;
   }) {
     const dest = await this.destinations.findOne({ where: { id: dto.destinationId, ownerId } });
     if (!dest) throw new NotFoundException('Destination not found (create an approved destination first)');
+    if (dto.creativeFormat === 'VIDEO' && !dto.creativeVideoUrl?.trim()) throw new BadRequestException('A video creative needs creativeVideoUrl');
     return this.campaigns.save(this.campaigns.create({
       ownerId, title: dto.title, sponsorName: dto.sponsorName, destinationId: dest.id,
-      routingMode: dto.routingMode ?? 'SPONSOR_PAGE', offerText: dto.offerText ?? '', couponCode: (dto.couponCode ?? '').toUpperCase(),
+      routingMode: dto.routingMode ?? 'SPONSOR_PAGE', creativeFormat: dto.creativeFormat ?? 'CARD',
+      offerText: dto.offerText ?? '', couponCode: (dto.couponCode ?? '').toUpperCase(),
       creativeVideoUrl: dto.creativeVideoUrl ?? null, pricePerSlot: dto.pricePerSlot ?? 0, costPerClick: dto.costPerClick ?? 0,
       creatorSharePercent: dto.creatorSharePercent ?? 70, currency: dto.currency ?? 'TZS', status: 'DRAFT',
     }));
@@ -274,6 +278,61 @@ export class LiveAdsService {
     return { slot, qr: `/live/a/${slot.code}` };
   }
 
+  // ── Auto-delivery rotation (the app "listens + delivers ads on a cadence") ──
+
+  async setRotation(ownerId: string, creatorId: string, dto: { campaignIds: string[]; everySeconds?: number; playbackSeconds?: number; ctaSeconds?: number; active?: boolean }) {
+    const live = await this.creatorsLive.findOne({ where: { creatorId, ownerId } });
+    if (!live) throw new NotFoundException('Live identity not found');
+    let row = await this.rotations.findOne({ where: { liveCreatorId: live.id } });
+    row ??= this.rotations.create({ ownerId, liveCreatorId: live.id, cursor: 0 });
+    row.campaignIds = Array.isArray(dto.campaignIds) ? dto.campaignIds : [];
+    if (dto.everySeconds != null) row.everySeconds = Math.max(30, dto.everySeconds);
+    if (dto.playbackSeconds != null) row.playbackSeconds = Math.max(2, dto.playbackSeconds);
+    if (dto.ctaSeconds != null) row.ctaSeconds = Math.max(30, dto.ctaSeconds);
+    if (dto.active != null) row.active = dto.active;
+    return this.rotations.save(row);
+  }
+
+  async getRotation(ownerId: string, creatorId: string) {
+    const live = await this.creatorsLive.findOne({ where: { creatorId, ownerId } });
+    if (!live) throw new NotFoundException('Live identity not found');
+    return this.rotations.findOne({ where: { liveCreatorId: live.id } }) ?? null;
+  }
+
+  @Cron('20 * * * * *')
+  async runRotationsCron() { await this.runRotationsOnce(); }
+
+  /**
+   * One rotation tick: for every active rotation whose creator is live and whose
+   * interval has elapsed, start the next approved sponsor in round-robin order.
+   * Extracted so tests can drive it deterministically.
+   */
+  async runRotationsOnce(now = new Date()): Promise<number> {
+    const active = await this.rotations.find({ where: { active: true } });
+    let started = 0;
+    for (const rot of active) {
+      if (!rot.campaignIds.length) continue;
+      const session = await this.sessions.findOne({ where: { liveCreatorId: rot.liveCreatorId, status: 'LIVE' }, order: { startedAt: 'DESC' } });
+      if (!session || now.getTime() - new Date(session.lastSeenAt).getTime() > SESSION_STALE_MS) continue;
+      if (rot.lastStartedAt && now.getTime() - new Date(rot.lastStartedAt).getTime() < rot.everySeconds * 1000) continue;
+      const live = await this.creatorsLive.findOne({ where: { id: rot.liveCreatorId } });
+      if (!live) continue;
+      // Try up to N campaigns from the cursor to find an approved one.
+      for (let i = 0; i < rot.campaignIds.length; i++) {
+        const idx = (rot.cursor + i) % rot.campaignIds.length;
+        try {
+          await this.startSlot(rot.ownerId, live.creatorId, { campaignId: rot.campaignIds[idx], playbackSeconds: rot.playbackSeconds, ctaSeconds: rot.ctaSeconds });
+          rot.cursor = (idx + 1) % rot.campaignIds.length;
+          rot.lastStartedAt = now;
+          await this.rotations.save(rot);
+          started++;
+          break;
+        } catch { /* not approved / not live — try the next campaign */ }
+      }
+    }
+    return started;
+  }
+
   async endSlot(ownerId: string, slotId: string) {
     const slot = await this.slots.findOne({ where: { id: slotId } });
     if (!slot) throw new NotFoundException('Slot not found');
@@ -300,6 +359,7 @@ export class LiveAdsService {
         sponsor: campaign.sponsorName,
         offerText: campaign.offerText,
         couponCode: campaign.couponCode || null,
+        creativeFormat: campaign.creativeFormat,
         creativeVideoUrl: campaign.creativeVideoUrl ?? null,
         playbackEnd: new Date(slot.playbackEnd).toISOString(),
         ctaEnd: new Date(slot.ctaEnd).toISOString(),

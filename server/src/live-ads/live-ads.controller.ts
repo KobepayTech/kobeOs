@@ -80,6 +80,14 @@ export class LiveAdsController {
   @Post('slots/:id/end')
   endSlot(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.svc.endSlot(uid, id); }
 
+  // Auto-delivery rotation (app listens for live + delivers ads on a cadence)
+  @Get('creators/:creatorId/rotation')
+  getRotation(@CurrentUser('id') uid: string, @Param('creatorId') creatorId: string) { return this.svc.getRotation(uid, creatorId); }
+  @Post('creators/:creatorId/rotation')
+  setRotation(@CurrentUser('id') uid: string, @Param('creatorId') creatorId: string, @Body() dto: { campaignIds: string[]; everySeconds?: number; playbackSeconds?: number; ctaSeconds?: number; active?: boolean }) {
+    return this.svc.setRotation(uid, creatorId, dto);
+  }
+
   // Creator scorecard
   @Get('creators/:creatorId/stats')
   creatorStats(@Param('creatorId') creatorId: string) { return this.svc.creatorAdStats(creatorId); }

@@ -48,10 +48,18 @@ export default function LiveAdsPanel({ creators }: { creators: CreatorLite[] }) 
   const [dUrl, setDUrl] = useState('');
   const addDest = () => run(async () => { await api('/live-ads/destinations', { method: 'POST', body: JSON.stringify({ url: dUrl.trim() }) }); setDUrl(''); await loadAdvertiser(); });
 
-  const [form, setForm] = useState({ title: '', sponsorName: '', destinationId: '', offerText: '', couponCode: '', pricePerSlot: '50000', costPerClick: '200' });
+  const [form, setForm] = useState({ title: '', sponsorName: '', destinationId: '', offerText: '', couponCode: '', pricePerSlot: '50000', costPerClick: '200', creativeFormat: 'CARD', creativeVideoUrl: '' });
   const createCampaign = () => run(async () => {
     await api('/live-ads/campaigns', { method: 'POST', body: JSON.stringify({ ...form, pricePerSlot: Number(form.pricePerSlot) || 0, costPerClick: Number(form.costPerClick) || 0 }) });
-    setForm({ ...form, title: '', sponsorName: '', offerText: '', couponCode: '' }); await loadAdvertiser(); setMsg('Campaign created (Draft).');
+    setForm({ ...form, title: '', sponsorName: '', offerText: '', couponCode: '', creativeVideoUrl: '' }); await loadAdvertiser(); setMsg('Campaign created (Draft).');
+  });
+
+  // Auto-delivery rotation: while live, Kobe rotates these approved sponsors.
+  const [rot, setRot] = useState({ campaignIds: [] as string[], everySeconds: '300', playbackSeconds: '10', active: true });
+  const toggleRotCampaign = (id: string) => setRot((r) => ({ ...r, campaignIds: r.campaignIds.includes(id) ? r.campaignIds.filter((x) => x !== id) : [...r.campaignIds, id] }));
+  const saveRotation = () => run(async () => {
+    await api(`/live-ads/creators/${creatorId}/rotation`, { method: 'POST', body: JSON.stringify({ campaignIds: rot.campaignIds, everySeconds: Number(rot.everySeconds) || 300, playbackSeconds: Number(rot.playbackSeconds) || 10, active: rot.active }) });
+    setMsg('Auto-delivery saved — ads will rotate while you are live.');
   });
   const act = (id: string, path: string, label: string) => run(async () => { await api(`/live-ads/campaigns/${id}/${path}`, { method: 'POST', body: JSON.stringify({}) }); await loadAdvertiser(); setMsg(label); });
   const startSlot = (campaignId: string) => run(async () => { const r = await api<{ qr: string }>('/live-ads/slots', { method: 'POST', body: JSON.stringify({ creatorId, campaignId, playbackSeconds: 10, ctaSeconds: 900 }) }); setMsg(`Sponsor live · QR ${liveOrigin}${r.qr}`); });
@@ -116,6 +124,12 @@ export default function LiveAdsPanel({ creators }: { creators: CreatorLite[] }) 
           <select value={form.destinationId} onChange={(e) => setForm({ ...form, destinationId: e.target.value })} className={input}><option value="">Destination…</option>{dests.map((d) => <option key={d.id} value={d.id}>{d.domain}</option>)}</select>
           <input value={form.couponCode} onChange={(e) => setForm({ ...form, couponCode: e.target.value })} placeholder="Coupon (e.g. MARIAM20)" className={input} />
           <input value={form.offerText} onChange={(e) => setForm({ ...form, offerText: e.target.value })} placeholder="Offer text" className={`${input} col-span-2`} />
+          <select value={form.creativeFormat} onChange={(e) => setForm({ ...form, creativeFormat: e.target.value })} className={input}>
+            <option value="CARD">Format: Card</option><option value="BANNER">Format: Banner</option><option value="FULLSCREEN">Format: Full-screen</option><option value="VIDEO">Format: Video</option>
+          </select>
+          {form.creativeFormat === 'VIDEO'
+            ? <input value={form.creativeVideoUrl} onChange={(e) => setForm({ ...form, creativeVideoUrl: e.target.value })} placeholder="https://…/ad.mp4" className={input} />
+            : <div />}
           <input value={form.pricePerSlot} onChange={(e) => setForm({ ...form, pricePerSlot: e.target.value })} placeholder="Price/slot" className={input} />
           <input value={form.costPerClick} onChange={(e) => setForm({ ...form, costPerClick: e.target.value })} placeholder="Cost/click" className={input} />
         </div>
@@ -136,7 +150,27 @@ export default function LiveAdsPanel({ creators }: { creators: CreatorLite[] }) 
         </div>
       </div>
 
-      <p className="flex items-center gap-1.5 text-[11px] text-slate-500"><ShieldCheck className="h-3.5 w-3.5" /> Destinations are stored server-side and admin-approved. The bio link never changes; the sponsor behind it does.</p>
+      <div className={box}>
+        <div className="text-xs font-bold text-slate-300 mb-2">Auto-delivery · rotate sponsors while you're live</div>
+        <div className="space-y-1">
+          {camps.filter((c) => c.status === 'APPROVED').map((c) => (
+            <label key={c.id} className="flex items-center gap-2 text-xs">
+              <input type="checkbox" checked={rot.campaignIds.includes(c.id)} onChange={() => toggleRotCampaign(c.id)} />
+              {c.sponsorName} <span className="text-slate-500">({c.routingMode})</span>
+            </label>
+          ))}
+          {!camps.some((c) => c.status === 'APPROVED') && <div className="text-xs text-slate-500">Approve a campaign to add it to the rotation.</div>}
+        </div>
+        <div className="mt-2 flex items-center gap-2 text-xs">
+          <span className="text-slate-400">Every</span>
+          <input value={rot.everySeconds} onChange={(e) => setRot({ ...rot, everySeconds: e.target.value })} className={`${input} w-20`} /> <span className="text-slate-400">sec · play</span>
+          <input value={rot.playbackSeconds} onChange={(e) => setRot({ ...rot, playbackSeconds: e.target.value })} className={`${input} w-16`} /> <span className="text-slate-400">sec</span>
+          <label className="ml-auto flex items-center gap-1"><input type="checkbox" checked={rot.active} onChange={(e) => setRot({ ...rot, active: e.target.checked })} /> Active</label>
+          <button disabled={busy} onClick={saveRotation} className={`${btn} bg-white text-black`}>Save</button>
+        </div>
+      </div>
+
+      <p className="flex items-center gap-1.5 text-[11px] text-slate-500"><ShieldCheck className="h-3.5 w-3.5" /> Destinations are stored server-side and admin-approved. Ads are clearly badged "Sponsored" — never a spoof of a real app. The bio link never changes; the sponsor behind it does.</p>
       {busy && <div className="flex items-center gap-2 text-xs text-slate-400"><Loader2 className="h-3.5 w-3.5 animate-spin" /> working…</div>}
     </div>
   );

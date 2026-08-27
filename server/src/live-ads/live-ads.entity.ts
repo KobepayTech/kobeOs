@@ -140,6 +140,13 @@ export class LiveAdCampaign extends OwnedEntity {
   @Column({ default: 'SPONSOR_PAGE' })
   routingMode!: 'SPONSOR_PAGE' | 'DIRECT_REDIRECT';
 
+  /**
+   * How the ad renders on the creator's overlay / Kobe app. All are clearly
+   * "Sponsored" — a notification FORMAT, never a spoof of a real app.
+   */
+  @Column({ default: 'CARD' })
+  creativeFormat!: 'CARD' | 'BANNER' | 'FULLSCREEN' | 'VIDEO';
+
   // Sponsor-page creative
   @Column({ type: 'text', default: '' })
   offerText!: string;
@@ -258,7 +265,42 @@ export class LiveAdEvent extends BaseEntity {
   metadata!: Record<string, unknown>;
 }
 
+/**
+ * An automatic ad-delivery schedule for a creator: while they're live, Kobe
+ * rotates through these approved campaigns, starting a new sponsor slot every
+ * `everySeconds`. This is what makes the app "listen for a livestream and start
+ * delivering ads" with zero per-stream effort.
+ */
+@Entity('live_ad_rotations')
+export class LiveAdRotation extends OwnedEntity {
+  @Index({ unique: true })
+  @Column('uuid')
+  liveCreatorId!: string;
+
+  @Column({ type: 'jsonb', default: '[]' })
+  campaignIds!: string[];
+
+  @Column({ type: 'int', default: 300 })
+  everySeconds!: number;
+
+  @Column({ type: 'int', default: 10 })
+  playbackSeconds!: number;
+
+  @Column({ type: 'int', default: 900 })
+  ctaSeconds!: number;
+
+  @Column({ default: true })
+  active!: boolean;
+
+  /** Round-robin cursor + when the last slot was auto-started. */
+  @Column({ type: 'int', default: 0 })
+  cursor!: number;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  lastStartedAt?: Date | null;
+}
+
 export const LIVE_ADS_ENTITIES = [
   LiveCreator, LiveHandleAlias, LiveAdSession,
-  AdDestination, LiveAdCampaign, LiveAdSlot, LiveAdEvent,
+  AdDestination, LiveAdCampaign, LiveAdSlot, LiveAdEvent, LiveAdRotation,
 ];
