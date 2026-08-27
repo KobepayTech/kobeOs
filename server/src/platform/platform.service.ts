@@ -22,7 +22,9 @@ export type KobeDomainEventName =
   | 'creator.link_created' | 'creator.attribution_clicked' | 'creator.order_attributed'
   | 'creator.sale_attributed' | 'creator.commission_earned' | 'creator.commission_reversed'
   | 'creator.content_published' | 'creator.content_verified' | 'creator.content_removed'
-  | 'creator.commission_payable' | 'creator.payout_released';
+  | 'creator.commission_payable' | 'creator.payout_released'
+  | 'liveads.session_started' | 'liveads.session_ended' | 'liveads.slot_started'
+  | 'liveads.cta_click' | 'liveads.campaign_approved' | 'liveads.emergency_stopped';
 
 @Injectable()
 export class PlatformEventsService {
