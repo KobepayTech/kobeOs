@@ -13,7 +13,7 @@ import { CreatorSubscriptionService } from './creator-subscription.service';
 import { CreatorTier } from './creator-subscription.entity';
 import { CreateCreatorDto, SearchCreatorsDto, SyncCreatorDto, UpdateCreatorDto } from './dto/creator.dto';
 import {
-  CreateCampaignDto, PromoteProductDto, RespondOfferDto, SendOfferDto,
+  AttachMediaDto, CreateCampaignDto, PromoteProductDto, PublishTikTokDto, RespondOfferDto, SendOfferDto,
   SubmitProofDto, UpdateCampaignDto,
 } from './dto/campaign.dto';
 import { AddReviewDto, CampaignAnalyticsDto, SetPackagesDto } from './dto/marketplace.dto';
@@ -136,6 +136,42 @@ export class CreatorsController {
     @Param('offerId') offerId: string,
     @Body() dto: SubmitProofDto,
   ) { return this.campaigns.submitProof(uid, campaignId, offerId, dto); }
+
+  // ── Content deliverables (creator publishes/attaches; brand verifies) ───────
+
+  /** Creator attaches an existing published post/video as the deliverable. */
+  @Post('campaigns/:campaignId/offers/:offerId/attach-media')
+  attachMedia(
+    @CurrentUser('id') uid: string,
+    @Param('campaignId') campaignId: string,
+    @Param('offerId') offerId: string,
+    @Body() dto: AttachMediaDto,
+  ) { return this.campaigns.attachExistingMedia(uid, campaignId, offerId, dto); }
+
+  /** Creator publishes new content to TikTok (gated by CREATOR_TIKTOK_POSTING_ENABLED). */
+  @Post('campaigns/:campaignId/offers/:offerId/publish-tiktok')
+  publishTikTok(
+    @CurrentUser('id') uid: string,
+    @Param('campaignId') campaignId: string,
+    @Param('offerId') offerId: string,
+    @Body() dto: PublishTikTokDto,
+  ) { return this.campaigns.publishTikTokContent(uid, campaignId, offerId, dto); }
+
+  /** Brand/system marks the deliverable API-verified. */
+  @Post('campaigns/:campaignId/offers/:offerId/verify-content')
+  verifyContent(
+    @CurrentUser('id') uid: string,
+    @Param('campaignId') campaignId: string,
+    @Param('offerId') offerId: string,
+  ) { return this.campaigns.verifyDeliverable(uid, campaignId, offerId); }
+
+  /** Brand/system marks the deliverable removed (breach if before live-until). */
+  @Post('campaigns/:campaignId/offers/:offerId/removed')
+  markRemoved(
+    @CurrentUser('id') uid: string,
+    @Param('campaignId') campaignId: string,
+    @Param('offerId') offerId: string,
+  ) { return this.campaigns.markDeliverableRemoved(uid, campaignId, offerId); }
 
   // ── Campaign analytics ──────────────────────────────────────────────────────
 

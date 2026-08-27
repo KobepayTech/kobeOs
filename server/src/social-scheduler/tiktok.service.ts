@@ -299,6 +299,18 @@ export class TikTokService {
     return account ? this.safe(account) : { connected: false as const };
   }
 
+  /**
+   * Publish content to the owner's connected TikTok via the Content Posting API.
+   * Convenience wrapper so other modules (e.g. creator campaigns) can post
+   * without constructing SocialPost/SocialAccount themselves. Returns the
+   * TikTok publish id.
+   */
+  async publishForOwner(ownerId: string, input: { mediaUrls: string[]; caption?: string }): Promise<string> {
+    const account = await this.getAccount(ownerId);
+    const post = { ownerId, content: input.caption ?? '', mediaUrls: input.mediaUrls } as unknown as SocialPost;
+    return this.publish(post, account);
+  }
+
   private async getAccount(ownerId: string): Promise<SocialAccount> {
     const account = await this.accounts.findOne({
       where: { ownerId, platform: 'tiktok', status: 'connected' },

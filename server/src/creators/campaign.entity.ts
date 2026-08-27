@@ -47,6 +47,19 @@ export interface CreatorOffer {
   verifiedAt?: string;
   paidAt?: string;
   notes?: string;
+
+  // ── Content deliverable (Phase 3: publish → verify → monitor) ──────────────
+  /** Platform the campaign content was published to. */
+  deliverablePlatform?: 'tiktok' | 'instagram';
+  /** Platform media/post id once published (via KobeOS or an attached existing post). */
+  publishedMediaId?: string;
+  publishedUrl?: string;
+  publishedAt?: string;
+  /** NONE → DRAFT → PUBLISHED → PUBLISHED_VERIFIED, or REMOVED on breach. */
+  publishStatus?: 'NONE' | 'DRAFT' | 'PUBLISHED' | 'PUBLISHED_VERIFIED' | 'REMOVED';
+  /** End of the contractual live period; a post removed before this is a breach. */
+  liveUntil?: string;
+  deliverableVerifiedAt?: string;
 }
 
 // NB: a distinct table from the legacy marketing `campaigns` (discounts module).

@@ -15,6 +15,7 @@ import { CreatorsCronService } from './creators-cron.service';
 import { PalmPesaService } from './palmpesa.service';
 import { CreatorSubscriptionService } from './creator-subscription.service';
 import { SocialSchedulerModule } from '../social-scheduler/social-scheduler.module';
+import { PlatformModule } from '../platform/platform.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { SocialSchedulerModule } from '../social-scheduler/social-scheduler.modu
       Wallet, PaymentTransaction,
     ]),
     SocialSchedulerModule,
+    PlatformModule,
   ],
   providers: [
     ScrapeCreatorsService,

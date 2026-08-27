@@ -26,6 +26,19 @@ export class CreateCampaignDto {
   @IsOptional() @IsString() endsAt?: string;
 }
 
+export class AttachMediaDto {
+  @IsIn(['tiktok', 'instagram']) platform!: 'tiktok' | 'instagram';
+  @IsString() @MaxLength(200) mediaId!: string;
+  @IsOptional() @IsString() @MaxLength(500) url?: string;
+  @IsOptional() @IsNumber() @Min(0) liveDays?: number;
+}
+
+export class PublishTikTokDto {
+  @IsArray() @IsString({ each: true }) mediaUrls!: string[];
+  @IsOptional() @IsString() @MaxLength(2200) caption?: string;
+  @IsOptional() @IsNumber() @Min(0) liveDays?: number;
+}
+
 export class PromoteProductDto {
   @IsUUID() productId!: string;
   @IsString() @MaxLength(160) productName!: string;

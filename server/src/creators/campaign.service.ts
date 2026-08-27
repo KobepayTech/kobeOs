@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   forwardRef,
   Inject,
   Injectable,
@@ -12,15 +13,20 @@ import { randomUUID } from 'crypto';
 import { Campaign, CreatorOffer } from './campaign.entity';
 import { Creator } from './creator.entity';
 import { Wallet } from '../payments/payments.entity';
+import { ConfigService } from '@nestjs/config';
 import {
+  AttachMediaDto,
   CreateCampaignDto,
   PromoteProductDto,
+  PublishTikTokDto,
   RespondOfferDto,
   SendOfferDto,
   SubmitProofDto,
   UpdateCampaignDto,
 } from './dto/campaign.dto';
 import { EscrowService } from './escrow.service';
+import { TikTokService } from '../social-scheduler/tiktok.service';
+import { PlatformEventsService } from '../platform/platform.service';
 
 @Injectable()
 export class CampaignService {
@@ -31,6 +37,9 @@ export class CampaignService {
     @InjectRepository(Creator)  private readonly creators: Repository<Creator>,
     @InjectRepository(Wallet)   private readonly wallets: Repository<Wallet>,
     @Inject(forwardRef(() => EscrowService)) private readonly escrowSvc: EscrowService,
+    private readonly tiktok: TikTokService,
+    private readonly config: ConfigService,
+    private readonly events: PlatformEventsService,
   ) {}
 
   // ── Advertiser CRUD ─────────────────────────────────────────────────────────
@@ -179,10 +188,7 @@ export class CampaignService {
     const campaign = await this.campaigns.findOne({ where: { id: campaignId } });
     if (!campaign) throw new NotFoundException('Campaign not found');
 
-    const offerIdx = campaign.offers.findIndex(
-      (o) => o.id === offerId && o.creatorId === creatorUserId,
-    );
-    if (offerIdx === -1) throw new NotFoundException('Offer not found');
+    const offerIdx = await this.offerIndexForCreator(campaign, offerId, creatorUserId);
 
     const offer = campaign.offers[offerIdx];
     if (offer.status !== 'pending' && offer.status !== 'negotiating') {
@@ -246,10 +252,7 @@ export class CampaignService {
     const campaign = await this.campaigns.findOne({ where: { id: campaignId } });
     if (!campaign) throw new NotFoundException('Campaign not found');
 
-    const offerIdx = campaign.offers.findIndex(
-      (o) => o.id === offerId && o.creatorId === creatorUserId,
-    );
-    if (offerIdx === -1) throw new NotFoundException('Offer not found');
+    const offerIdx = await this.offerIndexForCreator(campaign, offerId, creatorUserId);
 
     const offer = campaign.offers[offerIdx];
     if (offer.status !== 'active') {
@@ -261,6 +264,110 @@ export class CampaignService {
     campaign.offers = campaign.offers.map((o, i) => (i === offerIdx ? offer : o));
     campaign.status = 'verifying';
     return this.campaigns.save(campaign);
+  }
+
+  // ── Content deliverables (Phase 3: publish → verify → monitor) ─────────────
+
+  /**
+   * Resolve an offer index and authorize the caller as its creator. An offer's
+   * `creatorId` is a Creator entity id; the caller proves they are that creator
+   * by owning the Creator profile (ownerId === caller's user id). Shared by
+   * respond/proof/deliverable actions so they authorize identically.
+   */
+  private async offerIndexForCreator(campaign: Campaign, offerId: string, callerUserId: string): Promise<number> {
+    const idx = campaign.offers.findIndex((o) => o.id === offerId);
+    if (idx === -1) throw new NotFoundException('Offer not found');
+    const creator = await this.creators.findOne({ where: { id: campaign.offers[idx].creatorId, ownerId: callerUserId } });
+    if (!creator) throw new ForbiddenException('Only the assigned creator can act on this offer');
+    return idx;
+  }
+
+  private async locateCreatorOffer(campaign: Campaign, offerId: string, creatorUserId: string) {
+    const idx = await this.offerIndexForCreator(campaign, offerId, creatorUserId);
+    const offer = campaign.offers[idx];
+    if (offer.status === 'declined' || offer.status === 'pending') {
+      throw new BadRequestException('Accept the offer before adding content');
+    }
+    return { idx, offer };
+  }
+
+  private saveOffer(campaign: Campaign, idx: number, offer: CreatorOffer) {
+    campaign.offers = campaign.offers.map((o, i) => (i === idx ? offer : o));
+    return this.campaigns.save(campaign);
+  }
+
+  /**
+   * Attach an already-published post/video the creator selected from their own
+   * account (spec §193) — no KobeOS publishing needed. Marks the deliverable
+   * PUBLISHED and sets the contractual live-until window.
+   */
+  async attachExistingMedia(creatorUserId: string, campaignId: string, offerId: string, dto: AttachMediaDto) {
+    const campaign = await this.campaigns.findOne({ where: { id: campaignId } });
+    if (!campaign) throw new NotFoundException('Campaign not found');
+    const { idx, offer } = await this.locateCreatorOffer(campaign, offerId, creatorUserId);
+    offer.deliverablePlatform = dto.platform;
+    offer.publishedMediaId = dto.mediaId;
+    offer.publishedUrl = dto.url ?? '';
+    offer.publishedAt = new Date().toISOString();
+    offer.publishStatus = 'PUBLISHED';
+    if (dto.liveDays && dto.liveDays > 0) offer.liveUntil = new Date(Date.now() + dto.liveDays * 86_400_000).toISOString();
+    const saved = await this.saveOffer(campaign, idx, offer);
+    await this.events.emit({ ownerId: campaign.ownerId, eventName: 'creator.content_published', aggregateType: 'Campaign', aggregateId: campaign.id, payload: { offerId, platform: dto.platform, mediaId: dto.mediaId, source: 'existing' } });
+    return saved;
+  }
+
+  /**
+   * Publish new campaign content to the creator's connected TikTok via the
+   * Content Posting API. Gated behind CREATOR_TIKTOK_POSTING_ENABLED because
+   * live posting depends on TikTok product approval/audit.
+   */
+  async publishTikTokContent(creatorUserId: string, campaignId: string, offerId: string, dto: PublishTikTokDto) {
+    if (this.config.get<string>('CREATOR_TIKTOK_POSTING_ENABLED') !== 'true') {
+      throw new BadRequestException('TikTok posting is not enabled for this deployment yet. Attach an existing post instead.');
+    }
+    if (!dto.mediaUrls?.length) throw new BadRequestException('Provide at least one video or photo URL');
+    const campaign = await this.campaigns.findOne({ where: { id: campaignId } });
+    if (!campaign) throw new NotFoundException('Campaign not found');
+    const { idx, offer } = await this.locateCreatorOffer(campaign, offerId, creatorUserId);
+    const mediaId = await this.tiktok.publishForOwner(creatorUserId, { mediaUrls: dto.mediaUrls, caption: dto.caption });
+    offer.deliverablePlatform = 'tiktok';
+    offer.publishedMediaId = mediaId;
+    offer.publishedAt = new Date().toISOString();
+    offer.publishStatus = 'PUBLISHED';
+    if (dto.liveDays && dto.liveDays > 0) offer.liveUntil = new Date(Date.now() + dto.liveDays * 86_400_000).toISOString();
+    const saved = await this.saveOffer(campaign, idx, offer);
+    await this.events.emit({ ownerId: campaign.ownerId, eventName: 'creator.content_published', aggregateType: 'Campaign', aggregateId: campaign.id, payload: { offerId, platform: 'tiktok', mediaId, source: 'kobeos' } });
+    return saved;
+  }
+
+  /** Advertiser/system marks a published deliverable as API-verified (§194). */
+  async verifyDeliverable(ownerId: string, campaignId: string, offerId: string) {
+    const campaign = await this.get(ownerId, campaignId);
+    const idx = campaign.offers.findIndex((o) => o.id === offerId);
+    if (idx === -1) throw new NotFoundException('Offer not found');
+    const offer = campaign.offers[idx];
+    if (!offer.publishedMediaId) throw new BadRequestException('No published media to verify');
+    offer.publishStatus = 'PUBLISHED_VERIFIED';
+    offer.deliverableVerifiedAt = new Date().toISOString();
+    const saved = await this.saveOffer(campaign, idx, offer);
+    await this.events.emit({ ownerId, eventName: 'creator.content_verified', aggregateType: 'Campaign', aggregateId: campaign.id, payload: { offerId, mediaId: offer.publishedMediaId } });
+    return saved;
+  }
+
+  /**
+   * Mark a deliverable removed. If the post is taken down before its contractual
+   * live-until, that is a deliverable breach (§195).
+   */
+  async markDeliverableRemoved(ownerId: string, campaignId: string, offerId: string) {
+    const campaign = await this.get(ownerId, campaignId);
+    const idx = campaign.offers.findIndex((o) => o.id === offerId);
+    if (idx === -1) throw new NotFoundException('Offer not found');
+    const offer = campaign.offers[idx];
+    const breach = !!offer.liveUntil && Date.now() < new Date(offer.liveUntil).getTime();
+    offer.publishStatus = 'REMOVED';
+    const saved = await this.saveOffer(campaign, idx, offer);
+    await this.events.emit({ ownerId, eventName: 'creator.content_removed', aggregateType: 'Campaign', aggregateId: campaign.id, payload: { offerId, breach } });
+    return { campaign: saved, breach };
   }
 
   // ── Manual escrow lock ──────────────────────────────────────────────────────
