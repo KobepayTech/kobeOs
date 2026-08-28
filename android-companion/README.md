@@ -39,3 +39,21 @@ cd android-companion
 ```
 Requires Android SDK 34, minSdk 26 (TYPE_APPLICATION_OVERLAY). No secrets are
 compiled in — the server URL + overlay token are entered at runtime.
+
+## Pairing (easy path)
+Instead of pasting the long overlay token: in the web app tap **Pair Android app**
+to get a 6-digit code, enter it in the app's **Pair with code** field. The app
+redeems it at `POST /api/live/pair` and fills in the token + `kobe.live` base
+automatically. Codes are single-use and expire in 10 minutes.
+
+## Notes / limits
+- **Test overlay:** the app has a "Test overlay (preview)" button that shows a
+  sample sponsored card for ~8s so a creator can confirm it renders before going
+  live.
+- **Restart resilience:** the service is `START_STICKY` and keeps polling through
+  transient network drops; if Android kills it, it restarts and re-reads the
+  saved token.
+- **FLAG_SECURE apps:** a few apps mark their windows `FLAG_SECURE`, which hides
+  overlays from screen capture. Games almost never do this; banking/DRM apps do.
+  Nothing we can (or should) bypass — the overlay simply won't show over such
+  apps, which is correct behaviour.

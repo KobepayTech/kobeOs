@@ -56,15 +56,24 @@ class OverlayService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val prefs = getSharedPreferences("kobe_live", Context.MODE_PRIVATE)
-        val base = prefs.getString("baseUrl", "") ?: ""
-        val token = prefs.getString("token", "") ?: ""
         liveBase = prefs.getString("liveBase", "https://kobe.live") ?: "https://kobe.live"
-        if (base.isEmpty() || token.isEmpty()) { stopSelf(); return START_NOT_STICKY }
-
-        client = LiveAdsClient(base, token)
         wm = getSystemService(WINDOW_SERVICE) as WindowManager
         startForeground(1, buildNotification())
         buildOverlay()
+
+        if (intent?.getBooleanExtra("test", false) == true) {
+            // Preview a sample sponsored overlay, then stop.
+            val sample = Slot("test", "AD000000", "Coca-Cola", "Special LIVE offer", "MARIAM20", "FULLSCREEN", null,
+                System.currentTimeMillis() + 6000, System.currentTimeMillis() + 8000)
+            render(OverlayState("preview", true, sample))
+            ui.postDelayed({ stopSelf() }, 8000)
+            return START_NOT_STICKY
+        }
+
+        val base = prefs.getString("baseUrl", "") ?: ""
+        val token = prefs.getString("token", "") ?: ""
+        if (base.isEmpty() || token.isEmpty()) { stopSelf(); return START_NOT_STICKY }
+        client = LiveAdsClient(base, token)
         loop()
         return START_STICKY
     }
@@ -146,8 +155,9 @@ class OverlayService : Service() {
         val now = System.currentTimeMillis()
         val playing = slot.playbackEndMs > now
 
-        // Proof-of-play: once per slot, while its creative is on screen.
-        if (playing && lastImpressed != slot.slotId) {
+        // Proof-of-play: once per slot, while its creative is on screen (skipped
+        // in preview mode where there is no client).
+        if (playing && lastImpressed != slot.slotId && this::client.isInitialized) {
             lastImpressed = slot.slotId
             net.execute { client.impression(slot.slotId) }
         }
@@ -205,7 +215,7 @@ class OverlayService : Service() {
 
     override fun onDestroy() {
         running = false
-        net.execute { runCatching { client.end() } }
+        if (this::client.isInitialized) net.execute { runCatching { client.end() } }
         runCatching { root?.let { wm.removeView(it) } }
         super.onDestroy()
     }

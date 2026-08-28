@@ -79,7 +79,7 @@ describe('Kobe Live Ads (e2e)', () => {
     // Click-through 302s to the server-side approved URL (never client-supplied).
     const go = await request(http).get(`/api/live/go/${clickVisitId}`).redirects(0);
     expect(go.status).toBe(302);
-    expect(go.headers.location).toBe('https://coca-cola.co.tz/live-offer');
+    expect(go.headers.location).toContain('https://coca-cola.co.tz/live-offer'); // + ?klv attribution
 
     // Slot-exact QR → precise attribution to this sponsor.
     const qr = await request(http).get(`/api/live/a/${qrCode}`);
@@ -148,5 +148,64 @@ describe('Kobe Live Ads (e2e)', () => {
     expect(bio.body.sponsor.name).toBe('RotoCola');
     const state = await request(http).get(`/api/live/overlay/${overlay}/state`);
     expect(state.body.slot.creativeFormat).toBe('FULLSCREEN');
+  });
+
+  it('pairs the Android app with a 6-digit code', async () => {
+    const brayo = await register(`pair_${Date.now()}@test.io`);
+    const creator = await request(http).post('/api/creators').set(auth(brayo)).send({ name: 'Pair', handle: `pair${Date.now()}` });
+    const id = (await request(http).post('/api/live-ads/identity').set(auth(brayo)).send({ creatorId: creator.body.id })).body as { overlayToken: string };
+
+    const pc = await request(http).post(`/api/live-ads/creators/${creator.body.id}/pair-code`).set(auth(brayo)).send({});
+    expect(pc.status).toBe(201);
+    expect(pc.body.code).toMatch(/^\d{6}$/);
+
+    const redeem = await request(http).post('/api/live/pair').send({ code: pc.body.code });
+    expect(redeem.status).toBe(201);
+    expect(redeem.body.overlayToken).toBe(id.overlayToken); // app now holds the token
+
+    // Single-use.
+    await request(http).post('/api/live/pair').send({ code: pc.body.code }).expect(400);
+  });
+
+  it('attributes a Jumla sale back to the live sponsor (conversion loop)', async () => {
+    const brayo = await register(`conv_${Date.now()}@test.io`);
+    const advertiser = await register(`cadv_${Date.now()}@test.io`);
+    const admin = await register(`cadm_${Date.now()}@test.io`, 'admin');
+
+    const creator = await request(http).post('/api/creators').set(auth(brayo)).send({ name: 'Conv', handle: `conv${Date.now()}` });
+    const creatorId = creator.body.id as string;
+    const overlay = (await request(http).post('/api/live-ads/identity').set(auth(brayo)).send({ creatorId })).body.overlayToken as string;
+
+    // Advertiser is also the merchant selling the product on Jumla.
+    await request(http).post('/api/commerce/businesses').set(auth(advertiser)).send({ name: 'Sponsor Store' }).expect(201);
+    const qa = await request(http).post('/api/commerce/products/quick-add').set(auth(advertiser)).send({ imageUrl: 'https://x/y.jpg', name: 'Energy Drink', price: 5000, stock: 100 });
+    const productId = qa.body.products[0].id as string;
+    await request(http).post('/api/commerce/nodes/register').set(auth(advertiser)).send({}).expect(201);
+
+    const dest = await request(http).post('/api/live-ads/destinations').set(auth(advertiser)).send({ url: 'https://sponsor.example/jumla-product' });
+    const camp = await request(http).post('/api/live-ads/campaigns').set(auth(advertiser)).send({ title: 'C', sponsorName: 'EnergyCo', destinationId: dest.body.id });
+    await request(http).post(`/api/live-ads/campaigns/${camp.body.id}/submit`).set(auth(advertiser)).expect(201);
+    await request(http).post(`/api/live-ads/campaigns/${camp.body.id}/approve`).set(auth(admin)).send({}).expect(201);
+
+    await request(http).post(`/api/live/overlay/${overlay}/heartbeat`).expect(201);
+    await request(http).post('/api/live-ads/slots').set(auth(brayo)).send({ creatorId, campaignId: camp.body.id }).expect(201);
+
+    // Viewer taps the sponsor link → click-through carries klv to the destination.
+    const bio = await request(http).get(`/api/live/resolve/${creator.body.handle}`);
+    const go = await request(http).get(`/api/live/go/${bio.body.clickVisitId}`).redirects(0);
+    const klv = new URL(go.headers.location).searchParams.get('klv')!;
+    expect(klv).toBeTruthy();
+
+    // The viewer then buys on Jumla, forwarding the live click id.
+    const order = await request(http).post('/api/commerce-public/jumla/orders').send({
+      customer: { name: 'Fan', phone: '+255700000123' }, fulfillment: 'PICKUP',
+      lines: [{ productId, quantity: 4 }], attribution: { liveClickVisitId: klv },
+    });
+    expect(order.status).toBe(201);
+
+    // The sponsor's scorecard now shows a real SALE, not just a click.
+    const stats = await request(http).get(`/api/live-ads/campaigns/${camp.body.id}/stats`).set(auth(advertiser));
+    expect(stats.body.conversions).toBe(1);
+    expect(Number(stats.body.attributedRevenue)).toBe(20000); // 4 × 5000
   });
 });

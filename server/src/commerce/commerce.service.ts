@@ -15,6 +15,7 @@ import {
 } from './commerce.entity';
 import { LITE_FREE_ORDER_LIMIT, extractCaptionProductMetadata, groupByMerchant, isNodeOnline, merchantOrderAccess, missingRequiredOptions, normalizePhone, panelCrops, shopCode, vehicleEconomics } from './commerce.rules';
 import { CreatorCommerceService } from '../creator-commerce/creator-commerce.service';
+import { LiveAdsService } from '../live-ads/live-ads.service';
 import { CommerceVehicle, VehicleBuyerRequest, VehicleListingMetadata, VehicleMedia, VehicleReservation } from './cars.entity';
 import { VideoGenerationService } from '../video-generation/video-generation.service';
 
@@ -42,6 +43,7 @@ export class CommerceService {
     private readonly events: PlatformEventsService,
     private readonly notifications: PlatformNotificationService,
     private readonly creatorCommerce: CreatorCommerceService,
+    private readonly liveAds: LiveAdsService,
   ) {}
 
   private repo<T extends object>(entity: new () => T): Repository<T> { return this.ds.getRepository(entity); }
@@ -535,10 +537,11 @@ export class CommerceService {
   async submitCart(input: {
     customer: { phone: string; name: string; email?: string }; fulfillment: 'PICKUP' | 'DELIVERY'; deliveryAddress?: string; note?: string;
     lines: Array<{ productId: string; quantity: number; selectedOptions?: Record<string, string> }>;
-    attribution?: { code?: string; clickId?: string; promoCode?: string };
+    attribution?: { code?: string; clickId?: string; promoCode?: string; liveClickVisitId?: string };
   }) {
     const clickId = (input.attribution?.clickId ?? '').trim();
     const promoCode = (input.attribution?.promoCode ?? '').trim();
+    const liveClickVisitId = (input.attribution?.liveClickVisitId ?? '').trim();
     // Resolve a promo code to its link code up front so promo-only orders carry
     // the same attributionCode as click orders (status transitions key off it).
     let attributionCode = (input.attribution?.code ?? '').trim();
@@ -617,6 +620,13 @@ export class CommerceService {
         try {
           await this.creatorCommerce.attributeOrder({ code: attributionCode, clickId, orderId: order.id, revenue: Number(order.total), currency: order.currency });
         } catch { /* attribution is advisory; never fail the order on it */ }
+      }
+    }
+    // Live Ads conversion: a sale that came from a sponsor's live overlay click.
+    if (liveClickVisitId) {
+      for (const order of created.merchantOrders) {
+        try { await this.liveAds.recordConversion(liveClickVisitId, order.id, Number(order.total)); }
+        catch { /* advisory */ }
       }
     }
     return { success: true, message: 'Order sent successfully', cartId: created.cart.id, orders: created.merchantOrders.map((o) => ({ orderNumber: o.orderNumber, businessId: o.businessId, status: 'SUBMITTED', total: o.total })) };

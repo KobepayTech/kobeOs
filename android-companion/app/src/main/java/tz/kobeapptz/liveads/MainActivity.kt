@@ -13,6 +13,10 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import java.util.concurrent.Executors
 
 /**
  * Pairing + Go-Live. The creator pastes the server URL and their overlay token
@@ -24,6 +28,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var baseUrl: EditText
     private lateinit var token: EditText
     private lateinit var liveBase: EditText
+    private val bg = Executors.newSingleThreadExecutor()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -44,9 +49,22 @@ class MainActivity : AppCompatActivity() {
         root.addView(label("Overlay token")); root.addView(token)
         root.addView(label("QR link base (kobe.live)")); root.addView(liveBase)
 
+        // Frictionless pairing: enter the 6-digit code shown in the web app.
+        root.addView(label("Pair with a 6-digit code (from Creator → Live Ads)"))
+        val pairField = EditText(this).apply { hint = "123456"; inputType = android.text.InputType.TYPE_CLASS_NUMBER }
+        root.addView(pairField)
+        root.addView(Button(this).apply {
+            text = "Pair with code"
+            setOnClickListener { pairWithCode(pairField.text.toString().trim()) }
+        })
+
         root.addView(Button(this).apply {
             text = "Grant \"draw over other apps\""
             setOnClickListener { requestOverlayPermission() }
+        })
+        root.addView(Button(this).apply {
+            text = "Test overlay (preview)"
+            setOnClickListener { testOverlay() }
         })
 
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER; setPadding(0, dp(12), 0, 0) }
@@ -87,6 +105,36 @@ class MainActivity : AppCompatActivity() {
         val svc = Intent(this, OverlayService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(svc) else startService(svc)
         toast("You are LIVE — sponsored overlays will appear over your stream")
+    }
+
+    /** Redeem the 6-digit code against the server → fills in the overlay token. */
+    private fun pairWithCode(code: String) {
+        val b = baseUrl.text.toString().trim()
+        if (b.isEmpty() || code.length != 6) { toast("Enter server URL and the 6-digit code"); return }
+        bg.execute {
+            try {
+                val c = URL("${b.trimEnd('/')}/api/live/pair").openConnection() as HttpURLConnection
+                c.requestMethod = "POST"; c.doOutput = true; c.connectTimeout = 8000; c.readTimeout = 8000
+                c.setRequestProperty("Content-Type", "application/json")
+                c.outputStream.use { it.write(JSONObject().put("code", code).toString().toByteArray()) }
+                if (c.responseCode in 200..299) {
+                    val j = JSONObject(c.inputStream.bufferedReader().readText())
+                    runOnUiThread {
+                        token.setText(j.optString("overlayToken"))
+                        j.optString("liveBase").takeIf { it.isNotEmpty() }?.let { liveBase.setText(it) }
+                        toast("Paired as @${j.optString("handle")} — tap Go Live")
+                    }
+                } else runOnUiThread { toast("Invalid or expired code") }
+                c.disconnect()
+            } catch (_: Exception) { runOnUiThread { toast("Could not reach the server") } }
+        }
+    }
+
+    /** Preview the overlay with sample content for a few seconds. */
+    private fun testOverlay() {
+        if (!Settings.canDrawOverlays(this)) { requestOverlayPermission(); return }
+        startService(Intent(this, OverlayService::class.java).putExtra("test", true))
+        toast("Previewing a sample sponsored overlay for 8s")
     }
 
     private fun toast(m: String) = Toast.makeText(this, m, Toast.LENGTH_SHORT).show()

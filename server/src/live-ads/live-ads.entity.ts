@@ -258,6 +258,11 @@ export class LiveAdEvent extends BaseEntity {
   @Column({ default: '' })
   clickVisitId!: string;
 
+  /** Set on CONVERSION events — the downstream (Jumla) order that was attributed. */
+  @Index()
+  @Column({ type: 'uuid', nullable: true })
+  orderId?: string | null;
+
   @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
   revenue!: number;
 
@@ -300,7 +305,28 @@ export class LiveAdRotation extends OwnedEntity {
   lastStartedAt?: Date | null;
 }
 
+/**
+ * A short-lived 6-digit code that pairs the Android companion to a creator's
+ * live identity without copy-pasting the long overlay token.
+ */
+@Entity('live_pair_codes')
+export class LivePairCode extends BaseEntity {
+  @Index({ unique: true })
+  @Column()
+  code!: string;
+
+  @Index()
+  @Column('uuid')
+  liveCreatorId!: string;
+
+  @Column({ type: 'timestamptz' })
+  expiresAt!: Date;
+
+  @Column({ default: false })
+  used!: boolean;
+}
+
 export const LIVE_ADS_ENTITIES = [
   LiveCreator, LiveHandleAlias, LiveAdSession,
-  AdDestination, LiveAdCampaign, LiveAdSlot, LiveAdEvent, LiveAdRotation,
+  AdDestination, LiveAdCampaign, LiveAdSlot, LiveAdEvent, LiveAdRotation, LivePairCode,
 ];

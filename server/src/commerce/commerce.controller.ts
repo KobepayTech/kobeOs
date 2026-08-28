@@ -55,6 +55,7 @@ class CartAttributionDto {
   @IsOptional() @IsString() @MaxLength(32) code?: string;
   @IsOptional() @IsString() @MaxLength(64) clickId?: string;
   @IsOptional() @IsString() @MaxLength(40) promoCode?: string;
+  @IsOptional() @IsString() @MaxLength(64) liveClickVisitId?: string;
 }
 class CartDto {
   @ValidateNested() @Type(() => CustomerDto) customer!: CustomerDto;

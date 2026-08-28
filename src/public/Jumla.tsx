@@ -38,6 +38,9 @@ export default function Jumla() {
       const params = new URLSearchParams(window.location.search);
       const kc = params.get('kc'); const kcid = params.get('kcid');
       if (kc) { localStorage.setItem('jumla_attr_code', kc); if (kcid) localStorage.setItem('jumla_attr_click', kcid); }
+      // Live Ads: a sponsor click-through arrives with ?klv=<liveClickVisitId>.
+      const klv = params.get('klv');
+      if (klv) { try { localStorage.setItem('jumla_live_click', klv); } catch { /* ignore */ } }
       code = kc || localStorage.getItem('jumla_attr_code') || '';
     } catch { /* ignore */ }
     if (code) publicApi<typeof pick>(`/c/${encodeURIComponent(code)}/info`).then((info) => { if (info?.creator) setPick(info); }).catch(() => undefined);
@@ -72,7 +75,8 @@ export default function Jumla() {
       const attrCode = (() => { try { return localStorage.getItem('jumla_attr_code') || ''; } catch { return ''; } })();
       const attrClick = (() => { try { return localStorage.getItem('jumla_attr_click') || ''; } catch { return ''; } })();
       const promoCode = promo.trim();
-      const attribution = (attrCode || promoCode) ? { attribution: { code: attrCode, clickId: attrClick, promoCode } } : {};
+      const liveClickVisitId = (() => { try { return localStorage.getItem('jumla_live_click') || ''; } catch { return ''; } })();
+      const attribution = (attrCode || promoCode || liveClickVisitId) ? { attribution: { code: attrCode, clickId: attrClick, promoCode, liveClickVisitId } } : {};
       const response = await publicApi<{ orders: Array<{ orderNumber: string }> }>('/commerce-public/jumla/orders', { method: 'POST', body: JSON.stringify({ customer: { name: checkout.name, phone: checkout.phone }, fulfillment: checkout.fulfillment, deliveryAddress: checkout.address, note: checkout.note, lines: cart.map((line) => ({ productId: line.item.productId, quantity: line.quantity, selectedOptions: line.selectedOptions })), ...attribution }) });
       setSuccess(`Order sent: ${response.orders.map((o) => o.orderNumber).join(', ')}`); setCart([]);
     } catch (e) { setError((e as Error).message); }

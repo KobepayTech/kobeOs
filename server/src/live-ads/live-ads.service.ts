@@ -5,9 +5,10 @@ import { DataSource, LessThan, Repository } from 'typeorm';
 import { Cron } from '@nestjs/schedule';
 import { PlatformEventsService } from '../platform/platform.service';
 import { Creator } from '../creators/creator.entity';
+import { ConfigService } from '@nestjs/config';
 import {
   AdDestination, LiveAdCampaign, LiveAdEvent, LiveAdRotation, LiveAdSession, LiveAdSlot,
-  LiveCreator, LiveHandleAlias,
+  LiveCreator, LiveHandleAlias, LivePairCode,
 } from './live-ads.entity';
 
 const norm = (h: string) => h.trim().replace(/^@/, '').toLowerCase();
@@ -37,9 +38,43 @@ export class LiveAdsService {
     @InjectRepository(LiveAdSlot) private readonly slots: Repository<LiveAdSlot>,
     @InjectRepository(LiveAdEvent) private readonly events: Repository<LiveAdEvent>,
     @InjectRepository(LiveAdRotation) private readonly rotations: Repository<LiveAdRotation>,
+    @InjectRepository(LivePairCode) private readonly pairCodes: Repository<LivePairCode>,
     @InjectRepository(Creator) private readonly creators: Repository<Creator>,
     private readonly platform: PlatformEventsService,
+    private readonly config: ConfigService,
   ) {}
+
+  /** Public base for QR/permanent links (the kobe.live domain). */
+  private liveBase(): string {
+    return (this.config.get<string>('LIVE_ADS_PUBLIC_BASE') || 'https://kobe.live').replace(/\/+$/, '');
+  }
+
+  // ── Pairing (6-digit code → overlay token) ─────────────────────────────────
+
+  async createPairCode(ownerId: string, creatorId: string) {
+    const live = await this.creatorsLive.findOne({ where: { creatorId, ownerId } });
+    if (!live) throw new NotFoundException('Live identity not found');
+    // 6 digits, single active code per creator.
+    await this.pairCodes.delete({ liveCreatorId: live.id, used: false });
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const code = String(Math.floor(100000 + Math.random() * 900000));
+      try {
+        const row = await this.pairCodes.save(this.pairCodes.create({ code, liveCreatorId: live.id, expiresAt: new Date(Date.now() + 10 * 60_000), used: false }));
+        return { code: row.code, expiresAt: row.expiresAt.toISOString() };
+      } catch (e) { if ((e as { code?: string }).code === '23505') continue; throw e; }
+    }
+    throw new BadRequestException('Could not allocate a pair code, please retry');
+  }
+
+  /** Redeemed by the Android app — returns the overlay token + link base. */
+  async redeemPairCode(code: string) {
+    const row = await this.pairCodes.findOne({ where: { code: String(code).trim() } });
+    if (!row || row.used || row.expiresAt.getTime() < Date.now()) throw new BadRequestException('Invalid or expired pair code');
+    const live = await this.creatorsLive.findOne({ where: { id: row.liveCreatorId } });
+    if (!live) throw new NotFoundException('Live identity not found');
+    row.used = true; await this.pairCodes.save(row);
+    return { overlayToken: live.overlayToken, handle: live.handle, liveBase: this.liveBase() };
+  }
 
   // ── Creator identity (permanent link) ──────────────────────────────────────
 
@@ -450,7 +485,26 @@ export class LiveAdsService {
       this.events.create({ slotId: visit.slotId, liveCreatorId: visit.liveCreatorId, campaignId: campaign.id, type: 'ADVERTISER_VISIT', source: visit.source, clickVisitId }),
     ]);
     await this.platform.emit({ ownerId: campaign.ownerId, eventName: 'liveads.cta_click', aggregateType: 'LiveAdCampaign', aggregateId: campaign.id, payload: { clickVisitId, revenue } });
-    return { url: dest.url };
+    // Carry the live click id downstream so a Jumla order can attribute a
+    // CONVERSION back to this sponsor slot.
+    const sep = dest.url.includes('?') ? '&' : '?';
+    return { url: `${dest.url}${sep}klv=${encodeURIComponent(clickVisitId)}` };
+  }
+
+  /**
+   * A downstream sale (e.g. a Jumla order) attributed to a live-ad click. Best-
+   * effort, idempotent per order — surfaces real sponsor sales on the scorecard.
+   */
+  async recordConversion(clickVisitId: string, orderId: string, revenue: number): Promise<boolean> {
+    const visit = await this.events.findOne({ where: { clickVisitId }, order: { createdAt: 'ASC' } });
+    if (!visit) return false;
+    const exists = await this.events.findOne({ where: { clickVisitId, type: 'CONVERSION', orderId } });
+    if (exists) return true;
+    await this.events.save(this.events.create({
+      slotId: visit.slotId ?? null, liveCreatorId: visit.liveCreatorId, campaignId: visit.campaignId ?? null,
+      type: 'CONVERSION', source: visit.source, clickVisitId, orderId, revenue: Number(revenue) || 0,
+    }));
+    return true;
   }
 
   // ── Reporting ──────────────────────────────────────────────────────────────
@@ -486,6 +540,7 @@ export class LiveAdsService {
       ctaClicks: clicks.length,
       advertiserVisits: this.count(rows, 'ADVERTISER_VISIT'),
       conversions: this.count(rows, 'CONVERSION'),
+      attributedRevenue: rows.filter((e) => e.type === 'CONVERSION').reduce((s, e) => s + Number(e.revenue), 0),
       grossAdSpend: Math.round(grossSpend * 10000) / 10000,
       creatorEarnings: Math.round(creatorEarnings * 10000) / 10000,
       currency: camps[0]?.currency || 'TZS',
@@ -502,6 +557,7 @@ export class LiveAdsService {
       impressions, profileVisits: this.count(rows, 'PROFILE_VISIT'),
       sponsorViews: this.count(rows, 'SPONSOR_VIEW'), ctaClicks: clicks,
       advertiserVisits: this.count(rows, 'ADVERTISER_VISIT'), conversions: this.count(rows, 'CONVERSION'),
+      attributedRevenue: rows.filter((e) => e.type === 'CONVERSION').reduce((s, e) => s + Number(e.revenue), 0),
       clickThroughRate: impressions ? Math.round((clicks / impressions) * 10000) / 100 : 0,
     };
   }

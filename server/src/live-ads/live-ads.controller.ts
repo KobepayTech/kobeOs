@@ -29,6 +29,12 @@ export class LiveAdsController {
     return this.svc.stopManualSession(uid, dto.creatorId);
   }
 
+  /** Create a short 6-digit code to pair the Android companion. */
+  @Post('creators/:creatorId/pair-code')
+  pairCode(@CurrentUser('id') uid: string, @Param('creatorId') creatorId: string) {
+    return this.svc.createPairCode(uid, creatorId);
+  }
+
   // Advertiser destinations (server-side, approved)
   @Get('destinations')
   destinations(@CurrentUser('id') uid: string) { return this.svc.listDestinations(uid); }
@@ -103,6 +109,10 @@ export class LiveAdsController {
 @Controller('live')
 export class LiveAdsPublicController {
   constructor(private readonly svc: LiveAdsService) {}
+
+  /** Android companion redeems a pair code → overlay token + link base. */
+  @Post('pair')
+  pair(@Body() dto: { code: string }) { return this.svc.redeemPairCode(dto?.code ?? ''); }
 
   /** kobe.live/@handle → current sponsor state (or the creator page). */
   @Get('resolve/:handle')

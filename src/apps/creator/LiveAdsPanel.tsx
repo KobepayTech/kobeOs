@@ -13,7 +13,7 @@ interface CreatorLite { id: string; name: string; handle: string }
 interface Identity { creatorId: string; handle: string; permanentUrl: string; overlayUrl: string; overlayToken: string }
 interface Destination { id: string; url: string; domain: string; status: string }
 interface Campaign { id: string; title: string; sponsorName: string; status: string; destinationId: string; routingMode: string }
-interface Stats { handle: string; slots: number; impressions: number; profileVisits: number; sponsorViews: number; ctaClicks: number; advertiserVisits: number; conversions: number; grossAdSpend: number; creatorEarnings: number; currency: string }
+interface Stats { handle: string; slots: number; impressions: number; profileVisits: number; sponsorViews: number; ctaClicks: number; advertiserVisits: number; conversions: number; attributedRevenue: number; grossAdSpend: number; creatorEarnings: number; currency: string }
 
 const liveOrigin = window.location.hostname === 'kobe.live' ? 'https://kobe.live' : `${window.location.origin}/kobelive`;
 const copy = (t: string) => { try { void navigator.clipboard.writeText(t); } catch { /* ignore */ } };
@@ -40,7 +40,9 @@ export default function LiveAdsPanel({ creators }: { creators: CreatorLite[] }) 
   useEffect(() => { void loadAdvertiser(); }, [loadAdvertiser]);
   useEffect(() => { setIdentity(null); setStats(null); }, [creatorId]);
 
+  const [pairCode, setPairCode] = useState<{ code: string; expiresAt: string } | null>(null);
   const ensure = () => run(async () => { setIdentity(await api<Identity>('/live-ads/identity', { method: 'POST', body: JSON.stringify({ creatorId }) })); setMsg('Kobe Live link ready.'); });
+  const makePairCode = () => run(async () => { setPairCode(await api<{ code: string; expiresAt: string }>(`/live-ads/creators/${creatorId}/pair-code`, { method: 'POST', body: JSON.stringify({}) })); });
   const goLive = () => run(async () => { await api('/live-ads/sessions/start', { method: 'POST', body: JSON.stringify({ creatorId }) }); setMsg('You are LIVE on Kobe.'); });
   const endLive = () => run(async () => { await api('/live-ads/sessions/end', { method: 'POST', body: JSON.stringify({ creatorId }) }); setMsg('Session ended.'); });
   const refreshStats = () => run(async () => { setStats(await api<Stats>(`/live-ads/creators/${creatorId}/stats`)); });
@@ -84,11 +86,13 @@ export default function LiveAdsPanel({ creators }: { creators: CreatorLite[] }) 
           <div className="mt-3 space-y-2 text-sm">
             <Field label="Permanent link (put in TikTok bio ONCE)" value={`${liveOrigin}${identity.permanentUrl}`} />
             <Field label="OBS overlay browser source (add once)" value={`${liveOrigin}${identity.overlayUrl}`} />
-            <div className="flex gap-2 pt-1">
+            <div className="flex flex-wrap gap-2 pt-1">
               <button disabled={busy} onClick={goLive} className={`${btn} bg-rose-500 text-white`}>Go LIVE</button>
               <button disabled={busy} onClick={endLive} className={`${btn} bg-white/10 text-white`}>End</button>
               <button disabled={busy} onClick={refreshStats} className={`${btn} bg-white/10 text-white`}>Refresh stats</button>
+              <button disabled={busy} onClick={makePairCode} className={`${btn} bg-white/10 text-white`}>Pair Android app</button>
             </div>
+            {pairCode && <div className="mt-2 rounded-lg bg-black/30 px-3 py-2 text-center"><div className="text-[10px] text-slate-400">Enter this code in the Kobe Live Ads Android app</div><div className="text-2xl font-black tracking-[0.3em]">{pairCode.code}</div><div className="text-[10px] text-slate-500">expires {new Date(pairCode.expiresAt).toLocaleTimeString()}</div></div>}
           </div>
         )}
       </div>
@@ -100,6 +104,10 @@ export default function LiveAdsPanel({ creators }: { creators: CreatorLite[] }) 
             {([['Impressions', stats.impressions], ['Profile visits', stats.profileVisits], ['Sponsor views', stats.sponsorViews], ['CTA clicks', stats.ctaClicks], ['Advertiser visits', stats.advertiserVisits], ['Conversions', stats.conversions]] as const).map(([l, v]) => (
               <div key={l} className="rounded-lg bg-black/20 p-2"><div className="text-lg font-black">{v}</div><div className="text-[10px] text-slate-400">{l}</div></div>
             ))}
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-2 text-center">
+            <div className="rounded-lg bg-black/20 p-2"><div className="text-lg font-black">{stats.conversions}</div><div className="text-[10px] text-slate-400">Sales</div></div>
+            <div className="rounded-lg bg-black/20 p-2"><div className="text-lg font-black">{stats.currency} {Number(stats.attributedRevenue).toLocaleString()}</div><div className="text-[10px] text-slate-400">Sponsor sales value</div></div>
           </div>
           <div className="mt-2 text-sm font-bold text-emerald-300">Your earnings: {stats.currency} {Number(stats.creatorEarnings).toLocaleString()} <span className="text-slate-400 font-normal">(of {stats.currency} {Number(stats.grossAdSpend).toLocaleString()} ad spend)</span></div>
         </div>
