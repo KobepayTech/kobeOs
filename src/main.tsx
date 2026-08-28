@@ -181,6 +181,9 @@ const liveOverlayMatch = liveAdsActive ? liveAdsPath.match(/^\/overlay\/([a-f0-9
 const liveQrMatch = liveAdsActive ? liveAdsPath.match(/^\/a\/([A-Za-z0-9]{4,})\/?$/) : null;
 const liveSponsorMatch = liveAdsActive ? liveAdsPath.match(/^\/@([a-z0-9_.-]{2,40})\/?$/i) : null;
 
+// Public AI Receptionist chat widget for a business: /reception/<slug>
+const receptionMatch = pathname.match(/^\/reception\/([a-z0-9][a-z0-9-]{0,61}[a-z0-9]|[a-z0-9])\/?$/i);
+
 const mount = (node: ReactNode) => {
   void hydrateTokens().finally(() => {
     createRoot(document.getElementById('root')!).render(node);
@@ -191,6 +194,8 @@ if (metaSetupToken) {
   import('./components/MetaSetupPage').then(({ default: MetaSetupPage }) => mount(<MetaSetupPage token={metaSetupToken} />));
 } else if (oauthProvider) {
   import('./components/OAuthCallback').then(({ default: OAuthCallback }) => mount(<OAuthCallback provider={oauthProvider} />));
+} else if (receptionMatch) {
+  import('./public/ReceptionWidget').then(({ default: ReceptionWidget }) => mount(<ReceptionWidget slug={receptionMatch[1]} />));
 } else if (liveOverlayMatch) {
   import('./public/LiveOverlay').then(({ default: LiveOverlay }) => mount(<LiveOverlay token={liveOverlayMatch[1]} />));
 } else if (liveQrMatch) {
