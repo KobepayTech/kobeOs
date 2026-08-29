@@ -491,9 +491,15 @@ export class CommerceService {
     const businesses = await this.businesses.find({ where: { status: 'ACTIVE' } });
     const nodes = await this.nodes.find({ where: { businessId: In(businesses.map((b) => b.id)) } });
     const nodeMap = new Map(nodes.map((n) => [n.businessId, n]));
-    const visible = businesses.filter((b) => b.tier === 'LITE' || isNodeOnline(nodeMap.get(b.id)?.lastSeenAt));
+    // Jumla is served from the cloud snippet mirror, so a shop stays visible and
+    // orderable even when its KobeOS desktop node is offline — the order is
+    // captured in the cloud and delivered when the node reconnects. We surface
+    // the live/offline state via nodeStatus rather than hiding the shop, so a
+    // merchant who closes their laptop never disappears from the marketplace.
+    const visible = businesses;
     const visibleIds = visible.map((b) => b.id);
     if (!visibleIds.length) return [];
+    const statusOf = (b?: CommerceBusiness) => !b ? 'CLOUD_OFFLINE' : b.tier === 'LITE' ? 'CLOUD_LITE' : isNodeOnline(nodeMap.get(b.id)?.lastSeenAt) ? 'ONLINE' : 'CLOUD_OFFLINE';
     const qb = this.snippets.createQueryBuilder('s').where('s.businessId IN (:...ids)', { ids: visibleIds }).andWhere('s.active = true').andWhere('s.stock > 0');
     if (query.q?.trim()) qb.andWhere('(LOWER(s.name) LIKE :q OR LOWER(s.description) LIKE :q)', { q: `%${query.q.toLowerCase().trim()}%` });
     if (query.category?.trim()) qb.andWhere('LOWER(s.category) = :category', { category: query.category.toLowerCase().trim() });
@@ -513,7 +519,7 @@ export class CommerceService {
     return rows.map((r) => {
       const product = productMap.get(r.productId);
       const business = map.get(r.businessId); const businessLocation = location.get(r.businessId); const shop = shops.find((row) => row.id === businessLocation?.shopUnitId); const floor = floors.find((row) => row.id === shop?.floorId); const property = properties.find((row) => row.id === shop?.propertyId);
-      return { ...r, imageUrls: product?.imageUrls ?? (r.imageUrl ? [r.imageUrl] : []), variants: product?.variants ?? [], requiredOptions: Array.isArray(product?.customData?.requiredOptions) ? product.customData.requiredOptions : [], business: { id: r.businessId, businessId: business?.businessId, name: business?.name, publicSlug: business?.publicSlug, tier: business?.tier, phone: business?.phone, whatsapp: String(business?.profile?.whatsapp ?? business?.phone ?? '') }, location: businessLocation ? { property: property?.name ?? '', floor: floor?.name ?? '', shopCode: shop?.publicCode ?? businessLocation.name } : null, nodeStatus: business?.tier === 'LITE' ? 'CLOUD_LITE' : 'ONLINE' };
+      return { ...r, imageUrls: product?.imageUrls ?? (r.imageUrl ? [r.imageUrl] : []), variants: product?.variants ?? [], requiredOptions: Array.isArray(product?.customData?.requiredOptions) ? product.customData.requiredOptions : [], business: { id: r.businessId, businessId: business?.businessId, name: business?.name, publicSlug: business?.publicSlug, tier: business?.tier, phone: business?.phone, whatsapp: String(business?.profile?.whatsapp ?? business?.phone ?? '') }, location: businessLocation ? { property: property?.name ?? '', floor: floor?.name ?? '', shopCode: shop?.publicCode ?? businessLocation.name } : null, nodeStatus: statusOf(business) };
     });
   }
 
@@ -766,9 +772,10 @@ export class CommerceService {
 
   async publicVehicles(query: { q?: string; make?: string; model?: string; minYear?: string; maxYear?: string; minPrice?: string; maxPrice?: string; maxMileage?: string; location?: string; transmission?: string; fuel?: string; bodyType?: string; condition?: string; financing?: string; dealer?: string; color?: string }) {
     const businesses = await this.businesses.find({ where: { status: 'ACTIVE' } });
-    const nodes = await this.nodes.find({ where: { businessId: In(businesses.map((business) => business.id)) } });
-    const nodeMap = new Map(nodes.map((node) => [node.businessId, node]));
-    const visibleBusinessIds = businesses.filter((business) => business.tier === 'LITE' || isNodeOnline(nodeMap.get(business.id)?.lastSeenAt)).map((business) => business.id);
+    // Cars stay listed on Jumla whether or not the dealer's KobeOS node is
+    // online — the vehicle records live in the cloud, and a buyer enquiry/reserve
+    // is captured server-side and reaches the dealer when they reconnect.
+    const visibleBusinessIds = businesses.map((business) => business.id);
     if (!visibleBusinessIds.length) return [];
     const qb = this.vehicles.createQueryBuilder('v').where("v.status IN ('AVAILABLE','IN_TRANSIT','COMING_SOON')").andWhere('v.businessId IN (:...visibleBusinessIds)', { visibleBusinessIds });
     if (query.q) {
