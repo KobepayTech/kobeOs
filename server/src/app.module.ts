@@ -92,6 +92,7 @@ import { PlatformModule } from './platform/platform.module';
 import { CommerceModule } from './commerce/commerce.module';
 import { CreatorCommerceModule } from './creator-commerce/creator-commerce.module';
 import { LiveAdsModule } from './live-ads/live-ads.module';
+import { ReceptionModule } from './reception/reception.module';
 import { LalaModule } from './lala/lala.module';
 import { AccountantModule } from './accountant/accountant.module';
 
@@ -197,6 +198,7 @@ import { AccountantModule } from './accountant/accountant.module';
     CommerceModule,
     CreatorCommerceModule,
     LiveAdsModule,
+    ReceptionModule,
     LalaModule,
     AccountantModule,
   ],

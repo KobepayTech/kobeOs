@@ -1,0 +1,15 @@
+{
+  "name": "kobe-voice-agent",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "Kobe Receptionist voice agent (LiveKit) — bridges phone calls to the Kobe AI Receptionist engine.",
+  "scripts": {
+    "dev": "node agent.mjs dev",
+    "start": "node agent.mjs start"
+  },
+  "comment": "Pin @livekit/agents + plugins to your installed version, then add them here.",
+  "dependencies": {
+    "dotenv": "^16.4.5"
+  }
+}

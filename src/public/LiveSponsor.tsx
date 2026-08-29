@@ -69,7 +69,10 @@ export default function LiveSponsor({ handle, code }: { handle?: string; code?: 
     );
   }
 
-  // SPONSOR_PAGE
+  // DIRECT_REDIRECT is handled in the effect (we navigate away), so anything
+  // left here is a SPONSOR_PAGE — narrow the union explicitly for the compiler.
+  if (data.mode !== 'SPONSOR_PAGE') return <Shell><Loader2 className="h-6 w-6 animate-spin text-white/60" /></Shell>;
+
   return (
     <Shell>
       <div className="w-full space-y-5 text-center">
