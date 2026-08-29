@@ -299,8 +299,27 @@ export class CommerceService {
 
   async publicMedia(token: string) {
     const media = await this.repo(CommerceProductMedia).findOne({ where: { publicToken: token } });
-    if (!media?.contentBinary) throw new NotFoundException('Product image not found');
-    return media;
+    if (media?.contentBinary) return media;
+    // Same public media route also serves inline-stored vehicle photos.
+    const vehicleMedia = await this.repo(VehicleMedia).findOne({ where: { publicToken: token } });
+    if (vehicleMedia?.contentBinary) return vehicleMedia;
+    throw new NotFoundException('Image not found');
+  }
+
+  /** Attach uploaded photos to a vehicle the dealer owns (webp, inline-served). */
+  async addVehicleMedia(ownerUserId: string, vehicleId: string, files: Array<{ buffer: Buffer; mimetype: string; originalname: string }>) {
+    const business = await this.businessForOwner(ownerUserId);
+    const vehicle = await this.vehicles.findOne({ where: { id: vehicleId, businessId: business.id } });
+    if (!vehicle) throw new NotFoundException('Vehicle not found');
+    if (!files?.length || files.some((file) => !file.mimetype?.startsWith('image/'))) throw new BadRequestException('Upload one or more images');
+    const existing = await this.repo(VehicleMedia).count({ where: { vehicleId } });
+    let sortOrder = existing;
+    for (const file of files) {
+      const binary = await sharp(file.buffer).rotate().webp({ quality: 88 }).toBuffer();
+      const token = randomBytes(24).toString('base64url');
+      await this.repo(VehicleMedia).save(this.repo(VehicleMedia).create({ vehicleId, url: `/api/commerce-public/media/${token}`, kind: 'IMAGE', sortOrder: sortOrder++, publicToken: token, mimeType: 'image/webp', contentBinary: binary }));
+    }
+    return this.repo(VehicleMedia).find({ where: { vehicleId }, order: { sortOrder: 'ASC' } });
   }
 
   private async authenticateLite(businessId: string, token: string) {

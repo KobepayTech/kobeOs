@@ -43,6 +43,12 @@ export class VehicleMedia extends BaseEntity {
   @Column() url!: string;
   @Column({ default: 'IMAGE' }) kind!: 'IMAGE' | 'VIDEO';
   @Column({ type: 'int', default: 0 }) sortOrder!: number;
+  // Photos uploaded from the dealer app are stored inline (like product media)
+  // and served through /commerce-public/media/:token, so a dealer never needs a
+  // separate image host to publish a car to Jumla.
+  @Index({ unique: true }) @Column({ nullable: true, type: 'varchar' }) publicToken?: string | null;
+  @Column({ nullable: true, type: 'varchar' }) mimeType?: string | null;
+  @Column({ type: 'bytea', nullable: true }) contentBinary?: Buffer | null;
 }
 
 @Entity('commerce_vehicle_listing_metadata')

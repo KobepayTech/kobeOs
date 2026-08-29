@@ -134,6 +134,9 @@ export class CommerceController {
   @Post('cars') car(@CurrentUser('id') uid: string, @Body() dto: VehicleDto) { return this.commerce.createVehicle(uid, dto); }
   @Patch('cars/:id') updateCar(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: Partial<VehicleDto> & { status?: 'DRAFT' | 'AVAILABLE' | 'RESERVED' | 'SOLD' | 'IN_TRANSIT' | 'COMING_SOON' | 'UNAVAILABLE' }) { return this.commerce.updateVehicle(uid, id, dto); }
   @Post('cars/:id/generate-marketing') generateCarMarketing(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.commerce.generateVehicleMarketing(uid, id); }
+  @Post('cars/:id/media')
+  @UseInterceptors(FilesInterceptor('images', 12, { limits: { fileSize: 20 * 1024 * 1024 } }))
+  addCarMedia(@CurrentUser('id') uid: string, @Param('id') id: string, @UploadedFiles() files: Express.Multer.File[]) { return this.commerce.addVehicleMedia(uid, id, files); }
 }
 
 @Public()
