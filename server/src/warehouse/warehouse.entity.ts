@@ -70,29 +70,8 @@ export class WarehouseMovement extends OwnedEntity {
   @Column({ nullable: true, type: 'varchar' })
   note?: string | null;
 }
-
-@Entity('warehouse_pick_tickets')
-export class WarehousePickTicket extends OwnedEntity {
-  @Index()
-  @Column('uuid')
-  orderId!: string;
-
-  @Index()
-  @Column()
-  orderNumber!: string;
-
-  @Column({ nullable: true, type: 'varchar' })
-  customerName?: string | null;
-
-  @Column({ nullable: true, type: 'varchar' })
-  customerPhone?: string | null;
-
-  @Column({ default: 'PENDING' })
-  status!: 'PENDING' | 'PICKING' | 'PACKED' | 'DISPATCHED' | 'CANCELLED';
-
-  @Column({ type: 'jsonb', default: () => "'[]'" })
-  items!: Array<{ productId: string; sku: string; name: string; quantity: number; shelf?: string | null }>;
-
-  @Column({ type: 'text' })
-  receiptText!: string;
-}
+// NOTE: the WarehousePickTicket entity lives in ./pick-ticket.entity.ts — that is
+// the one every service/module imports. A second, unused WarehousePickTicket that
+// also mapped @Entity('warehouse_pick_tickets') used to sit here; because the
+// entity glob still loaded it, two classes claimed the same table and corrupted
+// schema generation. Removed as dead code so the table has one canonical shape.
