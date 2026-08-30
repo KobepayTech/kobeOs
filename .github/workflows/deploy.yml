@@ -5,6 +5,7 @@ on:
     workflows: [CI]
     types: [completed]
     branches: [master, main]
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -21,11 +22,21 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
         run: |
-          if [ -n "$DEPLOY_HOST" ] && [ -n "$DEPLOY_USER" ] && [ -n "$DEPLOY_SSH_KEY" ]; then
+          missing=()
+          [ -n "$DEPLOY_HOST" ] || missing+=("DEPLOY_HOST")
+          [ -n "$DEPLOY_USER" ] || missing+=("DEPLOY_USER")
+          [ -n "$DEPLOY_SSH_KEY" ] || missing+=("DEPLOY_SSH_KEY")
+
+          if [ "${#missing[@]}" -eq 0 ]; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "Production deployment credentials are configured."
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::Production deployment skipped because DEPLOY_HOST, DEPLOY_USER, or DEPLOY_SSH_KEY is not configured."
+            for name in "${missing[@]}"; do
+              echo "::error::Missing required production deployment secret: $name"
+            done
+            echo "::error::Deployment aborted. Configure the missing secret(s) in the GitHub production environment."
+            exit 1
           fi
 
       - name: Deploy via SSH
@@ -165,3 +176,33 @@ jobs:
               (compose logs web nginx --tail=50 && exit 1)
 
             echo "Deploy complete: $(date)"
+
+      - name: Verify live Jumla deployment
+        if: ${{ steps.deployment.outputs.ready == 'true' }}
+        run: |
+          set -euo pipefail
+
+          echo "Checking production API health..."
+          curl -fsS --retry 4 --retry-delay 3 --connect-timeout 10 \
+            https://api.kobeapptz.com/api/health >/dev/null
+
+          echo "Checking Jumla SPA..."
+          curl -fsS --retry 4 --retry-delay 3 --connect-timeout 10 \
+            https://jumla.kobeapptz.com/ -o /tmp/jumla.html
+          grep -q 'id="root"' /tmp/jumla.html || {
+            echo "::error::jumla.kobeapptz.com did not return the KobeOS SPA shell."
+            exit 1
+          }
+
+          echo "Checking Jumla public marketplace API..."
+          curl -fsS --retry 4 --retry-delay 3 --connect-timeout 10 \
+            'https://api.kobeapptz.com/api/commerce-public/jumla/items?q=' \
+            -o /tmp/jumla-items.json
+          grep -Eq '^\s*\[' /tmp/jumla-items.json || {
+            echo "::error::Jumla items endpoint did not return a JSON array."
+            head -c 500 /tmp/jumla-items.json || true
+            exit 1
+          }
+
+          echo "Jumla production verification passed."
+
