@@ -352,7 +352,8 @@ export class CommerceService implements OnModuleInit {
       property.totalUnits = await tx.getRepository(CommerceShopUnit).count({ where: { ownerId, propertyId } });
       await tx.getRepository(Property).save(property);
     });
-    return { property, shops: created, totalShops: property.totalUnits };
+    const marketplace = await this.provisionPropertyMarketplace(ownerId, propertyId);
+    return { property: marketplace.property, shops: created, totalShops: marketplace.property.totalUnits, marketplace };
   }
 
   async propertyMap(ownerId: string, propertyId: string) {
@@ -787,7 +788,7 @@ export class CommerceService implements OnModuleInit {
       const filtered = query.category ? shops.filter((s) => s.categoryId.toLowerCase().includes(query.category!.toLowerCase())) : shops;
       const businessIds = filtered.map((s) => s.businessId).filter((id): id is string => Boolean(id));
       const businesses = businessIds.length ? await this.businesses.find({ where: { id: In(businessIds), status: 'ACTIVE' } }) : [];
-      return { id: property.id, name: property.name, address: property.address, city: property.city, imageUrl: property.imageUrl, totalShops: property.totalUnits, claimedShops: filtered.map((shop) => ({ shopCode: shop.publicCode, categoryId: shop.categoryId, business: businesses.find((b) => b.id === shop.businessId) ? { id: shop.businessId, name: businesses.find((b) => b.id === shop.businessId)!.name, publicSlug: businesses.find((b) => b.id === shop.businessId)!.publicSlug, tier: businesses.find((b) => b.id === shop.businessId)!.tier } : null })) };
+      return { id: property.id, name: property.name, address: property.address, city: property.city, imageUrl: property.imageUrl, publicSlug: property.publicSlug, marketplaceEnabled: property.marketplaceEnabled, marketplaceUrl: property.publicSlug ? `https://${property.publicSlug}.kobeapptz.com` : null, totalShops: property.totalUnits, claimedShops: filtered.map((shop) => ({ shopCode: shop.publicCode, categoryId: shop.categoryId, business: businesses.find((b) => b.id === shop.businessId) ? { id: shop.businessId, name: businesses.find((b) => b.id === shop.businessId)!.name, publicSlug: businesses.find((b) => b.id === shop.businessId)!.publicSlug, tier: businesses.find((b) => b.id === shop.businessId)!.tier } : null })) };
     }));
   }
 
