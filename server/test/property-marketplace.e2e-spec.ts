@@ -17,6 +17,21 @@ describe('Property marketplace auto-provisioning (e2e)', () => {
     return response.body.accessToken as string;
   }
 
+  it('reports database-backed commerce web surfaces ready', async () => {
+    const response = await request(app.getHttpServer()).get('/api/commerce-public/health');
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(expect.objectContaining({
+      status: 'ok',
+      database: 'connected',
+    }));
+    expect(response.body.surfaces).toEqual(expect.arrayContaining([
+      'property-marketplace',
+      'shop-storefront',
+      'merchant-claim',
+      'multi-shop-checkout',
+    ]));
+  });
+
   it('turns a commercial property into a public multi-shop marketplace end to end', async () => {
     const token = await owner();
     const auth = { Authorization: `Bearer ${token}` };
