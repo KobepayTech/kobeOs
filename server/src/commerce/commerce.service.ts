@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash, randomBytes, randomUUID } from 'crypto';
@@ -25,7 +25,7 @@ const humanCode = (prefix: string) => `${prefix}-${randomBytes(4).toString('hex'
 const num = (value: unknown) => Number(value) || 0;
 
 @Injectable()
-export class CommerceService {
+export class CommerceService implements OnModuleInit {
   constructor(
     private readonly ds: DataSource,
     @InjectRepository(CommerceBusiness) private readonly businesses: Repository<CommerceBusiness>,
@@ -45,6 +45,14 @@ export class CommerceService {
     private readonly creatorCommerce: CreatorCommerceService,
     private readonly liveAds: LiveAdsService,
   ) {}
+
+  async onModuleInit() {
+    const properties = await this.repo(Property).find({ where: { type: In(['commercial', 'mixed']) } });
+    for (const property of properties) {
+      try { await this.provisionPropertyMarketplace(property.ownerId, property.id); }
+      catch { /* One malformed legacy property must not block API startup. */ }
+    }
+  }
 
   private repo<T extends object>(entity: new () => T): Repository<T> { return this.ds.getRepository(entity); }
 
