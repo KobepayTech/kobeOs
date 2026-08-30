@@ -159,21 +159,60 @@ jobs:
             # The API image has DB_MIGRATIONS_RUN=true. Its startup runs any
             # pending migrations before the health check turns green, so a
             # bad migration fails the deploy instead of being ignored.
-            compose up -d api web
+            #
+            # IMPORTANT: cloudflared must be part of every production deploy.
+            # Previously api/web were restarted while the wildcard tunnel was
+            # merely assumed to already exist. A fresh/rebuilt host could
+            # therefore have perfectly healthy containers but every public
+            # *.kobeapptz.com web app would be unreachable.
+            compose up -d api web nginx cloudflared
 
-            # Rolling restart — zero downtime where the proxy can keep the
-            # old API while the replacement becomes healthy. nginx depends on both api +
-            # web so omitting --no-deps lets it pick up new container IPs
-            # if either backend service was rebuilt.
+            # Reload nginx after api/web replacement so it resolves the current
+            # container addresses. If reload is unavailable, recreate nginx.
             compose exec -T nginx nginx -s reload || \
               compose up -d --no-deps nginx
 
-            # Health checks: API + a HEAD on the SPA so we catch a broken
-            # build artifact before customer traffic hits a 502.
+            # Health checks: API + SPA + Cloudflare tunnel + public routes.
+            # Do not declare success merely because Docker is healthy locally:
+            # generated property/shop apps are only useful if the external
+            # wildcard route reaches this origin.
             sleep 10
-            curl -sf http://localhost:3000/api/health || (compose logs api --tail=50 && exit 1)
+            curl -sf http://localhost:3000/api/health || (compose logs api --tail=80 && exit 1)
             curl -sfI http://localhost/ -H 'Host: kobeapptz.com' >/dev/null || \
-              (compose logs web nginx --tail=50 && exit 1)
+              (compose logs web nginx --tail=80 && exit 1)
 
-            echo "Deploy complete: $(date)"
+            # Tunnel container must actually be running.
+            test "$(compose ps --status running -q cloudflared)" != "" || \
+              (compose logs cloudflared --tail=100 && echo "Cloudflare tunnel is not running" && exit 1)
+
+            # Verify Cloudflare edge -> tunnel -> nginx -> API/web. Retry while
+            # a newly restarted tunnel establishes edge connections.
+            public_check() {
+              url="$1"
+              for attempt in 1 2 3 4 5 6; do
+                if curl -fsS --connect-timeout 8 --max-time 20 "$url" >/dev/null; then
+                  return 0
+                fi
+                echo "Public check $attempt/6 failed: $url"
+                sleep 5
+              done
+              return 1
+            }
+
+            public_check "https://api.kobeapptz.com/api/health" || \
+              (compose logs cloudflared nginx api --tail=120 && exit 1)
+            public_check "https://kobeapptz.com/" || \
+              (compose logs cloudflared nginx web --tail=120 && exit 1)
+            public_check "https://property.kobeapptz.com/" || \
+              (compose logs cloudflared nginx web --tail=120 && exit 1)
+            public_check "https://pay.kobeapptz.com/" || \
+              (compose logs cloudflared nginx web --tail=120 && exit 1)
+            # An arbitrary wildcard hostname proves generated property and
+            # merchant subdomains are actually routed. The SPA may render a
+            # not-found screen because no DB slug exists; HTTP reachability is
+            # what this deployment check validates.
+            public_check "https://webapp-healthcheck.kobeapptz.com/" || \
+              (compose logs cloudflared nginx web --tail=120 && exit 1)
+
+            echo "Deploy complete and public web apps reachable: $(date)"
 
