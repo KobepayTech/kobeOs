@@ -86,14 +86,14 @@ export class CommerceService implements OnModuleInit {
     // A successful response proves the schema is migrated and PostgreSQL is
     // reachable; it is intentionally more meaningful than process /health.
     await Promise.all([
-      this.repo(Property).find({ select: ['id'], take: 1 }),
-      this.repo(PropertyUnit).find({ select: ['id'], take: 1 }),
-      this.floors.find({ select: ['id'], take: 1 }),
-      this.shops.find({ select: ['id'], take: 1 }),
-      this.businesses.find({ select: ['id'], take: 1 }),
-      this.snippets.find({ select: ['id'], take: 1 }),
-      this.repo(CommerceCart).find({ select: ['id'], take: 1 }),
-      this.orders.find({ select: ['id'], take: 1 }),
+      this.repo(Property).find({ take: 1 }),
+      this.repo(PropertyUnit).find({ take: 1 }),
+      this.floors.find({ take: 1 }),
+      this.shops.find({ take: 1 }),
+      this.businesses.find({ take: 1 }),
+      this.snippets.find({ take: 1 }),
+      this.repo(CommerceCart).find({ take: 1 }),
+      this.orders.find({ take: 1 }),
     ]);
     return {
       status: 'ok',
