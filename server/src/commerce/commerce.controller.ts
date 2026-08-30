@@ -143,6 +143,7 @@ export class CommerceController {
 @Controller('commerce-public')
 export class CommercePublicController {
   constructor(private readonly commerce: CommerceService) {}
+  @Get('health') health() { return this.commerce.publicWebHealth(); }
   @Get('categories') categories() { return this.commerce.listCategories(); }
   @Get('resolve/:slug') resolve(@Param('slug') slug: string) { return this.commerce.resolvePublicSlug(slug); }
   @Get('marketplaces/:slug') marketplace(@Param('slug') slug: string, @Query() query: Record<string, string>) { return this.commerce.publicMarketplace(slug, query); }

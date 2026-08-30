@@ -19,8 +19,11 @@ jobs:
     env:
       PAGES_PROJECT: kobeos-jumla
       JUMPLA_DOMAIN: jumla.kobeapptz.com
-      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      # Accept both the newer CLOUDFLARE_* names and the CF_* names used by
+      # deploy/cf-setup.sh so an existing production secret does not become
+      # invisible just because the workflow uses a different convention.
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID || vars.CF_ACCOUNT_ID }}
 
     steps:
       - name: Check Cloudflare configuration
