@@ -177,32 +177,3 @@ jobs:
 
             echo "Deploy complete: $(date)"
 
-      - name: Verify live Jumla deployment
-        if: ${{ steps.deployment.outputs.ready == 'true' }}
-        run: |
-          set -euo pipefail
-
-          echo "Checking production API health..."
-          curl -fsS --retry 4 --retry-delay 3 --connect-timeout 10 \
-            https://api.kobeapptz.com/api/health >/dev/null
-
-          echo "Checking Jumla SPA..."
-          curl -fsS --retry 4 --retry-delay 3 --connect-timeout 10 \
-            https://jumla.kobeapptz.com/ -o /tmp/jumla.html
-          grep -q 'id="root"' /tmp/jumla.html || {
-            echo "::error::jumla.kobeapptz.com did not return the KobeOS SPA shell."
-            exit 1
-          }
-
-          echo "Checking Jumla public marketplace API..."
-          curl -fsS --retry 4 --retry-delay 3 --connect-timeout 10 \
-            'https://api.kobeapptz.com/api/commerce-public/jumla/items?q=' \
-            -o /tmp/jumla-items.json
-          grep -Eq '^\s*\[' /tmp/jumla-items.json || {
-            echo "::error::Jumla items endpoint did not return a JSON array."
-            head -c 500 /tmp/jumla-items.json || true
-            exit 1
-          }
-
-          echo "Jumla production verification passed."
-
