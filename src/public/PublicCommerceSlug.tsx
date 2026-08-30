@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Building2, Loader2, Store } from 'lucide-react';
+import { Building2, Loader2 } from 'lucide-react';
 import ErpShop from '../apps/erp-shop';
 import { publicApi } from './api';
 import PropertyMarketplace from './PropertyMarketplace';
