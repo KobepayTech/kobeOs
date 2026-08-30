@@ -81,6 +81,27 @@ export class CommerceService implements OnModuleInit {
 
   listBusinesses(ownerUserId: string) { return this.businesses.find({ where: { ownerUserId }, order: { createdAt: 'DESC' } }); }
 
+  async publicWebHealth() {
+    // Query the actual persistence used by generated property/shop web apps.
+    // A successful response proves the schema is migrated and PostgreSQL is
+    // reachable; it is intentionally more meaningful than process /health.
+    await Promise.all([
+      this.repo(Property).find({ select: ['id'], take: 1 }),
+      this.repo(PropertyUnit).find({ select: ['id'], take: 1 }),
+      this.floors.find({ select: ['id'], take: 1 }),
+      this.shops.find({ select: ['id'], take: 1 }),
+      this.businesses.find({ select: ['id'], take: 1 }),
+      this.snippets.find({ select: ['id'], take: 1 }),
+      this.repo(CommerceCart).find({ select: ['id'], take: 1 }),
+      this.orders.find({ select: ['id'], take: 1 }),
+    ]);
+    return {
+      status: 'ok',
+      database: 'connected',
+      surfaces: ['property-marketplace', 'shop-storefront', 'merchant-claim', 'multi-shop-checkout'],
+    };
+  }
+
   private async assignMarketplaceSlug(property: Property) {
     if (property.publicSlug?.trim()) return property.publicSlug;
     const reserved = new Set(['www', 'api', 'app', 'admin', 'desktop', 'staff', 'kobeos', 'docs', 'help', 'status', 'tuma', 'mzigo', 'me', 'track', 'posys', 'cargo', 'cargotz', 'property', 'estate', 'pay', 'contract', 'jumla', 'lala', 'live']);
