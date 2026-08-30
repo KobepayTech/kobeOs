@@ -202,6 +202,11 @@ jobs:
 
             public_check "https://api.kobeapptz.com/api/health" || \
               (compose logs cloudflared nginx api --tail=120 && exit 1)
+            # This endpoint queries the real property, shop, business, product,
+            # cart and order tables so a missing migration/schema cannot hide
+            # behind a generic process health check.
+            public_check "https://api.kobeapptz.com/api/commerce-public/health" || \
+              (compose logs cloudflared nginx api --tail=120 && exit 1)
             public_check "https://kobeapptz.com/" || \
               (compose logs cloudflared nginx web --tail=120 && exit 1)
             public_check "https://property.kobeapptz.com/" || \
