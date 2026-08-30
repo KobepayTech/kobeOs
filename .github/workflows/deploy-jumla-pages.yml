@@ -69,7 +69,7 @@ jobs:
 
           if [ "$code" = "404" ]; then
             echo "Creating Cloudflare Pages project $PAGES_PROJECT..."
-            curl -fsS "$api"               -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"               -H "Content-Type: application/json"               --data "{"name":"$PAGES_PROJECT","production_branch":"master"}"               -o /tmp/project-create.json
+            curl -fsS "$api"               -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"               -H "Content-Type: application/json"               --data "$(jq -nc --arg name "$PAGES_PROJECT" '{name:$name, production_branch:"master"}')"               -o /tmp/project-create.json
             grep -q '"success":true' /tmp/project-create.json || {
               cat /tmp/project-create.json
               exit 1
@@ -91,9 +91,9 @@ jobs:
           domains="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/$PAGES_PROJECT/domains"
           curl -fsS             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"             "$domains" -o /tmp/domains.json
 
-          if ! grep -q ""name":"$JUMPLA_DOMAIN"" /tmp/domains.json; then
+          if ! jq -e --arg domain "$JUMPLA_DOMAIN" '.result[] | select(.name == $domain)' /tmp/domains.json >/dev/null; then
             echo "Attaching $JUMPLA_DOMAIN to $PAGES_PROJECT..."
-            curl -fsS "$domains"               -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"               -H "Content-Type: application/json"               --data "{"name":"$JUMPLA_DOMAIN"}"               -o /tmp/domain-create.json
+            curl -fsS "$domains"               -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"               -H "Content-Type: application/json"               --data "$(jq -nc --arg name "$JUMPLA_DOMAIN" '{name:$name}')"               -o /tmp/domain-create.json
             grep -q '"success":true' /tmp/domain-create.json || {
               cat /tmp/domain-create.json
               exit 1
