@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AiModule } from '../ai/ai.module';
+import { CommerceModule } from '../commerce/commerce.module';
 import {
   Property,
   PropertyApplication,
@@ -51,6 +52,7 @@ import { PropertyExtraController } from './property-extra.controller';
 @Module({
   imports: [
     AiModule,
+    CommerceModule,
     TypeOrmModule.forFeature([
       Property,
       PropertyUnit,

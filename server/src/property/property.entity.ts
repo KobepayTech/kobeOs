@@ -30,6 +30,21 @@ export class Property extends OwnedEntity {
 
   @Column({ type: 'text', default: '' })
   notes!: string;
+
+  /** Stable public marketplace hostname label for commercial/mixed properties. */
+  @Index({ unique: true })
+  @Column({ type: 'varchar', nullable: true })
+  publicSlug?: string | null;
+
+  /** Commercial and mixed properties are published automatically when provisioned. */
+  @Column({ default: false })
+  marketplaceEnabled!: boolean;
+
+  @Column({ default: '' })
+  marketplaceTagline!: string;
+
+  @Column({ default: '#0f766e' })
+  marketplaceBrandColor!: string;
 }
 
 /**

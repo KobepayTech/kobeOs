@@ -8,10 +8,30 @@ export function normalizePhone(value: string): string {
   return digits ? `+${digits}` : '';
 }
 
+export function marketplaceSlug(value: string): string {
+  return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50);
+}
+
+export function propertyFloorCode(name: string, index = 0): string {
+  const normalized = name.trim().toLowerCase();
+  if (!normalized || /ground|chini|g\b/.test(normalized)) return 'G';
+  const n = normalized.match(/\d+/)?.[0];
+  if (n) return `F${n}`.slice(0, 3).toUpperCase();
+  const alpha = name.replace(/[^a-z0-9]/gi, '').slice(0, 3).toUpperCase();
+  return alpha || `F${index + 1}`.slice(0, 3);
+}
+
 export function shopCode(propertyName: string, floorCode: string, sequence: number): string {
   const prefix = propertyName.replace(/[^a-z0-9]/gi, '').slice(0, 3).toUpperCase().padEnd(3, 'X');
   const floor = floorCode.replace(/[^a-z0-9]/gi, '').slice(0, 3).toUpperCase() || 'G';
   return `${prefix}-${floor}-${String(sequence).padStart(2, '0')}`;
+}
+
+export function propertyUnitShopCode(propertyName: string, floorCode: string, unitNumber: string, sequence: number): string {
+  const prefix = propertyName.replace(/[^a-z0-9]/gi, '').slice(0, 3).toUpperCase().padEnd(3, 'X');
+  const floor = floorCode.replace(/[^a-z0-9]/gi, '').slice(0, 3).toUpperCase() || 'G';
+  const unit = unitNumber.replace(/[^a-z0-9]/gi, '').slice(0, 8).toUpperCase() || String(sequence).padStart(2, '0');
+  return `${prefix}-${floor}-${unit}`;
 }
 
 export function isNodeOnline(lastSeenAt: Date | null | undefined, now = new Date()): boolean {

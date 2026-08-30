@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DeepPartial, Repository } from 'typeorm';
 import { Property, PropertyUnit, RentCharge, RentPayment, Tenant } from './property.entity';
 import { OwnedCrudService } from '../common/owned.service';
+import { CommerceService } from '../commerce/commerce.service';
 
 function numeric(value: unknown): number {
   const n = Number(value ?? 0);
@@ -21,14 +22,54 @@ function resolveChargeStatus(charge: RentCharge): RentCharge['status'] {
 
 @Injectable()
 export class PropertiesService extends OwnedCrudService<Property> {
-  constructor(@InjectRepository(Property) repo: Repository<Property>) { super(repo); }
+  constructor(
+    @InjectRepository(Property) repo: Repository<Property>,
+    private readonly commerce: CommerceService,
+  ) { super(repo); }
+
+  override async create(ownerId: string, data: DeepPartial<Property>) {
+    const property = await super.create(ownerId, data);
+    await this.commerce.provisionPropertyMarketplace(ownerId, property.id);
+    return this.get(ownerId, property.id);
+  }
+
+  override async update(ownerId: string, id: string, data: DeepPartial<Property>) {
+    await super.update(ownerId, id, data);
+    await this.commerce.provisionPropertyMarketplace(ownerId, id);
+    return this.get(ownerId, id);
+  }
 }
 
 @Injectable()
 export class UnitsService extends OwnedCrudService<PropertyUnit> {
-  constructor(@InjectRepository(PropertyUnit) repo: Repository<PropertyUnit>) { super(repo); }
+  constructor(
+    @InjectRepository(PropertyUnit) repo: Repository<PropertyUnit>,
+    private readonly commerce: CommerceService,
+  ) { super(repo); }
+
   byProperty(uid: string, propertyId: string) {
     return this.repo.find({ where: { ownerId: uid, propertyId }, order: { unitNumber: 'ASC' } });
+  }
+
+  override async create(ownerId: string, data: DeepPartial<PropertyUnit>) {
+    const unit = await super.create(ownerId, data);
+    await this.commerce.provisionPropertyMarketplace(ownerId, unit.propertyId);
+    return unit;
+  }
+
+  override async update(ownerId: string, id: string, data: DeepPartial<PropertyUnit>) {
+    const before = await this.get(ownerId, id);
+    const unit = await super.update(ownerId, id, data);
+    await this.commerce.provisionPropertyMarketplace(ownerId, before.propertyId);
+    if (unit.propertyId !== before.propertyId) await this.commerce.provisionPropertyMarketplace(ownerId, unit.propertyId);
+    return unit;
+  }
+
+  override async remove(ownerId: string, id: string) {
+    const unit = await this.get(ownerId, id);
+    const result = await super.remove(ownerId, id);
+    await this.commerce.provisionPropertyMarketplace(ownerId, unit.propertyId);
+    return result;
   }
 }
 

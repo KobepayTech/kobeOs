@@ -1,6 +1,7 @@
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsDateString,
   IsEnum,
   IsIn,
@@ -26,6 +27,9 @@ export class CreatePropertyDto {
   @IsOptional() @IsInt() @Min(0) totalUnits?: number;
   @IsOptional() @IsString() imageUrl?: string;
   @IsOptional() @IsString() notes?: string;
+  @IsOptional() @IsString() @MaxLength(180) marketplaceTagline?: string;
+  @IsOptional() @IsString() @MaxLength(16) marketplaceBrandColor?: string;
+  @IsOptional() @IsBoolean() marketplaceEnabled?: boolean;
 }
 export class UpdatePropertyDto {
   @IsOptional() @IsString() @MaxLength(120) name?: string;
@@ -37,6 +41,9 @@ export class UpdatePropertyDto {
   @IsOptional() @IsInt() @Min(0) totalUnits?: number;
   @IsOptional() @IsString() imageUrl?: string;
   @IsOptional() @IsString() notes?: string;
+  @IsOptional() @IsString() @MaxLength(180) marketplaceTagline?: string;
+  @IsOptional() @IsString() @MaxLength(16) marketplaceBrandColor?: string;
+  @IsOptional() @IsBoolean() marketplaceEnabled?: boolean;
 }
 
 export class CreateUnitDto {

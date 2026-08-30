@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash, randomBytes, randomUUID } from 'crypto';
@@ -6,14 +6,14 @@ import { DataSource, In, Repository } from 'typeorm';
 import sharp from 'sharp';
 import { AiService } from '../ai/ai.service';
 import { PosProduct } from '../pos/pos.entity';
-import { Property } from '../property/property.entity';
+import { Property, PropertyUnit } from '../property/property.entity';
 import { PlatformEventsService, PlatformNotificationService } from '../platform/platform.service';
 import {
   BusinessLocation, CommerceBusiness, CommerceCart, CommerceCartLine, CommerceCategory,
   CommerceCustomer, CommerceOrderLine, CommerceProductMedia, CommerceShopUnit, InterestEvent,
   KobeNode, MerchantClaim, MerchantOrder, MerchantQuota, NodeHeartbeat, ProductSnippet, PropertyFloor,
 } from './commerce.entity';
-import { LITE_FREE_ORDER_LIMIT, extractCaptionProductMetadata, groupByMerchant, isNodeOnline, merchantOrderAccess, missingRequiredOptions, normalizePhone, panelCrops, shopCode, vehicleEconomics } from './commerce.rules';
+import { LITE_FREE_ORDER_LIMIT, extractCaptionProductMetadata, groupByMerchant, isNodeOnline, marketplaceSlug, merchantOrderAccess, missingRequiredOptions, normalizePhone, panelCrops, propertyFloorCode, propertyUnitShopCode, shopCode, vehicleEconomics } from './commerce.rules';
 import { CreatorCommerceService } from '../creator-commerce/creator-commerce.service';
 import { LiveAdsService } from '../live-ads/live-ads.service';
 import { CommerceVehicle, VehicleBuyerRequest, VehicleListingMetadata, VehicleMedia, VehicleReservation } from './cars.entity';
@@ -25,7 +25,7 @@ const humanCode = (prefix: string) => `${prefix}-${randomBytes(4).toString('hex'
 const num = (value: unknown) => Number(value) || 0;
 
 @Injectable()
-export class CommerceService {
+export class CommerceService implements OnModuleInit {
   constructor(
     private readonly ds: DataSource,
     @InjectRepository(CommerceBusiness) private readonly businesses: Repository<CommerceBusiness>,
@@ -45,6 +45,14 @@ export class CommerceService {
     private readonly creatorCommerce: CreatorCommerceService,
     private readonly liveAds: LiveAdsService,
   ) {}
+
+  async onModuleInit() {
+    const properties = await this.repo(Property).find({ where: { type: In(['commercial', 'mixed']) } });
+    for (const property of properties) {
+      try { await this.provisionPropertyMarketplace(property.ownerId, property.id); }
+      catch { /* One malformed legacy property must not block API startup. */ }
+    }
+  }
 
   private repo<T extends object>(entity: new () => T): Repository<T> { return this.ds.getRepository(entity); }
 
@@ -73,6 +81,252 @@ export class CommerceService {
 
   listBusinesses(ownerUserId: string) { return this.businesses.find({ where: { ownerUserId }, order: { createdAt: 'DESC' } }); }
 
+  private async assignMarketplaceSlug(property: Property) {
+    if (property.publicSlug?.trim()) return property.publicSlug;
+    const reserved = new Set(['www', 'api', 'app', 'admin', 'desktop', 'staff', 'kobeos', 'docs', 'help', 'status', 'tuma', 'mzigo', 'me', 'track', 'posys', 'cargo', 'cargotz', 'property', 'estate', 'pay', 'contract', 'jumla', 'lala', 'live']);
+    const raw = marketplaceSlug(property.name) || `property-${property.id.slice(0, 6)}`;
+    const base = reserved.has(raw) ? `${raw}-market` : raw;
+    let candidate = base;
+    let suffix = 2;
+    while (
+      await this.repo(Property).findOne({ where: { publicSlug: candidate } }) ||
+      await this.businesses.findOne({ where: { publicSlug: candidate } })
+    ) candidate = `${base}-${suffix++}`;
+    property.publicSlug = candidate;
+    return candidate;
+  }
+
+  /**
+   * Reconcile a commercial/mixed Kobe Property into permanent commerce floors
+   * and Shop IDs. Existing claimed shop identities are preserved; new property
+   * units become claimable immediately and the property gets a stable subdomain.
+   */
+  async provisionPropertyMarketplace(ownerId: string, propertyId: string) {
+    const propertyRepo = this.repo(Property);
+    const unitRepo = this.repo(PropertyUnit);
+    const property = await propertyRepo.findOne({ where: { ownerId, id: propertyId } });
+    if (!property) throw new NotFoundException('Property not found');
+    if (property.type === 'residential') {
+      property.marketplaceEnabled = false;
+      await propertyRepo.save(property);
+      return { enabled: false, property, publicUrl: null, shops: [], floors: [] };
+    }
+
+    await this.assignMarketplaceSlug(property);
+    property.marketplaceEnabled = property.marketplaceEnabled !== false;
+    if (!property.marketplaceTagline) property.marketplaceTagline = `Shop, discover and visit businesses at ${property.name}`;
+    if (!property.marketplaceBrandColor) property.marketplaceBrandColor = '#0f766e';
+    property.marketplaceEnabled = true;
+    await propertyRepo.save(property);
+
+    const units = await unitRepo.find({ where: { ownerId, propertyId }, order: { floor: 'ASC', unitNumber: 'ASC' } });
+    // Properties originally built through the commerce floor-builder may not
+    // have PropertyUnit rows. Keep those permanent Shop IDs intact.
+    if (!units.length) {
+      const existingFloors = await this.floors.find({ where: { ownerId, propertyId }, order: { level: 'ASC' } });
+      const existingShops = await this.shops.find({ where: { ownerId, propertyId }, order: { publicCode: 'ASC' } });
+      property.totalUnits = existingShops.length || property.totalUnits;
+      await propertyRepo.save(property);
+      return { enabled: true, property, publicUrl: `https://${property.publicSlug}.kobeapptz.com`, floors: existingFloors, shops: existingShops };
+    }
+
+    const grouped = new Map<string, PropertyUnit[]>();
+    for (const unit of units) {
+      const floorName = unit.floor?.trim() || 'Ground';
+      grouped.set(floorName, [...(grouped.get(floorName) ?? []), unit]);
+    }
+
+    const existingFloors = await this.floors.find({ where: { ownerId, propertyId }, order: { level: 'ASC' } });
+    const usedCodes = new Set(existingFloors.map((floor) => floor.code));
+    const touchedShopIds = new Set<string>();
+    const savedFloors: PropertyFloor[] = [];
+    const savedShops: CommerceShopUnit[] = [];
+    let floorIndex = 0;
+
+    for (const [floorName, floorUnits] of grouped.entries()) {
+      let floor = existingFloors.find((row) => row.name.trim().toLowerCase() === floorName.toLowerCase());
+      if (!floor) {
+        const preferred = propertyFloorCode(floorName, floorIndex);
+        let code = preferred;
+        let codeSuffix = 2;
+        while (usedCodes.has(code)) code = `${preferred.slice(0, 2)}${codeSuffix++}`.slice(0, 3);
+        usedCodes.add(code);
+        floor = this.floors.create({ ownerId, propertyId, name: floorName, code, level: floorIndex, shopCount: floorUnits.length });
+      }
+      floor.name = floorName;
+      floor.level = floor.level ?? floorIndex;
+      floor.shopCount = floorUnits.length;
+      floor = await this.floors.save(floor);
+      savedFloors.push(floor);
+
+      for (let index = 0; index < floorUnits.length; index += 1) {
+        const unit = floorUnits[index];
+        let shop = await this.shops.findOne({ where: { ownerId, propertyId, floorId: floor.id, unitNumber: unit.unitNumber } });
+        if (!shop) {
+          const baseCode = propertyUnitShopCode(property.name, floor.code, unit.unitNumber, index + 1);
+          let publicCode = baseCode;
+          let collision = 2;
+          while (await this.shops.findOne({ where: { publicCode } })) publicCode = `${baseCode}-${collision++}`;
+          shop = this.shops.create({
+            ownerId,
+            propertyId,
+            floorId: floor.id,
+            unitNumber: unit.unitNumber,
+            publicCode,
+            categoryId: '',
+            status: unit.status === 'maintenance' || unit.status === 'unavailable' ? 'INACTIVE' : 'AVAILABLE',
+            businessId: null,
+          });
+        } else if (!shop.businessId) {
+          shop.status = unit.status === 'maintenance' || unit.status === 'unavailable' ? 'INACTIVE' : 'AVAILABLE';
+        }
+        shop = await this.shops.save(shop);
+        touchedShopIds.add(shop.id);
+        savedShops.push(shop);
+      }
+      floorIndex += 1;
+    }
+
+    // Never delete a Shop ID. Units removed from Property are retired, while
+    // claimed shops stay intact until their tenancy is explicitly ended.
+    const allShops = await this.shops.find({ where: { ownerId, propertyId } });
+    for (const stale of allShops) {
+      if (!touchedShopIds.has(stale.id) && !stale.businessId && stale.status !== 'INACTIVE') {
+        stale.status = 'INACTIVE';
+        await this.shops.save(stale);
+      }
+    }
+
+    property.totalUnits = units.length;
+    await propertyRepo.save(property);
+    return {
+      enabled: true,
+      property,
+      publicUrl: `https://${property.publicSlug}.kobeapptz.com`,
+      floors: savedFloors,
+      shops: savedShops,
+    };
+  }
+
+  async resolvePublicSlug(slug: string) {
+    const normalized = marketplaceSlug(slug);
+    const property = await this.repo(Property).findOne({ where: { publicSlug: normalized, marketplaceEnabled: true } });
+    if (property && property.type !== 'residential') return { kind: 'property' as const, slug: normalized, id: property.id, name: property.name };
+    const business = await this.businesses.findOne({ where: { publicSlug: normalized, status: 'ACTIVE' } });
+    if (business) return { kind: 'business' as const, slug: normalized, id: business.id, name: business.name, tier: business.tier };
+    throw new NotFoundException('Public site not found');
+  }
+
+  async publicMarketplace(slug: string, query: { q?: string; category?: string; floor?: string; shop?: string; limit?: string } = {}) {
+    const normalized = marketplaceSlug(slug);
+    const property = await this.repo(Property).findOne({ where: { publicSlug: normalized, marketplaceEnabled: true } });
+    if (!property || property.type === 'residential') throw new NotFoundException('Property marketplace not found');
+
+    const [floors, shops, units] = await Promise.all([
+      this.floors.find({ where: { propertyId: property.id }, order: { level: 'ASC', name: 'ASC' } }),
+      this.shops.find({ where: { propertyId: property.id }, order: { publicCode: 'ASC' } }),
+      this.repo(PropertyUnit).find({ where: { propertyId: property.id }, order: { floor: 'ASC', unitNumber: 'ASC' } }),
+    ]);
+    const floorMap = new Map(floors.map((floor) => [floor.id, floor]));
+    const unitMap = new Map(units.map((unit) => [`${(unit.floor || 'Ground').trim().toLowerCase()}::${unit.unitNumber.toLowerCase()}`, unit]));
+    const claimed = shops.filter((shop) => shop.status === 'CLAIMED' && shop.businessId);
+    const businessIds = claimed.map((shop) => shop.businessId).filter((id): id is string => Boolean(id));
+    const businesses = businessIds.length ? await this.businesses.find({ where: { id: In(businessIds), status: 'ACTIVE' } }) : [];
+    const businessMap = new Map(businesses.map((business) => [business.id, business]));
+    const shopByBusiness = new Map(claimed.filter((shop) => businessMap.has(shop.businessId!)).map((shop) => [shop.businessId!, shop]));
+
+    let rows: ProductSnippet[] = [];
+    if (businessIds.length) {
+      const qb = this.snippets.createQueryBuilder('s')
+        .where('s.businessId IN (:...ids)', { ids: businessIds })
+        .andWhere('s.active = true')
+        .andWhere('s.stock > 0');
+      if (query.q?.trim()) qb.andWhere('(LOWER(s.name) LIKE :q OR LOWER(s.description) LIKE :q)', { q: `%${query.q.toLowerCase().trim()}%` });
+      if (query.category?.trim()) qb.andWhere('LOWER(s.category) = :category', { category: query.category.toLowerCase().trim() });
+      rows = await qb.orderBy('s.indexedAt', 'DESC').take(Math.min(200, Math.max(1, Number(query.limit) || 80))).getMany();
+      if (query.shop?.trim()) {
+        const selected = shops.find((shop) => shop.publicCode.toLowerCase() === query.shop!.toLowerCase());
+        rows = selected?.businessId ? rows.filter((row) => row.businessId === selected.businessId) : [];
+      }
+      if (query.floor?.trim()) {
+        const floor = floors.find((row) => row.code.toLowerCase() === query.floor!.toLowerCase() || row.name.toLowerCase() === query.floor!.toLowerCase());
+        const floorBusinessIds = new Set(claimed.filter((shop) => shop.floorId === floor?.id && shop.businessId).map((shop) => shop.businessId!));
+        rows = rows.filter((row) => floorBusinessIds.has(row.businessId));
+      }
+    }
+
+    const products = rows.length ? await this.products.find({ where: { id: In(rows.map((row) => row.productId)) } }) : [];
+    const productMap = new Map(products.map((product) => [product.id, product]));
+    const publicShops = shops.map((shop) => {
+      const floor = floorMap.get(shop.floorId);
+      const unit = unitMap.get(`${(floor?.name || 'Ground').trim().toLowerCase()}::${shop.unitNumber.toLowerCase()}`);
+      const business = shop.businessId ? businessMap.get(shop.businessId) : undefined;
+      return {
+        id: shop.id,
+        publicCode: shop.publicCode,
+        unitNumber: shop.unitNumber,
+        status: shop.status,
+        categoryId: shop.categoryId,
+        floor: floor ? { id: floor.id, name: floor.name, code: floor.code, level: floor.level } : null,
+        business: business ? {
+          id: business.id,
+          businessId: business.businessId,
+          name: business.name,
+          publicSlug: business.publicSlug,
+          phone: business.phone,
+          tier: business.tier,
+          logoUrl: String(business.profile?.logoUrl ?? ''),
+          whatsapp: String(business.profile?.whatsapp ?? business.phone ?? ''),
+        } : null,
+        vacancy: !business && unit ? {
+          type: unit.type,
+          rentAmount: Number(unit.rentAmount),
+          currency: unit.currency,
+          sqft: unit.sqft,
+          status: unit.status,
+        } : null,
+      };
+    });
+    const publicProducts = rows.map((row) => {
+      const product = productMap.get(row.productId);
+      const business = businessMap.get(row.businessId);
+      const shop = shopByBusiness.get(row.businessId);
+      const floor = shop ? floorMap.get(shop.floorId) : undefined;
+      return {
+        ...row,
+        imageUrls: product?.imageUrls ?? (row.imageUrl ? [row.imageUrl] : []),
+        variants: product?.variants ?? [],
+        requiredOptions: Array.isArray(product?.customData?.requiredOptions) ? product.customData.requiredOptions : [],
+        business: business ? { id: business.id, name: business.name, publicSlug: business.publicSlug, phone: business.phone, tier: business.tier } : null,
+        shop: shop ? { publicCode: shop.publicCode, unitNumber: shop.unitNumber, floor: floor?.name ?? '', floorCode: floor?.code ?? '' } : null,
+      };
+    });
+    const categories = [...new Set(publicProducts.map((product) => product.category).filter(Boolean))].sort();
+    return {
+      site: {
+        id: property.id,
+        name: property.name,
+        slug: property.publicSlug,
+        publicUrl: `https://${property.publicSlug}.kobeapptz.com`,
+        address: property.address,
+        city: property.city,
+        imageUrl: property.imageUrl,
+        tagline: property.marketplaceTagline || `Everything at ${property.name}, in one place.`,
+        brandColor: property.marketplaceBrandColor || '#0f766e',
+      },
+      stats: {
+        totalShops: shops.filter((shop) => shop.status !== 'INACTIVE').length,
+        openBusinesses: publicShops.filter((shop) => shop.business).length,
+        availableSpaces: publicShops.filter((shop) => shop.status === 'AVAILABLE').length,
+        products: publicProducts.length,
+      },
+      floors: floors.map((floor) => ({ id: floor.id, name: floor.name, code: floor.code, level: floor.level, shopCount: publicShops.filter((shop) => shop.floor?.id === floor.id && shop.status !== 'INACTIVE').length })),
+      categories,
+      shops: publicShops,
+      products: publicProducts,
+    };
+  }
+
   async buildProperty(ownerId: string, propertyId: string, input: { floors: Array<{ name: string; code: string; level?: number; shopCount: number }> }) {
     const property = await this.repo(Property).findOne({ where: { ownerId, id: propertyId } });
     if (!property) throw new NotFoundException('Property not found');
@@ -98,7 +352,8 @@ export class CommerceService {
       property.totalUnits = await tx.getRepository(CommerceShopUnit).count({ where: { ownerId, propertyId } });
       await tx.getRepository(Property).save(property);
     });
-    return { property, shops: created, totalShops: property.totalUnits };
+    const marketplace = await this.provisionPropertyMarketplace(ownerId, propertyId);
+    return { property: marketplace.property, shops: created, totalShops: marketplace.property.totalUnits, marketplace };
   }
 
   async propertyMap(ownerId: string, propertyId: string) {
@@ -533,7 +788,7 @@ export class CommerceService {
       const filtered = query.category ? shops.filter((s) => s.categoryId.toLowerCase().includes(query.category!.toLowerCase())) : shops;
       const businessIds = filtered.map((s) => s.businessId).filter((id): id is string => Boolean(id));
       const businesses = businessIds.length ? await this.businesses.find({ where: { id: In(businessIds), status: 'ACTIVE' } }) : [];
-      return { id: property.id, name: property.name, address: property.address, city: property.city, imageUrl: property.imageUrl, totalShops: property.totalUnits, claimedShops: filtered.map((shop) => ({ shopCode: shop.publicCode, categoryId: shop.categoryId, business: businesses.find((b) => b.id === shop.businessId) ? { id: shop.businessId, name: businesses.find((b) => b.id === shop.businessId)!.name, publicSlug: businesses.find((b) => b.id === shop.businessId)!.publicSlug, tier: businesses.find((b) => b.id === shop.businessId)!.tier } : null })) };
+      return { id: property.id, name: property.name, address: property.address, city: property.city, imageUrl: property.imageUrl, publicSlug: property.publicSlug, marketplaceEnabled: property.marketplaceEnabled, marketplaceUrl: property.publicSlug ? `https://${property.publicSlug}.kobeapptz.com` : null, totalShops: property.totalUnits, claimedShops: filtered.map((shop) => ({ shopCode: shop.publicCode, categoryId: shop.categoryId, business: businesses.find((b) => b.id === shop.businessId) ? { id: shop.businessId, name: businesses.find((b) => b.id === shop.businessId)!.name, publicSlug: businesses.find((b) => b.id === shop.businessId)!.publicSlug, tier: businesses.find((b) => b.id === shop.businessId)!.tier } : null })) };
     }));
   }
 

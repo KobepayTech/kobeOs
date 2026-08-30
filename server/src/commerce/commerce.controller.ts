@@ -144,6 +144,8 @@ export class CommerceController {
 export class CommercePublicController {
   constructor(private readonly commerce: CommerceService) {}
   @Get('categories') categories() { return this.commerce.listCategories(); }
+  @Get('resolve/:slug') resolve(@Param('slug') slug: string) { return this.commerce.resolvePublicSlug(slug); }
+  @Get('marketplaces/:slug') marketplace(@Param('slug') slug: string, @Query() query: Record<string, string>) { return this.commerce.publicMarketplace(slug, query); }
   @Get('lite-stores/:slug') liteStore(@Param('slug') slug: string) { return this.commerce.publicLiteStore(slug); }
   @Get('lite/:businessId') liteDashboard(@Param('businessId') id: string, @Headers('x-kobe-lite-token') token: string) { return this.commerce.liteDashboard(id, token); }
   @Post('lite/:businessId/products') liteProduct(@Param('businessId') id: string, @Headers('x-kobe-lite-token') token: string, @Body() body: { name?: string; caption?: string; imageUrl: string; panelCount?: number; category?: string; price?: number; stock?: number }) { return this.commerce.liteQuickAdd(id, token, body); }
