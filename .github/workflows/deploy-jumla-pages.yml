@@ -1,0 +1,120 @@
+name: Deploy Jumla to Cloudflare Pages
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [master, main]
+  workflow_dispatch:
+
+jobs:
+  deploy-jumla:
+    name: Deploy Jumla frontend
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    environment: production
+    permissions:
+      contents: read
+
+    env:
+      PAGES_PROJECT: kobeos-jumla
+      JUMPLA_DOMAIN: jumla.kobeapptz.com
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+    steps:
+      - name: Check Cloudflare configuration
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${CLOUDFLARE_API_TOKEN:-}" ] || missing+=("CLOUDFLARE_API_TOKEN")
+          [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ] || missing+=("CLOUDFLARE_ACCOUNT_ID")
+          if [ "${#missing[@]}" -gt 0 ]; then
+            for name in "${missing[@]}"; do
+              echo "::error::Missing required production secret: $name"
+            done
+            exit 1
+          fi
+
+      - name: Checkout production source
+        uses: actions/checkout@v4
+        with:
+          ref: master
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Build Jumla SPA
+        env:
+          VITE_API_BASE: https://api.kobeapptz.com/api
+          VITE_TENANT_BASE_DOMAIN: kobeapptz.com
+        run: |
+          set -euo pipefail
+          npm run build
+          cp deploy/jumla-pages/_redirects dist/_redirects
+          test -f dist/index.html
+          grep -q 'id="root"' dist/index.html
+
+      - name: Ensure Pages project exists
+        run: |
+          set -euo pipefail
+          api="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects"
+          code="$(curl -sS -o /tmp/project.json -w '%{http_code}'             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"             "$api/$PAGES_PROJECT")"
+
+          if [ "$code" = "404" ]; then
+            echo "Creating Cloudflare Pages project $PAGES_PROJECT..."
+            curl -fsS "$api"               -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"               -H "Content-Type: application/json"               --data "{"name":"$PAGES_PROJECT","production_branch":"master"}"               -o /tmp/project-create.json
+            grep -q '"success":true' /tmp/project-create.json || {
+              cat /tmp/project-create.json
+              exit 1
+            }
+          elif [ "$code" != "200" ]; then
+            cat /tmp/project.json
+            echo "::error::Could not read Cloudflare Pages project (HTTP $code)."
+            exit 1
+          fi
+
+      - name: Deploy to Cloudflare Pages
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 pages deploy dist             --project-name "$PAGES_PROJECT"             --branch master             --commit-hash "${GITHUB_SHA}"             --commit-message "Deploy Jumla ${GITHUB_SHA}"
+
+      - name: Ensure Jumla custom domain
+        run: |
+          set -euo pipefail
+          domains="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/$PAGES_PROJECT/domains"
+          curl -fsS             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"             "$domains" -o /tmp/domains.json
+
+          if ! grep -q ""name":"$JUMPLA_DOMAIN"" /tmp/domains.json; then
+            echo "Attaching $JUMPLA_DOMAIN to $PAGES_PROJECT..."
+            curl -fsS "$domains"               -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"               -H "Content-Type: application/json"               --data "{"name":"$JUMPLA_DOMAIN"}"               -o /tmp/domain-create.json
+            grep -q '"success":true' /tmp/domain-create.json || {
+              cat /tmp/domain-create.json
+              exit 1
+            }
+          fi
+
+      - name: Verify Jumla production
+        run: |
+          set -euo pipefail
+
+          curl -fsS --retry 8 --retry-delay 5 --retry-all-errors --connect-timeout 10             "https://$JUMPLA_DOMAIN/" -o /tmp/jumla.html
+          grep -q 'id="root"' /tmp/jumla.html || {
+            echo "::error::$JUMPLA_DOMAIN did not return the Jumla SPA shell."
+            exit 1
+          }
+
+          curl -fsS --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 10             'https://api.kobeapptz.com/api/commerce-public/jumla/items?q='             -o /tmp/jumla-items.json
+          grep -Eq '^\s*\[' /tmp/jumla-items.json || {
+            echo "::error::Jumla marketplace API did not return a JSON array."
+            head -c 500 /tmp/jumla-items.json || true
+            exit 1
+          }
+
+          echo "Jumla is live on Cloudflare Pages: https://$JUMPLA_DOMAIN"
