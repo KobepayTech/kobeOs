@@ -27,6 +27,10 @@ services:
       DB_SYNCHRONIZE: "false"
       DB_MIGRATIONS_RUN: "true"
       REDIS_URL: redis://redis:6379
+      # Public property/merchant subdomains fetch api.kobeapptz.com from the
+      # browser. Keep the API's wildcard CORS predicate enabled even when the
+      # server .env has not explicitly declared this value.
+      TENANT_BASE_DOMAIN: ${TENANT_BASE_DOMAIN:-kobeapptz.com}
     ports:
       - "3000:3000"
     depends_on:
