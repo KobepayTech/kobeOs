@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { AiService } from '../ai/ai.service';
+import { CommerceService } from '../commerce/commerce.service';
 import { Property, PropertyUnit } from './property.entity';
 import { PropertyUnitLayout } from './property-layout.entity';
 import {
@@ -41,6 +42,7 @@ export class PropertyOnboardingService {
   constructor(
     private readonly dataSource: DataSource,
     private readonly ai: AiService,
+    private readonly commerce: CommerceService,
   ) {}
 
   private validateUnits(units: PropertyLayoutUnitDto[]) {
@@ -69,7 +71,7 @@ export class PropertyOnboardingService {
     }));
     this.validateUnits(units);
 
-    return this.dataSource.transaction(async (manager) => {
+    const result = await this.dataSource.transaction(async (manager) => {
       const propertyRepo = manager.getRepository(Property);
       const unitRepo = manager.getRepository(PropertyUnit);
       const layoutRepo = manager.getRepository(PropertyUnitLayout);
@@ -125,6 +127,8 @@ export class PropertyOnboardingService {
         })),
       };
     });
+    const marketplace = await this.commerce.provisionPropertyMarketplace(ownerId, result.property.id);
+    return { ...result, marketplace };
   }
 
   async getLayout(ownerId: string, propertyId: string) {
