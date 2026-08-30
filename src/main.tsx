@@ -106,7 +106,9 @@ const transitBoardMatch = pathname.match(/^\/transit-board\/([0-9a-f-]{36})\/?$/
 // looks like a valid DNS label so a hand-crafted URL can't route
 // arbitrary strings into the ErpShop query.
 const shopPathMatch = pathname.match(/^\/shop\/([a-z0-9][a-z0-9-]{0,61}[a-z0-9]|[a-z0-9])\/?/i);
-const shopSlug = tenantSub ?? (shopPathMatch?.[1]?.toLowerCase() ?? null);
+const marketPathMatch = pathname.match(/^\/market\/([a-z0-9][a-z0-9-]{0,61}[a-z0-9]|[a-z0-9])\/?/i);
+const shopSlug = shopPathMatch?.[1]?.toLowerCase() ?? null;
+const publicCommerceSlug = tenantSub ?? marketPathMatch?.[1]?.toLowerCase() ?? shopSlug;
 
 // Public hotel booking site: {slug}.kobeapptz.com/book or /book/{slug}
 const bookPathMatch = pathname.match(/^\/book\/([a-z0-9][a-z0-9-]{0,61}[a-z0-9]|[a-z0-9])\/?/i);
@@ -302,12 +304,13 @@ if (metaSetupToken) {
   // Property management app, standalone via property.kobeapptz.com (#9)
   import('./apps/property/PropEasy').then(({ default: PropEasy }) =>
     mount(<div className="h-screen w-screen overflow-hidden"><PropEasy /></div>));
-} else if (shopSlug) {
-  // Any non-reserved wildcard subdomain is a public shop storefront:
-  //   https://kelvinfashion.kobeapptz.com
-  // Apex fallback for testing/admin links:
-  //   https://kobeapptz.com/shop/kelvinfashion
-  import('./apps/erp-shop/index').then(({ default: ErpShop }) => mount(<ErpShop data={{ slug: shopSlug }} />));
+} else if (publicCommerceSlug) {
+  // Wildcard subdomains can represent either a merchant storefront or an
+  // auto-generated commercial-property marketplace. Resolve the slug against
+  // the API first so existing merchant domains keep working unchanged.
+  // Path fallbacks: /shop/<business> and /market/<property>.
+  import('./public/PublicCommerceSlug').then(({ default: PublicCommerceSlug }) =>
+    mount(<PublicCommerceSlug slug={publicCommerceSlug} pathname={pathname} />));
 } else {
   mount(<App />);
 }
