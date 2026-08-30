@@ -130,19 +130,20 @@ jobs:
               mv "$tmp_env" "$ENV_FILE"
             fi
 
-            # Pull the latest registry-built API image; the web image
-            # is rebuilt locally from the source tree (next step).
-            compose pull api
-
-            # Pull latest source so Dockerfile.web sees fresh code, then
-            # rebuild + tag the web image. `--pull` keeps the node:20-alpine
-            # base layer current.
+            # Build the deployed API AND web bundle from the exact source on
+            # the production host. Previously only the web image was rebuilt
+            # locally while the API depended on a Docker Hub :latest pull.
+            # When registry credentials were absent, CI validated the API image
+            # but did not push it, leaving production on stale backend code.
             if [ -d .git ]; then
-              git pull --ff-only
-              compose build --pull web
+              git fetch origin
+              git checkout master
+              git pull --ff-only origin master
+              compose build --pull api web
             else
-              echo "⚠ /opt/kobe-studio is not a git checkout — skipping web rebuild."
-              echo "  Provision a clone with: git clone <repo> /opt/kobe-studio"
+              echo "✗ /opt/kobe-studio must be a git checkout for deterministic deploys."
+              echo "  Provision it with: git clone <repo> /opt/kobe-studio"
+              exit 1
             fi
 
             # Auto-generate VAPID keys for Web Push on the first deploy
