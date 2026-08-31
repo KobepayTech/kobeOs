@@ -1,8 +1,9 @@
 # Lala / KobeOS Windows origin recovery
 
 Lala's frontend is hosted by Cloudflare Pages. The Windows origin at
-`C:\KobeOS\app` serves the KobeOS API on port 3000, and the existing
-`cloudflared` Windows service publishes that API at `api.kobeapptz.com`.
+`C:\KobeOS\app` serves the KobeOS API on port 3000. Its embedded PostgreSQL
+cluster listens locally on port 5433, and the existing `cloudflared` Windows
+service publishes the API at `api.kobeapptz.com`.
 
 The API must not be started from an interactive terminal. The recovery workflow
 uses one of two durable modes:
@@ -20,16 +21,21 @@ task before checking the public endpoint. It:
 1. validates the stable production tree and production environment file;
 2. installs a startup task that runs as `SYSTEM` when the runner is elevated,
    otherwise starts a runner-managed supervisor that survives Actions cleanup;
-3. supervises `scripts\run-live-backend.ps1` and restarts it after any exit;
-4. waits for `http://127.0.0.1:3000/api/health`;
-5. restarts the existing Cloudflare connector only if the public API is still
+3. locates the existing Electron `pgdata` cluster and bundled PostgreSQL 18
+   binaries, refusing to initialize an empty replacement cluster;
+4. starts and supervises PostgreSQL on port 5433, then starts and supervises the
+   built API on port 3000;
+5. waits for `http://127.0.0.1:3000/api/health`;
+6. restarts the existing Cloudflare connector only if the public API is still
    unavailable.
 
 The elevated supervisor and its log live under `C:\ProgramData\KobeOS`. The
 non-administrative fallback uses `C:\KobeOS\app\logs`. Both locations are
 outside the Actions checkout, so checkout cleanup cannot remove them. The
 runner tracking marker is removed only from the explicitly launched supervisor,
-which prevents the runner's end-of-job orphan cleanup from terminating it.
+which prevents the runner's end-of-job orphan cleanup from terminating it. A
+content hash updates the detached supervisor only when its implementation
+changes, so the ten-minute watchdog does not bounce healthy processes.
 
 ## Manual installation
 
@@ -59,9 +65,11 @@ Invoke-WebRequest -UseBasicParsing `
   https://api.kobeapptz.com/api/lala-public/health
 ```
 
-If startup fails, inspect:
+If startup fails, inspect these files locally on the origin (they are never
+uploaded to Actions):
 
-- `C:\ProgramData\KobeOS\live-backend-supervisor.log`
+- `C:\KobeOS\app\logs\live-origin-supervisor.log`
+- `C:\KobeOS\app\logs\kobe-postgres-live.err.log`
 - `C:\KobeOS\app\logs\kobe-backend-live.err.log`
 
 Do not add a port-80 requirement to this origin check. The Lala SPA is served by
