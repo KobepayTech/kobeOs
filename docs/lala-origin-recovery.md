@@ -28,8 +28,8 @@ task before checking the public endpoint. It:
 5. waits for `http://127.0.0.1:3000/api/health`;
 6. restarts the existing Cloudflare connector when permitted and the public API
    is still unavailable; and
-7. verifies both public health endpoints from a GitHub-hosted runner, outside
-   the origin's local firewall and DNS path.
+7. verifies the core health endpoint and Lala public search from a GitHub-hosted
+   runner, outside the origin's local firewall and DNS path.
 
 The elevated supervisor and its log live under `C:\ProgramData\KobeOS`. The
 non-administrative fallback uses `C:\KobeOS\app\logs`. Both locations are
@@ -69,7 +69,7 @@ Invoke-WebRequest -UseBasicParsing `
   http://127.0.0.1:3000/api/health
 
 Invoke-WebRequest -UseBasicParsing `
-  https://api.kobeapptz.com/api/lala-public/health
+  https://api.kobeapptz.com/api/lala-public/search
 ```
 
 If startup fails, inspect these files locally on the origin (they are never

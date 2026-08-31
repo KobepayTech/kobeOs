@@ -75,7 +75,7 @@ jobs:
           $healthy = $true
           foreach ($url in @(
             'https://api.kobeapptz.com/api/health',
-            'https://api.kobeapptz.com/api/lala-public/health'
+            'https://api.kobeapptz.com/api/lala-public/search'
           )) {
             try {
               $response = Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 12
@@ -162,7 +162,7 @@ jobs:
           set -euo pipefail
           urls=(
             'https://api.kobeapptz.com/api/health'
-            'https://api.kobeapptz.com/api/lala-public/health'
+            'https://api.kobeapptz.com/api/lala-public/search'
           )
 
           for attempt in $(seq 1 12); do
