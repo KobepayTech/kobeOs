@@ -121,40 +121,71 @@ jobs:
           $services = @(Get-Service -ErrorAction Stop | Where-Object {
             $_.Name -match 'cloudflared|cloudflare' -or $_.DisplayName -match 'cloudflared|cloudflare'
           })
-          foreach ($service in $services) {
-            if ($service.Status -eq 'Running') {
-              Restart-Service -Name $service.Name -Force -ErrorAction Stop
-            } else {
-              Start-Service -Name $service.Name -ErrorAction Stop
-            }
-          }
 
-          Start-Sleep -Seconds 12
-          $services = @(Get-Service -ErrorAction Stop | Where-Object {
-            $_.Name -match 'cloudflared|cloudflare' -or $_.DisplayName -match 'cloudflared|cloudflare'
-          })
-          $services | ForEach-Object { Write-Host "cloudflared_service_status_after=$($_.Status)" }
-          if ($services.Where({ $_.Status -ne 'Running' }).Count -gt 0) {
-            throw 'Cloudflare connector service did not return to Running state.'
-          }
-
-      - name: Verify the KobeOS API through Cloudflare
-        if: steps.gate.outputs.healthy != 'true'
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $attempts = 8
-          for ($attempt = 1; $attempt -le $attempts; $attempt++) {
-            try {
-              $health = Invoke-WebRequest -UseBasicParsing -Uri 'https://api.kobeapptz.com/api/health' -TimeoutSec 15
-              $lala = Invoke-WebRequest -UseBasicParsing -Uri 'https://api.kobeapptz.com/api/lala-public/health' -TimeoutSec 15
-              if ($health.StatusCode -eq 200 -and $lala.StatusCode -eq 200) {
-                Write-Host "KobeOS API origin recovered on attempt $attempt."
-                exit 0
+          $restartSucceeded = $true
+          try {
+            foreach ($service in $services) {
+              if ($service.Status -eq 'Running') {
+                Restart-Service -Name $service.Name -Force -ErrorAction Stop
+              } else {
+                Start-Service -Name $service.Name -ErrorAction Stop
               }
-            } catch {
-              Write-Host "Public API verification attempt $attempt/$attempts did not pass yet."
             }
-            Start-Sleep -Seconds 5
+          } catch {
+            # The runner service is intentionally non-administrative. Leave the
+            # existing connector untouched and let the off-box job determine
+            # whether it reconnected to the now-healthy origin on its own.
+            $restartSucceeded = $false
+            Write-Host 'connector_restart_result=not_permitted_or_failed'
           }
-          throw 'The local API and connector are running, but the KobeOS API is still unreachable through Cloudflare.'
+
+          if ($restartSucceeded) {
+            Start-Sleep -Seconds 12
+            $services = @(Get-Service -ErrorAction Stop | Where-Object {
+              $_.Name -match 'cloudflared|cloudflare' -or $_.DisplayName -match 'cloudflared|cloudflare'
+            })
+            $services | ForEach-Object { Write-Host "cloudflared_service_status_after=$($_.Status)" }
+            if ($services.Where({ $_.Status -ne 'Running' }).Count -gt 0) {
+              throw 'Cloudflare connector service did not return to Running state.'
+            }
+          }
+
+  verify-public:
+    name: Verify KobeOS API off-box
+    needs: recover
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify the KobeOS API through Cloudflare
+        shell: bash
+        run: |
+          set -euo pipefail
+          urls=(
+            'https://api.kobeapptz.com/api/health'
+            'https://api.kobeapptz.com/api/lala-public/health'
+          )
+
+          for attempt in $(seq 1 12); do
+            healthy=true
+            for url in "${urls[@]}"; do
+              if ! curl --fail --silent --show-error \
+                --output /dev/null \
+                --connect-timeout 10 \
+                --max-time 20 \
+                "$url"; then
+                healthy=false
+              fi
+            done
+
+            if [ "$healthy" = true ]; then
+              echo "KobeOS API is healthy through Cloudflare on attempt $attempt."
+              exit 0
+            fi
+
+            echo "Off-box verification attempt $attempt/12 did not pass yet."
+            sleep 5
+          done
+
+          echo 'The local recovery job passed, but the API is still unreachable through Cloudflare.' >&2
+          exit 1
 
