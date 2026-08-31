@@ -1,7 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes } from 'crypto';
-import { DataSource, In, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { HotelBooking, HotelGuest, HotelMenuItem, HotelRoom, HotelTenant } from '../hotel/hotel.entity';
 import { PlatformEventsService, PlatformNotificationService } from '../platform/platform.service';
 import { normalizePhone } from '../commerce/commerce.rules';
@@ -88,6 +88,23 @@ export class LalaService {
     return rooms.filter((r) => !blocked.has(r.id) && r.status !== 'maintenance');
   }
 
+  async publicHealth() {
+    const [hotelCount, bookableRoomCount, profileCount] = await Promise.all([
+      this.hotels.count(),
+      this.rooms.count({ where: { status: In(['available', 'reserved']) } }),
+      this.profiles.count(),
+    ]);
+    return {
+      status: 'ok',
+      service: 'lala',
+      database: 'ready',
+      hotelCount,
+      bookableRoomCount,
+      profileCount,
+      checkedAt: new Date().toISOString(),
+    };
+  }
+
   async search(query: { destination?: string; checkIn?: string; checkOut?: string; guests?: string; maxPrice?: string; amenity?: string; lastMinute?: string }) {
     // Every hotel appears on Lala by default. The Lala profile is optional
     // enrichment (photos, description, rating); the only thing that hides a
@@ -150,33 +167,201 @@ export class LalaService {
   async passportByToken(qrToken: string) {
     const row = await this.passports.findOne({ where: { qrToken, active: true } });
     if (!row) throw new NotFoundException('Passport not found');
-    const stays = row.privacy.shareHistory ? await this.repo(VerifiedStay).find({ where: { passportId: row.id }, order: { checkOut: 'DESC' }, take: 20 }) : [];
-    const hotelAccounts = await this.repo(HotelLoyaltyAccount).find({ where: { passportId: row.id }, order: { updatedAt: 'DESC' } });
-    const hotelIds = [...new Set(hotelAccounts.map((account) => account.hotelId))]; const hotels = hotelIds.length ? await this.hotels.find({ where: { id: In(hotelIds) } }) : [];
-    return { passport: { passportNumber: row.passportNumber, name: row.privacy.shareName ? row.name : 'Lala guest', phone: row.privacy.sharePhone ? row.phone : '', nationality: row.nationality, preferences: row.preferences }, stays, rewards: await this.repo(LalaRewardsAccount).findOne({ where: { passportId: row.id } }), hotelLoyalty: hotelAccounts.map((account) => ({ ...account, hotelName: hotels.find((hotel) => hotel.id === account.hotelId)?.name ?? 'Hotel loyalty' })) };
+    const [stays, hotelAccounts, rewards, folios] = await Promise.all([
+      row.privacy.shareHistory ? this.repo(VerifiedStay).find({ where: { passportId: row.id }, order: { checkOut: 'DESC' }, take: 20 }) : Promise.resolve([]),
+      this.repo(HotelLoyaltyAccount).find({ where: { passportId: row.id }, order: { updatedAt: 'DESC' } }),
+      this.repo(LalaRewardsAccount).findOne({ where: { passportId: row.id } }),
+      this.repo(LalaGuestFolio).find({ where: { passportId: row.id }, order: { createdAt: 'DESC' }, take: 50 }),
+    ]);
+    const activeBookingIds = folios.map((folio) => folio.bookingId);
+    const activeBookings = activeBookingIds.length
+      ? await this.bookings.find({ where: { id: In(activeBookingIds), status: In(['PENDING', 'CONFIRMED', 'CHECKED_IN']) }, order: { checkIn: 'ASC' } })
+      : [];
+    const hotelIds = [...new Set([...hotelAccounts.map((account) => account.hotelId), ...activeBookings.map((booking) => booking.hotelId).filter((id): id is string => !!id)])];
+    const roomIds = [...new Set(activeBookings.map((booking) => booking.roomId))];
+    const [hotels, rooms] = await Promise.all([
+      hotelIds.length ? this.hotels.find({ where: { id: In(hotelIds) } }) : Promise.resolve([]),
+      roomIds.length ? this.rooms.find({ where: { id: In(roomIds) } }) : Promise.resolve([]),
+    ]);
+    return {
+      passport: { passportNumber: row.passportNumber, name: row.privacy.shareName ? row.name : 'Lala guest', phone: row.privacy.sharePhone ? row.phone : '', nationality: row.nationality, preferences: row.preferences },
+      stays,
+      rewards,
+      hotelLoyalty: hotelAccounts.map((account) => ({ ...account, hotelName: hotels.find((hotel) => hotel.id === account.hotelId)?.name ?? 'Hotel loyalty' })),
+      activeBookings: activeBookings.map((booking) => ({
+        id: booking.id,
+        hotelId: booking.hotelId,
+        hotelName: hotels.find((hotel) => hotel.id === booking.hotelId)?.name ?? 'Hotel',
+        roomNumber: rooms.find((room) => room.id === booking.roomId)?.roomNumber ?? '',
+        roomType: rooms.find((room) => room.id === booking.roomId)?.type ?? '',
+        checkIn: dateOnly(booking.checkIn),
+        checkOut: dateOnly(booking.checkOut),
+        status: booking.status,
+        totalAmount: Number(booking.totalAmount),
+        currency: booking.currency,
+      })),
+    };
+  }
+
+  private bookingDates(checkIn: string, checkOut: string) {
+    const inDate = new Date(checkIn);
+    const outDate = new Date(checkOut);
+    if (Number.isNaN(inDate.getTime()) || Number.isNaN(outDate.getTime()) || outDate <= inDate) {
+      throw new BadRequestException('Check-out must be after check-in');
+    }
+    if (dateOnly(inDate) < dateOnly(new Date())) throw new BadRequestException('Check-in cannot be in the past');
+    const nights = Math.max(1, Math.ceil((outDate.getTime() - inDate.getTime()) / 86_400_000));
+    return { inDate, outDate, nights };
+  }
+
+  private async createBookingRecord(
+    tx: EntityManager,
+    passport: LalaPassport,
+    hotel: HotelTenant,
+    input: { roomId: string; checkIn: string; checkOut: string; guests?: number },
+    pricing?: { totalAmount: number; currency: string },
+  ) {
+    const { inDate, outDate, nights } = this.bookingDates(input.checkIn, input.checkOut);
+    const guestCount = Math.max(1, Math.floor(Number(input.guests) || 1));
+    const room = await tx.getRepository(HotelRoom).createQueryBuilder('room')
+      .setLock('pessimistic_write')
+      .where('room.id = :roomId', { roomId: input.roomId })
+      .andWhere('room.hotelId = :hotelId', { hotelId: hotel.id })
+      .getOne();
+    if (!room || !['available', 'reserved'].includes(room.status) || room.capacity < guestCount) {
+      throw new BadRequestException('Room is not available for those dates');
+    }
+    const conflicts = await tx.getRepository(HotelBooking).createQueryBuilder('b')
+      .where('b.roomId = :roomId', { roomId: room.id })
+      .andWhere("b.status IN ('PENDING','CONFIRMED','CHECKED_IN')")
+      .andWhere('b.checkIn < :checkOut', { checkOut: input.checkOut })
+      .andWhere('b.checkOut > :checkIn', { checkIn: input.checkIn })
+      .getCount();
+    if (conflicts > 0) throw new ConflictException('Room was just booked. Choose another room.');
+
+    let guest = await tx.getRepository(HotelGuest).findOne({ where: { ownerId: hotel.ownerId, hotelId: hotel.id, phone: passport.phone } });
+    guest ??= await tx.getRepository(HotelGuest).save(tx.getRepository(HotelGuest).create({
+      ownerId: hotel.ownerId,
+      hotelId: hotel.id,
+      name: passport.name,
+      phone: passport.phone,
+      email: passport.email || null,
+      nationality: passport.nationality || null,
+    }));
+
+    const totalAmount = pricing ? Number(pricing.totalAmount) : Number(room.rate) * nights;
+    if (!Number.isFinite(totalAmount) || totalAmount < 0) throw new BadRequestException('Invalid booking price');
+    const booking = await tx.getRepository(HotelBooking).save(tx.getRepository(HotelBooking).create({
+      ownerId: hotel.ownerId,
+      hotelId: hotel.id,
+      roomId: room.id,
+      guestId: guest.id,
+      checkIn: inDate,
+      checkOut: outDate,
+      guestCount,
+      status: 'PENDING',
+      totalAmount,
+      currency: pricing?.currency || room.currency,
+    }));
+    await tx.getRepository(LalaGuestFolio).save(tx.getRepository(LalaGuestFolio).create({
+      bookingId: booking.id,
+      hotelId: hotel.id,
+      passportId: passport.id,
+      roomCharges: booking.totalAmount,
+      foodCharges: 0,
+      otherCharges: 0,
+      payments: 0,
+      status: 'OPEN',
+    }));
+    return { booking, room, nights };
+  }
+
+  private async announceBooking(
+    passport: LalaPassport,
+    hotel: HotelTenant,
+    input: { checkIn: string; checkOut: string },
+    booking: HotelBooking,
+  ) {
+    await this.events.emit({ ownerId: hotel.ownerId, eventName: 'hotel.booking_created', aggregateType: 'HotelBooking', aggregateId: booking.id, payload: { hotelId: hotel.id, source: 'lala', passportId: passport.id } });
+    await this.notifications.send({
+      ownerId: hotel.ownerId,
+      recipientKey: passport.id,
+      phone: passport.phone,
+      title: 'Lala booking received',
+      body: `${hotel.name}: booking ${booking.id.slice(0, 8)} received for ${input.checkIn} to ${input.checkOut}.`,
+      actionUrl: `/lala/passport/${passport.qrToken}`,
+      channels: ['IN_APP', 'PUSH', 'SMS', 'WHATSAPP'],
+    });
   }
 
   async book(input: { hotelId: string; roomId: string; passportToken: string; checkIn: string; checkOut: string; guests?: number }) {
-    const passport = await this.passports.findOne({ where: { qrToken: input.passportToken, active: true } });
+    const [passport, hotel] = await Promise.all([
+      this.passports.findOne({ where: { qrToken: input.passportToken, active: true } }),
+      this.hotels.findOne({ where: { id: input.hotelId } }),
+    ]);
     if (!passport) throw new BadRequestException('Valid Lala Passport is required');
-    const available = await this.availableRoomIds(input.hotelId, input.checkIn, input.checkOut);
-    const room = available.find((r) => r.id === input.roomId);
-    if (!room) throw new BadRequestException('Room is not available for those dates');
-    const hotel = await this.hotels.findOne({ where: { id: input.hotelId } });
     if (!hotel) throw new NotFoundException('Hotel not found');
-    const inDate = new Date(input.checkIn); const outDate = new Date(input.checkOut);
-    if (outDate <= inDate) throw new BadRequestException('Check-out must be after check-in');
-    const nights = Math.max(1, Math.ceil((outDate.getTime() - inDate.getTime()) / 86_400_000));
-    const booking = await this.ds.transaction(async (tx) => {
-      let guest = await tx.getRepository(HotelGuest).findOne({ where: { ownerId: hotel.ownerId, hotelId: hotel.id, phone: passport.phone } });
-      guest ??= await tx.getRepository(HotelGuest).save(tx.getRepository(HotelGuest).create({ ownerId: hotel.ownerId, hotelId: hotel.id, name: passport.name, phone: passport.phone, email: passport.email || null, nationality: passport.nationality || null }));
-      const row = await tx.getRepository(HotelBooking).save(tx.getRepository(HotelBooking).create({ ownerId: hotel.ownerId, hotelId: hotel.id, roomId: room.id, guestId: guest.id, checkIn: inDate, checkOut: outDate, guestCount: input.guests ?? 1, status: 'PENDING', totalAmount: Number(room.rate) * nights, currency: room.currency }));
-      await tx.getRepository(LalaGuestFolio).save(tx.getRepository(LalaGuestFolio).create({ bookingId: row.id, hotelId: hotel.id, passportId: passport.id, roomCharges: row.totalAmount, foodCharges: 0, otherCharges: 0, payments: 0, status: 'OPEN' }));
-      return row;
+    this.bookingDates(input.checkIn, input.checkOut);
+    const result = await this.ds.transaction((tx) => this.createBookingRecord(tx, passport, hotel, input));
+    await this.announceBooking(passport, hotel, input, result.booking);
+    return { booking: result.booking, hotel: hotel.name, room: result.room.roomNumber, nights: result.nights };
+  }
+
+  async acceptOffer(passportToken: string, requestId: string, offerId: string) {
+    const passport = await this.passports.findOne({ where: { qrToken: passportToken, active: true } });
+    if (!passport) throw new BadRequestException('Valid Lala Passport is required');
+
+    const accepted = await this.ds.transaction(async (tx) => {
+      const request = await tx.getRepository(LalaReverseRequest).createQueryBuilder('request')
+        .setLock('pessimistic_write')
+        .where('request.id = :requestId', { requestId })
+        .getOne();
+      if (!request || request.passportId !== passport.id) throw new NotFoundException('Request not found');
+      if (request.status !== 'OPEN') throw new ConflictException('This request is no longer open');
+
+      const offer = await tx.getRepository(LalaHotelOffer).createQueryBuilder('offer')
+        .setLock('pessimistic_write')
+        .where('offer.id = :offerId', { offerId })
+        .andWhere('offer.requestId = :requestId', { requestId })
+        .getOne();
+      if (!offer || offer.status !== 'ACTIVE') throw new NotFoundException('Active offer not found');
+      if (offer.expiresAt <= new Date()) throw new BadRequestException('This offer has expired');
+
+      const hotel = await tx.getRepository(HotelTenant).findOne({ where: { id: offer.hotelId } });
+      if (!hotel) throw new NotFoundException('Hotel not found');
+      const result = await this.createBookingRecord(tx, passport, hotel, {
+        roomId: offer.roomId,
+        checkIn: request.checkIn,
+        checkOut: request.checkOut,
+        guests: request.guests,
+      }, { totalAmount: Number(offer.totalPrice), currency: offer.currency });
+
+      request.status = 'ACCEPTED';
+      offer.status = 'ACCEPTED';
+      await Promise.all([
+        tx.getRepository(LalaReverseRequest).save(request),
+        tx.getRepository(LalaHotelOffer).save(offer),
+      ]);
+      await tx.getRepository(LalaHotelOffer).createQueryBuilder()
+        .update()
+        .set({ status: 'WITHDRAWN' })
+        .where('requestId = :requestId', { requestId })
+        .andWhere('id <> :offerId', { offerId })
+        .andWhere("status = 'ACTIVE'")
+        .execute();
+
+      return { hotel, request, offer, ...result };
     });
-    await this.events.emit({ ownerId: hotel.ownerId, eventName: 'hotel.booking_created', aggregateType: 'HotelBooking', aggregateId: booking.id, payload: { hotelId: hotel.id, source: 'lala', passportId: passport.id } });
-    await this.notifications.send({ ownerId: hotel.ownerId, recipientKey: passport.id, phone: passport.phone, title: 'Lala booking received', body: `${hotel.name}: booking ${booking.id.slice(0, 8)} received for ${input.checkIn} to ${input.checkOut}.`, actionUrl: `/lala/booking/${booking.id}`, channels: ['IN_APP', 'PUSH', 'SMS', 'WHATSAPP'] });
-    return { booking, hotel: hotel.name, room: room.roomNumber, nights };
+
+    await this.announceBooking(passport, accepted.hotel, accepted.request, accepted.booking);
+    return {
+      booking: accepted.booking,
+      hotel: accepted.hotel.name,
+      room: accepted.room.roomNumber,
+      nights: accepted.nights,
+      offerId: accepted.offer.id,
+      requestId: accepted.request.id,
+    };
   }
 
   async saveLoyaltyProgram(ownerId: string, hotelId: string, input: Partial<HotelLoyaltyProgram>) {
@@ -254,12 +439,15 @@ export class LalaService {
   }
 
   async offer(ownerId: string, requestId: string, input: { hotelId: string; roomId: string; totalPrice: number; currency?: string; message?: string; expiresAt: string }) {
+    const expiresAt = new Date(input.expiresAt);
+    if (!Number.isFinite(Number(input.totalPrice)) || Number(input.totalPrice) <= 0) throw new BadRequestException('Offer price must be greater than zero');
+    if (Number.isNaN(expiresAt.getTime()) || expiresAt <= new Date()) throw new BadRequestException('Offer expiry must be in the future');
     const [request, hotel, room] = await Promise.all([this.requests.findOne({ where: { id: requestId, status: 'OPEN' } }), this.hotels.findOne({ where: { id: input.hotelId, ownerId } }), this.rooms.findOne({ where: { id: input.roomId, ownerId, hotelId: input.hotelId } })]);
     if (!request || !hotel || !room) throw new NotFoundException('Request, hotel or room not found');
     if (!(await this.availableRoomIds(hotel.id, request.checkIn, request.checkOut)).some((r) => r.id === room.id)) throw new BadRequestException('Room is unavailable');
     let row = await this.offers.findOne({ where: { requestId, hotelId: hotel.id } });
-    row ??= this.offers.create({ ownerId, requestId, hotelId: hotel.id, roomId: room.id, totalPrice: input.totalPrice, currency: input.currency ?? hotel.currency, message: input.message ?? '', expiresAt: new Date(input.expiresAt), status: 'ACTIVE' });
-    Object.assign(row, { roomId: room.id, totalPrice: input.totalPrice, currency: input.currency ?? hotel.currency, message: input.message ?? '', expiresAt: new Date(input.expiresAt), status: 'ACTIVE' });
+    row ??= this.offers.create({ ownerId, requestId, hotelId: hotel.id, roomId: room.id, totalPrice: input.totalPrice, currency: input.currency ?? hotel.currency, message: input.message ?? '', expiresAt, status: 'ACTIVE' });
+    Object.assign(row, { roomId: room.id, totalPrice: input.totalPrice, currency: input.currency ?? hotel.currency, message: input.message ?? '', expiresAt, status: 'ACTIVE' });
     return this.offers.save(row);
   }
 

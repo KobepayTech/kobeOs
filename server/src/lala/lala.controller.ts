@@ -23,6 +23,7 @@ export class LalaController {
 @Controller('lala-public')
 export class LalaPublicController {
   constructor(private readonly lala: LalaService) {}
+  @Get('health') health() { return this.lala.publicHealth(); }
   @Get('search') search(@Query() query: Record<string, string>) { return this.lala.search(query); }
   @Post('passports') passport(@Body() body: { phone: string; name: string; email?: string; nationality?: string; preferences?: Record<string, unknown>; privacy?: Record<string, boolean> }) { return this.lala.passport(body); }
   @Get('passports/:token') passportByToken(@Param('token') token: string) { return this.lala.passportByToken(token); }
@@ -30,6 +31,7 @@ export class LalaPublicController {
   @Post('reviews') review(@Body() body: { passportToken: string; verifiedStayId: string; rating: number; comment?: string }) { return this.lala.review(body); }
   @Post('reverse-requests') request(@Body() body: { passportToken: string; destination: string; checkIn: string; checkOut: string; guests?: number; budget?: number; currency?: string }) { return this.lala.createReverseRequest(body); }
   @Get('reverse-requests/:id/offers') offers(@Param('id') id: string, @Query('passportToken') token: string) { return this.lala.requestOffers(token, id); }
+  @Post('reverse-requests/:id/offers/:offerId/accept') acceptOffer(@Param('id') id: string, @Param('offerId') offerId: string, @Body() body: { passportToken: string }) { return this.lala.acceptOffer(body.passportToken, id, offerId); }
   @Post('corporate-accounts') corporate(@Body() body: { name: string; contactName?: string; phone?: string; email?: string; type?: 'CORPORATE' | 'AGENT' }) { return this.lala.createCorporateAccount(body); }
   @Post('group-requests') group(@Body() body: { corporateAccountId?: string; destination: string; checkIn: string; checkOut: string; rooms: number; guests: number }) { return this.lala.createGroupRequest(body); }
 }

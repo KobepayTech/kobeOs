@@ -1,0 +1,3 @@
+# Cloudflare Pages SPA fallback for Lala.
+# The Vite bundle calls https://api.kobeapptz.com/api directly.
+/*  /index.html  200
