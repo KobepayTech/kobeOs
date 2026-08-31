@@ -1,5 +1,7 @@
 import { INestApplication } from '@nestjs/common';
+import { DataSource } from 'typeorm';
 import request from 'supertest';
+import { PublicDealershipDemo1785000000000 } from '../src/migrations/1785000000000-PublicDealershipDemo';
 import { bootTestApp, resetDb } from './setup';
 
 describe('Dealership production flow (e2e)', () => {
@@ -174,6 +176,56 @@ describe('Dealership production flow (e2e)', () => {
     expect(engagement.body.appointments).toHaveLength(1);
     expect(engagement.body.reservations).toHaveLength(1);
     expect(engagement.body.requests).toHaveLength(1);
+  });
+
+  it('executes the production demo migration and exposes the seeded dealership', async () => {
+    const ds = app.get(DataSource);
+    const runner = ds.createQueryRunner();
+    await runner.connect();
+    try {
+      await new PublicDealershipDemo1785000000000().up(runner);
+    } finally {
+      await runner.release();
+    }
+
+    const dealer = await request(app.getHttpServer())
+      .get('/api/commerce-public/dealers/kijani-motors');
+    expect(dealer.status).toBe(200);
+    expect(dealer.body.dealer).toEqual(expect.objectContaining({
+      name: 'Kijani Motors',
+      publicSlug: 'kijani-motors',
+    }));
+    expect(dealer.body.vehicles).toHaveLength(8);
+    expect(dealer.body.vehicles.filter((vehicle: { model: string }) => vehicle.model === 'Land Cruiser Prado')).toHaveLength(4);
+
+    const prados = await request(app.getHttpServer())
+      .get('/api/commerce-public/cars?q=Prado');
+    expect(prados.status).toBe(200);
+    expect(prados.body).toHaveLength(4);
+    expect(prados.body.every((vehicle: { modelGroupKey: string }) => vehicle.modelGroupKey === 'toyota::land cruiser prado')).toBe(true);
+
+    const demoVehicleId = prados.body[0].id as string;
+    const booking = await request(app.getHttpServer())
+      .post(`/api/commerce-public/cars/${demoVehicleId}/appointments`)
+      .send({
+        customerName: 'Demo Visitor',
+        customerPhone: '0711000000',
+        appointmentType: 'SHOWROOM',
+        scheduledFor: new Date(Date.now() + 60 * 60_000).toISOString(),
+      });
+    expect(booking.status).toBe(201);
+    expect(booking.body.appointment.status).toBe('REQUESTED');
+    expect(booking.body.crmLeadId).toEqual(expect.any(String));
+
+    const hold = await request(app.getHttpServer())
+      .post(`/api/commerce-public/cars/${demoVehicleId}/request`)
+      .send({
+        customerName: 'Demo Visitor',
+        customerPhone: '0711000000',
+        requestType: 'RESERVE',
+      });
+    expect(hold.status).toBe(201);
+    expect(hold.body.reservation.reservationCode).toEqual(expect.any(String));
   });
 
   it('cancels a hold and immediately returns the car to available stock', async () => {
