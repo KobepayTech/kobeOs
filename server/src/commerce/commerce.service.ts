@@ -83,6 +83,19 @@ export class CommerceService implements OnModuleInit {
 
   listBusinesses(ownerUserId: string) { return this.businesses.find({ where: { ownerUserId }, order: { createdAt: 'DESC' } }); }
 
+  async updateBusinessProfile(ownerUserId: string, id: string, input: Record<string, unknown>) {
+    const business = await this.businesses.findOne({ where: { id, ownerUserId } });
+    if (!business) throw new NotFoundException('Business not found');
+    const allowed = new Set([
+      'businessType', 'whatsapp', 'logoUrl', 'heroImageUrl', 'heroTitle', 'heroSubtitle',
+      'about', 'address', 'showroomAddress', 'hours', 'socials', 'primaryColor',
+    ]);
+    const patch = Object.fromEntries(Object.entries(input ?? {}).filter(([key]) => allowed.has(key)));
+    business.profile = { ...(business.profile ?? {}), ...patch };
+    business.websiteEnabled = true;
+    return this.businesses.save(business);
+  }
+
   async publicWebHealth() {
     // Query the actual persistence used by generated property/shop web apps.
     // A successful response proves the schema is migrated and PostgreSQL is
