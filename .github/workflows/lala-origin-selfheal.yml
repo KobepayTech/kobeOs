@@ -6,6 +6,14 @@ on:
     paths:
       - '.github/workflows/lala-origin-selfheal.yml'
   workflow_dispatch:
+  # Auto-heal: run every 10 minutes on the self-hosted origin. The "skip if
+  # already healthy" gate below makes a healthy run a no-op, so this only ever
+  # restarts the connector when Cloudflare is actually returning 530/1033 —
+  # turning the reactive recovery into an unattended watchdog. (A self-hosted
+  # scheduled job only fires while the runner/origin box is up, which is exactly
+  # the case where a dropped tunnel is recoverable.)
+  schedule:
+    - cron: '3,13,23,33,43,53 * * * *'
 
 permissions:
   contents: read
@@ -18,8 +26,30 @@ jobs:
       run:
         shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
     steps:
+      - name: Skip if the origin is already serving through Cloudflare
+        id: gate
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # If the PUBLIC endpoints already return 200 there is nothing to heal —
+          # exit without touching the connector so a scheduled run never bounces
+          # a working tunnel. Only a real outage (530/1033/timeout) falls through.
+          $healthy = $true
+          foreach ($u in @('https://api.kobeapptz.com/api/health', 'https://lala.kobeapptz.com/')) {
+            try {
+              $r = Invoke-WebRequest -UseBasicParsing -Uri $u -TimeoutSec 12
+              if ($r.StatusCode -ne 200) { $healthy = $false }
+            } catch { $healthy = $false }
+          }
+          if ($healthy) {
+            Write-Host 'Public origin already healthy (HTTP 200) — no recovery needed.'
+          } else {
+            Write-Host 'Public origin is failing — proceeding to restart the connector.'
+          }
+          "healthy=$($healthy.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
       - name: Validate this runner is an existing KobeOS origin
         id: preflight
+        if: steps.gate.outputs.healthy != 'true'
         run: |
           $ErrorActionPreference = 'Stop'
 
@@ -52,6 +82,7 @@ jobs:
           $services | ForEach-Object { Write-Host "cloudflared_service_status_before=$($_.Status)" }
 
       - name: Restart existing Cloudflare connector
+        if: steps.gate.outputs.healthy != 'true'
         run: |
           $ErrorActionPreference = 'Stop'
           $services = @(Get-Service -ErrorAction Stop | Where-Object {
@@ -74,6 +105,7 @@ jobs:
           }
 
       - name: Verify Lala through Cloudflare
+        if: steps.gate.outputs.healthy != 'true'
         run: |
           $ErrorActionPreference = 'Stop'
           $attempts = 8

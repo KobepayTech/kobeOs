@@ -10,6 +10,26 @@ origin** — the stack (or just the `cloudflared` connector) isn't running on yo
 server. Nothing about it is a code bug; it's an uptime/ops problem. This doc is
 how you make it stop happening.
 
+## Two deployment models — know which one you run
+
+There are two supported origins, and the recovery layer differs:
+
+1. **Windows origin (what's live today):** a Windows box runs the KobeOS API on
+   `127.0.0.1:3000`, web on `:80`, and **`cloudflared` as a Windows service**.
+   Its auto-healer is the GitHub Actions workflow
+   `.github/workflows/lala-origin-selfheal.yml` on the self-hosted Windows
+   runner. It now runs **every 10 minutes on a schedule** with a "skip if the
+   public endpoint is already 200" gate, so it only restarts the connector on a
+   real outage — an unattended watchdog, no manual dispatch needed.
+2. **Linux docker server (the always-on cloud path):** `server/docker-compose.prod.yml`
+   runs the whole stack in containers with a second HA tunnel connector
+   (`cloudflared-ha`), healed by the systemd `deploy/uptime-watchdog.*` units
+   below. This is the path that makes `api.kobeapptz.com` independent of any one
+   desktop, and it's now deployable because the DB migrations are complete.
+
+Run **one** of these as the origin. The rest of this doc is the docker path;
+for the Windows origin, the scheduled self-heal workflow is the whole story.
+
 ## The three things that keep it up
 
 1. **Containers restart themselves** — every service is `restart: unless-stopped`
