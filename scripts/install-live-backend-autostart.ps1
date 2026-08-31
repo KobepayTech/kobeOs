@@ -213,6 +213,29 @@ if (Test-Path -LiteralPath $backendErrorLog) {
   Get-Content -LiteralPath $backendErrorLog -Tail 50
 }
 
+$backendOutputLog = Join-Path $resolvedRoot 'logs\kobe-backend-live.out.log'
+Write-Host '--- backend output log tail ---'
+if (Test-Path -LiteralPath $backendOutputLog) {
+  Get-Content -LiteralPath $backendOutputLog -Tail 80
+}
+
+Write-Host '--- origin dependency state ---'
+foreach ($port in 3000, 5433) {
+  $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue)
+  Write-Host "port_${port}_listener_count=$($listeners.Count)"
+  $listeners | ForEach-Object { Write-Host "port_${port}_pid=$($_.OwningProcess)" }
+}
+Get-Service -ErrorAction SilentlyContinue |
+  Where-Object { $_.Name -match 'postgres' -or $_.DisplayName -match 'postgres' } |
+  ForEach-Object { Write-Host "postgres_service=$($_.Name) status=$($_.Status) startType=$($_.StartType)" }
+Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+  Where-Object {
+    $_.Name -in @('node.exe', 'powershell.exe') -and
+    $_.CommandLine -and
+    ($_.CommandLine -match 'KobeOS|kobeos|server\\dist\\main|live-backend-supervisor')
+  } |
+  ForEach-Object { Write-Host "origin_process=$($_.Name) pid=$($_.ProcessId) command=$($_.CommandLine)" }
+
 if ($isAdministrator) {
   throw "KobeOS startup task '$TaskName' was installed, but the local API did not become healthy within $HealthTimeoutSeconds seconds."
 }
