@@ -203,6 +203,29 @@ describe('Dealership production flow (e2e)', () => {
     expect(prados.status).toBe(200);
     expect(prados.body).toHaveLength(4);
     expect(prados.body.every((vehicle: { modelGroupKey: string }) => vehicle.modelGroupKey === 'toyota::land cruiser prado')).toBe(true);
+
+    const demoVehicleId = prados.body[0].id as string;
+    const booking = await request(app.getHttpServer())
+      .post(`/api/commerce-public/cars/${demoVehicleId}/appointments`)
+      .send({
+        customerName: 'Demo Visitor',
+        customerPhone: '0711000000',
+        appointmentType: 'SHOWROOM',
+        scheduledFor: new Date(Date.now() + 60 * 60_000).toISOString(),
+      });
+    expect(booking.status).toBe(201);
+    expect(booking.body.appointment.status).toBe('REQUESTED');
+    expect(booking.body.crmLeadId).toEqual(expect.any(String));
+
+    const hold = await request(app.getHttpServer())
+      .post(`/api/commerce-public/cars/${demoVehicleId}/request`)
+      .send({
+        customerName: 'Demo Visitor',
+        customerPhone: '0711000000',
+        requestType: 'RESERVE',
+      });
+    expect(hold.status).toBe(201);
+    expect(hold.body.reservation.reservationCode).toEqual(expect.any(String));
   });
 
   it('cancels a hold and immediately returns the car to available stock', async () => {
