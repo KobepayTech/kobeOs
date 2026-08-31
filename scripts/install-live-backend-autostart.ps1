@@ -202,22 +202,36 @@ do {
   Start-Sleep -Seconds 3
 } while ((Get-Date) -lt $deadline)
 
-Write-Host '--- supervisor log tail ---'
-if (Test-Path -LiteralPath $supervisorLog) {
-  Get-Content -LiteralPath $supervisorLog -Tail 30
-}
-
 $backendErrorLog = Join-Path $resolvedRoot 'logs\kobe-backend-live.err.log'
-Write-Host '--- backend error log tail ---'
-if (Test-Path -LiteralPath $backendErrorLog) {
-  Get-Content -LiteralPath $backendErrorLog -Tail 50
+$backendOutputLog = Join-Path $resolvedRoot 'logs\kobe-backend-live.out.log'
+
+# Classify failures locally without publishing production logs or command lines
+# to GitHub. The logs can contain configuration values or application data, so
+# only a fixed non-sensitive reason code leaves the origin.
+$diagnosticText = ''
+foreach ($diagnosticLog in @($supervisorLog, $backendErrorLog, $backendOutputLog)) {
+  if (Test-Path -LiteralPath $diagnosticLog) {
+    $fileInfo = Get-Item -LiteralPath $diagnosticLog
+    Write-Host "diagnostic_file=$($fileInfo.Name) bytes=$($fileInfo.Length)"
+    $diagnosticText += [Environment]::NewLine + (Get-Content -Raw -LiteralPath $diagnosticLog -ErrorAction SilentlyContinue)
+  }
 }
 
-$backendOutputLog = Join-Path $resolvedRoot 'logs\kobe-backend-live.out.log'
-Write-Host '--- backend output log tail ---'
-if (Test-Path -LiteralPath $backendOutputLog) {
-  Get-Content -LiteralPath $backendOutputLog -Tail 80
+$failureReason = 'unclassified'
+if ($diagnosticText -match 'ECONNREFUSED|connection refused|could not connect') {
+  $failureReason = 'database_connection_refused'
+} elseif ($diagnosticText -match 'password authentication failed|authentication failed for user') {
+  $failureReason = 'database_authentication_failed'
+} elseif ($diagnosticText -match 'EADDRINUSE|address already in use') {
+  $failureReason = 'api_port_in_use'
+} elseif ($diagnosticText -match 'MODULE_NOT_FOUND|Cannot find module') {
+  $failureReason = 'missing_node_module'
+} elseif ($diagnosticText -match 'ENOENT|cannot find the path|not recognized as the name') {
+  $failureReason = 'missing_runtime_file'
+} elseif ($diagnosticText -match 'migration') {
+  $failureReason = 'database_migration_failed'
 }
+Write-Host "origin_startup_failure=$failureReason"
 
 Write-Host '--- origin dependency state ---'
 foreach ($port in 3000, 5433) {
@@ -228,13 +242,15 @@ foreach ($port in 3000, 5433) {
 Get-Service -ErrorAction SilentlyContinue |
   Where-Object { $_.Name -match 'postgres' -or $_.DisplayName -match 'postgres' } |
   ForEach-Object { Write-Host "postgres_service=$($_.Name) status=$($_.Status) startType=$($_.StartType)" }
-Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+$originProcesses = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
   Where-Object {
     $_.Name -in @('node.exe', 'powershell.exe') -and
     $_.CommandLine -and
     ($_.CommandLine -match 'KobeOS|kobeos|server\\dist\\main|live-backend-supervisor')
-  } |
-  ForEach-Object { Write-Host "origin_process=$($_.Name) pid=$($_.ProcessId) command=$($_.CommandLine)" }
+  })
+Write-Host "origin_process_count=$($originProcesses.Count)"
+Write-Host "origin_node_count=$(@($originProcesses | Where-Object { $_.Name -eq 'node.exe' }).Count)"
+Write-Host "origin_supervisor_count=$(@($originProcesses | Where-Object { $_.Name -eq 'powershell.exe' }).Count)"
 
 if ($isAdministrator) {
   throw "KobeOS startup task '$TaskName' was installed, but the local API did not become healthy within $HealthTimeoutSeconds seconds."
