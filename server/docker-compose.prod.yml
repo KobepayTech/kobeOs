@@ -153,6 +153,29 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # ── Cloudflare Tunnel — second HA connector ───────────────────────────────────
+  # A tunnel with two connectors stays up when one dies: Cloudflare load-balances
+  # across every connector registered with the same token, so a crashed/updating/
+  # OOM-killed cloudflared no longer black-holes api.kobeapptz.com (the 1033/530
+  # you saw). Same token, second process — that's all HA needs. The uptime
+  # watchdog (deploy/uptime-watchdog.sh) restarts both by these names.
+  cloudflared-ha:
+    image: cloudflare/cloudflared:latest
+    container_name: kobe-cloudflared-ha
+    restart: unless-stopped
+    command: tunnel --no-autoupdate --protocol http2 run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARED_TOKEN:?CLOUDFLARED_TOKEN is required — from deploy/cf-setup.sh}
+    depends_on:
+      - nginx
+    networks:
+      - kobe-net
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   # ── Nginx reverse proxy (TLS termination + routing) ───────────────────────────
   nginx:
     image: nginx:alpine

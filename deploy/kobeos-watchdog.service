@@ -1,0 +1,21 @@
+# systemd service: run the KobeOS uptime watchdog once.
+# Paired with kobeos-watchdog.timer (every 60s). Install on the production host:
+#
+#   sudo cp deploy/kobeos-watchdog.service deploy/kobeos-watchdog.timer /etc/systemd/system/
+#   sudo sed -i "s#/opt/kobeos#$(pwd)#" /etc/systemd/system/kobeos-watchdog.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now kobeos-watchdog.timer
+#
+# Optional: set an alert webhook and custom domain in an env file the unit reads.
+[Unit]
+Description=KobeOS uptime watchdog (keeps api.kobeapptz.com online)
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+# Point WorkingDirectory at the repo checkout on this host (the sed above does this).
+WorkingDirectory=/opt/kobeos
+# Optional overrides live here; safe to leave absent.
+EnvironmentFile=-/etc/kobeos-watchdog.env
+ExecStart=/bin/sh /opt/kobeos/deploy/uptime-watchdog.sh
