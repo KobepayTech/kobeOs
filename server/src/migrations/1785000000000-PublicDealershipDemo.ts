@@ -7,7 +7,7 @@ export class PublicDealershipDemo1785000000000 implements MigrationInterface {
     const ownerId = '9f98e9b0-4af9-4f7a-9b92-2ccf78b6e001';
     const businessId = '9f98e9b0-4af9-4f7a-9b92-2ccf78b6e010';
 
-    const businessRows = await q.query<Array<{ id: string }>>(
+    const businessRows = await q.query(
       `INSERT INTO "commerce_businesses"
         ("id","createdAt","updatedAt","businessId","publicSlug","ownerUserId","catalogOwnerId","name","merchantName","phone","email","tier","status","websiteEnabled","managementTokenHash","profile")
        VALUES
@@ -48,7 +48,7 @@ export class PublicDealershipDemo1785000000000 implements MigrationInterface {
         }),
       ],
     );
-    const resolvedBusinessId = businessRows[0]?.id ?? businessId;
+    const resolvedBusinessId = (businessRows as Array<{ id: string }>)[0]?.id ?? businessId;
 
     const vehicles = [
       {
