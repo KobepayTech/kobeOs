@@ -26,8 +26,10 @@ task before checking the public endpoint. It:
 4. starts and supervises PostgreSQL on port 5433, then starts and supervises the
    built API on port 3000;
 5. waits for `http://127.0.0.1:3000/api/health`;
-6. restarts the existing Cloudflare connector only if the public API is still
-   unavailable.
+6. restarts the existing Cloudflare connector when permitted and the public API
+   is still unavailable; and
+7. verifies both public health endpoints from a GitHub-hosted runner, outside
+   the origin's local firewall and DNS path.
 
 The elevated supervisor and its log live under `C:\ProgramData\KobeOS`. The
 non-administrative fallback uses `C:\KobeOS\app\logs`. Both locations are
@@ -36,6 +38,11 @@ runner tracking marker is removed only from the explicitly launched supervisor,
 which prevents the runner's end-of-job orphan cleanup from terminating it. A
 content hash updates the detached supervisor only when its implementation
 changes, so the ten-minute watchdog does not bounce healthy processes.
+
+The Windows runner is intentionally non-administrative. If it cannot restart
+the Cloudflared service, the recovery job leaves the running connector intact;
+the off-box verification job then determines whether the connector reattached
+to the healthy origin without a restart.
 
 ## Manual installation
 
