@@ -165,6 +165,8 @@ if ($isAdministrator) {
   $machineTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
   if ($machineTask -and $machineTask.State -eq 'Running') {
     Write-Host "Machine-level KobeOS startup task '$TaskName' is already running; no runner fallback is needed."
+  } elseif ($healthyBeforeStart) {
+    Write-Host 'The local API is healthy; no duplicate runner supervisor is needed.'
   } else {
     $existingSupervisors = Get-RunnerSupervisors
     if ($supervisorChanged -and $existingSupervisors.Count -gt 0) {
