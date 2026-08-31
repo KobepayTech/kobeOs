@@ -3,9 +3,11 @@ import { Building2, Loader2 } from 'lucide-react';
 import ErpShop from '../apps/erp-shop';
 import { publicApi } from './api';
 import PropertyMarketplace from './PropertyMarketplace';
+import DealerSite from './DealerSite';
 
 type Resolution =
   | { kind: 'property'; slug: string; id: string; name: string }
+  | { kind: 'dealership'; slug: string; id: string; name: string; tier?: string }
   | { kind: 'business'; slug: string; id: string; name: string; tier?: string };
 
 export default function PublicCommerceSlug({ slug, pathname }: { slug: string; pathname: string }) {
@@ -27,6 +29,7 @@ export default function PublicCommerceSlug({ slug, pathname }: { slug: string; p
     const shopMatch = pathname.match(/^\/shop\/([A-Za-z0-9-]+)\/?$/);
     return <PropertyMarketplace slug={resolution.slug} shopCode={shopMatch?.[1] ?? ''} />;
   }
+  if (resolution.kind === 'dealership') return <DealerSite slug={resolution.slug} />;
 
   return <ErpShop data={{ slug: resolution.slug }} />;
 }
