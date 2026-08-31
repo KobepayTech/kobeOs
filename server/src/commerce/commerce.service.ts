@@ -236,7 +236,13 @@ export class CommerceService implements OnModuleInit {
     const property = await this.repo(Property).findOne({ where: { publicSlug: normalized, marketplaceEnabled: true } });
     if (property && property.type !== 'residential') return { kind: 'property' as const, slug: normalized, id: property.id, name: property.name };
     const business = await this.businesses.findOne({ where: { publicSlug: normalized, status: 'ACTIVE' } });
-    if (business) return { kind: 'business' as const, slug: normalized, id: business.id, name: business.name, tier: business.tier };
+    if (business) {
+      const vehicleCount = await this.vehicles.count({ where: { businessId: business.id } });
+      if (vehicleCount > 0 || String(business.profile?.businessType || '').toUpperCase() === 'DEALERSHIP') {
+        return { kind: 'dealership' as const, slug: normalized, id: business.id, name: business.name, tier: business.tier };
+      }
+      return { kind: 'business' as const, slug: normalized, id: business.id, name: business.name, tier: business.tier };
+    }
     throw new NotFoundException('Public site not found');
   }
 
