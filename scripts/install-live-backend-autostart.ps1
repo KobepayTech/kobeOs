@@ -168,12 +168,12 @@ if ($isAdministrator) {
   } elseif ($healthyBeforeStart) {
     Write-Host 'The local API is healthy; no duplicate runner supervisor is needed.'
   } else {
-    $existingSupervisors = Get-RunnerSupervisors
+    $existingSupervisors = @(Get-RunnerSupervisors)
     if ($supervisorChanged -and $existingSupervisors.Count -gt 0) {
       Write-Host 'Updating the runner-managed KobeOS full-origin supervisor.'
       Stop-ProcessSet -Processes $existingSupervisors
       Start-Sleep -Seconds 3
-      $existingSupervisors = Get-RunnerSupervisors
+      $existingSupervisors = @(Get-RunnerSupervisors)
     }
 
     if ($existingSupervisors.Count -eq 0) {
