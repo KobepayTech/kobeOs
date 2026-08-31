@@ -1,0 +1,69 @@
+name: Lala Public Production Smoke
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/lala-public-smoke.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve public hosts
+        run: |
+          set -u
+          echo "=== lala.kobeapptz.com ==="
+          getent ahosts lala.kobeapptz.com || true
+          echo
+          echo "=== api.kobeapptz.com ==="
+          getent ahosts api.kobeapptz.com || true
+
+      - name: Check Lala web
+        id: web
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          curl -fsSIL --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 30             https://lala.kobeapptz.com/ -o /tmp/lala-web-headers.txt
+          cat /tmp/lala-web-headers.txt
+          grep -Eq '^HTTP/.* 2[0-9][0-9]' /tmp/lala-web-headers.txt
+
+      - name: Check Lala API search
+        id: search
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          curl -fsS --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 30             -D /tmp/lala-search-headers.txt             https://api.kobeapptz.com/api/lala-public/search             -o /tmp/lala-search.json
+          cat /tmp/lala-search-headers.txt
+          echo
+          head -c 2000 /tmp/lala-search.json
+          echo
+          jq -e 'type == "array"' /tmp/lala-search.json >/dev/null
+
+      - name: Check Lala API MVP health endpoint
+        id: health
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          curl -fsS --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 30             -D /tmp/lala-health-headers.txt             https://api.kobeapptz.com/api/lala-public/health             -o /tmp/lala-health.json
+          cat /tmp/lala-health-headers.txt
+          echo
+          cat /tmp/lala-health.json
+          echo
+          jq -e '.status == "ok" and .database == "ready"' /tmp/lala-health.json >/dev/null
+
+      - name: Report production state
+        run: |
+          echo "web_outcome=${{ steps.web.outcome }}"
+          echo "search_outcome=${{ steps.search.outcome }}"
+          echo "health_outcome=${{ steps.health.outcome }}"
+          if [ "${{ steps.web.outcome }}" = "success" ] &&              [ "${{ steps.search.outcome }}" = "success" ] &&              [ "${{ steps.health.outcome }}" = "success" ]; then
+            echo "Lala production smoke passed."
+            exit 0
+          fi
+          echo "::error::Lala production is not fully serving the MVP yet."
+          exit 1
