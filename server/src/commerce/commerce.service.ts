@@ -1054,16 +1054,94 @@ export class CommerceService implements OnModuleInit {
     return { vehicle, listing, bestCoverUrl: vehicle.metadata.bestCoverUrl, whatsappStatus, voiceoverScript, videoJob };
   }
 
+  @Cron(CronExpression.EVERY_MINUTE)
+  async expireVehicleReservations() {
+    const now = new Date();
+    const expired = await this.repo(VehicleReservation).find({
+      where: { status: In(['HELD', 'CONFIRMED']), expiresAt: LessThanOrEqual(now) },
+    });
+    if (!expired.length) return { expired: 0 };
+
+    const affected = new Set<string>();
+    for (const reservation of expired) {
+      reservation.status = 'EXPIRED';
+      await this.repo(VehicleReservation).save(reservation);
+      affected.add(reservation.vehicleId);
+      const business = await this.businesses.findOne({ where: { id: reservation.businessId } });
+      if (business?.ownerUserId && reservation.crmLeadId) {
+        try {
+          await this.crm.addActivity(business.ownerUserId, reservation.crmLeadId, {
+            type: 'STATUS_CHANGE',
+            body: `Vehicle reservation ${reservation.reservationCode} expired automatically.`,
+            metadata: { reservationCode: reservation.reservationCode, vehicleId: reservation.vehicleId },
+          });
+        } catch { /* reservation expiry must not fail because of CRM history */ }
+      }
+    }
+    for (const vehicleId of affected) await this.releaseVehicleIfUnreserved(vehicleId);
+    return { expired: expired.length };
+  }
+
+  private async releaseVehicleIfUnreserved(vehicleId: string) {
+    const now = Date.now();
+    const holds = await this.repo(VehicleReservation).find({
+      where: { vehicleId, status: In(['HELD', 'CONFIRMED']) },
+    });
+    const active = holds.some((reservation) => new Date(reservation.expiresAt).getTime() > now);
+    if (active) return;
+    const vehicle = await this.vehicles.findOne({ where: { id: vehicleId } });
+    if (vehicle?.status === 'RESERVED') {
+      vehicle.status = 'AVAILABLE';
+      await this.vehicles.save(vehicle);
+    }
+  }
+
+  private async publicVehicleCard(v: CommerceVehicle, business?: CommerceBusiness | null) {
+    const [listing, media] = await Promise.all([
+      this.repo(VehicleListingMetadata).findOne({ where: { vehicleId: v.id } }),
+      this.repo(VehicleMedia).find({ where: { vehicleId: v.id }, order: { sortOrder: 'ASC' } }),
+    ]);
+    const dealer = business ?? await this.businesses.findOne({
+      where: { id: v.businessId },
+      select: ['id', 'businessId', 'name', 'publicSlug', 'phone', 'email', 'profile'],
+    });
+    return {
+      ...v,
+      canBuy: v.status === 'AVAILABLE',
+      canSchedule: ['AVAILABLE', 'RESERVED', 'IN_TRANSIT', 'COMING_SOON'].includes(v.status),
+      media,
+      listing: listing ? {
+        highlights: listing.highlights,
+        socialCaption: listing.socialCaption,
+        verticalVideoUrl: listing.verticalVideoUrl,
+      } : null,
+      modelGroupKey: `${v.make.trim().toLowerCase()}::${v.model.trim().toLowerCase()}`,
+      dealer: dealer ? {
+        id: dealer.id,
+        businessId: dealer.businessId,
+        name: dealer.name,
+        publicSlug: dealer.publicSlug,
+        phone: dealer.phone,
+        email: dealer.email,
+        whatsapp: String(dealer.profile?.whatsapp ?? dealer.phone ?? ''),
+        dealerSiteUrl: `https://${dealer.publicSlug}.kobeapptz.com`,
+      } : null,
+    };
+  }
+
   async publicVehicles(query: { q?: string; make?: string; model?: string; minYear?: string; maxYear?: string; minPrice?: string; maxPrice?: string; maxMileage?: string; location?: string; transmission?: string; fuel?: string; bodyType?: string; condition?: string; financing?: string; dealer?: string; color?: string }) {
+    await this.expireVehicleReservations();
     const businesses = await this.businesses.find({ where: { status: 'ACTIVE' } });
-    // Cars stay listed on Jumla whether or not the dealer's KobeOS node is
-    // online — the vehicle records live in the cloud, and a buyer enquiry/reserve
-    // is captured server-side and reaches the dealer when they reconnect.
+    // Vehicle listings are cloud-backed. They remain discoverable even when a
+    // dealer's local KobeOS node is offline; buyer actions are queued centrally.
     const visibleBusinessIds = businesses.map((business) => business.id);
     if (!visibleBusinessIds.length) return [];
-    const qb = this.vehicles.createQueryBuilder('v').where("v.status IN ('AVAILABLE','IN_TRANSIT','COMING_SOON')").andWhere('v.businessId IN (:...visibleBusinessIds)', { visibleBusinessIds });
+    const qb = this.vehicles.createQueryBuilder('v')
+      .where("v.status IN ('AVAILABLE','RESERVED','IN_TRANSIT','COMING_SOON')")
+      .andWhere('v.businessId IN (:...visibleBusinessIds)', { visibleBusinessIds });
+
     if (query.q) {
-      qb.andWhere('(LOWER(v.make) LIKE :q OR LOWER(v.model) LIKE :q OR LOWER(v.description) LIKE :q OR LOWER(v.bodyType) LIKE :q)', { q: `%${query.q.toLowerCase()}%` });
+      qb.andWhere('(LOWER(v.make) LIKE :q OR LOWER(v.model) LIKE :q OR LOWER(v.trim) LIKE :q OR LOWER(v.description) LIKE :q OR LOWER(v.bodyType) LIKE :q)', { q: `%${query.q.toLowerCase()}%` });
       const naturalMax = query.q.match(/(?:below|under|max)\s*(\d+(?:\.\d+)?)\s*(m|million)?/i);
       if (naturalMax) qb.andWhere('v.price <= :naturalMax', { naturalMax: Number(naturalMax[1]) * (naturalMax[2] ? 1_000_000 : 1) });
     }
@@ -1074,23 +1152,367 @@ export class CommerceService implements OnModuleInit {
     if (query.minPrice) qb.andWhere('v.price >= :minPrice', { minPrice: Number(query.minPrice) });
     if (query.maxPrice) qb.andWhere('v.price <= :maxPrice', { maxPrice: Number(query.maxPrice) });
     if (query.maxMileage) qb.andWhere('v.mileage <= :maxMileage', { maxMileage: Number(query.maxMileage) });
-    for (const [field, value] of Object.entries({ location: query.location, transmission: query.transmission, fuel: query.fuel, bodyType: query.bodyType, condition: query.condition, color: query.color })) if (value) qb.andWhere(`LOWER(v.${field}) LIKE :${field}`, { [field]: `%${value.toLowerCase()}%` });
+    for (const [field, value] of Object.entries({
+      location: query.location,
+      transmission: query.transmission,
+      fuel: query.fuel,
+      bodyType: query.bodyType,
+      condition: query.condition,
+      color: query.color,
+    })) {
+      if (value) qb.andWhere(`LOWER(v.${field}) LIKE :${field}`, { [field]: `%${value.toLowerCase()}%` });
+    }
     if (query.financing === 'true') qb.andWhere('v.financingAvailable = true');
-    if (query.dealer) { const dealerIds = businesses.filter((business) => business.name.toLowerCase().includes(query.dealer!.toLowerCase())).map((business) => business.id); if (!dealerIds.length) return []; qb.andWhere('v.businessId IN (:...dealerIds)', { dealerIds }); }
-    const vehicles = await qb.orderBy('v.createdAt', 'DESC').take(100).getMany();
-    return Promise.all(vehicles.map(async (v) => { const listing = await this.repo(VehicleListingMetadata).findOne({ where: { vehicleId: v.id } }); return { ...v, canBuy: v.status === 'AVAILABLE', media: await this.repo(VehicleMedia).find({ where: { vehicleId: v.id }, order: { sortOrder: 'ASC' } }), listing: listing ? { highlights: listing.highlights, socialCaption: listing.socialCaption, verticalVideoUrl: listing.verticalVideoUrl } : null, dealer: await this.businesses.findOne({ where: { id: v.businessId }, select: ['id', 'businessId', 'name', 'publicSlug', 'phone'] }) }; }));
+    if (query.dealer) {
+      const dealerIds = businesses
+        .filter((business) => business.name.toLowerCase().includes(query.dealer!.toLowerCase()) || business.publicSlug.toLowerCase() === query.dealer!.toLowerCase())
+        .map((business) => business.id);
+      if (!dealerIds.length) return [];
+      qb.andWhere('v.businessId IN (:...dealerIds)', { dealerIds });
+    }
+    const vehicles = await qb.orderBy('v.createdAt', 'DESC').take(200).getMany();
+    const businessMap = new Map(businesses.map((business) => [business.id, business]));
+    return Promise.all(vehicles.map((vehicle) => this.publicVehicleCard(vehicle, businessMap.get(vehicle.businessId))));
   }
 
-  async vehicleRequest(id: string, input: { customerName: string; customerPhone: string; customerWhatsapp?: string; requestType?: 'OUTRIGHT' | 'RESERVE' | 'FINANCE'; offerAmount?: number; preferredContact?: 'PHONE' | 'WHATSAPP' | 'SMS' | 'EMAIL'; tradeInDetails?: string; message?: string; reserve?: boolean }) {
+  async publicDealer(slug: string) {
+    await this.expireVehicleReservations();
+    const normalized = marketplaceSlug(slug);
+    const business = await this.businesses.findOne({ where: { publicSlug: normalized, status: 'ACTIVE' } });
+    if (!business) throw new NotFoundException('Dealership not found');
+    const vehicles = await this.vehicles.find({
+      where: { businessId: business.id, status: In(['AVAILABLE', 'RESERVED', 'IN_TRANSIT', 'COMING_SOON']) },
+      order: { createdAt: 'DESC' },
+    });
+    if (!vehicles.length && String(business.profile?.businessType || '').toUpperCase() !== 'DEALERSHIP') {
+      throw new NotFoundException('Dealership not found');
+    }
+    const cards = await Promise.all(vehicles.map((vehicle) => this.publicVehicleCard(vehicle, business)));
+    const profile = business.profile ?? {};
+    return {
+      dealer: {
+        id: business.id,
+        businessId: business.businessId,
+        name: business.name,
+        publicSlug: business.publicSlug,
+        phone: business.phone,
+        email: business.email,
+        whatsapp: String(profile.whatsapp ?? business.phone ?? ''),
+        logoUrl: String(profile.logoUrl ?? ''),
+        heroImageUrl: String(profile.heroImageUrl ?? cards.find((row) => row.media?.[0])?.media?.[0]?.url ?? ''),
+        heroTitle: String(profile.heroTitle ?? `Find your next car at ${business.name}`),
+        heroSubtitle: String(profile.heroSubtitle ?? 'Live inventory, showroom visits, test drives, reservations and financing enquiries in one place.'),
+        about: String(profile.about ?? ''),
+        address: String(profile.showroomAddress ?? profile.address ?? ''),
+        hours: Array.isArray(profile.hours) ? profile.hours : [],
+        socials: typeof profile.socials === 'object' && profile.socials ? profile.socials : {},
+        primaryColor: String(profile.primaryColor ?? '#0b3328'),
+      },
+      stats: {
+        total: cards.length,
+        available: cards.filter((row) => row.status === 'AVAILABLE').length,
+        reserved: cards.filter((row) => row.status === 'RESERVED').length,
+        financing: cards.filter((row) => row.financingAvailable).length,
+        makes: [...new Set(cards.map((row) => row.make))].sort(),
+      },
+      vehicles: cards,
+    };
+  }
+
+  async vehicleEngagement(ownerUserId: string) {
+    await this.expireVehicleReservations();
+    const business = await this.businessForOwner(ownerUserId);
+    const [requests, reservations, appointments] = await Promise.all([
+      this.repo(VehicleBuyerRequest).find({ where: { businessId: business.id }, order: { createdAt: 'DESC' }, take: 200 }),
+      this.repo(VehicleReservation).find({ where: { businessId: business.id }, order: { createdAt: 'DESC' }, take: 200 }),
+      this.repo(VehicleAppointment).find({ where: { businessId: business.id }, order: { scheduledFor: 'ASC' }, take: 200 }),
+    ]);
+    const ids = [...new Set([
+      ...requests.map((row) => row.vehicleId),
+      ...reservations.map((row) => row.vehicleId),
+      ...appointments.map((row) => row.vehicleId),
+    ])];
+    const vehicles = ids.length ? await this.vehicles.find({ where: { id: In(ids) } }) : [];
+    const map = new Map(vehicles.map((vehicle) => [vehicle.id, {
+      id: vehicle.id,
+      make: vehicle.make,
+      model: vehicle.model,
+      year: vehicle.year,
+      price: vehicle.price,
+      status: vehicle.status,
+      stockNumber: vehicle.stockNumber,
+    }]));
+    return {
+      requests: requests.map((row) => ({ ...row, vehicle: map.get(row.vehicleId) ?? null })),
+      reservations: reservations.map((row) => ({ ...row, vehicle: map.get(row.vehicleId) ?? null })),
+      appointments: appointments.map((row) => ({ ...row, vehicle: map.get(row.vehicleId) ?? null })),
+    };
+  }
+
+  async vehicleRequest(id: string, input: {
+    customerName: string;
+    customerPhone: string;
+    customerWhatsapp?: string;
+    customerEmail?: string;
+    requestType?: 'OUTRIGHT' | 'RESERVE' | 'FINANCE';
+    offerAmount?: number;
+    preferredContact?: 'PHONE' | 'WHATSAPP' | 'SMS' | 'EMAIL';
+    tradeInDetails?: string;
+    message?: string;
+    reserve?: boolean;
+  }) {
+    await this.expireVehicleReservations();
     const vehicle = await this.vehicles.findOne({ where: { id } });
     if (!vehicle || vehicle.status !== 'AVAILABLE') throw new NotFoundException('Vehicle is not currently available for purchase');
     const requestType = input.requestType ?? (input.reserve ? 'RESERVE' : 'OUTRIGHT');
     if (requestType === 'FINANCE' && !vehicle.financingAvailable) throw new BadRequestException('Financing is not enabled for this vehicle');
-    const request = await this.repo(VehicleBuyerRequest).save(this.repo(VehicleBuyerRequest).create({ vehicleId: id, businessId: vehicle.businessId, customerName: input.customerName.trim(), customerPhone: normalizePhone(input.customerPhone), customerWhatsapp: normalizePhone(input.customerWhatsapp || input.customerPhone), requestType, offerAmount: input.offerAmount ? num(input.offerAmount) : null, preferredContact: input.preferredContact ?? 'PHONE', tradeInDetails: input.tradeInDetails?.trim() ?? '', message: input.message?.trim() ?? '', status: 'NEW' }));
-    let reservation: VehicleReservation | null = null;
-    if (requestType === 'RESERVE') reservation = await this.repo(VehicleReservation).save(this.repo(VehicleReservation).create({ vehicleId: id, businessId: vehicle.businessId, reservationCode: humanCode('VR'), customerName: input.customerName, customerPhone: normalizePhone(input.customerPhone), status: 'HELD', expiresAt: new Date(Date.now() + 30 * 60_000) }));
     const business = await this.businesses.findOne({ where: { id: vehicle.businessId } });
-    await this.notifications.send({ ownerId: business?.ownerUserId ?? undefined, recipientKey: vehicle.businessId, phone: business?.phone ?? '', title: `New ${requestType.toLowerCase()} vehicle request`, body: `${input.customerName} requested the ${vehicle.year} ${vehicle.make} ${vehicle.model}.`, actionUrl: '/commerce', channels: ['IN_APP', 'PUSH', 'SMS', 'WHATSAPP'] });
-    return { request, reservation };
+    if (!business) throw new NotFoundException('Dealer not found');
+
+    let request = await this.repo(VehicleBuyerRequest).save(this.repo(VehicleBuyerRequest).create({
+      vehicleId: id,
+      businessId: vehicle.businessId,
+      customerName: input.customerName.trim(),
+      customerPhone: normalizePhone(input.customerPhone),
+      customerWhatsapp: normalizePhone(input.customerWhatsapp || input.customerPhone),
+      customerEmail: input.customerEmail?.trim().toLowerCase() ?? '',
+      requestType,
+      offerAmount: input.offerAmount ? num(input.offerAmount) : null,
+      preferredContact: input.preferredContact ?? 'PHONE',
+      tradeInDetails: input.tradeInDetails?.trim() ?? '',
+      message: input.message?.trim() ?? '',
+      status: 'NEW',
+      crmLeadId: null,
+    }));
+
+    let crmLeadId: string | null = null;
+    if (business.ownerUserId) {
+      const lead = await this.crm.upsertLead(business.ownerUserId, {
+        businessId: business.id,
+        source: 'VEHICLE',
+        sourceRefId: request.id,
+        customerName: request.customerName,
+        customerPhone: request.customerPhone,
+        customerWhatsapp: request.customerWhatsapp,
+        customerEmail: request.customerEmail,
+        subject: `${vehicle.year} ${vehicle.make} ${vehicle.model}`,
+        stage: requestType === 'RESERVE' ? 'NEGOTIATING' : 'NEW',
+        value: input.offerAmount ? num(input.offerAmount) : Number(vehicle.price),
+        currency: vehicle.currency,
+        notes: request.message || request.tradeInDetails,
+        metadata: { vehicleId: vehicle.id, requestId: request.id, requestType, stockNumber: vehicle.stockNumber },
+        activityType: requestType === 'RESERVE' ? 'STATUS_CHANGE' : 'NOTE',
+        activityBody: `New ${requestType.toLowerCase()} request received from Jumla/dealer website.`,
+      });
+      crmLeadId = lead.id;
+      request.crmLeadId = lead.id;
+      request = await this.repo(VehicleBuyerRequest).save(request);
+    }
+
+    let reservation: VehicleReservation | null = null;
+    if (requestType === 'RESERVE') {
+      reservation = await this.repo(VehicleReservation).save(this.repo(VehicleReservation).create({
+        vehicleId: id,
+        businessId: vehicle.businessId,
+        reservationCode: humanCode('VR'),
+        customerName: input.customerName.trim(),
+        customerPhone: normalizePhone(input.customerPhone),
+        status: 'HELD',
+        expiresAt: new Date(Date.now() + 30 * 60_000),
+        crmLeadId,
+        confirmedAt: null,
+        cancelledAt: null,
+        convertedAt: null,
+      }));
+      vehicle.status = 'RESERVED';
+      await this.vehicles.save(vehicle);
+    }
+
+    await this.notifications.send({
+      ownerId: business.ownerUserId ?? undefined,
+      recipientKey: vehicle.businessId,
+      phone: business.phone ?? '',
+      title: `New ${requestType.toLowerCase()} vehicle request`,
+      body: `${input.customerName} requested the ${vehicle.year} ${vehicle.make} ${vehicle.model}.`,
+      actionUrl: '/commerce',
+      channels: ['IN_APP', 'PUSH', 'SMS', 'WHATSAPP'],
+    });
+    return { request, reservation, crmLeadId };
   }
+
+  async vehicleAppointment(id: string, input: {
+    customerName: string;
+    customerPhone: string;
+    customerWhatsapp?: string;
+    customerEmail?: string;
+    appointmentType?: 'SHOWROOM' | 'TEST_DRIVE';
+    scheduledFor: string | Date;
+    showroomLocation?: string;
+    message?: string;
+  }) {
+    const vehicle = await this.vehicles.findOne({ where: { id } });
+    if (!vehicle || ['SOLD', 'UNAVAILABLE', 'DRAFT'].includes(vehicle.status)) throw new NotFoundException('Vehicle is not available for an appointment');
+    const scheduledFor = new Date(input.scheduledFor);
+    if (Number.isNaN(scheduledFor.getTime()) || scheduledFor.getTime() <= Date.now()) throw new BadRequestException('Choose a future appointment time');
+    if (scheduledFor.getTime() > Date.now() + 180 * 24 * 60 * 60_000) throw new BadRequestException('Appointment must be within 180 days');
+
+    const business = await this.businesses.findOne({ where: { id: vehicle.businessId } });
+    if (!business) throw new NotFoundException('Dealer not found');
+    const profile = business.profile ?? {};
+    let appointment = await this.repo(VehicleAppointment).save(this.repo(VehicleAppointment).create({
+      vehicleId: vehicle.id,
+      businessId: vehicle.businessId,
+      customerName: input.customerName.trim(),
+      customerPhone: normalizePhone(input.customerPhone),
+      customerWhatsapp: normalizePhone(input.customerWhatsapp || input.customerPhone),
+      customerEmail: input.customerEmail?.trim().toLowerCase() ?? '',
+      appointmentType: input.appointmentType ?? 'SHOWROOM',
+      scheduledFor,
+      showroomLocation: input.showroomLocation?.trim() || String(profile.showroomAddress ?? profile.address ?? vehicle.location ?? ''),
+      salesperson: '',
+      status: 'REQUESTED',
+      message: input.message?.trim() ?? '',
+      crmLeadId: null,
+    }));
+
+    if (business.ownerUserId) {
+      const lead = await this.crm.upsertLead(business.ownerUserId, {
+        businessId: business.id,
+        source: 'VEHICLE',
+        sourceRefId: appointment.id,
+        customerName: appointment.customerName,
+        customerPhone: appointment.customerPhone,
+        customerWhatsapp: appointment.customerWhatsapp,
+        customerEmail: appointment.customerEmail,
+        subject: `${vehicle.year} ${vehicle.make} ${vehicle.model}`,
+        stage: 'APPOINTMENT',
+        value: Number(vehicle.price),
+        currency: vehicle.currency,
+        nextActionAt: scheduledFor,
+        notes: appointment.message,
+        metadata: { vehicleId: vehicle.id, appointmentId: appointment.id, appointmentType: appointment.appointmentType, scheduledFor: scheduledFor.toISOString() },
+        activityType: 'APPOINTMENT',
+        activityBody: `${appointment.appointmentType === 'TEST_DRIVE' ? 'Test drive' : 'Showroom visit'} requested for ${scheduledFor.toISOString()}.`,
+      });
+      appointment.crmLeadId = lead.id;
+      appointment = await this.repo(VehicleAppointment).save(appointment);
+    }
+
+    await this.notifications.send({
+      ownerId: business.ownerUserId ?? undefined,
+      recipientKey: business.id,
+      phone: business.phone ?? '',
+      title: appointment.appointmentType === 'TEST_DRIVE' ? 'New test drive request' : 'New showroom visit',
+      body: `${appointment.customerName} wants to see the ${vehicle.year} ${vehicle.make} ${vehicle.model} on ${scheduledFor.toLocaleString()}.`,
+      actionUrl: '/commerce',
+      channels: ['IN_APP', 'PUSH', 'SMS', 'WHATSAPP'],
+    });
+    return { appointment, crmLeadId: appointment.crmLeadId ?? null };
+  }
+
+  async updateVehicleAppointmentStatus(ownerUserId: string, id: string, input: {
+    status: 'REQUESTED' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
+    salesperson?: string;
+  }) {
+    const business = await this.businessForOwner(ownerUserId);
+    const appointment = await this.repo(VehicleAppointment).findOne({ where: { id, businessId: business.id } });
+    if (!appointment) throw new NotFoundException('Vehicle appointment not found');
+    appointment.status = input.status;
+    if (input.salesperson !== undefined) appointment.salesperson = input.salesperson.trim();
+    const saved = await this.repo(VehicleAppointment).save(appointment);
+    if (saved.crmLeadId) {
+      const stage = input.status === 'COMPLETED' ? 'NEGOTIATING' : input.status === 'CONFIRMED' ? 'APPOINTMENT' : input.status === 'CANCELLED' || input.status === 'NO_SHOW' ? 'CONTACTED' : 'APPOINTMENT';
+      try {
+        await this.crm.updateLead(ownerUserId, saved.crmLeadId, { stage, nextActionAt: input.status === 'COMPLETED' ? null : saved.scheduledFor });
+        await this.crm.addActivity(ownerUserId, saved.crmLeadId, {
+          type: 'STATUS_CHANGE',
+          body: `Appointment marked ${input.status.toLowerCase().replace(/_/g, ' ')}.`,
+          metadata: { appointmentId: saved.id, salesperson: saved.salesperson },
+        });
+      } catch { /* appointment remains source of truth even if CRM history fails */ }
+    }
+    return saved;
+  }
+
+  async updateVehicleReservationStatus(ownerUserId: string, code: string, input: {
+    status: 'CONFIRMED' | 'CANCELLED' | 'CONVERTED';
+    holdMinutes?: number;
+  }) {
+    await this.expireVehicleReservations();
+    const business = await this.businessForOwner(ownerUserId);
+    const reservation = await this.repo(VehicleReservation).findOne({ where: { reservationCode: code, businessId: business.id } });
+    if (!reservation) throw new NotFoundException('Vehicle reservation not found');
+    if (reservation.status === 'EXPIRED') throw new BadRequestException('Reservation has already expired');
+    if (reservation.status === 'CONVERTED') return reservation;
+
+    const now = new Date();
+    if (input.status === 'CONFIRMED') {
+      if (reservation.status === 'CANCELLED') throw new BadRequestException('Cancelled reservation cannot be confirmed');
+      const minutes = Math.min(Math.max(Number(input.holdMinutes) || 1440, 30), 10080);
+      reservation.status = 'CONFIRMED';
+      reservation.confirmedAt = now;
+      reservation.expiresAt = new Date(now.getTime() + minutes * 60_000);
+    } else if (input.status === 'CANCELLED') {
+      reservation.status = 'CANCELLED';
+      reservation.cancelledAt = now;
+    } else {
+      reservation.status = 'CONVERTED';
+      reservation.convertedAt = now;
+    }
+    const saved = await this.repo(VehicleReservation).save(reservation);
+    const vehicle = await this.vehicles.findOne({ where: { id: reservation.vehicleId, businessId: business.id } });
+    if (input.status === 'CONVERTED' && vehicle) {
+      vehicle.status = 'SOLD';
+      await this.vehicles.save(vehicle);
+    } else if (input.status === 'CANCELLED') {
+      await this.releaseVehicleIfUnreserved(reservation.vehicleId);
+    } else if (input.status === 'CONFIRMED' && vehicle && vehicle.status === 'AVAILABLE') {
+      vehicle.status = 'RESERVED';
+      await this.vehicles.save(vehicle);
+    }
+
+    if (reservation.crmLeadId) {
+      try {
+        const stage = input.status === 'CONVERTED' ? 'WON' : input.status === 'CANCELLED' ? 'CONTACTED' : 'NEGOTIATING';
+        await this.crm.updateLead(ownerUserId, reservation.crmLeadId, { stage });
+        await this.crm.addActivity(ownerUserId, reservation.crmLeadId, {
+          type: 'STATUS_CHANGE',
+          body: `Reservation ${reservation.reservationCode} marked ${input.status.toLowerCase()}.`,
+          metadata: { reservationCode: reservation.reservationCode, vehicleId: reservation.vehicleId },
+        });
+      } catch { /* reservation state remains authoritative */ }
+    }
+
+    await this.notifications.send({
+      ownerId: business.ownerUserId ?? undefined,
+      recipientKey: reservation.id,
+      phone: reservation.customerPhone,
+      title: `Reservation ${reservation.reservationCode}: ${input.status.toLowerCase()}`,
+      body: input.status === 'CONFIRMED'
+        ? `Your vehicle reservation is confirmed until ${saved.expiresAt.toLocaleString()}.`
+        : input.status === 'CONVERTED'
+          ? 'Your vehicle purchase has been marked completed by the dealer.'
+          : 'Your vehicle reservation has been cancelled.',
+      actionUrl: `/jumla?car=${reservation.vehicleId}`,
+      channels: ['IN_APP', 'PUSH', 'SMS', 'WHATSAPP'],
+    });
+    return saved;
+  }
+
+  async vehicleReservationStatus(code: string) {
+    await this.expireVehicleReservations();
+    const reservation = await this.repo(VehicleReservation).findOne({ where: { reservationCode: code } });
+    if (!reservation) throw new NotFoundException('Reservation not found');
+    const vehicle = await this.vehicles.findOne({ where: { id: reservation.vehicleId } });
+    return {
+      reservationCode: reservation.reservationCode,
+      status: reservation.status,
+      expiresAt: reservation.expiresAt,
+      confirmedAt: reservation.confirmedAt,
+      cancelledAt: reservation.cancelledAt,
+      convertedAt: reservation.convertedAt,
+      vehicle: vehicle ? { id: vehicle.id, year: vehicle.year, make: vehicle.make, model: vehicle.model, status: vehicle.status } : null,
+    };
+  }
+
 }
