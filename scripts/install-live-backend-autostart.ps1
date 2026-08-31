@@ -32,17 +32,22 @@ foreach ($requiredPath in @($launcher, $serverBundle, $environmentFile, $node)) 
 $currentIdentity = [Security.Principal.WindowsIdentity]::GetCurrent()
 $currentPrincipal = New-Object Security.Principal.WindowsPrincipal($currentIdentity)
 $isAdministrator = $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $isAdministrator) {
-  throw 'Administrator privileges are required to install the SYSTEM startup task. Run this script from an elevated PowerShell window or an elevated self-hosted runner service.'
+
+if ($isAdministrator) {
+  $supervisorRoot = Join-Path $env:ProgramData 'KobeOS'
+} else {
+  # A non-administrative Actions runner cannot register a SYSTEM task or write
+  # beneath ProgramData. Keep the supervisor in the stable production tree;
+  # unlike GITHUB_WORKSPACE this directory survives checkout cleanup.
+  $supervisorRoot = Join-Path $resolvedRoot 'logs'
 }
 
-$programDataRoot = Join-Path $env:ProgramData 'KobeOS'
-$supervisorPath = Join-Path $programDataRoot 'run-live-backend-supervisor.ps1'
-$supervisorLog = Join-Path $programDataRoot 'live-backend-supervisor.log'
-New-Item -ItemType Directory -Force -Path $programDataRoot | Out-Null
+$supervisorPath = Join-Path $supervisorRoot 'run-live-backend-supervisor.ps1'
+$supervisorLog = Join-Path $supervisorRoot 'live-backend-supervisor.log'
+New-Item -ItemType Directory -Force -Path $supervisorRoot | Out-Null
 
-# Keep supervision outside the repository so a checkout cleanup or update cannot
-# terminate it. The launcher remains in the stable production tree and is the
+# Keep supervision outside the ephemeral Actions checkout so job cleanup cannot
+# remove it. The launcher remains in the stable production tree and is the
 # single source of truth for environment loading and API startup.
 $supervisorSource = @'
 [CmdletBinding()]
@@ -93,34 +98,6 @@ $taskArguments = @(
   '-SupervisorLog', (Quote-TaskArgument $supervisorLog)
 ) -join ' '
 
-$action = New-ScheduledTaskAction `
-  -Execute $powerShell `
-  -Argument $taskArguments `
-  -WorkingDirectory $resolvedRoot
-$trigger = New-ScheduledTaskTrigger -AtStartup
-$principal = New-ScheduledTaskPrincipal `
-  -UserId 'SYSTEM' `
-  -LogonType ServiceAccount `
-  -RunLevel Highest
-$settings = New-ScheduledTaskSettingsSet `
-  -AllowStartIfOnBatteries `
-  -DontStopIfGoingOnBatteries `
-  -StartWhenAvailable `
-  -MultipleInstances IgnoreNew `
-  -RestartCount 999 `
-  -RestartInterval (New-TimeSpan -Minutes 1) `
-  -ExecutionTimeLimit ([TimeSpan]::Zero)
-
-$task = New-ScheduledTask `
-  -Action $action `
-  -Trigger $trigger `
-  -Principal $principal `
-  -Settings $settings `
-  -Description 'Keeps the KobeOS production API running on the Windows origin.'
-
-Register-ScheduledTask -TaskName $TaskName -InputObject $task -Force | Out-Null
-Write-Host "Installed automatic startup task '$TaskName' for $resolvedRoot."
-
 function Test-LocalApi {
   try {
     $response = Invoke-WebRequest `
@@ -133,19 +110,83 @@ function Test-LocalApi {
   }
 }
 
-$taskState = (Get-ScheduledTask -TaskName $TaskName).State
 $healthyBeforeStart = Test-LocalApi
-if (-not $healthyBeforeStart) {
-  if ($taskState -eq 'Running') {
-    Stop-ScheduledTask -TaskName $TaskName
-    Start-Sleep -Seconds 2
+
+if ($isAdministrator) {
+  $action = New-ScheduledTaskAction `
+    -Execute $powerShell `
+    -Argument $taskArguments `
+    -WorkingDirectory $resolvedRoot
+  $trigger = New-ScheduledTaskTrigger -AtStartup
+  $principal = New-ScheduledTaskPrincipal `
+    -UserId 'SYSTEM' `
+    -LogonType ServiceAccount `
+    -RunLevel Highest
+  $settings = New-ScheduledTaskSettingsSet `
+    -AllowStartIfOnBatteries `
+    -DontStopIfGoingOnBatteries `
+    -StartWhenAvailable `
+    -MultipleInstances IgnoreNew `
+    -RestartCount 999 `
+    -RestartInterval (New-TimeSpan -Minutes 1) `
+    -ExecutionTimeLimit ([TimeSpan]::Zero)
+
+  $task = New-ScheduledTask `
+    -Action $action `
+    -Trigger $trigger `
+    -Principal $principal `
+    -Settings $settings `
+    -Description 'Keeps the KobeOS production API running on the Windows origin.'
+
+  Register-ScheduledTask -TaskName $TaskName -InputObject $task -Force | Out-Null
+  Write-Host "Installed automatic startup task '$TaskName' for $resolvedRoot."
+
+  $taskState = (Get-ScheduledTask -TaskName $TaskName).State
+  if (-not $healthyBeforeStart) {
+    if ($taskState -eq 'Running') {
+      Stop-ScheduledTask -TaskName $TaskName
+      Start-Sleep -Seconds 2
+    }
+    Start-ScheduledTask -TaskName $TaskName
+    Write-Host "Started '$TaskName'; waiting for the local API."
+  } elseif ($taskState -ne 'Running') {
+    Write-Host 'The API is already healthy under another process. The startup task is installed and will take ownership after the next reboot.'
+  } else {
+    Write-Host 'The startup task is already running and the local API is healthy.'
   }
-  Start-ScheduledTask -TaskName $TaskName
-  Write-Host "Started '$TaskName'; waiting for the local API."
-} elseif ($taskState -ne 'Running') {
-  Write-Host 'The API is already healthy under another process. The startup task is installed and will take ownership after the next reboot.'
+} elseif (-not $healthyBeforeStart) {
+  # GitHub Actions normally kills child processes after each job by finding the
+  # RUNNER_TRACKING_ID marker in their environment. Remove only that marker for
+  # this explicit origin supervisor so it survives job cleanup. The scheduled
+  # self-heal starts it again after a reboot, and this loop restarts Node after
+  # any application exit.
+  $existingSupervisor = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -and $_.CommandLine.Contains($supervisorPath) })
+
+  if ($existingSupervisor.Count -eq 0) {
+    $hadTrackingId = Test-Path Env:\RUNNER_TRACKING_ID
+    $savedTrackingId = $env:RUNNER_TRACKING_ID
+    Remove-Item Env:\RUNNER_TRACKING_ID -ErrorAction SilentlyContinue
+    try {
+      $process = Start-Process `
+        -FilePath $powerShell `
+        -ArgumentList $taskArguments `
+        -WorkingDirectory $resolvedRoot `
+        -WindowStyle Hidden `
+        -PassThru
+      Write-Host "Started runner-managed KobeOS supervisor pid=$($process.Id)."
+    } finally {
+      if ($hadTrackingId) {
+        $env:RUNNER_TRACKING_ID = $savedTrackingId
+      } else {
+        Remove-Item Env:\RUNNER_TRACKING_ID -ErrorAction SilentlyContinue
+      }
+    }
+  } else {
+    Write-Host "A runner-managed KobeOS supervisor is already active (pid=$($existingSupervisor[0].ProcessId))."
+  }
 } else {
-  Write-Host 'The startup task is already running and the local API is healthy.'
+  Write-Host 'The local API is healthy; the scheduled self-heal will restart it automatically if it stops.'
 }
 
 if ($SkipHealthCheck) {
@@ -172,5 +213,8 @@ if (Test-Path -LiteralPath $backendErrorLog) {
   Get-Content -LiteralPath $backendErrorLog -Tail 50
 }
 
-throw "KobeOS startup task '$TaskName' was installed, but the local API did not become healthy within $HealthTimeoutSeconds seconds."
+if ($isAdministrator) {
+  throw "KobeOS startup task '$TaskName' was installed, but the local API did not become healthy within $HealthTimeoutSeconds seconds."
+}
+throw "The runner-managed KobeOS supervisor started, but the local API did not become healthy within $HealthTimeoutSeconds seconds."
 
