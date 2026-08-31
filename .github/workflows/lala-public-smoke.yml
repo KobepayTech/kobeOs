@@ -28,33 +28,50 @@ jobs:
         continue-on-error: true
         run: |
           set -euo pipefail
-          curl -fsSIL --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 30             https://lala.kobeapptz.com/ -o /tmp/lala-web-headers.txt
+          code="$(curl -sS --connect-timeout 10 --max-time 30 -D /tmp/lala-web-headers.txt -o /tmp/lala-web-body.html -w '%{http_code}' https://lala.kobeapptz.com/)"
+          echo "http_status=$code"
           cat /tmp/lala-web-headers.txt
-          grep -Eq '^HTTP/.* 2[0-9][0-9]' /tmp/lala-web-headers.txt
+          echo
+          head -c 4000 /tmp/lala-web-body.html || true
+          echo
+          grep -Eo 'Error [0-9]{4}|error code: [0-9]{4}|[0-9]{4}: [^<]+' /tmp/lala-web-body.html | head -20 || true
+          [[ "$code" =~ ^2[0-9][0-9]$ ]]
 
       - name: Check Lala API search
         id: search
         continue-on-error: true
         run: |
           set -euo pipefail
-          curl -fsS --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 30             -D /tmp/lala-search-headers.txt             https://api.kobeapptz.com/api/lala-public/search             -o /tmp/lala-search.json
+          code="$(curl -sS --connect-timeout 10 --max-time 30 -D /tmp/lala-search-headers.txt -o /tmp/lala-search.json -w '%{http_code}' https://api.kobeapptz.com/api/lala-public/search)"
+          echo "http_status=$code"
           cat /tmp/lala-search-headers.txt
           echo
-          head -c 2000 /tmp/lala-search.json
+          head -c 4000 /tmp/lala-search.json || true
           echo
-          jq -e 'type == "array"' /tmp/lala-search.json >/dev/null
+          if [[ "$code" =~ ^2[0-9][0-9]$ ]]; then
+            jq -e 'type == "array"' /tmp/lala-search.json >/dev/null
+          else
+            grep -Eo 'Error [0-9]{4}|error code: [0-9]{4}|[0-9]{4}: [^<]+' /tmp/lala-search.json | head -20 || true
+            exit 1
+          fi
 
       - name: Check Lala API MVP health endpoint
         id: health
         continue-on-error: true
         run: |
           set -euo pipefail
-          curl -fsS --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 30             -D /tmp/lala-health-headers.txt             https://api.kobeapptz.com/api/lala-public/health             -o /tmp/lala-health.json
+          code="$(curl -sS --connect-timeout 10 --max-time 30 -D /tmp/lala-health-headers.txt -o /tmp/lala-health.json -w '%{http_code}' https://api.kobeapptz.com/api/lala-public/health)"
+          echo "http_status=$code"
           cat /tmp/lala-health-headers.txt
           echo
-          cat /tmp/lala-health.json
+          head -c 4000 /tmp/lala-health.json || true
           echo
-          jq -e '.status == "ok" and .database == "ready"' /tmp/lala-health.json >/dev/null
+          if [[ "$code" =~ ^2[0-9][0-9]$ ]]; then
+            jq -e '.status == "ok" and .database == "ready"' /tmp/lala-health.json >/dev/null
+          else
+            grep -Eo 'Error [0-9]{4}|error code: [0-9]{4}|[0-9]{4}: [^<]+' /tmp/lala-health.json | head -20 || true
+            exit 1
+          fi
 
       - name: Report production state
         run: |
