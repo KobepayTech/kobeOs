@@ -126,6 +126,7 @@ export class CommerceController {
   @Get('businesses') businesses(@CurrentUser('id') uid: string) { return this.commerce.listBusinesses(uid); }
   @Post('businesses') business(@CurrentUser('id') uid: string, @Body() dto: BusinessDto) { return this.commerce.createBusiness(uid, dto); }
   @Post('businesses/:id/upgrade') upgrade(@CurrentUser('id') uid: string, @Param('id') id: string, @Body('managementToken') token?: string) { return this.commerce.upgradeBusiness(uid, id, token); }
+  @Patch('businesses/:id/profile') profile(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() body: Record<string, unknown>) { return this.commerce.updateBusinessProfile(uid, id, body); }
   @Post('businesses/:id/claim-shop') linkShop(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: { shopCode: string; categoryId?: string }) { return this.commerce.linkExistingBusiness(uid, id, dto); }
   @Post('properties/:id/build') build(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: PropertyBuildDto) { return this.commerce.buildProperty(uid, id, dto); }
   @Get('properties/:id/map') map(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.commerce.propertyMap(uid, id); }
