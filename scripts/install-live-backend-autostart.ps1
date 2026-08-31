@@ -5,7 +5,7 @@ param(
 
   [string]$TaskName = 'KobeOS-Live-Backend',
 
-  [int]$HealthTimeoutSeconds = 90,
+  [int]$HealthTimeoutSeconds = 210,
 
   [switch]$SkipHealthCheck
 )
@@ -14,16 +14,16 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 if ($env:OS -ne 'Windows_NT') {
-  throw 'KobeOS live-backend autostart is only supported on Windows.'
+  throw 'KobeOS live-origin autostart is only supported on Windows.'
 }
 
 $resolvedRoot = (Resolve-Path -LiteralPath $RepoRoot).Path
-$launcher = Join-Path $resolvedRoot 'scripts\run-live-backend.ps1'
+$helperSource = Join-Path $PSScriptRoot 'run-live-origin-supervisor.cjs'
 $serverBundle = Join-Path $resolvedRoot 'server\dist\main.js'
 $environmentFile = Join-Path $resolvedRoot 'server\.env.production'
 $node = Join-Path $env:ProgramFiles 'nodejs\node.exe'
 
-foreach ($requiredPath in @($launcher, $serverBundle, $environmentFile, $node)) {
+foreach ($requiredPath in @($helperSource, $serverBundle, $environmentFile, $node)) {
   if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
     throw "Required KobeOS origin file is missing: $requiredPath"
   }
@@ -36,66 +36,35 @@ $isAdministrator = $currentPrincipal.IsInRole([Security.Principal.WindowsBuiltIn
 if ($isAdministrator) {
   $supervisorRoot = Join-Path $env:ProgramData 'KobeOS'
 } else {
-  # A non-administrative Actions runner cannot register a SYSTEM task or write
-  # beneath ProgramData. Keep the supervisor in the stable production tree;
-  # unlike GITHUB_WORKSPACE this directory survives checkout cleanup.
+  # The non-administrative Actions runner cannot register a SYSTEM task or
+  # write under ProgramData. This stable directory survives checkout cleanup.
   $supervisorRoot = Join-Path $resolvedRoot 'logs'
 }
 
-$supervisorPath = Join-Path $supervisorRoot 'run-live-backend-supervisor.ps1'
-$supervisorLog = Join-Path $supervisorRoot 'live-backend-supervisor.log'
+$supervisorPath = Join-Path $supervisorRoot 'run-live-origin-supervisor.cjs'
+$supervisorHashPath = Join-Path $supervisorRoot 'run-live-origin-supervisor.sha256'
+$supervisorStdout = Join-Path $supervisorRoot 'live-origin-supervisor.stdout.log'
+$supervisorStderr = Join-Path $supervisorRoot 'live-origin-supervisor.stderr.log'
+$stateFile = Join-Path (Join-Path $resolvedRoot 'logs') 'live-origin-supervisor.state'
 New-Item -ItemType Directory -Force -Path $supervisorRoot | Out-Null
 
-# Keep supervision outside the ephemeral Actions checkout so job cleanup cannot
-# remove it. The launcher remains in the stable production tree and is the
-# single source of truth for environment loading and API startup.
-$supervisorSource = @'
-[CmdletBinding()]
-param(
-  [Parameter(Mandatory = $true)]
-  [string]$Launcher,
-
-  [Parameter(Mandatory = $true)]
-  [string]$SupervisorLog
-)
-
-Set-StrictMode -Version Latest
-$ErrorActionPreference = 'Continue'
-
-while ($true) {
-  $startedAt = Get-Date
-  $exitCode = 1
-  try {
-    & $Launcher
-    if ($null -ne $LASTEXITCODE) {
-      $exitCode = $LASTEXITCODE
-    }
-  } catch {
-    $message = $_.Exception.Message -replace "[\r\n]+", ' '
-    Add-Content -LiteralPath $SupervisorLog -Value ("{0:o} launcher_error={1}" -f (Get-Date), $message)
-  }
-
-  Add-Content -LiteralPath $SupervisorLog -Value ("{0:o} launcher_exit={1} runtime_seconds={2}" -f (Get-Date), $exitCode, [int]((Get-Date) - $startedAt).TotalSeconds)
-  Start-Sleep -Seconds 5
+$desiredHash = (Get-FileHash -LiteralPath $helperSource -Algorithm SHA256).Hash
+$installedHash = ''
+if (Test-Path -LiteralPath $supervisorHashPath -PathType Leaf) {
+  $installedHash = (Get-Content -LiteralPath $supervisorHashPath -Raw).Trim()
 }
-'@
-
-Set-Content -LiteralPath $supervisorPath -Value $supervisorSource -Encoding UTF8
+$supervisorChanged = $installedHash -ne $desiredHash
+Copy-Item -LiteralPath $helperSource -Destination $supervisorPath -Force
 
 function Quote-TaskArgument {
   param([Parameter(Mandatory = $true)][string]$Value)
   return '"' + $Value.Replace('"', '""') + '"'
 }
 
-$powerShell = Join-Path $PSHOME 'powershell.exe'
 $taskArguments = @(
-  '-NoLogo',
-  '-NoProfile',
-  '-NonInteractive',
-  '-ExecutionPolicy', 'Bypass',
-  '-File', (Quote-TaskArgument $supervisorPath),
-  '-Launcher', (Quote-TaskArgument $launcher),
-  '-SupervisorLog', (Quote-TaskArgument $supervisorLog)
+  (Quote-TaskArgument $supervisorPath),
+  '--repo-root',
+  (Quote-TaskArgument $resolvedRoot)
 ) -join ' '
 
 function Test-LocalApi {
@@ -110,11 +79,48 @@ function Test-LocalApi {
   }
 }
 
+function Get-RunnerSupervisors {
+  return @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+    Where-Object {
+      $_.CommandLine -and
+      $_.CommandLine.IndexOf($supervisorPath, [StringComparison]::OrdinalIgnoreCase) -ge 0
+    })
+}
+
+function Stop-ProcessSet {
+  param([object[]]$Processes)
+  foreach ($item in $Processes) {
+    if ($item.ProcessId -and $item.ProcessId -ne $PID) {
+      Stop-Process -Id $item.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+  }
+}
+
+function Stop-LegacyUnhealthyOrigin {
+  # Retire only the superseded KobeOS supervisors and backend processes. This
+  # runs solely while the API is unhealthy, before the full-stack supervisor
+  # takes ownership.
+  $legacySupervisors = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+    Where-Object {
+      $_.CommandLine -and
+      ($_.CommandLine -match 'run-live-backend-supervisor\.ps1')
+    })
+  Stop-ProcessSet -Processes $legacySupervisors
+  Start-Sleep -Seconds 2
+
+  $legacyBackends = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+    Where-Object {
+      $_.CommandLine -and
+      $_.CommandLine -match 'server[\\/]dist[\\/]main\.js'
+    })
+  Stop-ProcessSet -Processes $legacyBackends
+}
+
 $healthyBeforeStart = Test-LocalApi
 
 if ($isAdministrator) {
   $action = New-ScheduledTaskAction `
-    -Execute $powerShell `
+    -Execute $node `
     -Argument $taskArguments `
     -WorkingDirectory $resolvedRoot
   $trigger = New-ScheduledTaskTrigger -AtStartup
@@ -136,45 +142,54 @@ if ($isAdministrator) {
     -Trigger $trigger `
     -Principal $principal `
     -Settings $settings `
-    -Description 'Keeps the KobeOS production API running on the Windows origin.'
+    -Description 'Keeps KobeOS embedded PostgreSQL and the production API running on the Windows origin.'
 
   Register-ScheduledTask -TaskName $TaskName -InputObject $task -Force | Out-Null
-  Write-Host "Installed automatic startup task '$TaskName' for $resolvedRoot."
+  Write-Host "Installed automatic full-origin startup task '$TaskName' for $resolvedRoot."
 
   $taskState = (Get-ScheduledTask -TaskName $TaskName).State
-  if (-not $healthyBeforeStart) {
+  if ($supervisorChanged -or $taskState -ne 'Running' -or -not $healthyBeforeStart) {
     if ($taskState -eq 'Running') {
       Stop-ScheduledTask -TaskName $TaskName
       Start-Sleep -Seconds 2
     }
+    if (-not $healthyBeforeStart) {
+      Stop-LegacyUnhealthyOrigin
+    }
     Start-ScheduledTask -TaskName $TaskName
-    Write-Host "Started '$TaskName'; waiting for the local API."
-  } elseif ($taskState -ne 'Running') {
-    Write-Host 'The API is already healthy under another process. The startup task is installed and will take ownership after the next reboot.'
+    Write-Host "Started '$TaskName'; waiting for PostgreSQL and the local API."
   } else {
-    Write-Host 'The startup task is already running and the local API is healthy.'
+    Write-Host 'The full-origin startup task is running and the local API is healthy.'
   }
-} elseif (-not $healthyBeforeStart) {
-  # GitHub Actions normally kills child processes after each job by finding the
-  # RUNNER_TRACKING_ID marker in their environment. Remove only that marker for
-  # this explicit origin supervisor so it survives job cleanup. The scheduled
-  # self-heal starts it again after a reboot, and this loop restarts Node after
-  # any application exit.
-  $existingSupervisor = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -and $_.CommandLine.Contains($supervisorPath) })
+} else {
+  $existingSupervisors = Get-RunnerSupervisors
+  if ($supervisorChanged -and $existingSupervisors.Count -gt 0) {
+    Write-Host 'Updating the runner-managed KobeOS full-origin supervisor.'
+    Stop-ProcessSet -Processes $existingSupervisors
+    Start-Sleep -Seconds 3
+    $existingSupervisors = Get-RunnerSupervisors
+  }
 
-  if ($existingSupervisor.Count -eq 0) {
+  if ($existingSupervisors.Count -eq 0) {
+    if (-not (Test-LocalApi)) {
+      Stop-LegacyUnhealthyOrigin
+    }
+
+    # GitHub Actions kills child processes carrying RUNNER_TRACKING_ID after a
+    # job. Remove only that marker from this explicit long-running supervisor.
     $hadTrackingId = Test-Path Env:\RUNNER_TRACKING_ID
     $savedTrackingId = $env:RUNNER_TRACKING_ID
     Remove-Item Env:\RUNNER_TRACKING_ID -ErrorAction SilentlyContinue
     try {
       $process = Start-Process `
-        -FilePath $powerShell `
+        -FilePath $node `
         -ArgumentList $taskArguments `
         -WorkingDirectory $resolvedRoot `
         -WindowStyle Hidden `
+        -RedirectStandardOutput $supervisorStdout `
+        -RedirectStandardError $supervisorStderr `
         -PassThru
-      Write-Host "Started runner-managed KobeOS supervisor pid=$($process.Id)."
+      Write-Host "Started runner-managed KobeOS full-origin supervisor pid=$($process.Id)."
     } finally {
       if ($hadTrackingId) {
         $env:RUNNER_TRACKING_ID = $savedTrackingId
@@ -183,11 +198,11 @@ if ($isAdministrator) {
       }
     }
   } else {
-    Write-Host "A runner-managed KobeOS supervisor is already active (pid=$($existingSupervisor[0].ProcessId))."
+    Write-Host "A runner-managed KobeOS full-origin supervisor is active (pid=$($existingSupervisors[0].ProcessId))."
   }
-} else {
-  Write-Host 'The local API is healthy; the scheduled self-heal will restart it automatically if it stops.'
 }
+
+Set-Content -LiteralPath $supervisorHashPath -Value $desiredHash -Encoding ASCII
 
 if ($SkipHealthCheck) {
   exit 0
@@ -202,58 +217,38 @@ do {
   Start-Sleep -Seconds 3
 } while ((Get-Date) -lt $deadline)
 
-$backendErrorLog = Join-Path $resolvedRoot 'logs\kobe-backend-live.err.log'
-$backendOutputLog = Join-Path $resolvedRoot 'logs\kobe-backend-live.out.log'
-
-# Classify failures locally without publishing production logs or command lines
-# to GitHub. The logs can contain configuration values or application data, so
-# only a fixed non-sensitive reason code leaves the origin.
-$diagnosticText = ''
-foreach ($diagnosticLog in @($supervisorLog, $backendErrorLog, $backendOutputLog)) {
-  if (Test-Path -LiteralPath $diagnosticLog) {
-    $fileInfo = Get-Item -LiteralPath $diagnosticLog
-    Write-Host "diagnostic_file=$($fileInfo.Name) bytes=$($fileInfo.Length)"
-    $diagnosticText += [Environment]::NewLine + (Get-Content -Raw -LiteralPath $diagnosticLog -ErrorAction SilentlyContinue)
+# Emit only fixed classifications and counts. Production logs and command lines
+# can contain secrets or business data and must never be uploaded to Actions.
+if (Test-Path -LiteralPath $stateFile -PathType Leaf) {
+  $state = (Get-Content -LiteralPath $stateFile -TotalCount 1).Trim()
+  if ($state -match '^[a-z0-9_]+$') {
+    Write-Host "origin_supervisor_state=$state"
+  } else {
+    Write-Host 'origin_supervisor_state=invalid'
   }
+} else {
+  Write-Host 'origin_supervisor_state=missing'
 }
 
-$failureReason = 'unclassified'
-if ($diagnosticText -match 'ECONNREFUSED|connection refused|could not connect') {
-  $failureReason = 'database_connection_refused'
-} elseif ($diagnosticText -match 'password authentication failed|authentication failed for user') {
-  $failureReason = 'database_authentication_failed'
-} elseif ($diagnosticText -match 'EADDRINUSE|address already in use') {
-  $failureReason = 'api_port_in_use'
-} elseif ($diagnosticText -match 'MODULE_NOT_FOUND|Cannot find module') {
-  $failureReason = 'missing_node_module'
-} elseif ($diagnosticText -match 'ENOENT|cannot find the path|not recognized as the name') {
-  $failureReason = 'missing_runtime_file'
-} elseif ($diagnosticText -match 'migration') {
-  $failureReason = 'database_migration_failed'
-}
-Write-Host "origin_startup_failure=$failureReason"
+& $node $supervisorPath --repo-root $resolvedRoot --diagnose
 
-Write-Host '--- origin dependency state ---'
 foreach ($port in 3000, 5433) {
   $listeners = @(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue)
   Write-Host "port_${port}_listener_count=$($listeners.Count)"
-  $listeners | ForEach-Object { Write-Host "port_${port}_pid=$($_.OwningProcess)" }
 }
-Get-Service -ErrorAction SilentlyContinue |
-  Where-Object { $_.Name -match 'postgres' -or $_.DisplayName -match 'postgres' } |
-  ForEach-Object { Write-Host "postgres_service=$($_.Name) status=$($_.Status) startType=$($_.StartType)" }
+
 $originProcesses = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
   Where-Object {
-    $_.Name -in @('node.exe', 'powershell.exe') -and
+    $_.Name -in @('node.exe', 'postgres.exe') -and
     $_.CommandLine -and
-    ($_.CommandLine -match 'KobeOS|kobeos|server\\dist\\main|live-backend-supervisor')
+    ($_.CommandLine -match 'KobeOS|kobeos|server[\\/]dist[\\/]main|run-live-origin-supervisor')
   })
 Write-Host "origin_process_count=$($originProcesses.Count)"
 Write-Host "origin_node_count=$(@($originProcesses | Where-Object { $_.Name -eq 'node.exe' }).Count)"
-Write-Host "origin_supervisor_count=$(@($originProcesses | Where-Object { $_.Name -eq 'powershell.exe' }).Count)"
+Write-Host "origin_postgres_count=$(@($originProcesses | Where-Object { $_.Name -eq 'postgres.exe' }).Count)"
 
 if ($isAdministrator) {
   throw "KobeOS startup task '$TaskName' was installed, but the local API did not become healthy within $HealthTimeoutSeconds seconds."
 }
-throw "The runner-managed KobeOS supervisor started, but the local API did not become healthy within $HealthTimeoutSeconds seconds."
+throw "The runner-managed KobeOS full-origin supervisor started, but the local API did not become healthy within $HealthTimeoutSeconds seconds."
 
