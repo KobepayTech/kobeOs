@@ -15,16 +15,19 @@ import {
   ErpSupplierCapitalLedger,
 } from './supplier-capital.entity';
 import { ErpSummaryEntry } from './erp-summary-entry.entity';
+import { ERP_CRM_ENTITIES } from './crm.entity';
 import { ErpService } from './erp.service';
 import { JournalService } from './journal.service';
 import { ErpKobepayInboxService } from './erp-kobepay-inbox.service';
 import { SupplierCapitalService } from './supplier-capital.service';
 import { SupplierPaymentsService } from './supplier-payments.service';
 import { ErpSummaryEntryService } from './erp-summary-entry.service';
+import { ErpCrmService } from './crm.service';
 import { ErpController } from './erp.controller';
 import { ErpKobepayInboxController } from './erp-kobepay-inbox.controller';
 import { SupplierCapitalController } from './supplier-capital.controller';
 import { ErpSummaryEntryController } from './erp-summary-entry.controller';
+import { ErpCrmController } from './crm.controller';
 
 @Module({
   imports: [
@@ -35,10 +38,11 @@ import { ErpSummaryEntryController } from './erp-summary-entry.controller';
       ErpKobepayProvider, ErpKobepayInbox,
       ErpKobePayLink, ErpKobePaySupplierReceipt, ErpPurchaseOrder, ErpSupplier, ErpSupplierCapitalLedger,
       ErpSummaryEntry,
+      ...ERP_CRM_ENTITIES,
     ]),
   ],
-  providers: [ErpService, JournalService, ErpKobepayInboxService, SupplierCapitalService, SupplierPaymentsService, ErpSummaryEntryService],
-  controllers: [ErpController, ErpKobepayInboxController, SupplierCapitalController, ErpSummaryEntryController],
-  exports: [JournalService, SupplierCapitalService, SupplierPaymentsService],
+  providers: [ErpService, JournalService, ErpKobepayInboxService, SupplierCapitalService, SupplierPaymentsService, ErpSummaryEntryService, ErpCrmService],
+  controllers: [ErpController, ErpKobepayInboxController, SupplierCapitalController, ErpSummaryEntryController, ErpCrmController],
+  exports: [JournalService, SupplierCapitalService, SupplierPaymentsService, ErpCrmService],
 })
 export class ErpModule {}

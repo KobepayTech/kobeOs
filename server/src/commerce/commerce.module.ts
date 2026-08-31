@@ -7,13 +7,14 @@ import { CreatorCommerceModule } from '../creator-commerce/creator-commerce.modu
 import { LiveAdsModule } from '../live-ads/live-ads.module';
 import { AiModule } from '../ai/ai.module';
 import { VideoGenerationModule } from '../video-generation/video-generation.module';
+import { ErpModule } from '../erp/erp.module';
 import { CAR_ENTITIES } from './cars.entity';
 import { COMMERCE_ENTITIES } from './commerce.entity';
 import { CommerceController, CommercePublicController } from './commerce.controller';
 import { CommerceService } from './commerce.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([...COMMERCE_ENTITIES, ...CAR_ENTITIES, PosProduct, Property, PropertyUnit]), PlatformModule, AiModule, VideoGenerationModule, CreatorCommerceModule, LiveAdsModule],
+  imports: [TypeOrmModule.forFeature([...COMMERCE_ENTITIES, ...CAR_ENTITIES, PosProduct, Property, PropertyUnit]), PlatformModule, AiModule, VideoGenerationModule, CreatorCommerceModule, LiveAdsModule, ErpModule],
   controllers: [CommerceController, CommercePublicController],
   providers: [CommerceService],
   exports: [CommerceService],

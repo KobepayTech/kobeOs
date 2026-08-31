@@ -80,6 +80,8 @@ export class VehicleBuyerRequest extends BaseEntity {
   @Column({ default: 'PHONE' }) preferredContact!: 'PHONE' | 'WHATSAPP' | 'SMS' | 'EMAIL';
   @Column({ type: 'text', default: '' }) tradeInDetails!: string;
   @Column({ type: 'text', default: '' }) message!: string;
+  @Column({ default: '' }) customerEmail!: string;
+  @Index() @Column('uuid', { nullable: true }) crmLeadId?: string | null;
   @Column({ default: 'NEW' }) status!: 'NEW' | 'CONTACTED' | 'CLOSED';
 }
 
@@ -91,8 +93,31 @@ export class VehicleReservation extends BaseEntity {
   @Column() reservationCode!: string;
   @Column() customerName!: string;
   @Column() customerPhone!: string;
-  @Column({ default: 'HELD' }) status!: 'HELD' | 'CONFIRMED' | 'EXPIRED' | 'CANCELLED';
+  @Column({ default: 'HELD' }) status!: 'HELD' | 'CONFIRMED' | 'EXPIRED' | 'CANCELLED' | 'CONVERTED';
   @Column({ type: 'timestamptz' }) expiresAt!: Date;
+  @Index() @Column('uuid', { nullable: true }) crmLeadId?: string | null;
+  @Column({ type: 'timestamptz', nullable: true }) confirmedAt?: Date | null;
+  @Column({ type: 'timestamptz', nullable: true }) cancelledAt?: Date | null;
+  @Column({ type: 'timestamptz', nullable: true }) convertedAt?: Date | null;
 }
 
-export const CAR_ENTITIES = [CommerceVehicle, VehicleMedia, VehicleListingMetadata, VehicleBuyerRequest, VehicleReservation] as const;
+@Entity('commerce_vehicle_appointments')
+@Index(['businessId', 'scheduledFor'])
+@Index(['vehicleId', 'scheduledFor'])
+export class VehicleAppointment extends BaseEntity {
+  @Column('uuid') vehicleId!: string;
+  @Column('uuid') businessId!: string;
+  @Column() customerName!: string;
+  @Column() customerPhone!: string;
+  @Column({ default: '' }) customerWhatsapp!: string;
+  @Column({ default: '' }) customerEmail!: string;
+  @Column({ default: 'SHOWROOM' }) appointmentType!: 'SHOWROOM' | 'TEST_DRIVE';
+  @Column({ type: 'timestamptz' }) scheduledFor!: Date;
+  @Column({ default: '' }) showroomLocation!: string;
+  @Column({ default: '' }) salesperson!: string;
+  @Column({ default: 'REQUESTED' }) status!: 'REQUESTED' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
+  @Column({ type: 'text', default: '' }) message!: string;
+  @Index() @Column('uuid', { nullable: true }) crmLeadId?: string | null;
+}
+
+export const CAR_ENTITIES = [CommerceVehicle, VehicleMedia, VehicleListingMetadata, VehicleBuyerRequest, VehicleReservation, VehicleAppointment] as const;

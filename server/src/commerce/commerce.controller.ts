@@ -100,12 +100,23 @@ class VehicleBuyerRequestDto {
   @IsString() @MaxLength(160) customerName!: string;
   @IsString() @MaxLength(40) customerPhone!: string;
   @IsOptional() @IsString() @MaxLength(40) customerWhatsapp?: string;
+  @IsOptional() @IsEmail() customerEmail?: string;
   @IsOptional() @IsIn(['OUTRIGHT', 'RESERVE', 'FINANCE']) requestType?: 'OUTRIGHT' | 'RESERVE' | 'FINANCE';
   @IsOptional() @Type(() => Number) @IsNumber() @Min(0) offerAmount?: number;
   @IsOptional() @IsIn(['PHONE', 'WHATSAPP', 'SMS', 'EMAIL']) preferredContact?: 'PHONE' | 'WHATSAPP' | 'SMS' | 'EMAIL';
   @IsOptional() @IsString() @MaxLength(2000) tradeInDetails?: string;
   @IsOptional() @IsString() @MaxLength(2000) message?: string;
   @IsOptional() @IsBoolean() reserve?: boolean;
+}
+class VehicleAppointmentDto {
+  @IsString() @MaxLength(160) customerName!: string;
+  @IsString() @MaxLength(40) customerPhone!: string;
+  @IsOptional() @IsString() @MaxLength(40) customerWhatsapp?: string;
+  @IsOptional() @IsEmail() customerEmail?: string;
+  @IsOptional() @IsIn(['SHOWROOM', 'TEST_DRIVE']) appointmentType?: 'SHOWROOM' | 'TEST_DRIVE';
+  @IsString() scheduledFor!: string;
+  @IsOptional() @IsString() @MaxLength(300) showroomLocation?: string;
+  @IsOptional() @IsString() @MaxLength(2000) message?: string;
 }
 
 @UseGuards(JwtAuthGuard)
@@ -115,6 +126,7 @@ export class CommerceController {
   @Get('businesses') businesses(@CurrentUser('id') uid: string) { return this.commerce.listBusinesses(uid); }
   @Post('businesses') business(@CurrentUser('id') uid: string, @Body() dto: BusinessDto) { return this.commerce.createBusiness(uid, dto); }
   @Post('businesses/:id/upgrade') upgrade(@CurrentUser('id') uid: string, @Param('id') id: string, @Body('managementToken') token?: string) { return this.commerce.upgradeBusiness(uid, id, token); }
+  @Patch('businesses/:id/profile') profile(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() body: Record<string, unknown>) { return this.commerce.updateBusinessProfile(uid, id, body); }
   @Post('businesses/:id/claim-shop') linkShop(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: { shopCode: string; categoryId?: string }) { return this.commerce.linkExistingBusiness(uid, id, dto); }
   @Post('properties/:id/build') build(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: PropertyBuildDto) { return this.commerce.buildProperty(uid, id, dto); }
   @Get('properties/:id/map') map(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.commerce.propertyMap(uid, id); }
@@ -137,6 +149,11 @@ export class CommerceController {
   @Post('cars/:id/media')
   @UseInterceptors(FilesInterceptor('images', 12, { limits: { fileSize: 20 * 1024 * 1024 } }))
   addCarMedia(@CurrentUser('id') uid: string, @Param('id') id: string, @UploadedFiles() files: Express.Multer.File[]) { return this.commerce.addVehicleMedia(uid, id, files); }
+  @Get('cars/engagement') carEngagement(@CurrentUser('id') uid: string) { return this.commerce.vehicleEngagement(uid); }
+  @Patch('cars/appointments/:id')
+  updateCarAppointment(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() body: { status: 'REQUESTED' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW'; salesperson?: string }) { return this.commerce.updateVehicleAppointmentStatus(uid, id, body); }
+  @Patch('cars/reservations/:code')
+  updateCarReservation(@CurrentUser('id') uid: string, @Param('code') code: string, @Body() body: { status: 'CONFIRMED' | 'CANCELLED' | 'CONVERTED'; holdMinutes?: number }) { return this.commerce.updateVehicleReservationStatus(uid, code, body); }
 }
 
 @Public()
@@ -162,6 +179,9 @@ export class CommercePublicController {
   @Post('jumla/interest') interest(@Body() dto: { productId: string; eventType: 'VIEW' | 'SWIPE_LEFT' | 'SWIPE_RIGHT' | 'CART' | 'BUY'; phone?: string; sessionId?: string; metadata?: Record<string, unknown> }) { return this.commerce.recordInterest(dto); }
   @Post('jumla/orders') order(@Body() dto: CartDto) { return this.commerce.submitCart(dto); }
   @Get('cars') cars(@Query() query: Record<string, string>) { return this.commerce.publicVehicles(query); }
+  @Get('dealers/:slug') dealer(@Param('slug') slug: string) { return this.commerce.publicDealer(slug); }
   @Post('cars/:id/request') requestCar(@Param('id') id: string, @Body() dto: VehicleBuyerRequestDto) { return this.commerce.vehicleRequest(id, dto); }
+  @Post('cars/:id/appointments') carAppointment(@Param('id') id: string, @Body() dto: VehicleAppointmentDto) { return this.commerce.vehicleAppointment(id, dto); }
+  @Get('reservations/:code') reservation(@Param('code') code: string) { return this.commerce.vehicleReservationStatus(code); }
   @Get('media/:token') async media(@Param('token') token: string, @Res() res: Response) { const media = await this.commerce.publicMedia(token); res.setHeader('Content-Type', media.mimeType || 'image/webp'); res.setHeader('Cache-Control', 'public, max-age=31536000, immutable'); res.end(media.contentBinary); }
 }
