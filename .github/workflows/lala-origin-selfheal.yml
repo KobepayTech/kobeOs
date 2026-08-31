@@ -6,10 +6,11 @@ on:
     paths:
       - '.github/workflows/lala-origin-selfheal.yml'
       - 'scripts/install-live-backend-autostart.ps1'
+      - 'scripts/run-live-origin-supervisor.cjs'
       - 'scripts/run-live-backend.ps1'
   workflow_dispatch:
-  # The runner service starts with Windows. This watchdog then repairs the API
-  # startup task or Cloudflare connector whenever the public API is unhealthy.
+  # The runner service starts with Windows. This watchdog then repairs embedded
+  # PostgreSQL, the API supervisor, or Cloudflare whenever health checks fail.
   schedule:
     - cron: '3,13,23,33,43,53 * * * *'
 
@@ -46,27 +47,26 @@ jobs:
           ) | Select-Object -Unique
 
           $origin = $candidates | Where-Object {
-            (Test-Path -LiteralPath (Join-Path $_ 'scripts\run-live-backend.ps1') -PathType Leaf) -and
             (Test-Path -LiteralPath (Join-Path $_ 'server\dist\main.js') -PathType Leaf) -and
             (Test-Path -LiteralPath (Join-Path $_ 'server\.env.production') -PathType Leaf)
           } | Select-Object -First 1
 
           if (-not $origin) {
-            throw 'Stable KobeOS origin not found. Expected the launcher, server bundle, and .env.production under C:\KobeOS\app.'
+            throw 'Stable KobeOS origin not found. Expected the server bundle and .env.production under C:\KobeOS\app.'
           }
 
           $origin = (Resolve-Path -LiteralPath $origin).Path
           Write-Host "origin_root=$origin"
           "root=$origin" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
-      - name: Install or repair automatic KobeOS API startup
+      - name: Install or repair automatic KobeOS origin startup
         env:
           ORIGIN_ROOT: ${{ steps.origin.outputs.root }}
         run: |
           $ErrorActionPreference = 'Stop'
           & "$env:GITHUB_WORKSPACE\scripts\install-live-backend-autostart.ps1" `
             -RepoRoot $env:ORIGIN_ROOT `
-            -HealthTimeoutSeconds 120
+            -HealthTimeoutSeconds 240
 
       - name: Skip connector recovery if the public API is healthy
         id: gate
@@ -86,7 +86,7 @@ jobs:
           }
 
           if ($healthy) {
-            Write-Host 'Public KobeOS API is healthy; the startup task is installed and no connector restart is needed.'
+            Write-Host 'Public KobeOS API is healthy; full-origin startup is installed and no connector restart is needed.'
           } else {
             Write-Host 'Local API is healthy but the public API is failing; restarting the existing Cloudflare connector.'
           }
