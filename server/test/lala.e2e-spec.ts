@@ -75,4 +75,112 @@ describe('Lala auto-listing + food ordering (e2e)', () => {
     search = await request(http).get('/api/lala-public/search');
     expect((search.body as Array<{ hotel: { id: string } }>).find((r) => r.hotel.id === hotelId)).toBeUndefined();
   });
+
+  it('exposes a database-backed health check and prevents overlapping public bookings', async () => {
+    const token = await register(`lala_book_${Date.now()}@test.io`);
+    const slug = `book${Date.now().toString().slice(-6)}`;
+    const tenant = await request(http).post('/api/hotel/tenant').set(auth(token))
+      .send({ slug, name: 'Lala Booking Hotel', location: 'Arusha', currency: 'TZS' });
+    expect(tenant.status).toBe(201);
+    const hotelId = tenant.body.id as string;
+    const room = await request(http).post('/api/hotel/rooms').set(auth(token))
+      .send({ roomNumber: 'A1', type: 'Suite', rate: 120000, capacity: 2, status: 'available', hotelId });
+    expect(room.status).toBe(201);
+
+    const health = await request(http).get('/api/lala-public/health');
+    expect(health.status).toBe(200);
+    expect(health.body.status).toBe('ok');
+    expect(health.body.database).toBe('ready');
+    expect(Number(health.body.bookableRoomCount)).toBeGreaterThanOrEqual(1);
+
+    const passport = await request(http).post('/api/lala-public/passports')
+      .send({ name: 'Asha Guest', phone: '+255700100200' });
+    expect(passport.status).toBe(201);
+    const passportToken = passport.body.passport.qrToken as string;
+
+    const stay = {
+      hotelId,
+      roomId: room.body.id,
+      passportToken,
+      checkIn: '2030-01-10',
+      checkOut: '2030-01-12',
+      guests: 2,
+    };
+    const first = await request(http).post('/api/lala-public/bookings').send(stay);
+    expect(first.status).toBe(201);
+    expect(first.body.booking.status).toBe('PENDING');
+
+    const duplicate = await request(http).post('/api/lala-public/bookings').send(stay);
+    expect(duplicate.status).toBe(409);
+
+    const passportView = await request(http).get(`/api/lala-public/passports/${passportToken}`);
+    expect(passportView.status).toBe(200);
+    expect(passportView.body.activeBookings).toHaveLength(1);
+    expect(passportView.body.activeBookings[0].hotelName).toBe('Lala Booking Hotel');
+  });
+
+  it('turns a hotel reverse offer into a real booking', async () => {
+    const token = await register(`lala_offer_${Date.now()}@test.io`);
+    const slug = `offer${Date.now().toString().slice(-6)}`;
+    const tenant = await request(http).post('/api/hotel/tenant').set(auth(token))
+      .send({ slug, name: 'Offer Hotel', location: 'Zanzibar', currency: 'TZS' });
+    expect(tenant.status).toBe(201);
+    const hotelId = tenant.body.id as string;
+    const room = await request(http).post('/api/hotel/rooms').set(auth(token))
+      .send({ roomNumber: 'B2', type: 'Ocean View', rate: 200000, capacity: 2, status: 'available', hotelId });
+    expect(room.status).toBe(201);
+
+    const profile = await request(http).patch(`/api/lala/hotels/${hotelId}/profile`).set(auth(token))
+      .send({ reverseOffersEnabled: true, description: 'Ocean view rooms' });
+    expect(profile.status).toBe(200);
+
+    const passport = await request(http).post('/api/lala-public/passports')
+      .send({ name: 'Neema Guest', phone: '+255700300400' });
+    const passportToken = passport.body.passport.qrToken as string;
+
+    const reverse = await request(http).post('/api/lala-public/reverse-requests').send({
+      passportToken,
+      destination: 'Zanzibar',
+      checkIn: '2030-02-10',
+      checkOut: '2030-02-12',
+      guests: 2,
+      budget: 350000,
+      currency: 'TZS',
+    });
+    expect(reverse.status).toBe(201);
+    const requestId = reverse.body.id as string;
+
+    const ownerRequests = await request(http).get('/api/lala/reverse-requests').set(auth(token));
+    expect(ownerRequests.status).toBe(200);
+    expect(ownerRequests.body.some((row: { id: string }) => row.id === requestId)).toBe(true);
+
+    const offered = await request(http).post(`/api/lala/reverse-requests/${requestId}/offers`).set(auth(token)).send({
+      hotelId,
+      roomId: room.body.id,
+      totalPrice: 300000,
+      currency: 'TZS',
+      message: 'Breakfast included',
+      expiresAt: '2030-02-01T12:00:00.000Z',
+    });
+    expect(offered.status).toBe(201);
+    const offerId = offered.body.id as string;
+
+    const offers = await request(http).get(`/api/lala-public/reverse-requests/${requestId}/offers`)
+      .query({ passportToken });
+    expect(offers.status).toBe(200);
+    expect(offers.body).toHaveLength(1);
+    expect(Number(offers.body[0].totalPrice)).toBe(300000);
+
+    const accepted = await request(http).post(`/api/lala-public/reverse-requests/${requestId}/offers/${offerId}/accept`)
+      .send({ passportToken });
+    expect(accepted.status).toBe(201);
+    expect(Number(accepted.body.booking.totalAmount)).toBe(300000);
+    expect(accepted.body.hotel).toBe('Offer Hotel');
+
+    const view = await request(http).get(`/api/lala-public/passports/${passportToken}`);
+    expect(view.status).toBe(200);
+    expect(view.body.activeBookings).toHaveLength(1);
+    expect(Number(view.body.activeBookings[0].totalAmount)).toBe(300000);
+  });
+
 });
