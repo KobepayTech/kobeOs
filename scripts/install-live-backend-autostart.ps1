@@ -162,43 +162,48 @@ if ($isAdministrator) {
     Write-Host 'The full-origin startup task is running and the local API is healthy.'
   }
 } else {
-  $existingSupervisors = Get-RunnerSupervisors
-  if ($supervisorChanged -and $existingSupervisors.Count -gt 0) {
-    Write-Host 'Updating the runner-managed KobeOS full-origin supervisor.'
-    Stop-ProcessSet -Processes $existingSupervisors
-    Start-Sleep -Seconds 3
-    $existingSupervisors = Get-RunnerSupervisors
-  }
-
-  if ($existingSupervisors.Count -eq 0) {
-    if (-not (Test-LocalApi)) {
-      Stop-LegacyUnhealthyOrigin
-    }
-
-    # GitHub Actions kills child processes carrying RUNNER_TRACKING_ID after a
-    # job. Remove only that marker from this explicit long-running supervisor.
-    $hadTrackingId = Test-Path Env:\RUNNER_TRACKING_ID
-    $savedTrackingId = $env:RUNNER_TRACKING_ID
-    Remove-Item Env:\RUNNER_TRACKING_ID -ErrorAction SilentlyContinue
-    try {
-      $process = Start-Process `
-        -FilePath $node `
-        -ArgumentList $taskArguments `
-        -WorkingDirectory $resolvedRoot `
-        -WindowStyle Hidden `
-        -RedirectStandardOutput $supervisorStdout `
-        -RedirectStandardError $supervisorStderr `
-        -PassThru
-      Write-Host "Started runner-managed KobeOS full-origin supervisor pid=$($process.Id)."
-    } finally {
-      if ($hadTrackingId) {
-        $env:RUNNER_TRACKING_ID = $savedTrackingId
-      } else {
-        Remove-Item Env:\RUNNER_TRACKING_ID -ErrorAction SilentlyContinue
-      }
-    }
+  $machineTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+  if ($machineTask -and $machineTask.State -eq 'Running') {
+    Write-Host "Machine-level KobeOS startup task '$TaskName' is already running; no runner fallback is needed."
   } else {
-    Write-Host "A runner-managed KobeOS full-origin supervisor is active (pid=$($existingSupervisors[0].ProcessId))."
+    $existingSupervisors = Get-RunnerSupervisors
+    if ($supervisorChanged -and $existingSupervisors.Count -gt 0) {
+      Write-Host 'Updating the runner-managed KobeOS full-origin supervisor.'
+      Stop-ProcessSet -Processes $existingSupervisors
+      Start-Sleep -Seconds 3
+      $existingSupervisors = Get-RunnerSupervisors
+    }
+
+    if ($existingSupervisors.Count -eq 0) {
+      if (-not (Test-LocalApi)) {
+        Stop-LegacyUnhealthyOrigin
+      }
+
+      # GitHub Actions kills child processes carrying RUNNER_TRACKING_ID after a
+      # job. Remove only that marker from this explicit long-running supervisor.
+      $hadTrackingId = Test-Path Env:\RUNNER_TRACKING_ID
+      $savedTrackingId = $env:RUNNER_TRACKING_ID
+      Remove-Item Env:\RUNNER_TRACKING_ID -ErrorAction SilentlyContinue
+      try {
+        $process = Start-Process `
+          -FilePath $node `
+          -ArgumentList $taskArguments `
+          -WorkingDirectory $resolvedRoot `
+          -WindowStyle Hidden `
+          -RedirectStandardOutput $supervisorStdout `
+          -RedirectStandardError $supervisorStderr `
+          -PassThru
+        Write-Host "Started runner-managed KobeOS full-origin supervisor pid=$($process.Id)."
+      } finally {
+        if ($hadTrackingId) {
+          $env:RUNNER_TRACKING_ID = $savedTrackingId
+        } else {
+          Remove-Item Env:\RUNNER_TRACKING_ID -ErrorAction SilentlyContinue
+        }
+      }
+    } else {
+      Write-Host "A runner-managed KobeOS full-origin supervisor is active (pid=$($existingSupervisors[0].ProcessId))."
+    }
   }
 }
 
