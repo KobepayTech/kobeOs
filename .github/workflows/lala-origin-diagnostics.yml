@@ -122,3 +122,40 @@ jobs:
           if (Get-Command docker -ErrorAction SilentlyContinue) {
             docker ps -a --filter 'name=kobe' --format 'container={{.Names}} state={{.State}} status={{.Status}}' 2>$null | Write-Host
           } else { Write-Host 'docker_not_present=true' }
+
+      - name: Locate the KobeOS backend + start command on this box
+        run: |
+          $ErrorActionPreference = 'Continue'
+          # Find where the KobeOS server lives and how it's launched, so recovery
+          # can start it as an auto-restart service. Targeted (bounded depth) so
+          # it doesn't scan the whole disk. Read-only; prints paths, no secrets.
+
+          $roots = @('C:\', $env:USERPROFILE, 'C:\kobe', 'C:\kobeos', 'C:\kobeOs',
+                     'C:\apps', 'C:\opt', 'D:\') | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
+
+          Write-Host '--- built server bundle (server\dist\main.js) ---'
+          foreach ($r in $roots) {
+            Get-ChildItem -Path $r -Filter 'main.js' -Recurse -Depth 5 -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -match '\\server\\dist\\main\.js$' -or $_.FullName -match '\\dist\\main\.js$' -and $_.FullName -match 'kobe' } |
+              Select-Object -First 5 | ForEach-Object { Write-Host ("server_bundle={0}" -f $_.FullName) }
+          }
+
+          Write-Host '--- kobeOs repo/app checkouts (package.json) ---'
+          foreach ($r in $roots) {
+            Get-ChildItem -Path $r -Filter 'package.json' -Recurse -Depth 4 -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -match 'kobe' -and $_.FullName -notmatch 'node_modules' } |
+              Select-Object -First 8 | ForEach-Object { Write-Host ("package_json={0}" -f $_.FullName) }
+          }
+
+          Write-Host '--- start scripts (*.bat / *.cmd / *.ps1 mentioning kobe or start) ---'
+          $scriptRoots = @($env:USERPROFILE, "$env:USERPROFILE\Desktop", 'C:\', 'C:\kobe', 'C:\kobeos') |
+            Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
+          foreach ($r in $scriptRoots) {
+            Get-ChildItem -Path $r -Include '*.bat','*.cmd','*.ps1' -Recurse -Depth 3 -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -match 'kobe|start|serve|run' } |
+              Select-Object -First 12 | ForEach-Object { Write-Host ("start_script={0}" -f $_.FullName) }
+          }
+
+          Write-Host '--- command line of any running node.exe (may reveal the app) ---'
+          Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
+            Select-Object -First 6 | ForEach-Object { Write-Host ("node_cmdline={0}" -f $_.CommandLine) }
