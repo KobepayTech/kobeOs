@@ -1,0 +1,73 @@
+name: Diagnose Lala Origin on Self-Hosted Runner
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - '.github/workflows/lala-origin-diagnostics.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+    steps:
+      - name: Check production capabilities without exposing secrets
+        run: |
+          $ErrorActionPreference = 'Continue'
+
+          $cloudflaredCmd = Get-Command cloudflared -ErrorAction SilentlyContinue
+          $dockerCmd = Get-Command docker -ErrorAction SilentlyContinue
+          $cloudflaredServices = @(Get-Service -ErrorAction SilentlyContinue | Where-Object {
+            $_.Name -match 'cloudflared|cloudflare' -or $_.DisplayName -match 'cloudflared|cloudflare'
+          })
+          $cloudflaredProcesses = @(Get-Process cloudflared -ErrorAction SilentlyContinue)
+
+          $processToken = -not [string]::IsNullOrWhiteSpace($env:CLOUDFLARED_TOKEN)
+          $machineToken = -not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable('CLOUDFLARED_TOKEN', 'Machine'))
+          $userToken = -not [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable('CLOUDFLARED_TOKEN', 'User'))
+
+          Write-Host "cloudflared_command_present=$([bool]$cloudflaredCmd)"
+          Write-Host "docker_command_present=$([bool]$dockerCmd)"
+          Write-Host "cloudflared_service_count=$($cloudflaredServices.Count)"
+          Write-Host "cloudflared_process_count=$($cloudflaredProcesses.Count)"
+          Write-Host "tunnel_token_available_to_runner=$($processToken -or $machineToken -or $userToken)"
+
+          foreach ($svc in $cloudflaredServices) {
+            Write-Host "cloudflared_service_status=$($svc.Status)"
+          }
+
+          if ($dockerCmd) {
+            docker version --format 'docker_server_available={{.Server.Version}}' 2>$null
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host 'docker_server_available=false'
+            }
+          }
+
+          foreach ($port in 80, 3000) {
+            $listening = @(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue).Count -gt 0
+            Write-Host ("localhost_port_" + $port + "_listening=" + $listening)
+          }
+
+      - name: Probe local KobeOS endpoints
+        run: |
+          $ErrorActionPreference = 'Continue'
+          try {
+            $health = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:3000/api/health' -TimeoutSec 5
+            Write-Host "local_api_health_status=$($health.StatusCode)"
+          } catch {
+            Write-Host 'local_api_health_status=unreachable'
+          }
+
+          try {
+            $web = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1/' -TimeoutSec 5
+            Write-Host "local_web_status=$($web.StatusCode)"
+          } catch {
+            Write-Host 'local_web_status=unreachable'
+          }
