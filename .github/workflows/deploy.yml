@@ -207,7 +207,13 @@ jobs:
             # behind a generic process health check.
             public_check "https://api.kobeapptz.com/api/commerce-public/health" || \
               (compose logs cloudflared nginx api --tail=120 && exit 1)
+            # Lala is a production consumer marketplace, so a deployment is
+            # incomplete if its DB-backed API or public hostname is unreachable.
+            public_check "https://api.kobeapptz.com/api/lala-public/health" || \
+              (compose logs cloudflared nginx api --tail=120 && exit 1)
             public_check "https://kobeapptz.com/" || \
+              (compose logs cloudflared nginx web --tail=120 && exit 1)
+            public_check "https://lala.kobeapptz.com/" || \
               (compose logs cloudflared nginx web --tail=120 && exit 1)
             public_check "https://property.kobeapptz.com/" || \
               (compose logs cloudflared nginx web --tail=120 && exit 1)
