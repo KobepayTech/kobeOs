@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException, 
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash, randomBytes, randomUUID } from 'crypto';
-import { DataSource, In, Repository } from 'typeorm';
+import { DataSource, In, LessThanOrEqual, Repository } from 'typeorm';
 import sharp from 'sharp';
 import { AiService } from '../ai/ai.service';
 import { PosProduct } from '../pos/pos.entity';
@@ -16,8 +16,9 @@ import {
 import { LITE_FREE_ORDER_LIMIT, extractCaptionProductMetadata, groupByMerchant, isNodeOnline, marketplaceSlug, merchantOrderAccess, missingRequiredOptions, normalizePhone, panelCrops, propertyFloorCode, propertyUnitShopCode, shopCode, vehicleEconomics } from './commerce.rules';
 import { CreatorCommerceService } from '../creator-commerce/creator-commerce.service';
 import { LiveAdsService } from '../live-ads/live-ads.service';
-import { CommerceVehicle, VehicleBuyerRequest, VehicleListingMetadata, VehicleMedia, VehicleReservation } from './cars.entity';
+import { CommerceVehicle, VehicleAppointment, VehicleBuyerRequest, VehicleListingMetadata, VehicleMedia, VehicleReservation } from './cars.entity';
 import { VideoGenerationService } from '../video-generation/video-generation.service';
+import { ErpCrmService } from '../erp/crm.service';
 
 const slugify = (value: string) => value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50);
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -38,6 +39,7 @@ export class CommerceService implements OnModuleInit {
     @InjectRepository(MerchantQuota) private readonly quotas: Repository<MerchantQuota>,
     @InjectRepository(PosProduct) private readonly products: Repository<PosProduct>,
     @InjectRepository(CommerceVehicle) private readonly vehicles: Repository<CommerceVehicle>,
+    private readonly crm: ErpCrmService,
     private readonly ai: AiService,
     private readonly videoGeneration: VideoGenerationService,
     private readonly events: PlatformEventsService,
