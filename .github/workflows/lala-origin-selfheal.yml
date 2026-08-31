@@ -5,18 +5,20 @@ on:
     branches: [master]
     paths:
       - '.github/workflows/lala-origin-selfheal.yml'
+      - 'scripts/install-live-backend-autostart.ps1'
+      - 'scripts/run-live-backend.ps1'
   workflow_dispatch:
-  # Auto-heal: run every 10 minutes on the self-hosted origin. The "skip if
-  # already healthy" gate below makes a healthy run a no-op, so this only ever
-  # restarts the connector when Cloudflare is actually returning 530/1033 —
-  # turning the reactive recovery into an unattended watchdog. (A self-hosted
-  # scheduled job only fires while the runner/origin box is up, which is exactly
-  # the case where a dropped tunnel is recoverable.)
+  # The runner service starts with Windows. This watchdog then repairs the API
+  # startup task or Cloudflare connector whenever the public API is unhealthy.
   schedule:
     - cron: '3,13,23,33,43,53 * * * *'
 
 permissions:
   contents: read
+
+concurrency:
+  group: lala-origin-selfheal
+  cancel-in-progress: false
 
 jobs:
   recover:
@@ -26,29 +28,71 @@ jobs:
       run:
         shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
     steps:
-      - name: Skip if the origin is already serving through Cloudflare
+      - name: Checkout recovery scripts
+        uses: actions/checkout@v4
+
+      - name: Locate the stable KobeOS origin
+        id: origin
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          # Never supervise the ephemeral Actions checkout: the runner deletes
+          # and replaces it. The diagnostic workflow identified C:\KobeOS\app
+          # as the stable production tree.
+          $candidates = @(
+            'C:\KobeOS\app',
+            'C:\kobeos\app',
+            'C:\kobeOs\app'
+          ) | Select-Object -Unique
+
+          $origin = $candidates | Where-Object {
+            (Test-Path -LiteralPath (Join-Path $_ 'scripts\run-live-backend.ps1') -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $_ 'server\dist\main.js') -PathType Leaf) -and
+            (Test-Path -LiteralPath (Join-Path $_ 'server\.env.production') -PathType Leaf)
+          } | Select-Object -First 1
+
+          if (-not $origin) {
+            throw 'Stable KobeOS origin not found. Expected the launcher, server bundle, and .env.production under C:\KobeOS\app.'
+          }
+
+          $origin = (Resolve-Path -LiteralPath $origin).Path
+          Write-Host "origin_root=$origin"
+          "root=$origin" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Install or repair automatic KobeOS API startup
+        env:
+          ORIGIN_ROOT: ${{ steps.origin.outputs.root }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & "$env:GITHUB_WORKSPACE\scripts\install-live-backend-autostart.ps1" `
+            -RepoRoot $env:ORIGIN_ROOT `
+            -HealthTimeoutSeconds 120
+
+      - name: Skip connector recovery if the public API is healthy
         id: gate
         run: |
           $ErrorActionPreference = 'Stop'
-          # If the PUBLIC endpoints already return 200 there is nothing to heal —
-          # exit without touching the connector so a scheduled run never bounces
-          # a working tunnel. Only a real outage (530/1033/timeout) falls through.
           $healthy = $true
-          foreach ($u in @('https://api.kobeapptz.com/api/health', 'https://lala.kobeapptz.com/')) {
+          foreach ($url in @(
+            'https://api.kobeapptz.com/api/health',
+            'https://api.kobeapptz.com/api/lala-public/health'
+          )) {
             try {
-              $r = Invoke-WebRequest -UseBasicParsing -Uri $u -TimeoutSec 12
-              if ($r.StatusCode -ne 200) { $healthy = $false }
-            } catch { $healthy = $false }
+              $response = Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 12
+              if ($response.StatusCode -ne 200) { $healthy = $false }
+            } catch {
+              $healthy = $false
+            }
           }
+
           if ($healthy) {
-            Write-Host 'Public origin already healthy (HTTP 200) — no recovery needed.'
+            Write-Host 'Public KobeOS API is healthy; the startup task is installed and no connector restart is needed.'
           } else {
-            Write-Host 'Public origin is failing — proceeding to restart the connector.'
+            Write-Host 'Local API is healthy but the public API is failing; restarting the existing Cloudflare connector.'
           }
           "healthy=$($healthy.ToString().ToLower())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
 
-      - name: Validate this runner is an existing KobeOS origin
-        id: preflight
+      - name: Validate the existing Cloudflare connector
         if: steps.gate.outputs.healthy != 'true'
         run: |
           $ErrorActionPreference = 'Stop'
@@ -60,25 +104,14 @@ jobs:
             throw 'No existing Cloudflare service is installed on this runner; refusing to create or repurpose a tunnel.'
           }
 
-          try {
-            $api = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:3000/api/health' -TimeoutSec 5
-          } catch {
-            throw 'Local KobeOS API is not healthy on port 3000; refusing to restart a tunnel on this machine.'
-          }
+          $api = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:3000/api/health' -TimeoutSec 8
           if ($api.StatusCode -ne 200) {
-            throw "Local KobeOS API returned HTTP $($api.StatusCode); refusing recovery."
+            throw "Local KobeOS API returned HTTP $($api.StatusCode) after startup repair."
           }
 
-          try {
-            $web = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1/' -TimeoutSec 5
-          } catch {
-            throw 'Local KobeOS web is not healthy on port 80; refusing to restart a tunnel on this machine.'
-          }
-          if ($web.StatusCode -ne 200) {
-            throw "Local KobeOS web returned HTTP $($web.StatusCode); refusing recovery."
-          }
-
-          Write-Host 'Existing local KobeOS origin verified.'
+          # Lala's frontend is deployed to Cloudflare Pages. Port 80 is not an
+          # origin prerequisite; only the API on port 3000 belongs on this box.
+          Write-Host 'Existing local KobeOS API origin and Cloudflare connector verified.'
           $services | ForEach-Object { Write-Host "cloudflared_service_status_before=$($_.Status)" }
 
       - name: Restart existing Cloudflare connector
@@ -88,13 +121,14 @@ jobs:
           $services = @(Get-Service -ErrorAction Stop | Where-Object {
             $_.Name -match 'cloudflared|cloudflare' -or $_.DisplayName -match 'cloudflared|cloudflare'
           })
-          foreach ($svc in $services) {
-            if ($svc.Status -eq 'Running') {
-              Restart-Service -Name $svc.Name -Force -ErrorAction Stop
+          foreach ($service in $services) {
+            if ($service.Status -eq 'Running') {
+              Restart-Service -Name $service.Name -Force -ErrorAction Stop
             } else {
-              Start-Service -Name $svc.Name -ErrorAction Stop
+              Start-Service -Name $service.Name -ErrorAction Stop
             }
           }
+
           Start-Sleep -Seconds 12
           $services = @(Get-Service -ErrorAction Stop | Where-Object {
             $_.Name -match 'cloudflared|cloudflare' -or $_.DisplayName -match 'cloudflared|cloudflare'
@@ -104,22 +138,23 @@ jobs:
             throw 'Cloudflare connector service did not return to Running state.'
           }
 
-      - name: Verify Lala through Cloudflare
+      - name: Verify the KobeOS API through Cloudflare
         if: steps.gate.outputs.healthy != 'true'
         run: |
           $ErrorActionPreference = 'Stop'
           $attempts = 8
-          for ($i = 1; $i -le $attempts; $i++) {
+          for ($attempt = 1; $attempt -le $attempts; $attempt++) {
             try {
-              $health = Invoke-WebRequest -UseBasicParsing -Uri 'https://api.kobeapptz.com/api/lala-public/health' -TimeoutSec 15
-              $web = Invoke-WebRequest -UseBasicParsing -Uri 'https://lala.kobeapptz.com/' -TimeoutSec 15
-              if ($health.StatusCode -eq 200 -and $web.StatusCode -eq 200) {
-                Write-Host "Lala origin recovered on attempt $i."
+              $health = Invoke-WebRequest -UseBasicParsing -Uri 'https://api.kobeapptz.com/api/health' -TimeoutSec 15
+              $lala = Invoke-WebRequest -UseBasicParsing -Uri 'https://api.kobeapptz.com/api/lala-public/health' -TimeoutSec 15
+              if ($health.StatusCode -eq 200 -and $lala.StatusCode -eq 200) {
+                Write-Host "KobeOS API origin recovered on attempt $attempt."
                 exit 0
               }
             } catch {
-              Write-Host "Public verification attempt $i/$attempts did not pass yet."
+              Write-Host "Public API verification attempt $attempt/$attempts did not pass yet."
             }
             Start-Sleep -Seconds 5
           }
-          throw 'Existing connector restarted, but Lala is still not reachable through Cloudflare.'
+          throw 'The local API and connector are running, but the KobeOS API is still unreachable through Cloudflare.'
+
