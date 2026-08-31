@@ -33,7 +33,8 @@ jobs:
             echo "Cloudflare Pages credentials are configured."
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Lala deploy skipped because CLOUDFLARE_API_TOKEN/CF_API_TOKEN or CLOUDFLARE_ACCOUNT_ID/CF_ACCOUNT_ID is not configured in the production environment."
+            echo "::error::Lala deployment cannot run because CLOUDFLARE_API_TOKEN/CF_API_TOKEN or CLOUDFLARE_ACCOUNT_ID/CF_ACCOUNT_ID is not configured in the production environment."
+            exit 1
           fi
 
       - name: Checkout production source
