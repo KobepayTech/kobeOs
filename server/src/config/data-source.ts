@@ -17,6 +17,7 @@ export default new DataSource({
   password: process.env.DB_PASSWORD || 'kobe',
   database: process.env.DB_DATABASE || 'kobeos',
   entities: ['src/**/*.entity.ts'],
-  migrations: ['src/migrations/*.ts'],
+  migrations: ['src/migrations/+([0-9])-+([A-Za-z0-9_-]).ts'],
   migrationsTableName: 'kobeos_migrations',
 });
+

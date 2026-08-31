@@ -35,7 +35,16 @@ export const databaseConfig: TypeOrmModuleAsyncOptions = {
       database: config.get('DB_DATABASE', 'kobeos'),
       autoLoadEntities: true,
       synchronize,
-      migrations: [join(__dirname, '..', 'migrations', '*.{ts,js}')],
+      // Migration filenames are timestamp-name.{ts,js}. Keep the glob strict so
+      // compiled *.spec.js / *.test.js artifacts can never execute at startup.
+      migrations: [
+        join(
+          __dirname,
+          '..',
+          'migrations',
+          '+([0-9])-+([A-Za-z0-9_-]).{ts,js}',
+        ),
+      ],
       migrationsTableName: 'kobeos_migrations',
       migrationsRun,
       logging: isDev ? ['error', 'warn'] : ['error'],
@@ -48,3 +57,4 @@ export const databaseConfig: TypeOrmModuleAsyncOptions = {
     };
   },
 };
+
