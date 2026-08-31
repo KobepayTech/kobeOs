@@ -1,0 +1,139 @@
+name: Deploy Lala to Cloudflare Pages
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [master, main]
+  workflow_dispatch:
+
+jobs:
+  deploy-lala:
+    name: Deploy Lala frontend
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    environment: production
+    permissions:
+      contents: read
+
+    env:
+      PAGES_PROJECT: kobeos-lala
+      LALA_DOMAIN: lala.kobeapptz.com
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID || vars.CF_ACCOUNT_ID }}
+
+    steps:
+      - name: Check Cloudflare configuration
+        id: cloudflare
+        run: |
+          set -euo pipefail
+          if [ -n "${CLOUDFLARE_API_TOKEN:-}" ] && [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+            echo "Cloudflare Pages credentials are configured."
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Lala deploy skipped because CLOUDFLARE_API_TOKEN/CF_API_TOKEN or CLOUDFLARE_ACCOUNT_ID/CF_ACCOUNT_ID is not configured in the production environment."
+          fi
+
+      - name: Checkout production source
+        if: ${{ steps.cloudflare.outputs.ready == 'true' }}
+        uses: actions/checkout@v4
+        with:
+          ref: master
+
+      - name: Set up Node
+        if: ${{ steps.cloudflare.outputs.ready == 'true' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        if: ${{ steps.cloudflare.outputs.ready == 'true' }}
+        run: npm ci --legacy-peer-deps
+
+      - name: Build Lala SPA
+        if: ${{ steps.cloudflare.outputs.ready == 'true' }}
+        env:
+          VITE_API_BASE: https://api.kobeapptz.com/api
+          VITE_TENANT_BASE_DOMAIN: kobeapptz.com
+        run: |
+          set -euo pipefail
+          npm run build
+          cp deploy/lala-pages/_redirects dist/_redirects
+          test -f dist/index.html
+          grep -q 'id="root"' dist/index.html
+
+      - name: Ensure Pages project exists
+        if: ${{ steps.cloudflare.outputs.ready == 'true' }}
+        run: |
+          set -euo pipefail
+          api="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects"
+          code="$(curl -sS -o /tmp/project.json -w '%{http_code}'             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"             "$api/$PAGES_PROJECT")"
+
+          if [ "$code" = "404" ]; then
+            echo "Creating Cloudflare Pages project $PAGES_PROJECT..."
+            curl -fsS "$api"               -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"               -H "Content-Type: application/json"               --data "$(jq -nc --arg name "$PAGES_PROJECT" '{name:$name, production_branch:"master"}')"               -o /tmp/project-create.json
+            grep -q '"success":true' /tmp/project-create.json || {
+              cat /tmp/project-create.json
+              exit 1
+            }
+          elif [ "$code" != "200" ]; then
+            cat /tmp/project.json
+            echo "::error::Could not read Cloudflare Pages project (HTTP $code)."
+            exit 1
+          fi
+
+      - name: Deploy to Cloudflare Pages
+        if: ${{ steps.cloudflare.outputs.ready == 'true' }}
+        run: |
+          set -euo pipefail
+          npx --yes wrangler@4 pages deploy dist             --project-name "$PAGES_PROJECT"             --branch master             --commit-hash "${GITHUB_SHA}"             --commit-message "Deploy Lala ${GITHUB_SHA}"
+
+      - name: Ensure Lala custom domain
+        if: ${{ steps.cloudflare.outputs.ready == 'true' }}
+        run: |
+          set -euo pipefail
+          domains="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/pages/projects/$PAGES_PROJECT/domains"
+          curl -fsS             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"             "$domains" -o /tmp/domains.json
+
+          if ! jq -e --arg domain "$LALA_DOMAIN" '.result[] | select(.name == $domain)' /tmp/domains.json >/dev/null; then
+            echo "Attaching $LALA_DOMAIN to $PAGES_PROJECT..."
+            curl -fsS "$domains"               -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"               -H "Content-Type: application/json"               --data "$(jq -nc --arg name "$LALA_DOMAIN" '{name:$name}')"               -o /tmp/domain-create.json
+            grep -q '"success":true' /tmp/domain-create.json || {
+              cat /tmp/domain-create.json
+              exit 1
+            }
+          fi
+
+      - name: Verify Lala production
+        if: ${{ steps.cloudflare.outputs.ready == 'true' }}
+        run: |
+          set -euo pipefail
+          curl -fsS --retry 8 --retry-delay 5 --retry-all-errors --connect-timeout 10             "https://$LALA_DOMAIN/" -o /tmp/lala.html
+          grep -q 'id="root"' /tmp/lala.html || {
+            echo "::error::$LALA_DOMAIN did not return the Lala SPA shell."
+            exit 1
+          }
+
+          curl -fsS --retry 8 --retry-delay 5 --retry-all-errors --connect-timeout 10             'https://api.kobeapptz.com/api/lala-public/health' -o /tmp/lala-health.json
+          jq -e '.status == "ok" and .database == "ready"' /tmp/lala-health.json >/dev/null || {
+            echo "::error::Lala API health check failed."
+            cat /tmp/lala-health.json
+            exit 1
+          }
+
+          curl -fsS --retry 5 --retry-delay 3 --retry-all-errors --connect-timeout 10             'https://api.kobeapptz.com/api/lala-public/search' -o /tmp/lala-search.json
+          jq -e 'type == "array"' /tmp/lala-search.json >/dev/null || {
+            echo "::error::Lala search API did not return a JSON array."
+            head -c 500 /tmp/lala-search.json || true
+            exit 1
+          }
+
+          echo "Lala is live on Cloudflare Pages: https://$LALA_DOMAIN"
+
+      - name: Deployment configuration notice
+        if: ${{ steps.cloudflare.outputs.ready != 'true' }}
+        run: |
+          echo "Lala code is build/test ready, but production deployment was not attempted."
+          echo "Configure CLOUDFLARE_API_TOKEN (or CF_API_TOKEN) and CLOUDFLARE_ACCOUNT_ID (or CF_ACCOUNT_ID) in the GitHub production environment."
