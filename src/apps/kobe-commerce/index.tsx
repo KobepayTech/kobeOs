@@ -31,12 +31,46 @@ type CarStatus = typeof CAR_STATUSES[number];
 interface Vehicle { id: string; make: string; model: string; year: number; price: number; currency: string; mileage: number; status: CarStatus; location: string; description: string; media: Array<{ id: string; url: string; kind: string }>; requests: number; economics: { landedCost: number; projectedMargin: number } }
 const emptyCar = { make: '', model: '', year: '', price: '', mileage: '', transmission: '', fuel: '', engine: '', driveType: '', bodyType: '', color: '', location: '', description: '', financingAvailable: false, negotiable: false, purchaseCost: '', dutyCost: '', clearingCost: '', transportCost: '', repairCost: '', advertisingCost: '' };
 
+interface VehicleEngagement {
+  requests: Array<{ id: string; customerName: string; customerPhone: string; requestType: string; status: string; offerAmount?: number | null; createdAt: string; crmLeadId?: string | null; vehicle: { year: number; make: string; model: string } | null }>;
+  reservations: Array<{ id: string; reservationCode: string; customerName: string; customerPhone: string; status: 'HELD' | 'CONFIRMED' | 'EXPIRED' | 'CANCELLED' | 'CONVERTED'; expiresAt: string; crmLeadId?: string | null; vehicle: { year: number; make: string; model: string } | null }>;
+  appointments: Array<{ id: string; customerName: string; customerPhone: string; appointmentType: 'SHOWROOM' | 'TEST_DRIVE'; scheduledFor: string; showroomLocation: string; salesperson: string; status: 'REQUESTED' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW'; crmLeadId?: string | null; vehicle: { year: number; make: string; model: string } | null }>;
+}
+
 function CarsManager({ businesses }: { businesses: Business[] }) {
+  const primaryBusiness = businesses[0] ?? null;
   const [car, setCar] = useState(emptyCar); const [files, setFiles] = useState<File[]>([]);
-  const [vehicles, setVehicles] = useState<Vehicle[]>([]); const [loading, setLoading] = useState(true);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]); const [engagement, setEngagement] = useState<VehicleEngagement>({ requests: [], reservations: [], appointments: [] });
+  const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false); const [rowBusy, setRowBusy] = useState(''); const [error, setError] = useState(''); const [message, setMessage] = useState('');
-  const load = useCallback(async () => { setLoading(true); try { setVehicles(await api<Vehicle[]>('/commerce/cars', { offlineFallback: false })); } catch (e) { setError((e as Error).message); } finally { setLoading(false); } }, []);
+  const [profile, setProfile] = useState({ whatsapp: '', showroomAddress: '', logoUrl: '', heroImageUrl: '', heroTitle: '', heroSubtitle: '', about: '' });
+
+  useEffect(() => {
+    const p = primaryBusiness?.profile ?? {};
+    setProfile({
+      whatsapp: String(p.whatsapp ?? primaryBusiness?.phone ?? ''),
+      showroomAddress: String(p.showroomAddress ?? p.address ?? ''),
+      logoUrl: String(p.logoUrl ?? ''),
+      heroImageUrl: String(p.heroImageUrl ?? ''),
+      heroTitle: String(p.heroTitle ?? ''),
+      heroSubtitle: String(p.heroSubtitle ?? ''),
+      about: String(p.about ?? ''),
+    });
+  }, [primaryBusiness?.id]);
+
+  const load = useCallback(async () => {
+    setLoading(true); setError('');
+    try {
+      const [inventory, activity] = await Promise.all([
+        api<Vehicle[]>('/commerce/cars', { offlineFallback: false }),
+        api<VehicleEngagement>('/commerce/cars/engagement', { offlineFallback: false }),
+      ]);
+      setVehicles(inventory); setEngagement(activity);
+    } catch (e) { setError((e as Error).message); }
+    finally { setLoading(false); }
+  }, []);
   useEffect(() => { void load(); }, [load]);
+
   const authHeader = (): Record<string, string> => getToken() ? { Authorization: `Bearer ${getToken()}` } : {};
   const uploadPhotos = async (vehicleId: string, chosen: File[]) => { if (!chosen.length) return; const body = new FormData(); chosen.forEach((f) => body.append('images', f)); const res = await fetch(`${apiBase()}/commerce/cars/${vehicleId}/media`, { method: 'POST', headers: authHeader(), body }); if (!res.ok) throw new Error(await res.text()); };
   const create = async () => {
@@ -45,13 +79,53 @@ function CarsManager({ businesses }: { businesses: Business[] }) {
     try {
       const vehicle = await api<Vehicle>('/commerce/cars', { method: 'POST', body: JSON.stringify({ ...car, year: Number(car.year), price: Number(car.price), mileage: Number(car.mileage) || 0, listing: { purchaseCost: Number(car.purchaseCost) || 0, dutyCost: Number(car.dutyCost) || 0, clearingCost: Number(car.clearingCost) || 0, transportCost: Number(car.transportCost) || 0, repairCost: Number(car.repairCost) || 0, advertisingCost: Number(car.advertisingCost) || 0 } }), offlineFallback: false });
       if (files.length) await uploadPhotos(vehicle.id, files);
+      if (primaryBusiness) await api(`/commerce/businesses/${primaryBusiness.id}/profile`, { method: 'PATCH', body: JSON.stringify({ businessType: 'DEALERSHIP' }), offlineFallback: false }).catch(() => undefined);
       setMessage(`${car.make} ${car.model} published to Jumla Cars${files.length ? ` with ${files.length} photo${files.length === 1 ? '' : 's'}` : ''}.`);
       setCar(emptyCar); setFiles([]); await load();
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   };
   const rowAction = async (id: string, fn: () => Promise<unknown>, success: string) => { setRowBusy(id); setError(''); setMessage(''); try { await fn(); setMessage(success); await load(); } catch (e) { setError((e as Error).message); } finally { setRowBusy(''); } };
+  const saveProfile = async () => {
+    if (!primaryBusiness) return;
+    setBusy(true); setError(''); setMessage('');
+    try {
+      await api(`/commerce/businesses/${primaryBusiness.id}/profile`, { method: 'PATCH', body: JSON.stringify({ businessType: 'DEALERSHIP', ...profile }), offlineFallback: false });
+      setMessage('Dealership website updated.');
+    } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  };
+  const appointmentStatus = async (id: string, status: VehicleEngagement['appointments'][number]['status']) => {
+    setRowBusy(id); setError('');
+    try { await api(`/commerce/cars/appointments/${id}`, { method: 'PATCH', body: JSON.stringify({ status }), offlineFallback: false }); await load(); }
+    catch (e) { setError((e as Error).message); } finally { setRowBusy(''); }
+  };
+  const reservationStatus = async (code: string, status: 'CONFIRMED' | 'CANCELLED' | 'CONVERTED') => {
+    setRowBusy(code); setError('');
+    try { await api(`/commerce/cars/reservations/${code}`, { method: 'PATCH', body: JSON.stringify({ status }), offlineFallback: false }); await load(); }
+    catch (e) { setError((e as Error).message); } finally { setRowBusy(''); }
+  };
+
   return <div className="space-y-5">
     {error && <Notice tone="error">{error}</Notice>}{message && <Notice tone="ok">{message}</Notice>}
+
+    <Card title="Dealership website">
+      {primaryBusiness ? <>
+        <div className="rounded-2xl bg-[#10261f] text-white p-4 sm:flex sm:items-center sm:justify-between">
+          <div><p className="text-[11px] font-black uppercase tracking-[.2em] text-lime-300">Live generated site</p><b className="mt-1 block text-lg">{primaryBusiness.publicSlug}.kobeapptz.com</b><p className="text-xs text-white/50">The same vehicle inventory below powers this website and Jumla automatically.</p></div>
+          <a href={`https://${primaryBusiness.publicSlug}.kobeapptz.com`} target="_blank" rel="noreferrer" className="mt-3 sm:mt-0 h-10 px-4 rounded-xl bg-lime-300 text-[#10261f] text-xs font-black inline-flex items-center">Open dealership site</a>
+        </div>
+        <div className="mt-4 grid sm:grid-cols-2 gap-2">
+          <Input label="WhatsApp" value={profile.whatsapp} onChange={(v) => setProfile({ ...profile, whatsapp: v })} />
+          <Input label="Showroom address" value={profile.showroomAddress} onChange={(v) => setProfile({ ...profile, showroomAddress: v })} />
+          <Input label="Logo URL" value={profile.logoUrl} onChange={(v) => setProfile({ ...profile, logoUrl: v })} />
+          <Input label="Hero image URL" value={profile.heroImageUrl} onChange={(v) => setProfile({ ...profile, heroImageUrl: v })} />
+          <Input label="Hero headline" value={profile.heroTitle} onChange={(v) => setProfile({ ...profile, heroTitle: v })} />
+          <Input label="Hero subheadline" value={profile.heroSubtitle} onChange={(v) => setProfile({ ...profile, heroSubtitle: v })} />
+          <label className="sm:col-span-2 text-xs font-bold block">About dealership<textarea value={profile.about} onChange={(e) => setProfile({ ...profile, about: e.target.value })} className="mt-1 w-full min-h-24 rounded-xl border p-3" /></label>
+        </div>
+        <Button busy={busy} onClick={() => void saveProfile()}>Save website</Button>
+      </> : <Empty text="Create a business before publishing a dealership website" />}
+    </Card>
+
     <Card title="Add vehicle to Jumla Cars">
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
         <Input label="Make" value={car.make} onChange={(v) => setCar({ ...car, make: v })} /><Input label="Model" value={car.model} onChange={(v) => setCar({ ...car, model: v })} /><Input label="Year" type="number" value={car.year} onChange={(v) => setCar({ ...car, year: v })} />
@@ -64,9 +138,20 @@ function CarsManager({ businesses }: { businesses: Business[] }) {
       <label className="mt-2 min-h-24 rounded-2xl border-2 border-dashed bg-slate-50 grid place-items-center cursor-pointer text-center p-3"><span className="text-slate-500"><ImagePlus className="h-6 w-6 mx-auto mb-1" /><b>{files.length ? `${files.length} photo${files.length === 1 ? '' : 's'} selected` : 'Add photos (uploaded to Kobe — no image host needed)'}</b></span><input type="file" accept="image/*" multiple className="hidden" onChange={(e) => setFiles(Array.from(e.target.files ?? []))} /></label>
       <Button busy={busy} onClick={() => void create()}>Publish vehicle</Button>
     </Card>
+
     <Card title="Your vehicle inventory">
       {loading ? <div className="h-32 grid place-items-center"><Loader2 className="animate-spin" /></div> : vehicles.length ? <div className="grid md:grid-cols-2 gap-4">{vehicles.map((v) => <VehicleRow key={v.id} v={v} busy={rowBusy === v.id} onStatus={(status) => void rowAction(v.id, () => api(`/commerce/cars/${v.id}`, { method: 'PATCH', body: JSON.stringify({ status }), offlineFallback: false }), `${v.make} ${v.model} marked ${status.replace(/_/g, ' ').toLowerCase()}.`)} onGenerate={() => void rowAction(v.id, () => api(`/commerce/cars/${v.id}/generate-marketing`, { method: 'POST', offlineFallback: false }), `Marketing copy + vertical video generated for ${v.make} ${v.model}.`)} onUpload={(chosen) => void rowAction(v.id, () => uploadPhotos(v.id, chosen), `${chosen.length} photo${chosen.length === 1 ? '' : 's'} added.`)} />)}</div> : <Empty text="No vehicles yet — add one above" />}
     </Card>
+
+    <Card title="Showroom & test drives">
+      {engagement.appointments.length ? <div className="space-y-3">{engagement.appointments.map((row) => <div key={row.id} className="rounded-2xl border p-4 sm:flex sm:items-center sm:gap-4"><div className="min-w-0 flex-1"><b>{row.customerName} · {row.appointmentType === 'TEST_DRIVE' ? 'Test drive' : 'Showroom visit'}</b><p className="text-xs text-slate-500">{row.vehicle ? `${row.vehicle.year} ${row.vehicle.make} ${row.vehicle.model}` : 'Vehicle'} · {new Date(row.scheduledFor).toLocaleString()}</p><p className="mt-1 text-xs text-slate-400">{row.customerPhone}{row.showroomLocation ? ` · ${row.showroomLocation}` : ''}</p></div><select disabled={rowBusy === row.id} value={row.status} onChange={(e) => void appointmentStatus(row.id, e.target.value as VehicleEngagement['appointments'][number]['status'])} className="mt-3 sm:mt-0 h-9 rounded-xl border px-3 text-xs font-black"><option>REQUESTED</option><option>CONFIRMED</option><option>COMPLETED</option><option>CANCELLED</option><option>NO_SHOW</option></select></div>)}</div> : <Empty text="No showroom or test-drive bookings yet" />}
+    </Card>
+
+    <Card title="Vehicle reservations">
+      {engagement.reservations.length ? <div className="space-y-3">{engagement.reservations.map((row) => <div key={row.id} className="rounded-2xl border p-4"><div className="flex flex-wrap items-start gap-3"><div className="min-w-0 flex-1"><b>{row.reservationCode} · {row.customerName}</b><p className="text-xs text-slate-500">{row.vehicle ? `${row.vehicle.year} ${row.vehicle.make} ${row.vehicle.model}` : 'Vehicle'} · expires {new Date(row.expiresAt).toLocaleString()}</p></div><span className="rounded-lg bg-slate-100 px-2 py-1 text-[10px] font-black">{row.status}</span></div>{!['EXPIRED','CANCELLED','CONVERTED'].includes(row.status) && <div className="mt-3 flex flex-wrap gap-2"><button disabled={rowBusy === row.reservationCode} onClick={() => void reservationStatus(row.reservationCode, 'CONFIRMED')} className="h-8 rounded-lg bg-amber-50 px-3 text-xs font-black text-amber-800">Confirm hold</button><button disabled={rowBusy === row.reservationCode} onClick={() => void reservationStatus(row.reservationCode, 'CONVERTED')} className="h-8 rounded-lg bg-emerald-700 px-3 text-xs font-black text-white">Mark sold</button><button disabled={rowBusy === row.reservationCode} onClick={() => void reservationStatus(row.reservationCode, 'CANCELLED')} className="h-8 rounded-lg bg-slate-100 px-3 text-xs font-black">Cancel</button></div>}</div>)}</div> : <Empty text="No active or previous vehicle reservations" />}
+    </Card>
+
+    <CrmPanel source="VEHICLE" businessId={primaryBusiness?.id} compact />
   </div>;
 }
 
