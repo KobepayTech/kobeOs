@@ -439,12 +439,15 @@ export class LalaService {
   }
 
   async offer(ownerId: string, requestId: string, input: { hotelId: string; roomId: string; totalPrice: number; currency?: string; message?: string; expiresAt: string }) {
+    const expiresAt = new Date(input.expiresAt);
+    if (!Number.isFinite(Number(input.totalPrice)) || Number(input.totalPrice) <= 0) throw new BadRequestException('Offer price must be greater than zero');
+    if (Number.isNaN(expiresAt.getTime()) || expiresAt <= new Date()) throw new BadRequestException('Offer expiry must be in the future');
     const [request, hotel, room] = await Promise.all([this.requests.findOne({ where: { id: requestId, status: 'OPEN' } }), this.hotels.findOne({ where: { id: input.hotelId, ownerId } }), this.rooms.findOne({ where: { id: input.roomId, ownerId, hotelId: input.hotelId } })]);
     if (!request || !hotel || !room) throw new NotFoundException('Request, hotel or room not found');
     if (!(await this.availableRoomIds(hotel.id, request.checkIn, request.checkOut)).some((r) => r.id === room.id)) throw new BadRequestException('Room is unavailable');
     let row = await this.offers.findOne({ where: { requestId, hotelId: hotel.id } });
-    row ??= this.offers.create({ ownerId, requestId, hotelId: hotel.id, roomId: room.id, totalPrice: input.totalPrice, currency: input.currency ?? hotel.currency, message: input.message ?? '', expiresAt: new Date(input.expiresAt), status: 'ACTIVE' });
-    Object.assign(row, { roomId: room.id, totalPrice: input.totalPrice, currency: input.currency ?? hotel.currency, message: input.message ?? '', expiresAt: new Date(input.expiresAt), status: 'ACTIVE' });
+    row ??= this.offers.create({ ownerId, requestId, hotelId: hotel.id, roomId: room.id, totalPrice: input.totalPrice, currency: input.currency ?? hotel.currency, message: input.message ?? '', expiresAt, status: 'ACTIVE' });
+    Object.assign(row, { roomId: room.id, totalPrice: input.totalPrice, currency: input.currency ?? hotel.currency, message: input.message ?? '', expiresAt, status: 'ACTIVE' });
     return this.offers.save(row);
   }
 
