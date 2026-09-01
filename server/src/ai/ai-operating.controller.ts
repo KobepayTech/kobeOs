@@ -182,6 +182,11 @@ export class AiOperatingController {
     return this.operating.listDashboards(ownerId);
   }
 
+  @Get('dashboards/:id/live')
+  liveDashboard(@CurrentUser('id') ownerId: string, @Param('id') id: string) {
+    return this.operating.renderDashboard(ownerId, id);
+  }
+
   @Post('dashboards')
   dashboard(@CurrentUser('id') ownerId: string, @Body() dto: DashboardDto) {
     return this.operating.createDashboard(ownerId, dto.prompt);
