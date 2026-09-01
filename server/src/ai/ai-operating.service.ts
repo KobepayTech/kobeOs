@@ -475,6 +475,42 @@ export class AiOperatingService {
     return this.dashboards.find({ where: { ownerId }, order: { createdAt: 'DESC' }, take: 100 });
   }
 
+  async renderDashboard(ownerId: string, id: string) {
+    const dashboard = await this.dashboards.findOne({ where: { ownerId, id } });
+    if (!dashboard) throw new NotFoundException('Dashboard not found');
+    const prompts: Record<string, string> = {
+      sales_today: 'What are today’s sales?',
+      expenses_summary: 'How much did I spend this month?',
+      unpaid_tenants: 'How many tenants have unpaid rent?',
+      hotel_occupancy: 'What is my hotel occupancy right now?',
+      low_stock: 'Show me low stock items.',
+      cargo_status: 'What is my cargo status?',
+      business_health: 'Give me my overall business health.',
+    };
+    const widgets = await Promise.all(dashboard.widgets.map(async (widget) => {
+      const source = String(widget.source || '');
+      const prompt = prompts[source] || `Give me the current verified value for ${String(widget.title || source)}.`;
+      try {
+        const result = await this.agent.run(ownerId, prompt, [], 'fast');
+        return {
+          ...widget,
+          summary: result.reply,
+          data: result.data,
+          confidence: result.confidence,
+          citations: result.citations,
+          needsVerification: result.needsVerification,
+        };
+      } catch (error) {
+        return { ...widget, error: error instanceof Error ? error.message : String(error) };
+      }
+    }));
+    await this.audit(ownerId, null, 'user', 'DASHBOARD_RENDERED', 'dashboard', dashboard.name, '', '', 1, [], {
+      dashboardId: dashboard.id,
+      widgetCount: widgets.length,
+    });
+    return { dashboard, widgets, generatedAt: new Date().toISOString() };
+  }
+
   async simulate(ownerId: string, scenario: {
     salesChangePct?: number; expenseChangePct?: number; rentCollectionChangePct?: number; roomRateChangePct?: number;
   }) {
