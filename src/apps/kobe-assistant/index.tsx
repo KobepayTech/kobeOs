@@ -241,8 +241,10 @@ export default function KobeAssistant({
     setBusy(true);
 
     let streamed = '';
-    let completed: { reply?: string; data?: unknown; pendingAction?: PendingAction | null } | null = null;
-    let streamError = '';
+    const streamState: {
+      done?: { reply?: string; data?: unknown; pendingAction?: PendingAction | null };
+      error?: string;
+    } = {};
 
     const updateStreamingReply = (content: string, meta?: { data?: unknown; pendingAction?: PendingAction | null }) => {
       setMessages((p) => {
@@ -271,17 +273,17 @@ export default function KobeAssistant({
             streamed += record.token;
             updateStreamingReply(streamed);
           } else if (event === 'done') {
-            completed = record as { reply?: string; data?: unknown; pendingAction?: PendingAction | null };
+            streamState.done = record as { reply?: string; data?: unknown; pendingAction?: PendingAction | null };
           } else if (event === 'error') {
-            streamError = typeof record.message === 'string' ? record.message : 'Streaming failed.';
+            streamState.error = typeof record.message === 'string' ? record.message : 'Streaming failed.';
           }
         });
-        if (streamError) throw new Error(streamError);
-        const finalReply = streamed.trim() || completed?.reply?.trim() || '';
+        if (streamState.error) throw new Error(streamState.error);
+        const finalReply = streamed.trim() || streamState.done?.reply?.trim() || '';
         if (!finalReply) throw new Error('The assistant returned an empty response.');
         updateStreamingReply(finalReply, {
-          data: completed?.data,
-          pendingAction: completed?.pendingAction ?? null,
+          data: streamState.done?.data,
+          pendingAction: streamState.done?.pendingAction ?? null,
         });
       } catch (streamFailure) {
         let reply = '';
