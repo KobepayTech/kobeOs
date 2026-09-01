@@ -579,12 +579,67 @@ export default function KobeAssistant({
     try {
       if (file.type.startsWith('image/')) {
         setMessages((p) => [...p, { role: 'user', content: `📷 ${file.name}` }]);
+        setActivity({ stage: 'retrieving', label: 'Reading image and visible text…' });
         const b64 = await readAsBase64(file);
-        const r = await api<{ content: string }>('/ai/vision/describe', {
-          method: 'POST',
-          body: JSON.stringify({ image: b64, prompt: 'Describe this for a business owner. If it is a product, suggest a name, category and short selling description.' }),
-        });
-        setMessages((p) => [...p, { role: 'assistant', content: r.content || 'I could not read that image.' }]);
+        const receiptLike = /receipt|invoice|bill|risiti|ankara/i.test(file.name);
+        const [visionResult, ocrResult] = await Promise.allSettled([
+          api<{ content: string }>('/ai/vision/describe', {
+            method: 'POST',
+            body: JSON.stringify({
+              image: b64,
+              prompt: 'Analyse this business image. Transcribe important visible text, numbers and labels. If it is a product suggest a name/category; if it is a receipt/invoice identify merchant, amount/date if visible. Clearly mark anything uncertain.',
+            }),
+            offlineFallback: false,
+          }),
+          api<{
+            text: string;
+            confidence: number;
+            parsed?: { total: number | null; currency: string | null; date: string | null; merchant: string | null };
+          }>(receiptLike ? '/ocr/extract-receipt-base64' : '/ocr/extract-base64', {
+            method: 'POST',
+            body: JSON.stringify({ image: b64, lang: 'eng+swa' }),
+            offlineFallback: false,
+          }),
+        ]);
+        const vision = visionResult.status === 'fulfilled' ? visionResult.value.content?.trim() : '';
+        const ocr = ocrResult.status === 'fulfilled' ? ocrResult.value : null;
+        const ocrText = ocr?.text?.trim() || '';
+        let learned = false;
+        let docTitle = file.name.replace(/\.[^.]+$/, '');
+        if (ocrText.length >= 20 && Number(ocr?.confidence || 0) >= 55) {
+          setActivity({ stage: 'retrieving', label: 'Adding high-confidence scan text to business knowledge…' });
+          const doc = await api<{ title: string; chunkCount: number }>('/ai/docs', {
+            method: 'POST',
+            body: JSON.stringify({
+              title: docTitle,
+              text: ocrText,
+              source: `scan:${file.name};ocr-confidence:${Math.round(Number(ocr?.confidence || 0))}`,
+            }),
+            offlineFallback: false,
+          }).catch(() => null);
+          learned = Boolean(doc?.chunkCount);
+          if (doc?.title) docTitle = doc.title;
+        }
+        const parsed = ocr?.parsed;
+        const parsedLine = parsed && (parsed.total != null || parsed.merchant || parsed.date)
+          ? `\n\nParsed scan: ${[
+              parsed.merchant ? `merchant ${parsed.merchant}` : '',
+              parsed.total != null ? `total ${parsed.currency || ''} ${parsed.total.toLocaleString()}` : '',
+              parsed.date ? `date ${parsed.date}` : '',
+            ].filter(Boolean).join(' · ')}`
+          : '';
+        const ocrLine = ocrText
+          ? `\n\nOCR (${Math.round(Number(ocr?.confidence || 0))}%):\n${ocrText.slice(0, 1800)}`
+          : '';
+        const learnedLine = learned ? `\n\n📚 Saved “${docTitle}” to Kobe knowledge for future questions.` : '';
+        const reply = (vision || 'I could not visually describe that image.') + parsedLine + ocrLine + learnedLine;
+        setMessages((p) => [...p, {
+          role: 'assistant',
+          content: reply,
+          confidence: ocrText ? Math.max(0.5, Math.min(0.99, Number(ocr?.confidence || 0) / 100)) : 0.6,
+          citations: learned ? [{ kind: 'document', label: docTitle }] : [],
+          needsVerification: Boolean(ocrText && Number(ocr?.confidence || 0) < 75),
+        }]);
       } else if (/\.(txt|md|csv|json|log|tsv|html?)$/i.test(file.name) || file.type.startsWith('text/')) {
         const text = await file.text();
         if (!text.trim()) throw new Error('That file looks empty.');
