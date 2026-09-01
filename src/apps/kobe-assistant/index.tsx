@@ -295,6 +295,88 @@ export default function KobeAssistant({
     const q = text.trim();
     if (!q || busy) return;
 
+    const workflowMatch = q.match(/^\/workflow\s+(.+)$/is);
+    if (workflowMatch) {
+      setBusy(true);
+      setActivity({ stage: 'thinking', label: 'Building an editable workflow plan…' });
+      try {
+        const plan = await api<{ id: string; title: string; status: string; steps: Array<{ title: string }> }>('/ai/operating/workflows', {
+          method: 'POST',
+          body: JSON.stringify({ objective: workflowMatch[1], context: screenContext }),
+          offlineFallback: false,
+        });
+        setMessages((p) => [...p, { role: 'user', content: q }, {
+          role: 'assistant',
+          content: `Created workflow “${plan.title}” with ${plan.steps.length} step(s). Status: ${plan.status}. Open Kobe Agents → AI Operating Layer to edit or approve it.`,
+          confidence: 1,
+          citations: [{ kind: 'tool', label: 'workflow planner', ref: plan.id }],
+        }]);
+        setInput('');
+      } catch (cause) {
+        setMessages((p) => [...p, { role: 'user', content: q }, { role: 'assistant', content: `Could not create workflow: ${cause instanceof Error ? cause.message : 'unknown error'}`, confidence: 1 }]);
+      } finally { setBusy(false); setActivity(null); }
+      return;
+    }
+
+    const dashboardMatch = q.match(/^\/dashboard\s+(.+)$/is);
+    if (dashboardMatch) {
+      setBusy(true);
+      setActivity({ stage: 'thinking', label: 'Designing your dashboard…' });
+      try {
+        const dashboard = await api<{ id: string; name: string; widgets: unknown[] }>('/ai/operating/dashboards', {
+          method: 'POST',
+          body: JSON.stringify({ prompt: dashboardMatch[1] }),
+          offlineFallback: false,
+        });
+        setMessages((p) => [...p, { role: 'user', content: q }, {
+          role: 'assistant',
+          content: `Created “${dashboard.name}” with ${dashboard.widgets.length} widget(s). It is saved in Kobe Agents → AI Operating Layer → Dashboards.`,
+          confidence: 1,
+          citations: [{ kind: 'tool', label: 'dashboard generator', ref: dashboard.id }],
+        }]);
+        setInput('');
+      } catch (cause) {
+        setMessages((p) => [...p, { role: 'user', content: q }, { role: 'assistant', content: `Could not create dashboard: ${cause instanceof Error ? cause.message : 'unknown error'}`, confidence: 1 }]);
+      } finally { setBusy(false); setActivity(null); }
+      return;
+    }
+
+    const simulationMatch = q.match(/^\/simulate\s+(.+)$/is);
+    if (simulationMatch) {
+      const raw = simulationMatch[1].toLowerCase();
+      const pct = (label: string) => {
+        const match = raw.match(new RegExp(`${label}\\s*([+-]?\\d+(?:\\.\\d+)?)%?`, 'i'));
+        return match ? Number(match[1]) : undefined;
+      };
+      const scenario = {
+        salesChangePct: pct('sales'),
+        expenseChangePct: pct('expenses?'),
+        rentCollectionChangePct: pct('rent'),
+        roomRateChangePct: pct('rooms?|room rate|hotel'),
+      };
+      setBusy(true);
+      setActivity({ stage: 'checking_data', label: 'Running scenario against current business data…' });
+      try {
+        const result = await api<Record<string, unknown>>('/ai/operating/simulate', {
+          method: 'POST',
+          body: JSON.stringify(scenario),
+          offlineFallback: false,
+        });
+        setMessages((p) => [...p, { role: 'user', content: q }, {
+          role: 'assistant',
+          content: `Scenario result:\n${JSON.stringify(result, null, 2)}`,
+          data: result,
+          confidence: typeof result.confidence === 'number' ? result.confidence : 0.65,
+          citations: [{ kind: 'tool', label: 'business simulation', ref: 'simulate' }],
+          needsVerification: true,
+        }]);
+        setInput('');
+      } catch (cause) {
+        setMessages((p) => [...p, { role: 'user', content: q }, { role: 'assistant', content: `Could not run simulation: ${cause instanceof Error ? cause.message : 'unknown error'}`, confidence: 1 }]);
+      } finally { setBusy(false); setActivity(null); }
+      return;
+    }
+
     const openMatch = q.match(/^\/(?:open|go)\s+(.+)$/i) || q.match(/^open\s+app\s+(.+)$/i);
     if (openMatch) {
       const wanted = openMatch[1].trim().toLowerCase();
