@@ -4,18 +4,115 @@
  * src/lib/api.ts so the same .env settings drive both.
  */
 // Same-origin '/api' in production so public apps served at {slug}.kobeapptz.com
-// call their own backend through the same tunnel (no cross-origin CORS).
-const PUBLIC_API_BASE =
+// call their own backend through the same origin by default. A second independent
+// API base can be supplied with VITE_API_FALLBACK_BASE. Reads are safe to retry
+// across origins. Mutating requests are sent exactly once: the wrapper probes
+// both origins first and chooses one healthy target, which avoids duplicate
+// bookings/orders/payments if a primary response is lost during failover.
+const PRIMARY_PUBLIC_API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined) ??
   (import.meta.env.DEV ? 'http://localhost:3000/api' : '/api');
 
-export function publicApiBase(): string { return PUBLIC_API_BASE; }
+const FALLBACK_PUBLIC_API_BASE =
+  (import.meta.env.VITE_API_FALLBACK_BASE as string | undefined)?.trim() || '';
 
-/** Resolve uploaded `/api/media/...` paths against the configured API host. */
+const PUBLIC_API_BASES = Array.from(new Set(
+  [PRIMARY_PUBLIC_API_BASE, FALLBACK_PUBLIC_API_BASE]
+    .map((value) => value.replace(/\/$/, ''))
+    .filter(Boolean),
+));
+
+let lastHealthyBase = PUBLIC_API_BASES[0] ?? PRIMARY_PUBLIC_API_BASE;
+let lastHealthyAt = 0;
+const WRITE_HEALTH_TTL_MS = 10_000;
+const PROBE_TIMEOUT_MS = 3_500;
+
+export function publicApiBase(): string {
+  return lastHealthyBase || PRIMARY_PUBLIC_API_BASE;
+}
+
+export function publicApiBases(): readonly string[] {
+  return PUBLIC_API_BASES;
+}
+
+class PublicApiHttpError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'PublicApiHttpError';
+  }
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
+}
+
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  const upstreamSignal = init.signal;
+  const abort = () => controller.abort();
+
+  if (upstreamSignal) {
+    if (upstreamSignal.aborted) controller.abort();
+    else upstreamSignal.addEventListener('abort', abort, { once: true });
+  }
+
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    window.clearTimeout(timer);
+    upstreamSignal?.removeEventListener('abort', abort);
+  }
+}
+
+async function probeBase(base: string): Promise<boolean> {
+  try {
+    const res = await fetchWithTimeout(
+      `${base}/health`,
+      { method: 'GET', cache: 'no-store', headers: { Accept: 'application/json' } },
+      PROBE_TIMEOUT_MS,
+    );
+    if (!res.ok) return false;
+    lastHealthyBase = base;
+    lastHealthyAt = Date.now();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function chooseWriteBase(): Promise<string> {
+  if (
+    lastHealthyBase &&
+    PUBLIC_API_BASES.includes(lastHealthyBase) &&
+    Date.now() - lastHealthyAt < WRITE_HEALTH_TTL_MS
+  ) {
+    return lastHealthyBase;
+  }
+
+  for (const base of PUBLIC_API_BASES) {
+    if (await probeBase(base)) return base;
+  }
+
+  throw new Error(
+    'KobeOS is temporarily unreachable on both production paths. ' +
+    'The transaction was not sent, so it is safe to retry.',
+  );
+}
+
+/** Resolve uploaded `/api/media/...` paths against the most recently healthy API host. */
 export function publicAssetUrl(value?: string | null): string {
   if (!value) return '';
   if (/^https?:\/\//i.test(value) || value.startsWith('data:') || value.startsWith('blob:')) return value;
-  return `${PUBLIC_API_BASE}${value.startsWith('/api') ? value.slice(4) : value}`;
+  const base = publicApiBase();
+  return `${base}${value.startsWith('/api') ? value.slice(4) : value}`;
 }
 
 /**
@@ -69,6 +166,7 @@ export function detectAppSubdomain(): PublicAppId | null {
 }
 
 export function detectTenantSubdomain(): string | null {
+  if ((import.meta.env.VITE_DISABLE_TENANT_SUBDOMAIN as string | undefined) === 'true') return null;
   const host = window.location.hostname.toLowerCase();
   if (host === 'localhost' || /^[0-9.]+$/.test(host)) return null;
   const parts = host.split('.');
@@ -95,13 +193,59 @@ export function buildPublicGuestUrl(
 export async function publicApi<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   if (init.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
-  const res = await fetch(`${PUBLIC_API_BASE}${path}`, { ...init, headers });
-  if (!res.ok) {
-    const txt = await res.text().catch(() => '');
-    throw new Error(`API ${res.status}: ${txt || res.statusText}`);
+
+  const method = (init.method || 'GET').toUpperCase();
+  const isRead = method === 'GET' || method === 'HEAD' || method === 'OPTIONS';
+  const bases = isRead ? PUBLIC_API_BASES : [await chooseWriteBase()];
+  let lastError: Error | null = null;
+
+  for (let index = 0; index < bases.length; index += 1) {
+    const base = bases[index];
+    try {
+      const res = await fetch(`${base}${path}`, { ...init, headers });
+
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        const error = new PublicApiHttpError(
+          res.status,
+          `API ${res.status}: ${txt || res.statusText}`,
+        );
+
+        if (isRead && isRetryableStatus(res.status) && index < bases.length - 1) {
+          lastError = error;
+          continue;
+        }
+
+        throw error;
+      }
+
+      lastHealthyBase = base;
+      lastHealthyAt = Date.now();
+      const text = await res.text();
+      return (text ? JSON.parse(text) : undefined) as T;
+    } catch (error) {
+      const normalized = error instanceof Error ? error : new Error(String(error));
+      lastError = normalized;
+
+      if (
+        normalized instanceof PublicApiHttpError &&
+        !isRetryableStatus(normalized.status)
+      ) {
+        throw normalized;
+      }
+
+      if (!isRead || index >= bases.length - 1) {
+        if (!isRead) {
+          throw new Error(
+            `${normalized.message}. This transaction was sent to only one origin and was not automatically replayed.`,
+          );
+        }
+        throw normalized;
+      }
+    }
   }
-  const text = await res.text();
-  return (text ? JSON.parse(text) : undefined) as T;
+
+  throw lastError ?? new Error('KobeOS public API is unavailable.');
 }
 
 export interface PublicTenant {
