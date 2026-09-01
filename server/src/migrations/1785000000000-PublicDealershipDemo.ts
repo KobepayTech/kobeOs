@@ -7,23 +7,21 @@ export class PublicDealershipDemo1785000000000 implements MigrationInterface {
     const ownerId = '9f98e9b0-4af9-4f7a-9b92-2ccf78b6e001';
     const businessId = '9f98e9b0-4af9-4f7a-9b92-2ccf78b6e010';
 
+    // Idempotent + transaction-safe seed. We DELETE any prior demo rows and then
+    // plain-INSERT, instead of INSERT ... ON CONFLICT. An explicit ON CONFLICT
+    // arbiter target (e.g. ("publicSlug")) fails inside TypeORM's single
+    // all-migrations transaction with "no unique or exclusion constraint matching
+    // the ON CONFLICT specification" — the unique index exists but is created
+    // earlier in the same uncommitted transaction and is not inferable there.
+    // Delete-then-insert needs no arbiter index and works on a fresh
+    // migrations-only deploy (the always-on server) as well as a re-run.
+    await q.query(`DELETE FROM "commerce_businesses" WHERE "publicSlug" = 'kijani-motors' AND "businessId" = 'BUS-DEMO-KIJANI'`);
+
     const businessRows = await q.query(
       `INSERT INTO "commerce_businesses"
         ("id","createdAt","updatedAt","businessId","publicSlug","ownerUserId","catalogOwnerId","name","merchantName","phone","email","tier","status","websiteEnabled","managementTokenHash","profile")
        VALUES
         ($1, now(), now(), 'BUS-DEMO-KIJANI', 'kijani-motors', $2, $2, 'Kijani Motors', 'Kijani Motors', '+255 712 345 678', 'sales@kijani.example', 'FULL', 'ACTIVE', true, '', $3::jsonb)
-       ON CONFLICT ("publicSlug") DO UPDATE SET
-         "updatedAt" = now(),
-         "ownerUserId" = EXCLUDED."ownerUserId",
-         "catalogOwnerId" = EXCLUDED."catalogOwnerId",
-         "name" = EXCLUDED."name",
-         "merchantName" = EXCLUDED."merchantName",
-         "phone" = EXCLUDED."phone",
-         "email" = EXCLUDED."email",
-         "tier" = 'FULL',
-         "status" = 'ACTIVE',
-         "websiteEnabled" = true,
-         "profile" = EXCLUDED."profile"
        RETURNING "id"`,
       [
         businessId,
@@ -141,38 +139,18 @@ export class PublicDealershipDemo1785000000000 implements MigrationInterface {
       },
     ] as const;
 
+    // Same delete-then-insert idempotency for the demo vehicles + their children.
+    const demoVehicleIds = vehicles.map((v) => v.id);
+    await q.query(`DELETE FROM "commerce_vehicle_listing_metadata" WHERE "vehicleId" = ANY($1::uuid[])`, [demoVehicleIds]);
+    await q.query(`DELETE FROM "commerce_vehicle_media" WHERE "vehicleId" = ANY($1::uuid[])`, [demoVehicleIds]);
+    await q.query(`DELETE FROM "commerce_vehicles" WHERE "id" = ANY($1::uuid[])`, [demoVehicleIds]);
+
     for (const vehicle of vehicles) {
       await q.query(
         `INSERT INTO "commerce_vehicles"
           ("id","createdAt","updatedAt","businessId","catalogOwnerId","stockNumber","make","model","year","trim","price","currency","mileage","transmission","fuel","color","interiorColor","engine","driveType","bodyType","vin","registration","dutyStatus","source","financingAvailable","negotiable","features","location","condition","status","description","aiSalesCopy","metadata")
          VALUES
-          ($1, now(), now(), $2, $3, $4, $5, $6, $7, $8, $9, 'TZS', $10, $11, $12, $13, $14, $15, $16, $17, '', '', 'DUTY_PAID', 'IMPORTED', $18, $19, $20::jsonb, 'Dar es Salaam', $21, 'AVAILABLE', $22, $23, $24::jsonb)
-         ON CONFLICT ("id") DO UPDATE SET
-           "updatedAt" = now(),
-           "businessId" = EXCLUDED."businessId",
-           "catalogOwnerId" = EXCLUDED."catalogOwnerId",
-           "stockNumber" = EXCLUDED."stockNumber",
-           "make" = EXCLUDED."make",
-           "model" = EXCLUDED."model",
-           "year" = EXCLUDED."year",
-           "trim" = EXCLUDED."trim",
-           "price" = EXCLUDED."price",
-           "mileage" = EXCLUDED."mileage",
-           "transmission" = EXCLUDED."transmission",
-           "fuel" = EXCLUDED."fuel",
-           "color" = EXCLUDED."color",
-           "interiorColor" = EXCLUDED."interiorColor",
-           "engine" = EXCLUDED."engine",
-           "driveType" = EXCLUDED."driveType",
-           "bodyType" = EXCLUDED."bodyType",
-           "financingAvailable" = EXCLUDED."financingAvailable",
-           "negotiable" = EXCLUDED."negotiable",
-           "features" = EXCLUDED."features",
-           "location" = EXCLUDED."location",
-           "condition" = EXCLUDED."condition",
-           "description" = EXCLUDED."description",
-           "aiSalesCopy" = EXCLUDED."aiSalesCopy",
-           "metadata" = EXCLUDED."metadata"`,
+          ($1, now(), now(), $2, $3, $4, $5, $6, $7, $8, $9, 'TZS', $10, $11, $12, $13, $14, $15, $16, $17, '', '', 'DUTY_PAID', 'IMPORTED', $18, $19, $20::jsonb, 'Dar es Salaam', $21, 'AVAILABLE', $22, $23, $24::jsonb)`,
         [
           vehicle.id,
           resolvedBusinessId,
@@ -212,12 +190,7 @@ export class PublicDealershipDemo1785000000000 implements MigrationInterface {
       await q.query(
         `INSERT INTO "commerce_vehicle_listing_metadata"
           ("id","createdAt","updatedAt","vehicleId","highlights","keywords","socialCaption","verticalVideoUrl","purchaseCost","dutyCost","clearingCost","transportCost","repairCost","advertisingCost")
-         VALUES (uuid_generate_v4(), now(), now(), $1, $2::jsonb, $3::jsonb, $4, '', 0, 0, 0, 0, 0, 0)
-         ON CONFLICT ("vehicleId") DO UPDATE SET
-           "updatedAt" = now(),
-           "highlights" = EXCLUDED."highlights",
-           "keywords" = EXCLUDED."keywords",
-           "socialCaption" = EXCLUDED."socialCaption"`,
+         VALUES (uuid_generate_v4(), now(), now(), $1, $2::jsonb, $3::jsonb, $4, '', 0, 0, 0, 0, 0, 0)`,
         [
           vehicle.id,
           JSON.stringify(vehicle.highlights),
