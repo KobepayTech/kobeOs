@@ -22,6 +22,7 @@ jobs:
       DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID || vars.CF_ACCOUNT_ID }}
+      BACKUP_API_HOST: ${{ vars.BACKUP_API_HOST }}
 
     steps:
       - name: Check Cloudflare configuration
@@ -61,6 +62,10 @@ jobs:
           VITE_TENANT_BASE_DOMAIN: kobeapptz.com
         run: |
           set -euo pipefail
+          if [ -n "${BACKUP_API_HOST:-}" ]; then
+            export VITE_API_FALLBACK_BASE="https://$BACKUP_API_HOST/api"
+            echo "Building Lala with independent API fallback: $VITE_API_FALLBACK_BASE"
+          fi
           npm run build
           cp deploy/lala-pages/_redirects dist/_redirects
           test -f dist/index.html
