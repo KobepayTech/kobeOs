@@ -67,3 +67,23 @@ avoiding duplicate transactions when a response is lost during an outage.
 
 The backup deployment workflow also verifies the API and Lala from a
 GitHub-hosted runner after each deploy.
+
+
+## Active no-Cloudflare emergency layer
+
+The immediate independent fallback is live on Supabase project `KobeOS Backup`
+(project ref `erimnjgpawuxesonkeoz`) in `eu-central-1`.
+
+Public backup API base:
+
+`https://erimnjgpawuxesonkeoz.supabase.co/functions/v1/kobeos-backup`
+
+It mirrors Lala public hotel/room/menu data every five minutes while primary is
+reachable. During a Cloudflare outage it serves the last successful snapshot
+and accepts new Lala Passports, booking requests, reverse requests and food
+orders into a private RLS-protected queue. Maintenance automatically replays
+queued writes to primary KobeOS after it recovers.
+
+Because the snapshot can become stale during a prolonged outage, backup
+bookings are explicitly marked `BACKUP_PENDING`; the UI never presents them
+as final room confirmations until primary KobeOS accepts them.
