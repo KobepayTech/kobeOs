@@ -18,6 +18,7 @@ import { AiMemory } from './ai-memory.entity';
 import { AiDocsService } from './ai-docs.service';
 import { SystemHealthService } from '../system-health/system-health.service';
 import { BeemService } from '../notifications/beem.service';
+import { AiMemoryNode, AiSkillInstall } from './ai-operating.entity';
 
 
 export interface AgentActivity {
@@ -26,8 +27,29 @@ export interface AgentActivity {
   detail?: string;
 }
 
+export interface AgentCitation {
+  kind: 'tool' | 'document' | 'memory' | 'screen';
+  label: string;
+  ref?: string;
+  detail?: string;
+}
+
+export interface AgentRequestContext {
+  role?: string;
+  appId?: string;
+  module?: string;
+  screenLabel?: string;
+  entityType?: string;
+  entityId?: string;
+  entityLabel?: string;
+  fields?: Record<string, unknown>;
+}
+
 export interface AgentReply {
   reply: string;
+  confidence?: number;
+  citations?: AgentCitation[];
+  needsVerification?: boolean;
   used?: string;                 // tool that was called (if any)
   specialist?: string;           // which specialist answered (multi-agent team routing)
   data?: unknown;                // raw tool result (for the UI to render tables/print)
@@ -93,6 +115,8 @@ export class KobeAgentService {
     @InjectRepository(AppState) private readonly appState: Repository<AppState>,
     @InjectRepository(SearchDoc) private readonly searchDocs: Repository<SearchDoc>,
     @InjectRepository(AiMemory) private readonly memory: Repository<AiMemory>,
+    @InjectRepository(AiMemoryNode) private readonly memoryNodes: Repository<AiMemoryNode>,
+    @InjectRepository(AiSkillInstall) private readonly skillInstalls: Repository<AiSkillInstall>,
     private readonly beem: BeemService,
     private readonly aiDocs: AiDocsService,
     private readonly systemHealth: SystemHealthService,
@@ -104,6 +128,50 @@ export class KobeAgentService {
       const row = await this.memory.findOne({ where: { ownerId } });
       return Array.isArray(row?.facts) ? row!.facts : [];
     } catch { return []; }
+  }
+
+  private async structuredMemory(ownerId: string, message: string) {
+    try {
+      const rows = await this.memoryNodes.find({ where: { ownerId }, order: { updatedAt: 'DESC' }, take: 300 });
+      const terms = new Set(message.toLowerCase().split(/[^a-z0-9]+/).filter((term) => term.length >= 3));
+      return rows
+        .map((node) => {
+          const hay = `${node.label} ${JSON.stringify(node.attributes)}`.toLowerCase();
+          const score = [...terms].reduce((sum, term) => sum + (hay.includes(term) ? 1 : 0), 0);
+          return { node, score };
+        })
+        .filter((item) => item.score > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 8)
+        .map((item) => item.node);
+    } catch {
+      return [];
+    }
+  }
+
+  private async installedPackIds(ownerId: string) {
+    try {
+      const rows = await this.skillInstalls.find({ where: { ownerId, enabled: true }, take: 100 });
+      return rows.map((row) => row.skillId);
+    } catch {
+      return [];
+    }
+  }
+
+  private async learnCorrection(ownerId: string, message: string, history: Array<{ role: 'user' | 'assistant'; content: string }>) {
+    if (!/^(no[,: ]|actually\b|correction\b|that'?s wrong\b)/i.test(message.trim())) return;
+    const previous = [...history].reverse().find((entry) => entry.role === 'assistant')?.content || '';
+    const key = `correction-${Date.now()}`;
+    await this.memoryNodes.save(this.memoryNodes.create({
+      ownerId,
+      nodeType: 'correction',
+      externalKey: key,
+      label: message.slice(0, 220),
+      attributes: { previousAssistantAnswer: previous.slice(0, 1200), correctedByUser: message.slice(0, 2000) },
+      confidence: 1,
+      source: 'human-correction',
+      lastVerifiedAt: new Date(),
+    })).catch(() => undefined);
   }
 
   /** Save a durable fact/preference for this owner. Deduped, newest kept, capped. */
@@ -801,6 +869,7 @@ export class KobeAgentService {
       if (found.weak || !found.passages.length) return [];
       return found.passages.map((p) => ({
         title: p.title,
+        documentId: p.documentId,
         text: p.text.slice(0, 1400),
         score: p.score,
       }));
@@ -982,23 +1051,32 @@ export class KobeAgentService {
     mode: 'fast' | 'quality' = 'quality',
     onToken?: (token: string) => void,
     onActivity?: (activity: AgentActivity) => void,
+    requestContext: AgentRequestContext = {},
   ): Promise<AgentReply> {
     const activity = (stage: AgentActivity['stage'], label: string, detail?: string) =>
       onActivity?.({ stage, label, detail });
 
     activity('understanding', 'Understanding your request…');
+    await this.learnCorrection(ownerId, message, history);
     const deterministic = await this.deterministicReply(ownerId, message);
     if (deterministic) {
       activity('responding', 'Preparing verified answer…');
       if (onToken && deterministic.reply) onToken(deterministic.reply);
-      return deterministic;
+      return {
+        ...deterministic,
+        confidence: deterministic.used ? 0.99 : 0.9,
+        citations: deterministic.used ? [{ kind: 'tool', label: deterministic.used.replace(/_/g, ' '), ref: deterministic.used }] : [],
+        needsVerification: false,
+      };
     }
 
     activity('retrieving', 'Searching memory and business knowledge…');
     const relevantHistory = this.selectRelevantHistory(message, history, mode);
-    const [facts, knowledge, plan] = await Promise.all([
+    const [facts, knowledge, graphMemory, installedPacks, plan] = await Promise.all([
       this.getFacts(ownerId),
       mode === 'quality' ? this.retrieveKnowledge(ownerId, message) : Promise.resolve([]),
+      this.structuredMemory(ownerId, message),
+      this.installedPackIds(ownerId),
       this.ai.planAssistant(
         message,
         this.tools.map(({ name, description }) => ({ name, description })),
@@ -1010,20 +1088,29 @@ export class KobeAgentService {
     const knowledgeBlock = knowledge.length
       ? `\nRetrieved owner knowledge (use only when relevant):\n${knowledge.map((p) => `[${p.title}] ${p.text}`).join('\n')}\n`
       : '';
+    const graphBlock = graphMemory.length
+      ? `\nStructured company memory:\n${graphMemory.map((node) => `- ${node.nodeType}: ${node.label} ${JSON.stringify(node.attributes)}`).join('\n')}\n`
+      : '';
+    const screenBlock = requestContext.screenLabel || requestContext.entityLabel
+      ? `\nLive screen context: module=${requestContext.module || requestContext.appId || 'unknown'}; screen=${requestContext.screenLabel || ''}; selected=${requestContext.entityType || ''} ${requestContext.entityLabel || ''} ${requestContext.entityId || ''}; fields=${JSON.stringify(requestContext.fields || {})}. Treat this as navigation context, not independent proof of financial facts.\n`
+      : '';
+    const packBlock = installedPacks.length ? `\nInstalled Kobe skill packs: ${installedPacks.join(', ')}.\n` : '';
     activity('routing', plan.domain === 'general' ? 'Choosing the best AI skill…' : `Routing to ${plan.domain} specialist…`);
 
     const spec = plan.domain === 'general' ? null : this.specialists[plan.domain];
     const specialist = spec?.title;
     const persona = spec?.persona ?? 'You are Kobe, the cross-business operating assistant inside KobeOS.';
     const allowedNames = spec ? new Set([...spec.tools, ...this.sharedTools]) : new Set(this.tools.map((tool) => tool.name));
+    const restrictedRole = ['government_viewer', 'settlement_officer', 'compliance_officer', 'traffic_enforcement'].includes(requestContext.role || '');
     const plannedCalls = plan.toolCalls
       .filter((call) => allowedNames.has(call.tool))
+      .filter((call) => !restrictedRole || !this.tools.find((tool) => tool.name === call.tool)?.write)
       .slice(0, 4);
 
     const baseSystem = `${persona}
 Answer in the user's language. Be concise but useful. Use remembered business facts when relevant. Never claim a business action succeeded unless a confirmed tool result says so.
 For analysis, explain the important reason and the next action; do not expose hidden chain-of-thought.
-${memoryBlock}${knowledgeBlock}`;
+${memoryBlock}${knowledgeBlock}${graphBlock}${screenBlock}${packBlock}`;
 
     if (!plannedCalls.length) {
       activity('thinking', plan.task === 'reasoning' ? 'Thinking through the problem…' : plan.task === 'code' ? 'Working through the code…' : 'Generating the answer…');
@@ -1054,6 +1141,13 @@ ${memoryBlock}${knowledgeBlock}`;
         reply: result.content,
         specialist,
         data: { router: { domain: plan.domain, task: plan.task, source: plan.source, confidence: plan.confidence }, model: result.model, provider: result.provider, performance: result.performance },
+        confidence: knowledge.length || graphMemory.length ? Math.max(0.72, plan.confidence || 0) : Math.max(0.55, plan.confidence || 0),
+        citations: [
+          ...knowledge.map((item) => ({ kind: 'document' as const, label: item.title, ref: item.documentId })),
+          ...graphMemory.slice(0, 4).map((item) => ({ kind: 'memory' as const, label: item.label, ref: item.id })),
+          ...(requestContext.entityLabel ? [{ kind: 'screen' as const, label: requestContext.entityLabel, ref: requestContext.entityId }] : []),
+        ],
+        needsVerification: !knowledge.length && !graphMemory.length && (plan.confidence || 0) < 0.65,
         pendingAction: null,
       };
     }
@@ -1069,7 +1163,12 @@ ${memoryBlock}${knowledgeBlock}`;
       if ('pendingAction' in result) {
         const reply = `Ready to ${result.pendingAction.summary.toLowerCase()}. Confirm to proceed.`;
         if (onToken) onToken(reply);
-        return { reply, used: tool.name, specialist, pendingAction: result.pendingAction };
+        return {
+          reply, used: tool.name, specialist, pendingAction: result.pendingAction,
+          confidence: 0.96,
+          citations: [{ kind: 'tool', label: tool.name.replace(/_/g, ' '), ref: tool.name }],
+          needsVerification: false,
+        };
       }
     }
 
@@ -1110,6 +1209,9 @@ ${memoryBlock}${knowledgeBlock}`;
           used: dataResults[0].tool,
           specialist,
           data: dataResults[0].data,
+          confidence: 0.99,
+          citations: [{ kind: 'tool', label: dataResults[0].tool.replace(/_/g, ' '), ref: dataResults[0].tool }],
+          needsVerification: false,
           pendingAction: null,
         };
       }
@@ -1118,7 +1220,7 @@ ${memoryBlock}${knowledgeBlock}`;
     if (!dataResults.length) {
       const reply = 'I could not retrieve the business data needed for that answer.';
       if (onToken) onToken(reply);
-      return { reply, specialist, pendingAction: null };
+      return { reply, specialist, confidence: 0.25, citations: [], needsVerification: true, pendingAction: null };
     }
 
     const toolContext = dataResults
@@ -1158,6 +1260,16 @@ The verified KobeOS tool results below are the source of truth. Combine them int
         provider: result.provider,
         performance: result.performance,
       },
+      confidence: Math.max(0.78, plan.confidence || 0),
+      citations: [
+        ...dataResults.map((item) => ({ kind: 'tool' as const, label: item.tool.replace(/_/g, ' '), ref: item.tool })),
+        ...knowledge.map((item) => ({ kind: 'document' as const, label: item.title, ref: item.documentId })),
+        ...graphMemory.slice(0, 4).map((item) => ({ kind: 'memory' as const, label: item.label, ref: item.id })),
+      ],
+      needsVerification: Boolean(dataResults.some((item) => {
+        const data = item.data as { weak?: boolean } | null;
+        return Boolean(data && typeof data === 'object' && data.weak);
+      })),
       pendingAction: null,
     };
   }
