@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, Param, Post, Put, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { IsArray, IsIn, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -137,7 +137,7 @@ export class AiController {
     @Body() dto: ExecuteActionDto,
   ) {
     if (['government_viewer', 'settlement_officer', 'compliance_officer', 'traffic_enforcement'].includes(role || '')) {
-      throw new Error('This role cannot execute private business AI actions.');
+      throw new ForbiddenException('This role cannot execute private business AI actions.');
     }
     const result = await this.agent.execute(uid, { tool: dto.tool, args: dto.args ?? {} });
     await this.operating.audit(
