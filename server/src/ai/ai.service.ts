@@ -218,6 +218,11 @@ export class AiService {
       const installed = await this.getInstalledModelNames();
       if (!installed.length) throw new Error('Ollama is running but no model is installed. Install a recommended chat model in Kobe Models.');
       const model = this.routeModel(options.model, installed, task);
+      if (this.shouldUseRemoteSpecialist(task, model) && options.allowRemoteFallback !== false && this.remoteFallbackUrl) {
+        const remote = await this.remoteChatCompletion({ ...options, messages, task });
+        if (remote.content) onToken(remote.content);
+        return remote;
+      }
       this.perfCounters.localRequests += 1;
       const res = await this.fetchWithRetry(`${this.ollamaUrl}/api/chat`, {
         method: 'POST',
