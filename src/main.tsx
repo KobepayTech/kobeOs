@@ -32,7 +32,13 @@ import { hydrateTokens } from './lib/api';
  *
  * Everything else mounts the full OS shell.
  */
-const pathname = window.location.pathname;
+const publicPathPrefix = ((import.meta.env.VITE_PUBLIC_PATH_PREFIX as string | undefined) || '')
+  .replace(/\/$/, '');
+const browserPathname = window.location.pathname;
+const pathname =
+  publicPathPrefix && browserPathname.startsWith(publicPathPrefix)
+    ? (browserPathname.slice(publicPathPrefix.length) || '/')
+    : browserPathname;
 
 // One-time provider setup page opened from the admin QR pairing flow.
 const metaSetupToken = pathname === '/setup/meta' || pathname === '/setup/meta/'
