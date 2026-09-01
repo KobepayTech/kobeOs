@@ -65,7 +65,7 @@ export class SearchService {
   ) {}
 
   private embedModel(): string {
-    return process.env.OLLAMA_EMBED_MODEL || this.ai.getActiveModel();
+    return process.env.OLLAMA_EMBED_MODEL || 'nomic-embed-text';
   }
 
   private embed(text: string): Promise<number[]> {

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { api, apiArray, apiObject, ApiError } from '@/lib/api';
+import { api, apiArray, apiObject, apiSse, ApiError } from '@/lib/api';
 import {
   Sparkles, Send, Loader2, User, CheckCircle2, Printer, Mic,
   Volume2, VolumeX, Paperclip, Wrench,
@@ -186,12 +186,12 @@ export default function KobeAssistant({
 
   // Read the newest assistant reply aloud when voice mode is on.
   useEffect(() => {
-    if (!voice) return;
+    if (!voice || busy) return;
     const last = messages.length - 1;
     if (last < 0 || last === spokenRef.current) return;
     const m = messages[last];
     if (m.role === 'assistant' && m.content) { spokenRef.current = last; speak(m.content); }
-  }, [messages, voice, speak]);
+  }, [messages, voice, speak, busy]);
 
   // Stop any speech when voice mode is switched off.
   useEffect(() => { if (!voice && TTS) window.speechSynthesis.cancel(); }, [voice, TTS]);
@@ -228,46 +228,102 @@ export default function KobeAssistant({
     const q = text.trim();
     if (!q || busy) return;
     const history = messages.map((m) => ({ role: m.role, content: m.content }));
-    // Give the model the module the user is currently in (co-pilot context),
-    // without cluttering the visible chat.
     const ctx = contextLabel
       ? [{ role: 'user' as const, content: `[context] The user is currently working in the "${contextLabel}" module.` }]
       : [];
-    setMessages((p) => [...p, { role: 'user', content: q }]);
+
+    setMessages((p) => [
+      ...p,
+      { role: 'user', content: q },
+      { role: 'assistant', content: '' },
+    ]);
     setInput('');
     setBusy(true);
-    try {
-      const response = await api<unknown>('/ai/assistant', {
-        method: 'POST',
-        body: JSON.stringify({ message: q, history: [...ctx, ...history], mode: responseMode }),
-        offlineFallback: false,
+
+    let streamed = '';
+    const streamState: {
+      done?: { reply?: string; data?: unknown; pendingAction?: PendingAction | null };
+      error?: string;
+    } = {};
+
+    const updateStreamingReply = (content: string, meta?: { data?: unknown; pendingAction?: PendingAction | null }) => {
+      setMessages((p) => {
+        const next = [...p];
+        for (let i = next.length - 1; i >= 0; i -= 1) {
+          if (next[i].role !== 'assistant') continue;
+          next[i] = {
+            ...next[i],
+            content,
+            ...(meta ? { data: meta.data, pending: meta.pendingAction ?? null } : {}),
+          };
+          break;
+        }
+        return next;
       });
-      const r = apiObject<{ reply: string; data?: unknown; pendingAction?: PendingAction | null }>(response);
-      if (!r || typeof r.reply !== 'string' || !r.reply.trim()) {
-        throw new Error('The assistant returned an empty response.');
-      }
-      setMessages((p) => [...p, { role: 'assistant', content: r.reply, data: r.data, pending: r.pendingAction ?? null }]);
-    } catch (e) {
-      let reply = '';
-      if (e instanceof ApiError && (e.status === 404 || e.status === 405)) {
+    };
+
+    try {
+      try {
+        await apiSse('/ai/assistant/stream', {
+          method: 'POST',
+          body: JSON.stringify({ message: q, history: [...ctx, ...history], mode: responseMode }),
+        }, (event, data) => {
+          const record = data && typeof data === 'object' ? data as Record<string, unknown> : {};
+          if (event === 'token' && typeof record.token === 'string') {
+            streamed += record.token;
+            updateStreamingReply(streamed);
+          } else if (event === 'done') {
+            streamState.done = record as { reply?: string; data?: unknown; pendingAction?: PendingAction | null };
+          } else if (event === 'error') {
+            streamState.error = typeof record.message === 'string' ? record.message : 'Streaming failed.';
+          }
+        });
+        if (streamState.error) throw new Error(streamState.error);
+        const finalReply = streamed.trim() || streamState.done?.reply?.trim() || '';
+        if (!finalReply) throw new Error('The assistant returned an empty response.');
+        updateStreamingReply(finalReply, {
+          data: streamState.done?.data,
+          pendingAction: streamState.done?.pendingAction ?? null,
+        });
+      } catch (streamFailure) {
+        let reply = '';
         try {
-          const fallbackResponse = await api<unknown>('/ai/chat', {
+          const response = await api<unknown>('/ai/assistant', {
             method: 'POST',
-            body: JSON.stringify({
-              messages: [
-                { role: 'system', content: 'You are Kobe, a helpful and concise general business assistant.' },
-                ...history,
-                { role: 'user', content: q },
-              ],
-              mode: responseMode,
-            }),
+            body: JSON.stringify({ message: q, history: [...ctx, ...history], mode: responseMode }),
             offlineFallback: false,
           });
-          const fallback = apiObject<{ content?: string }>(fallbackResponse);
-          reply = fallback?.content?.trim() ?? '';
-        } catch { /* use deterministic local fallback below */ }
+          const r = apiObject<{ reply: string; data?: unknown; pendingAction?: PendingAction | null }>(response);
+          reply = r?.reply?.trim() ?? '';
+          if (reply) {
+            updateStreamingReply(reply, { data: r?.data, pendingAction: r?.pendingAction ?? null });
+          }
+        } catch (e) {
+          if (e instanceof ApiError && (e.status === 404 || e.status === 405)) {
+            try {
+              const fallbackResponse = await api<unknown>('/ai/chat', {
+                method: 'POST',
+                body: JSON.stringify({
+                  messages: [
+                    { role: 'system', content: 'You are Kobe, a helpful and concise general business assistant.' },
+                    ...history,
+                    { role: 'user', content: q },
+                  ],
+                  mode: responseMode,
+                }),
+                offlineFallback: false,
+              });
+              const fallback = apiObject<{ content?: string }>(fallbackResponse);
+              reply = fallback?.content?.trim() ?? '';
+            } catch { /* deterministic fallback below */ }
+          }
+        }
+        if (!reply) reply = streamed.trim() || localBasicReply(q);
+        updateStreamingReply(reply);
+        if (!streamed && streamFailure instanceof Error) {
+          console.warn('Kobe streaming fallback:', streamFailure.message);
+        }
       }
-      setMessages((p) => [...p, { role: 'assistant', content: reply || localBasicReply(q) }]);
     } finally {
       setBusy(false);
     }

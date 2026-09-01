@@ -61,6 +61,12 @@ interface Tool {
 @Injectable()
 export class KobeAgentService {
   private readonly logger = new Logger(KobeAgentService.name);
+  private readonly toolCache = new Map<string, { expiresAt: number; result: ToolResult }>();
+  private readonly cacheableTools = new Set([
+    'sales_today', 'low_stock', 'top_rated_products', 'unpaid_tenants', 'rent_projection',
+    'sales_forecast', 'hotel_occupancy', 'hotel_revenue', 'warehouse_stock',
+    'expenses_summary', 'cargo_status',
+  ]);
 
   constructor(
     private readonly ai: AiService,
@@ -470,7 +476,7 @@ export class KobeAgentService {
         const qTokens = tokenize(query);
         const kw = docs.map((d) => keywordScore(qTokens, query, d.text));
         let qv: number[] | null = null;
-        try { const v = await this.ai.generateEmbedding(query.slice(0, 2000), process.env.OLLAMA_EMBED_MODEL || this.ai.getActiveModel()); qv = v.length ? v : null; }
+        try { const v = await this.ai.generateEmbedding(query.slice(0, 2000), process.env.OLLAMA_EMBED_MODEL || 'nomic-embed-text'); qv = v.length ? v : null; }
         catch { qv = null; }
         const vec = qv ? docs.map((d) => cosine(qv!, d.vector)) : docs.map(() => 0);
         const vecRank = rankByDesc(vec);
@@ -698,11 +704,6 @@ export class KobeAgentService {
     },
   ];
 
-  private toolList(names?: string[]): string {
-    const list = names ? this.tools.filter((t) => names.includes(t.name)) : this.tools;
-    return list.map((t) => `- ${t.name}: ${t.description}`).join('\n');
-  }
-
   /**
    * MULTI-AGENT SPECIALIST TEAM.
    *
@@ -751,19 +752,6 @@ export class KobeAgentService {
     },
   };
 
-  /** Route a question to the specialist whose domain it fits (keyword-first, offline-safe). */
-  private classifyDomain(message: string): keyof typeof this.specialists | 'general' {
-    const m = ` ${message.toLowerCase()} `;
-    const has = (...w: string[]) => w.some((x) => m.includes(x));
-    if (has('kobepay', 'receipt', 'payment', 'paid ', ' pay ', 'collect', 'reconcile', 'deposit', 'transaction')) return 'kobepay';
-    if (has('room', 'guest', 'booking', 'check-in', 'checkout', 'occupanc', 'hotel', 'housekeep', 'reservation')) return 'hotels';
-    if (has('tenant', 'rent', 'lease', 'landlord', 'property', 'properties', 'unit', 'apartment', 'arrear', 'eviction')) return 'properties';
-    if (has('parcel', 'cargo', 'shipment', 'delivery', 'courier', 'freight', 'consignment')) return 'cargo';
-    if (has('expense', 'profit', 'cash flow', 'cashflow', 'tax', 'margin', 'accounting', 'balance sheet', 'p&l')) return 'finance';
-    if (has('sale', 'stock', 'product', 'inventory', 'price', 'sku', 'restock', 'sell', 'catalog', 'warehouse')) return 'shop';
-    return 'general';
-  }
-
   listSkills() {
     return this.tools.map(({ name, description, write = false }) => ({
       name,
@@ -772,15 +760,55 @@ export class KobeAgentService {
     }));
   }
 
-  /** Extract the first {...} JSON object from a model response, if any. */
-  private extractToolCall(text: string): { tool: string; args: Record<string, unknown> } | null {
-    const m = text.match(/\{[\s\S]*\}/);
-    if (!m) return null;
-    try {
-      const obj = JSON.parse(m[0]);
-      if (obj && typeof obj.tool === 'string') return { tool: obj.tool, args: obj.args ?? {} };
-    } catch { /* not a tool call */ }
-    return null;
+  private selectRelevantHistory(
+    message: string,
+    history: Array<{ role: 'user' | 'assistant'; content: string }>,
+    mode: 'fast' | 'quality',
+  ): Array<{ role: 'user' | 'assistant'; content: string }> {
+    const max = mode === 'fast' ? 6 : 14;
+    if (history.length <= max) return history;
+    const terms = new Set(
+      message.toLowerCase().split(/[^a-z0-9]+/).filter((term) => term.length >= 4).slice(0, 24),
+    );
+    const recent = history.slice(-6);
+    const older = history.slice(0, -6)
+      .map((entry, index) => ({
+        entry,
+        index,
+        score: entry.content.toLowerCase().split(/[^a-z0-9]+/)
+          .reduce((score, term) => score + (terms.has(term) ? 1 : 0), 0),
+      }))
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score || b.index - a.index)
+      .slice(0, Math.max(0, max - recent.length))
+      .sort((a, b) => a.index - b.index)
+      .map((item) => item.entry);
+    return [...older, ...recent].slice(-max);
+  }
+
+  private async runToolCached(ownerId: string, tool: Tool, args: Record<string, unknown>): Promise<ToolResult> {
+    if (!this.cacheableTools.has(tool.name) || tool.write) return tool.run(ownerId, args);
+    const key = `${ownerId}:${tool.name}:${JSON.stringify(args)}`;
+    const hit = this.toolCache.get(key);
+    if (hit && hit.expiresAt > Date.now()) return hit.result;
+    const result = await tool.run(ownerId, args);
+    this.toolCache.set(key, { expiresAt: Date.now() + 20_000, result });
+    if (this.toolCache.size > 500) {
+      for (const [cacheKey, value] of this.toolCache) {
+        if (value.expiresAt <= Date.now()) this.toolCache.delete(cacheKey);
+        if (this.toolCache.size <= 400) break;
+      }
+    }
+    return result;
+  }
+
+  private directToolSummary(tool: string, data: unknown): string | null {
+    const deterministic = new Set([
+      'sales_today', 'low_stock', 'top_rated_products', 'unpaid_tenants', 'rent_projection',
+      'sales_forecast', 'hotel_occupancy', 'hotel_revenue', 'warehouse_stock',
+      'expenses_summary', 'cargo_status', 'diagnose_system', 'remember',
+    ]);
+    return deterministic.has(tool) ? this.fallbackSummary(tool, data as any) : null;
   }
 
   /**
@@ -878,7 +906,7 @@ export class KobeAgentService {
     const tool = this.tools.find((item) => item.name === intent.tool);
     if (!tool) return null;
     try {
-      const result = await tool.run(ownerId, {});
+      const result = await this.runToolCached(ownerId, tool, {});
       if ('pendingAction' in result) {
         return {
           reply: `Ready to ${result.pendingAction.summary.toLowerCase()}. Confirm to proceed.`,
@@ -903,70 +931,138 @@ export class KobeAgentService {
     message: string,
     history: Array<{ role: 'user' | 'assistant'; content: string }> = [],
     mode: 'fast' | 'quality' = 'quality',
+    onToken?: (token: string) => void,
   ): Promise<AgentReply> {
     const deterministic = await this.deterministicReply(ownerId, message);
-    if (deterministic) return deterministic;
+    if (deterministic) {
+      if (onToken && deterministic.reply) onToken(deterministic.reply);
+      return deterministic;
+    }
 
     const facts = await this.getFacts(ownerId);
     const memoryBlock = facts.length
-      ? `\nWhat you remember about this business (apply it, don't restate it unless asked):\n${facts.map((f) => `- ${f}`).join('\n')}\n`
+      ? `\nUseful durable memory about this business:\n${facts.map((f) => `- ${f}`).join('\n')}\n`
       : '';
-    // Route to the specialist whose domain fits, then scope the tool list to
-    // that specialist (+ shared tools). Generalist sees everything.
-    const domain = this.classifyDomain(message);
-    const spec = domain === 'general' ? null : this.specialists[domain];
-    const activeToolNames = spec ? [...spec.tools, ...this.sharedTools] : undefined;
-    const personaLine = spec ? `${spec.persona}\n` : '';
+    const relevantHistory = this.selectRelevantHistory(message, history, mode);
+    const plan = await this.ai.planAssistant(
+      message,
+      this.tools.map(({ name, description }) => ({ name, description })),
+    );
 
-    const system = `You are Kobe, a concise business assistant inside KobeOS. ${personaLine}Answer questions about the owner's business using ONLY the tools below.
-When you need data, reply with EXACTLY one JSON object and nothing else: {"tool":"<name>","args":{...}}.
-After you receive the tool result, answer the user in plain language (short, with the key numbers). If no tool is needed, just answer.
-${memoryBlock}Tools:
-${this.toolList(activeToolNames)}`;
-
-    const first = await this.ai.chatCompletion({
-      messages: [
-        { role: 'system', content: system },
-        ...(mode === 'fast' ? history.slice(-6) : history),
-        { role: 'user', content: message },
-      ],
-      mode,
-      maxTokens: mode === 'fast' ? 320 : undefined,
-    }).catch((e) => { this.logger.warn(`LLM error: ${(e as Error).message}`); return { content: '' } as { content: string }; });
-
+    const spec = plan.domain === 'general' ? null : this.specialists[plan.domain];
     const specialist = spec?.title;
-    const call = this.extractToolCall(first.content || '');
-    if (!call) {
+    const persona = spec?.persona ?? 'You are Kobe, the cross-business operating assistant inside KobeOS.';
+    const allowedNames = spec ? new Set([...spec.tools, ...this.sharedTools]) : new Set(this.tools.map((tool) => tool.name));
+    const plannedCalls = plan.toolCalls
+      .filter((call) => allowedNames.has(call.tool))
+      .slice(0, 4);
+
+    const baseSystem = `${persona}
+Answer in the user's language. Be concise but useful. Use remembered business facts when relevant. Never claim a business action succeeded unless a confirmed tool result says so.
+For analysis, explain the important reason and the next action; do not expose hidden chain-of-thought.
+${memoryBlock}`;
+
+    if (!plannedCalls.length) {
+      const options = {
+        messages: [
+          { role: 'system' as const, content: baseSystem },
+          ...relevantHistory,
+          { role: 'user' as const, content: message },
+        ],
+        mode,
+        task: plan.task,
+        maxTokens: mode === 'fast' ? 640 : undefined,
+      };
+      const result = onToken
+        ? await this.ai.chatCompletionStream(options, onToken)
+        : await this.ai.chatCompletion(options);
       return {
-        reply: (first.content || '').trim() ||
-          'The local language model is not running yet. I can still answer business questions such as “today’s sales”, “hotel occupancy”, “unpaid tenants”, “low stock”, or “cargo status”.',
+        reply: result.content,
         specialist,
+        data: { router: { domain: plan.domain, task: plan.task, source: plan.source, confidence: plan.confidence }, model: result.model, provider: result.provider, performance: result.performance },
         pendingAction: null,
       };
     }
 
-    const tool = this.tools.find((t) => t.name === call.tool);
-    if (!tool) return { reply: first.content.trim(), specialist, pendingAction: null };
-
-    const result = await tool.run(ownerId, call.args);
-    if ('pendingAction' in result) {
-      return { reply: `Ready to ${result.pendingAction.summary.toLowerCase()}. Confirm to proceed.`, used: tool.name, specialist, pendingAction: result.pendingAction };
+    // Write/outward actions remain confirmation-gated. If the router planned one,
+    // prepare it before running any reads so nothing mutating can be hidden inside
+    // a multi-tool plan.
+    for (const call of plannedCalls) {
+      const tool = this.tools.find((candidate) => candidate.name === call.tool);
+      if (!tool?.write) continue;
+      const result = await tool.run(ownerId, call.args);
+      if ('pendingAction' in result) {
+        const reply = `Ready to ${result.pendingAction.summary.toLowerCase()}. Confirm to proceed.`;
+        if (onToken) onToken(reply);
+        return { reply, used: tool.name, specialist, pendingAction: result.pendingAction };
+      }
     }
 
-    // Feed the tool result back for a natural-language answer.
-    const second = await this.ai.chatCompletion({
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: message },
-        { role: 'assistant', content: JSON.stringify(call) },
-        { role: 'user', content: `Tool ${tool.name} returned: ${JSON.stringify(result.data)}. Answer the original question briefly using these numbers.` },
-      ],
-      mode,
-      maxTokens: mode === 'fast' ? 256 : undefined,
-    }).catch(() => ({ content: '' } as { content: string }));
+    const readCalls: Array<{ call: { tool: string; args: Record<string, unknown> }; tool: Tool }> = [];
+    for (const call of plannedCalls) {
+      const tool = this.tools.find((candidate) => candidate.name === call.tool);
+      if (tool && !tool.write) readCalls.push({ call, tool });
+    }
 
-    const reply = (second.content || '').trim() || this.fallbackSummary(tool.name, result.data);
-    return { reply, used: tool.name, specialist, data: result.data, pendingAction: null };
+    const executed = await Promise.all(
+      readCalls.map(async ({ call, tool }) => ({
+        tool: tool.name,
+        result: await this.runToolCached(ownerId, tool, call.args),
+      })),
+    );
+
+    const dataResults = executed
+      .filter((item): item is { tool: string; result: { data: unknown } } => 'data' in item.result)
+      .map((item) => ({ tool: item.tool, data: item.result.data }));
+
+    if (dataResults.length === 1) {
+      const direct = this.directToolSummary(dataResults[0].tool, dataResults[0].data);
+      if (direct) {
+        if (onToken) onToken(direct);
+        return {
+          reply: direct,
+          used: dataResults[0].tool,
+          specialist,
+          data: dataResults[0].data,
+          pendingAction: null,
+        };
+      }
+    }
+
+    if (!dataResults.length) {
+      const reply = 'I could not retrieve the business data needed for that answer.';
+      if (onToken) onToken(reply);
+      return { reply, specialist, pendingAction: null };
+    }
+
+    const toolContext = dataResults
+      .map((item) => `Tool ${item.tool}: ${JSON.stringify(item.data)}`)
+      .join('\n');
+    const synthesisMessages = [
+      { role: 'system' as const, content: `${baseSystem}
+The verified KobeOS tool results below are the source of truth. Combine them into one answer. Do not invent missing numbers.` },
+      ...relevantHistory,
+      { role: 'user' as const, content: message },
+      { role: 'user' as const, content: `Verified KobeOS data:\n${toolContext}` },
+    ];
+    const synthesisTask = dataResults.length > 1 ? 'reasoning' as const : plan.task;
+    const result = onToken
+      ? await this.ai.chatCompletionStream({ messages: synthesisMessages, mode, task: synthesisTask }, onToken)
+      : await this.ai.chatCompletion({ messages: synthesisMessages, mode, task: synthesisTask });
+
+    return {
+      reply: result.content,
+      used: dataResults.map((item) => item.tool).join(','),
+      specialist,
+      data: {
+        results: dataResults,
+        router: { domain: plan.domain, task: plan.task, source: plan.source, confidence: plan.confidence },
+        model: result.model,
+        provider: result.provider,
+        performance: result.performance,
+      },
+      pendingAction: null,
+    };
   }
 
   /** Deterministic answer if the model can't phrase it (or is offline). */

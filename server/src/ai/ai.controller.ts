@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Put, Res, UseGuards } from '@nestjs/common';
+import type { Response } from 'express';
 import { IsArray, IsIn, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -65,6 +66,33 @@ export class AiController {
     return this.agent.run(uid, dto.message, dto.history ?? [], dto.mode ?? 'quality');
   }
 
+  @Post('assistant/stream')
+  @ApiOperation({ summary: 'Stream Kobe assistant tokens and finish with structured metadata' })
+  async assistantStream(
+    @CurrentUser('id') uid: string,
+    @Body() dto: AssistantDto,
+    @Res() res: Response,
+  ) {
+    this.openSse(res);
+    const send = (event: string, data: unknown) => {
+      if (!res.writableEnded) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+    try {
+      const result = await this.agent.run(
+        uid,
+        dto.message,
+        dto.history ?? [],
+        dto.mode ?? 'quality',
+        (token) => send('token', { token }),
+      );
+      send('done', result);
+    } catch (error) {
+      send('error', { message: error instanceof Error ? error.message : String(error) });
+    } finally {
+      res.end();
+    }
+  }
+
   @Post('assistant/execute')
   execute(@CurrentUser('id') uid: string, @Body() dto: ExecuteActionDto) {
     return this.agent.execute(uid, { tool: dto.tool, args: dto.args ?? {} });
@@ -113,13 +141,33 @@ export class AiController {
       activeModel: health.activeModel,
       installedModels: installed,
       capabilities: Array.from(capabilities),
-      remoteReady: true,
+      routing: health.routing,
+      performance: health.performance,
+      queueDepth: health.queueDepth,
+      remoteReady: health.remoteFallbackConfigured,
     };
   }
 
   @Post('gateway/chat')
   @ApiOperation({ summary: 'Authenticated model-gateway chat for phone and remote clients' })
   gatewayChat(@Body() options: ChatCompletionOptions) { return this.ai.chatCompletion(options); }
+
+  @Post('gateway/chat/stream')
+  @ApiOperation({ summary: 'Authenticated streaming model-gateway chat' })
+  async gatewayChatStream(@Body() options: ChatCompletionOptions, @Res() res: Response) {
+    this.openSse(res);
+    const send = (event: string, data: unknown) => {
+      if (!res.writableEnded) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    };
+    try {
+      const result = await this.ai.chatCompletionStream(options, (token) => send('token', { token }));
+      send('done', result);
+    } catch (error) {
+      send('error', { message: error instanceof Error ? error.message : String(error) });
+    } finally {
+      res.end();
+    }
+  }
 
   @Get('models/catalogue')
   @ApiOperation({ summary: 'Full model catalogue with install status' })
@@ -223,4 +271,13 @@ export class AiController {
   async formation(@Body() body: { positions: string[] }) {
     return { content: await this.ai.predictFormation(body.positions) };
   }
+  private openSse(res: Response) {
+    res.status(200);
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+  }
+
 }

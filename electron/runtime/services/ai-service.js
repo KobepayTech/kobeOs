@@ -22,7 +22,7 @@ class AIService extends BaseService {
     this._ollamaUrl  = process.env.OLLAMA_URL || 'http://127.0.0.1:11434';
     this._available  = false;
     this._models     = [];
-    this._defaultModel = process.env.OLLAMA_MODEL || 'deepseek-r1:1.5b';
+    this._defaultModel = process.env.OLLAMA_MODEL || 'qwen2.5:7b';
   }
 
   async _start() {
@@ -74,7 +74,12 @@ class AIService extends BaseService {
    */
   async chat(model, messages, onToken) {
     if (!this._available) throw new Error('AI service not available');
-    const body = JSON.stringify({ model: model || this._defaultModel, messages, stream: false });
+    const body = JSON.stringify({
+      model: model || this._defaultModel,
+      messages,
+      stream: true,
+      keep_alive: process.env.OLLAMA_KEEP_ALIVE || '2h',
+    });
     return new Promise((resolve, reject) => {
       const url = new URL(`${this._ollamaUrl}/api/chat`);
       const req = http.request({
@@ -85,13 +90,36 @@ class AIService extends BaseService {
         headers:  { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
         timeout:  60000,
       }, res => {
-        let data = '';
-        res.on('data', c => data += c);
+        let pending = '';
+        let content = '';
+        res.on('data', chunk => {
+          pending += chunk.toString();
+          const lines = pending.split('\n');
+          pending = lines.pop() || '';
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            try {
+              const json = JSON.parse(line);
+              const token = json.message?.content || '';
+              if (token) {
+                content += token;
+                if (onToken) onToken(token);
+              }
+            } catch { /* wait for a complete NDJSON line */ }
+          }
+        });
         res.on('end', () => {
-          try {
-            const json = JSON.parse(data);
-            resolve(json.message?.content || '');
-          } catch { reject(new Error('Invalid AI response')); }
+          if (pending.trim()) {
+            try {
+              const json = JSON.parse(pending);
+              const token = json.message?.content || '';
+              if (token) {
+                content += token;
+                if (onToken) onToken(token);
+              }
+            } catch { /* final partial line is ignored */ }
+          }
+          resolve(content);
         });
       });
       req.on('error', reject);
@@ -102,7 +130,7 @@ class AIService extends BaseService {
 
   async embed(model, text) {
     if (!this._available) return [];
-    const body = JSON.stringify({ model: model || this._defaultModel, prompt: text });
+    const body = JSON.stringify({ model: model || process.env.OLLAMA_EMBED_MODEL || 'nomic-embed-text', prompt: text });
     return new Promise((resolve) => {
       const url = new URL(`${this._ollamaUrl}/api/embeddings`);
       const req = http.request({

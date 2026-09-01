@@ -21,6 +21,20 @@ interface GatewayStatus {
   activeModel: string;
   installedModels: InstalledModel[];
   capabilities: string[];
+  routing?: {
+    everyday: string;
+    reasoning: string;
+    coder: string;
+    vision: string;
+    router: string;
+  };
+  performance?: {
+    avgFirstTokenMs: number | null;
+    avgTokensPerSecond: number | null;
+    lastFirstTokenMs: number | null;
+    lastTokensPerSecond: number | null;
+  };
+  queueDepth?: number;
   remoteReady: boolean;
 }
 
@@ -239,6 +253,19 @@ export function MobileAssistant() {
                       ? `${nodeLabel} · ${modelCount} model${modelCount === 1 ? '' : 's'} · ${connectionStatus}`
                       : 'Connecting to your KobeOS AI node...'}
                   </p>
+                  {gateway?.performance && (
+                    <p className="truncate text-[9px] text-slate-500">
+                      {gateway.performance.lastFirstTokenMs !== null
+                        ? `first token ${gateway.performance.lastFirstTokenMs} ms`
+                        : 'first token —'}
+                      {' · '}
+                      {gateway.performance.lastTokensPerSecond !== null
+                        ? `${gateway.performance.lastTokensPerSecond} tok/s`
+                        : 'speed —'}
+                      {typeof gateway.queueDepth === 'number' ? ` · queue ${gateway.queueDepth}` : ''}
+                      {gateway.remoteReady ? ' · server fallback ready' : ' · local only'}
+                    </p>
+                  )}
                 </div>
 
                 {/* Model Selector */}
@@ -318,7 +345,7 @@ export function MobileAssistant() {
             {/* Chat Interface */}
             <div className="min-h-0 flex-1">
               <KobeAssistant
-                responseMode="fast"
+                responseMode="quality"
                 contextLabel="KobeOS mobile"
               />
             </div>
