@@ -18,7 +18,7 @@ function speakable(text: string): string {
 interface PendingAction { tool: string; summary: string; args: Record<string, unknown> }
 interface BriefingAlert { severity: 'info' | 'warning'; text: string; action?: { label: string; tool?: string; args?: Record<string, unknown>; endpoint?: string; method?: 'POST' | 'PUT' } }
 interface AssistantCitation { kind: 'tool' | 'document' | 'memory' | 'screen'; label: string; ref?: string; detail?: string }
-interface ScreenContext {
+export interface ScreenContext {
   appId?: string;
   module?: string;
   screenLabel?: string;
@@ -159,10 +159,12 @@ export default function KobeAssistant({
   contextLabel,
   appId,
   responseMode = 'quality',
+  initialContext,
 }: {
   contextLabel?: string;
   appId?: string;
   responseMode?: 'fast' | 'quality';
+  initialContext?: ScreenContext;
 } = {}) {
   const suggestions = (appId && PROMPTS_BY_APP[appId]) || DEFAULT_SUGGESTIONS;
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -176,6 +178,7 @@ export default function KobeAssistant({
     appId,
     module: appId,
     screenLabel: contextLabel,
+    ...(initialContext || {}),
   });
   const [showSkills, setShowSkills] = useState(false);
   // Voice mode: read Kobe's replies aloud, and auto-send after dictation (hands-free).
@@ -255,8 +258,14 @@ export default function KobeAssistant({
   }, []);
 
   useEffect(() => {
-    setScreenContext((current) => ({ ...current, appId, module: appId, screenLabel: contextLabel }));
-  }, [appId, contextLabel]);
+    setScreenContext((current) => ({
+      ...current,
+      appId,
+      module: appId,
+      screenLabel: contextLabel,
+      ...(initialContext || {}),
+    }));
+  }, [appId, contextLabel, initialContext]);
 
   // Proactive daily briefing: greet the user with their business status + alerts
   // when the assistant opens. Deterministic on the backend, so it works even
