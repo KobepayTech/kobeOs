@@ -5,13 +5,15 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { AiService, ChatCompletionOptions, MODEL_CATALOGUE, ModelCategory } from './ai.service';
-import { KobeAgentService } from './agent.service';
+import { AgentRequestContext, KobeAgentService } from './agent.service';
+import { AiOperatingService } from './ai-operating.service';
 import { AiDocsService } from './ai-docs.service';
 
 class AssistantDto {
   @IsString() @MaxLength(2000) message!: string;
   @IsOptional() @IsArray() history?: Array<{ role: 'user' | 'assistant'; content: string }>;
   @IsOptional() @IsIn(['fast', 'quality']) mode?: 'fast' | 'quality';
+  @IsOptional() @IsObject() context?: AgentRequestContext;
 }
 
 class ExecuteActionDto {
@@ -39,12 +41,22 @@ export class AiController {
     private readonly ai: AiService,
     private readonly agent: KobeAgentService,
     private readonly aiDocs: AiDocsService,
+    private readonly operating: AiOperatingService,
   ) {}
 
   @Post('docs')
   @ApiOperation({ summary: 'Ingest a document for "chat with your documents"' })
-  ingestDoc(@CurrentUser('id') uid: string, @Body() dto: IngestDocDto) {
-    return this.aiDocs.ingest(uid, dto.title, dto.text, dto.source ?? '');
+  async ingestDoc(@CurrentUser('id') uid: string, @Body() dto: IngestDocDto) {
+    const doc = await this.aiDocs.ingest(uid, dto.title, dto.text, dto.source ?? '');
+    await this.operating.upsertMemoryNode(uid, {
+      nodeType: 'document',
+      externalKey: doc.id,
+      label: doc.title,
+      attributes: { source: doc.source, chunkCount: doc.chunkCount, charCount: doc.charCount },
+      confidence: 1,
+      source: 'automatic-document-ingestion',
+    }).catch(() => undefined);
+    return doc;
   }
 
   @Get('docs')
@@ -62,14 +74,30 @@ export class AiController {
   }
 
   @Post('assistant')
-  assistant(@CurrentUser('id') uid: string, @Body() dto: AssistantDto) {
-    return this.agent.run(uid, dto.message, dto.history ?? [], dto.mode ?? 'quality');
+  async assistant(
+    @CurrentUser('id') uid: string,
+    @CurrentUser('role') role: string,
+    @Body() dto: AssistantDto,
+  ) {
+    const result = await this.agent.run(uid, dto.message, dto.history ?? [], dto.mode ?? 'quality', undefined, undefined, {
+      ...(dto.context || {}),
+      role: role || 'user',
+    });
+    const data = result.data as { model?: string; router?: { domain?: string } } | undefined;
+    await this.operating.audit(
+      uid, uid, role || 'user', 'ASSISTANT_REPLY', data?.router?.domain || dto.context?.module || '',
+      dto.message.slice(0, 500), data?.model || '', result.used || '', result.confidence || 0,
+      (result.citations || []) as Array<Record<string, unknown>>,
+      { needsVerification: result.needsVerification, specialist: result.specialist },
+    ).catch(() => undefined);
+    return result;
   }
 
   @Post('assistant/stream')
   @ApiOperation({ summary: 'Stream Kobe assistant tokens and finish with structured metadata' })
   async assistantStream(
     @CurrentUser('id') uid: string,
+    @CurrentUser('role') role: string,
     @Body() dto: AssistantDto,
     @Res() res: Response,
   ) {
@@ -85,7 +113,15 @@ export class AiController {
         dto.mode ?? 'quality',
         (token) => send('token', { token }),
         (activity) => send('activity', activity),
+        { ...(dto.context || {}), role: role || 'user' },
       );
+      const data = result.data as { model?: string; router?: { domain?: string } } | undefined;
+      await this.operating.audit(
+        uid, uid, role || 'user', 'ASSISTANT_REPLY', data?.router?.domain || dto.context?.module || '',
+        dto.message.slice(0, 500), data?.model || '', result.used || '', result.confidence || 0,
+        (result.citations || []) as Array<Record<string, unknown>>,
+        { needsVerification: result.needsVerification, specialist: result.specialist, streamed: true },
+      ).catch(() => undefined);
       send('done', result);
     } catch (error) {
       send('error', { message: error instanceof Error ? error.message : String(error) });
@@ -95,8 +131,20 @@ export class AiController {
   }
 
   @Post('assistant/execute')
-  execute(@CurrentUser('id') uid: string, @Body() dto: ExecuteActionDto) {
-    return this.agent.execute(uid, { tool: dto.tool, args: dto.args ?? {} });
+  async execute(
+    @CurrentUser('id') uid: string,
+    @CurrentUser('role') role: string,
+    @Body() dto: ExecuteActionDto,
+  ) {
+    if (['government_viewer', 'settlement_officer', 'compliance_officer', 'traffic_enforcement'].includes(role || '')) {
+      throw new Error('This role cannot execute private business AI actions.');
+    }
+    const result = await this.agent.execute(uid, { tool: dto.tool, args: dto.args ?? {} });
+    await this.operating.audit(
+      uid, uid, role || 'user', 'AI_ACTION_EXECUTED', 'business', dto.tool, '', dto.tool,
+      result.ok ? 1 : 0, [{ kind: 'tool', label: dto.tool, ref: dto.tool }], { args: dto.args || {}, result },
+    ).catch(() => undefined);
+    return result;
   }
 
   @Get('briefing')
