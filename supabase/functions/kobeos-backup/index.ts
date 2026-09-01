@@ -10,6 +10,127 @@ const db = createClient(SUPABASE_URL, SERVICE_ROLE, {
 const PRIMARY = "https://api.kobeapptz.com/api";
 const SNAPSHOT_KEY = "lala_public";
 
+function emergencyAppHtml() {
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Lala · Independent Backup</title>
+<style>
+:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#241638;background:#f8f5ff}
+*{box-sizing:border-box}body{margin:0}.top{background:#24103f;color:white;padding:18px 20px}.bar{max-width:1100px;margin:auto;display:flex;gap:12px;align-items:center}.logo{width:44px;height:44px;border-radius:15px;background:#ffcb69;color:#24103f;display:grid;place-items:center;font-weight:900}.tag{margin-left:auto;font-size:12px;color:#ffe7a6}.hero{background:linear-gradient(135deg,#321456,#552282,#8a3b82);color:white;padding:46px 20px}.hero>div,.main{max-width:1100px;margin:auto}.hero h1{font-size:clamp(34px,7vw,62px);line-height:.98;margin:12px 0}.hero p{color:#e8d9f8;max-width:720px}.notice{background:#fff5ce;color:#684b00;border:1px solid #f5d66c;border-radius:14px;padding:12px 14px;font-weight:700;margin:18px 0}.search{display:grid;grid-template-columns:1.4fr 1fr 1fr .6fr auto;gap:8px;background:white;padding:10px;border-radius:20px;margin-top:24px}input,button{font:inherit}.search input{height:44px;border:1px solid #e9e2f2;border-radius:11px;padding:0 11px}.search button,.primary{border:0;border-radius:11px;background:#24103f;color:white;font-weight:850;padding:0 18px;min-height:44px;cursor:pointer}.main{padding:20px}.status{min-height:22px;margin-bottom:12px;font-size:14px}.error{color:#b42318}.ok{color:#087443;font-weight:750}.grid{display:grid;gap:16px}.hotel{background:white;border:1px solid #ece6f4;border-radius:24px;padding:20px;box-shadow:0 8px 30px rgba(35,16,63,.05)}.hotel h2{margin:0}.meta{color:#776c82;font-size:14px;margin:5px 0 12px}.rooms{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px}.room{border:1px solid #e9e2f2;border-radius:16px;padding:14px;background:#fcfbff}.room b{display:block}.price{color:#59228b;font-weight:900;margin:7px 0}.room button{width:100%;margin-top:10px}.empty{text-align:center;color:#796e84;padding:54px 15px}.small{font-size:12px;color:#80758a}.pill{display:inline-block;background:#f1e9ff;color:#6429a0;border-radius:999px;padding:4px 8px;font-size:11px;font-weight:800}
+@media(max-width:760px){.search{grid-template-columns:1fr 1fr}.search input:first-child,.search button{grid-column:1/-1}.tag{display:none}}
+</style>
+</head>
+<body>
+<header class="top"><div class="bar"><div class="logo">L</div><div><b style="font-size:20px">Lala</b><div style="font-size:10px;letter-spacing:.18em;color:#bba8ce">KOBEOS HOTEL NETWORK</div></div><span class="tag">Independent emergency path · Supabase</span></div></header>
+<section class="hero"><div><span style="font-size:12px;font-weight:900;letter-spacing:.12em;color:#ffcb69">CLOUDFLARE-INDEPENDENT BACKUP</span><h1>Find a room even<br>when primary is down.</h1><p>This emergency Lala runs on a separate provider. Availability is a recent synchronized snapshot; new booking requests are saved safely and confirmed automatically when primary KobeOS reconnects.</p>
+<div class="search">
+<input id="destination" placeholder="City or hotel">
+<input id="checkin" type="date">
+<input id="checkout" type="date">
+<input id="guests" type="number" min="1" value="1">
+<button id="searchBtn">Search rooms</button>
+</div></div></section>
+<main class="main">
+<div class="notice">Backup mode: requests may show <b>awaiting confirmation</b> until the primary KobeOS inventory reconnects. The backup never pretends a queued request is a confirmed room.</div>
+<div id="status" class="status"></div>
+<div id="results" class="grid"></div>
+</main>
+<script>
+const API = location.origin + location.pathname.replace(/\\/(app|lala)\\/?$/, '').replace(/\\/$/,'');
+const el = (id) => document.getElementById(id);
+const today = new Date();
+const iso = (d) => d.toISOString().slice(0,10);
+el('checkin').value = iso(today);
+const tomorrow = new Date(today.getTime()+86400000);
+el('checkout').value = iso(tomorrow);
+el('checkin').min=iso(today); el('checkout').min=iso(today);
+function setStatus(message,type){const e=el('status');e.textContent=message;e.className='status '+(type||'')}
+function money(n,c){return (c||'TZS')+' '+Number(n||0).toLocaleString()}
+function make(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e}
+async function api(path,init){
+  const r=await fetch(API+path,{...(init||{}),headers:{'Content-Type':'application/json',...((init&&init.headers)||{})}});
+  const text=await r.text();let body=null;try{body=text?JSON.parse(text):null}catch{body={message:text}}
+  if(!r.ok)throw new Error((body&&body.message)||('HTTP '+r.status));
+  return body;
+}
+async function passport(){
+  let t=localStorage.getItem('lala_backup_passport');
+  if(t)return t;
+  const name=prompt('Your full name');if(!name)throw new Error('Name is required');
+  const phone=prompt('Your phone number');if(!phone)throw new Error('Phone number is required');
+  const p=await api('/lala-public/passports',{method:'POST',body:JSON.stringify({name,phone})});
+  t=p.passport.qrToken;localStorage.setItem('lala_backup_passport',t);return t;
+}
+async function book(hotel,room){
+  try{
+    setStatus('Saving booking request…');
+    const passportToken=await passport();
+    const result=await api('/lala-public/bookings',{method:'POST',body:JSON.stringify({
+      hotelId:hotel.id,roomId:room.id,passportToken:passportToken,
+      checkIn:el('checkin').value,checkOut:el('checkout').value,guests:Number(el('guests').value||1)
+    })});
+    setStatus(result.pendingConfirmation
+      ? 'Saved safely. Request '+result.booking.id.slice(0,8)+' is awaiting primary confirmation.'
+      : 'Booking '+result.booking.id.slice(0,8)+' confirmed.','ok');
+  }catch(e){setStatus(e.message,'error')}
+}
+function render(rows){
+  const root=el('results');root.replaceChildren();
+  if(!rows.length){root.append(make('div','empty','No synchronized rooms match this search yet.'));return}
+  for(const row of rows){
+    const card=make('article','hotel');card.append(make('h2','',row.hotel.name));
+    card.append(make('div','meta',row.hotel.location||''));
+    card.append(make('p','small',(row.profile&&row.profile.description)||''));
+    const rooms=make('div','rooms');
+    for(const room of (row.availableRooms||[])){
+      const rc=make('div','room');rc.append(make('span','pill',room.type||'Room'));
+      rc.append(make('b','',room.roomNumber?('Room '+room.roomNumber):'Available room'));
+      rc.append(make('div','small','Up to '+Number(room.capacity||1)+' guests'));
+      rc.append(make('div','price',money(room.rate,room.currency)+' / night'));
+      const b=make('button','primary','Request this room');b.onclick=()=>book(row.hotel,room);rc.append(b);rooms.append(rc);
+    }
+    card.append(rooms);root.append(card);
+  }
+}
+async function search(){
+  try{
+    setStatus('Checking independent backup…');
+    const q=new URLSearchParams({
+      destination:el('destination').value,
+      checkIn:el('checkin').value,
+      checkOut:el('checkout').value,
+      guests:el('guests').value||'1'
+    });
+    const rows=await api('/lala-public/search?'+q.toString());
+    setStatus(rows.length?('Backup is healthy · '+rows.length+' hotel result'+(rows.length===1?'':'s')):'Backup is healthy · no current synchronized inventory','ok');
+    render(rows);
+  }catch(e){setStatus(e.message,'error');render([])}
+}
+el('searchBtn').onclick=search;
+search();
+</script>
+</body></html>`;
+}
+
+function html(body: string, origin: string | null = null) {
+  return new Response(body, {
+    status: 200,
+    headers: {
+      ...cors(origin),
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "no-store",
+      "X-Kobe-Production-Path": "supabase-backup",
+      "X-Frame-Options": "DENY",
+      "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "no-referrer",
+    },
+  });
+}
+
+
 function cors(origin: string | null) {
   const allowed =
     !origin ||
@@ -66,23 +187,69 @@ async function snapshotRow() {
 
 async function syncSnapshot() {
   try {
-    const response = await fetch(`${PRIMARY}/lala-public/backup-snapshot`, {
+    let payload: any;
+    let sourceUrl = `${PRIMARY}/lala-public/backup-snapshot`;
+
+    const response = await fetch(sourceUrl, {
       headers: { Accept: "application/json" },
       signal: AbortSignal.timeout(12_000),
     });
-    if (!response.ok) throw new Error(`Primary snapshot HTTP ${response.status}`);
-    const payload = await response.json();
+
+    if (response.ok) {
+      payload = await response.json();
+    } else if (response.status === 404) {
+      // Compatibility path for an origin that has not deployed the dedicated
+      // snapshot route yet. All of this data is already public on Lala.
+      sourceUrl = `${PRIMARY}/lala-public/search`;
+      const searchResponse = await fetch(sourceUrl, {
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(12_000),
+      });
+      if (!searchResponse.ok) {
+        throw new Error(`Primary search HTTP ${searchResponse.status}`);
+      }
+
+      const rows = await searchResponse.json();
+      const menus: any[] = [];
+      for (const row of Array.isArray(rows) ? rows : []) {
+        if (!row?.foodAvailable || !row?.hotel?.slug) continue;
+        try {
+          const menuResponse = await fetch(
+            `${PRIMARY}/public/hotel/${encodeURIComponent(row.hotel.slug)}/menu-items`,
+            { headers: { Accept: "application/json" }, signal: AbortSignal.timeout(8_000) },
+          );
+          if (!menuResponse.ok) continue;
+          const items = await menuResponse.json();
+          for (const item of Array.isArray(items) ? items : []) {
+            menus.push({ hotelSlug: row.hotel.slug, item });
+          }
+        } catch {
+          // Keep the hotel snapshot even if one menu endpoint is temporarily slow.
+        }
+      }
+
+      payload = {
+        version: 1,
+        generatedAt: new Date().toISOString(),
+        rows: Array.isArray(rows) ? rows : [],
+        menus,
+        compatibilitySource: true,
+      };
+    } else {
+      throw new Error(`Primary snapshot HTTP ${response.status}`);
+    }
+
     const now = new Date().toISOString();
     const { error } = await db.from("kobe_backup_snapshots").upsert({
       key: SNAPSHOT_KEY,
       payload,
       synced_at: now,
-      source_url: `${PRIMARY}/lala-public/backup-snapshot`,
+      source_url: sourceUrl,
       last_error: null,
       updated_at: now,
     });
     if (error) throw error;
-    return { ok: true, syncedAt: now };
+    return { ok: true, syncedAt: now, sourceUrl };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await db.from("kobe_backup_snapshots").upsert({
@@ -437,6 +604,10 @@ Deno.serve(async (req: Request) => {
   const path = marker ? (url.pathname.slice(marker.length) || "/") : url.pathname;
 
   try {
+    if (req.method === "GET" && (path === "/" || path === "/app" || path === "/lala")) {
+      return html(emergencyAppHtml(), origin);
+    }
+
     if (req.method === "GET" && path === "/health") {
       const snap = await snapshotRow();
       return json({
