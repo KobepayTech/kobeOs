@@ -906,7 +906,7 @@ export class KobeAgentService {
     const tool = this.tools.find((item) => item.name === intent.tool);
     if (!tool) return null;
     try {
-      const result = await tool.run(ownerId, {});
+      const result = await this.runToolCached(ownerId, tool, {});
       if ('pendingAction' in result) {
         return {
           reply: `Ready to ${result.pendingAction.summary.toLowerCase()}. Confirm to proceed.`,
