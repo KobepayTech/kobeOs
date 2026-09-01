@@ -84,6 +84,7 @@ export class AiController {
         dto.history ?? [],
         dto.mode ?? 'quality',
         (token) => send('token', { token }),
+        (activity) => send('activity', activity),
       );
       send('done', result);
     } catch (error) {
@@ -105,6 +106,10 @@ export class AiController {
   @Get('skills')
   @ApiOperation({ summary: 'Business skills available to the Kobe assistant' })
   skills() { return { skills: this.agent.listSkills() }; }
+
+  @Get('knowledge')
+  @ApiOperation({ summary: 'Knowledge sources currently available to Kobe for this business' })
+  knowledge(@CurrentUser('id') uid: string) { return this.agent.knowledgeStatus(uid); }
 
   @Get('health')
   @ApiOperation({ summary: 'Ollama status, installed models, active model' })
