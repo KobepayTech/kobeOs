@@ -141,7 +141,10 @@ export class AiController {
       activeModel: health.activeModel,
       installedModels: installed,
       capabilities: Array.from(capabilities),
-      remoteReady: true,
+      routing: health.routing,
+      performance: health.performance,
+      queueDepth: health.queueDepth,
+      remoteReady: health.remoteFallbackConfigured,
     };
   }
 
