@@ -187,9 +187,17 @@ export class RemittanceService {
     if (!claim) throw new NotFoundException('Code not found');
     const supRemaining = supplier ? Math.max(0, Number(supplier.authorizedAmount) - Number(supplier.redeemedAmount)) : undefined;
     const payable = supplier ? Math.min(Number(claim.balance), supRemaining!) : Number(claim.balance);
+    const phone = claim.senderPhone?.trim() ?? '';
+    const senderPhoneMasked = phone
+      ? phone.length <= 6
+        ? '••••'
+        : `${phone.slice(0, 3)}••••${phone.slice(-3)}`
+      : '';
+
     return {
       via: supplier ? 'supplier' : 'master', currency: claim.currency, claimStatus: claim.status,
       claimBalance: Number(claim.balance), payableNow: Number(payable.toFixed(4)),
+      senderName: claim.senderName, senderPhoneMasked, recipientCountry: claim.recipientCountry,
       supplierName: supplier?.supplierName, supplierStatus: supplier?.status,
     };
   }
