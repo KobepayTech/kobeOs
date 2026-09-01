@@ -33,6 +33,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     env:
       BACKUP_API_HOST: ${{ vars.BACKUP_API_HOST }}
+      SUPABASE_BACKUP_API_BASE: https://erimnjgpawuxesonkeoz.supabase.co/functions/v1/kobeos-backup
 
     steps:
       - uses: actions/checkout@v4
@@ -47,18 +48,12 @@ jobs:
           set -euo pipefail
           npm ci --legacy-peer-deps
 
-          # GitHub Pages is intentionally outside Cloudflare. When the
-          # independent API host is configured, prefer it and keep Cloudflare
-          # only as the read fallback. Until then the emergency frontend still
-          # deploys, but its data path remains the primary API.
-          if [ -n "${BACKUP_API_HOST:-}" ]; then
-            export VITE_API_BASE="https://$BACKUP_API_HOST/api"
-            export VITE_API_FALLBACK_BASE="https://api.kobeapptz.com/api"
-          else
-            export VITE_API_BASE="https://api.kobeapptz.com/api"
-            export VITE_API_FALLBACK_BASE=""
-            echo "::warning::BACKUP_API_HOST is not configured; GitHub Pages is an independent frontend only."
-          fi
+          # GitHub Pages is intentionally outside Cloudflare and now has an
+          # immediately-active Supabase emergency API. A future direct VPS can
+          # still be added as an additional infrastructure path, but Pages no
+          # longer depends on it to remain functional during Cloudflare outages.
+          export VITE_API_BASE="$SUPABASE_BACKUP_API_BASE"
+          export VITE_API_FALLBACK_BASE="https://api.kobeapptz.com/api"
 
           export VITE_TENANT_BASE_DOMAIN="kobeapptz.com"
           export VITE_PUBLIC_PATH_PREFIX="/kobeOs"
@@ -86,9 +81,9 @@ jobs:
           {
             "frontend": "github-pages",
             "cloudflareIndependent": true,
-            "backupApiConfigured": $([ -n "${BACKUP_API_HOST:-}" ] && echo true || echo false),
+            "backupApiConfigured": true,
             "primaryApi": "https://api.kobeapptz.com/api",
-            "backupApi": "$([ -n "${BACKUP_API_HOST:-}" ] && printf 'https://%s/api' "$BACKUP_API_HOST")"
+            "backupApi": "$SUPABASE_BACKUP_API_BASE"
           }
           EOF
 
