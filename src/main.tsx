@@ -150,9 +150,11 @@ const cargoSiteMatch = pathname.match(/^\/cg\/([a-z0-9][a-z0-9-]{0,61}[a-z0-9]|[
 const cargoSiteSlug = cargoSiteMatch?.[1] ?? '';
 const isCargoSite = !!cargoSiteSlug;
 
-// KobePay remittance: sender live portal /remit/{portalToken}; cashier /rc/{CODE}
+// KobePay remittance: sender live portal /remit/{portalToken}; cashier scanner
+// at /rc; a scanned claim opens directly at /rc/{CODE}.
 const remitMatch = pathname.match(/^\/remit\/([A-Za-z0-9_-]{16,})\/?$/);
 const remitPortalToken = remitMatch?.[1] ?? '';
+const isRemitCashierScanner = /^\/rc\/?$/i.test(pathname);
 const remitCashierMatch = pathname.match(/^\/rc\/([A-Za-z0-9]{8})\/?$/);
 const remitCashierCode = (remitCashierMatch?.[1] ?? '').toUpperCase();
 
@@ -282,6 +284,9 @@ if (metaSetupToken) {
 } else if (remitPortalToken) {
   // Sender's live remittance portal: /remit/{portalToken}
   import('./public/Remittance').then(({ default: Remittance }) => mount(<Remittance portalToken={remitPortalToken} />));
+} else if (isRemitCashierScanner) {
+  // Cashier opens this once, then only scans QR codes.
+  import('./public/RemittanceCashierScanner').then(({ default: RemittanceCashierScanner }) => mount(<RemittanceCashierScanner />));
 } else if (remitCashierCode) {
   // Cashier redeem page for a scanned remittance QR: /rc/{CODE}
   import('./public/RemittanceCashier').then(({ default: RemittanceCashier }) => mount(<RemittanceCashier code={remitCashierCode} />));

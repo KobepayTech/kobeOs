@@ -4,7 +4,9 @@ import { api } from '@/lib/api';
 
 interface Lookup {
   via: 'master' | 'supplier'; currency: string; claimStatus: string;
-  claimBalance: number; payableNow: number; supplierName?: string; supplierStatus?: string;
+  claimBalance: number; payableNow: number;
+  senderName?: string; senderPhoneMasked?: string; recipientCountry?: string;
+  supplierName?: string; supplierStatus?: string;
 }
 interface RedeemResult { claimBalance: number; paidNow: number; currency: string; claimStatus: string; via: string; supplierRemaining?: number }
 
@@ -24,8 +26,12 @@ export default function RemittanceCashier({ code }: { code: string }) {
   const [authNeeded, setAuthNeeded] = useState(false);
 
   const load = useCallback(async () => {
-    try { setInfo(await publicApi<Lookup>(`/remittance/lookup/${code}`)); setError(null); }
-    catch (e) { setError((e as Error).message); }
+    try {
+      const next = await publicApi<Lookup>(`/remittance/lookup/${code}`);
+      setInfo(next);
+      setAmount((current) => current || (next.payableNow > 0 ? String(next.payableNow) : ''));
+      setError(null);
+    } catch (e) { setError((e as Error).message); }
   }, [code]);
   useEffect(() => { load(); }, [load]);
 
@@ -55,9 +61,23 @@ export default function RemittanceCashier({ code }: { code: string }) {
     <div className="min-h-screen bg-[#0b0b16] text-white/90 grid place-items-center px-4 py-8">
       <div className="w-full max-w-sm space-y-4">
         <div className="text-center">
-          <div className="text-xs text-white/40 uppercase tracking-wider">Cash-out · {info.via === 'supplier' ? (info.supplierName || 'Supplier') : 'Main code'}</div>
+          <div className="text-xs text-white/40 uppercase tracking-wider">KobePay cashier</div>
           <div className="text-3xl font-bold mt-1 tabular-nums">{money(info.payableNow, info.currency)}</div>
           <div className="text-xs text-white/40 mt-1">payable now · balance {money(info.claimBalance, info.currency)} · {info.claimStatus}</div>
+        </div>
+
+        <div className="rounded-2xl bg-white/[0.04] border border-white/[0.07] p-4">
+          <div className="text-[10px] uppercase tracking-wider text-white/35">Customer</div>
+          <div className="mt-1 text-lg font-bold">{info.senderName || 'KobePay customer'}</div>
+          <div className="mt-1 text-xs text-white/45">
+            {[info.senderPhoneMasked, info.recipientCountry].filter(Boolean).join(' · ') || 'Verified remittance claim'}
+          </div>
+          {info.via === 'supplier' && (
+            <div className="mt-3 pt-3 border-t border-white/[0.06]">
+              <div className="text-[10px] uppercase tracking-wider text-white/35">Supplier</div>
+              <div className="mt-1 text-sm font-semibold">{info.supplierName || 'Supplier payout'}</div>
+            </div>
+          )}
         </div>
 
         {done && (
@@ -68,10 +88,10 @@ export default function RemittanceCashier({ code }: { code: string }) {
 
         {info.payableNow > 0 && info.claimStatus === 'OPEN' && info.supplierStatus !== 'USED' ? (
           <form onSubmit={pay} className="space-y-2 rounded-2xl bg-white/[0.04] border border-white/[0.07] p-4">
-            <label className="text-sm text-white/70">Amount handed over</label>
+            <label className="text-sm text-white/70">Amount to hand over</label>
             <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" placeholder={`Up to ${money(info.payableNow, info.currency)}`} className="w-full h-11 px-3 rounded-lg bg-white/[0.05] border border-white/10 text-lg tabular-nums outline-none" />
             <button disabled={busy || !(Number(amount) > 0)} className="w-full h-11 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 font-semibold">
-              {busy ? 'Recording…' : 'Record cash-out'}
+              {busy ? 'Confirming…' : 'Confirm payment'}
             </button>
             {authNeeded && <p className="text-[11px] text-amber-300">Cashier must be signed in to KobeOS on this device to record a payout.</p>}
             {error && !authNeeded && <p className="text-[11px] text-red-300">{error}</p>}
