@@ -33,6 +33,13 @@ export const databaseConfig: TypeOrmModuleAsyncOptions = {
       username: config.get('DB_USERNAME', 'kobe'),
       password: config.get('DB_PASSWORD', 'kobe'),
       database: config.get('DB_DATABASE', 'kobeos'),
+      ssl:
+        config.get('DB_SSL', 'false') === 'true'
+          ? {
+              rejectUnauthorized:
+                config.get('DB_SSL_REJECT_UNAUTHORIZED', 'true') !== 'false',
+            }
+          : false,
       autoLoadEntities: true,
       synchronize,
       // Migration filenames are timestamp-name.{ts,js}. Keep the glob strict so
