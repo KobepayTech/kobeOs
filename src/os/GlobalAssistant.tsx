@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Sparkles, X } from 'lucide-react';
 import KobeAssistant from '@/apps/kobe-assistant';
 import { useOSStore } from './store';
@@ -20,6 +20,12 @@ export function GlobalAssistant() {
   const focused = windows.find((w) => w.isFocused && !w.isMinimized);
   const contextLabel = focused?.title;
   const contextAppId = focused?.appId;
+  const liveContext = useMemo(() => ({
+    appId: focused?.appId,
+    module: focused?.appId,
+    screenLabel: focused?.title,
+    fields: focused?.data,
+  }), [focused?.appId, focused?.title, focused?.data]);
 
   // Ctrl/Cmd + K toggles the assistant from anywhere.
   useEffect(() => {
@@ -48,7 +54,7 @@ export function GlobalAssistant() {
             >
               <X className="w-4 h-4" />
             </button>
-            <KobeAssistant contextLabel={contextLabel} appId={contextAppId} />
+            <KobeAssistant contextLabel={contextLabel} appId={contextAppId} initialContext={liveContext} />
           </div>
         </div>
       )}
