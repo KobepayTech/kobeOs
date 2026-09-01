@@ -72,7 +72,7 @@ export function selectInstalledModel(
 
   const priorities: Record<AiTask, string[]> = {
     route: [config.router, 'phi3:mini', 'qwen2.5:3b', config.everyday, activeModel],
-    general: [config.everyday, 'qwen2.5:7b', activeModel, 'llama3:8b', 'mistral:7b', 'phi3:mini'],
+    general: [config.everyday, 'qwen2.5:7b', activeModel, 'llama3:8b', 'mistral:7b'],
     reasoning: [config.reasoning, 'deepseek-r1:8b', config.everyday, activeModel, 'llama3:8b'],
     code: [config.coder, 'deepseek-coder:6.7b', config.everyday, activeModel],
     vision: [config.vision, 'qwen2.5vl:7b', 'llava:7b', 'moondream:1.8b'],
@@ -88,9 +88,9 @@ export function parseRouterDecision(text: string): RouterDecision | null {
   try {
     const obj = JSON.parse(match[0]) as Record<string, unknown>;
     const domains: AssistantDomain[] = ['kobepay', 'properties', 'hotels', 'shop', 'cargo', 'finance', 'general'];
-    const tasks: AiTask[] = ['route', 'general', 'reasoning', 'code', 'vision', 'retrieval'];
+    const routedTasks: AiTask[] = ['general', 'reasoning', 'code', 'vision'];
     const domain = domains.includes(obj.domain as AssistantDomain) ? obj.domain as AssistantDomain : 'general';
-    const task = tasks.includes(obj.task as AiTask) ? obj.task as AiTask : 'general';
+    const task = routedTasks.includes(obj.task as AiTask) ? obj.task as AiTask : 'general';
     const rawCalls = Array.isArray(obj.toolCalls) ? obj.toolCalls : [];
     const toolCalls = rawCalls
       .filter((call): call is Record<string, unknown> => !!call && typeof call === 'object' && typeof (call as Record<string, unknown>).tool === 'string')
