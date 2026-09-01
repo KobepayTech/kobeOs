@@ -16,7 +16,7 @@ KobeOS public services use two independent production paths.
 - Hosts MUST be outside the `kobeapptz.com` Cloudflare DNS zone.
 - Stack: `server/docker-compose.backup.yml`
 - TLS/reverse proxy: Caddy, directly on the backup VPS.
-- Emergency Lala frontend: `https://kobepaytech.github.io/kobeOs/lala/`
+- Emergency Lala frontend and API: `https://erimnjgpawuxesonkeoz.supabase.co/functions/v1/kobeos-backup/app`
 
 The primary and backup API must use the same PostgreSQL source of truth.
 Primary production enables this with `KOBE_SHARED_DB_HOST`; the backup VPS
@@ -63,10 +63,10 @@ avoiding duplicate transactions when a response is lost during an outage.
 1. Cloudflare Lala + API.
 2. Direct backup Lala + API and the `X-Kobe-Production-Path: backup-direct`
    response header.
-3. The GitHub Pages emergency frontend.
+3. The Supabase emergency Lala frontend.
 
-The backup deployment workflow also verifies the API and Lala from a
-GitHub-hosted runner after each deploy.
+The optional direct-VPS deployment workflow remains available as a third path.
+The active emergency path is Supabase and is verified from GitHub-hosted runners.
 
 
 ## Active no-Cloudflare emergency layer
@@ -87,3 +87,16 @@ queued writes to primary KobeOS after it recovers.
 Because the snapshot can become stale during a prolonged outage, backup
 bookings are explicitly marked `BACKUP_PENDING`; the UI never presents them
 as final room confirmations until primary KobeOS accepts them.
+
+
+## Emergency URL
+
+If Cloudflare or `kobeapptz.com` is unavailable, Lala can be opened directly at:
+
+`https://erimnjgpawuxesonkeoz.supabase.co/functions/v1/kobeos-backup/app`
+
+This URL does not traverse Cloudflare. The same Supabase project serves the
+emergency API and stores the synchronized public snapshot plus queued outage-time
+writes. The snapshot sync first uses `/lala-public/backup-snapshot`; for older
+primary deployments it automatically falls back to the already-public Lala
+search and hotel-menu endpoints.
