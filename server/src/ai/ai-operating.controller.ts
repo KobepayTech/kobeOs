@@ -45,6 +45,16 @@ class WorkflowPatchDto {
   @IsOptional() @IsObject() context?: Record<string, unknown>;
 }
 
+class ApprovalCreateDto {
+  @IsString() @MaxLength(120) actionType!: string;
+  @IsString() @MaxLength(2000) summary!: string;
+  @IsOptional() @IsObject() payload?: Record<string, unknown>;
+  @IsOptional() @IsArray() chain?: Array<{ role: string; label: string; status?: 'PENDING' | 'APPROVED' | 'REJECTED' }>;
+  @IsOptional() @IsString() workflowId?: string;
+  @IsOptional() @IsNumber() amount?: number;
+  @IsOptional() @IsString() currency?: string;
+}
+
 class ApprovalDecisionDto {
   @IsIn(['approve', 'reject']) decision!: 'approve' | 'reject';
   @IsOptional() @IsString() @MaxLength(500) note?: string;
@@ -150,6 +160,11 @@ export class AiOperatingController {
   @Get('approvals')
   approvals(@CurrentUser('id') ownerId: string) {
     return this.operating.listApprovals(ownerId);
+  }
+
+  @Post('approvals')
+  createApproval(@CurrentUser('id') ownerId: string, @Body() dto: ApprovalCreateDto) {
+    return this.operating.createApproval(ownerId, dto);
   }
 
   @Post('approvals/:id/decide')
