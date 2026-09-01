@@ -10,6 +10,8 @@ class EnvVars {
   @IsString() DB_USERNAME!: string;
   @IsString() DB_PASSWORD!: string;
   @IsString() DB_DATABASE!: string;
+  @IsOptional() @IsString() DB_SSL?: string;
+  @IsOptional() @IsString() DB_SSL_REJECT_UNAUTHORIZED?: string;
   @IsOptional() @IsString() SENDGRID_API_KEY?: string;
   @IsOptional() @IsString() SMTP_HOST?: string;
   @IsOptional() @IsNumber() SMTP_PORT?: number;
