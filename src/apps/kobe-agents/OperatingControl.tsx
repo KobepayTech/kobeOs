@@ -14,7 +14,7 @@ interface SkillPack {
 }
 interface WorkflowPlan {
   id: string; title: string; objective: string; status: string; riskLevel: string; confidence: number;
-  steps: Array<{ id: string; title: string; type: string; status: string }>;
+  steps: Array<{ id: string; title: string; description?: string; type: string; tool?: string; status: string }>;
 }
 interface Approval {
   id: string; summary: string; actionType: string; status: string;
@@ -44,6 +44,7 @@ export default function OperatingControl() {
   const [workflowText, setWorkflowText] = useState('');
   const [dashboardText, setDashboardText] = useState('');
   const [simulation, setSimulation] = useState<Record<string, unknown> | null>(null);
+  const [editing, setEditing] = useState<WorkflowPlan | null>(null);
 
   const load = useCallback(async () => {
     setError('');
@@ -109,7 +110,7 @@ export default function OperatingControl() {
 
       {section === 'workflows' && <div className="space-y-3">
         <div className={card}><div className="flex gap-2"><input value={workflowText} onChange={(e) => setWorkflowText(e.target.value)} placeholder="Describe a multi-step job, e.g. prepare month-end accounts" className="h-10 flex-1 rounded-xl border border-slate-300 px-3 text-sm" /><button disabled={!workflowText.trim() || busy === 'new-workflow'} onClick={() => act('new-workflow', async () => { await api('/ai/operating/workflows', { method: 'POST', body: JSON.stringify({ objective: workflowText }) }); setWorkflowText(''); })} className="rounded-xl bg-violet-600 px-4 text-xs font-bold text-white">Create plan</button></div></div>
-        {workflows.map((flow) => <div key={flow.id} className={card}><div className="flex flex-wrap items-start gap-3"><Workflow className="h-5 w-5 text-violet-600" /><div className="min-w-0 flex-1"><b>{flow.title}</b><p className="mt-1 text-xs text-slate-500">{flow.objective}</p><div className="mt-2 flex flex-wrap gap-1">{flow.steps.map((step) => <span key={step.id} className="rounded-full bg-slate-100 px-2 py-1 text-[9px] font-bold text-slate-500">{step.title} · {step.status}</span>)}</div></div><span className="rounded-full bg-amber-50 px-2 py-1 text-[9px] font-bold text-amber-700">{flow.status} · {Math.round(flow.confidence * 100)}%</span></div><div className="mt-3 flex gap-2">{flow.status === 'APPROVAL_REQUIRED' && <button onClick={() => act(`approve-${flow.id}`, () => api(`/ai/operating/workflows/${flow.id}/approve`, { method: 'POST' }))} className="rounded-xl bg-emerald-600 px-3 py-2 text-[10px] font-bold text-white">Approve plan</button>}<button onClick={() => act(`run-${flow.id}`, () => api(`/ai/operating/workflows/${flow.id}/run`, { method: 'POST' }))} className="rounded-xl bg-violet-600 px-3 py-2 text-[10px] font-bold text-white">Run / continue</button></div></div>)}
+        {workflows.map((flow) => <div key={flow.id} className={card}><div className="flex flex-wrap items-start gap-3"><Workflow className="h-5 w-5 text-violet-600" /><div className="min-w-0 flex-1"><b>{flow.title}</b><p className="mt-1 text-xs text-slate-500">{flow.objective}</p><div className="mt-2 flex flex-wrap gap-1">{flow.steps.map((step) => <span key={step.id} className="rounded-full bg-slate-100 px-2 py-1 text-[9px] font-bold text-slate-500">{step.title} · {step.status}</span>)}</div></div><span className="rounded-full bg-amber-50 px-2 py-1 text-[9px] font-bold text-amber-700">{flow.status} · {Math.round(flow.confidence * 100)}%</span></div><div className="mt-3 flex flex-wrap gap-2"><button onClick={() => setEditing(flow)} className="rounded-xl border border-slate-300 px-3 py-2 text-[10px] font-bold text-slate-600">Edit plan</button>{flow.status === 'APPROVAL_REQUIRED' && <button onClick={() => act(`approve-${flow.id}`, () => api(`/ai/operating/workflows/${flow.id}/approve`, { method: 'POST' }))} className="rounded-xl bg-emerald-600 px-3 py-2 text-[10px] font-bold text-white">Approve plan</button>}<button onClick={() => act(`run-${flow.id}`, () => api(`/ai/operating/workflows/${flow.id}/run`, { method: 'POST' }))} className="rounded-xl bg-violet-600 px-3 py-2 text-[10px] font-bold text-white">Run / continue</button></div></div>)}
       </div>}
 
       {section === 'approvals' && <div className="space-y-3">{approvals.map((approval) => <div key={approval.id} className={card}><div className="flex gap-3"><ShieldCheck className="h-5 w-5 text-amber-600" /><div className="flex-1"><b>{approval.summary}</b><div className="mt-1 text-[10px] text-slate-500">{approval.actionType} · {approval.chain.map((s) => `${s.label}: ${s.status}`).join(' → ')}</div></div><b className="text-[10px] text-slate-500">{approval.status}</b></div>{approval.status === 'PENDING' && <div className="mt-3 flex gap-2"><button onClick={() => act(`ap-${approval.id}`, () => api(`/ai/operating/approvals/${approval.id}/decide`, { method: 'POST', body: JSON.stringify({ decision: 'approve' }) }))} className="inline-flex items-center gap-1 rounded-xl bg-emerald-600 px-3 py-2 text-[10px] font-bold text-white"><CheckCircle2 className="h-3 w-3" />Approve</button><button onClick={() => act(`rj-${approval.id}`, () => api(`/ai/operating/approvals/${approval.id}/decide`, { method: 'POST', body: JSON.stringify({ decision: 'reject' }) }))} className="inline-flex items-center gap-1 rounded-xl bg-rose-50 px-3 py-2 text-[10px] font-bold text-rose-700"><XCircle className="h-3 w-3" />Reject</button></div>}</div>)}</div>}
@@ -121,8 +122,30 @@ export default function OperatingControl() {
       {section === 'dashboards' && <div className="space-y-3"><div className={card}><div className="flex gap-2"><input value={dashboardText} onChange={(e) => setDashboardText(e.target.value)} placeholder="e.g. revenue, expenses, rent and hotel occupancy" className="h-10 flex-1 rounded-xl border border-slate-300 px-3 text-sm" /><button disabled={!dashboardText.trim()} onClick={() => act('dashboard', async () => { await api('/ai/operating/dashboards', { method: 'POST', body: JSON.stringify({ prompt: dashboardText }) }); setDashboardText(''); })} className="rounded-xl bg-violet-600 px-4 text-xs font-bold text-white">Generate dashboard</button></div></div>{dashboards.map((dash) => <div key={dash.id} className={card}><div className="flex items-center gap-2"><LayoutDashboard className="h-5 w-5 text-violet-600" /><b>{dash.name}</b></div><div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{dash.widgets.map((widget, i) => <div key={widget.id || i} className="rounded-xl bg-slate-50 p-3"><b className="text-xs">{widget.title || 'Metric'}</b><div className="mt-1 text-[10px] text-slate-500">{widget.source} · {widget.visualization}</div></div>)}</div></div>)}</div>}
 
       {section === 'audit' && <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white"><table className="w-full min-w-[760px] text-xs"><thead className="bg-slate-50 text-left text-slate-500"><tr><th className="p-3">Time</th><th className="p-3">Event</th><th className="p-3">Module</th><th className="p-3">Action / tool</th><th className="p-3">Confidence</th></tr></thead><tbody>{audit.map((row) => <tr key={row.id} className="border-t border-slate-100"><td className="p-3">{new Date(row.createdAt).toLocaleString()}</td><td className="p-3 font-bold">{row.eventType}</td><td className="p-3">{row.module || '—'}</td><td className="p-3">{row.tool || row.action || '—'}</td><td className="p-3">{Math.round((row.confidence || 0) * 100)}%</td></tr>)}</tbody></table></div>}
+
+      {editing && <WorkflowEditor
+        plan={editing}
+        saving={busy === `edit-${editing.id}`}
+        onClose={() => setEditing(null)}
+        onSave={(next) => act(`edit-${editing.id}`, async () => {
+          await api(`/ai/operating/workflows/${editing.id}`, { method: 'PATCH', body: JSON.stringify({ objective: next.objective, steps: next.steps }) });
+          setEditing(null);
+        })}
+      />}
     </div>
   );
+}
+
+function WorkflowEditor({ plan, saving, onClose, onSave }: { plan: WorkflowPlan; saving: boolean; onClose: () => void; onSave: (plan: WorkflowPlan) => void }) {
+  const [draft, setDraft] = useState<WorkflowPlan>(() => ({ ...plan, steps: plan.steps.map((step) => ({ ...step })) }));
+  const move = (index: number, delta: number) => {
+    const target = index + delta;
+    if (target < 0 || target >= draft.steps.length) return;
+    const steps = [...draft.steps];
+    [steps[index], steps[target]] = [steps[target], steps[index]];
+    setDraft({ ...draft, steps });
+  };
+  return <div className="fixed inset-0 z-[10020] overflow-y-auto bg-slate-950/60 p-4"><div className="mx-auto my-6 max-w-3xl rounded-3xl bg-white p-5 shadow-2xl"><div className="flex items-center gap-3"><Workflow className="h-5 w-5 text-violet-600" /><div className="flex-1"><b>Edit AI plan before execution</b><p className="text-xs text-slate-500">Change, remove or reorder steps before approving the workflow.</p></div><button onClick={onClose} className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-bold">Close</button></div><label className="mt-4 block text-[10px] font-bold uppercase text-slate-500">Objective</label><textarea value={draft.objective} onChange={(e) => setDraft({ ...draft, objective: e.target.value })} className="mt-1 min-h-24 w-full rounded-xl border border-slate-300 p-3 text-sm" /><div className="mt-4 space-y-2">{draft.steps.map((step, index) => <div key={step.id} className="rounded-xl border border-slate-200 p-3"><div className="flex gap-2"><input value={step.title} onChange={(e) => { const steps = [...draft.steps]; steps[index] = { ...step, title: e.target.value }; setDraft({ ...draft, steps }); }} className="h-9 flex-1 rounded-lg border border-slate-300 px-2 text-xs font-bold" /><button onClick={() => move(index, -1)} className="rounded-lg bg-slate-100 px-2 text-xs">↑</button><button onClick={() => move(index, 1)} className="rounded-lg bg-slate-100 px-2 text-xs">↓</button><button onClick={() => setDraft({ ...draft, steps: draft.steps.filter((_, i) => i !== index) })} className="rounded-lg bg-rose-50 px-2 text-xs text-rose-700">Remove</button></div><textarea value={step.description || ''} onChange={(e) => { const steps = [...draft.steps]; steps[index] = { ...step, description: e.target.value }; setDraft({ ...draft, steps }); }} className="mt-2 min-h-16 w-full rounded-lg border border-slate-200 p-2 text-xs" /><div className="mt-1 text-[9px] font-bold uppercase text-slate-400">{step.type}{step.tool ? ` · ${step.tool}` : ''}</div></div>)}</div><button disabled={saving || !draft.steps.length} onClick={() => onSave(draft)} className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-violet-600 text-sm font-bold text-white disabled:opacity-40">{saving && <Loader2 className="h-4 w-4 animate-spin" />}Save edited plan</button></div></div>;
 }
 
 function Overview({ summary, simulation, onSimulate, busy }: { summary: Summary | null; simulation: Record<string, unknown> | null; onSimulate: () => void; busy: boolean }) {
