@@ -1,10 +1,18 @@
-name: Deploy Kijani Motors Demo to GitHub Pages
+name: Deploy Independent Public Backup to GitHub Pages
 
 on:
   push:
     branches: [master]
     paths:
       - 'docs/kijani-motors-demo.html'
+      - 'src/public/Lala.tsx'
+      - 'src/public/LalaPassport.tsx'
+      - 'src/public/api.ts'
+      - 'src/main.tsx'
+      - 'src/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'vite.config.ts'
       - '.github/workflows/deploy-kijani-demo-pages.yml'
   workflow_dispatch:
 
@@ -14,7 +22,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: kijani-demo-pages
+  group: independent-public-backup-pages
   cancel-in-progress: true
 
 jobs:
@@ -23,16 +31,70 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    env:
+      BACKUP_API_HOST: ${{ vars.BACKUP_API_HOST }}
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Prepare site
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Build independent Lala copy
         run: |
           set -euo pipefail
-          mkdir -p _site
+          npm ci --legacy-peer-deps
+
+          # GitHub Pages is intentionally outside Cloudflare. When the
+          # independent API host is configured, prefer it and keep Cloudflare
+          # only as the read fallback. Until then the emergency frontend still
+          # deploys, but its data path remains the primary API.
+          if [ -n "${BACKUP_API_HOST:-}" ]; then
+            export VITE_API_BASE="https://$BACKUP_API_HOST/api"
+            export VITE_API_FALLBACK_BASE="https://api.kobeapptz.com/api"
+          else
+            export VITE_API_BASE="https://api.kobeapptz.com/api"
+            export VITE_API_FALLBACK_BASE=""
+            echo "::warning::BACKUP_API_HOST is not configured; GitHub Pages is an independent frontend only."
+          fi
+
+          export VITE_TENANT_BASE_DOMAIN="kobeapptz.com"
+          export VITE_PUBLIC_PATH_PREFIX="/kobeOs"
+          export VITE_PUBLIC_ASSET_BASE="/kobeOs/lala/"
+          export VITE_DISABLE_PWA="true"
+          export VITE_DISABLE_TENANT_SUBDOMAIN="true"
+
+          npm run build
+
+          rm -rf _site
+          mkdir -p _site/lala
+
+          # Preserve the existing Kijani Motors demo at the Pages root.
           cp docs/kijani-motors-demo.html _site/index.html
+
+          # Publish the complete Lala SPA at the independent emergency URL.
+          cp -R dist/. _site/lala/
+
+          # GitHub Pages uses a single repository-level 404 page. Point it at
+          # Lala's app shell so deep emergency links (passport, booking, etc.)
+          # still boot React; assets use the absolute /kobeOs/lala/ base.
+          cp dist/index.html _site/404.html
+
+          cat > _site/lala/failover-status.json <<EOF
+          {
+            "frontend": "github-pages",
+            "cloudflareIndependent": true,
+            "backupApiConfigured": $([ -n "${BACKUP_API_HOST:-}" ] && echo true || echo false),
+            "primaryApi": "https://api.kobeapptz.com/api",
+            "backupApi": "$([ -n "${BACKUP_API_HOST:-}" ] && printf 'https://%s/api' "$BACKUP_API_HOST")"
+          }
+          EOF
+
           test -s _site/index.html
-          grep -q "Kijani Motors" _site/index.html
+          test -s _site/lala/index.html
+          grep -q 'id="root"' _site/lala/index.html
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
@@ -47,3 +109,18 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Verify independent Lala frontend
+        run: |
+          set -euo pipefail
+          url="${{ steps.deployment.outputs.page_url }}lala/"
+          for attempt in $(seq 1 12); do
+            if curl -fsS --connect-timeout 10 --max-time 20 "$url" -o /tmp/lala-backup.html &&
+               grep -q 'id="root"' /tmp/lala-backup.html; then
+              echo "Independent Lala frontend is live: $url"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::Independent Lala frontend did not become reachable."
+          exit 1
