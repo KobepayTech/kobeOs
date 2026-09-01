@@ -896,6 +896,37 @@ export class KobeAgentService {
     });
   }
 
+
+  /**
+   * Run a verified read-only Kobe skill directly, without invoking an LLM.
+   * Operating dashboards, simulations and health checks use this path so they
+   * remain deterministic even if Ollama is offline or cooling down.
+   */
+  async runReadSkill(ownerId: string, name: string, args: Record<string, unknown> = {}): Promise<AgentReply> {
+    const tool = this.tools.find((candidate) => candidate.name === name);
+    if (!tool) {
+      return { reply: `Unknown Kobe skill: ${name}`, confidence: 0, citations: [], needsVerification: true, pendingAction: null };
+    }
+    if (tool.write) {
+      return { reply: `Skill ${name} is an action and cannot run through the read-only path.`, confidence: 0, citations: [], needsVerification: true, pendingAction: null };
+    }
+    const result = await this.runToolCached(ownerId, tool, args);
+    if ('pendingAction' in result) {
+      return { reply: 'This skill unexpectedly requested an action.', confidence: 0, citations: [], needsVerification: true, pendingAction: null };
+    }
+    const summary = this.directToolSummary(name, result.data) ?? this.fallbackSummary(name, result.data);
+    const data = result.data as { weak?: boolean } | null;
+    return {
+      reply: summary,
+      used: name,
+      data: result.data,
+      confidence: data && typeof data === 'object' && data.weak ? 0.55 : 0.99,
+      citations: [{ kind: 'tool', label: name.replace(/_/g, ' '), ref: name }],
+      needsVerification: Boolean(data && typeof data === 'object' && data.weak),
+      pendingAction: null,
+    };
+  }
+
   async knowledgeStatus(ownerId: string) {
     const [documents, facts, indexedRecords] = await Promise.all([
       this.aiDocs.list(ownerId).catch(() => []),
