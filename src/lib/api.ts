@@ -594,6 +594,64 @@ export async function api<T = unknown>(
   }
 }
 
+
+export async function apiSse(
+  path: string,
+  init: RequestInit & Pick<RequestExtras, 'auth'>,
+  onEvent: (event: string, data: unknown) => void,
+): Promise<void> {
+  const { auth = true, ...rest } = init;
+  let res = await rawFetch(path, rest, auth);
+  if (res.status === 401 && auth && getRefreshToken()) {
+    const refreshed = await refreshAccessToken();
+    if (refreshed) res = await rawFetch(path, rest, true);
+  }
+  if (!res.ok) {
+    const text = await res.text();
+    const body = text ? safeJson(text) : undefined;
+    const bag = body && typeof body === 'object' ? body as Record<string, unknown> : undefined;
+    const message = typeof bag?.message === 'string'
+      ? bag.message
+      : res.statusText || `HTTP ${res.status}`;
+    throw new ApiError(res.status, message, body);
+  }
+  if (!res.body) throw new Error('Streaming response had no body.');
+
+  _backendReachable = true;
+  _lastCheck = Date.now();
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  const dispatch = (block: string) => {
+    let event = 'message';
+    const data: string[] = [];
+    for (const rawLine of block.split(/\r?\n/)) {
+      if (rawLine.startsWith('event:')) event = rawLine.slice(6).trim();
+      else if (rawLine.startsWith('data:')) data.push(rawLine.slice(5).trimStart());
+    }
+    if (!data.length) return;
+    const joined = data.join('\n');
+    onEvent(event, safeJson(joined));
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    buffer = buffer.replace(/\r\n/g, '\n');
+    let boundary = buffer.indexOf('\n\n');
+    while (boundary >= 0) {
+      const block = buffer.slice(0, boundary);
+      buffer = buffer.slice(boundary + 2);
+      if (block.trim()) dispatch(block);
+      boundary = buffer.indexOf('\n\n');
+    }
+  }
+  if (buffer.trim()) dispatch(buffer);
+}
+
+
 // ── File upload ───────────────────────────────────────────────────────────────
 
 export async function uploadFile<T = unknown>(
