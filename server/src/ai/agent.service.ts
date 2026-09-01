@@ -93,7 +93,7 @@ export class KobeAgentService {
   private readonly cacheableTools = new Set([
     'sales_today', 'low_stock', 'top_rated_products', 'unpaid_tenants', 'rent_projection',
     'sales_forecast', 'hotel_occupancy', 'hotel_revenue', 'warehouse_stock',
-    'expenses_summary', 'cargo_status',
+    'expenses_summary', 'cargo_status', 'business_health',
   ]);
 
   constructor(
@@ -455,6 +455,45 @@ export class KobeAgentService {
   }
 
   private tools: Tool[] = [
+    {
+      name: 'business_health',
+      description: 'Cross-module business health snapshot combining today sales, current-month expenses, unpaid rent, hotel occupancy, low stock and cargo status. Use for owner overview, business health, "what needs attention", or cross-module reasoning.',
+      run: async (ownerId) => {
+        const now = new Date();
+        const dayStart = new Date(now); dayStart.setHours(0, 0, 0, 0);
+        const monthStart = new Date(now); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
+        const [orders, expenses, charges, rooms, stock, parcels] = await Promise.all([
+          this.orders.find({ where: { ownerId, createdAt: MoreThanOrEqual(dayStart), status: Not('CANCELLED') as unknown as PosOrder['status'] }, take: 10000 }),
+          this.expenses.find({ where: { ownerId, createdAt: MoreThanOrEqual(monthStart) }, take: 10000 }),
+          this.charges.find({ where: { ownerId, status: In(['open', 'partial', 'overdue']) }, take: 10000 }),
+          this.hotelRooms.find({ where: { ownerId }, take: 5000 }),
+          this.whItems.find({ where: { ownerId }, take: 10000 }),
+          this.parcels.find({ where: { ownerId }, take: 10000 }),
+        ]);
+        const sales = orders.reduce((sum, order) => sum + Number(order.total || 0), 0);
+        const expenseTotal = expenses.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+        const outstandingRent = charges.reduce((sum, row) => sum + Math.max(0, Number(row.amount || 0) - Number(row.amountPaid || 0)), 0);
+        const occupied = rooms.filter((room) => room.status === 'occupied' || room.status === 'reserved').length;
+        const lowStock = stock.filter((item) => item.quantity <= item.reorderLevel).length;
+        const parcelByStatus: Record<string, number> = {};
+        for (const parcel of parcels) {
+          const status = parcel.lifecycleStatus || parcel.status || 'UNKNOWN';
+          parcelByStatus[status] = (parcelByStatus[status] || 0) + 1;
+        }
+        return {
+          data: {
+            generatedAt: now.toISOString(),
+            salesToday: Math.round(sales),
+            expensesMonth: Math.round(expenseTotal),
+            outstandingRent: Math.round(outstandingRent),
+            hotel: { totalRooms: rooms.length, occupiedOrReserved: occupied, occupancyRate: rooms.length ? Math.round((occupied / rooms.length) * 100) : 0 },
+            inventory: { items: stock.length, lowStock },
+            cargo: { total: parcels.length, byStatus: parcelByStatus },
+            currency: 'TZS',
+          },
+        };
+      },
+    },
     {
       name: 'sales_today',
       description: "Today's sales: number of orders and total revenue.",
@@ -924,7 +963,7 @@ export class KobeAgentService {
     const deterministic = new Set([
       'sales_today', 'low_stock', 'top_rated_products', 'unpaid_tenants', 'rent_projection',
       'sales_forecast', 'hotel_occupancy', 'hotel_revenue', 'warehouse_stock',
-      'expenses_summary', 'cargo_status', 'diagnose_system', 'remember',
+      'expenses_summary', 'cargo_status', 'business_health', 'diagnose_system', 'remember',
     ]);
     return deterministic.has(tool) ? this.fallbackSummary(tool, data as any) : null;
   }
@@ -1017,6 +1056,7 @@ export class KobeAgentService {
       { pattern: /\b(warehouse stock|stock value|warehouse value)\b/, tool: 'warehouse_stock' },
       { pattern: /\b(expenses|spent this month|monthly spending)\b/, tool: 'expenses_summary' },
       { pattern: /\b(cargo status|parcel status|parcels?.*(?:transit|delivered|registered))\b/, tool: 'cargo_status' },
+      { pattern: /\b(business health|overall business|what needs attention|business overview|how is my business)\b/, tool: 'business_health' },
     ];
 
     const intent = intents.find((item) => item.pattern.test(q));
@@ -1288,6 +1328,7 @@ The verified KobeOS tool results below are the source of truth. Combine them int
       case 'expenses_summary': return `${data.month} expenses: TZS ${Number(data.total).toLocaleString()} across ${data.count} entries.`;
       case 'cargo_status': return `${data.total} parcel(s): ${Object.entries(data.byStatus || {}).map(([s, n]) => `${n} ${s.toLowerCase()}`).join(', ') || 'none'}.`;
       case 'sales_forecast': return `Month-to-date TZS ${Number(data.monthToDate).toLocaleString()} (day ${data.dayOfMonth}/${data.daysInMonth}). Projected month-end: TZS ${Number(data.projectedMonthEnd).toLocaleString()}.`;
+      case 'business_health': return `Business health: today sales TZS ${Number(data.salesToday).toLocaleString()}, month expenses TZS ${Number(data.expensesMonth).toLocaleString()}, outstanding rent TZS ${Number(data.outstandingRent).toLocaleString()}, hotel occupancy ${data.hotel?.occupancyRate ?? 0}%, ${data.inventory?.lowStock ?? 0} low-stock item(s), ${data.cargo?.total ?? 0} cargo parcel(s).`;
       case 'semantic_search': return data.count ? `Found ${data.count} match(es): ${data.results.slice(0, 5).map((r: any) => r.text.slice(0, 40)).join('; ')}.` : (data.note || 'No matches found.');
       case 'remember': return data.saved ? `Got it — I'll remember that.` : (data.note || 'Nothing to remember.');
       case 'search_documents': return data.count ? `Found ${data.count} relevant passage(s) in your documents${data.passages?.[0]?.title ? ` (e.g. "${data.passages[0].title}")` : ''}.` : (data.note || 'Nothing found in your documents.');
