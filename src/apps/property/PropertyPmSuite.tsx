@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertCircle, CalendarDays, CheckCircle2, FileSignature, Home, Loader2,
-  Plus, RefreshCw, ShieldCheck, Users, Wallet, X,
+  Plus, RefreshCw, ShieldCheck, Wallet, X,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 
@@ -327,12 +327,11 @@ function ChargeRows({ rows, unitById, tenantById, onWaive, showAge = false }: {
   return <div className="divide-y divide-slate-100">{rows.map((row) => {
     const unit = unitById.get(row.unitId);
     const balance = Math.max(0, Number(row.amount || 0) - Number(row.amountPaid || 0));
-    const age = Math.max(0, Math.floor((Date.now() - new Date(row.dueDate).getTime()) / 86_400_000));
     return <div key={row.id} className="py-4 flex flex-col gap-3 lg:flex-row lg:items-center">
       <div className="h-10 w-10 shrink-0 rounded-xl bg-slate-100 text-slate-500 grid place-items-center"><Home className="h-5 w-5" /></div>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2"><b>{tenantById.get(row.tenantId)?.name ?? 'Tenant'}</b><ChargePill status={row.status} /></div>
-        <span className="block text-xs text-slate-500">Unit {unit?.unitNumber ?? '—'} · {row.period} · due {shortDate(row.dueDate)}{showAge ? ` · ${age} days late` : ''}</span>
+        <span className="block text-xs text-slate-500">Unit {unit?.unitNumber ?? '—'} · {row.period} · due {shortDate(row.dueDate)}{showAge ? ' · overdue' : ''}</span>
       </div>
       <div className="lg:text-right">
         <b className={balance > 0 ? 'text-rose-700' : 'text-emerald-700'}>{money(balance, unit?.currency ?? 'TZS')} due</b>
