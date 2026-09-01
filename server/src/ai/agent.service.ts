@@ -704,11 +704,6 @@ export class KobeAgentService {
     },
   ];
 
-  private toolList(names?: string[]): string {
-    const list = names ? this.tools.filter((t) => names.includes(t.name)) : this.tools;
-    return list.map((t) => `- ${t.name}: ${t.description}`).join('\n');
-  }
-
   /**
    * MULTI-AGENT SPECIALIST TEAM.
    *
@@ -1003,9 +998,11 @@ ${memoryBlock}`;
       }
     }
 
-    const readCalls = plannedCalls
-      .map((call) => ({ call, tool: this.tools.find((candidate) => candidate.name === call.tool) }))
-      .filter((item): item is { call: { tool: string; args: Record<string, unknown> }; tool: Tool } => !!item.tool && !item.tool.write);
+    const readCalls: Array<{ call: { tool: string; args: Record<string, unknown> }; tool: Tool }> = [];
+    for (const call of plannedCalls) {
+      const tool = this.tools.find((candidate) => candidate.name === call.tool);
+      if (tool && !tool.write) readCalls.push({ call, tool });
+    }
 
     const executed = await Promise.all(
       readCalls.map(async ({ call, tool }) => ({
