@@ -20,6 +20,12 @@ import { SystemHealthService } from '../system-health/system-health.service';
 import { BeemService } from '../notifications/beem.service';
 
 
+export interface AgentActivity {
+  stage: 'understanding' | 'retrieving' | 'routing' | 'checking_data' | 'preparing_action' | 'thinking' | 'responding';
+  label: string;
+  detail?: string;
+}
+
 export interface AgentReply {
   reply: string;
   used?: string;                 // tool that was called (if any)
@@ -753,11 +759,54 @@ export class KobeAgentService {
   };
 
   listSkills() {
-    return this.tools.map(({ name, description, write = false }) => ({
-      name,
-      description,
-      write,
-    }));
+    return this.tools.map(({ name, description, write = false }) => {
+      const domains = Object.entries(this.specialists)
+        .filter(([, spec]) => spec.tools.includes(name))
+        .map(([domain]) => domain);
+      if (this.sharedTools.includes(name)) domains.push('shared');
+      return {
+        name,
+        description,
+        write,
+        kind: write ? 'action' : 'read',
+        domains: [...new Set(domains.length ? domains : ['general'])],
+      };
+    });
+  }
+
+  async knowledgeStatus(ownerId: string) {
+    const [documents, facts, indexedRecords] = await Promise.all([
+      this.aiDocs.list(ownerId).catch(() => []),
+      this.getFacts(ownerId),
+      this.searchDocs.count({ where: { ownerId } }).catch(() => 0),
+    ]);
+    return {
+      skills: this.listSkills().length,
+      documents: documents.length,
+      documentPassages: documents.reduce((sum, doc) => sum + Number(doc.chunkCount || 0), 0),
+      indexedBusinessRecords: indexedRecords,
+      rememberedFacts: facts.length,
+      sources: [
+        { id: 'live-database', label: 'Live KobeOS business database', ready: true },
+        { id: 'business-index', label: 'Semantic business search index', ready: indexedRecords > 0, count: indexedRecords },
+        { id: 'documents', label: 'Uploaded business documents', ready: documents.length > 0, count: documents.length },
+        { id: 'memory', label: 'Remembered owner facts and preferences', ready: facts.length > 0, count: facts.length },
+      ],
+    };
+  }
+
+  private async retrieveKnowledge(ownerId: string, message: string) {
+    try {
+      const found = await this.aiDocs.search(ownerId, message, 4);
+      if (found.weak || !found.passages.length) return [];
+      return found.passages.map((p) => ({
+        title: p.title,
+        text: p.text.slice(0, 1400),
+        score: p.score,
+      }));
+    } catch {
+      return [];
+    }
   }
 
   private selectRelevantHistory(
@@ -932,22 +981,36 @@ export class KobeAgentService {
     history: Array<{ role: 'user' | 'assistant'; content: string }> = [],
     mode: 'fast' | 'quality' = 'quality',
     onToken?: (token: string) => void,
+    onActivity?: (activity: AgentActivity) => void,
   ): Promise<AgentReply> {
+    const activity = (stage: AgentActivity['stage'], label: string, detail?: string) =>
+      onActivity?.({ stage, label, detail });
+
+    activity('understanding', 'Understanding your request…');
     const deterministic = await this.deterministicReply(ownerId, message);
     if (deterministic) {
+      activity('responding', 'Preparing verified answer…');
       if (onToken && deterministic.reply) onToken(deterministic.reply);
       return deterministic;
     }
 
-    const facts = await this.getFacts(ownerId);
+    activity('retrieving', 'Searching memory and business knowledge…');
+    const relevantHistory = this.selectRelevantHistory(message, history, mode);
+    const [facts, knowledge, plan] = await Promise.all([
+      this.getFacts(ownerId),
+      mode === 'quality' ? this.retrieveKnowledge(ownerId, message) : Promise.resolve([]),
+      this.ai.planAssistant(
+        message,
+        this.tools.map(({ name, description }) => ({ name, description })),
+      ),
+    ]);
     const memoryBlock = facts.length
       ? `\nUseful durable memory about this business:\n${facts.map((f) => `- ${f}`).join('\n')}\n`
       : '';
-    const relevantHistory = this.selectRelevantHistory(message, history, mode);
-    const plan = await this.ai.planAssistant(
-      message,
-      this.tools.map(({ name, description }) => ({ name, description })),
-    );
+    const knowledgeBlock = knowledge.length
+      ? `\nRetrieved owner knowledge (use only when relevant):\n${knowledge.map((p) => `[${p.title}] ${p.text}`).join('\n')}\n`
+      : '';
+    activity('routing', plan.domain === 'general' ? 'Choosing the best AI skill…' : `Routing to ${plan.domain} specialist…`);
 
     const spec = plan.domain === 'general' ? null : this.specialists[plan.domain];
     const specialist = spec?.title;
@@ -960,9 +1023,10 @@ export class KobeAgentService {
     const baseSystem = `${persona}
 Answer in the user's language. Be concise but useful. Use remembered business facts when relevant. Never claim a business action succeeded unless a confirmed tool result says so.
 For analysis, explain the important reason and the next action; do not expose hidden chain-of-thought.
-${memoryBlock}`;
+${memoryBlock}${knowledgeBlock}`;
 
     if (!plannedCalls.length) {
+      activity('thinking', plan.task === 'reasoning' ? 'Thinking through the problem…' : plan.task === 'code' ? 'Working through the code…' : 'Generating the answer…');
       const options = {
         messages: [
           { role: 'system' as const, content: baseSystem },
@@ -973,8 +1037,18 @@ ${memoryBlock}`;
         task: plan.task,
         maxTokens: mode === 'fast' ? 640 : undefined,
       };
-      const result = onToken
-        ? await this.ai.chatCompletionStream(options, onToken)
+      let startedReply = false;
+      const tokenSink = onToken
+        ? (token: string) => {
+            if (!startedReply) {
+              startedReply = true;
+              activity('responding', 'Writing the answer…');
+            }
+            onToken(token);
+          }
+        : undefined;
+      const result = tokenSink
+        ? await this.ai.chatCompletionStream(options, tokenSink)
         : await this.ai.chatCompletion(options);
       return {
         reply: result.content,
@@ -990,6 +1064,7 @@ ${memoryBlock}`;
     for (const call of plannedCalls) {
       const tool = this.tools.find((candidate) => candidate.name === call.tool);
       if (!tool?.write) continue;
+      activity('preparing_action', `Preparing ${tool.name.replace(/_/g, ' ')} for confirmation…`);
       const result = await tool.run(ownerId, call.args);
       if ('pendingAction' in result) {
         const reply = `Ready to ${result.pendingAction.summary.toLowerCase()}. Confirm to proceed.`;
@@ -1002,6 +1077,16 @@ ${memoryBlock}`;
     for (const call of plannedCalls) {
       const tool = this.tools.find((candidate) => candidate.name === call.tool);
       if (tool && !tool.write) readCalls.push({ call, tool });
+    }
+
+    if (readCalls.length) {
+      activity(
+        'checking_data',
+        readCalls.length === 1
+          ? `Checking ${readCalls[0].tool.name.replace(/_/g, ' ')}…`
+          : `Checking ${readCalls.length} business data sources in parallel…`,
+        readCalls.map(({ tool }) => tool.name).join(', '),
+      );
     }
 
     const executed = await Promise.all(
@@ -1018,6 +1103,7 @@ ${memoryBlock}`;
     if (dataResults.length === 1) {
       const direct = this.directToolSummary(dataResults[0].tool, dataResults[0].data);
       if (direct) {
+        activity('responding', 'Formatting verified business data…');
         if (onToken) onToken(direct);
         return {
           reply: direct,
@@ -1046,8 +1132,19 @@ The verified KobeOS tool results below are the source of truth. Combine them int
       { role: 'user' as const, content: `Verified KobeOS data:\n${toolContext}` },
     ];
     const synthesisTask = dataResults.length > 1 ? 'reasoning' as const : plan.task;
-    const result = onToken
-      ? await this.ai.chatCompletionStream({ messages: synthesisMessages, mode, task: synthesisTask }, onToken)
+    activity('thinking', dataResults.length > 1 ? 'Combining the verified results…' : 'Interpreting the verified result…');
+    let startedSynthesis = false;
+    const synthesisSink = onToken
+      ? (token: string) => {
+          if (!startedSynthesis) {
+            startedSynthesis = true;
+            activity('responding', 'Writing the answer…');
+          }
+          onToken(token);
+        }
+      : undefined;
+    const result = synthesisSink
+      ? await this.ai.chatCompletionStream({ messages: synthesisMessages, mode, task: synthesisTask }, synthesisSink)
       : await this.ai.chatCompletion({ messages: synthesisMessages, mode, task: synthesisTask });
 
     return {
