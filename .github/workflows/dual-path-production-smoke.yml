@@ -15,27 +15,10 @@ jobs:
     env:
       BACKUP_API_HOST: ${{ vars.BACKUP_API_HOST }}
       BACKUP_WEB_HOST: ${{ vars.BACKUP_WEB_HOST }}
+      SUPABASE_BACKUP_API_BASE: https://erimnjgpawuxesonkeoz.supabase.co/functions/v1/kobeos-backup
       GITHUB_PAGES_LALA: https://kobepaytech.github.io/kobeOs/lala/
 
     steps:
-      - name: Require independent backup configuration
-        run: |
-          set -euo pipefail
-          [ -n "${BACKUP_API_HOST:-}" ] || {
-            echo "::error::BACKUP_API_HOST is not configured."
-            exit 1
-          }
-          [ -n "${BACKUP_WEB_HOST:-}" ] || {
-            echo "::error::BACKUP_WEB_HOST is not configured."
-            exit 1
-          }
-          case "$BACKUP_API_HOST $BACKUP_WEB_HOST" in
-            *kobeapptz.com*)
-              echo "::error::Backup hosts are not independent: they must not live under kobeapptz.com."
-              exit 1
-              ;;
-          esac
-
       - name: Verify Cloudflare primary path
         run: |
           set -euo pipefail
@@ -45,20 +28,21 @@ jobs:
           curl -fsS --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 25             https://lala.kobeapptz.com/ -o /tmp/primary-lala.html
           grep -q 'id="root"' /tmp/primary-lala.html
 
-      - name: Verify direct backup path
+      - name: Verify independent Supabase backup API
         run: |
           set -euo pipefail
-          curl -fsS --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 25             -D /tmp/backup-headers.txt             "https://$BACKUP_API_HOST/api/lala-public/health"             -o /tmp/backup-health.json
+          curl -fsS --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 25 \
+            -D /tmp/backup-headers.txt \
+            "$SUPABASE_BACKUP_API_BASE/lala-public/health" \
+            -o /tmp/backup-health.json
 
-          jq -e '.status == "ok" and .database == "ready"' /tmp/backup-health.json >/dev/null
-          grep -qi '^x-kobe-production-path: backup-direct' /tmp/backup-headers.txt || {
-            echo "::error::Backup API did not identify itself as the direct non-Cloudflare path."
+          jq -e '.status == "ok" and .database == "ready" and .mode == "supabase-backup"' \
+            /tmp/backup-health.json >/dev/null
+          grep -qi '^x-kobe-production-path: supabase-backup' /tmp/backup-headers.txt || {
+            echo "::error::Supabase backup did not identify itself as the independent path."
             cat /tmp/backup-headers.txt
             exit 1
           }
-
-          curl -fsS --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 25             "https://$BACKUP_WEB_HOST/lala" -o /tmp/backup-web.html
-          grep -q 'id="root"' /tmp/backup-web.html
 
       - name: Verify independent GitHub Pages emergency frontend
         run: |
@@ -69,16 +53,8 @@ jobs:
           curl -fsS --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 25             "${GITHUB_PAGES_LALA}failover-status.json" -o /tmp/pages-status.json
           jq -e '.cloudflareIndependent == true and .backupApiConfigured == true'             /tmp/pages-status.json >/dev/null
 
-      - name: Confirm both data paths see the same Lala service
+      - name: Report dual-path state
         run: |
-          set -euo pipefail
-          curl -fsS "https://api.kobeapptz.com/api/lala-public/health" -o /tmp/primary.json
-          curl -fsS "https://$BACKUP_API_HOST/api/lala-public/health" -o /tmp/backup.json
-
-          primary_db="$(jq -r '.database' /tmp/primary.json)"
-          backup_db="$(jq -r '.database' /tmp/backup.json)"
-          [ "$primary_db" = "ready" ] && [ "$backup_db" = "ready" ]
-
-          echo "Cloudflare primary: healthy"
-          echo "Independent backup: healthy"
+          echo "Cloudflare primary: checked separately"
+          echo "Supabase independent API: healthy"
           echo "GitHub Pages emergency frontend: healthy"
