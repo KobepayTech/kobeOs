@@ -1,0 +1,125 @@
+name: Deploy Always-On Primary API
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [master, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-primary-api:
+    name: Deploy primary API VPS
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && vars.PRIMARY_API_ENABLED == 'true') }}
+    environment: production-primary-api
+    env:
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      PRIMARY_API_DEPLOY_HOST: ${{ secrets.PRIMARY_API_DEPLOY_HOST }}
+      PRIMARY_API_DEPLOY_USER: ${{ secrets.PRIMARY_API_DEPLOY_USER }}
+      PRIMARY_API_DEPLOY_SSH_KEY: ${{ secrets.PRIMARY_API_DEPLOY_SSH_KEY }}
+      PRIMARY_API_DEPLOY_PATH: ${{ vars.PRIMARY_API_DEPLOY_PATH }}
+      PRIMARY_API_HOST: ${{ vars.PRIMARY_API_HOST || 'api.kobeapptz.com' }}
+      PRIMARY_API_PUBLIC_VERIFY: ${{ vars.PRIMARY_API_PUBLIC_VERIFY }}
+
+    steps:
+      - name: Check primary API configuration
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${PRIMARY_API_DEPLOY_HOST:-}" ] || missing+=("PRIMARY_API_DEPLOY_HOST")
+          [ -n "${PRIMARY_API_DEPLOY_USER:-}" ] || missing+=("PRIMARY_API_DEPLOY_USER")
+          [ -n "${PRIMARY_API_DEPLOY_SSH_KEY:-}" ] || missing+=("PRIMARY_API_DEPLOY_SSH_KEY")
+          [ -n "${PRIMARY_API_HOST:-}" ] || missing+=("PRIMARY_API_HOST")
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf '::error::Missing primary API production configuration: %s\n' "${missing[*]}"
+            exit 1
+          fi
+
+      - name: Deploy exact CI-validated commit to primary VPS
+        uses: appleboy/ssh-action@v1
+        env:
+          DEPLOY_SHA: ${{ env.DEPLOY_SHA }}
+          PRIMARY_API_DEPLOY_PATH: ${{ env.PRIMARY_API_DEPLOY_PATH }}
+          PRIMARY_API_HOST: ${{ env.PRIMARY_API_HOST }}
+        with:
+          host: ${{ env.PRIMARY_API_DEPLOY_HOST }}
+          username: ${{ env.PRIMARY_API_DEPLOY_USER }}
+          key: ${{ env.PRIMARY_API_DEPLOY_SSH_KEY }}
+          envs: DEPLOY_SHA,PRIMARY_API_DEPLOY_PATH,PRIMARY_API_HOST
+          script: |
+            set -euo pipefail
+            deploy_dir="${PRIMARY_API_DEPLOY_PATH:-$HOME/kobeos-primary-api}"
+            compose_file="server/docker-compose.primary-api.yml"
+            env_file="server/.env.primary-api"
+
+            if [ ! -d "$deploy_dir/.git" ]; then
+              mkdir -p "$deploy_dir"
+              git clone https://github.com/KobepayTech/kobeOs.git "$deploy_dir"
+            fi
+
+            cd "$deploy_dir"
+            git fetch --prune origin
+            git checkout --detach "$DEPLOY_SHA"
+            git reset --hard "$DEPLOY_SHA"
+
+            if [ ! -f "$env_file" ]; then
+              echo "Missing $deploy_dir/$env_file."
+              echo "Create it from server/.env.primary-api.example before deploying."
+              exit 1
+            fi
+
+            set_env() {
+              key="$1"
+              value="$2"
+              tmp="$(mktemp)"
+              grep -v "^$key=" "$env_file" > "$tmp" || true
+              printf '%s=%s\n' "$key" "$value" >> "$tmp"
+              mv "$tmp" "$env_file"
+            }
+
+            set_env API_HOST "$PRIMARY_API_HOST"
+
+            compose() {
+              docker compose --env-file "$env_file" -f "$compose_file" "$@"
+            }
+
+            compose config >/dev/null
+            compose build --pull api
+            compose up -d redis api caddy
+
+            for attempt in 1 2 3 4 5 6 7 8 9 10; do
+              if curl -fsS --connect-timeout 5 --max-time 10 http://127.0.0.1:3000/api/health >/dev/null; then
+                echo "Primary API healthy locally."
+                exit 0
+              fi
+              if [ "$attempt" -eq 10 ]; then
+                echo "Primary API failed its local health gate."
+                compose ps
+                exit 1
+              fi
+              sleep 5
+            done
+
+      - name: Verify public primary API after DNS cutover
+        if: ${{ env.PRIMARY_API_PUBLIC_VERIFY == 'true' }}
+        run: |
+          set -euo pipefail
+          headers="$(mktemp)"
+          for attempt in $(seq 1 18); do
+            if curl -fsS -D "$headers" --retry 1 --connect-timeout 10 --max-time 25 "https://$PRIMARY_API_HOST/api/health" >/dev/null; then
+              if grep -qi '^x-kobe-production-path: primary-vps' "$headers"; then
+                echo "Public primary API is healthy on the always-on VPS."
+                exit 0
+              fi
+              echo "Health passed but the primary-vps origin marker is not visible yet."
+            else
+              echo "Public primary API check $attempt/18 failed."
+            fi
+            sleep 5
+          done
+          echo "::error::api.kobeapptz.com did not verify against the primary-vps origin."
+          exit 1
