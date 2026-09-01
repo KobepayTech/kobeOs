@@ -135,7 +135,7 @@ export class AiOperatingController {
     @CurrentUser('role') role: string,
     @Param('id') id: string,
   ) {
-    return this.operating.approveWorkflow(ownerId, ownerId, id, role || 'user');
+    return this.operating.approveWorkflow(ownerId, id, ownerId, role || 'user');
   }
 
   @Post('workflows/:id/run')
