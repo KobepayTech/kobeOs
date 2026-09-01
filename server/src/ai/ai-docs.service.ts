@@ -24,7 +24,7 @@ export class AiDocsService {
   ) {}
 
   private embedModel(): string {
-    return process.env.OLLAMA_EMBED_MODEL || this.ai.getActiveModel();
+    return process.env.OLLAMA_EMBED_MODEL || 'nomic-embed-text';
   }
 
   /** Split text into overlapping passages (~900 chars, 120 overlap) on sensible boundaries. */
