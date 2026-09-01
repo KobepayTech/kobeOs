@@ -4,10 +4,12 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 
 /**
- * Guest messaging inbox stub. Threads are seeded; replies stay in local
- * state. When the comms backend (WhatsApp Business API + IMAP + web chat
- * webhook) lands, swap the seeds for a /hotel/threads fetch and POST
- * /hotel/threads/:id/messages on send.
+ * Guest messaging inbox. Ships with NO seeded conversations — real guest
+ * threads populate once a channel is connected (WhatsApp Business API + IMAP +
+ * web chat webhook), at which point this fetches /hotel/threads and POSTs
+ * /hotel/threads/:id/messages on send. Until then it shows an honest empty
+ * state rather than fabricated guests, and guest enquiries flow through the AI
+ * Receptionist (Reception → Leads).
  */
 
 type Channel = 'whatsapp' | 'email' | 'webchat';
@@ -24,65 +26,14 @@ interface Thread {
   messages: Message[];
 }
 
-const SEED_THREADS: Thread[] = [
-  {
-    id: 't1',
-    guestName: 'Sarah Johnson',
-    room: '#201',
-    channel: 'whatsapp',
-    lastAt: '2 min ago',
-    unread: 2,
-    messages: [
-      { from: 'guest', text: 'Hi, can we extend checkout to 2pm?', at: '11:24' },
-      { from: 'staff', text: 'Hi Sarah! Let me check availability and get back to you.', at: '11:26' },
-      { from: 'guest', text: 'Also, can we get extra towels?', at: '11:31' },
-      { from: 'guest', text: 'Thanks!', at: '11:31' },
-    ],
-  },
-  {
-    id: 't2',
-    guestName: 'Michael Chen',
-    room: '#203',
-    channel: 'email',
-    lastAt: '17 min ago',
-    unread: 1,
-    messages: [
-      { from: 'guest', text: 'Could you book us a table at the rooftop restaurant tonight at 7pm for 2?', at: '10:48' },
-    ],
-  },
-  {
-    id: 't3',
-    guestName: 'Theresa Webb',
-    room: '#B25',
-    channel: 'webchat',
-    lastAt: '1 hr ago',
-    unread: 0,
-    messages: [
-      { from: 'guest', text: 'Does the spa offer couples massage?', at: '09:50' },
-      { from: 'staff', text: 'Yes! 90-min couples massage is TZS 220K. Want me to book?', at: '09:55' },
-      { from: 'guest', text: 'Yes please, tomorrow 4pm if possible.', at: '10:05' },
-      { from: 'staff', text: 'Booked. Confirmation in your room phone.', at: '10:08' },
-    ],
-  },
-  {
-    id: 't4',
-    guestName: 'Jerome Bell',
-    room: '#H29',
-    channel: 'whatsapp',
-    lastAt: 'yesterday',
-    unread: 0,
-    messages: [
-      { from: 'guest', text: 'AC in the room is too loud at night.', at: 'yest 22:14' },
-      { from: 'staff', text: 'Maintenance ticket #M178 opened. Engineer will visit by 11am.', at: 'yest 22:20' },
-    ],
-  },
-];
-
 interface Props { darkMode: boolean }
 
 export default function GuestInboxTab({ darkMode }: Props) {
-  const [threads, setThreads] = useState<Thread[]>(SEED_THREADS);
-  const [activeId, setActiveId] = useState<string>(SEED_THREADS[0].id);
+  // No seeded data — real threads arrive from /hotel/threads once a comms
+  // channel is connected. Shipping an empty inbox is correct for MVP; it never
+  // shows fabricated guests.
+  const [threads, setThreads] = useState<Thread[]>([]);
+  const [activeId, setActiveId] = useState<string>('');
   const [filter, setFilter] = useState<'all' | Channel>('all');
   const [search, setSearch] = useState('');
   const [draft, setDraft] = useState('');
@@ -93,7 +44,7 @@ export default function GuestInboxTab({ darkMode }: Props) {
     return true;
   }), [threads, filter, search]);
 
-  const active = threads.find((t) => t.id === activeId) ?? threads[0];
+  const active = threads.find((t) => t.id === activeId) ?? filtered[0];
 
   const send = () => {
     const text = draft.trim();
@@ -198,6 +149,13 @@ export default function GuestInboxTab({ darkMode }: Props) {
 
         {/* Active thread */}
         <div className="col-span-8 flex flex-col">
+          {!active ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-center px-8">
+              <MessageSquare className={`w-10 h-10 mb-3 ${darkMode ? 'text-gray-600' : 'text-gray-300'}`} />
+              <p className="font-bold">No guest messages yet</p>
+              <p className={`text-xs mt-1 max-w-xs ${darkMode ? 'text-gray-500' : 'text-gray-400'}`}>Connect WhatsApp, email or web chat to receive guest messages here. Guest enquiries also arrive through the AI Receptionist (Reception → Leads).</p>
+            </div>
+          ) : (<>
           <div className={`px-5 py-3 border-b ${darkMode ? 'border-white/[0.06]' : 'border-gray-200'}`}>
             <div className="flex items-center justify-between">
               <div>
@@ -238,6 +196,7 @@ export default function GuestInboxTab({ darkMode }: Props) {
               <Send className="w-4 h-4" />
             </Button>
           </div>
+          </>)}
         </div>
       </div>
     </div>

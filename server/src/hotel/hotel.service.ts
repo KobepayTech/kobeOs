@@ -540,13 +540,16 @@ export class HotelChainService {
       const hotels = await this.tenantRepo.find({ where: { ownerId } });
       const perHotel = await Promise.all(
         hotels.map(async (h) => {
-          const rooms = await this.roomRepo.count({ where: { ownerId, id: undefined } });
-          const hotelRooms = await this.roomRepo.find({ where: { ownerId } });
-          const hotelRoomIds = hotelRooms.map((r) => r.id);
+          // Every count is scoped to this hotel (hotelId: h.id) — previously they
+          // filtered by ownerId only, so every hotel in a multi-property account
+          // reported identical owner-wide totals. Rows with a null hotelId are
+          // legacy/shared and are intentionally not attributed to any one hotel.
+          const hotelRooms = await this.roomRepo.find({ where: { ownerId, hotelId: h.id } });
+          const rooms = hotelRooms.length;
           const hOccupied = hotelRooms.filter((r) => r.status === 'occupied').length;
           const hOccupancy = rooms > 0 ? Math.round((hOccupied / rooms) * 100) : 0;
-          const hGuests = await this.guestRepo.count({ where: { ownerId } });
-          const hBookings = await this.bookingRepo.count({ where: { ownerId, status: 'CONFIRMED' } });
+          const hGuests = await this.guestRepo.count({ where: { ownerId, hotelId: h.id } });
+          const hBookings = await this.bookingRepo.count({ where: { ownerId, hotelId: h.id, status: 'CONFIRMED' } });
           return {
             hotelId: h.id,
             name: h.name,
