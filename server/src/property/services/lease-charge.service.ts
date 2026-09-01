@@ -41,12 +41,29 @@ export class RentChargesService extends OwnedCrudService<RentCharge> {
     @InjectRepository(PropertyLease) private readonly leasesRepo: Repository<PropertyLease>,
   ) { super(repo); }
 
-  listByPeriod(ownerId: string, period?: string) {
-    return period ? this.repo.find({ where: { ownerId, period }, order: { dueDate: 'ASC' } }) : this.list(ownerId);
+  async listByPeriod(ownerId: string, period?: string) {
+    const rows = period
+      ? await this.repo.find({ where: { ownerId, period }, order: { dueDate: 'ASC' } })
+      : await this.repo.find({ where: { ownerId }, order: { dueDate: 'DESC' } });
+    return this.refreshStatuses(rows);
   }
 
-  byTenant(ownerId: string, tenantId: string) {
-    return this.repo.find({ where: { ownerId, tenantId }, order: { dueDate: 'DESC' } });
+  async byTenant(ownerId: string, tenantId: string) {
+    const rows = await this.repo.find({ where: { ownerId, tenantId }, order: { dueDate: 'DESC' } });
+    return this.refreshStatuses(rows);
+  }
+
+  private async refreshStatuses(rows: RentCharge[]) {
+    const changed: RentCharge[] = [];
+    for (const row of rows) {
+      const next = chargeStatus(row);
+      if (next !== row.status) {
+        row.status = next;
+        changed.push(row);
+      }
+    }
+    if (changed.length) await this.repo.save(changed);
+    return rows;
   }
 
   override create(ownerId: string, data: DeepPartial<RentCharge>) {
