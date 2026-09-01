@@ -1,0 +1,130 @@
+version: '3.9'
+
+# Independent KobeOS production path.
+#
+# This stack intentionally contains NO cloudflared service. It is designed for
+# a second VPS/provider with public 80/443 and an independent DNS hostname.
+# Both primary and backup API processes use the SAME managed PostgreSQL
+# database, so failover never forks hotel/bookings/commerce data.
+#
+# Usage:
+#   cp .env.backup.example .env.backup
+#   # fill secrets + independent hostnames
+#   docker compose --env-file .env.backup -f docker-compose.backup.yml up -d --build
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: kobepay/kobe-studio-api:backup
+    restart: unless-stopped
+    env_file: .env.backup
+    environment:
+      NODE_ENV: production
+      DB_HOST: ${DB_HOST:?DB_HOST must point to the shared managed PostgreSQL service}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USERNAME: ${DB_USERNAME:?DB_USERNAME is required}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      DB_DATABASE: ${DB_DATABASE:-kobeos}
+      DB_SSL: ${DB_SSL:-true}
+      DB_SSL_REJECT_UNAUTHORIZED: ${DB_SSL_REJECT_UNAUTHORIZED:-true}
+      DB_SYNCHRONIZE: "false"
+      DB_MIGRATIONS_RUN: "true"
+      REDIS_URL: redis://redis:6379
+      TENANT_BASE_DOMAIN: ${TENANT_BASE_DOMAIN:-kobeapptz.com}
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://kobepaytech.github.io}
+      APP_PUBLIC_URL: https://${BACKUP_API_HOST:?BACKUP_API_HOST is required}
+    ports:
+      # Loopback-only: deployment health checks can reach the API directly,
+      # but the public internet still enters only through Caddy on 80/443.
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - kobe-backup
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - kobe-backup-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - kobe-backup
+
+  web:
+    build:
+      context: ..
+      dockerfile: Dockerfile.web
+      args:
+        # On the independent site, prefer the independent API first. If only
+        # the backup VPS is unhealthy, read requests may fall back to Cloudflare.
+        VITE_API_BASE: https://${BACKUP_API_HOST:?BACKUP_API_HOST is required}/api
+        VITE_API_FALLBACK_BASE: https://api.kobeapptz.com/api
+        VITE_TENANT_BASE_DOMAIN: ${TENANT_BASE_DOMAIN:-kobeapptz.com}
+        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
+    image: kobepay/kobe-web:backup
+    restart: unless-stopped
+    expose:
+      - "80"
+    networks:
+      - kobe-backup
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      BACKUP_API_HOST: ${BACKUP_API_HOST:?BACKUP_API_HOST is required}
+      BACKUP_WEB_HOST: ${BACKUP_WEB_HOST:?BACKUP_WEB_HOST is required}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL is required}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile.backup:/etc/caddy/Caddyfile:ro
+      - kobe-backup-caddy-data:/data
+      - kobe-backup-caddy-config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_started
+    networks:
+      - kobe-backup
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  kobe-backup-redis:
+  kobe-backup-caddy-data:
+  kobe-backup-caddy-config:
+
+networks:
+  kobe-backup:
+    driver: bridge
