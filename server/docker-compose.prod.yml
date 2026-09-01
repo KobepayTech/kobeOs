@@ -22,8 +22,11 @@ services:
     env_file: .env
     environment:
       NODE_ENV: production
-      DB_HOST: postgres
-      DB_PORT: 5432
+      # Explicit opt-in keeps existing Docker installs compatible even when
+      # their legacy .env still says DB_HOST=localhost. Dual-origin production
+      # sets KOBE_SHARED_DB_HOST to the managed PostgreSQL endpoint.
+      DB_HOST: ${KOBE_SHARED_DB_HOST:-postgres}
+      DB_PORT: ${KOBE_SHARED_DB_PORT:-5432}
       DB_SYNCHRONIZE: "false"
       DB_MIGRATIONS_RUN: "true"
       REDIS_URL: redis://redis:6379
@@ -108,6 +111,7 @@ services:
       dockerfile: Dockerfile.web
       args:
         VITE_API_BASE: ${VITE_API_BASE:-https://api.kobeapptz.com/api}
+        VITE_API_FALLBACK_BASE: ${VITE_API_FALLBACK_BASE:-}
         VITE_TENANT_BASE_DOMAIN: ${VITE_TENANT_BASE_DOMAIN:-kobeapptz.com}
         VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
     image: kobepay/kobe-web:latest
