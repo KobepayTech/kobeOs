@@ -151,6 +151,58 @@ export class LalaService {
     return rows.sort((a, b) => Number(b.profile.guestRating) - Number(a.profile.guestRating));
   }
 
+  async backupSnapshot() {
+    const rows = await this.search({});
+    const visibleHotelIds = new Set(rows.map((row) => String(row.hotel.id)));
+    const [hotels, menuItems] = await Promise.all([
+      this.hotels.find(),
+      this.repo(HotelMenuItem).find({ where: { available: true } }),
+    ]);
+    const visibleHotels = hotels.filter((hotel) => visibleHotelIds.has(hotel.id));
+    const menus: Array<{
+      hotelSlug: string;
+      item: {
+        id: string;
+        name: string;
+        category: string;
+        price: number;
+        currency: string;
+        available: boolean;
+        station: 'kitchen' | 'bar' | 'other';
+        imageUrl: string;
+      };
+    }> = [];
+
+    for (const item of menuItems) {
+      const targets = item.hotelId
+        ? visibleHotels.filter((hotel) => hotel.id === item.hotelId)
+        : visibleHotels.filter((hotel) => hotel.ownerId === item.ownerId);
+      for (const hotel of targets) {
+        menus.push({
+          hotelSlug: hotel.slug,
+          item: {
+            id: item.id,
+            name: item.name,
+            category: item.category,
+            price: Number(item.price),
+            currency: item.currency,
+            available: item.available,
+            station: item.station,
+            imageUrl: item.imageUrl ?? '',
+          },
+        });
+      }
+    }
+
+    return {
+      version: 1,
+      generatedAt: new Date().toISOString(),
+      rows,
+      menus,
+    };
+  }
+
+
   async passport(input: { phone: string; name: string; email?: string; nationality?: string; preferences?: Record<string, unknown>; privacy?: Record<string, boolean> }) {
     const phone = normalizePhone(input.phone);
     if (!phone || !input.name?.trim()) throw new BadRequestException('Name and phone are required');
