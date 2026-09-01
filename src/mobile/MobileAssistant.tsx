@@ -318,7 +318,7 @@ export function MobileAssistant() {
             {/* Chat Interface */}
             <div className="min-h-0 flex-1">
               <KobeAssistant
-                responseMode="fast"
+                responseMode="quality"
                 contextLabel="KobeOS mobile"
               />
             </div>
