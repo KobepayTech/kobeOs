@@ -149,12 +149,27 @@ export class KobeAgentService {
     }
   }
 
-  private async installedPackIds(ownerId: string) {
+  private readonly packTools: Record<string, string[]> = {
+    'core-operator': ['semantic_search', 'search_documents', 'remember', 'diagnose_system', 'configure_automation', 'business_health'],
+    accountant: ['sales_today', 'expenses_summary', 'sales_forecast', 'record_expense', 'business_health'],
+    'hotel-manager': ['hotel_occupancy', 'hotel_revenue', 'create_booking', 'set_room_status'],
+    'property-manager': ['unpaid_tenants', 'rent_projection', 'set_rent', 'add_tenant', 'record_rent_payment', 'send_tenant_notification'],
+    'retail-manager': ['sales_today', 'low_stock', 'top_rated_products', 'warehouse_stock', 'adjust_stock', 'add_product'],
+    'cargo-manager': ['cargo_status'],
+    'sacco-credit': ['semantic_search', 'search_documents'],
+    recruitment: ['semantic_search', 'search_documents'],
+    'creator-growth': ['semantic_search', 'search_documents'],
+    'school-admin': ['semantic_search', 'search_documents'],
+  };
+
+  private async installedPackState(ownerId: string) {
     try {
-      const rows = await this.skillInstalls.find({ where: { ownerId, enabled: true }, take: 100 });
-      return rows.map((row) => row.skillId);
+      const rows = await this.skillInstalls.find({ where: { ownerId }, take: 100 });
+      if (!rows.length) return { packIds: ['core-operator'], configured: false };
+      const enabled = rows.filter((row) => row.enabled).map((row) => row.skillId);
+      return { packIds: ['core-operator', ...enabled.filter((id) => id !== 'core-operator')], configured: true };
     } catch {
-      return [];
+      return { packIds: ['core-operator'], configured: false };
     }
   }
 
@@ -1112,11 +1127,11 @@ export class KobeAgentService {
 
     activity('retrieving', 'Searching memory and business knowledge…');
     const relevantHistory = this.selectRelevantHistory(message, history, mode);
-    const [facts, knowledge, graphMemory, installedPacks, plan] = await Promise.all([
+    const [facts, knowledge, graphMemory, packState, plan] = await Promise.all([
       this.getFacts(ownerId),
       mode === 'quality' ? this.retrieveKnowledge(ownerId, message) : Promise.resolve([]),
       this.structuredMemory(ownerId, message),
-      this.installedPackIds(ownerId),
+      this.installedPackState(ownerId),
       this.ai.planAssistant(
         message,
         this.tools.map(({ name, description }) => ({ name, description })),
@@ -1134,7 +1149,7 @@ export class KobeAgentService {
     const screenBlock = requestContext.screenLabel || requestContext.entityLabel
       ? `\nLive screen context: module=${requestContext.module || requestContext.appId || 'unknown'}; screen=${requestContext.screenLabel || ''}; selected=${requestContext.entityType || ''} ${requestContext.entityLabel || ''} ${requestContext.entityId || ''}; fields=${JSON.stringify(requestContext.fields || {})}. Treat this as navigation context, not independent proof of financial facts.\n`
       : '';
-    const packBlock = installedPacks.length ? `\nInstalled Kobe skill packs: ${installedPacks.join(', ')}.\n` : '';
+    const packBlock = packState.packIds.length ? `\nInstalled Kobe skill packs: ${packState.packIds.join(', ')}.\n` : '';
     activity('routing', plan.domain === 'general' ? 'Choosing the best AI skill…' : `Routing to ${plan.domain} specialist…`);
 
     const spec = plan.domain === 'general' ? null : this.specialists[plan.domain];
@@ -1142,8 +1157,10 @@ export class KobeAgentService {
     const persona = spec?.persona ?? 'You are Kobe, the cross-business operating assistant inside KobeOS.';
     const allowedNames = spec ? new Set([...spec.tools, ...this.sharedTools]) : new Set(this.tools.map((tool) => tool.name));
     const restrictedRole = ['government_viewer', 'settlement_officer', 'compliance_officer', 'traffic_enforcement'].includes(requestContext.role || '');
+    const packAllowed = new Set(packState.packIds.flatMap((id) => this.packTools[id] || []));
     const plannedCalls = plan.toolCalls
       .filter((call) => allowedNames.has(call.tool))
+      .filter((call) => !packState.configured || packAllowed.has(call.tool) || this.sharedTools.includes(call.tool))
       .filter((call) => !restrictedRole || !this.tools.find((tool) => tool.name === call.tool)?.write)
       .slice(0, 4);
 
