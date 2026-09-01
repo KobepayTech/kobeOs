@@ -62,7 +62,8 @@ export function selectInstalledModel(
   activeModel: string,
 ): string {
   const match = (candidate: string) =>
-    installed.find((name) => name === candidate || name.split(':')[0] === candidate.split(':')[0]);
+    installed.find((name) => name === candidate)
+    ?? installed.find((name) => name.split(':')[0] === candidate.split(':')[0]);
 
   if (requested) {
     const exact = match(requested);
