@@ -10,8 +10,8 @@ import {
  * in the property switcher. Aggregates KPIs across every hotel in the
  * portfolio and lets the owner drill into any single property.
  *
- * Data is currently seeded (no `/hotel/portfolio` endpoint yet); replace
- * `DEMO_PORTFOLIO` with a fetch once the backend exposes it.
+ * Production data comes from `/hotel/portfolio`. Demo rows are restricted to
+ * local Vite development so production totals never display fixture revenue.
  */
 
 export interface PortfolioHotel {
@@ -43,7 +43,7 @@ const DEMO_PORTFOLIO: PortfolioHotel[] = [
 ];
 
 export function getPortfolio(): PortfolioHotel[] {
-  return DEMO_PORTFOLIO;
+  return import.meta.env.DEV ? DEMO_PORTFOLIO : [];
 }
 
 interface BackendPortfolioEntry {
@@ -67,14 +67,13 @@ interface BackendPortfolioEntry {
 const FALLBACK_THUMB = 'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=600&h=360&fit=crop';
 
 /**
- * Fetches the multi-property portfolio from the backend. Returns null when
- * the caller is not authenticated or has no tenants configured yet — callers
- * should fall back to `getPortfolio()` for the demo dataset in that case.
+ * Fetches the multi-property portfolio from the backend. An empty array is a
+ * valid production state; null means the request itself failed.
  */
 export async function fetchPortfolio(): Promise<PortfolioHotel[] | null> {
   try {
     const rows = await api<BackendPortfolioEntry[]>('/hotel/portfolio');
-    if (!Array.isArray(rows) || rows.length === 0) return null;
+    if (!Array.isArray(rows)) return [];
     return rows.map((row) => ({
       id: row.id,
       name: row.name,
@@ -100,7 +99,7 @@ interface Props {
   onRefresh?: () => void | Promise<void>;
 }
 
-export default function HotelPortfolioDashboard({ hotels = DEMO_PORTFOLIO, onSelectHotel, onRefresh }: Props) {
+export default function HotelPortfolioDashboard({ hotels = [], onSelectHotel, onRefresh }: Props) {
   const totals = useMemo(() => {
     const roomsTotal     = hotels.reduce((s, h) => s + h.roomsTotal, 0);
     const occupied       = hotels.reduce((s, h) => s + h.occupied, 0);
@@ -124,10 +123,10 @@ export default function HotelPortfolioDashboard({ hotels = DEMO_PORTFOLIO, onSel
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-        <GroupKpi tone="emerald" icon={<Wallet className="w-4 h-4" />}     title="Revenue Today" value={formatTZS(totals.revenueToday)} delta="18%" dir="up" sub="vs yesterday" />
-        <GroupKpi tone="sky"     icon={<BedDouble className="w-4 h-4" />}  title="Occupancy"     value={`${totals.occupancyPct}%`}        delta="6%"  dir="up" sub={`${totals.occupied} / ${totals.roomsTotal} rooms`} />
-        <GroupKpi tone="amber"   icon={<TrendingUp className="w-4 h-4" />} title="Group RevPAR"  value={formatTZS(totals.groupRevPar)}    delta="9%"  dir="up" sub={`ADR ${formatTZS(totals.groupAdr)}`} />
-        <GroupKpi tone="rose"    icon={<AlertTriangle className="w-4 h-4" />} title="Open Alerts" value={String(totals.alerts)}         delta="2"   dir="down" sub="across all hotels" />
+        <GroupKpi tone="emerald" icon={<Wallet className="w-4 h-4" />} title="Revenue Today" value={formatTZS(totals.revenueToday)} sub="across all hotels" />
+        <GroupKpi tone="sky" icon={<BedDouble className="w-4 h-4" />} title="Occupancy" value={`${totals.occupancyPct}%`} sub={`${totals.occupied} / ${totals.roomsTotal} rooms`} />
+        <GroupKpi tone="amber" icon={<TrendingUp className="w-4 h-4" />} title="Group RevPAR" value={formatTZS(totals.groupRevPar)} sub={`ADR ${formatTZS(totals.groupAdr)}`} />
+        <GroupKpi tone="rose" icon={<AlertTriangle className="w-4 h-4" />} title="Open Alerts" value={String(totals.alerts)} sub="across all hotels" />
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
@@ -364,7 +363,7 @@ function GroupKpi({
 }: {
   tone: 'emerald' | 'sky' | 'amber' | 'rose';
   icon: React.ReactNode; title: string; value: string;
-  delta: string; dir: 'up' | 'down'; sub: string;
+  delta?: string; dir?: 'up' | 'down'; sub: string;
 }) {
   const palette = {
     emerald: { card: 'bg-emerald-50 border-emerald-100', iconBg: 'bg-emerald-500', delta: 'text-emerald-600' },
@@ -372,16 +371,16 @@ function GroupKpi({
     amber:   { card: 'bg-amber-50 border-amber-100',     iconBg: 'bg-amber-500',   delta: 'text-amber-600' },
     rose:    { card: 'bg-rose-50 border-rose-100',       iconBg: 'bg-rose-500',    delta: 'text-rose-600' },
   }[tone];
-  const DeltaIcon = dir === 'up' ? ArrowUpRight : ArrowDownRight;
+  const DeltaIcon = dir === 'down' ? ArrowDownRight : ArrowUpRight;
   return (
     <div className={`rounded-2xl border ${palette.card} p-3`}>
       <div className="flex items-center justify-between mb-2">
         <div className={`w-7 h-7 rounded-md ${palette.iconBg} text-white flex items-center justify-center`}>
           {icon}
         </div>
-        <span className={`inline-flex items-center gap-0.5 text-[10px] font-extrabold ${palette.delta}`}>
+        {delta && <span className={`inline-flex items-center gap-0.5 text-[10px] font-extrabold ${palette.delta}`}>
           <DeltaIcon className="w-3 h-3" />{delta}
-        </span>
+        </span>}
       </div>
       <div className="text-[11px] font-semibold text-slate-700 leading-tight">{title}</div>
       <div className="mt-1 flex items-baseline justify-between gap-2">
