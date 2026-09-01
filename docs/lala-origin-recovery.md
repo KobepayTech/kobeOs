@@ -82,3 +82,25 @@ uploaded to Actions):
 Do not add a port-80 requirement to this origin check. The Lala SPA is served by
 Cloudflare Pages; this machine is responsible for the API on port 3000.
 
+## Alternative origin: a Linux always-on server (docker)
+
+The Windows box above is the current origin. The other supported way to run the
+origin is the containerised stack in `server/docker-compose.prod.yml` on an
+always-on Linux host — the path that makes `api.kobeapptz.com` independent of any
+one desktop. It became viable once every entity table gained a migration
+(`server/src/migrations/1784600000000-MvpSchemaCompletion.ts`), because that
+deploy runs `DB_MIGRATIONS_RUN=true` with `synchronize` off.
+
+On that path the recovery layer is different from the Windows self-heal:
+
+- **HA tunnel:** the compose file runs two `cloudflared` connectors
+  (`cloudflared` + `cloudflared-ha`) on the same token, so one connector dying
+  never black-holes the API.
+- **Self-heal:** `deploy/uptime-watchdog.sh` (installed via
+  `deploy/kobeos-watchdog.service` + `.timer`) probes
+  `https://api.kobeapptz.com/api/health` every 60s and runs
+  `docker compose up -d` + restarts the connectors when it is not `200`.
+
+Run **one** origin, not both. The Windows self-heal (`lala-origin-selfheal.yml`)
+and this docker watchdog are alternatives, not layers on the same host.
+
