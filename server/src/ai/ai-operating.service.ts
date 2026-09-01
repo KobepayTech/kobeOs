@@ -246,6 +246,19 @@ export class AiOperatingService {
     return node;
   }
 
+  private approvalChain(actorRole: string, amount?: number, highRisk = false) {
+    const needsAdmin = highRisk || Number(amount || 0) >= 1_000_000;
+    if (actorRole === 'admin') {
+      return [{ role: 'admin', label: needsAdmin ? 'Owner / admin approval' : 'Business approval', status: 'PENDING' as const }];
+    }
+    return needsAdmin
+      ? [
+          { role: actorRole || 'user', label: 'Requesting manager approval', status: 'PENDING' as const },
+          { role: 'admin', label: 'Owner / admin approval', status: 'PENDING' as const },
+        ]
+      : [{ role: actorRole || 'user', label: 'Business approval', status: 'PENDING' as const }];
+  }
+
   async createWorkflow(ownerId: string, objective: string, context: Record<string, unknown> = {}) {
     const clean = objective.trim();
     if (!clean) throw new BadRequestException('Workflow objective is required');
@@ -325,7 +338,7 @@ export class AiOperatingService {
           actionType: 'workflow_step',
           summary: `Approve workflow “${plan.title}” to continue`,
           payload: { workflowId: plan.id, stepId: step.id },
-          chain: [{ role: actorRole === 'admin' ? 'admin' : 'user', label: 'Business approval', status: 'PENDING' }],
+          chain: this.approvalChain(actorRole, undefined, plan.riskLevel === 'high'),
         });
         step.status = 'PENDING';
         plan.status = 'APPROVAL_REQUIRED';
@@ -337,12 +350,15 @@ export class AiOperatingService {
       step.result = { reply: response.reply, data: response.data, used: response.used };
       summary = response.reply;
       if (response.pendingAction) {
+        const actionAmount = Number(response.pendingAction.args?.amount || response.pendingAction.args?.total || 0) || undefined;
         const approval = await this.createApproval(ownerId, {
           workflowId: plan.id,
           actionType: response.pendingAction.tool,
           summary: response.pendingAction.summary,
           payload: response.pendingAction,
-          chain: [{ role: actorRole === 'admin' ? 'admin' : 'user', label: 'Business approval', status: 'PENDING' }],
+          amount: actionAmount,
+          currency: String(response.pendingAction.args?.currency || 'TZS'),
+          chain: this.approvalChain(actorRole, actionAmount, plan.riskLevel === 'high'),
         });
         step.status = 'DONE';
         plan.status = 'APPROVAL_REQUIRED';
@@ -448,6 +464,10 @@ export class AiOperatingService {
       filters: {},
       createdByAi: true,
     }));
+    await this.audit(ownerId, null, 'user', 'DASHBOARD_GENERATED', 'dashboard', dashboard.name, '', '', 1, [], {
+      dashboardId: dashboard.id,
+      widgets: dashboard.widgets.map((widget) => widget.source),
+    });
     return dashboard;
   }
 
@@ -481,7 +501,7 @@ export class AiOperatingService {
     };
     const baselineNet = baseline.sales + baseline.monthlyRent + baseline.hotelRevenue - baseline.expenses;
     const projectedNet = projected.sales + projected.monthlyRent + projected.hotelRevenue - projected.expenses;
-    return {
+    const result = {
       currency: 'TZS',
       baseline,
       scenario,
@@ -492,6 +512,13 @@ export class AiOperatingService {
       confidence: 0.65,
       note: 'Scenario uses current KobeOS operating values and simple percentage sensitivities; it is a planning model, not a guarantee.',
     };
+    await this.audit(ownerId, null, 'user', 'BUSINESS_SIMULATION', 'simulation', 'scenario', '', 'business_health', result.confidence, [
+      { kind: 'tool', label: 'sales_today', ref: 'sales_today' },
+      { kind: 'tool', label: 'expenses_summary', ref: 'expenses_summary' },
+      { kind: 'tool', label: 'rent_projection', ref: 'rent_projection' },
+      { kind: 'tool', label: 'hotel_revenue', ref: 'hotel_revenue' },
+    ], { scenario, baseline, projected, netChange: result.netChange });
+    return result;
   }
 
   async refreshInsights(ownerId: string) {
@@ -500,11 +527,19 @@ export class AiOperatingService {
     for (const alert of briefing.alerts || []) {
       const dedupeKey = `${alert.severity}:${alert.text}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 120);
       let row = await this.insights.findOne({ where: { ownerId, dedupeKey } });
+      const wasNew = !row;
       if (!row) row = this.insights.create({ ownerId, dedupeKey, insightType: 'business_alert', severity: alert.severity === 'warning' ? 'warning' : 'info', title: 'Kobe noticed something', summary: alert.text, evidence: {}, status: 'OPEN' });
       row.summary = alert.text;
       row.severity = alert.severity === 'warning' ? 'warning' : 'info';
       if (row.status === 'RESOLVED') row.status = 'OPEN';
-      saved.push(await this.insights.save(row));
+      const stored = await this.insights.save(row);
+      saved.push(stored);
+      if (wasNew) {
+        await this.audit(ownerId, null, 'system', 'PROACTIVE_INSIGHT_CREATED', 'insights', stored.summary.slice(0, 500), '', '', alert.severity === 'warning' ? 0.9 : 0.8, [], {
+          insightId: stored.id,
+          severity: stored.severity,
+        });
+      }
     }
     return saved;
   }
