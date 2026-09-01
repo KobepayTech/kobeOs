@@ -33,8 +33,8 @@ function formatRelative(iso: string): string {
  *   GET /hotel/rooms     → KPI tile counts + room thumbnails + Room Clean table
  *   GET /hotel/bookings  → Guest List table + arrival / departure KPIs
  *
- * Falls back to demo fixtures so the screen renders cleanly on a fresh
- * install with no live data.
+ * Operational rows are fetched from the hotel APIs. Development fixtures stay
+ * local-only and are never used to inflate production portfolio totals.
  */
 
 interface ApiRoom    { id: string | number; number?: string; type?: string; status?: string; imageUrl?: string }
@@ -126,12 +126,11 @@ export default function HotelBookersDashboard() {
   const [guests, setGuests]   = useState<GuestRow[]>(DEMO_GUESTS);
   const [maintenance, setMaintenance] = useState<MaintenanceRow[]>(DEMO_MAINTENANCE);
 
-  // Replace the seeded demo portfolio with the real backend list on mount.
-  // Falls back to demo if the user is offline / unauthenticated / hasn't
-  // configured any properties yet.
+  // Replace any local-development fixtures with the real backend list on mount.
+  // Empty is a valid production portfolio and must not be replaced by demo totals.
   const reloadPortfolio = useCallback(async () => {
     const real = await fetchPortfolio();
-    if (real && real.length > 0) setPortfolio(real);
+    if (real !== null) setPortfolio(real);
   }, []);
 
   useEffect(() => { void reloadPortfolio(); }, [reloadPortfolio]);
