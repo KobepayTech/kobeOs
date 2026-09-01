@@ -121,7 +121,7 @@ async function ensurePrimaryPassport(backupToken: string) {
     .eq("qr_token", backupToken)
     .maybeSingle();
   if (error) throw error;
-  if (!passport) throw new Error("Backup passport not found");
+  if (!passport) return backupToken;
   if (passport.primary_passport_token) return passport.primary_passport_token;
 
   const { response, body } = await primaryJson("/lala-public/passports", {
@@ -293,18 +293,26 @@ async function passportView(backupToken: string) {
   const { data: passport, error } = await db.from("kobe_backup_passports")
     .select("*").eq("qr_token", backupToken).maybeSingle();
   if (error) throw error;
-  if (!passport) throw Object.assign(new Error("Passport not found"), { status: 404 });
 
-  // When primary is healthy, return its richer history but keep the backup token
-  // usable during later outages.
-  if (passport.primary_passport_token) {
-    try {
-      const { response, body } = await primaryJson(
-        `/lala-public/passports/${encodeURIComponent(passport.primary_passport_token)}`
-      );
-      if (response.ok) return body;
-    } catch { /* backup view below */ }
-  }
+  // If this token came from primary before the Supabase backup existed, try it
+  // directly. During an outage that request may fail, but queued bookings can
+  // still be shown and replayed later without copying private passport data.
+  const primaryToken = passport?.primary_passport_token || backupToken;
+  try {
+    const { response, body } = await primaryJson(
+      `/lala-public/passports/${encodeURIComponent(primaryToken)}`
+    );
+    if (response.ok) return body;
+  } catch { /* independent backup view below */ }
+
+  const localPassport = passport || {
+    passport_number: "LALA-BACKUP",
+    name: "Lala guest",
+    phone: "",
+    nationality: "",
+    preferences: {},
+    privacy: { shareName: true, sharePhone: false, shareHistory: false },
+  };
 
   const { data: queued } = await db.from("kobe_backup_queue")
     .select("*")
@@ -335,11 +343,11 @@ async function passportView(backupToken: string) {
 
   return {
     passport: {
-      passportNumber: passport.passport_number,
-      name: passport.privacy?.shareName === false ? "Lala guest" : passport.name,
-      phone: passport.privacy?.sharePhone === false ? "" : passport.phone,
-      nationality: passport.nationality,
-      preferences: passport.preferences,
+      passportNumber: localPassport.passport_number,
+      name: localPassport.privacy?.shareName === false ? "Lala guest" : localPassport.name,
+      phone: localPassport.privacy?.sharePhone === false ? "" : localPassport.phone,
+      nationality: localPassport.nationality,
+      preferences: localPassport.preferences,
     },
     rewards: { points: 0, tier: "Explorer", verifiedStays: 0 },
     hotelLoyalty: [],
@@ -350,9 +358,9 @@ async function passportView(backupToken: string) {
 }
 
 async function queueBooking(body: any) {
-  const { data: passport } = await db.from("kobe_backup_passports")
-    .select("qr_token").eq("qr_token", body.passportToken).maybeSingle();
-  if (!passport) throw Object.assign(new Error("Valid Lala Passport is required"), { status: 400 });
+  if (!String(body.passportToken || "").trim()) {
+    throw Object.assign(new Error("Lala Passport token is required"), { status: 400 });
+  }
 
   const key = await digest(JSON.stringify({
     passportToken: body.passportToken,
