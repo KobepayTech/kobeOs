@@ -17,7 +17,26 @@ function speakable(text: string): string {
 interface PendingAction { tool: string; summary: string; args: Record<string, unknown> }
 interface BriefingAlert { severity: 'info' | 'warning'; text: string; action?: { label: string; tool?: string; args?: Record<string, unknown>; endpoint?: string; method?: 'POST' | 'PUT' } }
 interface Msg { role: 'user' | 'assistant'; content: string; data?: unknown; pending?: PendingAction | null; alerts?: BriefingAlert[] }
-interface AssistantSkill { name: string; description: string; write: boolean }
+interface AssistantSkill {
+  name: string;
+  description: string;
+  write: boolean;
+  kind?: 'read' | 'action';
+  domains?: string[];
+}
+interface AssistantActivity {
+  stage: 'understanding' | 'retrieving' | 'routing' | 'checking_data' | 'preparing_action' | 'thinking' | 'responding';
+  label: string;
+  detail?: string;
+}
+interface KnowledgeStatus {
+  skills: number;
+  documents: number;
+  documentPassages: number;
+  indexedBusinessRecords: number;
+  rememberedFacts: number;
+  sources?: Array<{ id: string; label: string; ready: boolean; count?: number }>;
+}
 
 const FALLBACK_SKILLS: AssistantSkill[] = [
   { name: 'sales_today', description: 'Today’s orders and sales revenue.', write: false },
@@ -131,6 +150,8 @@ export default function KobeAssistant({
   const [busy, setBusy] = useState(false);
   const [listening, setListening] = useState(false);
   const [skills, setSkills] = useState<AssistantSkill[]>(FALLBACK_SKILLS);
+  const [knowledge, setKnowledge] = useState<KnowledgeStatus | null>(null);
+  const [activity, setActivity] = useState<AssistantActivity | null>(null);
   const [showSkills, setShowSkills] = useState(false);
   // Voice mode: read Kobe's replies aloud, and auto-send after dictation (hands-free).
   const [voice, setVoice] = useState(false);
@@ -214,13 +235,18 @@ export default function KobeAssistant({
 
   useEffect(() => {
     let cancelled = false;
-    api<unknown>('/ai/skills', { offlineFallback: false })
-      .then((response) => {
-        const available = apiArray<AssistantSkill>(response, ['skills'])
+    Promise.allSettled([
+      api<unknown>('/ai/skills', { offlineFallback: false }),
+      api<KnowledgeStatus>('/ai/knowledge', { offlineFallback: false }),
+    ]).then(([skillResult, knowledgeResult]) => {
+      if (cancelled) return;
+      if (skillResult.status === 'fulfilled') {
+        const available = apiArray<AssistantSkill>(skillResult.value, ['skills'])
           .filter((skill) => skill && typeof skill.name === 'string' && typeof skill.description === 'string');
-        if (!cancelled && available.length) setSkills(available);
-      })
-      .catch(() => { /* embedded skills remain visible while offline */ });
+        if (available.length) setSkills(available);
+      }
+      if (knowledgeResult.status === 'fulfilled') setKnowledge(knowledgeResult.value);
+    }).catch(() => { /* embedded skills remain visible while offline */ });
     return () => { cancelled = true; };
   }, []);
 
@@ -239,6 +265,7 @@ export default function KobeAssistant({
     ]);
     setInput('');
     setBusy(true);
+    setActivity({ stage: 'understanding', label: 'Understanding your request…' });
 
     let streamed = '';
     const streamState: {
@@ -269,8 +296,11 @@ export default function KobeAssistant({
           body: JSON.stringify({ message: q, history: [...ctx, ...history], mode: responseMode }),
         }, (event, data) => {
           const record = data && typeof data === 'object' ? data as Record<string, unknown> : {};
-          if (event === 'token' && typeof record.token === 'string') {
+          if (event === 'activity' && typeof record.label === 'string') {
+            setActivity(record as unknown as AssistantActivity);
+          } else if (event === 'token' && typeof record.token === 'string') {
             streamed += record.token;
+            setActivity({ stage: 'responding', label: 'Writing the answer…' });
             updateStreamingReply(streamed);
           } else if (event === 'done') {
             streamState.done = record as { reply?: string; data?: unknown; pendingAction?: PendingAction | null };
@@ -326,6 +356,7 @@ export default function KobeAssistant({
       }
     } finally {
       setBusy(false);
+      setActivity(null);
     }
   };
 
@@ -437,12 +468,23 @@ export default function KobeAssistant({
               <p className="text-xs font-semibold text-indigo-100">Available business skills</p>
               <span className="text-[9px] text-white/40">Actions require confirmation</span>
             </div>
+            {knowledge && (
+              <div className="mb-3 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+                <div className="rounded-lg bg-black/15 px-2 py-1.5"><div className="text-sm font-bold text-white">{knowledge.skills}</div><div className="text-[9px] text-white/40">skills</div></div>
+                <div className="rounded-lg bg-black/15 px-2 py-1.5"><div className="text-sm font-bold text-white">{knowledge.documents}</div><div className="text-[9px] text-white/40">documents</div></div>
+                <div className="rounded-lg bg-black/15 px-2 py-1.5"><div className="text-sm font-bold text-white">{knowledge.indexedBusinessRecords}</div><div className="text-[9px] text-white/40">indexed records</div></div>
+                <div className="rounded-lg bg-black/15 px-2 py-1.5"><div className="text-sm font-bold text-white">{knowledge.rememberedFacts}</div><div className="text-[9px] text-white/40">remembered facts</div></div>
+              </div>
+            )}
             <div className="grid gap-1.5 sm:grid-cols-2">
               {skills.map((skill) => (
                 <div key={skill.name} className="rounded-lg border border-white/[0.07] bg-black/10 px-2.5 py-2">
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <span className="text-[10px] font-bold text-white/85">{skill.name.replace(/_/g, ' ')}</span>
                     {skill.write && <span className="rounded bg-amber-400/15 px-1 py-0.5 text-[8px] font-bold text-amber-200">CONFIRM</span>}
+                    {skill.domains?.slice(0, 2).map((domain) => (
+                      <span key={domain} className="rounded bg-indigo-400/10 px-1 py-0.5 text-[8px] text-indigo-200/70">{domain}</span>
+                    ))}
                   </div>
                   <p className="mt-1 text-[9px] leading-3.5 text-white/45">{skill.description}</p>
                 </div>
@@ -506,7 +548,18 @@ export default function KobeAssistant({
             ))}
           </div>
         )}
-        {busy && <div className="flex gap-2"><div className="w-6 h-6 rounded-md bg-indigo-500/20 grid place-items-center"><Sparkles className="w-3.5 h-3.5 text-indigo-300" /></div><div className="rounded-2xl px-3 py-2 bg-white/[0.05] border border-white/[0.06]"><Loader2 className="w-4 h-4 animate-spin text-white/50" /></div></div>}
+        {busy && !messages[messages.length - 1]?.content && (
+          <div className="flex gap-2">
+            <div className="w-6 h-6 rounded-md bg-indigo-500/20 grid place-items-center"><Sparkles className="w-3.5 h-3.5 text-indigo-300" /></div>
+            <div className="rounded-2xl px-3 py-2 bg-white/[0.05] border border-white/[0.06] min-w-[170px]">
+              <div className="flex items-center gap-2">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-300" />
+                <span className="text-xs text-white/65">{activity?.label || 'Working…'}</span>
+              </div>
+              {activity?.detail && <div className="mt-1 max-w-[260px] truncate text-[9px] text-white/30">{activity.detail}</div>}
+            </div>
+          </div>
+        )}
       </div>
 
       <form className="shrink-0 p-3 border-t border-white/[0.06] flex items-center gap-2" onSubmit={(e) => { e.preventDefault(); send(input); }}>
@@ -517,7 +570,7 @@ export default function KobeAssistant({
           className="hidden"
           onChange={(e) => { onAttach(e.target.files?.[0]); e.target.value = ''; }}
         />
-        <button type="button" onClick={() => fileRef.current?.click()} disabled={busy} title="Attach a photo or document" className="h-10 w-10 grid place-items-center rounded-lg bg-white/[0.05] border border-white/[0.08] text-white/70 hover:text-white disabled:opacity-40"><Paperclip className="w-4 h-4" /></button>
+        <button type="button" onClick={() => fileRef.current?.click()} disabled={busy} title="Teach Kobe with a photo, CSV, JSON or document" className="h-10 w-10 grid place-items-center rounded-lg bg-white/[0.05] border border-white/[0.08] text-white/70 hover:text-white disabled:opacity-40"><Paperclip className="w-4 h-4" /></button>
         <input value={input} onChange={(e) => setInput(e.target.value)} placeholder={listening ? 'Listening…' : 'Ask, or attach a photo / document…'} className="flex-1 h-10 px-3 rounded-lg bg-white/[0.05] border border-white/[0.08] text-sm text-white placeholder:text-white/30 outline-none focus:border-indigo-500/50" />
         {SR && (
           <button type="button" onClick={toggleVoice} title="Speak" className={`h-10 w-10 grid place-items-center rounded-lg ${listening ? 'bg-red-600 animate-pulse text-white' : 'bg-white/[0.05] border border-white/[0.08] text-white/70 hover:text-white'}`}><Mic className="w-4 h-4" /></button>
