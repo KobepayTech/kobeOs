@@ -87,7 +87,7 @@ export class AiController {
     await this.operating.audit(
       uid, uid, role || 'user', 'ASSISTANT_REPLY', data?.router?.domain || dto.context?.module || '',
       dto.message.slice(0, 500), data?.model || '', result.used || '', result.confidence || 0,
-      (result.citations || []) as Array<Record<string, unknown>>,
+      (result.citations || []).map((citation) => ({ ...citation })),
       { needsVerification: result.needsVerification, specialist: result.specialist },
     ).catch(() => undefined);
     return result;
@@ -119,7 +119,7 @@ export class AiController {
       await this.operating.audit(
         uid, uid, role || 'user', 'ASSISTANT_REPLY', data?.router?.domain || dto.context?.module || '',
         dto.message.slice(0, 500), data?.model || '', result.used || '', result.confidence || 0,
-        (result.citations || []) as Array<Record<string, unknown>>,
+        (result.citations || []).map((citation) => ({ ...citation })),
         { needsVerification: result.needsVerification, specialist: result.specialist, streamed: true },
       ).catch(() => undefined);
       send('done', result);
