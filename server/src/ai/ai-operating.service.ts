@@ -478,20 +478,10 @@ export class AiOperatingService {
   async renderDashboard(ownerId: string, id: string) {
     const dashboard = await this.dashboards.findOne({ where: { ownerId, id } });
     if (!dashboard) throw new NotFoundException('Dashboard not found');
-    const prompts: Record<string, string> = {
-      sales_today: 'What are today’s sales?',
-      expenses_summary: 'How much did I spend this month?',
-      unpaid_tenants: 'How many tenants have unpaid rent?',
-      hotel_occupancy: 'What is my hotel occupancy right now?',
-      low_stock: 'Show me low stock items.',
-      cargo_status: 'What is my cargo status?',
-      business_health: 'Give me my overall business health.',
-    };
     const widgets = await Promise.all(dashboard.widgets.map(async (widget) => {
       const source = String(widget.source || '');
-      const prompt = prompts[source] || `Give me the current verified value for ${String(widget.title || source)}.`;
       try {
-        const result = await this.agent.run(ownerId, prompt, [], 'fast');
+        const result = await this.agent.runReadSkill(ownerId, source);
         return {
           ...widget,
           summary: result.reply,
@@ -515,10 +505,10 @@ export class AiOperatingService {
     salesChangePct?: number; expenseChangePct?: number; rentCollectionChangePct?: number; roomRateChangePct?: number;
   }) {
     const [sales, expenses, rent, hotel] = await Promise.all([
-      this.agent.run(ownerId, 'What are today’s sales?', [], 'fast'),
-      this.agent.run(ownerId, 'How much did I spend this month?', [], 'fast'),
-      this.agent.run(ownerId, 'What is my monthly rent projection?', [], 'fast'),
-      this.agent.run(ownerId, 'What is this month hotel revenue?', [], 'fast'),
+      this.agent.runReadSkill(ownerId, 'sales_today'),
+      this.agent.runReadSkill(ownerId, 'expenses_summary'),
+      this.agent.runReadSkill(ownerId, 'rent_projection'),
+      this.agent.runReadSkill(ownerId, 'hotel_revenue'),
     ]);
     const data = (reply: { data?: unknown }) => (reply.data && typeof reply.data === 'object' ? reply.data as Record<string, unknown> : {});
     const s = data(sales); const e = data(expenses); const r = data(rent); const h = data(hotel);
