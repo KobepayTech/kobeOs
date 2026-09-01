@@ -6,8 +6,10 @@ KobeOS public services use two independent production paths.
 
 - Public app: `https://lala.kobeapptz.com`
 - API: `https://api.kobeapptz.com/api`
-- Edge: Cloudflare
-- Tunnel: two `cloudflared` connectors are started by the primary production stack.
+- Preferred API origin: the always-on VPS stack in `server/docker-compose.primary-api.yml`.
+- TLS/reverse proxy: Caddy on the VPS. Cloudflare may remain the public edge/proxy, but API uptime no longer depends on a Windows `cloudflared` connector after DNS cutover.
+- Migration/rollback instructions: `deploy/always-on-api.md`.
+- The existing tunnel origin can remain available during migration as the fast DNS rollback target.
 
 ## Independent backup path
 
@@ -19,8 +21,10 @@ KobeOS public services use two independent production paths.
 - Emergency Lala frontend and API: `https://erimnjgpawuxesonkeoz.supabase.co/functions/v1/kobeos-backup/app`
 
 The primary and backup API must use the same PostgreSQL source of truth.
-Primary production enables this with `KOBE_SHARED_DB_HOST`; the backup VPS
-uses `DB_HOST` in `server/.env.backup`.
+The always-on primary VPS uses `DB_HOST` in `server/.env.primary-api`;
+the independent backup VPS uses `DB_HOST` in `server/.env.backup`.
+The legacy tunnel origin can use `KOBE_SHARED_DB_HOST` while it remains
+available as a migration/rollback target.
 
 ## Required GitHub configuration
 

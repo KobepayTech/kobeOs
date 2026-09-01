@@ -1,0 +1,94 @@
+version: '3.9'
+
+# Always-on primary API origin for api.kobeapptz.com.
+# No cloudflared process is required: Caddy owns public 80/443 and proxies the
+# KobeOS API on the VPS. The frontend URL does not change when DNS is cut over.
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: kobepay/kobe-studio-api:primary
+    restart: unless-stopped
+    env_file: .env.primary-api
+    environment:
+      NODE_ENV: production
+      DB_HOST: ${DB_HOST:?DB_HOST must point to the production PostgreSQL service}
+      DB_PORT: ${DB_PORT:-5432}
+      DB_USERNAME: ${DB_USERNAME:?DB_USERNAME is required}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD is required}
+      DB_DATABASE: ${DB_DATABASE:-kobeos}
+      DB_SSL: ${DB_SSL:-true}
+      DB_SSL_REJECT_UNAUTHORIZED: ${DB_SSL_REJECT_UNAUTHORIZED:-true}
+      DB_SYNCHRONIZE: "false"
+      DB_MIGRATIONS_RUN: "true"
+      REDIS_URL: redis://redis:6379
+      TENANT_BASE_DOMAIN: ${TENANT_BASE_DOMAIN:-kobeapptz.com}
+      CORS_ORIGIN: ${CORS_ORIGIN:-https://lala.kobeapptz.com}
+      APP_PUBLIC_URL: https://${API_HOST:-api.kobeapptz.com}
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - kobe-primary-api
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - kobe-primary-api-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - kobe-primary-api
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      API_HOST: ${API_HOST:-api.kobeapptz.com}
+      ACME_EMAIL: ${ACME_EMAIL:?ACME_EMAIL is required}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile.primary-api:/etc/caddy/Caddyfile:ro
+      - kobe-primary-api-caddy-data:/data
+      - kobe-primary-api-caddy-config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - kobe-primary-api
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+volumes:
+  kobe-primary-api-redis:
+  kobe-primary-api-caddy-data:
+  kobe-primary-api-caddy-config:
+
+networks:
+  kobe-primary-api:
+    driver: bridge
