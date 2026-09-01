@@ -237,7 +237,11 @@ if (metaSetupToken) {
 } else if (isPosys) {
   // POSys lives as a desktop OS app but is also reachable standalone
   // via posys.kobeapptz.com / /posys. Same module, no wrapper needed.
-  import('./apps/posys/index').then(({ default: Posys }) => mount(<Posys />));
+  Promise.all([
+    import('./apps/posys/index'),
+    import('./components/KobeWebAppAssistant'),
+  ]).then(([{ default: Posys }, { default: KobeWebAppAssistant }]) =>
+    mount(<><Posys /><KobeWebAppAssistant appId="posys" contextLabel="POSys" /></>));
 } else if (isCargoTz) {
   // Cargo TZ — the domestic bus-cargo operations module (3 roles: receive,
   // warehouse, owner), runnable standalone via cargotz.kobeapptz.com /
@@ -246,16 +250,32 @@ if (metaSetupToken) {
     // /cargotz/{receive|warehouse|owner} deep-links (and installs) a role.
     const roleSeg = pathname.replace(/^\/cargotz\/?/, '').split('/')[0];
     const role = roleSeg === 'warehouse' ? 'warehouse' : roleSeg === 'owner' ? 'dashboard' : roleSeg === 'receive' ? 'intake' : undefined;
-    mount(<div className="h-screen w-screen overflow-hidden"><CargoTzOps role={role as 'intake' | 'warehouse' | 'dashboard' | undefined} /></div>);
+    import('./components/KobeWebAppAssistant').then(({ default: KobeWebAppAssistant }) =>
+      mount(<>
+        <div className="h-screen w-screen overflow-hidden"><CargoTzOps role={role as 'intake' | 'warehouse' | 'dashboard' | undefined} /></div>
+        <KobeWebAppAssistant appId="cargo" contextLabel="CargoTZ Operations" />
+      </>));
   });
 } else if (isCoach) {
   // Kobe Coach — installable coach/team-admin PWA (standalone at /coach).
-  import('./apps/kobe-coach/index').then(({ default: KobeCoach }) =>
-    mount(<div className="h-screen w-screen overflow-hidden"><KobeCoach /></div>));
+  Promise.all([
+    import('./apps/kobe-coach/index'),
+    import('./components/KobeWebAppAssistant'),
+  ]).then(([{ default: KobeCoach }, { default: KobeWebAppAssistant }]) =>
+    mount(<>
+      <div className="h-screen w-screen overflow-hidden"><KobeCoach /></div>
+      <KobeWebAppAssistant appId="kobe-coach" contextLabel="Kobe Coach" />
+    </>));
 } else if (isTransit) {
   // KobeOS Transit — installable operations/compliance PWA.
-  import('./apps/kobe-transit/index').then(({ default: KobeTransit }) =>
-    mount(<div className="h-screen w-screen overflow-hidden"><KobeTransit /></div>));
+  Promise.all([
+    import('./apps/kobe-transit/index'),
+    import('./components/KobeWebAppAssistant'),
+  ]).then(([{ default: KobeTransit }, { default: KobeWebAppAssistant }]) =>
+    mount(<>
+      <div className="h-screen w-screen overflow-hidden"><KobeTransit /></div>
+      <KobeWebAppAssistant appId="kobe-transit" contextLabel="KobeOS Transit" />
+    </>));
 } else if (isJumla) {
   import('./public/Jumla').then(({ default: Jumla }) => mount(<Jumla />));
 } else if (lalaPassportMatch) {
@@ -313,8 +333,14 @@ if (metaSetupToken) {
   import('./public/CargoSite').then(({ default: CargoSite }) => mount(<CargoSite slug={cargoSiteSlug} />));
 } else if (subProperty) {
   // Property management app, standalone via property.kobeapptz.com (#9)
-  import('./apps/property/PropEasy').then(({ default: PropEasy }) =>
-    mount(<div className="h-screen w-screen overflow-hidden"><PropEasy /></div>));
+  Promise.all([
+    import('./apps/property/PropEasy'),
+    import('./components/KobeWebAppAssistant'),
+  ]).then(([{ default: PropEasy }, { default: KobeWebAppAssistant }]) =>
+    mount(<>
+      <div className="h-screen w-screen overflow-hidden"><PropEasy /></div>
+      <KobeWebAppAssistant appId="property" contextLabel="Kobe Properties" />
+    </>));
 } else if (publicCommerceSlug) {
   // Wildcard subdomains can represent either a merchant storefront or an
   // auto-generated commercial-property marketplace. Resolve the slug against
