@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { api, apiArray, apiObject, apiSse, ApiError } from '@/lib/api';
+import { useOSStore } from '@/os/store';
 import {
   Sparkles, Send, Loader2, User, CheckCircle2, Printer, Mic,
   Volume2, VolumeX, Paperclip, Wrench,
@@ -16,7 +17,26 @@ function speakable(text: string): string {
 
 interface PendingAction { tool: string; summary: string; args: Record<string, unknown> }
 interface BriefingAlert { severity: 'info' | 'warning'; text: string; action?: { label: string; tool?: string; args?: Record<string, unknown>; endpoint?: string; method?: 'POST' | 'PUT' } }
-interface Msg { role: 'user' | 'assistant'; content: string; data?: unknown; pending?: PendingAction | null; alerts?: BriefingAlert[] }
+interface AssistantCitation { kind: 'tool' | 'document' | 'memory' | 'screen'; label: string; ref?: string; detail?: string }
+interface ScreenContext {
+  appId?: string;
+  module?: string;
+  screenLabel?: string;
+  entityType?: string;
+  entityId?: string;
+  entityLabel?: string;
+  fields?: Record<string, unknown>;
+}
+interface Msg {
+  role: 'user' | 'assistant';
+  content: string;
+  data?: unknown;
+  pending?: PendingAction | null;
+  alerts?: BriefingAlert[];
+  confidence?: number;
+  citations?: AssistantCitation[];
+  needsVerification?: boolean;
+}
 interface AssistantSkill {
   name: string;
   description: string;
@@ -152,6 +172,11 @@ export default function KobeAssistant({
   const [skills, setSkills] = useState<AssistantSkill[]>(FALLBACK_SKILLS);
   const [knowledge, setKnowledge] = useState<KnowledgeStatus | null>(null);
   const [activity, setActivity] = useState<AssistantActivity | null>(null);
+  const [screenContext, setScreenContext] = useState<ScreenContext>({
+    appId,
+    module: appId,
+    screenLabel: contextLabel,
+  });
   const [showSkills, setShowSkills] = useState(false);
   // Voice mode: read Kobe's replies aloud, and auto-send after dictation (hands-free).
   const [voice, setVoice] = useState(false);
@@ -217,6 +242,22 @@ export default function KobeAssistant({
   // Stop any speech when voice mode is switched off.
   useEffect(() => { if (!voice && TTS) window.speechSynthesis.cancel(); }, [voice, TTS]);
 
+  // Any KobeOS module can publish its currently selected record without coupling
+  // the assistant to that module. Example:
+  // window.dispatchEvent(new CustomEvent('kobe:screen-context', { detail: { entityType:'tenant', entityId, entityLabel:name } }))
+  useEffect(() => {
+    const onContext = (event: Event) => {
+      const detail = (event as CustomEvent<ScreenContext>).detail || {};
+      setScreenContext((current) => ({ ...current, ...detail }));
+    };
+    window.addEventListener('kobe:screen-context', onContext as EventListener);
+    return () => window.removeEventListener('kobe:screen-context', onContext as EventListener);
+  }, []);
+
+  useEffect(() => {
+    setScreenContext((current) => ({ ...current, appId, module: appId, screenLabel: contextLabel }));
+  }, [appId, contextLabel]);
+
   // Proactive daily briefing: greet the user with their business status + alerts
   // when the assistant opens. Deterministic on the backend, so it works even
   // when the AI model is offline.
@@ -253,6 +294,25 @@ export default function KobeAssistant({
   const send = async (text: string) => {
     const q = text.trim();
     if (!q || busy) return;
+
+    const openMatch = q.match(/^\/(?:open|go)\s+(.+)$/i) || q.match(/^open\s+app\s+(.+)$/i);
+    if (openMatch) {
+      const wanted = openMatch[1].trim().toLowerCase();
+      const state = useOSStore.getState();
+      const app = state.apps.find((item) =>
+        item.id.toLowerCase() === wanted ||
+        item.name.toLowerCase() === wanted ||
+        item.name.toLowerCase().includes(wanted),
+      );
+      if (app) {
+        state.launchApp(app.id);
+        setMessages((p) => [...p, { role: 'user', content: q }, { role: 'assistant', content: `Opened ${app.name}.`, confidence: 1, citations: [] }]);
+      } else {
+        setMessages((p) => [...p, { role: 'user', content: q }, { role: 'assistant', content: `I couldn't find a KobeOS app matching “${openMatch[1]}”.`, confidence: 1, citations: [] }]);
+      }
+      setInput('');
+      return;
+    }
     const history = messages.map((m) => ({ role: m.role, content: m.content }));
     const ctx = contextLabel
       ? [{ role: 'user' as const, content: `[context] The user is currently working in the "${contextLabel}" module.` }]
@@ -269,11 +329,24 @@ export default function KobeAssistant({
 
     let streamed = '';
     const streamState: {
-      done?: { reply?: string; data?: unknown; pendingAction?: PendingAction | null };
+      done?: {
+        reply?: string;
+        data?: unknown;
+        pendingAction?: PendingAction | null;
+        confidence?: number;
+        citations?: AssistantCitation[];
+        needsVerification?: boolean;
+      };
       error?: string;
     } = {};
 
-    const updateStreamingReply = (content: string, meta?: { data?: unknown; pendingAction?: PendingAction | null }) => {
+    const updateStreamingReply = (content: string, meta?: {
+      data?: unknown;
+      pendingAction?: PendingAction | null;
+      confidence?: number;
+      citations?: AssistantCitation[];
+      needsVerification?: boolean;
+    }) => {
       setMessages((p) => {
         const next = [...p];
         for (let i = next.length - 1; i >= 0; i -= 1) {
@@ -281,7 +354,13 @@ export default function KobeAssistant({
           next[i] = {
             ...next[i],
             content,
-            ...(meta ? { data: meta.data, pending: meta.pendingAction ?? null } : {}),
+            ...(meta ? {
+              data: meta.data,
+              pending: meta.pendingAction ?? null,
+              confidence: meta.confidence,
+              citations: meta.citations,
+              needsVerification: meta.needsVerification,
+            } : {}),
           };
           break;
         }
@@ -293,7 +372,17 @@ export default function KobeAssistant({
       try {
         await apiSse('/ai/assistant/stream', {
           method: 'POST',
-          body: JSON.stringify({ message: q, history: [...ctx, ...history], mode: responseMode }),
+          body: JSON.stringify({
+            message: q,
+            history: [...ctx, ...history],
+            mode: responseMode,
+            context: {
+              ...screenContext,
+              appId: screenContext.appId || appId,
+              module: screenContext.module || appId,
+              screenLabel: screenContext.screenLabel || contextLabel,
+            },
+          }),
         }, (event, data) => {
           const record = data && typeof data === 'object' ? data as Record<string, unknown> : {};
           if (event === 'activity' && typeof record.label === 'string') {
@@ -303,7 +392,14 @@ export default function KobeAssistant({
             setActivity({ stage: 'responding', label: 'Writing the answer…' });
             updateStreamingReply(streamed);
           } else if (event === 'done') {
-            streamState.done = record as { reply?: string; data?: unknown; pendingAction?: PendingAction | null };
+            streamState.done = record as {
+              reply?: string;
+              data?: unknown;
+              pendingAction?: PendingAction | null;
+              confidence?: number;
+              citations?: AssistantCitation[];
+              needsVerification?: boolean;
+            };
           } else if (event === 'error') {
             streamState.error = typeof record.message === 'string' ? record.message : 'Streaming failed.';
           }
@@ -314,19 +410,45 @@ export default function KobeAssistant({
         updateStreamingReply(finalReply, {
           data: streamState.done?.data,
           pendingAction: streamState.done?.pendingAction ?? null,
+          confidence: streamState.done?.confidence,
+          citations: streamState.done?.citations,
+          needsVerification: streamState.done?.needsVerification,
         });
       } catch (streamFailure) {
         let reply = '';
         try {
           const response = await api<unknown>('/ai/assistant', {
             method: 'POST',
-            body: JSON.stringify({ message: q, history: [...ctx, ...history], mode: responseMode }),
+            body: JSON.stringify({
+              message: q,
+              history: [...ctx, ...history],
+              mode: responseMode,
+              context: {
+                ...screenContext,
+                appId: screenContext.appId || appId,
+                module: screenContext.module || appId,
+                screenLabel: screenContext.screenLabel || contextLabel,
+              },
+            }),
             offlineFallback: false,
           });
-          const r = apiObject<{ reply: string; data?: unknown; pendingAction?: PendingAction | null }>(response);
+          const r = apiObject<{
+            reply: string;
+            data?: unknown;
+            pendingAction?: PendingAction | null;
+            confidence?: number;
+            citations?: AssistantCitation[];
+            needsVerification?: boolean;
+          }>(response);
           reply = r?.reply?.trim() ?? '';
           if (reply) {
-            updateStreamingReply(reply, { data: r?.data, pendingAction: r?.pendingAction ?? null });
+            updateStreamingReply(reply, {
+              data: r?.data,
+              pendingAction: r?.pendingAction ?? null,
+              confidence: r?.confidence,
+              citations: r?.citations,
+              needsVerification: r?.needsVerification,
+            });
           }
         } catch (e) {
           if (e instanceof ApiError && (e.status === 404 || e.status === 405)) {
@@ -497,6 +619,30 @@ export default function KobeAssistant({
             {m.role === 'assistant' && <div className="w-6 h-6 rounded-md bg-indigo-500/20 grid place-items-center shrink-0"><Sparkles className="w-3.5 h-3.5 text-indigo-300" /></div>}
             <div className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm ${m.role === 'user' ? 'bg-indigo-600 text-white' : 'bg-white/[0.05] border border-white/[0.06]'}`}>
               <div className="whitespace-pre-wrap leading-snug">{m.content}</div>
+              {m.role === 'assistant' && m.needsVerification && (
+                <div className="mt-2 rounded-lg border border-amber-400/25 bg-amber-400/10 px-2 py-1.5 text-[10px] text-amber-100">
+                  Low-confidence result — verify before using it for an important decision.
+                </div>
+              )}
+              {m.role === 'assistant' && (m.citations?.length || typeof m.confidence === 'number') && (
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  {typeof m.confidence === 'number' && (
+                    <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[9px] text-white/45">
+                      {Math.round(m.confidence * 100)}% confidence
+                    </span>
+                  )}
+                  {m.citations?.slice(0, 6).map((citation, ci) => (
+                    <span
+                      key={`${citation.kind}-${citation.ref || citation.label}-${ci}`}
+                      title={citation.detail || citation.ref || citation.label}
+                      className="rounded-full border border-indigo-400/15 bg-indigo-400/[0.08] px-2 py-0.5 text-[9px] text-indigo-100/70"
+                    >
+                      {citation.kind === 'document' ? '📄 ' : citation.kind === 'memory' ? '🧠 ' : citation.kind === 'screen' ? '◉ ' : '↗ '}
+                      {citation.label}
+                    </span>
+                  ))}
+                </div>
+              )}
               {m.alerts && m.alerts.length > 0 && (
                 <div className="mt-2 space-y-1.5">
                   {m.alerts.map((a, ai) => (
@@ -571,7 +717,7 @@ export default function KobeAssistant({
           onChange={(e) => { onAttach(e.target.files?.[0]); e.target.value = ''; }}
         />
         <button type="button" onClick={() => fileRef.current?.click()} disabled={busy} title="Teach Kobe with a photo, CSV, JSON or document" className="h-10 w-10 grid place-items-center rounded-lg bg-white/[0.05] border border-white/[0.08] text-white/70 hover:text-white disabled:opacity-40"><Paperclip className="w-4 h-4" /></button>
-        <input value={input} onChange={(e) => setInput(e.target.value)} placeholder={listening ? 'Listening…' : 'Ask, or attach a photo / document…'} className="flex-1 h-10 px-3 rounded-lg bg-white/[0.05] border border-white/[0.08] text-sm text-white placeholder:text-white/30 outline-none focus:border-indigo-500/50" />
+        <input value={input} onChange={(e) => setInput(e.target.value)} placeholder={listening ? 'Listening…' : 'Ask Kobe, /open an app, or attach data…'} className="flex-1 h-10 px-3 rounded-lg bg-white/[0.05] border border-white/[0.08] text-sm text-white placeholder:text-white/30 outline-none focus:border-indigo-500/50" />
         {SR && (
           <button type="button" onClick={toggleVoice} title="Speak" className={`h-10 w-10 grid place-items-center rounded-lg ${listening ? 'bg-red-600 animate-pulse text-white' : 'bg-white/[0.05] border border-white/[0.08] text-white/70 hover:text-white'}`}><Mic className="w-4 h-4" /></button>
         )}
