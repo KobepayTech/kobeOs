@@ -3,12 +3,18 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AiService } from './ai.service';
 import { AiController } from './ai.controller';
 import { ScheduledAgentController } from './scheduled-agent.controller';
+import { AiOperatingController } from './ai-operating.controller';
 import { KobeAgentService } from './agent.service';
 import { AiDocsService } from './ai-docs.service';
 import { AiMemory } from './ai-memory.entity';
 import { AiDocument, AiDocChunk } from './ai-document.entity';
 import { ScheduledAgentService } from './scheduled-agent.service';
 import { AiAgentRun, AiScheduledAgent } from './scheduled-agent.entity';
+import {
+  AiApprovalRequest, AiDashboardSpec, AiInsight, AiMemoryEdge, AiMemoryNode,
+  AiOperatingAudit, AiSkillInstall, AiWorkflowPlan,
+} from './ai-operating.entity';
+import { AiOperatingService } from './ai-operating.service';
 import { PosOrder, PosProduct } from '../pos/pos.entity';
 import { ProductReview } from '../store/product-review.entity';
 import { RentCharge, Tenant, PropertyUnit } from '../property/property.entity';
@@ -29,13 +35,14 @@ import { SystemHealthModule } from '../system-health/system-health.module';
       PosOrder, PosProduct, ProductReview, RentCharge, Tenant, PropertyUnit,
       HotelRoom, HotelGuest, HotelBooking, HotelFinancialRecord, WarehouseItem,
       ShopExpense, Parcel, Shop, AppState, SearchDoc, AiScheduledAgent, AiAgentRun, AiMemory,
-      AiDocument, AiDocChunk,
+      AiDocument, AiDocChunk, AiSkillInstall, AiMemoryNode, AiMemoryEdge,
+      AiWorkflowPlan, AiApprovalRequest, AiOperatingAudit, AiDashboardSpec, AiInsight,
     ]),
     NotificationsModule,
     SystemHealthModule,
   ],
-  providers: [AiService, KobeAgentService, ScheduledAgentService, AiDocsService],
-  controllers: [AiController, ScheduledAgentController],
-  exports: [AiService, KobeAgentService, ScheduledAgentService, AiDocsService],
+  providers: [AiService, KobeAgentService, ScheduledAgentService, AiDocsService, AiOperatingService],
+  controllers: [AiController, ScheduledAgentController, AiOperatingController],
+  exports: [AiService, KobeAgentService, ScheduledAgentService, AiDocsService, AiOperatingService],
 })
 export class AiModule {}
