@@ -1,0 +1,17 @@
+{
+  email {$ACME_EMAIL}
+}
+
+{$BACKUP_API_HOST} {
+  encode zstd gzip
+  header X-Kobe-Production-Path "backup-direct"
+  header X-Content-Type-Options "nosniff"
+  reverse_proxy api:3000
+}
+
+{$BACKUP_WEB_HOST} {
+  encode zstd gzip
+  header X-Kobe-Production-Path "backup-direct"
+  header X-Content-Type-Options "nosniff"
+  reverse_proxy web:80
+}

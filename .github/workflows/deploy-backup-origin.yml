@@ -1,0 +1,136 @@
+name: Deploy Independent Backup Origin
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [master, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy-backup:
+    name: Deploy backup API and web
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    environment: production-backup
+    env:
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      BACKUP_DEPLOY_HOST: ${{ secrets.BACKUP_DEPLOY_HOST }}
+      BACKUP_DEPLOY_USER: ${{ secrets.BACKUP_DEPLOY_USER }}
+      BACKUP_DEPLOY_SSH_KEY: ${{ secrets.BACKUP_DEPLOY_SSH_KEY }}
+      BACKUP_DEPLOY_PATH: ${{ vars.BACKUP_DEPLOY_PATH }}
+      BACKUP_API_HOST: ${{ vars.BACKUP_API_HOST }}
+      BACKUP_WEB_HOST: ${{ vars.BACKUP_WEB_HOST }}
+
+    steps:
+      - name: Check independent backup configuration
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${BACKUP_DEPLOY_HOST:-}" ] || missing+=("BACKUP_DEPLOY_HOST")
+          [ -n "${BACKUP_DEPLOY_USER:-}" ] || missing+=("BACKUP_DEPLOY_USER")
+          [ -n "${BACKUP_DEPLOY_SSH_KEY:-}" ] || missing+=("BACKUP_DEPLOY_SSH_KEY")
+          [ -n "${BACKUP_API_HOST:-}" ] || missing+=("BACKUP_API_HOST")
+          [ -n "${BACKUP_WEB_HOST:-}" ] || missing+=("BACKUP_WEB_HOST")
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf '::error::Missing backup production configuration: %s\n' "${missing[*]}"
+            exit 1
+          fi
+
+          case "$BACKUP_API_HOST $BACKUP_WEB_HOST" in
+            *kobeapptz.com*)
+              echo "::error::Backup hostnames must be outside the Cloudflare-controlled kobeapptz.com zone."
+              exit 1
+              ;;
+          esac
+
+      - name: Deploy exact CI-validated commit to backup VPS
+        uses: appleboy/ssh-action@v1
+        env:
+          DEPLOY_SHA: ${{ env.DEPLOY_SHA }}
+          BACKUP_DEPLOY_PATH: ${{ env.BACKUP_DEPLOY_PATH }}
+          BACKUP_API_HOST: ${{ env.BACKUP_API_HOST }}
+          BACKUP_WEB_HOST: ${{ env.BACKUP_WEB_HOST }}
+        with:
+          host: ${{ env.BACKUP_DEPLOY_HOST }}
+          username: ${{ env.BACKUP_DEPLOY_USER }}
+          key: ${{ env.BACKUP_DEPLOY_SSH_KEY }}
+          envs: DEPLOY_SHA,BACKUP_DEPLOY_PATH,BACKUP_API_HOST,BACKUP_WEB_HOST
+          script: |
+            set -euo pipefail
+            deploy_dir="${BACKUP_DEPLOY_PATH:-$HOME/kobeos-backup}"
+            compose_file="server/docker-compose.backup.yml"
+            env_file="server/.env.backup"
+
+            if [ ! -d "$deploy_dir/.git" ]; then
+              mkdir -p "$deploy_dir"
+              git clone https://github.com/KobepayTech/kobeOs.git "$deploy_dir"
+            fi
+
+            cd "$deploy_dir"
+            git fetch --prune origin
+            git checkout --detach "$DEPLOY_SHA"
+            git reset --hard "$DEPLOY_SHA"
+
+            if [ ! -f "$env_file" ]; then
+              echo "Missing $deploy_dir/$env_file."
+              echo "Create it from server/.env.backup.example with the shared managed database credentials."
+              exit 1
+            fi
+
+            set_env() {
+              key="$1"
+              value="$2"
+              tmp="$(mktemp)"
+              grep -v "^$key=" "$env_file" > "$tmp" || true
+              printf '%s=%s\n' "$key" "$value" >> "$tmp"
+              mv "$tmp" "$env_file"
+            }
+
+            set_env BACKUP_API_HOST "$BACKUP_API_HOST"
+            set_env BACKUP_WEB_HOST "$BACKUP_WEB_HOST"
+
+            compose() {
+              docker compose --env-file "$env_file" -f "$compose_file" "$@"
+            }
+
+            compose config >/dev/null
+            compose build --pull api web
+            compose up -d api redis web caddy
+
+            for attempt in 1 2 3 4 5 6 7 8; do
+              if curl -fsS --connect-timeout 5 --max-time 10 http://127.0.0.1:3000/api/health >/dev/null; then
+                echo "Backup API healthy locally."
+                break
+              fi
+              if [ "$attempt" -eq 8 ]; then
+                compose logs api --tail=120
+                exit 1
+              fi
+              sleep 5
+            done
+
+      - name: Verify backup path from outside the provider
+        run: |
+          set -euo pipefail
+          check() {
+            url="$1"
+            for attempt in $(seq 1 18); do
+              if curl -fsS --retry 1 --connect-timeout 10 --max-time 25 "$url" >/dev/null; then
+                echo "OK $url"
+                return 0
+              fi
+              echo "Backup check $attempt/18 failed: $url"
+              sleep 5
+            done
+            return 1
+          }
+
+          check "https://$BACKUP_API_HOST/api/health"
+          check "https://$BACKUP_API_HOST/api/lala-public/health"
+          check "https://$BACKUP_WEB_HOST/lala"
+
+          echo "Independent backup production is live and does not traverse Cloudflare."

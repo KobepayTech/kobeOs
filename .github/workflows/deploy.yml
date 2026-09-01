@@ -54,12 +54,13 @@ jobs:
           INSTAGRAM_APP_SECRET: ${{ secrets.INSTAGRAM_APP_SECRET }}
           IG_WEBHOOK_VERIFY_TOKEN: ${{ secrets.IG_WEBHOOK_VERIFY_TOKEN }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          BACKUP_API_HOST: ${{ vars.BACKUP_API_HOST }}
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: TIKTOK_CLIENT_KEY,TIKTOK_CLIENT_SECRET,TIKTOK_REDIRECT_URI,TIKTOK_CREATOR_REDIRECT_URI,META_APP_ID,META_APP_SECRET,META_REDIRECT_URI,META_LOGIN_CONFIG_ID,INSTAGRAM_APP_ID,INSTAGRAM_APP_SECRET,IG_WEBHOOK_VERIFY_TOKEN,GOOGLE_CLIENT_ID
+          envs: TIKTOK_CLIENT_KEY,TIKTOK_CLIENT_SECRET,TIKTOK_REDIRECT_URI,TIKTOK_CREATOR_REDIRECT_URI,META_APP_ID,META_APP_SECRET,META_REDIRECT_URI,META_LOGIN_CONFIG_ID,INSTAGRAM_APP_ID,INSTAGRAM_APP_SECRET,IG_WEBHOOK_VERIFY_TOKEN,GOOGLE_CLIENT_ID,BACKUP_API_HOST
           script: |
             set -e
             cd /opt/kobe-studio
@@ -130,6 +131,45 @@ jobs:
               mv "$tmp_env" "$ENV_FILE"
             fi
 
+            # Bake the independent API path into the normal Cloudflare-served
+            # frontend. Read requests can transparently fail over if Cloudflare
+            # is degraded. Mutating requests are health-routed and sent once.
+            if [ -n "${BACKUP_API_HOST:-}" ]; then
+              # Dual-origin writes are safe only when both API origins use one
+              # source-of-truth database. Refuse to advertise the backup path
+              # while primary production still points at its local Postgres.
+              shared_db_host="$(grep -E '^KOBE_SHARED_DB_HOST=' "$ENV_FILE" | tail -1 | cut -d= -f2- || true)"
+              case "$shared_db_host" in
+                ''|localhost|127.0.0.1|postgres)
+                  echo "✗ BACKUP_API_HOST is configured but KOBE_SHARED_DB_HOST is not a managed/shared database."
+                  echo "  Set KOBE_SHARED_DB_HOST in server/.env to the same PostgreSQL cluster used by the backup origin."
+                  exit 1
+                  ;;
+              esac
+
+              touch "$ENV_FILE"
+              tmp_env="$(mktemp)"
+              grep -vE '^VITE_API_FALLBACK_BASE=' "$ENV_FILE" > "$tmp_env" || true
+              printf '%s\n' "VITE_API_FALLBACK_BASE=https://$BACKUP_API_HOST/api" >> "$tmp_env"
+              mv "$tmp_env" "$ENV_FILE"
+            fi
+
+            # The GitHub Pages emergency Lala frontend is intentionally outside
+            # kobeapptz.com. Allow that one known origin to use the primary API
+            # when the backup API is unavailable.
+            touch "$ENV_FILE"
+            current_cors="$(grep -E '^CORS_ORIGIN=' "$ENV_FILE" | tail -1 | cut -d= -f2- || true)"
+            case ",$current_cors," in
+              *,https://kobepaytech.github.io,*) ;;
+              *)
+                next_cors="${current_cors:+$current_cors,}https://kobepaytech.github.io"
+                tmp_env="$(mktemp)"
+                grep -vE '^CORS_ORIGIN=' "$ENV_FILE" > "$tmp_env" || true
+                printf '%s\n' "CORS_ORIGIN=$next_cors" >> "$tmp_env"
+                mv "$tmp_env" "$ENV_FILE"
+                ;;
+            esac
+
             # Build the deployed API AND web bundle from the exact source on
             # the production host. Previously only the web image was rebuilt
             # locally while the API depended on a Docker Hub :latest pull.
@@ -166,7 +206,7 @@ jobs:
             # merely assumed to already exist. A fresh/rebuilt host could
             # therefore have perfectly healthy containers but every public
             # *.kobeapptz.com web app would be unreachable.
-            compose up -d api web nginx cloudflared
+            compose up -d api web nginx cloudflared cloudflared-ha
 
             # Reload nginx after api/web replacement so it resolves the current
             # container addresses. If reload is unavailable, recreate nginx.
@@ -184,7 +224,9 @@ jobs:
 
             # Tunnel container must actually be running.
             test "$(compose ps --status running -q cloudflared)" != "" || \
-              (compose logs cloudflared --tail=100 && echo "Cloudflare tunnel is not running" && exit 1)
+              (compose logs cloudflared --tail=100 && echo "Primary Cloudflare tunnel connector is not running" && exit 1)
+            test "$(compose ps --status running -q cloudflared-ha)" != "" || \
+              (compose logs cloudflared-ha --tail=100 && echo "HA Cloudflare tunnel connector is not running" && exit 1)
 
             # Verify Cloudflare edge -> tunnel -> nginx -> API/web. Retry while
             # a newly restarted tunnel establishes edge connections.

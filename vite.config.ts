@@ -7,6 +7,7 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
+      disable: process.env.VITE_DISABLE_PWA === 'true',
       registerType: 'autoUpdate',
       injectRegister: false,
       workbox: {
@@ -42,7 +43,7 @@ export default defineConfig({
       }
     })
   ],
-  base: './',
+  base: process.env.VITE_PUBLIC_ASSET_BASE || './',
   resolve: { alias: { '@': path.resolve(__dirname, './src') } },
   // Bake production defaults into every build so end-user machines need
   // zero configuration. Override via env vars for white-label deployments.
