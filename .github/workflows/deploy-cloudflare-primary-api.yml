@@ -1,0 +1,243 @@
+name: Deploy Cloudflare Primary API
+
+on:
+  push:
+    branches:
+      - feat/cloudflare-primary-api
+    paths:
+      - 'deploy/cloudflare-primary-api/**'
+      - '.github/workflows/deploy-cloudflare-primary-api.yml'
+  workflow_dispatch:
+    inputs:
+      cutover:
+        description: 'Enable api.kobeapptz.com Worker Route after preview verification'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  preview:
+    name: Deploy Cloudflare API preview
+    runs-on: ubuntu-latest
+    # Reuse the existing production environment because Lala/Jumla already keep
+    # the Cloudflare account token and account ID there.
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID || vars.CF_ACCOUNT_ID }}
+      PRIMARY_API_DB_HOST: ${{ secrets.PRIMARY_API_DB_HOST || secrets.DB_HOST || secrets.KOBE_SHARED_DB_HOST }}
+      PRIMARY_API_DB_USERNAME: ${{ secrets.PRIMARY_API_DB_USERNAME || secrets.DB_USERNAME }}
+      PRIMARY_API_DB_PASSWORD: ${{ secrets.PRIMARY_API_DB_PASSWORD || secrets.DB_PASSWORD }}
+      PRIMARY_API_JWT_SECRET: ${{ secrets.PRIMARY_API_JWT_SECRET || secrets.JWT_SECRET }}
+      PRIMARY_API_PROVIDER_ENCRYPTION_KEY: ${{ secrets.PRIMARY_API_PROVIDER_ENCRYPTION_KEY || secrets.PROVIDER_ENCRYPTION_KEY }}
+      PRIMARY_API_EXTRA_SECRETS_JSON: ${{ secrets.PRIMARY_API_EXTRA_SECRETS_JSON }}
+      CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID || secrets.CF_ZONE_ID || vars.CLOUDFLARE_ZONE_ID || vars.CF_ZONE_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Cloudflare deployment dependencies
+        working-directory: deploy/cloudflare-primary-api
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Validate Worker bundle and container configuration
+        working-directory: deploy/cloudflare-primary-api
+        run: npx wrangler deploy --dry-run --config wrangler.jsonc --outdir .wrangler-dry-run
+
+      - name: Validate production Worker route configuration
+        working-directory: deploy/cloudflare-primary-api
+        run: npx wrangler deploy --dry-run --config wrangler.production.jsonc --outdir .wrangler-production-dry-run
+
+      - name: Check Cloudflare and runtime credentials
+        id: config
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${CLOUDFLARE_API_TOKEN:-}" ] || missing+=("CLOUDFLARE_API_TOKEN/CF_API_TOKEN")
+          [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ] || missing+=("CLOUDFLARE_ACCOUNT_ID/CF_ACCOUNT_ID")
+          [ -n "${PRIMARY_API_DB_HOST:-}" ] || missing+=("PRIMARY_API_DB_HOST")
+          [ -n "${PRIMARY_API_DB_USERNAME:-}" ] || missing+=("PRIMARY_API_DB_USERNAME")
+          [ -n "${PRIMARY_API_DB_PASSWORD:-}" ] || missing+=("PRIMARY_API_DB_PASSWORD")
+          [ -n "${PRIMARY_API_JWT_SECRET:-}" ] || missing+=("PRIMARY_API_JWT_SECRET")
+          [ -n "${PRIMARY_API_PROVIDER_ENCRYPTION_KEY:-}" ] || missing+=("PRIMARY_API_PROVIDER_ENCRYPTION_KEY")
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            printf 'Cloudflare preview not deployed because production environment configuration is missing: %s\n' "${missing[*]}"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build Worker runtime secrets file
+        if: ${{ steps.config.outputs.ready == 'true' }}
+        id: runtime-secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          secrets_file="$RUNNER_TEMP/kobeos-primary-api-secrets.json"
+          umask 077
+          jq -n \
+            --arg DB_HOST "$PRIMARY_API_DB_HOST" \
+            --arg DB_USERNAME "$PRIMARY_API_DB_USERNAME" \
+            --arg DB_PASSWORD "$PRIMARY_API_DB_PASSWORD" \
+            --arg JWT_SECRET "$PRIMARY_API_JWT_SECRET" \
+            --arg PROVIDER_ENCRYPTION_KEY "$PRIMARY_API_PROVIDER_ENCRYPTION_KEY" \
+            '{
+              DB_HOST: $DB_HOST,
+              DB_USERNAME: $DB_USERNAME,
+              DB_PASSWORD: $DB_PASSWORD,
+              JWT_SECRET: $JWT_SECRET,
+              PROVIDER_ENCRYPTION_KEY: $PROVIDER_ENCRYPTION_KEY
+            }' > "$secrets_file"
+
+          if [ -n "${PRIMARY_API_EXTRA_SECRETS_JSON:-}" ]; then
+            printf '%s' "$PRIMARY_API_EXTRA_SECRETS_JSON" |
+              jq -e 'type == "object"' > "$RUNNER_TEMP/kobeos-primary-extra-secrets.json"
+            jq -s '.[0] * .[1]' \
+              "$secrets_file" \
+              "$RUNNER_TEMP/kobeos-primary-extra-secrets.json" \
+              > "$RUNNER_TEMP/kobeos-primary-api-secrets.merged.json"
+            mv "$RUNNER_TEMP/kobeos-primary-api-secrets.merged.json" "$secrets_file"
+          fi
+
+          chmod 600 "$secrets_file"
+          echo "path=$secrets_file" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy workers.dev preview
+        if: ${{ steps.config.outputs.ready == 'true' }}
+        working-directory: deploy/cloudflare-primary-api
+        run: npx wrangler deploy --config wrangler.jsonc --secrets-file "${{ steps.runtime-secrets.outputs.path }}"
+
+      - name: Preview deployment configuration notice
+        if: ${{ steps.config.outputs.ready != 'true' }}
+        run: |
+          echo "Cloudflare Worker + Container configurations validated successfully."
+          echo "Live workers.dev deployment is skipped until the production environment secrets are configured."
+
+  cutover:
+    name: Enable api.kobeapptz.com Worker Route
+    needs: preview
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.cutover == true }}
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID || vars.CF_ACCOUNT_ID }}
+      PRIMARY_API_DB_HOST: ${{ secrets.PRIMARY_API_DB_HOST || secrets.DB_HOST || secrets.KOBE_SHARED_DB_HOST }}
+      PRIMARY_API_DB_USERNAME: ${{ secrets.PRIMARY_API_DB_USERNAME || secrets.DB_USERNAME }}
+      PRIMARY_API_DB_PASSWORD: ${{ secrets.PRIMARY_API_DB_PASSWORD || secrets.DB_PASSWORD }}
+      PRIMARY_API_JWT_SECRET: ${{ secrets.PRIMARY_API_JWT_SECRET || secrets.JWT_SECRET }}
+      PRIMARY_API_PROVIDER_ENCRYPTION_KEY: ${{ secrets.PRIMARY_API_PROVIDER_ENCRYPTION_KEY || secrets.PROVIDER_ENCRYPTION_KEY }}
+      PRIMARY_API_EXTRA_SECRETS_JSON: ${{ secrets.PRIMARY_API_EXTRA_SECRETS_JSON }}
+      CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID || secrets.CF_ZONE_ID || vars.CLOUDFLARE_ZONE_ID || vars.CF_ZONE_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Cloudflare deployment dependencies
+        working-directory: deploy/cloudflare-primary-api
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Check runtime credentials for cutover
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${CLOUDFLARE_API_TOKEN:-}" ] || missing+=("CLOUDFLARE_API_TOKEN/CF_API_TOKEN")
+          [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ] || missing+=("CLOUDFLARE_ACCOUNT_ID/CF_ACCOUNT_ID")
+          [ -n "${CLOUDFLARE_ZONE_ID:-}" ] || missing+=("CLOUDFLARE_ZONE_ID/CF_ZONE_ID")
+          [ -n "${PRIMARY_API_DB_HOST:-}" ] || missing+=("PRIMARY_API_DB_HOST")
+          [ -n "${PRIMARY_API_DB_USERNAME:-}" ] || missing+=("PRIMARY_API_DB_USERNAME")
+          [ -n "${PRIMARY_API_DB_PASSWORD:-}" ] || missing+=("PRIMARY_API_DB_PASSWORD")
+          [ -n "${PRIMARY_API_JWT_SECRET:-}" ] || missing+=("PRIMARY_API_JWT_SECRET")
+          [ -n "${PRIMARY_API_PROVIDER_ENCRYPTION_KEY:-}" ] || missing+=("PRIMARY_API_PROVIDER_ENCRYPTION_KEY")
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf '::error::Missing production environment configuration: %s\n' "${missing[*]}"
+            exit 1
+          fi
+
+      - name: Build Worker runtime secrets file
+        id: runtime-secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          secrets_file="$RUNNER_TEMP/kobeos-primary-api-secrets.json"
+          umask 077
+          jq -n \
+            --arg DB_HOST "$PRIMARY_API_DB_HOST" \
+            --arg DB_USERNAME "$PRIMARY_API_DB_USERNAME" \
+            --arg DB_PASSWORD "$PRIMARY_API_DB_PASSWORD" \
+            --arg JWT_SECRET "$PRIMARY_API_JWT_SECRET" \
+            --arg PROVIDER_ENCRYPTION_KEY "$PRIMARY_API_PROVIDER_ENCRYPTION_KEY" \
+            '{
+              DB_HOST: $DB_HOST,
+              DB_USERNAME: $DB_USERNAME,
+              DB_PASSWORD: $DB_PASSWORD,
+              JWT_SECRET: $JWT_SECRET,
+              PROVIDER_ENCRYPTION_KEY: $PROVIDER_ENCRYPTION_KEY
+            }' > "$secrets_file"
+
+          if [ -n "${PRIMARY_API_EXTRA_SECRETS_JSON:-}" ]; then
+            printf '%s' "$PRIMARY_API_EXTRA_SECRETS_JSON" |
+              jq -e 'type == "object"' > "$RUNNER_TEMP/kobeos-primary-extra-secrets.json"
+            jq -s '.[0] * .[1]' \
+              "$secrets_file" \
+              "$RUNNER_TEMP/kobeos-primary-extra-secrets.json" \
+              > "$RUNNER_TEMP/kobeos-primary-api-secrets.merged.json"
+            mv "$RUNNER_TEMP/kobeos-primary-api-secrets.merged.json" "$secrets_file"
+          fi
+          chmod 600 "$secrets_file"
+          echo "path=$secrets_file" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy production Worker Route
+        id: production-deploy
+        working-directory: deploy/cloudflare-primary-api
+        run: npx wrangler deploy --config wrangler.production.jsonc --secrets-file "${{ steps.runtime-secrets.outputs.path }}"
+
+      - name: Verify public production marker
+        run: |
+          set -euo pipefail
+          headers="$(mktemp)"
+          for attempt in $(seq 1 18); do
+            if curl -fsS -D "$headers" --connect-timeout 10 --max-time 25 https://api.kobeapptz.com/api/health >/dev/null; then
+              if grep -qi '^x-kobe-production-path: cloudflare-container' "$headers"; then
+                echo "Cloudflare primary API is live."
+                exit 0
+              fi
+            fi
+            sleep 5
+          done
+          echo "::error::api.kobeapptz.com did not verify against the Cloudflare Container."
+          exit 1
+
+      - name: Roll back Worker Route if verification fails
+        if: ${{ failure() && steps.production-deploy.outcome == 'success' }}
+        run: |
+          set -euo pipefail
+          routes_url="https://api.cloudflare.com/client/v4/zones/$CLOUDFLARE_ZONE_ID/workers/routes"
+          curl -fsS             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"             "$routes_url" > "$RUNNER_TEMP/cloudflare-routes.json"
+
+          route_id="$(jq -r '
+            .result[]
+            | select(.pattern == "api.kobeapptz.com/*" and .script == "kobeos-primary-api")
+            | .id
+          ' "$RUNNER_TEMP/cloudflare-routes.json" | head -n 1)"
+
+          if [ -z "$route_id" ] || [ "$route_id" = "null" ]; then
+            echo "::warning::No KobeOS production Worker Route found to remove."
+            exit 0
+          fi
+
+          curl -fsS -X DELETE             -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN"             "$routes_url/$route_id" > "$RUNNER_TEMP/cloudflare-route-delete.json"
+
+          jq -e '.success == true' "$RUNNER_TEMP/cloudflare-route-delete.json" >/dev/null
+          echo "Cloudflare Worker Route removed; api.kobeapptz.com is back on the unchanged legacy DNS origin."
