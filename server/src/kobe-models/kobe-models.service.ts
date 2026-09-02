@@ -3,7 +3,6 @@ import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import * as https from 'https';
 import * as http from 'http';
-import * as crypto from 'crypto';
 import { EMBEDDED_CATALOGUE } from './kobe-models.catalogue';
 import type { DownloadJob, KobeCatalogue, KobeModelEntry } from './kobe-models.types';
 
@@ -32,7 +31,13 @@ export class KobeModelsService {
         this.logger.warn(`CDN catalogue fetch failed, using embedded: ${(err as Error).message}`);
       }
     }
-    return this.catalogue;
+    return {
+      ...this.catalogue,
+      // MVP exposes only models with a real installer. Custom .kobemodel
+      // bundle installation is not production-ready yet; Ollama-backed models
+      // are installed through Ollama's verified registry pull API.
+      models: this.catalogue.models.filter((model) => Boolean(model.ollamaFallback)),
+    };
   }
 
   async getModelById(id: string): Promise<KobeModelEntry> {
@@ -97,80 +102,17 @@ export class KobeModelsService {
 
   private async runDownload(job: DownloadJob, model: KobeModelEntry): Promise<void> {
     const ollamaUrl = this.config.get<string>('OLLAMA_URL') ?? 'http://localhost:11434';
-    job.status = 'downloading';
-
-    // Determine source: prefer CDN, fall back to Ollama registry
-    const cdnUrl = this.config.get<string>('KOBE_MODELS_CDN_URL');
-    const useKobeCdn = !!cdnUrl && model.downloadUrl.startsWith('https://models.kobe');
-
-    if (useKobeCdn) {
-      await this.downloadAndVerify(job, model);
-    } else if (model.ollamaFallback) {
-      // Delegate to Ollama pull API
-      job.status = 'installing';
-      await this.ollamaPull(ollamaUrl, model.ollamaFallback);
-    } else {
-      throw new Error(`No download source available for ${model.id}`);
+    if (!model.ollamaFallback) {
+      throw new Error(`No verified production installer is available for ${model.id}`);
     }
+
+    job.status = 'installing';
+    await this.ollamaPull(ollamaUrl, model.ollamaFallback);
 
     job.status = 'done';
     job.progressPct = 100;
     job.completedAt = new Date().toISOString();
-    this.logger.log(`Model ${model.id} installed successfully`);
-  }
-
-  /**
-   * Downloads the .kobemodel bundle from the Kobe CDN, verifies its SHA-256
-   * checksum, then installs it via the Ollama create API.
-   */
-  private async downloadAndVerify(job: DownloadJob, model: KobeModelEntry): Promise<void> {
-    const cdnBase = this.config.get<string>('KOBE_MODELS_CDN_URL')!;
-    const url = model.downloadUrl.replace('https://models.kobe', cdnBase);
-
-    const chunks: Buffer[] = [];
-    const hash = crypto.createHash('sha256');
-
-    await new Promise<void>((resolve, reject) => {
-      const protocol = url.startsWith('https') ? https : http;
-      protocol.get(url, (res) => {
-        const total = parseInt(res.headers['content-length'] ?? '0', 10);
-        if (total) job.totalBytes = total;
-
-        res.on('data', (chunk: Buffer) => {
-          chunks.push(chunk);
-          hash.update(chunk);
-          job.progressBytes += chunk.length;
-          job.progressPct = job.totalBytes ? Math.round((job.progressBytes / job.totalBytes) * 100) : 0;
-        });
-        res.on('end', resolve);
-        res.on('error', reject);
-      }).on('error', reject);
-    });
-
-    job.status = 'verifying';
-    const digest = hash.digest('hex');
-
-    if (!model.checksum || model.checksum.startsWith('placeholder')) {
-      // Checksum not yet populated — log the actual digest so it can be
-      // recorded. Run `node scripts/fetch-model-checksums.js` to populate.
-      this.logger.warn(
-        `No checksum for ${model.id} — skipping verification. ` +
-        `Actual digest: ${digest}. ` +
-        `Run scripts/fetch-model-checksums.js to populate the catalogue.`,
-      );
-    } else if (digest !== model.checksum) {
-      throw new Error(
-        `Checksum mismatch for ${model.id}: expected ${model.checksum}, got ${digest}. ` +
-        `The bundle may be corrupt or tampered. Aborting install.`,
-      );
-    } else {
-      this.logger.log(`Checksum verified for ${model.id}`);
-    }
-
-    // Hand off to Ollama — extract the .kobemodel bundle and pass the
-    // Modelfile path to the Ollama create endpoint.
-    job.status = 'installing';
-    this.logger.log(`Installing ${model.id} (${(job.progressBytes / 1e9).toFixed(2)} GB)…`);
+    this.logger.log(`Model ${model.id} installed through Ollama registry`);
   }
 
   /** Delegates to Ollama's /api/pull endpoint and streams progress. */
