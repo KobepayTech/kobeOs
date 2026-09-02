@@ -8,6 +8,7 @@ on:
       - 'scripts/install-live-backend-autostart.ps1'
       - 'scripts/run-live-origin-supervisor.cjs'
       - 'scripts/run-live-backend.ps1'
+      - 'scripts/deploy-public-pages-from-origin.ps1'
   workflow_dispatch:
   # MVP recovery: keep the existing origin + local PostgreSQL online behind Cloudflare Tunnel.
   # The runner service starts with Windows. This watchdog then repairs embedded
@@ -269,6 +270,13 @@ jobs:
               throw 'Cloudflare connector service did not return to Running state.'
             }
           }
+
+      - name: Deploy Lala and Jumla Pages from origin credentials when available
+        env:
+          ORIGIN_ROOT: ${{ steps.origin.outputs.root }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & "$env:GITHUB_WORKSPACE\scripts\deploy-public-pages-from-origin.ps1" -OriginRoot $env:ORIGIN_ROOT
 
   verify-public:
     name: Verify KobeOS API off-box
