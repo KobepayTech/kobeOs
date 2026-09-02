@@ -1,5 +1,6 @@
-import { Body, Controller, Delete, ForbiddenException, Get, Param, Post, Put, Res, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Param, Post, Put, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import type { Response } from 'express';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { IsArray, IsIn, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -8,6 +9,7 @@ import { AiService, ChatCompletionOptions, MODEL_CATALOGUE, ModelCategory } from
 import { AgentRequestContext, KobeAgentService } from './agent.service';
 import { AiOperatingService } from './ai-operating.service';
 import { AiDocsService } from './ai-docs.service';
+import { PdfDocumentService } from './pdf-document.service';
 
 class AssistantDto {
   @IsString() @MaxLength(2000) message!: string;
@@ -42,6 +44,7 @@ export class AiController {
     private readonly agent: KobeAgentService,
     private readonly aiDocs: AiDocsService,
     private readonly operating: AiOperatingService,
+    private readonly pdfDocuments: PdfDocumentService,
   ) {}
 
   @Post('docs')
@@ -57,6 +60,65 @@ export class AiController {
       source: 'automatic-document-ingestion',
     }).catch(() => undefined);
     return doc;
+  }
+
+  @Post('docs/upload')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 25 * 1024 * 1024 } }))
+  @ApiOperation({ summary: 'Upload and ingest a native PDF document' })
+  async uploadPdf(
+    @CurrentUser('id') uid: string,
+    @UploadedFile() file: Express.Multer.File | undefined,
+    @Body('title') title?: string,
+  ) {
+    if (!file?.buffer?.length) throw new BadRequestException('No PDF uploaded');
+    const looksPdf = file.mimetype === 'application/pdf' || /\.pdf$/i.test(file.originalname || '');
+    if (!looksPdf) throw new BadRequestException('Only PDF files are accepted by this endpoint');
+
+    const extraction = await this.pdfDocuments.extract(file.buffer);
+    const cleanTitle = (title || file.originalname || 'PDF document').replace(/\.pdf$/i, '').trim().slice(0, 200);
+    const source = `pdf:${file.originalname || cleanTitle};method:${extraction.method};pages:${extraction.pageCount}`.slice(0, 200);
+    const doc = await this.aiDocs.ingest(uid, cleanTitle || 'PDF document', extraction.text, source);
+
+    await this.operating.upsertMemoryNode(uid, {
+      nodeType: 'document',
+      externalKey: doc.id,
+      label: doc.title,
+      attributes: {
+        source: doc.source,
+        chunkCount: doc.chunkCount,
+        charCount: doc.charCount,
+        pageCount: extraction.pageCount,
+        extractionMethod: extraction.method,
+        ocrPages: extraction.ocrPages,
+      },
+      confidence: extraction.method === 'ocr' ? 0.8 : 1,
+      source: 'automatic-pdf-ingestion',
+    }).catch(() => undefined);
+
+    await this.operating.audit(
+      uid, uid, 'user', 'PDF_INGESTED', 'documents', doc.title, '', 'pdf_extract',
+      extraction.method === 'ocr' ? 0.8 : 1,
+      [{ kind: 'document', label: doc.title, ref: doc.id }],
+      {
+        documentId: doc.id,
+        pageCount: extraction.pageCount,
+        charCount: extraction.charCount,
+        extractionMethod: extraction.method,
+        ocrPages: extraction.ocrPages,
+        warnings: extraction.warnings,
+      },
+    ).catch(() => undefined);
+
+    return {
+      ...doc,
+      extraction: {
+        pageCount: extraction.pageCount,
+        charCount: extraction.charCount,
+        method: extraction.method,
+        ocrPages: extraction.ocrPages,
+        warnings: extraction.warnings,
+      },
+    };
   }
 
   @Get('docs')
