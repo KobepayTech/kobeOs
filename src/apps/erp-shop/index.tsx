@@ -1031,7 +1031,7 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
               {filteredProducts.length === 0 && (
                 <div className="flex flex-col items-center justify-center pb-10 -mt-4 text-slate-400">
                   <ShoppingBag className="w-8 h-8 mb-2 opacity-40" />
-                  <p className="text-sm font-medium">Products coming soon</p>
+                  <p className="text-sm font-medium">No products yet</p>
                   <p className="text-xs text-slate-500">Your items will appear here once added.</p>
                 </div>
               )}
