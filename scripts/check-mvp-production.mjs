@@ -3,7 +3,15 @@ import { readFile } from 'node:fs/promises';
 const productionSurfaces = [
   'src/apps/kobe-hotel/index.tsx',
   'src/apps/kobe-hotel/ProductionHotel.tsx',
+  'src/apps/kobe-hotel/ChannelsTab.tsx',
   'src/apps/creator/ProductionCreator.tsx',
+  'src/apps/kobe-assistant/index.tsx',
+  'src/apps/kobe-models/index.tsx',
+  'src/apps/erp-dashboard/index.tsx',
+  'src/apps/erp-shop/index.tsx',
+  'src/apps/erp-discounts/index.tsx',
+  'src/apps/posys/index.tsx',
+  'src/apps/property/PropertyOps.tsx',
   'src/apps/kobe-accountant/index.tsx',
   'src/apps/kobe-pay/index.tsx',
   'src/apps/china-cashier/index.tsx',
@@ -38,6 +46,8 @@ const productionSurfaces = [
   'src/lib/appMarketplace.ts',
   'src/os/store-modules.ts',
   'server/src/pos/pos.controller.ts',
+  'server/src/property/services/screening.service.ts',
+  'server/src/kobe-models/kobe-models.service.ts',
 ];
 
 const forbidden = [
