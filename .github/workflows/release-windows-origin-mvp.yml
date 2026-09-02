@@ -107,9 +107,8 @@ jobs:
                 return
               }
               foreach ($listener in $listeners) {
-                $listenerProcess = Get-CimInstance Win32_Process -Filter "ProcessId=$($listener.OwningProcess)" -ErrorAction SilentlyContinue
-                if (-not $listenerProcess -or $listenerProcess.Name -ne 'node.exe' -or
-                    -not $listenerProcess.CommandLine -or $listenerProcess.CommandLine -notmatch 'server[\\/]dist[\\/]main\.js') {
+                $listenerProcess = Get-Process -Id $listener.OwningProcess -ErrorAction SilentlyContinue
+                if (-not $listenerProcess -or $listenerProcess.ProcessName -notmatch '^node(?:js)?$') {
                   throw 'Port 3000 is owned by an unexpected process; refusing to terminate it.'
                 }
                 Stop-Process -Id $listener.OwningProcess -Force -ErrorAction SilentlyContinue
