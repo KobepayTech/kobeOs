@@ -161,6 +161,16 @@ function emptyDb(){
   return{properties:[],tokens:{},payments:[],reminders:[],hotel:{rooms:[],stays:[]},seeded:true};
 }
 
+function isLegacyFixtureDb(db){
+  const property=db?.properties?.[0];
+  const unitNames=(property?.units||[]).map(u=>u?.tenantName).filter(Boolean);
+  const guestNames=(db?.hotel?.stays||[]).map(s=>s?.guestName).filter(Boolean);
+  return property?.name==="Kariakoo Plaza"
+    && unitNames.includes("Salehe Sigala")
+    && unitNames.includes("Fatuma Hassan")
+    && guestNames.includes("Hamisi Juma");
+}
+
 /* ================= Strings ================= */
 const STR={
   sw:{brand:"POSys",tagline:"Jengo na Hoteli",modeRent:"Pango",modeHotel:"Hoteli",
@@ -425,7 +435,7 @@ export default function App(){
     try{const r=await api("/app-state/posys");if(r&&r.value)loaded=r.value;}catch{/* not signed in / offline */}
     // 2. Fall back to the localStorage cache.
     if(!loaded){try{const r=await store.get(DB_KEY);if(r&&r.value)loaded=JSON.parse(r.value);}catch { /* local cache unavailable */ }}
-    if(!loaded||!loaded.seeded){loaded=emptyDb();}
+    if(!loaded||!loaded.seeded||isLegacyFixtureDb(loaded)){loaded=emptyDb();}
     loaded=normalizeDb(loaded);
     try{await store.set(DB_KEY,JSON.stringify(loaded));}catch { /* local cache unavailable */ }
     syncUp(loaded);   // persist the real/empty normalized state
