@@ -20,7 +20,7 @@ jobs:
   preview:
     name: Deploy Cloudflare API preview
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && vars.CLOUDFLARE_CONTAINER_PRIMARY_ENABLED == 'true') }}
     # Reuse the existing production environment because Lala/Jumla already keep
     # the Cloudflare account token and account ID there.
     environment: production
