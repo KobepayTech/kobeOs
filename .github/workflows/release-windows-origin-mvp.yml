@@ -89,7 +89,20 @@ jobs:
               }
               foreach ($listener in $listeners) {
                 $process = Get-Process -Id $listener.OwningProcess -ErrorAction SilentlyContinue
-                if ($process -and $process.ProcessName -notmatch '^node(?:js)?          foreach ($path in @($next, $failed)) {
+                if ($process -and $process.ProcessName -notmatch '^node(?:js)?$') {
+                  throw 'Port 3000 is owned by an unexpected process; refusing to terminate it.'
+                }
+                if ($process) {
+                  Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+                }
+              }
+              Start-Sleep -Seconds 1
+            } while ((Get-Date) -lt $deadline)
+            throw 'Timed out while draining the Node API listener on port 3000.'
+          }
+
+          New-Item -ItemType Directory -Force -Path $logs | Out-Null
+          foreach ($path in @($next, $failed)) {
             if (Test-Path -LiteralPath $path) {
               Remove-Item -LiteralPath $path -Recurse -Force
             }
@@ -185,198 +198,6 @@ jobs:
             try {
               Start-Sleep -Seconds 5
               Stop-OriginApiListener
-              if (Test-Path -LiteralPath $current) {
-                Move-Item -LiteralPath $current -Destination $failed
-              }
-              Move-Item -LiteralPath $previous -Destination $current
-            } finally {
-              Remove-Item -LiteralPath $lock -Force -ErrorAction SilentlyContinue
-            }
-
-            $rollbackHealthy = $false
-            $rollbackDeadline = (Get-Date).AddMinutes(3)
-            do {
-              try {
-                $response = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:3000/api/health' -TimeoutSec 8
-                if ($response.StatusCode -eq 200) {
-                  $rollbackHealthy = $true
-                  break
-                }
-              } catch { }
-              Start-Sleep -Seconds 4
-            } while ((Get-Date) -lt $rollbackDeadline)
-
-            if (-not $rollbackHealthy) {
-              throw 'New release failed and the previous backend did not recover.'
-            }
-            throw 'New release failed database-backed health checks; previous backend restored.'
-          }
-
-          Set-Content -LiteralPath $marker -Value '${{ github.sha }}' -Encoding ASCII
-          Write-Host 'backend_release=success'
-
-      - name: Deploy current Lala and Jumla bundles
-        env:
-          ORIGIN_ROOT: ${{ steps.origin.outputs.root }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $lines = @(
-            & "$env:GITHUB_WORKSPACE\scripts\deploy-public-pages-from-origin.ps1" -OriginRoot $env:ORIGIN_ROOT
-          )
-          $lines | ForEach-Object { Write-Host $_ }
-          if ($lines -notcontains 'origin_pages_deploy=success') {
-            throw 'Cloudflare Pages deployment did not run because usable origin credentials were not found.'
-          }
-
-  verify-off-box:
-    name: Verify complete public MVP
-    needs: release-origin
-    runs-on: ubuntu-latest
-    timeout-minutes: 8
-    steps:
-      - name: Verify API, Lala, and Jumla
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          retry_json() {
-            url="$1"
-            output="$2"
-            for attempt in $(seq 1 12); do
-              if curl -fsS --connect-timeout 10 --max-time 30 "$url" -o "$output"; then
-                return 0
-              fi
-              sleep 5
-            done
-            return 1
-          }
-
-          retry_json 'https://api.kobeapptz.com/api/health' /tmp/api-health.json
-          jq -e '.status == "ok" and .db == "connected"' /tmp/api-health.json >/dev/null
-
-          retry_json 'https://api.kobeapptz.com/api/lala-public/health' /tmp/lala-health.json
-          jq -e '.status == "ok" and .database == "ready"' /tmp/lala-health.json >/dev/null
-
-          retry_json 'https://api.kobeapptz.com/api/lala-public/search' /tmp/lala-search.json
-          jq -e 'type == "array"' /tmp/lala-search.json >/dev/null
-
-          retry_json 'https://api.kobeapptz.com/api/commerce-public/jumla/items?q=' /tmp/jumla-items.json
-          jq -e 'type == "array"' /tmp/jumla-items.json >/dev/null
-
-          for domain in lala.kobeapptz.com jumla.kobeapptz.com; do
-            curl -fsS --retry 10 --retry-delay 5 --retry-all-errors \
-              --connect-timeout 10 --max-time 30 "https://$domain/" -o "/tmp/$domain.html"
-            grep -q 'id="root"' "/tmp/$domain.html"
-          done
-
-          echo 'public_mvp_verification=success'
-) {
-                  throw 'Port 3000 is owned by an unexpected process; refusing to terminate it.'
-                }
-                if ($process) {
-                  Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-                }
-              }
-              Start-Sleep -Seconds 1
-            } while ((Get-Date) -lt $deadline)
-            throw 'Timed out while draining the Node API listener on port 3000.'
-          }
-
-          New-Item -ItemType Directory -Force -Path $logs | Out-Null
-          foreach ($path in @($next, $failed)) {
-            if (Test-Path -LiteralPath $path) {
-              Remove-Item -LiteralPath $path -Recurse -Force
-            }
-          }
-          Copy-Item -LiteralPath $source -Destination $next -Recurse -Force
-          Set-Content -LiteralPath $lock -Value '${{ github.sha }}' -Encoding ASCII
-
-          try {
-            Start-Sleep -Seconds 5
-            if (Test-Path -LiteralPath $previous) {
-              Remove-Item -LiteralPath $previous -Recurse -Force
-            }
-            Move-Item -LiteralPath $current -Destination $previous
-            Move-Item -LiteralPath $next -Destination $current
-          } finally {
-            Remove-Item -LiteralPath $lock -Force -ErrorAction SilentlyContinue
-          }
-
-          function Test-Release {
-            try {
-              $api = Invoke-RestMethod -Uri 'http://127.0.0.1:3000/api/health' -TimeoutSec 8
-              $lala = Invoke-RestMethod -Uri 'http://127.0.0.1:3000/api/lala-public/health' -TimeoutSec 12
-              $search = Invoke-RestMethod -Uri 'http://127.0.0.1:3000/api/lala-public/search' -TimeoutSec 15
-              # Invoke-RestMethod successfully parsing the search response is the
-              # local search gate. Windows PowerShell may unwrap a one-item JSON
-              # array, so its runtime CLR type is not a reliable API contract.
-              $null = $search
-              return (
-                $api.status -eq 'ok' -and
-                $api.db -eq 'connected' -and
-                $lala.status -eq 'ok' -and
-                $lala.database -eq 'ready'
-              )
-            } catch {
-              return $false
-            }
-          }
-
-          $healthy = $false
-          $deadline = (Get-Date).AddMinutes(4)
-          do {
-            if (Test-Release) {
-              $healthy = $true
-              break
-            }
-            Start-Sleep -Seconds 4
-          } while ((Get-Date) -lt $deadline)
-
-          if (-not $healthy) {
-            function Write-EndpointDiagnostic([string]$Name, [string]$Uri) {
-              try {
-                $response = Invoke-WebRequest -UseBasicParsing -Uri $Uri -TimeoutSec 8
-                Write-Host "$Name=http_$($response.StatusCode)"
-              } catch {
-                $status = $null
-                if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
-                  $status = [int]$_.Exception.Response.StatusCode
-                }
-                if ($status) {
-                  Write-Host "$Name=http_$status"
-                } else {
-                  Write-Host "$Name=unreachable"
-                }
-              }
-            }
-
-            Write-EndpointDiagnostic 'new_api_health' 'http://127.0.0.1:3000/api/health'
-            Write-EndpointDiagnostic 'new_lala_health' 'http://127.0.0.1:3000/api/lala-public/health'
-            Write-EndpointDiagnostic 'new_lala_search' 'http://127.0.0.1:3000/api/lala-public/search'
-
-            $backendError = Join-Path $logs 'kobe-backend-live.err.log'
-            $failureClass = 'unclassified'
-            if (Test-Path -LiteralPath $backendError -PathType Leaf) {
-              $tail = (Get-Content -LiteralPath $backendError -Tail 400 -ErrorAction SilentlyContinue) -join [Environment]::NewLine
-              if ($tail -match 'Cannot find module') {
-                $failureClass = 'dependency_missing'
-              } elseif ($tail -match 'relation .* does not exist') {
-                $failureClass = 'migration_relation_missing'
-              } elseif ($tail -match 'column .* does not exist') {
-                $failureClass = 'migration_column_missing'
-              } elseif ($tail -match 'ECONNREFUSED|connect ECONNREFUSED') {
-                $failureClass = 'database_connection_failed'
-              } elseif ($tail -match 'EADDRINUSE') {
-                $failureClass = 'port_in_use'
-              } elseif ($tail -match 'Nest can.?t resolve dependencies') {
-                $failureClass = 'nest_dependency_resolution'
-              }
-            }
-            Write-Host "new_backend_failure_class=$failureClass"
-            Write-Host 'New backend failed release health checks; restoring previous bundle.'
-            Set-Content -LiteralPath $lock -Value 'rollback' -Encoding ASCII
-            try {
-              Start-Sleep -Seconds 5
               if (Test-Path -LiteralPath $current) {
                 Move-Item -LiteralPath $current -Destination $failed
               }
