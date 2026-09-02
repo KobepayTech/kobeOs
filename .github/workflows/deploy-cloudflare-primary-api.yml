@@ -1,12 +1,10 @@
 name: Deploy Cloudflare Primary API
 
 on:
-  push:
-    branches:
-      - feat/cloudflare-primary-api
-    paths:
-      - 'deploy/cloudflare-primary-api/**'
-      - '.github/workflows/deploy-cloudflare-primary-api.yml'
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [master, main]
   workflow_dispatch:
     inputs:
       cutover:
@@ -22,10 +20,12 @@ jobs:
   preview:
     name: Deploy Cloudflare API preview
     runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     # Reuse the existing production environment because Lala/Jumla already keep
     # the Cloudflare account token and account ID there.
     environment: production
     env:
+      DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID || vars.CF_ACCOUNT_ID }}
       PRIMARY_API_DB_HOST: ${{ secrets.PRIMARY_API_DB_HOST || secrets.DB_HOST || secrets.KOBE_SHARED_DB_HOST }}
@@ -38,6 +38,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
 
       - uses: actions/setup-node@v4
         with:
