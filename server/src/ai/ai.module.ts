@@ -15,6 +15,7 @@ import {
   AiOperatingAudit, AiSkillInstall, AiWorkflowPlan,
 } from './ai-operating.entity';
 import { AiOperatingService } from './ai-operating.service';
+import { PdfDocumentService } from './pdf-document.service';
 import { PosOrder, PosProduct } from '../pos/pos.entity';
 import { ProductReview } from '../store/product-review.entity';
 import { RentCharge, Tenant, PropertyUnit } from '../property/property.entity';
@@ -28,6 +29,7 @@ import { AppState } from '../app-state/app-state.entity';
 import { SearchDoc } from '../search/search.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { SystemHealthModule } from '../system-health/system-health.module';
+import { OcrModule } from '../ocr/ocr.module';
 
 @Module({
   imports: [
@@ -40,9 +42,10 @@ import { SystemHealthModule } from '../system-health/system-health.module';
     ]),
     NotificationsModule,
     SystemHealthModule,
+    OcrModule,
   ],
-  providers: [AiService, KobeAgentService, ScheduledAgentService, AiDocsService, AiOperatingService],
+  providers: [AiService, KobeAgentService, ScheduledAgentService, AiDocsService, AiOperatingService, PdfDocumentService],
   controllers: [AiController, ScheduledAgentController, AiOperatingController],
-  exports: [AiService, KobeAgentService, ScheduledAgentService, AiDocsService, AiOperatingService],
+  exports: [AiService, KobeAgentService, ScheduledAgentService, AiDocsService, AiOperatingService, PdfDocumentService],
 })
 export class AiModule {}
