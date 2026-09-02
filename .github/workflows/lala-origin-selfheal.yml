@@ -272,6 +272,7 @@ jobs:
           }
 
       - name: Deploy Lala and Jumla Pages from origin credentials when available
+        continue-on-error: true
         env:
           ORIGIN_ROOT: ${{ steps.origin.outputs.root }}
         run: |
@@ -288,14 +289,15 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          urls=(
+          api_urls=(
             'https://api.kobeapptz.com/api/health'
             'https://api.kobeapptz.com/api/lala-public/search'
           )
 
+          healthy=false
           for attempt in $(seq 1 12); do
             healthy=true
-            for url in "${urls[@]}"; do
+            for url in "${api_urls[@]}"; do
               if ! curl --fail --silent --show-error \
                 --output /dev/null \
                 --connect-timeout 10 \
@@ -304,16 +306,50 @@ jobs:
                 healthy=false
               fi
             done
-
             if [ "$healthy" = true ]; then
               echo "KobeOS API is healthy through Cloudflare on attempt $attempt."
-              exit 0
+              break
             fi
-
-            echo "Off-box verification attempt $attempt/12 did not pass yet."
+            echo "Off-box API verification attempt $attempt/12 did not pass yet."
             sleep 5
           done
 
-          echo 'The local recovery job passed, but the API is still unreachable through Cloudflare.' >&2
-          exit 1
+          [ "$healthy" = true ] || {
+            echo 'The local recovery job passed, but the API is still unreachable through Cloudflare.' >&2
+            exit 1
+          }
+
+          verify_spa() {
+            domain="$1"
+            label="$2"
+            html="/tmp/${label}.html"
+            assets="/tmp/${label}-assets"
+            mkdir -p "$assets"
+
+            curl -fsS --retry 6 --retry-delay 3 --connect-timeout 10 --max-time 30 \
+              "https://$domain/" -o "$html"
+            grep -q 'id="root"' "$html" || {
+              echo "::error::$domain did not return the KobeOS SPA shell."
+              exit 1
+            }
+
+            grep -oE 'src="[^"]+\.js"' "$html" | sed -E 's/^src="//;s/"$//' | while read -r asset; do
+              case "$asset" in
+                http://*|https://*) url="$asset" ;;
+                /*) url="https://$domain$asset" ;;
+                *) url="https://$domain/$asset" ;;
+              esac
+              name="$(basename "${asset%%\?*}")"
+              curl -fsS --connect-timeout 10 --max-time 30 "$url" -o "$assets/$name"
+            done
+
+            if grep -R -q -E 'erimnjgpawuxesonkeoz|kobeos-backup|supabase\.co/functions/v1' "$assets"; then
+              echo "::error::$domain is still serving the removed emergency-database frontend bundle."
+              exit 1
+            fi
+            echo "$domain is serving a clean KobeOS frontend bundle."
+          }
+
+          verify_spa 'lala.kobeapptz.com' 'lala'
+          verify_spa 'jumla.kobeapptz.com' 'jumla'
 
