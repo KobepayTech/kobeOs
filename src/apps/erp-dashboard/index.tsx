@@ -108,8 +108,8 @@ const moduleSections = [
   {
     title: 'Administration',
     tiles: [
-      { id: 'admin', appId: 'erp-admin', label: 'Admin Panel (demo)', desc: 'Users, roles & permissions — local-only preview', icon: ShieldCheck, color: 'text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/20' },
-      { id: 'rider', appId: 'erp-rider', label: 'Rider Manager', desc: 'Delivery personnel — coming soon', icon: UserCircle, color: 'text-sky-400', bg: 'bg-sky-500/10', border: 'border-sky-500/20' },
+      { id: 'admin', appId: 'erp-admin', label: 'Admin Panel', desc: 'Real users, roles & permissions', icon: ShieldCheck, color: 'text-red-400', bg: 'bg-red-500/10', border: 'border-red-500/20' },
+      { id: 'rider', appId: 'erp-rider', label: 'Rider Manager', desc: 'Drivers, assignments & delivery status', icon: UserCircle, color: 'text-sky-400', bg: 'bg-sky-500/10', border: 'border-sky-500/20' },
     ] as ModuleTile[],
   },
 ];
