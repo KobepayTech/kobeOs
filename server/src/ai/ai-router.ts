@@ -23,7 +23,9 @@ export const DEFAULT_MODEL_ROUTING: ModelRoutingConfig = {
   reasoning: 'deepseek-r1:8b',
   coder: 'deepseek-coder:6.7b',
   vision: 'qwen2.5vl:7b',
-  router: 'phi3:mini',
+  // Fast-first: use the same warm model for routing and everyday chat so
+  // Ollama does not evict/load Phi before Qwen can start answering.
+  router: 'qwen2.5:7b',
 };
 
 export function detectTask(message: string, hasImages = false): AiTask {
@@ -72,7 +74,9 @@ export function selectInstalledModel(
   }
 
   const priorities: Record<AiTask, string[]> = {
-    route: [config.router, 'phi3:mini', 'qwen2.5:3b', config.everyday, activeModel],
+    // Prefer the already-warm everyday/active model before any tiny fallback.
+    // A second model load costs more latency than the tiny router saves.
+    route: [config.router, config.everyday, activeModel, 'qwen2.5:3b', 'phi3:mini'],
     general: [config.everyday, 'qwen2.5:7b', activeModel, 'llama3:8b', 'mistral:7b'],
     reasoning: [config.reasoning, 'deepseek-r1:8b', config.everyday, activeModel, 'llama3:8b'],
     code: [config.coder, 'deepseek-coder:6.7b', config.everyday, activeModel],
