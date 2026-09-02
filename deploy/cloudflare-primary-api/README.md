@@ -122,5 +122,4 @@ container platform to recover/restart it.
 ## Database note
 
 The Cloudflare Container must use the same production PostgreSQL source of truth
-as the legacy KobeOS origin. No Supabase or secondary database is part of the
-MVP production path.
+as the legacy KobeOS origin. No secondary database is part of the MVP production path.
