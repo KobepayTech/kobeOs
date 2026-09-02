@@ -9,7 +9,8 @@ on:
       - 'scripts/run-live-origin-supervisor.cjs'
       - 'scripts/run-live-backend.ps1'
   workflow_dispatch:
-  # The runner service starts with Windows. This watchdog then repairs embedded
+  # MVP recovery trigger: keep the existing origin + local PostgreSQL online behind Cloudflare Tunnel.
+# The runner service starts with Windows. This watchdog then repairs embedded
   # PostgreSQL, the API supervisor, or Cloudflare whenever health checks fail.
   schedule:
     - cron: '3,13,23,33,43,53 * * * *'
