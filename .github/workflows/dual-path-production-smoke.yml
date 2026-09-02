@@ -1,4 +1,4 @@
-name: Verify Dual Production Paths
+name: Verify Production Paths
 
 on:
   workflow_dispatch:
@@ -8,16 +8,13 @@ on:
 permissions:
   contents: read
 
-env:
-  SUPABASE_BACKUP_API_BASE: https://erimnjgpawuxesonkeoz.supabase.co/functions/v1/kobeos-backup
-
 jobs:
   primary:
-    name: Verify Cloudflare primary
+    name: Verify Cloudflare primary + Lala
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Check primary Lala API and web
+      - name: Check primary API and web
         run: |
           set -euo pipefail
           curl -fsS --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 25             https://api.kobeapptz.com/api/lala-public/health -o /tmp/primary-health.json
@@ -26,29 +23,38 @@ jobs:
           curl -fsS --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 25             https://lala.kobeapptz.com/ -o /tmp/primary-lala.html
           grep -q 'id="root"' /tmp/primary-lala.html
 
-  backup:
-    name: Verify Supabase emergency path
+  optional-backup:
+    name: Verify optional direct backup
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    env:
+      BACKUP_API_HOST: ${{ vars.BACKUP_API_HOST }}
+      BACKUP_WEB_HOST: ${{ vars.BACKUP_WEB_HOST }}
     steps:
-      - name: Check independent API
+      - name: Skip when no independent backup is configured
+        id: config
+        run: |
+          if [ -n "${BACKUP_API_HOST:-}" ] && [ -n "${BACKUP_WEB_HOST:-}" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "No independent backup origin configured; Cloudflare primary + legacy-origin rollback remains the MVP topology."
+          fi
+
+      - name: Check direct backup only when configured
+        if: ${{ steps.config.outputs.ready == 'true' }}
         run: |
           set -euo pipefail
-          curl -fsS --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 25             -D /tmp/backup-headers.txt             "$SUPABASE_BACKUP_API_BASE/lala-public/health"             -o /tmp/backup-health.json
+          case "$BACKUP_API_HOST $BACKUP_WEB_HOST" in
+            *kobeapptz.com*)
+              echo "::error::Backup hostnames must be independent of the kobeapptz.com Cloudflare zone."
+              exit 1
+              ;;
+          esac
 
-          jq -e '.status == "ok" and .database == "ready" and .mode == "supabase-backup"'             /tmp/backup-health.json >/dev/null
-          grep -qi '^x-kobe-production-path: supabase-backup' /tmp/backup-headers.txt
+          curl -fsS --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 25             -D /tmp/backup-headers.txt             "https://$BACKUP_API_HOST/api/lala-public/health"             -o /tmp/backup-health.json
+          jq -e '.status == "ok" and .database == "ready"' /tmp/backup-health.json >/dev/null
+          grep -qi '^x-kobe-production-path: backup-direct' /tmp/backup-headers.txt
 
-      - name: Check independent emergency web
-        run: |
-          set -euo pipefail
-          curl -fsS --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 25             -D /tmp/backup-web-headers.txt             "$SUPABASE_BACKUP_API_BASE/app"             -o /tmp/backup-lala.html
-
-          grep -q '<title>Lala · Independent Backup</title>' /tmp/backup-lala.html
-          grep -qi '^x-kobe-production-path: supabase-backup' /tmp/backup-web-headers.txt
-
-      - name: Check snapshot state
-        run: |
-          set -euo pipefail
-          curl -fsS --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 25             "$SUPABASE_BACKUP_API_BASE/health" -o /tmp/backup-state.json
-          jq -e '.status == "ok" and .database == "ready"' /tmp/backup-state.json >/dev/null
+          curl -fsS --retry 3 --retry-delay 2 --connect-timeout 10 --max-time 25             "https://$BACKUP_WEB_HOST/lala" -o /tmp/backup-web.html
+          grep -q 'id="root"' /tmp/backup-web.html
