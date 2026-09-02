@@ -28,6 +28,12 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID || vars.CF_ACCOUNT_ID }}
+      PRIMARY_API_DB_HOST: ${{ secrets.PRIMARY_API_DB_HOST || secrets.DB_HOST || secrets.KOBE_SHARED_DB_HOST }}
+      PRIMARY_API_DB_USERNAME: ${{ secrets.PRIMARY_API_DB_USERNAME || secrets.DB_USERNAME }}
+      PRIMARY_API_DB_PASSWORD: ${{ secrets.PRIMARY_API_DB_PASSWORD || secrets.DB_PASSWORD }}
+      PRIMARY_API_JWT_SECRET: ${{ secrets.PRIMARY_API_JWT_SECRET || secrets.JWT_SECRET }}
+      PRIMARY_API_PROVIDER_ENCRYPTION_KEY: ${{ secrets.PRIMARY_API_PROVIDER_ENCRYPTION_KEY || secrets.PROVIDER_ENCRYPTION_KEY }}
+      PRIMARY_API_EXTRA_SECRETS_JSON: ${{ secrets.PRIMARY_API_EXTRA_SECRETS_JSON }}
 
     steps:
       - uses: actions/checkout@v4
@@ -48,21 +54,59 @@ jobs:
         working-directory: deploy/cloudflare-primary-api
         run: npx wrangler deploy --dry-run --config wrangler.production.jsonc --outdir .wrangler-production-dry-run
 
-      - name: Check Cloudflare credentials
+      - name: Check Cloudflare and runtime credentials
         run: |
           set -euo pipefail
-          [ -n "${CLOUDFLARE_API_TOKEN:-}" ] || {
-            echo "::error::Missing CLOUDFLARE_API_TOKEN/CF_API_TOKEN in the production environment"
+          missing=()
+          [ -n "${CLOUDFLARE_API_TOKEN:-}" ] || missing+=("CLOUDFLARE_API_TOKEN/CF_API_TOKEN")
+          [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ] || missing+=("CLOUDFLARE_ACCOUNT_ID/CF_ACCOUNT_ID")
+          [ -n "${PRIMARY_API_DB_HOST:-}" ] || missing+=("PRIMARY_API_DB_HOST")
+          [ -n "${PRIMARY_API_DB_USERNAME:-}" ] || missing+=("PRIMARY_API_DB_USERNAME")
+          [ -n "${PRIMARY_API_DB_PASSWORD:-}" ] || missing+=("PRIMARY_API_DB_PASSWORD")
+          [ -n "${PRIMARY_API_JWT_SECRET:-}" ] || missing+=("PRIMARY_API_JWT_SECRET")
+          [ -n "${PRIMARY_API_PROVIDER_ENCRYPTION_KEY:-}" ] || missing+=("PRIMARY_API_PROVIDER_ENCRYPTION_KEY")
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf '::error::Missing production environment configuration: %s\n' "${missing[*]}"
             exit 1
-          }
-          [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ] || {
-            echo "::error::Missing CLOUDFLARE_ACCOUNT_ID/CF_ACCOUNT_ID in the production environment"
-            exit 1
-          }
+          fi
+
+      - name: Build Worker runtime secrets file
+        id: runtime-secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          secrets_file="$RUNNER_TEMP/kobeos-primary-api-secrets.json"
+          umask 077
+          jq -n \
+            --arg DB_HOST "$PRIMARY_API_DB_HOST" \
+            --arg DB_USERNAME "$PRIMARY_API_DB_USERNAME" \
+            --arg DB_PASSWORD "$PRIMARY_API_DB_PASSWORD" \
+            --arg JWT_SECRET "$PRIMARY_API_JWT_SECRET" \
+            --arg PROVIDER_ENCRYPTION_KEY "$PRIMARY_API_PROVIDER_ENCRYPTION_KEY" \
+            '{
+              DB_HOST: $DB_HOST,
+              DB_USERNAME: $DB_USERNAME,
+              DB_PASSWORD: $DB_PASSWORD,
+              JWT_SECRET: $JWT_SECRET,
+              PROVIDER_ENCRYPTION_KEY: $PROVIDER_ENCRYPTION_KEY
+            }' > "$secrets_file"
+
+          if [ -n "${PRIMARY_API_EXTRA_SECRETS_JSON:-}" ]; then
+            printf '%s' "$PRIMARY_API_EXTRA_SECRETS_JSON" |
+              jq -e 'type == "object"' > "$RUNNER_TEMP/kobeos-primary-extra-secrets.json"
+            jq -s '.[0] * .[1]' \
+              "$secrets_file" \
+              "$RUNNER_TEMP/kobeos-primary-extra-secrets.json" \
+              > "$RUNNER_TEMP/kobeos-primary-api-secrets.merged.json"
+            mv "$RUNNER_TEMP/kobeos-primary-api-secrets.merged.json" "$secrets_file"
+          fi
+
+          chmod 600 "$secrets_file"
+          echo "path=$secrets_file" >> "$GITHUB_OUTPUT"
 
       - name: Deploy workers.dev preview
         working-directory: deploy/cloudflare-primary-api
-        run: npx wrangler deploy --config wrangler.jsonc
+        run: npx wrangler deploy --config wrangler.jsonc --secrets-file "${{ steps.runtime-secrets.outputs.path }}"
 
   cutover:
     name: Enable api.kobeapptz.com Worker Route
@@ -73,6 +117,12 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID || vars.CF_ACCOUNT_ID }}
+      PRIMARY_API_DB_HOST: ${{ secrets.PRIMARY_API_DB_HOST || secrets.DB_HOST || secrets.KOBE_SHARED_DB_HOST }}
+      PRIMARY_API_DB_USERNAME: ${{ secrets.PRIMARY_API_DB_USERNAME || secrets.DB_USERNAME }}
+      PRIMARY_API_DB_PASSWORD: ${{ secrets.PRIMARY_API_DB_PASSWORD || secrets.DB_PASSWORD }}
+      PRIMARY_API_JWT_SECRET: ${{ secrets.PRIMARY_API_JWT_SECRET || secrets.JWT_SECRET }}
+      PRIMARY_API_PROVIDER_ENCRYPTION_KEY: ${{ secrets.PRIMARY_API_PROVIDER_ENCRYPTION_KEY || secrets.PROVIDER_ENCRYPTION_KEY }}
+      PRIMARY_API_EXTRA_SECRETS_JSON: ${{ secrets.PRIMARY_API_EXTRA_SECRETS_JSON }}
 
     steps:
       - uses: actions/checkout@v4
@@ -85,9 +135,58 @@ jobs:
         working-directory: deploy/cloudflare-primary-api
         run: npm install --ignore-scripts --no-audit --no-fund
 
+      - name: Check runtime credentials for cutover
+        run: |
+          set -euo pipefail
+          missing=()
+          [ -n "${CLOUDFLARE_API_TOKEN:-}" ] || missing+=("CLOUDFLARE_API_TOKEN/CF_API_TOKEN")
+          [ -n "${CLOUDFLARE_ACCOUNT_ID:-}" ] || missing+=("CLOUDFLARE_ACCOUNT_ID/CF_ACCOUNT_ID")
+          [ -n "${PRIMARY_API_DB_HOST:-}" ] || missing+=("PRIMARY_API_DB_HOST")
+          [ -n "${PRIMARY_API_DB_USERNAME:-}" ] || missing+=("PRIMARY_API_DB_USERNAME")
+          [ -n "${PRIMARY_API_DB_PASSWORD:-}" ] || missing+=("PRIMARY_API_DB_PASSWORD")
+          [ -n "${PRIMARY_API_JWT_SECRET:-}" ] || missing+=("PRIMARY_API_JWT_SECRET")
+          [ -n "${PRIMARY_API_PROVIDER_ENCRYPTION_KEY:-}" ] || missing+=("PRIMARY_API_PROVIDER_ENCRYPTION_KEY")
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf '::error::Missing production environment configuration: %s\n' "${missing[*]}"
+            exit 1
+          fi
+
+      - name: Build Worker runtime secrets file
+        id: runtime-secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          secrets_file="$RUNNER_TEMP/kobeos-primary-api-secrets.json"
+          umask 077
+          jq -n \
+            --arg DB_HOST "$PRIMARY_API_DB_HOST" \
+            --arg DB_USERNAME "$PRIMARY_API_DB_USERNAME" \
+            --arg DB_PASSWORD "$PRIMARY_API_DB_PASSWORD" \
+            --arg JWT_SECRET "$PRIMARY_API_JWT_SECRET" \
+            --arg PROVIDER_ENCRYPTION_KEY "$PRIMARY_API_PROVIDER_ENCRYPTION_KEY" \
+            '{
+              DB_HOST: $DB_HOST,
+              DB_USERNAME: $DB_USERNAME,
+              DB_PASSWORD: $DB_PASSWORD,
+              JWT_SECRET: $JWT_SECRET,
+              PROVIDER_ENCRYPTION_KEY: $PROVIDER_ENCRYPTION_KEY
+            }' > "$secrets_file"
+
+          if [ -n "${PRIMARY_API_EXTRA_SECRETS_JSON:-}" ]; then
+            printf '%s' "$PRIMARY_API_EXTRA_SECRETS_JSON" |
+              jq -e 'type == "object"' > "$RUNNER_TEMP/kobeos-primary-extra-secrets.json"
+            jq -s '.[0] * .[1]' \
+              "$secrets_file" \
+              "$RUNNER_TEMP/kobeos-primary-extra-secrets.json" \
+              > "$RUNNER_TEMP/kobeos-primary-api-secrets.merged.json"
+            mv "$RUNNER_TEMP/kobeos-primary-api-secrets.merged.json" "$secrets_file"
+          fi
+          chmod 600 "$secrets_file"
+          echo "path=$secrets_file" >> "$GITHUB_OUTPUT"
+
       - name: Deploy production Worker Route
         working-directory: deploy/cloudflare-primary-api
-        run: npx wrangler deploy --config wrangler.production.jsonc
+        run: npx wrangler deploy --config wrangler.production.jsonc --secrets-file "${{ steps.runtime-secrets.outputs.path }}"
 
       - name: Verify public production marker
         run: |
