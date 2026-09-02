@@ -16,7 +16,6 @@ The production Worker Route overlays the existing proxied
 `api.kobeapptz.com` DNS record. The DNS record is intentionally left in place.
 Removing the Worker Route immediately restores traffic to the previous origin.
 
-There is no Supabase dependency in the production request path.
 
 ## Database rule
 
