@@ -1,137 +1,96 @@
-# KobeOS dual-path production
+# KobeOS production architecture
 
-KobeOS public services use two independent production paths. The primary API is
-being moved to Cloudflare Containers; the existing Windows/tunnel origin stays
-available during validation and as an immediate rollback target.
+KobeOS MVP uses Cloudflare as the primary public edge while preserving the
+existing API origin underneath the Worker Route as an immediate rollback path.
 
 ## Primary path
 
-- Public app: `https://lala.kobeapptz.com`
-- API: `https://api.kobeapptz.com/api`
-- Preferred API origin: Cloudflare Worker + Cloudflare Container using the
-  existing `server/Dockerfile`.
-- Deployment source: `deploy/cloudflare-primary-api/`.
-- Preview: deploy to `workers.dev` first. The preview configuration does not
-  claim `api.kobeapptz.com`.
-- Production: `wrangler.production.jsonc` adds a Worker Route for
-  `api.kobeapptz.com/*` after health/read/write checks while leaving the
-  existing proxied DNS/origin untouched.
-- TLS and the public hostname are managed by Cloudflare; Caddy is not required
-  on this path.
-- The current PostgreSQL source of truth stays unchanged for the first cutover.
-  Do not substitute the `KobeOS Backup` Supabase database: it currently holds
-  only outage snapshots/queues rather than the full KobeOS production schema.
-- The old tunnel/origin remains reachable during migration for rollback.
+- Public Lala app: `https://lala.kobeapptz.com`
+- Public API: `https://api.kobeapptz.com/api`
+- Edge/runtime: Cloudflare Worker + Cloudflare Container
+- Deployment source: `deploy/cloudflare-primary-api/`
+- Application: existing NestJS image from `server/Dockerfile`
+- Database: the existing production PostgreSQL source of truth
 
-The prior VPS implementation remains in `server/docker-compose.primary-api.yml`,
-`.github/workflows/deploy-primary-api-vps.yml`, and `deploy/always-on-api.md`.
-It is deferred for a later independent origin and is not the current primary
-deployment plan.
+The production Worker Route overlays the existing proxied
+`api.kobeapptz.com` DNS record. The DNS record is intentionally left in place.
+Removing the Worker Route immediately restores traffic to the previous origin.
 
-## Independent backup path
+There is no Supabase dependency in the production request path.
 
-- Emergency Lala frontend and API:
-  `https://erimnjgpawuxesonkeoz.supabase.co/functions/v1/kobeos-backup/app`
-- Supabase project: `KobeOS Backup` (ref `erimnjgpawuxesonkeoz`)
-- Region: `eu-central-1`
-- The backup stores synchronized public snapshots and outage-time queued writes.
-- It must remain independent of the Cloudflare primary path.
+## Database rule
 
-A future direct backup VPS can still use:
+The Cloudflare Container and the legacy origin must point to the **same**
+production PostgreSQL database.
 
-- API host: GitHub variable `BACKUP_API_HOST`
-- Web host: GitHub variable `BACKUP_WEB_HOST`
-- Stack: `server/docker-compose.backup.yml`
-- TLS/reverse proxy: Caddy directly on that backup VPS.
+Do not create a separate empty database for the Cloudflare Container and do not
+migrate production data during the first cutover. Sharing one source of truth
+makes rollback an origin switch rather than a data migration.
 
-## Cloudflare primary configuration
+The required runtime values are:
 
-The Cloudflare deployment workflow is:
+- `PRIMARY_API_DB_HOST`
+- `PRIMARY_API_DB_USERNAME`
+- `PRIMARY_API_DB_PASSWORD`
+- `PRIMARY_API_JWT_SECRET`
+- `PRIMARY_API_PROVIDER_ENCRYPTION_KEY`
+
+These belong in the GitHub `production` environment and must never be
+committed.
+
+## Cloudflare configuration
+
+Workflow:
 
 `.github/workflows/deploy-cloudflare-primary-api.yml`
-
-It reuses the repository's `production` GitHub environment for Cloudflare
-account credentials and keeps production hostname attachment behind an explicit
-`cutover=true` workflow-dispatch input.
 
 Required Cloudflare account credentials:
 
 - `CLOUDFLARE_API_TOKEN` (or `CF_API_TOKEN`)
 - `CLOUDFLARE_ACCOUNT_ID` (or `CF_ACCOUNT_ID`)
+- `CLOUDFLARE_ZONE_ID` (or `CF_ZONE_ID`) for production route
+  attachment/rollback
 
-The token must be able to deploy Workers/Containers and manage the Worker route
-used by the custom domain.
+Deployment sequence:
 
-The Worker itself also needs the production application secrets documented in
-`deploy/cloudflare-primary-api/README.md`, including the existing PostgreSQL
-credentials, JWT secret and provider encryption key. These are runtime secrets,
-not values to commit to Git.
+1. Deploy the `workers.dev` preview.
+2. Verify `/api/health`.
+3. Verify one authenticated read.
+4. Verify one low-risk write against the same PostgreSQL database.
+5. Confirm `X-Kobe-Production-Path: cloudflare-container`.
+6. Run the workflow with `cutover=true`.
+7. Verify `api.kobeapptz.com` publicly.
 
-## Data source rule
+If verification fails after route deployment, the workflow removes the KobeOS
+Worker Route. The unchanged legacy DNS origin resumes receiving traffic.
 
-The Cloudflare Container and the legacy origin must point to the same production
-PostgreSQL source of truth during the migration. This makes rollback an origin
-switch rather than a data migration.
+## Fallback semantics
 
-Hyperdrive is not required for the first cutover. The existing NestJS/TypeORM
-process opens a normal PostgreSQL connection from inside the Container.
-Hyperdrive can be introduced later if database access is moved into a
-Worker-compatible layer.
+Inside the production Worker:
 
-## Failover semantics
+- GET/HEAD/OPTIONS may fall through to the legacy origin when the Container
+  throws or returns a 5xx.
+- Mutating requests are never blindly replayed to another origin.
+- Fallback responses are marked
+  `X-Kobe-Production-Path: legacy-origin-fallback`.
 
-Public reads can retry another healthy API origin for network errors, 408, 429,
-or 5xx responses.
+The public client still supports `VITE_API_FALLBACK_BASE` for a future
+independent backup API, but no fallback is configured by default.
 
-Mutating requests such as bookings and orders are different: the browser first
-health-checks the available API origins, chooses one healthy origin, and sends
-the mutation exactly once. It never blindly replays a write to another origin,
-avoiding duplicate transactions when a response is lost during an outage.
+## Optional future independent backup
 
-The Cloudflare Worker supports `LEGACY_ORIGIN_URL` for preview/direct fallback.
-In production, the Worker Route can fall through to the existing DNS-configured
-origin when the Container path throws, and marks the response:
+The repository still contains the separate VPS backup stack:
 
-`X-Kobe-Production-Path: legacy-origin-fallback`
+- `server/docker-compose.backup.yml`
+- `server/.env.backup.example`
+- `.github/workflows/deploy-backup-origin.yml`
+
+It is **optional** and is not required for the MVP. If enabled later, it must
+use the same managed PostgreSQL database and hostnames outside the
+`kobeapptz.com` Cloudflare zone.
 
 ## Verification
 
-Before attaching `api.kobeapptz.com`, require all of the following against the
-`workers.dev` preview:
-
-1. `/api/health` succeeds.
-2. One authenticated read succeeds.
-3. One low-risk authenticated write succeeds and is visible from the legacy
-   origin against the same database.
-4. The response includes
-   `X-Kobe-Production-Path: cloudflare-container`.
-5. Provider integrations required for MVP have their secrets available.
-
-After cutover, the workflow verifies the same production marker publicly.
-Rollback is removal of the Worker Route; no DNS restoration is required.
-
-## Active no-Cloudflare emergency layer
-
-The immediate independent fallback remains the Supabase project
-`KobeOS Backup`.
-
-Public backup API base:
-
-`https://erimnjgpawuxesonkeoz.supabase.co/functions/v1/kobeos-backup`
-
-It mirrors Lala public hotel/room/menu data while primary is reachable. During a
-Cloudflare outage it serves the last successful snapshot and accepts supported
-Lala writes into a private RLS-protected queue. Queued writes can be replayed to
-primary KobeOS after it recovers.
-
-Because the snapshot can become stale during a prolonged outage, backup
-bookings are explicitly marked `BACKUP_PENDING`; the UI does not present them
-as final room confirmations until primary KobeOS accepts them.
-
-## Emergency URL
-
-If Cloudflare or `kobeapptz.com` is unavailable, Lala can be opened directly at:
-
-`https://erimnjgpawuxesonkeoz.supabase.co/functions/v1/kobeos-backup/app`
-
-This URL does not traverse Cloudflare.
+`.github/workflows/dual-path-production-smoke.yml` always verifies the primary
+API and Lala web app. It verifies a direct backup only when
+`BACKUP_API_HOST` and `BACKUP_WEB_HOST` are explicitly configured.
