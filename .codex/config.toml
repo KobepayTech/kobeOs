@@ -1,0 +1,42 @@
+# KobeOS project-scoped Cloudflare MCP configuration.
+# Codex, ChatGPT Desktop, and the Codex IDE extension load this for trusted projects.
+# No Cloudflare tokens or account secrets belong in this file.
+
+[mcp_servers.cloudflare]
+url = "https://mcp.cloudflare.com/mcp"
+auth = "oauth"
+default_tools_approval_mode = "writes"
+startup_timeout_sec = 30
+tool_timeout_sec = 120
+enabled = true
+
+[mcp_servers."cloudflare-docs"]
+url = "https://docs.mcp.cloudflare.com/mcp"
+default_tools_approval_mode = "auto"
+startup_timeout_sec = 30
+tool_timeout_sec = 120
+enabled = true
+
+[mcp_servers."cloudflare-bindings"]
+url = "https://bindings.mcp.cloudflare.com/mcp"
+auth = "oauth"
+default_tools_approval_mode = "writes"
+startup_timeout_sec = 30
+tool_timeout_sec = 120
+enabled = true
+
+[mcp_servers."cloudflare-builds"]
+url = "https://builds.mcp.cloudflare.com/mcp"
+auth = "oauth"
+default_tools_approval_mode = "writes"
+startup_timeout_sec = 30
+tool_timeout_sec = 120
+enabled = true
+
+[mcp_servers."cloudflare-observability"]
+url = "https://observability.mcp.cloudflare.com/mcp"
+auth = "oauth"
+default_tools_approval_mode = "auto"
+startup_timeout_sec = 30
+tool_timeout_sec = 120
+enabled = true
