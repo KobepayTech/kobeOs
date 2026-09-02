@@ -79,6 +79,28 @@ jobs:
           $failed = Join-Path $origin 'server\dist.failed'
           $source = Join-Path $env:GITHUB_WORKSPACE 'server\dist'
 
+          function Stop-OriginApiListener {
+            $deadline = (Get-Date).AddSeconds(20)
+            do {
+              $listeners = @(Get-NetTCPConnection -State Listen -LocalPort 3000 -ErrorAction SilentlyContinue)
+              if ($listeners.Count -eq 0) {
+                Write-Host 'origin_api_listener=stopped'
+                return
+              }
+              foreach ($listener in $listeners) {
+                $process = Get-Process -Id $listener.OwningProcess -ErrorAction SilentlyContinue
+                if ($process -and $process.ProcessName -notmatch '^node(?:js)?$') {
+                  throw 'Port 3000 is owned by an unexpected process; refusing to terminate it.'
+                }
+                if ($process) {
+                  Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+                }
+              }
+              Start-Sleep -Seconds 1
+            } while ((Get-Date) -lt $deadline)
+            throw 'Timed out while draining the Node API listener on port 3000.'
+          }
+
           New-Item -ItemType Directory -Force -Path $logs | Out-Null
           foreach ($path in @($next, $failed)) {
             if (Test-Path -LiteralPath $path) {
@@ -90,6 +112,7 @@ jobs:
 
           try {
             Start-Sleep -Seconds 5
+            Stop-OriginApiListener
             if (Test-Path -LiteralPath $previous) {
               Remove-Item -LiteralPath $previous -Recurse -Force
             }
@@ -174,6 +197,7 @@ jobs:
             Set-Content -LiteralPath $lock -Value 'rollback' -Encoding ASCII
             try {
               Start-Sleep -Seconds 5
+              Stop-OriginApiListener
               if (Test-Path -LiteralPath $current) {
                 Move-Item -LiteralPath $current -Destination $failed
               }
