@@ -102,7 +102,7 @@ export class PdfDocumentService {
 
   private normalize(text: string): string {
     return text
-      .replace(/\u0000/g, '')
+      .split(String.fromCharCode(0)).join('')
       .replace(/\r\n/g, '\n')
       .replace(/[ \t]+\n/g, '\n')
       .replace(/\n{4,}/g, '\n\n\n')
@@ -270,7 +270,7 @@ export class PdfDocumentService {
       for (let i = 0; i < bytes.length; i += 2) if (bytes[i] === 0) zeroHigh++;
       if (zeroHigh >= bytes.length / 4) return this.utf16be(bytes);
     }
-    return bytes.toString('latin1').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
+    return this.stripControlCharacters(bytes.toString('latin1'));
   }
 
   private decodeWithCMap(bytes: Buffer, cmap: Map<string, string>): string {
@@ -337,6 +337,13 @@ export class PdfDocumentService {
       }
     }
     return map;
+  }
+
+  private stripControlCharacters(value: string): string {
+    return [...value].filter((character) => {
+      const code = character.charCodeAt(0);
+      return code === 9 || code === 10 || code === 13 || code >= 32;
+    }).join('');
   }
 
   private utf16be(bytes: Buffer): string {
