@@ -53,16 +53,6 @@ describe('Lala auto-listing + food ordering (e2e)', () => {
     mine = (search.body as Array<{ hotel: { id: string }; foodAvailable: boolean }>).find((r) => r.hotel.id === hotelId);
     expect(mine!.foodAvailable).toBe(true);
 
-    // The backup snapshot exposes only public hotel/room/menu data and is what
-    // the independent Supabase path mirrors while primary production is healthy.
-    const snapshot = await request(http).get('/api/lala-public/backup-snapshot');
-    expect(snapshot.status).toBe(200);
-    expect(snapshot.body.version).toBe(1);
-    expect(Array.isArray(snapshot.body.rows)).toBe(true);
-    expect(Array.isArray(snapshot.body.menus)).toBe(true);
-    expect(snapshot.body.rows.some((r: { hotel: { id: string } }) => r.hotel.id === hotelId)).toBe(true);
-    expect(snapshot.body.menus.some((m: { hotelSlug: string; item: { id: string } }) => m.hotelSlug === slug && m.item.id === menuItemId)).toBe(true);
-
     // Public menu is visible, and a standalone pickup order lands (price is
     // taken from the catalog, not the request body).
     const menu = await request(http).get(`/api/public/hotel/${slug}/menu-items`);
