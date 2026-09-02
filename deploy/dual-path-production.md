@@ -1,95 +1,96 @@
-# KobeOS production architecture
+# KobeOS MVP production architecture
 
-KobeOS MVP uses Cloudflare as the primary public edge while preserving the
-existing API origin underneath the Worker Route as an immediate rollback path.
+The MVP production path deliberately keeps the existing KobeOS source of truth
+and origin intact. No database migration is required for launch.
 
-## Primary path
+## Active MVP path
 
-- Public Lala app: `https://lala.kobeapptz.com`
-- Public API: `https://api.kobeapptz.com/api`
-- Edge/runtime: Cloudflare Worker + Cloudflare Container
-- Deployment source: `deploy/cloudflare-primary-api/`
-- Application: existing NestJS image from `server/Dockerfile`
-- Database: the existing production PostgreSQL source of truth
+```text
+Lala / Jumla web
+    |
+    +--> Cloudflare Pages
 
-The production Worker Route overlays the existing proxied
-`api.kobeapptz.com` DNS record. The DNS record is intentionally left in place.
-Removing the Worker Route immediately restores traffic to the previous origin.
+KobeOS API
+    |
+    v
+api.kobeapptz.com
+    |
+    v
+Cloudflare Tunnel
+    |
+    v
+Windows KobeOS origin: C:\KobeOS\app
+    |
+    +--> NestJS API :3000
+    |
+    +--> embedded PostgreSQL 127.0.0.1:5433
+```
 
+The existing local PostgreSQL database remains the source of truth. The MVP
+does not move data to another provider.
 
-## Database rule
-
-The Cloudflare Container and the legacy origin must point to the **same**
-production PostgreSQL database.
-
-Do not create a separate empty database for the Cloudflare Container and do not
-migrate production data during the first cutover. Sharing one source of truth
-makes rollback an origin switch rather than a data migration.
-
-The required runtime values are:
-
-- `PRIMARY_API_DB_HOST`
-- `PRIMARY_API_DB_USERNAME`
-- `PRIMARY_API_DB_PASSWORD`
-- `PRIMARY_API_JWT_SECRET`
-- `PRIMARY_API_PROVIDER_ENCRYPTION_KEY`
-
-These belong in the GitHub `production` environment and must never be
-committed.
-
-## Cloudflare configuration
+## Automatic origin recovery and deploy
 
 Workflow:
 
-`.github/workflows/deploy-cloudflare-primary-api.yml`
+`.github/workflows/lala-origin-selfheal.yml`
 
-Required Cloudflare account credentials:
+It runs on the registered Windows self-hosted GitHub runner and:
 
-- `CLOUDFLARE_API_TOKEN` (or `CF_API_TOKEN`)
-- `CLOUDFLARE_ACCOUNT_ID` (or `CF_ACCOUNT_ID`)
-- `CLOUDFLARE_ZONE_ID` (or `CF_ZONE_ID`) for production route
-  attachment/rollback
+1. Locates `C:\KobeOS\app`.
+2. Repairs the persistent KobeOS origin supervisor.
+3. Builds the current tested backend when the stable origin is behind master.
+4. Runs TypeORM migrations against the existing embedded PostgreSQL database.
+5. Atomically replaces the stable backend bundle.
+6. Restarts/verifies the existing Cloudflare connector if public API health is
+   failing.
+7. Verifies the API from an off-box GitHub runner.
+8. If valid Cloudflare account credentials already exist on the origin, refreshes
+   the Lala and Jumla Pages deployments without copying those credentials into
+   GitHub.
 
-Deployment sequence:
+The recovery job stays queued when the Windows machine or its GitHub Actions
+runner service is offline. Once that runner reconnects, the queued job can
+complete without SSH deployment credentials.
 
-1. Deploy the `workers.dev` preview.
-2. Verify `/api/health`.
-3. Verify one authenticated read.
-4. Verify one low-risk write against the same PostgreSQL database.
-5. Confirm `X-Kobe-Production-Path: cloudflare-container`.
-6. Run the workflow with `cutover=true`.
-7. Verify `api.kobeapptz.com` publicly.
+## Public frontend deployments
 
-If verification fails after route deployment, the workflow removes the KobeOS
-Worker Route. The unchanged legacy DNS origin resumes receiving traffic.
+Dedicated Pages workflows remain available:
 
-## Fallback semantics
+- `.github/workflows/deploy-lala-pages.yml`
+- `.github/workflows/deploy-jumla-pages.yml`
 
-Inside the production Worker:
+Their automatic runs are opt-in. They can still be dispatched manually when
+GitHub's production environment has Cloudflare credentials.
 
-- GET/HEAD/OPTIONS may fall through to the legacy origin when the Container
-  throws or returns a 5xx.
-- Mutating requests are never blindly replayed to another origin.
-- Fallback responses are marked
-  `X-Kobe-Production-Path: legacy-origin-fallback`.
+## Deferred Cloudflare Container migration
 
-The public client still supports `VITE_API_FALLBACK_BASE` for a future
-independent backup API, but no fallback is configured by default.
+`deploy/cloudflare-primary-api/` and
+`.github/workflows/deploy-cloudflare-primary-api.yml` remain in the repository
+for a later always-on migration.
 
-## Optional future independent backup
+That path is **not the MVP origin**. It is opt-in through
+`CLOUDFLARE_CONTAINER_PRIMARY_ENABLED=true` or manual workflow dispatch.
 
-The repository still contains the separate VPS backup stack:
+A Cloudflare Container must never be pointed at `localhost`, `127.0.0.1`,
+`postgres`, or another host-local database name. A future Container migration
+requires a PostgreSQL endpoint reachable from Cloudflare and a verified data
+migration/cutover plan.
 
-- `server/docker-compose.backup.yml`
-- `server/.env.backup.example`
-- `.github/workflows/deploy-backup-origin.yml`
+## Deferred SSH / backup paths
 
-It is **optional** and is not required for the MVP. If enabled later, it must
-use the same managed PostgreSQL database and hostnames outside the
-`kobeapptz.com` Cloudflare zone.
+The following deployments are also opt-in and are not required for MVP:
 
-## Verification
+- Legacy SSH production deploy: `LEGACY_SSH_DEPLOY_ENABLED=true`
+- Independent backup VPS deploy: `BACKUP_DEPLOY_ENABLED=true`
 
-`.github/workflows/dual-path-production-smoke.yml` always verifies the primary
-API and Lala web app. It verifies a direct backup only when
-`BACKUP_API_HOST` and `BACKUP_WEB_HOST` are explicitly configured.
+The backup stack may be introduced later, but it must not create a second
+source of truth.
+
+## MVP rollback
+
+The active MVP does not replace the production database. If a new backend bundle
+fails, the stable origin keeps `server\dist.previous` during atomic deployment.
+Cloudflare Tunnel configuration remains unchanged.
+
+This keeps rollback local and avoids data migration during the MVP launch.
