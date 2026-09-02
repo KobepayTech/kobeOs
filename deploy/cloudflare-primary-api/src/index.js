@@ -100,15 +100,27 @@ function withProductionMarker(response, path) {
 }
 
 async function fetchLegacy(request, env) {
-  if (!env.LEGACY_ORIGIN_URL) return null;
-  const target = new URL(request.url);
-  const legacy = new URL(String(env.LEGACY_ORIGIN_URL));
-  target.protocol = legacy.protocol;
-  target.hostname = legacy.hostname;
-  target.port = legacy.port;
+  // Preview deployments can point explicitly at a direct legacy hostname.
+  if (env.LEGACY_ORIGIN_URL) {
+    const target = new URL(request.url);
+    const legacy = new URL(String(env.LEGACY_ORIGIN_URL));
+    target.protocol = legacy.protocol;
+    target.hostname = legacy.hostname;
+    target.port = legacy.port;
 
-  const response = await fetch(new Request(target.toString(), request));
-  return withProductionMarker(response, 'legacy-origin-fallback');
+    const response = await fetch(new Request(target.toString(), request));
+    return withProductionMarker(response, 'legacy-origin-fallback');
+  }
+
+  // In production we use a Workers Route over the existing proxied API DNS
+  // record. A subrequest for the incoming Request reaches the DNS-configured
+  // origin behind that route, so the old origin remains an immediate fallback.
+  if (String(env.ROUTE_ORIGIN_FALLBACK || '').toLowerCase() === 'true') {
+    const response = await fetch(request);
+    return withProductionMarker(response, 'legacy-origin-fallback');
+  }
+
+  return null;
 }
 
 export class KobeApiContainer extends Container {
