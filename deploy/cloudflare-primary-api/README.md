@@ -42,6 +42,18 @@ keeps the existing PostgreSQL connection unchanged. Hyperdrive can be added
 later when database access is moved into Worker-compatible code or a dedicated
 Cloudflare database gateway.
 
+## Required Cloudflare deployment credentials
+
+Configure these in the GitHub `production` environment:
+
+- `CLOUDFLARE_API_TOKEN` (alias `CF_API_TOKEN`)
+- `CLOUDFLARE_ACCOUNT_ID` (alias `CF_ACCOUNT_ID`)
+- `CLOUDFLARE_ZONE_ID` (alias `CF_ZONE_ID`) for production route
+  attachment/rollback.
+
+The token needs Worker script deployment and Worker route write permissions.
+Cloudflare Containers also require a Workers Paid account.
+
 ## Required production environment secrets
 
 GitHub Actions builds a temporary mode-0600 JSON file and passes it to Wrangler
@@ -71,9 +83,12 @@ TikTok, PalmPesa, Beem, email, etc.) as Worker secrets too. `src/index.js`
 forwards the supported names into the NestJS container without committing them.
 
 For a `workers.dev` preview, `LEGACY_ORIGIN_URL` can optionally name a direct
-legacy origin. In production, `ROUTE_ORIGIN_FALLBACK=true` lets the Worker
-fall through to the existing DNS-configured API origin when the Container path
-throws.
+legacy origin. In production, `ROUTE_ORIGIN_FALLBACK=true` lets the Worker fall through to
+the existing DNS-configured API origin for safe/idempotent requests when the
+Container throws or returns a 5xx response. Automatic fallback is limited to
+GET/HEAD/OPTIONS. Mutating requests are never blindly replayed to the legacy
+origin because an ambiguous failure could otherwise duplicate a booking,
+payment or order.
 
 Fallback responses are marked:
 
@@ -95,7 +110,9 @@ Fallback responses are marked:
 6. Only after those checks pass, deploy `wrangler.production.jsonc`. It adds a
    Worker Route for `api.kobeapptz.com/*` while preserving the existing DNS
    record and origin as the rollback/fallback path.
-7. Verify the production marker. If anything is wrong, remove the Worker route;
+7. Verify the production marker. If verification fails after the route deploy,
+   GitHub Actions removes only the KobeOS Worker Route through Cloudflare's
+   Routes API. The unchanged DNS origin immediately resumes receiving traffic;
    no DNS restoration or data migration is required.
 
 The Worker runs a five-minute scheduled health request so the NestJS process
