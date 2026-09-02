@@ -14,7 +14,7 @@ jobs:
   deploy-backup:
     name: Deploy backup API and web
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && vars.BACKUP_DEPLOY_ENABLED == 'true') }}
     environment: production-backup
     env:
       DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
