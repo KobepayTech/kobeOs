@@ -235,7 +235,7 @@ function stopLockedApiListeners() {
     "  Stop-Process -Id $listener.OwningProcess -Force -ErrorAction Stop",
     "}",
     "exit 0",
-  ].join('; ');
+  ].join('\n');
   const result = spawnSync(
     'powershell.exe',
     ['-ExecutionPolicy', 'Bypass', '-NoProfile', '-NonInteractive', '-Command', command],
