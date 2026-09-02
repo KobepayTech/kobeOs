@@ -54,7 +54,14 @@ export class HotelExtrasController {
 
   // ── Channels ──
   @Get('channels') listChannels(@CurrentUser('id') uid: string) { return this.channels.list(uid); }
-  @Post('channels') createChannel(@CurrentUser('id') uid: string, @Body() dto: ChannelDto) { return this.channels.create(uid, dto as any); }
-  @Patch('channels/:id') updateChannel(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: ChannelDto) { return this.channels.update(uid, id, dto as any); }
+  @Post('channels') createChannel(@CurrentUser('id') uid: string, @Body() dto: ChannelDto) {
+    // MVP stores channel metadata only. A public API caller cannot claim an OTA
+    // is connected until a real provider adapter owns that state.
+    return this.channels.create(uid, { ...dto, connected: false } as any);
+  }
+  @Patch('channels/:id') updateChannel(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: ChannelDto) {
+    const { connected: _ignoredConnected, ...safe } = dto;
+    return this.channels.update(uid, safe as any);
+  }
   @Delete('channels/:id') removeChannel(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.channels.remove(uid, id); }
 }
