@@ -119,6 +119,42 @@ describe('Kobe AI operating layer (e2e)', () => {
     expect(live.body.widgets.every((widget: { summary?: string }) => typeof widget.summary === 'string')).toBe(true);
   });
 
+  it('uploads a native PDF, extracts text and indexes it for document search', async () => {
+    const t = await token('ai-pdf@e2e.test');
+    const stream = 'BT /F1 12 Tf 72 720 Td (Hello Kobe PDF policy number 4421) Tj ET';
+    const pdf = Buffer.from(
+      '%PDF-1.4\n' +
+      '1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n' +
+      '2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n' +
+      '3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >> endobj\n' +
+      `4 0 obj << /Length ${Buffer.byteLength(stream)} >> stream\n${stream}\nendstream endobj\n` +
+      'trailer << /Root 1 0 R >>\n%%EOF\n',
+      'latin1',
+    );
+
+    const uploaded = await request(http)
+      .post('/api/ai/docs/upload')
+      .set(bearer(t))
+      .attach('file', pdf, { filename: 'policy.pdf', contentType: 'application/pdf' })
+      .field('title', 'Operations Policy');
+    expect(uploaded.status).toBe(201);
+    expect(uploaded.body.title).toBe('Operations Policy');
+    expect(uploaded.body.chunkCount).toBeGreaterThan(0);
+    expect(uploaded.body.extraction.pageCount).toBe(1);
+    expect(uploaded.body.extraction.charCount).toBeGreaterThan(10);
+    expect(['pdftotext', 'fallback']).toContain(uploaded.body.extraction.method);
+
+    const found = await request(http)
+      .post('/api/ai/docs/search')
+      .set(bearer(t))
+      .send({ query: 'policy 4421', documentId: uploaded.body.id });
+    expect(found.status).toBe(201);
+    expect(found.body.passages.some((row: { text: string }) => row.text.includes('4421'))).toBe(true);
+
+    const audit = await request(http).get('/api/ai/operating/audit').set(bearer(t));
+    expect(audit.body.some((row: { eventType: string }) => row.eventType === 'PDF_INGESTED')).toBe(true);
+  });
+
   it('runs a business simulation and records operating audit events', async () => {
     const t = await token('ai-sim@e2e.test');
     const simulation = await request(http).post('/api/ai/operating/simulate').set(bearer(t)).send({
