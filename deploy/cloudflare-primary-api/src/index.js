@@ -151,18 +151,42 @@ async function primaryFetch(request, env) {
   return withProductionMarker(response, 'cloudflare-container');
 }
 
+function canReplayToLegacy(request) {
+  return ['GET', 'HEAD', 'OPTIONS'].includes(request.method.toUpperCase());
+}
+
+async function maybeFallbackRead(request, env, reason) {
+  if (!canReplayToLegacy(request)) {
+    console.warn('Not replaying mutating request to legacy origin', {
+      method: request.method,
+      reason,
+    });
+    return null;
+  }
+
+  try {
+    return await fetchLegacy(request, env);
+  } catch (fallbackError) {
+    console.error('Legacy API fallback failed', fallbackError);
+    return null;
+  }
+}
+
 export default {
   async fetch(request, env) {
     try {
-      return await primaryFetch(request, env);
+      const response = await primaryFetch(request, env);
+
+      if (response.status >= 500) {
+        const fallback = await maybeFallbackRead(request, env, `primary-status-${response.status}`);
+        if (fallback) return fallback;
+      }
+
+      return response;
     } catch (error) {
       console.error('Cloudflare primary API request failed', error);
-      try {
-        const fallback = await fetchLegacy(request, env);
-        if (fallback) return fallback;
-      } catch (fallbackError) {
-        console.error('Legacy API fallback failed', fallbackError);
-      }
+      const fallback = await maybeFallbackRead(request, env, 'primary-exception');
+      if (fallback) return fallback;
 
       return Response.json(
         { ok: false, error: 'KobeOS primary API is temporarily unavailable' },
