@@ -46,7 +46,6 @@ interface GatewayStatus {
  * computer/server serving this workspace.
  */
 export function MobileAssistant() {
-  // ─── State ────────────────────────────────────────────────────────────────
   const [isOpen, setIsOpen] = useState(false);
   const [gateway, setGateway] = useState<GatewayStatus | null>(null);
   const [models, setModels] = useState<InstalledModel[]>([]);
@@ -55,11 +54,8 @@ export function MobileAssistant() {
   const [error, setError] = useState<string | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
 
-  // ─── Refs ──────────────────────────────────────────────────────────────────
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const isMountedRef = useRef(true);
-
-  // ─── Computed Values ──────────────────────────────────────────────────────
 
   const nodeLabel = useMemo(() => {
     if (!gateway) return 'Connecting...';
@@ -73,21 +69,14 @@ export function MobileAssistant() {
 
   const modelCount = useMemo(() => models.length, [models]);
 
-  // ─── API Calls ────────────────────────────────────────────────────────────
-
   const refreshModels = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
     try {
-      const response = await api<unknown>('/ai/gateway/status', {
-        offlineFallback: false,
-      });
+      const response = await api<unknown>('/ai/gateway/status', { offlineFallback: false });
       const status = apiObject<GatewayStatus>(response);
-      if (!status) {
-        throw new Error('Invalid gateway response');
-      }
-
+      if (!status) throw new Error('Invalid gateway response');
       if (!isMountedRef.current) return;
 
       setGateway(status);
@@ -100,24 +89,19 @@ export function MobileAssistant() {
       }
     } catch (err) {
       if (!isMountedRef.current) return;
-
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       console.error('Failed to fetch gateway status:', errorMessage);
-
       setGateway(null);
       setModels([]);
       setActiveModel('');
       setError('This phone could not reach the authenticated Kobe AI gateway.');
     } finally {
-      if (isMountedRef.current) {
-        setIsLoading(false);
-      }
+      if (isMountedRef.current) setIsLoading(false);
     }
   }, []);
 
   const selectModel = useCallback(async (model: string) => {
     if (!model || model === activeModel || isLoading) return;
-
     setIsLoading(true);
     setError(null);
 
@@ -127,34 +111,19 @@ export function MobileAssistant() {
         body: JSON.stringify({ model }),
         offlineFallback: false,
       });
-
       if (!isMountedRef.current) return;
-
       setActiveModel(model);
-      setGateway((current) =>
-        current ? { ...current, activeModel: model } : current
-      );
-
-      console.log(`Model switched to: ${model}`);
+      setGateway((current) => current ? { ...current, activeModel: model } : current);
     } catch (err) {
       if (!isMountedRef.current) return;
-
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      console.error('Failed to switch model:', errorMessage);
-
       setError(`KobeOS could not switch the active model. ${errorMessage}`);
-
       await refreshModels();
     } finally {
-      if (isMountedRef.current) {
-        setIsLoading(false);
-      }
+      if (isMountedRef.current) setIsLoading(false);
     }
   }, [activeModel, isLoading, refreshModels]);
 
-  // ─── Effects ──────────────────────────────────────────────────────────────
-
-  // Cleanup on unmount
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -166,21 +135,13 @@ export function MobileAssistant() {
     };
   }, []);
 
-  // Fetch status when opened and set up auto-refresh
   useEffect(() => {
     if (isOpen) {
       void refreshModels();
-
-      if (refreshIntervalRef.current) {
-        clearInterval(refreshIntervalRef.current);
-      }
-
+      if (refreshIntervalRef.current) clearInterval(refreshIntervalRef.current);
       refreshIntervalRef.current = setInterval(() => {
-        if (isMountedRef.current && isOpen) {
-          void refreshModels();
-        }
+        if (isMountedRef.current && isOpen) void refreshModels();
       }, 30000);
-
       return () => {
         if (refreshIntervalRef.current) {
           clearInterval(refreshIntervalRef.current);
@@ -195,40 +156,24 @@ export function MobileAssistant() {
     }
   }, [isOpen, refreshModels]);
 
-  // ─── Event Handlers ──────────────────────────────────────────────────────
-
-  const handleToggle = useCallback(() => {
-    setIsOpen((prev) => !prev);
-  }, []);
-
-  const handleClose = useCallback(() => {
-    setIsOpen(false);
-  }, []);
-
-  const handleRefresh = useCallback(() => {
-    void refreshModels();
-  }, [refreshModels]);
-
+  const handleToggle = useCallback(() => setIsOpen((prev) => !prev), []);
+  const handleClose = useCallback(() => setIsOpen(false), []);
+  const handleRefresh = useCallback(() => { void refreshModels(); }, [refreshModels]);
   const handleModelChange = useCallback((event: ChangeEvent<HTMLSelectElement>) => {
     void selectModel(event.target.value);
   }, [selectModel]);
-
-  // ─── Render ──────────────────────────────────────────────────────────────
 
   return (
     <>
       {isOpen && (
         <div className="fixed inset-0 z-[9998]">
-          {/* Backdrop */}
           <div
             className="absolute inset-0 bg-black/30 backdrop-blur-sm transition-opacity"
             onClick={handleClose}
             aria-hidden="true"
           />
 
-          {/* Modal */}
           <div className="absolute inset-x-0 bottom-0 flex h-[88dvh] flex-col overflow-hidden rounded-t-2xl bg-[#071321] shadow-2xl animate-slide-up">
-            {/* Header */}
             <div className="shrink-0 border-b border-white/10 px-3 py-2 text-white bg-white/5 backdrop-blur-sm">
               <div className="flex items-center gap-2">
                 <div className="relative">
@@ -241,12 +186,8 @@ export function MobileAssistant() {
                 <div className="min-w-0 flex-1">
                   <p className="text-[10px] font-black uppercase tracking-[0.14em] text-violet-300 flex items-center gap-1.5">
                     Kobe AI model gateway
-                    {connectionStatus === 'online' && (
-                      <CheckCircle className="h-3 w-3 text-emerald-400" />
-                    )}
-                    {connectionStatus === 'offline' && (
-                      <WifiOff className="h-3 w-3 text-amber-400" />
-                    )}
+                    {connectionStatus === 'online' && <CheckCircle className="h-3 w-3 text-emerald-400" />}
+                    {connectionStatus === 'offline' && <WifiOff className="h-3 w-3 text-amber-400" />}
                   </p>
                   <p className="truncate text-[10px] text-slate-400">
                     {gateway
@@ -268,7 +209,6 @@ export function MobileAssistant() {
                   )}
                 </div>
 
-                {/* Model Selector */}
                 <select
                   aria-label="AI model"
                   value={activeModel}
@@ -280,26 +220,17 @@ export function MobileAssistant() {
                   {models.map((item) => {
                     const value = item.name || item.id;
                     if (!value) return null;
-                    return (
-                      <option key={value} value={value} className="text-black">
-                        {value}
-                      </option>
-                    );
+                    return <option key={value} value={value} className="text-black">{value}</option>;
                   })}
                 </select>
 
-                {/* Action Buttons */}
                 <button
                   onClick={handleRefresh}
                   disabled={isLoading}
                   className="grid h-8 w-8 place-items-center rounded-lg bg-white/10 text-white/80 transition-all hover:bg-white/20 disabled:opacity-50 disabled:cursor-not-allowed"
                   aria-label="Refresh models"
                 >
-                  {isLoading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <RefreshCw className="h-4 w-4" />
-                  )}
+                  {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                 </button>
                 <button
                   onClick={handleClose}
@@ -310,7 +241,6 @@ export function MobileAssistant() {
                 </button>
               </div>
 
-              {/* Capabilities */}
               {gateway?.capabilities && gateway.capabilities.length > 0 && (
                 <div className="mt-2 flex gap-1 overflow-x-auto pb-0.5 scrollbar-hide">
                   {gateway.capabilities.map((capability) => (
@@ -325,7 +255,6 @@ export function MobileAssistant() {
               )}
             </div>
 
-            {/* Error Message */}
             {error && (
               <div className="shrink-0 bg-amber-400/10 border-b border-amber-400/20 px-3 py-1.5 flex items-center gap-2">
                 <AlertCircle className="h-3.5 w-3.5 text-amber-200 flex-shrink-0" />
@@ -333,19 +262,15 @@ export function MobileAssistant() {
               </div>
             )}
 
-            {/* Last Refreshed */}
             {lastRefreshed && !error && (
               <div className="shrink-0 px-4 py-0.5 text-right">
-                <span className="text-[8px] text-slate-500">
-                  Updated {lastRefreshed.toLocaleTimeString()}
-                </span>
+                <span className="text-[8px] text-slate-500">Updated {lastRefreshed.toLocaleTimeString()}</span>
               </div>
             )}
 
-            {/* Chat Interface */}
             <div className="min-h-0 flex-1">
               <KobeAssistant
-                responseMode="quality"
+                responseMode="fast"
                 contextLabel="KobeOS mobile"
               />
             </div>
@@ -353,7 +278,6 @@ export function MobileAssistant() {
         </div>
       )}
 
-      {/* Floating Action Button */}
       {!isOpen && (
         <button
           onClick={handleToggle}
@@ -367,31 +291,3 @@ export function MobileAssistant() {
     </>
   );
 }
-
-// ─── Add to global CSS ──────────────────────────────────────────────────────
-
-/*
-@keyframes slide-up {
-  from {
-    transform: translateY(100%);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
-}
-
-.animate-slide-up {
-  animation: slide-up 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
-}
-
-.scrollbar-hide {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
-}
-
-.scrollbar-hide::-webkit-scrollbar {
-  display: none;
-}
-*/
