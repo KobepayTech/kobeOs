@@ -121,7 +121,6 @@ container platform to recover/restart it.
 
 ## Database note
 
-The current `KobeOS Backup` Supabase project is an independent outage path. It
-contains backup tables/snapshots, not the complete production KobeOS schema and
-data, so it must not be substituted for the production database without a
-separate schema + data migration and verification.
+The Cloudflare Container must use the same production PostgreSQL source of truth
+as the legacy KobeOS origin. No Supabase or secondary database is part of the
+MVP production path.
