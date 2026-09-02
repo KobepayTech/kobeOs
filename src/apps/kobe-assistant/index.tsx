@@ -135,7 +135,7 @@ const PROMPTS_BY_APP: Record<string, string[]> = {
 export default function KobeAssistant({
   contextLabel,
   appId,
-  responseMode = 'quality',
+  responseMode = 'fast',
   initialContext,
 }: {
   contextLabel?: string;
