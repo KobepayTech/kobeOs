@@ -649,6 +649,43 @@ export default function KobeAssistant({
           citations: learned ? [{ kind: 'document', label: docTitle }] : [],
           needsVerification: Boolean(ocrText && Number(ocr?.confidence || 0) < 75),
         }]);
+      } else if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
+        setMessages((p) => [...p, { role: 'user', content: `📕 ${file.name}` }]);
+        setActivity({ stage: 'retrieving', label: 'Extracting and indexing PDF pages…' });
+        const form = new FormData();
+        form.append('file', file);
+        form.append('title', file.name.replace(/\.pdf$/i, ''));
+        const doc = await api<{
+          id: string;
+          title: string;
+          chunkCount: number;
+          extraction: {
+            pageCount: number;
+            charCount: number;
+            method: 'pdftotext' | 'fallback' | 'ocr';
+            ocrPages: number;
+            warnings: string[];
+          };
+        }>('/ai/docs/upload', {
+          method: 'POST',
+          body: form,
+          offlineFallback: false,
+        });
+        const methodLabel = doc.extraction.method === 'ocr'
+          ? `OCR on ${doc.extraction.ocrPages} page(s)`
+          : doc.extraction.method === 'pdftotext'
+            ? 'native PDF text extraction'
+            : 'built-in PDF parser';
+        const warnings = doc.extraction.warnings?.length
+          ? `\n\n⚠ ${doc.extraction.warnings.join(' ')}`
+          : '';
+        setMessages((p) => [...p, {
+          role: 'assistant',
+          content: `📚 Learned from “${doc.title}”: ${doc.extraction.pageCount} page(s), ${doc.extraction.charCount.toLocaleString()} characters, ${doc.chunkCount} indexed passage(s), using ${methodLabel}. You can now ask questions about this PDF.${warnings}`,
+          confidence: doc.extraction.method === 'ocr' ? 0.8 : 1,
+          citations: [{ kind: 'document', label: doc.title, ref: doc.id }],
+          needsVerification: doc.extraction.method === 'ocr',
+        }]);
       } else if (/\.(txt|md|csv|json|log|tsv|html?)$/i.test(file.name) || file.type.startsWith('text/')) {
         const text = await file.text();
         if (!text.trim()) throw new Error('That file looks empty.');
@@ -659,7 +696,7 @@ export default function KobeAssistant({
         });
         setMessages((p) => [...p, { role: 'assistant', content: `📚 Learned from “${doc.title}” (${doc.chunkCount} passage${doc.chunkCount === 1 ? '' : 's'}). Ask me anything about it.` }]);
       } else {
-        setMessages((p) => [...p, { role: 'assistant', content: 'I can read photos and text files (.txt, .md, .csv). For a PDF, paste its text or export it as text and attach that.' }]);
+        setMessages((p) => [...p, { role: 'assistant', content: 'I can read photos, PDFs, and text/data files (.txt, .md, .csv, .json).' }]);
       }
     } catch (e) {
       setMessages((p) => [...p, { role: 'assistant', content: `Attachment failed: ${(e as Error).message}` }]);
