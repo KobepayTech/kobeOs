@@ -13,8 +13,9 @@ available during validation and as an immediate rollback target.
 - Deployment source: `deploy/cloudflare-primary-api/`.
 - Preview: deploy to `workers.dev` first. The preview configuration does not
   claim `api.kobeapptz.com`.
-- Production: `wrangler.production.jsonc` attaches
-  `api.kobeapptz.com` as a Worker Custom Domain after health/read/write checks.
+- Production: `wrangler.production.jsonc` adds a Worker Route for
+  `api.kobeapptz.com/*` after health/read/write checks while leaving the
+  existing proxied DNS/origin untouched.
 - TLS and the public hostname are managed by Cloudflare; Caddy is not required
   on this path.
 - The current PostgreSQL source of truth stays unchanged for the first cutover.
@@ -87,9 +88,9 @@ health-checks the available API origins, chooses one healthy origin, and sends
 the mutation exactly once. It never blindly replays a write to another origin,
 avoiding duplicate transactions when a response is lost during an outage.
 
-The Cloudflare Worker also supports an optional `LEGACY_ORIGIN_URL`. If the
-Container path throws before returning a response, it can forward the request to
-that legacy origin and marks the response:
+The Cloudflare Worker supports `LEGACY_ORIGIN_URL` for preview/direct fallback.
+In production, the Worker Route can fall through to the existing DNS-configured
+origin when the Container path throws, and marks the response:
 
 `X-Kobe-Production-Path: legacy-origin-fallback`
 
@@ -107,6 +108,7 @@ Before attaching `api.kobeapptz.com`, require all of the following against the
 5. Provider integrations required for MVP have their secrets available.
 
 After cutover, the workflow verifies the same production marker publicly.
+Rollback is removal of the Worker Route; no DNS restoration is required.
 
 ## Active no-Cloudflare emergency layer
 
