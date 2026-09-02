@@ -895,11 +895,11 @@ export default function KobeAssistant({
         <input
           ref={fileRef}
           type="file"
-          accept="image/*,.txt,.md,.csv,.json,.log,.tsv,.html,text/*"
+          accept="image/*,application/pdf,.pdf,.txt,.md,.csv,.json,.log,.tsv,.html,text/*"
           className="hidden"
           onChange={(e) => { onAttach(e.target.files?.[0]); e.target.value = ''; }}
         />
-        <button type="button" onClick={() => fileRef.current?.click()} disabled={busy} title="Teach Kobe with a photo, CSV, JSON or document" className="h-10 w-10 grid place-items-center rounded-lg bg-white/[0.05] border border-white/[0.08] text-white/70 hover:text-white disabled:opacity-40"><Paperclip className="w-4 h-4" /></button>
+        <button type="button" onClick={() => fileRef.current?.click()} disabled={busy} title="Teach Kobe with a photo, PDF, CSV, JSON or document" className="h-10 w-10 grid place-items-center rounded-lg bg-white/[0.05] border border-white/[0.08] text-white/70 hover:text-white disabled:opacity-40"><Paperclip className="w-4 h-4" /></button>
         <input value={input} onChange={(e) => setInput(e.target.value)} placeholder={listening ? 'Listening…' : 'Ask Kobe, /open an app, or attach data…'} className="flex-1 h-10 px-3 rounded-lg bg-white/[0.05] border border-white/[0.08] text-sm text-white placeholder:text-white/30 outline-none focus:border-indigo-500/50" />
         {SR && (
           <button type="button" onClick={toggleVoice} title="Speak" className={`h-10 w-10 grid place-items-center rounded-lg ${listening ? 'bg-red-600 animate-pulse text-white' : 'bg-white/[0.05] border border-white/[0.08] text-white/70 hover:text-white'}`}><Mic className="w-4 h-4" /></button>
