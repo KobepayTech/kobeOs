@@ -155,6 +155,39 @@ describe('Kobe AI operating layer (e2e)', () => {
     expect(audit.body.some((row: { eventType: string }) => row.eventType === 'PDF_INGESTED')).toBe(true);
   });
 
+  it('never fabricates tenant screening results', async () => {
+    const t = await token('verified-screening@e2e.test');
+    const tenant = await request(http)
+      .post('/api/property/tenants')
+      .set(bearer(t))
+      .send({ name: 'Verified Tenant', phone: '+255700000001', status: 'pending' });
+    expect(tenant.status).toBe(201);
+
+    const screening = await request(http)
+      .get(`/api/property/tenants/${tenant.body.id}/screening`)
+      .set(bearer(t));
+    expect(screening.status).toBe(503);
+    expect(String(screening.body.message || '')).toContain('No verified tenant screening report');
+  });
+
+  it('does not allow the public hotel channel API to fake a live OTA connection', async () => {
+    const t = await token('hotel-channel-truth@e2e.test');
+    const created = await request(http)
+      .post('/api/hotel/channels')
+      .set(bearer(t))
+      .send({ name: 'Booking.com', type: 'ota', connected: true, commissionPct: 15 });
+    expect(created.status).toBe(201);
+    expect(created.body.connected).toBe(false);
+
+    const patched = await request(http)
+      .patch(`/api/hotel/channels/${created.body.id}`)
+      .set(bearer(t))
+      .send({ connected: true, commissionPct: 17 });
+    expect(patched.status).toBe(200);
+    expect(patched.body.connected).toBe(false);
+    expect(Number(patched.body.commissionPct)).toBe(17);
+  });
+
   it('runs a business simulation and records operating audit events', async () => {
     const t = await token('ai-sim@e2e.test');
     const simulation = await request(http).post('/api/ai/operating/simulate').set(bearer(t)).send({
