@@ -104,12 +104,15 @@ jobs:
               $api = Invoke-RestMethod -Uri 'http://127.0.0.1:3000/api/health' -TimeoutSec 8
               $lala = Invoke-RestMethod -Uri 'http://127.0.0.1:3000/api/lala-public/health' -TimeoutSec 12
               $search = Invoke-RestMethod -Uri 'http://127.0.0.1:3000/api/lala-public/search' -TimeoutSec 15
+              # Invoke-RestMethod successfully parsing the search response is the
+              # local search gate. Windows PowerShell may unwrap a one-item JSON
+              # array, so its runtime CLR type is not a reliable API contract.
+              $null = $search
               return (
                 $api.status -eq 'ok' -and
                 $api.db -eq 'connected' -and
                 $lala.status -eq 'ok' -and
-                $lala.database -eq 'ready' -and
-                $search -is [System.Array]
+                $lala.database -eq 'ready'
               )
             } catch {
               return $false
