@@ -164,6 +164,20 @@ When creating the token at dash.cloudflare.com/profile/api-tokens:
 
 **Never hardcode credentials in source code.** Always use `server/.env`.
 
+
+### Codex / ChatGPT Cloudflare agent setup
+
+KobeOS carries project-scoped Cloudflare agent configuration. For a trusted checkout:
+
+- `.codex/config.toml` registers Cloudflare API, docs, bindings, builds, and observability MCP servers.
+- `.agents/skills/wrangler/` is the official Cloudflare Wrangler skill.
+- `.agents/skills/workers-best-practices/` is the official Cloudflare Workers review skill.
+- `deploy/cloudflare-primary-api/package.json` pins Wrangler for the production Worker + Container deploy path.
+
+Interactive agent access uses Cloudflare MCP OAuth, not a token committed to the repository. On first use, authenticate the Cloudflare server from Codex/ChatGPT Desktop (or run `codex mcp login cloudflare`). Keep write approvals enabled for account-changing tools.
+
+CI/CD credentials are separate from MCP OAuth. The `production` GitHub environment must hold the Cloudflare and production runtime secrets consumed by `.github/workflows/deploy-cloudflare-primary-api.yml`. Never place those values in `.codex/config.toml`, `AGENTS.md`, source files, or committed `.env` files.
+
 ---
 
 ## ISO / Distribution
