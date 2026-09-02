@@ -78,10 +78,9 @@ export class TenantScreeningReport extends OwnedEntity {
   @Column({ default: 'pending' })
   verdict!: 'pending' | 'accepted' | 'rejected';
 
-  /** Provider this report came from (e.g. 'smartmove', 'rentprep',
-   *  'manual', 'demo'). Lets us replace fixture rows when a real
-   *  provider integration lands without disturbing the schema. */
-  @Column({ default: 'demo' })
+  /** Provider this verified report came from (e.g. 'smartmove', 'rentprep',
+   *  'manual-import'). KobeOS never fabricates screening scores. */
+  @Column({ default: 'external' })
   provider!: string;
 
   /** Download URL for the full PDF report. */
