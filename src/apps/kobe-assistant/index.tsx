@@ -71,29 +71,6 @@ const FALLBACK_SKILLS: AssistantSkill[] = [
   { name: 'adjust_stock', description: 'Prepare a stock-level change for confirmation.', write: true },
 ];
 
-function localBasicReply(question: string): string {
-  const q = question.trim().toLowerCase();
-  if (/^(hi|hello|hey|habari|mambo)[!. ]*$/.test(q)) {
-    return 'Hello! I’m Kobe. I can help with sales, properties, hotels, stock, cargo, expenses and everyday questions.';
-  }
-  const arithmetic = q.match(/(?:what is|calculate)\s+(-?\d+(?:\.\d+)?)\s*([+\-*/x×÷])\s*(-?\d+(?:\.\d+)?)/);
-  if (arithmetic) {
-    const left = Number(arithmetic[1]);
-    const right = Number(arithmetic[3]);
-    const operator = arithmetic[2];
-    const answer =
-      operator === '+' ? left + right :
-        operator === '-' ? left - right :
-          operator === '*' || operator === 'x' || operator === '×' ? left * right :
-            right === 0 ? NaN : left / right;
-    return Number.isFinite(answer) ? `${left} ${operator} ${right} = ${answer}` : 'That calculation is undefined.';
-  }
-  if (/\b(what can you do|skills|help)\b/.test(q)) {
-    return 'I can answer general questions and work with sales, properties, rent, hotels, inventory, expenses and cargo. Open Skills above to see every available business tool.';
-  }
-  return 'The assistant service is reconnecting. I can still help with basic questions; live business answers will resume when Kobe Cloud is reachable.';
-}
-
 /** Find the first array-of-objects inside a tool result, for printing as a table. */
 function firstRows(data: unknown): Record<string, unknown>[] | null {
   if (!data || typeof data !== 'object') return null;
@@ -558,10 +535,12 @@ export default function KobeAssistant({
               });
               const fallback = apiObject<{ content?: string }>(fallbackResponse);
               reply = fallback?.content?.trim() ?? '';
-            } catch { /* deterministic fallback below */ }
+            } catch { /* truthful unavailable state below */ }
           }
         }
-        if (!reply) reply = streamed.trim() || localBasicReply(q);
+        if (!reply) {
+          reply = 'Kobe AI is currently unavailable. I did not generate an unverified fallback answer. Check the API/AI service and retry.';
+        }
         updateStreamingReply(reply);
         if (!streamed && streamFailure instanceof Error) {
           console.warn('Kobe streaming fallback:', streamFailure.message);
