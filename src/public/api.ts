@@ -14,10 +14,7 @@ const PRIMARY_PUBLIC_API_BASE =
   (import.meta.env.DEV ? 'http://localhost:3000/api' : '/api');
 
 const FALLBACK_PUBLIC_API_BASE =
-  (import.meta.env.VITE_API_FALLBACK_BASE as string | undefined)?.trim() ||
-  (import.meta.env.DEV
-    ? ''
-    : 'https://erimnjgpawuxesonkeoz.supabase.co/functions/v1/kobeos-backup');
+  (import.meta.env.VITE_API_FALLBACK_BASE as string | undefined)?.trim() || '';
 
 const PUBLIC_API_BASES = Array.from(new Set(
   [PRIMARY_PUBLIC_API_BASE, FALLBACK_PUBLIC_API_BASE]
