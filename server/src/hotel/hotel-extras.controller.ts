@@ -61,7 +61,7 @@ export class HotelExtrasController {
   }
   @Patch('channels/:id') updateChannel(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: ChannelDto) {
     const { connected: _ignoredConnected, ...safe } = dto;
-    return this.channels.update(uid, safe as any);
+    return this.channels.update(uid, id, safe as any);
   }
   @Delete('channels/:id') removeChannel(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.channels.remove(uid, id); }
 }
