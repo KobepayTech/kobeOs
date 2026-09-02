@@ -15,6 +15,10 @@ RUN npm prune --omit=dev --legacy-peer-deps
 FROM node:22-alpine AS runtime
 WORKDIR /app
 
+# Native PDF text extraction + page rasterization for scanned-PDF OCR.
+# Kept in the runtime image so PDF ingestion does not depend on a cloud API.
+RUN apk add --no-cache poppler-utils
+
 # Non-root user for security
 RUN addgroup -S kobe && adduser -S kobe -G kobe
 
