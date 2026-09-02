@@ -130,6 +130,46 @@ jobs:
           } while ((Get-Date) -lt $deadline)
 
           if (-not $healthy) {
+            function Write-EndpointDiagnostic([string]$Name, [string]$Uri) {
+              try {
+                $response = Invoke-WebRequest -UseBasicParsing -Uri $Uri -TimeoutSec 8
+                Write-Host "$Name=http_$($response.StatusCode)"
+              } catch {
+                $status = $null
+                if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+                  $status = [int]$_.Exception.Response.StatusCode
+                }
+                if ($status) {
+                  Write-Host "$Name=http_$status"
+                } else {
+                  Write-Host "$Name=unreachable"
+                }
+              }
+            }
+
+            Write-EndpointDiagnostic 'new_api_health' 'http://127.0.0.1:3000/api/health'
+            Write-EndpointDiagnostic 'new_lala_health' 'http://127.0.0.1:3000/api/lala-public/health'
+            Write-EndpointDiagnostic 'new_lala_search' 'http://127.0.0.1:3000/api/lala-public/search'
+
+            $backendError = Join-Path $logs 'kobe-backend-live.err.log'
+            $failureClass = 'unclassified'
+            if (Test-Path -LiteralPath $backendError -PathType Leaf) {
+              $tail = (Get-Content -LiteralPath $backendError -Tail 400 -ErrorAction SilentlyContinue) -join [Environment]::NewLine
+              if ($tail -match 'Cannot find module') {
+                $failureClass = 'dependency_missing'
+              } elseif ($tail -match 'relation .* does not exist') {
+                $failureClass = 'migration_relation_missing'
+              } elseif ($tail -match 'column .* does not exist') {
+                $failureClass = 'migration_column_missing'
+              } elseif ($tail -match 'ECONNREFUSED|connect ECONNREFUSED') {
+                $failureClass = 'database_connection_failed'
+              } elseif ($tail -match 'EADDRINUSE') {
+                $failureClass = 'port_in_use'
+              } elseif ($tail -match 'Nest can.?t resolve dependencies') {
+                $failureClass = 'nest_dependency_resolution'
+              }
+            }
+            Write-Host "new_backend_failure_class=$failureClass"
             Write-Host 'New backend failed release health checks; restoring previous bundle.'
             Set-Content -LiteralPath $lock -Value 'rollback' -Encoding ASCII
             try {
