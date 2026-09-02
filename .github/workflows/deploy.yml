@@ -11,7 +11,7 @@ jobs:
   deploy:
     name: Deploy to production
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && vars.LEGACY_SSH_DEPLOY_ENABLED == 'true') }}
     environment: production
 
     steps:
