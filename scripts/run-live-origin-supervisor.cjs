@@ -243,6 +243,7 @@ async function main() {
 
   const supervisorLog = path.join(logsDir, 'live-origin-supervisor.log');
   const stateFile = path.join(logsDir, 'live-origin-supervisor.state');
+  const deploymentLock = path.join(logsDir, 'deployment.lock');
   const postgresOut = fs.openSync(path.join(logsDir, 'kobe-postgres-live.out.log'), 'a');
   const postgresErr = fs.openSync(path.join(logsDir, 'kobe-postgres-live.err.log'), 'a');
   const backendOut = fs.openSync(path.join(logsDir, 'kobe-backend-live.out.log'), 'a');
@@ -339,6 +340,16 @@ async function main() {
         setState('database_spawn_failed');
         await delay(15_000);
       }
+      continue;
+    }
+
+    if (fs.existsSync(deploymentLock)) {
+      if (processAlive(backend)) {
+        stopChild(backend);
+        backend = null;
+      }
+      setState('deployment_paused');
+      await delay(LOOP_DELAY_MS);
       continue;
     }
 
