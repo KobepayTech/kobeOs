@@ -11,7 +11,7 @@ jobs:
   deploy-lala:
     name: Deploy Lala frontend
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && vars.LALA_PAGES_DEPLOY_ENABLED == 'true') }}
     environment: production
     permissions:
       contents: read
