@@ -1,0 +1,107 @@
+name: Diagnose Cloudflare Origin Capabilities
+
+on:
+  push:
+    branches: [feat/cloudflare-primary-api]
+    paths:
+      - '.github/workflows/cloudflare-origin-capabilities.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 12
+    defaults:
+      run:
+        shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Inspect stable origin without exposing secrets
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $roots = @('C:\KobeOS\app','C:\kobeos\app','C:\kobeOs\app') | Select-Object -Unique
+          $root = $roots | Where-Object {
+            Test-Path -LiteralPath (Join-Path $_ 'server\.env.production') -PathType Leaf
+          } | Select-Object -First 1
+          if (-not $root) { throw 'Stable origin .env.production was not found.' }
+
+          $envFile = Join-Path $root 'server\.env.production'
+          $map = @{}
+          foreach ($line in Get-Content -LiteralPath $envFile) {
+            $trim = $line.Trim()
+            if (-not $trim -or $trim.StartsWith('#') -or -not $trim.Contains('=')) { continue }
+            $parts = $trim.Split('=',2)
+            $map[$parts[0].Trim()] = $parts[1].Trim().Trim('"').Trim("'")
+          }
+
+          function Is-Configured([string]$value) {
+            if ([string]::IsNullOrWhiteSpace($value)) { return $false }
+            return -not ($value -match '^(YOUR_|CHANGE_ME|REPLACE_|example|localhost-placeholder)')
+          }
+
+          $keys = @(
+            'CF_API_TOKEN','CF_ACCOUNT_ID','CF_ZONE_ID',
+            'DB_HOST','DB_PORT','DB_USERNAME','DB_PASSWORD','DB_DATABASE',
+            'JWT_SECRET','PROVIDER_ENCRYPTION_KEY'
+          )
+          foreach ($key in $keys) {
+            $configured = Is-Configured $map[$key]
+            Write-Host ("config_{0}={1}" -f $key.ToLower(), $configured.ToString().ToLower())
+          }
+
+          $dbHost = [string]$map['DB_HOST']
+          $dbScope = if ($dbHost -match '^(127\.0\.0\.1|localhost|::1)$') { 'local' } elseif (Is-Configured $dbHost) { 'remote' } else { 'unknown' }
+          Write-Host "database_host_scope=$dbScope"
+
+          $dockerCli = Get-Command docker -ErrorAction SilentlyContinue
+          Write-Host "docker_cli_present=$([bool]$dockerCli)"
+          $dockerServer = $false
+          if ($dockerCli) {
+            try {
+              $null = & docker version --format '{{.Server.Version}}' 2>$null
+              if ($LASTEXITCODE -eq 0) { $dockerServer = $true }
+            } catch {}
+          }
+          Write-Host "docker_server_available=$($dockerServer.ToString().ToLower())"
+
+          $pgDump = Get-Command pg_dump -ErrorAction SilentlyContinue
+          if (-not $pgDump) {
+            $pgDump = Get-ChildItem -Path $root -Filter pg_dump.exe -File -Recurse -ErrorAction SilentlyContinue |
+              Select-Object -First 1
+          }
+          Write-Host "pg_dump_available=$([bool]$pgDump)"
+
+          if (Is-Configured $map['CF_API_TOKEN']) {
+            try {
+              $headers = @{ Authorization = "Bearer $($map['CF_API_TOKEN'])" }
+              $verify = Invoke-RestMethod -Uri 'https://api.cloudflare.com/client/v4/user/tokens/verify' -Headers $headers -Method Get -TimeoutSec 20
+              Write-Host "cloudflare_token_valid=$([bool]$verify.success)"
+            } catch {
+              Write-Host 'cloudflare_token_valid=false'
+            }
+
+            if ((Is-Configured $map['CF_ACCOUNT_ID'])) {
+              try {
+                $null = Invoke-RestMethod -Uri "https://api.cloudflare.com/client/v4/accounts/$($map['CF_ACCOUNT_ID'])/workers/subdomain" -Headers $headers -Method Get -TimeoutSec 20
+                Write-Host 'cloudflare_workers_account_access=true'
+              } catch {
+                Write-Host "cloudflare_workers_account_access=false"
+              }
+            }
+          } else {
+            Write-Host 'cloudflare_token_valid=false'
+            Write-Host 'cloudflare_workers_account_access=false'
+          }
+
+          try {
+            $tcp = Test-NetConnection -ComputerName 'db.erimnjgpawuxesonkeoz.supabase.co' -Port 5432 -WarningAction SilentlyContinue
+            Write-Host "supabase_postgres_5432_reachable=$($tcp.TcpTestSucceeded.ToString().ToLower())"
+          } catch {
+            Write-Host 'supabase_postgres_5432_reachable=false'
+          }
