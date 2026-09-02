@@ -36,6 +36,14 @@ jobs:
         with:
           node-version: 22
 
+      - name: Install Cloudflare deployment dependencies
+        working-directory: deploy/cloudflare-primary-api
+        run: npm install --ignore-scripts --no-audit --no-fund
+
+      - name: Validate Worker bundle and container configuration
+        working-directory: deploy/cloudflare-primary-api
+        run: npx wrangler deploy --dry-run --config wrangler.jsonc --outdir .wrangler-dry-run
+
       - name: Check Cloudflare credentials
         run: |
           set -euo pipefail
@@ -47,14 +55,6 @@ jobs:
             echo "::error::Missing CLOUDFLARE_ACCOUNT_ID/CF_ACCOUNT_ID in the production environment"
             exit 1
           }
-
-      - name: Install Cloudflare deployment dependencies
-        working-directory: deploy/cloudflare-primary-api
-        run: npm install --ignore-scripts --no-audit --no-fund
-
-      - name: Validate Worker bundle and container configuration
-        working-directory: deploy/cloudflare-primary-api
-        run: npx wrangler deploy --dry-run --config wrangler.jsonc --outdir .wrangler-dry-run
 
       - name: Deploy workers.dev preview
         working-directory: deploy/cloudflare-primary-api
