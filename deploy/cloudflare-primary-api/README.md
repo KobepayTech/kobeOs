@@ -42,15 +42,25 @@ keeps the existing PostgreSQL connection unchanged. Hyperdrive can be added
 later when database access is moved into Worker-compatible code or a dedicated
 Cloudflare database gateway.
 
-## Required Cloudflare Worker secrets
+## Required production environment secrets
 
-Set these on `kobeos-primary-api` before the first functional preview:
+GitHub Actions builds a temporary mode-0600 JSON file and passes it to Wrangler
+with `--secrets-file`, so the runtime secrets are uploaded alongside the Worker
+code and are never committed.
 
-- `DB_HOST`
-- `DB_USERNAME`
-- `DB_PASSWORD`
-- `JWT_SECRET`
-- `PROVIDER_ENCRYPTION_KEY`
+Configure these in the GitHub `production` environment:
+
+- `PRIMARY_API_DB_HOST` (aliases `DB_HOST` / `KOBE_SHARED_DB_HOST` are accepted)
+- `PRIMARY_API_DB_USERNAME` (alias `DB_USERNAME`)
+- `PRIMARY_API_DB_PASSWORD` (alias `DB_PASSWORD`)
+- `PRIMARY_API_JWT_SECRET` (alias `JWT_SECRET`)
+- `PRIMARY_API_PROVIDER_ENCRYPTION_KEY` (alias `PROVIDER_ENCRYPTION_KEY`)
+
+Optional:
+
+- `PRIMARY_API_EXTRA_SECRETS_JSON` — a JSON object containing additional
+  provider secrets required by production integrations, for example PalmPesa,
+  Meta/TikTok, Beem, SMTP or other keys accepted by `src/index.js`.
 
 The checked-in config supplies non-secret defaults for `DB_PORT`, `DB_DATABASE`,
 SSL, CORS, the tenant domain and the public API URL. Override them as Worker
@@ -74,8 +84,10 @@ Fallback responses are marked:
 1. Ensure the current production PostgreSQL host is reachable from Cloudflare
    Containers. Do not cut over to an empty/new database.
 2. Set the Cloudflare account credentials used by GitHub Actions.
-3. Set the required Worker runtime secrets.
-4. Deploy `wrangler.jsonc`. This keeps `workers.dev` enabled and does **not**
+3. Set the required `PRIMARY_API_*` runtime secrets in the GitHub
+   `production` environment.
+4. Deploy `wrangler.jsonc`; the workflow uploads those runtime secrets in the
+   same Wrangler deployment. This keeps `workers.dev` enabled and does **not**
    attach `api.kobeapptz.com`.
 5. Test `/api/health`, an authenticated read, and one low-risk write on the
    generated `workers.dev` URL. Successful container responses include
