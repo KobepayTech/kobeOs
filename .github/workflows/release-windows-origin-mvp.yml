@@ -79,26 +79,52 @@ jobs:
           $failed = Join-Path $origin 'server\dist.failed'
           $source = Join-Path $env:GITHUB_WORKSPACE 'server\dist'
 
-          function Stop-OriginApiListener {
+          function Stop-OriginRuntime {
+            $task = Get-ScheduledTask -TaskName 'KobeOS-Live-Backend' -ErrorAction SilentlyContinue
+            if ($task -and $task.State -eq 'Running') {
+              Stop-ScheduledTask -TaskName 'KobeOS-Live-Backend' -ErrorAction SilentlyContinue
+            }
+
+            $originProcesses = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+              Where-Object {
+                $_.CommandLine -and (
+                  ($_.Name -eq 'node.exe' -and $_.CommandLine -match 'server[\\/]dist[\\/]main\.js') -or
+                  ($_.Name -eq 'node.exe' -and $_.CommandLine -match 'run-live-origin-supervisor\.cjs') -or
+                  ($_.Name -eq 'powershell.exe' -and $_.CommandLine -match 'run-live-backend-supervisor\.ps1')
+                )
+              })
+            foreach ($item in $originProcesses) {
+              if ($item.ProcessId -and $item.ProcessId -ne $PID) {
+                Stop-Process -Id $item.ProcessId -Force -ErrorAction SilentlyContinue
+              }
+            }
+
             $deadline = (Get-Date).AddSeconds(20)
             do {
               $listeners = @(Get-NetTCPConnection -State Listen -LocalPort 3000 -ErrorAction SilentlyContinue)
               if ($listeners.Count -eq 0) {
-                Write-Host 'origin_api_listener=stopped'
+                Write-Host 'origin_runtime=stopped'
                 return
               }
               foreach ($listener in $listeners) {
-                $process = Get-Process -Id $listener.OwningProcess -ErrorAction SilentlyContinue
-                if ($process -and $process.ProcessName -notmatch '^node(?:js)?$') {
+                $listenerProcess = Get-CimInstance Win32_Process -Filter "ProcessId=$($listener.OwningProcess)" -ErrorAction SilentlyContinue
+                if (-not $listenerProcess -or $listenerProcess.Name -ne 'node.exe' -or
+                    -not $listenerProcess.CommandLine -or $listenerProcess.CommandLine -notmatch 'server[\\/]dist[\\/]main\.js') {
                   throw 'Port 3000 is owned by an unexpected process; refusing to terminate it.'
                 }
-                if ($process) {
-                  Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-                }
+                Stop-Process -Id $listener.OwningProcess -Force -ErrorAction SilentlyContinue
               }
               Start-Sleep -Seconds 1
             } while ((Get-Date) -lt $deadline)
-            throw 'Timed out while draining the Node API listener on port 3000.'
+            throw 'Timed out while stopping the KobeOS API runtime.'
+          }
+
+          function Start-OriginRuntime {
+            & powershell.exe -ExecutionPolicy Bypass -NoProfile -File "$env:GITHUB_WORKSPACE\scripts\install-live-backend-autostart.ps1" -RepoRoot $origin -SkipHealthCheck
+            if ($LASTEXITCODE -ne 0) {
+              throw "KobeOS origin supervisor restart failed with exit code $LASTEXITCODE."
+            }
+            Write-Host 'origin_runtime=start_requested'
           }
 
           New-Item -ItemType Directory -Force -Path $logs | Out-Null
@@ -112,7 +138,7 @@ jobs:
 
           try {
             Start-Sleep -Seconds 5
-            Stop-OriginApiListener
+            Stop-OriginRuntime
             if (Test-Path -LiteralPath $previous) {
               Remove-Item -LiteralPath $previous -Recurse -Force
             }
@@ -121,6 +147,7 @@ jobs:
           } finally {
             Remove-Item -LiteralPath $lock -Force -ErrorAction SilentlyContinue
           }
+          Start-OriginRuntime
 
           function Test-Release {
             try {
@@ -197,7 +224,7 @@ jobs:
             Set-Content -LiteralPath $lock -Value 'rollback' -Encoding ASCII
             try {
               Start-Sleep -Seconds 5
-              Stop-OriginApiListener
+              Stop-OriginRuntime
               if (Test-Path -LiteralPath $current) {
                 Move-Item -LiteralPath $current -Destination $failed
               }
@@ -205,6 +232,7 @@ jobs:
             } finally {
               Remove-Item -LiteralPath $lock -Force -ErrorAction SilentlyContinue
             }
+            Start-OriginRuntime
 
             $rollbackHealthy = $false
             $rollbackDeadline = (Get-Date).AddMinutes(3)
