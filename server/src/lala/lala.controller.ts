@@ -25,7 +25,6 @@ export class LalaPublicController {
   constructor(private readonly lala: LalaService) {}
   @Get('health') health() { return this.lala.publicHealth(); }
   @Get('search') search(@Query() query: Record<string, string>) { return this.lala.search(query); }
-  @Get('backup-snapshot') backupSnapshot() { return this.lala.backupSnapshot(); }
   @Post('passports') passport(@Body() body: { phone: string; name: string; email?: string; nationality?: string; preferences?: Record<string, unknown>; privacy?: Record<string, boolean> }) { return this.lala.passport(body); }
   @Get('passports/:token') passportByToken(@Param('token') token: string) { return this.lala.passportByToken(token); }
   @Post('bookings') book(@Body() body: { hotelId: string; roomId: string; passportToken: string; checkIn: string; checkOut: string; guests?: number }) { return this.lala.book(body); }
