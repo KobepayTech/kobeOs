@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       cutover:
-        description: 'Attach api.kobeapptz.com after preview verification'
+        description: 'Enable api.kobeapptz.com Worker Route after preview verification'
         required: false
         default: false
         type: boolean
@@ -44,6 +44,10 @@ jobs:
         working-directory: deploy/cloudflare-primary-api
         run: npx wrangler deploy --dry-run --config wrangler.jsonc --outdir .wrangler-dry-run
 
+      - name: Validate production Worker route configuration
+        working-directory: deploy/cloudflare-primary-api
+        run: npx wrangler deploy --dry-run --config wrangler.production.jsonc --outdir .wrangler-production-dry-run
+
       - name: Check Cloudflare credentials
         run: |
           set -euo pipefail
@@ -61,7 +65,7 @@ jobs:
         run: npx wrangler deploy --config wrangler.jsonc
 
   cutover:
-    name: Attach api.kobeapptz.com
+    name: Enable api.kobeapptz.com Worker Route
     needs: preview
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.cutover == true }}
     runs-on: ubuntu-latest
@@ -81,7 +85,7 @@ jobs:
         working-directory: deploy/cloudflare-primary-api
         run: npm install --ignore-scripts --no-audit --no-fund
 
-      - name: Deploy production custom domain
+      - name: Deploy production Worker Route
         working-directory: deploy/cloudflare-primary-api
         run: npx wrangler deploy --config wrangler.production.jsonc
 
