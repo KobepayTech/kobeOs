@@ -1,0 +1,49 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "kobeos-primary-api",
+  "main": "src/index.js",
+  "compatibility_date": "2026-09-02",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "vars": {
+    "DB_PORT": "5432",
+    "DB_DATABASE": "kobeos",
+    "DB_SSL": "true",
+    "DB_SSL_REJECT_UNAUTHORIZED": "true",
+    "TENANT_BASE_DOMAIN": "kobeapptz.com",
+    "CORS_ORIGIN": "https://lala.kobeapptz.com,https://kobeapptz.com,https://www.kobeapptz.com",
+    "APP_PUBLIC_URL": "https://api.kobeapptz.com"
+  },
+  "containers": [
+    {
+      "name": "kobeos-primary-api",
+      "class_name": "KobeApiContainer",
+      "image": "../../server/Dockerfile",
+      "image_build_context": "../../server",
+      "instance_type": "standard-1",
+      "max_instances": 1,
+      "rollout_active_grace_period": 30,
+      "ssh": { "enabled": false }
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "KOBE_API",
+        "class_name": "KobeApiContainer"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["KobeApiContainer"]
+    }
+  ],
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
+  "observability": {
+    "enabled": true
+  }
+}
