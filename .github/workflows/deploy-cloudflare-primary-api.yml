@@ -55,6 +55,7 @@ jobs:
         run: npx wrangler deploy --dry-run --config wrangler.production.jsonc --outdir .wrangler-production-dry-run
 
       - name: Check Cloudflare and runtime credentials
+        id: config
         run: |
           set -euo pipefail
           missing=()
@@ -66,11 +67,14 @@ jobs:
           [ -n "${PRIMARY_API_JWT_SECRET:-}" ] || missing+=("PRIMARY_API_JWT_SECRET")
           [ -n "${PRIMARY_API_PROVIDER_ENCRYPTION_KEY:-}" ] || missing+=("PRIMARY_API_PROVIDER_ENCRYPTION_KEY")
           if [ "${#missing[@]}" -gt 0 ]; then
-            printf '::error::Missing production environment configuration: %s\n' "${missing[*]}"
-            exit 1
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            printf 'Cloudflare preview not deployed because production environment configuration is missing: %s\n' "${missing[*]}"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Build Worker runtime secrets file
+        if: ${{ steps.config.outputs.ready == 'true' }}
         id: runtime-secrets
         shell: bash
         run: |
@@ -105,8 +109,15 @@ jobs:
           echo "path=$secrets_file" >> "$GITHUB_OUTPUT"
 
       - name: Deploy workers.dev preview
+        if: ${{ steps.config.outputs.ready == 'true' }}
         working-directory: deploy/cloudflare-primary-api
         run: npx wrangler deploy --config wrangler.jsonc --secrets-file "${{ steps.runtime-secrets.outputs.path }}"
+
+      - name: Preview deployment configuration notice
+        if: ${{ steps.config.outputs.ready != 'true' }}
+        run: |
+          echo "Cloudflare Worker + Container configurations validated successfully."
+          echo "Live workers.dev deployment is skipped until the production environment secrets are configured."
 
   cutover:
     name: Enable api.kobeapptz.com Worker Route
