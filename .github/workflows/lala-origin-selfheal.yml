@@ -25,7 +25,7 @@ concurrency:
 jobs:
   recover:
     runs-on: [self-hosted, windows]
-    timeout-minutes: 15
+    timeout-minutes: 30
     defaults:
       run:
         shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
@@ -267,6 +267,169 @@ jobs:
             if ($services.Where({ $_.Status -ne 'Running' }).Count -gt 0) {
               throw 'Cloudflare connector service did not return to Running state.'
             }
+          }
+
+
+      - name: Check origin-local Cloudflare Pages credentials
+        id: pages
+        env:
+          ORIGIN_ROOT: ${{ steps.origin.outputs.root }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $envFile = Join-Path $env:ORIGIN_ROOT 'server\.env.production'
+          $values = @{}
+          Get-Content -LiteralPath $envFile | ForEach-Object {
+            $line = $_.Trim()
+            if ($line -and -not $line.StartsWith('#') -and $line -match '^([^=]+)=(.*)
+  verify-public:
+    name: Verify KobeOS API off-box
+    needs: recover
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify the KobeOS API through Cloudflare
+        shell: bash
+        run: |
+          set -euo pipefail
+          urls=(
+            'https://api.kobeapptz.com/api/health'
+            'https://api.kobeapptz.com/api/lala-public/search'
+          )
+
+          for attempt in $(seq 1 12); do
+            healthy=true
+            for url in "${urls[@]}"; do
+              if ! curl --fail --silent --show-error \
+                --output /dev/null \
+                --connect-timeout 10 \
+                --max-time 20 \
+                "$url"; then
+                healthy=false
+              fi
+            done
+
+            if [ "$healthy" = true ]; then
+              echo "KobeOS API is healthy through Cloudflare on attempt $attempt."
+              exit 0
+            fi
+
+            echo "Off-box verification attempt $attempt/12 did not pass yet."
+            sleep 5
+          done
+
+          echo 'The local recovery job passed, but the API is still unreachable through Cloudflare.' >&2
+          exit 1
+
+) {
+              $values[$matches[1].Trim()] = $matches[2].Trim().Trim('"').Trim("'")
+            }
+          }
+
+          $token = if ($values['CLOUDFLARE_API_TOKEN']) { $values['CLOUDFLARE_API_TOKEN'] } else { $values['CF_API_TOKEN'] }
+          $account = if ($values['CLOUDFLARE_ACCOUNT_ID']) { $values['CLOUDFLARE_ACCOUNT_ID'] } else { $values['CF_ACCOUNT_ID'] }
+          $placeholder = {
+            param($value)
+            return (-not $value) -or $value -match '^(YOUR_|CHANGE_ME|CHANGE-ME)'
+          }
+
+          if ((& $placeholder $token) -or (& $placeholder $account)) {
+            Write-Host 'No usable origin-local Cloudflare Pages credentials are present; keeping the existing Pages deployment.'
+            'ready=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          } else {
+            Write-Host 'Origin-local Cloudflare Pages credentials are available.'
+            'ready=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          }
+
+      - name: Build and deploy clean Lala and Jumla Pages
+        if: steps.pages.outputs.ready == 'true'
+        env:
+          ORIGIN_ROOT: ${{ steps.origin.outputs.root }}
+          VITE_API_BASE: https://api.kobeapptz.com/api
+          VITE_TENANT_BASE_DOMAIN: kobeapptz.com
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          # Read credentials only into this process. Never emit their values.
+          $envFile = Join-Path $env:ORIGIN_ROOT 'server\.env.production'
+          $values = @{}
+          Get-Content -LiteralPath $envFile | ForEach-Object {
+            $line = $_.Trim()
+            if ($line -and -not $line.StartsWith('#') -and $line -match '^([^=]+)=(.*)
+  verify-public:
+    name: Verify KobeOS API off-box
+    needs: recover
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Verify the KobeOS API through Cloudflare
+        shell: bash
+        run: |
+          set -euo pipefail
+          urls=(
+            'https://api.kobeapptz.com/api/health'
+            'https://api.kobeapptz.com/api/lala-public/search'
+          )
+
+          for attempt in $(seq 1 12); do
+            healthy=true
+            for url in "${urls[@]}"; do
+              if ! curl --fail --silent --show-error \
+                --output /dev/null \
+                --connect-timeout 10 \
+                --max-time 20 \
+                "$url"; then
+                healthy=false
+              fi
+            done
+
+            if [ "$healthy" = true ]; then
+              echo "KobeOS API is healthy through Cloudflare on attempt $attempt."
+              exit 0
+            fi
+
+            echo "Off-box verification attempt $attempt/12 did not pass yet."
+            sleep 5
+          done
+
+          echo 'The local recovery job passed, but the API is still unreachable through Cloudflare.' >&2
+          exit 1
+
+) {
+              $values[$matches[1].Trim()] = $matches[2].Trim().Trim('"').Trim("'")
+            }
+          }
+          $env:CLOUDFLARE_API_TOKEN = if ($values['CLOUDFLARE_API_TOKEN']) { $values['CLOUDFLARE_API_TOKEN'] } else { $values['CF_API_TOKEN'] }
+          $env:CLOUDFLARE_ACCOUNT_ID = if ($values['CLOUDFLARE_ACCOUNT_ID']) { $values['CLOUDFLARE_ACCOUNT_ID'] } else { $values['CF_ACCOUNT_ID'] }
+
+          Push-Location $env:GITHUB_WORKSPACE
+          try {
+            & npm.cmd ci --legacy-peer-deps
+            if ($LASTEXITCODE -ne 0) { throw "Frontend npm ci failed with exit code $LASTEXITCODE." }
+
+            & npm.cmd run build
+            if ($LASTEXITCODE -ne 0) { throw "Frontend build failed with exit code $LASTEXITCODE." }
+
+            $lala = Join-Path $env:RUNNER_TEMP 'kobeos-lala-pages'
+            $jumla = Join-Path $env:RUNNER_TEMP 'kobeos-jumla-pages'
+            foreach ($dir in @($lala, $jumla)) {
+              if (Test-Path -LiteralPath $dir) { Remove-Item -LiteralPath $dir -Recurse -Force }
+              New-Item -ItemType Directory -Force -Path $dir | Out-Null
+              Copy-Item -Path (Join-Path $env:GITHUB_WORKSPACE 'dist\*') -Destination $dir -Recurse -Force
+            }
+            Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'deploy\lala-pages\_redirects') -Destination (Join-Path $lala '_redirects') -Force
+            Copy-Item -LiteralPath (Join-Path $env:GITHUB_WORKSPACE 'deploy\jumla-pages\_redirects') -Destination (Join-Path $jumla '_redirects') -Force
+
+            & npx.cmd --yes wrangler@4 pages deploy $lala --project-name kobeos-lala --branch master --commit-hash '${{ github.sha }}' --commit-message 'Deploy Lala from KobeOS origin recovery'
+            if ($LASTEXITCODE -ne 0) { throw "Lala Pages deployment failed with exit code $LASTEXITCODE." }
+
+            & npx.cmd --yes wrangler@4 pages deploy $jumla --project-name kobeos-jumla --branch master --commit-hash '${{ github.sha }}' --commit-message 'Deploy Jumla from KobeOS origin recovery'
+            if ($LASTEXITCODE -ne 0) { throw "Jumla Pages deployment failed with exit code $LASTEXITCODE." }
+
+            Write-Host 'Lala and Jumla Pages were updated from current master using origin-local credentials.'
+          } finally {
+            Pop-Location
+            Remove-Item Env:\CLOUDFLARE_API_TOKEN -ErrorAction SilentlyContinue
+            Remove-Item Env:\CLOUDFLARE_ACCOUNT_ID -ErrorAction SilentlyContinue
           }
 
   verify-public:
