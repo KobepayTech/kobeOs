@@ -7,8 +7,8 @@
   "workers_dev": false,
   "routes": [
     {
-      "pattern": "api.kobeapptz.com",
-      "custom_domain": true
+      "pattern": "api.kobeapptz.com/*",
+      "zone_name": "kobeapptz.com"
     }
   ],
   "vars": {
@@ -18,7 +18,8 @@
     "DB_SSL_REJECT_UNAUTHORIZED": "true",
     "TENANT_BASE_DOMAIN": "kobeapptz.com",
     "CORS_ORIGIN": "https://lala.kobeapptz.com,https://kobeapptz.com,https://www.kobeapptz.com",
-    "APP_PUBLIC_URL": "https://api.kobeapptz.com"
+    "APP_PUBLIC_URL": "https://api.kobeapptz.com",
+    "ROUTE_ORIGIN_FALLBACK": "true"
   },
   "containers": [
     {
