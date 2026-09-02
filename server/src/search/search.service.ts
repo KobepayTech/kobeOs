@@ -6,6 +6,11 @@ import { SearchDoc } from './search.entity';
 import { PosProduct } from '../pos/pos.entity';
 import { Tenant } from '../property/property.entity';
 import { ProductReview } from '../store/product-review.entity';
+import { RentCharge } from '../property/property.entity';
+import { HotelBooking, HotelRoom } from '../hotel/hotel.entity';
+import { WarehouseItem } from '../warehouse/warehouse.entity';
+import { ShopExpense } from '../eod/eod.entity';
+import { Parcel } from '../cargo/cargo.entity';
 import { AiService } from '../ai/ai.service';
 
 export function cosine(a: number[], b: number[]): number {
@@ -61,6 +66,12 @@ export class SearchService {
     @InjectRepository(PosProduct) private readonly products: Repository<PosProduct>,
     @InjectRepository(Tenant) private readonly tenants: Repository<Tenant>,
     @InjectRepository(ProductReview) private readonly reviews: Repository<ProductReview>,
+    @InjectRepository(RentCharge) private readonly rentCharges: Repository<RentCharge>,
+    @InjectRepository(HotelRoom) private readonly hotelRooms: Repository<HotelRoom>,
+    @InjectRepository(HotelBooking) private readonly hotelBookings: Repository<HotelBooking>,
+    @InjectRepository(WarehouseItem) private readonly warehouseItems: Repository<WarehouseItem>,
+    @InjectRepository(ShopExpense) private readonly expenses: Repository<ShopExpense>,
+    @InjectRepository(Parcel) private readonly parcels: Repository<Parcel>,
     private readonly ai: AiService,
   ) {}
 
@@ -83,6 +94,48 @@ export class SearchService {
     }
     for (const r of await this.reviews.find({ where: { ownerId }, take: 3000 })) {
       if (r.comment) items.push({ kind: 'review', refId: r.id, text: r.comment });
+    }
+    for (const charge of await this.rentCharges.find({ where: { ownerId }, take: 5000 })) {
+      items.push({
+        kind: 'rent_charge',
+        refId: charge.id,
+        text: `Rent charge ${charge.period} tenant ${charge.tenantId} unit ${charge.unitId} due ${charge.dueDate} amount ${charge.amount} paid ${charge.amountPaid} status ${charge.status}`,
+      });
+    }
+    for (const room of await this.hotelRooms.find({ where: { ownerId }, take: 3000 })) {
+      items.push({
+        kind: 'hotel_room',
+        refId: room.id,
+        text: `Hotel room ${room.roomNumber} ${room.type} rate ${room.rate} ${room.currency} status ${room.status} capacity ${room.capacity}`,
+      });
+    }
+    for (const booking of await this.hotelBookings.find({ where: { ownerId }, take: 5000 })) {
+      items.push({
+        kind: 'hotel_booking',
+        refId: booking.id,
+        text: `Hotel booking room ${booking.roomId} guest ${booking.guestId} check-in ${booking.checkIn} check-out ${booking.checkOut} status ${booking.status} total ${booking.totalAmount} ${booking.currency}`,
+      });
+    }
+    for (const item of await this.warehouseItems.find({ where: { ownerId }, take: 5000 })) {
+      items.push({
+        kind: 'warehouse_item',
+        refId: item.id,
+        text: `${item.name} SKU ${item.sku} category ${item.category} quantity ${item.quantity} reorder ${item.reorderLevel} location ${item.location || ''} unit cost ${item.unitCost}`,
+      });
+    }
+    for (const expense of await this.expenses.find({ where: { ownerId }, take: 5000 })) {
+      items.push({
+        kind: 'expense',
+        refId: expense.id,
+        text: `Expense ${expense.category} ${expense.description} amount ${expense.amount} ${expense.currency} paid via ${expense.paidVia}`,
+      });
+    }
+    for (const parcel of await this.parcels.find({ where: { ownerId }, take: 5000 })) {
+      items.push({
+        kind: 'parcel',
+        refId: parcel.id,
+        text: `Parcel ${parcel.parcelId} ${parcel.description} sender ${parcel.senderName} owner ${parcel.ownerName} destination ${parcel.destination} weight ${parcel.weight} status ${parcel.lifecycleStatus || parcel.status} tracking ${parcel.externalTracking || ''}`,
+      });
     }
 
     const model = this.embedModel();
@@ -108,6 +161,10 @@ export class SearchService {
     const owners = new Set<string>();
     for (const r of await this.products.createQueryBuilder('p').select('DISTINCT p."ownerId"', 'ownerId').getRawMany()) owners.add(r.ownerId);
     for (const r of await this.tenants.createQueryBuilder('t').select('DISTINCT t."ownerId"', 'ownerId').getRawMany()) owners.add(r.ownerId);
+    for (const r of await this.hotelBookings.createQueryBuilder('b').select('DISTINCT b."ownerId"', 'ownerId').getRawMany()) owners.add(r.ownerId);
+    for (const r of await this.warehouseItems.createQueryBuilder('w').select('DISTINCT w."ownerId"', 'ownerId').getRawMany()) owners.add(r.ownerId);
+    for (const r of await this.expenses.createQueryBuilder('e').select('DISTINCT e."ownerId"', 'ownerId').getRawMany()) owners.add(r.ownerId);
+    for (const r of await this.parcels.createQueryBuilder('p').select('DISTINCT p."ownerId"', 'ownerId').getRawMany()) owners.add(r.ownerId);
     for (const ownerId of owners) {
       try { await this.reindex(ownerId); } catch (e) { this.logger.warn(`nightly reindex ${ownerId} failed: ${(e as Error).message}`); }
     }

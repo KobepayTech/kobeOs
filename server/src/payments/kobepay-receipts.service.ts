@@ -383,56 +383,5 @@ export class KobePayReceiptsService {
     };
   }
 
-  async seedDemo(uid: string, ctx: AuditContext) {
-    const existing = await this.receipts.count({ where: { ownerId: uid } });
-    if (existing > 0) return { created: 0, note: 'Receipts already exist — skipped.' };
-    const suppliers = [
-      { number: 'SUP-CN-001', name: 'Shanghai Fashion Ltd', phone: '+86 138 0011 2200' },
-      { number: 'SUP-CN-002', name: 'Guangzhou Electronics Co', phone: '+86 139 0022 3311' },
-      { number: 'SUP-CN-003', name: 'Yiwu Trading House', phone: '+86 137 0033 4422' },
-      { number: 'SUP-CN-004', name: 'Shenzhen Gadgets Ltd', phone: '+86 136 0044 5533' },
-    ];
-    const customers = [
-      { name: 'Stephen', phone: '+255 713 000 001' },
-      { name: 'Amina Hassan', phone: '+255 713 000 002' },
-      { name: 'John Mwangi', phone: '+255 713 000 003' },
-      { name: 'Grace Namuli', phone: '+255 713 000 004' },
-    ];
-    let created = 0;
-    for (let index = 0; index < 14; index += 1) {
-      const supplier = suppliers[index % suppliers.length];
-      const customer = customers[index % customers.length];
-      const items = [{ name: index % 2 ? 'Bluetooth Earbuds' : 'Cotton T-Shirts', qty: 10 + index, unitPrice: 25 + index }];
-      const amountDue = items.reduce((sum, item) => sum + item.qty * item.unitPrice, 0);
-      const receipt = this.receipts.create({
-        ownerId: uid,
-        receiptNumber: `KP-${new Date().getFullYear()}-${String(index + 1).padStart(6, '0')}`,
-        publicToken: randomBytes(18).toString('hex'),
-        customerName: customer.name,
-        customerPhone: customer.phone,
-        customerReference: `CUS-TZ-${String((index % customers.length) + 1).padStart(3, '0')}`,
-        supplierNumber: supplier.number,
-        supplierName: supplier.name,
-        supplierPhone: supplier.phone,
-        items,
-        itemCount: items.reduce((sum, item) => sum + item.qty, 0),
-        sourceAmount: amountDue * 350,
-        sourceCurrency: 'TZS',
-        exchangeRate: 350,
-        amountDue,
-        shipping: 200,
-        serviceFee: 50,
-        total: amountDue + 250,
-        currency: 'CNY',
-        status: 'Pending',
-        createdByName: 'TZ Cashier (demo)',
-        payoutIdempotencyKey: null,
-      });
-      receipt.verificationHash = this.sign(receipt);
-      await this.receipts.save(receipt);
-      created += 1;
-    }
-    await this.rbac.record(uid, ctx, 'receipt.seedDemo', 'payout_receipt', null, { created });
-    return { created };
-  }
+
 }

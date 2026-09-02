@@ -1,6 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { api } from '@/lib/api';
-import { ensureSession } from '@/lib/auth';
 
 interface BackendRule { id: string; name: string; type: 'Percentage' | 'Fixed' | 'BOGO'; value: string; productScope: string; startDate: string | null; endDate: string | null; status: Status; }
 interface BackendCampaign { id: string; name: string; description: string; startDate: string; endDate: string; status: Status; budget: string; }
@@ -38,45 +37,6 @@ type DiscountType = 'Percentage' | 'Fixed' | 'BuyXGetY' | 'Bundle';
 interface Rule { id: number; name: string; type: DiscountType; value: string; products: string; startDate: string; endDate: string; status: Status; usageCount: number; }
 interface Campaign { id: number; name: string; description: string; productsCount: number; startDate: string; endDate: string; status: Status; salesLift: string; redemptions: number; gradient: string; }
 interface Coupon { id: number; code: string; type: string; discount: string; usage: number; limit: number; expiry: string; status: Status; }
-
-const discountRules: Rule[] = [
-  { id: 1, name: 'Summer Sale', type: 'Percentage', value: '15%', products: 'All products', startDate: '2024-06-01', endDate: '2024-08-31', status: 'Active', usageCount: 342 },
-  { id: 2, name: 'Bulk Buy', type: 'BuyXGetY', value: 'Buy 3 Get 1 Free', products: 'Electronics', startDate: '2024-01-01', endDate: '2024-12-31', status: 'Active', usageCount: 156 },
-  { id: 3, name: 'New Customer', type: 'Fixed', value: 'TSh 5,000', products: 'All', startDate: '2024-01-01', endDate: '2024-12-31', status: 'Active', usageCount: 89 },
-  { id: 4, name: 'Flash Sale', type: 'Percentage', value: '25%', products: 'Selected items', startDate: '2024-05-15', endDate: '2024-05-16', status: 'Expired', usageCount: 512 },
-  { id: 5, name: 'Loyalty Reward', type: 'Percentage', value: '10%', products: 'Clothing', startDate: '2024-02-01', endDate: '2024-12-31', status: 'Active', usageCount: 203 },
-  { id: 6, name: 'Clearance', type: 'Percentage', value: '40%', products: 'Old stock', startDate: '2024-07-01', endDate: '2024-07-31', status: 'Active', usageCount: 78 },
-  { id: 7, name: 'Weekend Special', type: 'Percentage', value: '20%', products: 'Food items', startDate: '2024-08-01', endDate: '2024-08-31', status: 'Scheduled', usageCount: 0 },
-  { id: 8, name: 'Staff Discount', type: 'Percentage', value: '30%', products: 'All', startDate: '2024-01-01', endDate: '2024-12-31', status: 'Active', usageCount: 45 },
-  { id: 9, name: 'Birthday', type: 'Percentage', value: '50%', products: 'All', startDate: '2024-01-01', endDate: '2024-12-31', status: 'Active', usageCount: 67 },
-  { id: 10, name: 'Referral', type: 'Fixed', value: 'TSh 10,000', products: 'All', startDate: '2024-03-01', endDate: '2024-12-31', status: 'Active', usageCount: 34 },
-];
-
-const campaigns: Campaign[] = [
-  { id: 1, name: 'Summer Splash Sale', description: 'Biggest summer discounts across all categories. Up to 60% off selected items.', productsCount: 245, startDate: '2024-06-01', endDate: '2024-08-31', status: 'Active', salesLift: '+24%', redemptions: 1843, gradient: 'from-orange-500 to-red-600' },
-  { id: 2, name: 'Back to School', description: 'Special discounts on stationery, electronics, and school supplies for students.', productsCount: 128, startDate: '2024-08-01', endDate: '2024-09-15', status: 'Scheduled', salesLift: '+0%', redemptions: 0, gradient: 'from-blue-500 to-indigo-600' },
-  { id: 3, name: 'Black Friday Early', description: 'Early access Black Friday deals for loyalty members only.', productsCount: 89, startDate: '2024-11-20', endDate: '2024-11-30', status: 'Scheduled', salesLift: '+0%', redemptions: 0, gradient: 'from-violet-500 to-purple-600' },
-  { id: 4, name: 'New Year Blowout', description: 'Ring in the new year with massive savings storewide.', productsCount: 312, startDate: '2024-12-28', endDate: '2025-01-05', status: 'Scheduled', salesLift: '+0%', redemptions: 0, gradient: 'from-emerald-500 to-teal-600' },
-  { id: 5, name: 'Flash Friday', description: '24-hour lightning deals every Friday. Limited quantities available.', productsCount: 56, startDate: '2024-04-01', endDate: '2024-06-30', status: 'Expired', salesLift: '+18%', redemptions: 892, gradient: 'from-amber-500 to-orange-600' },
-];
-
-const coupons: Coupon[] = [
-  { id: 1, code: 'SAVE10', type: 'Percentage', discount: '10%', usage: 45, limit: 100, expiry: '2024-12-31', status: 'Active' },
-  { id: 2, code: 'SUMMER25', type: 'Percentage', discount: '25%', usage: 78, limit: 200, expiry: '2024-08-31', status: 'Active' },
-  { id: 3, code: 'BULK20', type: 'Percentage', discount: '20%', usage: 32, limit: 150, expiry: '2024-12-31', status: 'Active' },
-  { id: 4, code: 'LOYAL15', type: 'Percentage', discount: '15%', usage: 67, limit: 500, expiry: '2024-12-31', status: 'Active' },
-  { id: 5, code: 'WELCOME5K', type: 'Fixed', discount: 'TSh 5,000', usage: 23, limit: 100, expiry: '2024-12-31', status: 'Active' },
-  { id: 6, code: 'FLASH50', type: 'Percentage', discount: '50%', usage: 156, limit: 200, expiry: '2024-05-16', status: 'Expired' },
-  { id: 7, code: 'WEEKEND', type: 'Percentage', discount: '20%', usage: 0, limit: 300, expiry: '2024-08-31', status: 'Scheduled' },
-  { id: 8, code: 'STAFF30', type: 'Percentage', discount: '30%', usage: 12, limit: 999, expiry: '2024-12-31', status: 'Active' },
-  { id: 9, code: 'CLEAR40', type: 'Percentage', discount: '40%', usage: 8, limit: 100, expiry: '2024-07-31', status: 'Active' },
-  { id: 10, code: 'BDAY50', type: 'Percentage', discount: '50%', usage: 15, limit: 200, expiry: '2024-12-31', status: 'Active' },
-  { id: 11, code: 'REFER10K', type: 'Fixed', discount: 'TSh 10,000', usage: 7, limit: 50, expiry: '2024-12-31', status: 'Active' },
-  { id: 12, code: 'FIRSTBUY', type: 'Fixed', discount: 'TSh 3,000', usage: 41, limit: 200, expiry: '2024-12-31', status: 'Active' },
-  { id: 13, code: 'HOLIDAY', type: 'Percentage', discount: '15%', usage: 0, limit: 400, expiry: '2024-12-25', status: 'Scheduled' },
-  { id: 14, code: 'NEWYEAR', type: 'Percentage', discount: '20%', usage: 0, limit: 500, expiry: '2025-01-05', status: 'Scheduled' },
-  { id: 15, code: 'SPECIAL', type: 'Percentage', discount: '12%', usage: 56, limit: 250, expiry: '2024-10-31', status: 'Active' },
-];
 
 const statusStyles: Record<Status, string> = {
   Active: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
@@ -154,12 +114,10 @@ export default function DiscountsPromotions() {
   const [couponSearch, setCouponSearch] = useState('');
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
 
-  // Live state hydrated from /api/discounts/{rules,coupons,campaigns}.
-  // First mount seeds the backend with the demo catalog if the user has
-  // none, so we always render real backend data.
-  const [liveRules, setLiveRules] = useState<Rule[]>(discountRules);
-  const [liveCampaigns, setLiveCampaigns] = useState<Campaign[]>(campaigns);
-  const [liveCoupons, setLiveCoupons] = useState<Coupon[]>(coupons);
+  // Production data comes only from the persisted discount APIs.
+  const [liveRules, setLiveRules] = useState<Rule[]>([]);
+  const [liveCampaigns, setLiveCampaigns] = useState<Campaign[]>([]);
+  const [liveCoupons, setLiveCoupons] = useState<Coupon[]>([]);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
@@ -203,73 +161,16 @@ export default function DiscountsPromotions() {
         redemptions: 0,
         gradient: ['from-orange-500 to-red-600', 'from-blue-500 to-indigo-600', 'from-violet-500 to-purple-600', 'from-emerald-500 to-teal-600', 'from-amber-500 to-orange-600'][i % 5],
       })));
-    } catch { /* keep current demo state */ }
+    } catch (reason) {
+      setLiveRules([]);
+      setLiveCampaigns([]);
+      setLiveCoupons([]);
+      setSaveError(reason instanceof Error ? reason.message : 'Could not load discounts and promotions.');
+    }
   }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    // One-shot localStorage flag so the demo seed runs exactly once per
-    // browser. Without it, an operator who deletes every rule would see
-    // them re-created on the next mount — and two cashiers opening at
-    // the same instant could both pass `existing.length === 0` and
-    // bulk-create duplicates.
-    const SEED_FLAG = 'kobe.erp.discounts.seeded.v1';
-    (async () => {
-      try {
-        await ensureSession();
-        const alreadySeeded = (() => {
-          try { return localStorage.getItem(SEED_FLAG) === '1'; } catch { return false; }
-        })();
-        if (!alreadySeeded) {
-          const existing = await api<Array<{ id: string }>>('/discounts/rules');
-          if (!cancelled && existing.length === 0) {
-            const numericValue = (v: string) => Number(v.replace(/[^\d.]/g, '')) || 0;
-            await Promise.all([
-              ...discountRules.map((r) =>
-                api('/discounts/rules', {
-                  method: 'POST',
-                  body: JSON.stringify({
-                    name: r.name,
-                    type: r.type === 'Fixed' ? 'Fixed' : r.type === 'BuyXGetY' ? 'BOGO' : 'Percentage',
-                    value: numericValue(r.value),
-                    productScope: r.products,
-                  }),
-                }),
-              ),
-              ...campaigns.map((c) =>
-                api('/discounts/campaigns', {
-                  method: 'POST',
-                  body: JSON.stringify({
-                    name: c.name, description: c.description,
-                    startDate: c.startDate + 'T00:00:00Z',
-                    endDate: c.endDate + 'T23:59:59Z',
-                    status: c.status,
-                  }),
-                }),
-              ),
-              ...coupons.map((c) =>
-                api('/discounts/coupons', {
-                  method: 'POST',
-                  body: JSON.stringify({
-                    code: c.code,
-                    type: c.type === 'Fixed' ? 'Fixed' : 'Percentage',
-                    value: numericValue(c.discount),
-                    usageLimit: c.limit,
-                    expiresAt: c.expiry + 'T23:59:59Z',
-                    active: c.status === 'Active',
-                  }),
-                }),
-              ),
-            ]);
-          }
-          // Mark seeded regardless of whether we wrote rows — the user
-          // having existing rules counts as "already initialised".
-          try { localStorage.setItem(SEED_FLAG, '1'); } catch { /* private mode */ }
-        }
-        if (!cancelled) await reloadAll();
-      } catch { /* leave demo data alone */ }
-    })();
-    return () => { cancelled = true; };
+    void reloadAll();
   }, [reloadAll]);
 
   // Form states

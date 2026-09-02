@@ -60,4 +60,12 @@ export class OcrController {
     if (!file?.buffer?.length) throw new BadRequestException('No image uploaded');
     return this.ocr.extractReceipt(file.buffer, lang || 'eng+swa');
   }
+
+  @Post('extract-receipt-base64')
+  @ApiOperation({ summary: 'Extract + parse a receipt from a base64-encoded image' })
+  async extractReceiptBase64(@Body() body: ExtractBase64Dto) {
+    if (!body?.image) throw new BadRequestException('image (base64) is required');
+    const cleaned = body.image.replace(/^data:[^;]+;base64,/, '');
+    return this.ocr.extractReceipt(Buffer.from(cleaned, 'base64'), body.lang || 'eng+swa');
+  }
 }

@@ -146,8 +146,7 @@ function hotelCheckIn(db,data){
 }
 function hotelCheckOut(db,stayId){return{...db,hotel:{...db.hotel,stays:db.hotel.stays.map(s=>s.id===stayId?{...s,status:"out",checkedOutAt:new Date().toISOString()}:s)}};}
 
-/* ================= Seed ================= */
-function seedHistory(rent,{paidCurrent,gaps=[]}){const paid={};const now=new Date();const y=now.getFullYear();const curM=now.getMonth();for(let m=0;m<=curM;m++){if(m===curM&&!paidCurrent)continue;if(gaps.includes(m))continue;paid[`${y}-${pad2(m+1)}`]={amount:rent,method:"cash",at:new Date(y,m,3,10,15).toISOString()};}return paid;}
+/* ================= Initial empty state ================= */
 function normalizeDb(db){
   if(!db||!db.properties)return db;
   const props=db.properties.map(p=>{
@@ -158,20 +157,18 @@ function normalizeDb(db){
   });
   return {...db,properties:props};
 }
-function seedDb(){
-  const fG=rid("fl_"),f1=rid("fl_");
-  const mk=(label,type,name,phone,rent,opts,side,slot)=>({id:rid("u_"),label,type,tenantName:name,tenantPhone:phone,monthlyRent:rent,vacant:!name,paid:name?seedHistory(rent,opts||{paidCurrent:false}):{},floorId:fG,corridor:0,side,slot});
-  const prop={id:rid("prop_"),name:"Kariakoo Plaza",location:"Kariakoo, Dar es Salaam",floors:[{id:fG,name:"G",corridors:1},{id:f1,name:"1",corridors:1}],units:[
-    mk("A1","shop","Salehe Sigala","0712 884 220",250000,{paidCurrent:true},"left",0),
-    mk("A2","shop","Fatuma Hassan","0765 220 203",300000,{paidCurrent:false},"right",0),
-    mk("A3","shop",null,null,280000,null,"left",1),
-    mk("B1","room","Amina Said","0688 145 902",180000,{paidCurrent:false,gaps:[new Date().getMonth()-1]},"right",1),
-    mk("B2","office","Neema Mtega","0769 887 170",400000,{paidCurrent:true},"left",2),
-  ]};
-  const r1=rid("r_"),r2=rid("r_"),r3=rid("r_");
-  const hotel={rooms:[{id:r1,label:"101",type:"standard",rate:40000},{id:r2,label:"102",type:"standard",rate:45000},{id:r3,label:"201",type:"deluxe",rate:70000}],
-    stays:[{id:rid("s_"),guestName:"Hamisi Juma",phone:"0713 220 905",roomId:r2,roomLabel:"102",nights:2,ratePerNight:45000,checkIn:new Date().toISOString(),checkOut:new Date(Date.now()+2*864e5).toISOString(),status:"in",createdAt:new Date().toISOString()}]};
-  return{properties:[prop],tokens:{},payments:[],reminders:[],hotel,seeded:true};
+function emptyDb(){
+  return{properties:[],tokens:{},payments:[],reminders:[],hotel:{rooms:[],stays:[]},seeded:true};
+}
+
+function isLegacyFixtureDb(db){
+  const property=db?.properties?.[0];
+  const unitNames=(property?.units||[]).map(u=>u?.tenantName).filter(Boolean);
+  const guestNames=(db?.hotel?.stays||[]).map(s=>s?.guestName).filter(Boolean);
+  return property?.name==="Kariakoo Plaza"
+    && unitNames.includes("Salehe Sigala")
+    && unitNames.includes("Fatuma Hassan")
+    && guestNames.includes("Hamisi Juma");
 }
 
 /* ================= Strings ================= */
@@ -189,12 +186,12 @@ const STR={
     amount:"Kiasi (TZS)",newRent:"Kodi mpya (TZS)",
     remindAll:"Kumbusha wote",remindTitle:"Tuma kumbusho",remindSub:"Tuma ujumbe au rekodi kumbusho.",whatsapp:"WhatsApp",copy:"Nakili",copied:"Imenakiliwa",share:"Tuma",done:"Sawa",markAll:"Weka wote wamekumbushwa",remindedN:"Wamekumbushwa",
     tokenTitle:"TOKEN YA MALIPO",expired:"Imeisha muda",enterCode:"Namba ya token",copyCode:"Nakili",cancelToken:"Futa token",showTenant:"Mpe mpangaji namba/QR au alipie kwa simu.",
-    payByMobile:"Lipa kwa simu",payRef:"Kumbukumbu",payProto:"Itafungua simu kupiga USSD. (Majaribio)",
+    payByMobile:"Lipa kwa simu",payRef:"Kumbukumbu",payProto:"Itafungua simu kupiga USSD.",
     collectTitle:"Pokea malipo kwa token",collectSub:"Ingiza au changanua token kuthibitisha kabla ya kupokea fedha.",find:"Tafuta",scan:"Changanua QR",
     notFound:"HAIPO",notFoundSub:"Hakuna token yenye namba hii.",usedTitle:"IMESHATUMIKA",usedSub:"Token hii ilishatumika.",expiredTitle:"IMEISHA MUDA",expiredSub:"Token imepita muda. Tengeneza nyingine.",
     confirmTitle:"Thibitisha malipo",received:"Kiasi kilicholipwa (TZS)",confirmPay:"Thibitisha na pokea",recordedTitle:"IMEPOKELEWA",recordedSub:"Malipo yamerekodiwa na mwezi umewekwa alama.",payAnother:"Pokea nyingine",scanHint:"Elekeza QR ndani ya fremu",cancel:"Ghairi",unit:"Kibanda",method:"Njia",
     simTitle:"Mwigo wa kodi",simSub:"Jaribu ongezeko la kodi kisha tumia kuunda kodi mpya.",increaseBy:"Ongeza kwa",currentTot:"Sasa",projected:"Itakuwa",change:"Badiliko",perUnit:"Kwa kila kibanda",riskLow:"Hatari ndogo",riskMod:"Wastani",riskHigh:"Kubwa",estRetention:"Wanaobaki (kadirio)",applyRents:"Tumia kodi mpya",appliedMsg:"Kodi mpya zimewekwa.",noOccupied:"Hakuna vibanda vyenye wapangaji.",
-    bookTitle:"Kitabu cha malipo",searchPh:"Tafuta kibanda, jina au token",empty:"Bado hakuna malipo.",noRes:"Hakuna matokeo.",methodCash:"Taslimu",methodToken:"Token",resetDemo:"Anzisha upya data ya majaribio",
+    bookTitle:"Kitabu cha malipo",searchPh:"Tafuta kibanda, jina au token",empty:"Bado hakuna malipo.",noRes:"Hakuna matokeo.",methodCash:"Taslimu",methodToken:"Token",
     hOverview:"Vyumba",hGuests:"Wageni",occToday:"Leo",occupancy:"Vyumba vilivyochukuliwa",available:"Wazi",occupied:"Imechukuliwa",revenueIn:"Mapato (waliopo)",addHotelRoom:"Ongeza chumba",checkIn:"Ingiza mgeni",guestName:"Jina la mgeni",room:"Chumba",nights:"Usiku",ratePerNight:"Bei kwa usiku (TZS)",checkInDate:"Tarehe ya kuingia",total:"Jumla",checkOut:"Toa mgeni",currentGuests:"Wageni waliopo",pastGuests:"Waliotoka",noGuests:"Hakuna mgeni aliyepo.",noRooms:"Ongeza chumba kwanza.",hRoomType:"Aina ya chumba",checkInBtn:"Ingiza",nightsShort:"usiku",
     floor:"Ghorofa",addFloor:"Ongeza ghorofa",single:"Kimoja",bulk:"Wingi",prefix:"Herufi",startAt:"Anza",count:"Idadi",left:"Kushoto",right:"Kulia",viewList:"Orodha",viewPlan:"Ramani",corridor:"Korido",corridors:"Korido",roomsOnFloor:"vyumba",
   },
@@ -216,7 +213,7 @@ const STR={
     notFound:"NOT FOUND",notFoundSub:"No token with that code.",usedTitle:"ALREADY USED",usedSub:"This token was already used.",expiredTitle:"EXPIRED",expiredSub:"This token has expired. Issue a new one.",
     confirmTitle:"Confirm payment",received:"Amount received (TZS)",confirmPay:"Confirm & collect",recordedTitle:"RECORDED",recordedSub:"Payment recorded and the month marked paid.",payAnother:"Collect another",scanHint:"Point the QR inside the frame",cancel:"Cancel",unit:"Unit",method:"Method",
     simTitle:"Rent simulation",simSub:"Try a rent increase, then apply it to create new rents.",increaseBy:"Increase by",currentTot:"Current",projected:"Projected",change:"Change",perUnit:"Per unit",riskLow:"Low risk",riskMod:"Moderate",riskHigh:"High",estRetention:"Est. retention",applyRents:"Apply new rents",appliedMsg:"New rents applied.",noOccupied:"No occupied units to simulate.",
-    bookTitle:"Payment ledger",searchPh:"Search unit, name or token",empty:"No payments yet.",noRes:"No results.",methodCash:"Cash",methodToken:"Token",resetDemo:"Reset demo data",
+    bookTitle:"Payment ledger",searchPh:"Search unit, name or token",empty:"No payments yet.",noRes:"No results.",methodCash:"Cash",methodToken:"Token",
     hOverview:"Rooms",hGuests:"Guests",occToday:"Today",occupancy:"Rooms occupied",available:"Available",occupied:"Occupied",revenueIn:"In-house revenue",addHotelRoom:"Add room",checkIn:"Check in a guest",guestName:"Guest name",room:"Room",nights:"Nights",ratePerNight:"Rate per night (TZS)",checkInDate:"Check-in date",total:"Total",checkOut:"Check out",currentGuests:"Current guests",pastGuests:"Checked out",noGuests:"No guests checked in.",noRooms:"Add a room first.",hRoomType:"Room type",checkInBtn:"Check in",nightsShort:"nights",
     floor:"Floor",addFloor:"Add floor",single:"Single",bulk:"Bulk",prefix:"Prefix",startAt:"Start",count:"Count",left:"Left",right:"Right",viewList:"List",viewPlan:"Plan",corridor:"Corridor",corridors:"Corridors",roomsOnFloor:"rooms",
   },
@@ -438,14 +435,13 @@ export default function App(){
     try{const r=await api("/app-state/posys");if(r&&r.value)loaded=r.value;}catch{/* not signed in / offline */}
     // 2. Fall back to the localStorage cache.
     if(!loaded){try{const r=await store.get(DB_KEY);if(r&&r.value)loaded=JSON.parse(r.value);}catch { /* local cache unavailable */ }}
-    if(!loaded||!loaded.seeded){loaded=seedDb();}
+    if(!loaded||!loaded.seeded||isLegacyFixtureDb(loaded)){loaded=emptyDb();}
     loaded=normalizeDb(loaded);
     try{await store.set(DB_KEY,JSON.stringify(loaded));}catch { /* local cache unavailable */ }
-    syncUp(loaded);   // push the (possibly seeded/normalized) state up
+    syncUp(loaded);   // persist the real/empty normalized state
     setDb(loaded); setPid(loaded.properties[0]?.id||null);
   })();},[]);
   const save=async(next)=>{setDb(next);try{await store.set(DB_KEY,JSON.stringify(next));}catch { /* local cache unavailable */ } syncUp(next);};
-  const resetDemo=async()=>{const fresh=seedDb();await save(fresh);setPid(fresh.properties[0]?.id||null);setMode("rent");setRtab("units");};
 
   if(!db) return <div className="posys" data-surface="light"><style>{CSS}</style><div className="wrap"><div className="page"><div className="sub">…</div></div></div></div>;
 
@@ -481,7 +477,7 @@ export default function App(){
         {mode==="rent"&&rtab==="units"&&<UnitsView db={db} lang={lang} t={t} save={save} pid={pid} setPid={setPid}/>}
         {mode==="rent"&&rtab==="collect"&&<CollectView db={db} lang={lang} t={t} save={save}/>}
         {mode==="rent"&&rtab==="sim"&&<SimView db={db} lang={lang} t={t} save={save} pid={pid} setPid={setPid}/>}
-        {mode==="rent"&&rtab==="book"&&<BookView db={db} lang={lang} t={t} resetDemo={resetDemo}/>}
+        {mode==="rent"&&rtab==="book"&&<BookView db={db} lang={lang} t={t}/>}
         {mode==="hotel"&&htab==="overview"&&<HotelOverview db={db} lang={lang} t={t} save={save}/>}
         {mode==="hotel"&&htab==="guests"&&<HotelGuests db={db} lang={lang} t={t} save={save}/>}
       </div>
@@ -854,7 +850,7 @@ function SimView({db,lang,t,save,pid,setPid}){
 }
 
 /* ================= Ledger ================= */
-function BookView({db,lang,t,resetDemo}){
+function BookView({db,lang,t}){
   const [q,setQ]=useState("");
   const allOcc=db.properties.flatMap(p=>p.units).filter(u=>!u.vacant&&u.tenantName);
   const expected=allOcc.reduce((s,u)=>s+u.monthlyRent,0);
@@ -874,7 +870,6 @@ function BookView({db,lang,t,resetDemo}){
     {payments.length>0&&list.length===0&&<div className="empty">{t("noRes")}</div>}
     {list.map(p=>(<div className="entry" key={p.id}><div className="top"><div className="lab"><span className="ec">{p.label}</span><span className="en">{p.tenantName}</span></div><span className="eamt">{fmtAmt(p.amount)} TZS</span></div>
       <div className="meta"><span>{p.propertyName} · {fmtDateTime(p.at,lang)}</span><span className={"chip "+p.method}>{p.method==="token"?t("methodToken"):t("methodCash")}</span></div></div>))}
-    <button className="resetbtn" onClick={resetDemo}>{t("resetDemo")}</button>
   </div>);
 }
 

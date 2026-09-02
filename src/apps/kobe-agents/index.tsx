@@ -17,6 +17,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import OperatingControl from './OperatingControl';
 
 type Frequency = 'HOURLY' | 'DAILY' | 'WEEKLY';
 type ApprovalMode = 'AUTOMATIC' | 'APPROVAL_REQUIRED' | 'DRAFT_ONLY';
@@ -99,7 +100,7 @@ export default function KobeAgentsApp() {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<'agents' | 'runs'>('agents');
+  const [view, setView] = useState<'agents' | 'runs' | 'operating'>('operating');
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -163,12 +164,14 @@ export default function KobeAgentsApp() {
           <button onClick={() => void load()} className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 text-slate-500"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button>
           <button onClick={() => { setTemplate(null); setShowCreate(true); }} className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-violet-600 px-4 text-xs font-extrabold text-white hover:bg-violet-500"><Plus className="h-3.5 w-3.5" />Create agent</button>
         </div>
-        <div className="mt-3 flex items-center gap-1"><button onClick={() => setView('agents')} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${view === 'agents' ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>Agents</button><button onClick={() => setView('runs')} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${view === 'runs' ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>Run history {awaiting > 0 && <span className="ml-1 rounded-full bg-amber-400 px-1.5 text-slate-900">{awaiting}</span>}</button></div>
+        <div className="mt-3 flex items-center gap-1"><button onClick={() => setView('operating')} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${view === 'operating' ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>AI Operating Layer</button><button onClick={() => setView('agents')} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${view === 'agents' ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>Scheduled Agents</button><button onClick={() => setView('runs')} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${view === 'runs' ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>Run history {awaiting > 0 && <span className="ml-1 rounded-full bg-amber-400 px-1.5 text-slate-900">{awaiting}</span>}</button></div>
       </header>
 
       <main className="min-h-0 flex-1 overflow-auto p-5">
         {error && <div className="mb-4 flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700"><AlertCircle className="h-4 w-4" />{error}</div>}
         {!health?.running && !loading && <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4"><div className="flex items-center gap-2 font-extrabold text-amber-800"><AlertCircle className="h-4 w-4" />Kobe AI runtime needs attention</div><p className="mt-1 text-xs text-amber-700">Start Ollama and install a recommended chat model. Scheduled agents retain their next-run state and retry safely after the runtime returns.</p>{health?.lastError && <div className="mt-2 font-mono text-[10px] text-amber-600">{health.lastError}</div>}</div>}
+
+        {view === 'operating' && <OperatingControl />}
 
         {view === 'agents' && (
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
