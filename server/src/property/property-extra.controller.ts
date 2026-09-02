@@ -73,8 +73,8 @@ export class PropertyExtraController {
 
   /* ── Tenant screening ───────────────────────────────────────────────── */
 
-  /** Lazily creates a deterministic demo report on first call; real
-   *  provider integrations overwrite the same row. */
+  /** Return only a verified provider/imported screening report.
+   *  If no report exists the service returns a truthful unavailable state. */
   @Get('tenants/:id/screening')
   getScreening(@CurrentUser('id') uid: string, @Param('id') id: string) {
     return this.screening.getOrCreate(uid, id);
