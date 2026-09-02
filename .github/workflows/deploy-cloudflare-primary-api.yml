@@ -69,6 +69,11 @@ jobs:
           [ -n "${PRIMARY_API_DB_PASSWORD:-}" ] || missing+=("PRIMARY_API_DB_PASSWORD")
           [ -n "${PRIMARY_API_JWT_SECRET:-}" ] || missing+=("PRIMARY_API_JWT_SECRET")
           [ -n "${PRIMARY_API_PROVIDER_ENCRYPTION_KEY:-}" ] || missing+=("PRIMARY_API_PROVIDER_ENCRYPTION_KEY")
+          case "${PRIMARY_API_DB_HOST:-}" in
+            localhost|127.0.0.1|::1|postgres|kobe-postgres)
+              missing+=("PRIMARY_API_DB_HOST must be reachable from Cloudflare Containers, not a local/Docker hostname")
+              ;;
+          esac
           if [ "${#missing[@]}" -gt 0 ]; then
             echo "ready=false" >> "$GITHUB_OUTPUT"
             printf 'Cloudflare preview not deployed because production environment configuration is missing: %s\n' "${missing[*]}"
@@ -162,8 +167,13 @@ jobs:
           [ -n "${PRIMARY_API_DB_PASSWORD:-}" ] || missing+=("PRIMARY_API_DB_PASSWORD")
           [ -n "${PRIMARY_API_JWT_SECRET:-}" ] || missing+=("PRIMARY_API_JWT_SECRET")
           [ -n "${PRIMARY_API_PROVIDER_ENCRYPTION_KEY:-}" ] || missing+=("PRIMARY_API_PROVIDER_ENCRYPTION_KEY")
+          case "${PRIMARY_API_DB_HOST:-}" in
+            localhost|127.0.0.1|::1|postgres|kobe-postgres)
+              missing+=("PRIMARY_API_DB_HOST must be reachable from Cloudflare Containers, not a local/Docker hostname")
+              ;;
+          esac
           if [ "${#missing[@]}" -gt 0 ]; then
-            printf '::error::Missing production environment configuration: %s\n' "${missing[*]}"
+            printf '::error::Missing or invalid production environment configuration: %s\n' "${missing[*]}"
             exit 1
           fi
 
