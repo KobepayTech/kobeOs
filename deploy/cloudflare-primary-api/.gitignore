@@ -1,3 +1,4 @@
 node_modules/
 .wrangler/
 .wrangler-dry-run/
+.wrangler-production-dry-run/
