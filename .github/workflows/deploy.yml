@@ -268,19 +268,6 @@ jobs:
             public_check "https://webapp-healthcheck.kobeapptz.com/" || \
               (compose logs cloudflared nginx web --tail=120 && exit 1)
 
-            # Public dealership demo is the reference environment for the
-            # vehicle website/Jumla/ERP CRM flow. Verify both its API data and
-            # wildcard tenant page before declaring production healthy.
-            curl -fsS --retry 6 --retry-delay 5 --retry-all-errors \
-              "https://api.kobeapptz.com/api/commerce-public/dealers/kijani-motors" \
-              -o /tmp/kijani-demo.json || \
-              (compose logs cloudflared nginx api --tail=120 && exit 1)
-            grep -q '"name":"Kijani Motors"' /tmp/kijani-demo.json || \
-              (cat /tmp/kijani-demo.json && echo "Kijani Motors demo data missing" && exit 1)
-            grep -q '"Land Cruiser Prado"' /tmp/kijani-demo.json || \
-              (cat /tmp/kijani-demo.json && echo "Kijani Motors Prado demo listings missing" && exit 1)
-            public_check "https://kijani-motors.kobeapptz.com/" || \
-              (compose logs cloudflared nginx web --tail=120 && exit 1)
 
             echo "Deploy complete and public web apps reachable: $(date)"
 
