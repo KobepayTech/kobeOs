@@ -8,9 +8,10 @@ on:
       - 'scripts/install-live-backend-autostart.ps1'
       - 'scripts/run-live-origin-supervisor.cjs'
       - 'scripts/run-live-backend.ps1'
-      - 'scripts/deploy-public-pages-from-origin.ps1'
   workflow_dispatch:
-  # MVP recovery: keep the existing origin + local PostgreSQL online behind Cloudflare Tunnel.
+  # Recovery deliberately operates on the installed release only. Database
+  # migrations and release deployment belong in a separately reviewed workflow;
+  # running either from a scheduled watchdog can corrupt a healthy live origin.
   # The runner service starts with Windows. This watchdog then repairs embedded
   # PostgreSQL, the API supervisor, or Cloudflare whenever health checks fail.
   schedule:
@@ -26,7 +27,7 @@ concurrency:
 jobs:
   recover:
     runs-on: [self-hosted, windows]
-    timeout-minutes: 30
+    timeout-minutes: 15
     defaults:
       run:
         shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
@@ -69,125 +70,6 @@ jobs:
           & "$env:GITHUB_WORKSPACE\scripts\install-live-backend-autostart.ps1" `
             -RepoRoot $env:ORIGIN_ROOT `
             -HealthTimeoutSeconds 240
-
-      - name: Check stable origin release
-        id: release
-        env:
-          ORIGIN_ROOT: ${{ steps.origin.outputs.root }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $marker = Join-Path $env:ORIGIN_ROOT 'logs\deployed-master-sha.txt'
-          $current = ''
-          if (Test-Path -LiteralPath $marker -PathType Leaf) {
-            $current = (Get-Content -LiteralPath $marker -TotalCount 1).Trim()
-          }
-          $target = '${{ github.sha }}'
-          if ($current -eq $target) {
-            Write-Host 'Stable origin already matches this master commit.'
-            'update=false' | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          } else {
-            Write-Host 'Stable origin is behind master; preparing an atomic backend update.'
-            'update=true' | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          }
-
-      - name: Build current KobeOS backend
-        if: steps.release.outputs.update == 'true'
-        working-directory: server
-        run: |
-          $ErrorActionPreference = 'Stop'
-          & npm.cmd ci --legacy-peer-deps
-          if ($LASTEXITCODE -ne 0) { throw "npm ci failed with exit code $LASTEXITCODE." }
-          & npm.cmd run build
-          if ($LASTEXITCODE -ne 0) { throw "Backend build failed with exit code $LASTEXITCODE." }
-
-      - name: Apply migrations and atomically update stable backend
-        if: steps.release.outputs.update == 'true'
-        env:
-          ORIGIN_ROOT: ${{ steps.origin.outputs.root }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-
-          $origin = $env:ORIGIN_ROOT
-          $logs = Join-Path $origin 'logs'
-          $lock = Join-Path $logs 'deployment.lock'
-          $marker = Join-Path $logs 'deployed-master-sha.txt'
-          $currentDist = Join-Path $origin 'server\dist'
-          $nextDist = Join-Path $origin 'server\dist.next'
-          $previousDist = Join-Path $origin 'server\dist.previous'
-          $sourceDist = Join-Path $env:GITHUB_WORKSPACE 'server\dist'
-          New-Item -ItemType Directory -Force -Path $logs | Out-Null
-
-          if (-not (Test-Path -LiteralPath (Join-Path $sourceDist 'main.js') -PathType Leaf)) {
-            throw 'Built backend bundle is missing server\dist\main.js.'
-          }
-
-          Set-Content -LiteralPath $lock -Value '${{ github.sha }}' -Encoding ASCII
-          try {
-            $backendProcesses = @(Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
-              Where-Object {
-                $_.CommandLine -and
-                $_.CommandLine.IndexOf($origin, [StringComparison]::OrdinalIgnoreCase) -ge 0 -and
-                $_.CommandLine -match 'server[\\/]dist[\\/]main\.js'
-              })
-            foreach ($process in $backendProcesses) {
-              Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
-            }
-
-            $env:NODE_ENV = 'production'
-            $env:DB_HOST = '127.0.0.1'
-            $env:DB_PORT = '5433'
-            $env:DB_USERNAME = 'kobeos'
-            $env:DB_PASSWORD = 'kobeos_live'
-            $env:DB_DATABASE = 'kobeos'
-            $env:DB_SSL = 'false'
-            $env:DB_SYNCHRONIZE = 'false'
-            Push-Location (Join-Path $env:GITHUB_WORKSPACE 'server')
-            try {
-              & npm.cmd run migration:run
-              if ($LASTEXITCODE -ne 0) { throw "Migration command failed with exit code $LASTEXITCODE." }
-            } finally {
-              Pop-Location
-            }
-
-            if (Test-Path -LiteralPath $nextDist) {
-              Remove-Item -LiteralPath $nextDist -Recurse -Force
-            }
-            Copy-Item -LiteralPath $sourceDist -Destination $nextDist -Recurse -Force
-
-            if (Test-Path -LiteralPath $previousDist) {
-              Remove-Item -LiteralPath $previousDist -Recurse -Force
-            }
-            if (Test-Path -LiteralPath $currentDist) {
-              Move-Item -LiteralPath $currentDist -Destination $previousDist
-            }
-            Move-Item -LiteralPath $nextDist -Destination $currentDist
-
-            Set-Content -LiteralPath $marker -Value '${{ github.sha }}' -Encoding ASCII
-            Write-Host 'Stable KobeOS backend and database migrations updated to current master.'
-          } catch {
-            if (-not (Test-Path -LiteralPath $currentDist) -and (Test-Path -LiteralPath $previousDist)) {
-              Move-Item -LiteralPath $previousDist -Destination $currentDist
-            }
-            throw
-          } finally {
-            Remove-Item -LiteralPath $lock -Force -ErrorAction SilentlyContinue
-          }
-
-          $deadline = (Get-Date).AddSeconds(180)
-          do {
-            try {
-              $response = Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:3000/api/health' -TimeoutSec 5
-              if ($response.StatusCode -eq 200) {
-                Write-Host 'Updated stable KobeOS API is healthy locally.'
-                break
-              }
-            } catch { }
-            Start-Sleep -Seconds 3
-          } while ((Get-Date) -lt $deadline)
-
-          if (-not (Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:3000/api/health' -TimeoutSec 5)) {
-            throw 'Updated stable backend did not become healthy after the atomic deployment.'
-          }
 
       - name: Skip connector recovery if the public API is healthy
         id: gate
@@ -271,14 +153,6 @@ jobs:
             }
           }
 
-      - name: Deploy Lala and Jumla Pages from origin credentials when available
-        continue-on-error: true
-        env:
-          ORIGIN_ROOT: ${{ steps.origin.outputs.root }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-          & "$env:GITHUB_WORKSPACE\scripts\deploy-public-pages-from-origin.ps1" -OriginRoot $env:ORIGIN_ROOT
-
   verify-public:
     name: Verify KobeOS API off-box
     needs: recover
@@ -306,10 +180,12 @@ jobs:
                 healthy=false
               fi
             done
+
             if [ "$healthy" = true ]; then
               echo "KobeOS API is healthy through Cloudflare on attempt $attempt."
               break
             fi
+
             echo "Off-box API verification attempt $attempt/12 did not pass yet."
             sleep 5
           done
