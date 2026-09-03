@@ -88,6 +88,28 @@ export class MediaController {
 }
 
 /**
+ * Permanent public delivery for inline-stored media. An <img>/<video> tag can't
+ * send an Authorization header, so uploaded assets are served here by an
+ * unguessable token instead of through the JWT-guarded /media/blob route. This
+ * is what makes uploads visible in the media box, on products bound to them,
+ * and on the public storefront.
+ */
+@Public()
+@Controller('media-public')
+export class MediaPublicTokenController {
+  constructor(private readonly assets: MediaAssetsService) {}
+
+  @Get(':token')
+  @Header('Cache-Control', 'public, max-age=31536000, immutable')
+  async get(@Param('token') token: string, @Res() res: Response) {
+    const asset = await this.assets.getByPublicToken(token);
+    res.setHeader('Content-Type', asset.mimeType ?? 'application/octet-stream');
+    res.setHeader('Content-Length', String(asset.size));
+    res.end(asset.contentBinary);
+  }
+}
+
+/**
  * Capability URL consumed by Instagram/TikTok. The HMAC query parameters are
  * the authorization, so no user token is exposed to the social platform.
  */

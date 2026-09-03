@@ -243,6 +243,20 @@ let _runtimeBase: string | null = null;
 export function apiBase(): string {
   return _runtimeBase ?? API_BASE;
 }
+
+/**
+ * Resolve a stored media/asset path into a URL a browser can actually load.
+ * Server-stored media is saved as a root-relative `/api/...` path; when the
+ * frontend is served from a different origin (Cloudflare Pages) a raw relative
+ * src resolves against the page host and 404s, so it must be rebased onto the
+ * API origin. Absolute/data/blob URLs are returned untouched.
+ */
+export function assetUrl(value?: string | null): string {
+  if (!value) return '';
+  if (/^(https?:|data:|blob:)/i.test(value)) return value;
+  const base = apiBase();
+  return `${base}${value.startsWith('/api') ? value.slice(4) : value}`;
+}
 export function accountApiBase(): string {
   return ACCOUNT_API_BASE;
 }

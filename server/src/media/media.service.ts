@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { createHmac, timingSafeEqual } from 'crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { Repository } from 'typeorm';
 import { MediaAsset, Playlist } from './media.entity';
 import { OwnedCrudService } from '../common/owned.service';
@@ -30,13 +30,24 @@ export class MediaAssetsService extends OwnedCrudService<MediaAsset> {
       size: file.size,
     });
     const saved = await this.repo.save(asset);
-    saved.src = `/api/media/blob/${saved.id}`;
+    // Serve through the permanent public token route: <img> cannot send a
+    // Bearer token, so an authenticated /media/blob URL renders broken in the
+    // app, on products bound to this asset, and on the public storefront.
+    saved.publicToken = saved.publicToken ?? randomBytes(24).toString('base64url');
+    saved.src = `/api/media-public/${saved.publicToken}`;
     return this.repo.save(saved);
   }
 
   async getBlob(uid: string, id: string): Promise<MediaAsset> {
     const asset = await this.repo.findOne({ where: { id, ownerId: uid } });
     if (!asset || !asset.contentBinary) throw new NotFoundException();
+    return asset;
+  }
+
+  /** Unauthenticated read by permanent token — used by <img>/<video> tags. */
+  async getByPublicToken(token: string): Promise<MediaAsset> {
+    const asset = await this.repo.findOne({ where: { publicToken: token } });
+    if (!asset?.contentBinary) throw new NotFoundException('Media not found');
     return asset;
   }
 
