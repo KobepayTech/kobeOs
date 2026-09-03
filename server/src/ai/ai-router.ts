@@ -19,13 +19,14 @@ export interface ModelRoutingConfig {
 }
 
 export const DEFAULT_MODEL_ROUTING: ModelRoutingConfig = {
-  everyday: 'qwen2.5:7b',
+  // The installer ships this 3.8B model and it stays responsive on CPU-only
+  // machines. Larger specialists are still selected for explicit tasks.
+  everyday: 'kobechat-fast',
   reasoning: 'deepseek-r1:8b',
   coder: 'deepseek-coder:6.7b',
   vision: 'qwen2.5vl:7b',
-  // Fast-first: use the same warm model for routing and everyday chat so
-  // Ollama does not evict/load Phi before Qwen can start answering.
-  router: 'qwen2.5:7b',
+  // Reuse the warm everyday model for routing to avoid a second model load.
+  router: 'kobechat-fast',
 };
 
 export function detectTask(message: string, hasImages = false): AiTask {
