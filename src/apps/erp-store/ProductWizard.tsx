@@ -27,6 +27,8 @@ export interface WizardVariant {
   stock: number;
   priceAdjustment?: number;
   imageUrl?: string;
+  /** e.g. { size: 'M', color: 'Red' } — drives storefront option pickers. */
+  attributes?: Record<string, string>;
 }
 
 export interface WizardProduct {
@@ -41,7 +43,10 @@ export interface WizardProduct {
   description: string;
   trackInventory: boolean;
   lowStockThreshold: number;
-  // Variants
+  // Variants — sizes/colors are the everyday way sellers describe stock; the
+  // size × colour matrix is expanded into `variants` on save.
+  sizes: string[];
+  colors: string[];
   hasVariants: boolean;
   variants: WizardVariant[];
   // Pricing
@@ -77,6 +82,8 @@ const BLANK: WizardProduct = {
   description: '',
   trackInventory: true,
   lowStockThreshold: 10,
+  sizes: [],
+  colors: [],
   hasVariants: false,
   variants: [],
   sellingPrice: 0,
@@ -196,6 +203,9 @@ export function ProductWizard({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedAs, setSavedAs] = useState<'draft' | 'active' | null>(null);
+  // Listing a product needs a photo, sizes, colours and a price — nothing else.
+  // The full 5-step wizard is still one click away for catalogue/import work.
+  const [mode, setMode] = useState<'simple' | 'advanced'>('simple');
 
   // Persist draft on every change so a refresh doesn't lose work.
   useEffect(() => {
@@ -237,7 +247,16 @@ export function ProductWizard({
     setSaving(true);
     setError(null);
     try {
-      const payload = { ...draft, status, active: status === 'ACTIVE' };
+      // Expand the size × colour matrix into variants so the storefront gets
+      // real option pickers from the two fields the seller actually filled in.
+      const matrix = buildVariantMatrix(draft);
+      const payload = {
+        ...draft,
+        status,
+        active: status === 'ACTIVE',
+        variants: matrix.length ? matrix : draft.variants,
+        hasVariants: matrix.length > 1 ? true : draft.hasVariants,
+      };
       const created = await api<{ id: string }>('/pos/products', {
         method: 'POST',
         body: JSON.stringify(payload),
@@ -266,6 +285,19 @@ export function ProductWizard({
     );
   }
 
+  if (mode === 'simple') {
+    return (
+      <SimpleAddProduct
+        value={draft}
+        onChange={patch}
+        saving={saving}
+        error={error}
+        onPublish={() => submit('ACTIVE')}
+        onAdvanced={() => setMode('advanced')}
+      />
+    );
+  }
+
   const progressPct = ((step + 1) / STEPS.length) * 100;
 
   return (
@@ -273,7 +305,12 @@ export function ProductWizard({
       {/* Header */}
       <div className="shrink-0 border-b border-white/[0.06] p-4 space-y-3">
         <div className="flex items-center justify-between">
-          <h1 className="text-lg font-semibold">Add product — step {step + 1} of {STEPS.length}</h1>
+          <div className="flex items-baseline gap-3">
+            <h1 className="text-lg font-semibold">Add product — step {step + 1} of {STEPS.length}</h1>
+            <button type="button" onClick={() => setMode('simple')} className="text-[11px] font-bold text-amber-300 hover:text-amber-200">
+              ← Simple form
+            </button>
+          </div>
           <Button
             variant="ghost"
             onClick={() => submit('DRAFT')}
@@ -351,6 +388,179 @@ export function ProductWizard({
   );
 }
 
+// ── Simple add (default) ─────────────────────────────────────────────────────
+
+const SIZE_PRESETS = ['XS', 'S', 'M', 'L', 'XL', 'XXL', '3XL'];
+const COLOR_PRESETS = ['Black', 'White', 'Red', 'Blue', 'Navy', 'Green', 'Yellow', 'Grey', 'Pink', 'Purple', 'Orange', 'Brown'];
+
+/** Expand the chosen sizes × colours into concrete variants. */
+function buildVariantMatrix(d: Pick<WizardProduct, 'sizes' | 'colors'>): WizardVariant[] {
+  const sizes = d.sizes ?? [];
+  const colors = d.colors ?? [];
+  if (!sizes.length && !colors.length) return [];
+  const combos: Array<Record<string, string>> =
+    sizes.length && colors.length ? sizes.flatMap((size) => colors.map((color) => ({ size, color })))
+    : sizes.length ? sizes.map((size) => ({ size }))
+    : colors.map((color) => ({ color }));
+  return combos.map((attributes, i) => ({
+    id: `v${i + 1}`,
+    name: [attributes.size, attributes.color].filter(Boolean).join(' / '),
+    attributes,
+    stock: 0,
+  }));
+}
+
+function ChipPicker({ label, hint, presets, value, onChange, placeholder }: {
+  label: string; hint: string; presets: string[]; value: string[];
+  onChange: (next: string[]) => void; placeholder: string;
+}) {
+  const [custom, setCustom] = useState('');
+  const toggle = (v: string) => onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v]);
+  const addCustom = () => {
+    const v = custom.trim();
+    if (v && !value.includes(v)) onChange([...value, v]);
+    setCustom('');
+  };
+  return (
+    <div>
+      <div className="flex items-baseline justify-between">
+        <label className="text-sm font-semibold">{label}</label>
+        <span className="text-[11px] text-white/40">{hint}</span>
+      </div>
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        {[...presets, ...value.filter((v) => !presets.includes(v))].map((p) => (
+          <button
+            key={p}
+            type="button"
+            onClick={() => toggle(p)}
+            className={`h-8 px-3 rounded-lg text-xs font-bold border transition-colors ${
+              value.includes(p)
+                ? 'bg-amber-400 text-black border-amber-300'
+                : 'bg-white/[0.04] text-white/70 border-white/10 hover:bg-white/[0.08]'
+            }`}
+          >
+            {p}
+          </button>
+        ))}
+      </div>
+      <div className="mt-2 flex gap-2">
+        <Input
+          value={custom}
+          onChange={(e) => setCustom(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCustom(); } }}
+          placeholder={placeholder}
+          className={inputCls}
+        />
+        <Button type="button" variant="outline" onClick={addCustom} disabled={!custom.trim()}>Add</Button>
+      </div>
+    </div>
+  );
+}
+
+function SimpleAddProduct({ value, onChange, saving, error, onPublish, onAdvanced }: {
+  value: WizardProduct;
+  onChange: (p: Partial<WizardProduct>) => void;
+  saving: boolean;
+  error: string | null;
+  onPublish: () => void;
+  onAdvanced: () => void;
+}) {
+  const variantCount = buildVariantMatrix(value).length;
+  const canPublish = Boolean(value.name.trim()) && Number(value.sellingPrice) > 0;
+  return (
+    <div className="h-full flex flex-col bg-[#0a0a1a] text-white">
+      <div className="shrink-0 border-b border-white/[0.06] p-4 flex items-center justify-between">
+        <div>
+          <h1 className="text-lg font-semibold">Add product</h1>
+          <p className="text-[11px] text-white/45">Photo, sizes, colours and price. That's it.</p>
+        </div>
+        <button type="button" onClick={onAdvanced} className="text-[11px] font-bold text-white/50 hover:text-white/80">
+          More options →
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto p-5">
+        <div className="max-w-xl space-y-5">
+          {error && (
+            <div className="text-xs text-rose-300 bg-rose-500/10 border border-rose-500/30 rounded p-2">{error}</div>
+          )}
+
+          <PhotoUpload
+            label="Photo"
+            value={value.imageUrl}
+            onChange={(url) => onChange({ imageUrl: url ?? undefined })}
+          />
+
+          <div>
+            <label className="text-sm font-semibold block mb-2">Product name</label>
+            <Input
+              value={value.name}
+              onChange={(e) => onChange({ name: e.target.value })}
+              placeholder="e.g. Spain Home Jersey"
+              className={inputCls}
+            />
+          </div>
+
+          <ChipPicker
+            label="Sizes"
+            hint="tap the sizes you stock"
+            presets={SIZE_PRESETS}
+            value={value.sizes ?? []}
+            onChange={(sizes) => onChange({ sizes })}
+            placeholder="Other size (e.g. 42, Kids 8)"
+          />
+
+          <ChipPicker
+            label="Colours"
+            hint="tap the colours you stock"
+            presets={COLOR_PRESETS}
+            value={value.colors ?? []}
+            onChange={(colors) => onChange({ colors })}
+            placeholder="Other colour"
+          />
+
+          <div>
+            <label className="text-sm font-semibold block mb-2">Price</label>
+            <div className="flex gap-2">
+              <Input
+                type="number"
+                inputMode="decimal"
+                value={value.sellingPrice || ''}
+                onChange={(e) => onChange({ sellingPrice: parseFloat(e.target.value) || 0 })}
+                placeholder="0.00"
+                className={inputCls + ' text-lg font-bold'}
+              />
+              <select
+                value={value.currency}
+                onChange={(e) => onChange({ currency: e.target.value })}
+                className="h-10 rounded-md bg-white/[0.04] border border-white/10 px-3 text-sm"
+              >
+                {['TZS', 'EUR', 'USD', 'KES', 'UGX'].map((c) => <option key={c} value={c} className="text-black">{c}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {variantCount > 0 && (
+            <p className="text-[11px] text-white/45">
+              Creates {variantCount} variant{variantCount === 1 ? '' : 's'} from your sizes and colours.
+            </p>
+          )}
+          <p className="text-[11px] text-white/35">
+            A product code (SKU) is generated automatically — set your own under More options if you use one.
+          </p>
+        </div>
+      </div>
+
+      <div className="shrink-0 border-t border-white/[0.06] p-4 flex justify-end">
+        <Button onClick={onPublish} disabled={saving || !canPublish} className="bg-emerald-600 hover:bg-emerald-500">
+          {saving ? <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> : <CheckCircle2 className="w-4 h-4 mr-1.5" />}
+          Publish product
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 // ── Step 1 — Basic ──────────────────────────────────────────────────────────
 
 function StepBasic({ value, onChange }: { value: WizardProduct; onChange: (p: Partial<WizardProduct>) => void }) {
@@ -377,7 +587,7 @@ function StepBasic({ value, onChange }: { value: WizardProduct; onChange: (p: Pa
         />
       </Field>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="SKU" required hint="Auto-generated from the name — edit if you want something specific.">
+        <Field label="SKU" hint="Optional — generated automatically if you leave it blank.">
           <Input value={value.sku} onChange={(e) => onChange({ sku: e.target.value })} className={inputCls + ' font-mono'} />
         </Field>
         <Field label="Barcode" hint="EAN, UPC, or internal scan code.">
@@ -385,7 +595,7 @@ function StepBasic({ value, onChange }: { value: WizardProduct; onChange: (p: Pa
         </Field>
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Category" required>
+        <Field label="Category">
           <select value={value.category} onChange={(e) => onChange({ category: e.target.value })} className={selectCls}>
             <option value="">— Choose —</option>
             {CATEGORY_OPTIONS.map((c) => (

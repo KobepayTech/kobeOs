@@ -25,15 +25,31 @@ export class ProductsService {
     return item;
   }
 
-  create(uid: string, dto: CreateProductDto) {
+  async create(uid: string, dto: CreateProductDto) {
     // Direct catalogue creation is deliberately treated as a Quick Add
     // import. PO-origin products must be created by the receiving workflow so
     // stock and costs remain linked to the purchase order.
+    const sku = dto.sku?.trim() || (await this.generateSku(uid, dto.name));
     return this.repo.save(this.repo.create({
       ...dto,
+      sku,
       ownerId: uid,
       sourceType: dto.sourceType ?? 'QUICK_ADD_IMPORT',
     }));
+  }
+
+  /**
+   * Sellers shouldn't have to invent a SKU to list a product, so one is derived
+   * from the name (first letters + a random suffix) and checked for collisions
+   * within the owner's catalogue.
+   */
+  private async generateSku(uid: string, name: string) {
+    const prefix = (name ?? '').replace(/[^A-Za-z0-9]/g, '').slice(0, 4).toUpperCase() || 'PROD';
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const candidate = `${prefix}-${Math.floor(100000 + Math.random() * 900000)}`;
+      if (!(await this.repo.findOne({ where: { ownerId: uid, sku: candidate } }))) return candidate;
+    }
+    return `${prefix}-${Date.now().toString(36).toUpperCase()}`;
   }
 
   async update(uid: string, id: string, dto: UpdateProductDto) {

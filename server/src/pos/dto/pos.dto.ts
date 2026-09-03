@@ -10,7 +10,9 @@ const QUICK_ADD_SOURCE_TYPES = [
 ] as const;
 
 export class CreateProductDto {
-  @IsString() @MaxLength(60) sku!: string;
+  // SKU is optional for the seller — most shops don't run one. When omitted the
+  // server generates a unique code from the product name.
+  @IsOptional() @IsString() @MaxLength(60) sku?: string;
   @IsString() @MaxLength(200) name!: string;
   @IsOptional() @IsString() @MaxLength(500) description?: string;
   @IsOptional() @IsString() @MaxLength(80) category?: string;
