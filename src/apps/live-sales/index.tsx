@@ -7,6 +7,10 @@ import {
 } from 'lucide-react';
 
 /* ── Types ── */
+/** Platforms a live sale can run on. TikTok has no public Live-comments API,
+ *  so its comments arrive via the session bridge URL or post polling. */
+const LIVE_PLATFORMS = [['tiktok', 'TikTok'], ['instagram', 'Instagram'], ['facebook', 'Facebook'], ['youtube', 'YouTube']] as const;
+
 interface Session { id: string; title: string; platform: string; status: 'LIVE' | 'ENDED'; kind?: 'live' | 'post'; postUrl?: string; ingestToken: string; currency: string; totalSales: number | string; orderCount: number; createdAt: string; showOnStorefront?: boolean; socialAccountId?: string | null }
 interface PinRow { id: string; code: string; productId: string; name: string; livePrice: number; catalogPrice: number; stock: number; soldQty: number; isFeatured: boolean }
 interface Comment { id: string; source: string; buyerHandle: string; buyerContact: string; text: string; matchedCode: string; qty: number; status: string; createdAt: string; reservationCode?: string; checkoutToken?: string; orderId?: string }
@@ -26,6 +30,7 @@ export default function LiveSales() {
   const [context, setContext] = useState<OperatorContext>({ storefrontSlug: '', storefrontUrl: '', catalogUrl: '' });
   const [instagram, setInstagram] = useState<InstagramConnection>({ connected: false });
   const [notice, setNotice] = useState<string | null>(null);
+  const [platformMenu, setPlatformMenu] = useState(false);
   const [retryingWebhook, setRetryingWebhook] = useState(false);
   const openKds = () => window.open('/display/orders', '_blank', 'noopener,noreferrer');
 
@@ -96,12 +101,10 @@ export default function LiveSales() {
     }
   };
 
-  const start = async () => {
+  const start = async (requestedPlatform: string) => {
     const title = prompt('Name this live session', 'Live Sale')?.trim();
     if (title === undefined) return;
-    const requestedPlatform = prompt('Platform: TikTok, Instagram, Facebook or YouTube', 'tiktok')?.trim().toLowerCase();
-    if (requestedPlatform === undefined) return;
-    const platform = ['tiktok', 'instagram', 'facebook', 'youtube'].includes(requestedPlatform) ? requestedPlatform : 'other';
+    const platform = LIVE_PLATFORMS.some(([id]) => id === requestedPlatform) ? requestedPlatform : 'other';
     if (platform === 'instagram' && !instagram.connected) {
       setNotice('Connect Instagram first, then start the Instagram live.');
       return;
@@ -147,7 +150,16 @@ export default function LiveSales() {
           )}
           {context.catalogUrl && <button onClick={() => navigator.clipboard?.writeText(context.catalogUrl)} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-slate-700 bg-slate-800 text-slate-200 text-sm font-bold"><Copy className="w-4 h-4" /> Copy live shop</button>}
           <button onClick={startPost} className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-bold"><MessageCircle className="w-4 h-4" /> Post campaign</button>
-          <button onClick={start} className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-sm font-bold"><Play className="w-4 h-4" /> Start Live Sales</button>
+          <div className="relative">
+            <button onClick={() => setPlatformMenu((v) => !v)} className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-sm font-bold"><Play className="w-4 h-4" /> Start Live Sales</button>
+            {platformMenu && (
+              <div className="absolute right-0 z-30 mt-1 w-48 rounded-lg border border-white/10 bg-slate-900 p-1 shadow-xl">
+                {LIVE_PLATFORMS.map(([id, label]) => (
+                  <button key={id} onClick={() => { setPlatformMenu(false); void start(id); }} className="block w-full rounded px-3 py-2 text-left text-xs font-bold text-slate-200 hover:bg-white/10">{label}</button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
