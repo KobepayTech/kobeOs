@@ -12,6 +12,7 @@ import { RegisterDto } from './dto/register.dto';
 import { RefreshToken } from './refresh-token.entity';
 import type { User } from '../users/user.entity';
 import { ProviderConfigService } from '../system/provider-config.service';
+import { resolveFrontendUrl } from '../common/frontend-url';
 
 export function sha256(input: string): string {
   return createHash('sha256').update(input).digest('hex');
@@ -141,7 +142,7 @@ export class AuthService {
 
   /** Build the SPA landing URL. Tokens stay in the fragment and are not sent in HTTP requests. */
   oauthFrontendRedirect(provider: OAuthProvider, result: IssuedTokens | Error): string {
-    const frontend = this.config.get<string>('APP_FRONTEND_URL') || 'http://localhost:5173/';
+    const frontend = resolveFrontendUrl((key) => this.config.get<string>(key));
     const base = frontend.endsWith('/') ? frontend : `${frontend}/`;
     const redirect = new URL(`oauth/${provider}`, base);
     const fragment = result instanceof Error

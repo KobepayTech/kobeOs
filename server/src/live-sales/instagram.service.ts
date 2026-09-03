@@ -6,6 +6,7 @@ import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { SocialAccount } from '../social-scheduler/social-account.entity';
 import { LiveSession } from './live-sale.entity';
 import { LiveSaleService } from './live-sale.service';
+import { resolveFrontendUrl } from '../common/frontend-url';
 
 type InstagramProfile = {
   id?: string;
@@ -100,7 +101,7 @@ export class InstagramService {
   }
 
   frontendRedirectUrl(): string {
-    return this.value('APP_FRONTEND_URL') || this.value('FRONTEND_URL') || 'http://localhost:5173/';
+    return resolveFrontendUrl((key) => this.config.get<string>(key));
   }
 
   webhookUrl(): string {

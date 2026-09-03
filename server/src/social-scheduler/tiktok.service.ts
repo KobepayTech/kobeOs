@@ -7,6 +7,7 @@ import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { MediaAssetsService } from '../media/media.service';
 import { SocialAccount } from './social-account.entity';
 import { SocialPost } from './social-post.entity';
+import { resolveFrontendUrl } from '../common/frontend-url';
 
 type TikTokState = { ownerId: string; nonce: string; exp: number };
 
@@ -99,7 +100,7 @@ export class TikTokService {
   }
 
   frontendRedirectUrl(): string {
-    return this.value('APP_FRONTEND_URL') || this.value('FRONTEND_URL') || 'http://localhost:5173/';
+    return resolveFrontendUrl((key) => this.config.get<string>(key));
   }
 
   private signState(payload: TikTokState): string {
