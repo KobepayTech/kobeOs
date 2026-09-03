@@ -131,6 +131,9 @@ export function ScreeningTab({ tenants, units }: { tenants: TenantLite[]; units:
   const [form, setForm] = useState(blank);
   const [reports, setReports] = useState<Record<string, Screening>>({});
   const [loadingReport, setLoadingReport] = useState('');
+  // 'No verified report yet' is a normal state, not a failure — keep it inline
+  // per tenant instead of raising the page-level error banner.
+  const [noReport, setNoReport] = useState<Record<string, string>>({});
   const load = useCallback(async () => { setLoading(true); try { setApps(await api<Application[]>('/property/applications', { offlineFallback: false })); } catch (e) { setError((e as Error).message); } finally { setLoading(false); } }, []);
   useEffect(() => { void load(); }, [load]);
   const create = async () => {
@@ -140,7 +143,23 @@ export function ScreeningTab({ tenants, units }: { tenants: TenantLite[]; units:
   };
   const approve = async (id: string) => { try { await api(`/property/applications/${id}/approve`, { method: 'POST', offlineFallback: false, body: '{}' }); await load(); } catch (e) { setError((e as Error).message); } };
   const setAppStatus = async (id: string, status: Application['status']) => { try { await api(`/property/applications/${id}`, { method: 'PATCH', offlineFallback: false, body: JSON.stringify({ status }) }); await load(); } catch (e) { setError((e as Error).message); } };
-  const screen = async (tenantId: string) => { setLoadingReport(tenantId); try { const r = await api<Screening>(`/property/tenants/${tenantId}/screening`, { offlineFallback: false }); setReports((prev) => ({ ...prev, [tenantId]: r })); } catch (e) { setError((e as Error).message); } finally { setLoadingReport(''); } };
+  const screen = async (tenantId: string) => {
+    setLoadingReport(tenantId);
+    setNoReport((prev) => { const next = { ...prev }; delete next[tenantId]; return next; });
+    try {
+      const r = await api<Screening>(`/property/tenants/${tenantId}/screening`, { offlineFallback: false });
+      setReports((prev) => ({ ...prev, [tenantId]: r }));
+    } catch (e) {
+      const raw = (e as Error).message || '';
+      // Screening intentionally refuses to invent scores, and the reports table
+      // may not exist yet on an origin that has not run migrations. Neither is
+      // a crash the operator should see as a red server error.
+      const friendly = /tenant_screening_reports|relation .* does not exist/i.test(raw)
+        ? 'Screening storage is not set up on this server yet.'
+        : 'No verified screening report yet — connect a provider or import one.';
+      setNoReport((prev) => ({ ...prev, [tenantId]: friendly }));
+    } finally { setLoadingReport(''); }
+  };
   const decide = async (tenantId: string, verdict: 'accepted' | 'rejected') => { try { const r = await api<Screening>(`/property/tenants/${tenantId}/screening/decide`, { method: 'POST', offlineFallback: false, body: JSON.stringify({ verdict }) }); setReports((prev) => ({ ...prev, [tenantId]: r })); } catch (e) { setError((e as Error).message); } };
   return <div className="space-y-4">
     {error && <div className="rounded-xl bg-rose-50 text-rose-700 p-3 text-sm">{error}</div>}
@@ -155,7 +174,7 @@ export function ScreeningTab({ tenants, units }: { tenants: TenantLite[]; units:
       <div className="mb-3 rounded-xl border border-blue-100 bg-blue-50 p-3 text-xs text-blue-800">
         KobeOS does not invent credit, criminal, eviction or rental-history scores. Connect a verified screening provider or import a verified report before making a screening decision.
       </div>
-      {tenants.length ? <div className="space-y-2">{tenants.map((t) => { const r = reports[t.id]; return <div key={t.id} className="rounded-xl border border-slate-100 p-3"><div className="flex items-center gap-3"><b className="text-sm">{t.name}</b>{r && <StatusPill status={r.verdict} />}<div className="ml-auto flex items-center gap-2">{r ? <><button onClick={() => void decide(t.id, 'accepted')} className="text-[11px] font-black text-emerald-700">Accept</button><button onClick={() => void decide(t.id, 'rejected')} className="text-[11px] font-black text-rose-600">Reject</button></> : <Btn tone="ghost" busy={loadingReport === t.id} onClick={() => void screen(t.id)}><ShieldCheck className="h-3.5 w-3.5" /> Check verified report</Btn>}</div></div>{r && <div className="mt-3 grid grid-cols-2 sm:grid-cols-5 gap-2 text-center">{([['Overall', r.overallScore, '/850'], ['Rental', r.rentalHistoryPct, '%'], ['Eviction', r.evictionHistoryPct, '%'], ['Criminal', r.criminalHistoryPct, '%'], ['Credit', r.creditHistoryPct, '%']] as const).map(([k, v, suffix]) => <div key={k} className="rounded-lg bg-slate-50 py-2"><div className="text-[10px] uppercase text-slate-400 font-bold">{k}</div><b className="text-sm">{v}{suffix}</b></div>)}</div>}</div>; })}</div> : <Empty title="No tenants to screen" body="Add tenants first; verified provider reports will appear here when available." />}
+      {tenants.length ? <div className="space-y-2">{tenants.map((t) => { const r = reports[t.id]; return <div key={t.id} className="rounded-xl border border-slate-100 p-3"><div className="flex items-center gap-3"><b className="text-sm">{t.name}</b>{r && <StatusPill status={r.verdict} />}<div className="ml-auto flex items-center gap-2">{r ? <><button onClick={() => void decide(t.id, 'accepted')} className="text-[11px] font-black text-emerald-700">Accept</button><button onClick={() => void decide(t.id, 'rejected')} className="text-[11px] font-black text-rose-600">Reject</button></> : <Btn tone="ghost" busy={loadingReport === t.id} onClick={() => void screen(t.id)}><ShieldCheck className="h-3.5 w-3.5" /> Check verified report</Btn>}</div></div>{noReport[t.id] && <p className="mt-2 text-[11px] text-slate-500">{noReport[t.id]}</p>}{r && <div className="mt-3 grid grid-cols-2 sm:grid-cols-5 gap-2 text-center">{([['Overall', r.overallScore, '/850'], ['Rental', r.rentalHistoryPct, '%'], ['Eviction', r.evictionHistoryPct, '%'], ['Criminal', r.criminalHistoryPct, '%'], ['Credit', r.creditHistoryPct, '%']] as const).map(([k, v, suffix]) => <div key={k} className="rounded-lg bg-slate-50 py-2"><div className="text-[10px] uppercase text-slate-400 font-bold">{k}</div><b className="text-sm">{v}{suffix}</b></div>)}</div>}</div>; })}</div> : <Empty title="No tenants to screen" body="Add tenants first; verified provider reports will appear here when available." />}
     </Panel>
 
     {open && <Modal title="New application" onClose={() => setOpen(false)}>
