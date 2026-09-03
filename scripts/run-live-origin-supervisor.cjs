@@ -9,9 +9,9 @@ const http = require('http');
 const net = require('net');
 const os = require('os');
 const path = require('path');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 
-const VERSION = '2026-08-31.1';
+const VERSION = '2026-09-02.1';
 const LOOP_DELAY_MS = 3_000;
 const DATABASE_START_TIMEOUT_MS = 90_000;
 const BACKEND_START_TIMEOUT_MS = 150_000;
@@ -224,6 +224,26 @@ function stopChild(child) {
   try { child.kill('SIGTERM'); } catch { /* already gone */ }
 }
 
+function stopLockedApiListeners() {
+  if (process.platform !== 'win32') return false;
+  const command = [
+    "$ErrorActionPreference = 'Stop'",
+    "$listeners = @(Get-NetTCPConnection -State Listen -LocalPort 3000 -ErrorAction SilentlyContinue)",
+    "foreach ($listener in $listeners) {",
+    "  $listenerProcess = Get-Process -Id $listener.OwningProcess -ErrorAction SilentlyContinue",
+    "  if (-not $listenerProcess -or $listenerProcess.ProcessName -notmatch '^node(?:js)?$') { exit 41 }",
+    "  Stop-Process -Id $listener.OwningProcess -Force -ErrorAction Stop",
+    "}",
+    "exit 0",
+  ].join('\n');
+  const result = spawnSync(
+    'powershell.exe',
+    ['-ExecutionPolicy', 'Bypass', '-NoProfile', '-NonInteractive', '-Command', command],
+    { windowsHide: true, stdio: 'ignore', timeout: 10_000 },
+  );
+  return result.status === 0;
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const repoRoot = options.repoRoot;
@@ -347,6 +367,11 @@ async function main() {
       if (processAlive(backend)) {
         stopChild(backend);
         backend = null;
+      }
+      if (!stopLockedApiListeners()) {
+        setState('deployment_drain_failed');
+        await delay(LOOP_DELAY_MS);
+        continue;
       }
       setState('deployment_paused');
       await delay(LOOP_DELAY_MS);
