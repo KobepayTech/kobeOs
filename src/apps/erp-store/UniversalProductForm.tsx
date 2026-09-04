@@ -5,6 +5,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Plus, Trash2, Scissors, Loader2 } from 'lucide-react';
 import { getToken } from '@/lib/api';
+import { PhotoUpload } from '@/components/PhotoUpload';
 
 /**
  * Universal product shape — matches PosProduct on the backend. Used by both
@@ -102,6 +103,19 @@ export function UniversalProductForm({
   categories: string[];
 }) {
   const [tab, setTab] = useState('basic');
+  // Listing a product needs a photo, a name, sizes, colours and a price. The
+  // full six-tab form (SKU, barcode, supplier, jersey, tax, margins, meta) is
+  // still one click away for catalogue work, but it is no longer the default.
+  const [showAll, setShowAll] = useState(false);
+  const sizesOf = (v: UniversalProduct) => [...new Set(v.variants.map((x) => x.name.split(' / ')[0]).filter(Boolean))];
+  const coloursOf = (v: UniversalProduct) => [...new Set(v.variants.map((x) => x.name.split(' / ')[1]).filter(Boolean))];
+  const rebuild = (sizes: string[], colours: string[]) => {
+    const combos = sizes.length && colours.length ? sizes.flatMap((sz) => colours.map((c) => `${sz} / ${c}`))
+      : sizes.length ? sizes : colours;
+    patch({ variants: combos.map((nm) => ({ name: nm })) as UniversalProduct['variants'] });
+  };
+  const toggleChip = (list: string[], v: string) => list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
+
   const patch = (p: Partial<UniversalProduct>) => onChange({ ...value, ...p });
 
   const patchJersey = (field: keyof JerseyDetails, val: unknown) => {
@@ -114,8 +128,49 @@ export function UniversalProductForm({
     });
   };
 
+  const sizes = sizesOf(value);
+  const colours = coloursOf(value);
+
+  if (!showAll) {
+    return (
+      <div className="space-y-4">
+        <PhotoUpload label="Photo" value={value.imageUrl} onChange={(url) => patch({ imageUrl: url ?? undefined })} />
+        <Field label="Product name">
+          <Input value={value.name} onChange={(e) => patch({ name: e.target.value })} placeholder="e.g. Spain Home Jersey" className={inputCls} />
+        </Field>
+        <Field label="Sizes">
+          <div className="flex flex-wrap gap-1.5">
+            {[...new Set([...['XS','S','M','L','XL','XXL','3XL'], ...sizes])].map((sz) => (
+              <button key={sz} type="button" onClick={() => rebuild(toggleChip(sizes, sz), colours)}
+                className={`h-8 px-3 rounded-lg text-xs font-bold border ${sizes.includes(sz) ? 'bg-amber-400 text-black border-amber-300' : 'bg-white/5 text-slate-300 border-white/10'}`}>{sz}</button>
+            ))}
+          </div>
+        </Field>
+        <Field label="Colours">
+          <div className="flex flex-wrap gap-1.5">
+            {[...new Set([...['Black','White','Red','Blue','Navy','Green','Yellow','Grey'], ...colours])].map((c) => (
+              <button key={c} type="button" onClick={() => rebuild(sizes, toggleChip(colours, c))}
+                className={`h-8 px-3 rounded-lg text-xs font-bold border ${colours.includes(c) ? 'bg-amber-400 text-black border-amber-300' : 'bg-white/5 text-slate-300 border-white/10'}`}>{c}</button>
+            ))}
+          </div>
+        </Field>
+        <Field label="Price">
+          <Input type="number" value={value.price || ''} onChange={(e) => patch({ price: parseFloat(e.target.value) || 0 })} placeholder="0.00" className={inputCls} />
+        </Field>
+        {value.variants.length > 0 && <p className="text-[11px] text-slate-500">{value.variants.length} variant{value.variants.length === 1 ? '' : 's'} from your sizes and colours.</p>}
+        <p className="text-[11px] text-slate-500">A product code (SKU) is generated automatically.</p>
+        <div className="flex items-center gap-2 pt-1">
+          <Button onClick={onSave} className="bg-emerald-600 hover:bg-emerald-500">Save product</Button>
+          <Button variant="ghost" onClick={onCancel} className="text-slate-400">Cancel</Button>
+          <button type="button" onClick={() => setShowAll(true)} className="ml-auto text-[11px] font-bold text-slate-400 hover:text-slate-200">More options →</button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-3">
+      <button type="button" onClick={() => setShowAll(false)} className="text-[11px] font-bold text-amber-300 hover:text-amber-200">← Back to essentials</button>
       <Tabs value={tab} onValueChange={setTab}>
         <TabsList className="bg-slate-800 border border-slate-700 w-full">
           <TabsTrigger value="basic" className="text-xs flex-1">Basic</TabsTrigger>
