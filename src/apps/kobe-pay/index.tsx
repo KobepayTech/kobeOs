@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowDownLeft, ArrowUpRight, Loader2, Plus, RefreshCw, Search, Send, Store, Users, Wallet, X } from 'lucide-react';
 import { api } from '@/lib/api';
+import { SendMoneyWizard, type ContactOption } from './SendMoneyWizard';
 
 type DepositStatus = 'Pending' | 'Confirmed';
 type PayoutStatus = 'INITIATED' | 'SENT' | 'CONFIRMED' | 'PAID' | 'REJECTED';
@@ -26,6 +27,7 @@ export default function KobePay() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [createMode, setCreateMode] = useState<Exclude<Tab, 'overview'> | null>(null);
+  const [transact, setTransact] = useState<'send' | 'receive' | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -85,7 +87,8 @@ export default function KobePay() {
         <div className="flex h-16 items-center gap-3 px-4">
           <div className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-500/15 text-emerald-300"><Wallet className="h-5 w-5" /></div>
           <div><h1 className="font-black">KobePay</h1><p className="text-[11px] text-slate-500">Live customer funds and supplier settlement</p></div>
-          <button onClick={() => void load()} disabled={loading} className="ml-auto grid h-9 w-9 place-items-center rounded-lg border border-slate-700 text-slate-400"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button>
+          <button onClick={() => setTransact('send')} className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-black text-white"><Send className="h-3.5 w-3.5" />Send money</button>
+          <button onClick={() => void load()} disabled={loading} className="grid h-9 w-9 place-items-center rounded-lg border border-slate-700 text-slate-400"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button>
         </div>
         <nav className="flex overflow-x-auto px-3">
           {(['overview', 'customers', 'suppliers', 'deposits', 'payouts', 'allocations'] as Tab[]).map((id) => <button key={id} onClick={() => setTab(id)} className={`h-11 border-b-2 px-3 text-xs font-black capitalize ${tab === id ? 'border-emerald-300 text-emerald-300' : 'border-transparent text-slate-500'}`}>{id}</button>)}
@@ -113,6 +116,18 @@ export default function KobePay() {
       </main>
 
       {createMode && <CreateDialog mode={createMode} customers={customers} suppliers={suppliers} onClose={() => setCreateMode(null)} onSaved={async () => { setCreateMode(null); await load(); }} />}
+      <SendMoneyWizard
+        open={transact !== null}
+        intent={transact ?? 'send'}
+        onClose={() => setTransact(null)}
+        onSent={() => { setTransact(null); void load(); }}
+        availableBalance={customers.reduce((sum, row) => sum + Number(row.balance || 0), 0)}
+        contacts={[
+          ...suppliers.map((row): ContactOption => ({ id: row.id, kind: 'supplier', name: row.name, subtitle: row.country || row.contact || 'Supplier' })),
+          ...customers.map((row): ContactOption => ({ id: row.id, kind: 'customer', name: row.name, subtitle: row.company || row.phone || 'Customer' })),
+        ]}
+      />
+
     </div>
   );
 }

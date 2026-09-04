@@ -3,6 +3,8 @@ import { ExternalLink, Globe2, Loader2, Monitor, Package, Plus, RefreshCw, Save,
 import { api, assetUrl } from '@/lib/api';
 import { DevicePreviewFrame } from '@/components/site-builder/DevicePreviewFrame';
 import { JerseyStorefrontPreview } from './JerseyStorefrontPreview';
+import { JerseyDesignEditor } from './JerseyDesignEditor';
+import { HomepageSectionBuilder, IndustryTemplatePicker } from './StorefrontSections';
 
 type StoreSettings = {
   storeName: string;
@@ -43,7 +45,7 @@ type ProductRow = {
 };
 
 type Readiness = { ready?: boolean; mode?: string; missing?: string[]; checks?: Record<string, boolean> };
-type Tab = 'store' | 'preview' | 'products' | 'publish';
+type Tab = 'store' | 'preview' | 'sections' | 'design' | 'products' | 'publish';
 
 const blankSettings: StoreSettings = {
   storeName: '', tagline: '', customDomain: null, domainSlug: '', bannerHeadline: '', bannerSubtext: '', bannerCta: 'Shop Now',
@@ -148,7 +150,7 @@ export default function StoreEditor() {
           <div><h1 className="font-black">Store Editor</h1><p className="text-[11px] text-slate-500">Live storefront settings, catalogue and publishing</p></div>
           <button onClick={() => void load()} disabled={loading} className="ml-auto grid h-9 w-9 place-items-center rounded-lg border border-white/10 text-slate-400"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button>
         </div>
-        <nav className="flex px-3">{(['store', 'preview', 'products', 'publish'] as Tab[]).map((id) => <button key={id} onClick={() => setTab(id)} className={`h-11 border-b-2 px-3 text-xs font-black capitalize ${tab === id ? 'border-indigo-300 text-indigo-300' : 'border-transparent text-slate-500'}`}>{id}</button>)}</nav>
+        <nav className="flex px-3">{(['store', 'preview', 'sections', 'design', 'products', 'publish'] as Tab[]).map((id) => <button key={id} onClick={() => setTab(id)} className={`h-11 border-b-2 px-3 text-xs font-black capitalize ${tab === id ? 'border-indigo-300 text-indigo-300' : 'border-transparent text-slate-500'}`}>{id}</button>)}</nav>
       </header>
 
       <main className="min-h-0 flex-1 overflow-y-auto p-4">
@@ -186,6 +188,13 @@ export default function StoreEditor() {
               </DevicePreviewFrame>
             </div>
           </div>
+        ) : tab === 'sections' ? (
+          <div className="mx-auto max-w-4xl space-y-4">
+            <Section title="Industry template"><IndustryTemplatePicker onApplied={() => void load()} /></Section>
+            <Section title="Homepage sections"><HomepageSectionBuilder /></Section>
+          </div>
+        ) : tab === 'design' ? (
+          <div className="mx-auto max-w-5xl"><JerseyDesignEditor /></div>
         ) : tab === 'products' ? (
           <div className="mx-auto max-w-6xl space-y-4"><div className="flex gap-2"><div className="relative max-w-xl flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search real catalogue" className="h-10 w-full rounded-xl border border-white/10 bg-slate-900 pl-9 pr-3 text-sm" /></div><button onClick={() => setCreateOpen(true)} className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-indigo-600 px-3 text-xs font-black"><Plus className="h-4 w-4" />Quick add product</button></div><div className="rounded-2xl border border-white/10 bg-slate-900 px-4">{filtered.map((row) => <div key={row.id} className="flex flex-wrap items-center gap-3 border-b border-white/10 py-3"><div className="grid h-10 w-10 place-items-center overflow-hidden rounded-xl bg-white/5">{row.imageUrl ? <img src={assetUrl(row.imageUrl)} alt="" className="h-full w-full object-cover" /> : <Package className="h-5 w-5 text-slate-500" />}</div><div className="min-w-0 flex-1"><b className="block truncate">{row.name}</b><span className="text-xs text-slate-500">{row.sku} · {row.category || 'Uncategorised'} · stock {row.stock}</span></div><b>{row.currency || 'TZS'} {Number(row.price || 0).toLocaleString()}</b><button onClick={() => void patchProduct(row, { active: row.active === false })} className={`h-8 rounded-lg border px-2 text-xs font-black ${row.active === false ? 'border-slate-700 text-slate-500' : 'border-emerald-500/30 text-emerald-300'}`}>{row.active === false ? 'Inactive' : 'Active'}</button><button onClick={() => void removeProduct(row)} className="grid h-8 w-8 place-items-center rounded-lg border border-white/10 text-rose-300"><Trash2 className="h-4 w-4" /></button></div>)}{!filtered.length && <Empty body="No products found. Add your first real product; KobeOS will not insert placeholders." />}</div></div>
         ) : (
