@@ -41,3 +41,23 @@ export function resolveFrontendUrl(get: (key: string) => string | undefined): st
 
   return 'http://localhost:5173/';
 }
+
+/**
+ * Absolute public base URL of the API itself — used for the Instagram/Meta
+ * webhook callback shown to the operator so they can register it in the Meta
+ * App dashboard. Falling back to a bare relative path (the previous behaviour
+ * when APP_PUBLIC_URL was unset, which is the case on the live origin) gives
+ * the operator a URL Meta cannot accept.
+ */
+export function resolvePublicApiUrl(get: (key: string) => string | undefined): string {
+  const withSlash = (value: string) => `${value.replace(/\/+$/, '')}/`;
+
+  const direct = get('APP_PUBLIC_URL')?.trim();
+  if (direct) return withSlash(direct);
+
+  // The API is published at api.<tenant domain> in this deployment.
+  const tenantDomain = get('TENANT_BASE_DOMAIN')?.trim().replace(/^\.+/, '');
+  if (tenantDomain) return `https://api.${tenantDomain}/`;
+
+  return `http://localhost:${get('PORT')?.trim() || '3000'}/`;
+}

@@ -6,7 +6,7 @@ import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { SocialAccount } from '../social-scheduler/social-account.entity';
 import { LiveSession } from './live-sale.entity';
 import { LiveSaleService } from './live-sale.service';
-import { resolveFrontendUrl } from '../common/frontend-url';
+import { resolveFrontendUrl, resolvePublicApiUrl } from '../common/frontend-url';
 
 type InstagramProfile = {
   id?: string;
@@ -105,10 +105,10 @@ export class InstagramService {
   }
 
   webhookUrl(): string {
-    const publicUrl = this.value('APP_PUBLIC_URL');
-    if (!publicUrl) return INSTAGRAM_WEBHOOK_PATH;
+    // Always absolute: this value is what the operator registers in the Meta App
+    // dashboard, and Meta rejects a relative path.
     try {
-      return new URL(INSTAGRAM_WEBHOOK_PATH, `${publicUrl.replace(/\/+$/, '')}/`).toString();
+      return new URL(INSTAGRAM_WEBHOOK_PATH, resolvePublicApiUrl((key) => this.config.get<string>(key))).toString();
     } catch {
       return INSTAGRAM_WEBHOOK_PATH;
     }
