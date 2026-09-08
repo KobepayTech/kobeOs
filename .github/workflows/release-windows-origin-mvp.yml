@@ -144,7 +144,16 @@ jobs:
           if (-not (Test-Path -LiteralPath $dependencies -PathType Container)) {
             throw 'Production runtime dependencies are missing; leaving the current release running.'
           }
-          Copy-Item -LiteralPath $dependencies -Destination (Join-Path $next 'node_modules') -Recurse -Force
+          # robocopy, not Copy-Item: a dependency tree nests deep enough to pass
+          # the 260-character path limit that Copy-Item still fails on, and an
+          # abort here leaves the origin on its old release. /NP keeps the log
+          # readable, /MT parallelises the many small files. robocopy signals
+          # success with exit codes 0-7; 8 and above are real failures.
+          & robocopy.exe $dependencies (Join-Path $next 'node_modules') /E /NFL /NDL /NJH /NJS /NP /R:2 /W:2 /MT:16 | Out-Null
+          if ($LASTEXITCODE -ge 8) {
+            throw "Copying the production runtime dependencies failed (robocopy exit code $LASTEXITCODE); leaving the current release running."
+          }
+          $global:LASTEXITCODE = 0
           Set-Content -LiteralPath $lock -Value '${{ github.sha }}' -Encoding ASCII
 
           try {
