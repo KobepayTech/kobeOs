@@ -19,7 +19,7 @@ export default defineConfig({
         navigateFallback: 'index.html',
         navigateFallbackDenylist: [/^\/api\//],
         cleanupOutdatedCaches: true,
-        runtimeCaching: [{ urlPattern: /^https:\/\/api\./, handler: 'NetworkFirst', options: { cacheName: 'api-cache' } }]
+        runtimeCaching: [{ urlPattern: /\/api\/(?:health|system\/health)(?:[/?]|$)/, handler: 'NetworkOnly' }, { urlPattern: /^https:\/\/api\./, handler: 'NetworkFirst', options: { cacheName: 'api-cache' } }]
       },
       manifest: {
         name: 'KobeOS — Business OS',

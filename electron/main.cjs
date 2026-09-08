@@ -163,7 +163,13 @@ function getOrCreateJwtSecret() {
 
 // ── NestJS backend ────────────────────────────────────────────────────────────
 
+let backendRestartTimer = null;
+let backendRestartAttempts = 0;
+let backendStopping = false;
+
 function startBackend(dbConfig) {
+  if (backendProcess) return;
+  backendStopping = false;
   if (!fs.existsSync(SERVER_BUNDLE)) {
     console.warn('[KobeOS] Server bundle not found:', SERVER_BUNDLE);
     return;
@@ -251,16 +257,30 @@ function startBackend(dbConfig) {
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: false,
   });
+  const child = backendProcess;
+  const startedAt = Date.now();
+  backendProcess.on('error', (error) => console.error('[backend] spawn failed:', error.message));
   backendProcess.stdout.on('data', (d) => console.log('[backend]', d.toString().trim()));
   backendProcess.stderr.on('data', (d) => console.error('[backend]', d.toString().trim()));
-  backendProcess.on('exit', (code, signal) => {
+  backendProcess.on('close', (code, signal) => {
     console.log(`[KobeOS] Backend exited code=${code} signal=${signal}`);
+    if (backendProcess !== child) return;
     backendProcess = null;
+    if (backendStopping) return;
+    if (Date.now() - startedAt > 60000) backendRestartAttempts = 0;
+    const delay = Math.min(30000, 1000 * 2 ** Math.min(backendRestartAttempts++, 5));
+    backendRestartTimer = setTimeout(() => {
+      backendRestartTimer = null;
+      if (!backendStopping) startBackend(dbConfig);
+    }, delay);
   });
   console.log('[KobeOS] Backend started pid=' + backendProcess.pid);
 }
 
 function stopBackend() {
+  backendStopping = true;
+  if (backendRestartTimer) clearTimeout(backendRestartTimer);
+  backendRestartTimer = null;
   if (backendProcess) { backendProcess.kill('SIGTERM'); backendProcess = null; }
 }
 
@@ -272,6 +292,9 @@ function stopBackend() {
 // without manual `cloudflared tunnel run` invocations.
 
 let cloudflaredProcess = null;
+let cloudflaredRestartTimer = null;
+let cloudflaredRestartAttempts = 0;
+let cloudflaredStopping = false;
 
 function tokenPath() {
   return path.join(app.getPath('userData'), 'cloudflared-token.txt');
@@ -300,6 +323,8 @@ function resolveCloudflaredBinary() {
 }
 
 function startCloudflared() {
+  if (cloudflaredProcess) return;
+  cloudflaredStopping = false;
   const token = process.env.CLOUDFLARED_TOKEN || readPersistedToken();
   if (!token) {
     console.log('[KobeOS] cloudflared not started — no token persisted. Run System Settings → Cloudflare Tunnel → Bootstrap.');
@@ -315,16 +340,30 @@ function startCloudflared() {
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: false,
   });
+  const child = cloudflaredProcess;
+  const startedAt = Date.now();
+  cloudflaredProcess.on('error', (error) => console.error('[cloudflared] spawn failed:', error.message));
   cloudflaredProcess.stdout.on('data', (d) => console.log('[cloudflared]', d.toString().trim()));
   cloudflaredProcess.stderr.on('data', (d) => console.error('[cloudflared]', d.toString().trim()));
-  cloudflaredProcess.on('exit', (code, signal) => {
+  cloudflaredProcess.on('close', (code, signal) => {
     console.log(`[KobeOS] cloudflared exited code=${code} signal=${signal}`);
+    if (cloudflaredProcess !== child) return;
     cloudflaredProcess = null;
+    if (cloudflaredStopping) return;
+    if (Date.now() - startedAt > 60000) cloudflaredRestartAttempts = 0;
+    const delay = Math.min(30000, 1000 * 2 ** Math.min(cloudflaredRestartAttempts++, 5));
+    cloudflaredRestartTimer = setTimeout(() => {
+      cloudflaredRestartTimer = null;
+      if (!cloudflaredStopping) startCloudflared();
+    }, delay);
   });
   console.log(`[KobeOS] cloudflared started pid=${cloudflaredProcess.pid} bin=${bin}`);
 }
 
 function stopCloudflared() {
+  cloudflaredStopping = true;
+  if (cloudflaredRestartTimer) clearTimeout(cloudflaredRestartTimer);
+  cloudflaredRestartTimer = null;
   if (cloudflaredProcess) { cloudflaredProcess.kill('SIGTERM'); cloudflaredProcess = null; }
 }
 
@@ -779,6 +818,8 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', async () => {
+  backendStopping = true;
+  cloudflaredStopping = true;
   await kobeRuntime.shutdown().catch(() => {});
   syncEngine.stop();
   lanServer.stop();
@@ -791,6 +832,8 @@ app.on('window-all-closed', async () => {
 });
 
 app.on('before-quit', async () => {
+  backendStopping = true;
+  cloudflaredStopping = true;
   await kobeRuntime.shutdown().catch(() => {});
   syncEngine.stop();
   lanServer.stop();

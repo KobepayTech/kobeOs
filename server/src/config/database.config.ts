@@ -59,6 +59,13 @@ export const databaseConfig: TypeOrmModuleAsyncOptions = {
       // embedded postgres cluster is still finishing initdb. Retry the
       // connection a handful of times so we don't surface a "the database
       // system is starting up" splash error to the user.
+      // Bound connection acquisition so a dead database cannot hold requests
+      // indefinitely. pg replaces broken pooled connections on later requests.
+      extra: {
+        connectionTimeoutMillis: 5000,
+        keepAlive: true,
+        keepAliveInitialDelayMillis: 10000,
+      },
       retryAttempts: 30,
       retryDelay: 1_000,
     };
