@@ -1,3 +1,4 @@
+import { repairCatalogImages } from '../media/repair-catalog-images';
 import { Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, MoreThanOrEqual, Repository } from 'typeorm';
@@ -186,7 +187,7 @@ export class StorefrontService implements OnModuleInit {
         skip,
         take,
       });
-      return { collection: col, products: rows, total };
+      return { collection: col, products: await repairCatalogImages(this.products, ownerId, rows), total };
     }
 
     const qb = this.products.createQueryBuilder('p').where('p."ownerId" = :ownerId AND p.active = true', { ownerId });
@@ -213,7 +214,7 @@ export class StorefrontService implements OnModuleInit {
     }
 
     const [products, total] = await qb.skip(skip).take(take).getManyAndCount();
-    return { collection: col, products, total };
+    return { collection: col, products: await repairCatalogImages(this.products, ownerId, products), total };
   }
 
   /** Idempotent: seed the six rule-driven collections if not already present. */

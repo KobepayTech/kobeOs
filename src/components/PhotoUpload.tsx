@@ -1,5 +1,6 @@
+import { compressImage, IMAGE_MAX_BYTES } from '@/lib/compress-image';
 import { useCallback, useRef, useState } from 'react';
-import { uploadFile, API_BASE } from '@/lib/api';
+import { uploadFile, assetUrl } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Camera, Upload, X, Loader2, Image as ImageIcon } from 'lucide-react';
 
@@ -38,14 +39,11 @@ export function PhotoUpload({
         setError('Pick an image file (JPG, PNG, WebP, …).');
         return;
       }
-      if (file.size > maxBytes) {
-        setError(`File too large — keep it under ${Math.round(maxBytes / 1024 / 1024)} MB.`);
-        return;
-      }
       setError(null);
       setUploading(true);
       try {
-        const asset = await uploadFile<{ src: string }>('/media/upload?kind=photo', file);
+        const photo = await compressImage(file, Math.min(maxBytes, IMAGE_MAX_BYTES));
+        const asset = await uploadFile<{ src: string }>('/media/upload?kind=photo', photo);
         if (!asset?.src) throw new Error('Upload returned no src');
         onChange(asset.src);
       } catch (e) {
@@ -73,11 +71,7 @@ export function PhotoUpload({
 
   const aspectClass = aspect === 'banner' ? 'aspect-[16/6]' : 'aspect-square';
   const isLight = tone === 'light';
-  const resolvedSrc = value
-    ? value.startsWith('http')
-      ? value
-      : `${API_BASE}${value.startsWith('/api') ? value.slice(4) : value}`
-    : null;
+  const resolvedSrc = assetUrl(value) || null;
 
   return (
     <div className={className}>
@@ -153,13 +147,13 @@ export function PhotoUpload({
           {uploading ? (
             <>
               <Loader2 className="w-6 h-6 animate-spin" />
-              <span className="text-xs">Uploading…</span>
+              <span className="text-xs">Resizing and uploading…</span>
             </>
           ) : (
             <>
               <ImageIcon className="w-6 h-6 opacity-50" />
               <span className="text-xs font-medium">Drop image or click to pick</span>
-              <span className="text-[10px] opacity-50">JPG · PNG · WebP up to {Math.round(maxBytes / 1024 / 1024)} MB</span>
+              <span className="text-[10px] opacity-50">Photos are resized automatically to fit</span>
             </>
           )}
         </div>

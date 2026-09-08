@@ -1,3 +1,4 @@
+import { assetUrl } from '@/lib/api';
 import { useState, useMemo, useEffect } from 'react';
 import {
   ShoppingBag, Search, Plus, Minus, Trash2, Package,
@@ -1048,7 +1049,7 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
             <>
               <DialogHeader><DialogTitle>{selectedProduct.name}</DialogTitle></DialogHeader>
               <div className={`h-40 rounded-lg bg-gradient-to-br ${productGradient(selectedProduct.category)} flex items-center justify-center mb-4`}>
-                {selectedProduct.imageUrl ? <img src={selectedProduct.imageUrl} alt="" className="h-full w-full object-cover rounded-lg" /> : <Package className="w-16 h-16 text-white/50" />}
+                {selectedProduct.imageUrl ? <img src={assetUrl(selectedProduct.imageUrl)} alt="" className="h-full w-full object-cover rounded-lg" /> : <Package className="w-16 h-16 text-white/50" />}
               </div>
               <div className="space-y-2 text-sm">
                 <p><span className="text-slate-400">SKU:</span> {selectedProduct.sku}</p>
@@ -1159,7 +1160,7 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
                   <CardContent className="p-3 flex items-center gap-3">
                     <div className="w-16 h-16 rounded-lg overflow-hidden bg-slate-800 shrink-0 grid place-items-center">
                       {item.product.imageUrl ? (
-                        <img src={item.product.imageUrl} alt={item.product.name} className="w-full h-full object-cover" />
+                        <img src={assetUrl(item.product.imageUrl)} alt={item.product.name} className="w-full h-full object-cover" />
                       ) : (
                         <Package className="w-6 h-6 text-slate-500" />
                       )}

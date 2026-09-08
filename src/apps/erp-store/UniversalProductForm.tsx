@@ -1,3 +1,4 @@
+import { assetUrl, apiBase, uploadFile } from '@/lib/api';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -603,13 +604,13 @@ function RemoveBackgroundButton({ imageUrl, onResult }: { imageUrl: string; onRe
     setErr(null);
     try {
       // Fetch the source image as a blob so we can re-POST it as multipart.
-      const src = await fetch(imageUrl);
+      const src = await fetch(assetUrl(imageUrl));
       if (!src.ok) throw new Error(`Source image fetch failed: ${src.status}`);
       const blob = await src.blob();
       const fd = new FormData();
       fd.append('image', blob, 'src.png');
       const token = getToken();
-      const res = await fetch('/api/image-edit/remove-background', {
+      const res = await fetch(`${apiBase()}/image-edit/remove-background`, {
         method: 'POST',
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         body: fd,
@@ -619,7 +620,8 @@ function RemoveBackgroundButton({ imageUrl, onResult }: { imageUrl: string; onRe
         throw new Error(body?.message || `HTTP ${res.status}`);
       }
       const out = await res.blob();
-      onResult(URL.createObjectURL(out));
+      const saved = await uploadFile<{ src: string }>('/media/upload?kind=photo', new File([out], 'product-cutout.png', { type: 'image/png' }));
+      onResult(saved.src);
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Failed');
     } finally {

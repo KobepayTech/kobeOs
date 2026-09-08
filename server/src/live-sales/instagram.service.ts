@@ -1,3 +1,4 @@
+import { relayTarget } from './relay-target';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -217,15 +218,62 @@ export class InstagramService {
 
   async getConnection(ownerId: string) {
     const accounts = await this.accounts.find({ where: { ownerId, platform: 'instagram' }, order: { updatedAt: 'DESC' } });
-    return accounts[0] ? this.safe(accounts[0]) : { connected: false as const };
+    const account = accounts.find((item) => this.isUsable(item));
+    return account ? this.safe(account) : { connected: false as const };
   }
 
   async resolveSessionAccount(ownerId: string, platform?: string, requestedId?: string) {
-    if (platform !== 'instagram') return undefined;
-    const accounts = await this.accounts.find({ where: { ownerId, platform: 'instagram', status: 'connected' }, order: { updatedAt: 'DESC' } });
+    if (!['instagram', 'tiktok'].includes(platform || '')) return undefined;
+    const accounts = (await this.accounts.find({ where: { ownerId, platform, status: 'connected' }, order: { updatedAt: 'DESC' } })).filter((item) => this.isUsable(item));
     const account = requestedId ? accounts.find((item) => item.id === requestedId) : accounts[0];
-    if (!account) throw new BadRequestException('Connect an Instagram Professional account before starting an Instagram live');
+    if (!account) throw new BadRequestException(`Connect your ${platform} account before enabling phone live sales.`);
+    if (platform === 'instagram' && account.metadata?.webhookSubscribed !== true) {
+      const userId = String(account.metadata?.instagramUserId || '');
+      if (userId) {
+        try {
+          account.metadata = { ...account.metadata, webhookSubscribed: await this.subscribeWebhooks(userId, account.accessToken) };
+          await this.accounts.save(account);
+        } catch { this.logger.warn('Instagram Live comments subscription needs account setup.'); }
+      }
+    }
     return account.id;
+  }
+
+  async registerRelay(ownerId: string, accountId: string, target: string) {
+    const url = relayTarget(target, this.value('TENANT_BASE_DOMAIN') || 'kobeapptz.com');
+    const socialAccountId = await this.resolveSessionAccount(ownerId, 'instagram', accountId);
+    const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(10000) });
+    if (!response.ok) throw new BadRequestException('Your store computer is unreachable. Keep KobeOS online and retry.');
+    const info = await response.json() as { status?: string; platform?: string };
+    if (info.status !== 'LIVE' || info.platform !== 'instagram') throw new BadRequestException('Open an Instagram Live Sales session on your store computer first.');
+    const session = await this.liveSales.startSession(ownerId, { platform: 'instagram', socialAccountId, title: 'Phone live sales' });
+    session.relayTargetUrl = url;
+    session.relayExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    await this.sessions.save(session);
+    return { id: session.id, expiresAt: session.relayExpiresAt, ...(await this.sessionConnection(ownerId, session.id)) };
+  }
+
+  private isUsable(account: SocialAccount): boolean {
+    return account.status === 'connected' && (!account.tokenExpiresAt || new Date(account.tokenExpiresAt).getTime() > Date.now());
+  }
+
+  async connections(ownerId: string) {
+    const accounts = await this.accounts.find({ where: { ownerId }, order: { updatedAt: 'DESC' } });
+    return accounts.map((account) => ({
+      id: account.id, platform: account.platform, accountHandle: account.accountHandle,
+      connected: this.isUsable(account), webhookSubscribed: account.metadata?.webhookSubscribed === true,
+    }));
+  }
+
+  async sessionConnection(ownerId: string, sessionId: string) {
+    const session = await this.liveSales.getSession(ownerId, sessionId);
+    const account = session.socialAccountId ? await this.accounts.findOne({ where: { id: session.socialAccountId, ownerId, platform: session.platform } }) : null;
+    return {
+      accountHandle: account?.accountHandle || '',
+      connected: !!account && this.isUsable(account),
+      webhookSubscribed: account?.metadata?.webhookSubscribed === true,
+      lastCommentAt: account?.metadata?.lastLiveCommentAt || null,
+    };
   }
 
   async disconnect(ownerId: string) {
@@ -239,7 +287,7 @@ export class InstagramService {
       where: { ownerId, platform: 'instagram', status: 'connected' },
       order: { updatedAt: 'DESC' },
     });
-    if (!account) throw new BadRequestException('Connect an Instagram Professional account first');
+    if (!account || !this.isUsable(account)) throw new BadRequestException('Reconnect your Instagram Professional account first');
     const userId = String(account.metadata?.instagramUserId || '');
     if (!userId) throw new BadRequestException('Instagram account metadata is incomplete; reconnect the account');
     const webhookSubscribed = await this.subscribeWebhooks(userId, account.accessToken);
@@ -296,9 +344,12 @@ export class InstagramService {
 
   private async replyToComment(account: SocialAccount, commentId: string, message: string) {
     if (!commentId || !message) return;
-    const url = new URL(this.graph(`${commentId}/replies`));
-    url.search = new URLSearchParams({ message, access_token: account.accessToken }).toString();
-    const response = await fetch(url, { method: 'POST' });
+    const userId = String(account.metadata?.instagramUserId || '');
+    const response = await fetch(this.graph(`${userId}/messages`), {
+      method: 'POST', signal: AbortSignal.timeout(10000),
+      headers: { Authorization: `Bearer ${account.accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recipient: { comment_id: commentId }, message: { text: message } }),
+    });
     await this.json(response);
   }
 
@@ -322,19 +373,30 @@ export class InstagramService {
         if (change.field !== 'comments' && change.field !== 'live_comments') continue;
         const session = change.field === 'live_comments'
           ? sessions.find((item) => item.kind === 'live')
-          : sessions.find((item) => item.kind === 'post') || sessions.find((item) => item.kind === 'live');
+          : sessions.find((item) => item.kind === 'post');
         if (!session) continue;
         const value = change.value || {};
         const text = String(value.text || value.message || '').trim();
         if (!text) continue;
-        const result = await this.liveSales.ingestComment(account.ownerId, session.id, {
-          source: 'instagram',
-          buyerHandle: value.from?.username || value.from?.id || '',
-          text,
-          externalId: value.id || '',
-        });
+        const input = { source: 'instagram', buyerHandle: value.from?.username || value.from?.id || '', text, externalId: value.id || '' };
+        let result: { reply?: string };
+        if (session.relayTargetUrl) {
+          if (!session.relayExpiresAt || session.relayExpiresAt.getTime() <= Date.now()) continue;
+          const response = await fetch(relayTarget(session.relayTargetUrl, this.value('TENANT_BASE_DOMAIN') || 'kobeapptz.com'), {
+            method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10000),
+            headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+          });
+          if (!response.ok) throw new BadRequestException('Store computer did not accept the live comment; delivery can be retried.');
+          result = await response.json() as { reply?: string };
+        } else {
+          result = await this.liveSales.ingestComment(account.ownerId, session.id, input) as { reply?: string };
+        }
         if (value.id && (result as { reply?: string })?.reply) {
           await this.replyToComment(account, value.id, (result as unknown as { reply: string }).reply).catch((e) => this.logger.warn(`Instagram reply failed: ${(e as Error).message}`));
+        }
+        if (change.field === 'live_comments') {
+          account.metadata = { ...account.metadata, lastLiveCommentAt: new Date().toISOString() };
+          await this.accounts.save(account);
         }
         ingested += 1;
       }

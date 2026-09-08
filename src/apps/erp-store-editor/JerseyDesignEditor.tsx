@@ -1,3 +1,4 @@
+import { assetUrl } from '@/lib/api';
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -543,7 +544,7 @@ function HeroPreview({ config }: { config: JerseyConfig }) {
       style={{ background: `linear-gradient(135deg, ${config.hero?.gradientFrom ?? '#1d4ed8'}, ${config.hero?.gradientTo ?? '#a21caf'})` }}
     >
       {config.hero?.imageUrl ? (
-        <img src={config.hero.imageUrl} alt="" className="w-14 h-14 rounded object-cover" />
+        <img src={assetUrl(config.hero.imageUrl)} alt="" className="w-14 h-14 rounded object-cover" />
       ) : (
         <div className="w-14 h-14 rounded bg-white/20" />
       )}

@@ -39,7 +39,8 @@ export class MediaController {
 
   /**
    * Real multipart upload — accepts a binary file and stores the bytes
-   * inline on the asset. The returned `src` points at /api/media/blob/:id.
+   * inline on the asset. The returned `src` points at the unauthenticated
+   * /api/media-public/:token route so an <img> tag can render it.
    * Kind defaults to "audio" but can be overridden via the kind query param.
    */
   @Post('upload')

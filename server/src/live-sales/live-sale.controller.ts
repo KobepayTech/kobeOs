@@ -1,6 +1,7 @@
+import { TikTokCommentsService } from './tiktok-comments.service';
 import { Body, Controller, Delete, Get, Headers, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import { IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsNumber, IsOptional, IsString, IsUUID, Matches, MaxLength, Min } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Public } from '../common/public.decorator';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -8,6 +9,8 @@ import { LiveSaleService } from './live-sale.service';
 import { InstagramService } from './instagram.service';
 
 class StartSessionDto {
+  @IsOptional() @IsBoolean() cloudAccount?: boolean;
+  @IsOptional() @IsString() @Matches(/^@?[A-Za-z0-9._]{1,64}$/) sourceHandle?: string;
   @IsOptional() @IsString() @MaxLength(120) title?: string;
   @IsOptional() @IsString() platform?: string;
   @IsOptional() @IsString() currency?: string;
@@ -23,6 +26,7 @@ class PinDto {
   @IsOptional() @IsNumber() @Min(0) livePrice?: number;
 }
 class IngestDto {
+  @IsOptional() @IsString() @MaxLength(200) externalId?: string;
   @IsString() @MaxLength(1000) text!: string;
   @IsOptional() @IsString() @MaxLength(80) buyerHandle?: string;
   @IsOptional() @IsString() @MaxLength(40) buyerContact?: string;
@@ -34,6 +38,11 @@ class ConvertDto {
   @IsOptional() @IsString() @MaxLength(24) code?: string;
 }
 
+class RelayDto {
+  @IsUUID() accountId!: string;
+  @IsString() @MaxLength(500) targetUrl!: string;
+}
+
 type RawBodyRequest = Request & { rawBody?: Buffer };
 
 @UseGuards(JwtAuthGuard)
@@ -42,13 +51,18 @@ export class LiveSaleController {
   constructor(
     private readonly svc: LiveSaleService,
     private readonly instagram: InstagramService,
+    private readonly tiktok: TikTokCommentsService,
   ) {}
 
   @Get() list(@CurrentUser('id') uid: string) { return this.svc.listSessions(uid); }
   @Post() async start(@CurrentUser('id') uid: string, @Body() dto: StartSessionDto) {
-    const socialAccountId = await this.instagram.resolveSessionAccount(uid, dto.platform, dto.socialAccountId);
-    return this.svc.startSession(uid, { ...dto, socialAccountId });
+    const socialAccountId = (dto.cloudAccount || (dto.kind === 'post' && dto.platform !== 'instagram')) ? undefined : await this.instagram.resolveSessionAccount(uid, dto.platform, dto.socialAccountId);
+    const session = await this.svc.startSession(uid, { ...dto, socialAccountId });
+    void this.tiktok.start(session).catch(() => undefined);
+    return session;
   }
+  @Get('connections') connections(@CurrentUser('id') uid: string) { return this.instagram.connections(uid); }
+  @Post('instagram/relay') relay(@CurrentUser('id') uid: string, @Body() dto: RelayDto) { return this.instagram.registerRelay(uid, dto.accountId, dto.targetUrl); }
   @Get('operator/context') context(@CurrentUser('id') uid: string) { return this.svc.operatorContext(uid); }
 
   @Get('instagram/connection') instagramConnection(@CurrentUser('id') uid: string) {
@@ -66,8 +80,12 @@ export class LiveSaleController {
   @Delete('instagram/connection') disconnectInstagram(@CurrentUser('id') uid: string) {
     return this.instagram.disconnect(uid);
   }
+  @Get(':id/connection') async connection(@CurrentUser('id') uid: string, @Param('id') id: string) {
+    const session = await this.svc.getSession(uid, id);
+    return { ...(await this.instagram.sessionConnection(uid, id)), platform: session.platform, ...(session.platform === 'tiktok' ? { bridge: this.tiktok.status(id) } : {}) };
+  }
   @Get(':id') get(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.svc.getSession(uid, id); }
-  @Post(':id/end') end(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.svc.endSession(uid, id); }
+  @Post(':id/end') async end(@CurrentUser('id') uid: string, @Param('id') id: string) { const result = await this.svc.endSession(uid, id); await this.tiktok.stop(id); return result; }
   @Post(':id/storefront') storefront(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: { show: boolean }) { return this.svc.setStorefront(uid, id, !!dto.show); }
   @Get(':id/stats') stats(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.svc.stats(uid, id); }
 
@@ -93,6 +111,8 @@ export class LiveSaleController {
 @Controller('live-sales/ingest')
 export class LiveSaleIngestController {
   constructor(private readonly svc: LiveSaleService) {}
+
+  @Get(':token') info(@Param('token') token: string) { return this.svc.ingestInfo(token); }
 
   @Post(':token')
   ingest(@Param('token') token: string, @Body() dto: IngestDto) {

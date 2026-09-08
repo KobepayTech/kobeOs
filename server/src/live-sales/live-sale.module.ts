@@ -1,3 +1,4 @@
+import { TikTokCommentsService } from './tiktok-comments.service';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
@@ -18,7 +19,7 @@ import { InstagramService } from './instagram.service';
     ConfigModule,
     PosModule, // provides OrdersService (atomic stock decrement)
   ],
-  providers: [LiveSaleService, InstagramService, PalmPesaService, ApifyService],
+  providers: [TikTokCommentsService, LiveSaleService, InstagramService, PalmPesaService, ApifyService],
   controllers: [LiveSaleController, LiveSaleIngestController, LiveSalePublicController, LiveSaleInstagramPublicController],
   exports: [LiveSaleService],
 })

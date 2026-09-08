@@ -4,6 +4,7 @@ import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { Repository } from 'typeorm';
 import { MediaAsset, Playlist } from './media.entity';
 import { OwnedCrudService } from '../common/owned.service';
+import { optimizePhoto } from './optimize-photo';
 
 @Injectable()
 export class MediaAssetsService extends OwnedCrudService<MediaAsset> {
@@ -20,6 +21,7 @@ export class MediaAssetsService extends OwnedCrudService<MediaAsset> {
     file: { originalname: string; mimetype: string; buffer: Buffer; size: number },
     kind: MediaAsset['kind'] = 'audio',
   ): Promise<MediaAsset> {
+    if (kind === 'photo' || kind === 'image') file = await optimizePhoto(file);
     const asset = this.repo.create({
       ownerId: uid,
       kind,
