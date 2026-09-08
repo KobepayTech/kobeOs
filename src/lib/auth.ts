@@ -102,6 +102,27 @@ export function oauthConsume(accessToken: string, refreshToken: string): void {
   setRefreshToken(refreshToken);
 }
 
+/** A new social login must verify the new identity online. Startup's
+ * ensureSession intentionally allows an old offline profile and is unsuitable
+ * here. Persist only after verification so an interrupted login cannot replace
+ * a working session with unverified credentials or the previous user's profile. */
+export async function verifyOAuthSession(accessToken: string, refreshToken: string, signal?: AbortSignal): Promise<AuthUser> {
+  const timeout = AbortSignal.timeout(15_000);
+  const user = await api<AuthUser>('/users/me', {
+    auth: false,
+    offlineFallback: false,
+    cache: 'no-store',
+    headers: { Authorization: `Bearer ${accessToken}` },
+    signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+  });
+  if (!user || typeof user.id !== 'string' || !user.id || typeof user.email !== 'string') {
+    throw new Error('KobeOS could not verify this account. Retry when the connection is available.');
+  }
+  signal?.throwIfAborted();
+  persist({ accessToken, refreshToken, user });
+  return user;
+}
+
 /** Exchange a successful Kobe Cloud social login for the local desktop session. */
 export async function desktopOauthExchange(
   cloudAccessToken: string,

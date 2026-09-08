@@ -2,6 +2,15 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      // Hosted callback routes must resolve relative build assets from the
+      // site root. Keep file:// assets relative for packaged Electron builds.
+      if (window.location.protocol === 'https:' || window.location.protocol === 'http:') {
+        const base = document.createElement('base');
+        base.href = '/';
+        document.head.appendChild(base);
+      }
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#6366f1" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
