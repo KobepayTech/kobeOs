@@ -3,6 +3,31 @@ import { In, IsNull, Not, Repository } from 'typeorm';
 import { MediaAsset } from './media.entity';
 import { PosProduct } from '../pos/pos.entity';
 
+/**
+ * References this repair cannot resolve — the asset was deleted, belongs to
+ * another owner, or is not a photo. Without this the product row keeps its
+ * legacy URL forever, so every later read re-runs the lookup: a single dead
+ * reference would cost one extra query on every public storefront page view,
+ * permanently. Remembering the misses turns that into one query per process.
+ */
+const unresolvable = new Map<string, number>();
+const UNRESOLVABLE_TTL_MS = 60 * 60 * 1000;
+const UNRESOLVABLE_MAX = 10_000;
+
+function skip(ownerId: string, id: string) {
+  const seenAt = unresolvable.get(`${ownerId}:${id}`);
+  if (seenAt === undefined) return false;
+  // Re-check hourly so a reference repaired out of band recovers on its own.
+  if (Date.now() - seenAt < UNRESOLVABLE_TTL_MS) return true;
+  unresolvable.delete(`${ownerId}:${id}`);
+  return false;
+}
+
+function remember(ownerId: string, ids: string[]) {
+  if (unresolvable.size + ids.length > UNRESOLVABLE_MAX) unresolvable.clear();
+  for (const id of ids) unresolvable.set(`${ownerId}:${id}`, Date.now());
+}
+
 /** Upgrade only this owner's saved product-photo references, never arbitrary files. */
 export async function repairCatalogImages(repo: Repository<PosProduct>, ownerId: string, rows: PosProduct[]) {
   const legacyId = (url: string | null | undefined) => /^\/api\/media\/blob\/([a-f0-9-]{36})$/i.exec(url || '')?.[1];
@@ -26,7 +51,8 @@ export async function repairCatalogImages(repo: Repository<PosProduct>, ownerId:
   return rows;
 }
 
-export async function publicPhotoLinks(assets: Repository<MediaAsset>, ownerId: string, ids: string[]) {
+export async function publicPhotoLinks(assets: Repository<MediaAsset>, ownerId: string, requested: string[]) {
+  const ids = requested.filter((id) => !skip(ownerId, id));
   if (!ids.length) return new Map<string, string>();
   const found = await assets.find({ select: ['id', 'publicToken', 'src', 'kind'], where: { ownerId, id: In(ids), contentBinary: Not(IsNull()) } });
   const links = new Map<string, string>();
@@ -43,5 +69,6 @@ export async function publicPhotoLinks(assets: Repository<MediaAsset>, ownerId: 
     links.set(asset.id, src);
     if (asset.src !== src) await assets.update({ id: asset.id, ownerId }, { src });
   }
+  remember(ownerId, ids.filter((id) => !links.has(id)));
   return links;
 }
