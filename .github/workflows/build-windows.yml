@@ -122,14 +122,33 @@ jobs:
           $url = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
           $dest = "build\vcredist\vc_redist.x64.exe"
           New-Item -ItemType Directory -Force -Path "build\vcredist" | Out-Null
-          Write-Host "Downloading vc_redist.x64.exe from $url"
-          Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing
-          $size = (Get-Item $dest).Length
-          Write-Host "Downloaded: $([math]::Round($size/1MB, 1)) MB"
+
+          # aka.ms redirects to a CDN that cuts connections often enough to fail
+          # a build on its own ("The response ended prematurely"), so a single
+          # attempt makes every Windows build hostage to one flaky request.
+          # Treat a short file as a failed attempt too, not as a hard exit.
+          $attempts = 4
+          $size = 0
+          for ($attempt = 1; $attempt -le $attempts; $attempt++) {
+            try {
+              Write-Host "Downloading vc_redist.x64.exe from $url (attempt $attempt/$attempts)"
+              Remove-Item -LiteralPath $dest -Force -ErrorAction SilentlyContinue
+              Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing -TimeoutSec 120
+              $size = (Get-Item $dest).Length
+              if ($size -ge 5MB) { break }
+              Write-Host "Got only $([math]::Round($size/1MB, 1)) MB; retrying."
+            } catch {
+              Write-Host "Attempt $attempt failed: $($_.Exception.Message)"
+              $size = 0
+            }
+            if ($attempt -lt $attempts) { Start-Sleep -Seconds ([math]::Pow(2, $attempt)) }
+          }
+
           if ($size -lt 5MB) {
-            Write-Error "vc_redist.x64.exe is suspiciously small -- download may have failed"
+            Write-Error "vc_redist.x64.exe could not be downloaded after $attempts attempts (last size $size bytes)"
             exit 1
           }
+          Write-Host "Downloaded: $([math]::Round($size/1MB, 1)) MB"
         shell: pwsh
 
       - name: Download cloudflared
