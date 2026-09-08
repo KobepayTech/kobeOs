@@ -25,7 +25,7 @@ vi.mock('./api', () => {
 });
 
 import { ApiError } from './api';
-import { ensureSession } from './auth';
+import { ensureSession, verifyOAuthSession } from './auth';
 
 const storedUser = {
   id: 'user-1',
@@ -61,5 +61,46 @@ describe('ensureSession', () => {
 
     await expect(ensureSession()).rejects.toThrow('Unauthorized');
     expect(mocks.clearTokens).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('new OAuth session verification', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    localStorage.setItem('kobeos_auth_user', JSON.stringify(storedUser));
+  });
+
+  it('does not use a previous account when the new login cannot be verified', async () => {
+    mocks.api.mockRejectedValue(new ApiError(503, 'Unavailable'));
+    await expect(verifyOAuthSession('new-access', 'new-refresh')).rejects.toThrow('Unavailable');
+    expect(mocks.api).toHaveBeenCalledWith('/users/me', expect.objectContaining({
+      auth: false, offlineFallback: false, cache: 'no-store',
+      headers: { Authorization: 'Bearer new-access' }, signal: expect.any(AbortSignal),
+    }));
+    expect(JSON.parse(localStorage.getItem('kobeos_auth_user')!)).toEqual(storedUser);
+    expect(mocks.clearTokens).not.toHaveBeenCalled();
+  });
+
+  it('rejects offline fallback data rather than declaring a successful login', async () => {
+    mocks.api.mockResolvedValue([]);
+    await expect(verifyOAuthSession('new-access', 'new-refresh')).rejects.toThrow('could not verify');
+  });
+
+  it('stores the newly verified profile', async () => {
+    const user = { id: 'new-user', email: 'new@example.com', displayName: 'New user' };
+    mocks.api.mockResolvedValue(user);
+    await expect(verifyOAuthSession('new-access', 'new-refresh')).resolves.toEqual(user);
+    expect(JSON.parse(localStorage.getItem('kobeos_auth_user')!)).toEqual(user);
+  });
+
+  it('does not change the account after the user cancels verification', async () => {
+    const controller = new AbortController();
+    mocks.api.mockImplementation(async () => {
+      controller.abort();
+      return { id: 'new-user', email: 'new@example.com' };
+    });
+    await expect(verifyOAuthSession('new-access', 'new-refresh', controller.signal)).rejects.toThrow();
+    expect(JSON.parse(localStorage.getItem('kobeos_auth_user')!)).toEqual(storedUser);
   });
 });

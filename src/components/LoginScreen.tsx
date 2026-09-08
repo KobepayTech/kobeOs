@@ -31,7 +31,8 @@ import {
   desktopResetPassword,
   type AuthUser,
 } from '@/lib/auth';
-import { accountApiBase, apiBase, ApiError } from '@/lib/api';
+import { apiBase, ApiError } from '@/lib/api';
+import { clearPendingOAuth, pendingOAuth, providerNames, providerSignInUrl, rememberOAuth } from '@/lib/oauth-flow';
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
 const IS_DESKTOP = typeof window !== 'undefined' && Boolean((window as any).kobeOS);
@@ -71,7 +72,8 @@ export default function LoginScreen({
 }: {
   onLogin: (user: AuthUser, created: boolean) => void;
 }) {
-  const [mode, setMode] = useState<Mode>('create');
+  const [mode, setMode] = useState<Mode>(() => pendingOAuth() || new URLSearchParams(window.location.search).get('signin') === '1' ? 'signin' : 'create');
+  const [pendingProvider, setPendingProvider] = useState(pendingOAuth);
   const [connection, setConnection] = useState<ConnectionState>('checking');
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
@@ -80,6 +82,18 @@ export default function LoginScreen({
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Back navigation from a provider can restore this page from the browser's
+  // cache without remounting it. Show recovery instead of first-time setup.
+  useEffect(() => {
+    const returned = () => {
+      const provider = pendingOAuth();
+      setPendingProvider(provider);
+      if (provider) { setMode('signin'); setLoading(false); }
+    };
+    window.addEventListener('pageshow', returned);
+    return () => window.removeEventListener('pageshow', returned);
+  }, []);
 
   const checkConnection = useCallback(async () => {
     setConnection('checking');
@@ -175,6 +189,7 @@ export default function LoginScreen({
       setError('');
       try {
         const user = await desktopOauthExchange(data.accessToken, data.refreshToken ?? '');
+        clearPendingOAuth();
         onLogin(user, false);
       } catch (err) {
         if (err instanceof ApiError) {
@@ -226,6 +241,7 @@ export default function LoginScreen({
         : IS_DESKTOP
           ? await desktopLogin(email.trim(), password)
           : await login(email.trim(), password);
+      clearPendingOAuth();
       onLogin(user, mode === 'create');
     } catch (err) {
       if (err instanceof ApiError && err.status === 409) {
@@ -258,6 +274,7 @@ export default function LoginScreen({
             const user = IS_DESKTOP
               ? await desktopOauthGoogle(resp.credential)
               : await oauthGoogle(resp.credential);
+            clearPendingOAuth();
             onLogin(user, false);
           } catch (err) {
             setError(err instanceof ApiError ? err.message : 'Google sign-in failed.');
@@ -269,7 +286,10 @@ export default function LoginScreen({
   };
 
   const openProviderAuth = (provider: 'meta' | 'tiktok') => {
-    const url = `${accountApiBase()}/auth/oauth/${provider}`;
+    const url = providerSignInUrl(provider);
+    rememberOAuth(provider);
+    setPendingProvider(provider);
+    setError('');
     if (IS_DESKTOP) {
       // Desktop renderer is file:// and can't redirect out to a hosted URL and
       // back, so it keeps the child-window handoff. OAuthCallback posts the
@@ -280,7 +300,7 @@ export default function LoginScreen({
         'popup=yes,width=560,height=760,resizable=yes,scrollbars=yes',
       );
       if (!popup) {
-        setError(`${provider === 'meta' ? 'Meta' : 'TikTok'} sign-in could not open inside KobeOS. Allow popups and try again.`);
+        setError(`${providerNames[provider]} sign-in could not open inside KobeOS. Allow popups and try again.`);
         return;
       }
       popup.focus();
@@ -337,7 +357,7 @@ export default function LoginScreen({
     },
     online: {
       label: 'Online and secure',
-      detail: 'Kobe Cloud is ready to create your account.',
+      detail: mode === 'create' ? 'Kobe Cloud is ready to create your account.' : 'Kobe Cloud is ready to sign you in.',
       classes: 'border-emerald-200 bg-emerald-50 text-emerald-800',
       icon: Wifi,
     },
@@ -383,7 +403,7 @@ export default function LoginScreen({
           </div>
 
           <div className="relative my-auto max-w-xl">
-            <p className="mb-4 text-xs font-black uppercase tracking-[0.2em] text-[#ff8a3a]">First-time setup</p>
+            <p className="mb-4 text-xs font-black uppercase tracking-[0.2em] text-[#ff8a3a]">{mode === 'create' ? 'First-time setup' : 'Welcome back'}</p>
             <h1 className="text-4xl font-black leading-tight tracking-[-0.04em] xl:text-5xl">
               Your business OS starts with your account.
             </h1>
@@ -425,7 +445,7 @@ export default function LoginScreen({
 
             <div className="rounded-[28px] border border-slate-200 bg-white p-5 shadow-[0_25px_70px_rgba(10,23,40,.09)] sm:p-8">
               <div className="mb-6">
-                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#ff7616]">Account setup</p>
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#ff7616]">{mode === 'create' ? 'Account setup' : 'Account sign-in'}</p>
                 <h2 className="mt-2 text-2xl font-black tracking-[-0.03em] text-[#0a1728]">
                   {mode === 'create' ? 'Create your Kobe account' : 'Welcome back'}
                 </h2>
@@ -468,6 +488,12 @@ export default function LoginScreen({
                 ))}
               </div>
 
+              {pendingProvider && <div role="status" className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-900">
+                <p className="font-bold">{providerNames[pendingProvider]} sign-in has not finished</p>
+                <p>Complete any identity check in {providerNames[pendingProvider]}. If you returned without signing in, try again or use your KobeOS email or phone and password below.</p>
+                <button type="button" onClick={() => { clearPendingOAuth(); setPendingProvider(null); setMode('signin'); }} className="mt-2 font-bold underline">Use email or phone instead</button>
+              </div>}
+
               <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
                 <button type="button" onClick={signInWithGoogle} disabled={loading || connection !== 'online'} className="flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 hover:border-slate-400 disabled:opacity-50">
                   <span style={{ color: '#4285F4' }} className="text-base font-black">G</span>
@@ -479,9 +505,11 @@ export default function LoginScreen({
                 </button>
                 <button type="button" onClick={signInWithMeta} disabled={loading || connection !== 'online'} className="flex h-11 items-center justify-center gap-2 rounded-xl bg-[#0866ff] text-xs font-bold text-white hover:bg-[#075bd8] disabled:opacity-50">
                   <span aria-hidden className="text-base font-black">f</span>
-                  {mode === 'create' ? 'Create with Meta' : 'Sign in with Meta'}
+                  {mode === 'create' ? 'Create with Facebook' : 'Sign in with Facebook'}
                 </button>
               </div>
+
+              <p className="mb-4 text-xs leading-5 text-slate-500">Signing in opens your KobeOS account. To connect Instagram for live selling, sign in with your usual method, then open Creator or Live Sales. Facebook login alone does not connect live comments.</p>
 
               <div className="mb-4 flex items-center gap-3">
                 <div className="h-px flex-1 bg-slate-200" />
