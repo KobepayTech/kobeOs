@@ -1,3 +1,4 @@
+import { publicPhotoLinks } from './repair-catalog-images';
 import {
   BadRequestException,
   Injectable,
@@ -344,7 +345,16 @@ export class MediaInboxService {
         q: `%${options.q.trim().toLowerCase()}%`,
       });
     }
-    return qb.getMany();
+    const rows = await qb.getMany();
+    const legacy = rows.filter(item => item.url === `/api/media/blob/${item.assetId}`);
+    const links = await publicPhotoLinks(this.assets, ownerId, legacy.map(item => item.assetId));
+    for (const item of legacy) {
+      const url = links.get(item.assetId);
+      if (!url) continue;
+      await this.inbox.update({ id: item.id, ownerId, url: item.url }, { url });
+      item.url = url;
+    }
+    return rows;
   }
 
   async update(ownerId: string, id: string, dto: UpdateMediaInboxItemDto) {
