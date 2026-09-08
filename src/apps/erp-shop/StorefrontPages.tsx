@@ -1,3 +1,4 @@
+import { assetUrl } from '@/lib/api';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -92,7 +93,7 @@ export function CollectionPage({
               <CardContent className="p-3 space-y-2">
                 <div className="aspect-square bg-slate-800/60 rounded overflow-hidden flex items-center justify-center">
                   {p.imageUrl ? (
-                    <img src={p.imageUrl} alt={p.name} className="w-full h-full object-cover" />
+                    <img src={assetUrl(p.imageUrl)} alt={p.name} className="w-full h-full object-cover" />
                   ) : (
                     <div className="text-xs text-slate-500">No image</div>
                   )}

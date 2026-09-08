@@ -1,5 +1,6 @@
 import { Column, Entity, Index } from 'typeorm';
 import { OwnedEntity } from '../common/owned.entity';
+import { socialTokenTransformer } from '../social-scheduler/social-token.transformer';
 
 /**
  * Live-commerce ("live sale") — sell during an Instagram/TikTok/Facebook
@@ -16,6 +17,10 @@ export type LiveKind = 'live' | 'post';
 @Entity('live_sessions')
 @Index(['ownerId', 'status'])
 export class LiveSession extends OwnedEntity {
+  @Column({ default: '' }) sourceHandle!: string;
+  @Column({ type: 'text', nullable: true, transformer: socialTokenTransformer }) relayTargetUrl?: string | null;
+  @Column({ type: 'timestamptz', nullable: true }) relayExpiresAt?: Date | null;
+
   @Column({ default: 'Live Sale' })
   title!: string;
 

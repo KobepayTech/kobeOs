@@ -1,3 +1,4 @@
+import { compressImage } from '@/lib/compress-image';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ImagePlus, Images, Loader2, Search, Sparkles, UploadCloud, X } from 'lucide-react';
 import { API_BASE, api, apiArray, apiObject, getToken } from '@/lib/api';
@@ -119,7 +120,7 @@ export function StoreMediaGallery({
     setError('');
     try {
       const form = new FormData();
-      images.forEach((file) => form.append('files', file));
+      for (const file of images) form.append('files', await compressImage(file));
       await api('/media/inbox/upload', {
         method: 'POST',
         body: form,

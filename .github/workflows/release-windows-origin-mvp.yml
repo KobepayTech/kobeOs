@@ -63,6 +63,10 @@ jobs:
           if (-not (Test-Path -LiteralPath 'dist\main.js' -PathType Leaf)) {
             throw 'Built backend bundle is missing server\dist\main.js.'
           }
+          & npm.cmd prune --omit=dev --legacy-peer-deps
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not prepare the production runtime dependencies.'
+          }
 
       - name: Atomically release backend with health rollback
         env:
@@ -133,6 +137,14 @@ jobs:
             }
           }
           Copy-Item -LiteralPath $source -Destination $next -Recurse -Force
+          # Ship the exact runtime dependencies alongside dist so new imports
+          # never depend on stale packages in the installed origin. Rollback
+          # swaps this directory together with its dependencies.
+          $dependencies = Join-Path $env:GITHUB_WORKSPACE 'server\node_modules'
+          if (-not (Test-Path -LiteralPath $dependencies -PathType Container)) {
+            throw 'Production runtime dependencies are missing; leaving the current release running.'
+          }
+          Copy-Item -LiteralPath $dependencies -Destination (Join-Path $next 'node_modules') -Recurse -Force
           Set-Content -LiteralPath $lock -Value '${{ github.sha }}' -Encoding ASCII
 
           try {

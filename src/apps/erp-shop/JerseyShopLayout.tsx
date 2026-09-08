@@ -1,3 +1,4 @@
+import { assetUrl } from '@/lib/api';
 import { useMemo, useState } from 'react';
 import {
   ShoppingCart,
@@ -415,7 +416,7 @@ export function HeroBanner({
     >
       {hero.imageUrl && (
         <img
-          src={hero.imageUrl}
+          src={assetUrl(hero.imageUrl)}
           alt=""
           className="absolute inset-0 w-full h-full object-cover"
         />
@@ -527,7 +528,7 @@ export function JerseyProductCard({
       >
         {product.imageUrl ? (
           <img
-            src={product.imageUrl}
+            src={assetUrl(product.imageUrl)}
             alt={product.name}
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
           />

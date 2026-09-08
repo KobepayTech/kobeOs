@@ -283,7 +283,7 @@ export class AiService {
       };
     } catch (error) {
       this.recordFailure(error);
-      if (options.allowRemoteFallback !== false && this.remoteFallbackUrl) {
+      if (!firstTokenAt && !options.signal?.aborted && options.allowRemoteFallback !== false && this.remoteFallbackUrl) {
         const remote = await this.remoteChatCompletion({ ...options, messages, task });
         if (remote.content) onToken(remote.content);
         return remote;
@@ -298,6 +298,7 @@ export class AiService {
     message: string,
     tools: Array<{ name: string; description: string }>,
     signal?: AbortSignal,
+    history: ChatMessage[] = [],
   ): Promise<RouterDecision> {
     const compactTools = tools.slice(0, 40).map((tool) => `- ${tool.name}: ${tool.description.slice(0, 180)}`).join('\n');
     const system = `You are the tiny KobeOS routing model. Classify the request and decide which business tools are needed. Never answer the user's question. Return ONLY JSON:
@@ -307,6 +308,7 @@ Use zero toolCalls for general knowledge or conversation. You may choose up to 4
       const result = await this.chatCompletion({
         messages: [
           { role: 'system', content: system + '\nTools:\n' + compactTools },
+          ...history.filter((item) => item.role === 'user' || item.role === 'assistant').slice(-4).map((item) => ({ role: item.role, content: item.content.slice(-1200) })),
           { role: 'user', content: message },
         ],
         task: 'route',
@@ -317,7 +319,7 @@ Use zero toolCalls for general knowledge or conversation. You may choose up to 4
         signal,
       });
       const parsed = parseRouterDecision(result.content);
-      if (parsed) return parsed;
+      if (parsed) return { ...parsed, task: detectTask(message) };
     } catch (error) {
       this.logger.debug(`Router model unavailable; using local fallback classifier: ${(error as Error).message}`);
     }
@@ -648,13 +650,14 @@ Use zero toolCalls for general knowledge or conversation. You may choose up to 4
   private async fetchWithRetry(url: string, init: RequestInit, timeoutMs: number, retries: number): Promise<Response> {
     let lastError: unknown;
     for (let attempt = 0; attempt <= retries; attempt += 1) {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(new DOMException('AI request timed out', 'TimeoutError')), timeoutMs);
       const external = init.signal;
-      const abort = () => controller.abort(external?.reason);
-      external?.addEventListener('abort', abort, { once: true });
+      // Keep cancellation attached through body consumption, not just headers.
+      // A stalled stream must release its inference slot when its deadline expires.
+      const deadline = AbortSignal.timeout(timeoutMs);
+      const signal = external ? AbortSignal.any([external, deadline]) : deadline;
+      signal.throwIfAborted();
       try {
-        const res = await fetch(url, { ...init, signal: controller.signal });
+        const res = await fetch(url, { ...init, signal });
         if (res.ok) return res;
         const text = await res.text().catch(() => '');
         const error = new Error(`Ollama HTTP ${res.status}${text ? `: ${text.slice(0, 500)}` : ''}`);
@@ -663,9 +666,6 @@ Use zero toolCalls for general knowledge or conversation. You may choose up to 4
       } catch (error) {
         lastError = error;
         if (external?.aborted) throw error;
-      } finally {
-        clearTimeout(timeout);
-        external?.removeEventListener('abort', abort);
       }
       if (attempt < retries) await new Promise((resolve) => setTimeout(resolve, 350 * 2 ** attempt));
     }

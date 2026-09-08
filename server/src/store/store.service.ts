@@ -1,3 +1,4 @@
+import { repairCatalogImages } from '../media/repair-catalog-images';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -522,6 +523,7 @@ export class StoreService {
     // Compute priceMin/priceMax from variants so the storefront card can show
     // the "$17.99 ~ $28.99" range — when no per-variant price is set the
     // parent price is the single price and we leave min/max null.
+    await repairCatalogImages(this.productsRepo, settings.ownerId, products);
     const enriched = products.map((p) => {
       const variantPrices = (p.variants ?? [])
         .map((v) => (typeof v.price === 'number' ? Number(v.price) : null))

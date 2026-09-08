@@ -56,11 +56,11 @@ export async function probeBase(base: string, timeoutMs = 2500): Promise<boolean
   const controller = new AbortController();
   const to = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(`${base}/health`, { signal: controller.signal, headers: { accept: 'application/json' } });
+    const res = await fetch(`${base}/health`, { cache: 'no-store', signal: controller.signal, headers: { accept: 'application/json' } });
     const ct = res.headers.get('content-type') ?? '';
     if (!res.ok || !ct.includes('application/json')) return false;
     const body = await res.json().catch(() => null);
-    return body?.status === 'ok';
+    return body?.status === 'ok' && body?.db === 'connected';
   } catch {
     return false;
   } finally {

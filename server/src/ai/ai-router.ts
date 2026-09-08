@@ -32,8 +32,8 @@ export const DEFAULT_MODEL_ROUTING: ModelRoutingConfig = {
 export function detectTask(message: string, hasImages = false): AiTask {
   if (hasImages) return 'vision';
   const q = message.toLowerCase();
-  if (/\b(code|typescript|javascript|python|sql|bug|compile|function|class|api endpoint|regex|docker|github|programming)\b/.test(q)) return 'code';
-  if (/\b(why|analyse|analyze|compare|strategy|forecast|recommend|reason|root cause|trade[- ]?off|what should|explain how|plan)\b/.test(q) || q.length > 700) return 'reasoning';
+  if (/\b(code|typescript|javascript|python|sql|compile|api endpoint|regex|docker|github|programming)\b/.test(q)) return 'code';
+  if (/\b(analyse|analyze|strategy|forecast|root cause|trade[- ]?off|deep reasoning|think deeply|reason step by step)\b/.test(q) || q.length > 700) return 'reasoning';
   return 'general';
 }
 

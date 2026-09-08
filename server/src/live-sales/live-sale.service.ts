@@ -99,13 +99,18 @@ export class LiveSaleService {
 
   /* ── Sessions ── */
 
-  async startSession(uid: string, dto: { title?: string; platform?: string; currency?: string; kind?: string; postUrl?: string; socialAccountId?: string }) {
+  async startSession(uid: string, dto: { title?: string; platform?: string; currency?: string; kind?: string; postUrl?: string; socialAccountId?: string; sourceHandle?: string }) {
     const kind: LiveSession['kind'] = dto.kind === 'post' ? 'post' : 'live';
+    if (kind === 'live') {
+      const existing = await this.sessions.findOne({ where: { ownerId: uid, platform: (dto.platform as LiveSession['platform']) || 'other', status: 'LIVE', kind: 'live', ...(dto.socialAccountId ? { socialAccountId: dto.socialAccountId } : dto.sourceHandle ? { sourceHandle: dto.sourceHandle } : {}) }, order: { createdAt: 'DESC' } });
+      if (existing) return existing;
+    }
     return this.sessions.save(this.sessions.create({
       ownerId: uid,
       title: dto.title?.trim() || (kind === 'post' ? 'Post / Ad Sale' : 'Live Sale'),
       platform: (dto.platform as LiveSession['platform']) || 'other',
       socialAccountId: dto.socialAccountId || null,
+      sourceHandle: dto.sourceHandle || '',
       currency: dto.currency || 'TZS',
       status: 'LIVE',
       kind,
@@ -648,7 +653,13 @@ export class LiveSaleService {
 
   /* ── Public bridge ingest (token-scoped, no JWT) ── */
 
-  async ingestByToken(token: string, dto: IngestInput) {
+  async ingestInfo(token: string) {
+    const session = await this.sessions.findOne({ where: { ingestToken: token } });
+    if (!session) throw new NotFoundException('Invalid ingest token');
+    return { status: session.status, platform: session.platform };
+  }
+
+  async ingestByToken(token: string, dto: IngestInput & { externalId?: string }) {
     const session = await this.sessions.findOne({ where: { ingestToken: token } });
     if (!session) throw new NotFoundException('Invalid ingest token');
     if (session.status !== 'LIVE') throw new BadRequestException('Session has ended');

@@ -1,3 +1,4 @@
+import { assetUrl } from '@/lib/api';
 import { useState } from 'react';
 import type { SiteConfig } from './index';
 import {
@@ -45,7 +46,7 @@ export default function SimpleSite({ settings }: { settings: Settings }) {
         <div className="max-w-5xl mx-auto px-5 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
             {settings.logoUrl
-              ? <img src={settings.logoUrl} alt={settings.storeName} className="h-9 w-9 rounded-lg object-cover" />
+              ? <img src={assetUrl(settings.logoUrl)} alt={settings.storeName} className="h-9 w-9 rounded-lg object-cover" />
               : <div className="h-9 w-9 rounded-lg grid place-items-center text-white font-black" style={{ background: primary }}>{settings.storeName.charAt(0)}</div>}
             <span className="font-extrabold text-lg">{settings.storeName}</span>
           </div>
@@ -59,7 +60,7 @@ export default function SimpleSite({ settings }: { settings: Settings }) {
 
       {/* Hero */}
       <section className="relative overflow-hidden" style={{ background: `linear-gradient(135deg, ${primary}, ${accent})` }}>
-        {c.heroImageUrl && <img src={c.heroImageUrl} alt="" className="absolute inset-0 w-full h-full object-cover opacity-25" />}
+        {c.heroImageUrl && <img src={assetUrl(c.heroImageUrl)} alt="" className="absolute inset-0 w-full h-full object-cover opacity-25" />}
         <div className="relative max-w-5xl mx-auto px-5 py-20 sm:py-28 text-white">
           <h1 className="text-3xl sm:text-5xl font-black max-w-2xl leading-tight">{settings.tagline || settings.storeName}</h1>
           {c.about && <p className="mt-4 text-base sm:text-lg text-white/85 max-w-xl">{truncate(c.about, 160)}</p>}

@@ -1,3 +1,4 @@
+import { compressImage } from '@/lib/compress-image';
 import { DragEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
@@ -137,8 +138,8 @@ export default function MediaInboxApp({ productMode = false }: MediaInboxAppProp
       for (let offset = 0; offset < media.length; offset += 10) {
         const batch = media.slice(offset, offset + 10);
         const data = new FormData();
-        batch.forEach((file) => data.append('files', file));
-        const response = await api<unknown>('/media/inbox/upload', { method: 'POST', body: data });
+        for (const file of batch) data.append('files', await compressImage(file));
+        const response = await api<unknown>('/media/inbox/upload', { method: 'POST', body: data, offlineFallback: false });
         const result = apiArray<UploadResponse>(response);
         duplicates += result.filter((entry) => entry.duplicate).length;
         setUploadProgress({ done: Math.min(media.length, offset + batch.length), total: media.length, duplicates });

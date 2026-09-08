@@ -9,14 +9,16 @@ import { DiscountEngine } from '../discounts/discount-engine.service';
 import { CreditService } from '../credit/credit.service';
 import { JournalService } from '../erp/journal.service';
 import { PosGateway } from './pos.gateway';
+import { repairCatalogImages } from '../media/repair-catalog-images';
 
 @Injectable()
 export class ProductsService {
   constructor(@InjectRepository(PosProduct) private readonly repo: Repository<PosProduct>) {}
 
-  list(uid: string, page = 1, limit = 500) {
+  async list(uid: string, page = 1, limit = 500) {
     const safeLimit = Math.min(1000, Math.max(1, limit));
-    return this.repo.find({ where: { ownerId: uid }, order: { name: 'ASC' }, skip: (page - 1) * safeLimit, take: safeLimit });
+    const rows = await this.repo.find({ where: { ownerId: uid }, order: { name: 'ASC' }, skip: (page - 1) * safeLimit, take: safeLimit });
+    return repairCatalogImages(this.repo, uid, rows);
   }
 
   async get(uid: string, id: string) {

@@ -1,3 +1,4 @@
+import { assetUrl } from '@/lib/api';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { API_BASE, api, getToken } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -549,7 +550,7 @@ function CatalogThumb({ url, alt, size = 40 }: { url?: string | null; alt: strin
   }
   return (
     <img
-      src={url}
+      src={assetUrl(url)}
       alt={alt}
       className="rounded object-cover bg-white/[0.05] border border-white/[0.06] shrink-0"
       style={{ width: size, height: size }}

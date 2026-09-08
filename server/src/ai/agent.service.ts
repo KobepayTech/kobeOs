@@ -1132,6 +1132,8 @@ export class KobeAgentService {
       this.ai.planAssistant(
         message,
         this.tools.map(({ name, description }) => ({ name, description })),
+        undefined,
+        relevantHistory,
       ),
     ]);
     const memoryBlock = facts.length

@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api } from '@/lib/api';
+import { api as localApi, apiBase, accountApiBase, cloudApi, hasCloudSession } from '@/lib/api';
+const api = <T,>(path: string, init: RequestInit = {}) => localApi<T>(path, { ...init, offlineFallback: false });
+const usesCloudAccounts = () => accountApiBase() !== apiBase() && hasCloudSession();
+const accountApi = <T,>(path: string, init: RequestInit = {}) => usesCloudAccounts() ? cloudApi<T>(path, init) : api<T>(path, init);
 import {
   Radio, Plus, Loader2, Pin, ShoppingBag, CheckCircle2, XCircle, Zap,
   MessageCircle, Package, Play, Square, TrendingUp, Link2, Copy, Send, AlertCircle, MonitorPlay, Star,
@@ -11,7 +14,7 @@ import {
  *  so its comments arrive via the session bridge URL or post polling. */
 const LIVE_PLATFORMS = [['tiktok', 'TikTok'], ['instagram', 'Instagram'], ['facebook', 'Facebook'], ['youtube', 'YouTube']] as const;
 
-interface Session { id: string; title: string; platform: string; status: 'LIVE' | 'ENDED'; kind?: 'live' | 'post'; postUrl?: string; ingestToken: string; currency: string; totalSales: number | string; orderCount: number; createdAt: string; showOnStorefront?: boolean; socialAccountId?: string | null }
+interface Session { id: string; title: string; platform: string; status: 'LIVE' | 'ENDED'; kind?: 'live' | 'post'; postUrl?: string; ingestToken: string; currency: string; totalSales: number | string; orderCount: number; createdAt: string; showOnStorefront?: boolean; socialAccountId?: string | null; sourceHandle?: string }
 interface PinRow { id: string; code: string; productId: string; name: string; livePrice: number; catalogPrice: number; stock: number; soldQty: number; isFeatured: boolean }
 interface Comment { id: string; source: string; buyerHandle: string; buyerContact: string; text: string; matchedCode: string; qty: number; status: string; createdAt: string; reservationCode?: string; checkoutToken?: string; orderId?: string }
 interface Product { id: string; name: string; price: number | string; stock: number }
@@ -21,6 +24,9 @@ type InstagramConnection =
   | { connected: false }
   | { connected: true; id: string; accountName: string; accountHandle: string; accountAvatar?: string | null; status: string; tokenExpiresAt?: string | null; webhookSubscribed: boolean; webhookUrl: string };
 
+interface ConnectedAccount { id: string; platform: string; accountHandle: string; connected: boolean; webhookSubscribed: boolean; cloud?: boolean }
+interface CommentConnection { connected: boolean; webhookSubscribed: boolean; accountHandle?: string; lastCommentAt?: string | null; bridge?: { status: string; detail: string; lastCommentAt: string | null } }
+
 const money = (n: number | string, c = 'TZS') => `${c === 'TZS' ? 'TSh ' : c === 'CNY' ? '¥' : c + ' '}${Number(n || 0).toLocaleString()}`;
 
 export default function LiveSales() {
@@ -29,6 +35,8 @@ export default function LiveSales() {
   const [loading, setLoading] = useState(true);
   const [context, setContext] = useState<OperatorContext>({ storefrontSlug: '', storefrontUrl: '', catalogUrl: '' });
   const [instagram, setInstagram] = useState<InstagramConnection>({ connected: false });
+  const [accounts, setAccounts] = useState<ConnectedAccount[]>([]);
+  const [starting, setStarting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [platformMenu, setPlatformMenu] = useState(false);
   const [retryingWebhook, setRetryingWebhook] = useState(false);
@@ -43,10 +51,16 @@ export default function LiveSales() {
       ]);
       setSessions(Array.isArray(s) ? s : []);
       setContext(ctx);
-      const ig = await api<InstagramConnection>('/live-sales/instagram/connection');
-      setInstagram(ig);
+      const localAccounts = await api<ConnectedAccount[]>('/live-sales/connections');
+      let allAccounts = localAccounts;
+      if (usesCloudAccounts()) {
+        try { allAccounts = [...localAccounts, ...(await cloudApi<ConnectedAccount[]>('/live-sales/connections')).map(a => ({ ...a, cloud: true }))]; }
+        catch { setNotice('Cloud accounts could not be checked. Keep the account server online, then refresh.'); }
+      }
+      setAccounts(allAccounts);
+      setInstagram(await accountApi<InstagramConnection>('/live-sales/instagram/connection'));
     }
-    catch { setSessions([]); } finally { setLoading(false); }
+    catch (e) { setNotice((e as Error).message || 'Backend unavailable. Keep the store computer online and retry.'); } finally { setLoading(false); }
   }, []);
   useEffect(() => { loadSessions(); }, [loadSessions]);
 
@@ -71,7 +85,7 @@ export default function LiveSales() {
 
   const connectInstagram = async () => {
     try {
-      const { url } = await api<{ url: string }>('/live-sales/instagram/oauth/url');
+      const { url } = await accountApi<{ url: string }>('/live-sales/instagram/oauth/url');
       window.location.assign(url);
     } catch (e) {
       setNotice((e as Error).message || 'Instagram connection is not configured.');
@@ -80,7 +94,7 @@ export default function LiveSales() {
 
   const disconnectInstagram = async () => {
     try {
-      await api('/live-sales/instagram/connection', { method: 'DELETE' });
+      await accountApi('/live-sales/instagram/connection', { method: 'DELETE' });
       setInstagram({ connected: false });
       setNotice('Instagram disconnected.');
     } catch (e) { setNotice((e as Error).message || 'Could not disconnect Instagram.'); }
@@ -89,7 +103,7 @@ export default function LiveSales() {
   const retryInstagramWebhook = async () => {
     setRetryingWebhook(true);
     try {
-      const connection = await api<InstagramConnection>('/live-sales/instagram/webhook/subscribe', { method: 'POST', body: '{}' });
+      const connection = await accountApi<InstagramConnection>('/live-sales/instagram/webhook/subscribe', { method: 'POST', body: '{}' });
       setInstagram(connection);
       setNotice(connection.connected && connection.webhookSubscribed
         ? 'Instagram webhook is connected. Start an Instagram Live to receive comments.'
@@ -101,16 +115,19 @@ export default function LiveSales() {
     }
   };
 
-  const start = async (requestedPlatform: string) => {
-    const title = prompt('Name this live session', 'Live Sale')?.trim();
-    if (title === undefined) return;
-    const platform = LIVE_PLATFORMS.some(([id]) => id === requestedPlatform) ? requestedPlatform : 'other';
-    if (platform === 'instagram' && !instagram.connected) {
-      setNotice('Connect Instagram first, then start the Instagram live.');
+  const start = async (platform: string, accountKey?: string) => {
+    const account = accounts.find(a => a.platform === platform && a.connected && (!accountKey || `${a.cloud}-${a.id}` === accountKey));
+    if (['instagram', 'tiktok'].includes(platform) && !account) {
+      setNotice(`Connect ${platform === 'instagram' ? 'Instagram' : 'TikTok'} in Creator first, then refresh Live Sales.`);
       return;
     }
-    const s = await api<Session>('/live-sales', { method: 'POST', body: JSON.stringify({ title: title || 'Live Sale', platform, socialAccountId: instagram.connected ? instagram.id : undefined }) });
-    await loadSessions(); setActive(s);
+    setStarting(true);
+    try {
+      const existing = sessions.find(s => s.platform === platform && s.kind !== 'post' && s.status === 'LIVE' && (!account || s.socialAccountId === account.id || s.sourceHandle === account.accountHandle));
+      const session = existing || await api<Session>('/live-sales', { method: 'POST', body: JSON.stringify({ title: 'Phone live sale', platform, socialAccountId: account?.cloud ? undefined : account?.id, cloudAccount: !!account?.cloud, sourceHandle: account?.accountHandle || undefined }) });
+      setActive(session);
+    } catch (e) { setNotice((e as Error).message || 'Could not open live selling.'); }
+    finally { setStarting(false); }
   };
 
   // Non-live: an ad/post campaign whose comments are polled (Apify) and land
@@ -125,14 +142,14 @@ export default function LiveSales() {
     await loadSessions(); setActive(s);
   };
 
-  if (active) return <SessionConsole session={active} context={context} onOpenKds={openKds} onBack={() => { setActive(null); loadSessions(); }} />;
+  if (active) return <SessionConsole session={active} context={context} accounts={accounts} onOpenKds={openKds} onBack={() => { setActive(null); loadSessions(); }} />;
 
   const lives = sessions.filter((s) => s.kind !== 'post');
   const posts = sessions.filter((s) => s.kind === 'post');
 
   return (
     <div className="h-full bg-slate-950 text-slate-100 overflow-auto">
-      <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800">
+      <div className="flex flex-wrap gap-3 items-center justify-between px-5 py-4 border-b border-slate-800">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-fuchsia-500 to-rose-600 grid place-items-center"><Radio className="w-4.5 h-4.5 text-white" /></div>
           <div><h1 className="text-sm font-bold">Live Sales</h1><p className="text-[10px] text-slate-500">Sell live · comment orders → real-time stock</p></div>
@@ -151,12 +168,13 @@ export default function LiveSales() {
           {context.catalogUrl && <button onClick={() => navigator.clipboard?.writeText(context.catalogUrl)} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-slate-700 bg-slate-800 text-slate-200 text-sm font-bold"><Copy className="w-4 h-4" /> Copy live shop</button>}
           <button onClick={startPost} className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-bold"><MessageCircle className="w-4 h-4" /> Post campaign</button>
           <div className="relative">
-            <button onClick={() => setPlatformMenu((v) => !v)} className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-sm font-bold"><Play className="w-4 h-4" /> Start Live Sales</button>
+            <button disabled={starting} onClick={() => setPlatformMenu((v) => !v)} className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-sm font-bold"><Play className="w-4 h-4" /> {starting ? 'Opening…' : 'Continue phone live'}</button>
             {platformMenu && (
               <div className="absolute right-0 z-30 mt-1 w-48 rounded-lg border border-white/10 bg-slate-900 p-1 shadow-xl">
-                {LIVE_PLATFORMS.map(([id, label]) => (
-                  <button key={id} onClick={() => { setPlatformMenu(false); void start(id); }} className="block w-full rounded px-3 py-2 text-left text-xs font-bold text-slate-200 hover:bg-white/10">{label}</button>
-                ))}
+                {LIVE_PLATFORMS.flatMap(([id, label]) => {
+                  const available = accounts.filter(a => a.platform === id && a.connected);
+                  return available.length ? available.map(a => <button key={`${a.cloud}-${a.id}`} onClick={() => { setPlatformMenu(false); void start(id, `${a.cloud}-${a.id}`); }} className="block w-full rounded px-3 py-2 text-left text-xs font-bold text-slate-200 hover:bg-white/10">{label} · {a.accountHandle}</button>) : [<button key={id} onClick={() => { setPlatformMenu(false); void start(id); }} className="block w-full rounded px-3 py-2 text-left text-xs font-bold text-slate-200 hover:bg-white/10">{label}</button>];
+                })}
               </div>
             )}
           </div>
@@ -164,6 +182,10 @@ export default function LiveSales() {
       </div>
 
       <div className="p-5 space-y-6">
+        <div className="rounded-xl border border-slate-800 p-4 text-sm text-slate-300">
+          <p>Keep streaming from Instagram or TikTok on your phone. Open live selling here, pin your products and share your live-shop link. Keep the store computer online for comments and checkout.</p>
+          <div className="mt-2 flex flex-wrap gap-2">{accounts.filter(a => a.connected && ['instagram', 'tiktok'].includes(a.platform)).map(a => <span key={`${a.cloud}-${a.id}`} className="rounded bg-slate-800 px-2 py-1 text-xs">{a.platform} · {a.accountHandle}</span>)}<button onClick={loadSessions} className="text-fuchsia-300 underline">Refresh accounts</button></div>
+        </div>
         {notice && <div className="flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200"><span>{notice}</span><button onClick={() => setNotice(null)} className="text-amber-300 hover:text-white">×</button></div>}
         {instagram.connected && !instagram.webhookSubscribed && (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
@@ -199,7 +221,7 @@ function SessionGroup({ label, hint, items, onOpen }: { label: string; hint: str
           <div>
             <div className="flex items-center gap-2">
               <span className="font-bold">{s.title}</span>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${s.status === 'LIVE' ? 'bg-rose-500/20 text-rose-400' : 'bg-slate-700 text-slate-400'}`}>{s.status === 'LIVE' ? (s.kind === 'post' ? '● WATCHING' : '● LIVE') : 'ENDED'}</span>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${s.status === 'LIVE' ? 'bg-rose-500/20 text-rose-400' : 'bg-slate-700 text-slate-400'}`}>{s.status === 'LIVE' ? (s.kind === 'post' ? '● WATCHING' : '● SELLING') : 'ENDED'}</span>
               <span className="text-[10px] text-slate-500 uppercase">{s.platform}</span>
             </div>
             <div className="text-[11px] text-slate-500 mt-0.5">{new Date(s.createdAt).toLocaleString()}</div>
@@ -215,7 +237,7 @@ function SessionGroup({ label, hint, items, onOpen }: { label: string; hint: str
 }
 
 /* ─────────────────────── Session console ─────────────────────── */
-function SessionConsole({ session, context, onOpenKds, onBack }: { session: Session; context: OperatorContext; onOpenKds: () => void; onBack: () => void }) {
+function SessionConsole({ session, context, accounts, onOpenKds, onBack }: { session: Session; context: OperatorContext; accounts: ConnectedAccount[]; onOpenKds: () => void; onBack: () => void }) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [comments, setComments] = useState<Comment[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
@@ -230,17 +252,44 @@ function SessionConsole({ session, context, onOpenKds, onBack }: { session: Sess
     const next = !onShop; setOnShop(next);
     try { await api(`/live-sales/${session.id}/storefront`, { method: 'POST', body: JSON.stringify({ show: next }) }); } catch { setOnShop(!next); }
   };
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [connection, setConnection] = useState<CommentConnection | null>(null);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [feedError, setFeedError] = useState<string | null>(null);
+  const relay = useRef<string | null>(null);
+  const polling = useRef(false);
+  const cloudAccount = accounts.find(a => a.cloud && a.connected && a.platform === session.platform && a.accountHandle === session.sourceHandle);
+  const cloudAccountId = cloudAccount?.id;
+  useEffect(() => {
+    if (ended || session.kind === 'post' || session.platform !== 'instagram' || !cloudAccountId) return;
+    let disposed = false;
+    const connect = async () => {
+      try {
+        if (!context.storefrontUrl) throw new Error('Publish your store to receive phone comments on this computer.');
+        const result = await cloudApi<CommentConnection & { id: string }>('/live-sales/instagram/relay', { method: 'POST', body: JSON.stringify({ accountId: cloudAccountId, targetUrl: `${context.storefrontUrl.replace(/\/$/, '')}/api/live-sales/ingest/${session.ingestToken}` }) });
+        if (!disposed) { relay.current = result.id; setConnection(result); setConnectionError(null); }
+      } catch (e) { if (!disposed) setConnectionError((e as Error).message || 'Phone comments could not connect.'); }
+    };
+    void connect();
+    const timer = setInterval(connect, 60000);
+    return () => { disposed = true; clearInterval(timer); };
+  }, [cloudAccountId, context.storefrontUrl, ended, session.id, session.ingestToken, session.kind, session.platform]);
 
   const refresh = useCallback(async () => {
+    if (polling.current) return;
+    polling.current = true;
     try {
       const [st, cs] = await Promise.all([
         api<Stats>(`/live-sales/${session.id}/stats`),
         api<Comment[]>(`/live-sales/${session.id}/comments`),
       ]);
-      setStats(st); setComments(Array.isArray(cs) ? cs : []);
-    } catch { /* offline */ }
-  }, [session.id]);
+      setStats(st); setComments(Array.isArray(cs) ? cs : []); setFeedError(null);
+      if (!cloudAccountId) {
+        try { setConnection(await api<CommentConnection>(`/live-sales/${session.id}/connection`)); setConnectionError(null); }
+        catch { setConnectionError('Comment connection could not be checked.'); }
+      }
+    } catch { setFeedError('Backend unreachable. Comments and orders may be delayed. Keep the computer online; retrying automatically.'); }
+    finally { polling.current = false; }
+  }, [session.id, cloudAccountId]);
 
   useEffect(() => {
     refresh();
@@ -250,8 +299,8 @@ function SessionConsole({ session, context, onOpenKds, onBack }: { session: Sess
   // Poll the comment feed while live (assisted + bridge comments both land here).
   useEffect(() => {
     if (ended) return;
-    timer.current = setInterval(refresh, 4000);
-    return () => { if (timer.current) clearInterval(timer.current); };
+    const timer = setInterval(refresh, 4000);
+    return () => clearInterval(timer);
   }, [ended, refresh]);
 
   const flash = (m: string) => { setToast(m); setTimeout(() => setToast(null), 2600); };
@@ -269,7 +318,7 @@ function SessionConsole({ session, context, onOpenKds, onBack }: { session: Sess
       const res = await api<{ lineTotal: number; remainingStock: number; payment: { message: string } }>(`/live-sales/comments/${c.id}/convert`, {
         method: 'POST', body: JSON.stringify({ buyerContact: phone || undefined }),
       });
-      flash(`Sold ${money(res.lineTotal, session.currency)} · ${res.payment.message}`);
+      flash(`Order ${money(res.lineTotal, session.currency)} · ${res.payment.message}`);
       refresh();
     } catch (e) { flash((e as Error).message || 'Convert failed'); }
     finally { setBusy(null); }
@@ -283,20 +332,26 @@ function SessionConsole({ session, context, onOpenKds, onBack }: { session: Sess
     refresh();
   };
 
-  const end = async () => { await api(`/live-sales/${session.id}/end`, { method: 'POST', body: '{}' }); setEnded(true); };
+  const end = async () => {
+    try {
+      await api(`/live-sales/${session.id}/end`, { method: 'POST', body: '{}' });
+      setEnded(true);
+      if (relay.current) await cloudApi(`/live-sales/${relay.current}/end`, { method: 'POST', body: '{}' });
+    } catch (e) { flash((e as Error).message || 'Could not end selling.'); }
+  };
 
-  const bridgeUrl = `${window.location.origin}/api/live-sales/ingest/${session.ingestToken}`;
+  const bridgeUrl = `${context.storefrontUrl ? context.storefrontUrl.replace(/\/$/, '') + '/api' : apiBase()}/live-sales/ingest/${session.ingestToken}`;
 
   return (
     <div className="h-full flex flex-col bg-slate-950 text-slate-100 overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 shrink-0">
+      <div className="flex flex-wrap gap-2 items-center justify-between px-4 py-3 border-b border-slate-800 shrink-0">
         <div className="flex items-center gap-2">
           <button onClick={onOpenKds} className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-xs font-semibold"><MonitorPlay className="w-3.5 h-3.5" /> KDS</button>
           {context.catalogUrl && <button onClick={() => { navigator.clipboard?.writeText(context.catalogUrl); flash('Customer live-catalog link copied'); }} className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-700 bg-slate-800 text-slate-300 text-xs font-semibold"><Copy className="w-3.5 h-3.5" /> Catalog link</button>}
           <button onClick={onBack} className="text-slate-400 hover:text-white text-sm">←</button>
           <span className="font-bold">{session.title}</span>
-          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${ended ? 'bg-slate-700 text-slate-400' : 'bg-rose-500/20 text-rose-400'}`}>{ended ? 'ENDED' : '● LIVE'}</span>
+          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${ended ? 'bg-slate-700 text-slate-400' : 'bg-rose-500/20 text-rose-400'}`}>{ended ? 'ENDED' : '● SELLING'}</span>
         </div>
         <div className="flex items-center gap-2">
           {!ended && (
@@ -305,10 +360,16 @@ function SessionConsole({ session, context, onOpenKds, onBack }: { session: Sess
               <ShoppingBag className="w-3.5 h-3.5" /> {onShop ? 'On shop' : 'Off shop'}
             </button>
           )}
-          {!ended && <button onClick={end} className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold"><Square className="w-3.5 h-3.5" /> End live</button>}
+          {!ended && <button onClick={end} className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold"><Square className="w-3.5 h-3.5" /> End selling</button>}
         </div>
       </div>
 
+      {!ended && session.kind !== 'post' && <div className="mx-3 mt-3 rounded-lg border border-slate-700 bg-slate-900 p-3 text-xs space-y-1" role="status">
+        <p className="font-semibold">Keep your phone streaming{(connection?.accountHandle || session.sourceHandle) ? ` as ${connection?.accountHandle || session.sourceHandle}` : ''}.</p>
+        <p className={feedError || connectionError ? 'text-amber-300' : 'text-slate-300'}>{feedError || connectionError || (session.platform === 'tiktok' ? connection?.bridge?.detail || 'Checking TikTok comments…' : session.platform === 'instagram' ? !connection ? 'Connecting phone comments…' : !connection.connected ? 'Account connection needs attention in Creator.' : !connection.webhookSubscribed ? 'Instagram is connected; Live Comments still needs Meta webhook setup.' : 'Instagram comments are subscribed. Waiting for comments from your phone live.' : 'Automatic phone comments need a configured bridge for this platform.')}</p>
+        <p className="text-slate-400">Pin a product code such as A1. Buyers comment “A1 x2” to reserve, or buy through the live-shop link. Instagram can send a private checkout reply; TikTok buyers use the live shop. Ending selling here leaves your phone broadcast running.</p>
+        {comments.some(c => c.source === session.platform) && <p className="text-emerald-300">Last received comment: {new Date(comments.filter(c => c.source === session.platform).sort((a,b) => b.createdAt.localeCompare(a.createdAt))[0].createdAt).toLocaleTimeString()}</p>}
+      </div>}
       {/* Stats */}
       <div className="grid grid-cols-4 gap-2 p-3 shrink-0">
         <Stat label="Sales" value={money(stats?.totalSales ?? 0, session.currency)} Icon={TrendingUp} tone="text-emerald-400" />
@@ -358,7 +419,7 @@ function SessionConsole({ session, context, onOpenKds, onBack }: { session: Sess
             </div>
           )}
           <div className="flex-1 overflow-auto p-2 space-y-1.5">
-            {comments.length === 0 ? <p className="text-xs text-slate-500 text-center py-6">Comments appear here — typed by you, or forwarded by a bridge.</p> :
+            {comments.length === 0 ? <p className="text-xs text-slate-500 text-center py-6">Waiting for comments. Check the connection above and pin products so buy codes can reserve stock.</p> :
               comments.map((c) => (
                 <div key={c.id} className={`rounded-lg border px-3 py-2 ${c.status === 'CONVERTED' ? 'border-emerald-800 bg-emerald-500/5' : c.status === 'MATCHED' || c.status === 'RESERVED' ? 'border-amber-800 bg-amber-500/5' : 'border-slate-800 bg-slate-950'}`}>
                   <div className="flex items-center justify-between gap-2">

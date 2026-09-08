@@ -38,6 +38,8 @@ export function useBackendHealth(): BackendHealth {
 
   useEffect(() => {
     let cancelled = false;
+    let inFlight = false;
+    let activeController: AbortController | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     const notifyTransition = (next: BackendStatus) => {
@@ -51,7 +53,7 @@ export function useBackendHealth(): BackendHealth {
         addNotification({
           type: 'success',
           title: 'Connected to KobeOS',
-          message: 'Platform and database are online. Your data is syncing.',
+          message: 'Platform and database are online.',
         });
       } else if (next === 'degraded') {
         addNotification({
@@ -63,7 +65,7 @@ export function useBackendHealth(): BackendHealth {
         addNotification({
           type: 'error',
           title: 'Connection lost',
-          message: 'Cannot reach KobeOS. Working offline — changes will sync when it is back.',
+          message: 'Cannot reach KobeOS. Reconnecting automatically; server data is temporarily unavailable.',
         });
       }
     };
@@ -74,10 +76,11 @@ export function useBackendHealth(): BackendHealth {
     const tryLanFailover = async (): Promise<boolean> => {
       const origin = typeof window !== 'undefined' ? window.location.origin : '';
       const found = await discoverLanBase(origin);
-      if (!found || found === apiBase()) return false;
+      if (cancelled || !found || found === apiBase()) return false;
       setRuntimeApiBase(found);
       markBackendReachable();
       if (!cancelled) {
+        prev.current = 'online';
         setHealth({ status: 'online', dbConnected: true, lastChecked: Date.now() });
         addNotification({ type: 'success', title: 'Connected over WiFi', message: 'No internet — KobeOS is talking to the server directly on your local network.' });
       }
@@ -85,29 +88,28 @@ export function useBackendHealth(): BackendHealth {
     };
 
     const probe = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
       const controller = new AbortController();
+      activeController = controller;
       const to = setTimeout(() => controller.abort(), TIMEOUT_MS);
       try {
         const res = await fetch(`${apiBase()}/health`, {
+          cache: 'no-store',
           signal: controller.signal,
           headers: { accept: 'application/json' },
         });
         // A non-JSON 200 (e.g. a parked-domain HTML page) is NOT our backend.
         const ct = res.headers.get('content-type') ?? '';
-        let db = false;
-        if (res.ok && ct.includes('application/json')) {
-          const body = await res.json().catch(() => null);
-          db = body?.db === 'connected' && body?.status === 'ok';
-        }
+        const body = ct.includes('application/json') ? await res.json().catch(() => null) : null;
+        const db = res.ok && body?.db === 'connected' && body?.status === 'ok';
         if (cancelled) return;
-        const next: BackendStatus = !res.ok
-          ? 'offline'
-          : db
-            ? 'online'
-            : ct.includes('application/json')
-              ? 'degraded' // reached the API, but SELECT 1 failed
-              : 'offline'; // 200 but not our JSON (parked page / wrong origin)
-        if (next === 'offline' && (await tryLanFailover())) return; // switched to WiFi; re-probe
+        // The API deliberately returns 503 when its database is unavailable.
+        const next: BackendStatus = db ? 'online'
+          : body?.status === 'error' && body?.db === 'disconnected' ? 'degraded'
+          : 'offline';
+        if (next === 'offline' && (await tryLanFailover())) return;
+        if (cancelled) return;
         if (next === 'online') {
           markBackendReachable();
           // If we're on a LAN override but the internet base is reachable again,
@@ -120,11 +122,14 @@ export function useBackendHealth(): BackendHealth {
         notifyTransition(next);
       } catch {
         if (cancelled) return;
-        if (await tryLanFailover()) return; // internet gone — try the server over WiFi
+        if (await tryLanFailover()) return;
+        if (cancelled) return;
         setHealth((h) => ({ ...h, status: 'offline', dbConnected: false, lastChecked: Date.now() }));
         notifyTransition('offline');
       } finally {
         clearTimeout(to);
+        inFlight = false;
+        activeController = undefined;
         if (!cancelled) timer = setTimeout(probe, POLL_MS);
       }
     };
@@ -139,6 +144,7 @@ export function useBackendHealth(): BackendHealth {
 
     return () => {
       cancelled = true;
+      activeController?.abort();
       if (timer) clearTimeout(timer);
       window.removeEventListener('online', onWake);
       window.removeEventListener('focus', onWake);
