@@ -1,4 +1,6 @@
 import { TikTokCommentsService } from './tiktok-comments.service';
+import { BroadcastService } from './broadcast.service';
+import { Throttle } from '@nestjs/throttler';
 import { Body, Controller, Delete, Get, Headers, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { IsBoolean, IsNumber, IsOptional, IsString, IsUUID, Matches, MaxLength, Min } from 'class-validator';
@@ -46,12 +48,14 @@ class RelayDto {
 type RawBodyRequest = Request & { rawBody?: Buffer };
 
 @UseGuards(JwtAuthGuard)
+@Throttle({ auth: { limit: 120, ttl: 60_000 } })
 @Controller('live-sales')
 export class LiveSaleController {
   constructor(
     private readonly svc: LiveSaleService,
     private readonly instagram: InstagramService,
     private readonly tiktok: TikTokCommentsService,
+    private readonly broadcast: BroadcastService,
   ) {}
 
   @Get() list(@CurrentUser('id') uid: string) { return this.svc.listSessions(uid); }
@@ -85,7 +89,7 @@ export class LiveSaleController {
     return { ...(await this.instagram.sessionConnection(uid, id)), platform: session.platform, ...(session.platform === 'tiktok' ? { bridge: this.tiktok.status(id) } : {}) };
   }
   @Get(':id') get(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.svc.getSession(uid, id); }
-  @Post(':id/end') async end(@CurrentUser('id') uid: string, @Param('id') id: string) { const result = await this.svc.endSession(uid, id); await this.tiktok.stop(id); return result; }
+  @Post(':id/end') async end(@CurrentUser('id') uid: string, @Param('id') id: string) { await this.broadcast.stop(uid, id); const result = await this.svc.endSession(uid, id); await this.tiktok.stop(id); return result; }
   @Post(':id/storefront') storefront(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: { show: boolean }) { return this.svc.setStorefront(uid, id, !!dto.show); }
   @Get(':id/stats') stats(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.svc.stats(uid, id); }
 
