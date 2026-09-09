@@ -1,10 +1,13 @@
 {
-  "_comment": "GGUF models baked into the installer. 'file' MUST match the exact filename in your models folder (KOBE_MODELS_DIR, e.g. C:\\KobeOS\\Models) or in models/bundled/. 'name' is the Ollama model name created on first boot. 'default' is the model the Ask Kobe assistant talks to. Optional 'url' downloads the gguf on a GitHub-hosted runner.",
+  "_comment": "GGUF models baked into the installer. 'file' MUST match the exact filename in your models folder (KOBE_MODELS_DIR, e.g. C:\\KobeOS\\Models) or in models/bundled/. 'name' is the Ollama model name created on first boot and MUST match DEFAULT_MODEL_ROUTING.everyday in server/src/ai/ai-router.ts. 'default' is the model the Ask Kobe assistant talks to. Optional 'url' downloads the gguf on a GitHub-hosted runner.",
+  "_size_budget": "GitHub caps release assets at 2 GiB and KobeOS-Setup is already ~1.43 GiB, so the bundled model has ~580 MiB of headroom. Qwen2.5-1.5B-Q4_K_M (1065 MiB) does NOT fit and would break auto-update publishing. The 'Guard the release asset size limit' step in build-windows.yml enforces this.",
   "default": "kobechat",
   "models": [
     {
       "name": "kobechat",
-      "file": "qwen.gguf",
+      "file": "qwen2.5-0.5b-instruct-q4_k_m.gguf",
+      "url": "https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf",
+      "license": "Apache-2.0 — redistributable inside a commercial installer.",
       "system": "You are Kobe, a concise business assistant for a Tanzanian shop. Reply in the user's language (Swahili or English).",
       "parameters": { "temperature": 0.3, "num_ctx": 8192 }
     }

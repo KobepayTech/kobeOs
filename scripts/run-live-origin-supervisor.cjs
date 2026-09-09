@@ -211,7 +211,9 @@ function readProductionEnvironment(repoRoot) {
     DB_MIGRATIONS_RUN: 'false',
     // Keep the headless origin on the CPU-friendly bundled chat model. Large
     // vision/reasoning models are still selected when a request needs them.
-    OLLAMA_MODEL: environment.OLLAMA_MODEL || 'kobechat-fast',
+    // Must match models/bundled/models.json "name" and DEFAULT_MODEL_ROUTING
+    // .everyday — "kobechat-fast" is registered by nothing and never resolved.
+    OLLAMA_MODEL: environment.OLLAMA_MODEL || 'kobechat',
     OLLAMA_KEEP_ALIVE: environment.OLLAMA_KEEP_ALIVE || '10m',
     CORS_ORIGIN: 'https://kobeos-app.pages.dev,https://*.kobeos-app.pages.dev,https://kobeapptz.com,https://*.kobeapptz.com',
     TENANT_BASE_DOMAIN: 'kobeapptz.com',
