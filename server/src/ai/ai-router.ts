@@ -19,14 +19,18 @@ export interface ModelRoutingConfig {
 }
 
 export const DEFAULT_MODEL_ROUTING: ModelRoutingConfig = {
-  // The installer ships this 3.8B model and it stays responsive on CPU-only
-  // machines. Larger specialists are still selected for explicit tasks.
-  everyday: 'kobechat-fast',
+  // Must match the model name the installer actually registers — see the
+  // "name" field in models/bundled/models.json, which electron/main.cjs feeds
+  // to `ollama create` on first boot. This asked for "kobechat-fast" while the
+  // manifest created "kobechat"; match() compares the segment before ":", so
+  // those never matched and the everyday model was only ever chosen by falling
+  // through to installed[0].
+  everyday: 'kobechat',
   reasoning: 'deepseek-r1:8b',
   coder: 'deepseek-coder:6.7b',
   vision: 'qwen2.5vl:7b',
   // Reuse the warm everyday model for routing to avoid a second model load.
-  router: 'kobechat-fast',
+  router: 'kobechat',
 };
 
 export function detectTask(message: string, hasImages = false): AiTask {
@@ -57,6 +61,28 @@ export function fallbackDomain(message: string): AssistantDomain {
   return best && best[1] > 0 ? best[0] : 'general';
 }
 
+/** The model a task is meant to run on, before availability is considered. */
+export function intendedModel(task: AiTask, config: ModelRoutingConfig): string {
+  if (task === 'reasoning') return config.reasoning;
+  if (task === 'code') return config.coder;
+  if (task === 'vision') return config.vision;
+  if (task === 'route') return config.router;
+  return config.everyday;
+}
+
+/**
+ * Why the answer may be weaker than the question deserves. A reasoning or code
+ * question falls back to whatever small model happens to be installed, and
+ * saying nothing makes the assistant look stupid rather than under-equipped.
+ */
+export function downgradeNotice(selected: string, task: AiTask, config: ModelRoutingConfig): string | undefined {
+  if (task !== 'reasoning' && task !== 'code' && task !== 'vision') return undefined;
+  const wanted = intendedModel(task, config);
+  if (selected.split(':')[0] === wanted.split(':')[0]) return undefined;
+  const kind = task === 'reasoning' ? 'deeper reasoning' : task === 'code' ? 'coding' : 'image understanding';
+  return `Answered with ${selected} because ${wanted}, the ${kind} model, is not installed. Install it in Kobe Models for a better answer.`;
+}
+
 export function selectInstalledModel(
   installed: string[],
   requested: string | undefined,
@@ -72,6 +98,13 @@ export function selectInstalledModel(
     const exact = match(requested);
     if (!exact) throw new Error(`Model ${requested} is not installed. Installed models: ${installed.join(', ')}`);
     return exact;
+  }
+
+  // No models at all is the common first-run state, because the installer only
+  // bakes in a model when BUNDLE_AI_MODELS is set. Returning installed[0] here
+  // handed undefined to the Ollama call and surfaced as a confusing 404.
+  if (!installed.length) {
+    throw new Error('No AI model is installed yet. Open Kobe Models and install one to start using the assistant.');
   }
 
   const priorities: Record<AiTask, string[]> = {
