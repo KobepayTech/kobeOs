@@ -218,7 +218,10 @@ jobs:
       # asset ceiling. Crossing it does not fail the build — it fails the upload,
       # so auto-update quietly stops receiving new versions. Catch it here, where
       # the message can say what to do, instead of in a publish run.
-      # v1.11.1 shipped at 1.43 GiB; qwen2.5-0.5b-q4_k_m adds ~0.46 GiB.
+      # v1.11.1 shipped at 1.43 GiB with Ollama's CUDA libraries included.
+      # download-ollama.cjs now drops those (1738 MiB of its 1863 MiB bundle),
+      # which is what makes room for the 1065 MiB qwen2.5-1.5b model.
+      # OLLAMA_KEEP_GPU_LIBS=1 puts CUDA back and will trip this guard.
       - name: 'Smoke test: installer fits the release asset limit'
         run: |
           $limit = 2GB
