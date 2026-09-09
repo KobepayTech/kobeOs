@@ -1,6 +1,6 @@
 import { Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { AiTask, DEFAULT_MODEL_ROUTING, ModelRoutingConfig, RouterDecision, detectTask, fallbackDomain, parseRouterDecision, selectInstalledModel } from './ai-router';
+import { AiTask, DEFAULT_MODEL_ROUTING, ModelRoutingConfig, RouterDecision, detectTask, downgradeNotice, fallbackDomain, parseRouterDecision, selectInstalledModel } from './ai-router';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
@@ -30,6 +30,12 @@ export interface ChatCompletionResult {
   provider: 'ollama' | 'remote';
   usage?: { prompt: number; completion: number; total: number };
   performance?: { firstTokenMs?: number; tokensPerSecond?: number };
+  /**
+   * Set when the question needed a specialist model that is not installed, so
+   * the answer came from a weaker one. Without this the assistant just looks
+   * stupid instead of under-equipped.
+   */
+  downgraded?: string;
 }
 
 export interface ModelInfo {
@@ -280,6 +286,7 @@ export class AiService {
         provider: 'ollama',
         usage: { prompt: promptTokens, completion: completionTokens, total: promptTokens + completionTokens },
         performance: sample,
+        downgraded: downgradeNotice(model, task, this.routing),
       };
     } catch (error) {
       this.recordFailure(error);
@@ -376,6 +383,7 @@ Use zero toolCalls for general knowledge or conversation. You may choose up to 4
           total: (data.prompt_eval_count || 0) + (data.eval_count || 0),
         },
         performance: { tokensPerSecond },
+        downgraded: downgradeNotice(model, options.task, this.routing),
       };
     } finally {
       release();
@@ -697,11 +705,23 @@ Use zero toolCalls for general knowledge or conversation. You may choose up to 4
     this.lastError = '';
   }
 
+  /**
+   * A missing or uninstalled model is a setup state, not a flaky runtime. It
+   * fails identically forever, so counting it toward the breaker only replaced
+   * the one message that tells the user what to do ("install a model") with one
+   * that tells them nothing ("cooling down"), and kept doing so for 30s after
+   * they fixed it.
+   */
+  private isConfigurationFailure(message: string): boolean {
+    return /not installed|no model|no ai model|model.*not found/i.test(message);
+  }
+
   private recordFailure(error: unknown) {
-    this.consecutiveFailures += 1;
     this.lastError = error instanceof Error ? error.message : String(error);
-    if (this.consecutiveFailures >= 3) this.circuitOpenUntil = Date.now() + 30_000;
     this.logger.warn(this.lastError);
+    if (this.isConfigurationFailure(this.lastError)) return;
+    this.consecutiveFailures += 1;
+    if (this.consecutiveFailures >= 3) this.circuitOpenUntil = Date.now() + 30_000;
   }
 
   private friendlyError(error: unknown): Error {

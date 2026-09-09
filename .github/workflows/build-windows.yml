@@ -154,9 +154,11 @@ jobs:
       - name: Download cloudflared
         run: npm run download:cloudflared
 
+      # Not continue-on-error: this step failing used to ship an installer with
+      # no AI runtime at all, and the build still reported green. The assistant
+      # being missing is a release-blocking defect, not a warning.
       - name: Download Ollama (local AI runtime)
         run: npm run download:ollama
-        continue-on-error: true
 
       # Bundle the offline AI models into the installer. Runs only when the
       # BUNDLE_AI_MODELS repo variable is 'true'. Sources (see
@@ -235,6 +237,22 @@ jobs:
           npx asar list $asar | Select-String "electron/main.cjs","electron/preload.cjs","electron/update-manager.cjs"
           Write-Host "Core files present in asar"
         shell: pwsh
+
+      # Assert the exact path electron/main.cjs spawns (see ollamaBinary there).
+      # A missing runtime is invisible until a user asks the assistant something
+      # and gets "Kobe AI runtime is offline", so it has to fail the build here.
+      - name: 'Smoke test: verify the AI runtime is bundled'
+        run: |
+          $ollama = "release\win-unpacked\resources\ollama\win-x64\ollama.exe"
+          if (!(Test-Path $ollama)) {
+            Write-Error "AI runtime missing from the installer: $ollama"
+            exit 1
+          }
+          if ((Get-Item $ollama).Length -lt 1MB) {
+            Write-Error "Bundled ollama.exe is suspiciously small: $ollama"
+            exit 1
+          }
+          Write-Host "AI runtime bundled: $([math]::Round((Get-Item $ollama).Length/1MB, 1)) MB"
 
       - name: 'Smoke test: verify postgres binaries and VC++ runtime'
         run: |
