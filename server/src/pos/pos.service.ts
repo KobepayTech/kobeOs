@@ -10,10 +10,11 @@ import { CreditService } from '../credit/credit.service';
 import { JournalService } from '../erp/journal.service';
 import { PosGateway } from './pos.gateway';
 import { repairCatalogImages } from '../media/repair-catalog-images';
+import { AuditService } from '../audit/audit.service';
 
 @Injectable()
 export class ProductsService {
-  constructor(@InjectRepository(PosProduct) private readonly repo: Repository<PosProduct>) {}
+  constructor(@InjectRepository(PosProduct) private readonly repo: Repository<PosProduct>, private readonly audit: AuditService) {}
 
   async list(uid: string, page = 1, limit = 500) {
     const safeLimit = Math.min(1000, Math.max(1, limit));
@@ -36,6 +37,8 @@ export class ProductsService {
   async retryPhoto(uid: string, id: string) {
     const row = await this.get(uid, id);
     await repairCatalogImages(this.repo, uid, [row], true);
+    await this.audit.log({ action: 'UPDATE', entityType: 'product_photo_repair', entityId: id, userId: uid,
+      metadata: { unresolvedCount: row.photoRepair?.unresolved.length ?? 0 } });
     return row;
   }
 

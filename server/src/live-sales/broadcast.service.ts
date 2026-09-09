@@ -63,8 +63,9 @@ export class BroadcastService implements OnModuleDestroy {
     try {
       await this.audit.log({ action: 'CREATE', entityType: 'live_broadcast', entityId: id, userId: uid, metadata: { platform: session.platform } });
       const child = spawn(binary, ['-hide_banner', '-loglevel', 'error', '-nostats', '-progress', 'pipe:1',
-        '-protocol_whitelist', 'pipe', '-f', 'webm', '-i', 'pipe:0',
+        '-protocol_whitelist', 'pipe', '-threads', '2', '-f', 'webm', '-i', 'pipe:0',
         '-threads', '2', '-c:v', 'libx264', '-preset', 'veryfast', '-tune', 'zerolatency', '-pix_fmt', 'yuv420p',
+        '-vf', "scale=w='min(720,iw)':h='min(1280,ih)':force_original_aspect_ratio=decrease:force_divisible_by=2",
         '-r', '30', '-g', '60', '-b:v', '2500k', '-maxrate', '3000k', '-bufsize', '5000k',
         '-c:a', 'aac', '-b:a', '128k', '-ar', '44100', '-f', 'flv', target], { windowsHide: true, shell: false });
       const item: Broadcast = { ownerId: uid, process: child, sequence: 0, touched: Date.now(), sending: false, writing: false };
