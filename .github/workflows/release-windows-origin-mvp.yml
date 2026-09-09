@@ -83,6 +83,16 @@ jobs:
           $failed = Join-Path $origin 'server\dist.failed'
           $source = Join-Path $env:GITHUB_WORKSPACE 'server\dist'
 
+          function Remove-Release([string]$Path) {
+            $modules = Join-Path $Path 'node_modules'
+            $item = Get-Item -LiteralPath $modules -Force -ErrorAction SilentlyContinue
+            if ($item -and ($item.Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+              # Remove only the junction, never recurse into the shared cache.
+              [IO.Directory]::Delete($modules)
+            }
+            Remove-Item -LiteralPath $Path -Recurse -Force
+          }
+
           function Get-OriginProcesses {
             @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
               Where-Object {
@@ -163,34 +173,43 @@ jobs:
           New-Item -ItemType Directory -Force -Path $logs | Out-Null
           foreach ($path in @($next, $failed)) {
             if (Test-Path -LiteralPath $path) {
-              Remove-Item -LiteralPath $path -Recurse -Force
+              Remove-Release $path
             }
           }
           Copy-Item -LiteralPath $source -Destination $next -Recurse -Force
-          # Ship the exact runtime dependencies alongside dist so new imports
-          # never depend on stale packages in the installed origin. Rollback
-          # swaps this directory together with its dependencies.
+          # Immutable dependencies keyed by lockfile AND runtime ABI/platform.
+          # Releases with unchanged dependencies share a junction. Rollback
+          # retains its original dependency target; never update a live cache.
           $dependencies = Join-Path $env:GITHUB_WORKSPACE 'server\node_modules'
           if (-not (Test-Path -LiteralPath $dependencies -PathType Container)) {
             throw 'Production runtime dependencies are missing; leaving the current release running.'
           }
-          # robocopy, not Copy-Item: a dependency tree nests deep enough to pass
-          # the 260-character path limit that Copy-Item still fails on, and an
-          # abort here leaves the origin on its old release. /NP keeps the log
-          # readable, /MT parallelises the many small files. robocopy signals
-          # success with exit codes 0-7; 8 and above are real failures.
-          & robocopy.exe $dependencies (Join-Path $next 'node_modules') /E /NFL /NDL /NJH /NJS /NP /R:2 /W:2 /MT:16 | Out-Null
-          if ($LASTEXITCODE -ge 8) {
-            throw "Copying the production runtime dependencies failed (robocopy exit code $LASTEXITCODE); leaving the current release running."
+          $lockHash = (Get-FileHash -Algorithm SHA256 (Join-Path $env:GITHUB_WORKSPACE 'server\package-lock.json')).Hash.ToLower()
+          $runtime = (& node.exe -p "[process.platform,process.arch,process.versions.modules].join('-')").Trim()
+          if ($LASTEXITCODE -ne 0) { throw 'Could not determine the Node runtime ABI.' }
+          $cacheRoot = Join-Path $origin 'server\runtime-deps'
+          $cache = Join-Path $cacheRoot "$runtime-$lockHash"
+          if (-not (Test-Path -LiteralPath (Join-Path $cache '.complete'))) {
+            $staging = "$cache.staging"
+            New-Item -ItemType Directory -Force -Path $staging | Out-Null
+            & robocopy.exe $dependencies $staging /MIR /NFL /NDL /NJH /NJS /NP /R:2 /W:2 /MT:16 | Out-Null
+            if ($LASTEXITCODE -ge 8) { throw 'Preparing runtime dependencies failed; current release is still running.' }
+            Set-Content -LiteralPath (Join-Path $staging '.complete') -Value $lockHash
+            if (Test-Path -LiteralPath $cache) { throw 'Incomplete dependency cache requires operator inspection.' }
+            Move-Item -LiteralPath $staging -Destination $cache
           }
           $global:LASTEXITCODE = 0
+          New-Item -ItemType Junction -Path (Join-Path $next 'node_modules') -Target $cache | Out-Null
+          $env:KOBE_RELEASE_ENTRY = Join-Path $next 'main.js'
+          & node.exe -e "const r=require('module').createRequire(process.env.KOBE_RELEASE_ENTRY); r('sharp')({create:{width:2,height:2,channels:3,background:'red'}}).webp().toBuffer().then(()=>{require('child_process').execFileSync(r('ffmpeg-static'),['-version'],{stdio:'ignore',timeout:10000});}).catch(()=>process.exit(1));"
+          if ($LASTEXITCODE -ne 0) { throw 'Photo or camera runtime preflight failed; current release is still running.' }
           Set-Content -LiteralPath $lock -Value '${{ github.sha }}' -Encoding ASCII
 
           try {
             Start-Sleep -Seconds 5
             Stop-OriginRuntime
             if (Test-Path -LiteralPath $previous) {
-              Remove-Item -LiteralPath $previous -Recurse -Force
+              Remove-Release $previous
             }
             Move-Item -LiteralPath $current -Destination $previous
             Move-Item -LiteralPath $next -Destination $current

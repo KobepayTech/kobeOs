@@ -13,6 +13,27 @@ jest.mock('tiktok-live-connector', () => ({
 }));
 
 describe('phone TikTok chat lifecycle', () => {
+  it('caps simultaneous requests per owner and globally, then admits a waiting session after stop', async () => {
+    process.env.TIKTOK_LIVE_MAX_CONNECTIONS = '2';
+    process.env.TIKTOK_LIVE_MAX_PER_OWNER = '1';
+    const clients: { connect: jest.Mock; disconnect: jest.Mock }[] = [];
+    (TikTokLiveConnection as unknown as jest.Mock).mockImplementation(() => {
+      const client = Object.assign(new EventEmitter(), { connect: jest.fn().mockResolvedValue({}), disconnect: jest.fn().mockResolvedValue(undefined) });
+      clients.push(client); return client;
+    });
+    const service = new TikTokCommentsService({} as Repository<LiveSession>, {} as Repository<SocialAccount>, {} as LiveSaleService);
+    const session = (id: string, ownerId: string) => ({ id, ownerId, sourceHandle: 'shop', platform: 'tiktok', kind: 'live', status: 'LIVE' } as LiveSession);
+    try {
+      await Promise.all([service.start(session('a', 'one')), service.start(session('b', 'one')), service.start(session('c', 'two')), service.start(session('d', 'three'))]);
+      expect(clients).toHaveLength(2);
+      expect(service.status('b').detail).toContain('capacity');
+      expect(service.status('d').detail).toContain('capacity');
+      await service.stop('a');
+      await service.start(session('b', 'one'));
+      expect(clients).toHaveLength(3);
+      expect(service.status('b').status).toBe('connected');
+    } finally { await service.onModuleDestroy(); delete process.env.TIKTOK_LIVE_MAX_CONNECTIONS; delete process.env.TIKTOK_LIVE_MAX_PER_OWNER; }
+  });
   it('opens one connection, saves live comments and disconnects on end', async () => {
     const client = Object.assign(new EventEmitter(), { connect: jest.fn().mockResolvedValue({}), disconnect: jest.fn().mockResolvedValue(undefined) });
     (TikTokLiveConnection as unknown as jest.Mock).mockImplementation(() => client);

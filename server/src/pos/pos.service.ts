@@ -27,17 +27,31 @@ export class ProductsService {
     return item;
   }
 
+  async photoIssues(uid: string) {
+    return this.repo.createQueryBuilder('product').select(['product.id', 'product.name', 'product.photoRepair'])
+      .where('product."ownerId" = :uid', { uid })
+      .andWhere('jsonb_array_length(product."photoRepair"->\'unresolved\') > 0').take(500).getMany();
+  }
+
+  async retryPhoto(uid: string, id: string) {
+    const row = await this.get(uid, id);
+    await repairCatalogImages(this.repo, uid, [row], true);
+    return row;
+  }
+
   async create(uid: string, dto: CreateProductDto) {
     // Direct catalogue creation is deliberately treated as a Quick Add
     // import. PO-origin products must be created by the receiving workflow so
     // stock and costs remain linked to the purchase order.
     const sku = dto.sku?.trim() || (await this.generateSku(uid, dto.name));
-    return this.repo.save(this.repo.create({
+    const product = await this.repo.save(this.repo.create({
       ...dto,
       sku,
       ownerId: uid,
       sourceType: dto.sourceType ?? 'QUICK_ADD_IMPORT',
     }));
+    await repairCatalogImages(this.repo, uid, [product]);
+    return product;
   }
 
   /**
@@ -57,7 +71,10 @@ export class ProductsService {
   async update(uid: string, id: string, dto: UpdateProductDto) {
     const item = await this.get(uid, id);
     Object.assign(item, dto);
-    return this.repo.save(item);
+    if (dto.imageUrl !== undefined || dto.imageUrls !== undefined) item.photoRepair = null;
+    const saved = await this.repo.save(item);
+    await repairCatalogImages(this.repo, uid, [saved]);
+    return saved;
   }
 
   async remove(uid: string, id: string) {
