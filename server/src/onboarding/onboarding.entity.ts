@@ -1,5 +1,5 @@
 import { Column, Entity, Index } from 'typeorm';
-import { OwnedEntity } from '../common/owned.entity';
+import { BaseEntity } from '../common/base.entity';
 
 /**
  * Steps a new KobeOS account walks through before the desktop is useful.
@@ -37,8 +37,18 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
  * so a stale flag can never strand someone on a step they already finished.
  */
 @Entity('user_onboarding')
-@Index(['ownerId'], { unique: true })
-export class UserOnboarding extends OwnedEntity {
+export class UserOnboarding extends BaseEntity {
+  /**
+   * One row per owner. Declared here rather than inherited from OwnedEntity,
+   * which already puts a plain index on ownerId — keeping both meant two
+   * indexes on the same column and synchronize failing with
+   * "relation ... already exists". StoreSettings is the same shape for the
+   * same reason. The name matches the migration so the two agree.
+   */
+  @Index('IDX_user_onboarding_owner', { unique: true })
+  @Column('uuid')
+  ownerId!: string;
+
   @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })
   skippedSteps!: OnboardingStep[];
 
