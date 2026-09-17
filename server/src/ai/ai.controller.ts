@@ -11,6 +11,7 @@ import { AiOperatingService } from './ai-operating.service';
 import { AiDocsService } from './ai-docs.service';
 import { PdfDocumentService } from './pdf-document.service';
 import { AiChatService } from './ai-chat.service';
+import { AgentExecutionService } from './agent-execution.service';
 
 class AssistantDto {
   @IsString() @MaxLength(2000) message!: string;
@@ -57,6 +58,7 @@ export class AiController {
     private readonly operating: AiOperatingService,
     private readonly pdfDocuments: PdfDocumentService,
     private readonly chatThreads: AiChatService,
+    private readonly executions: AgentExecutionService,
   ) {}
 
   @Post('docs')
@@ -237,6 +239,17 @@ export class AiController {
       promptTokens: data?.usage?.prompt,
       completionTokens: data?.usage?.completion,
     }).catch(() => undefined);
+  }
+
+  @Get('agent/executions')
+  agentExecutions(@CurrentUser('id') uid: string, @Query('limit') limit?: string) {
+    return this.executions.recent(uid, limit ? Number(limit) : 50);
+  }
+
+  @Get('agent/activity')
+  @ApiOperation({ summary: 'Tool health for this account: runs, failures, cache hits, slowest tools' })
+  agentActivity(@CurrentUser('id') uid: string, @Query('hours') hours?: string) {
+    return this.executions.summary(uid, hours ? Number(hours) : 24);
   }
 
   @Get('chat/threads')
