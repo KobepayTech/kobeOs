@@ -1,7 +1,7 @@
-import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Param, Post, Put, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Param, Post, Put, Query, Res, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
 import type { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { IsArray, IsIn, IsObject, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsArray, IsBoolean, IsIn, IsObject, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -10,12 +10,24 @@ import { AgentRequestContext, KobeAgentService } from './agent.service';
 import { AiOperatingService } from './ai-operating.service';
 import { AiDocsService } from './ai-docs.service';
 import { PdfDocumentService } from './pdf-document.service';
+import { AiChatService } from './ai-chat.service';
+import { AgentExecutionService } from './agent-execution.service';
 
 class AssistantDto {
   @IsString() @MaxLength(2000) message!: string;
   @IsOptional() @IsArray() history?: Array<{ role: 'user' | 'assistant'; content: string }>;
   @IsOptional() @IsIn(['fast', 'quality']) mode?: 'fast' | 'quality';
   @IsOptional() @IsObject() context?: AgentRequestContext;
+  /** Continue a saved conversation. Omit to start a new one. */
+  @IsOptional() @IsUUID() threadId?: string;
+}
+
+class RenameThreadDto {
+  @IsString() @MaxLength(200) title!: string;
+}
+
+class ArchiveThreadDto {
+  @IsOptional() @IsBoolean() archived?: boolean;
 }
 
 class ExecuteActionDto {
@@ -45,6 +57,8 @@ export class AiController {
     private readonly aiDocs: AiDocsService,
     private readonly operating: AiOperatingService,
     private readonly pdfDocuments: PdfDocumentService,
+    private readonly chatThreads: AiChatService,
+    private readonly executions: AgentExecutionService,
   ) {}
 
   @Post('docs')
@@ -141,18 +155,25 @@ export class AiController {
     @CurrentUser('role') role: string,
     @Body() dto: AssistantDto,
   ) {
-    const result = await this.agent.run(uid, dto.message, dto.history ?? [], dto.mode ?? 'quality', undefined, undefined, {
+    const thread = await this.chatThreads.openThread(uid, dto.threadId, dto.message, dto.context?.module ?? '');
+    // Saved history is the source of truth once a thread exists; a client that
+    // sends none (a reopened conversation, a second device) still gets context.
+    const history = dto.history?.length ? dto.history : await this.chatThreads.history(uid, thread.id);
+    await this.chatThreads.append(uid, thread.id, 'user', dto.message);
+
+    const result = await this.agent.run(uid, dto.message, history, dto.mode ?? 'quality', undefined, undefined, {
       ...(dto.context || {}),
       role: role || 'user',
     });
     const data = result.data as { model?: string; router?: { domain?: string } } | undefined;
+    await this.persistReply(uid, thread.id, result, data);
     await this.operating.audit(
       uid, uid, role || 'user', 'ASSISTANT_REPLY', data?.router?.domain || dto.context?.module || '',
       dto.message.slice(0, 500), data?.model || '', result.used || '', result.confidence || 0,
       (result.citations || []).map((citation) => ({ ...citation })),
       { needsVerification: result.needsVerification, specialist: result.specialist },
     ).catch(() => undefined);
-    return result;
+    return { ...result, threadId: thread.id };
   }
 
   @Post('assistant/stream')
@@ -167,11 +188,17 @@ export class AiController {
     const send = (event: string, data: unknown) => {
       if (!res.writableEnded) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
     };
+    const thread = await this.chatThreads.openThread(uid, dto.threadId, dto.message, dto.context?.module ?? '');
+    const history = dto.history?.length ? dto.history : await this.chatThreads.history(uid, thread.id);
+    await this.chatThreads.append(uid, thread.id, 'user', dto.message);
+    // Told up front so the client can bind the reply to a thread even if the
+    // stream later fails.
+    send('thread', { threadId: thread.id, title: thread.title });
     try {
       const result = await this.agent.run(
         uid,
         dto.message,
-        dto.history ?? [],
+        history,
         dto.mode ?? 'quality',
         (token) => send('token', { token }),
         (activity) => send('activity', activity),
@@ -184,12 +211,70 @@ export class AiController {
         (result.citations || []).map((citation) => ({ ...citation })),
         { needsVerification: result.needsVerification, specialist: result.specialist, streamed: true },
       ).catch(() => undefined);
-      send('done', result);
+      await this.persistReply(uid, thread.id, result, data);
+      send('done', { ...result, threadId: thread.id });
     } catch (error) {
       send('error', { message: error instanceof Error ? error.message : String(error) });
     } finally {
       res.end();
     }
+  }
+
+  /**
+   * Save the assistant's turn. Failures here must never lose the answer the
+   * user is already reading, so this is best-effort and logged by the caller's
+   * response rather than thrown.
+   */
+  private async persistReply(
+    uid: string,
+    threadId: string,
+    result: { reply?: string },
+    data: { model?: string; provider?: string; usage?: { prompt?: number; completion?: number } } | undefined,
+  ): Promise<void> {
+    const answer = result.reply ?? '';
+    if (!answer) return;
+    await this.chatThreads.append(uid, threadId, 'assistant', answer, {
+      model: data?.model,
+      provider: data?.provider,
+      promptTokens: data?.usage?.prompt,
+      completionTokens: data?.usage?.completion,
+    }).catch(() => undefined);
+  }
+
+  @Get('agent/executions')
+  agentExecutions(@CurrentUser('id') uid: string, @Query('limit') limit?: string) {
+    return this.executions.recent(uid, limit ? Number(limit) : 50);
+  }
+
+  @Get('agent/activity')
+  @ApiOperation({ summary: 'Tool health for this account: runs, failures, cache hits, slowest tools' })
+  agentActivity(@CurrentUser('id') uid: string, @Query('hours') hours?: string) {
+    return this.executions.summary(uid, hours ? Number(hours) : 24);
+  }
+
+  @Get('chat/threads')
+  listThreads(@CurrentUser('id') uid: string, @Query('archived') archived?: string) {
+    return this.chatThreads.listThreads(uid, archived === 'true');
+  }
+
+  @Get('chat/threads/:id')
+  thread(@CurrentUser('id') uid: string, @Param('id') id: string) {
+    return this.chatThreads.thread(uid, id);
+  }
+
+  @Put('chat/threads/:id')
+  renameThread(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: RenameThreadDto) {
+    return this.chatThreads.rename(uid, id, dto.title);
+  }
+
+  @Post('chat/threads/:id/archive')
+  archiveThread(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: ArchiveThreadDto) {
+    return this.chatThreads.archive(uid, id, dto.archived !== false);
+  }
+
+  @Delete('chat/threads/:id')
+  deleteThread(@CurrentUser('id') uid: string, @Param('id') id: string) {
+    return this.chatThreads.remove(uid, id);
   }
 
   @Post('assistant/execute')

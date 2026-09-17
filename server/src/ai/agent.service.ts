@@ -15,6 +15,7 @@ import { AppState } from '../app-state/app-state.entity';
 import { SearchDoc } from '../search/search.entity';
 import { cosine, tokenize, keywordScore, rankByDesc } from '../search/search.service';
 import { AiMemory } from './ai-memory.entity';
+import { AgentExecutionService } from './agent-execution.service';
 import { AiDocsService } from './ai-docs.service';
 import { SystemHealthService } from '../system-health/system-health.service';
 import { BeemService } from '../notifications/beem.service';
@@ -120,6 +121,7 @@ export class KobeAgentService {
     private readonly beem: BeemService,
     private readonly aiDocs: AiDocsService,
     private readonly systemHealth: SystemHealthService,
+    private readonly executions: AgentExecutionService,
   ) {}
 
   /** Durable facts Kobe remembers about this business (empty if none/first run). */
@@ -955,12 +957,25 @@ export class KobeAgentService {
     return [...older, ...recent].slice(-max);
   }
 
+  /**
+   * Every tool call passes through here, so this is where they are recorded.
+   * Timing wraps only the call itself — a cache hit is recorded as such rather
+   * than being counted as a very fast run, which would flatter the numbers.
+   */
   private async runToolCached(ownerId: string, tool: Tool, args: Record<string, unknown>): Promise<ToolResult> {
-    if (!this.cacheableTools.has(tool.name) || tool.write) return tool.run(ownerId, args);
+    if (!this.cacheableTools.has(tool.name) || tool.write) {
+      return this.recorded(ownerId, tool, false, () => tool.run(ownerId, args));
+    }
     const key = `${ownerId}:${tool.name}:${JSON.stringify(args)}`;
     const hit = this.toolCache.get(key);
-    if (hit && hit.expiresAt > Date.now()) return hit.result;
-    const result = await tool.run(ownerId, args);
+    if (hit && hit.expiresAt > Date.now()) {
+      void this.executions.record({
+        ownerId, tool: tool.name, status: 'ok', startedAt: new Date(), durationMs: 0,
+        cached: true, write: !!tool.write,
+      });
+      return hit.result;
+    }
+    const result = await this.recorded(ownerId, tool, false, () => tool.run(ownerId, args));
     this.toolCache.set(key, { expiresAt: Date.now() + 20_000, result });
     if (this.toolCache.size > 500) {
       for (const [cacheKey, value] of this.toolCache) {
@@ -969,6 +984,32 @@ export class KobeAgentService {
       }
     }
     return result;
+  }
+
+  /** Time a tool call and record how it went, whether it succeeded or threw. */
+  private async recorded(
+    ownerId: string,
+    tool: Tool,
+    cached: boolean,
+    call: () => Promise<ToolResult>,
+  ): Promise<ToolResult> {
+    const startedAt = new Date();
+    const started = Date.now();
+    try {
+      const result = await call();
+      void this.executions.record({
+        ownerId, tool: tool.name, status: 'ok', startedAt,
+        durationMs: Date.now() - started, cached, write: !!tool.write,
+      });
+      return result;
+    } catch (cause) {
+      void this.executions.record({
+        ownerId, tool: tool.name, status: 'error', startedAt,
+        durationMs: Date.now() - started, cached, write: !!tool.write,
+        error: cause instanceof Error ? cause.message : String(cause),
+      });
+      throw cause;
+    }
   }
 
   private directToolSummary(tool: string, data: unknown): string | null {
