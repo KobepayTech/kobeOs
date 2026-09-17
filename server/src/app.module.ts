@@ -84,6 +84,7 @@ import { SearchModule } from './search/search.module';
 import { HotelPublicModule } from './hotel-public/hotel-public.module';
 import { HotelOperationsModule } from './hotel/hotel-operations.module';
 import { AppMarketplaceModule } from './app-marketplace/app-marketplace.module';
+import { OnboardingModule } from './onboarding/onboarding.module';
 import { DeveloperPlatformModule } from './developer-platform/developer-platform.module';
 import { MobileMoneyModule } from './mobile-money/mobile-money.module';
 import { KobepayProModule } from './kobepay-pro/kobepay-pro.module';
@@ -156,6 +157,7 @@ import { AccountantModule } from './accountant/accountant.module';
     SearchModule,
     HotelPublicModule,
     AppMarketplaceModule,
+    OnboardingModule,
     DeveloperPlatformModule,
     MzigoModule,
     WarehouseModule,
