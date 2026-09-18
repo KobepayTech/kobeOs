@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { BrowserRouter, HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 
 /* Real OS shell — delegates to the full Desktop environment */
@@ -7,6 +7,8 @@ import { Desktop } from '@/os/Desktop';
 /* Auth & shared chrome */
 import LoginScreen from '@/components/LoginScreen';
 import LiveModeBanner from '@/components/LiveModeBanner';
+import OnboardingChecklist from '@/components/OnboardingChecklist';
+import { fetchOnboarding } from '@/lib/onboarding';
 import { ShopSwitcher } from '@/components/ShopSwitcher';
 
 /* Direct-access pages (outside the OS window manager) */
@@ -85,6 +87,25 @@ export default function App() {
         localStorage.getItem(`kobeos_store_onboarding_complete:${stored.id}`) === 'true';
     })()
   );
+
+  /**
+   * The first-run gate below is a localStorage flag, so a returning user on a
+   * new device — or after clearing site data — was sent back through setup
+   * even though their account was long since configured. The server derives
+   * the real answer from their records, so trust it when it is reachable.
+   */
+  useEffect(() => {
+    if (!user || storeSetupComplete) return;
+    let cancelled = false;
+    void fetchOnboarding().then((state) => {
+      if (cancelled || !state?.completed) return;
+      try {
+        localStorage.setItem(`kobeos_store_onboarding_complete:${user.id}`, 'true');
+      } catch { /* storage may be unavailable */ }
+      setStoreSetupComplete(true);
+    });
+    return () => { cancelled = true; };
+  }, [user, storeSetupComplete]);
 
   const handleLogin = (account: AuthUser, _created: boolean) => {
     useOSStore.getState().setAppEntitlements([]);
@@ -175,6 +196,11 @@ export default function App() {
           element={
             <div className="relative w-screen h-screen overflow-hidden">
               <Desktop />
+              <div className="pointer-events-none fixed bottom-16 right-3 z-40">
+                <div className="pointer-events-auto">
+                  <OnboardingChecklist />
+                </div>
+              </div>
             </div>
           }
         />

@@ -1,9 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { api, apiArray, apiObject, apiSse, ApiError } from '@/lib/api';
+import ConversationHistory from './ConversationHistory';
+import { loadChatThread } from '@/lib/ai-chat';
 import { useOSStore } from '@/os/store';
 import {
   Sparkles, Send, Loader2, User, CheckCircle2, Printer, Mic,
-  Volume2, VolumeX, Paperclip, Wrench,
+  Volume2, VolumeX, Paperclip, Wrench, History,
 } from 'lucide-react';
 
 /** Strip emoji/markdown so the spoken reply sounds natural. */
@@ -145,6 +147,8 @@ export default function KobeAssistant({
 } = {}) {
   const suggestions = (appId && PROMPTS_BY_APP[appId]) || DEFAULT_SUGGESTIONS;
   const [messages, setMessages] = useState<Msg[]>([]);
+  const [threadId, setThreadId] = useState<string | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
   const [input, setInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [listening, setListening] = useState(false);
@@ -444,6 +448,7 @@ export default function KobeAssistant({
             message: q,
             history: [...ctx, ...history],
             mode: responseMode,
+            ...(threadId ? { threadId } : {}),
             context: {
               ...screenContext,
               appId: screenContext.appId || appId,
@@ -453,7 +458,11 @@ export default function KobeAssistant({
           }),
         }, (event, data) => {
           const record = data && typeof data === 'object' ? data as Record<string, unknown> : {};
-          if (event === 'activity' && typeof record.label === 'string') {
+          if (event === 'thread' && typeof record.threadId === 'string') {
+            // Sent before the first token so the reply is bound to a saved
+            // conversation even if the stream later fails.
+            setThreadId(record.threadId);
+          } else if (event === 'activity' && typeof record.label === 'string') {
             setActivity(record as unknown as AssistantActivity);
           } else if (event === 'token' && typeof record.token === 'string') {
             streamed += record.token;
@@ -721,11 +730,44 @@ export default function KobeAssistant({
     }
   };
 
+  /** Load a saved conversation into the transcript. */
+  const openThread = async (id: string) => {
+    const loaded = await loadChatThread(id);
+    if (!loaded) return;
+    setThreadId(loaded.thread.id);
+    setMessages(loaded.messages.map((m) => ({ role: m.role, content: m.content })));
+    setShowHistory(false);
+  };
+
+  /** Drop the thread binding so the next question opens a fresh conversation. */
+  const startNewConversation = () => {
+    setThreadId(null);
+    setMessages([]);
+    setShowHistory(false);
+  };
+
   return (
-    <div className="flex flex-col h-full bg-[#0c0c1a] text-white/90">
+    <div className="flex h-full bg-[#0c0c1a] text-white/90">
+      {showHistory && (
+        <ConversationHistory
+          activeThreadId={threadId}
+          onOpen={openThread}
+          onNew={startNewConversation}
+          onClose={() => setShowHistory(false)}
+        />
+      )}
+      <div className="flex min-w-0 flex-1 flex-col">
       <div className="shrink-0 px-4 py-3 border-b border-white/[0.06] flex items-center gap-2">
         <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 grid place-items-center"><Sparkles className="w-4 h-4" /></div>
         <div className="flex-1"><div className="text-sm font-semibold">Ask Kobe</div><div className="text-[10px] text-white/40">{contextLabel ? `Working in ${contextLabel} · local AI` : 'Chat with your business · runs on your local AI'}</div></div>
+        <button
+          type="button"
+          onClick={() => setShowHistory((visible) => !visible)}
+          title="Saved conversations"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.05] px-2.5 py-1.5 text-[10px] font-semibold text-white/70 hover:bg-white/[0.09] hover:text-white"
+        >
+          <History className="h-3.5 w-3.5" /> History
+        </button>
         <button
           type="button"
           onClick={() => setShowSkills((visible) => !visible)}
@@ -885,6 +927,7 @@ export default function KobeAssistant({
         )}
         <button type="submit" disabled={busy || !input.trim()} className="h-10 w-10 grid place-items-center rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40"><Send className="w-4 h-4" /></button>
       </form>
+      </div>
     </div>
   );
 }
