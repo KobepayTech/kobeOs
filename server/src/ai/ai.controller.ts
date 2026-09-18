@@ -12,6 +12,7 @@ import { AiDocsService } from './ai-docs.service';
 import { PdfDocumentService } from './pdf-document.service';
 import { AiChatService } from './ai-chat.service';
 import { AgentExecutionService } from './agent-execution.service';
+import { GuardrailService } from './guardrail.service';
 
 class AssistantDto {
   @IsString() @MaxLength(2000) message!: string;
@@ -20,6 +21,12 @@ class AssistantDto {
   @IsOptional() @IsObject() context?: AgentRequestContext;
   /** Continue a saved conversation. Omit to start a new one. */
   @IsOptional() @IsUUID() threadId?: string;
+}
+
+class SaveGuardrailsDto {
+  @IsOptional() @IsBoolean() enabled?: boolean;
+  /** Validated and filtered server-side by sanitiseRules. */
+  @IsOptional() @IsArray() rules?: unknown[];
 }
 
 class RenameThreadDto {
@@ -59,6 +66,7 @@ export class AiController {
     private readonly pdfDocuments: PdfDocumentService,
     private readonly chatThreads: AiChatService,
     private readonly executions: AgentExecutionService,
+    private readonly guardrails: GuardrailService,
   ) {}
 
   @Post('docs')
@@ -155,6 +163,7 @@ export class AiController {
     @CurrentUser('role') role: string,
     @Body() dto: AssistantDto,
   ) {
+    await this.guardrails.assertInputAllowed(uid, dto.message);
     const thread = await this.chatThreads.openThread(uid, dto.threadId, dto.message, dto.context?.module ?? '');
     // Saved history is the source of truth once a thread exists; a client that
     // sends none (a reopened conversation, a second device) still gets context.
@@ -188,6 +197,7 @@ export class AiController {
     const send = (event: string, data: unknown) => {
       if (!res.writableEnded) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
     };
+    await this.guardrails.assertInputAllowed(uid, dto.message);
     const thread = await this.chatThreads.openThread(uid, dto.threadId, dto.message, dto.context?.module ?? '');
     const history = dto.history?.length ? dto.history : await this.chatThreads.history(uid, thread.id);
     await this.chatThreads.append(uid, thread.id, 'user', dto.message);
@@ -239,6 +249,17 @@ export class AiController {
       promptTokens: data?.usage?.prompt,
       completionTokens: data?.usage?.completion,
     }).catch(() => undefined);
+  }
+
+  @Get('agent/guardrails')
+  @ApiOperation({ summary: 'Guardrails in force for this account, plus suggested rules' })
+  async getGuardrails(@CurrentUser('id') uid: string) {
+    return { ...(await this.guardrails.get(uid)), suggestions: this.guardrails.suggestions() };
+  }
+
+  @Put('agent/guardrails')
+  saveGuardrails(@CurrentUser('id') uid: string, @Body() dto: SaveGuardrailsDto) {
+    return this.guardrails.save(uid, dto);
   }
 
   @Get('agent/executions')
