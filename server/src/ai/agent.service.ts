@@ -16,6 +16,7 @@ import { SearchDoc } from '../search/search.entity';
 import { cosine, tokenize, keywordScore, rankByDesc } from '../search/search.service';
 import { AiMemory } from './ai-memory.entity';
 import { AgentExecutionService } from './agent-execution.service';
+import { GuardrailService } from './guardrail.service';
 import { AiDocsService } from './ai-docs.service';
 import { SystemHealthService } from '../system-health/system-health.service';
 import { BeemService } from '../notifications/beem.service';
@@ -122,6 +123,7 @@ export class KobeAgentService {
     private readonly aiDocs: AiDocsService,
     private readonly systemHealth: SystemHealthService,
     private readonly executions: AgentExecutionService,
+    private readonly guardrails: GuardrailService,
   ) {}
 
   /** Durable facts Kobe remembers about this business (empty if none/first run). */
@@ -996,6 +998,9 @@ export class KobeAgentService {
     const startedAt = new Date();
     const started = Date.now();
     try {
+      // Checked here rather than at the call sites so no tool path can bypass
+      // it, and so a block is recorded like any other outcome.
+      await this.guardrails.assertToolAllowed(ownerId, tool.name, !!tool.write, startedAt);
       const result = await call();
       void this.executions.record({
         ownerId, tool: tool.name, status: 'ok', startedAt,

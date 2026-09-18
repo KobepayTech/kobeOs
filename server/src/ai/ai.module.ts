@@ -7,6 +7,8 @@ import { AiOperatingController } from './ai-operating.controller';
 import { KobeAgentService } from './agent.service';
 import { AiDocsService } from './ai-docs.service';
 import { AiMemory } from './ai-memory.entity';
+import { AiGuardrailConfig } from './guardrail.entity';
+import { GuardrailService } from './guardrail.service';
 import { AiAgentExecution } from './agent-execution.entity';
 import { AgentExecutionService } from './agent-execution.service';
 import { AiChatMessage, AiChatThread } from './ai-chat.entity';
@@ -43,14 +45,14 @@ import { OcrModule } from '../ocr/ocr.module';
       ShopExpense, Parcel, Shop, AppState, SearchDoc, AiScheduledAgent, AiAgentRun, AiMemory,
       AiDocument, AiDocChunk, AiSkillInstall, AiMemoryNode, AiMemoryEdge,
       AiWorkflowPlan, AiApprovalRequest, AiOperatingAudit, AiDashboardSpec, AiInsight,
-      AiChatThread, AiChatMessage, AiAgentExecution,
+      AiChatThread, AiChatMessage, AiAgentExecution, AiGuardrailConfig,
     ]),
     NotificationsModule,
     SystemHealthModule,
     OcrModule,
   ],
-  providers: [AiService, KobeAgentService, ScheduledAgentService, AiDocsService, AiOperatingService, PdfDocumentService, AiChatService, AgentExecutionService],
+  providers: [AiService, KobeAgentService, ScheduledAgentService, AiDocsService, AiOperatingService, PdfDocumentService, AiChatService, AgentExecutionService, GuardrailService],
   controllers: [AiController, ScheduledAgentController, AiOperatingController],
-  exports: [AiService, KobeAgentService, ScheduledAgentService, AiDocsService, AiOperatingService, PdfDocumentService, AiChatService, AgentExecutionService],
+  exports: [AiService, KobeAgentService, ScheduledAgentService, AiDocsService, AiOperatingService, PdfDocumentService, AiChatService, AgentExecutionService, GuardrailService],
 })
 export class AiModule {}
