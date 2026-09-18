@@ -36,6 +36,8 @@ export class PosController {
   }
 
   @Get('products') listProducts(@CurrentUser('id') uid: string) { return this.products.list(uid); }
+  @Get('products/photo-issues') photoIssues(@CurrentUser('id') uid: string) { return this.products.photoIssues(uid); }
+  @Post('products/:id/retry-photo') retryPhoto(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.products.retryPhoto(uid, id); }
   @Get('products/:id') getProduct(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.products.get(uid, id); }
   @Post('products') createProduct(@CurrentUser('id') uid: string, @Body() dto: CreateProductDto) { return this.products.create(uid, dto); }
   @Patch('products/:id') updateProduct(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: UpdateProductDto) { return this.products.update(uid, id, dto); }

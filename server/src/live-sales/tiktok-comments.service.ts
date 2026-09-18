@@ -19,6 +19,15 @@ export class TikTokCommentsService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(TikTokCommentsService.name);
   private readonly connections = new Map<string, ConnectionState>();
   private readonly starting = new Map<string, Promise<void>>();
+  // Reserve before any await: simultaneous requests must share the same cap.
+  private readonly owners = new Map<string, string>();
+  private readonly deferred = new Set<string>();
+  private readonly maxConnections = this.limit('TIKTOK_LIVE_MAX_CONNECTIONS', 50);
+  private readonly maxPerOwner = this.limit('TIKTOK_LIVE_MAX_PER_OWNER', 2);
+  private limit(name: string, fallback: number) {
+    const n = Number(process.env[name]);
+    return Number.isInteger(n) && n > 0 ? Math.min(n, 500) : fallback;
+  }
   private reconciling = false;
   private stopped = false;
   constructor(
@@ -46,9 +55,21 @@ export class TikTokCommentsService implements OnModuleInit, OnModuleDestroy {
     } finally { this.reconciling = false; }
   }
   start(session: LiveSession): Promise<void> {
+    if (this.stopped || session.platform !== 'tiktok' || session.kind !== 'live' || session.status !== 'LIVE') return Promise.resolve();
     const pending = this.starting.get(session.id);
     if (pending) return pending;
-    const task = this.connect(session).finally(() => this.starting.delete(session.id));
+    if (process.env.TIKTOK_LIVE_CONNECTOR_ENABLED === 'false' || (!this.owners.has(session.id) &&
+      (this.owners.size >= this.maxConnections || [...this.owners.values()].filter(owner => owner === session.ownerId).length >= this.maxPerOwner))) {
+      if (this.deferred.size >= 1000) this.deferred.delete(this.deferred.values().next().value!);
+      this.deferred.add(session.id);
+      return Promise.resolve();
+    }
+    this.deferred.delete(session.id);
+    this.owners.set(session.id, session.ownerId);
+    const task = this.connect(session).finally(() => {
+      this.starting.delete(session.id);
+      if (!this.connections.has(session.id)) this.owners.delete(session.id);
+    });
     this.starting.set(session.id, task);
     return task;
   }
@@ -102,9 +123,14 @@ export class TikTokCommentsService implements OnModuleInit, OnModuleDestroy {
     await this.starting.get(id)?.catch(() => undefined);
     const state = this.connections.get(id);
     this.connections.delete(id);
+    this.owners.delete(id);
+    this.deferred.delete(id);
     if (state) await state.client.disconnect().catch(() => undefined);
   }
   status(id: string) {
+    if (this.deferred.has(id)) return { status: 'waiting', detail: process.env.TIKTOK_LIVE_CONNECTOR_ENABLED === 'false'
+      ? 'Automatic TikTok comments are disabled by this server. Use the external comment bridge.'
+      : 'Comment connection capacity reached. End another live session; KobeOS will retry automatically.', lastCommentAt: null };
     const state = this.connections.get(id);
     return state ? { status: state.status, detail: state.detail, lastCommentAt: state.lastCommentAt }
       : { status: 'waiting', detail: 'Select a connected TikTok account to receive phone-live comments.', lastCommentAt: null };

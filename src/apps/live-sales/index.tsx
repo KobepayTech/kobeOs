@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import CameraBroadcast from './CameraBroadcast';
+import PhotoRepairReport from './PhotoRepairReport';
 import { api as localApi, apiBase, accountApiBase, cloudApi, hasCloudSession } from '@/lib/api';
 const api = <T,>(path: string, init: RequestInit = {}) => localApi<T>(path, { ...init, offlineFallback: false });
 const usesCloudAccounts = () => accountApiBase() !== apiBase() && hasCloudSession();
@@ -124,7 +126,7 @@ export default function LiveSales() {
     setStarting(true);
     try {
       const existing = sessions.find(s => s.platform === platform && s.kind !== 'post' && s.status === 'LIVE' && (!account || s.socialAccountId === account.id || s.sourceHandle === account.accountHandle));
-      const session = existing || await api<Session>('/live-sales', { method: 'POST', body: JSON.stringify({ title: 'Phone live sale', platform, socialAccountId: account?.cloud ? undefined : account?.id, cloudAccount: !!account?.cloud, sourceHandle: account?.accountHandle || undefined }) });
+      const session = existing || await api<Session>('/live-sales', { method: 'POST', body: JSON.stringify({ title: 'Live sale', platform, socialAccountId: account?.cloud ? undefined : account?.id, cloudAccount: !!account?.cloud, sourceHandle: account?.accountHandle || undefined }) });
       setActive(session);
     } catch (e) { setNotice((e as Error).message || 'Could not open live selling.'); }
     finally { setStarting(false); }
@@ -168,7 +170,7 @@ export default function LiveSales() {
           {context.catalogUrl && <button onClick={() => navigator.clipboard?.writeText(context.catalogUrl)} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-slate-700 bg-slate-800 text-slate-200 text-sm font-bold"><Copy className="w-4 h-4" /> Copy live shop</button>}
           <button onClick={startPost} className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-bold"><MessageCircle className="w-4 h-4" /> Post campaign</button>
           <div className="relative">
-            <button disabled={starting} onClick={() => setPlatformMenu((v) => !v)} className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-sm font-bold"><Play className="w-4 h-4" /> {starting ? 'Opening…' : 'Continue phone live'}</button>
+            <button disabled={starting} onClick={() => setPlatformMenu((v) => !v)} className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-sm font-bold"><Play className="w-4 h-4" /> {starting ? 'Opening…' : 'Open live selling'}</button>
             {platformMenu && (
               <div className="absolute right-0 z-30 mt-1 w-48 rounded-lg border border-white/10 bg-slate-900 p-1 shadow-xl">
                 {LIVE_PLATFORMS.flatMap(([id, label]) => {
@@ -182,8 +184,9 @@ export default function LiveSales() {
       </div>
 
       <div className="p-5 space-y-6">
+        <PhotoRepairReport />
         <div className="rounded-xl border border-slate-800 p-4 text-sm text-slate-300">
-          <p>Keep streaming from Instagram or TikTok on your phone. Open live selling here, pin your products and share your live-shop link. Keep the store computer online for comments and checkout.</p>
+          <p>Stream from your phone, or open a selling session and choose “Broadcast from KobeOS” to use this computer’s camera with a platform-issued stream URL and key. Pin products and share your live-shop link. Keep the store computer online for comments and checkout.</p>
           <div className="mt-2 flex flex-wrap gap-2">{accounts.filter(a => a.connected && ['instagram', 'tiktok'].includes(a.platform)).map(a => <span key={`${a.cloud}-${a.id}`} className="rounded bg-slate-800 px-2 py-1 text-xs">{a.platform} · {a.accountHandle}</span>)}<button onClick={loadSessions} className="text-fuchsia-300 underline">Refresh accounts</button></div>
         </div>
         {notice && <div className="flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200"><span>{notice}</span><button onClick={() => setNotice(null)} className="text-amber-300 hover:text-white">×</button></div>}
@@ -365,11 +368,12 @@ function SessionConsole({ session, context, accounts, onOpenKds, onBack }: { ses
       </div>
 
       {!ended && session.kind !== 'post' && <div className="mx-3 mt-3 rounded-lg border border-slate-700 bg-slate-900 p-3 text-xs space-y-1" role="status">
-        <p className="font-semibold">Keep your phone streaming{(connection?.accountHandle || session.sourceHandle) ? ` as ${connection?.accountHandle || session.sourceHandle}` : ''}.</p>
+        <p className="font-semibold">Live comments{(connection?.accountHandle || session.sourceHandle) ? ` for ${connection?.accountHandle || session.sourceHandle}` : ''}. Broadcast from your phone or use the camera controls below.</p>
         <p className={feedError || connectionError ? 'text-amber-300' : 'text-slate-300'}>{feedError || connectionError || (session.platform === 'tiktok' ? connection?.bridge?.detail || 'Checking TikTok comments…' : session.platform === 'instagram' ? !connection ? 'Connecting phone comments…' : !connection.connected ? 'Account connection needs attention in Creator.' : !connection.webhookSubscribed ? 'Instagram is connected; Live Comments still needs Meta webhook setup.' : 'Instagram comments are subscribed. Waiting for comments from your phone live.' : 'Automatic phone comments need a configured bridge for this platform.')}</p>
         <p className="text-slate-400">Pin a product code such as A1. Buyers comment “A1 x2” to reserve, or buy through the live-shop link. Instagram can send a private checkout reply; TikTok buyers use the live shop. Ending selling here leaves your phone broadcast running.</p>
         {comments.some(c => c.source === session.platform) && <p className="text-emerald-300">Last received comment: {new Date(comments.filter(c => c.source === session.platform).sort((a,b) => b.createdAt.localeCompare(a.createdAt))[0].createdAt).toLocaleTimeString()}</p>}
       </div>}
+      {!ended && session.kind !== 'post' && ['instagram', 'tiktok'].includes(session.platform) && <CameraBroadcast sessionId={session.id} platform={session.platform} />}
       {/* Stats */}
       <div className="grid grid-cols-4 gap-2 p-3 shrink-0">
         <Stat label="Sales" value={money(stats?.totalSales ?? 0, session.currency)} Icon={TrendingUp} tone="text-emerald-400" />

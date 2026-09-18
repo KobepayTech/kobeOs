@@ -1,4 +1,7 @@
 import { TikTokCommentsService } from './tiktok-comments.service';
+import { BroadcastController } from './broadcast.controller';
+import { BroadcastService } from './broadcast.service';
+import { AuditModule } from '../audit/audit.module';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ConfigModule } from '@nestjs/config';
@@ -15,12 +18,13 @@ import { InstagramService } from './instagram.service';
 
 @Module({
   imports: [
+    AuditModule,
     TypeOrmModule.forFeature([LiveSession, LivePin, LiveComment, PosProduct, PosOrder, StoreSettings, SocialAccount]),
     ConfigModule,
     PosModule, // provides OrdersService (atomic stock decrement)
   ],
-  providers: [TikTokCommentsService, LiveSaleService, InstagramService, PalmPesaService, ApifyService],
-  controllers: [LiveSaleController, LiveSaleIngestController, LiveSalePublicController, LiveSaleInstagramPublicController],
+  providers: [BroadcastService, TikTokCommentsService, LiveSaleService, InstagramService, PalmPesaService, ApifyService],
+  controllers: [BroadcastController, LiveSaleController, LiveSaleIngestController, LiveSalePublicController, LiveSaleInstagramPublicController],
   exports: [LiveSaleService],
 })
 export class LiveSaleModule {}

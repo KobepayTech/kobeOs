@@ -29,24 +29,26 @@ function remember(ownerId: string, ids: string[]) {
 }
 
 /** Upgrade only this owner's saved product-photo references, never arbitrary files. */
-export async function repairCatalogImages(repo: Repository<PosProduct>, ownerId: string, rows: PosProduct[]) {
+export async function repairCatalogImages(repo: Repository<PosProduct>, ownerId: string, rows: PosProduct[], retry = false) {
   const legacyId = (url: string | null | undefined) => /^\/api\/media\/blob\/([a-f0-9-]{36})$/i.exec(url || '')?.[1];
-  const ids = [...new Set(rows.flatMap((row) => [row.imageUrl, ...(row.imageUrls || [])]).map(legacyId).filter((id): id is string => !!id))];
+  const source = (row: PosProduct) => JSON.stringify([row.imageUrl ?? null, row.imageUrls || []]);
+  const pending = rows.filter(row => row.ownerId === ownerId && (retry || row.photoRepair?.source !== source(row)));
+  const ids = [...new Set(pending.flatMap((row) => [row.imageUrl, ...(row.imageUrls || [])]).map(legacyId).filter((id): id is string => !!id))];
   if (!ids.length) return rows;
+  if (retry) for (const id of ids) unresolvable.delete(`${ownerId}:${id}`);
   const links = await publicPhotoLinks(repo.manager.getRepository(MediaAsset), ownerId, ids);
   const resolve = (url: string) => links.get(legacyId(url) || '') || url;
-  for (const row of rows) {
+  for (const row of pending) {
     const imageUrl = row.imageUrl ? resolve(row.imageUrl) : row.imageUrl;
     const imageUrls = (row.imageUrls || []).map(resolve);
-    // Conditional updates cannot overwrite a product edited during this read.
-    if (imageUrl !== row.imageUrl) {
-      await repo.createQueryBuilder().update().set({ imageUrl }).where('id = :id AND "ownerId" = :ownerId AND "imageUrl" = :old', { id: row.id, ownerId, old: row.imageUrl }).execute();
-      row.imageUrl = imageUrl;
-    }
-    if (JSON.stringify(imageUrls) !== JSON.stringify(row.imageUrls || [])) {
-      await repo.createQueryBuilder().update().set({ imageUrls }).where('id = :id AND "ownerId" = :ownerId AND "imageUrls" = :old::jsonb', { id: row.id, ownerId, old: JSON.stringify(row.imageUrls || []) }).execute();
-      row.imageUrls = imageUrls;
-    }
+    const photoRepair = { source: JSON.stringify([imageUrl ?? null, imageUrls]),
+      unresolved: [imageUrl, ...imageUrls].filter((url): url is string => !!legacyId(url)), checkedAt: new Date().toISOString() };
+    // One atomic compare-and-swap preserves concurrent gallery edits and saves
+    // misses durably. A restart or cache expiry no longer repeats the lookup.
+    const result = await repo.createQueryBuilder().update().set({ imageUrl, imageUrls, photoRepair })
+      .where('id = :id AND "ownerId" = :ownerId AND "imageUrl" IS NOT DISTINCT FROM :old AND COALESCE("imageUrls", \'[]\'::jsonb) = :oldGallery::jsonb',
+        { id: row.id, ownerId, old: row.imageUrl ?? null, oldGallery: JSON.stringify(row.imageUrls || []) }).execute();
+    if (result?.affected === 1) Object.assign(row, { imageUrl, imageUrls, photoRepair });
   }
   return rows;
 }

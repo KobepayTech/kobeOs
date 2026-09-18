@@ -31,6 +31,9 @@ export interface ProductVariant {
 
 @Entity('pos_products')
 export class PosProduct extends OwnedEntity {
+  @Column({ type: 'jsonb', nullable: true })
+  photoRepair?: { source: string; unresolved: string[]; checkedAt: string } | null;
+
   @Index({ unique: false })
   @Column()
   sku!: string;
