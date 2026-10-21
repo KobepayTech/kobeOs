@@ -6,7 +6,6 @@ import { MzigoAgent, MzigoCompany, MzigoParcel, MzigoTruckManifest } from './mzi
 import { MzigoService } from './mzigo.service';
 import { MzigoController, MzigoTrackingController, MzigoTrucksController } from './mzigo.controller';
 import { NotificationsModule } from '../notifications/notifications.module';
-import { BeemService } from '../notifications/beem.service';
 
 @Module({
   imports: [
@@ -18,7 +17,7 @@ import { BeemService } from '../notifications/beem.service';
     }),
     NotificationsModule,
   ],
-  providers: [MzigoService, BeemService],
+  providers: [MzigoService],
   controllers: [MzigoController, MzigoTrucksController, MzigoTrackingController],
   exports: [MzigoService],
 })
