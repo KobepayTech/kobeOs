@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { IsEmail, IsEnum, IsInt, IsNumber, IsOptional, IsString, IsUUID, MaxLength, Min } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -33,6 +33,11 @@ class RecordHotelPaymentDto {
 @Controller('hotel/front-desk')
 export class HotelFrontDeskController {
   constructor(private readonly frontDesk: HotelFrontDeskService) {}
+
+  @Get('reservations')
+  listReservations(@CurrentUser('id') uid: string, @Query('limit') limit?: string) {
+    return this.frontDesk.reservations(uid, limit ? Number(limit) : 200);
+  }
 
   @Post('reservations')
   createReservation(@CurrentUser('id') uid: string, @Body() dto: CreateFrontDeskReservationDto) {
