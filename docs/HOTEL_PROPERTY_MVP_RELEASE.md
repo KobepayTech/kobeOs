@@ -4,7 +4,7 @@ This change is a release candidate, not proof of a working production deployment
 
 ## Changes
 
-- The hotel launcher opens the persisted front desk, rooms and KDS workflows. Guest inbox and channel settings remain accessible. Reception operations use a transaction and a room lock shared with Lala's booking path. Failed KDS delivery does not produce a successful receipt in the legacy screen.
+- The hotel launcher keeps the original interface. PR #145 wires its reception actions to persistent front-desk APIs; this PR adds a transaction and a room lock shared with Lala's booking path. Failed KDS delivery does not produce a successful receipt in the legacy screen.
 - Leases support 1, 6 or 12 months per invoice. Monthly rent remains the base rate. Billing is in advance, anchored to the start month; the end date is exclusive. The final invoice covers only remaining calendar months, without daily proration. Existing leases retain monthly billing. The UI defaults new leases to annual billing.
 - Charges are generated only within the lease term and at the configured interval. Payment entry selects an existing charge. Payments, charge allocation and reversals are atomic; a request key prevents duplicate payment retries. Overpayments and tenant/unit/currency mismatches are rejected. Existing unallocated payments are not silently reallocated.
 - Public shop IDs no longer grant ownership. Landlords generate private seven-day, single-use invitations in Property → Marketplace. Generating a new invitation revokes the previous one. Both new Lite businesses and existing businesses need an invitation.
