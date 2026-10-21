@@ -65,6 +65,7 @@ import {
   Coffee, ChefHat, Brush, CircleDollarSign,
   Globe2, MessageSquare,
 } from 'lucide-react';
+import { serverRoomId, stableId, toGuestRow, toRoomRow, type RoomStatus } from './room-mapping';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PhotoUpload } from '@/components/PhotoUpload';
@@ -77,9 +78,9 @@ import { QRCodeSVG } from 'qrcode.react';
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 // ─── Types ───────────────────────────────────────────────────────────
-type RoomStatus = 'available' | 'occupied' | 'cleaning' | 'maintenance';
+
 interface Room {
-  id: number;
+  id: number | string;
   number: string;
   type: string;
   status: RoomStatus;
@@ -231,6 +232,7 @@ function statusBadge(status: RoomStatus | string) {
     occupied: { color: 'bg-red-500/20 text-red-400 border-red-500/30', label: 'Occupied' },
     cleaning: { color: 'bg-amber-500/20 text-amber-400 border-amber-500/30', label: 'Cleaning' },
     maintenance: { color: 'bg-slate-500/20 text-slate-400 border-slate-500/30', label: 'Maintenance' },
+    reserved: { color: 'bg-blue-500/20 text-blue-400 border-blue-500/30', label: 'Reserved' },
     'Checked-in': { color: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30', label: 'Checked-in' },
     'Checked-out': { color: 'bg-slate-500/20 text-slate-400 border-slate-500/30', label: 'Checked-out' },
     Reserved: { color: 'bg-blue-500/20 text-blue-400 border-blue-500/30', label: 'Reserved' },
@@ -248,13 +250,6 @@ function statusBadge(status: RoomStatus | string) {
 // ═══════════════════════════════════════════════════════════════════════
 // KOBEHOTEL OS - Main Component
 // ═══════════════════════════════════════════════════════════════════════
-/** Deterministic positive number from a booking id, for React keys. */
-function stableId(value: string): number {
-  let hash = 0;
-  for (let i = 0; i < value.length; i += 1) hash = (hash * 31 + value.charCodeAt(i)) | 0;
-  return Math.abs(hash) || 1;
-}
-
 export default function KobeHotel() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [staff, setStaff] = useState<StaffMember[]>(STAFF);
@@ -293,10 +288,15 @@ export default function KobeHotel() {
   }, []);
 
   // Load rooms + guests from SQLite first, then sync from backend.
+  // HotelRoom stores roomNumber/rate/capacity; this screen reads
+  // number/price/beds. Without the mapping every field the UI reads came back
+  // undefined, and a lookup by room number could never match a real room — so
+  // check-in reported "not synced" for every genuine room.
   const { data: rooms, setData: setRooms } = useOfflineData<Room>({
     table: 'hotel_rooms',
     apiPath: '/hotel/rooms',
     seed: ROOMS,
+    transform: (row) => toRoomRow(row) as Room,
   });
   // Reads the joined front-desk view: /hotel/bookings returns roomId and
   // guestId, which this screen cannot render, which is why check-ins used to
@@ -305,27 +305,7 @@ export default function KobeHotel() {
     table: 'hotel_bookings',
     apiPath: '/hotel/front-desk/reservations',
     seed: GUESTS,
-    transform: (row) => {
-      const r = row as Record<string, unknown>;
-      const status = String(r.status ?? '');
-      return {
-        // Stable across reloads so React keys and row selection do not churn.
-        id: stableId(String(r.bookingId ?? '')),
-        bookingId: String(r.bookingId ?? ''),
-        name: String(r.guestName ?? ''),
-        room: String(r.roomNumber ?? ''),
-        phone: String(r.guestPhone ?? ''),
-        email: String(r.guestEmail ?? ''),
-        idNumber: String(r.guestIdNumber ?? ''),
-        nationality: String(r.guestNationality ?? ''),
-        checkIn: String(r.checkIn ?? ''),
-        checkOut: String(r.checkOut ?? ''),
-        status: status === 'CHECKED_IN' ? 'Checked-in' : status === 'CHECKED_OUT' ? 'Checked-out' : 'Reserved',
-        guests: Number(r.guestCount ?? 1),
-        paymentMethod: '',
-        balance: Number(r.totalAmount ?? 0),
-      } as Guest;
-    },
+    transform: (row) => toGuestRow(row) as Guest,
   });
 
   // Bar POS state
@@ -677,7 +657,7 @@ export default function KobeHotel() {
     // Seed rooms carry a numeric id and do not exist on the server; a stay
     // cannot be persisted against them, and pretending otherwise is the bug
     // being fixed here.
-    const roomId = typeof room?.id === 'string' ? room.id : null;
+    const roomId = serverRoomId(room);
     if (!roomId) {
       window.alert('This room is not synced to the server yet, so the stay cannot be saved. Add the room in Rooms first.');
       return;
