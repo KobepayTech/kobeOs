@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { HotelBooking, HotelFinancialRecord, HotelGuest, HotelRoom } from './hotel.entity';
 
 export interface CreateFrontDeskReservationInput {
@@ -193,6 +193,55 @@ export class HotelFrontDeskService {
       .andWhere('record.description LIKE :marker', { marker: `%${this.paymentMarker(booking.id)}%` })
       .orderBy('record.createdAt', 'ASC')
       .getMany();
+  }
+
+  /**
+   * The reception screen's view of current stays.
+   *
+   * HotelBooking stores roomId and guestId, so GET /hotel/bookings returns
+   * rows the front desk cannot render — no guest name, no room number. The
+   * reception UI consequently kept its own local state and check-ins vanished
+   * on reopen. This is the joined shape that screen actually needs, resolved
+   * server-side in three queries rather than a client-side join per row.
+   */
+  async reservations(ownerId: string, limit = 200) {
+    const bookings = await this.bookings.find({
+      where: { ownerId },
+      order: { checkIn: 'DESC' },
+      take: Math.min(500, Math.max(1, limit)),
+    });
+    if (!bookings.length) return [];
+
+    const roomIds = [...new Set(bookings.map((booking) => booking.roomId).filter(Boolean))];
+    const guestIds = [...new Set(bookings.map((booking) => booking.guestId).filter(Boolean))];
+    const [rooms, guests] = await Promise.all([
+      roomIds.length ? this.rooms.find({ where: { ownerId, id: In(roomIds) } }) : Promise.resolve([]),
+      guestIds.length ? this.guests.find({ where: { ownerId, id: In(guestIds) } }) : Promise.resolve([]),
+    ]);
+    const roomById = new Map(rooms.map((room) => [room.id, room]));
+    const guestById = new Map(guests.map((guest) => [guest.id, guest]));
+
+    return bookings.map((booking) => {
+      const room = roomById.get(booking.roomId);
+      const guest = guestById.get(booking.guestId);
+      return {
+        bookingId: booking.id,
+        status: booking.status,
+        roomId: booking.roomId,
+        roomNumber: room?.roomNumber ?? '',
+        roomType: room?.type ?? '',
+        guestName: guest?.name ?? '',
+        guestPhone: guest?.phone ?? '',
+        guestEmail: guest?.email ?? '',
+        guestNationality: guest?.nationality ?? '',
+        guestIdNumber: guest?.idNumber ?? '',
+        checkIn: dateOnly(new Date(booking.checkIn)),
+        checkOut: dateOnly(new Date(booking.checkOut)),
+        guestCount: booking.guestCount ?? 1,
+        totalAmount: Number(booking.totalAmount || 0),
+        currency: booking.currency,
+      };
+    });
   }
 
   async folio(ownerId: string, bookingId: string) {
