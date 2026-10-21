@@ -1,9 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DeepPartial, Repository } from 'typeorm';
 import { OwnedCrudService } from '../../common/owned.service';
-import { PropertyLease, RentCharge } from '../property.entity';
-import { asDate, chargeStatus, dueDateFor, money } from './property-utils';
+import { PropertyLease, PropertyUnit, Tenant, RentCharge } from '../property.entity';
+import { scheduledCharge } from './rent-schedule';
+import { asDate, chargeStatus, money } from './property-utils';
 
 @Injectable()
 export class LeasesService extends OwnedCrudService<PropertyLease> {
@@ -17,12 +18,28 @@ export class LeasesService extends OwnedCrudService<PropertyLease> {
     return this.repo.find({ where: { ownerId, unitId }, order: { startDate: 'DESC' } });
   }
 
-  override create(ownerId: string, data: DeepPartial<PropertyLease>) {
+  override async create(ownerId: string, data: DeepPartial<PropertyLease>) {
+    await this.validateLease(ownerId, data);
     return super.create(ownerId, this.normalize(data));
   }
 
-  override update(ownerId: string, id: string, data: DeepPartial<PropertyLease>) {
+  override async update(ownerId: string, id: string, data: DeepPartial<PropertyLease>) {
+    const existing = await this.get(ownerId, id);
+    await this.validateLease(ownerId, { ...existing, ...data });
+    if (['billingMonths', 'monthlyRent', 'startDate', 'endDate', 'unitId', 'tenantId'].some((key) => key in data)) {
+      const count = await this.repo.manager.getRepository(RentCharge).count({ where: { ownerId, leaseId: id } });
+      if (count) throw new BadRequestException('This lease already has charges. Create a renewal for changed terms.');
+    }
     return super.update(ownerId, id, this.normalize(data));
+  }
+
+  private async validateLease(ownerId: string, data: DeepPartial<PropertyLease>) {
+    const unit = await this.repo.manager.getRepository(PropertyUnit).findOne({ where: { id: data.unitId, ownerId } });
+    const tenant = await this.repo.manager.getRepository(Tenant).findOne({ where: { id: data.tenantId, ownerId } });
+    if (!unit || !tenant || (tenant.unitId && tenant.unitId !== unit.id)) throw new BadRequestException('Tenant and unit must belong to this owner and match.');
+    const startDate = new Date(data.startDate as Date);
+    if (!Number.isFinite(startDate.getTime())) throw new BadRequestException('Invalid start date.');
+    scheduledCharge({ ...data, startDate, endDate: data.endDate as Date, monthlyRent: data.monthlyRent!, rentDueDay: data.rentDueDay ?? 1 }, startDate.toISOString().slice(0, 7));
   }
 
   private normalize(data: DeepPartial<PropertyLease>) {
@@ -54,15 +71,8 @@ export class RentChargesService extends OwnedCrudService<RentCharge> {
   }
 
   private async refreshStatuses(rows: RentCharge[]) {
-    const changed: RentCharge[] = [];
-    for (const row of rows) {
-      const next = chargeStatus(row);
-      if (next !== row.status) {
-        row.status = next;
-        changed.push(row);
-      }
-    }
-    if (changed.length) await this.repo.save(changed);
+    // Derive overdue status on read without writing stale balance snapshots.
+    for (const row of rows) row.status = chargeStatus(row);
     return rows;
   }
 
@@ -82,32 +92,25 @@ export class RentChargesService extends OwnedCrudService<RentCharge> {
   }
 
   async generate(ownerId: string, period: string) {
-    const leases = await this.leasesRepo.find({ where: { ownerId, status: 'active' } });
-    let created = 0;
-    const charges: RentCharge[] = [];
-    for (const lease of leases) {
-      const existing = await this.repo.findOne({ where: { ownerId, leaseId: lease.id, period } });
-      if (existing) {
-        charges.push(existing);
-        continue;
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period)) throw new BadRequestException('Period must be YYYY-MM.');
+    return this.repo.manager.transaction(async (tx) => {
+      // Serialize generators for each lease; retries return existing charges.
+      const leases = await tx.getRepository(PropertyLease).find({ where: { ownerId, status: 'active' }, order: { id: 'ASC' }, lock: { mode: 'pessimistic_write' } });
+      const repo = tx.getRepository(RentCharge);
+      let created = 0;
+      const charges: RentCharge[] = [];
+      for (const lease of leases) {
+        const schedule = scheduledCharge(lease, period);
+        if (!schedule) continue;
+        const existing = await repo.findOne({ where: { ownerId, leaseId: lease.id, period } });
+        if (existing) { charges.push(existing); continue; }
+        const charge = repo.create({ ownerId, leaseId: lease.id, tenantId: lease.tenantId, unitId: lease.unitId, period, dueDate: schedule.dueDate, amount: schedule.amount, amountPaid: 0, status: 'open', notes: `${schedule.months} month(s) in advance` });
+        charge.status = chargeStatus(charge);
+        charges.push(await repo.save(charge));
+        created++;
       }
-      const charge = this.repo.create({
-        ownerId,
-        leaseId: lease.id,
-        tenantId: lease.tenantId,
-        unitId: lease.unitId,
-        period,
-        dueDate: dueDateFor(period, lease.rentDueDay),
-        amount: lease.monthlyRent,
-        amountPaid: 0,
-        status: 'open',
-        notes: '',
-      });
-      charge.status = chargeStatus(charge);
-      charges.push(await this.repo.save(charge));
-      created += 1;
-    }
-    return { period, created, charges };
+      return { period, created, charges };
+    });
   }
 
   async applyPayment(ownerId: string, chargeId: string, amount: number) {

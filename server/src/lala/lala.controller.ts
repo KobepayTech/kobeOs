@@ -1,3 +1,5 @@
+import { LalaIdentityService } from './lala-identity.service';
+import { Throttle } from '@nestjs/throttler';
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -22,10 +24,16 @@ export class LalaController {
 @Public()
 @Controller('lala-public')
 export class LalaPublicController {
-  constructor(private readonly lala: LalaService) {}
+  constructor(private readonly lala: LalaService, private readonly identity: LalaIdentityService) {}
+  @Post('phone/request')
+  @Throttle({ default: { limit: process.env.NODE_ENV === 'test' ? 10000 : 5, ttl: 60000 } })
+  requestPhone(@Body() body: { phone: string }) { return this.identity.request(body?.phone); }
+  @Post('phone/verify')
+  @Throttle({ default: { limit: process.env.NODE_ENV === 'test' ? 10000 : 10, ttl: 60000 } })
+  verifyPhone(@Body() body: { phone: string; code: string }) { return this.identity.verify(body?.phone, body?.code); }
   @Get('health') health() { return this.lala.publicHealth(); }
   @Get('search') search(@Query() query: Record<string, string>) { return this.lala.search(query); }
-  @Post('passports') passport(@Body() body: { phone: string; name: string; email?: string; nationality?: string; preferences?: Record<string, unknown>; privacy?: Record<string, boolean> }) { return this.lala.passport(body); }
+  @Post('passports') passport(@Body() body: { phoneToken?: string; phone: string; name: string; email?: string; nationality?: string; preferences?: Record<string, unknown>; privacy?: Record<string, boolean> }) { return this.lala.passport(body); }
   @Get('passports/:token') passportByToken(@Param('token') token: string) { return this.lala.passportByToken(token); }
   @Post('bookings') book(@Body() body: { hotelId: string; roomId: string; passportToken: string; checkIn: string; checkOut: string; guests?: number }) { return this.lala.book(body); }
   @Post('reviews') review(@Body() body: { passportToken: string; verifiedStayId: string; rating: number; comment?: string }) { return this.lala.review(body); }

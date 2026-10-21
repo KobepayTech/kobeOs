@@ -35,6 +35,15 @@ export class HotelFrontDeskService {
     @InjectRepository(HotelFinancialRecord) private readonly financials: Repository<HotelFinancialRecord>,
   ) {}
 
+  private async withRoom<T>(ownerId: string, roomId: string, action: (service: HotelFrontDeskService) => Promise<T>): Promise<T> {
+    return this.rooms.manager.transaction(async (tx) => {
+      const room = await tx.getRepository(HotelRoom).findOne({ where: { id: roomId, ownerId }, lock: { mode: 'pessimistic_write' } });
+      if (!room) throw new NotFoundException('Room not found.');
+      const service = new HotelFrontDeskService(tx.getRepository(HotelRoom), tx.getRepository(HotelGuest), tx.getRepository(HotelBooking), tx.getRepository(HotelFinancialRecord));
+      return action(service);
+    });
+  }
+
   private parseStay(checkInValue: string, checkOutValue: string) {
     const checkIn = new Date(checkInValue);
     const checkOut = new Date(checkOutValue);
@@ -73,6 +82,10 @@ export class HotelFrontDeskService {
   }
 
   async createReservation(ownerId: string, input: CreateFrontDeskReservationInput) {
+    return this.withRoom(ownerId, input.roomId, (service) => service.createReservationLocked(ownerId, input));
+  }
+
+  private async createReservationLocked(ownerId: string, input: CreateFrontDeskReservationInput) {
     const room = await this.roomForOwner(ownerId, input.roomId);
     if (room.status === 'maintenance') throw new BadRequestException('Room is under maintenance.');
     const { checkIn, checkOut } = this.parseStay(input.checkIn, input.checkOut);
@@ -131,6 +144,11 @@ export class HotelFrontDeskService {
 
   async checkIn(ownerId: string, bookingId: string) {
     const booking = await this.bookingForOwner(ownerId, bookingId);
+    return this.withRoom(ownerId, booking.roomId, (service) => service.checkInLocked(ownerId, bookingId));
+  }
+
+  private async checkInLocked(ownerId: string, bookingId: string) {
+    const booking = await this.bookingForOwner(ownerId, bookingId);
     if (!['PENDING', 'CONFIRMED'].includes(booking.status)) {
       throw new BadRequestException(`Booking cannot be checked in from ${booking.status}.`);
     }
@@ -148,6 +166,11 @@ export class HotelFrontDeskService {
 
   async checkOut(ownerId: string, bookingId: string) {
     const booking = await this.bookingForOwner(ownerId, bookingId);
+    return this.withRoom(ownerId, booking.roomId, (service) => service.checkOutLocked(ownerId, bookingId));
+  }
+
+  private async checkOutLocked(ownerId: string, bookingId: string) {
+    const booking = await this.bookingForOwner(ownerId, bookingId);
     if (booking.status !== 'CHECKED_IN') {
       throw new BadRequestException(`Only a checked-in booking can be checked out. Current status: ${booking.status}.`);
     }
@@ -160,6 +183,11 @@ export class HotelFrontDeskService {
   }
 
   async cancel(ownerId: string, bookingId: string) {
+    const booking = await this.bookingForOwner(ownerId, bookingId);
+    return this.withRoom(ownerId, booking.roomId, (service) => service.cancelLocked(ownerId, bookingId));
+  }
+
+  private async cancelLocked(ownerId: string, bookingId: string) {
     const booking = await this.bookingForOwner(ownerId, bookingId);
     if (booking.status === 'CHECKED_IN') throw new BadRequestException('Check the guest out instead of cancelling an active stay.');
     if (['CHECKED_OUT', 'CANCELLED'].includes(booking.status)) {

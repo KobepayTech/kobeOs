@@ -51,7 +51,7 @@ export function LeasesTab({ tenants, units, currency }: { tenants: TenantLite[];
   const [error, setError] = useState('');
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const blank = { unitId: '', tenantId: '', startDate: '', endDate: '', monthlyRent: '', deposit: '', rentDueDay: '1' };
+  const blank = { unitId: '', tenantId: '', startDate: '', endDate: '', monthlyRent: '', deposit: '', rentDueDay: '1', billingMonths: '12' };
   const [form, setForm] = useState(blank);
   const tenantById = useMemo(() => new Map(tenants.map((t) => [t.id, t])), [tenants]);
   const unitById = useMemo(() => new Map(units.map((u) => [u.id, u])), [units]);
@@ -61,7 +61,7 @@ export function LeasesTab({ tenants, units, currency }: { tenants: TenantLite[];
     if (!form.tenantId || !form.unitId || !form.startDate || !form.endDate || !form.monthlyRent) { setError('Tenant, unit, both dates and monthly rent are required.'); return; }
     setBusy(true); setError('');
     try {
-      await api('/property/leases', { method: 'POST', offlineFallback: false, body: JSON.stringify({ tenantId: form.tenantId, unitId: form.unitId, startDate: form.startDate, endDate: form.endDate, monthlyRent: Number(form.monthlyRent), deposit: Number(form.deposit) || 0, rentDueDay: Number(form.rentDueDay) || 1, status: 'active' }) });
+      await api('/property/leases', { method: 'POST', offlineFallback: false, body: JSON.stringify({ tenantId: form.tenantId, unitId: form.unitId, startDate: form.startDate, endDate: form.endDate, monthlyRent: Number(form.monthlyRent), deposit: Number(form.deposit) || 0, rentDueDay: Number(form.rentDueDay) || 1, billingMonths: Number(form.billingMonths), status: 'active' }) });
       setOpen(false); setForm(blank); await load();
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   };
@@ -80,7 +80,7 @@ export function LeasesTab({ tenants, units, currency }: { tenants: TenantLite[];
         <Field label="End date"><input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} className={inputCls} /></Field>
         <Field label={`Monthly rent (${currency})`}><input type="number" value={form.monthlyRent} onChange={(e) => setForm({ ...form, monthlyRent: e.target.value })} className={inputCls} /></Field>
         <Field label={`Deposit (${currency})`}><input type="number" value={form.deposit} onChange={(e) => setForm({ ...form, deposit: e.target.value })} className={inputCls} /></Field>
-        <Field label="Rent due day (1-28)"><input type="number" min={1} max={28} value={form.rentDueDay} onChange={(e) => setForm({ ...form, rentDueDay: e.target.value })} className={inputCls} /></Field>
+        <Field label="Collect rent"><select value={form.billingMonths} onChange={(e) => setForm({ ...form, billingMonths: e.target.value })} className={inputCls}><option value="1">Monthly</option><option value="6">Six months in advance</option><option value="12">Annual in advance</option></select></Field><Field label="Rent due day (1-28)"><input type="number" min={1} max={28} value={form.rentDueDay} onChange={(e) => setForm({ ...form, rentDueDay: e.target.value })} className={inputCls} /></Field>
       </div>
       <div className="mt-4"><Btn busy={busy} onClick={() => void create()}><Plus className="h-4 w-4" /> Create lease</Btn></div>
     </Modal>}

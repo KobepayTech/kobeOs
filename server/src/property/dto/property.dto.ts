@@ -166,6 +166,7 @@ export class UpdateTenantDto {
 }
 
 export class CreatePaymentDto {
+  @IsOptional() @IsUUID() idempotencyKey?: string;
   @IsOptional() @IsUUID() chargeId?: string;
   @IsUUID() tenantId!: string;
   @IsUUID() unitId!: string;

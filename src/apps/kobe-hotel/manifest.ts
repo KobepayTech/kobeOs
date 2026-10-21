@@ -16,5 +16,5 @@ export const manifest: AppManifest = {
   requiresAuth: true,
   permissions: [],
   subscriptionTier: 'pro',
-  component: lazy(() => import('./index')),
+  component: lazy(() => import('./ProductionHotel')),
 };

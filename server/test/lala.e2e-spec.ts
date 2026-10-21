@@ -1,5 +1,6 @@
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
+import { verifiedLalaPhone } from './lala-identity-helper';
 import { bootTestApp, resetDb } from './setup';
 
 /**
@@ -94,7 +95,7 @@ describe('Lala auto-listing + food ordering (e2e)', () => {
     expect(Number(health.body.bookableRoomCount)).toBeGreaterThanOrEqual(1);
 
     const passport = await request(http).post('/api/lala-public/passports')
-      .send({ name: 'Asha Guest', phone: '+255700100200' });
+      .send({ name: 'Asha Guest', phone: '+255700100200', phoneToken: await verifiedLalaPhone(app, '+255700100200') });
     expect(passport.status).toBe(201);
     const passportToken = passport.body.passport.qrToken as string;
 
@@ -135,7 +136,7 @@ describe('Lala auto-listing + food ordering (e2e)', () => {
     expect(profile.status).toBe(200);
 
     const passport = await request(http).post('/api/lala-public/passports')
-      .send({ name: 'Neema Guest', phone: '+255700300400' });
+      .send({ name: 'Neema Guest', phone: '+255700300400', phoneToken: await verifiedLalaPhone(app, '+255700300400') });
     const passportToken = passport.body.passport.qrToken as string;
 
     const reverse = await request(http).post('/api/lala-public/reverse-requests').send({

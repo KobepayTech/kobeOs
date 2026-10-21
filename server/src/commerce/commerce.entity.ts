@@ -48,6 +48,8 @@ export class PropertyFloor extends OwnedEntity {
 @Index(['publicCode'], { unique: true })
 @Index(['ownerId', 'propertyId', 'floorId', 'unitNumber'], { unique: true })
 export class CommerceShopUnit extends OwnedEntity {
+  @Column({ type: 'varchar', nullable: true, select: false }) claimTokenHash?: string | null;
+  @Column({ type: 'timestamptz', nullable: true, select: false }) claimTokenExpiresAt?: Date | null;
   @Column('uuid') propertyId!: string;
   @Column('uuid') floorId!: string;
   @Column() unitNumber!: string;
