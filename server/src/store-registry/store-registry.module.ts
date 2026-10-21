@@ -3,11 +3,11 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { StoreRegistration } from './store-registry.entity';
 import { StoreRegistryService } from './store-registry.service';
 import { StoreRegistryController } from './store-registry.controller';
-import { CloudflareService } from './cloudflare.service';
+import { CloudflareModule } from './cloudflare.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([StoreRegistration])],
-  providers: [StoreRegistryService, CloudflareService],
+  imports: [TypeOrmModule.forFeature([StoreRegistration]), CloudflareModule],
+  providers: [StoreRegistryService],
   controllers: [StoreRegistryController],
   exports: [StoreRegistryService],
 })

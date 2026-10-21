@@ -7,7 +7,7 @@ import { PosOrder, PosProduct } from '../pos/pos.entity';
 import { StoreSettings } from '../store-settings/store-settings.entity';
 import { LiveSaleService } from './live-sale.service';
 import { LiveSaleController, LiveSaleIngestController, LiveSalePublicController, LiveSaleInstagramPublicController } from './live-sale.controller';
-import { PalmPesaService } from '../creators/palmpesa.service';
+import { PalmPesaModule } from '../creators/palmpesa.module';
 import { ApifyService } from './apify.service';
 import { PosModule } from '../pos/pos.module';
 import { SocialAccount } from '../social-scheduler/social-account.entity';
@@ -18,8 +18,9 @@ import { InstagramService } from './instagram.service';
     TypeOrmModule.forFeature([LiveSession, LivePin, LiveComment, PosProduct, PosOrder, StoreSettings, SocialAccount]),
     ConfigModule,
     PosModule, // provides OrdersService (atomic stock decrement)
+    PalmPesaModule,
   ],
-  providers: [TikTokCommentsService, LiveSaleService, InstagramService, PalmPesaService, ApifyService],
+  providers: [TikTokCommentsService, LiveSaleService, InstagramService, ApifyService],
   controllers: [LiveSaleController, LiveSaleIngestController, LiveSalePublicController, LiveSaleInstagramPublicController],
   exports: [LiveSaleService],
 })
