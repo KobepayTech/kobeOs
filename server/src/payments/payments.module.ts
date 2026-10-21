@@ -29,6 +29,7 @@ import { KobePayReceiptsService } from './kobepay-receipts.service';
 import { PaymentsController } from './payments.controller';
 import { KobePayController } from './kobepay.controller';
 import { KobePayReceiptsController, PublicReceiptController } from './kobepay-receipts.controller';
+import { InboundPayment } from '../mobile-money/mobile-money.entity';
 import { ErpModule } from '../erp/erp.module';
 
 @Module({
@@ -38,6 +39,8 @@ import { ErpModule } from '../erp/erp.module';
       PaymentCustomer, PaymentSupplier, PaymentDeposit, PaymentPayout, PaymentAllocation,
       KobePayUser, KobePayAuditEvent, KobePayRate, KobepayDispatchAttempt,
       PayoutReceipt,
+      // Credits must be backed by a verified inbound payment.
+      InboundPayment,
     ]),
     ErpModule,
   ],
