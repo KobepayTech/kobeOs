@@ -7,6 +7,8 @@ import { api } from '@/lib/api';
 import { useHotelLive, type HotelOrder, type HotelServiceRequest } from './useHotelLive';
 import HotelOperationsBoard from './HotelOperationsBoard';
 import LalaAndStatementsBoard from './LalaAndStatementsBoard';
+import GuestInboxTab from './GuestInboxTab';
+import ChannelsTab from './ChannelsTab';
 import WalletTab from './WalletTab';
 import BookingSiteTab from './BookingSiteTab';
 import type { BookingRow, GuestRow, InventoryRow, MenuRow, PropertyRow, RoomRow, StaffRow } from './production-types';
@@ -15,9 +17,11 @@ import { FrontDesk, PropertyOnboarding, Rooms } from './ProductionHotelFrontDesk
 import { InventoryBoard, MenuManager, OrdersBoard, RequestsBoard, StaffBoard } from './ProductionHotelOperations';
 import { Metric, Panel } from './ProductionHotelUi';
 
-type Tab = 'overview' | 'frontdesk' | 'rooms' | 'menu' | 'orders' | 'requests' | 'inventory' | 'staff' | 'operations' | 'lala' | 'wallet' | 'website';
+type Tab = 'inbox' | 'channels' | 'overview' | 'frontdesk' | 'rooms' | 'menu' | 'orders' | 'requests' | 'inventory' | 'staff' | 'operations' | 'lala' | 'wallet' | 'website';
 
 const NAV: Array<{ id: Tab; label: string; icon: typeof Hotel }> = [
+  { id: 'inbox', label: 'Guest inbox', icon: Users },
+  { id: 'channels', label: 'Channels', icon: Globe2 },
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
   { id: 'frontdesk', label: 'Front desk', icon: CalendarDays },
   { id: 'rooms', label: 'Rooms', icon: BedDouble },
@@ -123,7 +127,7 @@ export default function ProductionHotel() {
     <aside className="w-56 shrink-0 border-r border-slate-200 bg-[#0d2135] text-white flex flex-col">
       <div className="p-4 border-b border-white/10"><div className="flex items-center gap-2"><div className="h-9 w-9 rounded-xl bg-cyan-300 text-[#0d2135] grid place-items-center"><Hotel className="h-5 w-5" /></div><div><div className="text-sm font-black">Kobe Hotels</div><div className="text-[10px] text-white/50">LIVE OPERATIONS</div></div></div></div>
       <nav className="flex-1 overflow-y-auto p-2 space-y-1">{NAV.map(({ id, label, icon: Icon }) => <button key={id} onClick={() => setTab(id)} className={`w-full h-10 px-3 rounded-lg flex items-center gap-2 text-xs font-bold ${tab === id ? 'bg-white text-[#0d2135]' : 'text-white/70 hover:bg-white/10'}`}><Icon className="h-4 w-4" />{label}</button>)}</nav>
-      <div className="p-3 border-t border-white/10 text-[10px] leading-4 text-white/45">Production rule: real data or no feature. Demo, seeded OTA connections and fake inboxes are not shown.</div>
+      <div className="p-3 border-t border-white/10 text-[10px] leading-4 text-white/45">Manage reservations, guest services and daily operations.</div>
     </aside>
 
     <section className="min-w-0 flex-1 flex flex-col">
@@ -138,6 +142,8 @@ export default function ProductionHotel() {
 
       <main className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
         {properties.length === 0 ? <PropertyOnboarding onCreated={async () => { await refresh(); flash('Hotel created.'); }} /> : property && <>
+          {tab === 'inbox' && <GuestInboxTab darkMode={false} />}
+          {tab === 'channels' && <ChannelsTab darkMode={false} />}
           {tab === 'overview' && <Overview rooms={rooms} bookings={bookings} orders={orders} requests={requests} inventory={inventory} staff={staff} onNavigate={setTab} />}
           {tab === 'frontdesk' && <FrontDesk rooms={rooms} guests={guests} bookings={bookings} onChanged={refresh} flash={flash} />}
           {tab === 'rooms' && <Rooms property={property} rooms={rooms} onChanged={refresh} flash={flash} />}

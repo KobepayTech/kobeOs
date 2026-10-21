@@ -106,7 +106,7 @@ export function useHotelLive() {
 
   const advanceOrder = useCallback(async (id: string, status: HotelOrder['status']) => {
     const updated = await api<HotelOrder>(`/hotel/orders/${id}/status`, {
-      method: 'PATCH',
+      method: 'PATCH', offlineFallback: false,
       body: JSON.stringify({ status }),
     });
     if (updated && (updated as HotelOrder).id) {
@@ -116,7 +116,7 @@ export function useHotelLive() {
 
   const advanceRequest = useCallback(async (id: string, status: HotelServiceRequest['status']) => {
     const updated = await api<HotelServiceRequest>(`/hotel/service-requests/${id}/status`, {
-      method: 'PATCH',
+      method: 'PATCH', offlineFallback: false,
       body: JSON.stringify({ status }),
     });
     if (updated && (updated as HotelServiceRequest).id) {

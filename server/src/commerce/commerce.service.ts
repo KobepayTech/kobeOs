@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash, randomBytes, randomUUID } from 'crypto';
@@ -273,14 +273,17 @@ export class CommerceService implements OnModuleInit {
     const unitMap = new Map(units.map((unit) => [`${(unit.floor || 'Ground').trim().toLowerCase()}::${unit.unitNumber.toLowerCase()}`, unit]));
     const claimed = shops.filter((shop) => shop.status === 'CLAIMED' && shop.businessId);
     const businessIds = claimed.map((shop) => shop.businessId).filter((id): id is string => Boolean(id));
-    const businesses = businessIds.length ? await this.businesses.find({ where: { id: In(businessIds), status: 'ACTIVE' } }) : [];
+    const allBusinesses = businessIds.length ? await this.businesses.find({ where: { id: In(businessIds), status: 'ACTIVE' } }) : [];
+    const nodes = businessIds.length ? await this.nodes.find({ where: { businessId: In(businessIds) } }) : [];
+    const businesses = allBusinesses.filter((b) => b.tier !== 'FULL' || isNodeOnline(nodes.find((n) => n.businessId === b.id)?.lastSeenAt));
+    const visibleBusinessIds = businesses.map((b) => b.id);
     const businessMap = new Map(businesses.map((business) => [business.id, business]));
     const shopByBusiness = new Map(claimed.filter((shop) => businessMap.has(shop.businessId!)).map((shop) => [shop.businessId!, shop]));
 
     let rows: ProductSnippet[] = [];
-    if (businessIds.length) {
+    if (visibleBusinessIds.length) {
       const qb = this.snippets.createQueryBuilder('s')
-        .where('s.businessId IN (:...ids)', { ids: businessIds })
+        .where('s.businessId IN (:...ids)', { ids: visibleBusinessIds })
         .andWhere('s.active = true')
         .andWhere('s.stock > 0');
       if (query.q?.trim()) qb.andWhere('(LOWER(s.name) LIKE :q OR LOWER(s.description) LIKE :q)', { q: `%${query.q.toLowerCase().trim()}%` });
@@ -417,15 +420,36 @@ export class CommerceService implements OnModuleInit {
     return { property: property && { id: property.id, name: property.name, address: property.address, city: property.city }, floor, shop };
   }
 
-  async claimShop(input: { shopCode: string; businessName: string; merchantName: string; phone: string; categoryId?: string; whatsapp?: string; logoUrl?: string; subcategories?: string[] }) {
+  async inviteShop(ownerId: string, shopId: string) {
+    const token = randomBytes(32).toString('base64url');
+    const expiresAt = new Date(Date.now() + 7 * 86400000);
+    const result = await this.shops.update({ id: shopId, ownerId, status: 'AVAILABLE' }, { claimTokenHash: hash(token), claimTokenExpiresAt: expiresAt });
+    if (!result.affected) throw new NotFoundException('Available shop not found.');
+    const shop = await this.shops.findOneByOrFail({ id: shopId, ownerId });
+    return { shopCode: shop.publicCode, invitationToken: token, expiresAt };
+  }
+
+  private async invitedShop(tx: import('typeorm').EntityManager, publicCode: string, invitationToken?: string) {
+    if (!invitationToken) throw new ForbiddenException('Ask the landlord for a private shop invitation.');
+    const shop = await tx.getRepository(CommerceShopUnit).createQueryBuilder('shop')
+      .addSelect(['shop.claimTokenHash', 'shop.claimTokenExpiresAt'])
+      .where('shop.publicCode = :publicCode', { publicCode: publicCode.trim().toUpperCase() })
+      .setLock('pessimistic_write').getOne();
+    if (!shop || shop.status !== 'AVAILABLE' || shop.claimTokenHash !== hash(invitationToken) || !shop.claimTokenExpiresAt || shop.claimTokenExpiresAt <= new Date()) {
+      throw new ForbiddenException('Shop invitation is invalid, expired or already used.');
+    }
+    shop.claimTokenHash = null; shop.claimTokenExpiresAt = null;
+    return shop;
+  }
+
+  async claimShop(input: { invitationToken?: string; shopCode: string; businessName: string; merchantName: string; phone: string; categoryId?: string; whatsapp?: string; logoUrl?: string; subcategories?: string[] }) {
     const code = input.shopCode.trim().toUpperCase();
-    const shop = await this.shops.findOne({ where: { publicCode: code } });
-    if (!shop) throw new NotFoundException('Shop ID not found');
-    if (shop.status === 'CLAIMED') throw new ConflictException('This shop is already claimed');
+    let shop!: CommerceShopUnit;
     const token = randomBytes(24).toString('base64url');
     let publicSlug = slugify(input.businessName) || `shop-${randomBytes(3).toString('hex')}`;
     if (await this.businesses.findOne({ where: { publicSlug } })) publicSlug = `${publicSlug}-${randomBytes(2).toString('hex')}`;
     const result = await this.ds.transaction(async (tx) => {
+      shop = await this.invitedShop(tx, code, input.invitationToken);
       const businessRepo = tx.getRepository(CommerceBusiness);
       const businessDraft = businessRepo.create({
         businessId: humanCode('BUS'), publicSlug, ownerUserId: null, catalogOwnerId: randomUUID(),
@@ -453,14 +477,15 @@ export class CommerceService implements OnModuleInit {
     return { ...result, managementToken: token, shopCode: code, freeOrders: LITE_FREE_ORDER_LIMIT };
   }
 
-  async linkExistingBusiness(ownerUserId: string, businessId: string, input: { shopCode: string; categoryId?: string }) {
+  async linkExistingBusiness(ownerUserId: string, businessId: string, input: { shopCode: string; invitationToken?: string; categoryId?: string }) {
     const business = await this.businesses.findOne({ where: { id: businessId, ownerUserId } });
     if (!business) throw new NotFoundException('Business not found');
     const publicCode = input.shopCode?.trim().toUpperCase();
-    const shop = await this.shops.findOne({ where: { publicCode } });
+    let shop = await this.shops.findOne({ where: { publicCode } });
     if (!shop) throw new NotFoundException('Shop ID not found');
     if (shop.status === 'CLAIMED' && shop.businessId !== business.id) throw new ConflictException('This shop is already claimed');
     const result = await this.ds.transaction(async (tx) => {
+      shop = await this.invitedShop(tx, publicCode, input.invitationToken);
       shop.status = 'CLAIMED'; shop.businessId = business.id; shop.categoryId = input.categoryId?.trim() ?? shop.categoryId;
       await tx.getRepository(CommerceShopUnit).save(shop);
       let location = await tx.getRepository(BusinessLocation).findOne({ where: { businessId: business.id, shopUnitId: shop.id } });
@@ -788,12 +813,8 @@ export class CommerceService implements OnModuleInit {
     const businesses = await this.businesses.find({ where: { status: 'ACTIVE' } });
     const nodes = await this.nodes.find({ where: { businessId: In(businesses.map((b) => b.id)) } });
     const nodeMap = new Map(nodes.map((n) => [n.businessId, n]));
-    // Jumla is served from the cloud snippet mirror, so a shop stays visible and
-    // orderable even when its KobeOS desktop node is offline — the order is
-    // captured in the cloud and delivered when the node reconnects. We surface
-    // the live/offline state via nodeStatus rather than hiding the shop, so a
-    // merchant who closes their laptop never disappears from the marketplace.
-    const visible = businesses;
+    // Match checkout availability: full merchants require a live node; Lite shops stay cloud available.
+    const visible = businesses.filter((b) => b.tier !== 'FULL' || isNodeOnline(nodeMap.get(b.id)?.lastSeenAt));
     const visibleIds = visible.map((b) => b.id);
     if (!visibleIds.length) return [];
     const statusOf = (b?: CommerceBusiness) => !b ? 'CLOUD_OFFLINE' : b.tier === 'LITE' ? 'CLOUD_LITE' : isNodeOnline(nodeMap.get(b.id)?.lastSeenAt) ? 'ONLINE' : 'CLOUD_OFFLINE';
@@ -829,7 +850,10 @@ export class CommerceService implements OnModuleInit {
       const shops = await this.shops.find({ where: { propertyId: property.id, status: 'CLAIMED' }, order: { publicCode: 'ASC' } });
       const filtered = query.category ? shops.filter((s) => s.categoryId.toLowerCase().includes(query.category!.toLowerCase())) : shops;
       const businessIds = filtered.map((s) => s.businessId).filter((id): id is string => Boolean(id));
-      const businesses = businessIds.length ? await this.businesses.find({ where: { id: In(businessIds), status: 'ACTIVE' } }) : [];
+      const allBusinesses = businessIds.length ? await this.businesses.find({ where: { id: In(businessIds), status: 'ACTIVE' } }) : [];
+    const nodes = businessIds.length ? await this.nodes.find({ where: { businessId: In(businessIds) } }) : [];
+    const businesses = allBusinesses.filter((b) => b.tier !== 'FULL' || isNodeOnline(nodes.find((n) => n.businessId === b.id)?.lastSeenAt));
+    const visibleBusinessIds = businesses.map((b) => b.id);
       return { id: property.id, name: property.name, address: property.address, city: property.city, imageUrl: property.imageUrl, publicSlug: property.publicSlug, marketplaceEnabled: property.marketplaceEnabled, marketplaceUrl: property.publicSlug ? `https://${property.publicSlug}.kobeapptz.com` : null, totalShops: property.totalUnits, claimedShops: filtered.map((shop) => ({ shopCode: shop.publicCode, categoryId: shop.categoryId, business: businesses.find((b) => b.id === shop.businessId) ? { id: shop.businessId, name: businesses.find((b) => b.id === shop.businessId)!.name, publicSlug: businesses.find((b) => b.id === shop.businessId)!.publicSlug, tier: businesses.find((b) => b.id === shop.businessId)!.tier } : null })) };
     }));
   }

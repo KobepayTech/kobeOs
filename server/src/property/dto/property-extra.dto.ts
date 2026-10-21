@@ -1,13 +1,14 @@
-import { IsDateString, IsEnum, IsInt, IsNumber, IsOptional, IsString, IsUUID, Min } from 'class-validator';
+import { IsDateString, IsEnum, IsInt, IsNumber, IsOptional, IsString, IsUUID, IsIn, Max, Min } from 'class-validator';
 
 export class CreateLeaseDto {
   @IsUUID() unitId!: string;
   @IsUUID() tenantId!: string;
   @IsDateString() startDate!: string;
   @IsDateString() endDate!: string;
-  @IsNumber() monthlyRent!: number;
+  @IsNumber() @Min(0.01) monthlyRent!: number;
+  @IsOptional() @IsIn([1, 6, 12]) billingMonths?: number;
   @IsOptional() @IsNumber() deposit?: number;
-  @IsOptional() @IsInt() @Min(1) rentDueDay?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(28) rentDueDay?: number;
   @IsOptional() @IsNumber() lateFee?: number;
   @IsOptional() @IsEnum(['upcoming', 'active', 'ended', 'cancelled']) status?: 'upcoming' | 'active' | 'ended' | 'cancelled';
   @IsOptional() @IsString() notes?: string;
@@ -18,9 +19,10 @@ export class UpdateLeaseDto {
   @IsOptional() @IsUUID() tenantId?: string;
   @IsOptional() @IsDateString() startDate?: string;
   @IsOptional() @IsDateString() endDate?: string;
-  @IsOptional() @IsNumber() monthlyRent?: number;
+  @IsOptional() @IsNumber() @Min(0.01) monthlyRent?: number;
+  @IsOptional() @IsIn([1, 6, 12]) billingMonths?: number;
   @IsOptional() @IsNumber() deposit?: number;
-  @IsOptional() @IsInt() @Min(1) rentDueDay?: number;
+  @IsOptional() @IsInt() @Min(1) @Max(28) rentDueDay?: number;
   @IsOptional() @IsNumber() lateFee?: number;
   @IsOptional() @IsEnum(['upcoming', 'active', 'ended', 'cancelled']) status?: 'upcoming' | 'active' | 'ended' | 'cancelled';
   @IsOptional() @IsString() notes?: string;
