@@ -11,7 +11,7 @@ import { ModuleSiteSettingsController } from './module-site-settings.controller'
 import { PublishService } from './publish.service';
 import { StorefrontService } from './storefront.service';
 import { StorefrontController, StorefrontPublicController } from './storefront.controller';
-import { CloudflareService } from '../store-registry/cloudflare.service';
+import { CloudflareModule } from '../store-registry/cloudflare.module';
 import { HotelTenant } from '../hotel/hotel.entity';
 
 @Module({
@@ -25,13 +25,13 @@ import { HotelTenant } from '../hotel/hotel.entity';
       StoreHomepageSection,
       PosProduct,
     ]),
+    CloudflareModule,
   ],
   providers: [
     StoreSettingsService,
     ModuleSiteSettingsService,
     PublishService,
     StorefrontService,
-    CloudflareService,
   ],
   controllers: [
     StoreSettingsController,
