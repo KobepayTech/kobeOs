@@ -65,6 +65,7 @@ import {
   Coffee, ChefHat, Brush, CircleDollarSign,
   Globe2, MessageSquare,
 } from 'lucide-react';
+import { serverRoomId, stableId, toGuestRow, toRoomRow, type RoomStatus } from './room-mapping';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PhotoUpload } from '@/components/PhotoUpload';
@@ -77,9 +78,9 @@ import { QRCodeSVG } from 'qrcode.react';
 import { BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 // ─── Types ───────────────────────────────────────────────────────────
-type RoomStatus = 'available' | 'occupied' | 'cleaning' | 'maintenance';
+
 interface Room {
-  id: number;
+  id: number | string;
   number: string;
   type: string;
   status: RoomStatus;
@@ -90,6 +91,8 @@ interface Room {
 }
 interface Guest {
   id: number;
+  /** Backend booking id. Absent for seed rows, which cannot be checked out. */
+  bookingId?: string;
   name: string;
   room: string;
   phone: string;
@@ -229,6 +232,7 @@ function statusBadge(status: RoomStatus | string) {
     occupied: { color: 'bg-red-500/20 text-red-400 border-red-500/30', label: 'Occupied' },
     cleaning: { color: 'bg-amber-500/20 text-amber-400 border-amber-500/30', label: 'Cleaning' },
     maintenance: { color: 'bg-slate-500/20 text-slate-400 border-slate-500/30', label: 'Maintenance' },
+    reserved: { color: 'bg-blue-500/20 text-blue-400 border-blue-500/30', label: 'Reserved' },
     'Checked-in': { color: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30', label: 'Checked-in' },
     'Checked-out': { color: 'bg-slate-500/20 text-slate-400 border-slate-500/30', label: 'Checked-out' },
     Reserved: { color: 'bg-blue-500/20 text-blue-400 border-blue-500/30', label: 'Reserved' },
@@ -284,15 +288,24 @@ export default function KobeHotel() {
   }, []);
 
   // Load rooms + guests from SQLite first, then sync from backend.
+  // HotelRoom stores roomNumber/rate/capacity; this screen reads
+  // number/price/beds. Without the mapping every field the UI reads came back
+  // undefined, and a lookup by room number could never match a real room — so
+  // check-in reported "not synced" for every genuine room.
   const { data: rooms, setData: setRooms } = useOfflineData<Room>({
     table: 'hotel_rooms',
     apiPath: '/hotel/rooms',
     seed: ROOMS,
+    transform: (row) => toRoomRow(row) as Room,
   });
+  // Reads the joined front-desk view: /hotel/bookings returns roomId and
+  // guestId, which this screen cannot render, which is why check-ins used to
+  // reappear as nothing after a reopen.
   const { data: guests, setData: setGuests } = useOfflineData<Guest>({
     table: 'hotel_bookings',
-    apiPath: '/hotel/bookings',
+    apiPath: '/hotel/front-desk/reservations',
     seed: GUESTS,
+    transform: (row) => toGuestRow(row) as Guest,
   });
 
   // Bar POS state
@@ -628,34 +641,91 @@ export default function KobeHotel() {
   };
 
   // ─── Check-in handler ──────────────────────────────────────────────
-  const handleCheckIn = (e: React.FormEvent<HTMLFormElement>) => {
+  /**
+   * Check a guest in against the backend.
+   *
+   * This used to mutate local state only, so the stay was gone as soon as the
+   * app reloaded and re-synced. It now creates the reservation and checks it
+   * in, and only touches the screen once the server has accepted both — a
+   * failure says so rather than showing a guest who is not really booked.
+   */
+  const handleCheckIn = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const form = e.currentTarget;
     const formData = new FormData(form);
     const roomNum = formData.get('room') as string;
-    const newGuest: Guest = {
-      id: Date.now(),
-      name: formData.get('name') as string,
-      room: roomNum,
-      phone: formData.get('phone') as string,
-      email: formData.get('email') as string,
-      idNumber: formData.get('idNumber') as string,
-      nationality: formData.get('nationality') as string,
-      checkIn: formData.get('checkIn') as string,
-      checkOut: formData.get('checkOut') as string,
-      status: 'Checked-in',
-      guests: Number(formData.get('guests')),
-      paymentMethod: formData.get('paymentMethod') as string,
-      balance: 0,
-    };
-    setGuests(prev => [...prev, newGuest]);
-    setRooms(prev => prev.map(r => r.number === roomNum ? { ...r, status: 'occupied', guest: newGuest.name } as Room : r));
-    form.reset();
+    const room = rooms.find((r) => r.number === roomNum);
+    // Seed rooms carry a numeric id and do not exist on the server; a stay
+    // cannot be persisted against them, and pretending otherwise is the bug
+    // being fixed here.
+    const roomId = serverRoomId(room);
+    if (!roomId) {
+      window.alert('This room is not synced to the server yet, so the stay cannot be saved. Add the room in Rooms first.');
+      return;
+    }
+
+    const guestName = formData.get('name') as string;
+    try {
+      const reservation = await api<{ booking?: { id?: string } }>('/hotel/front-desk/reservations', {
+        method: 'POST',
+        offlineFallback: false,
+        body: JSON.stringify({
+          roomId,
+          guestName,
+          guestPhone: formData.get('phone') as string,
+          guestEmail: (formData.get('email') as string) || undefined,
+          guestNationality: (formData.get('nationality') as string) || undefined,
+          guestIdNumber: (formData.get('idNumber') as string) || undefined,
+          checkIn: formData.get('checkIn') as string,
+          checkOut: formData.get('checkOut') as string,
+          guestCount: Number(formData.get('guests')) || 1,
+        }),
+      });
+      const bookingId = reservation?.booking?.id;
+      if (!bookingId) throw new Error('The server did not return a booking.');
+
+      await api(`/hotel/front-desk/bookings/${bookingId}/check-in`, {
+        method: 'POST', offlineFallback: false, body: '{}',
+      });
+
+      setGuests((prev) => [...prev, {
+        id: stableId(bookingId),
+        bookingId,
+        name: guestName,
+        room: roomNum,
+        phone: formData.get('phone') as string,
+        email: formData.get('email') as string,
+        idNumber: formData.get('idNumber') as string,
+        nationality: formData.get('nationality') as string,
+        checkIn: formData.get('checkIn') as string,
+        checkOut: formData.get('checkOut') as string,
+        status: 'Checked-in',
+        guests: Number(formData.get('guests')) || 1,
+        paymentMethod: formData.get('paymentMethod') as string,
+        balance: 0,
+      }]);
+      setRooms((prev) => prev.map((r) => (r.number === roomNum ? { ...r, status: 'occupied', guest: guestName } as Room : r)));
+      form.reset();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Check-in was not saved. Please retry.');
+    }
   };
 
-  const handleCheckout = (guestId: number) => {
+  const handleCheckout = async (guestId: number) => {
     const guest = guests.find(g => g.id === guestId);
     if (!guest) return;
+    if (!guest.bookingId) {
+      window.alert('This stay was never saved to the server, so it cannot be checked out. Check the guest in again.');
+      return;
+    }
+    try {
+      await api(`/hotel/front-desk/bookings/${guest.bookingId}/check-out`, {
+        method: 'POST', offlineFallback: false, body: '{}',
+      });
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : 'Check-out was not saved. Please retry.');
+      return;
+    }
     setGuests(prev => prev.map(g => g.id === guestId ? { ...g, status: 'Checked-out' } : g));
     setRooms(prev => prev.map(r => r.number === guest.room ? { ...r, status: 'cleaning', guest: undefined } as Room : r));
     setReceiptGuest(guest);

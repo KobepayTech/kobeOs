@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Bed, Lock, Unlock, Plus, Search, Eye, Brush, Wrench, LogOut, Clock } from 'lucide-react';
+import { Bed, Lock, Unlock, Plus, Search, Eye, Brush, Wrench, LogOut, Clock, Calendar } from 'lucide-react';
 
 /**
  * Hotels check guests out at 10:00 on the check-out date. Given the check-out
@@ -31,7 +31,8 @@ export interface BoardRoom {
   id: string | number;
   number: string;
   type: string;
-  status: 'available' | 'occupied' | 'cleaning' | 'maintenance';
+  /** 'reserved' is a real backend state: booked but not yet checked in. */
+  status: 'available' | 'occupied' | 'reserved' | 'cleaning' | 'maintenance';
   price: number;
   guest?: string;
   floor: number;
@@ -48,7 +49,7 @@ interface Props {
   onCheckOut?: (room: BoardRoom) => void;
 }
 
-type Filter = 'All' | 'Available' | 'Occupied' | 'Cleaning' | 'Maintenance';
+type Filter = 'All' | 'Available' | 'Occupied' | 'Reserved' | 'Cleaning' | 'Maintenance';
 
 const FALLBACK_IMG = 'https://images.unsplash.com/photo-1611892440504-42a792e24d32?w=600&h=360&fit=crop';
 const TYPE_IMAGES: Record<string, string> = {
@@ -74,6 +75,8 @@ export default function RoomsBoard({ rooms, onSelect, onCheckOut }: Props) {
     All: rooms.length,
     Available: rooms.filter((r) => r.status === 'available').length,
     Occupied: rooms.filter((r) => r.status === 'occupied').length,
+    // Without this a reserved room appeared in no tally at all.
+    Reserved: rooms.filter((r) => r.status === 'reserved').length,
     Cleaning: rooms.filter((r) => r.status === 'cleaning').length,
     Maintenance: rooms.filter((r) => r.status === 'maintenance').length,
   }), [rooms]);
@@ -111,7 +114,7 @@ export default function RoomsBoard({ rooms, onSelect, onCheckOut }: Props) {
       </div>
 
       <div className="grid grid-cols-5 gap-3 mb-5">
-        {(['All', 'Available', 'Occupied', 'Cleaning', 'Maintenance'] as Filter[]).map((f) => (
+        {(['All', 'Available', 'Occupied', 'Reserved', 'Cleaning', 'Maintenance'] as Filter[]).map((f) => (
           <StatChip key={f} label={f} value={counts[f]} active={filter === f} onClick={() => setFilter(f)} />
         ))}
       </div>
@@ -154,6 +157,7 @@ const TONE: Record<Filter, { label: string; activeBorder: string; cardBorder: st
   All:         { label: 'text-slate-500',   activeBorder: 'border-blue-400',    cardBorder: 'border-slate-200',   chip: 'bg-slate-100 text-slate-700',     icon: 'text-slate-400' },
   Available:   { label: 'text-emerald-600', activeBorder: 'border-emerald-400', cardBorder: 'border-emerald-200', chip: 'bg-emerald-100 text-emerald-700', icon: 'text-emerald-500' },
   Occupied:    { label: 'text-rose-600',    activeBorder: 'border-rose-400',    cardBorder: 'border-rose-200',    chip: 'bg-rose-100 text-rose-700',       icon: 'text-rose-500' },
+  Reserved:    { label: 'text-blue-600',    activeBorder: 'border-blue-400',    cardBorder: 'border-blue-200',    chip: 'bg-blue-100 text-blue-700',       icon: 'text-blue-500' },
   Cleaning:    { label: 'text-amber-600',   activeBorder: 'border-amber-400',   cardBorder: 'border-amber-200',   chip: 'bg-amber-100 text-amber-700',     icon: 'text-amber-500' },
   Maintenance: { label: 'text-slate-600',   activeBorder: 'border-slate-400',   cardBorder: 'border-slate-200',   chip: 'bg-slate-200 text-slate-700',     icon: 'text-slate-500' },
 };
@@ -166,6 +170,7 @@ function RoomCard({ room, onClick, onCheckOut }: { room: BoardRoom; onClick: () 
     room.status === 'cleaning'    ? Brush :
     room.status === 'maintenance' ? Wrench :
     room.status === 'occupied'    ? Lock :
+    room.status === 'reserved'    ? Calendar :
                                     Unlock;
   return (
     <button
