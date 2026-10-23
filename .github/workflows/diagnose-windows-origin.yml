@@ -141,3 +141,37 @@ jobs:
           Get-Service -Name '*postgres*' -ErrorAction SilentlyContinue |
             ForEach-Object { Write-Host "service=$($_.Name) status=$($_.Status)" }
           Write-Host 'service_scan=done'
+
+      - name: Live schema state (read-only SELECTs)
+        if: always()
+        timeout-minutes: 2
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $node = Join-Path $env:ProgramFiles 'nodejs\node.exe'
+          $probe = Join-Path $env:RUNNER_TEMP 'kobeos-schema-probe.cjs'
+          @'
+          const path = require('path');
+          const origin = 'C:\\KobeOS\\app';
+          (async () => {
+            const { Client } = require(path.join(origin, 'server', 'node_modules', 'pg'));
+            const c = new Client({ host: '127.0.0.1', port: 5433, user: 'kobeos',
+              password: 'kobeos_live', database: 'kobeos', connectionTimeoutMillis: 8000 });
+            await c.connect();
+            const one = async (label, sql) => {
+              try { const r = await c.query(sql); console.log(label + '=' + JSON.stringify(r.rows)); }
+              catch (e) { console.log(label + '_error=' + e.message); }
+            };
+            await one('migrations_applied', 'SELECT count(*)::int AS n FROM kobeos_migrations');
+            await one('last_migrations',
+              'SELECT name FROM kobeos_migrations ORDER BY timestamp DESC LIMIT 5');
+            await one('public_tables',
+              "SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema='public'");
+            await one('attribution_links_columns',
+              "SELECT column_name FROM information_schema.columns WHERE table_name='creator_attribution_links' ORDER BY 1");
+            await c.end();
+          })().catch((e) => { console.log('schema_probe_failed=' + e.message); process.exit(0); });
+          '@ | Set-Content -LiteralPath $probe -Encoding UTF8
+          if (Test-Path -LiteralPath $node -PathType Leaf) {
+            & $node $probe 2>&1 | ForEach-Object { Write-Host $_ }
+          } else { Write-Host 'schema_probe=skipped (node not found)' }
+          Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue
