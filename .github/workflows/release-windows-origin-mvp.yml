@@ -228,6 +228,102 @@ jobs:
           Remove-Item -LiteralPath (Join-Path $logs 'live-origin-supervisor.state') `
             -Force -ErrorAction SilentlyContinue
 
+          # The runtime is stopped and the new bundle is in place, which is the
+          # only moment nothing is migrating. If the database carries migrations
+          # this bundle does not have, it was migrated by a different version —
+          # the rollback path restores the previously installed server, and that
+          # older bundle boots with migrations enabled and applies its own set to
+          # whatever database it finds. The result is a schema no current
+          # migration can extend, and every later release fails on it for ever.
+          #
+          # Rebuilding is only ever allowed while the database is empty, checked
+          # here rather than inferred, so this cannot discard real work. A
+          # populated database in that state needs a person, not a workflow.
+          $resetProbe = Join-Path $env:RUNNER_TEMP "kobeos-release-schema-$([guid]::NewGuid().ToString('N')).cjs"
+          @'
+          const fs = require('fs');
+          const path = require('path');
+          const origin = process.argv[2];
+
+          // The class name TypeORM records, read out of the compiled migrations
+          // rather than guessed from filenames. A filename whose suffix differs
+          // from its class would otherwise read as foreign and trigger a rebuild
+          // of a database that was perfectly fine.
+          const known = new Set();
+          const migrationsDir = path.join(origin, 'server', 'dist', 'migrations');
+          try {
+            for (const file of fs.readdirSync(migrationsDir)) {
+              if (!file.endsWith('.js')) continue;
+              const src = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
+              // Both forms: an explicit `name = "Xxx1234567890"`, and the class
+              // declaration TypeORM falls back to when a migration omits it.
+              // Seven of this repository's migrations omit it, and matching only
+              // the explicit form reported all seven as foreign.
+              for (const m of src.matchAll(/name\s*=\s*["']([A-Za-z0-9_]+\d{10,})["']/g)) {
+                known.add(m[1].toLowerCase());
+              }
+              for (const m of src.matchAll(/class\s+([A-Za-z0-9_]+\d{10,})/g)) {
+                known.add(m[1].toLowerCase());
+              }
+            }
+          } catch (e) {
+            console.log('schema_check=migrations_unreadable ' + e.message.slice(0, 120));
+            process.exit(0);
+          }
+          // Nothing parsed means the check is blind, and a blind check must not
+          // be the thing that decides to drop a database.
+          if (known.size === 0) {
+            console.log('schema_check=inconclusive_no_known_migrations');
+            process.exit(0);
+          }
+          console.log('bundle_migrations=' + known.size);
+          const GUARDED = ['users', 'hotel_bookings', 'payment_transactions', 'pos_orders',
+            'commerce_businesses', 'property_leases', 'rent_payments'];
+          const cfg = (database) => ({ host: '127.0.0.1', port: 5433, user: 'kobeos',
+            password: 'kobeos_live', database, connectionTimeoutMillis: 10000 });
+          (async () => {
+            const { Client } = require(path.join(origin, 'server', 'node_modules', 'pg'));
+            const live = new Client(cfg('kobeos'));
+            try { await live.connect(); } catch { console.log('schema_check=no_database'); return; }
+            let applied = [];
+            try {
+              applied = (await live.query('SELECT name FROM kobeos_migrations')).rows.map((r) => r.name);
+            } catch { console.log('schema_check=no_migration_table'); await live.end(); return; }
+            // A recorded name whose class this bundle does not ship.
+            const foreign = applied.filter((n) => !known.has(String(n).toLowerCase()));
+            console.log('applied_migrations=' + applied.length);
+            console.log('foreign_migrations=' + foreign.length);
+            if (foreign.length === 0) { console.log('schema_check=compatible'); await live.end(); return; }
+            console.log('foreign_sample=' + foreign.slice(0, 3).join(' '));
+            let rows = 0;
+            for (const t of GUARDED) {
+              try { rows += (await live.query(`SELECT count(*)::int AS n FROM "${t}"`)).rows[0].n; } catch {}
+            }
+            console.log('guarded_rows=' + rows);
+            await live.end();
+            if (rows > 0) { console.log('schema_check=foreign_but_populated'); return; }
+            const admin = new Client(cfg('postgres'));
+            await admin.connect();
+            await admin.query(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+              WHERE datname = 'kobeos' AND pid <> pg_backend_pid()`);
+            await admin.query('DROP DATABASE IF EXISTS "kobeos"');
+            await admin.query('CREATE DATABASE "kobeos" OWNER "kobeos"');
+            await admin.end();
+            console.log('schema_check=rebuilt_from_empty');
+          })().catch((e) => { console.log('schema_check_failed=' + e.message); });
+          '@ | Set-Content -LiteralPath $resetProbe -Encoding UTF8
+          try {
+            $nodeForProbe = Join-Path $env:ProgramFiles 'nodejs\node.exe'
+            if (Test-Path -LiteralPath $nodeForProbe -PathType Leaf) {
+              & $nodeForProbe $resetProbe $origin $knownMigrations 2>&1 |
+                ForEach-Object { Write-Host $_ }
+            } else {
+              Write-Host 'schema_check=skipped (node not found)'
+            }
+          } finally {
+            Remove-Item -LiteralPath $resetProbe -Force -ErrorAction SilentlyContinue
+          }
+
           Start-OriginRuntime
 
           function Test-Release {
