@@ -270,6 +270,22 @@ jobs:
               }
             }
             Write-Host "new_backend_failure_class=$failureClass"
+
+            # Print the error itself, not only its category. Without this a
+            # failed release says "migration_column_missing" and nothing more,
+            # and the only way to learn WHICH column is to ask someone to open
+            # a PowerShell prompt on the origin machine and read the log by
+            # hand. Secrets are stripped: the connection error TypeORM raises
+            # can carry the database password.
+            if ($tail) {
+              $redacted = $tail -replace '(?i)(password|secret|token|apikey|api_key)(["'':= ]+)[^\s"'',;]+', '$1$2***'
+              Write-Host '##[group]new_backend_error_tail'
+              ($redacted -split "`n" | Select-Object -Last 60) | ForEach-Object { Write-Host $_ }
+              Write-Host '##[endgroup]'
+            } else {
+              Write-Host "new_backend_error_tail=empty_or_missing ($backendError)"
+            }
+
             Write-Host 'New backend failed release health checks; restoring previous bundle.'
             Set-Content -LiteralPath $lock -Value 'rollback' -Encoding ASCII
             try {
