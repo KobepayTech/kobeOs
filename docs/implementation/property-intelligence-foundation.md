@@ -41,7 +41,7 @@ Migration `1792756800000-PropertyIntelligenceFoundation` adds assets, utility bi
 - Backend unit suite: 138 passed.
 - Frontend and backend lint: no errors (repository warnings remain).
 - Frontend typecheck/build and backend build run locally.
-- Added eight migrated-schema end-to-end scenarios for owner isolation, approval, annual invoicing, payment concurrency/replay, journals, deposits, renewal/utility validation, tenant revocation, vacancies and maintenance automation.
+- Added nine migrated-schema end-to-end scenarios for owner isolation, approval, annual invoicing, payment concurrency/replay, journals, deposits, renewal/utility validation, tenant revocation, vacancies and maintenance automation.
 - Local PostgreSQL execution is unavailable because the environment rejects the required process-user transition. Database end-to-end verification must run in the repository's PostgreSQL CI job. Do not treat local unit/build success as migration verification.
 
 ## Deployment and remaining blockers

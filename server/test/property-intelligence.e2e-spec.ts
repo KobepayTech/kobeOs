@@ -48,6 +48,12 @@ describe('Property intelligence on migrated schema', () => {
     const journal=await action('journal',{source:'payment',sourceId:a.body.id});expect(journal.status).toBe(201);expect(journal.body.entries).toHaveLength(2);
     expect((await action('journal',{source:'payment',sourceId:a.body.id})).status).toBe(400);
   });
+  it('keeps posted expenses immutable in the legacy API',async()=>{
+    const expense=await action('expense',{propertyId,title:'Repair',category:'maintenance',amount:5000,currency:'TZS',spentAt:'2026-10-01'});expect(expense.status).toBe(201);
+    expect((await action('journal',{source:'expense',sourceId:expense.body.id})).status).toBe(201);
+    expect((await request(http).patch(`/api/property/expenses/${expense.body.id}`).set(auth()).send({amount:1})).status).toBe(400);
+    expect((await request(http).delete(`/api/property/expenses/${expense.body.id}`).set(auth())).status).toBe(400);
+  });
   it('blocks deposit overdrafts and keeps retries idempotent',async()=>{
     const key=randomUUID();const payload={leaseId,kind:'receipt',amount:200000,reference:'R1',reason:'Received cash'};
     const a=await action('deposit',payload,key);expect(a.status).toBe(201);expect((await action('deposit',payload,key)).body.id).toBe(a.body.id);
