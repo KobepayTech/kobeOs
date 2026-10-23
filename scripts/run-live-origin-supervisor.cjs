@@ -172,6 +172,121 @@ function provisionCluster({ binDir, dataDir, supervisorLog }) {
  * when the name is absent. Returns true when the database is present
  * afterwards, false when it could not be created.
  */
+/**
+ * Rebuild the database when it was migrated by a different bundle.
+ *
+ * The rollback path restores the previously installed server, and that older
+ * bundle boots with migrations enabled and applies its own migration set to
+ * whatever database it finds. The result is a schema no current migration can
+ * extend — the origin ended up with CreatorCommerceNetwork1783700000000
+ * applied at a timestamp this repository calls AddProviderSetup, and a
+ * creator_attribution_links the current migrations cannot add an index to.
+ *
+ * This belongs here rather than in the release workflow: the release stops the
+ * runtime before swapping bundles, which stops PostgreSQL too, so a check
+ * there runs against a database that is not listening. The supervisor starts
+ * the database first and the backend second, so between those two it has a
+ * live connection and knows exactly which bundle is about to migrate.
+ *
+ * Only ever rebuilds while every guarded table is empty.
+ */
+async function ensureSchemaCompatible({ repoRoot, supervisorLog }) {
+  const GUARDED = ['users', 'hotel_bookings', 'payment_transactions', 'pos_orders',
+    'commerce_businesses', 'property_leases', 'rent_payments'];
+
+  // The names TypeORM will record, read from the compiled migrations this
+  // bundle ships. Both forms: an explicit `name = "Xxx<timestamp>"`, and the
+  // class declaration it falls back to when a migration omits one.
+  const known = new Set();
+  try {
+    const dir = path.join(repoRoot, 'server', 'dist', 'migrations');
+    for (const file of fs.readdirSync(dir)) {
+      if (!file.endsWith('.js')) continue;
+      const src = fs.readFileSync(path.join(dir, file), 'utf8');
+      for (const m of src.matchAll(/name\s*=\s*["']([A-Za-z0-9_]+\d{10,})["']/g)) known.add(m[1].toLowerCase());
+      for (const m of src.matchAll(/class\s+([A-Za-z0-9_]+\d{10,})/g)) known.add(m[1].toLowerCase());
+    }
+  } catch (error) {
+    appendLine(supervisorLog, `schema_check=migrations_unreadable ${String(error && error.message).slice(0, 160)}`);
+    return;
+  }
+  // A blind check must not be what decides to drop a database.
+  if (known.size === 0) {
+    appendLine(supervisorLog, 'schema_check=inconclusive_no_known_migrations');
+    return;
+  }
+
+  let Client;
+  try {
+    ({ Client } = require(path.join(repoRoot, 'server', 'node_modules', 'pg')));
+  } catch {
+    appendLine(supervisorLog, 'schema_check=pg_client_unavailable');
+    return;
+  }
+  const connect = async (database) => {
+    const client = new Client({
+      host: '127.0.0.1', port: Number(DB_PORT), user: DB_USERNAME,
+      password: DB_PASSWORD, database, connectionTimeoutMillis: 10_000,
+    });
+    await client.connect();
+    return client;
+  };
+
+  let live;
+  try {
+    live = await connect(DB_DATABASE);
+  } catch (error) {
+    appendLine(supervisorLog, `schema_check=unreachable ${String(error && error.message).slice(0, 160)}`);
+    return;
+  }
+
+  try {
+    let applied;
+    try {
+      applied = (await live.query('SELECT name FROM kobeos_migrations')).rows.map((r) => r.name);
+    } catch {
+      appendLine(supervisorLog, 'schema_check=no_migration_table');
+      return;
+    }
+    const foreign = applied.filter((name) => !known.has(String(name).toLowerCase()));
+    if (foreign.length === 0) {
+      appendLine(supervisorLog, `schema_check=compatible applied=${applied.length}`);
+      return;
+    }
+
+    let rows = 0;
+    for (const table of GUARDED) {
+      try {
+        rows += (await live.query(`SELECT count(*)::int AS n FROM "${table}"`)).rows[0].n;
+      } catch { /* table absent in this schema */ }
+    }
+    if (rows > 0) {
+      appendLine(supervisorLog,
+        `schema_check=foreign_but_populated foreign=${foreign.length} rows=${rows} sample=${foreign.slice(0, 3).join(' ')}`);
+      return;
+    }
+    appendLine(supervisorLog,
+      `schema_check=rebuilding foreign=${foreign.length} sample=${foreign.slice(0, 3).join(' ')}`);
+    await live.end();
+    live = null;
+
+    const admin = await connect('postgres');
+    try {
+      await admin.query(
+        `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+         WHERE datname = $1 AND pid <> pg_backend_pid()`, [DB_DATABASE]);
+      await admin.query(`DROP DATABASE IF EXISTS "${DB_DATABASE.replace(/"/g, '""')}"`);
+      await admin.query(
+        `CREATE DATABASE "${DB_DATABASE.replace(/"/g, '""')}" OWNER "${DB_USERNAME.replace(/"/g, '""')}"`);
+    } finally {
+      await admin.end().catch(() => {});
+    }
+    appendLine(supervisorLog, 'schema_check=rebuilt_from_empty');
+  } finally {
+    if (live) await live.end().catch(() => {});
+  }
+}
+
 async function ensureDatabase({ repoRoot, supervisorLog }) {
   // Preferred path: the pg driver the backend already depends on. The bundled
   // PostgreSQL ships postgres, pg_ctl and initdb but no client tools, so
@@ -572,6 +687,14 @@ async function main() {
     // initdb creates the cluster with postgres/template0/template1 only, so a
     // freshly provisioned origin has no kobeos database for the backend to
     // connect to. Idempotent: skipped the moment it exists.
+    if (!(await ensureDatabase({ repoRoot, supervisorLog }))) {
+      setState('database_create_failed');
+      await delay(30_000);
+      continue;
+    }
+
+    // The database is up and this bundle is the one about to migrate it.
+    await ensureSchemaCompatible({ repoRoot, supervisorLog });
     if (!(await ensureDatabase({ repoRoot, supervisorLog }))) {
       setState('database_create_failed');
       await delay(30_000);
