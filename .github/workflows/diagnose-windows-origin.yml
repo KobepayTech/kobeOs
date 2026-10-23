@@ -168,6 +168,16 @@ jobs:
               "SELECT count(*)::int AS n FROM information_schema.tables WHERE table_schema='public'");
             await one('attribution_links_columns',
               "SELECT column_name FROM information_schema.columns WHERE table_name='creator_attribution_links' ORDER BY 1");
+            await one('data_marker_path_note', "SELECT current_database() AS db, version() AS v");
+            // Is there anything in here worth keeping? Counted before any
+            // destructive repair is considered.
+            await one('row_counts', `
+              SELECT 'users' AS t, count(*)::int AS n FROM users
+              UNION ALL SELECT 'hotel_bookings', count(*)::int FROM hotel_bookings
+              UNION ALL SELECT 'payment_transactions', count(*)::int FROM payment_transactions
+              UNION ALL SELECT 'pos_orders', count(*)::int FROM pos_orders
+              UNION ALL SELECT 'commerce_businesses', count(*)::int FROM commerce_businesses
+              ORDER BY 1`);
             await c.end();
           })().catch((e) => { console.log('schema_probe_failed=' + e.message); process.exit(0); });
           '@ | Set-Content -LiteralPath $probe -Encoding UTF8
