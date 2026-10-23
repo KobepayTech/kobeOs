@@ -11,7 +11,14 @@ const os = require('os');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 
-const VERSION = '2026-09-02.1';
+const VERSION = '2026-10-23.1';
+
+// The credentials the supervisor hands the backend. Named here because the
+// cluster it provisions has to be created with the same ones.
+const DB_USERNAME = 'kobeos';
+const DB_PASSWORD = 'kobeos_live';
+const DB_DATABASE = 'kobeos';
+const DB_PORT = '5433';
 const LOOP_DELAY_MS = 3_000;
 const DATABASE_START_TIMEOUT_MS = 90_000;
 const BACKEND_START_TIMEOUT_MS = 150_000;
@@ -109,6 +116,101 @@ function selectDataDir(repoRoot, logsDir) {
   return { candidates, selected: null, reason: candidates.length === 0 ? 'missing' : 'ambiguous' };
 }
 
+/**
+ * Create the cluster this origin has never had.
+ *
+ * Only ever called when no cluster exists anywhere the supervisor searches,
+ * so it cannot overwrite data: initdb itself refuses a non-empty directory,
+ * and the caller refuses the ambiguous case outright.
+ *
+ * Authentication is scram-sha-256 with the same credentials the supervisor
+ * hands the backend, rather than the `trust` that embedded Postgres usually
+ * ships with — the cluster only listens on 127.0.0.1, but trust would let any
+ * local process on the origin connect as superuser.
+ */
+function provisionCluster({ binDir, dataDir, supervisorLog }) {
+  const extension = process.platform === 'win32' ? '.exe' : '';
+  const initdb = path.join(binDir, `initdb${extension}`);
+  const passwordFile = path.join(os.tmpdir(), `kobeos-initdb-${process.pid}-${Date.now()}`);
+
+  try {
+    fs.mkdirSync(dataDir, { recursive: true });
+    if (fs.readdirSync(dataDir).length > 0) {
+      appendLine(supervisorLog, `provision_refused reason=data_dir_not_empty dir=${dataDir}`);
+      return false;
+    }
+
+    fs.writeFileSync(passwordFile, `${DB_PASSWORD}\n`, { encoding: 'utf8', mode: 0o600 });
+    const result = spawnSync(initdb, [
+      '-D', dataDir,
+      '-U', DB_USERNAME,
+      '--pwfile', passwordFile,
+      '--auth-local=scram-sha-256',
+      '--auth-host=scram-sha-256',
+      '-E', 'UTF8',
+    ], { encoding: 'utf8', windowsHide: true });
+
+    if (result.status !== 0) {
+      const detail = `${result.stderr || ''}${result.error ? ` ${result.error.message}` : ''}`.trim();
+      appendLine(supervisorLog, `provision_failed status=${result.status} detail=${detail.slice(0, 400)}`);
+      return false;
+    }
+    appendLine(supervisorLog, `provision_ok dir=${dataDir}`);
+    return true;
+  } catch (error) {
+    appendLine(supervisorLog, `provision_failed error=${String(error && error.message).slice(0, 400)}`);
+    return false;
+  } finally {
+    try { fs.unlinkSync(passwordFile); } catch { /* already gone */ }
+  }
+}
+
+/**
+ * Make sure the database the backend connects to exists.
+ *
+ * Idempotent and cheap: psql -lqt lists databases, and createdb only runs
+ * when the name is absent. Returns true when the database is present
+ * afterwards, false when it could not be created.
+ */
+function ensureDatabase({ repoRoot, supervisorLog }) {
+  const extension = process.platform === 'win32' ? '.exe' : '';
+  // Not every bundled distribution ships the client tools beside the server
+  // ones, and isCompleteBinDir deliberately does not require them — adding
+  // them there could disqualify a bin dir that can still run the cluster.
+  const binDir = binaryCandidates(repoRoot).find((dir) =>
+    ['psql', 'createdb'].every((name) => {
+      try { return fs.statSync(path.join(dir, `${name}${extension}`)).isFile(); } catch { return false; }
+    }));
+  if (!binDir) {
+    appendLine(supervisorLog, 'database_probe_failed detail=psql/createdb not found beside the server binaries');
+    return false;
+  }
+  const psql = path.join(binDir, `psql${extension}`);
+  const createdb = path.join(binDir, `createdb${extension}`);
+  const env = { ...process.env, PGPASSWORD: DB_PASSWORD };
+  const connection = ['-h', '127.0.0.1', '-p', DB_PORT, '-U', DB_USERNAME];
+
+  const listed = spawnSync(psql, [...connection, '-tAc',
+    `SELECT 1 FROM pg_database WHERE datname = '${DB_DATABASE}'`, '-d', 'postgres',
+  ], { encoding: 'utf8', env, windowsHide: true });
+
+  if (listed.status === 0 && listed.stdout && listed.stdout.trim() === '1') return true;
+  if (listed.status !== 0) {
+    appendLine(supervisorLog, `database_probe_failed detail=${String(listed.stderr || '').trim().slice(0, 300)}`);
+    return false;
+  }
+
+  const created = spawnSync(createdb, [...connection, '-O', DB_USERNAME, DB_DATABASE], {
+    encoding: 'utf8', env, windowsHide: true,
+  });
+  if (created.status !== 0) {
+    appendLine(supervisorLog, `database_create_failed detail=${String(created.stderr || '').trim().slice(0, 300)}`);
+    return false;
+  }
+  appendLine(supervisorLog, `database_created name=${DB_DATABASE}`);
+  return true;
+}
+
 function isCompleteBinDir(binDir) {
   const extension = process.platform === 'win32' ? '.exe' : '';
   return ['postgres', 'pg_ctl', 'initdb'].every((name) => {
@@ -203,12 +305,16 @@ function readProductionEnvironment(repoRoot) {
     NODE_ENV: 'production',
     PORT: '3000',
     DB_HOST: '127.0.0.1',
-    DB_PORT: '5433',
-    DB_USERNAME: 'kobeos',
-    DB_PASSWORD: 'kobeos_live',
-    DB_DATABASE: 'kobeos',
+    DB_PORT,
+    DB_USERNAME,
+    DB_PASSWORD,
+    DB_DATABASE,
     DB_SYNCHRONIZE: 'false',
-    DB_MIGRATIONS_RUN: 'false',
+    // The backend owns the schema. This was 'false', which assumed something
+    // else had already migrated the cluster — nothing does, so a newly
+    // provisioned origin would come up pointed at an empty database and fail
+    // every query. Migrations are idempotent and guarded.
+    DB_MIGRATIONS_RUN: 'true',
     // Keep the headless origin on the CPU-friendly bundled chat model. Large
     // vision/reasoning models are still selected when a request needs them.
     // Must match models/bundled/models.json "name" and DEFAULT_MODEL_ROUTING
@@ -314,8 +420,31 @@ async function main() {
         continue;
       }
 
-      const data = selectDataDir(repoRoot, logsDir);
+      let data = selectDataDir(repoRoot, logsDir);
       const availableBins = binaryCandidates(repoRoot);
+
+      // First run on a machine that has never held a cluster. isCompleteBinDir
+      // already insists initdb is present beside postgres and pg_ctl, but
+      // nothing ever called it, so a fresh origin sat in
+      // database_cluster_missing for ever and never started the API. Ambiguity
+      // is still refused: picking between two existing clusters is a choice
+      // about live data and belongs to a human.
+      if (!data.selected && data.reason === 'missing' && availableBins.length > 0) {
+        setState('database_provisioning');
+        const created = provisionCluster({
+          binDir: availableBins[0],
+          dataDir: path.join(repoRoot, 'pgdata'),
+          supervisorLog,
+        });
+        if (created) {
+          data = selectDataDir(repoRoot, logsDir);
+        } else {
+          setState('database_provision_failed');
+          await delay(30_000);
+          continue;
+        }
+      }
+
       if (!data.selected) {
         setState(data.reason === 'ambiguous' ? 'database_cluster_ambiguous' : 'database_cluster_missing');
         await delay(30_000);
@@ -406,6 +535,15 @@ async function main() {
     if (await tcpListening(3000)) {
       setState('api_port_occupied_unhealthy');
       await delay(15_000);
+      continue;
+    }
+
+    // initdb creates the cluster with postgres/template0/template1 only, so a
+    // freshly provisioned origin has no kobeos database for the backend to
+    // connect to. Idempotent: skipped the moment it exists.
+    if (!ensureDatabase({ repoRoot, supervisorLog })) {
+      setState('database_create_failed');
+      await delay(30_000);
       continue;
     }
 
