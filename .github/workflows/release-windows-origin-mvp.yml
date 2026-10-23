@@ -204,10 +204,16 @@ jobs:
           # a release in October was diagnosed from September's errors, about
           # columns whose code no longer exists. Whatever is in this file after
           # this point belongs to this release.
-          $backendErrorLog = Join-Path $logs 'kobe-backend-live.err.log'
-          if (Test-Path -LiteralPath $backendErrorLog -PathType Leaf) {
-            Move-Item -LiteralPath $backendErrorLog `
-              -Destination "$backendErrorLog.$(Get-Date -Format 'yyyyMMdd-HHmmss').prev" -Force
+          $rotateStamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+          foreach ($logName in @(
+            'live-origin-supervisor.stdout.log',
+            'live-origin-supervisor.stderr.log',
+            'kobe-backend-live.err.log'
+          )) {
+            $logPath = Join-Path $logs $logName
+            if (Test-Path -LiteralPath $logPath -PathType Leaf) {
+              Move-Item -LiteralPath $logPath -Destination "$logPath.$rotateStamp.prev" -Force
+            }
           }
 
           Start-OriginRuntime
@@ -264,10 +270,31 @@ jobs:
             Write-EndpointDiagnostic 'new_lala_health' 'http://127.0.0.1:3000/api/lala-public/health'
             Write-EndpointDiagnostic 'new_lala_search' 'http://127.0.0.1:3000/api/lala-public/search'
 
-            $backendError = Join-Path $logs 'kobe-backend-live.err.log'
+            # Read every log the supervisor actually writes. This used to look
+            # only at kobe-backend-live.err.log, which nothing has written
+            # since an older supervisor was replaced — so the classifier was
+            # reading a file frozen in September and reporting its contents as
+            # the current release's failure. Nest's Logger writes to stdout,
+            # so the stdout log is where a boot failure actually appears.
+            $logCandidates = @(
+              (Join-Path $logs 'live-origin-supervisor.stdout.log'),
+              (Join-Path $logs 'live-origin-supervisor.stderr.log'),
+              (Join-Path $logs 'kobe-backend-live.err.log')
+            )
+            $parts = @()
+            foreach ($candidate in $logCandidates) {
+              if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+                Write-Host "log_absent=$(Split-Path -Leaf $candidate)"
+                continue
+              }
+              $content = (Get-Content -LiteralPath $candidate -Tail 400 -ErrorAction SilentlyContinue) -join [Environment]::NewLine
+              Write-Host "log_present=$(Split-Path -Leaf $candidate) bytes=$((Get-Item -LiteralPath $candidate).Length)"
+              if ($content) { $parts += "----- $(Split-Path -Leaf $candidate) -----"; $parts += $content }
+            }
+            $tail = $parts -join [Environment]::NewLine
+
             $failureClass = 'unclassified'
-            if (Test-Path -LiteralPath $backendError -PathType Leaf) {
-              $tail = (Get-Content -LiteralPath $backendError -Tail 400 -ErrorAction SilentlyContinue) -join [Environment]::NewLine
+            if ($tail) {
               if ($tail -match 'Cannot find module') {
                 $failureClass = 'dependency_missing'
               } elseif ($tail -match 'relation .* does not exist') {
@@ -300,7 +327,7 @@ jobs:
               ($redacted -split "`n" | Select-Object -Last 60) | ForEach-Object { Write-Host $_ }
               Write-Host '##[endgroup]'
             } else {
-              Write-Host "new_backend_error_tail=empty_or_missing ($backendError)"
+              Write-Host 'new_backend_error_tail=empty_or_missing (no supervisor log had content; see log_absent/log_present above)'
             }
 
             Write-Host 'New backend failed release health checks; restoring previous bundle.'
