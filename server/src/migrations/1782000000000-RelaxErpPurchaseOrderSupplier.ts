@@ -9,9 +9,19 @@ export class RelaxErpPurchaseOrderSupplier1782000000000 implements MigrationInte
   name = 'RelaxErpPurchaseOrderSupplier1782000000000';
 
   public async up(q: QueryRunner): Promise<void> {
-    await q.query(
-      `ALTER TABLE IF EXISTS "erp_purchase_orders" ALTER COLUMN "supplierId" DROP NOT NULL`,
-    );
+    // ALTER TABLE IF EXISTS guards the table but not the column: on a database
+    // where erp_purchase_orders exists without supplierId this still throws
+    // `column ... does not exist`, which rolls back the entire pending batch.
+    await q.query(`
+      DO $$ BEGIN
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_name = 'erp_purchase_orders' AND column_name = 'supplierId'
+        ) THEN
+          ALTER TABLE "erp_purchase_orders" ALTER COLUMN "supplierId" DROP NOT NULL;
+        END IF;
+      END $$;
+    `);
   }
 
   public async down(): Promise<void> {
