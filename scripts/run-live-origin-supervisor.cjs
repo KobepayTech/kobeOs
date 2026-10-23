@@ -172,7 +172,38 @@ function provisionCluster({ binDir, dataDir, supervisorLog }) {
  * when the name is absent. Returns true when the database is present
  * afterwards, false when it could not be created.
  */
-function ensureDatabase({ repoRoot, supervisorLog }) {
+async function ensureDatabase({ repoRoot, supervisorLog }) {
+  // Preferred path: the pg driver the backend already depends on. The bundled
+  // PostgreSQL ships postgres, pg_ctl and initdb but no client tools, so
+  // createdb is simply not on this machine — and pulling one in to create one
+  // database would be silly when a working client is already installed.
+  try {
+    const { Client } = require(path.join(repoRoot, 'server', 'node_modules', 'pg'));
+    const client = new Client({
+      host: '127.0.0.1',
+      port: Number(DB_PORT),
+      user: DB_USERNAME,
+      password: DB_PASSWORD,
+      database: 'postgres',
+      connectionTimeoutMillis: 10_000,
+    });
+    await client.connect();
+    try {
+      const found = await client.query('SELECT 1 FROM pg_database WHERE datname = $1', [DB_DATABASE]);
+      if (found.rowCount > 0) return true;
+      // CREATE DATABASE cannot be parameterised. DB_DATABASE is a constant in
+      // this file, not input, and is quoted regardless.
+      await client.query(`CREATE DATABASE "${DB_DATABASE.replace(/"/g, '""')}" OWNER "${DB_USERNAME.replace(/"/g, '""')}"`);
+      appendLine(supervisorLog, `database_created name=${DB_DATABASE} via=pg`);
+      return true;
+    } finally {
+      await client.end().catch(() => {});
+    }
+  } catch (error) {
+    appendLine(supervisorLog, `database_pg_client_failed detail=${String(error && error.message).slice(0, 300)}`);
+    // Fall through to the client binaries, in case a distribution has them.
+  }
+
   const extension = process.platform === 'win32' ? '.exe' : '';
   // Not every bundled distribution ships the client tools beside the server
   // ones, and isCompleteBinDir deliberately does not require them — adding
@@ -541,7 +572,7 @@ async function main() {
     // initdb creates the cluster with postgres/template0/template1 only, so a
     // freshly provisioned origin has no kobeos database for the backend to
     // connect to. Idempotent: skipped the moment it exists.
-    if (!ensureDatabase({ repoRoot, supervisorLog })) {
+    if (!(await ensureDatabase({ repoRoot, supervisorLog }))) {
       setState('database_create_failed');
       await delay(30_000);
       continue;
