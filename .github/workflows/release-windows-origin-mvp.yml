@@ -204,17 +204,29 @@ jobs:
           # a release in October was diagnosed from September's errors, about
           # columns whose code no longer exists. Whatever is in this file after
           # this point belongs to this release.
-          $rotateStamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-          foreach ($logName in @(
+          # Every log run-live-origin-supervisor.cjs writes, in the order that
+          # is useful when a release fails. The supervisor brings up embedded
+          # PostgreSQL first and only then the API, so a silent backend usually
+          # means the database never came up — which only the supervisor and
+          # postgres logs can show.
+          $originLogNames = @(
+            'live-origin-supervisor.log',
+            'kobe-backend-live.out.log',
+            'kobe-backend-live.err.log',
+            'kobe-postgres-live.err.log',
+            'kobe-postgres-live.out.log',
             'live-origin-supervisor.stdout.log',
-            'live-origin-supervisor.stderr.log',
-            'kobe-backend-live.err.log'
-          )) {
+            'live-origin-supervisor.stderr.log'
+          )
+          $rotateStamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+          foreach ($logName in $originLogNames) {
             $logPath = Join-Path $logs $logName
             if (Test-Path -LiteralPath $logPath -PathType Leaf) {
               Move-Item -LiteralPath $logPath -Destination "$logPath.$rotateStamp.prev" -Force
             }
           }
+          Remove-Item -LiteralPath (Join-Path $logs 'live-origin-supervisor.state') `
+            -Force -ErrorAction SilentlyContinue
 
           Start-OriginRuntime
 
@@ -276,11 +288,34 @@ jobs:
             # reading a file frozen in September and reporting its contents as
             # the current release's failure. Nest's Logger writes to stdout,
             # so the stdout log is where a boot failure actually appears.
-            $logCandidates = @(
-              (Join-Path $logs 'live-origin-supervisor.stdout.log'),
-              (Join-Path $logs 'live-origin-supervisor.stderr.log'),
-              (Join-Path $logs 'kobe-backend-live.err.log')
-            )
+            # The supervisor's one-word state is the most informative signal
+            # there is: it says whether the database or the backend is the
+            # thing that never came up. Report it first.
+            $stateFile = Join-Path $logs 'live-origin-supervisor.state'
+            if (Test-Path -LiteralPath $stateFile -PathType Leaf) {
+              Write-Host "origin_supervisor_state=$((Get-Content -LiteralPath $stateFile -Raw).Trim())"
+            } else {
+              Write-Host 'origin_supervisor_state=absent'
+            }
+
+            # The supervisor can report whether it can even find a PostgreSQL
+            # cluster and binaries, which is the usual reason it never reaches
+            # the backend. Read-only.
+            $nodeExe = Join-Path $env:ProgramFiles 'nodejs\node.exe'
+            $supervisorEntry = Join-Path $env:GITHUB_WORKSPACE 'scripts\run-live-origin-supervisor.cjs'
+            if ((Test-Path -LiteralPath $nodeExe -PathType Leaf) -and
+                (Test-Path -LiteralPath $supervisorEntry -PathType Leaf)) {
+              try {
+                & $nodeExe $supervisorEntry --repo-root $origin --diagnose 2>&1 |
+                  ForEach-Object { Write-Host $_ }
+              } catch {
+                Write-Host "origin_supervisor_diagnose=failed: $($_.Exception.Message)"
+              }
+            } else {
+              Write-Host 'origin_supervisor_diagnose=skipped (node or supervisor entry not found)'
+            }
+
+            $logCandidates = $originLogNames | ForEach-Object { Join-Path $logs $_ }
             $parts = @()
             foreach ($candidate in $logCandidates) {
               if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
@@ -307,6 +342,12 @@ jobs:
                 $failureClass = 'port_in_use'
               } elseif ($tail -match 'Nest can.?t resolve dependencies') {
                 $failureClass = 'nest_dependency_resolution'
+              } elseif ($tail -match 'postgres_binary_selection=missing|could not find pg_ctl|initdb') {
+                $failureClass = 'postgres_binaries_missing'
+              } elseif ($tail -match 'database system is starting up|the database system is shutting down') {
+                $failureClass = 'postgres_not_ready'
+              } elseif ($tail -match 'state=database_') {
+                $failureClass = 'database_never_started'
               }
             }
             Write-Host "new_backend_failure_class=$failureClass"
