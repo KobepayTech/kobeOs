@@ -197,6 +197,19 @@ jobs:
           } finally {
             Remove-Item -LiteralPath $lock -Force -ErrorAction SilentlyContinue
           }
+
+          # Rotate the error log before the new backend starts. It is appended
+          # to and never truncated, so both the failure classifier below and
+          # the tail it prints were matching entries from previous releases —
+          # a release in October was diagnosed from September's errors, about
+          # columns whose code no longer exists. Whatever is in this file after
+          # this point belongs to this release.
+          $backendErrorLog = Join-Path $logs 'kobe-backend-live.err.log'
+          if (Test-Path -LiteralPath $backendErrorLog -PathType Leaf) {
+            Move-Item -LiteralPath $backendErrorLog `
+              -Destination "$backendErrorLog.$(Get-Date -Format 'yyyyMMdd-HHmmss').prev" -Force
+          }
+
           Start-OriginRuntime
 
           function Test-Release {
@@ -278,7 +291,11 @@ jobs:
             # hand. Secrets are stripped: the connection error TypeORM raises
             # can carry the database password.
             if ($tail) {
-              $redacted = $tail -replace '(?i)(password|secret|token|apikey|api_key)(["'':= ]+)[^\s"'',;]+', '$1$2***'
+              # Only an actual key=value / key: value pair. An earlier version
+              # allowed a bare space as the separator, so the phrase
+              # "creatorAttributionToken does not exist" came out as
+              # "...Token *** not exist" — redaction eating the diagnosis.
+              $redacted = $tail -replace '(?i)(password|secret|token|apikey|api_key)(\s*[:=]\s*)([^\s"'',;]+)', '$1$2***'
               Write-Host '##[group]new_backend_error_tail'
               ($redacted -split "`n" | Select-Object -Last 60) | ForEach-Object { Write-Host $_ }
               Write-Host '##[endgroup]'
