@@ -1,0 +1,124 @@
+name: Diagnose Windows Origin
+
+# Read-only. Reports what the origin machine actually has, so a release
+# failure can be understood without an 11-minute release cycle and without
+# asking someone to open PowerShell on the box.
+#
+# Changes nothing: no service is started or stopped, no file is written.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    name: Report origin state
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Report origin state
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $origin = 'C:\KobeOS\app'
+          $logs = Join-Path $origin 'logs'
+
+          function Test-IsCluster {
+            param([string]$Dir)
+            if (-not $Dir) { return $false }
+            return (Test-Path -LiteralPath (Join-Path $Dir 'PG_VERSION') -PathType Leaf) -and
+                   (Test-Path -LiteralPath (Join-Path $Dir 'base') -PathType Container) -and
+                   (Test-Path -LiteralPath (Join-Path $Dir 'global') -PathType Container)
+          }
+
+          Write-Host '##[group]postgres services'
+          Get-Service | Where-Object { $_.Name -like '*postgres*' -or $_.DisplayName -like '*PostgreSQL*' } |
+            Select-Object Name, DisplayName, Status | Format-Table -AutoSize | Out-String | Write-Host
+          Write-Host '##[endgroup]'
+
+          Write-Host '##[group]listening ports'
+          foreach ($p in 3000, 5432, 5433) {
+            $conn = Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue
+            if ($conn) {
+              foreach ($c in $conn) {
+                $proc = Get-Process -Id $c.OwningProcess -ErrorAction SilentlyContinue
+                Write-Host "port_${p}=listening pid=$($c.OwningProcess) process=$($proc.ProcessName)"
+              }
+            } else {
+              Write-Host "port_${p}=closed"
+            }
+          }
+          Write-Host '##[endgroup]'
+
+          Write-Host '##[group]candidate KobeOS clusters'
+          $candidates = @(
+            $env:KOBEOS_PG_DATA_DIR,
+            (Join-Path $env:APPDATA 'KobeOS\pgdata'),
+            (Join-Path $origin 'pgdata'),
+            (Join-Path $origin 'data\pgdata')
+          )
+          Get-ChildItem 'C:\Users' -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+            $candidates += (Join-Path $_.FullName 'AppData\Roaming\KobeOS\pgdata')
+            $candidates += (Join-Path $_.FullName 'AppData\Local\KobeOS\pgdata')
+          }
+          foreach ($c in ($candidates | Where-Object { $_ } | Select-Object -Unique)) {
+            $exists = Test-Path -LiteralPath $c -PathType Container
+            Write-Host "candidate=$c exists=$exists cluster=$(if ($exists) { Test-IsCluster $c } else { 'n/a' })"
+          }
+          Write-Host '##[endgroup]'
+
+          Write-Host '##[group]clusters outside the KobeOS search path'
+          foreach ($root in @('C:\Program Files\PostgreSQL', 'C:\Program Files (x86)\PostgreSQL', 'C:\PostgreSQL')) {
+            if (-not (Test-Path -LiteralPath $root -PathType Container)) { continue }
+            Get-ChildItem -LiteralPath $root -Directory -ErrorAction SilentlyContinue | ForEach-Object {
+              $d = Join-Path $_.FullName 'data'
+              Write-Host "external=$d exists=$(Test-Path -LiteralPath $d) cluster=$(Test-IsCluster $d)"
+            }
+          }
+          Write-Host '##[endgroup]'
+
+          Write-Host '##[group]env.production (non-secret keys only)'
+          $envFile = Join-Path $origin 'server\.env.production'
+          if (Test-Path -LiteralPath $envFile -PathType Leaf) {
+            Select-String -LiteralPath $envFile `
+              -Pattern '^\s*(NODE_ENV|PORT|KOBEOS_DESKTOP|DB_HOST|DB_PORT|DB_DATABASE|DB_USERNAME|DB_SYNCHRONIZE|DB_MIGRATIONS_RUN|DB_SSL)\s*=' |
+              ForEach-Object { Write-Host $_.Line.Trim() }
+          } else {
+            Write-Host "env_production=absent ($envFile)"
+          }
+          Write-Host '##[endgroup]'
+
+          Write-Host '##[group]supervisor state and logs'
+          $stateFile = Join-Path $logs 'live-origin-supervisor.state'
+          if (Test-Path -LiteralPath $stateFile -PathType Leaf) {
+            Write-Host "supervisor_state=$((Get-Content -LiteralPath $stateFile -Raw).Trim())"
+          } else { Write-Host 'supervisor_state=absent' }
+
+          Get-ChildItem -LiteralPath $logs -Filter '*.log' -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 12 |
+            ForEach-Object { Write-Host "log=$($_.Name) bytes=$($_.Length) modified=$($_.LastWriteTime.ToString('s'))" }
+
+          foreach ($n in 'live-origin-supervisor.log', 'kobe-postgres-live.err.log', 'kobe-backend-live.out.log') {
+            $p = Join-Path $logs $n
+            if ((Test-Path -LiteralPath $p -PathType Leaf) -and (Get-Item -LiteralPath $p).Length -gt 0) {
+              Write-Host "----- $n (last 30) -----"
+              Get-Content -LiteralPath $p -Tail 30 | ForEach-Object { Write-Host $_ }
+            }
+          }
+          Write-Host '##[endgroup]'
+
+          Write-Host '##[group]most recent rotated logs with content'
+          Get-ChildItem -LiteralPath $logs -Filter '*.prev' -ErrorAction SilentlyContinue |
+            Where-Object { $_.Length -gt 0 } | Sort-Object LastWriteTime -Descending |
+            Select-Object -First 3 | ForEach-Object {
+              Write-Host "----- $($_.Name) bytes=$($_.Length) (last 25) -----"
+              Get-Content -LiteralPath $_.FullName -Tail 25 | ForEach-Object { Write-Host $_ }
+            }
+          Write-Host '##[endgroup]'
