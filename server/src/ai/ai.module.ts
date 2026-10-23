@@ -1,3 +1,4 @@
+import { PropertyInsightsService } from '../property/property-insights.service';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AiService } from './ai.service';
@@ -51,8 +52,8 @@ import { OcrModule } from '../ocr/ocr.module';
     SystemHealthModule,
     OcrModule,
   ],
-  providers: [AiService, KobeAgentService, ScheduledAgentService, AiDocsService, AiOperatingService, PdfDocumentService, AiChatService, AgentExecutionService, GuardrailService],
+  providers: [PropertyInsightsService,AiService, KobeAgentService, ScheduledAgentService, AiDocsService, AiOperatingService, PdfDocumentService, AiChatService, AgentExecutionService, GuardrailService],
   controllers: [AiController, ScheduledAgentController, AiOperatingController],
-  exports: [AiService, KobeAgentService, ScheduledAgentService, AiDocsService, AiOperatingService, PdfDocumentService, AiChatService, AgentExecutionService, GuardrailService],
+  exports: [PropertyInsightsService,AiService, KobeAgentService, ScheduledAgentService, AiDocsService, AiOperatingService, PdfDocumentService, AiChatService, AgentExecutionService, GuardrailService],
 })
 export class AiModule {}

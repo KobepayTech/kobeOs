@@ -1,3 +1,5 @@
+import { PropertyOperation } from './property-intelligence.entity';
+import { InboundPayment } from '../mobile-money/mobile-money.entity';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DeepPartial, Repository } from 'typeorm';
@@ -129,6 +131,7 @@ export class RentPaymentsService extends OwnedCrudService<RentPayment> {
       const payments = tx.getRepository(RentPayment);
       const existing = await payments.findOne({ where: { ownerId, id }, lock: { mode: 'pessimistic_write' } });
       if (!existing) throw new NotFoundException('Payment not found.');
+      if (await tx.getRepository(PropertyOperation).findOneBy({ ownerId, key: `journal:payment:${id}` }) || await tx.getRepository(InboundPayment).findOneBy({ ownerId, consumedBy: 'PROPERTY_RENT', consumedRef: id })) throw new BadRequestException('Verified or posted payments require an audited accounting reversal; deletion is disabled.');
       if (existing.chargeId) {
         const charges = tx.getRepository(RentCharge);
         const charge = await charges.findOne({ where: { ownerId, id: existing.chargeId }, lock: { mode: 'pessimistic_write' } });
