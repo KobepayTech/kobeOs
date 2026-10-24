@@ -19,6 +19,7 @@ export interface AccountCode {
  * uses for variance accounting.
  */
 export const STANDARD_ACCOUNTS: AccountCode[] = [
+  { code: '4500', name: 'Rental Revenue', type: 'Revenue' },
   { code: '1000', name: 'Cash',                       type: 'Asset' },
   { code: '1010', name: 'China Cash',                 type: 'Asset' },
   { code: '1100', name: 'Accounts Receivable',        type: 'Asset' },
@@ -345,6 +346,16 @@ export class JournalService {
 
   listAccounts(uid: string) {
     return this.accounts.find({ where: { ownerId: uid }, order: { code: 'ASC' } });
+  }
+
+  /** Cash-basis property posting in the caller's transaction. Source deduplication belongs to that caller. */
+  async postPropertyInTransaction(tx: EntityManager, uid: string, source: 'payment' | 'expense', amount: number, reference: string, date: string) {
+    if (!Number.isFinite(amount) || amount <= 0) throw new BadRequestException('Amount must be positive');
+    await this.ensureChartOfAccounts(tx, uid);
+    const description = `Property ${source} ${reference} (cash basis)`;
+    return this.postLines(tx, uid, date, source === 'payment'
+      ? [{ code: '1000', debit: amount, description }, { code: '4500', credit: amount, description }]
+      : [{ code: '5500', debit: amount, description }, { code: '1000', credit: amount, description }]);
   }
 
   private async ensureChartOfAccounts(tx: EntityManager, uid: string) {
