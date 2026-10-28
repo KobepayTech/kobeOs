@@ -110,7 +110,20 @@ describe('Online continuity under partition (e2e)', () => {
 
       const reread = await repo.findOneByOrFail({ businessId, productId });
       expect(reread.remainingQty).toBe(1);
-      expect(await continuity.localSellable(businessId, productId)).toBe(9);
+      expect(reread.committedQty).toBe(2);
+
+      // Seven, not nine. The two units the cloud sold are still held: their
+      // orders have not synced back, so the deduction has not reached stock
+      // and the shelf must not offer them. An earlier version answered nine
+      // here, which is exactly the oversell committedQty exists to prevent.
+      expect(await continuity.localSellable(businessId, productId)).toBe(7);
+
+      // Once the deductions land, the hold is released.
+      const settled = await repo.findOneByOrFail({ businessId, productId });
+      settled.stock = 8;
+      await repo.save(settled);
+      await continuity.settleCommitted(businessId, productId, 2);
+      expect(await continuity.localSellable(businessId, productId)).toBe(7);
     });
   });
 
