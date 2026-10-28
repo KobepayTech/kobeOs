@@ -131,6 +131,41 @@ export function nextStatus(current: AllotmentStatus, event: 'RECLAIM' | 'ACKNOWL
   return current === 'RELEASED' ? null : 'RELEASED';
 }
 
+export type SyncSeverity = 'ok' | 'warn' | 'critical' | 'unknown';
+
+/**
+ * Thresholds for unsynced online transactions, in milliseconds.
+ *
+ * Tied to the cloud database's recovery window rather than picked for
+ * roundness. While a booking sits unsynced the cloud is the only copy of it,
+ * so if sync stalls past that window and something goes wrong the reservation
+ * is unrecoverable. Neon's current window is six hours, so critical fires at
+ * four and a warning at one — enough margin for someone to act.
+ */
+export const SYNC_LAG_WARN_MS = 60 * 60 * 1000;
+export const SYNC_LAG_CRITICAL_MS = 4 * 60 * 60 * 1000;
+
+/**
+ * How bad the sync backlog is.
+ *
+ * Age, not count: a hundred transactions synced promptly are healthy, and one
+ * stuck for five hours is not. Counting alone would have reported the second
+ * case as nearly fine.
+ */
+export function syncLagSeverity(
+  input: { pending: number; oldestAgeMs: number | null },
+  warnMs = SYNC_LAG_WARN_MS,
+  criticalMs = SYNC_LAG_CRITICAL_MS,
+): SyncSeverity {
+  const pending = Math.max(0, Math.floor(Number(input.pending) || 0));
+  if (pending === 0) return 'ok';
+  const age = input.oldestAgeMs;
+  if (age === null || !Number.isFinite(age)) return 'unknown';
+  if (age >= criticalMs) return 'critical';
+  if (age >= warnMs) return 'warn';
+  return 'ok';
+}
+
 /**
  * SQL for the units the cloud could still commit for one POS product.
  *

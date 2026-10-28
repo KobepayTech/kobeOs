@@ -1,4 +1,6 @@
 import {
+  SYNC_LAG_CRITICAL_MS,
+  SYNC_LAG_WARN_MS,
   applyHeartbeatStock,
   blocksLocalSale,
   consumeAllowance,
@@ -6,6 +8,7 @@ import {
   localSellableQty,
   nextStatus,
   returnAllowance,
+  syncLagSeverity,
   windowsOverlap,
 } from './continuity.rules';
 
@@ -149,5 +152,50 @@ describe('online allotment arithmetic', () => {
     it('overlaps a window fully inside another', () => {
       expect(windowsOverlap(d('2026-11-01'), d('2026-11-30'), d('2026-11-10'), d('2026-11-12'))).toBe(true);
     });
+  });
+});
+
+describe('sync lag severity', () => {
+  const HOUR = 60 * 60 * 1000;
+
+  it('is ok with nothing pending', () => {
+    expect(syncLagSeverity({ pending: 0, oldestAgeMs: null })).toBe('ok');
+    // Even a stale timestamp is irrelevant when the backlog is empty.
+    expect(syncLagSeverity({ pending: 0, oldestAgeMs: 99 * HOUR })).toBe('ok');
+  });
+
+  it('is ok while the backlog is fresh', () => {
+    expect(syncLagSeverity({ pending: 5, oldestAgeMs: 5 * 60 * 1000 })).toBe('ok');
+  });
+
+  it('judges on age, not count', () => {
+    // A hundred transactions synced promptly are healthy.
+    expect(syncLagSeverity({ pending: 100, oldestAgeMs: 60 * 1000 })).toBe('ok');
+    // One stuck for five hours is not, and counting alone would have called
+    // this nearly fine.
+    expect(syncLagSeverity({ pending: 1, oldestAgeMs: 5 * HOUR })).toBe('critical');
+  });
+
+  it('warns at an hour and goes critical at four', () => {
+    expect(syncLagSeverity({ pending: 1, oldestAgeMs: HOUR })).toBe('warn');
+    expect(syncLagSeverity({ pending: 1, oldestAgeMs: 3 * HOUR })).toBe('warn');
+    expect(syncLagSeverity({ pending: 1, oldestAgeMs: 4 * HOUR })).toBe('critical');
+  });
+
+  it('stays inside the cloud recovery window', () => {
+    // Critical has to fire with enough margin to act before the window
+    // closes, because past it an unsynced booking is unrecoverable.
+    expect(SYNC_LAG_CRITICAL_MS).toBeLessThan(6 * HOUR);
+    expect(SYNC_LAG_WARN_MS).toBeLessThan(SYNC_LAG_CRITICAL_MS);
+  });
+
+  it('reports unknown rather than ok when the age cannot be determined', () => {
+    expect(syncLagSeverity({ pending: 3, oldestAgeMs: null })).toBe('unknown');
+    expect(syncLagSeverity({ pending: 3, oldestAgeMs: Number.NaN })).toBe('unknown');
+  });
+
+  it('honours custom thresholds', () => {
+    expect(syncLagSeverity({ pending: 1, oldestAgeMs: 90 * 1000 }, 60_000, 120_000)).toBe('warn');
+    expect(syncLagSeverity({ pending: 1, oldestAgeMs: 150 * 1000 }, 60_000, 120_000)).toBe('critical');
   });
 });

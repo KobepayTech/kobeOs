@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, IsNull, Repository } from 'typeorm';
 import { CloudOutboxRecord, CloudRoomAllotment } from './continuity.entity';
-import type { OutboxKind as OutboxKindValue } from './continuity.rules';
+import type { OutboxKind as OutboxKindValue, SyncSeverity } from './continuity.rules';
 import { ProductSnippet } from '../commerce/commerce.entity';
 import { PosProduct } from '../pos/pos.entity';
 import { HotelBooking, HotelGuest, HotelRoom } from '../hotel/hotel.entity';
@@ -12,6 +12,7 @@ import {
   localSellableQty,
   nextStatus,
   returnAllowance,
+  syncLagSeverity,
   windowsOverlap,
 } from './continuity.rules';
 
@@ -432,6 +433,43 @@ export class ContinuityService {
       await repo.save(snippet);
       return { returned: true, alreadyHandled: false };
     });
+  }
+
+
+  /**
+   * How far behind the online transaction backlog is.
+   *
+   * One aggregate query, because /api/health polls this constantly — Electron
+   * boot, the frontend's health hook and the Cloudflare tunnel all hit it.
+   *
+   * Returns 'unknown' rather than throwing when the continuity tables are
+   * absent: an older database, or one migrated before this feature, must not
+   * make the liveness endpoint fail.
+   */
+  async syncHealth(): Promise<{
+    status: SyncSeverity;
+    pending: number;
+    oldestAgeSeconds: number | null;
+  }> {
+    try {
+      const row = await this.outbox
+        .createQueryBuilder('o')
+        .select('COUNT(*)::int', 'pending')
+        .addSelect('MIN(o."createdAt")', 'oldest')
+        .where('o."syncedAt" IS NULL')
+        .getRawOne<{ pending: number; oldest: Date | null }>();
+
+      const pending = Number(row?.pending ?? 0);
+      const oldest = row?.oldest ? new Date(row.oldest) : null;
+      const oldestAgeMs = oldest ? Date.now() - oldest.getTime() : null;
+      return {
+        status: syncLagSeverity({ pending, oldestAgeMs }),
+        pending,
+        oldestAgeSeconds: oldestAgeMs === null ? null : Math.round(oldestAgeMs / 1000),
+      };
+    } catch {
+      return { status: 'unknown', pending: 0, oldestAgeSeconds: null };
+    }
   }
 
   /** Record what the cloud originated. Re-recording the same originId is a no-op. */
