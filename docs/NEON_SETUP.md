@@ -59,14 +59,41 @@ a reservation/order through the API against an isolated branch, restart the
 API, and verify the record persists. Configuration unit tests and a frontend
 build do not establish database connectivity or end-to-end readiness.
 
-## Verification from this setup attempt
+## Verified on 28 October 2026
 
-- Root `npm run build`: passed (Vite and PWA outputs generated).
-- Backend `npm run build`: passed.
-- Database configuration tests: passed after adding the test metadata import.
-- `neon deploy`: blocked; browser authentication timed out after 60 seconds.
-- Backend startup: blocked by missing database URLs and application settings.
-- Neon migrations, database connectivity and reservation/order E2E: not run.
+The supplied account credential unblocked deployment after the initial browser
+sign-in timed out. The credential is not stored in this repository.
+
+- `neon deploy`: succeeded; production matched the PostgreSQL policy and three
+  managed variables were pulled into the ignored `.env.local`.
+- Production: project `kobeos-online`, PostgreSQL 18, region `aws-us-east-2`.
+- All 97 migrations passed first on an isolated verification branch and then
+  on production. Production has 345 public tables and zero users; no desktop
+  data was imported and no test fixtures were written to production.
+- Root `npm run build`: passed, including typechecking, Vite and PWA generation
+  (`built in 13.43s`). Backend `npm run build`: exit 0.
+- Database configuration unit tests: seven passed in the prior setup round.
+- Three selected E2E suites against the verification branch: 23 passed in
+  102.031 seconds (`auth`, `notes`, `online-continuity`). This was not a rerun of
+  the entire repository test suite.
+- Started the compiled NestJS API against the verification branch, checked
+  `/api/health` (HTTP 200, `db=connected`), registered a test user (HTTP 201),
+  and created an authenticated record (HTTP 201). Restarted the API and read
+  the same record (HTTP 200), then deleted it (HTTP 200).
+
+This workspace cannot use direct PostgreSQL TCP egress. Verification therefore
+used a temporary Neon WebSocket transport with TLS and the workspace HTTPS
+proxy, injected outside the repository. Jest required the same adapter in its
+isolated module registry. These were environment-related failed attempts,
+resolved before the successful tests above. The deployed application retains
+TypeORM and native `pg`; test native TCP connectivity again from its hosting
+runtime. The temporary transport is not a production dependency.
+
+The current Neon recovery history window is six hours (21,600 seconds).
+This setup did not extend retention, validate a point-in-time restore, deploy
+an always-on API host, configure its application secrets, or activate live
+KobeOS-to-cloud synchronization. PostgreSQL provisioning alone does not make
+the public continuity service live.
 
 The global CLI install failed with `EACCES`; `npx neon@latest` worked. Backend
 `npm ci --ignore-scripts` encountered the existing NestJS 10 / Swagger 11 peer
