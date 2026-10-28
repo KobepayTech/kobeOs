@@ -61,6 +61,9 @@ jobs:
         working-directory: deploy/cloudflare-primary-api
         run: npx wrangler deploy --dry-run --config wrangler.production.jsonc --outdir .wrangler-production-dry-run
 
+      - name: Test deployment configuration checks
+        run: node --test deploy/cloudflare-primary-api/scripts/*.node-test.mjs
+
       - name: Check Cloudflare and runtime credentials
         run: node deploy/cloudflare-primary-api/scripts/check-deployment-config.mjs
 

@@ -80,6 +80,6 @@ export default defineConfig({
     // Jest runner; pulling server/node_modules into Vitest causes failures),
     // the live-build chroot (vendors a full node_modules copy whose internal
     // *.test.js files would otherwise get discovered), and dist/ output.
-    exclude: ['tests/**', 'node_modules/**', 'server/**', 'live-build/**', 'dist/**', 'release/**', 'electron/**'],
+    exclude: ['tests/**', '**/node_modules/**', 'server/**', 'live-build/**', 'dist/**', 'release/**', 'electron/**'],
   },
 });

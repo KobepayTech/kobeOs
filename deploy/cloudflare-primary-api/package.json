@@ -5,7 +5,8 @@
   "scripts": {
     "check": "wrangler deploy --dry-run --outdir .wrangler-dry-run",
     "deploy:preview": "wrangler deploy --config wrangler.jsonc",
-    "deploy:production": "wrangler deploy --config wrangler.production.jsonc"
+    "deploy:production": "wrangler deploy --config wrangler.production.jsonc",
+    "test": "node --test scripts/*.node-test.mjs"
   },
   "dependencies": {
     "@cloudflare/containers": "0.3.7"
