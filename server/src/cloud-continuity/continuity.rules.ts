@@ -28,6 +28,16 @@ export interface SnippetAllowance {
   allocatedQty: number;
   /** Units of that allotment the cloud has not sold yet. */
   remainingQty: number;
+  /**
+   * Units the cloud has sold but whose order has not synced back yet, so the
+   * deduction has not landed on `stock`.
+   *
+   * Without this the hold on the shelf is released the instant the cloud makes
+   * a sale, and the till can sell the same unit in the window before the order
+   * arrives. remainingQty + committedQty stays constant across an online sale,
+   * which is what keeps the unit reserved the whole way through.
+   */
+  committedQty: number;
 }
 
 const whole = (value: unknown): number => {
@@ -44,8 +54,9 @@ const whole = (value: unknown): number => {
  * subtracting the full allotment as well would hide that unit twice and the
  * shop would stop selling stock it actually has.
  */
-export function localSellableQty(input: Pick<SnippetAllowance, 'stock' | 'remainingQty'>): number {
-  return Math.max(0, whole(input.stock) - Math.max(0, whole(input.remainingQty)));
+export function localSellableQty(input: Pick<SnippetAllowance, 'stock' | 'remainingQty' | 'committedQty'>): number {
+  const reserved = Math.max(0, whole(input.remainingQty)) + Math.max(0, whole(input.committedQty));
+  return Math.max(0, whole(input.stock) - reserved);
 }
 
 /**
@@ -62,6 +73,7 @@ export function applyHeartbeatStock(current: SnippetAllowance, reportedStock: nu
     stock: reported >= 0 ? reported : whole(current.stock),
     allocatedQty: whole(current.allocatedQty),
     remainingQty: whole(current.remainingQty),
+    committedQty: whole(current.committedQty),
   };
 }
 
@@ -118,6 +130,22 @@ export function nextStatus(current: AllotmentStatus, event: 'RECLAIM' | 'ACKNOWL
   // cloud can hand capacity back on its own once it is done with it.
   return current === 'RELEASED' ? null : 'RELEASED';
 }
+
+/**
+ * SQL for the units the cloud could still commit for one POS product.
+ *
+ * Written as a fragment rather than a prior read so a till sale can enforce it
+ * inside its own atomic UPDATE: reading the allowance first and deciding
+ * afterwards leaves a window where the cloud commits the same unit. Takes the
+ * `:id` parameter the caller has already bound to the product, which avoids a
+ * correlated reference to the UPDATE target.
+ *
+ * SUM, not MAX: a product published under more than one business has an
+ * allowance outstanding against each, and the total is what must stay on the
+ * shelf.
+ */
+export const CLOUD_COMMITTED_FOR_PRODUCT_SQL =
+  'COALESCE((SELECT SUM(s."remainingQty" + s."committedQty") FROM commerce_product_snippets s WHERE s."productId" = :id), 0)';
 
 /**
  * Half-open date overlap, [from, to), matching how HotelBooking treats

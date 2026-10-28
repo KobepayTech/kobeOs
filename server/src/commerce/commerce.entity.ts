@@ -149,6 +149,12 @@ export class ProductSnippet extends BaseEntity {
    * allowance the cloud had already spent.
    */
   @Column({ type: 'int', default: 0 }) remainingQty!: number;
+  /**
+   * Sold online but not yet deducted from `stock`, because the order has not
+   * synced back. Held on the shelf alongside remainingQty so the till cannot
+   * sell a unit in the gap between an online sale and its sync.
+   */
+  @Column({ type: 'int', default: 0 }) committedQty!: number;
 }
 
 @Entity('commerce_customers')

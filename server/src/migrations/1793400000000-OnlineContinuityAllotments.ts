@@ -66,7 +66,8 @@ export class OnlineContinuityAllotments1793400000000 implements MigrationInterfa
         IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'commerce_product_snippets') THEN
           ALTER TABLE "commerce_product_snippets"
             ADD COLUMN IF NOT EXISTS "allocatedQty" integer NOT NULL DEFAULT 0,
-            ADD COLUMN IF NOT EXISTS "remainingQty" integer NOT NULL DEFAULT 0;
+            ADD COLUMN IF NOT EXISTS "remainingQty" integer NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS "committedQty" integer NOT NULL DEFAULT 0;
         END IF;
       END $$;
     `);

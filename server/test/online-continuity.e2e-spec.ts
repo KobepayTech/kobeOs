@@ -62,7 +62,7 @@ describe('Online continuity under partition (e2e)', () => {
     await repo.save(repo.create({
       businessId, productId, catalogOwnerId: ownerId, name: 'Last Item',
       price: 1000, currency: 'TZS', stock, active: true, indexedAt: new Date(),
-      allocatedQty: 0, remainingQty: 0,
+      allocatedQty: 0, remainingQty: 0, committedQty: 0,
     } as Partial<ProductSnippet>));
     return { businessId, productId };
   };

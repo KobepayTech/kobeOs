@@ -2,7 +2,9 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, IsNull, Repository } from 'typeorm';
 import { CloudOutboxRecord, CloudRoomAllotment } from './continuity.entity';
+import type { OutboxKind as OutboxKindValue } from './continuity.rules';
 import { ProductSnippet } from '../commerce/commerce.entity';
+import { PosProduct } from '../pos/pos.entity';
 import { HotelBooking, HotelGuest, HotelRoom } from '../hotel/hotel.entity';
 import {
   blocksLocalSale,
@@ -160,8 +162,17 @@ export class ContinuityService {
       if (qty > Number(snippet.stock)) {
         throw new BadRequestException(`Cannot allot ${qty}; reported stock is ${snippet.stock}.`);
       }
+      // An allotment may only be resized while nothing is in flight: a
+      // committed unit is already promised to an online customer and resizing
+      // around it would either strand it or double-count it.
+      if (Number(snippet.committedQty) > 0) {
+        throw new BadRequestException(
+          `Cannot change the allotment while ${snippet.committedQty} online sale(s) are waiting to sync.`,
+        );
+      }
       snippet.allocatedQty = qty;
       snippet.remainingQty = qty;
+      snippet.committedQty = 0;
       return repo.save(snippet);
     });
   }
@@ -170,6 +181,12 @@ export class ContinuityService {
    * Spend online allowance. Returns false when the allotment cannot cover it,
    * which is how two simultaneous attempts on the last unit end with one sale.
    * The row lock is what makes that true rather than probable.
+   *
+   * The units move from remainingQty into committedQty rather than
+   * disappearing. remainingQty + committedQty is what the shelf holds back, so
+   * it stays constant across the sale — otherwise the hold is released the
+   * moment the cloud sells, and the till can take the same unit in the window
+   * before the order syncs back.
    */
   async consumeProductAllowance(businessId: string, productId: string, qty: number): Promise<boolean> {
     return this.ds.transaction(async (tx) => {
@@ -181,9 +198,25 @@ export class ContinuityService {
       if (!snippet) return false;
       const remaining = consumeAllowance(snippet.remainingQty, qty);
       if (remaining === null) return false;
+      const moved = Number(snippet.remainingQty) - remaining;
       snippet.remainingQty = remaining;
+      snippet.committedQty = Number(snippet.committedQty) + moved;
       await repo.save(snippet);
       return true;
+    });
+  }
+
+  /**
+   * The online order's stock deduction has landed, so the unit is accounted for
+   * in `stock` and no longer needs holding separately.
+   */
+  async settleCommitted(businessId: string, productId: string, qty: number) {
+    return this.ds.transaction(async (tx) => {
+      const repo = tx.getRepository(ProductSnippet);
+      const snippet = await repo.findOne({ where: { businessId, productId }, lock: { mode: 'pessimistic_write' } });
+      if (!snippet) throw new NotFoundException('Product is not published online.');
+      snippet.committedQty = Math.max(0, Number(snippet.committedQty) - Math.max(0, Math.floor(Number(qty))));
+      return repo.save(snippet);
     });
   }
 
@@ -198,11 +231,57 @@ export class ContinuityService {
     });
   }
 
-  /** What POS and manual adjustments may still sell. */
+  /**
+   * What POS and manual adjustments may still sell.
+   *
+   * Stock comes from pos_products, not from the snippet. The snippet's `stock`
+   * is a mirror maintained for the cloud's benefit and only refreshed by a node
+   * heartbeat, so it does not follow a till sale — reading it here reported
+   * units on a shelf that was already empty.
+   */
   async localSellable(businessId: string, productId: string): Promise<number | null> {
     const snippet = await this.snippets.findOne({ where: { businessId, productId } });
     if (!snippet) return null;
-    return localSellableQty({ stock: Number(snippet.stock), remainingQty: Number(snippet.remainingQty) });
+    const product = await this.ds.getRepository(PosProduct).findOne({ where: { id: productId } });
+    if (product) {
+      return localSellableQty({
+        stock: Number(product.stock),
+        remainingQty: Number(snippet.remainingQty),
+        committedQty: Number(snippet.committedQty),
+      });
+    }
+    return localSellableQty({
+      stock: Number(snippet.stock),
+      remainingQty: Number(snippet.remainingQty),
+      committedQty: Number(snippet.committedQty),
+    });
+  }
+
+
+  /**
+   * Claim an outbox slot for this originId, returning false when someone
+   * already has it.
+   *
+   * ON CONFLICT DO NOTHING rather than insert-and-catch: a unique violation
+   * aborts the whole PostgreSQL transaction, so catching it and then querying
+   * fails with "current transaction is aborted". That is exactly what the
+   * retried-cancellation tests hit.
+   */
+  private async claimOutboxSlot(
+    tx: import('typeorm').EntityManager,
+    ownerId: string,
+    kind: OutboxKindValue,
+    originId: string,
+    payload: unknown,
+  ): Promise<{ claimed: boolean; id: string | null }> {
+    const rows: Array<{ id: string }> = await tx.query(
+      `INSERT INTO "cloud_outbox" ("ownerId", "kind", "originId", "payload")
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT ("ownerId", "kind", "originId") DO NOTHING
+       RETURNING "id"`,
+      [ownerId, kind, originId, JSON.stringify(payload ?? {})],
+    );
+    return { claimed: rows.length > 0, id: rows[0]?.id ?? null };
   }
 
   // ── reconciliation ───────────────────────────────────────────────────────
@@ -255,6 +334,104 @@ export class ContinuityService {
       if (raced) return { booking: raced, created: false };
       throw error;
     }
+  }
+
+  /**
+   * Absorb a cancellation the cloud made, exactly once.
+   *
+   * Keyed on the booking's own origin id, so one booking can only ever be
+   * cancelled once however many times the sync retries. The claim row is
+   * inserted first and the unique index decides the winner, rather than a read
+   * followed by a decision.
+   *
+   * A guest who has already checked in is not quietly cancelled. That is a
+   * conflict between two things that both really happened, so it is recorded
+   * on the claim for staff and the booking is left alone — the design's
+   * exception queue rather than a sync that fails forever or a reservation
+   * that disappears under someone standing at the desk.
+   */
+  async absorbCloudCancellation(ownerId: string, bookingOriginId: string, reason = '') {
+    return this.ds.transaction(async (tx) => {
+      const outboxRepo = tx.getRepository(CloudOutboxRecord);
+      const slot = await this.claimOutboxSlot(tx, ownerId, 'CANCELLATION', bookingOriginId, { reason });
+      if (!slot.claimed) {
+        return { cancelled: false, alreadyHandled: true, conflict: false };
+      }
+      const claimed = await outboxRepo.findOneByOrFail({ id: slot.id as string });
+
+      const bookings = tx.getRepository(HotelBooking);
+      const booking = await bookings.findOne({
+        where: { ownerId, cloudOriginId: bookingOriginId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!booking) {
+        // The cancellation arrived before the booking. The claim stays, so
+        // when the booking does land it is already cancelled rather than
+        // becoming a live reservation nobody wants.
+        claimed.lastError = 'booking_not_yet_synced';
+        await outboxRepo.save(claimed);
+        return { cancelled: false, alreadyHandled: false, conflict: false };
+      }
+
+      if (booking.status === 'CHECKED_IN') {
+        claimed.lastError = 'guest_already_checked_in';
+        await outboxRepo.save(claimed);
+        return { cancelled: false, alreadyHandled: false, conflict: true, booking };
+      }
+      if (booking.status === 'CANCELLED' || booking.status === 'CHECKED_OUT') {
+        return { cancelled: false, alreadyHandled: true, conflict: false, booking };
+      }
+
+      booking.status = 'CANCELLED';
+      await bookings.save(booking);
+
+      // Hand the room back to whoever it was reserved for. The nights return
+      // to the allotment, not to the front desk: the allotment still owns them
+      // and the cloud may resell them.
+      const rooms = tx.getRepository(HotelRoom);
+      const room = await rooms.findOne({ where: { id: booking.roomId, ownerId } });
+      if (room && room.status === 'reserved') {
+        room.status = 'available';
+        await rooms.save(room);
+      }
+
+      claimed.syncedAt = new Date();
+      await outboxRepo.save(claimed);
+      return { cancelled: true, alreadyHandled: false, conflict: false, booking };
+    });
+  }
+
+  /**
+   * Return an online order's units to the allotment, exactly once.
+   *
+   * The claim row is what makes it once: returnAllowance alone is idempotent
+   * in the sense of being capped, but two retries of a one-unit cancellation
+   * would still return two units up to that cap.
+   */
+  async absorbCloudOrderCancellation(
+    ownerId: string,
+    orderOriginId: string,
+    input: { businessId: string; productId: string; qty: number },
+  ) {
+    return this.ds.transaction(async (tx) => {
+      const slot = await this.claimOutboxSlot(tx, ownerId, 'CANCELLATION', orderOriginId, input);
+      if (!slot.claimed) return { returned: false, alreadyHandled: true };
+
+      const repo = tx.getRepository(ProductSnippet);
+      const snippet = await repo.findOne({
+        where: { businessId: input.businessId, productId: input.productId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!snippet) return { returned: false, alreadyHandled: false };
+      // Move the units back out of committed: they were promised to an online
+      // customer who has cancelled, so they return to the allotment rather
+      // than appearing as extra capacity.
+      const give = Math.min(Math.max(0, Math.floor(Number(input.qty))), Number(snippet.committedQty));
+      snippet.committedQty = Number(snippet.committedQty) - give;
+      snippet.remainingQty = returnAllowance(snippet.remainingQty, snippet.allocatedQty, give);
+      await repo.save(snippet);
+      return { returned: true, alreadyHandled: false };
+    });
   }
 
   /** Record what the cloud originated. Re-recording the same originId is a no-op. */

@@ -12,44 +12,53 @@ import {
 describe('online allotment arithmetic', () => {
   describe('what KobeOS may still sell', () => {
     it('withholds only what the cloud could still commit', () => {
-      expect(localSellableQty({ stock: 10, remainingQty: 3 })).toBe(7);
+      expect(localSellableQty({ stock: 10, remainingQty: 3, committedQty: 0 })).toBe(7);
     });
 
     it('does not withhold a unit twice once the online sale has synced back', () => {
       // 10 in stock, 3 allotted, cloud sold 1. The order synced and took stock
       // to 9; 2 of the allotment are still live. Subtracting the original
       // allotment as well would answer 6 and strand a unit the shop has.
-      expect(localSellableQty({ stock: 9, remainingQty: 2 })).toBe(7);
+      expect(localSellableQty({ stock: 9, remainingQty: 2, committedQty: 0 })).toBe(7);
     });
 
     it('never goes negative when the allowance exceeds reported stock', () => {
-      expect(localSellableQty({ stock: 1, remainingQty: 5 })).toBe(0);
+      expect(localSellableQty({ stock: 1, remainingQty: 5, committedQty: 0 })).toBe(0);
+    });
+
+    it('keeps holding a unit sold online until its order has synced back', () => {
+      // The gap that allowed an oversell: the cloud sells one of three
+      // allotted units, so remainingQty falls to 2 — but the deduction has not
+      // reached `stock` yet, so the shelf must still hold three back.
+      expect(localSellableQty({ stock: 10, remainingQty: 2, committedQty: 1 })).toBe(7);
+      // Once the order syncs, stock carries it and the hold is released.
+      expect(localSellableQty({ stock: 9, remainingQty: 2, committedQty: 0 })).toBe(7);
     });
 
     it('treats rubbish as zero rather than NaN', () => {
-      expect(localSellableQty({ stock: Number.NaN, remainingQty: 2 })).toBe(0);
-      expect(localSellableQty({ stock: 5, remainingQty: Number.NaN })).toBe(5);
+      expect(localSellableQty({ stock: Number.NaN, remainingQty: 2, committedQty: 0 })).toBe(0);
+      expect(localSellableQty({ stock: 5, remainingQty: Number.NaN, committedQty: 0 })).toBe(5);
     });
   });
 
   describe('a heartbeat must never replenish a consumed allowance', () => {
     it('updates reported stock and leaves the allotment untouched', () => {
-      const after = applyHeartbeatStock({ stock: 9, allocatedQty: 3, remainingQty: 1 }, 12);
-      expect(after).toEqual({ stock: 12, allocatedQty: 3, remainingQty: 1 });
+      const after = applyHeartbeatStock({ stock: 9, allocatedQty: 3, remainingQty: 1, committedQty: 2 }, 12);
+      expect(after).toEqual({ stock: 12, allocatedQty: 3, remainingQty: 1, committedQty: 2 });
     });
 
     it('does not restore remaining units the cloud has already sold', () => {
       // This is the defect the separation exists to prevent: the merchant
       // recounts, the heartbeat arrives, and the two units the cloud already
       // sold become sellable online a second time.
-      const consumed = { stock: 10, allocatedQty: 3, remainingQty: 1 };
+      const consumed = { stock: 10, allocatedQty: 3, remainingQty: 1, committedQty: 2 };
       expect(applyHeartbeatStock(consumed, 10).remainingQty).toBe(1);
       expect(applyHeartbeatStock(consumed, 99).remainingQty).toBe(1);
       expect(applyHeartbeatStock(consumed, 0).remainingQty).toBe(1);
     });
 
     it('keeps the previous stock when the report is nonsense', () => {
-      expect(applyHeartbeatStock({ stock: 7, allocatedQty: 2, remainingQty: 2 }, -4).stock).toBe(7);
+      expect(applyHeartbeatStock({ stock: 7, allocatedQty: 2, remainingQty: 2, committedQty: 0 }, -4).stock).toBe(7);
     });
   });
 

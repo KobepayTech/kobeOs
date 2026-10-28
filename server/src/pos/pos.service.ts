@@ -10,6 +10,8 @@ import { CreditService } from '../credit/credit.service';
 import { JournalService } from '../erp/journal.service';
 import { PosGateway } from './pos.gateway';
 import { repairCatalogImages } from '../media/repair-catalog-images';
+import { ProductSnippet } from '../commerce/commerce.entity';
+import { CLOUD_COMMITTED_FOR_PRODUCT_SQL } from '../cloud-continuity/continuity.rules';
 
 @Injectable()
 export class ProductsService {
@@ -54,10 +56,39 @@ export class ProductsService {
     return `${prefix}-${Date.now().toString(36).toUpperCase()}`;
   }
 
+  /**
+   * A manual stock correction must not take the shelf below what the online
+   * continuity layer has been allotted — otherwise an operator recounting
+   * downwards silently oversells units the cloud may already have promised.
+   *
+   * Done under a row lock on the product so it serialises with the till's
+   * atomic decrement and with an allotment being granted at the same time.
+   */
   async update(uid: string, id: string, dto: UpdateProductDto) {
-    const item = await this.get(uid, id);
-    Object.assign(item, dto);
-    return this.repo.save(item);
+    return this.repo.manager.transaction(async (tx) => {
+      const repo = tx.getRepository(PosProduct);
+      const item = await repo.findOne({ where: { id, ownerId: uid }, lock: { mode: 'pessimistic_write' } });
+      if (!item) throw new NotFoundException();
+
+      if (dto.stock !== undefined) {
+        const next = Math.floor(Number(dto.stock));
+        if (!Number.isFinite(next) || next < 0) throw new BadRequestException('Stock must be zero or more.');
+        const committed = await tx.getRepository(ProductSnippet)
+          .createQueryBuilder('s')
+          .select('COALESCE(SUM(s."remainingQty"), 0)', 'qty')
+          .where('s."productId" = :id', { id })
+          .getRawOne<{ qty: string }>();
+        const reserved = Number(committed?.qty ?? 0);
+        if (next < reserved) {
+          throw new BadRequestException(
+            `Cannot set stock to ${next}: ${reserved} unit(s) are allotted to online booking. Reclaim the allotment first.`,
+          );
+        }
+      }
+
+      Object.assign(item, dto);
+      return repo.save(item);
+    });
   }
 
   async remove(uid: string, id: string) {
@@ -144,12 +175,33 @@ export class OrdersService {
           .createQueryBuilder()
           .update(PosProduct)
           .set({ stock: () => `stock - ${line.quantity}` })
-          .where('id = :id AND "ownerId" = :uid AND stock >= :qty', {
-            id: product.id, uid, qty: line.quantity,
-          })
+          // Units allotted to the online continuity layer have to stay on the
+          // shelf: the cloud may already have promised them and may not be
+          // reachable to ask. Enforced inside this UPDATE rather than by
+          // reading the allowance first, so a till sale and an online checkout
+          // cannot both pass a check and both commit the same unit.
+          .where(
+            `id = :id AND "ownerId" = :uid AND stock - :qty >= ${CLOUD_COMMITTED_FOR_PRODUCT_SQL}`,
+            { id: product.id, uid, qty: line.quantity },
+          )
           .execute();
         if (decrement.affected === 0) {
-          throw new BadRequestException(`Insufficient stock for ${product.name}`);
+          // Either another order took the last units, the product moved owner,
+          // or what remains is spoken for online. Report the last case plainly
+          // so a till operator is not left arguing with a stock figure that
+          // looks sufficient.
+          const committed = await productRepo.manager
+            .getRepository(ProductSnippet)
+            .createQueryBuilder('s')
+            .select('COALESCE(SUM(s."remainingQty"), 0)', 'qty')
+            .where('s."productId" = :id', { id: product.id })
+            .getRawOne<{ qty: string }>();
+          const reserved = Number(committed?.qty ?? 0);
+          throw new BadRequestException(
+            reserved > 0
+              ? `Insufficient stock for ${product.name}: ${reserved} unit(s) are allotted to online booking.`
+              : `Insufficient stock for ${product.name}`,
+          );
         }
 
         // lineTotal stays = catalog price × qty so subtotal is gross of
