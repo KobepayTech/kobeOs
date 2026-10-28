@@ -140,6 +140,15 @@ export class ProductSnippet extends BaseEntity {
   @Column({ default: '' }) locationLabel!: string;
   @Column({ type: 'timestamptz', nullable: true }) lastOnlineAt?: Date | null;
   @Column({ default: '' }) availabilityHint!: string;
+  /** Units handed to the online continuity layer. Set by an operator. */
+  @Column({ type: 'int', default: 0 }) allocatedQty!: number;
+  /**
+   * Units of that allotment the cloud has not sold yet, and so may still
+   * commit. Kept apart from `stock` on purpose: `stock` is the merchant's own
+   * count and a heartbeat overwrites it, which would otherwise replenish an
+   * allowance the cloud had already spent.
+   */
+  @Column({ type: 'int', default: 0 }) remainingQty!: number;
 }
 
 @Entity('commerce_customers')

@@ -1,7 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { HotelBooking, HotelFinancialRecord, HotelGuest, HotelRoom } from './hotel.entity';
+import { CloudRoomAllotment } from '../cloud-continuity/continuity.entity';
+import { blocksLocalSale, windowsOverlap } from '../cloud-continuity/continuity.rules';
 
 export interface CreateFrontDeskReservationInput {
   roomId: string;
@@ -42,6 +44,34 @@ export class HotelFrontDeskService {
       const service = new HotelFrontDeskService(tx.getRepository(HotelRoom), tx.getRepository(HotelGuest), tx.getRepository(HotelBooking), tx.getRepository(HotelFinancialRecord));
       return action(service);
     });
+  }
+
+  /**
+   * Refuse nights that belong to the online continuity layer.
+   *
+   * Queried through this.bookings.manager rather than an injected service
+   * because withRoom hand-constructs this class with exactly four
+   * repositories; a fifth constructor argument would break that silently. Via
+   * the manager the query also runs inside withRoom's room-row lock, which is
+   * what serialises it against an allotment being granted at the same moment —
+   * grantRoom locks the same row.
+   *
+   * Anything short of an acknowledged release blocks, an expired window
+   * included: the cloud may be holding a reservation for it and may not be
+   * reachable to ask.
+   */
+  private async ensureNotAllottedOnline(ownerId: string, roomId: string, checkIn: Date, checkOut: Date): Promise<void> {
+    const held = await this.bookings.manager.getRepository(CloudRoomAllotment).find({ where: { ownerId, roomId } });
+    for (const allotment of held) {
+      if (!blocksLocalSale(allotment.status, allotment.acknowledgedAt)) continue;
+      const from = new Date(`${String(allotment.fromDate).slice(0, 10)}T00:00:00Z`);
+      const to = new Date(`${String(allotment.toDate).slice(0, 10)}T00:00:00Z`);
+      if (windowsOverlap(checkIn, checkOut, from, to)) {
+        throw new ConflictException(
+          'Those nights are allotted to online booking. Reclaim the allotment and wait for it to be released before selling them here.',
+        );
+      }
+    }
   }
 
   private parseStay(checkInValue: string, checkOutValue: string) {
@@ -90,6 +120,7 @@ export class HotelFrontDeskService {
     if (room.status === 'maintenance') throw new BadRequestException('Room is under maintenance.');
     const { checkIn, checkOut } = this.parseStay(input.checkIn, input.checkOut);
     await this.ensureNoOverlap(ownerId, room.id, checkIn, checkOut);
+    await this.ensureNotAllottedOnline(ownerId, room.id, checkIn, checkOut);
 
     const hotelId = room.hotelId ?? null;
     let guest = await this.guests.findOne({

@@ -37,6 +37,7 @@ import { DiscountsModule } from './discounts/discount.module';
 import { PaymentsModule } from './payments/payments.module';
 import { CreditModule } from './credit/credit.module';
 import { HotelModule } from './hotel/hotel.module';
+import { ContinuityModule } from './cloud-continuity/continuity.module';
 import { HotelWalletModule } from './hotel/hotel-wallet.module';
 import { LiveSaleModule } from './live-sales/live-sale.module';
 import { CargoTzModule } from './cargotz/cargotz.module';
@@ -167,6 +168,7 @@ import { AccountantModule } from './accountant/accountant.module';
     PaymentsModule,
     CreditModule,
     HotelModule,
+    ContinuityModule,
     HotelOperationsModule,
     HotelWalletModule,
     LiveSaleModule,
