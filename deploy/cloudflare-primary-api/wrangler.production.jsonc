@@ -13,7 +13,7 @@
   ],
   "vars": {
     "DB_PORT": "5432",
-    "DB_DATABASE": "kobeos",
+    "DB_DATABASE": "neondb",
     "DB_SSL": "true",
     "DB_SSL_REJECT_UNAUTHORIZED": "true",
     "TENANT_BASE_DOMAIN": "kobeapptz.com",

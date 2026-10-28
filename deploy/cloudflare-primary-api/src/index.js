@@ -65,7 +65,7 @@ function containerEnv(env) {
     DB_PORT: String(env.DB_PORT || '5432'),
     DB_USERNAME: required(env, 'DB_USERNAME'),
     DB_PASSWORD: required(env, 'DB_PASSWORD'),
-    DB_DATABASE: String(env.DB_DATABASE || 'kobeos'),
+    DB_DATABASE: String(env.DB_DATABASE || 'neondb'),
     DB_SSL: String(env.DB_SSL ?? 'true'),
     DB_SSL_REJECT_UNAUTHORIZED: String(env.DB_SSL_REJECT_UNAUTHORIZED ?? 'true'),
     DB_SYNCHRONIZE: 'false',
