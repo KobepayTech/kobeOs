@@ -1,6 +1,7 @@
 import { TypeOrmModuleAsyncOptions } from '@nestjs/typeorm';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { join } from 'path';
+import { databaseConnection } from './database-connection';
 
 export const databaseConfig: TypeOrmModuleAsyncOptions = {
   imports: [ConfigModule],
@@ -28,18 +29,11 @@ export const databaseConfig: TypeOrmModuleAsyncOptions = {
       config.get('DB_MIGRATIONS_RUN', migrationsDefault) === 'true';
     return {
       type: 'postgres',
-      host: config.get('DB_HOST', 'localhost'),
-      port: Number(config.get('DB_PORT', 5432)),
-      username: config.get('DB_USERNAME', 'kobe'),
-      password: config.get('DB_PASSWORD', 'kobe'),
-      database: config.get('DB_DATABASE', 'kobeos'),
-      ssl:
-        config.get('DB_SSL', 'false') === 'true'
-          ? {
-              rejectUnauthorized:
-                config.get('DB_SSL_REJECT_UNAUTHORIZED', 'true') !== 'false',
-            }
-          : false,
+      ...databaseConnection(Object.fromEntries(
+        ['DATABASE_URL', 'DATABASE_URL_UNPOOLED', 'DB_HOST', 'DB_PORT',
+          'DB_USERNAME', 'DB_PASSWORD', 'DB_DATABASE', 'DB_SSL',
+          'DB_SSL_REJECT_UNAUTHORIZED'].map(key => [key, config.get(key)]),
+      ), migrationsRun),
       autoLoadEntities: true,
       synchronize,
       // Migration filenames are timestamp-name.{ts,js}. Keep the glob strict so

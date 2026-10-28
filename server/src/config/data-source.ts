@@ -1,8 +1,10 @@
 import 'reflect-metadata';
 import { config as loadEnv } from 'dotenv';
 import { DataSource } from 'typeorm';
+import { databaseConnection } from './database-connection';
+import { envFiles } from './env-files';
 
-loadEnv();
+for (const path of envFiles) loadEnv({ path });
 
 /**
  * TypeORM DataSource used by the migration CLI.
@@ -11,11 +13,7 @@ loadEnv();
  */
 export default new DataSource({
   type: 'postgres',
-  host: process.env.DB_HOST || 'localhost',
-  port: Number(process.env.DB_PORT || 5432),
-  username: process.env.DB_USERNAME || 'kobe',
-  password: process.env.DB_PASSWORD || 'kobe',
-  database: process.env.DB_DATABASE || 'kobeos',
+  ...databaseConnection(process.env, true),
   entities: ['src/**/*.entity.ts'],
   migrations: ['src/migrations/+([0-9])-+([A-Za-z0-9_-]).ts'],
   migrationsTableName: 'kobeos_migrations',

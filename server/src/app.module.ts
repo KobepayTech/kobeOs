@@ -98,13 +98,14 @@ import { LiveAdsModule } from './live-ads/live-ads.module';
 import { ReceptionModule } from './reception/reception.module';
 import { LalaModule } from './lala/lala.module';
 import { AccountantModule } from './accountant/accountant.module';
+import { envFiles } from './config/env-files';
 
 @Module({
   imports: [
     ScheduleModule.forRoot(),
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '.env',
+      envFilePath: envFiles,
       validate: validateEnv,
     }),
     TypeOrmModule.forRootAsync(databaseConfig),

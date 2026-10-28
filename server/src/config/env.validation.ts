@@ -1,15 +1,17 @@
 import { plainToInstance } from 'class-transformer';
-import { IsString, IsNumber, IsEnum, IsOptional, validateSync, MinLength } from 'class-validator';
+import { IsString, IsNumber, IsEnum, IsOptional, ValidateIf, validateSync, MinLength } from 'class-validator';
 
 class EnvVars {
   @IsString() @MinLength(32) JWT_SECRET!: string;
   @IsNumber() PORT!: number;
   @IsEnum(['development', 'production', 'test']) NODE_ENV!: string;
-  @IsString() DB_HOST!: string;
-  @IsNumber() DB_PORT!: number;
-  @IsString() DB_USERNAME!: string;
-  @IsString() DB_PASSWORD!: string;
-  @IsString() DB_DATABASE!: string;
+  @IsOptional() @IsString() DATABASE_URL?: string;
+  @IsOptional() @IsString() DATABASE_URL_UNPOOLED?: string;
+  @ValidateIf(o => !o.DATABASE_URL) @IsString() DB_HOST!: string;
+  @ValidateIf(o => !o.DATABASE_URL) @IsNumber() DB_PORT!: number;
+  @ValidateIf(o => !o.DATABASE_URL) @IsString() DB_USERNAME!: string;
+  @ValidateIf(o => !o.DATABASE_URL) @IsString() DB_PASSWORD!: string;
+  @ValidateIf(o => !o.DATABASE_URL) @IsString() DB_DATABASE!: string;
   @IsOptional() @IsString() DB_SSL?: string;
   @IsOptional() @IsString() DB_SSL_REJECT_UNAUTHORIZED?: string;
   @IsOptional() @IsString() SENDGRID_API_KEY?: string;
