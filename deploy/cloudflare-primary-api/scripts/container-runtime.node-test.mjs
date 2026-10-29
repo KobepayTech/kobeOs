@@ -67,3 +67,16 @@ test('a failed mutating request is never retried against the legacy server', asy
   assert.equal(response.status, 503);
   assert.equal(calls.requests.length, 1);
 });
+
+test('the public Worker normalizes HTTPS before calling the Durable Object stub', async () => {
+  let forwarded;
+  const response = await worker.fetch(new Request('https://public.example/orders?q=1', { method: 'POST', body: 'order', headers: { 'content-type': 'text/plain' } }), {
+    KOBE_API: { getByName() { return { async fetch(request) { forwarded = request; return new Response('ok'); } }; } },
+  });
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('x-kobe-production-path'), 'cloudflare-container');
+  assert.equal(forwarded.url, 'http://public.example/orders?q=1');
+  assert.equal(forwarded.method, 'POST');
+  assert.equal(forwarded.headers.get('content-type'), 'text/plain');
+  assert.equal(await forwarded.text(), 'order');
+});

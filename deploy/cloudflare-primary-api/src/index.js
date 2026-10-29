@@ -179,13 +179,15 @@ export class KobeApiContainer extends DurableObject {
     // Cloudflare encrypts this internal connection independently of URL scheme.
     const target = new URL(request.url);
     target.protocol = 'http:';
-    return this.ctx.container.getTcpPort(3000).fetch(new Request(target, request));
+    return this.ctx.container.getTcpPort(3000).fetch(new Request(target.toString(), request));
   }
 }
 
 async function primaryFetch(request, env) {
   const container = env.KOBE_API.getByName(PRIMARY_INSTANCE);
-  const response = await container.fetch(request);
+  const target = new URL(request.url);
+  target.protocol = 'http:';
+  const response = await container.fetch(new Request(target.toString(), request));
   return withProductionMarker(response, 'cloudflare-container');
 }
 
