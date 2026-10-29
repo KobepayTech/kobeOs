@@ -326,6 +326,23 @@ export class ContinuityService {
           currency: payload.currency ?? room.currency ?? 'TZS',
           cloudOriginId: originId,
         } as Partial<HotelBooking>));
+
+        // A cancellation can reach us before the booking it cancels — nothing
+        // orders the two, and a failed pass retries them independently. The
+        // claim row left waiting is applied here, so out-of-order delivery
+        // cannot leave a live reservation for a guest who already cancelled.
+        const outboxRepo = tx.getRepository(CloudOutboxRecord);
+        const earlyCancellation = await outboxRepo.findOne({
+          where: { ownerId, kind: 'CANCELLATION', originId },
+        });
+        if (earlyCancellation && !earlyCancellation.syncedAt) {
+          booking.status = 'CANCELLED';
+          await repo.save(booking);
+          earlyCancellation.syncedAt = new Date();
+          earlyCancellation.lastError = '';
+          await outboxRepo.save(earlyCancellation);
+          return { booking, created: true, cancelledOnArrival: true };
+        }
         return { booking, created: true };
       });
     } catch (error) {
@@ -417,13 +434,26 @@ export class ContinuityService {
     return this.ds.transaction(async (tx) => {
       const slot = await this.claimOutboxSlot(tx, ownerId, 'CANCELLATION', orderOriginId, input);
       if (!slot.claimed) return { returned: false, alreadyHandled: true };
+      const outboxRepo = tx.getRepository(CloudOutboxRecord);
+      // Settle the claim as it is applied. It stays as the dedup key and as
+      // evidence, but an applied row must not sit in the unsynced backlog:
+      // /api/health reads that count, and a permanent false critical is worse
+      // than no alert at all.
+      const settle = async (lastError: string) => {
+        await outboxRepo.update(slot.id as string, { syncedAt: new Date(), lastError });
+      };
 
       const repo = tx.getRepository(ProductSnippet);
       const snippet = await repo.findOne({
         where: { businessId: input.businessId, productId: input.productId },
         lock: { mode: 'pessimistic_write' },
       });
-      if (!snippet) return { returned: false, alreadyHandled: false };
+      if (!snippet) {
+        // The product is gone from the mirror; there is nothing to return and
+        // no later pass will change that.
+        await settle('product_not_found');
+        return { returned: false, alreadyHandled: false };
+      }
       // Move the units back out of committed: they were promised to an online
       // customer who has cancelled, so they return to the allotment rather
       // than appearing as extra capacity.
@@ -431,6 +461,7 @@ export class ContinuityService {
       snippet.committedQty = Number(snippet.committedQty) - give;
       snippet.remainingQty = returnAllowance(snippet.remainingQty, snippet.allocatedQty, give);
       await repo.save(snippet);
+      await settle('');
       return { returned: true, alreadyHandled: false };
     });
   }
