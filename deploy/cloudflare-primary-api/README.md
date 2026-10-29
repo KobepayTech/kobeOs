@@ -51,7 +51,11 @@ Configure these in the GitHub `production` environment:
 - `CLOUDFLARE_ZONE_ID` (alias `CF_ZONE_ID`) for production route
   attachment/rollback.
 
-The token needs Worker script deployment and Worker route write permissions.
+The token needs Worker script deployment, Containers write access (including registry image uploads)
+for this Dockerfile deployment, and Worker route write
+permissions on the `kobeapptz.com` zone for cutover/rollback. Tunnel Edit and
+DNS Edit alone cannot deploy this Worker. Use Cloudflare's current API-token
+permission labels and restrict the token to the intended account/zone.
 Cloudflare Containers also require a Workers Paid account.
 
 ## Required production environment secrets
@@ -65,6 +69,8 @@ Configure these in the GitHub `production` environment:
 - `PRIMARY_API_DB_HOST` (aliases `DB_HOST` / `KOBE_SHARED_DB_HOST` are accepted)
 - `PRIMARY_API_DB_USERNAME` (alias `DB_USERNAME`)
 - `PRIMARY_API_DB_PASSWORD` (alias `DB_PASSWORD`)
+- `PRIMARY_API_DB_DATABASE` (secret or repository/environment variable;
+  defaults to `neondb`, the provisioned Neon database)
 - `PRIMARY_API_JWT_SECRET` (alias `JWT_SECRET`)
 - `PRIMARY_API_PROVIDER_ENCRYPTION_KEY` (alias `PROVIDER_ENCRYPTION_KEY`)
 
@@ -77,6 +83,25 @@ Optional:
 The checked-in config supplies non-secret defaults for `DB_PORT`, `DB_DATABASE`,
 SSL, CORS, the tenant domain and the public API URL. Override them as Worker
 secrets/vars if production differs.
+
+`PRIMARY_API_DB_HOST` must contain only the hostname, not a connection URL or
+port. Keep port 5432 and TLS enabled. The preflight rejects missing settings,
+placeholder/short signing and encryption keys, and optional JSON that tries to
+overwrite the required runtime credentials. It reports setting names, never
+their values. Missing credentials now fail the deployment job; validation-only
+success can no longer be mistaken for a live API.
+
+Repository secrets are also available to this environment job; environment
+secrets with matching names take precedence. For operational consistency,
+prefer the `production` environment. GitHub cannot return secret plaintext.
+
+Create a new Cloudflare deployment token if the old one cannot be recovered.
+Do not create a new Neon API key or rotate its database credentials for this
+deployment. Preserve the existing JWT signing key where sessions must work
+across KobeOS and the cloud. Preserve the provider encryption key (or the
+original JWT key if the older deployment used that fallback) for encrypted
+provider records. Only bootstrap new application keys for a deliberately fresh
+environment with no existing sessions or encrypted credentials to preserve.
 
 Copy the production provider credentials that the API actually uses (Meta,
 TikTok, PalmPesa, Beem, email, etc.) as Worker secrets too. `src/index.js`
@@ -96,8 +121,9 @@ Fallback responses are marked:
 
 ## Deployment sequence
 
-1. Ensure the current production PostgreSQL host is reachable from Cloudflare
-   Containers. Do not cut over to an empty/new database.
+1. Ensure the intended cloud PostgreSQL host is reachable from Cloudflare
+   Containers and the migrations have been applied. The Neon continuity
+   database is separate from the main KobeOS server's database.
 2. Set the Cloudflare account credentials used by GitHub Actions.
 3. Set the required `PRIMARY_API_*` runtime secrets in the GitHub
    `production` environment.
@@ -107,6 +133,9 @@ Fallback responses are marked:
 5. Test `/api/health`, an authenticated read, and one low-risk write on the
    generated `workers.dev` URL. Successful container responses include
    `X-Kobe-Production-Path: cloudflare-container`.
+   The workflow itself now requires a successful database health response and
+   this marker from the preview URL. Cutover requires that verification and
+   deploys the same Git commit, rather than checking out a different revision.
 6. Only after those checks pass, deploy `wrangler.production.jsonc`. It adds a
    Worker Route for `api.kobeapptz.com/*` while preserving the existing DNS
    record and origin as the rollback/fallback path.
@@ -119,7 +148,21 @@ The Worker runs a five-minute scheduled health request so the NestJS process
 stays warm enough for its in-process scheduled jobs while still allowing the
 container platform to recover/restart it.
 
-## Database note
+## Continuity and cutover
 
-The Cloudflare Container must use the same production PostgreSQL source of truth
-as the legacy KobeOS origin. No secondary database is part of the MVP production path.
+The Neon database holds the online continuity subset. The main KobeOS server
+keeps its operational database. Do not point that server at Neon or blindly
+redirect every main-system API operation to this separate database. Before
+domain cutover, the intended online routes, authenticated identity handling,
+confirmed inventory allotments and continuous synchronization must be ready.
+Database health alone does not prove that continuity is functioning.
+
+Keep the agreed image policy: shops synchronize image references only;
+hotel and restaurant compressed images require cloud object storage. That
+storage and image synchronization are not provisioned by this Worker config.
+
+### Container scheduling policy
+
+The preview and route configurations use `durable_object` scheduling, required for this Cloudflare account. Wrangler 4.155.0 builds the named `api` image. `KobeApiContainer` starts that image with the API environment, outbound networking for Neon, and the existing `standard-1` size. Requests use one fixed Durable Object name. There is no application-level `max_instances` setting under this policy.
+
+The Worker waits for an HTTP health response before forwarding a request, serializes concurrent cold starts, and never retries customer writes against the legacy server. After an image update, the next request replaces an older running image; persist all business data in PostgreSQL, not the container filesystem. The existing five-minute health cron keeps the ten-minute inactivity timeout refreshed.

@@ -447,6 +447,24 @@ function readProductionEnvironment(repoRoot) {
     environment[name] = value;
   }
 
+  // The origin owns its own database and must never be pointed at the cloud
+  // one. databaseConnection() prefers DATABASE_URL over DB_HOST whenever it is
+  // present, and the Neon CLI writes DATABASE_URL into a repository-root
+  // .env.local that Nest also loads — so leaving it set here would silently
+  // connect the main operational system to the continuity database instead of
+  // the embedded cluster on 127.0.0.1:5433.
+  //
+  // That would not look like a failure. The health gate would pass, the
+  // supervisor would keep managing a local cluster nothing uses, and the two
+  // databases the allotment design exists to keep apart would be one — leaving
+  // nothing for it to protect against.
+  //
+  // Deleted rather than blanked: an empty string is still a value, and
+  // readProductionEnvironment copies whatever .env.production holds.
+  for (const key of ['DATABASE_URL', 'DATABASE_URL_UNPOOLED']) {
+    delete environment[key];
+  }
+
   Object.assign(environment, {
     NODE_ENV: 'production',
     PORT: '3000',

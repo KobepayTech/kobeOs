@@ -2,8 +2,10 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "kobeos-primary-api",
   "main": "src/index.js",
-  "compatibility_date": "2026-09-02",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_date": "2026-10-29",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
   "workers_dev": false,
   "routes": [
     {
@@ -13,7 +15,7 @@
   ],
   "vars": {
     "DB_PORT": "5432",
-    "DB_DATABASE": "kobeos",
+    "DB_DATABASE": "neondb",
     "DB_SSL": "true",
     "DB_SSL_REJECT_UNAUTHORIZED": "true",
     "TENANT_BASE_DOMAIN": "kobeapptz.com",
@@ -25,12 +27,16 @@
     {
       "name": "kobeos-primary-api",
       "class_name": "KobeApiContainer",
-      "image": "../../server/Dockerfile",
-      "image_build_context": "../../server",
-      "instance_type": "standard-1",
-      "max_instances": 1,
-      "rollout_active_grace_period": 30,
-      "ssh": { "enabled": false }
+      "scheduling_policy": "durable_object",
+      "images": {
+        "api": {
+          "dockerfile": "../../server/Dockerfile",
+          "build_context": "../../server"
+        }
+      },
+      "ssh": {
+        "enabled": false
+      }
     }
   ],
   "durable_objects": {
@@ -44,11 +50,15 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["KobeApiContainer"]
+      "new_sqlite_classes": [
+        "KobeApiContainer"
+      ]
     }
   ],
   "triggers": {
-    "crons": ["*/5 * * * *"]
+    "crons": [
+      "*/5 * * * *"
+    ]
   },
   "observability": {
     "enabled": true
