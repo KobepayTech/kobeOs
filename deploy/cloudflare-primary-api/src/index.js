@@ -2,6 +2,7 @@ import { DurableObject } from 'cloudflare:workers';
 
 const PRIMARY_INSTANCE = 'kobeos-primary';
 const OPTIONAL_CONTAINER_ENV = [
+  'APP_FRONTEND_URL',
   'SENDGRID_API_KEY',
   'SMTP_HOST',
   'SMTP_PORT',

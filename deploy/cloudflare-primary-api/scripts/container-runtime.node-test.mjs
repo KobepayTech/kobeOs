@@ -5,7 +5,7 @@ import { readFile } from 'node:fs/promises';
 const source = (await readFile(new URL('../src/index.js', import.meta.url), 'utf8'))
   .replace("import { DurableObject } from 'cloudflare:workers';", 'class DurableObject { constructor(ctx) { this.ctx = ctx; } }');
 const { KobeApiContainer, default: worker } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
-const env = { DB_HOST: 'db.example.com', DB_USERNAME: 'test', DB_PASSWORD: 'test-only', JWT_SECRET: 'test-only', PROVIDER_ENCRYPTION_KEY: 'test-only' };
+const env = { DB_HOST: 'db.example.com', DB_USERNAME: 'test', DB_PASSWORD: 'test-only', JWT_SECRET: 'test-only', PROVIDER_ENCRYPTION_KEY: 'test-only', APP_FRONTEND_URL: 'https://kobeos-app.pages.dev' };
 function fixture({ running = false, oldImage = false, failPost = false } = {}) {
   const calls = { starts: [], requests: [], destroys: 0, probes: 0 };
   const container = {
@@ -35,6 +35,7 @@ test('concurrent cold requests start one image with Neon credentials and forward
   assert.equal(calls.starts[0].enableInternet, true);
   assert.equal(calls.starts[0].env.DB_PASSWORD, env.DB_PASSWORD);
   assert.equal(calls.starts[0].env.DB_SYNCHRONIZE, 'false');
+  assert.equal(calls.starts[0].env.APP_FRONTEND_URL, env.APP_FRONTEND_URL);
   assert.equal(calls.timeout, 600000);
   assert.equal(calls.probes, 1);
   assert.equal(calls.requests.length, 2);
