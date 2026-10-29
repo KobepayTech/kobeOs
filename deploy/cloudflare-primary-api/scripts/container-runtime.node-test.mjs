@@ -18,6 +18,7 @@ function fixture({ running = false, oldImage = false, failPost = false } = {}) {
       assert.equal(port, 3000);
       return { async fetch(request) {
         if (typeof request === 'string') { calls.probes++; return Response.json({ status: 'ok', db: 'connected' }); }
+        assert.equal(new URL(request.url).protocol, 'http:');
         calls.requests.push(request);
         if (failPost) throw new Error('connection lost');
         return Response.json({ method: request.method });
@@ -37,6 +38,8 @@ test('concurrent cold requests start one image with Neon credentials and forward
   assert.equal(calls.timeout, 600000);
   assert.equal(calls.probes, 1);
   assert.equal(calls.requests.length, 2);
+  assert.equal(new URL(calls.requests[0].url).pathname, '/orders');
+  assert.deepEqual(await Promise.all(calls.requests.map(r => r.text())), ['one', 'two']);
 });
 test('replaces an old image before serving, and restarts after inactivity shutdown', async () => {
   const { api, calls, container } = fixture({ running: true, oldImage: true });

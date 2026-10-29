@@ -286,4 +286,4 @@ jobs:
           kill "$tail_pid" 2>/dev/null || true
           wait "$tail_pid" 2>/dev/null || true
           echo 'Worker trace (health requests only):'
-          tail -c 16000 "$log_file"
+          grep -A 6 -E '"exceptions"|"logs"' "$log_file" | tail -n 80 || true

@@ -175,7 +175,11 @@ export class KobeApiContainer extends DurableObject {
 
   async fetch(request) {
     await this.ensureReady();
-    return this.ctx.container.getTcpPort(3000).fetch(request);
+    // The public request is HTTPS; the private container port speaks HTTP.
+    // Cloudflare encrypts this internal connection independently of URL scheme.
+    const target = new URL(request.url);
+    target.protocol = 'http:';
+    return this.ctx.container.getTcpPort(3000).fetch(new Request(target, request));
   }
 }
 
