@@ -108,6 +108,31 @@ jobs:
           chmod 600 "$secrets_file"
           echo "path=$secrets_file" >> "$GITHUB_OUTPUT"
 
+      # The container no longer migrates on start-up — doing that ran all 97
+      # migrations on every cold start, before the app began listening, which
+      # is what produced 25-second timeouts and 503s on the first request.
+      # They are applied here instead: same database, before the container
+      # rolls, so the schema is never behind the code and a migration that
+      # fails stops the deploy rather than surfacing as a runtime outage.
+      - name: Apply database migrations to the primary database
+        working-directory: server
+        shell: bash
+        env:
+          # Migrations want a direct connection: TypeORM runs the batch in one
+          # transaction, which a transaction-pooling endpoint cannot hold.
+          # Prefer an explicit unpooled URL when one is configured.
+          DATABASE_URL_UNPOOLED: ${{ secrets.PRIMARY_API_DATABASE_URL_UNPOOLED }}
+          DB_HOST: ${{ env.PRIMARY_API_DB_HOST }}
+          DB_PORT: '5432'
+          DB_USERNAME: ${{ env.PRIMARY_API_DB_USERNAME }}
+          DB_PASSWORD: ${{ env.PRIMARY_API_DB_PASSWORD }}
+          DB_DATABASE: ${{ env.PRIMARY_API_DB_DATABASE }}
+          DB_SSL: 'true'
+        run: |
+          set -euo pipefail
+          npm ci --legacy-peer-deps
+          npm run migration:run
+
       - name: Deploy workers.dev preview
         id: preview-deploy
         working-directory: deploy/cloudflare-primary-api
