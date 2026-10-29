@@ -69,7 +69,15 @@ function containerEnv(env) {
     DB_SSL: String(env.DB_SSL ?? 'true'),
     DB_SSL_REJECT_UNAUTHORIZED: String(env.DB_SSL_REJECT_UNAUTHORIZED ?? 'true'),
     DB_SYNCHRONIZE: 'false',
-    DB_MIGRATIONS_RUN: 'true',
+    // Off by default, and deliberately not 'true': the container is started on
+    // demand, so migrating here ran all 97 migrations on every cold start
+    // before the app began listening. That is what produced 25-second
+    // timeouts and 503s on the first request after an idle period.
+    //
+    // Migrations are applied by the deploy workflow instead, against the same
+    // database and before the container rolls, so the schema is still never
+    // behind the code — it just is not the request path's problem.
+    DB_MIGRATIONS_RUN: String(env.DB_MIGRATIONS_RUN ?? 'false'),
     JWT_SECRET: required(env, 'JWT_SECRET'),
     PROVIDER_ENCRYPTION_KEY: required(env, 'PROVIDER_ENCRYPTION_KEY'),
     TENANT_BASE_DOMAIN: String(env.TENANT_BASE_DOMAIN || 'kobeapptz.com'),
@@ -205,7 +213,23 @@ async function maybeFallbackRead(request, env, reason) {
   }
 
   try {
-    return await fetchLegacy(request, env);
+    const response = await fetchLegacy(request, env);
+    if (!response) return null;
+
+    // A fallback that is itself failing is worse than no fallback. The legacy
+    // origin is a Cloudflare Tunnel, and when KobeOS is not running behind it
+    // the tunnel answers 502 — so replaying a cold-start 503 to it turned a
+    // slow-but-recoverable request into a hard error, and made a healthy
+    // cutover look broken. Discard it and let the caller answer 503 with
+    // Retry-After, which is both true and retryable.
+    if (response.status >= 500) {
+      console.warn('Legacy origin fallback was itself failing; ignoring it', {
+        reason,
+        legacyStatus: response.status,
+      });
+      return null;
+    }
+    return response;
   } catch (fallbackError) {
     console.error('Legacy API fallback failed', fallbackError);
     return null;
