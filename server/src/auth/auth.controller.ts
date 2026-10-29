@@ -1,5 +1,6 @@
-import { Body, Controller, ForbiddenException, Get, HttpException, Post, Query, Res, UnauthorizedException } from '@nestjs/common';
-import type { Response } from 'express';
+import { Body, Controller, ForbiddenException, Get, HttpException, Post, Query, Req, Res, UnauthorizedException } from '@nestjs/common';
+import type { Request, Response } from 'express';
+import { timingSafeEqual } from 'crypto';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService, type IssuedTokens } from './auth.service';
 import { PasswordResetService } from './password-reset.service';
@@ -270,6 +271,60 @@ export class AuthController {
 
   // ── OAuth (sign in / sign up with Google, TikTok or Meta) ───────────────────
 
+  private oauthCookie(provider: string) { return `kobeos_oauth_${provider}`; }
+
+  private setOAuthCookie(provider: string, state: string, res: Response) {
+    res.cookie(this.oauthCookie(provider), state, {
+      httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax',
+      maxAge: 10 * 60_000, path: '/api/auth/oauth',
+    });
+    res.setHeader('Cache-Control', 'no-store');
+  }
+
+  private verifyBrowserState(provider: 'google' | 'meta' | 'tiktok', state: string, req: Request, res: Response) {
+    res.setHeader('Cache-Control', 'no-store');
+    res.clearCookie(this.oauthCookie(provider), {
+      httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/api/auth/oauth',
+    });
+    const cookie = (req.headers.cookie || '').split(';').map(value => value.trim())
+      .find(value => value.startsWith(`${this.oauthCookie(provider)}=`))?.split('=').slice(1).join('=') || '';
+    const expected = Buffer.from(cookie);
+    const actual = Buffer.from(state || '');
+    if (!expected.length || expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
+      throw new UnauthorizedException('This sign-in attempt expired or belongs to another browser. Start sign-in again.');
+    }
+    this.auth.verifyOAuthState(state, provider);
+  }
+
+  @Get('oauth/google')
+  googleStart(@Res() res: Response) {
+    try {
+      const state = this.auth.createOAuthState('google');
+      const url = this.auth.googleAuthUrl(state);
+      this.setOAuthCookie('google', state, res);
+      res.redirect(url);
+    } catch (error) {
+      res.redirect(this.auth.oauthFrontendRedirect('google', error as Error));
+    }
+  }
+
+  @Get('oauth/google/callback')
+  async googleCallback(
+    @Query('code') code: string,
+    @Query('state') state: string,
+    @Query('error') providerError: string,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
+    try {
+      this.verifyBrowserState('google', state, req, res);
+      if (providerError) throw new Error(providerError);
+      res.redirect(this.auth.oauthFrontendRedirect('google', await this.auth.googleCodeSignIn(code)));
+    } catch (error) {
+      res.redirect(this.auth.oauthFrontendRedirect('google', error as Error));
+    }
+  }
+
   /** GIS credential from the browser → verified → issues KobeOS tokens. */
   @Post('oauth/google')
   googleOauth(@Body() dto: { credential: string }) {
@@ -284,7 +339,9 @@ export class AuthController {
     // with a readable error instead.
     try {
       const state = this.auth.createOAuthState('tiktok');
-      res.redirect(this.auth.tiktokAuthUrl(state));
+      const url = this.auth.tiktokAuthUrl(state);
+      this.setOAuthCookie('tiktok', state, res);
+      res.redirect(url);
     } catch (e) {
       res.redirect(this.auth.oauthFrontendRedirect('tiktok', e as Error));
     }
@@ -300,10 +357,11 @@ export class AuthController {
     @Query('state') state: string,
     @Query('error') providerErrorCode: string,
     @Query('error_description') providerError: string,
+    @Req() req: Request,
     @Res() res: Response,
   ) {
     try {
-      this.auth.verifyOAuthState(state, 'tiktok');
+      this.verifyBrowserState('tiktok', state, req, res);
       if (providerError || providerErrorCode) throw new Error(providerError || providerErrorCode);
       const tokens = await this.auth.tiktokSignIn(code);
       res.redirect(this.auth.oauthFrontendRedirect('tiktok', tokens));
@@ -317,7 +375,9 @@ export class AuthController {
   async metaStart(@Res() res: Response) {
     try {
       const state = this.auth.createOAuthState('meta');
-      res.redirect(await this.auth.metaAuthUrl(state));
+      const url = await this.auth.metaAuthUrl(state);
+      this.setOAuthCookie('meta', state, res);
+      res.redirect(url);
     } catch (e) {
       res.redirect(this.auth.oauthFrontendRedirect('meta', e as Error));
     }
@@ -329,10 +389,11 @@ export class AuthController {
     @Query('state') state: string,
     @Query('error') providerErrorCode: string,
     @Query('error_description') providerError: string,
+    @Req() req: Request,
     @Res() res: Response,
   ) {
     try {
-      this.auth.verifyOAuthState(state, 'meta');
+      this.verifyBrowserState('meta', state, req, res);
       if (providerError || providerErrorCode) throw new Error(providerError || providerErrorCode);
       const tokens = await this.auth.metaSignIn(code);
       res.redirect(this.auth.oauthFrontendRedirect('meta', tokens));

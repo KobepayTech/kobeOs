@@ -19,7 +19,7 @@ export function sha256(input: string): string {
 }
 
 function normalizePhone(input: string): string {
-  const phone = input.trim().replace(/[^\d+]/g, '').replace(/(?!^)\+/g, '');
+  const phone = input.trim().replace(/[\s().-]/g, '');
   if (!/^\+?\d{7,15}$/.test(phone)) {
     throw new BadRequestException('Enter a valid phone number with 7–15 digits');
   }
@@ -36,7 +36,7 @@ export interface IssuedTokens {
   user: { id: string; email: string; phone?: string | null; displayName?: string; role: User['role'] };
 }
 
-type OAuthProvider = 'tiktok' | 'meta';
+type OAuthProvider = 'google' | 'tiktok' | 'meta';
 type OAuthState = { provider: OAuthProvider; nonce: string; exp: number };
 
 @Injectable()
@@ -52,6 +52,9 @@ export class AuthService {
 
   async register(dto: RegisterDto): Promise<IssuedTokens> {
     const email = dto.email?.trim().toLowerCase() || '';
+    if (/@(?:users|phone)\.kobeos\.local$/i.test(email)) {
+      throw new BadRequestException('Use your own email address to create an account');
+    }
     const phone = dto.phone ? normalizePhone(dto.phone) : null;
     if (!email && !phone) throw new BadRequestException('Provide an email address or phone number');
     if (email && await this.users.findByEmail(email)) throw new ConflictException('Email already registered');
@@ -135,7 +138,7 @@ export class AuthService {
     } catch {
       throw new UnauthorizedException('Invalid OAuth state');
     }
-    if (state.provider !== provider || !state.nonce || state.exp < Date.now()) {
+    if (state.provider !== provider || !state.nonce || !Number.isFinite(state.exp) || state.exp < Date.now()) {
       throw new UnauthorizedException('Expired or mismatched OAuth state');
     }
   }
@@ -153,15 +156,46 @@ export class AuthService {
   }
 
   /** Verify a Google ID token (GIS credential) and sign the user in. */
+  googleAuthUrl(state: string): string {
+    const clientId = this.config.get<string>('GOOGLE_CLIENT_ID');
+    const secret = this.config.get<string>('GOOGLE_CLIENT_SECRET');
+    const redirect = this.config.get<string>('GOOGLE_REDIRECT_URI');
+    if (!clientId || !secret || !redirect) throw new BadRequestException('Google sign-in is not configured. Ask the KobeOS administrator to configure Google Login.');
+    return `https://accounts.google.com/o/oauth2/v2/auth?${new URLSearchParams({
+      client_id: clientId, redirect_uri: redirect, response_type: 'code',
+      scope: 'openid email profile', state, prompt: 'select_account',
+    })}`;
+  }
+
+  async googleCodeSignIn(code: string): Promise<IssuedTokens> {
+    if (!code) throw new BadRequestException('Missing Google authorization code');
+    const clientId = this.config.get<string>('GOOGLE_CLIENT_ID');
+    const secret = this.config.get<string>('GOOGLE_CLIENT_SECRET');
+    const redirect = this.config.get<string>('GOOGLE_REDIRECT_URI');
+    if (!clientId || !secret || !redirect) throw new BadRequestException('Google sign-in is not configured');
+    const response = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ client_id: clientId, client_secret: secret,
+        redirect_uri: redirect, code, grant_type: 'authorization_code' }).toString(),
+      signal: AbortSignal.timeout(15_000),
+    }).catch(() => null);
+    const tokens = response?.ok ? await response.json() as { id_token?: string } : null;
+    if (!tokens?.id_token) throw new UnauthorizedException('Google token exchange failed');
+    return this.googleSignIn(tokens.id_token);
+  }
+
   async googleSignIn(credential: string): Promise<IssuedTokens> {
     const clientId = this.config.get<string>('GOOGLE_CLIENT_ID');
     if (!clientId) throw new BadRequestException('Google sign-in is not configured');
     if (!credential) throw new BadRequestException('Missing Google credential');
-    const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`)
+    const res = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`, { signal: AbortSignal.timeout(15_000) })
       .catch(() => null);
     if (!res || !res.ok) throw new UnauthorizedException('Could not verify Google token');
-    const p = (await res.json()) as { aud?: string; email?: string; email_verified?: string | boolean; name?: string; picture?: string };
+    const p = (await res.json()) as { aud?: string; iss?: string; exp?: string; email?: string; email_verified?: string | boolean; name?: string; picture?: string };
     if (p.aud !== clientId) throw new UnauthorizedException('Google token was issued for a different app');
+    if (!['accounts.google.com', 'https://accounts.google.com'].includes(p.iss || '') || !p.exp || !Number.isFinite(Number(p.exp)) || Number(p.exp) <= Date.now() / 1000) {
+      throw new UnauthorizedException('Google token is invalid or expired');
+    }
     if (!p.email || !(p.email_verified === true || p.email_verified === 'true')) throw new UnauthorizedException('Google email not verified');
     return this.oauthSignIn({ email: p.email, displayName: p.name, avatarUrl: p.picture });
   }

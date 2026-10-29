@@ -1,0 +1,50 @@
+name: Deploy KobeOS Account and Desktop
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-kobeos-pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy KobeOS frontend
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID || vars.CF_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Check deployment credentials
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo '::error::Cloudflare API token is missing'; exit 1; }
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo '::error::Cloudflare account ID is missing'; exit 1; }
+      - name: Install frontend dependencies
+        run: npm ci --legacy-peer-deps
+      - name: Test account and callback flows
+        run: npx vitest run src/components/LoginScreen.test.tsx src/components/OAuthCallback.test.tsx src/lib/auth.test.ts src/public/api.hostnames.test.ts
+      - name: Build KobeOS frontend
+        env:
+          VITE_API_BASE: https://api.kobeapptz.com/api
+          VITE_ACCOUNT_API_BASE: https://api.kobeapptz.com/api
+          VITE_TENANT_BASE_DOMAIN: kobeapptz.com
+        run: |
+          npm run build
+          cp deploy/_redirects dist/_redirects
+      - name: Deploy current KobeOS bundle
+        run: npx --yes wrangler@4.155.0 pages deploy dist --project-name kobeos-app --branch master --commit-hash "$GITHUB_SHA"
+      - name: Verify deployed bundle
+        run: |
+          curl --fail --silent --show-error --retry 3 https://kobeos-app.pages.dev/ -o /tmp/kobeos-live.html
+          test -s /tmp/kobeos-live.html
+          grep -q '/assets/' /tmp/kobeos-live.html
+          echo 'KobeOS frontend deployed. Account login still requires a healthy API and configured social providers.' >> "$GITHUB_STEP_SUMMARY"
