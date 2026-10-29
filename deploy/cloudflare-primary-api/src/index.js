@@ -1,4 +1,4 @@
-import { Container, getContainer } from '@cloudflare/containers';
+import { DurableObject } from 'cloudflare:workers';
 
 const PRIMARY_INSTANCE = 'kobeos-primary';
 const OPTIONAL_CONTAINER_ENV = [
@@ -123,30 +123,64 @@ async function fetchLegacy(request, env) {
   return null;
 }
 
-export class KobeApiContainer extends Container {
-  defaultPort = 3000;
-  sleepAfter = '10m';
-
+export class KobeApiContainer extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
     this.envVars = containerEnv(env);
+    this.starting = null;
+    this.checkedImage = false;
   }
 
-  onStart() {
-    console.log('KobeOS primary API container started');
+  async ensureReady() {
+    if (this.starting) return this.starting;
+    this.starting = this.prepareContainer();
+    try {
+      await this.starting;
+    } finally {
+      this.starting = null;
+    }
   }
 
-  onStop(params) {
-    console.log('KobeOS primary API container stopped', params);
+  async prepareContainer() {
+    const container = this.ctx.container;
+    if (!container) throw new Error('Missing API container binding');
+    const image = container.images.api;
+    // A Worker update does not roll out durable_object images automatically.
+    // Replace an old image once, before forwarding any request to this version.
+    if (!this.checkedImage && container.running) {
+      const current = await container.inspect();
+      if (current && current.image !== image) await container.destroy();
+    }
+    this.checkedImage = true;
+    if (!container.running) {
+      container.start({ image, instance: 'standard-1', enableInternet: true, env: this.envVars });
+    }
+    await container.setInactivityTimeout(10 * 60 * 1000);
+    const port = container.getTcpPort(3000);
+    // Probe only a read: never retry a customer's POST while booting.
+    for (let attempt = 0; attempt < 30; attempt++) {
+      try {
+        const response = await port.fetch('http://container/api/health', {
+          signal: AbortSignal.timeout(2000),
+        });
+        await response.body?.cancel();
+        if (response.ok) return;
+      } catch {
+        // The process can be running before Nest has opened its HTTP port.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    throw new Error('API container did not become ready');
   }
 
-  onError(error) {
-    console.error('KobeOS primary API container error', error);
+  async fetch(request) {
+    await this.ensureReady();
+    return this.ctx.container.getTcpPort(3000).fetch(request);
   }
 }
 
 async function primaryFetch(request, env) {
-  const container = getContainer(env.KOBE_API, PRIMARY_INSTANCE);
+  const container = env.KOBE_API.getByName(PRIMARY_INSTANCE);
   const response = await container.fetch(request);
   return withProductionMarker(response, 'cloudflare-container');
 }

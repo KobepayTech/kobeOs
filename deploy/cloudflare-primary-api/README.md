@@ -160,3 +160,9 @@ Database health alone does not prove that continuity is functioning.
 Keep the agreed image policy: shops synchronize image references only;
 hotel and restaurant compressed images require cloud object storage. That
 storage and image synchronization are not provisioned by this Worker config.
+
+### Container scheduling policy
+
+The preview and route configurations use `durable_object` scheduling, required for this Cloudflare account. Wrangler 4.155.0 builds the named `api` image. `KobeApiContainer` starts that image with the API environment, outbound networking for Neon, and the existing `standard-1` size. Requests use one fixed Durable Object name. There is no application-level `max_instances` setting under this policy.
+
+The Worker waits for an HTTP health response before forwarding a request, serializes concurrent cold starts, and never retries customer writes against the legacy server. After an image update, the next request replaces an older running image; persist all business data in PostgreSQL, not the container filesystem. The existing five-minute health cron keeps the ten-minute inactivity timeout refreshed.
