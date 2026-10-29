@@ -43,6 +43,16 @@ jobs:
       PRIMARY_API_JWT_SECRET: ${{ secrets.PRIMARY_API_JWT_SECRET || secrets.JWT_SECRET }}
       PRIMARY_API_PROVIDER_ENCRYPTION_KEY: ${{ secrets.PRIMARY_API_PROVIDER_ENCRYPTION_KEY || secrets.PROVIDER_ENCRYPTION_KEY }}
       PRIMARY_API_EXTRA_SECRETS_JSON: ${{ secrets.PRIMARY_API_EXTRA_SECRETS_JSON }}
+      GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+      GOOGLE_REDIRECT_URI: ${{ secrets.GOOGLE_REDIRECT_URI }}
+      TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
+      TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
+      TIKTOK_REDIRECT_URI: ${{ secrets.TIKTOK_REDIRECT_URI }}
+      META_APP_ID: ${{ secrets.META_APP_ID }}
+      META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
+      META_REDIRECT_URI: ${{ secrets.META_REDIRECT_URI }}
+      META_LOGIN_CONFIG_ID: ${{ secrets.META_LOGIN_CONFIG_ID }}
       CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID || secrets.CF_ZONE_ID || vars.CLOUDFLARE_ZONE_ID || vars.CF_ZONE_ID }}
 
     steps:
@@ -94,6 +104,11 @@ jobs:
               JWT_SECRET: $JWT_SECRET,
               PROVIDER_ENCRYPTION_KEY: $PROVIDER_ENCRYPTION_KEY
             }' > "$secrets_file"
+
+          # Forward configured social provider secrets without logging their values.
+          jq '. + (env | with_entries(select(.key | IN("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REDIRECT_URI", "TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET", "TIKTOK_REDIRECT_URI", "META_APP_ID", "META_APP_SECRET", "META_REDIRECT_URI", "META_LOGIN_CONFIG_ID"))) | with_entries(select(.value != "")))' \
+            "$secrets_file" > "$secrets_file.providers"
+          mv "$secrets_file.providers" "$secrets_file"
 
           if [ -n "${PRIMARY_API_EXTRA_SECRETS_JSON:-}" ]; then
             printf '%s' "$PRIMARY_API_EXTRA_SECRETS_JSON" |
@@ -181,6 +196,16 @@ jobs:
       PRIMARY_API_JWT_SECRET: ${{ secrets.PRIMARY_API_JWT_SECRET || secrets.JWT_SECRET }}
       PRIMARY_API_PROVIDER_ENCRYPTION_KEY: ${{ secrets.PRIMARY_API_PROVIDER_ENCRYPTION_KEY || secrets.PROVIDER_ENCRYPTION_KEY }}
       PRIMARY_API_EXTRA_SECRETS_JSON: ${{ secrets.PRIMARY_API_EXTRA_SECRETS_JSON }}
+      GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+      GOOGLE_REDIRECT_URI: ${{ secrets.GOOGLE_REDIRECT_URI }}
+      TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
+      TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
+      TIKTOK_REDIRECT_URI: ${{ secrets.TIKTOK_REDIRECT_URI }}
+      META_APP_ID: ${{ secrets.META_APP_ID }}
+      META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
+      META_REDIRECT_URI: ${{ secrets.META_REDIRECT_URI }}
+      META_LOGIN_CONFIG_ID: ${{ secrets.META_LOGIN_CONFIG_ID }}
       CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID || secrets.CF_ZONE_ID || vars.CLOUDFLARE_ZONE_ID || vars.CF_ZONE_ID }}
 
     steps:
@@ -221,6 +246,11 @@ jobs:
               JWT_SECRET: $JWT_SECRET,
               PROVIDER_ENCRYPTION_KEY: $PROVIDER_ENCRYPTION_KEY
             }' > "$secrets_file"
+
+          # Forward configured social provider secrets without logging their values.
+          jq '. + (env | with_entries(select(.key | IN("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REDIRECT_URI", "TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET", "TIKTOK_REDIRECT_URI", "META_APP_ID", "META_APP_SECRET", "META_REDIRECT_URI", "META_LOGIN_CONFIG_ID"))) | with_entries(select(.value != "")))' \
+            "$secrets_file" > "$secrets_file.providers"
+          mv "$secrets_file.providers" "$secrets_file"
 
           if [ -n "${PRIMARY_API_EXTRA_SECRETS_JSON:-}" ]; then
             printf '%s' "$PRIMARY_API_EXTRA_SECRETS_JSON" |
