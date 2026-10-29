@@ -91,7 +91,11 @@ export class CommerceProductMedia extends BaseEntity {
   @Column({ default: 'IMAGE' }) kind!: 'IMAGE' | 'VIDEO';
   @Column({ type: 'int', default: 0 }) sortOrder!: number;
   @Column({ type: 'jsonb', default: {} }) crop!: Record<string, number>;
-  @Index({ unique: true }) @Column({ nullable: true, type: 'varchar' }) publicToken?: string | null;
+  // Partial, matching UQ_commerce_media_token in the migrations. Declared
+  // plain here, a synchronize-built desktop database got a different index
+  // from a migration-built one, and no single ON CONFLICT target matched both.
+  @Index({ unique: true, where: '"publicToken" IS NOT NULL' })
+  @Column({ nullable: true, type: 'varchar' }) publicToken?: string | null;
   @Column({ nullable: true, type: 'varchar' }) mimeType?: string | null;
   @Column({ type: 'bytea', nullable: true }) contentBinary?: Buffer | null;
 }

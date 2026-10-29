@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import { CloudOutboxRecord, CloudRoomAllotment } from './continuity.entity';
-import { ProductSnippet } from '../commerce/commerce.entity';
+import { CommerceProductMedia, ProductSnippet } from '../commerce/commerce.entity';
 import { HotelRoom, HotelTenant } from '../hotel/hotel.entity';
 import { ContinuityService, type CloudBookingPayload } from './continuity.service';
 import { blocksLocalSale } from './continuity.rules';
@@ -34,6 +34,31 @@ export interface CatalogueSnapshot {
   takenAt: string;
 }
 
+/**
+ * Image bytes for a catalogue entry.
+ *
+ * Product images live in PostgreSQL, not on a disk or a CDN, and are served
+ * from `/api/commerce-public/media/:token` — a relative path. Replicating the
+ * catalogue alone therefore produced a storefront with names and prices and a
+ * broken image on every tile, because the path resolved against the cloud
+ * while the bytes were still only on the origin. Exactly the wrong moment for
+ * a shop to look abandoned.
+ *
+ * Carried separately from the catalogue and only when the cloud says it is
+ * missing them, because bytes are expensive and a catalogue pass is frequent.
+ */
+export interface MediaPayload {
+  token: string;
+  mimeType: string;
+  /** base64; JSON has nowhere to put a Buffer. */
+  content: string;
+}
+
+/** A pass sends at most this much, so one big catalogue cannot stall the loop. */
+export const MEDIA_MAX_PER_PASS = 25;
+export const MEDIA_MAX_BYTES_PER_ITEM = 2 * 1024 * 1024;
+export const MEDIA_MAX_BYTES_PER_PASS = 8 * 1024 * 1024;
+
 /** A pending transaction as the cloud hands it over. */
 export interface OutboxItem {
   id: string;
@@ -50,12 +75,25 @@ export interface OutboxItem {
  * against a deployed peer.
  */
 export interface SyncTransport {
-  pushCatalogue(snapshot: CatalogueSnapshot): Promise<void>;
+  /** Returns the image tokens the peer still needs, when it reports them. */
+  pushCatalogue(snapshot: CatalogueSnapshot): Promise<{ missingMedia?: string[] } | void>;
   pullOutbox(limit: number): Promise<OutboxItem[]>;
   acknowledge(ids: string[]): Promise<void>;
+  pushMedia?(items: MediaPayload[]): Promise<void>;
 }
 
 const dateOnly = (value: Date | string) => String(value).slice(0, 10);
+
+/**
+ * Pull the public token out of an imageUrl. Only the inline-served form has
+ * one; an external or data URL needs no replication because it does not depend
+ * on which instance is answering.
+ */
+export function mediaTokenOf(imageUrl: string | null | undefined): string | null {
+  const match = /\/api\/(?:commerce-public|media-public)\/(?:media\/)?([A-Za-z0-9_-]+)$/
+    .exec(String(imageUrl ?? ''));
+  return match?.[1] ?? null;
+}
 
 @Injectable()
 export class ContinuitySyncService {
@@ -67,6 +105,7 @@ export class ContinuitySyncService {
     @InjectRepository(CloudRoomAllotment) private readonly allotments: Repository<CloudRoomAllotment>,
     @InjectRepository(ProductSnippet) private readonly snippets: Repository<ProductSnippet>,
     @InjectRepository(CloudOutboxRecord) private readonly outbox: Repository<CloudOutboxRecord>,
+    @InjectRepository(CommerceProductMedia) private readonly media: Repository<CommerceProductMedia>,
     private readonly continuity: ContinuityService,
     private readonly ds: DataSource,
   ) {}
@@ -131,14 +170,35 @@ export class ContinuitySyncService {
    */
   async runOnce(transport: SyncTransport, limit = 100): Promise<{
     cataloguePushed: boolean;
+    mediaPushed: number;
     pulled: number;
     absorbed: number;
     failed: number;
   }> {
     let cataloguePushed = false;
+    let mediaPushed = 0;
     try {
-      await transport.pushCatalogue(await this.buildCatalogueSnapshot());
+      const result = await transport.pushCatalogue(await this.buildCatalogueSnapshot());
       cataloguePushed = true;
+
+      // Only what the cloud says it is missing, so bytes cross once rather
+      // than on every pass.
+      const missing = result?.missingMedia ?? [];
+      if (missing.length && transport.pushMedia) {
+        try {
+          const items = await this.collectMedia(missing);
+          if (items.length) {
+            await transport.pushMedia(items);
+            mediaPushed = items.length;
+          }
+        } catch (error) {
+          // Images are worth less than transactions; a failure here must not
+          // stop the pass from collecting money already taken.
+          this.logger.warn(
+            `media push failed: ${String((error as Error)?.message).slice(0, 200)}`,
+          );
+        }
+      }
     } catch (error) {
       // A catalogue that fails to send is not a reason to skip collecting
       // transactions: those are money already taken.
@@ -150,7 +210,7 @@ export class ContinuitySyncService {
       items = await transport.pullOutbox(limit);
     } catch (error) {
       this.logger.warn(`outbox pull failed: ${String((error as Error)?.message).slice(0, 200)}`);
-      return { cataloguePushed, pulled: 0, absorbed: 0, failed: 0 };
+      return { cataloguePushed, mediaPushed, pulled: 0, absorbed: 0, failed: 0 };
     }
 
     const settled: string[] = [];
@@ -177,7 +237,7 @@ export class ContinuitySyncService {
       }
     }
 
-    return { cataloguePushed, pulled: items.length, absorbed: settled.length, failed };
+    return { cataloguePushed, mediaPushed, pulled: items.length, absorbed: settled.length, failed };
   }
 
   private async absorb(item: OutboxItem): Promise<void> {
@@ -209,7 +269,118 @@ export class ContinuitySyncService {
     throw new Error(`unsupported outbox kind ${item.kind}`);
   }
 
+  /**
+   * Read image bytes for the tokens the cloud is missing, within the pass
+   * budget. Oversized images are skipped rather than truncated: half an image
+   * is not a smaller image, and a skipped one simply stays missing and is
+   * offered again next pass.
+   */
+  private async collectMedia(tokens: string[]): Promise<MediaPayload[]> {
+    const wanted = [...new Set(tokens.filter((t) => typeof t === 'string' && t))]
+      .slice(0, MEDIA_MAX_PER_PASS);
+    if (!wanted.length) return [];
+
+    const rows = await this.media.find({ where: { publicToken: In(wanted) } });
+    const items: MediaPayload[] = [];
+    let budget = MEDIA_MAX_BYTES_PER_PASS;
+
+    for (const row of rows) {
+      const bytes = row.contentBinary;
+      if (!bytes?.length || !row.publicToken) continue;
+      if (bytes.length > MEDIA_MAX_BYTES_PER_ITEM) {
+        this.logger.warn(`skipping oversized image ${row.publicToken} (${bytes.length} bytes)`);
+        continue;
+      }
+      if (bytes.length > budget) break;
+      budget -= bytes.length;
+      items.push({
+        token: row.publicToken,
+        mimeType: row.mimeType ?? 'image/webp',
+        content: Buffer.from(bytes).toString('base64'),
+      });
+    }
+    return items;
+  }
+
   // ── cloud side: receive and serve ────────────────────────────────────────
+
+  /**
+   * Store replicated image bytes so the cloud can serve them from the same
+   * `/api/commerce-public/media/:token` route the origin uses. Keeping the
+   * token identical is the point: the catalogue's imageUrl needs no rewriting,
+   * and no frontend has to know which instance answered.
+   */
+  async applyMedia(items: MediaPayload[]): Promise<{ stored: number }> {
+    let stored = 0;
+    for (const item of items ?? []) {
+      if (!item?.token || !item.content) continue;
+      const bytes = Buffer.from(item.content, 'base64');
+      if (!bytes.length || bytes.length > MEDIA_MAX_BYTES_PER_ITEM) continue;
+
+      // Update-then-insert rather than ON CONFLICT. The unique index on
+      // publicToken is partial in the migrations ("WHERE publicToken IS NOT
+      // NULL") and plain in the entity, so no single ON CONFLICT target
+      // matches both a migration-built database and a synchronize-built
+      // desktop one: a partial index needs its predicate restated, and
+      // restating it fails against the plain index.
+      const updated = await this.media.query(
+        `UPDATE commerce_product_media
+            SET "mimeType" = $2, "contentBinary" = $3
+          WHERE "publicToken" = $1`,
+        [item.token, item.mimeType || 'image/webp', bytes],
+      );
+      // node-postgres reports [rows, rowCount] for an UPDATE through TypeORM.
+      const affected = Array.isArray(updated) ? Number(updated[1] ?? 0) : 0;
+
+      if (!affected) {
+        // The product row need not exist here — an image can belong to a
+        // product outside the allotment — so productId gets a sentinel rather
+        // than a reference this database cannot honour. Only the token is
+        // needed to serve the bytes.
+        await this.media.query(
+          `INSERT INTO commerce_product_media
+             ("productId", url, kind, "sortOrder", crop, "publicToken", "mimeType", "contentBinary")
+           VALUES ($1::uuid, $2, 'IMAGE', 0, '{}'::jsonb, $3, $4, $5)`,
+          ['00000000-0000-0000-0000-000000000000',
+            `/api/commerce-public/media/${item.token}`, item.token,
+            item.mimeType || 'image/webp', bytes],
+        );
+      }
+      stored += 1;
+    }
+    return { stored };
+  }
+
+  /**
+   * Image tokens referenced by a snapshot that this instance cannot serve.
+   *
+   * Derived from the catalogue's own imageUrl values rather than a separate
+   * list, so the two can never disagree about which images the storefront
+   * will ask for.
+   */
+  private async missingMediaFor(
+    snapshot: CatalogueSnapshot,
+    tx: import('typeorm').EntityManager,
+  ): Promise<string[]> {
+    const tokens = new Set<string>();
+    for (const product of snapshot.products ?? []) {
+      const token = mediaTokenOf(product.imageUrl);
+      if (token) tokens.add(token);
+    }
+    if (!tokens.size) return [];
+
+    // Only a row that actually has bytes counts as servable: a catalogue push
+    // writes the imageUrl, so a media row can exist as a reference and still
+    // render broken.
+    const rows: Array<{ publicToken: string }> = await tx.query(
+      `SELECT "publicToken" FROM commerce_product_media
+       WHERE "publicToken" = ANY($1) AND "contentBinary" IS NOT NULL
+         AND octet_length("contentBinary") > 0`,
+      [[...tokens]],
+    );
+    const servable = new Set(rows.map((r) => r.publicToken));
+    return [...tokens].filter((token) => !servable.has(token));
+  }
 
   /**
    * Apply a catalogue snapshot. Upsert by primary key, so repeated pushes
@@ -223,6 +394,8 @@ export class ContinuitySyncService {
    */
   async applyCatalogueSnapshot(snapshot: CatalogueSnapshot): Promise<{
     hotels: number; rooms: number; allotments: number; products: number;
+    /** Image tokens this instance references but cannot serve yet. */
+    missingMedia: string[];
   }> {
     return this.ds.transaction(async (tx) => {
       for (const hotel of snapshot.hotels ?? []) {
@@ -281,6 +454,9 @@ export class ContinuitySyncService {
         rooms: snapshot.rooms?.length ?? 0,
         allotments: snapshot.allotments?.length ?? 0,
         products: snapshot.products?.length ?? 0,
+        // Computed inside the same transaction as the catalogue it describes,
+        // so the answer cannot be stale by the time the origin acts on it.
+        missingMedia: await this.missingMediaFor(snapshot, tx),
       };
     });
   }

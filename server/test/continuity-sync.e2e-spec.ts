@@ -6,10 +6,11 @@ import { ContinuityService } from '../src/cloud-continuity/continuity.service';
 import {
   ContinuitySyncService,
   type CatalogueSnapshot,
+  type MediaPayload,
   type SyncTransport,
 } from '../src/cloud-continuity/continuity-sync.service';
 import { CloudOutboxRecord, CloudRoomAllotment } from '../src/cloud-continuity/continuity.entity';
-import { ProductSnippet } from '../src/commerce/commerce.entity';
+import { CommerceProductMedia, ProductSnippet } from '../src/commerce/commerce.entity';
 import { HotelBooking, HotelRoom, HotelTenant } from '../src/hotel/hotel.entity';
 
 const SYNC_TOKEN = 'test-continuity-sync-token-at-least-32-chars';
@@ -73,8 +74,8 @@ describe('Continuity sync across two databases (e2e)', () => {
     // The origin's view of the cloud. Separate databases, so anything that
     // crosses has to go through here.
     transport = {
-      pushCatalogue: (snapshot: CatalogueSnapshot) =>
-        cloudSync.applyCatalogueSnapshot(snapshot).then(() => undefined),
+      pushCatalogue: (snapshot: CatalogueSnapshot) => cloudSync.applyCatalogueSnapshot(snapshot),
+      pushMedia: (items: MediaPayload[]) => cloudSync.applyMedia(items).then(() => undefined),
       pullOutbox: (limit: number) => cloudSync.pendingForPeer(limit),
       acknowledge: (ids: string[]) => cloudSync.acknowledgeForPeer(ids).then(() => undefined),
     };
@@ -423,6 +424,141 @@ describe('Continuity sync across two databases (e2e)', () => {
       const after = await repo.findOneByOrFail({ businessId, productId });
       expect(after.committedQty).toBe(1);
       expect(after.remainingQty).toBe(3);
+    });
+  });
+
+  describe('catalogue images reach the cloud', () => {
+    // A 1x1 GIF: small, and a real image rather than bytes pretending to be one.
+    const PIXEL = Buffer.from(
+      'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64',
+    );
+
+    /** A product whose image is served inline, the way quickAdd creates them. */
+    const seedProductWithImage = async (token: string, productId: string, owner: string) => {
+      const mediaRepo = originDs.getRepository(CommerceProductMedia);
+      await mediaRepo.save(mediaRepo.create({
+        productId, url: `/api/commerce-public/media/${token}`, kind: 'IMAGE',
+        sortOrder: 0, crop: {}, publicToken: token,
+        mimeType: 'image/gif', contentBinary: PIXEL,
+      } as Partial<CommerceProductMedia>));
+
+      const snippets = originDs.getRepository(ProductSnippet);
+      await snippets.save(snippets.create({
+        businessId: owner, productId, catalogOwnerId: owner, name: 'Pictured Item',
+        price: 5000, currency: 'TZS', stock: 5, active: true, indexedAt: new Date(),
+        imageUrl: `/api/commerce-public/media/${token}`,
+        allocatedQty: 2, remainingQty: 2, committedQty: 0,
+      } as Partial<ProductSnippet>));
+    };
+
+    it('asks for the bytes it cannot serve, then serves them', async () => {
+      const me = await register(origin, 'sync-image@e2e.test');
+      const token = 'tok-image-one';
+      await seedProductWithImage(token, '88888888-8888-8888-8888-888888888888', me.id);
+
+      // The catalogue alone leaves the storefront with a broken tile, so the
+      // cloud reports the token as missing.
+      const snapshot = await originSync.buildCatalogueSnapshot();
+      const applied = await cloudSync.applyCatalogueSnapshot(snapshot);
+      expect(applied.missingMedia).toEqual([token]);
+
+      const result = await originSync.runOnce(transport);
+      expect(result.mediaPushed).toBe(1);
+
+      // The decisive check: the cloud serves the same public URL the catalogue
+      // points at, with the same bytes. No URL rewriting, no frontend change.
+      const res = await request(cloud.getHttpServer())
+        .get(`/api/commerce-public/media/${token}`);
+      expect(res.status).toBe(200);
+      expect(res.headers['content-type']).toContain('image/gif');
+      expect(Buffer.from(res.body)).toEqual(PIXEL);
+    });
+
+    it('does not resend bytes the cloud already holds', async () => {
+      const me = await register(origin, 'sync-image-once@e2e.test');
+      const token = 'tok-image-two';
+      await seedProductWithImage(token, '99999999-9999-9999-9999-999999999999', me.id);
+
+      const first = await originSync.runOnce(transport);
+      expect(first.mediaPushed).toBe(1);
+
+      // Bytes are expensive and a pass is frequent; the second pass must carry
+      // the catalogue and no images.
+      const second = await originSync.runOnce(transport);
+      expect(second.mediaPushed).toBe(0);
+      expect(second.cataloguePushed).toBe(true);
+
+      expect(await cloudDs.getRepository(CommerceProductMedia).count()).toBe(1);
+    });
+
+    it('treats a reference without bytes as still missing', async () => {
+      // A catalogue push writes imageUrl, so a media row can exist on the
+      // cloud and still render broken. That must count as missing.
+      const me = await register(origin, 'sync-image-empty@e2e.test');
+      const token = 'tok-image-three';
+      await seedProductWithImage(token, '12121212-1212-1212-1212-121212121212', me.id);
+
+      const cloudMedia = cloudDs.getRepository(CommerceProductMedia);
+      await cloudMedia.save(cloudMedia.create({
+        productId: '12121212-1212-1212-1212-121212121212',
+        url: `/api/commerce-public/media/${token}`, kind: 'IMAGE', sortOrder: 0,
+        crop: {}, publicToken: token, mimeType: 'image/gif', contentBinary: null,
+      } as Partial<CommerceProductMedia>));
+
+      const applied = await cloudSync.applyCatalogueSnapshot(
+        await originSync.buildCatalogueSnapshot(),
+      );
+      expect(applied.missingMedia).toEqual([token]);
+
+      // And the push fills the existing row rather than failing on the unique
+      // token, which is what update-then-insert is for.
+      await originSync.runOnce(transport);
+      const res = await request(cloud.getHttpServer())
+        .get(`/api/commerce-public/media/${token}`);
+      expect(res.status).toBe(200);
+      expect(await cloudMedia.count()).toBe(1);
+    });
+
+    it('asks for nothing when the image is an external URL', async () => {
+      const me = await register(origin, 'sync-image-external@e2e.test');
+      const snippets = originDs.getRepository(ProductSnippet);
+      await snippets.save(snippets.create({
+        businessId: me.id, productId: '13131313-1313-1313-1313-131313131313',
+        catalogOwnerId: me.id, name: 'External Image', price: 1000, currency: 'TZS',
+        stock: 3, active: true, indexedAt: new Date(),
+        imageUrl: 'https://cdn.example.com/shoe.webp',
+        allocatedQty: 1, remainingQty: 1, committedQty: 0,
+      } as Partial<ProductSnippet>));
+
+      // Nothing to replicate: the URL does not depend on which instance answers.
+      const applied = await cloudSync.applyCatalogueSnapshot(
+        await originSync.buildCatalogueSnapshot(),
+      );
+      expect(applied.missingMedia).toEqual([]);
+    });
+
+    it('still collects transactions when the image push fails', async () => {
+      const me = await register(origin, 'sync-image-fail@e2e.test');
+      const { hotelId, roomId } = await hotelWithRoom(me.token, '620');
+      await originContinuity.grantRoom(me.id, {
+        hotelId, roomId, fromDate: '2027-12-01', toDate: '2027-12-10',
+      });
+      await seedProductWithImage('tok-image-four', '14141414-1414-1414-1414-141414141414', me.id);
+      await cloudContinuity.recordOutbox(me.id, 'BOOKING', 'wire-img', {
+        roomId, guestName: 'Image Guest', guestPhone: '0719000001',
+        checkIn: '2027-12-01', checkOut: '2027-12-03', guestCount: 1,
+      });
+
+      const brokenMedia: SyncTransport = {
+        ...transport,
+        pushMedia: async () => { throw new Error('image upload rejected'); },
+      };
+      const result = await originSync.runOnce(brokenMedia);
+
+      // Pictures are worth less than money already taken.
+      expect(result.mediaPushed).toBe(0);
+      expect(result.absorbed).toBe(1);
+      expect(await originDs.getRepository(HotelBooking).count()).toBe(1);
     });
   });
 
