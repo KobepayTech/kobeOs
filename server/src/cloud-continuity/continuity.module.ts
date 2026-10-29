@@ -2,8 +2,12 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CloudOutboxRecord, CloudRoomAllotment } from './continuity.entity';
 import { ProductSnippet } from '../commerce/commerce.entity';
-import { HotelBooking, HotelGuest, HotelRoom } from '../hotel/hotel.entity';
+import { HotelBooking, HotelGuest, HotelRoom, HotelTenant } from '../hotel/hotel.entity';
 import { ContinuityService } from './continuity.service';
+import { ContinuitySyncService } from './continuity-sync.service';
+import { ContinuitySyncController } from './continuity-sync.controller';
+import { ContinuitySyncWorker } from './continuity-sync.worker';
+import { SyncTokenGuard } from './sync-token.guard';
 
 /**
  * Exports ContinuityService alone: the front desk and POS import this module
@@ -17,8 +21,10 @@ import { ContinuityService } from './continuity.service';
     HotelBooking,
     HotelGuest,
     HotelRoom,
+    HotelTenant,
   ])],
-  providers: [ContinuityService],
-  exports: [ContinuityService],
+  controllers: [ContinuitySyncController],
+  providers: [ContinuityService, ContinuitySyncService, ContinuitySyncWorker, SyncTokenGuard],
+  exports: [ContinuityService, ContinuitySyncService],
 })
 export class ContinuityModule {}

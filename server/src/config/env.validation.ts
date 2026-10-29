@@ -21,6 +21,13 @@ class EnvVars {
   @IsOptional() @IsString() SMTP_PASS?: string;
   @IsOptional() @IsString() REDIS_URL?: string;
   @IsOptional() @IsString() WEBHOOK_SECRET?: string;
+  /**
+   * Online continuity sync. Both are needed before anything syncs: the peer's
+   * base URL, and a shared secret of at least 32 characters that both sides
+   * hold. Unset on desktop and single-shop installs, which have no cloud peer.
+   */
+  @IsOptional() @IsString() CONTINUITY_PEER_URL?: string;
+  @IsOptional() @IsString() @MinLength(32) CONTINUITY_SYNC_TOKEN?: string;
   @IsOptional() @IsString() OLLAMA_URL?: string;
   @IsOptional() @IsString() OLLAMA_MODEL?: string;
   @IsOptional() @IsString() FOOTBALL_DATA_API_KEY?: string;

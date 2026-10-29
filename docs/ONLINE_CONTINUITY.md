@@ -138,6 +138,55 @@ Split brain is a real case: KobeOS can be up but unreachable *from Cloudflare*.
 Health-based routing has to decide, and both sides must be safe if it decides
 wrongly — which, with allotment, they are.
 
+## Running the sync
+
+Each side runs the same KobeOS backend. Which role it plays is decided entirely
+by configuration: the origin is the instance with `CONTINUITY_PEER_URL` set, and
+the cloud is the instance it points at.
+
+| Variable | Set on | Notes |
+|---|---|---|
+| `CONTINUITY_SYNC_TOKEN` | both | Shared machine secret, min 32 chars. Must match. |
+| `CONTINUITY_PEER_URL` | origin only | Base URL of the cloud, e.g. `https://api.kobeapptz.com` |
+
+Both unset means no syncing and no load, which is what desktop and single-shop
+installs want.
+
+`ContinuitySyncWorker` runs a pass a minute on the origin. A pass:
+
+1. pushes the catalogue — only rooms with a live allotment and products with
+   allowance left, and no guest data at all;
+2. pulls the cloud's unsynced outbox;
+3. absorbs each item, idempotently, keyed on the cloud's own id;
+4. acknowledges only the items that actually landed.
+
+Passes never overlap, and the three endpoints (`POST /api/continuity/catalogue`,
+`GET /api/continuity/outbox`, `POST /api/continuity/outbox/ack`) take the shared
+token rather than a user JWT: the peer is a server, not a person. An instance
+with no token configured serves none of them rather than defaulting to open.
+
+Failure is ordinary, not exceptional:
+
+- **Catalogue push fails** — the pass still collects transactions. A stale
+  catalogue costs an offer; an uncollected booking costs a guest.
+- **Acknowledgement is lost** — the cloud offers the item again and absorption
+  recognises it. This is the case idempotency exists for, and it is tested.
+- **An item cannot be absorbed** — it is left unacknowledged, so the evidence
+  stays on the cloud instead of a customer's order being dropped.
+- **Cancellation arrives before its booking** — nothing orders the two. The
+  claim waits, and the booking is cancelled as it lands rather than becoming a
+  live reservation for a guest who cancelled.
+
+Backlog shows on `/api/health` under `sync` (`ok` / `warn` past an hour /
+`critical` past four). A stalled sync deliberately does not fail the endpoint:
+unsynced bookings are for an operator to chase, not a reason to stop taking the
+next one. Claims that have been applied are settled, so the count stays honest —
+a permanent false critical would train operators to ignore the alert.
+
+Proven by `server/test/continuity-sync.e2e-spec.ts`, which runs two app
+instances against two separate PostgreSQL databases. One database cannot show
+that a booking survived being handed over.
+
 ## Build order
 
 Steps 1 to 4 need no cloud hosting and can be built and tested locally against
