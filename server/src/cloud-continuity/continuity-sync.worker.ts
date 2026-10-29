@@ -4,6 +4,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import {
   ContinuitySyncService,
   type CatalogueSnapshot,
+  type MediaPayload,
   type OutboxItem,
   type SyncTransport,
 } from './continuity-sync.service';
@@ -38,8 +39,16 @@ export class HttpSyncTransport implements SyncTransport {
     }
   }
 
-  async pushCatalogue(snapshot: CatalogueSnapshot): Promise<void> {
-    await this.call('/catalogue', { method: 'POST', body: JSON.stringify(snapshot) });
+  async pushCatalogue(snapshot: CatalogueSnapshot): Promise<{ missingMedia?: string[] }> {
+    return this.call<{ missingMedia?: string[] }>('/catalogue', {
+      method: 'POST', body: JSON.stringify(snapshot),
+    });
+  }
+
+  async pushMedia(items: MediaPayload[]): Promise<void> {
+    // Bounded upstream: a pass sends at most MEDIA_MAX_PER_PASS items and
+    // MEDIA_MAX_BYTES_PER_PASS bytes, so this stays inside the call timeout.
+    await this.call('/media', { method: 'POST', body: JSON.stringify({ items }) });
   }
 
   async pullOutbox(limit: number): Promise<OutboxItem[]> {
@@ -91,9 +100,10 @@ export class ContinuitySyncWorker {
     try {
       const result = await this.sync.runOnce(transport);
       this.consecutiveFailures = 0;
-      if (result.pulled || result.failed) {
+      if (result.pulled || result.failed || result.mediaPushed) {
         this.logger.log(
-          `pass: pulled=${result.pulled} absorbed=${result.absorbed} failed=${result.failed}`,
+          `pass: pulled=${result.pulled} absorbed=${result.absorbed}`
+          + ` failed=${result.failed} media=${result.mediaPushed}`,
         );
       }
     } catch (error) {

@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { CloudOutboxRecord, CloudRoomAllotment } from './continuity.entity';
-import { ProductSnippet } from '../commerce/commerce.entity';
+import { CommerceProductMedia, ProductSnippet } from '../commerce/commerce.entity';
 import { HotelBooking, HotelGuest, HotelRoom, HotelTenant } from '../hotel/hotel.entity';
 import { ContinuityService } from './continuity.service';
 import { ContinuitySyncService } from './continuity-sync.service';
@@ -18,6 +18,7 @@ import { SyncTokenGuard } from './sync-token.guard';
     CloudRoomAllotment,
     CloudOutboxRecord,
     ProductSnippet,
+    CommerceProductMedia,
     HotelBooking,
     HotelGuest,
     HotelRoom,

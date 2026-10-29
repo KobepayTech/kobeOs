@@ -2,7 +2,11 @@ import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import { Public } from '../common/public.decorator';
 import { SyncTokenGuard } from './sync-token.guard';
-import { ContinuitySyncService, type CatalogueSnapshot } from './continuity-sync.service';
+import {
+  ContinuitySyncService,
+  type CatalogueSnapshot,
+  type MediaPayload,
+} from './continuity-sync.service';
 
 /**
  * The cloud side of continuity sync.
@@ -26,6 +30,16 @@ export class ContinuitySyncController {
   @Post('catalogue')
   async catalogue(@Body() snapshot: CatalogueSnapshot) {
     return this.sync.applyCatalogueSnapshot(snapshot);
+  }
+
+  /**
+   * Receive image bytes for catalogue entries this instance cannot serve yet.
+   * Sent only in response to the missingMedia list from a catalogue push, so
+   * bytes cross once rather than on every pass.
+   */
+  @Post('media')
+  async media(@Body() body: { items?: MediaPayload[] }) {
+    return this.sync.applyMedia(body?.items ?? []);
   }
 
   /** Hand over transactions this instance originated. */

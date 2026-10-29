@@ -187,6 +187,32 @@ Proven by `server/test/continuity-sync.e2e-spec.ts`, which runs two app
 instances against two separate PostgreSQL databases. One database cannot show
 that a booking survived being handed over.
 
+### Catalogue images
+
+Product images live in PostgreSQL and are served from
+`/api/commerce-public/media/:token` — a relative path. Replicating the
+catalogue alone therefore produced a storefront with correct names and prices
+and a broken image on every tile: the path resolved against the cloud while the
+bytes were still only on the origin. Precisely the wrong moment for a shop to
+look abandoned.
+
+Bytes are replicated on demand, not with every catalogue:
+
+1. the catalogue push returns `missingMedia` — the image tokens the cloud
+   references but cannot serve, derived from the catalogue's own `imageUrl`
+   values so the two cannot disagree;
+2. the origin reads those images and posts them to `POST /api/continuity/media`;
+3. the cloud stores them under the **same token**, so the catalogue needs no URL
+   rewriting and no frontend has to know which instance answered.
+
+A row that exists without bytes counts as missing — a catalogue push writes
+`imageUrl`, so a reference alone still renders broken.
+
+A pass sends at most 25 images, 2 MB each and 8 MB in total. An oversized image
+is skipped rather than truncated and is simply offered again next pass. A failed
+image push never stops the pass from collecting transactions: pictures are worth
+less than money already taken.
+
 ## Build order
 
 Steps 1 to 4 need no cloud hosting and can be built and tested locally against
