@@ -7,6 +7,7 @@ import { Public } from '../common/public.decorator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { LiveSaleService } from './live-sale.service';
 import { InstagramService } from './instagram.service';
+import { LivePresenterService } from './live-presenter.service';
 
 class StartSessionDto {
   @IsOptional() @IsBoolean() cloudAccount?: boolean;
@@ -52,6 +53,7 @@ export class LiveSaleController {
     private readonly svc: LiveSaleService,
     private readonly instagram: InstagramService,
     private readonly tiktok: TikTokCommentsService,
+    private readonly presenter: LivePresenterService,
   ) {}
 
   @Get() list(@CurrentUser('id') uid: string) { return this.svc.listSessions(uid); }
@@ -62,6 +64,7 @@ export class LiveSaleController {
     return session;
   }
   @Get('connections') connections(@CurrentUser('id') uid: string) { return this.instagram.connections(uid); }
+  @Post(':id/presenter/script') presenterScript(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.presenter.script(uid, id); }
   @Post('instagram/relay') relay(@CurrentUser('id') uid: string, @Body() dto: RelayDto) { return this.instagram.registerRelay(uid, dto.accountId, dto.targetUrl); }
   @Get('operator/context') context(@CurrentUser('id') uid: string) { return this.svc.operatorContext(uid); }
 
