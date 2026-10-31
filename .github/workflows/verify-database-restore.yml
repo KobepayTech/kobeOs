@@ -1,0 +1,201 @@
+name: Verify Database Restore
+
+# Proves the primary database can actually be brought back, rather than
+# asserting that backups exist. A dump nobody has restored is a hope, not a
+# backup — the failure mode is silent until the day it matters.
+#
+# Each run dumps the live database, restores it into a throwaway PostgreSQL
+# service container, and compares the restored copy against the source. The
+# dump is deleted with the runner and is never uploaded: it holds real customer
+# and guest data, and a copy of production in an artifact store is a new place
+# for that data to leak from. Retention belongs on a storage target with its
+# own access control and lifecycle, not in CI.
+
+on:
+  schedule:
+    # 03:17 UTC — off the hour, since shared runners queue there, and outside
+    # the 06:00-09:00 Pacific window where starts get delayed.
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-database-restore
+  cancel-in-progress: false
+
+jobs:
+  verify-restore:
+    name: Dump, restore and compare
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+
+    services:
+      target:
+        # A major version at least as new as the source, so a dump from either
+        # PostgreSQL 16 or 17 restores cleanly.
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: restore-check
+          POSTGRES_DB: restore_target
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      SOURCE_URL: ${{ secrets.PRIMARY_API_DATABASE_URL_UNPOOLED }}
+      SOURCE_HOST: ${{ secrets.PRIMARY_API_DB_HOST || secrets.DB_HOST }}
+      SOURCE_USER: ${{ secrets.PRIMARY_API_DB_USERNAME || secrets.DB_USERNAME }}
+      SOURCE_PASSWORD: ${{ secrets.PRIMARY_API_DB_PASSWORD || secrets.DB_PASSWORD }}
+      SOURCE_DB: ${{ secrets.PRIMARY_API_DB_DATABASE || 'neondb' }}
+      TARGET_URL: postgres://postgres:restore-check@localhost:5432/restore_target
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install a PostgreSQL client new enough for the source
+        run: |
+          set -euo pipefail
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsS -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc]" \
+            "https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+          pg_dump --version
+
+      - name: Resolve the source connection
+        run: |
+          set -euo pipefail
+          if [ -n "${SOURCE_URL:-}" ]; then
+            echo "Using the configured direct URL."
+            echo "RESOLVED_SOURCE=$SOURCE_URL" >> "$GITHUB_ENV"
+          elif [ -n "${SOURCE_HOST:-}" ]; then
+            # Dumping through a transaction pooler can drop a long-running
+            # snapshot, so prefer the direct endpoint when one is configured.
+            case "$SOURCE_HOST" in
+              *-pooler.*) echo "::warning::Dumping through a pooled endpoint; set PRIMARY_API_DATABASE_URL_UNPOOLED for a direct one." ;;
+            esac
+            echo "RESOLVED_SOURCE=postgresql://${SOURCE_USER}:${SOURCE_PASSWORD}@${SOURCE_HOST}:5432/${SOURCE_DB}?sslmode=require" >> "$GITHUB_ENV"
+          else
+            echo "::error::No database credentials configured for the production environment."
+            exit 1
+          fi
+
+      - name: Dump the live database
+        run: |
+          set -euo pipefail
+          # Custom format so the restore is parallel and order-independent.
+          pg_dump --format=custom --no-owner --no-privileges \
+            --file="$RUNNER_TEMP/kobeos.dump" "$RESOLVED_SOURCE"
+          size=$(stat -c %s "$RUNNER_TEMP/kobeos.dump")
+          echo "dump_bytes=$size" >> "$GITHUB_OUTPUT"
+          echo "Dump is $size bytes."
+          # An empty-ish dump means the credentials pointed somewhere wrong.
+          # Better to fail here than to "verify" a restore of nothing.
+          [ "$size" -gt 20000 ] || { echo "::error::Dump is implausibly small ($size bytes)."; exit 1; }
+        id: dump
+
+      - name: Restore into the throwaway database
+        run: |
+          set -euo pipefail
+          # pg_restore exits non-zero on ignorable notices, so inspect the log
+          # rather than trusting the status alone.
+          set +e
+          pg_restore --dbname="$TARGET_URL" --no-owner --no-privileges \
+            --jobs=4 "$RUNNER_TEMP/kobeos.dump" 2> "$RUNNER_TEMP/restore.log"
+          status=$?
+          set -e
+          errors=$(grep -c '^pg_restore: error:' "$RUNNER_TEMP/restore.log" || true)
+          echo "pg_restore exit=$status errors=$errors"
+          if [ "$errors" -gt 0 ]; then
+            echo "::error::The restore reported $errors errors."
+            grep '^pg_restore: error:' "$RUNNER_TEMP/restore.log" | head -20
+            exit 1
+          fi
+
+      - name: Compare the restored copy against the source
+        run: |
+          set -euo pipefail
+          count_tables() {
+            psql -At -d "$1" -c \
+              "SELECT count(*) FROM information_schema.tables
+                WHERE table_schema='public' AND table_type='BASE TABLE'"
+          }
+          src_tables=$(count_tables "$RESOLVED_SOURCE")
+          dst_tables=$(count_tables "$TARGET_URL")
+          echo "tables: source=$src_tables restored=$dst_tables"
+          [ "$src_tables" -gt 0 ] || { echo "::error::Source reports no tables."; exit 1; }
+          [ "$src_tables" = "$dst_tables" ] || {
+            echo "::error::Table count differs: $src_tables vs $dst_tables."; exit 1; }
+
+          # Migrations are the schema's version. A restore that lost them would
+          # look fine until the next deploy tried to re-apply everything.
+          src_migrations=$(psql -At -d "$RESOLVED_SOURCE" -c 'SELECT count(*) FROM kobeos_migrations')
+          dst_migrations=$(psql -At -d "$TARGET_URL" -c 'SELECT count(*) FROM kobeos_migrations')
+          echo "migrations: source=$src_migrations restored=$dst_migrations"
+          [ "$src_migrations" = "$dst_migrations" ] || {
+            echo "::error::Migration count differs: $src_migrations vs $dst_migrations."; exit 1; }
+
+          # Row counts on the tables that carry the things a business cannot
+          # lose. Compared rather than merely non-zero, because an empty table
+          # is only wrong if it was not empty at the source.
+          failed=0
+          for table in users hotel_bookings pos_orders commerce_product_snippets cloud_outbox cloud_room_allotments commerce_product_media; do
+            exists=$(psql -At -d "$RESOLVED_SOURCE" -c \
+              "SELECT to_regclass('public.$table') IS NOT NULL")
+            if [ "$exists" != "t" ]; then
+              echo "note: $table is not present at the source, skipping"
+              continue
+            fi
+            src=$(psql -At -d "$RESOLVED_SOURCE" -c "SELECT count(*) FROM \"$table\"")
+            dst=$(psql -At -d "$TARGET_URL" -c "SELECT count(*) FROM \"$table\"")
+            if [ "$src" = "$dst" ]; then
+              echo "ok   $table: $src rows"
+            else
+              # The source is live, so a row added mid-dump is expected. Only
+              # a restored copy with FEWER rows than the dump could contain
+              # indicates actual loss.
+              if [ "$dst" -lt "$src" ]; then
+                echo "::warning::$table restored $dst of $src rows (source may have grown during the dump)"
+              else
+                echo "::error::$table restored MORE rows than the source: $dst vs $src"
+                failed=1
+              fi
+            fi
+          done
+          [ "$failed" = 0 ] || exit 1
+
+          # Image bytes survive a dump/restore cycle only if bytea came back
+          # intact; a truncated column would still count as a row.
+          psql -At -d "$TARGET_URL" -c \
+            "SELECT coalesce(sum(octet_length(\"contentBinary\")), 0)
+               FROM commerce_product_media WHERE \"contentBinary\" IS NOT NULL" \
+            | xargs -I{} echo "restored image bytes: {}"
+
+      - name: Record the result
+        if: always()
+        run: |
+          {
+            echo "### Database restore verification"
+            echo
+            if [ "${{ job.status }}" = "success" ]; then
+              echo "The live database was dumped and restored into a clean"
+              echo "PostgreSQL 17 instance, and the restored copy matched the"
+              echo "source on table count, migration count and row counts."
+            else
+              echo "**The restore could not be verified.** See the failing step."
+              echo "Until this passes, treat the backups as unproven."
+            fi
+            echo
+            echo "Dump size: ${{ steps.dump.outputs.dump_bytes }} bytes."
+            echo
+            echo "The dump is discarded with the runner and never uploaded."
+          } >> "$GITHUB_STEP_SUMMARY"

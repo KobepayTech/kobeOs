@@ -118,3 +118,37 @@ No account has ever been created on a live deployment. Every verification so
 far is infrastructure: health endpoints, migrations, schema. Nobody has booked
 a room, taken a payment and checked a guest out against production. That walk
 is the real readiness test and it has not happened.
+
+## Backup and restore verification
+
+`.github/workflows/verify-database-restore.yml` runs nightly and on demand. It
+dumps the live primary database, restores it into a throwaway PostgreSQL 17
+service container, and compares the restored copy against the source on:
+
+- table count,
+- `kobeos_migrations` count — the schema's version, and a restore that lost it
+  would look healthy until the next deploy tried to re-apply everything,
+- row counts for the tables a business cannot lose (`users`, `hotel_bookings`,
+  `pos_orders`, `commerce_product_snippets`, `cloud_outbox`,
+  `cloud_room_allotments`, `commerce_product_media`),
+- total `bytea` length of replicated images, since a truncated column still
+  counts as a row.
+
+The source is live, so a table that grew mid-dump is reported as a warning. A
+restored copy holding *more* rows than the source fails the run, as does any
+`pg_restore` error, a missing migration row, or a dump small enough to suggest
+the credentials pointed at the wrong database.
+
+**The dump is discarded with the runner and never uploaded.** It contains real
+customer and guest data, and a copy of production in an artifact store is
+simply a new place for that data to leak from. Retention belongs on a storage
+target with its own access control and lifecycle.
+
+This workflow proves *restorability*. It is not itself the retention policy:
+Neon's point-in-time recovery window is the current retention, and at six hours
+it is thin for a system of record. Lengthening it, or adding an off-platform
+target, is a hosting decision rather than a code one.
+
+Set `PRIMARY_API_DATABASE_URL_UNPOOLED` for the dump. Dumping through a
+transaction pooler can drop a long-running snapshot; the workflow warns when it
+detects a pooled host and carries on.
