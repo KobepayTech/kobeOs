@@ -1,0 +1,207 @@
+name: Bootstrap Cloud Admin
+
+# Creates the first administrator on the cloud instance, then optionally
+# removes a user through the proper admin endpoint.
+#
+# Why this exists rather than the KOBEOS_BOOTSTRAP_ADMIN_* path: those variables
+# live in the Worker's runtime secrets, so the admin password would sit in the
+# serving environment indefinitely and be re-read on every container start. Here
+# the password is a CI secret, used once, and never written to the runtime, the
+# repository or a log.
+#
+# The password is never printed, never passed on a command line (where it would
+# appear in the process list) and never committed. It reaches bcrypt through the
+# environment only.
+#
+# Deliberately matches the policy in UsersService.onModuleInit: a minimum of 12
+# characters, and an existing account is never promoted. If the email already
+# exists the run reports it and changes nothing — silently granting admin to an
+# account that already had a password someone else chose would be a privilege
+# escalation dressed up as convenience.
+
+on:
+  workflow_dispatch:
+    inputs:
+      admin_email:
+        description: Email for the cloud administrator
+        required: true
+        type: string
+      display_name:
+        description: Display name for the administrator
+        required: false
+        default: KobeOS Cloud Admin
+        type: string
+      delete_user_id:
+        description: Optional user id to delete once the admin exists
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bootstrap-cloud-admin
+  cancel-in-progress: false
+
+jobs:
+  bootstrap:
+    name: Create the administrator
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+
+    env:
+      ADMIN_EMAIL: ${{ inputs.admin_email }}
+      ADMIN_DISPLAY_NAME: ${{ inputs.display_name }}
+      ADMIN_PASSWORD: ${{ secrets.CLOUD_ADMIN_PASSWORD }}
+      API_BASE: https://api.kobeapptz.com
+      SOURCE_URL: ${{ secrets.PRIMARY_API_DATABASE_URL_UNPOOLED }}
+      DB_HOST: ${{ secrets.PRIMARY_API_DB_HOST || secrets.DB_HOST }}
+      DB_USERNAME: ${{ secrets.PRIMARY_API_DB_USERNAME || secrets.DB_USERNAME }}
+      DB_PASSWORD: ${{ secrets.PRIMARY_API_DB_PASSWORD || secrets.DB_PASSWORD }}
+      DB_DATABASE: ${{ secrets.PRIMARY_API_DB_DATABASE || 'neondb' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Check the password secret is present and long enough
+        run: |
+          set -euo pipefail
+          if [ -z "${ADMIN_PASSWORD:-}" ]; then
+            echo "::error::Set the CLOUD_ADMIN_PASSWORD secret in the production environment first."
+            exit 1
+          fi
+          # Length only — the value itself is never echoed.
+          if [ "${#ADMIN_PASSWORD}" -lt 12 ]; then
+            echo "::error::CLOUD_ADMIN_PASSWORD must be at least 12 characters, matching UsersService."
+            exit 1
+          fi
+          echo "Password secret present (${#ADMIN_PASSWORD} characters)."
+
+      - name: Install the same bcrypt the backend uses
+        run: npm install --no-save --no-audit --no-fund bcryptjs@2.4.3 pg@8.13.1
+
+      - name: Create the administrator
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const bcrypt = require('bcryptjs');
+          const { Client } = require('pg');
+
+          const email = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+          const password = process.env.ADMIN_PASSWORD || '';
+          const displayName = String(process.env.ADMIN_DISPLAY_NAME || '').trim() || 'KobeOS Cloud Admin';
+
+          if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+            console.log('::error::admin_email is not a valid address.');
+            process.exit(1);
+          }
+
+          const connection = process.env.SOURCE_URL
+            ? { connectionString: process.env.SOURCE_URL }
+            : {
+                host: process.env.DB_HOST,
+                port: 5432,
+                user: process.env.DB_USERNAME,
+                password: process.env.DB_PASSWORD,
+                database: process.env.DB_DATABASE,
+                ssl: { rejectUnauthorized: true },
+              };
+
+          (async () => {
+            const client = new Client(connection);
+            await client.connect();
+            try {
+              const existing = await client.query(
+                'SELECT id, role FROM users WHERE email = $1', [email],
+              );
+              if (existing.rows.length) {
+                // Same rule as UsersService.onModuleInit: never promote an
+                // account that already exists.
+                console.log(
+                  `::error::${email} already exists with role `
+                  + `${existing.rows[0].role}; no role or password was changed.`,
+                );
+                process.exit(1);
+              }
+
+              // Cost 12, matching UsersService, so the hash is indistinguishable
+              // from one the application would have written.
+              const passwordHash = await bcrypt.hash(password, 12);
+              const created = await client.query(
+                `INSERT INTO users (email, "passwordHash", "displayName", role)
+                 VALUES ($1, $2, $3, 'admin') RETURNING id`,
+                [email, passwordHash, displayName],
+              );
+              console.log(`Created administrator ${email} (${created.rows[0].id}).`);
+            } finally {
+              await client.end();
+            }
+          })().catch((error) => {
+            // Print the message only. A pg error can carry the connection
+            // parameters, and those include a password.
+            console.log(`::error::Could not create the administrator: ${String(error?.message).slice(0, 300)}`);
+            process.exit(1);
+          });
+          NODE
+
+      - name: Verify the administrator can sign in with the admin role
+        run: |
+          set -euo pipefail
+          # Proves the account works through the public API, not just that a row
+          # was written — a hash the application cannot verify would otherwise
+          # look like success.
+          body=$(jq -n --arg e "$ADMIN_EMAIL" --arg p "$ADMIN_PASSWORD" \
+            '{email: $e, password: $p}')
+          out="$RUNNER_TEMP/admin-login.json"
+          code=$(printf '%s' "$body" | curl -s -o "$out" -w '%{http_code}' \
+            --max-time 60 -X POST "$API_BASE/api/auth/login" \
+            -H 'content-type: application/json' --data @-)
+          [ "$code" = "201" ] || [ "$code" = "200" ] || {
+            echo "::error::Admin login returned HTTP $code."; exit 1; }
+
+          role=$(jq -r '.user.role' "$out")
+          echo "Signed in; role=$role"
+          [ "$role" = "admin" ] || { echo "::error::Expected role admin, got $role."; exit 1; }
+          jq -r '.accessToken' "$out" > "$RUNNER_TEMP/admin-token"
+          chmod 600 "$RUNNER_TEMP/admin-token"
+
+      - name: Delete the requested user through the admin endpoint
+        if: ${{ inputs.delete_user_id != '' }}
+        run: |
+          set -euo pipefail
+          token=$(cat "$RUNNER_TEMP/admin-token")
+          target="${{ inputs.delete_user_id }}"
+          code=$(curl -s -o "$RUNNER_TEMP/delete.json" -w '%{http_code}' --max-time 60 \
+            -X DELETE "$API_BASE/api/users/$target" \
+            -H "Authorization: Bearer $token")
+          echo "DELETE /api/users/$target -> HTTP $code"
+          [ "$code" = "200" ] || { cat "$RUNNER_TEMP/delete.json"; echo "::error::Delete failed."; exit 1; }
+          echo "Deleted user $target."
+
+      - name: Record the result
+        if: always()
+        run: |
+          {
+            echo "### Cloud administrator bootstrap"
+            echo
+            if [ "${{ job.status }}" = "success" ]; then
+              echo "Administrator \`$ADMIN_EMAIL\` exists and signed in with the admin role."
+              if [ -n "${{ inputs.delete_user_id }}" ]; then
+                echo
+                echo "User \`${{ inputs.delete_user_id }}\` was deleted through \`DELETE /api/users/:id\`."
+              fi
+            else
+              echo "**Bootstrap did not complete.** See the failing step."
+            fi
+            echo
+            echo "The password came from the \`CLOUD_ADMIN_PASSWORD\` secret and was"
+            echo "never written to the runtime environment, the repository or a log."
+            echo "Rotate it from the account once signed in, then the secret can be"
+            echo "removed."
+          } >> "$GITHUB_STEP_SUMMARY"
