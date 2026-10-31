@@ -159,3 +159,37 @@ mismatch, so a Neon major upgrade will fail this job until `PG_MAJOR` and the
 service container image are raised together. The job checks client against
 server before dumping so the failure says exactly that, rather than looking
 like a connection problem.
+
+## Creating the cloud administrator
+
+The cloud instance starts with no administrator, so the admin-only endpoints
+(including `DELETE /api/users/:id`) cannot be used at all. Run the
+**Bootstrap Cloud Admin** workflow once to create one.
+
+It needs a single secret in the `production` environment:
+
+| Secret | Notes |
+|---|---|
+| `CLOUD_ADMIN_PASSWORD` | At least 12 characters, matching `UsersService` |
+
+Then dispatch the workflow with the administrator's email. It creates the
+account directly in the primary database with a cost-12 bcrypt hash — the same
+hash the application would have written — then **signs in through the public
+API and asserts the role is `admin`**, so a hash the application cannot verify
+cannot be mistaken for success. An optional `delete_user_id` input removes a
+user through the admin endpoint in the same run.
+
+Why not `KOBEOS_BOOTSTRAP_ADMIN_EMAIL` / `_PASSWORD`: those live in the Worker's
+runtime secrets, so the password would sit in the serving environment
+indefinitely and be re-read on every container start. Here it is a CI secret,
+used once.
+
+The password is never printed, never passed on a command line (where it would
+appear in the process list) and never committed; it reaches bcrypt through the
+environment only. Rotate it from the account after first sign-in, then remove
+the secret.
+
+An existing account is never promoted — the same rule as
+`UsersService.onModuleInit`. Granting admin to an account whose password someone
+else chose would be privilege escalation dressed up as convenience, so the run
+fails instead.
