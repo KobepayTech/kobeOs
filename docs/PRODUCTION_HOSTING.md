@@ -122,8 +122,8 @@ is the real readiness test and it has not happened.
 ## Backup and restore verification
 
 `.github/workflows/verify-database-restore.yml` runs nightly and on demand. It
-dumps the live primary database, restores it into a throwaway PostgreSQL 17
-service container, and compares the restored copy against the source on:
+dumps the live primary database, restores it into a throwaway service container
+of the same major version, and compares the restored copy against the source on:
 
 - table count,
 - `kobeos_migrations` count — the schema's version, and a restore that lost it
@@ -152,3 +152,10 @@ target, is a hosting decision rather than a code one.
 Set `PRIMARY_API_DATABASE_URL_UNPOOLED` for the dump. Dumping through a
 transaction pooler can drop a long-running snapshot; the workflow warns when it
 detects a pooled host and carries on.
+
+`PG_MAJOR` in the workflow must match or exceed the source server's major
+version — Neon currently reports **18.6**. `pg_dump` refuses outright on a
+mismatch, so a Neon major upgrade will fail this job until `PG_MAJOR` and the
+service container image are raised together. The job checks client against
+server before dumping so the failure says exactly that, rather than looking
+like a connection problem.
