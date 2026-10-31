@@ -69,19 +69,34 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Check the password secret is present and long enough
+      - name: Check the password secret is present, trimmed and long enough
         run: |
           set -euo pipefail
           if [ -z "${ADMIN_PASSWORD:-}" ]; then
             echo "::error::Set the CLOUD_ADMIN_PASSWORD secret in the production environment first."
             exit 1
           fi
-          # Length only — the value itself is never echoed.
-          if [ "${#ADMIN_PASSWORD}" -lt 12 ]; then
-            echo "::error::CLOUD_ADMIN_PASSWORD must be at least 12 characters, matching UsersService."
+
+          # The first run of this workflow produced an admin nobody could sign
+          # in as: the secret had been saved with a trailing newline, so the
+          # hash covered "password\n" while a person types "password". The
+          # login check passed because it read the same variable, which made it
+          # blind to the one thing it was supposed to catch.
+          #
+          # Surrounding whitespace is therefore stripped everywhere the value is
+          # used, and the difference is reported. Lengths only — the value is
+          # never echoed.
+          trimmed=$(printf '%s' "$ADMIN_PASSWORD" | python3 -c 'import sys; sys.stdout.write(sys.stdin.read().strip())')
+          raw_len=${#ADMIN_PASSWORD}
+          trim_len=${#trimmed}
+          if [ "$raw_len" -ne "$trim_len" ]; then
+            echo "::warning::CLOUD_ADMIN_PASSWORD had surrounding whitespace ($raw_len raw vs $trim_len trimmed); using the trimmed value so the password can be typed."
+          fi
+          if [ "$trim_len" -lt 12 ]; then
+            echo "::error::CLOUD_ADMIN_PASSWORD must be at least 12 characters after trimming, matching UsersService."
             exit 1
           fi
-          echo "Password secret present (${#ADMIN_PASSWORD} characters)."
+          echo "Password secret present ($trim_len characters after trimming)."
 
       - name: Install the same bcrypt the backend uses
         run: npm install --no-save --no-audit --no-fund bcryptjs@2.4.3 pg@8.13.1
@@ -94,7 +109,10 @@ jobs:
           const { Client } = require('pg');
 
           const email = String(process.env.ADMIN_EMAIL || '').trim().toLowerCase();
-          const password = process.env.ADMIN_PASSWORD || '';
+          // Trimmed, so the hash covers the password a person will type. A
+          // secret saved with a trailing newline otherwise produces an account
+          // that only a script can sign in to.
+          const password = String(process.env.ADMIN_PASSWORD || '').trim();
           const displayName = String(process.env.ADMIN_DISPLAY_NAME || '').trim() || 'KobeOS Cloud Admin';
 
           if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
@@ -156,8 +174,11 @@ jobs:
           # Proves the account works through the public API, not just that a row
           # was written — a hash the application cannot verify would otherwise
           # look like success.
-          body=$(jq -n --arg e "$ADMIN_EMAIL" --arg p "$ADMIN_PASSWORD" \
-            '{email: $e, password: $p}')
+          #
+          # The password is trimmed here too, so this signs in with exactly what
+          # a person would type. Verifying with the raw secret is what let a
+          # newline-padded password pass as working.
+          body=$(python3 -c 'import json, os; print(json.dumps({"email": os.environ["ADMIN_EMAIL"].strip(), "password": os.environ["ADMIN_PASSWORD"].strip()}))')
           out="$RUNNER_TEMP/admin-login.json"
           code=$(printf '%s' "$body" | curl -s -o "$out" -w '%{http_code}' \
             --max-time 60 -X POST "$API_BASE/api/auth/login" \
