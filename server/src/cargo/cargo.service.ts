@@ -174,6 +174,9 @@ export class CargoPaymentsService extends OwnedCrudService<CargoPayment> {
   ) { super(repo); }
 
   async record(ownerId: string, dto: CreateCargoPaymentDto): Promise<CargoPayment> {
+    if (dto.method === 'KOBEPAY' || dto.reference?.startsWith('KP-FRT:')) {
+      throw new BadRequestException('KobePay payments must use the funded cargo/kobepay/freight-payments flow');
+    }
     if (!dto.parcelId && !dto.shipmentId) {
       throw new BadRequestException('Either parcelId or shipmentId must be provided');
     }
