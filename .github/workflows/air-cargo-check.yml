@@ -26,7 +26,7 @@ jobs:
           POSTGRES_DB: cargo_qa
         ports: ['5432:5432']
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U cargo_qa -d cargo_qa"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -47,7 +47,7 @@ jobs:
         working-directory: server
       - run: npm run build
         working-directory: server
-      - run: npm run test:unit -- --runTestsByPath src/cargo/cargo-kobepay.spec.ts
+      - run: npm run test:unit -- --runTestsByPath src/cargo/cargo-kobepay.spec.ts src/cargo/fr24.controller.spec.ts
         working-directory: server
         env:
           CARGO_QA_DATABASE_URL: postgresql://cargo_qa:cargo_qa@127.0.0.1:5432/cargo_qa

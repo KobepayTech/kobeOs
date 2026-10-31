@@ -70,7 +70,9 @@ const database = process.env.CARGO_QA_DATABASE_URL;
     expect(await balance()).toBe(100);
   });
   it('rolls back a debit and receipt if the audit cannot be written', async () => {
-    await ds.query(`ALTER TABLE "${ds.options.schema}"."kobepay_audit_events" ADD CONSTRAINT cargo_qa_audit_reject CHECK (action <> 'cargo.freightPayment')`);
+    // Previous cases deliberately retain receipts. Only reject new audit writes;
+    // do not validate those earlier rows while installing this fault injection.
+    await ds.query(`ALTER TABLE "${ds.options.schema}"."kobepay_audit_events" ADD CONSTRAINT cargo_qa_audit_reject CHECK (action <> 'cargo.freightPayment') NOT VALID`);
     try {
       await expect(service.pay(uid, payment(customer.id, shipment.id))).rejects.toThrow();
       expect(await balance()).toBe(100); expect(await ds.getRepository(CargoPayment).countBy({ ownerId: uid })).toBe(0);

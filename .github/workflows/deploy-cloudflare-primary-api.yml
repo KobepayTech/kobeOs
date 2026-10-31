@@ -53,6 +53,9 @@ jobs:
       META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
       META_REDIRECT_URI: ${{ secrets.META_REDIRECT_URI }}
       META_LOGIN_CONFIG_ID: ${{ secrets.META_LOGIN_CONFIG_ID }}
+      FR24_API_KEY: ${{ secrets.FR24_API_KEY }}
+      FR24_API_BASE: ${{ vars.FR24_API_BASE }}
+      FR24_API_VERSION: ${{ vars.FR24_API_VERSION }}
       CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID || secrets.CF_ZONE_ID || vars.CLOUDFLARE_ZONE_ID || vars.CF_ZONE_ID }}
 
     steps:
@@ -105,8 +108,8 @@ jobs:
               PROVIDER_ENCRYPTION_KEY: $PROVIDER_ENCRYPTION_KEY
             }' > "$secrets_file"
 
-          # Forward configured social provider secrets without logging their values.
-          jq '. + (env | with_entries(select(.key | IN("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REDIRECT_URI", "TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET", "TIKTOK_REDIRECT_URI", "META_APP_ID", "META_APP_SECRET", "META_REDIRECT_URI", "META_LOGIN_CONFIG_ID"))) | with_entries(select(.value != "")))' \
+          # Forward configured provider secrets without logging their values.
+          jq '. + (env | with_entries(select(.key | IN("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REDIRECT_URI", "TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET", "TIKTOK_REDIRECT_URI", "META_APP_ID", "META_APP_SECRET", "META_REDIRECT_URI", "META_LOGIN_CONFIG_ID", "FR24_API_KEY", "FR24_API_BASE", "FR24_API_VERSION"))) | with_entries(select(.value != "")))' \
             "$secrets_file" > "$secrets_file.providers"
           mv "$secrets_file.providers" "$secrets_file"
 
@@ -206,6 +209,9 @@ jobs:
       META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
       META_REDIRECT_URI: ${{ secrets.META_REDIRECT_URI }}
       META_LOGIN_CONFIG_ID: ${{ secrets.META_LOGIN_CONFIG_ID }}
+      FR24_API_KEY: ${{ secrets.FR24_API_KEY }}
+      FR24_API_BASE: ${{ vars.FR24_API_BASE }}
+      FR24_API_VERSION: ${{ vars.FR24_API_VERSION }}
       CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID || secrets.CF_ZONE_ID || vars.CLOUDFLARE_ZONE_ID || vars.CF_ZONE_ID }}
 
     steps:
@@ -247,8 +253,8 @@ jobs:
               PROVIDER_ENCRYPTION_KEY: $PROVIDER_ENCRYPTION_KEY
             }' > "$secrets_file"
 
-          # Forward configured social provider secrets without logging their values.
-          jq '. + (env | with_entries(select(.key | IN("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REDIRECT_URI", "TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET", "TIKTOK_REDIRECT_URI", "META_APP_ID", "META_APP_SECRET", "META_REDIRECT_URI", "META_LOGIN_CONFIG_ID"))) | with_entries(select(.value != "")))' \
+          # Forward configured provider secrets without logging their values.
+          jq '. + (env | with_entries(select(.key | IN("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REDIRECT_URI", "TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET", "TIKTOK_REDIRECT_URI", "META_APP_ID", "META_APP_SECRET", "META_REDIRECT_URI", "META_LOGIN_CONFIG_ID", "FR24_API_KEY", "FR24_API_BASE", "FR24_API_VERSION"))) | with_entries(select(.value != "")))' \
             "$secrets_file" > "$secrets_file.providers"
           mv "$secrets_file.providers" "$secrets_file"
 
