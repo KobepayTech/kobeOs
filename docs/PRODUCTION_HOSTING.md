@@ -189,6 +189,14 @@ appear in the process list) and never committed; it reaches bcrypt through the
 environment only. Rotate it from the account after first sign-in, then remove
 the secret.
 
+Surrounding whitespace is stripped from the secret before it is hashed, and the
+run warns when it had any. The first attempt created an administrator nobody
+could sign in as: the secret had been saved with a trailing newline, so the
+hash covered `password\n` while a person types `password`. The login check
+passed because it read the same variable — it was blind to the one thing it
+existed to catch. Both the hash and the verifying sign-in now use the trimmed
+value, which is what a person would type.
+
 An existing account is never promoted — the same rule as
 `UsersService.onModuleInit`. Granting admin to an account whose password someone
 else chose would be privilege escalation dressed up as convenience, so the run
