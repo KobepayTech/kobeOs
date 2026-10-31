@@ -16,7 +16,7 @@ interface Allocation { id: string; customerId: string; customerName: string; sup
 const money = (value: number | string, currency = 'TZS') => `${currency === 'TZS' ? 'TSh' : currency} ${Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 const text = (value: unknown) => String(value ?? '').toLowerCase();
 
-export default function KobePay() {
+export default function KobePay({ embedded = false }: { embedded?: boolean } = {}) {
   const [tab, setTab] = useState<Tab>('overview');
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -45,8 +45,8 @@ export default function KobePay() {
       setDeposits(Array.isArray(depositRows) ? depositRows : []);
       setPayouts(Array.isArray(payoutRows) ? payoutRows : []);
       setAllocations(Array.isArray(allocationRows) ? allocationRows : []);
-    } catch (cause) {
-      setError((cause as Error).message || 'KobePay could not load live records.');
+    } catch {
+      setError('KobePay records are unavailable. Refresh when the connection is restored.');
       setCustomers([]); setSuppliers([]); setDeposits([]); setPayouts([]); setAllocations([]);
     } finally {
       setLoading(false);
@@ -82,13 +82,13 @@ export default function KobePay() {
   const filteredAllocations = allocations.filter((row) => !query || text(`${row.customerName} ${row.supplierName} ${row.orderRef}`).includes(query));
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-slate-950 text-slate-100">
+    <div className={`${embedded ? 'ad-kobepay-workspace ' : ''}flex h-full min-h-0 flex-col overflow-hidden bg-slate-950 text-slate-100`}>
       <header className="shrink-0 border-b border-slate-800 bg-slate-900/80">
         <div className="flex h-16 items-center gap-3 px-4">
           <div className="grid h-10 w-10 place-items-center rounded-xl bg-emerald-500/15 text-emerald-300"><Wallet className="h-5 w-5" /></div>
           <div><h1 className="font-black">KobePay</h1><p className="text-[11px] text-slate-500">Live customer funds and supplier settlement</p></div>
-          <button onClick={() => setTransact('send')} className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-black text-white"><Send className="h-3.5 w-3.5" />Send money</button>
-          <button onClick={() => void load()} disabled={loading} className="grid h-9 w-9 place-items-center rounded-lg border border-slate-700 text-slate-400"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button>
+          <button onClick={() => setTransact('send')} disabled={loading || !!error} className="ml-auto inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-600 px-3 text-xs font-black text-white"><Send className="h-3.5 w-3.5" />Send money</button>
+          <button aria-label="Refresh KobePay records" onClick={() => void load()} disabled={loading} className="grid h-9 w-9 place-items-center rounded-lg border border-slate-700 text-slate-400"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button>
         </div>
         <nav className="flex overflow-x-auto px-3">
           {(['overview', 'customers', 'suppliers', 'deposits', 'payouts', 'allocations'] as Tab[]).map((id) => <button key={id} onClick={() => setTab(id)} className={`h-11 border-b-2 px-3 text-xs font-black capitalize ${tab === id ? 'border-emerald-300 text-emerald-300' : 'border-transparent text-slate-500'}`}>{id}</button>)}
@@ -96,17 +96,17 @@ export default function KobePay() {
       </header>
 
       <main className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-        {error && <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">{error}</div>}
+        {error && <div role="alert" className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200">{error}</div>}
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <Metric label="Customers" value={String(customers.length)} />
-          <Metric label="Suppliers" value={String(suppliers.length)} />
-          <Metric label="Confirmed deposits" value={money(confirmedTotal, deposits[0]?.currency || 'TZS')} />
-          <Metric label="Paid out" value={money(paidTotal, payouts[0]?.currency || 'TZS')} />
+          <Metric label="Customers" value={loading || error ? '—' : String(customers.length)} />
+          <Metric label="Suppliers" value={loading || error ? '—' : String(suppliers.length)} />
+          <Metric label="Confirmed deposits" value={loading || error ? '—' : money(confirmedTotal, deposits[0]?.currency || 'TZS')} />
+          <Metric label="Paid out" value={loading || error ? '—' : money(paidTotal, payouts[0]?.currency || 'TZS')} />
         </div>
 
         {tab !== 'overview' && <div className="flex gap-2"><div className="relative max-w-lg flex-1"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search live records" className="h-10 w-full rounded-xl border border-slate-800 bg-slate-900 pl-9 pr-3 text-sm" /></div><button onClick={() => setCreateMode(tab)} className="inline-flex h-10 items-center gap-1.5 rounded-xl bg-emerald-600 px-3 text-xs font-black"><Plus className="h-4 w-4" />Add</button></div>}
 
-        {loading ? <div className="grid place-items-center py-24 text-slate-500"><Loader2 className="h-6 w-6 animate-spin" /></div> : tab === 'overview' ? (
+        {loading ? <div className="grid place-items-center py-24 text-slate-500"><Loader2 className="h-6 w-6 animate-spin" /></div> : error ? null : tab === 'overview' ? (
           <div className="grid gap-4 lg:grid-cols-2"><Panel title="Recent deposits">{deposits.slice(0, 8).map((row) => <Row key={row.id} icon={<ArrowDownLeft className="h-4 w-4 text-emerald-300" />} title={row.customerName} subtitle={`${row.method} · ${row.status}`} value={money(row.amount, row.currency)} />)}{!deposits.length && <Empty body="No customer deposits have been recorded." />}</Panel><Panel title="Recent payouts">{payouts.slice(0, 8).map((row) => <Row key={row.id} icon={<ArrowUpRight className="h-4 w-4 text-amber-300" />} title={row.supplierName} subtitle={`${row.method} · ${row.status}`} value={money(row.amount, row.currency)} />)}{!payouts.length && <Empty body="No supplier payouts have been initiated." />}</Panel></div>
         ) : tab === 'customers' ? <List>{filteredCustomers.map((row) => <Row key={row.id} icon={<Users className="h-4 w-4" />} title={row.name} subtitle={`${row.phone}${row.company ? ` · ${row.company}` : ''}`} value={money(row.balance)} />)}{!filteredCustomers.length && <Empty body="No customers found." />}</List>
           : tab === 'suppliers' ? <List>{filteredSuppliers.map((row) => <Row key={row.id} icon={<Store className="h-4 w-4" />} title={row.name} subtitle={`${row.country || '—'} · ${row.status}`} value={money(row.balance)} />)}{!filteredSuppliers.length && <Empty body="No suppliers found." />}</List>

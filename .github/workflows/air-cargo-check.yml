@@ -1,0 +1,53 @@
+name: Air Cargo verification
+
+on:
+  push:
+    branches: [feat/air-cargo-desktop]
+  pull_request:
+    paths:
+      - 'src/apps/cargo/**'
+      - 'src/apps/kobe-pay/**'
+      - 'server/src/cargo/**'
+      - '.github/workflows/air-cargo-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cargo:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: cargo_qa
+          POSTGRES_PASSWORD: cargo_qa
+          POSTGRES_DB: cargo_qa
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U cargo_qa -d cargo_qa"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            server/package-lock.json
+      - run: npm ci --legacy-peer-deps
+      - run: npm run typecheck
+      - run: npx vitest run src/apps/cargo/FlightBoard.test.tsx src/apps/cargo/CargoFinanceDesk.test.tsx src/apps/kobe-pay/index.test.tsx
+      - run: npm run build:frontend
+      - run: npm ci --legacy-peer-deps
+        working-directory: server
+      - run: npm run build
+        working-directory: server
+      - run: npm run test:unit -- --runTestsByPath src/cargo/cargo-kobepay.spec.ts src/cargo/fr24.controller.spec.ts
+        working-directory: server
+        env:
+          CARGO_QA_DATABASE_URL: postgresql://cargo_qa:cargo_qa@127.0.0.1:5432/cargo_qa

@@ -2,8 +2,12 @@ import { BadRequestException, Body, Controller, Get, Param, Post, UseGuards } fr
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Fr24Service } from './fr24.service';
+import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
 
-class AssignFr24FlightDto {
+export class AssignFr24FlightDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(16)
   flightNumber!: string;
 }
 
