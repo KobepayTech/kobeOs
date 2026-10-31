@@ -1,3 +1,4 @@
+import { PropertyInsightsService } from '../property/property-insights.service';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, In, MoreThanOrEqual, Not, Repository } from 'typeorm';
@@ -100,6 +101,7 @@ export class KobeAgentService {
 
   constructor(
     private readonly ai: AiService,
+    private readonly propertyInsights: PropertyInsightsService,
     @InjectRepository(PosOrder) private readonly orders: Repository<PosOrder>,
     @InjectRepository(PosProduct) private readonly products: Repository<PosProduct>,
     @InjectRepository(ProductReview) private readonly reviews: Repository<ProductReview>,
@@ -332,30 +334,7 @@ export class KobeAgentService {
     }
 
     if (action.tool === 'record_rent_payment') {
-      const amount = Number(action.args.amount || 0);
-      if (amount <= 0) return { ok: false, message: 'Payment amount must be greater than 0.' };
-      let tenantId = (action.args.tenantId as string) || '';
-      if (!tenantId) {
-        const name = String(action.args.tenantName || '').trim();
-        if (!name) return { ok: false, message: 'Specify which tenant.' };
-        const t = await this.tenants.findOne({ where: { ownerId, name } });
-        if (!t) return { ok: false, message: `Tenant "${name}" not found.` };
-        tenantId = t.id;
-      }
-      const open = await this.charges.find({ where: { ownerId, tenantId, status: In(['open', 'partial', 'overdue']) }, order: { dueDate: 'ASC' }, take: 100 });
-      if (!open.length) return { ok: false, message: 'This tenant has no outstanding charges.' };
-      let remaining = amount;
-      for (const c of open) {
-        if (remaining <= 0) break;
-        const bal = Number(c.amount || 0) - Number(c.amountPaid || 0);
-        if (bal <= 0) continue;
-        const pay = Math.min(remaining, bal);
-        const newPaid = Number(c.amountPaid || 0) + pay;
-        await this.charges.update({ ownerId, id: c.id }, { amountPaid: newPaid, status: newPaid >= Number(c.amount || 0) ? 'paid' : 'partial' });
-        remaining -= pay;
-      }
-      const applied = amount - remaining;
-      return { ok: true, message: `Recorded TZS ${applied.toLocaleString()} against rent.${remaining > 0 ? ` TZS ${remaining.toLocaleString()} left as credit/unapplied.` : ''}` };
+      return { ok: false, message: 'Open Properties → Payments or Intelligence → Reconcile to review and record a payment against a charge. AI cannot mark rent paid without a payment record.' };
     }
 
     if (action.tool === 'configure_automation') {
@@ -541,11 +520,10 @@ export class KobeAgentService {
     },
     {
       name: 'rent_projection',
-      description: 'Projected monthly rent income = sum of all active charge amounts for the current period.',
+      description: 'Contracted rental-income forecast by month and currency, from live leases.',
       run: async (ownerId) => {
-        const rows = await this.charges.find({ where: { ownerId, status: Not('waived') as unknown as RentCharge['status'] }, take: 5000 });
-        const monthly = rows.reduce((s, c) => s + Number(c.amount || 0), 0);
-        return { data: { monthly: Math.round(monthly), annual: Math.round(monthly * 12), currency: 'TZS' } };
+        const data = await this.propertyInsights.snapshot(ownerId);
+        return { data: { forecast: data.forecast, financials: data.financials, assumptions: data.assumptions } };
       },
     },
     {
@@ -1383,7 +1361,7 @@ The verified KobeOS tool results below are the source of truth. Combine them int
       case 'low_stock': return `${data.count} product(s) at/below ${data.threshold} in stock.`;
       case 'top_rated_products': return data.items?.length ? `Top: ${data.items.map((i: any) => `${i.name} (${i.avgRating}★)`).join(', ')}.` : 'No reviews yet.';
       case 'unpaid_tenants': return `${data.count} tenant(s) owe TZS ${Number(data.totalOutstanding).toLocaleString()}.`;
-      case 'rent_projection': return `Projected rent: TZS ${Number(data.monthly).toLocaleString()}/mo (TZS ${Number(data.annual).toLocaleString()}/yr).`;
+      case 'rent_projection': return `Contracted rent forecast by month and currency: ${JSON.stringify(data.forecast)}. No renewal or vacancy income is assumed.`;
       case 'hotel_occupancy': return `${data.occupancyRate}% occupancy — ${data.occupied} occupied, ${data.reserved} reserved, ${data.available} free of ${data.totalRooms} rooms.`;
       case 'hotel_revenue': return `Hotel ${data.month}: revenue TZS ${Number(data.revenue).toLocaleString()}, expenses TZS ${Number(data.expense).toLocaleString()}, net TZS ${Number(data.net).toLocaleString()}.`;
       case 'warehouse_stock': return `${data.items} items, ${data.lowStock} at/below reorder level. Stock value TZS ${Number(data.stockValue).toLocaleString()}.`;

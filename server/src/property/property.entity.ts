@@ -97,6 +97,9 @@ export class TenantScreeningReport extends OwnedEntity {
 
 @Entity('property_units')
 export class PropertyUnit extends OwnedEntity {
+  @Column({ default: false })
+  vacancyPublished!: boolean;
+
   @Index()
   @Column('uuid')
   propertyId!: string;

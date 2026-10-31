@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { PropertyOperation } from '../property-intelligence.entity';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DeepPartial, FindOptionsWhere, Repository } from 'typeorm';
 import { OwnedCrudService } from '../../common/owned.service';
@@ -71,8 +72,24 @@ export class ExpensesService extends OwnedCrudService<PropertyExpense> {
     return super.create(ownerId, this.normalize(data));
   }
 
-  override update(ownerId: string, id: string, data: DeepPartial<PropertyExpense>) {
-    return super.update(ownerId, id, this.normalize(data));
+  override async update(ownerId: string, id: string, data: DeepPartial<PropertyExpense>) {
+    return this.repo.manager.transaction(async tx => {
+      const repo = tx.getRepository(PropertyExpense);
+      const row = await repo.findOne({ where: { ownerId, id }, lock: { mode: 'pessimistic_write' } });
+      if (!row) throw new NotFoundException('Expense not found');
+      if (await tx.getRepository(PropertyOperation).findOneBy({ ownerId, key: `journal:expense:${id}` })) throw new BadRequestException('Posted expenses require an audited accounting reversal');
+      return repo.save(repo.merge(row, this.normalize(data), { id, ownerId }));
+    });
+  }
+
+  override async remove(ownerId: string, id: string) {
+    return this.repo.manager.transaction(async tx => {
+      const repo = tx.getRepository(PropertyExpense);
+      const row = await repo.findOne({ where: { ownerId, id }, lock: { mode: 'pessimistic_write' } });
+      if (!row) throw new NotFoundException('Expense not found');
+      if (await tx.getRepository(PropertyOperation).findOneBy({ ownerId, key: `journal:expense:${id}` })) throw new BadRequestException('Posted expenses require an audited accounting reversal');
+      await repo.remove(row); return { id };
+    });
   }
 
   private normalize(data: DeepPartial<PropertyExpense>) {
