@@ -34,6 +34,7 @@ jobs:
       - name: Test deployment verification
         run: node --test scripts/cloudflare-pages.node-test.mjs
       - name: Verify Cloudflare account and Pages project access
+        id: pages-access
         run: node scripts/cloudflare-pages.mjs access
       - name: Install frontend dependencies
         if: inputs.preflight_only != true
@@ -53,7 +54,9 @@ jobs:
           node -e 'require("node:fs").writeFileSync("dist/deployment-version.json", JSON.stringify({revision:process.env.GITHUB_SHA}))'
       - name: Deploy current KobeOS bundle
         if: inputs.preflight_only != true
-        run: npx --yes wrangler@4.155.0 pages deploy dist --project-name kobeos-app --branch master --commit-hash "$GITHUB_SHA"
+        env:
+          PAGES_PRODUCTION_BRANCH: ${{ steps.pages-access.outputs.production_branch }}
+        run: npx --yes wrangler@4.155.0 pages deploy dist --project-name kobeos-app --branch "$PAGES_PRODUCTION_BRANCH" --commit-hash "$GITHUB_SHA"
       - name: Verify exact frontend release and production database
         if: inputs.preflight_only != true
         run: |

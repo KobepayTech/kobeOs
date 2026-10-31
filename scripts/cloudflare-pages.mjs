@@ -1,4 +1,5 @@
 import { pathToFileURL } from 'node:url';
+import { appendFileSync } from 'node:fs';
 
 const TOKEN_HELP = 'Set CLOUDFLARE_PAGES_API_TOKEN in the GitHub production environment to a token with Account > Cloudflare Pages > Edit for the account containing kobeos-app. Check CLOUDFLARE_ACCOUNT_ID matches that account. Do not use a desktop OAuth session for CI.';
 
@@ -27,7 +28,7 @@ export async function checkPagesAccess(env, request = fetch) {
     throw new Error(`Cloudflare Pages access rejected (HTTP ${response.status}${codes ? `; codes ${codes}` : ''}). ${TOKEN_HELP}`);
   }
   if (data.result?.name !== project) throw new Error('Cloudflare returned an unexpected Pages project. Deployment stopped.');
-  if (data.result.production_branch !== 'master') throw new Error('The KobeOS Pages production branch is not master. Confirm the target project before deploying.');
+  if (typeof data.result.production_branch !== 'string' || !/^[a-z0-9][a-z0-9._/-]{0,127}$/i.test(data.result.production_branch)) throw new Error('Cloudflare did not return a valid Pages production branch. Deployment stopped.');
   return { project, productionBranch: data.result.production_branch };
 }
 
@@ -48,7 +49,8 @@ export async function verifyPagesRelease(env, request = fetch) {
 export async function main(mode, env = process.env) {
   if (mode === 'access') {
     const result = await checkPagesAccess(env);
-    console.log(`Cloudflare access verified for ${result.project}. A deployment is still required to verify write permission.`);
+    if (env.GITHUB_OUTPUT) appendFileSync(env.GITHUB_OUTPUT, `production_branch=${result.productionBranch}\n`);
+    console.log(`Cloudflare access verified for ${result.project}; production branch: ${result.productionBranch}. A deployment is still required to verify write permission.`);
   } else if (mode === 'verify') {
     let failure;
     for (let attempt = 0; attempt < 6; attempt += 1) {

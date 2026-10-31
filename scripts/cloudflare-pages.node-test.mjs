@@ -28,11 +28,15 @@ test('reports auth failure and remediation without leaking provider text or the 
     return true;
   });
 });
-test('rejects wrong project, wrong branch, and malformed provider responses', async () => {
-  for (const result of [{ name: 'another-project', production_branch: 'master' }, { name: 'kobeos-app', production_branch: 'main' }]) {
+test('rejects wrong project, invalid branch, and malformed provider responses', async () => {
+  for (const result of [{ name: 'another-project', production_branch: 'master' }, { name: 'kobeos-app', production_branch: 'main\ninjected=true' }]) {
     await assert.rejects(checkPagesAccess(env, async () => json({ success: true, result })));
   }
   await assert.rejects(checkPagesAccess(env, async () => new Response('not json', { status: 502 })), /HTTP 502/);
+});
+test('uses the actual configured production branch instead of assuming master', async () => {
+  const result = await checkPagesAccess(env, async () => json({ success: true, result: { name: 'kobeos-app', production_branch: 'main' } }));
+  assert.equal(result.productionBranch, 'main');
 });
 test('network failures do not expose request credentials', async () => {
   await assert.rejects(checkPagesAccess(env, async () => { throw new Error(env.CLOUDFLARE_API_TOKEN); }), error => !error.message.includes(env.CLOUDFLARE_API_TOKEN));
