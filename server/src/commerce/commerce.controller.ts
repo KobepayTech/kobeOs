@@ -176,6 +176,11 @@ export class CommercePublicController {
   @Get('shop/:code') shop(@Param('code') code: string) { return this.commerce.publicProperty(code); }
   @Post('claims') claim(@Body() dto: ClaimDto) { return this.commerce.claimShop(dto); }
   @Post('nodes/:id/heartbeat') heartbeat(@Param('id') id: string, @Headers('x-kobe-node-key') key: string, @Body() body: { metadata?: Record<string, unknown> }) { return this.commerce.heartbeat(id, key, body?.metadata); }
+  /**
+   * Marketplace product search: full-text ranked, with a fuzzy fallback for
+   * misspellings. Takes q, category, businessId, minPrice, maxPrice, sort
+   * (relevance | newest | price_asc | price_desc), limit and offset.
+   */
   @Get('jumla/items') items(@Query() query: Record<string, string>) { return this.commerce.publicItems(query); }
   @Get('jumla/properties') properties(@Query() query: Record<string, string>) { return this.commerce.publicProperties(query); }
   @Post('jumla/interest') interest(@Body() dto: { productId: string; eventType: 'VIEW' | 'SWIPE_LEFT' | 'SWIPE_RIGHT' | 'CART' | 'BUY'; phone?: string; sessionId?: string; metadata?: Record<string, unknown> }) { return this.commerce.recordInterest(dto); }

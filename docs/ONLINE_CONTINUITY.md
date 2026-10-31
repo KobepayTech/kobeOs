@@ -234,3 +234,50 @@ two PostgreSQL instances, which is how the partition behaviour gets proven.
 Restaurant and bar orders, ERP, property management, staff and payroll, wallets
 and the ledger. They are not online-customer-facing and replicating them buys
 risk for nothing.
+## Marketplace product search
+
+`GET /api/commerce-public/jumla/items` is the shops marketplace search — the
+commerce counterpart to Lala's hotel search.
+
+It was previously `LOWER(name) LIKE '%q%'` ordered by `indexedAt DESC`. That
+had three faults a shopper feels at once: a leading-wildcard LIKE cannot use an
+index, so every search scanned the whole snippet table; there was no stemming,
+so "shoes" missed "shoe"; and results were newest-first, which is not
+relevance.
+
+It now uses PostgreSQL full-text search with a weighted vector — name (A),
+category (B), description (C) — ranked by `ts_rank_cd`, which prefers products
+where the matched terms sit close together. `commerce_snippet_fts` is a GIN
+expression index over exactly that vector; **the expression in the query and
+the one in the index must stay identical**, or the planner silently stops using
+the index and every search goes back to a full scan. A unit test compares the
+two strings for that reason.
+
+| Parameter | Notes |
+|---|---|
+| `q` | Full-text query; under two characters is treated as browsing |
+| `category`, `businessId` | Exact filters |
+| `minPrice`, `maxPrice` | A reversed range is corrected, not treated as empty |
+| `sort` | `relevance` (default with a query), `newest`, `price_asc`, `price_desc` |
+| `limit`, `offset` | Capped at 200 and 2000 |
+
+Every sort ends with the primary key, so paging cannot show one product twice
+while never showing another.
+
+**Typo tolerance** uses `word_similarity` from pg_trgm, and only for a
+single-word query that matched nothing. `similarity` was the wrong function:
+it compares whole strings, so "samsng" scores 0.22 against "Samsung
+Refrigerator" and would be rejected, where `word_similarity` scores 0.57
+against an unrelated word's 0.00. A multi-word miss is left alone on purpose —
+for "red shirt" loose matching returns a blue one, because "shirt" alone scores
+well, and an empty result is the honest answer.
+
+pg_trgm is optional. The migration attempts it separately and skips the
+trigram index if the database refuses the extension, because losing typo
+tolerance must not cost a deployment its schema — TypeORM runs pending
+migrations in one transaction, so a single failing statement would roll back
+the batch and the instance would never boot.
+
+A synchronize-built install (the desktop app) has no expression index, since
+those live only in the migration. Search still returns correct results there,
+just unindexed, which is acceptable for a single shop's catalogue.
