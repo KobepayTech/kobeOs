@@ -195,6 +195,8 @@ jobs:
       - name: Build Windows installer
         if: env.KOBE_BUILD_EDITION != 'qwen3-only'
         run: npx electron-builder --win --publish ${{ (startsWith(github.ref, 'refs/tags/v') || github.event.inputs.publish == 'true') && 'always' || 'never' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build Qwen-only Windows installer
         if: env.KOBE_BUILD_EDITION == 'qwen3-only'
@@ -205,8 +207,6 @@ jobs:
       - name: Verify Qwen-only package
         if: env.KOBE_BUILD_EDITION == 'qwen3-only'
         run: node scripts/verify-qwen3-package.cjs
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Copy vc_redist.x64.exe next to installer
         run: |
