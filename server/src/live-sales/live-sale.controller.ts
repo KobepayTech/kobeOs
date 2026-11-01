@@ -8,6 +8,12 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { LiveSaleService } from './live-sale.service';
 import { InstagramService } from './instagram.service';
 import { LivePresenterService } from './live-presenter.service';
+import { LiveBroadcastService } from './live-broadcast.service';
+
+class BroadcastSettingsDto {
+  @IsString() @MaxLength(600) publishUrl!: string;
+  @IsString() @MaxLength(600) playbackUrl!: string;
+}
 
 class StartSessionDto {
   @IsOptional() @IsBoolean() cloudAccount?: boolean;
@@ -54,9 +60,14 @@ export class LiveSaleController {
     private readonly instagram: InstagramService,
     private readonly tiktok: TikTokCommentsService,
     private readonly presenter: LivePresenterService,
+    private readonly broadcast: LiveBroadcastService,
   ) {}
 
   @Get() list(@CurrentUser('id') uid: string) { return this.svc.listSessions(uid); }
+  @Get('broadcast/settings') broadcastSettings(@CurrentUser('id') uid: string) { return this.broadcast.configuration(uid); }
+  @Post('broadcast/settings') configureBroadcast(@CurrentUser('id') uid: string, @Body() dto: BroadcastSettingsDto) { return this.broadcast.configure(uid, dto.publishUrl, dto.playbackUrl); }
+  @Post(':id/broadcast') startBroadcast(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.broadcast.start(uid, id); }
+  @Post(':id/broadcast/stop') stopBroadcast(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.broadcast.stop(uid, id); }
   @Post() async start(@CurrentUser('id') uid: string, @Body() dto: StartSessionDto) {
     const socialAccountId = (dto.cloudAccount || (dto.kind === 'post' && dto.platform !== 'instagram')) ? undefined : await this.instagram.resolveSessionAccount(uid, dto.platform, dto.socialAccountId);
     const session = await this.svc.startSession(uid, { ...dto, socialAccountId });

@@ -1,0 +1,19 @@
+# Camera broadcasts from the store
+
+Store Editor **Go live** and Live Sales **Go live from store** open the same camera studio. Preview is local and private. **Go live to shoppers** creates a separate store-camera sales session, pins the chosen products at catalogue prices, and starts a Cloudflare Stream WHIP connection. The UI shows LIVE only after the peer connection connects.
+
+Shoppers use **Watch live video** on the storefront to connect over WHEP. Viewing starts on demand. Video can appear without pinned products; the normal store catalogue remains available. Stopping or closing the studio aborts negotiation, deletes the WebRTC session resource, stops local microphone/camera tracks, and ends the sales session. Browser/network crashes can require manually ending the sales session in Live Sales, even though the disconnected camera stops delivering video.
+
+## One-time merchant setup
+
+1. Apply migration `1793510000000-StoreCameraBroadcast` before running the API.
+2. Create a dedicated Cloudflare Stream live input for the merchant. Turn off HLS/DASH playback and recording for this WebRTC-only flow.
+3. Copy its **WebRTC Broadcast** URL and **WebRTC Playback** URL into the studio's **Video connection** form. Both must belong to the same Cloudflare customer domain.
+4. The authenticated settings endpoint encrypts the broadcast capability at rest. It is excluded from normal entity reads and never included in public live responses. Only the owning merchant's start-broadcast request returns it. Never commit these URLs or put the broadcast capability in public store settings.
+5. Keep the studio open while broadcasting. Camera and microphone permission are requested only when the merchant clicks Preview. The live broadcast starts only on the separate Go live action.
+
+Cloudflare bills delivered viewer-minutes. This flow does not record or restream to TikTok/Instagram: Cloudflare's WHIP inputs currently cannot simulcast through RTMP/SRT. Social platforms require their own LIVE eligibility and a supported encoder/relay. A TikTok developer sandbox tests OAuth and does not grant LIVE eligibility.
+
+References: [Cloudflare browser broadcasting](https://developers.cloudflare.com/stream/examples/browser-based-webrtc/), [WebRTC limitations and pricing](https://developers.cloudflare.com/stream/webrtc/).
+
+Automated protocol and UI tests use controlled media/network doubles. A real camera-to-Cloudflare-to-viewer check is still required after deployment and merchant setup; they are not evidence of a successful real broadcast.

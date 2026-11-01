@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { LivePresenter } from './LivePresenter';
+import { StoreBroadcastStudio } from './StoreBroadcastStudio';
 import { api as localApi, apiBase, accountApiBase, cloudApi, hasCloudSession } from '@/lib/api';
 const api = <T,>(path: string, init: RequestInit = {}) => localApi<T>(path, { ...init, offlineFallback: false });
 const usesCloudAccounts = () => accountApiBase() !== apiBase() && hasCloudSession();
@@ -31,6 +32,7 @@ interface CommentConnection { connected: boolean; webhookSubscribed: boolean; ac
 const money = (n: number | string, c = 'TZS') => `${c === 'TZS' ? 'TSh ' : c === 'CNY' ? '¥' : c + ' '}${Number(n || 0).toLocaleString()}`;
 
 export default function LiveSales() {
+  const [studio, setStudio] = useState(false);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [active, setActive] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -150,6 +152,7 @@ export default function LiveSales() {
     await loadSessions(); setActive(s);
   };
 
+  if (studio) return <StoreBroadcastStudio onClose={() => { setStudio(false); void loadSessions(); }} />;
   if (active) return <SessionConsole session={active} context={context} accounts={accounts} onOpenKds={openKds} onBack={() => { setActive(null); loadSessions(); }} />;
 
   const lives = sessions.filter((s) => s.kind !== 'post');
@@ -163,6 +166,7 @@ export default function LiveSales() {
           <div><h1 className="text-sm font-bold">Live Sales</h1><p className="text-[10px] text-slate-500">Sell live · comment orders → real-time stock</p></div>
         </div>
         <div className="flex items-center gap-2">
+          <button onClick={() => setStudio(true)} className="h-9 rounded-lg bg-rose-600 px-4 text-sm font-bold text-white">Go live from store</button>
           <button onClick={openKds} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-sm font-bold"><MonitorPlay className="w-4 h-4" /> Open KDS</button>
           {instagram.connected ? (
             <div className="inline-flex items-center gap-1.5 h-9 px-2.5 rounded-lg border border-pink-500/30 bg-pink-500/10 text-pink-300 text-xs font-bold" title={instagram.webhookSubscribed ? 'Instagram webhook connected' : 'Instagram connected; webhook needs Meta setup'}>

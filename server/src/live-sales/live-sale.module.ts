@@ -14,16 +14,18 @@ import { SocialAccount } from '../social-scheduler/social-account.entity';
 import { InstagramService } from './instagram.service';
 import { AiModule } from '../ai/ai.module';
 import { LivePresenterService } from './live-presenter.service';
+import { LiveBroadcastSettings } from './live-broadcast.entity';
+import { LiveBroadcastService } from './live-broadcast.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([LiveSession, LivePin, LiveComment, PosProduct, PosOrder, StoreSettings, SocialAccount]),
+    TypeOrmModule.forFeature([LiveSession, LivePin, LiveComment, PosProduct, PosOrder, StoreSettings, SocialAccount, LiveBroadcastSettings]),
     ConfigModule,
     AiModule,
     PosModule, // provides OrdersService (atomic stock decrement)
     PalmPesaModule,
   ],
-  providers: [TikTokCommentsService, LiveSaleService, InstagramService, ApifyService, LivePresenterService],
+  providers: [TikTokCommentsService, LiveSaleService, InstagramService, ApifyService, LivePresenterService, LiveBroadcastService],
   controllers: [LiveSaleController, LiveSaleIngestController, LiveSalePublicController, LiveSaleInstagramPublicController],
   exports: [LiveSaleService],
 })

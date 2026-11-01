@@ -172,6 +172,7 @@ export class LiveSaleService {
   async endSession(uid: string, id: string) {
     const s = await this.getSession(uid, id);
     s.status = 'ENDED';
+    s.broadcastPlaybackUrl = null;
     s.endedAt = new Date();
     return this.sessions.save(s);
   }
@@ -222,6 +223,7 @@ export class LiveSaleService {
     return {
       live: true as const,
       sessionId: session.id,
+      playbackUrl: session.broadcastPlaybackUrl || null,
       title: session.title,
       currency: session.currency,
       platform: session.platform,

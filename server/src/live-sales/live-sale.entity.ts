@@ -17,6 +17,8 @@ export type LiveKind = 'live' | 'post';
 @Entity('live_sessions')
 @Index(['ownerId', 'status'])
 export class LiveSession extends OwnedEntity {
+  /** Public WHEP playback only; the publish credential is stored separately. */
+  @Column({ type: 'text', nullable: true }) broadcastPlaybackUrl?: string | null;
   @Column({ default: '' }) sourceHandle!: string;
   @Column({ type: 'text', nullable: true, transformer: socialTokenTransformer }) relayTargetUrl?: string | null;
   @Column({ type: 'timestamptz', nullable: true }) relayExpiresAt?: Date | null;
