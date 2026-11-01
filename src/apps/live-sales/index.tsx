@@ -75,7 +75,7 @@ export default function LiveSales() {
     if (!result) return;
     if (result === 'connected') {
       setNotice(params.get('instagram_webhook') === 'not_subscribed'
-        ? 'Instagram connected, but Meta has not accepted the webhook subscription yet.'
+        ? 'Instagram connected. Live comments are awaiting Instagram approval.'
         : 'Instagram connected. Start an Instagram live and comments will appear here.');
       loadSessions();
     } else if (result === 'error') {
@@ -105,10 +105,10 @@ export default function LiveSales() {
       const connection = await accountApi<InstagramConnection>('/live-sales/instagram/webhook/subscribe', { method: 'POST', body: '{}' });
       setInstagram(connection);
       setNotice(connection.connected && connection.webhookSubscribed
-        ? 'Instagram webhook is connected. Start an Instagram Live to receive comments.'
-        : 'Meta still has not accepted the webhook subscription. Check the Meta app configuration and try again.');
+        ? 'Live comments are ready. Start an Instagram LIVE to receive comments.'
+        : 'Instagram has not enabled live comments yet. Your account is saved; KobeOS support needs to finish platform approval.');
     } catch (e) {
-      setNotice((e as Error).message || 'Could not subscribe the Instagram webhook.');
+      setNotice((e as Error).message || 'Could not check live comments. Please try again.');
     } finally {
       setRetryingWebhook(false);
     }
@@ -159,9 +159,9 @@ export default function LiveSales() {
           <button onClick={() => setStudio(true)} className="h-9 rounded-lg bg-rose-600 px-4 text-sm font-bold text-white">Go live from store</button>
           <button onClick={openKds} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-sm font-bold"><MonitorPlay className="w-4 h-4" /> Open KDS</button>
           {instagram.connected ? (
-            <div className="inline-flex items-center gap-1.5 h-9 px-2.5 rounded-lg border border-pink-500/30 bg-pink-500/10 text-pink-300 text-xs font-bold" title={instagram.webhookSubscribed ? 'Instagram webhook connected' : 'Instagram connected; webhook needs Meta setup'}>
+            <div className="inline-flex items-center gap-1.5 h-9 px-2.5 rounded-lg border border-pink-500/30 bg-pink-500/10 text-pink-300 text-xs font-bold" title={instagram.webhookSubscribed ? 'Instagram live comments ready' : 'Instagram connected; live comments awaiting approval'}>
               <Instagram className="w-4 h-4" /> {instagram.accountHandle}
-              {!instagram.webhookSubscribed && <button onClick={retryInstagramWebhook} disabled={retryingWebhook} className="text-amber-300 underline underline-offset-2 disabled:opacity-50">{retryingWebhook ? 'retrying…' : 'retry webhook'}</button>}
+              {!instagram.webhookSubscribed && <button onClick={retryInstagramWebhook} disabled={retryingWebhook} className="text-amber-300 underline underline-offset-2 disabled:opacity-50">{retryingWebhook ? 'Checking…' : 'Check live comments'}</button>}
               <button onClick={disconnectInstagram} className="ml-1 text-slate-400 hover:text-white" title="Disconnect Instagram">×</button>
             </div>
           ) : (
@@ -193,8 +193,8 @@ export default function LiveSales() {
         {notice && <div className="flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200"><span>{notice}</span><button onClick={() => setNotice(null)} className="text-amber-300 hover:text-white">×</button></div>}
         {instagram.connected && !instagram.webhookSubscribed && (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
-            <span>Instagram is authorized, but Meta has not connected the Live Comments webhook yet. Finish the Meta app setup, then retry.</span>
-            <button onClick={() => { navigator.clipboard?.writeText(instagram.webhookUrl); setNotice('Instagram webhook URL copied. Add it in Meta for Developers.'); }} className="font-bold underline underline-offset-2">Copy webhook URL</button>
+            <span>Your Instagram account is connected. Live comments are awaiting platform approval. You can continue setting up your shop.</span>
+            <button disabled={retryingWebhook} onClick={() => void retryInstagramWebhook()} className="font-bold underline underline-offset-2 disabled:opacity-50">{retryingWebhook ? 'Checking…' : 'Check again'}</button>
           </div>
         )}
         {loading ? <Center><Loader2 className="w-6 h-6 animate-spin text-slate-500" /></Center> : sessions.length === 0 ? (
@@ -371,7 +371,7 @@ function SessionConsole({ session, context, accounts, onOpenKds, onBack }: { ses
 
       {!ended && session.kind !== 'post' && <div className="mx-3 mt-3 rounded-lg border border-slate-700 bg-slate-900 p-3 text-xs space-y-1" role="status">
         <p className="font-semibold">Keep your phone streaming{(connection?.accountHandle || session.sourceHandle) ? ` as ${connection?.accountHandle || session.sourceHandle}` : ''}.</p>
-        <p className={feedError || connectionError ? 'text-amber-300' : 'text-slate-300'}>{feedError || connectionError || (session.platform === 'tiktok' ? connection?.bridge?.detail || 'Checking TikTok comments…' : session.platform === 'instagram' ? !connection ? 'Connecting phone comments…' : !connection.connected ? 'Account connection needs attention in Creator.' : !connection.webhookSubscribed ? 'Instagram is connected; Live Comments still needs Meta webhook setup.' : 'Instagram comments are subscribed. Waiting for comments from your phone live.' : 'Automatic phone comments need a configured bridge for this platform.')}</p>
+        <p className={feedError || connectionError ? 'text-amber-300' : 'text-slate-300'}>{feedError || connectionError || (session.platform === 'tiktok' ? connection?.bridge?.detail || 'Checking TikTok comments…' : session.platform === 'instagram' ? !connection ? 'Connecting phone comments…' : !connection.connected ? 'Account connection needs attention in Creator.' : !connection.webhookSubscribed ? 'Instagram is connected; live comments are awaiting platform approval.' : 'Instagram comments are subscribed. Waiting for comments from your phone live.' : 'Automatic phone comments need a configured bridge for this platform.')}</p>
         <p className="text-slate-400">Pin a product code such as A1. Buyers comment “A1 x2” to reserve, or buy through the live-shop link. Instagram can send a private checkout reply; TikTok buyers use the live shop. Ending selling here leaves your phone broadcast running.</p>
         {comments.some(c => c.source === session.platform) && <p className="text-emerald-300">Last received comment: {new Date(comments.filter(c => c.source === session.platform).sort((a,b) => b.createdAt.localeCompare(a.createdAt))[0].createdAt).toLocaleTimeString()}</p>}
       </div>}
