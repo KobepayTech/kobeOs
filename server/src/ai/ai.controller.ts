@@ -346,7 +346,7 @@ export class AiController {
     );
     const capabilities = new Set<string>();
     if (installed.length) capabilities.add('CHAT');
-    if (installed.length && this.ai.getEdition() === 'qwen3-only') { capabilities.add('CODE'); capabilities.add('TRANSLATION'); }
+    if (installed.length && this.ai.getEdition() === 'qwen3-only') { capabilities.add('CODE'); capabilities.add('TRANSLATION'); capabilities.add('VISION'); }
     if (installedCategories.has('coding')) capabilities.add('CODE');
     if (installedCategories.has('vision') || installedCategories.has('multimodal')) capabilities.add('VISION');
     if (installedCategories.has('embedding')) capabilities.add('EMBEDDINGS');

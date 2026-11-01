@@ -29,4 +29,9 @@ describe('Qwen-only edition', () => {
     expect(service.routeModel(undefined, ['qwen3-vl:4b', 'kobe-qwen3-vl:latest'], 'vision')).toBe('kobe-qwen3-vl:latest');
     expect(() => service.routeModel(undefined, ['qwen3-vl:4b'], 'vision')).toThrow('not installed');
   });
+  it('does not treat a registry error in HTTP 200 as an installed model', async () => {
+    const service = create();
+    jest.spyOn(global, 'fetch').mockResolvedValue(new Response(JSON.stringify({ error: 'disk full' })));
+    expect(await service.pullModel(QWEN_MODEL)).toEqual({ success: false, message: 'disk full' });
+  });
 });

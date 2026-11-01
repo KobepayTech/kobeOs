@@ -616,6 +616,8 @@ Use zero toolCalls for general knowledge or conversation. You may choose up to 4
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: modelName, stream: false }),
       }, 600_000, 1);
       if (!res.ok) return { success: false, message: `HTTP ${res.status}` };
+      const result = await res.json() as { status?: string; error?: string };
+      if (result.error || result.status !== 'success') return { success: false, message: result.error || 'Model download was not verified' };
       this.installedCache.at = 0;
       return { success: true, message: `Model ${modelName} pulled successfully` };
     } catch (error) { return { success: false, message: this.friendlyError(error).message }; }
