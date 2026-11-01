@@ -5,6 +5,7 @@ import { AppEntitlement } from './app-entitlement.entity';
 import { AppMarketplaceController } from './app-marketplace.controller';
 import { AppMarketplaceService } from './app-marketplace.service';
 import { PayPalCheckoutService } from './paypal-checkout.service';
+import { ModuleEntitlementsService } from './module-entitlements.service';
 
 @Module({
   imports: [
@@ -12,7 +13,7 @@ import { PayPalCheckoutService } from './paypal-checkout.service';
     CreatorsModule,
   ],
   controllers: [AppMarketplaceController],
-  providers: [AppMarketplaceService, PayPalCheckoutService],
-  exports: [AppMarketplaceService],
+  providers: [AppMarketplaceService, PayPalCheckoutService, ModuleEntitlementsService],
+  exports: [AppMarketplaceService, ModuleEntitlementsService],
 })
 export class AppMarketplaceModule {}
