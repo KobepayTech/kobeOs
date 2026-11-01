@@ -7,7 +7,24 @@ describe('returning to sign-in', () => {
   beforeEach(() => {
     sessionStorage.clear();
     window.history.replaceState(null, '', '/');
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: 'ok' }), { headers: { 'content-type': 'application/json' } })));
+    // A fresh Response per call, routed by URL. A single shared Response is
+    // consumed by the first reader, so the second caller sees an unusable
+    // body — which looked like the health check failing.
+    const json = (body: unknown) => new Response(JSON.stringify(body), {
+      headers: { 'content-type': 'application/json' },
+    });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(typeof input === 'string' ? input : (input as Request).url ?? input);
+      if (url.includes('/auth/sign-in-methods')) {
+        return json({
+          password: true,
+          google: { enabled: false, clientId: null },
+          tiktok: { enabled: true },
+          meta: { enabled: true },
+        });
+      }
+      return json({ status: 'ok' });
+    }));
   });
   afterEach(() => { cleanup(); vi.unstubAllGlobals(); sessionStorage.clear(); });
 

@@ -116,17 +116,11 @@ export default function LoginScreen({
         const body = (await res.json()) as SignInMethods;
         if (!cancelled) setMethods(body);
       } catch {
-        if (!cancelled) {
-          setMethods({
-            password: true,
-            google: {
-              enabled: Boolean(BUILD_GOOGLE_CLIENT_ID),
-              clientId: BUILD_GOOGLE_CLIENT_ID ?? null,
-            },
-            tiktok: { enabled: false },
-            meta: { enabled: false },
-          });
-        }
+        // Leave it unknown rather than asserting the providers are off. TikTok
+        // and Meta are server redirect flows that already bounce back with a
+        // readable error when unconfigured, so hiding them because a status
+        // call failed would remove sign-in that actually works.
+        if (!cancelled) setMethods(null);
       }
     })();
     return () => { cancelled = true; };
@@ -306,11 +300,18 @@ export default function LoginScreen({
     }
   };
 
+  // Google needs a client id in the browser, so an unknown state means hide it
+  // — a button that cannot work reads as a broken product. The redirect
+  // providers are shown while unknown, because they degrade gracefully.
+  const showGoogle = methods?.google?.enabled ?? Boolean(BUILD_GOOGLE_CLIENT_ID);
+  const showTikTok = methods?.tiktok?.enabled ?? true;
+  const showMeta = methods?.meta?.enabled ?? true;
+
   const signInWithGoogle = async () => {
     // The server's client id, so the credential Google issues is one the
     // server will accept. Falls back to the build value only when the server
     // could not be reached.
-    const clientId = methods?.google.clientId ?? BUILD_GOOGLE_CLIENT_ID;
+    const clientId = methods?.google?.clientId ?? BUILD_GOOGLE_CLIENT_ID;
     if (!clientId) { setError('Google sign-in is not configured on this server.'); return; }
     setError('');
     try {
@@ -548,21 +549,20 @@ export default function LoginScreen({
               {/* Only methods the server says it can complete. A button that
                   cannot work is worse than no button: it reads as a broken
                   product rather than an unconfigured one. */}
-              {(methods?.google.enabled || methods?.tiktok.enabled || methods?.meta.enabled) &&
+              {(showGoogle || showTikTok || showMeta) &&
               <div className={`mb-4 grid grid-cols-1 gap-2 ${
-                [methods?.google.enabled, methods?.tiktok.enabled, methods?.meta.enabled]
-                  .filter(Boolean).length > 1 ? 'sm:grid-cols-3' : ''}`}>
-                {methods?.google.enabled &&
+                [showGoogle, showTikTok, showMeta].filter(Boolean).length > 1 ? 'sm:grid-cols-3' : ''}`}>
+                {showGoogle &&
                 <button type="button" onClick={signInWithGoogle} disabled={loading || connection !== 'online'} className="flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 hover:border-slate-400 disabled:opacity-50">
                   <span style={{ color: '#4285F4' }} className="text-base font-black">G</span>
                   {mode === 'create' ? 'Create with Google' : 'Sign in with Google'}
                 </button>}
-                {methods?.tiktok.enabled &&
+                {showTikTok &&
                 <button type="button" onClick={signInWithTikTok} disabled={loading || connection !== 'online'} className="flex h-11 items-center justify-center gap-2 rounded-xl bg-black text-xs font-bold text-white hover:bg-slate-800 disabled:opacity-50">
                   <span aria-hidden className="text-base">♪</span>
                   {mode === 'create' ? 'Create with TikTok' : 'Sign in with TikTok'}
                 </button>}
-                {methods?.meta.enabled &&
+                {showMeta &&
                 <button type="button" onClick={signInWithMeta} disabled={loading || connection !== 'online'} className="flex h-11 items-center justify-center gap-2 rounded-xl bg-[#0866ff] text-xs font-bold text-white hover:bg-[#075bd8] disabled:opacity-50">
                   <span aria-hidden className="text-base font-black">f</span>
                   {mode === 'create' ? 'Create with Facebook' : 'Sign in with Facebook'}
