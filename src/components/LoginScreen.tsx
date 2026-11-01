@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArrowRight,
   Check,
@@ -30,15 +30,9 @@ import {
   type AuthUser,
 } from '@/lib/auth';
 import { apiBase, ApiError } from '@/lib/api';
-import { clearPendingOAuth, pendingOAuth, providerNames, providerSignInUrl, rememberOAuth } from '@/lib/oauth-flow';
+import { clearPendingOAuth, isExpectedOAuthMessage, pendingOAuth, providerNames, providerSignInUrl, rememberOAuth } from '@/lib/oauth-flow';
 
-const IS_DESKTOP = typeof window !== 'undefined' && Boolean((window as any).kobeOS);
-const KOBE_CLOUD_API = ((import.meta.env.VITE_KOBE_CLOUD_API as string | undefined) || 'https://api.kobeapptz.com/api').replace(/\/$/, '');
-const DESKTOP_OAUTH_ORIGINS = new Set([
-  'https://kobeapptz.com',
-  'https://app.kobeapptz.com',
-  'https://www.kobeapptz.com',
-]);
+const IS_DESKTOP = typeof window !== 'undefined' && Boolean(window.kobeOS);
 
 type Mode = 'create' | 'signin';
 type ConnectionState = 'checking' | 'online' | 'offline' | 'server-down';
@@ -67,6 +61,9 @@ export default function LoginScreen({
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const oauthPopup = useRef<Window | null>(null);
+  const oauthProvider = useRef<SocialProvider | null>(null);
+  const exchangingOAuth = useRef(false);
 
   // Back navigation from a provider can restore this page from the browser's
   // cache without remounting it. Show recovery instead of first-time setup.
@@ -165,16 +162,18 @@ export default function LoginScreen({
     if (!IS_DESKTOP) return;
 
     const receiveOAuth = async (event: MessageEvent) => {
-      if (!DESKTOP_OAUTH_ORIGINS.has(event.origin)) return;
+      if (!isExpectedOAuthMessage(event, oauthPopup.current, oauthProvider.current) || exchangingOAuth.current) return;
       const data = event.data as DesktopOAuthMessage;
       if (!data || data.type !== 'kobeos-oauth-complete') return;
       if ((data.provider !== 'google' && data.provider !== 'tiktok' && data.provider !== 'meta') || !data.accessToken) return;
 
       setLoading(true);
+      exchangingOAuth.current = true;
       setError('');
       try {
         const user = await desktopOauthExchange(data.accessToken, data.refreshToken ?? '');
         clearPendingOAuth();
+        oauthPopup.current = null; oauthProvider.current = null;
         onLogin(user, false);
       } catch (err) {
         if (err instanceof ApiError) {
@@ -184,6 +183,7 @@ export default function LoginScreen({
         }
         checkConnection();
       } finally {
+        exchangingOAuth.current = false;
         setLoading(false);
       }
     };
@@ -253,15 +253,19 @@ export default function LoginScreen({
       // Desktop renderer is file:// and can't redirect out to a hosted URL and
       // back, so it keeps the child-window handoff. OAuthCallback posts the
       // result back to this window (origin-validated) and closes the child.
+      oauthPopup.current?.close();
       const popup = window.open(
         url,
         `kobeos-${provider}-oauth`,
         'popup=yes,width=560,height=760,resizable=yes,scrollbars=yes',
       );
       if (!popup) {
+        clearPendingOAuth(); setPendingProvider(null);
         setError(`${providerNames[provider]} sign-in could not open inside KobeOS. Allow popups and try again.`);
         return;
       }
+      oauthPopup.current = popup;
+      oauthProvider.current = provider;
       popup.focus();
       return;
     }
