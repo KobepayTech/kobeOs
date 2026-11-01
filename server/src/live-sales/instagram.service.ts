@@ -72,14 +72,15 @@ export class InstagramService {
     const configured = this.value('INSTAGRAM_OAUTH_SCOPES')
       .split(',')
       .map((scope) => scope.trim())
-      .filter(Boolean);
+      // This is the Instagram Login flow. Insights require a different login
+      // setup and requesting that scope here can prevent authorization.
+      .filter(scope => !!scope && scope !== 'instagram_business_manage_insights');
     return [...new Set([
       ...configured,
       'instagram_business_basic',
       'instagram_business_content_publish',
       'instagram_business_manage_comments',
       'instagram_business_manage_messages',
-      'instagram_business_manage_insights',
     ])];
   }
 

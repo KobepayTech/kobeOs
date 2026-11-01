@@ -9,6 +9,13 @@ import { LiveSaleService } from './live-sale.service';
 
 describe('phone live comments', () => {
   afterEach(() => jest.restoreAllMocks());
+  it('requests supported Instagram Login permissions without an insights-only scope', () => {
+    const config = new ConfigService({ INSTAGRAM_APP_ID: 'instagram-app', INSTAGRAM_REDIRECT_URI: 'https://api.kobeapptz.com/api/live-sales/instagram/oauth/callback', JWT_SECRET: 'j'.repeat(40), INSTAGRAM_OAUTH_SCOPES: 'instagram_business_manage_insights' });
+    const service = new InstagramService(config, {} as Repository<SocialAccount>, {} as Repository<LiveSession>, {} as LiveSaleService);
+    const scopes = new URL(service.getOAuthUrl('owner').url).searchParams.get('scope')?.split(',');
+    expect(scopes).toEqual(expect.arrayContaining(['instagram_business_basic', 'instagram_business_manage_comments', 'instagram_business_manage_messages', 'instagram_business_content_publish']));
+    expect(scopes).not.toContain('instagram_business_manage_insights');
+  });
   it.each(['http://shop.kobeapptz.com/api/live-sales/ingest/' + 'a'.repeat(24), 'https://kobeapptz.com.evil.test/api/live-sales/ingest/' + 'a'.repeat(24), 'https://127.0.0.1/api/live-sales/ingest/' + 'a'.repeat(24), 'https://shop.kobeapptz.com/api/health'])('rejects unsafe relay target %s', url => {
     expect(() => relayTarget(url)).toThrow();
   });
