@@ -34,7 +34,23 @@ import {
 import { apiBase, ApiError } from '@/lib/api';
 import { clearPendingOAuth, pendingOAuth, providerNames, providerSignInUrl, rememberOAuth } from '@/lib/oauth-flow';
 
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
+/**
+ * Build-time fallback only. The server is authoritative: it is the side that
+ * verifies the Google credential, so it is the side that knows whether Google
+ * sign-in can work and with which client id. Relying on this alone meant
+ * configuring the server could never light up the button, because the bundle
+ * was already built, and the two could disagree about which client id — Google
+ * would issue a credential for one and the server would reject it against the
+ * other.
+ */
+const BUILD_GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
+
+type SignInMethods = {
+  password: boolean;
+  google: { enabled: boolean; clientId: string | null };
+  tiktok: { enabled: boolean };
+  meta: { enabled: boolean };
+};
 const IS_DESKTOP = typeof window !== 'undefined' && Boolean((window as any).kobeOS);
 const KOBE_CLOUD_API = ((import.meta.env.VITE_KOBE_CLOUD_API as string | undefined) || 'https://api.kobeapptz.com/api').replace(/\/$/, '');
 const DESKTOP_OAUTH_ORIGINS = new Set([
@@ -75,6 +91,9 @@ export default function LoginScreen({
   const [mode, setMode] = useState<Mode>(() => pendingOAuth() || new URLSearchParams(window.location.search).get('signin') === '1' ? 'signin' : 'create');
   const [pendingProvider, setPendingProvider] = useState(pendingOAuth);
   const [connection, setConnection] = useState<ConnectionState>('checking');
+  // Null until the server answers. Buttons stay hidden rather than appearing
+  // and then vanishing, and rather than appearing and then failing.
+  const [methods, setMethods] = useState<SignInMethods | null>(null);
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -85,6 +104,34 @@ export default function LoginScreen({
 
   // Back navigation from a provider can restore this page from the browser's
   // cache without remounting it. Show recovery instead of first-time setup.
+  // Ask the server which sign-in methods it can actually complete. Failing
+  // this call must not lock anyone out, so email and password are assumed
+  // available and only the social buttons depend on the answer.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${apiBase()}/auth/sign-in-methods`);
+        if (!res.ok) throw new Error(String(res.status));
+        const body = (await res.json()) as SignInMethods;
+        if (!cancelled) setMethods(body);
+      } catch {
+        if (!cancelled) {
+          setMethods({
+            password: true,
+            google: {
+              enabled: Boolean(BUILD_GOOGLE_CLIENT_ID),
+              clientId: BUILD_GOOGLE_CLIENT_ID ?? null,
+            },
+            tiktok: { enabled: false },
+            meta: { enabled: false },
+          });
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   useEffect(() => {
     const returned = () => {
       const provider = pendingOAuth();
@@ -260,13 +307,17 @@ export default function LoginScreen({
   };
 
   const signInWithGoogle = async () => {
-    if (!GOOGLE_CLIENT_ID) { setError('Google sign-in is not configured on this build.'); return; }
+    // The server's client id, so the credential Google issues is one the
+    // server will accept. Falls back to the build value only when the server
+    // could not be reached.
+    const clientId = methods?.google.clientId ?? BUILD_GOOGLE_CLIENT_ID;
+    if (!clientId) { setError('Google sign-in is not configured on this server.'); return; }
     setError('');
     try {
       await loadGis();
       const google = (window as unknown as { google: any }).google;
       google.accounts.id.initialize({
-        client_id: GOOGLE_CLIENT_ID,
+        client_id: clientId,
         callback: async (resp: { credential?: string }) => {
           if (!resp?.credential) { setError('Google sign-in was cancelled.'); return; }
           setLoading(true);
@@ -494,20 +545,29 @@ export default function LoginScreen({
                 <button type="button" onClick={() => { clearPendingOAuth(); setPendingProvider(null); setMode('signin'); }} className="mt-2 font-bold underline">Use email or phone instead</button>
               </div>}
 
-              <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
+              {/* Only methods the server says it can complete. A button that
+                  cannot work is worse than no button: it reads as a broken
+                  product rather than an unconfigured one. */}
+              {(methods?.google.enabled || methods?.tiktok.enabled || methods?.meta.enabled) &&
+              <div className={`mb-4 grid grid-cols-1 gap-2 ${
+                [methods?.google.enabled, methods?.tiktok.enabled, methods?.meta.enabled]
+                  .filter(Boolean).length > 1 ? 'sm:grid-cols-3' : ''}`}>
+                {methods?.google.enabled &&
                 <button type="button" onClick={signInWithGoogle} disabled={loading || connection !== 'online'} className="flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 hover:border-slate-400 disabled:opacity-50">
                   <span style={{ color: '#4285F4' }} className="text-base font-black">G</span>
                   {mode === 'create' ? 'Create with Google' : 'Sign in with Google'}
-                </button>
+                </button>}
+                {methods?.tiktok.enabled &&
                 <button type="button" onClick={signInWithTikTok} disabled={loading || connection !== 'online'} className="flex h-11 items-center justify-center gap-2 rounded-xl bg-black text-xs font-bold text-white hover:bg-slate-800 disabled:opacity-50">
                   <span aria-hidden className="text-base">♪</span>
                   {mode === 'create' ? 'Create with TikTok' : 'Sign in with TikTok'}
-                </button>
+                </button>}
+                {methods?.meta.enabled &&
                 <button type="button" onClick={signInWithMeta} disabled={loading || connection !== 'online'} className="flex h-11 items-center justify-center gap-2 rounded-xl bg-[#0866ff] text-xs font-bold text-white hover:bg-[#075bd8] disabled:opacity-50">
                   <span aria-hidden className="text-base font-black">f</span>
                   {mode === 'create' ? 'Create with Facebook' : 'Sign in with Facebook'}
-                </button>
-              </div>
+                </button>}
+              </div>}
 
               <p className="mb-4 text-xs leading-5 text-slate-500">Signing in opens your KobeOS account. To connect Instagram for live selling, sign in with your usual method, then open Creator or Live Sales. Facebook login alone does not connect live comments.</p>
 

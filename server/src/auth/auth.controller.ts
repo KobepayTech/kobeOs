@@ -270,6 +270,19 @@ export class AuthController {
 
   // ── OAuth (sign in / sign up with Google, TikTok or Meta) ───────────────────
 
+  /**
+   * Which sign-in methods this deployment can complete, so the login screen
+   * can offer only what works instead of rendering a button that fails.
+   *
+   * Returns public identifiers only — a Google client id is meant to be in the
+   * page; the secrets are not and are never included.
+   */
+  @Get('sign-in-methods')
+  @Throttle({ default: { limit: process.env.NODE_ENV === 'test' ? 10000 : 60, ttl: 60000 } })
+  signInMethods() {
+    return this.auth.signInMethods();
+  }
+
   /** GIS credential from the browser → verified → issues KobeOS tokens. */
   @Post('oauth/google')
   googleOauth(@Body() dto: { credential: string }) {

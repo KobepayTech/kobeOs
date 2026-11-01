@@ -152,6 +152,56 @@ export class AuthService {
     return redirect.toString();
   }
 
+  /**
+   * Which sign-in methods this deployment can actually complete.
+   *
+   * The browser used to decide this from VITE_GOOGLE_CLIENT_ID, a build-time
+   * value baked into the bundle. That had three failure modes: configuring the
+   * server could never light up the button, because the bundle was already
+   * built; the two could disagree about which client id, so Google would issue
+   * a credential for one and the server would reject it against the other; and
+   * the button rendered regardless, so people clicked something that could not
+   * work and got "not configured on this build".
+   *
+   * Asking the server removes all three — it is the side that has to verify
+   * the credential, so it is the side that knows.
+   *
+   * Only public identifiers are returned. A Google client id and a Meta app id
+   * are published in the page by design; the matching secrets are not, and
+   * must never appear here.
+   */
+  async signInMethods(): Promise<{
+    password: boolean;
+    google: { enabled: boolean; clientId: string | null };
+    tiktok: { enabled: boolean };
+    meta: { enabled: boolean };
+  }> {
+    const googleClientId = this.config.get<string>('GOOGLE_CLIENT_ID')?.trim() || null;
+    const tiktok = Boolean(
+      this.config.get<string>('TIKTOK_CLIENT_KEY')?.trim()
+      && this.config.get<string>('TIKTOK_REDIRECT_URI')?.trim(),
+    );
+
+    // Meta configuration can come from stored provider settings rather than
+    // the environment, so ask the same source the sign-in path uses. A failure
+    // here means "not configured", which is exactly what to report.
+    let meta = false;
+    try {
+      const config = await this.providerConfig.assertConfigured();
+      meta = Boolean(config.appId && config.redirectUri);
+    } catch {
+      meta = false;
+    }
+
+    return {
+      // Email and password need nothing configured, so they always work.
+      password: true,
+      google: { enabled: Boolean(googleClientId), clientId: googleClientId },
+      tiktok: { enabled: tiktok },
+      meta: { enabled: meta },
+    };
+  }
+
   /** Verify a Google ID token (GIS credential) and sign the user in. */
   async googleSignIn(credential: string): Promise<IssuedTokens> {
     const clientId = this.config.get<string>('GOOGLE_CLIENT_ID');
