@@ -39,6 +39,8 @@ class EnvVars {
   @IsOptional() @IsString() KOBE_MODELS_CDN_URL?: string;
   /** Cloudflare API token with Zone:DNS:Edit permission (required for store publishing) */
   @IsOptional() @IsString() CF_API_TOKEN?: string;
+  @IsOptional() @IsString() CF_STREAM_API_TOKEN?: string;
+  @IsOptional() @IsString() CF_STREAM_ACCOUNT_ID?: string;
   /** Cloudflare Zone ID for kobeapptz.com */
   @IsOptional() @IsString() CF_ZONE_ID?: string;
   /** Base domain for store subdomains, defaults to kobeapptz.com */

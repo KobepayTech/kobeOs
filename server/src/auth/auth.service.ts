@@ -203,8 +203,9 @@ export class AuthService {
   /** The URL to send the user to start TikTok Login (auth-code flow). */
   tiktokAuthUrl(state: string): string {
     const key = this.config.get<string>('TIKTOK_CLIENT_KEY');
+    const secret = this.config.get<string>('TIKTOK_CLIENT_SECRET');
     const redirect = this.config.get<string>('TIKTOK_REDIRECT_URI');
-    if (!key || !redirect) throw new BadRequestException('TikTok sign-in is not configured');
+    if (!key || !secret || !redirect) throw new BadRequestException('TikTok sign-in is not configured');
     const params = new URLSearchParams({
       client_key: key, response_type: 'code', scope: 'user.info.basic',
       redirect_uri: redirect, state,
@@ -223,13 +224,14 @@ export class AuthService {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ client_key: key, client_secret: secret, code, grant_type: 'authorization_code', redirect_uri: redirect }).toString(),
+      signal: AbortSignal.timeout(15_000),
     }).catch(() => null);
     const tok = (tokenRes && tokenRes.ok ? await tokenRes.json() : null) as { access_token?: string; open_id?: string } | null;
     if (!tok?.access_token || !tok.open_id) throw new UnauthorizedException('TikTok token exchange failed');
     let name = 'TikTok user';
     let avatar: string | null = null;
     try {
-      const infoRes = await fetch('https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name,avatar_url', { headers: { Authorization: `Bearer ${tok.access_token}` } });
+      const infoRes = await fetch('https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name,avatar_url', { headers: { Authorization: `Bearer ${tok.access_token}` }, signal: AbortSignal.timeout(15_000) });
       const info = (await infoRes.json()) as { data?: { user?: { display_name?: string; avatar_url?: string } } };
       name = info.data?.user?.display_name ?? name;
       avatar = info.data?.user?.avatar_url ?? null;

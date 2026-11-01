@@ -20,6 +20,7 @@ import SimpleSite from '@/apps/erp-shop/SimpleSite';
 import { JerseyStorefrontPreview } from './JerseyStorefrontPreview';
 import { JerseyDesignEditor } from './JerseyDesignEditor';
 import { DevicePreviewFrame } from './DevicePreviewFrame';
+import { StoreBroadcastStudio } from '@/apps/live-sales/StoreBroadcastStudio';
 import {
   UniversalProductForm,
   blankProduct,
@@ -795,6 +796,7 @@ function GenericStorefrontPreview({ settings, products }: { settings: StoreSetti
    ═══════════════════════════════════════════════════════════ */
 
 export default function StoreEditor() {
+  const [broadcastStudio, setBroadcastStudio] = useState(false);
   const [settings, setSettings] = useState<StoreSettings>(defaultSettings);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1053,6 +1055,7 @@ export default function StoreEditor() {
      ═════════════════════════════════════════════════════════ */
   return (
     <div className="relative flex h-full bg-[#0d0d1a] text-white/90 overflow-hidden">
+      {broadcastStudio && <StoreBroadcastStudio onClose={() => setBroadcastStudio(false)} />}
       {/* Mobile Edit ⇄ Preview toggle (phones only) */}
       <div className="md:hidden absolute bottom-4 left-1/2 -translate-x-1/2 z-30 flex rounded-full bg-[#111118] border border-white/15 shadow-xl overflow-hidden">
         {(['edit', 'preview'] as const).map((v) => (
@@ -1771,6 +1774,7 @@ export default function StoreEditor() {
               )}
             </div>
             <div className="flex items-center gap-2">
+              <Button size="sm" onClick={() => setBroadcastStudio(true)} className="h-7 bg-rose-600 px-3 text-xs text-white">Go live</Button>
               {loading && (
                 <span className="text-[10px] text-white/40 flex items-center gap-1">
                   <Loader2 className="w-3 h-3 animate-spin" /> Loading…

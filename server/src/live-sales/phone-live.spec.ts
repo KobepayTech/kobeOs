@@ -9,6 +9,28 @@ import { LiveSaleService } from './live-sale.service';
 
 describe('phone live comments', () => {
   afterEach(() => jest.restoreAllMocks());
+  it('connects numeric Instagram account IDs without losing their decimal digits', async () => {
+    const config = new ConfigService({ INSTAGRAM_APP_ID: 'app', INSTAGRAM_APP_SECRET: 'secret', INSTAGRAM_REDIRECT_URI: 'https://api.kobeapptz.com/api/live-sales/instagram/oauth/callback', JWT_SECRET: 'j'.repeat(40) });
+    const accounts = { find: jest.fn().mockResolvedValue([]), create: jest.fn(input => input), save: jest.fn() };
+    const service = new InstagramService(config, accounts as unknown as Repository<SocialAccount>, {} as Repository<LiveSession>, {} as LiveSaleService);
+    const state = new URL(service.getOAuthUrl('owner').url).searchParams.get('state')!;
+    const fetcher = jest.spyOn(global, 'fetch')
+      .mockResolvedValueOnce(new Response('{"access_token":"short","user_id":17841465181379074}'))
+      .mockResolvedValueOnce(new Response('{"access_token":"long","expires_in":3600}'))
+      .mockResolvedValueOnce(new Response('{"id":"17841465181379074","username":"test-shop"}'))
+      .mockResolvedValueOnce(new Response('{"success":true}'));
+    const result = await service.completeOAuth('code', state);
+    expect(String(fetcher.mock.calls[2][0])).toContain('/17841465181379074?');
+    expect(accounts.save).toHaveBeenCalledWith(expect.objectContaining({ accountHandle: '@test-shop', metadata: expect.objectContaining({ instagramUserId: '17841465181379074' }) }));
+    expect(result.webhookSubscribed).toBe(true);
+  });
+  it('requests supported Instagram Login permissions without an insights-only scope', () => {
+    const config = new ConfigService({ INSTAGRAM_APP_ID: 'instagram-app', INSTAGRAM_REDIRECT_URI: 'https://api.kobeapptz.com/api/live-sales/instagram/oauth/callback', JWT_SECRET: 'j'.repeat(40), INSTAGRAM_OAUTH_SCOPES: 'instagram_business_manage_insights' });
+    const service = new InstagramService(config, {} as Repository<SocialAccount>, {} as Repository<LiveSession>, {} as LiveSaleService);
+    const scopes = new URL(service.getOAuthUrl('owner').url).searchParams.get('scope')?.split(',');
+    expect(scopes).toEqual(expect.arrayContaining(['instagram_business_basic', 'instagram_business_manage_comments', 'instagram_business_manage_messages', 'instagram_business_content_publish']));
+    expect(scopes).not.toContain('instagram_business_manage_insights');
+  });
   it.each(['http://shop.kobeapptz.com/api/live-sales/ingest/' + 'a'.repeat(24), 'https://kobeapptz.com.evil.test/api/live-sales/ingest/' + 'a'.repeat(24), 'https://127.0.0.1/api/live-sales/ingest/' + 'a'.repeat(24), 'https://shop.kobeapptz.com/api/health'])('rejects unsafe relay target %s', url => {
     expect(() => relayTarget(url)).toThrow();
   });
