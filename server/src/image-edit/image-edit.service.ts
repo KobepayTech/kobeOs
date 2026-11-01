@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 
 /**
  * Offline image-editing primitives via @huggingface/transformers + sharp.
@@ -77,6 +77,7 @@ export class ImageEditService {
    * model='Xenova/u2net' if you need strict MIT.
    */
   async removeBackground(buffer: Buffer, model: ModelKey = 'briaai/RMBG-1.4'): Promise<Buffer> {
+    if (process.env.KOBE_AI_EDITION === 'qwen3-only') throw new BadRequestException('Background removal requires an additional model and is unavailable in the Qwen-only edition.');
     const handles = await this._getModel(model);
     const { model: rmbg, processor, transformers, sharp } = handles;
 

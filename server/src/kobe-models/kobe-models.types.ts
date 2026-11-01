@@ -51,6 +51,7 @@ export interface KobeModelEntry {
 }
 
 export interface KobeCatalogue {
+  edition?: string;
   version: string;
   updatedAt: string;
   models: KobeModelEntry[];

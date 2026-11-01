@@ -1,0 +1,10 @@
+{
+  "id": "qwen3-only",
+  "name": "KobeOS Qwen 3",
+  "model": "qwen3-vl:8b",
+  "aliases": ["qwen3-vl:8b", "kobe-qwen3-vl:latest", "kobe-qwen3-vl"],
+  "description": "One local Qwen 3-VL 8B model for business assistance, coding and image understanding.",
+  "modelDownloadBytes": 6200000000,
+  "updateChannel": "qwen3-only",
+  "distribution": "small installer; install or reuse Qwen 3 8B in Model Manager"
+}

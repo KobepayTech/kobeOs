@@ -2,6 +2,7 @@
 
 const BaseService = require('./_base-service');
 const http        = require('http');
+const qwenProfile = require('../../editions/qwen3-only.json');
 
 /**
  * Kobe AI Service
@@ -22,7 +23,8 @@ class AIService extends BaseService {
     this._ollamaUrl  = process.env.OLLAMA_URL || 'http://127.0.0.1:11434';
     this._available  = false;
     this._models     = [];
-    this._defaultModel = process.env.OLLAMA_MODEL || 'qwen2.5:7b';
+    this._qwenOnly = process.env.KOBE_AI_EDITION === qwenProfile.id;
+    this._defaultModel = this._qwenOnly ? qwenProfile.model : process.env.OLLAMA_MODEL || 'qwen2.5:7b';
   }
 
   async _start() {
@@ -57,7 +59,7 @@ class AIService extends BaseService {
         res.on('end', () => {
           try {
             const json = JSON.parse(data);
-            resolve((json.models || []).map(m => ({ name: m.name, size: m.size })));
+            resolve((json.models || []).filter(m => !this._qwenOnly || qwenProfile.aliases.includes(m.name)).map(m => ({ name: m.name, size: m.size })));
           } catch { resolve([]); }
         });
       });
@@ -74,6 +76,8 @@ class AIService extends BaseService {
    */
   async chat(model, messages, onToken) {
     if (!this._available) throw new Error('AI service not available');
+    if (this._qwenOnly && model && !qwenProfile.aliases.includes(model)) throw new Error('This edition uses Qwen 3 8B only.');
+    if (this._qwenOnly && !model) model = this._models.find(m => qwenProfile.aliases.includes(m.name))?.name || qwenProfile.model;
     const body = JSON.stringify({
       model: model || this._defaultModel,
       messages,
@@ -129,6 +133,7 @@ class AIService extends BaseService {
   }
 
   async embed(model, text) {
+    if (this._qwenOnly) throw new Error('Embedding models are unavailable in the Qwen 3 edition.');
     if (!this._available) return [];
     const body = JSON.stringify({ model: model || process.env.OLLAMA_EMBED_MODEL || 'nomic-embed-text', prompt: text });
     return new Promise((resolve) => {
