@@ -17,3 +17,5 @@ Cloudflare bills delivered viewer-minutes. This flow does not record or restream
 References: [Cloudflare browser broadcasting](https://developers.cloudflare.com/stream/examples/browser-based-webrtc/), [WebRTC limitations and pricing](https://developers.cloudflare.com/stream/webrtc/).
 
 Automated protocol and UI tests use controlled media/network doubles. A real camera-to-Cloudflare-to-viewer check is still required after deployment and merchant setup; they are not evidence of a successful real broadcast.
+
+An additional live transport check published a labelled canvas sample through the created Cloudflare input and decoded a video frame in a WHEP viewer. This verifies a real provider connection, but is not a completed camera/studio/shopper test or a TikTok broadcast. The sample was configured to stop automatically after 45 seconds, with recording disabled.
