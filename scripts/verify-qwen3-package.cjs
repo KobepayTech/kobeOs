@@ -8,7 +8,7 @@ const resources = path.resolve(process.argv[2] || 'release/win-unpacked/resource
 const archive = path.join(resources, 'app.asar');
 const metadata = JSON.parse(asar.extractFile(archive, 'package.json').toString());
 assert.equal(metadata.kobeEdition, profile.id);
-assert.equal(JSON.parse(asar.extractFile(archive, 'electron/editions/qwen3-only.json').toString()).model, profile.model);
+assert.equal(JSON.parse(asar.extractFile(archive, path.join('electron', 'editions', 'qwen3-only.json')).toString()).model, profile.model);
 const modelRoot = path.join(resources, 'models');
 assert.deepEqual(fs.readdirSync(modelRoot), ['models.json']);
 const manifest = JSON.parse(fs.readFileSync(path.join(modelRoot, 'models.json')));
