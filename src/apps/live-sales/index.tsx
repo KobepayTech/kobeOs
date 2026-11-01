@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { LivePresenter } from './LivePresenter';
 import { StoreBroadcastStudio } from './StoreBroadcastStudio';
+import { SocialConnectDialog } from './SocialConnectDialog';
 import { api as localApi, apiBase, accountApiBase, cloudApi, hasCloudSession } from '@/lib/api';
 const api = <T,>(path: string, init: RequestInit = {}) => localApi<T>(path, { ...init, offlineFallback: false });
 const usesCloudAccounts = () => accountApiBase() !== apiBase() && hasCloudSession();
@@ -33,6 +34,7 @@ const money = (n: number | string, c = 'TZS') => `${c === 'TZS' ? 'TSh ' : c ===
 
 export default function LiveSales() {
   const [studio, setStudio] = useState(false);
+  const [connectingSocial, setConnectingSocial] = useState<'instagram' | 'tiktok' | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [active, setActive] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -86,21 +88,8 @@ export default function LiveSales() {
     window.history.replaceState({}, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
   }, [loadSessions]);
 
-  const connectInstagram = async () => {
-    try {
-      const { url } = await accountApi<{ url: string }>('/live-sales/instagram/oauth/url');
-      window.location.assign(url);
-    } catch (e) {
-      setNotice((e as Error).message || 'Instagram connection is not configured.');
-    }
-  };
-
-  const connectTikTok = async () => {
-    try {
-      const { url } = await accountApi<{ url: string }>('/social-scheduler/tiktok/oauth/url');
-      window.location.assign(url);
-    } catch (e) { setNotice((e as Error).message || 'TikTok connection is not configured.'); }
-  };
+  const connectInstagram = () => setConnectingSocial('instagram');
+  const connectTikTok = () => setConnectingSocial('tiktok');
 
   const disconnectInstagram = async () => {
     try {
@@ -160,6 +149,7 @@ export default function LiveSales() {
 
   return (
     <div className="h-full bg-slate-950 text-slate-100 overflow-auto">
+      {connectingSocial && <SocialConnectDialog platform={connectingSocial} onClose={() => setConnectingSocial(null)} onConnected={() => { void loadSessions(); }} />}
       <div className="flex flex-wrap gap-3 items-center justify-between px-5 py-4 border-b border-slate-800">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-fuchsia-500 to-rose-600 grid place-items-center"><Radio className="w-4.5 h-4.5 text-white" /></div>

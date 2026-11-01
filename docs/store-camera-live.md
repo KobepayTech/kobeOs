@@ -25,3 +25,9 @@ References: [Cloudflare browser broadcasting](https://developers.cloudflare.com/
 Automated protocol and UI tests use controlled media/network doubles. A real camera-to-Cloudflare-to-viewer check is still required after deployment and merchant setup; they are not evidence of a successful real broadcast.
 
 An additional live transport check published a labelled canvas sample through the created Cloudflare input and decoded a video frame in a WHEP viewer. This verifies a real provider connection, but is not a completed camera/studio/shopper test or a TikTok broadcast. The sample was configured to stop automatically after 45 seconds, with recording disabled.
+
+## Social account connection
+
+Live Sales and the store studio share an in-app connection dialog: choose a provider, approve in the provider window, and continue with the verified account name. The merchant page and current studio choices stay open. The provider window has no opener access. KobeOS checks authenticated account state for up to two minutes and again on focus or explicit Check; closing a popup never counts as success. Reconnection requires a new saved connection timestamp. Popup blocking and unavailable providers leave the shop intact with a retry action.
+
+Instagram and TikTok require their own authentication and consent pages, so these cannot be embedded or skipped. Professional-account conversion happens inside Instagram when required. Developer app registration, review, credentials, callback and webhook settings belong to the KobeOS operator, never the merchant flow. Until the platform app is approved for public use, test accounts may still require operator-managed tester invitations; the dialog does not remove those platform restrictions or grant LIVE eligibility.
