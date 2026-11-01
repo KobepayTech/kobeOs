@@ -26,6 +26,7 @@ import {
   WishlistPage,
 } from './StorefrontPages';
 import { JerseyShopChrome, JerseyProductCard, type JerseyConfig } from './JerseyShopLayout';
+import { ModernStorefront, ModernProductCard } from './ModernStorefront';
 import SimpleSite from './SimpleSite';
 import LiveShoppingBanner from './LiveShoppingBanner';
 
@@ -171,7 +172,6 @@ interface TrackedOrder {
 const API =
   (import.meta.env.VITE_API_BASE as string | undefined) ??
   (import.meta.env.DEV ? 'http://localhost:3000/api' : '/api');
-const SHIPPING_COST = 5000;
 
 function formatPrice(price: number, currency = 'TZS'): string {
   return `${currency} ${Number(price).toLocaleString('en-US')}`;
@@ -884,6 +884,9 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
   }
 
   const cols = settings.gridColumns ?? 3;
+  const modernStore = settings.template !== 'jerseys';
+  const ShopChrome = modernStore ? ModernStorefront : JerseyShopChrome;
+  const ShopProductCard = modernStore ? ModernProductCard : JerseyProductCard;
   const gridClass = cols === 2
     ? 'grid-cols-1 sm:grid-cols-2'
     : cols >= 4
@@ -905,7 +908,8 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
       )}
       {/* Live shopping — shows when the shop is live-selling (opt-in per session) */}
       <LiveShoppingBanner slug={slug} onReserve={reserveFromLiveBanner} />
-      <JerseyShopChrome
+      <ShopChrome
+        {...(modernStore ? { heroProducts: products, accent: settings.primaryColor } : {})}
         storeName={settings.storeName}
         tagline={settings.tagline}
         logoUrl={settings.logoUrl}
@@ -1013,7 +1017,7 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
             <>
               <div id="store-product-grid" className={`grid gap-4 p-6 scroll-mt-4 ${gridClass}`}>
                 {filteredProducts.map((p) => (
-                  <JerseyProductCard
+                  <ShopProductCard
                     key={p.id}
                     product={p}
                     wished={wishlistIds.includes(p.id)}
@@ -1040,11 +1044,11 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
           )}
         </ScrollArea>
       </div>
-      </JerseyShopChrome>
+      </ShopChrome>
 
       {/* Product Detail Dialog */}
       <Dialog open={!!selectedProduct} onOpenChange={(open) => { if (!open) { setSelectedProduct(null); setReviewsRequested(false); } }}>
-        <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-md max-h-[90vh] overflow-y-auto">
+        <DialogContent className={`${modernStore ? 'sf-dialog ' : ''}bg-slate-900 border-slate-700 text-white max-w-md max-h-[90vh] overflow-y-auto`}>
           {selectedProduct && (
             <>
               <DialogHeader><DialogTitle>{selectedProduct.name}</DialogTitle></DialogHeader>
@@ -1105,7 +1109,7 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
 
       {/* Simple customer membership — name + phone only. */}
       <Dialog open={isSignupOpen} onOpenChange={setIsSignupOpen}>
-        <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-md max-h-[90vh] overflow-y-auto">
+        <DialogContent className={`${modernStore ? 'sf-dialog ' : ''}bg-slate-900 border-slate-700 text-white max-w-md max-h-[90vh] overflow-y-auto`}>
           <DialogHeader><DialogTitle>{customerProfile ? 'Your loyalty membership' : 'Sign up in seconds'}</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <p className="text-sm text-slate-400">Use only your name and phone. We will remember them for faster checkout on this device.</p>
@@ -1146,7 +1150,7 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
 
       {/* Cart Dialog */}
       <Dialog open={isCartOpen} onOpenChange={setIsCartOpen}>
-        <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-md">
+        <DialogContent className={`${modernStore ? 'sf-dialog ' : ''}bg-slate-900 border-slate-700 text-white max-w-md`}>
           <DialogHeader><DialogTitle>Shopping Cart</DialogTitle></DialogHeader>
           {cart.length === 0 ? (
             <div className="py-8 text-center text-slate-400">
@@ -1190,8 +1194,8 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
           {cart.length > 0 && (
             <div className="border-t border-white/10 pt-4 space-y-3">
               <div className="flex justify-between text-sm"><span>Subtotal</span><span>{formatPrice(cartTotal, products[0]?.currency ?? 'TZS')}</span></div>
-              <div className="flex justify-between text-sm"><span>Shipping</span><span>{formatPrice(SHIPPING_COST, products[0]?.currency ?? 'TZS')}</span></div>
-              <div className="flex justify-between text-lg font-bold"><span>Total</span><span>{formatPrice(cartTotal + SHIPPING_COST, products[0]?.currency ?? 'TZS')}</span></div>
+              <div className="flex justify-between text-sm"><span>Delivery</span><span>Arrange with store</span></div>
+              <div className="flex justify-between text-lg font-bold"><span>Items total</span><span>{formatPrice(cartTotal, products[0]?.currency ?? 'TZS')}</span></div>
               <Button onClick={handleCheckout} className="w-full bg-blue-600 hover:bg-blue-700">Checkout</Button>
             </div>
           )}
@@ -1200,7 +1204,7 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
 
       {/* Checkout Dialog */}
       <Dialog open={isCheckout} onOpenChange={setIsCheckout}>
-        <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-md max-h-[90vh] overflow-y-auto">
+        <DialogContent className={`${modernStore ? 'sf-dialog ' : ''}bg-slate-900 border-slate-700 text-white max-w-md max-h-[90vh] overflow-y-auto`}>
           <DialogHeader><DialogTitle>Checkout</DialogTitle></DialogHeader>
           <div className="space-y-4">
             {liveReservation && (
@@ -1302,7 +1306,8 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
             )}
 
             <div className="border-t border-white/10 pt-3">
-              <div className="flex justify-between font-bold"><span>Total</span><span>{formatPrice(cartTotal + SHIPPING_COST, products[0]?.currency ?? 'TZS')}</span></div>
+              <div className="flex justify-between font-bold"><span>Items total</span><span>{formatPrice(cartTotal, products[0]?.currency ?? 'TZS')}</span></div>
+              <p className="text-xs text-slate-400 mt-2">Delivery is arranged with the store. Eligible discounts are applied when the order is confirmed.</p>
               {orderDiscount && orderDiscount.discountAmount > 0 && (
                 <div className="text-xs text-emerald-300 mt-1">Discount applied: {formatPrice(orderDiscount.discountAmount, products[0]?.currency ?? 'TZS')}</div>
               )}
@@ -1322,7 +1327,7 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
 
       {/* Success Dialog */}
       <Dialog open={orderConfirmed} onOpenChange={setOrderConfirmed}>
-        <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-md">
+        <DialogContent className={`${modernStore ? 'sf-dialog ' : ''}bg-slate-900 border-slate-700 text-white max-w-md`}>
           <div className="text-center py-6">
             <CheckCircle2 className="w-16 h-16 text-green-400 mx-auto mb-4" />
             <h2 className="text-xl font-bold mb-2">Order Confirmed!</h2>
