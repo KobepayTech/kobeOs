@@ -1,4 +1,5 @@
-import { Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import { QWEN_EDITION, QWEN_MODEL, QWEN_MODEL_INFO, isQwenEditionModel } from './qwen-edition';
+import { BadRequestException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AiTask, DEFAULT_MODEL_ROUTING, ModelRoutingConfig, RouterDecision, detectTask, downgradeNotice, fallbackDomain, parseRouterDecision, selectInstalledModel } from './ai-router';
 
@@ -60,6 +61,7 @@ export type ModelCategory =
   | 'multimodal';
 
 export const MODEL_CATALOGUE: ModelInfo[] = [
+  QWEN_MODEL_INFO,
   { id: 'mistral:7b', name: 'Mistral 7B', category: 'chat', description: 'Fast general assistant, great for customer support and automation', sizeGb: 4.1, recommended: true },
   { id: 'deepseek-r1:8b', name: 'DeepSeek R1 8B', category: 'chat', description: 'Reasoning model — default Kobe assistant', sizeGb: 4.9, recommended: true },
   { id: 'llama3:8b', name: 'Llama 3 8B', category: 'chat', description: 'Meta advanced reasoning, strong multilingual', sizeGb: 4.7, recommended: true },
@@ -115,6 +117,7 @@ export interface RuntimeHealth {
 export class AiService {
   private readonly logger = new Logger(AiService.name);
   private readonly ollamaUrl: string;
+  private readonly qwenOnly: boolean;
   private readonly requestTimeoutMs: number;
   private readonly maxConcurrent: number;
   private activeModel: string;
@@ -134,6 +137,7 @@ export class AiService {
 
   constructor(private readonly config: ConfigService) {
     this.ollamaUrl = this.config.get('OLLAMA_URL', 'http://localhost:11434').replace(/\/$/, '');
+    this.qwenOnly = this.config.get('KOBE_AI_EDITION') === QWEN_EDITION;
     this.routing = {
       everyday: this.config.get('OLLAMA_EVERYDAY_MODEL', DEFAULT_MODEL_ROUTING.everyday),
       reasoning: this.config.get('OLLAMA_REASONING_MODEL', DEFAULT_MODEL_ROUTING.reasoning),
@@ -141,25 +145,26 @@ export class AiService {
       vision: this.config.get('OLLAMA_VISION_MODEL', DEFAULT_MODEL_ROUTING.vision),
       router: this.config.get('OLLAMA_ROUTER_MODEL', DEFAULT_MODEL_ROUTING.router),
     };
-    this.activeModel = this.config.get('OLLAMA_MODEL', this.routing.everyday);
+    if (this.qwenOnly) this.routing = { everyday: QWEN_MODEL, reasoning: QWEN_MODEL, coder: QWEN_MODEL, vision: QWEN_MODEL, router: QWEN_MODEL };
+    this.activeModel = this.qwenOnly ? QWEN_MODEL : this.config.get('OLLAMA_MODEL', this.routing.everyday);
     this.requestTimeoutMs = Number(this.config.get('OLLAMA_REQUEST_TIMEOUT_MS', 120_000));
-    this.maxConcurrent = Math.max(1, Number(this.config.get('OLLAMA_MAX_CONCURRENT', 2)));
-    this.keepAlive = this.config.get('OLLAMA_KEEP_ALIVE', '2h');
-    this.remoteFallbackUrl = String(this.config.get('KOBE_AI_FALLBACK_URL', '') || '').replace(/\/$/, '');
+    this.maxConcurrent = this.qwenOnly ? 1 : Math.max(1, Number(this.config.get('OLLAMA_MAX_CONCURRENT', 2)));
+    this.keepAlive = this.qwenOnly ? '5m' : this.config.get('OLLAMA_KEEP_ALIVE', '2h');
+    this.remoteFallbackUrl = this.qwenOnly ? '' : String(this.config.get('KOBE_AI_FALLBACK_URL', '') || '').replace(/\/$/, '');
     this.remoteFallbackApiKey = String(this.config.get('KOBE_AI_FALLBACK_API_KEY', '') || '');
     this.remoteFallbackModel = String(this.config.get('KOBE_AI_FALLBACK_MODEL', 'gpt-5-mini') || 'gpt-5-mini');
   }
 
   async listCatalogue(): Promise<(ModelInfo & { installed: boolean })[]> {
     const installed = await this.getInstalledModelNames();
-    return MODEL_CATALOGUE.map((model) => ({ ...model, installed: installed.includes(model.id) }));
+    return this.catalogueModels().map((model) => ({ ...model, installed: this.qwenOnly ? installed.some(isQwenEditionModel) : installed.includes(model.id) }));
   }
 
   async listInstalled(): Promise<{ name: string; size: number; modifiedAt: string }[]> {
     try {
       const res = await this.fetchWithRetry(`${this.ollamaUrl}/api/tags`, { method: 'GET' }, 5_000, 1);
       const data = await res.json() as { models?: Array<{ name: string; size: number; modified_at: string }> };
-      const models = (data.models ?? []).map((model) => ({ name: model.name, size: model.size, modifiedAt: model.modified_at }));
+      const models = (data.models ?? []).filter(model => !this.qwenOnly || isQwenEditionModel(model.name)).map((model) => ({ name: model.name, size: model.size, modifiedAt: model.modified_at }));
       this.installedCache = { at: Date.now(), names: models.map((model) => model.name) };
       return models;
     } catch {
@@ -167,21 +172,30 @@ export class AiService {
     }
   }
 
+  private catalogueModels(): ModelInfo[] { return this.qwenOnly ? [QWEN_MODEL_INFO] : MODEL_CATALOGUE; }
+
+  private assertEditionModel(name?: string): void {
+    if (this.qwenOnly && name && !isQwenEditionModel(name)) throw new BadRequestException('This edition uses Qwen 3 8B only.');
+  }
+
+  getEdition(): string { return this.qwenOnly ? QWEN_EDITION : 'standard'; }
+
   getActiveModel(): string { return this.activeModel; }
 
   setActiveModel(modelId: string): void {
+    this.assertEditionModel(modelId || '__missing__');
     this.activeModel = modelId;
     this.logger.log(`Active model switched to: ${modelId}`);
   }
 
   getModelInfo(modelId: string): ModelInfo {
-    const info = MODEL_CATALOGUE.find((model) => model.id === modelId);
+    const info = this.catalogueModels().find((model) => model.id === modelId);
     if (!info) throw new NotFoundException(`Model '${modelId}' not in catalogue`);
     return info;
   }
 
   getCatalogueByCategory(category: ModelCategory): ModelInfo[] {
-    return MODEL_CATALOGUE.filter((model) => model.category === category);
+    return this.catalogueModels().filter((model) => model.category === category);
   }
 
   async chatCompletion(options: ChatCompletionOptions): Promise<ChatCompletionResult> {
@@ -193,6 +207,7 @@ export class AiService {
     const fast = options.mode === 'fast';
     const messages = this.prepareMessages(options.messages, fast);
     const task = options.task ?? this.inferTask(messages);
+    this.assertEditionModel(options.model);
 
     try {
       const result = await this.localChatCompletion({ ...options, messages, task }, fast);
@@ -215,6 +230,7 @@ export class AiService {
     const fast = options.mode === 'fast';
     const messages = this.prepareMessages(options.messages, fast);
     const task = options.task ?? this.inferTask(messages);
+    this.assertEditionModel(options.model);
     const release = await this.acquireSlot(options.signal);
     const started = Date.now();
     let firstTokenAt = 0;
@@ -286,7 +302,7 @@ export class AiService {
         provider: 'ollama',
         usage: { prompt: promptTokens, completion: completionTokens, total: promptTokens + completionTokens },
         performance: sample,
-        downgraded: downgradeNotice(model, task, this.routing),
+        downgraded: this.qwenOnly ? undefined : downgradeNotice(model, task, this.routing),
       };
     } catch (error) {
       this.recordFailure(error);
@@ -383,7 +399,7 @@ Use zero toolCalls for general knowledge or conversation. You may choose up to 4
           total: (data.prompt_eval_count || 0) + (data.eval_count || 0),
         },
         performance: { tokensPerSecond },
-        downgraded: downgradeNotice(model, options.task, this.routing),
+        downgraded: this.qwenOnly ? undefined : downgradeNotice(model, options.task, this.routing),
       };
     } finally {
       release();
@@ -395,7 +411,7 @@ Use zero toolCalls for general knowledge or conversation. You may choose up to 4
     const defaultPredict = fast ? 512 : task === 'reasoning' ? 3072 : 2048;
     return {
       temperature: options.temperature ?? defaultTemperature,
-      num_ctx: fast ? 4096 : task === 'reasoning' ? 12288 : 8192,
+      num_ctx: this.qwenOnly ? (fast ? 4096 : 8192) : fast ? 4096 : task === 'reasoning' ? 12288 : 8192,
       num_predict: Math.min(Math.max(options.maxTokens ?? defaultPredict, 64), 8192),
     };
   }
@@ -407,6 +423,12 @@ Use zero toolCalls for general knowledge or conversation. You may choose up to 4
   }
 
   private routeModel(requested: string | undefined, installed: string[], task: AiTask): string {
+    if (this.qwenOnly) {
+      this.assertEditionModel(requested);
+      const model = installed.find(isQwenEditionModel);
+      if (!model) throw new Error('Qwen 3 8B is not installed. Open Model Manager to reuse or install it once.');
+      return model;
+    }
     return selectInstalledModel(installed, requested, task, this.routing, this.activeModel);
   }
 
@@ -520,7 +542,7 @@ Use zero toolCalls for general knowledge or conversation. You may choose up to 4
   }
 
   async generateCode(prompt: string, language?: string): Promise<string> {
-    return this.complete(`Write clean, production-ready code${language ? ` in ${language}` : ''} for: ${prompt}`, 'You are an expert software engineer. Write clean, well-commented code.', this.config.get('OLLAMA_CODER_MODEL', 'deepseek-coder:6.7b'));
+    return this.complete(`Write clean, production-ready code${language ? ` in ${language}` : ''} for: ${prompt}`, 'You are an expert software engineer. Write clean, well-commented code.', this.qwenOnly ? QWEN_MODEL : this.config.get('OLLAMA_CODER_MODEL', 'deepseek-coder:6.7b'));
   }
 
   async generateMatchCommentary(matchContext: string): Promise<string> {
@@ -540,6 +562,7 @@ Use zero toolCalls for general knowledge or conversation. You may choose up to 4
   }
 
   async generateEmbedding(text: string, model = 'nomic-embed-text'): Promise<number[]> {
+    if (this.qwenOnly) throw new BadRequestException('Embedding models are not included in this Qwen 3 edition.');
     const res = await this.fetchWithRetry(`${this.ollamaUrl}/api/embeddings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -554,7 +577,7 @@ Use zero toolCalls for general knowledge or conversation. You may choose up to 4
     try {
       const res = await this.fetchWithRetry(`${this.ollamaUrl}/api/tags`, { method: 'GET' }, 5_000, 0);
       const data = await res.json() as { models?: Array<{ name: string }> };
-      const models = (data.models ?? []).map((model) => model.name);
+      const models = (data.models ?? []).map((model) => model.name).filter(name => !this.qwenOnly || isQwenEditionModel(name));
       this.installedCache = { at: Date.now(), names: models };
       return {
         running: true,
@@ -587,6 +610,7 @@ Use zero toolCalls for general knowledge or conversation. You may choose up to 4
   }
 
   async pullModel(modelName: string): Promise<{ success: boolean; message: string }> {
+    this.assertEditionModel(modelName || '__missing__');
     try {
       const res = await this.fetchWithRetry(`${this.ollamaUrl}/api/pull`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: modelName, stream: false }),
@@ -598,6 +622,7 @@ Use zero toolCalls for general knowledge or conversation. You may choose up to 4
   }
 
   async deleteModel(modelName: string): Promise<{ success: boolean; message: string }> {
+    this.assertEditionModel(modelName || '__missing__');
     try {
       await this.fetchWithRetry(`${this.ollamaUrl}/api/delete`, {
         method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: modelName }),

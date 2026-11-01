@@ -3,6 +3,11 @@ name: Build Windows Installer
 on:
   workflow_dispatch:
     inputs:
+      edition:
+        description: 'Desktop edition'
+        type: choice
+        options: [standard, qwen3-only]
+        default: standard
       publish:
         description: 'Publish a release so desktop apps auto-update (no tag needed)'
         type: boolean
@@ -34,6 +39,8 @@ on:
 jobs:
   build-windows:
     runs-on: windows-latest
+    env:
+      KOBE_BUILD_EDITION: ${{ inputs.edition || 'standard' }}
     permissions:
       contents: write
 
@@ -171,7 +178,7 @@ jobs:
       # `url` in models/bundled/models.json. Required, not fail-soft: shipping an
       # installer with no model is the defect this replaces.
       - name: Fetch bundled AI models
-        if: vars.BUNDLE_AI_MODELS != 'false'
+        if: vars.BUNDLE_AI_MODELS != 'false' && env.KOBE_BUILD_EDITION != 'qwen3-only'
         run: npm run fetch:models
         env:
           KOBE_MODELS_DIR: ${{ vars.KOBE_MODELS_DIR }}
@@ -186,7 +193,18 @@ jobs:
       # electron-builder creates the release for the current package.json version.
       # Other builds publish nothing.
       - name: Build Windows installer
+        if: env.KOBE_BUILD_EDITION != 'qwen3-only'
         run: npx electron-builder --win --publish ${{ (startsWith(github.ref, 'refs/tags/v') || github.event.inputs.publish == 'true') && 'always' || 'never' }}
+
+      - name: Build Qwen-only Windows installer
+        if: env.KOBE_BUILD_EDITION == 'qwen3-only'
+        run: |
+          npm run edition:qwen3
+          npx electron-builder --config build/edition-qwen3-only/electron-builder.json --win --publish never
+
+      - name: Verify Qwen-only package
+        if: env.KOBE_BUILD_EDITION == 'qwen3-only'
+        run: node scripts/verify-qwen3-package.cjs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -242,7 +260,7 @@ jobs:
         shell: pwsh
 
       - name: 'Smoke test: verify the AI model is bundled'
-        if: vars.BUNDLE_AI_MODELS != 'false'
+        if: vars.BUNDLE_AI_MODELS != 'false' && env.KOBE_BUILD_EDITION != 'qwen3-only'
         run: |
           # electron/main.cjs registers these with `ollama create` on first boot;
           # no gguf here means a fresh install has an AI engine and nothing to run.
@@ -369,7 +387,7 @@ jobs:
       - name: Upload Windows installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: KobeOS-Windows-Setup
+          name: KobeOS-${{ env.KOBE_BUILD_EDITION }}-Windows-Setup
           path: |
             release/*.exe
             release/vc_redist.x64.exe

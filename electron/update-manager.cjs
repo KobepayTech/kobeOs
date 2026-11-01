@@ -120,6 +120,7 @@ function setupAutoUpdater(win) {
   const handsOff = String(process.env.KOBE_AUTO_UPDATE || 'on').toLowerCase() !== 'off';
   autoUpdater.autoDownload = handsOff;
   autoUpdater.autoInstallOnAppQuit = handsOff;
+  if (require('../package.json').kobeEdition === 'qwen3-only') autoUpdater.channel = 'qwen3-only';
   autoUpdater.allowPrerelease = false;
   autoUpdater.allowDowngrade = false;
   // Delta (differential) updates: electron-updater downloads only changed blocks

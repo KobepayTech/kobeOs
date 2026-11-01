@@ -1,0 +1,786 @@
+{
+  "base": "e0467580c402fcc6371efab3ac9079ef48bee50b",
+  "counts": {
+    "merged (ancestor)": 37,
+    "not confirmed merged": 2,
+    "merged via PR": 36,
+    "open PR": 8,
+    "closed without merge": 3
+  },
+  "branches": [
+    {
+      "branch": "agent/ai-reliability-scheduled-agents",
+      "sha": "6c2f8d5379423679d65c0c90073de01ca8add3c4",
+      "behind": 640,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 65,
+      "merged": true
+    },
+    {
+      "branch": "agent/independent-module-sites",
+      "sha": "0cce7045290f8c640bc332dc1ab70d79ee31934a",
+      "behind": 640,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 61,
+      "merged": true
+    },
+    {
+      "branch": "agent/kobepay-receipt-china-cashier",
+      "sha": "c658db7875be6cb483ef03d7b1eda0e5e29125d5",
+      "behind": 641,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 63,
+      "merged": true
+    },
+    {
+      "branch": "agent/livesales-meta-deployment",
+      "sha": "8ddf0786415d8f81e4c5a3f2c28478378f4ca559",
+      "behind": 453,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 83,
+      "merged": true
+    },
+    {
+      "branch": "agent/property-bulk-layout-onboarding",
+      "sha": "0050369c273d65f81ea2b03eb1a3401e77334300",
+      "behind": 642,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 62,
+      "merged": true
+    },
+    {
+      "branch": "agent/property-payment-orders-portals",
+      "sha": "39e5d454b203992c0acb48460c4a779ed69388ec",
+      "behind": 640,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 64,
+      "merged": true
+    },
+    {
+      "branch": "agent/real-module-app-store",
+      "sha": "9a8e1d29cea77782e3eb0d234b3c3004f49f7036",
+      "behind": 636,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 66,
+      "merged": true
+    },
+    {
+      "branch": "agent/shared-media-inbox",
+      "sha": "7d65ce63da474e47d09e109ee454322dfc7805f4",
+      "behind": 638,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 67,
+      "merged": true
+    },
+    {
+      "branch": "claude/check-bugs-rBrdq",
+      "sha": "a2659c7b6ba68aef89bd505d815dfa7da86fae34",
+      "behind": 12,
+      "ahead": 2,
+      "status": "not confirmed merged",
+      "pr": 173,
+      "merged": false
+    },
+    {
+      "branch": "codex/allow-protected-node-origin-listener",
+      "sha": "2898d6797e9787fc0d905cc43b1ea8656083ea9b",
+      "behind": 126,
+      "ahead": 1,
+      "status": "merged via PR",
+      "pr": 128,
+      "merged": true
+    },
+    {
+      "branch": "codex/complete-live-sales",
+      "sha": "0f546bb618dd3df9a19445a0379d8de5f78074f2",
+      "behind": 93,
+      "ahead": 2,
+      "status": "open PR",
+      "pr": 136,
+      "merged": false
+    },
+    {
+      "branch": "codex/control-origin-runtime-during-release",
+      "sha": "dba58cd2176724e7da9dd44d4f374017dc9c8cae",
+      "behind": 127,
+      "ahead": 1,
+      "status": "merged via PR",
+      "pr": 127,
+      "merged": true
+    },
+    {
+      "branch": "codex/diagnose-windows-origin-release",
+      "sha": "1d7000efe1a9ebe4cfe60c0d573966dd897e1b43",
+      "behind": 129,
+      "ahead": 1,
+      "status": "merged via PR",
+      "pr": 125,
+      "merged": true
+    },
+    {
+      "branch": "codex/drain-stale-origin-listener",
+      "sha": "a61d1abf40f176a6ec5d392274429ff9ac4640f6",
+      "behind": 128,
+      "ahead": 2,
+      "status": "merged via PR",
+      "pr": 126,
+      "merged": true
+    },
+    {
+      "branch": "codex/exclude-test-migrations",
+      "sha": "ca0d59359dd0a59ce54a13eb5c5bd0494fd82c70",
+      "behind": 193,
+      "ahead": 3,
+      "status": "merged via PR",
+      "pr": 105,
+      "merged": true
+    },
+    {
+      "branch": "codex/fix-facebook-signin-recovery",
+      "sha": "6c8dc33e39ec67e529cc91c2e2fe3a3ea96922eb",
+      "behind": 96,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 131,
+      "merged": true
+    },
+    {
+      "branch": "codex/fix-origin-supervisor-count",
+      "sha": "9190d97e6dc3460f2c16de7bac1231c6719f5f84",
+      "behind": 194,
+      "ahead": 1,
+      "status": "merged via PR",
+      "pr": 104,
+      "merged": true
+    },
+    {
+      "branch": "codex/fix-windows-release-check",
+      "sha": "0125b0c84a473ee3a4f09cd507d70fe0effebd4a",
+      "behind": 131,
+      "ahead": 1,
+      "status": "merged via PR",
+      "pr": 123,
+      "merged": true
+    },
+    {
+      "branch": "codex/full-origin-autorecovery",
+      "sha": "7fb705d90f2a5854e3fa08664c29946cf955e72c",
+      "behind": 195,
+      "ahead": 6,
+      "status": "merged via PR",
+      "pr": 103,
+      "merged": true
+    },
+    {
+      "branch": "codex/kobeai-fast-default",
+      "sha": "424efce726d6fce6f38af9bbc87aa4066af1b51f",
+      "behind": 126,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 124,
+      "merged": true
+    },
+    {
+      "branch": "codex/live-full-cart-attribution",
+      "sha": "75d3908356f593ee9b6d7844cae5cb03b8fbf4a8",
+      "behind": 533,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 73,
+      "merged": true
+    },
+    {
+      "branch": "codex/meta-oauth-fix",
+      "sha": "4aebf2d2c638bf66df26fd71c8b4dccf718dd73e",
+      "behind": 393,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 85,
+      "merged": true
+    },
+    {
+      "branch": "codex/offbox-origin-verification",
+      "sha": "0ada8630f733cb72fd3f10aa60013288e460958d",
+      "behind": 192,
+      "ahead": 2,
+      "status": "merged via PR",
+      "pr": 106,
+      "merged": true
+    },
+    {
+      "branch": "codex/preserve-claude-ai-connection-recovery",
+      "sha": "0df8d7372429f11db0dfb0bb3d51fdf36c19b241",
+      "behind": 104,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 130,
+      "merged": true
+    },
+    {
+      "branch": "codex/release-windows-origin-mvp",
+      "sha": "f46702b3088694cbc3ee9b4cfb42467cce3a4637",
+      "behind": 133,
+      "ahead": 1,
+      "status": "merged via PR",
+      "pr": 122,
+      "merged": true
+    },
+    {
+      "branch": "codex/selfheal-no-prod-migrations",
+      "sha": "2735e302a174e8d88027905580fed758f261a8a3",
+      "behind": 134,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 121,
+      "merged": true
+    },
+    {
+      "branch": "codex/supervisor-drain-deployment-listener",
+      "sha": "fdca7b4b61ff891bdee808a053dd859b0492e9ab",
+      "behind": 123,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 129,
+      "merged": true
+    },
+    {
+      "branch": "codex/verify-deployed-lala-route",
+      "sha": "3c0dde5f23775b4ca91d51665e278b2ef9f7d173",
+      "behind": 191,
+      "ahead": 2,
+      "status": "merged via PR",
+      "pr": 107,
+      "merged": true
+    },
+    {
+      "branch": "copilot/fix-bug",
+      "sha": "27e85e2f1f62f1159922e42eeadac40a9540576c",
+      "behind": 807,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": null,
+      "merged": true
+    },
+    {
+      "branch": "copilot/fix-build-windows-job",
+      "sha": "61bc6029ee70558f79155f36180cb26f4f2f326d",
+      "behind": 415,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 48,
+      "merged": true
+    },
+    {
+      "branch": "copilot/fix-build-windows-job-again",
+      "sha": "56f016a092f8b9a7b9b43b918b6c2abb923e6351",
+      "behind": 808,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 50,
+      "merged": true
+    },
+    {
+      "branch": "copilot/fix-build-windows-selfhosted",
+      "sha": "cbf921c3b0a23351894893d1ba15b739d2b3f7e8",
+      "behind": 655,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 51,
+      "merged": true
+    },
+    {
+      "branch": "copilot/fix-build-windows-selfhosted-again",
+      "sha": "332ec459afe8d37c56f7c4916b398e266926a120",
+      "behind": 426,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 68,
+      "merged": true
+    },
+    {
+      "branch": "copilot/fix-build-windows-selfhosted-another-one",
+      "sha": "c071d1031bb07e9c538f548c2ad0bc68f20a559b",
+      "behind": 605,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 70,
+      "merged": true
+    },
+    {
+      "branch": "copilot/fix-build-windows-selfhosted-job",
+      "sha": "6347ada0d1d9688d9bf2ec01268b67df817d6061",
+      "behind": 608,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 69,
+      "merged": true
+    },
+    {
+      "branch": "copilot/fix-build-windows-selfhosted-job-again",
+      "sha": "9169f78016289536a33491df1c52d5307d12ce51",
+      "behind": 591,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 71,
+      "merged": true
+    },
+    {
+      "branch": "copilot/fix-build-windows-selfhosted-yet-again",
+      "sha": "4608615e472c4466415815b44c5b24b8093b2138",
+      "behind": 586,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 72,
+      "merged": true
+    },
+    {
+      "branch": "demo/kijani-motors-preview",
+      "sha": "09a71971b933c9230979cd8ac2d500da6ef4075e",
+      "behind": 210,
+      "ahead": 1,
+      "status": "merged via PR",
+      "pr": 93,
+      "merged": true
+    },
+    {
+      "branch": "feat/activate-supabase-lala-backup",
+      "sha": "c4dec1b9daf189e4eafd5256998193b492bb061b",
+      "behind": 187,
+      "ahead": 11,
+      "status": "merged via PR",
+      "pr": 110,
+      "merged": true
+    },
+    {
+      "branch": "feat/air-cargo-desktop",
+      "sha": "6b2a0e20ccd1bf2b65487cc2004245e32f544fb9",
+      "behind": 9,
+      "ahead": 3,
+      "status": "open PR",
+      "pr": 168,
+      "merged": false
+    },
+    {
+      "branch": "feat/always-on-api-arrears-status",
+      "sha": "065c3384b6dc5b107cf8a66140e6361025805ef2",
+      "behind": 176,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 114,
+      "merged": true
+    },
+    {
+      "branch": "feat/cloudflare-primary-api",
+      "sha": "2ae9df5a86fcdbbb36aec24e914f0231115ab803",
+      "behind": 172,
+      "ahead": 25,
+      "status": "merged via PR",
+      "pr": 120,
+      "merged": true
+    },
+    {
+      "branch": "feat/cloudflare-primary-db-cutover",
+      "sha": "32d8222c1f79fb36c9a8840253a3cf6253ac726c",
+      "behind": 135,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": null,
+      "merged": true
+    },
+    {
+      "branch": "feat/dealership-production-completion",
+      "sha": "717567a50ff7741c480bad4368d97217ec16dcd1",
+      "behind": 214,
+      "ahead": 20,
+      "status": "merged via PR",
+      "pr": 89,
+      "merged": true
+    },
+    {
+      "branch": "feat/dealership-public-demo",
+      "sha": "8c6c88df1065c34172b622b6bbd15b52c80d675d",
+      "behind": 211,
+      "ahead": 6,
+      "status": "merged via PR",
+      "pr": 92,
+      "merged": true
+    },
+    {
+      "branch": "feat/dual-path-production-failover",
+      "sha": "661902be9dd25fe3a8a60203438ffa0d18739c2e",
+      "behind": 188,
+      "ahead": 18,
+      "status": "merged via PR",
+      "pr": 109,
+      "merged": true
+    },
+    {
+      "branch": "feat/dual-path-production-failover-v2",
+      "sha": "efe073ccd29f020b2645da8c7003d46730b8589e",
+      "behind": 188,
+      "ahead": 17,
+      "status": "not confirmed merged",
+      "pr": null,
+      "merged": false
+    },
+    {
+      "branch": "feat/finish-all-mvp-modules",
+      "sha": "6fd655ed65271964dfd981b5e4c8b142a88c60a3",
+      "behind": 461,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 82,
+      "merged": true
+    },
+    {
+      "branch": "feat/kobe-ai-operating-layer-20",
+      "sha": "d38837f4d7b82b9444badc09147d04d4024e04ad",
+      "behind": 172,
+      "ahead": 67,
+      "status": "merged via PR",
+      "pr": 118,
+      "merged": true
+    },
+    {
+      "branch": "feat/kobe-ai-router-v2",
+      "sha": "11be433acd55057ee9a8c10273854cbd15cf85f9",
+      "behind": 174,
+      "ahead": 22,
+      "status": "merged via PR",
+      "pr": 116,
+      "merged": true
+    },
+    {
+      "branch": "feat/kobe-ai-skills-activity-webapps",
+      "sha": "72e40e24c9e0aa099feb00b74dd7483722fa548d",
+      "behind": 173,
+      "ahead": 5,
+      "status": "merged via PR",
+      "pr": 117,
+      "merged": true
+    },
+    {
+      "branch": "feat/kobeai-k9-school-student-integration",
+      "sha": "069fa723fde64164e8357098aa66f13e11d0afd3",
+      "behind": 79,
+      "ahead": 1,
+      "status": "open PR",
+      "pr": 142,
+      "merged": false
+    },
+    {
+      "branch": "feat/kobepay-cashier-qr-scan",
+      "sha": "147aaf24d47f90807ebea52ba8afb68f3085fd34",
+      "behind": 189,
+      "ahead": 6,
+      "status": "merged via PR",
+      "pr": 108,
+      "merged": true
+    },
+    {
+      "branch": "feat/multimode-storefront-experience",
+      "sha": "9509565d60d3e4e4e955262778bc30f3dab587bf",
+      "behind": 0,
+      "ahead": 2,
+      "status": "open PR",
+      "pr": 176,
+      "merged": false
+    },
+    {
+      "branch": "feat/mvp-mobile-ai-module-store",
+      "sha": "efb0909c4e25e11edf2956df78ecaa11182d378d",
+      "behind": 455,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 78,
+      "merged": true
+    },
+    {
+      "branch": "feat/phone-avatar-live-sales",
+      "sha": "fdb452ce5859cf80371e7c6c32e38012c5f9a37a",
+      "behind": 5,
+      "ahead": 3,
+      "status": "merged via PR",
+      "pr": 172,
+      "merged": true
+    },
+    {
+      "branch": "feat/property-intelligence-foundation",
+      "sha": "7b6bc60fc5ace1d5051b7c4edc55c5e7458b6cc0",
+      "behind": 66,
+      "ahead": 2,
+      "status": "open PR",
+      "pr": 149,
+      "merged": false
+    },
+    {
+      "branch": "feat/property-marketplace-auto-provision",
+      "sha": "43e62bb73990f69b3ed1b05f499db1ac87864e1b",
+      "behind": 216,
+      "ahead": 20,
+      "status": "merged via PR",
+      "pr": 87,
+      "merged": true
+    },
+    {
+      "branch": "feat/property-pm-always-on-api",
+      "sha": "2bcad00e8394210d0456b6927ab99345105f5b45",
+      "behind": 185,
+      "ahead": 10,
+      "status": "closed without merge",
+      "pr": 111,
+      "merged": false
+    },
+    {
+      "branch": "feat/property-pm-always-on-api-ci",
+      "sha": "2bcad00e8394210d0456b6927ab99345105f5b45",
+      "behind": 185,
+      "ahead": 10,
+      "status": "closed without merge",
+      "pr": 113,
+      "merged": false
+    },
+    {
+      "branch": "feat/property-pm-hotel-polish-always-on-api",
+      "sha": "3f00b44cec95b5e910a9c0987b63f3b5fb6bc1f7",
+      "behind": 187,
+      "ahead": 12,
+      "status": "closed without merge",
+      "pr": 115,
+      "merged": false
+    },
+    {
+      "branch": "feat/store-camera-live",
+      "sha": "d1ffc7740abfa3755ba25966e53923cc3cedb249",
+      "behind": 0,
+      "ahead": 10,
+      "status": "open PR",
+      "pr": 175,
+      "merged": false
+    },
+    {
+      "branch": "feature/eod-expenses",
+      "sha": "42dcd70418af9f518e3bfb2e9689055bf7ea6633",
+      "behind": 982,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 35,
+      "merged": true
+    },
+    {
+      "branch": "fix/account-signin-methods",
+      "sha": "867c38ca77a29384da1d514543f33a44dca80393",
+      "behind": 18,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 164,
+      "merged": true
+    },
+    {
+      "branch": "fix/creator-production-no-demo",
+      "sha": "2eba05a09f8a6008dd62f8af304280151fba150b",
+      "behind": 502,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 80,
+      "merged": true
+    },
+    {
+      "branch": "fix/hotel-production-no-demo",
+      "sha": "8ff6c716d894b10ed84d6e7db8fa310f7cfc487a",
+      "behind": 501,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 79,
+      "merged": true
+    },
+    {
+      "branch": "fix/hotel-property-mvp",
+      "sha": "2f323065e4891be08731e90e522e97a8bbe3d640",
+      "behind": 67,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 144,
+      "merged": true
+    },
+    {
+      "branch": "fix/kijani-demo-pages",
+      "sha": "7d9ea8a5766a14a67c9d52d16205e4b738e5ef34",
+      "behind": 209,
+      "ahead": 1,
+      "status": "merged via PR",
+      "pr": 94,
+      "merged": true
+    },
+    {
+      "branch": "fix/lala-deploy-gates",
+      "sha": "e7a2fce52679b3ead14eb8365082c3f3133967a5",
+      "behind": 212,
+      "ahead": 2,
+      "status": "merged via PR",
+      "pr": 91,
+      "merged": true
+    },
+    {
+      "branch": "fix/lala-deploy-truthful-status",
+      "sha": "be0a270a1d3dfcc12f9664236c046bb1de3afd1d",
+      "behind": 205,
+      "ahead": 1,
+      "status": "merged via PR",
+      "pr": 98,
+      "merged": true
+    },
+    {
+      "branch": "fix/lala-mvp-production",
+      "sha": "e62ece778cfdb364f7bfe128bdae10091d9ac483",
+      "behind": 214,
+      "ahead": 8,
+      "status": "merged via PR",
+      "pr": 90,
+      "merged": true
+    },
+    {
+      "branch": "fix/lala-origin-autostart",
+      "sha": "6558f94fb0ff19db89a5e4c9dc520b6eb9a42d43",
+      "behind": 198,
+      "ahead": 3,
+      "status": "merged via PR",
+      "pr": 100,
+      "merged": true
+    },
+    {
+      "branch": "fix/lala-origin-runner-fallback",
+      "sha": "1fe98efbf62f3df7b854f5fff56fc108a7f061bd",
+      "behind": 197,
+      "ahead": 2,
+      "status": "merged via PR",
+      "pr": 101,
+      "merged": true
+    },
+    {
+      "branch": "fix/lala-origin-startup-diagnostics",
+      "sha": "c11074b24f2ba552817258109f7ce9aa17388733",
+      "behind": 196,
+      "ahead": 2,
+      "status": "merged via PR",
+      "pr": 102,
+      "merged": true
+    },
+    {
+      "branch": "fix/lala-supabase-emergency-web",
+      "sha": "edcf9273fb4d29ab7947606e09a3d8edc16dc46e",
+      "behind": 185,
+      "ahead": 4,
+      "status": "merged via PR",
+      "pr": 112,
+      "merged": true
+    },
+    {
+      "branch": "fix/login-scroll-cloud-oauth",
+      "sha": "d230208c28b6180df5425dd136e20290cc0d9967",
+      "behind": 513,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 76,
+      "merged": true
+    },
+    {
+      "branch": "fix/module-window-theme-foundation",
+      "sha": "23af04458e647fb40eac26f77f84771d5723b244",
+      "behind": 651,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 52,
+      "merged": true
+    },
+    {
+      "branch": "fix/production-webapps-live",
+      "sha": "f9e31f08004f9edc824e37c0e709f66b8c1dd797",
+      "behind": 215,
+      "ahead": 9,
+      "status": "merged via PR",
+      "pr": 88,
+      "merged": true
+    },
+    {
+      "branch": "fix/published-shop-resolution",
+      "sha": "0cca37aeeed454cea139ce8ec98b1e9a3ba90284",
+      "behind": 0,
+      "ahead": 1,
+      "status": "open PR",
+      "pr": 174,
+      "merged": false
+    },
+    {
+      "branch": "hotelos-byte-foundation-20260924",
+      "sha": "e91646420927f6d781611d67cb288cb105ae9c0f",
+      "behind": 79,
+      "ahead": 4,
+      "status": "open PR",
+      "pr": 141,
+      "merged": false
+    },
+    {
+      "branch": "kobepaytech-bug-check-scan",
+      "sha": "8d5cedc112f52519d8c1437edc84165a9f4b4557",
+      "behind": 804,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 49,
+      "merged": true
+    },
+    {
+      "branch": "mvp/module-store-mobile-ai",
+      "sha": "94604d81398da8b27994bf2a806f9affd3395768",
+      "behind": 438,
+      "ahead": 0,
+      "status": "merged (ancestor)",
+      "pr": 84,
+      "merged": true
+    },
+    {
+      "branch": "ops/lala-capture-cloudflare-error",
+      "sha": "c2eef475b22b7a08d3695bb37703b0da31f71733",
+      "behind": 206,
+      "ahead": 1,
+      "status": "merged via PR",
+      "pr": 97,
+      "merged": true
+    },
+    {
+      "branch": "ops/lala-origin-diagnostics",
+      "sha": "1c97ce3d3dceb9519f42715ec755b16ad7e7420d",
+      "behind": 207,
+      "ahead": 1,
+      "status": "merged via PR",
+      "pr": 96,
+      "merged": true
+    },
+    {
+      "branch": "ops/lala-public-smoke",
+      "sha": "8f8c2b9dadc275d1eea19828de3dffceecaf4845",
+      "behind": 208,
+      "ahead": 1,
+      "status": "merged via PR",
+      "pr": 95,
+      "merged": true
+    },
+    {
+      "branch": "ops/lala-selfheal-origin",
+      "sha": "af5989ece58071dbc773fb7ba2aee4e25e23600b",
+      "behind": 204,
+      "ahead": 1,
+      "status": "merged via PR",
+      "pr": 99,
+      "merged": true
+    }
+  ]
+}
