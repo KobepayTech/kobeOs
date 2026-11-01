@@ -1,5 +1,5 @@
 import { TikTokCommentsService } from './tiktok-comments.service';
-import { Body, Controller, Delete, Get, Headers, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, Headers, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { IsBoolean, IsNumber, IsOptional, IsString, IsUUID, Matches, MaxLength, Min } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -64,9 +64,10 @@ export class LiveSaleController {
   ) {}
 
   @Get() list(@CurrentUser('id') uid: string) { return this.svc.listSessions(uid); }
-  @Get('broadcast/settings') broadcastSettings(@CurrentUser('id') uid: string) { return this.broadcast.configuration(uid); }
-  @Post('broadcast/settings') configureBroadcast(@CurrentUser('id') uid: string, @Body() dto: BroadcastSettingsDto) { return this.broadcast.configure(uid, dto.publishUrl, dto.playbackUrl); }
-  @Post(':id/broadcast') startBroadcast(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.broadcast.start(uid, id); }
+  @Get('broadcast/settings') @Header('Cache-Control', 'no-store') broadcastSettings(@CurrentUser('id') uid: string) { return this.broadcast.configuration(uid); }
+  @Post('broadcast/enable') @Header('Cache-Control', 'no-store') enableBroadcast(@CurrentUser('id') uid: string) { return this.broadcast.provision(uid); }
+  @Post('broadcast/settings') @Header('Cache-Control', 'no-store') configureBroadcast(@CurrentUser('id') uid: string, @Body() dto: BroadcastSettingsDto) { return this.broadcast.configure(uid, dto.publishUrl, dto.playbackUrl); }
+  @Post(':id/broadcast') @Header('Cache-Control', 'no-store') startBroadcast(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.broadcast.start(uid, id); }
   @Post(':id/broadcast/stop') stopBroadcast(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.broadcast.stop(uid, id); }
   @Post() async start(@CurrentUser('id') uid: string, @Body() dto: StartSessionDto) {
     const socialAccountId = (dto.cloudAccount || (dto.kind === 'post' && dto.platform !== 'instagram')) ? undefined : await this.instagram.resolveSessionAccount(uid, dto.platform, dto.socialAccountId);

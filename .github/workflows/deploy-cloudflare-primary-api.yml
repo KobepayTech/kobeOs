@@ -46,6 +46,8 @@ jobs:
       GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
       GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
       GOOGLE_REDIRECT_URI: ${{ secrets.GOOGLE_REDIRECT_URI }}
+      CF_STREAM_API_TOKEN: ${{ secrets.CLOUDFLARE_STREAM_API_TOKEN }}
+      CF_STREAM_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID || vars.CF_ACCOUNT_ID }}
       TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
       TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
       TIKTOK_REDIRECT_URI: ${{ secrets.TIKTOK_REDIRECT_URI }}
@@ -106,7 +108,7 @@ jobs:
             }' > "$secrets_file"
 
           # Forward configured social provider secrets without logging their values.
-          jq '. + (env | with_entries(select(.key | IN("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REDIRECT_URI", "TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET", "TIKTOK_REDIRECT_URI", "META_APP_ID", "META_APP_SECRET", "META_REDIRECT_URI", "META_LOGIN_CONFIG_ID"))) | with_entries(select(.value != "")))' \
+          jq '. + (env | with_entries(select(.key | IN("CF_STREAM_API_TOKEN", "CF_STREAM_ACCOUNT_ID", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REDIRECT_URI", "TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET", "TIKTOK_REDIRECT_URI", "META_APP_ID", "META_APP_SECRET", "META_REDIRECT_URI", "META_LOGIN_CONFIG_ID"))) | with_entries(select(.value != "")))' \
             "$secrets_file" > "$secrets_file.providers"
           mv "$secrets_file.providers" "$secrets_file"
 
@@ -199,6 +201,8 @@ jobs:
       GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
       GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
       GOOGLE_REDIRECT_URI: ${{ secrets.GOOGLE_REDIRECT_URI }}
+      CF_STREAM_API_TOKEN: ${{ secrets.CLOUDFLARE_STREAM_API_TOKEN }}
+      CF_STREAM_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID || vars.CF_ACCOUNT_ID }}
       TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
       TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
       TIKTOK_REDIRECT_URI: ${{ secrets.TIKTOK_REDIRECT_URI }}
@@ -248,7 +252,7 @@ jobs:
             }' > "$secrets_file"
 
           # Forward configured social provider secrets without logging their values.
-          jq '. + (env | with_entries(select(.key | IN("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REDIRECT_URI", "TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET", "TIKTOK_REDIRECT_URI", "META_APP_ID", "META_APP_SECRET", "META_REDIRECT_URI", "META_LOGIN_CONFIG_ID"))) | with_entries(select(.value != "")))' \
+          jq '. + (env | with_entries(select(.key | IN("CF_STREAM_API_TOKEN", "CF_STREAM_ACCOUNT_ID", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "GOOGLE_REDIRECT_URI", "TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET", "TIKTOK_REDIRECT_URI", "META_APP_ID", "META_APP_SECRET", "META_REDIRECT_URI", "META_LOGIN_CONFIG_ID"))) | with_entries(select(.value != "")))' \
             "$secrets_file" > "$secrets_file.providers"
           mv "$secrets_file.providers" "$secrets_file"
 

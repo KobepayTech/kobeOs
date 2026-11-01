@@ -18,6 +18,7 @@ import { StoreSettings } from '../store-settings/store-settings.entity';
 import { OrdersService } from '../pos/pos.service';
 import { PalmPesaService } from '../creators/palmpesa.service';
 import { ApifyService } from './apify.service';
+import { liveShopLinks } from './live-shop-links';
 
 const num = (v: unknown) => Number(v) || 0;
 
@@ -148,18 +149,11 @@ export class LiveSaleService {
 
   async operatorContext(uid: string) {
     const store = await this.settings.findOne({ where: { ownerId: uid } });
-    if (!store) return { storefrontSlug: '', storefrontUrl: '', catalogUrl: '' };
-    const baseDomain = (process.env.TENANT_BASE_DOMAIN || process.env.CF_DOMAIN || 'kobeapptz.com')
-      .trim()
-      .replace(/^https?:\/\//, '')
-      .replace(/\/$/, '');
-    const storefrontUrl = store.customDomain
-      ? `https://${store.customDomain.replace(/^https?:\/\//, '').replace(/\/$/, '')}`
-      : `https://${store.domainSlug}.${baseDomain}`;
+    if (!store) return { storefrontSlug: '', storefrontUrl: '', catalogUrl: '', storePublished: false };
     return {
       storefrontSlug: store.domainSlug,
-      storefrontUrl,
-      catalogUrl: `${storefrontUrl}/live`,
+      ...liveShopLinks(store),
+      storePublished: !!store.isPublished,
     };
   }
 
@@ -216,10 +210,7 @@ export class LiveSaleService {
     }
     // "NOW SHOWING" — the featured product (or the first) leads the catalog.
     const featured = products.find((p) => p.isFeatured) ?? products[0] ?? null;
-    const configured = s.publishedUrl?.trim() || s.customDomain?.trim() || '';
-    const storefrontUrl = configured
-      ? (/^https?:\/\//i.test(configured) ? configured : `https://${configured}`)
-      : `https://${s.domainSlug}.${process.env.TENANT_BASE_DOMAIN || process.env.CF_DOMAIN || 'kobeapptz.com'}`;
+    const { storefrontUrl } = liveShopLinks(s);
     return {
       live: true as const,
       sessionId: session.id,
