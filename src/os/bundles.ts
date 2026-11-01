@@ -18,30 +18,43 @@
  * apps were tracked separately from the module that granted them.
  */
 
-export type ProductModuleId =
-  | 'kobe-commerce' | 'kobe-accountant' | 'kobe-connect' | 'kobe-office'
-  | 'kobe-hotel' | 'kobe-property' | 'kobe-cargo' | 'kobe-pay'
-  | 'kobe-creators' | 'kobe-studio' | 'kobe-live-sales' | 'kobe-media'
-  | 'kobe-sports' | 'kobe-transit' | 'kobe-developer' | 'kobe-games';
+import { PLATFORM_SERVICE_APP_IDS, storeModules } from './store-modules';
 
-export const PRODUCT_MODULES: Record<ProductModuleId, string> = {
-  'kobe-commerce': 'Kobe Commerce',
-  'kobe-accountant': 'Kobe Accountant',
-  'kobe-connect': 'Kobe Connect',
-  'kobe-office': 'Kobe Office',
-  'kobe-hotel': 'Kobe Hotels',
-  'kobe-property': 'Kobe Property',
-  'kobe-cargo': 'Kobe Cargo',
-  'kobe-pay': 'KobePay',
-  'kobe-creators': 'Kobe Creators',
-  'kobe-studio': 'Kobe Studio',
-  'kobe-live-sales': 'Kobe Live Sales',
-  'kobe-media': 'Kobe Media',
-  'kobe-sports': 'Kobe Sports',
-  'kobe-transit': 'Kobe Transit',
-  'kobe-developer': 'Kobe Developer',
-  'kobe-games': 'Kobe Games',
-};
+/**
+ * The sixteen product modules, as src/os/store-modules.ts already defines
+ * them. That file is the source of truth for which apps a module contains —
+ * restating the mapping here produced two catalogues that disagreed about one
+ * app, which is how a module gets sold and a different set installed.
+ */
+export const PRODUCT_MODULE_IDS = storeModules.map((module) => module.id);
+
+export type ProductModuleId = string;
+
+export const PRODUCT_MODULES: Record<string, string> = Object.fromEntries(
+  storeModules.map((module) => [module.id, module.name]),
+);
+
+/** Which product module grants each app, derived from the module definitions. */
+export const APP_MODULE: Record<string, ProductModuleId> = Object.fromEntries(
+  storeModules.flatMap((module) => module.appIds.map((appId) => [appId, module.id])),
+);
+
+/**
+ * Operator consoles. Called out separately from the platform services because
+ * they are not the same thing: a file manager belongs in every workspace,
+ * while these are KobeTech's own tools and keep their role checks. Selling a
+ * bundle must never be a route into them.
+ */
+export const OPERATOR_APPS: readonly string[] = ['kobetech-admin', 'kobetech-devops'];
+
+/**
+ * Platform services, included in every workspace and not sold. Taken from the
+ * existing set, minus the operator consoles it groups together with them.
+ */
+export const SHARED_CORE_APPS: readonly string[] = [...PLATFORM_SERVICE_APP_IDS]
+  .filter((appId) => !OPERATOR_APPS.includes(appId));
+
+
 
 export interface Bundle {
   id: string;
@@ -150,89 +163,6 @@ export const BUNDLES: Bundle[] = [
   },
 ];
 
-/**
- * Platform services, included in every workspace.
- *
- * These are not sold, cannot be uninstalled, and must never depend on a
- * bundle: a workspace without a file manager or settings is not a cheaper
- * workspace, it is a broken one.
- */
-export const SHARED_CORE_APPS: readonly string[] = [
-  'file-manager', 'terminal', 'settings', 'system-settings', 'task-manager',
-  'package-manager', 'app-store', 'backup-restore', 'password-manager',
-  'browser', 'kobe-models', 'kobe-assistant', 'kobe-agents',
-];
-
-/**
- * Operator consoles. Deliberately outside every bundle — they are KobeTech's
- * own tools, and they keep their existing role checks regardless of what a
- * customer has installed. Selling a bundle must never be a route to them.
- */
-export const OPERATOR_APPS: readonly string[] = ['kobetech-admin', 'kobetech-devops'];
-
-/** Which product module grants each app. Apps not listed here are not sold. */
-export const APP_MODULE: Record<string, ProductModuleId> = {
-  // Kobe Office
-  calculator: 'kobe-office', 'text-editor': 'kobe-office', notepad: 'kobe-office',
-  calendar: 'kobe-office', clock: 'kobe-office', tasks: 'kobe-office',
-  notes: 'kobe-office', spreadsheet: 'kobe-office', presentation: 'kobe-office',
-  draw: 'kobe-office', kanban: 'kobe-office',
-
-  // Kobe Media
-  'media-player': 'kobe-media', 'image-viewer': 'kobe-media',
-  'music-studio': 'kobe-media', camera: 'kobe-media', 'screen-recorder': 'kobe-media',
-
-  // Kobe Connect
-  email: 'kobe-connect', chat: 'kobe-connect', contacts: 'kobe-connect',
-  'video-conference': 'kobe-connect',
-
-  // Kobe Developer
-  'code-ide': 'kobe-developer', 'database-manager': 'kobe-developer',
-  'api-tester': 'kobe-developer', 'git-client': 'kobe-developer',
-  'regex-tester': 'kobe-developer', 'json-formatter': 'kobe-developer',
-  'color-picker': 'kobe-developer', 'markdown-preview': 'kobe-developer',
-
-  // Kobe Games
-  snake: 'kobe-games', tetris: 'kobe-games', chess: 'kobe-games', solitaire: 'kobe-games',
-
-  // Kobe Commerce
-  'erp-dashboard': 'kobe-commerce', 'erp-pos': 'kobe-commerce',
-  'erp-messaging': 'kobe-commerce', 'erp-store': 'kobe-commerce',
-  'erp-warehouse': 'kobe-commerce', 'erp-warehouse-ops': 'kobe-commerce',
-  'erp-kobepay-inbox': 'kobe-commerce', 'erp-reports': 'kobe-commerce',
-  'erp-summary': 'kobe-commerce', 'erp-eod': 'kobe-commerce',
-  'erp-admin': 'kobe-commerce', 'erp-sourcing': 'kobe-commerce',
-  'erp-shipments': 'kobe-commerce', 'erp-loyalty': 'kobe-commerce',
-  'erp-rider': 'kobe-commerce', posys: 'kobe-commerce',
-  'erp-credit': 'kobe-commerce', 'erp-discounts': 'kobe-commerce',
-  'erp-shop': 'kobe-commerce', 'erp-store-editor': 'kobe-commerce',
-  'kobe-commerce': 'kobe-commerce',
-
-  // Kobe Accountant
-  'erp-accounting': 'kobe-accountant', 'kobe-accountant': 'kobe-accountant',
-
-  // Kobe Property
-  property: 'kobe-property', 'property-payments': 'kobe-property',
-
-  // Kobe Studio
-  'media-inbox': 'kobe-studio', 'kobe-print': 'kobe-studio', 'kobe-studio': 'kobe-studio',
-
-  // Kobe Cargo
-  cargo: 'kobe-cargo', 'cargo-welcome': 'kobe-cargo', 'cargo-sender': 'kobe-cargo',
-  'cargo-owner': 'kobe-cargo', 'cargo-driver': 'kobe-cargo',
-  'cargo-receiver': 'kobe-cargo', 'cargo-company': 'kobe-cargo',
-  'cargo-consolidation': 'kobe-cargo', 'cargo-tz': 'kobe-cargo',
-  'cargo-tz-ops': 'kobe-cargo',
-
-  // Remaining single-app modules
-  creator: 'kobe-creators',
-  'kobe-sports': 'kobe-sports', 'kobe-coach': 'kobe-sports',
-  'kobe-hotel': 'kobe-hotel',
-  'kobe-pay': 'kobe-pay', 'china-cashier': 'kobe-pay', 'kobepay-pro': 'kobe-pay',
-  'live-sales': 'kobe-live-sales',
-  'kobe-transit': 'kobe-transit',
-};
-
 export type AppClassification = 'shared-core' | 'module' | 'operator';
 
 export function classifyApp(appId: string): AppClassification | 'unassigned' {
@@ -260,7 +190,7 @@ export function modulesForBundles(bundleIds: readonly string[]): ProductModuleId
   }
   // Catalogue order, so two equivalent selections install in the same sequence
   // and a half-finished install is reproducible.
-  return (Object.keys(PRODUCT_MODULES) as ProductModuleId[]).filter((id) => seen.has(id));
+  return PRODUCT_MODULE_IDS.filter((id) => seen.has(id));
 }
 
 /** The apps a set of modules grants, in registry order. */

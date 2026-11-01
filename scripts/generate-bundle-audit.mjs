@@ -30,10 +30,18 @@ const OUT = join(ROOT, 'docs/BUNDLE_INVENTORY.md');
 function readCatalogue() {
   const source = readFileSync(join(ROOT, 'src/os/bundles.ts'), 'utf8');
 
+  // Module definitions live in store-modules.ts, which is the source of truth
+  // for which apps a module contains. bundles.ts adds only the bundle layer.
+  const moduleSource = readFileSync(join(ROOT, 'src/os/store-modules.ts'), 'utf8');
   const modules = {};
-  const moduleBlock = /export const PRODUCT_MODULES[^=]*=\s*\{([\s\S]*?)\n\};/.exec(source);
-  for (const [, id, name] of (moduleBlock?.[1] ?? '').matchAll(/'([a-z0-9-]+)':\s*'([^']+)'/g)) {
+  const appModule = {};
+  for (const chunk of moduleSource.split(/\n  \{/).slice(1)) {
+    const id = /id:\s*'([^']+)'/.exec(chunk)?.[1];
+    const name = /name:\s*'([^']+)'/.exec(chunk)?.[1];
+    const appIds = /appIds:\s*\[([\s\S]*?)\]/.exec(chunk)?.[1];
+    if (!id || !name || appIds === undefined) continue;
     modules[id] = name;
+    for (const [, appId] of appIds.matchAll(/'([a-z0-9-]+)'/g)) appModule[appId] = id;
   }
 
   const bundles = [];
@@ -46,19 +54,16 @@ function readCatalogue() {
     bundles.push({ id, name, modules: [...mods.matchAll(/'([a-z0-9-]+)'/g)].map((m) => m[1]) });
   }
 
-  const appModule = {};
-  const appBlock = /export const APP_MODULE: Record<string, ProductModuleId> = \{([\s\S]*?)\n\};/.exec(source);
-  for (const [, quoted, bare, moduleId] of (appBlock?.[1] ?? '')
-    .matchAll(/(?:'([a-z0-9-]+)'|([a-zA-Z][a-zA-Z0-9]*)):\s*'([a-z0-9-]+)'/g)) {
-    appModule[quoted ?? bare] = moduleId;
-  }
-
   const listOf = (name) => {
     const block = new RegExp(`export const ${name}: readonly string\\[\\] = \\[([\\s\\S]*?)\\];`).exec(source);
     return [...(block?.[1] ?? '').matchAll(/'([a-z0-9-]+)'/g)].map((m) => m[1]);
   };
 
-  return { modules, bundles, appModule, core: listOf('SHARED_CORE_APPS'), operator: listOf('OPERATOR_APPS') };
+  const operator = listOf('OPERATOR_APPS');
+  const platform = [...(/export const PLATFORM_SERVICE_APP_IDS = new Set\(\[([\s\S]*?)\]\);/
+    .exec(moduleSource)?.[1] ?? '').matchAll(/'([a-z0-9-]+)'/g)].map((m) => m[1]);
+  const core = platform.filter((appId) => !operator.includes(appId));
+  return { modules, bundles, appModule, core, operator };
 }
 
 /** Apps the registry imports, with the id and name from each manifest. */
