@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api } from '@/lib/api';
+import './air-cargo-desktop.css';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import { Plane, PlaneTakeoff, PlaneLanding, Globe, MapPin, Loader2, AlertCircle, RefreshCw, Link2 } from 'lucide-react';
+import { Plane, PlaneTakeoff, PlaneLanding, Globe, Radio, MapPin, Loader2, AlertCircle, RefreshCw, Link2 } from 'lucide-react';
 
 type BoardTab = 'dar-dep' | 'dar-arr' | 'china-dep' | 'hubs' | 'assigned';
 
@@ -44,17 +45,21 @@ interface ShipmentRow {
 }
 
 const DAR_CODE = 'DAR';
-const DEFAULT_CHINA_CODES = ['PVG', 'CAN', 'HKG'];
+const DEFAULT_CHINA_CODES = ['CAN', 'HKG'];
 
 export default function FlightBoard() {
   const [tab, setTab] = useState<BoardTab>('dar-dep');
   const [configured, setConfigured] = useState<boolean | null>(null);
 
-  useEffect(() => {
-    api<{ configured: boolean }>('/cargo/flights/fr24/status')
-      .then((r) => setConfigured(r.configured))
-      .catch(() => setConfigured(false));
+  const [connectionError, setConnectionError] = useState(false);
+  const checkConnection = useCallback(() => {
+    setConfigured(null);
+    setConnectionError(false);
+    return api<{ configured: boolean }>('/cargo/flights/fr24/status', { offlineFallback: false })
+      .then(r => { if (typeof r?.configured !== 'boolean') throw new Error('Invalid flight connection response'); setConfigured(r.configured); })
+      .catch(() => { setConnectionError(true); setConfigured(null); });
   }, []);
+  useEffect(() => { void checkConnection(); }, [checkConnection]);
 
   const tabs: Array<{ key: BoardTab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
     { key: 'dar-dep', label: 'DAR Departures', icon: PlaneTakeoff },
@@ -65,78 +70,24 @@ export default function FlightBoard() {
   ];
 
   return (
-    <div className="h-full flex flex-col relative overflow-hidden" style={{ background: 'linear-gradient(135deg, #E8E4F3 0%, #C9D6FF 50%, #E8E4F3 100%)' }}>
-      <BokehBackground />
-      <div className="relative z-10 flex-1 flex flex-col">
-        <div className="shrink-0 px-5 py-4 border-b border-white/[0.40] flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center">
-              <Plane className="w-4 h-4 text-blue-600" />
-            </div>
-            <div>
-              <h2 className="text-base font-semibold text-slate-700">Flight Board</h2>
-              <p className="text-[11px] text-slate-600">Powered by Flightradar24 — official API</p>
-            </div>
-          </div>
-          {configured === false && (
-            <div className="flex items-center gap-1.5 text-[11px] text-amber-600 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-md">
-              <AlertCircle className="w-3 h-3" /> FR24_API_KEY not set
-            </div>
-          )}
-        </div>
-
-        <div className="shrink-0 px-5 pt-3 border-b border-white/[0.40] flex gap-1 flex-wrap">
-          {tabs.map((t) => {
-            const Icon = t.icon;
-            const active = tab === t.key;
-            return (
-              <button
-                key={t.key}
-                onClick={() => setTab(t.key)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-[12px] rounded-t-md border-b-2 transition-colors ${
-                  active
-                    ? 'text-blue-600 border-blue-500 bg-blue-500/5'
-                    : 'text-slate-700 border-transparent hover:text-slate-700 hover:bg-white/[0.20]'
-                }`}
-              >
-                <Icon className="w-3.5 h-3.5" />
-                {t.label}
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="flex-1 overflow-y-auto p-5">
-          {tab === 'dar-dep' && <AirportPanel code={DAR_CODE} direction="departures" />}
-          {tab === 'dar-arr' && <AirportPanel code={DAR_CODE} direction="arrivals" />}
+    <section className="ad-flight-board">
+      <div className="ad-page-heading">
+        <div><div className="ad-overline">FLIGHT OPERATIONS / FLIGHTRADAR24</div><h1>Eyes on the sky.</h1><p>Live airport traffic. Linked to your cargo.</p></div>
+        <span className="ad-provider-status"><Radio size={15} />{connectionError ? 'Connection unavailable' : configured === null ? 'Checking connection' : configured ? 'Provider configured' : 'Flight feed not configured'}</span>
+      </div>
+      <div className="ad-board-tabs">{tabs.map(t => { const Icon = t.icon; return <button type="button" key={t.key} className="cursor-interaction" aria-pressed={tab === t.key} onClick={() => setTab(t.key)}><Icon className="h-4 w-4" />{t.label}</button>; })}</div>
+      {connectionError && <div className="ad-load-state" role="alert">The flight connection could not be checked.<button type="button" className="ad-text-button cursor-interaction" onClick={checkConnection}>Retry connection</button></div>}
+      {configured === false && !connectionError && <div className="ad-feed-notice"><Radio size={20} /><div><h3>The connector is installed. Activate the feed.</h3><p>Configure FlightRadar24 on the server to receive real aircraft positions.</p></div><button type="button" className="ad-text-button cursor-interaction" onClick={checkConnection}>Check again</button></div>}
+      <div className="ad-flight-body">
+        {tab === 'assigned' ? <AssignedFlightsPanel /> : configured === true ? <>
+          {tab === 'dar-dep' && <AirportPanel code="DAR" direction="departures" />}
+          {tab === 'dar-arr' && <AirportPanel code="DAR" direction="arrivals" />}
           {tab === 'china-dep' && <ChinaDeparturesPanel />}
           {tab === 'hubs' && <TransitHubsPanel />}
-          {tab === 'assigned' && <AssignedFlightsPanel />}
-        </div>
+        </> : <div className="ad-board-empty"><Plane size={32} strokeWidth={1} /><h2>{configured === null && !connectionError ? 'Checking the flight desk.' : 'No live aircraft data loaded.'}</h2><p>Your assigned cargo flights remain available in the Assigned Flights workspace.</p></div>}
       </div>
-    </div>
-  );
-}
-
-function BokehBackground() {
-  const orbs = [
-    { x: 15, y: 20, size: 320, color: 'rgba(180,170,230,0.35)', blur: 90 },
-    { x: 75, y: 15, size: 280, color: 'rgba(200,180,240,0.30)', blur: 100 },
-    { x: 50, y: 60, size: 380, color: 'rgba(160,190,250,0.28)', blur: 110 },
-    { x: 85, y: 75, size: 240, color: 'rgba(190,160,235,0.30)', blur: 80 },
-    { x: 25, y: 80, size: 300, color: 'rgba(170,180,245,0.25)', blur: 95 },
-  ];
-  return (
-    <div className="absolute inset-0 overflow-hidden pointer-events-none">
-      {orbs.map((orb, i) => (
-        <div key={i} className="absolute rounded-full animate-float" style={{
-          left: `${orb.x}%`, top: `${orb.y}%`, width: orb.size, height: orb.size,
-          background: `radial-gradient(circle, ${orb.color} 0%, transparent 70%)`,
-          filter: `blur(${orb.blur}px)`, animationDelay: `${i * 1.5}s`, animationDuration: `${12 + i * 2}s`,
-          transform: 'translate(-50%, -50%)',
-        }} />
-      ))}
-    </div>
+      <div className="ad-board-footnote"><span>Source: FlightRadar24 · live aircraft coverage, not a full schedule</span><span>Aircraft movement ≠ cargo receipt</span></div>
+    </section>
   );
 }
 
@@ -149,7 +100,7 @@ function AirportPanel({ code, direction }: { code: string; direction: 'departure
     setLoading(true);
     setError(null);
     try {
-      const rows = await api<Fr24Flight[]>(`/cargo/flights/fr24/airport/${encodeURIComponent(code)}/${direction}`);
+      const rows = await api<Fr24Flight[]>(`/cargo/flights/fr24/airport/${encodeURIComponent(code)}/${direction}`, { offlineFallback: false });
       setFlights(rows ?? []);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load flights');
@@ -226,7 +177,7 @@ function TransitHubsPanel() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    api<AirHub[]>('/cargo/air/hubs')
+    api<AirHub[]>('/cargo/air/hubs', { offlineFallback: false })
       .then((rows) => setHubs(rows ?? []))
       .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load hubs'))
       .finally(() => setLoading(false));
@@ -267,7 +218,7 @@ function AssignedFlightsPanel() {
     setLoading(true);
     setError(null);
     try {
-      const rows = await api<ShipmentRow[]>('/cargo/shipments');
+      const rows = await api<ShipmentRow[]>('/cargo/shipments?limit=100', { offlineFallback: false });
       setShipments((rows ?? []).filter((r) => r.flightNumber));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load shipments');
@@ -310,7 +261,7 @@ function AssignedFlightsPanel() {
       {!loading && !error && (
         <Card className="bg-white/[0.30] backdrop-blur-xl border-white/[0.40] rounded-2xl shadow-lg">
           <CardContent className="p-0">
-            <table className="w-full text-[12px]">
+            <div className="ad-flight-table-scroll"><table className="w-full text-[12px] ad-flight-table">
               <thead className="text-slate-600 text-[10px] uppercase tracking-wider border-b border-white/[0.30]">
                 <tr>
                   <th className="px-4 py-2.5 text-left text-slate-700">Shipment</th>
@@ -348,7 +299,7 @@ function AssignedFlightsPanel() {
                   </tr>
                 )}
               </tbody>
-            </table>
+            </table></div>
           </CardContent>
         </Card>
       )}
@@ -369,22 +320,28 @@ function FlightTable({
 }) {
   const [assigning, setAssigning] = useState<string | null>(null);
   const [shipmentId, setShipmentId] = useState('');
+  const [assignmentMessage, setAssignmentMessage] = useState('');
+  const [pendingFlight, setPendingFlight] = useState<string | null>(null);
 
   const assign = async (flightNumber: string) => {
     if (!shipmentId.trim()) {
-      window.alert('Enter a shipment id to assign this flight to');
+      setAssignmentMessage('Enter the internal shipment ID before linking a flight.');
       return;
     }
+    if (assigning) return;
+    setAssignmentMessage('');
     setAssigning(flightNumber);
     try {
       await api(`/cargo/shipments/${encodeURIComponent(shipmentId.trim())}/assign-fr24-flight`, {
         method: 'POST',
         body: JSON.stringify({ flightNumber }),
+        offlineFallback: false,
       });
-      window.alert(`Assigned ${flightNumber} to ${shipmentId}`);
+      setAssignmentMessage(`Assigned ${flightNumber} to ${shipmentId}`);
+      setPendingFlight(null);
       setShipmentId('');
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : 'Assign failed');
+      setAssignmentMessage(e instanceof Error ? e.message : 'Assignment failed.');
     } finally {
       setAssigning(null);
     }
@@ -396,6 +353,8 @@ function FlightTable({
 
   return (
     <div>
+      {assignmentMessage && <div className="ad-load-state" role="status">{assignmentMessage}</div>}
+      {pendingFlight && <div className="ad-assignment"><div><span className="ad-overline">CONFIRM FLIGHT LINK</span><h3>{pendingFlight} / {shipmentId}</h3><p>Verify the booked service and departure date. An aircraft position is not proof that cargo was loaded.</p></div><button type="button" className="ad-primary cursor-interaction" disabled={!!assigning} onClick={() => void assign(pendingFlight)}>{assigning ? 'Linking…' : 'Confirm assignment'}</button><button type="button" className="ad-text-button cursor-interaction" disabled={!!assigning} onClick={() => setPendingFlight(null)}>Cancel</button></div>}
       <div className="flex items-center gap-2 mb-3 text-[11px]">
         <span className="text-slate-700">Assign to shipment:</span>
         <Input
@@ -407,7 +366,7 @@ function FlightTable({
       </div>
       <Card className="bg-white/[0.30] backdrop-blur-xl border-white/[0.40] rounded-2xl shadow-lg">
         <CardContent className="p-0">
-          <table className="w-full text-[12px]">
+          <div className="ad-flight-table-scroll"><table className="w-full text-[12px] ad-flight-table">
             <thead className="text-slate-600 text-[10px] uppercase tracking-wider border-b border-white/[0.30]">
               <tr>
                 <th className="px-4 py-2.5 text-left text-slate-700">Flight</th>
@@ -433,7 +392,7 @@ function FlightTable({
                   <td className="px-4 py-2.5 text-slate-700">{fmtDate(f.scheduledArrival ?? f.estimatedArrival)}</td>
                   <td className="px-4 py-2.5">
                     <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-500/10 text-slate-600 border border-slate-500/20">
-                      {f.status ?? 'LIVE'}
+                      {f.status ?? 'Position reported'}
                     </span>
                   </td>
                   <td className="px-4 py-2.5">
@@ -441,8 +400,8 @@ function FlightTable({
                       size="sm"
                       variant="outline"
                       className="h-6 text-[10px] border-blue-500/20 text-blue-600 hover:bg-blue-500/10 rounded-lg"
-                      onClick={() => assign(f.flightNumber || f.callsign)}
-                      disabled={assigning === (f.flightNumber || f.callsign)}
+                      onClick={() => { if (!shipmentId.trim()) setAssignmentMessage('Enter the internal shipment ID before linking a flight.'); else { setPendingFlight(f.flightNumber || f.callsign); setAssignmentMessage(''); } }}
+                      disabled={!!assigning}
                     >
                       {assigning === (f.flightNumber || f.callsign) ? 'Assigning...' : 'Assign'}
                     </Button>
@@ -450,7 +409,7 @@ function FlightTable({
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         </CardContent>
       </Card>
     </div>
