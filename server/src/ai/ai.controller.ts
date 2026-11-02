@@ -317,7 +317,7 @@ export class AiController {
 
   @Get('briefing')
   @ApiOperation({ summary: 'Proactive daily business briefing + alerts' })
-  briefing(@CurrentUser('id') uid: string) { return this.agent.briefing(uid); }
+  briefing(@CurrentUser('id') uid: string, @CurrentUser('role') role: string, @Query('timezone') timezone = 'UTC') { return this.agent.briefing(uid, role, timezone); }
 
   @Get('skills')
   @ApiOperation({ summary: 'Business skills available to the Kobe assistant' })

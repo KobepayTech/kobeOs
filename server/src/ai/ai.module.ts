@@ -1,3 +1,5 @@
+import { BusinessFoundationsModule } from '../business-foundations/business-foundations.module';
+import { PlatformModule } from '../platform/platform.module';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AiService } from './ai.service';
@@ -38,7 +40,7 @@ import { SystemHealthModule } from '../system-health/system-health.module';
 import { OcrModule } from '../ocr/ocr.module';
 
 @Module({
-  imports: [
+  imports: [BusinessFoundationsModule, PlatformModule,
     TypeOrmModule.forFeature([
       PosOrder, PosProduct, ProductReview, RentCharge, Tenant, PropertyUnit,
       HotelRoom, HotelGuest, HotelBooking, HotelFinancialRecord, WarehouseItem,

@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { randomBytes } from 'crypto';
+import { PlatformEventsService } from '../platform/platform.service';
 import {
   KpAccount, KpAccountType, KpLedgerLine, KpTransaction, KpTxnKind,
 } from './kobepay-pro.entity';
@@ -50,6 +51,7 @@ export class LedgerService {
   constructor(
     @InjectRepository(KpAccount) private readonly accounts: Repository<KpAccount>,
     private readonly dataSource: DataSource,
+    private readonly events: PlatformEventsService,
   ) {}
 
   /** Get or create a ledger account, locking the row for update inside a txn. */
@@ -57,6 +59,9 @@ export class LedgerService {
     m: EntityManager, ownerId: string, type: KpAccountType, refId = '', currency = 'TZS',
   ): Promise<KpAccount> {
     let acct = await m.findOne(KpAccount, { where: { ownerId, type, refId } });
+    if (acct && acct.currency !== currency) {
+      throw new BadRequestException('This legacy ledger account uses another currency. Separate currency accounts are required before posting.');
+    }
     if (!acct) {
       acct = m.create(KpAccount, { ownerId, type, refId, currency, balance: 0 });
       await m.save(acct);
@@ -70,6 +75,11 @@ export class LedgerService {
    * any wallet overlay update commit atomically together.
    */
   async post(m: EntityManager, input: PostInput, lines: PostLine[]): Promise<KpTransaction> {
+    if (!m.queryRunner?.isTransactionActive) throw new BadRequestException('Ledger postings require an active transaction.');
+    if (!Number.isFinite(input.amount) || input.amount <= 0 || lines.some(line =>
+      !Number.isFinite(line.debit ?? 0) || !Number.isFinite(line.credit ?? 0) || (line.debit ?? 0) < 0 || (line.credit ?? 0) < 0)) {
+      throw new BadRequestException('Ledger amounts must be finite and positive; line values cannot be negative.');
+    }
     const totalDebit = round(lines.reduce((s, l) => s + (l.debit ?? 0), 0));
     const totalCredit = round(lines.reduce((s, l) => s + (l.credit ?? 0), 0));
     if (lines.length < 2) throw new BadRequestException('A ledger transaction needs at least two lines');
@@ -112,6 +122,11 @@ export class LedgerService {
       }));
     }
 
+    await this.events.recordInTransaction(m, {
+      ownerId: input.ownerId, eventName: 'kobepay.ledger.posted', aggregateType: 'KpTransaction', aggregateId: txn.id,
+      idempotencyKey: `ledger:${txn.id}`, correlationId: txn.id,
+      payload: { transactionId: txn.id, reference: txn.reference, amount: String(txn.amount), currency: txn.currency, kind: txn.kind },
+    });
     return txn;
   }
 

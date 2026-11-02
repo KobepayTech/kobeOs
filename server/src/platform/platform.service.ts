@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
+import { businessSignal, eventFingerprint, type BusinessEventInput } from './business-events';
 import { BeemService } from '../notifications/beem.service';
 import { PushService } from '../push/push.service';
 import { PlatformDomainEvent, PlatformNotification } from './platform.entity';
@@ -29,6 +30,24 @@ export type KobeDomainEventName =
 @Injectable()
 export class PlatformEventsService {
   constructor(@InjectRepository(PlatformDomainEvent) private readonly events: Repository<PlatformDomainEvent>) {}
+
+  /** Shares the caller's transaction: a rollback removes both business writes
+   * and their event. No network or autonomous actions run while recording it. */
+  async recordInTransaction(manager: EntityManager, input: BusinessEventInput) {
+    if (!manager.queryRunner?.isTransactionActive) throw new BadRequestException('Business events require an active transaction.');
+    if (!input.ownerId || !input.idempotencyKey || input.idempotencyKey.length > 160) throw new BadRequestException('An owner and bounded idempotency key are required.');
+    businessSignal(input.eventName, input.payload);
+    const fingerprint = eventFingerprint(input);
+    const repo = manager.getRepository(PlatformDomainEvent);
+    await repo.createQueryBuilder().insert().values({
+      ownerId: input.ownerId, eventName: input.eventName, aggregateType: input.aggregateType, aggregateId: input.aggregateId,
+      payload: () => ':eventPayload', schemaVersion: 1, correlationId: input.correlationId || null,
+      idempotencyKey: input.idempotencyKey, fingerprint, occurredAt: new Date(), status: 'RECORDED', attempts: 0,
+    }).setParameter('eventPayload', JSON.stringify(input.payload)).orIgnore().execute();
+    const event = await repo.findOneByOrFail({ ownerId: input.ownerId, eventName: input.eventName, idempotencyKey: input.idempotencyKey });
+    if (event.fingerprint !== fingerprint) throw new ConflictException('This event key was already used for different data.');
+    return event;
+  }
 
   emit(input: { ownerId?: string | null; eventName: KobeDomainEventName; aggregateType: string; aggregateId?: string | null; payload?: Record<string, unknown> }) {
     return this.events.save(this.events.create({
