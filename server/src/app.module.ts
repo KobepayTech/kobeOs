@@ -85,6 +85,7 @@ import { SearchModule } from './search/search.module';
 import { HotelPublicModule } from './hotel-public/hotel-public.module';
 import { HotelOperationsModule } from './hotel/hotel-operations.module';
 import { AppMarketplaceModule } from './app-marketplace/app-marketplace.module';
+import { AppDistributionModule } from './app-distribution/app-distribution.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
 import { WhatsAppModule } from './whatsapp/whatsapp.module';
 import { DeveloperPlatformModule } from './developer-platform/developer-platform.module';
@@ -160,6 +161,7 @@ import { envFiles } from './config/env-files';
     SearchModule,
     HotelPublicModule,
     AppMarketplaceModule,
+    AppDistributionModule,
     OnboardingModule,
     WhatsAppModule,
     DeveloperPlatformModule,

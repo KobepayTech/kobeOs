@@ -20,6 +20,7 @@ import { useOSStore } from '@/os/store';
 import type { AppCategory } from '@/os/types';
 import { installBundledModule } from '@/os/module-installer';
 import { CORE_APP_IDS, installMarketplaceApp, listAppEntitlements } from '@/lib/appMarketplace';
+import DeveloperAppStore from './DeveloperAppStore';
 import {
   getModuleApps,
   getModulePrimaryApp,
@@ -27,7 +28,7 @@ import {
   type StoreModule,
 } from '@/os/store-modules';
 
-type StoreTab = 'discover' | 'installed';
+type StoreTab = 'discover' | 'installed' | 'community';
 
 const HIDDEN_MODULE_IDS = new Set([
   'app-store',
@@ -210,10 +211,16 @@ export default function AppStore({
             <PackageCheck className="h-4 w-4" /> Installed ({installedCount})
             {tab === 'installed' && <span className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-[#ff7616]" />}
           </button>
+          <button onClick={() => setTab('community')} className={cn('relative flex items-center gap-2 px-4 py-3 text-xs font-black', tab === 'community' ? 'text-[#0a1728]' : 'text-slate-400')}>
+            <Sparkles className="h-4 w-4" /> Developer apps
+            {tab === 'community' && <span className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-[#ff7616]" />}
+          </button>
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1500px] p-4 md:p-6">
+      {tab === 'community' && <DeveloperAppStore />}
+
+      <main hidden={tab === 'community'} className="mx-auto max-w-[1500px] p-4 md:p-6">
         {onboarding && tab === 'discover' && (
           <section className="mb-5 overflow-hidden rounded-[26px] bg-[#071321] p-6 text-white">
             <div className="grid gap-5 lg:grid-cols-[1fr_auto] lg:items-end">
