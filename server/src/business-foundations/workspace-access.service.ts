@@ -26,7 +26,10 @@ export class WorkspaceAccessService {
     assertOwnerAction(ownerId, ownerId, role);
     if (ownerId === memberId) throw new BadRequestException('The owner already has access.');
     return this.db.transaction(async tx => {
-      if (!await tx.exists(User, { where: { id: memberId } })) throw new NotFoundException('Account not found');
+      const account = await tx.findOne(User, { where: memberId.includes('@') ? { email: memberId.trim().toLowerCase() } : { id: memberId }, select: { id: true } });
+      if (!account) throw new NotFoundException('Account not found');
+      memberId = account.id;
+      if (ownerId === memberId) throw new BadRequestException('The owner already has access.');
       await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [JSON.stringify(['workspace', ownerId, memberId])]);
       const prior = await tx.findOne(WorkspaceMember, { where: { ownerId, memberId } });
       if (prior && prior.status !== 'REVOKED') return prior;

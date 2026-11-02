@@ -1,3 +1,4 @@
+import { manifest as kobe_home } from '@/apps/kobe-home/manifest';
 import { installedApps } from './module-installer';
 import { manifest as file_manager } from '@/apps/file-manager/manifest';
 import { manifest as terminal } from '@/apps/terminal/manifest';
@@ -96,6 +97,7 @@ import { manifest as kobe_commerce } from '@/apps/kobe-commerce/manifest';
 
 /** Every module compiled into this KobeOS build. */
 export const appCatalogue = [
+  kobe_home,
   file_manager, terminal, settings, system_settings, calculator, text_editor, notepad,
   calendar, clock, task_manager, package_manager, app_store, backup_restore, tasks, notes,
   spreadsheet, presentation, draw, kanban, password_manager, media_player,
