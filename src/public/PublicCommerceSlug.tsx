@@ -11,14 +11,27 @@ type Resolution =
   | { kind: 'business'; slug: string; id: string; name: string; tier?: string };
 
 export default function PublicCommerceSlug({ slug, pathname }: { slug: string; pathname: string }) {
-  const [resolution, setResolution] = useState<Resolution | null>(null);
-  const [error, setError] = useState('');
+  const [result, setResult] = useState<{ slug: string; resolution: Resolution | null; error: string } | null>(null);
+  const resolution = result?.slug === slug ? result.resolution : null;
+  const error = result?.slug === slug ? result.error : '';
 
   useEffect(() => {
     let active = true;
-    publicApi<Resolution>(`/commerce-public/resolve/${encodeURIComponent(slug)}`)
-      .then((value) => { if (active) setResolution(value); })
-      .catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : String(reason)); });
+    const resolve = async (): Promise<Resolution> => {
+      try {
+        return await publicApi<Resolution>(`/commerce-public/resolve/${encodeURIComponent(slug)}`);
+      } catch (reason) {
+        if ((reason as { status?: number } | null)?.status !== 404) throw reason;
+        // Store Editor publishes StoreSettings independently of the optional
+        // commerce business registry. Its public endpoint enforces publication.
+        const store = await publicApi<{ settings: { id: string; domainSlug: string; storeName: string; isPublished: boolean } | null }>(`/store/${encodeURIComponent(slug)}`);
+        if (!store.settings?.isPublished) throw new Error('Store not found');
+        return { kind: 'business', id: store.settings.id, slug: store.settings.domainSlug, name: store.settings.storeName };
+      }
+    };
+    resolve()
+      .then((value) => { if (active) setResult({ slug, resolution: value, error: '' }); })
+      .catch((reason) => { if (active) setResult({ slug, resolution: null, error: reason instanceof Error ? reason.message : String(reason) }); });
     return () => { active = false; };
   }, [slug]);
 
