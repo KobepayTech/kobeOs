@@ -7,6 +7,7 @@ function exportPack(cache, output, executable) {
   cache = path.resolve(cache); output = path.resolve(output);
   if (output === cache || output.startsWith(cache + path.sep)) throw new Error('Choose a separate output directory');
   const relative = 'manifests/registry.ollama.ai/library/kobe-qwen3-vl/latest';
+  const targetManifest = 'manifests/registry.ollama.ai/library/qwen3-vl/8b';
   const source = path.join(cache, relative);
   const manifest = JSON.parse(fs.readFileSync(source, 'utf8'));
   const entries = [manifest.config, ...manifest.layers];
@@ -16,13 +17,15 @@ function exportPack(cache, output, executable) {
     if (fs.statSync(blob).size !== entry.size) throw new Error('Incomplete model blob');
   }
   const modelRoot = path.join(output, 'qwen3-models');
-  fs.mkdirSync(path.join(modelRoot, path.dirname(relative)), { recursive: true });
+  fs.mkdirSync(path.join(modelRoot, path.dirname(targetManifest)), { recursive: true });
   fs.mkdirSync(path.join(modelRoot, 'blobs'), { recursive: true });
   for (const entry of entries) {
     const filename = entry.digest.replace(':', '-');
     fs.copyFileSync(path.join(cache, 'blobs', filename), path.join(modelRoot, 'blobs', filename));
   }
-  fs.copyFileSync(source, path.join(modelRoot, relative));
+  // Register the converted weights under the edition's default name. This also
+  // supports clients that send the default explicitly instead of choosing an alias.
+  fs.copyFileSync(source, path.join(modelRoot, targetManifest));
   if (executable) {
     fs.copyFileSync(path.resolve(executable), path.join(output, 'KobeOS-Qwen3.exe'));
     fs.writeFileSync(path.join(output, 'Start KobeOS.cmd'), [

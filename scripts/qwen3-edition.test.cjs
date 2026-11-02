@@ -37,6 +37,8 @@ test('offline export includes only the selected model, excluding full-precision 
     fs.writeFileSync(manifest, JSON.stringify({ config: { digest: `sha256:${digest}`, size: 5 }, layers: [] }));
     const output = path.join(fixture, 'pack');
     assert.equal(exportPack(cache, output).bytes, 5);
+    assert.ok(fs.existsSync(path.join(output, 'qwen3-models/manifests/registry.ollama.ai/library/qwen3-vl/8b')));
+    assert.ok(!fs.existsSync(path.join(output, 'qwen3-models/manifests/registry.ollama.ai/library/kobe-qwen3-vl/latest')));
     assert.deepEqual(fs.readdirSync(path.join(output, 'qwen3-models/blobs')), [`sha256-${digest}`]);
     assert.throws(() => exportPack(cache, path.join(cache, 'nested')), /separate/);
   } finally {

@@ -27,6 +27,11 @@ Actual inference speed depends on the computer and must be measured.
 
 With Ollama's compatible converter, create `kobe-qwen3-vl` from the downloaded
 Qwen 3-VL Safetensors using Q4_K_M quantization. Keep the original download.
+On a 16 GB Windows machine, start the separate conversion service with
+`GOMAXPROCS=1`, `GOMEMLIMIT=3GiB` and `GOGC=20`; unrestricted parallel conversion
+can use far more memory than inference. These settings apply only to conversion.
+Use `OLLAMA_NOPRUNE=1` for its temporary cache so restarting the converter does not
+discard uploaded inputs before a finished model manifest exists.
 Then export only the finished model and its vision projector:
 
 ```
@@ -37,6 +42,8 @@ Ship the resulting folder and open `Start KobeOS.cmd`. The launcher selects this
 model cache and a dedicated local runtime port, avoiding interference with an
 existing Ollama service. Keep the launcher, executable and `qwen3-models` folder
 together in a writable location. Model weights remain outside app updates.
+The export registers the converted weights as `qwen3-vl:8b`, the edition's default
+name, so it is immediately available without a registry download.
 The exporter deliberately omits temporary full-precision blobs and other models.
 
 Qwen's upstream model: https://huggingface.co/Qwen/Qwen3-VL-8B-Instruct

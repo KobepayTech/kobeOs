@@ -1,0 +1,21 @@
+{
+  "model": "qwen3-vl:8b",
+  "results": [
+    {
+      "test": "stock arithmetic",
+      "expected": "14",
+      "answer": "14",
+      "passed": true,
+      "elapsedMs": 12578,
+      "tokensPerSecond": 8.834390515398344
+    },
+    {
+      "test": "image reading",
+      "expected": "42",
+      "answer": "42",
+      "passed": true,
+      "elapsedMs": 82073,
+      "tokensPerSecond": 6.731906318791667
+    }
+  ]
+}
