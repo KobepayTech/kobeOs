@@ -1,3 +1,8 @@
+import { LedgerSourceIdempotency1793601000000 } from '../migrations/1793601000000-LedgerSourceIdempotency';
+import { WorkspaceMemberships1793602000000 } from '../migrations/1793602000000-WorkspaceMemberships';
+import { WorkspaceAccessService } from './workspace-access.service';
+import { WorkspaceMember } from './workspace-member.entity';
+import { User } from '../users/user.entity';
 import { randomUUID } from 'crypto';
 import { DataSource, EntityManager } from 'typeorm';
 import { KobeAgentService } from '../ai/agent.service';
@@ -64,7 +69,7 @@ integration('shared foundations against isolated PostgreSQL', () => {
     db = new DataSource({ type: 'postgres', host: '127.0.0.1', port, username: process.env.FOUNDATION_TEST_USER || 'postgres',
       password: process.env.FOUNDATION_TEST_PASSWORD,
       database: 'kobeos_foundations_test', entities: [...new Set([...BRIEFING_ENTITIES,
-        WarehouseMovement, KpAccount, KpLedgerLine, AiOperatingAudit, AiWorkflowPlan])],
+        User, WarehouseMovement, KpAccount, KpLedgerLine, AiOperatingAudit, AiWorkflowPlan])],
       synchronize: true, dropSchema: true });
     await db.initialize();
     events = new PlatformEventsService(db.getRepository(PlatformDomainEvent));
@@ -72,7 +77,7 @@ integration('shared foundations against isolated PostgreSQL', () => {
   });
   afterAll(async () => { if (db?.isInitialized) await db.destroy(); });
   beforeEach(async () => {
-    for (const entity of [PlatformBusinessSignal, PlatformDomainEvent, WarehouseMovement, WarehouseItem,
+    for (const entity of [WorkspaceMember, User, PlatformBusinessSignal, PlatformDomainEvent, WarehouseMovement, WarehouseItem,
       AiApprovalRequest, AiOperatingAudit, AiWorkflowPlan, KpLedgerLine, KpTransaction, KpAccount, PosOrder]) {
       await db.getRepository(entity).clear();
     }
@@ -86,6 +91,9 @@ integration('shared foundations against isolated PostgreSQL', () => {
       await migration.down(q);
       await migration.up(q);
       await migration.up(q);
+      for (const next of [new LedgerSourceIdempotency1793601000000(), new WorkspaceMemberships1793602000000()]) {
+        await next.down(q); await next.up(q); await next.up(q);
+      }
       expect(await q.hasTable('platform_business_signals')).toBe(true);
       expect(await q.hasColumn('ai_approval_requests', 'executionStatus')).toBe(true);
     } finally { await q.release(); }
@@ -157,6 +165,29 @@ integration('shared foundations against isolated PostgreSQL', () => {
     await expect(db.transaction(tx => ledger.post(tx, { ownerId: owner, kind: 'DEPOSIT', amount: 25, currency: 'USD' }, [{ type: 'BANK', debit: 25 }, { type: 'STUDENT', credit: 25 }]))).rejects.toThrow('another currency');
     await expect(db.transaction(tx => ledger.post(tx, { ownerId: owner, kind: 'DEPOSIT', amount: NaN }, [{ type: 'BANK', debit: 25 }, { type: 'STUDENT', credit: 25 }]))).rejects.toThrow('finite');
   });
+  it('rejects lines that only balance before individual rounding', async () => {
+    const ledger = new LedgerService(db.getRepository(KpAccount), db, events);
+    await expect(db.transaction(tx => ledger.post(tx, { ownerId: owner, kind: 'ADJUSTMENT', amount: 0.0001 }, [
+      { type: 'BANK', debit: 0.00005 }, { type: 'BANK', debit: 0.00005 }, { type: 'STUDENT', credit: 0.0001 },
+    ]))).rejects.toThrow('Unbalanced');
+    expect(await db.getRepository(KpTransaction).count()).toBe(0);
+  });
+  it('rejects concurrent source replays and rolls back caller writes', async () => {
+    const ledger = new LedgerService(db.getRepository(KpAccount), db, events);
+    const post = () => db.transaction(async tx => {
+      await tx.save(WarehouseItem, { ownerId: owner, sku: 'side-effect', name: 'Caller write' });
+      return ledger.post(tx, { ownerId: owner, kind: 'DEPOSIT', amount: 25, bankTransactionId: 'bank-unique' }, [
+        { type: 'BANK', debit: 25 }, { type: 'STUDENT', credit: 25 },
+      ]);
+    });
+    const results = await Promise.allSettled([post(), post()]);
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    expect(await db.getRepository(KpTransaction).count()).toBe(1);
+    expect(await db.getRepository(KpLedgerLine).count()).toBe(2);
+    expect(await db.getRepository(WarehouseItem).count()).toBe(1);
+    expect(await db.getRepository(PlatformDomainEvent).count()).toBe(1);
+    await expect(post()).rejects.toThrow('already recorded');
+  });
   const operating = (execute: jest.Mock, run?: jest.Mock) => new AiOperatingService(
     null!, null!, null!, db.getRepository(AiWorkflowPlan), db.getRepository(AiApprovalRequest),
     db.getRepository(AiOperatingAudit), null!, null!, null!, { execute, run } as unknown as KobeAgentService, db, events);
@@ -217,6 +248,21 @@ integration('shared foundations against isolated PostgreSQL', () => {
     expect(snapshot.rent.currency).toBeNull();
     await expect(brain.snapshot(owner, 'admin', 'UTC', other)).rejects.toThrow();
     expect((await brain.briefing(owner)).summary).toContain('completed order');
+  });
+  it('requires acceptance, denies grant escalation and revokes shared Brain access', async () => {
+    await db.getRepository(User).save({ id: other, email: 'viewer@test.invalid', passwordHash: 'unused-test-fixture' });
+    const access = new WorkspaceAccessService(db);
+    const brain = new BusinessBriefingService(db);
+    const invited = await access.invite(owner, 'user', other);
+    await expect(brain.snapshot(other, 'admin', 'UTC', owner)).rejects.toThrow();
+    await expect(access.decide(owner, 'user', invited.id, 'accept')).rejects.toThrow();
+    await access.decide(other, 'user', invited.id, 'accept');
+    const snapshot = await brain.snapshot(other, 'admin', 'UTC', owner);
+    expect(snapshot.scope.ownerId).toBe(owner);
+    expect(snapshot.scope.capabilities.approveOwnActions).toBe(false);
+    await access.decide(owner, 'user', invited.id, 'revoke');
+    await expect(brain.snapshot(other, 'admin', 'UTC', owner)).rejects.toThrow();
+    await expect(access.decide(other, 'user', invited.id, 'accept')).rejects.toThrow();
   });
   it('authenticates Brain routes and rejects cross-owner or invalid timezone requests', async () => {
     const secret = randomUUID() + randomUUID();

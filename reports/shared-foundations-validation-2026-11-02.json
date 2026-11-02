@@ -2,9 +2,9 @@
   "date": "2026-11-02",
   "scope": "First shared Phase 1 foundation increment; not the complete roadmap",
   "backend": {
-    "unitSuitesPassed": 34,
-    "testsPassed": 272,
-    "foundationTestsPassed": 16,
+    "unitSuitesPassed": 35,
+    "testsPassed": 277,
+    "foundationTestsPassed": 21,
     "foundationDatabase": "Isolated loopback PostgreSQL; application and production databases untouched",
     "typescript": "passed",
     "lint": "passed with warnings; new foundation files passed targeted lint without warnings"
@@ -34,12 +34,15 @@
     "Owner/write-role checks and no automatic retry after an uncertain action failure",
     "Concurrent workflow exclusion and forwarding the signed-in role",
     "Exact decimal totals grouped by currency; pending orders and other owners excluded",
-    "Real JWT-authenticated Brain routes, anonymous rejection and cross-owner rejection"
+    "Real JWT-authenticated Brain routes, anonymous rejection and cross-owner rejection",
+    "Accepted viewer workspace grants; owner/recipient revocation; no approval permission escalation",
+    "Exact integer line quantization and rejection of post-rounding imbalance",
+    "Concurrent bank source replay rejection including rollback of caller writes"
   ],
   "externalActions": "Mocked: no messages or real financial transfers sent",
   "deployment": "Not deployed; database migration and new application builds required",
   "limitations": [
-    "Owner-account scope, not delegated organization membership",
+    "Workspace-wide read-only grants; no per-shop staff roles or team management screen",
     "Legacy ledger is not a universal cross-currency accounting system",
     "Only selected producers use the new transactional event path",
     "Crash/uncertain external action outcomes require manual reconciliation",

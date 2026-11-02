@@ -123,7 +123,9 @@ export class KpAccount extends OwnedEntity {
 @Index(['ownerId', 'createdAt'])
 @Index(['ownerId', 'studentId'])
 @Index(['ownerId', 'merchantId'])
+@Index('UQ_kp_posting_source', ['ownerId', 'idempotencyKey'], { unique: true, where: '"idempotencyKey" IS NOT NULL' })
 export class KpTransaction extends OwnedEntity {
+  @Column({ type: 'varchar', length: 160, nullable: true }) idempotencyKey?: string | null;
   @Column({ length: 16 }) reference!: string;
   @Column() kind!: KpTxnKind;
   @Column({ default: 'POSTED' }) status!: KpTxnStatus;

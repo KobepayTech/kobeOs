@@ -1,3 +1,5 @@
+import { WorkspaceMember } from './workspace-member.entity';
+import { workspaceScope } from './workspace-access.service';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { PosOrder, PosProduct } from '../pos/pos.entity';
@@ -13,7 +15,7 @@ import { PlatformBusinessSignal, PlatformDomainEvent } from '../platform/platfor
 import { BUSINESS_EVENT_NAMES } from '../platform/business-events';
 import { ownerScope } from './business-scope';
 
-export const BRIEFING_ENTITIES = [PosOrder, PosProduct, ShopExpense, RentCharge, HotelRoom, WarehouseItem, Parcel, CommerceBusiness, KpTransaction, AiApprovalRequest, PlatformBusinessSignal, PlatformDomainEvent];
+export const BRIEFING_ENTITIES = [WorkspaceMember, PosOrder, PosProduct, ShopExpense, RentCharge, HotelRoom, WarehouseItem, Parcel, CommerceBusiness, KpTransaction, AiApprovalRequest, PlatformBusinessSignal, PlatformDomainEvent];
 export function checkedTimezone(timezone: string) {
   if (timezone.length > 80) throw new BadRequestException('Invalid business timezone.');
   try { new Intl.DateTimeFormat('en', { timeZone: timezone }).format(); }
@@ -25,10 +27,11 @@ export function checkedTimezone(timezone: string) {
 export class BusinessBriefingService {
   constructor(private readonly db: DataSource) {}
   async snapshot(actorId: string, role = 'user', timezone = 'UTC', requestedOwnerId?: string) {
-    const scope = ownerScope(actorId, role, requestedOwnerId);
+    ownerScope(actorId, role);
     checkedTimezone(timezone);
     return this.db.transaction('REPEATABLE READ', async tx => {
       await tx.query('SET TRANSACTION READ ONLY');
+      const scope = await workspaceScope(tx, actorId, role, requestedOwnerId);
       // Use the database clock, preserving microseconds and avoiding app/server clock skew.
       const [{ asOf }] = await tx.query('SELECT clock_timestamp()::text AS "asOf"') as Array<{ asOf: string }>;
       const parameters = { ownerId: scope.ownerId, asOf, timezone };
@@ -68,8 +71,8 @@ export class BusinessBriefingService {
       };
     });
   }
-  async briefing(actorId: string, role = 'user', timezone = 'UTC') {
-    const data = await this.snapshot(actorId, role, timezone);
+  async briefing(actorId: string, role = 'user', timezone = 'UTC', requestedOwnerId?: string) {
+    const data = await this.snapshot(actorId, role, timezone, requestedOwnerId);
     const parts = [`Your business briefing (${timezone}).`];
     for (const group of data.completedOrdersToday.totals) parts.push(`${group.entries} completed order(s): ${group.currency} ${group.total}.`);
     if (!data.completedOrdersToday.totals.length) parts.push('No completed orders recorded today.');
@@ -78,7 +81,7 @@ export class BusinessBriefingService {
     const alerts: Array<{ severity: 'info' | 'warning'; text: string; action?: { tool: string; label: string; args: Record<string, unknown> } }> = [];
     if (data.inventory.warehouseLow) alerts.push({ severity: 'warning', text: `${data.inventory.warehouseLow} warehouse item(s) are at their reorder level.` });
     if (data.inventory.posLow) alerts.push({ severity: 'warning', text: `${data.inventory.posLow} POS product(s) have five or fewer units.` });
-    if (data.rent.accounts) alerts.push({ severity: 'warning', text: `${data.rent.accounts} rental account(s) have outstanding charges. Review the rent records before sending reminders.`, action: { label: 'Prepare rent reminders', tool: 'send_tenant_notification', args: { audience: 'unpaid', message: 'Reminder: please review your outstanding rent balance. Asante.' } } });
+    if (data.rent.accounts && data.scope.capabilities.approveOwnActions) alerts.push({ severity: 'warning', text: `${data.rent.accounts} rental account(s) have outstanding charges. Review the rent records before sending reminders.`, action: { label: 'Prepare rent reminders', tool: 'send_tenant_notification', args: { audience: 'unpaid', message: 'Reminder: please review your outstanding rent balance. Asante.' } } });
     if (data.eventDelivery.FAILED) alerts.push({ severity: 'warning', text: 'Some business activity signals need delivery retry; the original business records are retained.' });
     return { summary: parts.join(' '), alerts, data };
   }

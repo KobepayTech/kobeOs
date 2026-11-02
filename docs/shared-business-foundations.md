@@ -9,7 +9,7 @@ is preserved separately on local branch `feat/appstore-stock-alerts` (`48777d9`)
 | Foundation | Existing code reused | This increment |
 | --- | --- | --- |
 | AI Brain | Kobe Agent, operating controls, business records | A consistent owner-scoped briefing; exact decimal order and expense totals grouped by currency; existing assistant uses the shared briefing. |
-| Identity | JWT user identity, owner IDs, commerce business directory | Explicit `owner-account-v1` context. Administrator status never grants cross-owner access to Brain endpoints. |
+| Identity | JWT user identity, owner IDs, commerce business directory | Explicit `owner-account-v1` context. Administrator status never bypasses workspace grants on Brain endpoints. |
 | Permissions | JWT guard, role claims, approval chains | Owner and write-role checks on workflow execution and decisions; client-supplied approvals are cleared; approved workflows cannot be edited or reapproved. |
 | Financial ledger | Existing balanced KobePay Pro journals | Ledger entries and their activity event commit together. Non-finite/negative amounts and attempts to mix currencies in a legacy account are refused. |
 | Events | Existing platform domain events | Versioned, transaction-bound, deduplicated events; bounded retries; a durable, data-only Brain activity inbox. |
@@ -44,7 +44,7 @@ as occupied. Warehouse and POS stock counts remain separate and can overlap.
 The snapshot includes pending decisions, journal posting counts, recent activity
 and delivery status. Commerce business directory results are capped at 100 and
 activity at 20; those are display limits, not financial aggregation limits.
-Snapshots are owner-account scoped, not an independently selectable business's
+Snapshots are owner-account scoped (including accepted read-only workspace grants), not an independently selectable business's
 consolidated financial statement. Commerce `catalogOwnerId` and `ownerUserId`
 can differ; this increment does not silently merge their records.
 
@@ -146,3 +146,37 @@ authorization. External actions are mocked; no real money or messages are sent.
 Digital employees and the App Store should build on these contracts after the
 identity and ledger migrations, rather than introduce their own owner, approval
 or financial systems.
+
+
+## Follow-up: staff workspace access and posting precision
+
+Workspace APIs under `/api/brain/workspaces` support listing grants, inviting an
+existing account, accepting an invitation and revoking/leaving. Invitations
+require `memberId` and `scopeConsent: "ALL_OWNER_ACCOUNT_RECORDS"`. This is
+explicitly workspace-wide read access, not access to one shop. An invitation
+alone grants no access. Only its recipient can accept; the owner or recipient
+can revoke. An active viewer can request `/brain/snapshot?ownerId=...`; each
+request checks the current grant. In-flight snapshots retain normal database
+snapshot consistency. Viewer access cannot approve actions or operate the
+owner's other modules. Grants and changes are durably audited. A staff management
+screen and narrower business/module permissions remain required before this is
+a general team-management product.
+
+Posting validation now quantizes each line into integer four-decimal units
+before comparing totals. Account updates use integer-unit arithmetic. Inputs or
+balances beyond the safe range of the existing numeric API fail explicitly.
+This prevents the earlier sum-then-round check from accepting lines whose stored
+values do not balance. Other legacy wallet and reconciliation calculations have
+not yet been converted to a universal exact-decimal contract.
+
+`PostInput.idempotencyKey` optionally identifies a posting source. Deposits with
+a bank transaction ID automatically use that ID as their source. Transactional
+locks and a unique owner/source index prevent concurrent duplicate postings.
+Replays raise a conflict instead of returning success: this rolls back any
+caller wallet/domain writes, preventing duplicate overlays. Legacy bank-linked
+deposits are checked too, without rewriting historical keys. Callers without a
+stable source still need migration; this is not global request idempotency.
+
+Also apply `1793601000000-LedgerSourceIdempotency` and
+`1793602000000-WorkspaceMemberships` before using this follow-up. No production
+schema or live account grants have been changed during development.
