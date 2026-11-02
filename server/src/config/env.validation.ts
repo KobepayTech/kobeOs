@@ -68,6 +68,8 @@ class EnvVars {
 
   /** Google Identity Services Web Client ID. Use the same value in VITE_GOOGLE_CLIENT_ID. */
   @IsOptional() @IsString() GOOGLE_CLIENT_ID?: string;
+  @IsOptional() @IsString() GOOGLE_CLIENT_SECRET?: string;
+  @IsOptional() @IsString() GOOGLE_REDIRECT_URI?: string;
 
   /** TikTok Login Kit credentials and registered callback URLs. */
   @IsOptional() @IsString() TIKTOK_CLIENT_KEY?: string;

@@ -168,6 +168,8 @@ export function detectAppSubdomain(): PublicAppId | null {
 export function detectTenantSubdomain(): string | null {
   if ((import.meta.env.VITE_DISABLE_TENANT_SUBDOMAIN as string | undefined) === 'true') return null;
   const host = window.location.hostname.toLowerCase();
+  // Hosting project names and preview hashes are not merchant identifiers.
+  if (host.endsWith('.pages.dev') || host.endsWith('.workers.dev')) return null;
   if (host === 'localhost' || /^[0-9.]+$/.test(host)) return null;
   const parts = host.split('.');
   if (parts.length < 3) return null;

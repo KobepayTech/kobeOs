@@ -5,11 +5,10 @@ import { bootTestApp, resetDb } from './setup';
 /**
  * What the login screen is told it can offer.
  *
- * The browser used to decide this from VITE_GOOGLE_CLIENT_ID, baked into the
- * bundle at build time. Configuring the server could therefore never light up
- * the Google button, the two could disagree about which client id, and the
- * button rendered regardless — so people clicked something that could not
- * work. The server verifies the credential, so the server answers.
+ * Every provider is a server redirect, so only the server knows whether one
+ * can complete. Without this the login screen shows a button for each, and
+ * clicking an unconfigured one bounces the person out to the provider and back
+ * with an error.
  */
 describe('Sign-in methods (e2e)', () => {
   let app: INestApplication;
@@ -19,6 +18,8 @@ describe('Sign-in methods (e2e)', () => {
 
   beforeAll(async () => {
     process.env.GOOGLE_CLIENT_ID = GOOGLE;
+    process.env.GOOGLE_CLIENT_SECRET = 'google-secret-value';
+    process.env.GOOGLE_REDIRECT_URI = 'https://kobeapptz.com/api/auth/oauth/google/callback';
     process.env.TIKTOK_CLIENT_KEY = 'tiktok-key';
     process.env.TIKTOK_REDIRECT_URI = 'https://kobeapptz.com/oauth/tiktok';
     process.env.TIKTOK_CLIENT_SECRET = 'tiktok-secret-value';
@@ -29,6 +30,8 @@ describe('Sign-in methods (e2e)', () => {
   afterAll(async () => {
     await app?.close();
     delete process.env.GOOGLE_CLIENT_ID;
+    delete process.env.GOOGLE_CLIENT_SECRET;
+    delete process.env.GOOGLE_REDIRECT_URI;
     delete process.env.TIKTOK_CLIENT_KEY;
     delete process.env.TIKTOK_REDIRECT_URI;
     delete process.env.TIKTOK_CLIENT_SECRET;
@@ -51,9 +54,11 @@ describe('Sign-in methods (e2e)', () => {
     expect((await methods()).password).toBe(true);
   });
 
-  it('reports Google as available and hands back the client id to initialise with', async () => {
-    // The same id the server will verify against, so the two cannot disagree.
-    expect((await methods()).google).toEqual({ enabled: true, clientId: GOOGLE });
+  it('reports Google as available only when the redirect flow is fully configured', async () => {
+    // googleAuthUrl needs the client id, the secret and the redirect uri.
+    // Reporting on the client id alone would offer a button that fails at the
+    // redirect, which is the whole thing this endpoint exists to prevent.
+    expect((await methods()).google).toEqual({ enabled: true });
   });
 
   it('reports TikTok from its configuration', async () => {
@@ -71,6 +76,8 @@ describe('Sign-in methods (e2e)', () => {
     // are not, and this endpoint is public.
     const payload = JSON.stringify(await methods());
     expect(payload).not.toContain('tiktok-secret-value');
+    expect(payload).not.toContain('google-secret-value');
+    expect(payload).not.toContain(GOOGLE);
     expect(payload).not.toMatch(/SECRET|SECRET_KEY|clientSecret|appSecret/i);
   });
 

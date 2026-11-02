@@ -20,12 +20,10 @@ import {
 import {
   login,
   register,
-  oauthGoogle,
   requestPasswordReset,
   resetPassword,
   desktopLogin,
   desktopRegister,
-  desktopOauthGoogle,
   desktopOauthExchange,
   desktopRequestPasswordReset,
   desktopResetPassword,
@@ -34,23 +32,6 @@ import {
 import { apiBase, ApiError } from '@/lib/api';
 import { clearPendingOAuth, pendingOAuth, providerNames, providerSignInUrl, rememberOAuth } from '@/lib/oauth-flow';
 
-/**
- * Build-time fallback only. The server is authoritative: it is the side that
- * verifies the Google credential, so it is the side that knows whether Google
- * sign-in can work and with which client id. Relying on this alone meant
- * configuring the server could never light up the button, because the bundle
- * was already built, and the two could disagree about which client id — Google
- * would issue a credential for one and the server would reject it against the
- * other.
- */
-const BUILD_GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
-
-type SignInMethods = {
-  password: boolean;
-  google: { enabled: boolean; clientId: string | null };
-  tiktok: { enabled: boolean };
-  meta: { enabled: boolean };
-};
 const IS_DESKTOP = typeof window !== 'undefined' && Boolean((window as any).kobeOS);
 const KOBE_CLOUD_API = ((import.meta.env.VITE_KOBE_CLOUD_API as string | undefined) || 'https://api.kobeapptz.com/api').replace(/\/$/, '');
 const DESKTOP_OAUTH_ORIGINS = new Set([
@@ -59,22 +40,20 @@ const DESKTOP_OAUTH_ORIGINS = new Set([
   'https://www.kobeapptz.com',
 ]);
 
-// Load Google Identity Services once (no-op if already present).
-function loadGis(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if ((window as unknown as { google?: { accounts?: { id?: unknown } } }).google?.accounts?.id) return resolve();
-    const s = document.createElement('script');
-    s.src = 'https://accounts.google.com/gsi/client';
-    s.async = true; s.defer = true;
-    s.onload = () => resolve();
-    s.onerror = () => reject(new Error('Could not load Google sign-in'));
-    document.head.appendChild(s);
-  });
-}
-
 type Mode = 'create' | 'signin';
 type ConnectionState = 'checking' | 'online' | 'offline' | 'server-down';
-type SocialProvider = 'tiktok' | 'meta';
+type SocialProvider = 'google' | 'tiktok' | 'meta';
+
+/**
+ * Which sign-in methods the server can complete. Booleans only: every provider
+ * is a server redirect, so the browser needs no identifier to start one.
+ */
+type SignInMethods = {
+  password: boolean;
+  google: { enabled: boolean };
+  tiktok: { enabled: boolean };
+  meta: { enabled: boolean };
+};
 
 type DesktopOAuthMessage = {
   type?: string;
@@ -96,6 +75,7 @@ export default function LoginScreen({
   const [methods, setMethods] = useState<SignInMethods | null>(null);
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
+  const [identifierKind, setIdentifierKind] = useState<'email' | 'phone'>('email');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -224,7 +204,7 @@ export default function LoginScreen({
       if (!DESKTOP_OAUTH_ORIGINS.has(event.origin)) return;
       const data = event.data as DesktopOAuthMessage;
       if (!data || data.type !== 'kobeos-oauth-complete') return;
-      if ((data.provider !== 'tiktok' && data.provider !== 'meta') || !data.accessToken) return;
+      if ((data.provider !== 'google' && data.provider !== 'tiktok' && data.provider !== 'meta') || !data.accessToken) return;
 
       setLoading(true);
       setError('');
@@ -255,7 +235,7 @@ export default function LoginScreen({
     }
     const isEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
     const isPhone = /^\+?[\d\s().-]{7,20}$/.test(email.trim());
-    if (!isEmail && !isPhone) {
+    if ((identifierKind === 'email' && !isEmail) || (identifierKind === 'phone' && !isPhone)) {
       setError('Enter a valid email address or phone number.');
       return;
     }
@@ -300,44 +280,14 @@ export default function LoginScreen({
     }
   };
 
-  // Google needs a client id in the browser, so an unknown state means hide it
-  // — a button that cannot work reads as a broken product. The redirect
-  // providers are shown while unknown, because they degrade gracefully.
-  const showGoogle = methods?.google?.enabled ?? Boolean(BUILD_GOOGLE_CLIENT_ID);
+  // Hide a provider the server says it cannot complete. All three are server
+  // redirects now, which bounce back with a readable error when unconfigured,
+  // so an unknown state shows them rather than hiding working sign-in.
+  const showGoogle = methods?.google?.enabled ?? true;
   const showTikTok = methods?.tiktok?.enabled ?? true;
   const showMeta = methods?.meta?.enabled ?? true;
 
-  const signInWithGoogle = async () => {
-    // The server's client id, so the credential Google issues is one the
-    // server will accept. Falls back to the build value only when the server
-    // could not be reached.
-    const clientId = methods?.google?.clientId ?? BUILD_GOOGLE_CLIENT_ID;
-    if (!clientId) { setError('Google sign-in is not configured on this server.'); return; }
-    setError('');
-    try {
-      await loadGis();
-      const google = (window as unknown as { google: any }).google;
-      google.accounts.id.initialize({
-        client_id: clientId,
-        callback: async (resp: { credential?: string }) => {
-          if (!resp?.credential) { setError('Google sign-in was cancelled.'); return; }
-          setLoading(true);
-          try {
-            const user = IS_DESKTOP
-              ? await desktopOauthGoogle(resp.credential)
-              : await oauthGoogle(resp.credential);
-            clearPendingOAuth();
-            onLogin(user, false);
-          } catch (err) {
-            setError(err instanceof ApiError ? err.message : 'Google sign-in failed.');
-          } finally { setLoading(false); }
-        },
-      });
-      google.accounts.id.prompt();
-    } catch (e) { setError((e as Error).message); }
-  };
-
-  const openProviderAuth = (provider: 'meta' | 'tiktok') => {
+  const openProviderAuth = (provider: SocialProvider) => {
     const url = providerSignInUrl(provider);
     rememberOAuth(provider);
     setPendingProvider(provider);
@@ -363,6 +313,7 @@ export default function LoginScreen({
     // same tab, persists the session and returns home.
     window.location.assign(url);
   };
+  const signInWithGoogle = () => openProviderAuth('google');
   const signInWithTikTok = () => openProviderAuth('tiktok');
   const signInWithMeta = () => openProviderAuth('meta');
 
@@ -421,7 +372,7 @@ export default function LoginScreen({
     },
     'server-down': {
       label: 'Kobe Cloud unavailable',
-      detail: 'KobeOS could not reach the secure account service.',
+      detail: 'Connection check failed. You can still try your preferred sign-in method.',
       classes: 'border-amber-200 bg-amber-50 text-amber-800',
       icon: Cloud,
     },
@@ -553,29 +504,39 @@ export default function LoginScreen({
               <div className={`mb-4 grid grid-cols-1 gap-2 ${
                 [showGoogle, showTikTok, showMeta].filter(Boolean).length > 1 ? 'sm:grid-cols-3' : ''}`}>
                 {showGoogle &&
-                <button type="button" onClick={signInWithGoogle} disabled={loading || connection !== 'online'} className="flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 hover:border-slate-400 disabled:opacity-50">
-                  <span style={{ color: '#4285F4' }} className="text-base font-black">G</span>
+                <button type="button" onClick={signInWithGoogle} disabled={loading} className="flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 hover:border-slate-400 disabled:opacity-50">
+                  <span aria-hidden style={{ color: '#4285F4' }} className="text-base font-black">G</span>
                   {mode === 'create' ? 'Create with Google' : 'Sign in with Google'}
                 </button>}
                 {showTikTok &&
-                <button type="button" onClick={signInWithTikTok} disabled={loading || connection !== 'online'} className="flex h-11 items-center justify-center gap-2 rounded-xl bg-black text-xs font-bold text-white hover:bg-slate-800 disabled:opacity-50">
+                <button type="button" onClick={signInWithTikTok} disabled={loading} className="flex h-11 items-center justify-center gap-2 rounded-xl bg-black text-xs font-bold text-white hover:bg-slate-800 disabled:opacity-50">
                   <span aria-hidden className="text-base">♪</span>
                   {mode === 'create' ? 'Create with TikTok' : 'Sign in with TikTok'}
                 </button>}
                 {showMeta &&
-                <button type="button" onClick={signInWithMeta} disabled={loading || connection !== 'online'} className="flex h-11 items-center justify-center gap-2 rounded-xl bg-[#0866ff] text-xs font-bold text-white hover:bg-[#075bd8] disabled:opacity-50">
+                <button type="button" onClick={signInWithMeta} disabled={loading} className="flex h-11 items-center justify-center gap-2 rounded-xl bg-[#0866ff] text-xs font-bold text-white hover:bg-[#075bd8] disabled:opacity-50">
                   <span aria-hidden className="text-base font-black">f</span>
                   {mode === 'create' ? 'Create with Facebook' : 'Sign in with Facebook'}
                 </button>}
               </div>}
 
-              <p className="mb-4 text-xs leading-5 text-slate-500">Signing in opens your KobeOS account. To connect Instagram for live selling, sign in with your usual method, then open Creator or Live Sales. Facebook login alone does not connect live comments.</p>
+              <p className="mb-4 text-xs leading-5 text-slate-500">Use Google, Facebook or TikTok to create an account or return to an existing one. You can also use your email or phone number with a password.</p>
 
               <div className="mb-4 flex items-center gap-3">
                 <div className="h-px flex-1 bg-slate-200" />
                 <span className="text-[10px] text-slate-400">or use email / phone</span>
                 <div className="h-px flex-1 bg-slate-200" />
               </div>
+
+              <div className="mb-4 grid grid-cols-2 gap-2" role="group" aria-label="Account identifier">
+                {(['email', 'phone'] as const).map(kind => <button key={kind} type="button" aria-pressed={identifierKind === kind}
+                  onClick={() => { setIdentifierKind(kind); setEmail(''); setError(''); }}
+                  className={`h-10 rounded-xl border text-xs font-bold ${identifierKind === kind ? 'border-orange-400 bg-orange-50 text-orange-800' : 'border-slate-200 text-slate-600'}`}>
+                  {kind === 'email' ? 'Email address' : 'Phone number'}
+                </button>)}
+              </div>
+
+              {identifierKind === 'phone' && <p className="mb-3 text-xs text-slate-500">Use your country code, for example +255712345678. Phone accounts use a password.</p>}
 
               {/* A real <form> with named + identified fields so the browser's
                   password manager reliably offers to save the email/password
@@ -599,16 +560,17 @@ export default function LoginScreen({
                   </label>
                 )}
                 <label htmlFor="login-email" className="block text-[10px] font-black uppercase tracking-wide text-slate-500">
-                  Email or phone number
+                  {identifierKind === 'phone' ? 'Phone number' : 'Email address'}
                   <div className="relative mt-2">
                     <Mail className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
                     <input
                       id="login-email"
-                      name="email"
-                      type="text"
+                      name="identifier"
+                      type={identifierKind === 'phone' ? 'tel' : 'email'}
+                      inputMode={identifierKind === 'phone' ? 'tel' : 'email'}
                       value={email}
                       onChange={(event) => setEmail(event.target.value)}
-                      placeholder="you@business.com or +255712345678"
+                      placeholder={identifierKind === 'phone' ? '+255712345678' : 'you@business.com'}
                       autoComplete="username"
                       className="h-12 w-full rounded-xl border border-slate-200 bg-white pl-10 pr-3 text-sm font-semibold outline-none focus:border-[#ff7616]"
                     />

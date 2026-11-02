@@ -1,0 +1,64 @@
+name: Deploy KobeOS Account and Desktop
+
+on:
+  workflow_dispatch:
+    inputs:
+      preflight_only:
+        description: Check Cloudflare project access without building or deploying
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-kobeos-pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy KobeOS frontend
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      # Prefer a dedicated Pages token; do not replace the Workers/API credential.
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_API_TOKEN || secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID || vars.CF_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Test deployment verification
+        run: node --test scripts/cloudflare-pages.node-test.mjs
+      - name: Verify Cloudflare account and Pages project access
+        id: pages-access
+        run: node scripts/cloudflare-pages.mjs access
+      - name: Install frontend dependencies
+        if: inputs.preflight_only != true
+        run: npm ci --legacy-peer-deps
+      - name: Test account and callback flows
+        if: inputs.preflight_only != true
+        run: npx vitest run src/components/LoginScreen.test.tsx src/components/OAuthCallback.test.tsx src/lib/auth.test.ts src/public/api.hostnames.test.ts
+      - name: Build KobeOS frontend
+        if: inputs.preflight_only != true
+        env:
+          VITE_API_BASE: https://api.kobeapptz.com/api
+          VITE_ACCOUNT_API_BASE: https://api.kobeapptz.com/api
+          VITE_TENANT_BASE_DOMAIN: kobeapptz.com
+        run: |
+          npm run build
+          cp deploy/_redirects dist/_redirects
+          node -e 'require("node:fs").writeFileSync("dist/deployment-version.json", JSON.stringify({revision:process.env.GITHUB_SHA}))'
+      - name: Deploy current KobeOS bundle
+        if: inputs.preflight_only != true
+        env:
+          PAGES_PRODUCTION_BRANCH: ${{ steps.pages-access.outputs.production_branch }}
+        run: npx --yes wrangler@4.155.0 pages deploy dist --project-name kobeos-app --branch "$PAGES_PRODUCTION_BRANCH" --commit-hash "$GITHUB_SHA"
+      - name: Verify exact frontend release and production database
+        if: inputs.preflight_only != true
+        run: |
+          node scripts/cloudflare-pages.mjs verify
+          echo 'Exact KobeOS frontend release and production API/database health verified. Social account connection still requires provider authorization.' >> "$GITHUB_STEP_SUMMARY"
