@@ -21,6 +21,10 @@ interface Fr24Flight {
   scheduledArrival?: string;
   estimatedArrival?: string;
   status?: string;
+  latitude?: number;
+  longitude?: number;
+  altitude?: number;
+  groundSpeed?: number;
 }
 
 interface AirHub {
@@ -44,7 +48,6 @@ interface ShipmentRow {
   eta?: string | null;
 }
 
-const DAR_CODE = 'DAR';
 const DEFAULT_CHINA_CODES = ['CAN', 'HKG'];
 
 export default function FlightBoard() {
@@ -62,8 +65,8 @@ export default function FlightBoard() {
   useEffect(() => { void checkConnection(); }, [checkConnection]);
 
   const tabs: Array<{ key: BoardTab; label: string; icon: React.ComponentType<{ className?: string }> }> = [
-    { key: 'dar-dep', label: 'DAR Departures', icon: PlaneTakeoff },
-    { key: 'dar-arr', label: 'DAR Arrivals', icon: PlaneLanding },
+    { key: 'dar-dep', label: 'Tanzania Departures', icon: PlaneTakeoff },
+    { key: 'dar-arr', label: 'Heading to Tanzania', icon: PlaneLanding },
     { key: 'china-dep', label: 'China Departures', icon: Globe },
     { key: 'hubs', label: 'Transit Hubs', icon: MapPin },
     { key: 'assigned', label: 'Assigned Flights', icon: Link2 },
@@ -80,13 +83,13 @@ export default function FlightBoard() {
       {configured === false && !connectionError && <div className="ad-feed-notice"><Radio size={20} /><div><h3>The connector is installed. Activate the feed.</h3><p>Configure FlightRadar24 on the server to receive real aircraft positions.</p></div><button type="button" className="ad-text-button cursor-interaction" onClick={checkConnection}>Check again</button></div>}
       <div className="ad-flight-body">
         {tab === 'assigned' ? <AssignedFlightsPanel /> : configured === true ? <>
-          {tab === 'dar-dep' && <AirportPanel code="DAR" direction="departures" />}
-          {tab === 'dar-arr' && <AirportPanel code="DAR" direction="arrivals" />}
+          {tab === 'dar-dep' && <AirportPanel code="TZ" direction="departures" />}
+          {tab === 'dar-arr' && <AirportPanel code="TZ" direction="arrivals" />}
           {tab === 'china-dep' && <ChinaDeparturesPanel />}
           {tab === 'hubs' && <TransitHubsPanel />}
         </> : <div className="ad-board-empty"><Plane size={32} strokeWidth={1} /><h2>{configured === null && !connectionError ? 'Checking the flight desk.' : 'No live aircraft data loaded.'}</h2><p>Your assigned cargo flights remain available in the Assigned Flights workspace.</p></div>}
       </div>
-      <div className="ad-board-footnote"><span>Source: FlightRadar24 · live aircraft coverage, not a full schedule</span><span>Aircraft movement ≠ cargo receipt</span></div>
+      <div className="ad-board-footnote"><span>Source: FlightRadar24 · live aircraft coverage, not a full schedule</span><span>FR24 coverage only · assigned flight instances update cargo every 5 minutes · aircraft movement ≠ cargo receipt</span></div>
     </section>
   );
 }
@@ -95,13 +98,15 @@ function AirportPanel({ code, direction }: { code: string; direction: 'departure
   const [flights, setFlights] = useState<Fr24Flight[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const rows = await api<Fr24Flight[]>(`/cargo/flights/fr24/airport/${encodeURIComponent(code)}/${direction}`, { offlineFallback: false });
+      const rows = await api<Fr24Flight[]>(code === 'TZ' ? `/cargo/flights/fr24/tanzania/${direction}` : `/cargo/flights/fr24/airport/${encodeURIComponent(code)}/${direction}`, { offlineFallback: false });
       setFlights(rows ?? []);
+      setUpdatedAt(new Date().toLocaleTimeString());
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load flights');
     } finally {
@@ -110,14 +115,16 @@ function AirportPanel({ code, direction }: { code: string; direction: 'departure
   }, [code, direction]);
 
   useEffect(() => {
-    load();
+    void load();
+    const timer = window.setInterval(() => { if (!document.hidden) void load(); }, 60000);
+    return () => window.clearInterval(timer);
   }, [load]);
 
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
         <h3 className="text-sm font-medium text-slate-600">
-          {code} {direction === 'departures' ? 'Departures' : 'Arrivals'}
+          {code === 'TZ' ? 'All Tanzania airports' : code} · {direction === 'departures' ? 'Departures' : 'Inbound'}{updatedAt && ` · Last successful refresh ${updatedAt}`} · Refreshes every minute
         </h3>
         <Button size="sm" variant="ghost" onClick={load} disabled={loading} className="text-xs h-7 text-slate-600 hover:bg-white/30">
           <RefreshCw className={`w-3 h-3 mr-1 ${loading ? 'animate-spin' : ''}`} />
@@ -213,6 +220,7 @@ function AssignedFlightsPanel() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
+  const [watch, setWatch] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -256,6 +264,7 @@ function AssignedFlightsPanel() {
           Refresh
         </Button>
       </div>
+      {watch && <ShipmentPosition key={watch} id={watch} />}
       {loading && <Loading />}
       {!loading && error && <ErrorMsg msg={error} />}
       {!loading && !error && (
@@ -276,7 +285,7 @@ function AssignedFlightsPanel() {
               <tbody>
                 {filtered.map((s) => (
                   <tr key={s.id} className="border-b border-white/[0.20] hover:bg-white/[0.20]">
-                    <td className="px-4 py-2.5 font-mono text-slate-700">{s.shipmentId}</td>
+                    <td className="px-4 py-2.5 font-mono text-slate-700">{s.shipmentId}<button type="button" className="ad-text-button" onClick={() => setWatch(s.id)}>Track goods flight</button></td>
                     <td className="px-4 py-2.5 font-mono text-blue-600">{s.flightNumber}</td>
                     <td className="px-4 py-2.5 text-slate-600">{s.carrier ?? '—'}</td>
                     <td className="px-4 py-2.5 text-slate-700">
@@ -305,6 +314,22 @@ function AssignedFlightsPanel() {
       )}
     </div>
   );
+}
+
+function ShipmentPosition({id}: {id:string}) {
+  const [result, setResult] = useState<{available:boolean; reason?:string; checkedAt?:string; flight?:Fr24Flight} | null>(null);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      try { const data = await api<{available:boolean; reason?:string; checkedAt?:string; flight?:Fr24Flight}>(`/cargo/shipments/${encodeURIComponent(id)}/fr24-live`, {offlineFallback:false}); if (active) {setResult(data);setError('');} }
+      catch { if (active) {setResult(null);setError('Live goods flight could not be refreshed.');} }
+    };
+    void load(); const timer=window.setInterval(()=>{if (!document.hidden) void load();},60000);
+    return ()=>{active=false;window.clearInterval(timer);};
+  },[id]);
+  const f=result?.flight;
+  return <div className="ad-assignment" aria-live="polite"><div><h3>Goods flight position</h3>{error ? <p role="alert">{error}</p> : f ? <p>{f.flightNumber} · {f.origin} → {f.destination} · {f.latitude ?? '—'}, {f.longitude ?? '—'} · {f.altitude ?? '—'} ft · {f.groundSpeed ?? '—'} kt · Checked {fmtDate(result?.checkedAt)}</p> : <p>{result?.reason || 'Checking the assigned flight…'}</p>}<p>Aircraft location only. Loading, customs clearance and collection require cargo records.</p></div></div>;
 }
 
 function FlightTable({
@@ -373,8 +398,8 @@ function FlightTable({
                 <th className="px-4 py-2.5 text-left text-slate-700">Airline</th>
                 <th className="px-4 py-2.5 text-left text-slate-700">Aircraft</th>
                 <th className="px-4 py-2.5 text-left text-slate-700">Route</th>
-                <th className="px-4 py-2.5 text-left text-slate-700">Scheduled Dep</th>
-                <th className="px-4 py-2.5 text-left text-slate-700">Scheduled Arr</th>
+                <th className="px-4 py-2.5 text-left text-slate-700">Position</th>
+                <th className="px-4 py-2.5 text-left text-slate-700">Altitude / speed</th>
                 <th className="px-4 py-2.5 text-left text-slate-700">Status</th>
                 <th className="px-4 py-2.5"></th>
               </tr>
@@ -388,8 +413,8 @@ function FlightTable({
                   <td className="px-4 py-2.5 text-slate-600">
                     {f.origin} → {f.destination}
                   </td>
-                  <td className="px-4 py-2.5 text-slate-700">{fmtDate(f.scheduledDeparture)}</td>
-                  <td className="px-4 py-2.5 text-slate-700">{fmtDate(f.scheduledArrival ?? f.estimatedArrival)}</td>
+                  <td className="px-4 py-2.5 text-slate-700">{f.latitude != null && f.longitude != null ? `${f.latitude.toFixed(3)}, ${f.longitude.toFixed(3)}` : 'Unavailable'}</td>
+                  <td className="px-4 py-2.5 text-slate-700">{f.altitude ?? '—'} ft / {f.groundSpeed ?? '—'} kt</td>
                   <td className="px-4 py-2.5">
                     <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-500/10 text-slate-600 border border-slate-500/20">
                       {f.status ?? 'Position reported'}
