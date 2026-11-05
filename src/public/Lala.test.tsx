@@ -20,7 +20,7 @@ const passport = {
 async function openReservation() {
   fireEvent.click(await screen.findByRole('button', { name: 'View Coast House' }));
   fireEvent.click(screen.getByRole('button', { name: /Choose room/ }));
-  return screen.getByRole('dialog', { name: 'Your next good night.' });
+  return screen.getByRole('dialog', { name: 'Review your reservation' });
 }
 describe('Lala mobile guest journeys', () => {
   beforeEach(() => {
@@ -67,7 +67,7 @@ describe('Lala mobile guest journeys', () => {
     fireEvent.change(screen.getByLabelText('Check-out', { exact: true }), { target: { value: date(end) } });
     fireEvent.submit(screen.getByRole('form', { name: 'Find a stay' }));
     await waitFor(() => expect(api.mock.calls.filter(([path]) => path.startsWith('/lala-public/search'))).toHaveLength(2));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Find a stay' })).toBeEnabled());
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Search hotels' })).toBeEnabled());
     // An unsubmitted draft change must not alter a displayed room's booking dates.
     const draft = new Date(end); draft.setDate(draft.getDate() + 1);
     fireEvent.change(screen.getByLabelText('Check-out', { exact: true }), { target: { value: date(draft) } });
