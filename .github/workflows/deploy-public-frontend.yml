@@ -1,0 +1,93 @@
+name: Deploy Always-On Public Frontend
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [master, main]
+    paths:
+      - deploy/public-frontend/**
+      - .github/workflows/deploy-public-frontend.yml
+      - src/**
+      - public/**
+      - index.html
+      - package.json
+      - package-lock.json
+      - vite.config.*
+      - tsconfig*.json
+      - tailwind.config.*
+      - postcss.config.*
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-public-frontend
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: production
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN || secrets.CF_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID || secrets.CF_ACCOUNT_ID || vars.CLOUDFLARE_ACCOUNT_ID || vars.CF_ACCOUNT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Require deployment credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo '::error::Cloudflare Workers deployment token is missing in production.'; exit 1; }
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo '::error::Cloudflare account ID is missing in production.'; exit 1; }
+      - name: Verify frontend survives an unavailable origin
+        run: node --test deploy/public-frontend/frontend.node-test.mjs
+      - name: Install frontend dependencies
+        run: npm ci --legacy-peer-deps --ignore-scripts
+      - name: Build public frontend
+        env:
+          VITE_API_BASE: https://api.kobeapptz.com/api
+          VITE_ACCOUNT_API_BASE: https://api.kobeapptz.com/api
+          VITE_TENANT_BASE_DOMAIN: kobeapptz.com
+        run: |
+          npm run build
+          node -e 'require("node:fs").writeFileSync("dist/deployment-version.json", JSON.stringify({revision:process.env.GITHUB_SHA}))'
+      - name: Install pinned Cloudflare deployment tools
+        working-directory: deploy/cloudflare-primary-api
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Validate Worker and static assets
+        run: deploy/cloudflare-primary-api/node_modules/.bin/wrangler deploy --config deploy/public-frontend/wrangler.jsonc --dry-run
+      - name: Deploy cloud-hosted pages and wildcard shop route
+        run: deploy/cloudflare-primary-api/node_modules/.bin/wrangler deploy --config deploy/public-frontend/wrangler.jsonc --var "RELEASE_REVISION:$GITHUB_SHA"
+      - name: Verify custom domains independently of backend health
+        shell: bash
+        run: |
+          set -euo pipefail
+          for host in lala.kobeapptz.com jumla.kobeapptz.com kobeapptz.com public-hosting-check.kobeapptz.com; do
+            verified=false
+            for attempt in $(seq 1 12); do
+              if curl -fsS --connect-timeout 10 --max-time 20 -D "$RUNNER_TEMP/public-headers" "https://$host/deployment-version.json" -o "$RUNNER_TEMP/public-version.json" \
+                && grep -qi '^x-kobe-public-hosting: cloudflare-assets' "$RUNNER_TEMP/public-headers" \
+                && jq -e --arg sha "$GITHUB_SHA" '.revision == $sha' "$RUNNER_TEMP/public-version.json" >/dev/null; then
+                verified=true
+                break
+              fi
+              sleep 5
+            done
+            test "$verified" = true || { echo "::error::$host did not serve this release from cloud assets."; exit 1; }
+            curl -fsS --connect-timeout 10 --max-time 20 "https://$host/" | grep -q 'id="root"'
+            echo "Verified cloud-hosted frontend: https://$host" >> "$GITHUB_STEP_SUMMARY"
+          done
+          # Backend health is a separate result: a database outage must never
+          # be confused with failure to publish the public site's static UI.
+          if curl -fsS --connect-timeout 10 --max-time 25 https://api.kobeapptz.com/api/health -o "$RUNNER_TEMP/api-health.json" \
+            && jq -e '.status == "ok" and .db == "connected"' "$RUNNER_TEMP/api-health.json" >/dev/null; then
+            echo 'Online API and database: healthy.' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo '::warning::Public pages are deployed; live API/database is unavailable. Transactions are not verified.'
+            echo 'Online API/database unavailable; frontend deployment succeeded independently.' >> "$GITHUB_STEP_SUMMARY"
+          fi
