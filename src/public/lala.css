@@ -1,0 +1,264 @@
+/* Lala is a complete, isolated light surface inside the KobeOS shell. */
+.lala-world {
+  --lala-ink: #243b32; --lala-muted: #6c756e; --lala-paper: #faf8f3;
+  --lala-orange: #b95432; --lala-line: #e6e8df; --bg-input: #fff;
+  --text-primary: #243b32; --border-secondary: #e1e5dc;
+  width: 100%; height: 100dvh; background: radial-gradient(ellipse at 15% 15%, #f2e8dc, transparent 50%), #e8ede5;
+  color: var(--lala-ink); color-scheme: light; font-family: 'Inter', sans-serif; font-size: 14px; line-height: 1.5;
+  display: flex; justify-content: center; -webkit-tap-highlight-color: transparent;
+}
+.lala-world *, .lala-world *::before, .lala-world *::after { box-sizing: border-box; }
+.lala-world :is(h1,h2,h3,p) { margin: 0; color: inherit; }
+.lala-world :is(button,a,input,select,textarea) { font: inherit; }
+.lala-world button { border: 0; background: none; color: inherit; padding: 0; }
+.lala-world button:disabled { opacity: .48; cursor: not-allowed; }
+.lala-world a { color: inherit; text-decoration: none; }
+.lala-world button:focus-visible, .lala-world a:focus-visible { outline: 3px solid #b95432; outline-offset: 4px; }
+.lala-world input:focus, .lala-world select:focus { outline: 2px solid #b95432; outline-offset: 2px; box-shadow: none; }
+.lala-world img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.lala-world svg { flex-shrink: 0; }
+.lala-frame { width: 100%; max-width: 440px; height: 100dvh; overflow-y: auto; overflow-x: hidden; overscroll-behavior-y: contain; scrollbar-width: none; position: relative; background: var(--lala-paper); padding-bottom: calc(94px + env(safe-area-inset-bottom)); box-shadow: 0 0 90px #273c2f14; }
+.lala-frame::-webkit-scrollbar { display: none; }
+.lala-header { height: 76px; padding: 0 24px; display: flex; align-items: center; gap: 12px; }
+.lala-world .lala-wordmark { display: inline-flex; align-items: center; gap: 9px; font-family: Georgia, serif; font-size: 37px; font-weight: 700; letter-spacing: -2px; line-height: 1; }
+.lala-wordmark > svg { color: var(--lala-orange); stroke-width: 1.5; }
+.lala-wordmark > span { color: var(--lala-orange); margin-left: -8px; }
+.lala-header-note { font-size: 9px; letter-spacing: 2.2px; margin-left: auto; font-weight: 600; color: #737c70; }
+.lala-world .lala-icon-button { width: 44px; height: 44px; border: 1px solid var(--lala-line); border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; background: #fff9; }
+.lala-world .lala-avatar { background: #e9eddf; border-color: transparent; margin-left: 2px; }
+.lala-hero { position: relative; height: 272px; margin: 0 16px; border-radius: 25px; overflow: hidden; isolation: isolate; background: #365d58; }
+.lala-hero > img { position: absolute; inset: 0; z-index: -2; object-position: 50% 56%; }
+.lala-hero-shade { position: absolute; inset: 0; background: linear-gradient(90deg, #092c2ed9 0%, #0d332f8a 60%, #0c302c24), linear-gradient(0deg, #0c302c70, transparent 65%); z-index: -1; }
+.lala-hero-copy { padding: 29px 24px; color: #fff; }
+.lala-hero-eyebrow { display: flex; align-items: center; gap: 6px; font-size: 8px; font-weight: 600; letter-spacing: 1.65px; color: #eff6e8; }
+.lala-hero-eyebrow > span { height: 5px; width: 5px; border-radius: 50%; background: #e6bd8f; }
+.lala-hero h1 { margin-top: 21px; font-family: Georgia, 'Times New Roman', serif; font-size: clamp(37px, 10.8vw, 48px); line-height: 1.04; font-weight: 400; letter-spacing: -1.7px; }
+.lala-hero h1 em { font-weight: 400; color: #f4d1a4; }
+.lala-hero-copy > p { margin-top: 13px; font-size: 12px; color: #f1f2e8; letter-spacing: .1px; }
+.lala-hero-stamp { position: absolute; bottom: 26px; right: 20px; display: flex; align-items: center; gap: 5px; color: #f8e6c8; font-size: 8px; letter-spacing: .6px; }
+.lala-search-card { position: relative; z-index: 2; background: #fff; margin: -15px 30px 0; padding: 16px; border-radius: 19px; box-shadow: 0 10px 30px #243b3210, 0 2px 5px #243b3205; border: 1px solid #f0eee7; }
+.lala-destination { display: flex; align-items: center; gap: 11px; padding: 0 1px 13px; border-bottom: 1px solid var(--lala-line); }
+.lala-destination > svg { color: var(--lala-orange); stroke-width: 1.7; }
+.lala-destination > span { flex: 1; min-width: 0; }
+.lala-destination small { display: block; font-size: 9px; font-weight: 700; color: #6e766d; letter-spacing: 1.4px; }
+.lala-world .lala-destination input { border: 0; background: transparent; padding: 3px 0 0; height: 27px; width: 100%; color: var(--lala-ink); font-size: 13px; font-weight: 600; border-radius: 0; }
+.lala-world .lala-destination input::placeholder { color: #405549; opacity: 1; }
+.lala-search-dates { display: flex; gap: 12px; align-items: center; margin: 12px 0 14px; }
+.lala-search-dates > label { min-width: 0; flex: 1; }
+.lala-search-dates label > span { display: block; font-size: 8px; color: #6e766d; letter-spacing: 1px; font-weight: 600; }
+.lala-world .lala-search-dates :is(input,select) { background: transparent; width: 100%; padding: 4px 0 0; border: 0; border-radius: 0; height: 27px; color: var(--lala-ink); font-size: 11px; font-weight: 600; min-width: 0; }
+.lala-search-dates input::-webkit-calendar-picker-indicator { width: 11px; height: 11px; margin: 0; padding: 0; opacity: .5; }
+.lala-search-dates .lala-guests { flex: 0 0 40px; border-left: 1px solid var(--lala-line); padding-left: 10px; }
+.lala-date-divider { height: 23px; width: 1px; background: var(--lala-line); }
+.lala-world .lala-primary { min-height: 48px; padding: 13px 18px; width: 100%; display: flex; justify-content: center; align-items: center; gap: 9px; background: var(--lala-orange); color: #fff; border-radius: 12px; font-weight: 600; font-size: 12px; letter-spacing: .15px; transition: background .2s, transform .2s; }
+.lala-world .lala-primary > svg:last-child:not(:first-child) { margin-left: auto; }
+.lala-world .lala-primary:hover:not(:disabled) { background: #9e4528; transform: translateY(-1px); }
+.lala-world .lala-secondary { display: flex; align-items: center; justify-content: center; gap: 9px; min-height: 46px; background: #eeeee5; border: 1px solid #e2e5da; border-radius: 12px; font-size: 12px; font-weight: 600; padding: 12px 16px; }
+.lala-discover { padding: 0 23px; }
+.lala-trust-line { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 8px; font-weight: 500; color: #697362; margin: 15px -5px 23px; }
+.lala-trust-line > svg { color: #597258; }
+.lala-trust-line > span { margin-left: 5px; color: #a96f42; }
+.lala-section-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.lala-world .lala-eyebrow { font-size: 8px; font-weight: 600; letter-spacing: 1.5px; color: #7c826f; margin-bottom: 6px; }
+.lala-section-title h2 { font-family: Georgia, serif; font-size: 25px; font-weight: 400; line-height: 1.15; letter-spacing: -.6px; }
+.lala-section-title h1 { font-family: Georgia, serif; font-weight: 400; font-size: 35px; line-height: 1.1; letter-spacing: -1px; }
+.lala-section-title > svg { color: #78856b; stroke-width: 1.3; }
+.lala-destination-pills { display: flex; align-items: center; gap: 7px; margin: 0 -23px; padding: 0 23px 4px; overflow-x: auto; scrollbar-width: none; }
+.lala-destination-pills button { border: 1px solid #e2e5da; border-radius: 10px; padding: 11px 13px; min-height: 40px; white-space: nowrap; background: #fff; font-size: 11px; display: flex; align-items: center; gap: 5px; }
+.lala-destination-pills button.is-active { background: #2c493a; color: #fff; border-color: #2c493a; }
+.lala-results { margin-top: 28px; scroll-margin-top: 15px; }
+.lala-result-count { background: #eaece1; color: #5e7159; height: 29px; min-width: 29px; border-radius: 50%; font-size: 10px; display: grid; place-items: center; }
+.lala-filter-bar { display: flex; align-items: center; gap: 16px; border-bottom: 1px solid var(--lala-line); margin-bottom: 18px; }
+.lala-filter-bar button { padding: 0 0 11px; font-size: 10px; color: #737b70; display: flex; gap: 5px; align-items: center; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
+.lala-filter-bar button.is-active { border-bottom-color: var(--lala-orange); color: var(--lala-orange); font-weight: 600; }
+.lala-hotel-card { margin-bottom: 22px; }
+.lala-hotel-image { position: relative; height: 223px; border-radius: 18px; overflow: hidden; background: #d9e0cf; }
+.lala-world .lala-photo-button { width: 100%; height: 100%; }
+.lala-photo-button img { transition: transform .4s ease; }
+.lala-photo-button:hover img { transform: scale(1.035); }
+.lala-photo-badge { position: absolute; left: 12px; top: 12px; display: flex; gap: 5px; align-items: center; padding: 6px 8px; font-size: 8px; font-weight: 500; background: #fffef4ed; color: #314b39; border-radius: 6px; pointer-events: none; }
+.lala-world .lala-save-button { position: absolute; right: 12px; top: 12px; width: 44px; height: 44px; border-radius: 50%; background: #fffef4ed; color: #344d3d; display: grid; place-items: center; }
+.lala-world .lala-save-button.is-saved { color: var(--lala-orange); }
+.lala-world .lala-hotel-info { display: block; width: 100%; text-align: left; padding: 13px 1px 0; }
+.lala-hotel-title { display: flex; justify-content: space-between; gap: 12px; align-items: start; }
+.lala-hotel-title h3 { font-size: 17px; letter-spacing: -.3px; font-weight: 600; }
+.lala-hotel-title > span { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; white-space: nowrap; }
+.lala-star { color: #b57b32; }
+.lala-hotel-title > .lala-new-stay { font-size: 9px; color: #6e7d65; background: #e9edde; border-radius: 5px; padding: 3px 6px; }
+.lala-hotel-info > p { display: flex; gap: 4px; align-items: center; color: var(--lala-muted); font-size: 12px; margin-top: 5px; }
+.lala-hotel-bottom { margin-top: 12px; display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--lala-line); padding-top: 10px; gap: 8px; }
+.lala-hotel-bottom b { font-size: 16px; font-weight: 600; }
+.lala-hotel-bottom small { color: var(--lala-muted); font-size: 9px; }
+.lala-view-stay { display: flex; align-items: center; gap: 5px; color: #985133; font-size: 9px; }
+.lala-offer-banner { margin: 30px 0; padding: 26px; background: #e5eadb; border-radius: 20px; position: relative; overflow: hidden; }
+.lala-offer-banner .lala-eyebrow { color: #637353; }
+.lala-offer-banner h2 { font-family: Georgia, serif; font-size: 34px; font-weight: 400; line-height: 1.08; letter-spacing: -.6px; }
+.lala-offer-banner h2 em { color: #758468; }
+.lala-offer-banner > p:not(.lala-eyebrow) { font-size: 10px; color: #5e6e57; margin-top: 13px; line-height: 1.7; }
+.lala-world .lala-offer-banner > button { display: flex; align-items: center; gap: 16px; padding: 10px 0 0; margin-top: 9px; font-size: 11px; font-weight: 600; position: relative; z-index: 1; }
+.lala-offer-spark { position: absolute; right: 29px; top: 31px; color: #879374; }
+.lala-banner-orbit { position: absolute; width: 140px; height: 210px; border: 1px solid #a2b18a70; border-radius: 50%; right: -49px; bottom: -63px; transform: rotate(-35deg); box-shadow: 0 0 0 18px #a2b18a15, 0 0 0 37px #a2b18a12; }
+.lala-footer { display: flex; align-items: center; flex-direction: column; gap: 10px; padding: 12px 0 19px; color: #7b826e; font-size: 10px; }
+.lala-footer > svg { color: #a4774e; stroke-width: 1.4; }
+.lala-footer small { font-size: 8px; letter-spacing: 1px; color: #78806f; }
+.lala-bottom-nav { position: fixed; z-index: 30; bottom: 0; left: 50%; transform: translateX(-50%); width: min(100%, 440px); display: flex; background: #fffdf7f5; backdrop-filter: blur(18px); border-top: 1px solid #e9e9df; padding: 12px 15px calc(12px + env(safe-area-inset-bottom)); box-shadow: 0 -6px 22px #243b3205; }
+.lala-bottom-nav button { position: relative; flex: 1; min-height: 45px; display: flex; align-items: center; flex-direction: column; justify-content: center; gap: 5px; color: #7d8274; }
+.lala-bottom-nav button > span { font-size: 10px; letter-spacing: .2px; }
+.lala-bottom-nav button.is-active { color: var(--lala-orange); }
+.lala-bottom-nav button.is-active > span { font-weight: 600; }
+.lala-bottom-nav i { width: 3px; height: 3px; border-radius: 50%; background: var(--lala-orange); position: absolute; bottom: -5px; }
+.lala-alert { margin: 12px 20px; background: #fff0e9; border: 1px solid #efd3c7; border-radius: 12px; padding: 12px; color: #8b3d2b; font-size: 11px; overflow-wrap: anywhere; }
+.lala-notice { display: flex; align-items: start; gap: 9px; background: #e7eddf; border: 1px solid #cfddc2; padding: 12px; border-radius: 12px; margin: 10px 20px; font-size: 11px; }
+.lala-notice > button { margin-left: auto; }
+.lala-loading { padding: 18px; display: flex; align-items: center; justify-content: center; gap: 9px; font-size: 11px; color: #68735d; }
+.lala-empty { padding: 37px 15px; text-align: center; display: flex; align-items: center; flex-direction: column; gap: 13px; }
+.lala-empty > svg { width: 36px; height: 36px; color: #879175; stroke-width: 1.1; margin-bottom: 6px; }
+.lala-empty :is(h2,h3) { font-family: Georgia, serif; font-size: 25px; font-weight: 400; }
+.lala-empty > p { font-size: 12px; color: var(--lala-muted); line-height: 1.8; max-width: 300px; }
+.lala-empty .lala-primary { width: auto; min-width: 210px; margin-top: 9px; }
+.lala-spin { animation: lala-spin 1s linear infinite; }
+@keyframes lala-spin { to { transform: rotate(360deg); } }
+.lala-world .lala-muted { font-size: 11px; color: var(--lala-muted); line-height: 1.8; margin-bottom: 18px; }
+.lala-world .lala-caption { font-size: 9px; color: #6a7564; line-height: 1.7; display: flex; align-items: center; gap: 6px; margin-top: 13px; }
+.lala-world .lala-text-button { color: #9b502f; font-size: 11px; font-weight: 600; min-height: 40px; }
+.lala-account-content { padding: 24px; }
+.lala-account-intro { padding: 52px 32px; display: flex; align-items: center; flex-direction: column; text-align: center; }
+.lala-illustration { height: 110px; width: 110px; border-radius: 35px; background: #e4e9d9; display: grid; place-items: center; margin-bottom: 33px; transform: rotate(-7deg); border: 1px solid #d7dfc8; box-shadow: 9px 9px 0 #f1eadc; }
+.lala-illustration svg { height: 47px; width: 47px; stroke-width: 1.1; color: #576c47; transform: rotate(7deg); }
+.lala-account-intro h2 { font-family: Georgia, serif; font-weight: 400; font-size: 39px; line-height: 1.1; letter-spacing: -1px; margin: 9px 0 19px; }
+.lala-account-intro > p:not(.lala-eyebrow) { font-size: 12px; color: var(--lala-muted); line-height: 1.9; }
+.lala-account-intro .lala-primary { margin-top: 28px; }
+.lala-passport-card { background: #2c493c; color: #fff8e8; padding: 24px; border-radius: 20px; margin: 25px 0 18px; position: relative; overflow: hidden; box-shadow: 0 15px 25px #273d3014; }
+.lala-passport-card::before { content: ''; width: 250px; height: 250px; border: 1px solid #e3ca9530; border-radius: 50%; position: absolute; right: -90px; top: -110px; box-shadow: 0 0 0 22px #e3ca9509, 0 0 0 44px #e3ca9509; pointer-events: none; }
+.lala-passport-top { display: flex; justify-content: space-between; align-items: center; position: relative; }
+.lala-passport-top .lala-wordmark { font-size: 30px; }
+.lala-passport-top .lala-wordmark > svg { color: #e3c59b; }
+.lala-passport-top > span:last-child { color: #c6cdb6; font-size: 6px; letter-spacing: 1.5px; max-width: 80px; }
+.lala-passport-middle { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 30px 0 22px; }
+.lala-passport-label { display: block; font-size: 7px; letter-spacing: 1.5px; color: #d6c59d; margin-bottom: 9px; }
+.lala-passport-middle h2 { font-family: Georgia, serif; font-weight: 400; font-size: 23px; line-height: 1.15; }
+.lala-passport-middle p { font-family: monospace; font-size: 8px; color: #c9d1be; margin-top: 8px; overflow-wrap: anywhere; }
+.lala-membership { display: inline-block; font-size: 8px; border: 1px solid #9aaa7960; border-radius: 20px; padding: 3px 9px; margin-top: 12px; color: #e5d3ad; }
+.lala-qr { background: #fff; padding: 8px; border-radius: 9px; }
+.lala-passport-bottom { border-top: 1px solid #b8c4a230; padding-top: 12px; display: flex; align-items: center; gap: 6px; font-size: 7px; color: #c2cbb5; }
+.lala-reward-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 30px; }
+.lala-reward-grid > section { background: #f0eee4; border: 1px solid #e7e4d7; border-radius: 15px; padding: 16px 13px; }
+.lala-reward-grid > section:last-child { background: #eaf0e3; border-color: #e0e8d6; }
+.lala-reward-grid svg { color: #8b7856; margin-bottom: 13px; }
+.lala-reward-grid span { display: block; font-size: 9px; color: #68715e; margin-bottom: 6px; }
+.lala-reward-grid strong { display: block; font-family: Georgia, serif; font-weight: 400; font-size: 29px; line-height: 1.3; }
+.lala-reward-grid small { font-family: 'Inter', sans-serif; font-size: 9px; color: #68715e; }
+.lala-reward-grid p { font-size: 7px; color: #707963; margin-top: 8px; }
+.lala-loyalty-row, .lala-history-row { display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--lala-line); padding: 17px 0; }
+.lala-loyalty-row h3 { font-size: 12px; font-weight: 600; }
+.lala-loyalty-row p, .lala-history-row p { font-size: 9px; color: var(--lala-muted); margin-top: 4px; }
+.lala-loyalty-row strong { margin-left: auto; font-size: 15px; font-weight: 500; white-space: nowrap; }
+.lala-loyalty-row small { display: block; text-align: right; font-size: 8px; color: var(--lala-muted); }
+.lala-small-icon { display: inline-grid; place-items: center; height: 39px; width: 39px; border-radius: 12px; background: #e9edde; color: #6a7c58; flex-shrink: 0; }
+.lala-soft-note { background: #efeee5; border: 1px dashed #d8ddcd; border-radius: 12px; font-size: 11px; padding: 18px; color: #64715b; line-height: 1.8; }
+.lala-trip-card { background: #fff; border: 1px solid var(--lala-line); padding: 20px; border-radius: 19px; margin: 20px 0; }
+.lala-trip-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 18px; }
+.lala-status { font-size: 8px; color: #8f5e32; background: #f6ecd9; padding: 5px 8px; border-radius: 5px; letter-spacing: .5px; }
+.lala-trip-card h2 { font-family: Georgia, serif; font-size: 25px; font-weight: 400; }
+.lala-trip-card > p { color: var(--lala-muted); font-size: 10px; margin-top: 5px; }
+.lala-trip-dates { display: flex; align-items: center; justify-content: space-between; background: #f6f6ef; padding: 16px; border-radius: 10px; margin-top: 19px; }
+.lala-trip-dates span { display: block; font-size: 7px; letter-spacing: 1px; color: #7f8775; margin-bottom: 6px; }
+.lala-trip-dates b { font-size: 14px; font-weight: 500; }
+.lala-trip-dates > svg { color: #8c957e; }
+.lala-trip-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 18px; gap: 10px; }
+.lala-trip-footer > span { color: var(--lala-muted); font-size: 8px; }
+.lala-trip-footer strong { font-size: 13px; }
+.lala-subtitle { font-family: Georgia, serif; font-size: 25px; font-weight: 400; padding-top: 15px; }
+.lala-history-row { font-size: 11px; }
+.lala-saved-card { display: flex; gap: 5px; align-items: center; padding: 17px 0; border-bottom: 1px solid var(--lala-line); }
+.lala-saved-card > button:first-child { display: flex; gap: 13px; align-items: center; text-align: left; flex: 1; min-width: 0; }
+.lala-saved-card img { height: 92px; width: 86px; border-radius: 13px; }
+.lala-saved-card h2 { font-size: 13px; font-weight: 600; }
+.lala-saved-card p { font-size: 9px; color: var(--lala-muted); display: flex; gap: 4px; align-items: center; margin-top: 6px; }
+.lala-saved-card small { font-size: 9px; display: flex; gap: 4px; align-items: center; color: #9a5738; margin-top: 12px; }
+.lala-saved-card .lala-icon-button { color: var(--lala-orange); border: 0; width: 32px; }
+.lala-detail { position: fixed; inset: 0; margin: auto; max-width: 440px; height: 100dvh; z-index: 40; background: var(--lala-paper); overflow-y: auto; scrollbar-width: none; padding-bottom: calc(30px + env(safe-area-inset-bottom)); animation: lala-enter .25s ease both; }
+.lala-detail-image { height: 300px; position: relative; }
+.lala-detail-image::after { content: ''; position: absolute; inset: 65% 0 0; background: linear-gradient(0deg,#17332870,transparent); pointer-events: none; }
+.lala-world .lala-detail-back, .lala-world .lala-detail-heart { position: absolute; top: 22px; left: 20px; width: 40px; height: 40px; background: #fffcf4ed; border-radius: 50%; display: grid; place-items: center; z-index: 1; }
+.lala-world .lala-detail-heart { left: auto; right: 20px; color: var(--lala-orange); }
+.lala-detail-stamp { position: absolute; bottom: 27px; left: 25px; font-size: 9px; color: #fff8e9; letter-spacing: 2px; z-index: 1; }
+.lala-detail-body { border-radius: 26px 26px 0 0; margin-top: -14px; background: var(--lala-paper); position: relative; padding: 27px 24px 10px; }
+.lala-detail-body > h1 { font-family: Georgia, serif; font-size: 33px; font-weight: 400; line-height: 1.12; letter-spacing: -.8px; margin-top: 7px; }
+.lala-detail-rating { margin-top: 13px; font-size: 11px; display: flex; align-items: center; gap: 5px; }
+.lala-detail-rating > span:last-child { color: var(--lala-muted); font-size: 10px; }
+.lala-detail-description { font-size: 12px; color: var(--lala-muted); line-height: 1.9; margin-top: 21px !important; }
+.lala-amenities { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.lala-amenities > span { display: flex; align-items: center; gap: 5px; background: #eaeede; color: #526748; padding: 6px 9px; border-radius: 7px; font-size: 9px; }
+.lala-date-summary { display: flex; align-items: center; gap: 12px; padding: 16px 13px; border: 1px solid var(--lala-line); border-radius: 13px; margin: 25px 0; }
+.lala-date-summary > svg { color: #9e6c44; }
+.lala-date-summary b { font-size: 12px; font-weight: 600; }
+.lala-date-summary span { display: block; font-size: 9px; color: var(--lala-muted); margin-top: 4px; }
+.lala-date-summary button { margin-left: auto; color: #9a5131; text-decoration: underline; font-size: 10px; }
+.lala-room-card { display: flex; align-items: center; gap: 15px; padding: 14px; background: #fff; border: 1px solid var(--lala-line); border-radius: 17px; margin-bottom: 13px; }
+.lala-room-card img { width: 96px; height: 132px; border-radius: 11px; }
+.lala-room-card > div { flex: 1; min-width: 0; }
+.lala-room-card h3 { font-size: 14px; font-weight: 600; }
+.lala-room-card p { display: flex; align-items: center; gap: 4px; color: var(--lala-muted); font-size: 9px; margin-top: 6px; }
+.lala-room-card strong { display: block; font-size: 13px; margin: 13px 0 10px; font-weight: 600; }
+.lala-room-card small { font-size: 8px; color: var(--lala-muted); font-weight: 400; }
+.lala-world .lala-small-button { background: #e9eddf; color: #3d5839; border: 1px solid #dce4cf; min-height: 35px; padding: 8px 11px; border-radius: 9px; display: flex; align-items: center; justify-content: center; gap: 7px; font-size: 10px; font-weight: 600; white-space: nowrap; }
+.lala-detail-caption { justify-content: center; padding-top: 7px; }
+.lala-detail:focus { outline: none; }
+.lala-hotel-contact { margin-top: 13px; }
+.lala-backdrop { position: fixed; z-index: 70; inset: 0; background: #152b2480; backdrop-filter: blur(3px); display: flex; justify-content: center; align-items: end; }
+.lala-sheet { background: var(--lala-paper); width: min(100%,440px); max-height: 94dvh; overflow-y: auto; border-radius: 27px 27px 0 0; padding: 10px 23px calc(23px + env(safe-area-inset-bottom)); animation: lala-enter .25s ease both; box-shadow: 0 -10px 40px #17302520; outline: 0; }
+.lala-sheet-handle { width: 34px; height: 4px; background: #cbd2c2; border-radius: 3px; margin: 0 auto 15px; }
+.lala-sheet-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; justify-content: space-between; }
+.lala-sheet-heading h2 { font-family: Georgia, serif; font-size: 28px; font-weight: 400; line-height: 1.13; letter-spacing: -.7px; }
+.lala-sheet-heading .lala-icon-button { width: 32px; height: 32px; background: #ebece3; border-color: transparent; }
+.lala-booking-hotel { display: flex; gap: 13px; align-items: center; background: #fff; border: 1px solid var(--lala-line); border-radius: 14px; padding: 10px; }
+.lala-booking-hotel img { width: 78px; height: 78px; border-radius: 9px; }
+.lala-booking-hotel h3 { font-size: 13px; font-weight: 600; }
+.lala-booking-hotel span { font-size: 9px; color: var(--lala-muted); }
+.lala-booking-dates { display: flex; align-items: center; gap: 8px; padding: 17px 2px; border-bottom: 1px solid var(--lala-line); font-size: 11px; }
+.lala-booking-dates svg { color: #9a6c48; }
+.lala-booking-dates b { font-weight: 500; }
+.lala-booking-dates span { margin-left: auto; font-size: 10px; color: var(--lala-muted); }
+.lala-price-lines { margin: 10px 0 23px; }
+.lala-price-lines p { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 11px 0; font-size: 10px; color: var(--lala-muted); }
+.lala-price-lines b { font-weight: 500; color: var(--lala-ink); }
+.lala-price-lines p.lala-total { border-top: 1px dashed #d7decc; font-size: 15px; color: var(--lala-ink); }
+.lala-total b { font-weight: 600; }
+.lala-inline-heading { display: flex; gap: 10px; align-items: center; margin-top: 22px; }
+.lala-inline-heading > svg { color: #92704c; }
+.lala-inline-heading h3 { font-size: 12px; font-weight: 600; }
+.lala-inline-heading p { color: var(--lala-muted); font-size: 9px; margin-top: 2px; }
+.lala-identity { display: flex; flex-direction: column; gap: 14px; margin: 18px 0; }
+.lala-identity label { display: flex; flex-direction: column; gap: 6px; color: #5f6f5a; font-size: 10px; font-weight: 500; min-width: 0; }
+.lala-world .lala-identity input { background: #fff; border: 1px solid #dfe5d6; border-radius: 10px; min-height: 43px; padding: 11px; font-size: 12px; color: var(--lala-ink); width: 100%; min-width: 0; }
+.lala-world .lala-identity input::placeholder { color: #8b9385; }
+.lala-phone-line { display: flex; align-items: center; gap: 8px; }
+.lala-phone-line input { flex: 1; }
+.lala-phone-line .lala-small-button { min-height: 43px; flex-shrink: 0; }
+.lala-verified { display: flex; align-items: center; gap: 7px; font-size: 10px; color: #456d3b; padding: 9px 0; }
+.lala-payment-note { display: flex; gap: 8px; align-items: start; margin: 19px 0; background: #eeeee2; padding: 12px; border-radius: 10px; color: #647157; }
+.lala-payment-note > svg { margin-top: 2px; }
+.lala-payment-note b { display: block; font-size: 10px; color: var(--lala-ink); font-weight: 600; }
+.lala-payment-note span { display: block; font-size: 9px; line-height: 1.7; margin-top: 3px; }
+.lala-two-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.lala-sheet .lala-alert { margin: 15px 0; }
+.lala-menu-row { display: flex; align-items: center; gap: 10px; padding: 13px 0; border-bottom: 1px solid var(--lala-line); }
+.lala-menu-row img { width: 49px; height: 49px; border-radius: 9px; }
+.lala-menu-row > div:nth-child(2) { flex: 1; min-width: 0; }
+.lala-menu-row h3 { font-size: 11px; font-weight: 600; }
+.lala-menu-row p { font-size: 10px; color: #8b5c37; margin-top: 4px; }
+.lala-quantity { display: flex; align-items: center; gap: 7px; font-size: 11px; }
+.lala-quantity button { display: grid; place-items: center; height: 28px; width: 28px; border-radius: 8px; background: #e7ecdd; }
+.lala-mode-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin: 20px 0; }
+.lala-mode-buttons button { display: flex; align-items: center; justify-content: center; gap: 7px; padding: 12px; font-size: 11px; border-radius: 10px; background: #e9ecdf; }
+.lala-mode-buttons button.is-active { color: #fff; background: #35503d; }
+.lala-offer-card { padding: 19px; background: #fff; border: 1px solid var(--lala-line); border-radius: 16px; margin-bottom: 14px; }
+.lala-offer-card h3 { font-size: 15px; font-weight: 600; }
+.lala-offer-card > p { font-size: 10px; margin-top: 9px; color: var(--lala-muted); }
+.lala-offer-card > strong { display: block; font-size: 19px; margin: 18px 0; }
+.lala-offer-card small { font-size: 10px; font-weight: 400; color: var(--lala-muted); }
+.lala-offer-card .lala-primary { margin-top: 15px; }
+@keyframes lala-enter { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: translateY(0); } }
+@media (max-width: 360px) { .lala-header { padding: 0 18px; } .lala-header-note { font-size: 8px; letter-spacing: 1.5px; } .lala-search-card { margin-left: 23px; margin-right: 23px; padding: 13px; } .lala-search-dates { gap: 7px; } .lala-search-dates input { font-size: 10px; } .lala-hotel-bottom b { font-size: 12px; } .lala-view-stay { font-size: 8px; } .lala-room-card img { width: 80px; } .lala-hero-copy { padding-left: 20px; } .lala-filter-bar { gap: 12px; } }
+@media (prefers-reduced-motion: reduce) { .lala-world *, .lala-world *::before, .lala-world *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; } }
