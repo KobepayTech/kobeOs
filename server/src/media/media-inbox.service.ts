@@ -1,3 +1,5 @@
+import { GuidedCatalogueDto } from './dto/guided-catalogue.dto';
+import { HotelRoom, HotelMenuItem } from '../hotel/hotel.entity';
 import { publicPhotoLinks } from './repair-catalog-images';
 import {
   BadRequestException,
@@ -178,6 +180,83 @@ export class MediaInboxService {
     private readonly ai: AiService,
     private readonly dataSource: DataSource,
   ) {}
+
+  /** Shop bytes may only enter a shop-server database, never a hosted DB. */
+  private requireShopServer() {
+    const options = this.dataSource.options as { url?: string; host?: string };
+    const host = options.url ? new URL(options.url).hostname : options.host || 'localhost';
+    if (!['localhost', '127.0.0.1', '::1', '[::1]'].includes(host)) {
+      throw new BadRequestException('Shop photos must be uploaded on the shop server with its local database. Open KobeOS on that server.');
+    }
+  }
+
+  async guidedUpload(ownerId: string, businessType: string, files: Express.Multer.File[]) {
+    if (!['shop', 'hotel', 'restaurant'].includes(businessType)) throw new BadRequestException('Choose your business type');
+    if (businessType === 'shop') this.requireShopServer();
+    if (files.some(file => !file.mimetype.startsWith('image/'))) throw new BadRequestException('Choose images only');
+    const results = await this.upload(ownerId, files);
+    for (const result of results) {
+      const item = result.item;
+      if (item.status !== 'UNPROCESSED' && item.status !== 'FAILED') continue;
+      // A duplicate already assigned to a different guide keeps that assignment.
+      if (item.metadata.guidedBusinessType && item.metadata.guidedBusinessType !== businessType) continue;
+      item.metadata = { ...item.metadata, guidedBusinessType: businessType };
+      await this.inbox.save(item);
+    }
+    return results;
+  }
+
+  /** One photo is one atomic confirmation. Retrying after a lost reply reuses it. */
+  async confirmGuided(ownerId: string, id: string, dto: GuidedCatalogueDto) {
+    if (dto.businessType === 'shop') this.requireShopServer();
+    if (!dto.name.trim() || !dto.category.trim()) throw new BadRequestException('Confirm a name and category');
+    return this.dataSource.transaction(async manager => {
+      const repo = manager.getRepository(MediaInboxItem);
+      const item = await repo.findOne({ where: { ownerId, id }, lock: { mode: 'pessimistic_write' } });
+      if (!item) throw new NotFoundException('Photo not found');
+      if (item.metadata.guidedBusinessType !== dto.businessType) throw new BadRequestException('This photo belongs to a different setup');
+      if (item.status === 'PROCESSED') return { itemId: item.id, entityId: item.entityId, duplicate: true };
+      if (item.status === 'PROCESSING') throw new BadRequestException('Photo is already processing');
+      const setup = await manager.query('SELECT "guidedSetup" FROM user_onboarding WHERE "ownerId" = $1', [ownerId]);
+      const currency = setup[0]?.guidedSetup?.currency || 'TZS';
+      let entityId: string;
+      if (dto.businessType === 'shop') {
+        const products = manager.getRepository(PosProduct);
+        const variants = (dto.variants ?? []).map((v, i) => ({ id: `${item.id}-${i}`, name: v.size, price: v.price, stock: v.stock, attributes: { size: v.size } }));
+        const product = await products.save(products.create({
+          ownerId, sku: `PHOTO-${item.id}`, name: dto.name.trim(), category: dto.category.trim(),
+          currency, price: dto.price, stock: variants.length ? variants.reduce((n, v) => n + v.stock, 0) : dto.stock,
+          unit: 'pcs', imageUrl: item.url, imageUrls: [item.url], variants,
+          customData: { size: dto.size, sourceMediaInboxId: item.id }, sourceType: 'QUICK_ADD_PHOTO', active: true,
+        }));
+        entityId = product.id;
+        item.entityType = 'product'; item.moduleId = 'erp';
+      } else if (dto.businessType === 'hotel') {
+        const rooms = manager.getRepository(HotelRoom);
+        const numbers = dto.roomNumbers?.map(n => n.trim()).filter(Boolean) ?? [];
+        if (dto.stock !== numbers.length) throw new BadRequestException('Room quantity must match room numbers');
+        if (!numbers.length || numbers.length !== new Set(numbers).size || !dto.capacity) throw new BadRequestException('Enter unique room numbers and guest capacity');
+        // Serialise room-number checks for this owner, including different photos.
+        await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`guided-rooms:${ownerId}`]);
+        if (await rooms.count({ where: { ownerId, roomNumber: In(numbers) } })) throw new BadRequestException('A room number already exists. Use another number.');
+        const created = await rooms.save(numbers.map(roomNumber => rooms.create({ ownerId, currency, roomNumber, type: dto.name.trim(), rate: dto.price, capacity: dto.capacity, imageUrl: item.url, status: 'available' })));
+        entityId = created[0].id;
+        item.entityType = 'room'; item.moduleId = 'hotel';
+        item.metadata.createdRoomIds = created.map(r => r.id);
+      } else {
+        const menu = manager.getRepository(HotelMenuItem);
+        const created = await menu.save(menu.create({ ownerId, currency, name: `${dto.name.trim()}${dto.size.trim() ? ` (${dto.size.trim()})` : ''}`, category: dto.category.trim(), price: dto.price, imageUrl: item.url, available: dto.stock > 0, station: 'kitchen' }));
+        entityId = created.id;
+        item.entityType = 'menu-item'; item.moduleId = 'hotel';
+      }
+      item.entityId = entityId; item.status = 'PROCESSED'; item.processedAt = new Date();
+      item.metadata = { ...item.metadata, ...dto, guidedBusinessType: dto.businessType };
+      item.folder = `processed/${item.moduleId}/${item.entityType}`;
+      item.error = '';
+      await repo.save(item);
+      return { itemId: item.id, entityId, duplicate: false };
+    });
+  }
 
   async upload(ownerId: string, files: Express.Multer.File[]): Promise<UploadResult[]> {
     if (!files.length) throw new BadRequestException('Select at least one image or video');
@@ -464,15 +543,17 @@ export class MediaInboxService {
     if (unavailable) throw new BadRequestException(`${unavailable.originalName} is already ${unavailable.status.toLowerCase()}`);
 
     const overrideMap = new Map((dto.overrides ?? []).map((entry) => [entry.itemId, entry.metadata ?? {}]));
-    await this.inbox.update({ ownerId, id: In(dto.itemIds) }, { status: 'PROCESSING', error: '' });
+
 
     try {
       const created = await this.dataSource.transaction(async (manager) => {
         const inboxRepo = manager.getRepository(MediaInboxItem);
+        const locked = await inboxRepo.createQueryBuilder('item').where('item.ownerId = :ownerId', { ownerId }).andWhere('item.id IN (:...ids)', { ids: dto.itemIds }).orderBy('item.id', 'ASC').setLock('pessimistic_write').getMany();
+        if (locked.length !== dto.itemIds.length || locked.some(item => !['UNPROCESSED', 'FAILED'].includes(item.status))) throw new BadRequestException('One or more photos were already processed');
         const productRepo = manager.getRepository(PosProduct);
         const results: Array<{ itemId: string; entityId: string | null; entityType: string }> = [];
 
-        for (const item of items) {
+        for (const item of locked) {
           const metadata = {
             ...(dto.defaults ?? {}),
             ...item.aiSuggestions,
@@ -547,7 +628,7 @@ export class MediaInboxService {
       return { processed: created.length, results: created };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      await this.inbox.update({ ownerId, id: In(dto.itemIds) }, { status: 'FAILED', error: message });
+      await this.inbox.update({ ownerId, id: In(dto.itemIds), status: In(['UNPROCESSED', 'FAILED']) }, { status: 'FAILED', error: message });
       throw error;
     }
   }
