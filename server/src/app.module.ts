@@ -97,6 +97,7 @@ import { CreatorCommerceModule } from './creator-commerce/creator-commerce.modul
 import { LiveAdsModule } from './live-ads/live-ads.module';
 import { ReceptionModule } from './reception/reception.module';
 import { LalaModule } from './lala/lala.module';
+import { IntakeModule } from './intake/intake.module';
 import { AccountantModule } from './accountant/accountant.module';
 import { envFiles } from './config/env-files';
 
@@ -203,6 +204,7 @@ import { envFiles } from './config/env-files';
     TransitModule,
     PlatformModule,
     CommerceModule,
+    IntakeModule,
     CreatorCommerceModule,
     LiveAdsModule,
     ReceptionModule,
