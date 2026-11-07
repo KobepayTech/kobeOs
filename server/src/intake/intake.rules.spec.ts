@@ -1,6 +1,7 @@
 import {
   INTAKE_KINDS, MAX_IMAGES_PER_SESSION, displayName, progressOf, questionsFor,
-  suggestionToAnswers, validateAnswers, type IntakeItemStatus,
+  suggestionToAnswers, validateAnswers, validateDiscount, validateRoomNumbers,
+  validateVariants, type IntakeItemStatus,
 } from './intake.rules';
 
 describe('questionsFor', () => {
@@ -216,5 +217,125 @@ describe('session bounds', () => {
   it('caps a session, so one upload cannot become an endless queue', () => {
     expect(MAX_IMAGES_PER_SESSION).toBeGreaterThan(20);
     expect(MAX_IMAGES_PER_SESSION).toBeLessThanOrEqual(200);
+  });
+});
+
+describe('validateVariants', () => {
+  const ok = [{ size: 'M', color: 'Blue', price: 25000, stock: 4 }];
+
+  it('accepts a list of distinct combinations', () => {
+    expect(validateVariants([
+      { size: 'M', color: 'Blue', price: 25000, stock: 4 },
+      { size: 'L', color: 'Red', price: 27000, stock: 2 },
+    ])).toEqual([]);
+  });
+
+  it('accepts no variants at all, which is the common case', () => {
+    expect(validateVariants(undefined)).toEqual([]);
+    expect(validateVariants([])).toEqual([]);
+  });
+
+  it('rejects the same size and colour twice', () => {
+    // Two rows for "blue / M" are not two things to sell; they leave the till
+    // unable to say which one a customer bought.
+    const problems = validateVariants([ok[0], { size: 'm', color: 'blue', price: 1, stock: 1 }]);
+    expect(problems.map((p) => p.field)).toEqual(['variants[1]']);
+  });
+
+  it('accepts a size with no colour, and a colour with no size', () => {
+    expect(validateVariants([{ size: 'M', price: 1, stock: 1 }])).toEqual([]);
+    expect(validateVariants([{ size: '', color: 'Blue', price: 1, stock: 1 }])).toEqual([]);
+  });
+
+  it('requires a size or a colour to tell variants apart', () => {
+    expect(validateVariants([{ size: '  ', color: '', price: 1, stock: 1 }])
+      .map((p) => p.field)).toEqual(['variants[0]']);
+  });
+
+  it('requires a usable price and a whole count on each', () => {
+    expect(validateVariants([{ size: 'M', price: -1, stock: 1 }])
+      .map((p) => p.field)).toEqual(['variants[0].price']);
+    expect(validateVariants([{ size: 'M', price: 1, stock: 1.5 }])
+      .map((p) => p.field)).toEqual(['variants[0].stock']);
+  });
+
+  it('refuses a list that is not a list, and caps a runaway one', () => {
+    expect(validateVariants('blue').map((p) => p.field)).toEqual(['variants']);
+    const many = Array.from({ length: 51 }, (_, i) => ({ size: `S${i}`, price: 1, stock: 1 }));
+    expect(validateVariants(many).map((p) => p.field)).toEqual(['variants']);
+  });
+});
+
+describe('validateDiscount', () => {
+  it('accepts a reference below the price', () => {
+    expect(validateDiscount(10000, 8000)).toEqual([]);
+  });
+
+  it('accepts none, since most products have none', () => {
+    expect(validateDiscount(10000, undefined)).toEqual([]);
+    expect(validateDiscount(10000, '')).toEqual([]);
+  });
+
+  it('refuses one at or above the price', () => {
+    // A discount reference is advice for staff, not a second price list. One
+    // at or above the price is a typo or not a discount.
+    expect(validateDiscount(10000, 10000).map((p) => p.field)).toEqual(['discountPrice']);
+    expect(validateDiscount(10000, 12000).map((p) => p.field)).toEqual(['discountPrice']);
+  });
+
+  it('refuses a non-number', () => {
+    expect(validateDiscount(10000, 'cheap').map((p) => p.field)).toEqual(['discountPrice']);
+  });
+});
+
+describe('validateRoomNumbers', () => {
+  it('accepts a batch of distinct numbers', () => {
+    expect(validateRoomNumbers(['101', '102', '103'])).toEqual([]);
+  });
+
+  it('accepts none, which makes one room from the answer', () => {
+    expect(validateRoomNumbers(undefined)).toEqual([]);
+    expect(validateRoomNumbers([])).toEqual([]);
+  });
+
+  it('refuses two rooms sharing a number', () => {
+    // Two rooms called 101 cannot both be booked.
+    expect(validateRoomNumbers(['101', '101']).map((p) => p.field)).toEqual(['roomNumbers']);
+    expect(validateRoomNumbers(['101', ' 101 ']).map((p) => p.field)).toEqual(['roomNumbers']);
+  });
+
+  it('refuses a blank number', () => {
+    expect(validateRoomNumbers(['101', '  ']).map((p) => p.field)).toEqual(['roomNumbers']);
+  });
+
+  it('caps a runaway batch', () => {
+    expect(validateRoomNumbers(Array.from({ length: 101 }, (_, i) => String(i)))
+      .map((p) => p.field)).toEqual(['roomNumbers']);
+  });
+});
+
+describe('validateAnswers with the ported fields', () => {
+  it('checks variants and discounts on a shop answer', () => {
+    const problems = validateAnswers('SHOP_PRODUCT', {
+      name: 'Shirt', price: 10000, stock: 5,
+      discountPrice: 20000,
+      variants: [{ size: 'M', price: 1, stock: 1 }, { size: 'M', price: 1, stock: 1 }],
+    });
+    expect(problems.map((p) => p.field)).toEqual(
+      expect.arrayContaining(['discountPrice', 'variants[1]']),
+    );
+  });
+
+  it('checks room numbers on a hotel answer', () => {
+    expect(validateAnswers('HOTEL_ROOM', {
+      name: '101', roomType: 'Twin', price: 50000, roomNumbers: ['101', '101'],
+    }).map((p) => p.field)).toEqual(['roomNumbers']);
+  });
+
+  it('does not apply shop checks to a dish', () => {
+    // A kitchen has no variant matrix and no discount reference.
+    expect(validateAnswers('RESTAURANT_MENU_ITEM', {
+      name: 'Pilau', price: 8000, discountPrice: 99999, variants: 'nonsense',
+    })).toEqual([]);
   });
 });

@@ -104,7 +104,108 @@ export function questionsFor(kind: IntakeKind): IntakeQuestion[] {
   }
 }
 
+/**
+ * One sellable combination of a product: a size, optionally a colour, with its
+ * own price and count.
+ *
+ * A shelf holds "Shirt, blue, M" and "Shirt, red, L" as separate things to
+ * sell, and a single price and stock figure per photo cannot express that. One
+ * photo of a shirt becomes one product with several of these.
+ */
+export interface VariantAnswer {
+  size: string;
+  color?: string;
+  price: number;
+  stock: number;
+}
+
 export interface AnswerProblem { field: string; message: string }
+
+/**
+ * Check the variants on a shop answer.
+ *
+ * Every combination must be unique: two rows for "blue / M" are not two things
+ * to sell, they are a mistake that would leave the till unable to say which
+ * one a customer bought.
+ */
+export function validateVariants(raw: unknown): AnswerProblem[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) return [{ field: 'variants', message: 'Variants must be a list.' }];
+  if (raw.length > 50) return [{ field: 'variants', message: 'Keep it to 50 variants per photo.' }];
+
+  const problems: AnswerProblem[] = [];
+  const seen = new Set<string>();
+
+  for (const [index, entry] of raw.entries()) {
+    const variant = (entry ?? {}) as Partial<VariantAnswer>;
+    const size = String(variant.size ?? '').trim();
+    const color = String(variant.color ?? '').trim();
+    const where = `variants[${index}]`;
+
+    if (!size && !color) {
+      problems.push({ field: where, message: 'Give each variant a size or a colour.' });
+      continue;
+    }
+    const key = `${color.toLowerCase()}|${size.toLowerCase()}`;
+    if (seen.has(key)) {
+      problems.push({ field: where, message: 'This size and colour is already listed.' });
+      continue;
+    }
+    seen.add(key);
+
+    const price = Number(variant.price);
+    if (!Number.isFinite(price) || price < 0) {
+      problems.push({ field: `${where}.price`, message: 'Enter a price for this variant.' });
+    }
+    const stock = Number(variant.stock);
+    if (!Number.isFinite(stock) || stock < 0 || !Number.isInteger(stock)) {
+      problems.push({ field: `${where}.stock`, message: 'Enter a whole count for this variant.' });
+    }
+  }
+
+  return problems;
+}
+
+/**
+ * A discount reference is advice for staff, not a second price list, so it has
+ * to sit below the price being charged. One at or above it is either a typo or
+ * a discount that is not one.
+ */
+export function validateDiscount(price: unknown, discount: unknown): AnswerProblem[] {
+  if (discount === undefined || discount === null || String(discount).trim() === '') return [];
+  const value = Number(discount);
+  if (!Number.isFinite(value) || value < 0) {
+    return [{ field: 'discountPrice', message: 'Enter a number, or leave it blank.' }];
+  }
+  if (value >= Number(price)) {
+    return [{ field: 'discountPrice', message: 'A discount reference has to be below the price.' }];
+  }
+  return [];
+}
+
+/**
+ * Check the room numbers behind one photo.
+ *
+ * A photo is usually of a room *type*, and a hotel has several identical
+ * rooms, so one photo becomes several rooms. The numbers have to be unique
+ * within the batch: two rooms called 101 cannot both be booked.
+ */
+export function validateRoomNumbers(raw: unknown): AnswerProblem[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) return [{ field: 'roomNumbers', message: 'Room numbers must be a list.' }];
+  if (!raw.length) return [];
+  if (raw.length > 100) return [{ field: 'roomNumbers', message: 'Keep it to 100 rooms per photo.' }];
+
+  const numbers = raw.map((value) => String(value ?? '').trim());
+  if (numbers.some((number) => !number)) {
+    return [{ field: 'roomNumbers', message: 'Every room needs a number.' }];
+  }
+  const unique = new Set(numbers.map((number) => number.toLowerCase()));
+  if (unique.size !== numbers.length) {
+    return [{ field: 'roomNumbers', message: 'Two rooms cannot share a number.' }];
+  }
+  return [];
+}
 
 /**
  * Check a set of answers against the questions for a kind.
@@ -140,6 +241,14 @@ export function validateAnswers(
     } else if (String(raw).trim().length > 180) {
       problems.push({ field: question.field, message: 'Keep this under 180 characters.' });
     }
+  }
+
+  if (kind === 'SHOP_PRODUCT') {
+    problems.push(...validateVariants(answers?.variants));
+    problems.push(...validateDiscount(answers?.price, answers?.discountPrice));
+  }
+  if (kind === 'HOTEL_ROOM') {
+    problems.push(...validateRoomNumbers(answers?.roomNumbers));
   }
 
   return problems;

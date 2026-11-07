@@ -8,10 +8,13 @@ import {
   INTAKE_KINDS, MAX_IMAGES_PER_SESSION, displayName, progressOf, questionsFor,
   suggestionToAnswers, validateAnswers,
   type IntakeItemStatus, type IntakeKind, type IntakeProgress, type IntakeQuestion,
+  type VariantAnswer,
 } from './intake.rules';
 import { CommerceProductMedia } from '../commerce/commerce.entity';
 import { CommerceService } from '../commerce/commerce.service';
 import { HotelMenuItem, HotelRoom } from '../hotel/hotel.entity';
+import { PosProduct } from '../pos/pos.entity';
+import { In } from 'typeorm';
 import { AiService } from '../ai/ai.service';
 
 export interface UploadedImage {
@@ -54,6 +57,7 @@ export class IntakeService {
     @InjectRepository(CommerceProductMedia) private readonly media: Repository<CommerceProductMedia>,
     @InjectRepository(HotelRoom) private readonly rooms: Repository<HotelRoom>,
     @InjectRepository(HotelMenuItem) private readonly menu: Repository<HotelMenuItem>,
+    @InjectRepository(PosProduct) private readonly products: Repository<PosProduct>,
     private readonly commerce: CommerceService,
     private readonly ai: AiService,
   ) {}
@@ -282,6 +286,29 @@ export class IntakeService {
     return Object.keys(item.suggestion).length ? (item.suggestion as never) : null;
   }
 
+  /**
+   * Build the sellable combinations for a product, each with its own SKU so
+   * the till can tell which one was bought.
+   */
+  private variantsFor(productId: string, raw: unknown) {
+    if (!Array.isArray(raw)) return [];
+    return (raw as VariantAnswer[]).map((variant, index) => {
+      const size = String(variant.size ?? '').trim();
+      const color = String(variant.color ?? '').trim();
+      const attributes: Record<string, string> = {};
+      if (size) attributes.size = size;
+      if (color) attributes.color = color;
+      return {
+        id: `${productId}-${index}`,
+        sku: `PHOTO-${productId.slice(0, 8)}-${index + 1}`,
+        name: [color, size].filter(Boolean).join(' / '),
+        price: Number(variant.price ?? 0),
+        stock: Math.max(0, Math.floor(Number(variant.stock ?? 0))),
+        attributes,
+      };
+    });
+  }
+
   /** Create the catalogue entry this photo describes. */
   private async create(
     session: IntakeSession,
@@ -294,7 +321,7 @@ export class IntakeService {
 
     if (session.kind === 'SHOP_PRODUCT') {
       // The existing quick-add path, so a product made here is identical to
-      // one made singly: same variants, same media, same catalogue sync.
+      // one made singly: same media, same catalogue sync.
       const result = await this.commerce.quickAdd(session.ownerId, {
         name,
         caption: String(answers.caption ?? ''),
@@ -306,22 +333,69 @@ export class IntakeService {
       });
       const product = result.products?.[0];
       if (!product) throw new Error('The product was not created.');
+
+      const variants = this.variantsFor(product.id, answers.variants);
+      const discount = answers.discountPrice;
+      if (variants.length || (discount !== undefined && discount !== null && String(discount) !== '')) {
+        // Each combination is its own SKU, and the product's stock becomes the
+        // sum of them: a shelf holding four blue M and two red L has six, and
+        // a single figure typed against the photo would contradict that.
+        const patch: Record<string, unknown> = {};
+        if (variants.length) {
+          patch.variants = variants;
+          patch.stock = variants.reduce((total, variant) => total + variant.stock, 0);
+          const required = ['size', 'color']
+            .filter((key) => variants.length > 1
+              && variants.every((variant) => (variant.attributes as Record<string, string>)[key]));
+          patch.customData = { ...(product.customData ?? {}), requiredOptions: required };
+        }
+        if (discount !== undefined && discount !== null && String(discount) !== '') {
+          patch.discountReferencePrice = Number(discount);
+        }
+        await this.products.update(product.id, patch as never);
+      }
       return { id: product.id, name: product.name };
     }
 
     if (session.kind === 'HOTEL_ROOM') {
-      const room = await this.rooms.save(this.rooms.create({
+      // A photo is usually of a room type, and a hotel has several identical
+      // rooms, so one photo can become several. Without numbers it becomes
+      // one room named by the answer.
+      const numbers = Array.isArray(answers.roomNumbers)
+        ? (answers.roomNumbers as unknown[]).map((value) => String(value ?? '').trim()).filter(Boolean)
+        : [];
+      const roomNumbers = numbers.length ? numbers : [name];
+      const base = {
         ownerId: session.ownerId,
         hotelId: session.contextId ?? null,
-        roomNumber: name,
         type: String(answers.roomType ?? 'Double'),
         rate: price,
         currency: 'TZS',
         capacity: Math.max(1, Math.floor(Number(answers.capacity ?? 2))),
-        status: 'available',
+        status: 'available' as const,
         imageUrl,
-      } as Partial<HotelRoom>));
-      return { id: room.id, name: room.roomNumber };
+      };
+
+      return this.rooms.manager.transaction(async (tx) => {
+        const repo = tx.getRepository(HotelRoom);
+        // Serialise room-number checks for this owner, including across two
+        // photos being described at once: a check followed by an insert is a
+        // race, and two rooms called 101 cannot both be booked.
+        await tx.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`intake-rooms:${session.ownerId}`]);
+        const clash = await repo.findOne({
+          where: { ownerId: session.ownerId, roomNumber: In(roomNumbers) },
+        });
+        if (clash) {
+          throw new BadRequestException(`Room ${clash.roomNumber} already exists. Use another number.`);
+        }
+        const created = await repo.save(
+          roomNumbers.map((roomNumber) => repo.create({ ...base, roomNumber } as Partial<HotelRoom>)),
+        );
+        return {
+          id: created[0].id,
+          name: created.length > 1 ? `${created.length} rooms (${roomNumbers.join(', ')})` : created[0].roomNumber,
+        };
+      });
     }
 
     const dish = await this.menu.save(this.menu.create({
