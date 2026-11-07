@@ -1,5 +1,7 @@
 import { INestApplication } from '@nestjs/common';
 import request from 'supertest';
+import sharp from 'sharp';
+import { KobeAgentService } from '../src/ai/agent.service';
 import { bootTestApp, resetDb } from './setup';
 
 /**
@@ -21,6 +23,50 @@ describe('Account onboarding (e2e)', () => {
     return r.body.accessToken as string;
   };
   const auth = (t: string) => ({ Authorization: `Bearer ${t}` });
+
+  it('keeps the document name separate and saves one product when photo confirmation is retried', async () => {
+    const token = await register('guided-shop@e2e.test');
+    const headers = auth(token);
+    const saved = await request(http).put('/api/onboarding/guided').set(headers).send({
+      businessType: 'shop', businessName: 'Steve’s Jeans', displayName: 'Steve',
+      nameKind: 'username', documentName: 'KobeTech', employeeCount: 50, services: ['retail', 'office'],
+      location: 'Dar es Salaam', phone: '', language: 'English', currency: 'TZS', timezone: 'Africa/Dar_es_Salaam',
+    });
+    expect(saved.status).toBe(200);
+    const profile = await request(http).get('/api/onboarding/guided').set(headers);
+    expect(profile.body).toMatchObject({ displayName: 'Steve', documentName: 'KobeTech', employeeCount: 50 });
+
+    const image = await sharp({ create: { width: 2, height: 2, channels: 3, background: 'blue' } }).png().toBuffer();
+    const upload = await request(http).post('/api/media/inbox/guided/upload?businessType=shop').set(headers)
+      .attach('files', image, 'jeans.png');
+    expect(upload.status).toBe(201);
+    const photoId = upload.body[0].item.id;
+    const confirm = () => request(http).post(`/api/media/inbox/guided/${photoId}/confirm`).set(headers).send({
+      businessType: 'shop', name: 'Jeans', category: 'Clothing', price: 60000, discountPrice: 55000, stock: 7, size: '',
+      variants: [{ color: 'Blue', size: '32', price: 60000, stock: 7 }],
+    });
+    const replies = await Promise.all([confirm(), confirm()]);
+    expect(replies.map(r => r.status)).toEqual([201, 201]);
+    expect(replies.map(r => r.body.duplicate).sort()).toEqual([false, true]);
+    expect(replies[0].body.entityId).toBe(replies[1].body.entityId);
+
+    const productId = replies[0].body.entityId;
+    const product = await request(http).get(`/api/pos/products/${productId}`).set(headers);
+    expect(Number(product.body.price)).toBe(60000);
+    expect(product.body).not.toHaveProperty('discountReferencePrice');
+    expect(product.body.variants[0]).toMatchObject({ stock: 7, attributes: { size: '32', color: 'Blue' } });
+    const ownerId = product.body.ownerId;
+    const advice = await app.get(KobeAgentService).run(ownerId, 'Discount price for Jeans?');
+    expect(advice.used).toBe('product_pricing');
+    expect(advice.reply).toContain('55,000');
+
+    const sale = await request(http).post('/api/pos/orders').set(headers).send({
+      orderNumber: 'GUIDED-1', lines: [{ productId, quantity: 1 }], paymentMethod: 'CASH',
+    });
+    expect(sale.status).toBe(201);
+    expect(sale.body.receipt.text.trimStart()).toMatch(/^KobeTech\n/);
+    expect(Number(sale.body.total)).toBe(60000);
+  });
 
   it('puts a freshly registered account at the first step', async () => {
     const t = await register('onboard-new@e2e.test');

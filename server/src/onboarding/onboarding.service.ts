@@ -25,8 +25,17 @@ export class OnboardingService {
     if (!dto.businessName.trim()) throw new BadRequestException('Enter your business name');
     try { new Intl.DateTimeFormat('en', { timeZone: dto.timezone }); }
     catch { throw new BadRequestException('Choose a valid timezone'); }
-    await this.repo.upsert({ ownerId, guidedSetup: dto }, ['ownerId']);
-    return dto;
+    const setup = {
+      ...dto,
+      businessName: dto.businessName.trim(),
+      displayName: dto.displayName?.trim(),
+      documentName: dto.documentName?.trim(),
+    };
+    await this.repo.manager.transaction(async (manager) => {
+      await manager.getRepository(UserOnboarding).upsert({ ownerId, guidedSetup: setup }, ['ownerId']);
+      if (setup.displayName) await manager.getRepository(User).update(ownerId, { displayName: setup.displayName });
+    });
+    return setup;
   }
 
   /** Read the live records and work out where this account is. */

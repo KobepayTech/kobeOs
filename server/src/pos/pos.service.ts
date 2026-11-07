@@ -1,3 +1,4 @@
+import { UserOnboarding } from '../onboarding/onboarding.entity';
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -321,7 +322,11 @@ export class OrdersService {
       // so the books are never left in a half-written state.
       const journal = await this.journal.postPosSaleInTransaction(tx, uid, order, itemsToInsert, { isBnpl });
 
-      const receipt = this.receipts.format(order, itemsToInsert, { schedule: bnplSchedule });
+      const setup = await tx.getRepository(UserOnboarding).findOne({ where: { ownerId: uid }, select: { guidedSetup: true } });
+      const receipt = this.receipts.format(order, itemsToInsert, {
+        schedule: bnplSchedule,
+        documentName: setup?.guidedSetup?.documentName,
+      });
 
       return {
         ...order,

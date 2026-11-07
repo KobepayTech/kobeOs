@@ -15,6 +15,7 @@ import {
 } from "class-validator";
 
 export class GuidedVariantDto {
+  @IsOptional() @IsString() @MaxLength(60) color?: string;
   @IsString() @MaxLength(60) size!: string;
   @IsNumber() @Min(0) @Max(1e12) price!: number;
   @IsInt() @Min(0) @Max(10000000) stock!: number;
@@ -23,6 +24,8 @@ export class GuidedCatalogueDto {
   @IsIn(["shop", "hotel", "restaurant"]) businessType!:
     "shop" | "hotel" | "restaurant";
   @IsString() @MaxLength(120) name!: string;
+  @IsOptional() @IsString() @MaxLength(60) color?: string;
+  @IsOptional() @IsNumber() @Min(0) @Max(1e12) discountPrice?: number;
   @IsString() @MaxLength(60) category!: string;
   @IsNumber() @Min(0) @Max(1e12) price!: number;
   @IsInt() @Min(0) @Max(10000000) stock!: number;

@@ -209,6 +209,9 @@ export class MediaInboxService {
   /** One photo is one atomic confirmation. Retrying after a lost reply reuses it. */
   async confirmGuided(ownerId: string, id: string, dto: GuidedCatalogueDto) {
     if (dto.businessType === 'shop') this.requireShopServer();
+    if (dto.discountPrice != null && (dto.businessType !== 'shop' || dto.discountPrice >= dto.price)) {
+      throw new BadRequestException('Enter a discount reference below the regular price');
+    }
     if (!dto.name.trim() || !dto.category.trim()) throw new BadRequestException('Confirm a name and category');
     return this.dataSource.transaction(async manager => {
       const repo = manager.getRepository(MediaInboxItem);
@@ -222,12 +225,28 @@ export class MediaInboxService {
       let entityId: string;
       if (dto.businessType === 'shop') {
         const products = manager.getRepository(PosProduct);
-        const variants = (dto.variants ?? []).map((v, i) => ({ id: `${item.id}-${i}`, name: v.size, price: v.price, stock: v.stock, attributes: { size: v.size } }));
+        const sku = `PHOTO-${item.id}`;
+        const variantKeys = new Set<string>();
+        const variants = (dto.variants ?? []).map((v, index) => {
+          const size = v.size.trim();
+          const color = v.color?.trim();
+          const name = [color, size].filter(Boolean).join(' / ');
+          const key = JSON.stringify([color?.toLowerCase() ?? '', size.toLowerCase()]);
+          if (!name || variantKeys.has(key)) throw new BadRequestException('Enter a unique colour and size for each SKU');
+          variantKeys.add(key);
+          const attributes: Record<string, string> = {};
+          if (size) attributes.size = size;
+          if (color) attributes.color = color;
+          return { id: `${item.id}-${index}`, sku: `${sku}-${index + 1}`, name, price: v.price, stock: v.stock, attributes };
+        });
+        const requiredOptions = ['size', 'color'].filter(key => variants.length > 1 && variants.every(v => v.attributes[key]));
         const product = await products.save(products.create({
-          ownerId, sku: `PHOTO-${item.id}`, name: dto.name.trim(), category: dto.category.trim(),
-          currency, price: dto.price, stock: variants.length ? variants.reduce((n, v) => n + v.stock, 0) : dto.stock,
+          ownerId, sku, name: dto.name.trim(), category: dto.category.trim(),
+          currency, price: dto.price, discountReferencePrice: dto.discountPrice ?? null,
+          stock: variants.length ? variants.reduce((n, v) => n + v.stock, 0) : dto.stock,
           unit: 'pcs', imageUrl: item.url, imageUrls: [item.url], variants,
-          customData: { size: dto.size, sourceMediaInboxId: item.id }, sourceType: 'QUICK_ADD_PHOTO', active: true,
+          customData: { size: dto.size, color: dto.color ?? '', requiredOptions, sourceMediaInboxId: item.id },
+          sourceType: 'QUICK_ADD_PHOTO', active: true, publishedAt: new Date(),
         }));
         entityId = product.id;
         item.entityType = 'product'; item.moduleId = 'erp';
@@ -437,13 +456,16 @@ export class MediaInboxService {
   }
 
   async update(ownerId: string, id: string, dto: UpdateMediaInboxItemDto) {
-    const item = await this.inbox.findOne({ where: { ownerId, id } });
-    if (!item) throw new NotFoundException('Media item not found');
-    if (item.status === 'PROCESSED') throw new BadRequestException('Processed media metadata is read-only');
-    if (dto.category !== undefined) item.category = dto.category.trim();
-    if (dto.subcategory !== undefined) item.subcategory = dto.subcategory.trim();
-    if (dto.metadata !== undefined) item.metadata = { ...item.metadata, ...dto.metadata };
-    return this.inbox.save(item);
+    return this.dataSource.transaction(async manager => {
+      const repo = manager.getRepository(MediaInboxItem);
+      const item = await repo.findOne({ where: { ownerId, id }, lock: { mode: 'pessimistic_write' } });
+      if (!item) throw new NotFoundException('Media item not found');
+      if (item.status === 'PROCESSED') throw new BadRequestException('Processed media metadata is read-only');
+      if (dto.category !== undefined) item.category = dto.category.trim();
+      if (dto.subcategory !== undefined) item.subcategory = dto.subcategory.trim();
+      if (dto.metadata !== undefined) item.metadata = { ...item.metadata, ...dto.metadata };
+      return repo.save(item);
+    });
   }
 
   async remove(ownerId: string, id: string) {
@@ -493,8 +515,11 @@ export class MediaInboxService {
       } catch {
         // Deterministic filename suggestion remains available offline.
       }
-      item.aiSuggestions = suggestions;
-      await this.inbox.save(item);
+      await this.inbox.createQueryBuilder()
+        .update()
+        .set({ aiSuggestions: () => ':suggestions' })
+        .where('id = :id AND "ownerId" = :ownerId', { id: item.id, ownerId, suggestions: JSON.stringify(suggestions) })
+        .execute();
       results.push({ itemId: item.id, suggestions });
     }
     return results;

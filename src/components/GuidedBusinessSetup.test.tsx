@@ -27,6 +27,9 @@ vi.mock("@/lib/api", () => ({
   apiObject: (v: unknown) => v,
   apiArray: (v: unknown) => (Array.isArray(v) ? v : []),
 }));
+vi.mock("@/lib/compress-image", () => ({
+  compressImage: async (file: File) => file,
+}));
 const profile = {
   businessType: "shop",
   businessName: "Kobe shop",
@@ -58,12 +61,54 @@ function setup(photos: unknown[] = []) {
   });
   render(<GuidedBusinessSetup />);
 }
+const next = () =>
+  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+const fill = (label: string | RegExp, value: string) =>
+  fireEvent.change(screen.getByLabelText(label), { target: { value } });
+
+async function prepareWorkspace() {
+  await screen.findByRole("dialog");
+  fill("Name or nickname", "Steve");
+  next();
+  fireEvent.click(screen.getByLabelText("A username or nickname"));
+  next();
+  fill("Document name (optional)", "KobeTech");
+  next();
+  fill(/Employees/, "50");
+  next();
+  expect(screen.getByRole("button", { name: "Hotel / Lala" })).toBeTruthy();
+  next();
+  expect(screen.getByText(/With 50 employees/)).toBeTruthy();
+  fireEvent.click(screen.getAllByRole("button", { name: "Explain" })[0]);
+  expect(screen.getByText(/Shop floor, stock/)).toBeTruthy();
+  next();
+  fireEvent.click(screen.getByRole("button", { name: /Prepare my workspace/ }));
+  await screen.findByLabelText("Bulk upload photos");
+}
+
+function answerPhotoWithVariant() {
+  expect(screen.queryByLabelText(/regular price/)).toBeNull();
+  fill(/What item is in this photo/, "Jeans");
+  next();
+  expect(screen.getByLabelText(/regular price/)).toHaveValue(null);
+  fill(/regular price/, "60000");
+  next();
+  fill(/asks for a discount/, "55000");
+  next();
+  next(); // Keep the suggested category.
+  fireEvent.click(
+    screen.getByRole("button", { name: /Add colour or size SKU/ }),
+  );
+  fill("Colour · SKU 1", "Blue");
+  fill("Size · SKU 1", "32");
+  fill("Stock · SKU 1", "7");
+  next();
+}
+
 describe("AI business setup", () => {
-  it("offers the three business guides and can be postponed", async () => {
+  it("can be postponed from the welcome question", async () => {
     setup();
-    await screen.findByRole("dialog");
-    expect(screen.getByRole("button", { name: "Hotel / Lala" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Restaurant" })).toBeTruthy();
+    await screen.findByLabelText("Name or nickname");
     fireEvent.click(
       screen.getByRole("button", { name: "Continue setup later" }),
     );
@@ -72,58 +117,87 @@ describe("AI business setup", () => {
       screen.getByRole("button", { name: "AI business setup" }),
     ).toBeTruthy();
   });
-  it("confirms one photo and advances to the next without inventing price or stock", async () => {
+
+  it("saves separate names and advances to the next photo after recording the discount and variant", async () => {
     setup([photo("shirt"), photo("trousers")]);
-    await screen.findByRole("dialog");
-    fireEvent.click(
-      screen.getByRole("button", { name: /Prepare my workspace/ }),
-    );
-    await screen.findByAltText("shirt.jpg");
-    expect(screen.getByLabelText("Price (TZS)")).toHaveValue(null);
-    fireEvent.change(screen.getByLabelText("Price (TZS)"), {
-      target: { value: "25000" },
-    });
-    fireEvent.change(screen.getByLabelText("Stock quantity"), {
-      target: { value: "7" },
-    });
-    fireEvent.change(screen.getByLabelText("Size / unit (use Standard if none)"), { target: { value: "Standard" } });
-    fireEvent.click(screen.getByRole("button", { name: /Confirm & next/ }));
-    await screen.findByAltText("trousers.jpg");
+    await prepareWorkspace();
     expect(api).toHaveBeenCalledWith(
-      "/media/inbox/guided/shirt/confirm",
+      "/onboarding/guided",
       expect.objectContaining({
-        body: expect.stringContaining('"stock":7'),
-        offlineFallback: false,
+        method: "PUT",
+        body: expect.stringContaining('"documentName":"KobeTech"'),
       }),
     );
+    await screen.findByAltText("shirt.jpg");
+    answerPhotoWithVariant();
+    fireEvent.click(screen.getByRole("button", { name: /Save & next photo/ }));
+    await screen.findByAltText("trousers.jpg");
+    const call = vi
+      .mocked(api)
+      .mock.calls.find(
+        ([path]) => path === "/media/inbox/guided/shirt/confirm",
+      );
+    expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({
+      price: 60000,
+      discountPrice: 55000,
+      stock: 7,
+      variants: [{ color: "Blue", size: "32", price: 60000, stock: 7 }],
+    });
   });
+
   it("keeps a failed confirmation on the current photo for retry", async () => {
     setup([photo("shirt")]);
-    await screen.findByRole("dialog");
-    fireEvent.click(
-      screen.getByRole("button", { name: /Prepare my workspace/ }),
-    );
-    await screen.findByAltText("shirt.jpg");
+    await prepareWorkspace();
+    answerPhotoWithVariant();
     vi.mocked(api).mockRejectedValueOnce(new Error("Connection lost"));
-    fireEvent.change(screen.getByLabelText("Price (TZS)"), {
-      target: { value: "25000" },
-    });
-    fireEvent.change(screen.getByLabelText("Stock quantity"), {
-      target: { value: "7" },
-    });
-    fireEvent.change(screen.getByLabelText("Size / unit (use Standard if none)"), { target: { value: "Standard" } });
-    fireEvent.click(screen.getByRole("button", { name: /Confirm & next/ }));
-    await screen.findByRole("alert");
+    fireEvent.click(screen.getByRole("button", { name: /Save & next photo/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Connection lost",
+    );
     expect(screen.getByAltText("shirt.jpg")).toBeTruthy();
-    expect(screen.getByLabelText("Stock quantity")).toHaveValue(7);
+    expect(screen.getByText(/Blue \/ 32/)).toHaveTextContent("7 in stock");
   });
+
+  it("waits for all 60 uploads before asking about the first photo", async () => {
+    const photos: unknown[] = [];
+    setup(photos);
+    await prepareWorkspace();
+    const apiMock = vi.mocked(api);
+    let uploads = 0;
+    let finishLast = () => {};
+    const lastUpload = new Promise<void>((resolve) => {
+      finishLast = resolve;
+    });
+    apiMock.mockImplementation(async (path) => {
+      if (path.startsWith("/media/inbox/guided/upload")) {
+        uploads += 1;
+        if (uploads === 12) await lastUpload;
+        return [] as never;
+      }
+      return photos as never;
+    });
+    const files = Array.from(
+      { length: 60 },
+      (_, i) => new File(["photo"], `product-${i}.jpg`, { type: "image/jpeg" }),
+    );
+    fireEvent.change(screen.getByLabelText("Bulk upload photos"), {
+      target: { files },
+    });
+    await waitFor(() => expect(uploads).toBe(12));
+    expect(screen.queryByLabelText(/What item is in this photo/)).toBeNull();
+    photos.push(...Array.from({ length: 60 }, (_, i) => photo(`product-${i}`)));
+    finishLast();
+    expect(
+      await screen.findByLabelText(/What item is in this photo/),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/Steve, your 60 photos finished uploading/),
+    ).toBeTruthy();
+  });
+
   it("creates only the selected agents on the chosen timezone", async () => {
     setup();
-    await screen.findByRole("dialog");
-    fireEvent.click(
-      screen.getByRole("button", { name: /Prepare my workspace/ }),
-    );
-    await screen.findByRole("button", { name: /Set up my agents/ });
+    await prepareWorkspace();
     fireEvent.click(screen.getByRole("button", { name: /Set up my agents/ }));
     fireEvent.click(
       screen.getByRole("button", { name: /Schedule selected agents/ }),

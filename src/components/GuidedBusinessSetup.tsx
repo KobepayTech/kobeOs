@@ -6,7 +6,7 @@ import { compressImage } from "@/lib/compress-image";
 import {
   BUSINESS_GUIDES,
   type SetupProfile,
-  type BusinessType,
+  DEFAULT_SETUP,
 } from "@/lib/guided-setup";
 import { installBundles } from "@/os/bundle-install";
 import { appCatalogue } from "@/os/registry";
@@ -15,49 +15,21 @@ import {
   listAppEntitlements,
 } from "@/lib/appMarketplace";
 import { installBundledModule } from "@/os/module-installer";
+import BusinessSetupInterview from "./BusinessSetupInterview";
+import PhotoIntakeInterview, {
+  EMPTY_PHOTO_ANSWERS,
+  type PhotoAnswers,
+} from "./PhotoIntakeInterview";
 
 interface Photo {
   id: string;
   url: string;
   originalName: string;
+  createdAt?: string;
   status: string;
   metadata: Record<string, unknown>;
   aiSuggestions: Record<string, unknown>;
 }
-interface Variant {
-  size: string;
-  price: string;
-  stock: string;
-}
-interface Details {
-  name: string;
-  category: string;
-  price: string;
-  stock: string;
-  size: string;
-  roomNumbers: string;
-  capacity: string;
-  variants: Variant[];
-}
-const empty: Details = {
-  name: "",
-  category: "",
-  price: "",
-  stock: "",
-  size: "",
-  roomNumbers: "",
-  capacity: "",
-  variants: [],
-};
-const defaults: SetupProfile = {
-  businessType: "shop",
-  businessName: "",
-  location: "",
-  phone: "",
-  language: "English",
-  currency: "TZS",
-  timezone: "Africa/Dar_es_Salaam",
-};
 const request = async (path: string, method = "GET", data?: unknown) =>
   api<unknown>(path, {
     method,
@@ -69,16 +41,26 @@ const control =
 const button =
   "inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-400 px-5 py-3 font-semibold text-slate-950 disabled:opacity-40";
 
-export default function GuidedBusinessSetup() {
+export default function GuidedBusinessSetup({
+  firstRun = false,
+  onComplete,
+  onDefer,
+}: {
+  firstRun?: boolean;
+  onComplete?: () => void;
+  onDefer?: () => void;
+} = {}) {
   const [open, setOpen] = useState(false);
-  const [profile, setProfile] = useState<SetupProfile>(defaults);
+  const [profile, setProfile] = useState<SetupProfile>(DEFAULT_SETUP);
   const [step, setStep] = useState(0);
+  const [hasInstallAnswers, setHasInstallAnswers] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [index, setIndex] = useState(0);
-  const [details, setDetails] = useState<Details>(empty);
+  const [totalPhotos, setTotalPhotos] = useState(0);
+  const [details, setDetails] = useState<PhotoAnswers>(EMPTY_PHOTO_ANSWERS);
   const [selectedAgents, setSelectedAgents] = useState([
     "operations",
     "summary",
@@ -88,31 +70,52 @@ export default function GuidedBusinessSetup() {
   const photo = photos[index];
 
   useEffect(() => {
-    if (!getToken()) return;
+    if (!getToken()) {
+      if (firstRun) setOpen(true);
+      return;
+    }
     let alive = true;
     request("/onboarding/guided")
-      .then((r) => {
+      .then(async (r) => {
         if (!alive) return;
         const saved = apiObject<SetupProfile>(r);
-        if (saved?.businessType) setProfile(saved);
+        if (saved?.businessType) {
+          setProfile(saved);
+          // An account setup already saved to the server takes precedence.
+          await window.kobeOS?.system?.clearInstallSetup?.();
+          if (!alive) return;
+        } else {
+          const installed = await window.kobeOS?.system?.readInstallSetup?.();
+          if (!alive) return;
+          if (
+            installed?.businessType &&
+            installed.businessType in BUSINESS_GUIDES
+          ) {
+            setProfile({ ...DEFAULT_SETUP, ...installed });
+            setHasInstallAnswers(true);
+          }
+        }
         // Offer setup on first authenticated launch without blocking the desktop.
-        if (!saved?.completed && !sessionStorage.getItem("kobe-guided-later"))
+        if (
+          firstRun ||
+          (!saved?.completed && !sessionStorage.getItem("kobe-guided-later"))
+        )
           setOpen(true);
       })
       .catch(() => {
-        /* The desktop remains usable while the server is offline. */
+        if (alive && firstRun) setOpen(true);
       });
     return () => {
       alive = false;
     };
-  }, []);
+  }, [firstRun]);
 
   useEffect(() => {
     setDetails(
       photo
         ? {
-            ...empty,
-            ...(photo.metadata as Partial<Details>),
+            ...EMPTY_PHOTO_ANSWERS,
+            ...(photo.metadata as Partial<PhotoAnswers>),
             name: String(
               photo.metadata.name ||
                 photo.aiSuggestions.name ||
@@ -122,12 +125,12 @@ export default function GuidedBusinessSetup() {
               photo.metadata.category || photo.aiSuggestions.category || "",
             ),
           }
-        : empty,
+        : EMPTY_PHOTO_ANSWERS,
     );
-  }, [photo?.id]);
+  }, [photo]);
 
   useEffect(() => {
-    if (!photo || photo.aiSuggestions.name) return;
+    if (!open || step !== 1 || !photo || photo.aiSuggestions.name) return;
     let active = true;
     request("/media/inbox/suggest", "POST", {
       itemIds: [photo.id],
@@ -154,7 +157,7 @@ export default function GuidedBusinessSetup() {
     return () => {
       active = false;
     };
-  }, [photo?.id]);
+  }, [open, step, photo, profile.businessType]);
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -170,23 +173,31 @@ export default function GuidedBusinessSetup() {
   };
   const loadPhotos = async () => {
     const all = apiArray<Photo>(await request("/media/inbox"));
-    const pending = all.filter(
-      (p) =>
-        p.metadata.guidedBusinessType === profile.businessType &&
-        ["UNPROCESSED", "FAILED"].includes(p.status),
-    );
+    const pending = all
+      .filter(
+        (p) =>
+          p.metadata.guidedBusinessType === profile.businessType &&
+          ["UNPROCESSED", "FAILED"].includes(p.status),
+      )
+      .sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));
     setPhotos(pending);
+    setTotalPhotos(pending.length);
     setIndex(0);
   };
   const saveProfile = async () => {
+    const services = profile.services ?? [guide.bundle];
     await request("/onboarding/guided", "PUT", {
       ...profile,
+      services,
       completed: false,
     });
     await request("/store-settings", "PUT", {
       storeName: profile.businessName,
     });
-    if (profile.businessType !== "shop") {
+    if (
+      profile.businessType === "hotel" ||
+      profile.businessType === "restaurant"
+    ) {
       const existing = apiObject<{ slug: string }>(
         await request("/hotel/tenant"),
       );
@@ -215,7 +226,7 @@ export default function GuidedBusinessSetup() {
       }
     }
     const result = await installBundles(
-      [guide.bundle],
+      services,
       appCatalogue,
       {
         entitle: async (id) => {
@@ -234,30 +245,43 @@ export default function GuidedBusinessSetup() {
           .map((m) => `${m.name}: ${m.error}`)
           .join("; "),
       );
+    if (hasInstallAnswers) await window.kobeOS?.system?.clearInstallSetup?.();
+    setHasInstallAnswers(false);
+    setProfile((p) => ({ ...p, services }));
     useOSStore.getState().setAppEntitlements(await listAppEntitlements());
-    await loadPhotos();
-    setStep(1);
+    if (profile.businessType !== "other") await loadPhotos();
+    setStep(profile.businessType === "other" ? 2 : 1);
     setNotice(
-      "Your business workspace is ready. Add photos now or continue to agents.",
+      profile.businessType === "other"
+        ? "Your workspace is ready. Choose the agents you want to schedule."
+        : "Your business workspace is ready. Add photos now or continue to agents.",
     );
   };
   const upload = async (files: File[]) => {
     if (!files.length) return;
     if (files.some((f) => !f.type.startsWith("image/")))
       throw new Error("Please select images only.");
-    for (let offset = 0; offset < files.length; offset += 5) {
-      const form = new FormData();
-      for (const file of files.slice(offset, offset + 5))
-        form.append("files", await compressImage(file));
-      await api(
-        `/media/inbox/guided/upload?businessType=${profile.businessType}`,
-        { method: "POST", body: form, offlineFallback: false },
-      );
-      setNotice(
-        `Uploaded ${Math.min(offset + 5, files.length)} of ${files.length} photos`,
-      );
+    let uploaded = 0;
+    try {
+      for (let offset = 0; offset < files.length; offset += 5) {
+        const form = new FormData();
+        for (const file of files.slice(offset, offset + 5))
+          form.append("files", await compressImage(file));
+        await api(
+          `/media/inbox/guided/upload?businessType=${profile.businessType}`,
+          { method: "POST", body: form, offlineFallback: false },
+        );
+        uploaded = Math.min(offset + 5, files.length);
+        setNotice(`Uploaded ${uploaded} of ${files.length} photos`);
+      }
+    } catch (error) {
+      if (uploaded) await loadPhotos();
+      throw error;
     }
     await loadPhotos();
+    setNotice(
+      `${profile.displayName ? `${profile.displayName}, your` : "Your"} ${uploaded} photos finished uploading. Let’s start with the first photo waiting for review.`,
+    );
   };
   const suggest = async () => {
     const result = apiArray<{ suggestions: Record<string, unknown> }>(
@@ -278,45 +302,57 @@ export default function GuidedBusinessSetup() {
     );
   };
   const confirm = async () => {
-    if (!String(details.price).trim() || !String(details.stock).trim())
-      throw new Error(
-        "Enter the price and quantity, including 0 when appropriate.",
-      );
-    if (
-      profile.businessType === "hotel" &&
-      Number(details.stock) !==
-        details.roomNumbers
-          .split(",")
-          .map((n) => n.trim())
-          .filter(Boolean).length
-    )
-      throw new Error("The room quantity must match the room numbers entered.");
-    const payload = {
+    const roomNumbers = details.roomNumbers
+      .split(",")
+      .map((n) => n.trim())
+      .filter(Boolean);
+    const variants = details.variants.map((v) => ({
+      size: v.size.trim(),
+      color: v.color?.trim(),
+      price: Number(v.price),
+      stock: Number(v.stock),
+    }));
+    const stock =
+      profile.businessType === "hotel"
+        ? roomNumbers.length
+        : variants.length
+          ? variants.reduce((sum, v) => sum + v.stock, 0)
+          : Number(details.stock);
+    await request(`/media/inbox/guided/${photo.id}/confirm`, "POST", {
       businessType: profile.businessType,
-      name: details.name,
-      category: details.category,
-      size: details.size,
+      name: details.name.trim(),
+      category: details.category.trim(),
+      size: details.size.trim(),
+      color: details.color.trim(),
       price: Number(details.price),
-      stock: Number(details.stock),
+      discountPrice:
+        details.discountPrice === ""
+          ? undefined
+          : Number(details.discountPrice),
+      stock,
       ...(profile.businessType === "hotel"
-        ? {
-            roomNumbers: details.roomNumbers
-              .split(",")
-              .map((n) => n.trim())
-              .filter(Boolean),
-            capacity: Number(details.capacity),
-          }
+        ? { roomNumbers, capacity: Number(details.capacity) }
         : {}),
-      variants: details.variants.map((v) => {
-        if (!v.size.trim() || !v.price.trim() || !v.stock.trim())
-          throw new Error("Enter a size, price, and stock for each variant.");
-        return { size: v.size, price: Number(v.price), stock: Number(v.stock) };
-      }),
-    };
-    await request(`/media/inbox/guided/${photo.id}/confirm`, "POST", payload);
+      variants,
+    });
     setPhotos((p) => p.filter((x) => x.id !== photo.id));
-    setIndex(0);
-    setNotice(`Saved ${details.name}. Ready for the next photo.`);
+    setIndex(Math.max(0, Math.min(index, photos.length - 2)));
+    setNotice(
+      photos.length === 1
+        ? `Saved ${details.name}. All photos reviewed.`
+        : `Saved ${details.name}. Here’s the next photo.`,
+    );
+  };
+  const skipPhoto = async () => {
+    await request(`/media/inbox/${photo.id}`, "PATCH", { metadata: details });
+    setPhotos((p) =>
+      p.map((x) =>
+        x.id === photo.id
+          ? { ...x, metadata: { ...x.metadata, ...details } }
+          : x,
+      ),
+    );
+    setIndex((i) => (i + 1) % photos.length);
   };
   const createAgents = async () => {
     const existing = apiArray<{ name: string }>(await request("/ai/agents"));
@@ -328,7 +364,7 @@ export default function GuidedBusinessSetup() {
       if (existing.some((a) => a.name === name)) continue;
       await request("/ai/agents", "POST", {
         name,
-        objective: `${key === "operations" ? guide.objective : "Prepare a daily business summary with sales, outstanding issues, and suggested next steps. Do not invent missing data."} Business: ${profile.businessName}. Location: ${profile.location}. Respond in ${profile.language}. Currency: ${profile.currency}.`,
+        objective: `${key === "operations" ? guide.objective : "Prepare a daily business summary with sales, outstanding issues, and suggested next steps. Do not invent missing data."} Business: ${profile.businessName}. Team size: ${profile.employeeCount ?? "unspecified"}. Selected services: ${(profile.services ?? [guide.bundle]).join(", ") || "none"}. Location: ${profile.location}. Respond in ${profile.language}. Currency: ${profile.currency}.`,
         frequency: "DAILY",
         timeOfDay: time,
         timezone: profile.timezone,
@@ -344,37 +380,23 @@ export default function GuidedBusinessSetup() {
       "Selected agents are scheduled. Their reports will appear in your KobeOS inbox.",
     );
   };
-  const field = (
-    label: string,
-    key: keyof Omit<Details, "variants">,
-    type = "text",
-  ) => (
-    <label className="block text-sm text-slate-300">
-      {label}
-      <input
-        className={control}
-        type={type}
-        step={key === "price" ? "any" : "1"}
-        value={details[key]}
-        min={type === "number" ? 0 : undefined}
-        onChange={(e) => setDetails((d) => ({ ...d, [key]: e.target.value }))}
-        required
-      />
-    </label>
-  );
-  const close = () => {
+  const close = (completed = false) => {
     sessionStorage.setItem("kobe-guided-later", "1");
     setOpen(false);
+    if (completed) onComplete?.();
+    else onDefer?.();
   };
 
   return (
     <>
-      <button
-        className="fixed bottom-20 left-4 z-40 flex items-center gap-2 rounded-full bg-slate-950 px-4 py-3 text-sm text-emerald-300 shadow-xl"
-        onClick={() => setOpen(true)}
-      >
-        <Sparkles size={18} /> AI business setup
-      </button>
+      {!firstRun && (
+        <button
+          className="fixed bottom-20 left-4 z-40 flex items-center gap-2 rounded-full bg-slate-950 px-4 py-3 text-sm text-emerald-300 shadow-xl"
+          onClick={() => setOpen(true)}
+        >
+          <Sparkles size={18} /> AI business setup
+        </button>
+      )}
       {open && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-950/80 p-3 backdrop-blur-sm">
           <section
@@ -395,7 +417,15 @@ export default function GuidedBusinessSetup() {
               <button
                 aria-label="Continue setup later"
                 disabled={busy}
-                onClick={close}
+                onClick={() => {
+                  if (step !== 1 || !photo) return close();
+                  void run(async () => {
+                    await request(`/media/inbox/${photo.id}`, "PATCH", {
+                      metadata: details,
+                    });
+                    close();
+                  });
+                }}
               >
                 <X />
               </button>
@@ -417,98 +447,13 @@ export default function GuidedBusinessSetup() {
             </div>
             <div className="space-y-5 p-5 sm:p-8">
               {step === 0 && (
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    void run(saveProfile);
-                  }}
-                  className="space-y-5"
-                >
-                  <p className="text-slate-300">
-                    Tell me about your business. I’ll prepare the right
-                    workspace, then help you add your first items and choose
-                    your agents.
-                  </p>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                    {(Object.keys(BUSINESS_GUIDES) as BusinessType[]).map(
-                      (type) => (
-                        <button
-                          type="button"
-                          key={type}
-                          onClick={() =>
-                            setProfile((p) => ({ ...p, businessType: type }))
-                          }
-                          className={`rounded-2xl border p-5 text-left ${profile.businessType === type ? "border-emerald-400 bg-emerald-400/10" : "border-slate-600"}`}
-                        >
-                          {BUSINESS_GUIDES[type].label}
-                        </button>
-                      ),
-                    )}
-                  </div>
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    {(
-                      [
-                        "businessName",
-                        "location",
-                        "phone",
-                        "currency",
-                        "timezone",
-                      ] as const
-                    ).map((key) => (
-                      <label key={key} className="text-sm text-slate-300">
-                        {
-                          {
-                            businessName: "What is your business called?",
-                            location: "Where is it located?",
-                            phone: "Business phone number",
-                            currency: "Currency code",
-                            timezone: "Business timezone",
-                          }[key]
-                        }
-                        <input
-                          className={control}
-                          required
-                          maxLength={
-                            key === "businessName"
-                              ? 120
-                              : key === "phone"
-                                ? 40
-                                : key === "currency"
-                                  ? 3
-                                  : 160
-                          }
-                          value={profile[key]}
-                          onChange={(e) =>
-                            setProfile((p) => ({ ...p, [key]: e.target.value }))
-                          }
-                        />
-                      </label>
-                    ))}
-                    <label className="text-sm text-slate-300">
-                      Which language should your agents use?
-                      <select
-                        className={control}
-                        value={profile.language}
-                        onChange={(e) =>
-                          setProfile((p) => ({
-                            ...p,
-                            language: e.target.value,
-                          }))
-                        }
-                      >
-                        <option>English</option>
-                        <option>Kiswahili</option>
-                      </select>
-                    </label>
-                  </div>
-                  <p className="text-sm text-slate-400">
-                    Recommended workspace: {guide.bundle}. Your current App
-                    Store access and subscription terms apply.
-                  </p>
-                  <button className={button} disabled={busy}>
-                    Prepare my workspace <ArrowRight size={18} />
-                  </button>
-                </form>
+                <BusinessSetupInterview
+                  initialQuestion={hasInstallAnswers ? 6 : 0}
+                  profile={profile}
+                  change={setProfile}
+                  busy={busy}
+                  finish={() => void run(saveProfile)}
+                />
               )}
               {step === 1 && (
                 <>
@@ -548,8 +493,8 @@ export default function GuidedBusinessSetup() {
                           className="h-72 w-full rounded-2xl bg-slate-800 object-contain"
                         />
                         <p className="mt-2 text-sm text-slate-400">
-                          {index + 1} of {photos.length} waiting ·{" "}
-                          {photo.originalName}
+                          {totalPhotos - photos.length} of {totalPhotos} saved ·{" "}
+                          {photos.length} waiting · {photo.originalName}
                         </p>
                         <button
                           disabled={busy}
@@ -560,153 +505,15 @@ export default function GuidedBusinessSetup() {
                           from photo
                         </button>
                       </div>
-                      <form
-                        className="space-y-4"
-                        onSubmit={(e) => {
-                          e.preventDefault();
-                          void run(confirm);
-                        }}
-                      >
-                        <p className="text-emerald-200">{guide.question}</p>
-                        {field(
-                          profile.businessType === "hotel"
-                            ? "Room type"
-                            : "Name",
-                          "name",
-                        )}
-                        {field("Category", "category")}
-                        <div className="grid grid-cols-2 gap-3">
-                          {field(
-                            `${profile.businessType === "hotel" ? "Nightly rate" : "Price"} (${profile.currency})`,
-                            "price",
-                            "number",
-                          )}
-                          {field(
-                            profile.businessType === "hotel"
-                              ? "Number of rooms in this photo group"
-                              : profile.businessType === "restaurant"
-                                ? "Portions available today"
-                                : "Stock quantity",
-                            "stock",
-                            "number",
-                          )}
-                        </div>
-                        {profile.businessType === "hotel" ? (
-                          <>
-                            {field(
-                              "Room numbers, separated by commas",
-                              "roomNumbers",
-                            )}
-                            {field("Guests per room", "capacity", "number")}
-                          </>
-                        ) : (
-                          field(
-                            profile.businessType === "shop"
-                              ? "Size / unit (use Standard if none)"
-                              : "Portion size",
-                            "size",
-                          )
-                        )}
-                        {profile.businessType === "shop" && (
-                          <div className="space-y-2">
-                            {details.variants.map((v, i) => (
-                              <div
-                                key={i}
-                                className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2"
-                              >
-                                {(["size", "price", "stock"] as const).map(
-                                  (k) => (
-                                    <input
-                                      key={k}
-                                      aria-label={`Variant ${i + 1} ${k}`}
-                                      placeholder={k}
-                                      required
-                                      min={k === "size" ? undefined : 0}
-                                      type={k === "size" ? "text" : "number"}
-                                      className={control}
-                                      value={v[k]}
-                                      onChange={(e) =>
-                                        setDetails((d) => ({
-                                          ...d,
-                                          variants: d.variants.map((row, j) =>
-                                            j === i
-                                              ? { ...row, [k]: e.target.value }
-                                              : row,
-                                          ),
-                                        }))
-                                      }
-                                    />
-                                  ),
-                                )}
-                                <button
-                                  type="button"
-                                  aria-label="Remove size"
-                                  onClick={() =>
-                                    setDetails((d) => ({
-                                      ...d,
-                                      variants: d.variants.filter(
-                                        (_, j) => j !== i,
-                                      ),
-                                    }))
-                                  }
-                                >
-                                  ×
-                                </button>
-                              </div>
-                            ))}
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setDetails((d) => ({
-                                  ...d,
-                                  variants: [
-                                    ...d.variants,
-                                    { size: "", price: d.price, stock: "" },
-                                  ],
-                                }))
-                              }
-                              className="text-sm text-emerald-300"
-                            >
-                              + Add sizes with individual prices and stock
-                            </button>
-                          </div>
-                        )}
-                        <div className="flex gap-2">
-                          <button disabled={busy} className={button}>
-                            Confirm & next <Check size={18} />
-                          </button>
-                          <button
-                            type="button"
-                            disabled={busy}
-                            onClick={() =>
-                              run(async () => {
-                                await request(
-                                  `/media/inbox/${photo.id}`,
-                                  "PATCH",
-                                  { metadata: details },
-                                );
-                                setPhotos((p) =>
-                                  p.map((x) =>
-                                    x.id === photo.id
-                                      ? {
-                                          ...x,
-                                          metadata: {
-                                            ...x.metadata,
-                                            ...details,
-                                          },
-                                        }
-                                      : x,
-                                  ),
-                                );
-                                setIndex((i) => (i + 1) % photos.length);
-                              })
-                            }
-                            className="px-3 text-sm"
-                          >
-                            Skip for now
-                          </button>
-                        </div>
-                      </form>
+                      <PhotoIntakeInterview
+                        key={photo.id}
+                        profile={profile}
+                        answers={details}
+                        change={setDetails}
+                        busy={busy}
+                        confirm={() => void run(confirm)}
+                        skip={() => void run(skipPhoto)}
+                      />
                     </div>
                   ) : (
                     <div className="rounded-2xl border border-dashed border-slate-600 p-12 text-center text-slate-300">
@@ -782,7 +589,12 @@ export default function GuidedBusinessSetup() {
                     />
                   </label>
                   <div className="flex justify-between">
-                    <button disabled={busy} onClick={() => setStep(1)}>
+                    <button
+                      disabled={busy}
+                      onClick={() =>
+                        setStep(profile.businessType === "other" ? 0 : 1)
+                      }
+                    >
                       Back
                     </button>
                     <button
@@ -833,19 +645,21 @@ export default function GuidedBusinessSetup() {
                           completed: true,
                         });
                         setProfile((p) => ({ ...p, completed: true }));
-                        close();
+                        close(true);
                       })
                     }
                   >
                     Open my workspace <ArrowRight size={18} />
                   </button>
-                  <button
-                    disabled={busy}
-                    className="ml-4 text-sm"
-                    onClick={() => setStep(1)}
-                  >
-                    Review more photos
-                  </button>
+                  {profile.businessType !== "other" && (
+                    <button
+                      disabled={busy}
+                      className="ml-4 text-sm"
+                      onClick={() => setStep(1)}
+                    >
+                      Review more photos
+                    </button>
+                  )}
                 </>
               )}
               {busy && (
