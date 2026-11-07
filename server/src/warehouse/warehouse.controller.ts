@@ -1,3 +1,5 @@
+import { IsInt, IsString, IsUUID, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { StockTransferService } from './stock-transfer.service';
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -5,14 +7,24 @@ import { MovementsService, WarehouseItemsService } from './warehouse.service';
 import { WarehousesService } from './warehouses.service';
 import { CreateItemDto, CreateWarehouseDto, MovementDto, UpdateItemDto, UpdateWarehouseDto } from './dto/warehouse.dto';
 
+class TransferDto {
+  @IsUUID() fromItemId!: string;
+  @IsUUID() toItemId!: string;
+  @IsInt() @Min(1) @Max(2147483647) quantity!: number;
+  @IsString() @MinLength(1) @MaxLength(100) requestKey!: string;
+}
+
 @UseGuards(JwtAuthGuard)
 @Controller('warehouse')
 export class WarehouseController {
   constructor(
+    private readonly transfers: StockTransferService,
     private readonly items: WarehouseItemsService,
     private readonly movements: MovementsService,
     private readonly warehouses: WarehousesService,
   ) {}
+
+  @Post('transfers') transfer(@CurrentUser('id') uid: string, @CurrentUser('role') role: string, @Body() dto: TransferDto) { return this.transfers.transfer(uid, role, dto); }
 
   @Get('warehouses') listWarehouses(@CurrentUser('id') uid: string) { return this.warehouses.list(uid); }
   @Post('warehouses') createWarehouse(@CurrentUser('id') uid: string, @Body() dto: CreateWarehouseDto) { return this.warehouses.create(uid, dto); }

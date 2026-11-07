@@ -6,6 +6,12 @@ const source = (await readFile(new URL('../src/index.js', import.meta.url), 'utf
   .replace("import { DurableObject } from 'cloudflare:workers';", 'class DurableObject { constructor(ctx) { this.ctx = ctx; } }');
 const { KobeApiContainer, default: worker } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
 const env = { DB_HOST: 'db.example.com', DB_USERNAME: 'test', DB_PASSWORD: 'test-only', JWT_SECRET: 'test-only', PROVIDER_ENCRYPTION_KEY: 'test-only', APP_FRONTEND_URL: 'https://kobeos-app.pages.dev' };
+
+test('video provisioning credentials are forwarded only to the API container', () => {
+  const api = new KobeApiContainer({ container: {} }, { ...env, CF_STREAM_API_TOKEN: 'video-only-test', CF_STREAM_ACCOUNT_ID: 'a'.repeat(32) });
+  assert.equal(api.envVars.CF_STREAM_API_TOKEN, 'video-only-test');
+  assert.equal(api.envVars.CF_STREAM_ACCOUNT_ID, 'a'.repeat(32));
+});
 function fixture({ running = false, oldImage = false, failPost = false } = {}) {
   const calls = { starts: [], requests: [], destroys: 0, probes: 0 };
   const container = {

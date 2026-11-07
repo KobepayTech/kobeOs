@@ -1,7 +1,9 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { ledgerUnits, ledgerNumber } from './ledger-money';
+import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { randomBytes } from 'crypto';
+import { PlatformEventsService } from '../platform/platform.service';
 import {
   KpAccount, KpAccountType, KpLedgerLine, KpTransaction, KpTxnKind,
 } from './kobepay-pro.entity';
@@ -14,6 +16,7 @@ export interface PostLine {
 }
 
 export interface PostInput {
+  idempotencyKey?: string;
   ownerId: string;
   kind: KpTxnKind;
   currency?: string;
@@ -50,6 +53,7 @@ export class LedgerService {
   constructor(
     @InjectRepository(KpAccount) private readonly accounts: Repository<KpAccount>,
     private readonly dataSource: DataSource,
+    private readonly events: PlatformEventsService,
   ) {}
 
   /** Get or create a ledger account, locking the row for update inside a txn. */
@@ -57,6 +61,9 @@ export class LedgerService {
     m: EntityManager, ownerId: string, type: KpAccountType, refId = '', currency = 'TZS',
   ): Promise<KpAccount> {
     let acct = await m.findOne(KpAccount, { where: { ownerId, type, refId } });
+    if (acct && acct.currency !== currency) {
+      throw new BadRequestException('This legacy ledger account uses another currency. Separate currency accounts are required before posting.');
+    }
     if (!acct) {
       acct = m.create(KpAccount, { ownerId, type, refId, currency, balance: 0 });
       await m.save(acct);
@@ -70,16 +77,33 @@ export class LedgerService {
    * any wallet overlay update commit atomically together.
    */
   async post(m: EntityManager, input: PostInput, lines: PostLine[]): Promise<KpTransaction> {
-    const totalDebit = round(lines.reduce((s, l) => s + (l.debit ?? 0), 0));
-    const totalCredit = round(lines.reduce((s, l) => s + (l.credit ?? 0), 0));
-    if (lines.length < 2) throw new BadRequestException('A ledger transaction needs at least two lines');
-    if (totalDebit !== totalCredit) {
-      throw new BadRequestException(`Unbalanced transaction: debit ${totalDebit} ≠ credit ${totalCredit}`);
+    if (!m.queryRunner?.isTransactionActive) throw new BadRequestException('Ledger postings require an active transaction.');
+    if (!Number.isFinite(input.amount) || input.amount <= 0 || lines.some(line =>
+      !Number.isFinite(line.debit ?? 0) || !Number.isFinite(line.credit ?? 0) || (line.debit ?? 0) < 0 || (line.credit ?? 0) < 0)) {
+      throw new BadRequestException('Ledger amounts must be finite and positive; line values cannot be negative.');
     }
-    if (totalDebit <= 0) throw new BadRequestException('Transaction total must be positive');
+    const normalized = lines.map(line => ({ ...line, debit: ledgerUnits(line.debit ?? 0), credit: ledgerUnits(line.credit ?? 0) }));
+    const totalDebit = normalized.reduce((sum, line) => sum + line.debit, 0n);
+    const totalCredit = normalized.reduce((sum, line) => sum + line.credit, 0n);
+    if (lines.length < 2) throw new BadRequestException('A ledger transaction needs at least two lines');
+    if (totalDebit !== totalCredit) throw new BadRequestException('Unbalanced transaction after line quantization');
+    if (totalDebit <= 0n || ledgerUnits(input.amount) <= 0n) throw new BadRequestException('Transaction total must be positive');
+    ledgerNumber(totalDebit);
+    const sourceKey = input.idempotencyKey ?? (input.kind === 'DEPOSIT' && input.bankTransactionId ? `bank:${input.bankTransactionId}` : null);
+    if (sourceKey !== null) {
+      if (!sourceKey.trim() || sourceKey.length > 160) throw new BadRequestException('Invalid posting source key');
+      // The claim lives in the caller transaction, so rejecting a replay also
+      // rolls back any wallet or domain writes made by that caller.
+      await m.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [JSON.stringify([input.ownerId, sourceKey])]);
+      const prior = await m.findOne(KpTransaction, { where: { ownerId: input.ownerId, idempotencyKey: sourceKey } });
+      const legacyDeposit = input.kind === 'DEPOSIT' && input.bankTransactionId
+        ? await m.findOne(KpTransaction, { where: { ownerId: input.ownerId, kind: 'DEPOSIT', bankTransactionId: input.bankTransactionId } }) : null;
+      if (prior || legacyDeposit) throw new ConflictException('Posting source was already recorded; review the original transaction');
+    }
 
     const txn = await m.save(m.create(KpTransaction, {
       ownerId: input.ownerId,
+      idempotencyKey: sourceKey,
       reference: genRef(),
       kind: input.kind,
       status: 'POSTED',
@@ -87,7 +111,7 @@ export class LedgerService {
       studentId: input.studentId ?? null,
       merchantId: input.merchantId ?? null,
       category: (input.category as KpTransaction['category']) ?? 'AVAILABLE',
-      amount: round(input.amount),
+      amount: ledgerNumber(ledgerUnits(input.amount)),
       currency: input.currency ?? 'TZS',
       device: input.device ?? '',
       approvalRule: input.approvalRule ?? '',
@@ -96,12 +120,12 @@ export class LedgerService {
       metadata: input.metadata ?? {},
     }));
 
-    for (const line of lines) {
-      const debit = round(line.debit ?? 0);
-      const credit = round(line.credit ?? 0);
+    for (const line of normalized) {
+      const debit = ledgerNumber(line.debit);
+      const credit = ledgerNumber(line.credit);
       if (debit === 0 && credit === 0) continue;
       const acct = await this.lockAccount(m, input.ownerId, line.type, line.refId ?? '', input.currency ?? 'TZS');
-      acct.balance = round(acct.balance + debit - credit);
+      acct.balance = ledgerNumber(ledgerUnits(acct.balance) + line.debit - line.credit);
       await m.save(acct);
       await m.save(m.create(KpLedgerLine, {
         ownerId: input.ownerId,
@@ -112,6 +136,11 @@ export class LedgerService {
       }));
     }
 
+    await this.events.recordInTransaction(m, {
+      ownerId: input.ownerId, eventName: 'kobepay.ledger.posted', aggregateType: 'KpTransaction', aggregateId: txn.id,
+      idempotencyKey: `ledger:${txn.id}`, correlationId: txn.id,
+      payload: { transactionId: txn.id, reference: txn.reference, amount: String(txn.amount), currency: txn.currency, kind: txn.kind },
+    });
     return txn;
   }
 

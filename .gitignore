@@ -40,5 +40,11 @@ server/node_modules/@huggingface/transformers/.cache/
 
 # Local AI model downloads
 models/
+build/qwen3-import/
+build/qwen3-tools/
+build/qwen3-vl-cache/
+build/qwen3-cache/
+build/edition-qwen3-only/
+build/qwen3-model-pack/
 tools/locateanything/.tmp_input.png
 .neon

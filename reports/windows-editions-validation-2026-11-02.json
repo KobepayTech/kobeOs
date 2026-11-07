@@ -1,0 +1,44 @@
+{
+  "date": "2026-11-02",
+  "platform": "Windows x64",
+  "full": {
+    "location": "GitHub artifact; local download omitted due to slow connection",
+    "build": "https://github.com/KobepayTech/kobeOs/actions/runs/41496688016",
+    "conclusion": "success",
+    "artifact": "https://github.com/KobepayTech/kobeOs/actions/runs/41496688016/artifacts/13167606296"
+  },
+  "qwen": {
+    "installerBytes": 197941013,
+    "modelFamily": "qwen3vl",
+    "aiValidation": {
+      "model": "qwen3-vl:8b",
+      "results": [
+        {
+          "test": "stock arithmetic",
+          "expected": "14",
+          "answer": "14",
+          "passed": true,
+          "elapsedMs": 12578,
+          "tokensPerSecond": 8.834390515398344
+        },
+        {
+          "test": "image reading",
+          "expected": "42",
+          "answer": "42",
+          "passed": true,
+          "elapsedMs": 82073,
+          "tokensPerSecond": 6.731906318791667
+        }
+      ]
+    },
+    "build": "https://github.com/KobepayTech/kobeOs/actions/runs/41354663174",
+    "conclusion": "success",
+    "offlinePack": "release/qwen3-offline",
+    "quantization": "Q4_K_M",
+    "installer": "release/qwen3-verified/KobeOS-Qwen3-Setup-1.11.1.exe",
+    "modelBytes": 6140404482,
+    "parameterSize": "8.8B"
+  },
+  "coreGuide": "docs/kobeos-core.md",
+  "sourceOriginalPreserved": true
+}

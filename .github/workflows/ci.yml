@@ -80,8 +80,18 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Prepare isolated foundations test database
+        env:
+          PGPASSWORD: kobe_test
+        run: >-
+          node -e "const {Client}=require('pg'); (async()=>{const c=new Client({host:'127.0.0.1',port:5432,user:'kobe',password:process.env.PGPASSWORD,database:'postgres'}); await c.connect(); await c.query('CREATE DATABASE kobeos_foundations_test'); await c.end();})().catch(e=>{console.error(e.message);process.exitCode=1;});"
+
       - name: Unit tests
         run: npm run test:unit
+        env:
+          FOUNDATION_TEST_PORT: 5432
+          FOUNDATION_TEST_USER: kobe
+          FOUNDATION_TEST_PASSWORD: kobe_test
 
       - name: E2E tests
         run: npm run test:e2e

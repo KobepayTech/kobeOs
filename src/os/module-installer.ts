@@ -26,7 +26,7 @@ const STORAGE_KEY = 'kobeos-module-install-state-v1';
 const CHANGE_EVENT = 'kobeos:modules-changed';
 const CORE_APPS = new Set([
   'file-manager', 'settings', 'system-settings', 'package-manager', 'app-store',
-  'terminal', 'browser', 'kobe-assistant',
+  'terminal', 'browser', 'kobe-assistant', 'kobe-home',
 ]);
 
 function readRecords(): Record<string, ModuleRecord> {

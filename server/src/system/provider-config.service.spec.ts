@@ -46,8 +46,16 @@ describe('ProviderConfigService', () => {
       sessionRepo as unknown as Repository<ProviderSetupSession>,
       env as unknown as ConfigService,
     );
-    return { service, configRepo, sessionRepo, getConfig: () => savedConfig };
+    return { service, configRepo, sessionRepo, values, getConfig: () => savedConfig };
   }
+
+  it('does not substitute an Instagram Login client for Facebook signup credentials', async () => {
+    const { service, values } = setup();
+    values.INSTAGRAM_APP_ID = 'instagram-only';
+    values.INSTAGRAM_APP_SECRET = 'instagram-only-secret';
+    values.META_REDIRECT_URI = 'https://kobe.example/api/auth/oauth/meta/callback';
+    expect(await service.status()).toMatchObject({ configured: false, hasSecret: false, appId: '' });
+  });
 
   it('encrypts the Meta secret at rest and decrypts it only for OAuth use', async () => {
     const { service, getConfig } = setup();

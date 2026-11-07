@@ -1,3 +1,6 @@
+import { BusinessFoundationsModule } from '../business-foundations/business-foundations.module';
+import { PlatformModule } from '../platform/platform.module';
+import { PropertyInsightsService } from '../property/property-insights.service';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AiService } from './ai.service';
@@ -38,7 +41,7 @@ import { SystemHealthModule } from '../system-health/system-health.module';
 import { OcrModule } from '../ocr/ocr.module';
 
 @Module({
-  imports: [
+  imports: [BusinessFoundationsModule, PlatformModule,
     TypeOrmModule.forFeature([
       PosOrder, PosProduct, ProductReview, RentCharge, Tenant, PropertyUnit,
       HotelRoom, HotelGuest, HotelBooking, HotelFinancialRecord, WarehouseItem,
@@ -51,8 +54,8 @@ import { OcrModule } from '../ocr/ocr.module';
     SystemHealthModule,
     OcrModule,
   ],
-  providers: [AiService, KobeAgentService, ScheduledAgentService, AiDocsService, AiOperatingService, PdfDocumentService, AiChatService, AgentExecutionService, GuardrailService],
+  providers: [PropertyInsightsService,AiService, KobeAgentService, ScheduledAgentService, AiDocsService, AiOperatingService, PdfDocumentService, AiChatService, AgentExecutionService, GuardrailService],
   controllers: [AiController, ScheduledAgentController, AiOperatingController],
-  exports: [AiService, KobeAgentService, ScheduledAgentService, AiDocsService, AiOperatingService, PdfDocumentService, AiChatService, AgentExecutionService, GuardrailService],
+  exports: [PropertyInsightsService,AiService, KobeAgentService, ScheduledAgentService, AiDocsService, AiOperatingService, PdfDocumentService, AiChatService, AgentExecutionService, GuardrailService],
 })
 export class AiModule {}

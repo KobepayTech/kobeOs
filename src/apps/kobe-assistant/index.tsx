@@ -255,7 +255,7 @@ export default function KobeAssistant({
     let cancelled = false;
     (async () => {
       try {
-        const response = await api<unknown>('/ai/briefing', { offlineFallback: false });
+        const response = await api<unknown>(`/ai/briefing?timezone=${encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone)}`, { offlineFallback: false });
         const b = apiObject<{ summary: string; alerts?: BriefingAlert[] }>(response);
         if (cancelled || !b || typeof b.summary !== 'string' || !b.summary.trim()) return;
         setMessages((p) => (p.length ? p : [{ role: 'assistant', content: `👋 ${b.summary}`, alerts: b.alerts ?? [] }]));

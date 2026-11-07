@@ -13,9 +13,11 @@ import { DiscountsModule } from '../discounts/discount.module';
 import { CreditModule } from '../credit/credit.module';
 import { ErpModule } from '../erp/erp.module';
 import { AuthModule } from '../auth/auth.module';
+import { AuditModule } from '../audit/audit.module';
 
 @Module({
   imports: [
+    AuditModule,
     TypeOrmModule.forFeature([PosProduct, PosOrder, PosOrderItem]),
     // Gateway uses JwtModule for socket authentication (same secret
     // as the HTTP JwtAuthGuard).

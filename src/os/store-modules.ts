@@ -179,6 +179,7 @@ const MODULE_DEFINITIONS: Array<Omit<StoreModule, 'version'>> = [
  * They are not part of any sellable module.
  */
 export const PLATFORM_SERVICE_APP_IDS = new Set([
+  'kobe-home',
   'app-store', 'file-manager', 'terminal', 'settings', 'system-settings',
   'task-manager', 'package-manager', 'backup-restore', 'password-manager',
   'browser', 'kobe-assistant', 'kobe-models', 'kobe-agents',

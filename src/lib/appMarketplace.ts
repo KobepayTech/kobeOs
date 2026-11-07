@@ -30,6 +30,7 @@ export interface DeveloperProject {
 }
 
 export const CORE_APP_IDS = [
+  'kobe-home',
   'package-manager',
   'settings',
   'file-manager',

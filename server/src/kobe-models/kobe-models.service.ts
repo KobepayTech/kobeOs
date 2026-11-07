@@ -1,3 +1,4 @@
+import { QWEN_EDITION, QWEN_MODEL } from '../ai/qwen-edition';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
@@ -21,6 +22,15 @@ export class KobeModelsService {
    * Falls back to the embedded catalogue on any network error.
    */
   async getCatalogue(): Promise<KobeCatalogue> {
+    if (this.config.get('KOBE_AI_EDITION') === QWEN_EDITION) return {
+      version: '1', updatedAt: '2026-11-01', edition: QWEN_EDITION,
+      models: [{ id: QWEN_MODEL, name: 'Qwen 3-VL 8B', category: 'vision',
+        description: 'One local model for business, coding, translation and image understanding. Install once, then work offline.',
+        sizeBytes: 6200000000, sizeLabel: 'about 6.2 GB', minVramGb: 0, kobeOptimised: false,
+        downloadUrl: '', checksum: '', ollamaFallback: QWEN_MODEL, license: 'apache-2.0',
+        upstreamUrl: 'https://ollama.com/library/qwen3-vl:8b', version: 'Q4_K_M',
+        recommended: true, tags: ['text', 'vision', 'business', 'coding', 'reasoning', 'offline'] }],
+    };
     const cdnUrl = this.config.get<string>('KOBE_MODELS_CDN_URL');
     if (cdnUrl) {
       try {
@@ -66,6 +76,8 @@ export class KobeModelsService {
    */
   async startDownload(modelId: string): Promise<DownloadJob> {
     const model = await this.getModelById(modelId);
+    const existing = [...this.jobs.values()].find(job => job.modelId === modelId && !['done', 'failed'].includes(job.status));
+    if (existing) return existing;
 
     const job: DownloadJob = {
       jobId: randomUUID(),
@@ -107,7 +119,7 @@ export class KobeModelsService {
     }
 
     job.status = 'installing';
-    await this.ollamaPull(ollamaUrl, model.ollamaFallback);
+    await this.ollamaPull(ollamaUrl, model.ollamaFallback, job);
 
     job.status = 'done';
     job.progressPct = 100;
@@ -116,29 +128,50 @@ export class KobeModelsService {
   }
 
   /** Delegates to Ollama's /api/pull endpoint and streams progress. */
-  private async ollamaPull(ollamaUrl: string, modelName: string): Promise<void> {
+  private async ollamaPull(ollamaUrl: string, modelName: string, job: DownloadJob): Promise<void> {
     const url = new URL(`${ollamaUrl}/api/pull`);
-    const body = JSON.stringify({ name: modelName, stream: false });
-
+    const body = JSON.stringify({ name: modelName, stream: true });
     await new Promise<void>((resolve, reject) => {
+      let pending = ''; let succeeded = false;
+      const layers = new Map<string, { total: number; completed: number }>();
       const protocol = url.protocol === 'https:' ? https : http;
-      const req = protocol.request(
-        { hostname: url.hostname, port: url.port, path: url.pathname, method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } },
-        (res) => {
-          res.on('data', () => { /* consume */ });
-          res.on('end', () => {
-            if (res.statusCode && res.statusCode >= 400) {
-              reject(new Error(`Ollama pull returned ${res.statusCode}`));
-            } else {
-              resolve();
-            }
-          });
-        },
-      );
-      req.on('error', reject);
-      req.write(body);
-      req.end();
+      const consume = (line: string) => {
+        if (!line.trim()) return;
+        const event = JSON.parse(line) as { status?: string; error?: string; digest?: string; total?: number; completed?: number };
+        if (event.error) throw new Error(event.error);
+        if (event.total && event.digest) {
+          layers.set(event.digest, { total: event.total, completed: Math.max(0, Math.min(event.completed || 0, event.total)) });
+          const values = [...layers.values()];
+          job.totalBytes = Math.max(1, values.reduce((sum, layer) => sum + layer.total, 0));
+          job.progressBytes = values.reduce((sum, layer) => sum + layer.completed, 0);
+          job.progressPct = Math.min(99, Math.round(job.progressBytes / job.totalBytes * 100));
+        }
+        if (event.status?.includes('verifying')) job.status = 'verifying';
+        else if (event.status?.includes('pulling')) job.status = 'downloading';
+        if (event.status === 'success') succeeded = true;
+      };
+      const req = protocol.request({ hostname: url.hostname, port: url.port, path: url.pathname, method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } }, res => {
+        res.setEncoding('utf8');
+        if (!res.statusCode || res.statusCode >= 400) { res.resume(); finish(new Error(`Ollama pull returned ${res.statusCode}`)); return; }
+        res.on('data', (chunk: string) => {
+          try {
+            pending += chunk;
+            if (pending.length > 1024 * 1024) throw new Error('Invalid model download response');
+            const lines = pending.split('\n'); pending = lines.pop() || '';
+            for (const line of lines) consume(line);
+          } catch (error) { req.destroy(); finish(error as Error); }
+        });
+        res.on('error', finish);
+        res.on('end', () => {
+          try { consume(pending); finish(succeeded ? undefined : new Error('Model download ended without successful verification')); }
+          catch (error) { finish(error as Error); }
+        });
+      });
+      const deadline = setTimeout(() => { req.destroy(); finish(new Error('Model download timed out; retry to resume.')); }, 2 * 60 * 60 * 1000);
+      const finish = (error?: Error) => { clearTimeout(deadline); if (error) reject(error); else resolve(); };
+      req.setTimeout(120_000, () => { req.destroy(); finish(new Error('Model download stalled; retry to resume.')); });
+      req.on('error', finish); req.end(body);
     });
   }
 

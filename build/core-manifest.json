@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generatedAt": "2026-07-29T06:23:29.542Z",
+  "generatedAt": "2026-11-01T21:26:08.275Z",
   "files": {
     "runtime/driver-manager.js": "baecd528e9da08aa5e15f735893294c14d2dbd3a6ea824bcd0ff779877e1ad78",
     "runtime/drivers/audio-driver.js": "7227a3b23d25f59df4825c424b5ecdb6c7f93a5107a9c1f4c33cb621d4d24fb7",
@@ -13,15 +13,15 @@
     "runtime/index.js": "33e4e921bdb0fda03d6dd385ad0712cfc30c17280e8749dd1133b373baee436e",
     "runtime/sandbox.js": "defd40bd18c1593d0d056b7b64b3cb47500b968a9d6879b6c7f65b200644a921",
     "runtime/service-manager.js": "b5ec87e0b49a30abc4cc1312b3bc3a8f118d6346ac87980bc9f24d19251a5e65",
-    "runtime/services/ai-service.js": "0c945aa7bc72e8608e6773015e5694392608658f2ec25ad420543388233afa05",
+    "runtime/services/ai-service.js": "848e545cb843809642301b2795bc35137e42c675247d5a6c7c8e4e8231e82173",
     "runtime/services/audio-service.js": "4b619cc0e115594132ea8ac78d9cecb8275a5bfcf747b3e7558c1d34ef95c88e",
     "runtime/services/cloud-service.js": "f48a8aa9f0272d0ed8104a1822ffdb1e46fd09b1f7609fe686d6a3e3333994dd",
     "runtime/services/device-manager.js": "e5ca0451d97fea0f723a4f0535cfb65957cc7a67e01148a5d0cc6721b663cb80",
     "runtime/services/file-service.js": "6bf973fd048bdec95f99a178f14e10c662d226eb67f96bfd2ac1b5e895f54ef4",
     "runtime/services/_base-service.js": "e3e97c59bf987cec2ffee13d05e10b844ec54d3f8a4ca2796333cdba93ea3ba6",
-    "main.cjs": "8a9997dd34574953bee3faac6833cc60f9d0c44536fd81c5379ba97664043e17",
-    "preload.cjs": "71f705659694a3fb115b221d54a0b911e6a397f7db32a69172867f48c3b3c1d6",
-    "update-manager.cjs": "599259929bde0484abc5575904f28cc7dcb310cc3f11e753fef39e2c06e9d83b",
+    "main.cjs": "f52d0a7432ef5a085472f0eacdf8d89e8b6e315602f3778173b59a1c88857b5c",
+    "preload.cjs": "8decedd6b976d7f0574d172f56a4fe3da66242be10bac11aa373c16878fddd67",
+    "update-manager.cjs": "361619ce522cfadd0d402845e595bf93d97ffef9c131110121cda4fde9e08038",
     "update-verifier.js": "41720e46bf0aee2e423c084ad56cb06f813ae9f80f169faefed1bd7d01f4b472",
     "core-integrity.js": "c7587b799c04abcce0286b414b59344b25c03f31df8855de282ccbb336982106"
   }

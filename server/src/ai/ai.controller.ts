@@ -317,7 +317,7 @@ export class AiController {
 
   @Get('briefing')
   @ApiOperation({ summary: 'Proactive daily business briefing + alerts' })
-  briefing(@CurrentUser('id') uid: string) { return this.agent.briefing(uid); }
+  briefing(@CurrentUser('id') uid: string, @CurrentUser('role') role: string, @Query('timezone') timezone = 'UTC') { return this.agent.briefing(uid, role, timezone); }
 
   @Get('skills')
   @ApiOperation({ summary: 'Business skills available to the Kobe assistant' })
@@ -346,6 +346,7 @@ export class AiController {
     );
     const capabilities = new Set<string>();
     if (installed.length) capabilities.add('CHAT');
+    if (installed.length && this.ai.getEdition() === 'qwen3-only') { capabilities.add('CODE'); capabilities.add('TRANSLATION'); capabilities.add('VISION'); }
     if (installedCategories.has('coding')) capabilities.add('CODE');
     if (installedCategories.has('vision') || installedCategories.has('multimodal')) capabilities.add('VISION');
     if (installedCategories.has('embedding')) capabilities.add('EMBEDDINGS');
@@ -355,6 +356,7 @@ export class AiController {
       capabilities.add('STT_TTS');
     }
     return {
+      edition: this.ai.getEdition(),
       online: health.running,
       node: process.env.KOBEOS_DESKTOP === 'true' ? 'desktop' : 'server',
       transport: 'authenticated-kobe-api',

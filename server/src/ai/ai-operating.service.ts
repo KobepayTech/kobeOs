@@ -1,7 +1,10 @@
+import { randomUUID } from 'crypto';
+import { assertOwnerAction } from '../business-foundations/business-scope';
+import { PlatformEventsService } from '../platform/platform.service';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Repository } from 'typeorm';
 import { KobeAgentService } from './agent.service';
 import {
   AiApprovalRequest,
@@ -136,6 +139,8 @@ export class AiOperatingService {
     @InjectRepository(AiInsight) private readonly insights: Repository<AiInsight>,
     @InjectRepository(SearchDoc) private readonly searchDocs: Repository<SearchDoc>,
     private readonly agent: KobeAgentService,
+    private readonly db: DataSource,
+    private readonly events: PlatformEventsService,
   ) {}
 
   skillCatalogue() { return SKILL_PACKS; }
@@ -298,85 +303,107 @@ export class AiOperatingService {
   }
 
   async updateWorkflow(ownerId: string, id: string, patch: Partial<Pick<AiWorkflowPlan, 'title' | 'objective' | 'steps' | 'context'>>) {
-    const plan = await this.workflows.findOne({ where: { ownerId, id } });
-    if (!plan) throw new NotFoundException('Workflow not found');
-    if (!['DRAFT', 'APPROVAL_REQUIRED'].includes(plan.status)) throw new BadRequestException('Only draft workflows can be edited');
-    if (patch.title !== undefined) plan.title = patch.title.slice(0, 160);
-    if (patch.objective !== undefined) plan.objective = patch.objective.slice(0, 4000);
-    if (patch.steps !== undefined) plan.steps = patch.steps;
-    if (patch.context !== undefined) plan.context = patch.context;
-    return this.workflows.save(plan);
+    return this.db.transaction(async tx => {
+      const workflows = tx.getRepository(AiWorkflowPlan);
+      const plan = await workflows.findOne({ where: { ownerId, id }, lock: { mode: 'pessimistic_write' } });
+      if (!plan) throw new NotFoundException('Workflow not found');
+      if (!['DRAFT', 'APPROVAL_REQUIRED'].includes(plan.status)) throw new BadRequestException('Only draft workflows can be edited');
+      if (plan.approvedAt) throw new BadRequestException('An approved workflow cannot be edited; create a new draft.');
+      if (patch.title !== undefined) plan.title = patch.title.slice(0, 160);
+      if (patch.objective !== undefined) plan.objective = patch.objective.slice(0, 4000);
+      if (patch.steps !== undefined) plan.steps = patch.steps;
+      if (patch.context !== undefined) plan.context = patch.context;
+      plan.status = 'APPROVAL_REQUIRED';
+      return workflows.save(plan);
+    });
   }
 
   async approveWorkflow(ownerId: string, id: string, actorId: string, actorRole: string) {
-    const plan = await this.workflows.findOne({ where: { ownerId, id } });
-    if (!plan) throw new NotFoundException('Workflow not found');
-    if (ROLE_WRITE_DENY.has(actorRole)) throw new BadRequestException('This role cannot approve business AI workflows');
-    plan.status = 'RUNNING';
-    plan.approvedAt = new Date();
-    await this.workflows.save(plan);
-    await this.audit(ownerId, actorId, actorRole, 'WORKFLOW_APPROVED', 'workflow', plan.title, '', '', plan.confidence, [], { workflowId: plan.id });
-    return plan;
+    return this.db.transaction(async tx => {
+      const workflows = tx.getRepository(AiWorkflowPlan);
+      const plan = await workflows.findOne({ where: { ownerId, id }, lock: { mode: 'pessimistic_write' } });
+      if (!plan) throw new NotFoundException('Workflow not found');
+      assertOwnerAction(ownerId, actorId, actorRole);
+      if (!['DRAFT', 'APPROVAL_REQUIRED'].includes(plan.status) || plan.approvedAt) throw new BadRequestException('Workflow cannot be approved again');
+      plan.status = 'RUNNING';
+      plan.approvedAt = new Date();
+      await workflows.save(plan);
+      await tx.getRepository(AiOperatingAudit).save({ ownerId, actorId, actorRole, eventType: 'WORKFLOW_APPROVED', module: 'workflow', action: plan.title, confidence: plan.confidence, metadata: { workflowId: plan.id } });
+      return plan;
+    });
   }
 
   async executeWorkflow(ownerId: string, id: string, actorId: string, actorRole: string) {
+    assertOwnerAction(ownerId, actorId, actorRole);
     const plan = await this.workflows.findOne({ where: { ownerId, id } });
     if (!plan) throw new NotFoundException('Workflow not found');
     if (plan.status === 'APPROVAL_REQUIRED') throw new BadRequestException('Approve this workflow first');
     if (!['RUNNING', 'DRAFT'].includes(plan.status)) throw new BadRequestException('Workflow cannot be executed in its current status');
+    if (plan.steps.some(step => step.type === 'ACTION') && !plan.approvedAt) throw new BadRequestException('Approve this workflow first');
+    const claim = randomUUID();
+    const claimed = await this.workflows.update({ id, ownerId, executionClaim: IsNull(), status: In(['DRAFT', 'RUNNING']) }, { executionClaim: claim, status: 'RUNNING' });
+    if (claimed.affected !== 1) throw new BadRequestException('Workflow is already running or awaiting review');
     plan.status = 'RUNNING';
-    await this.workflows.save(plan);
-    let summary = '';
-    for (let i = plan.currentStep; i < plan.steps.length; i++) {
-      const step = plan.steps[i];
-      step.status = 'RUNNING';
-      plan.currentStep = i;
-      await this.workflows.save(plan);
-      if (step.type === 'APPROVAL') {
-        const approval = await this.createApproval(ownerId, {
-          workflowId: plan.id,
-          actionType: 'workflow_step',
-          summary: `Approve workflow “${plan.title}” to continue`,
-          payload: { workflowId: plan.id, stepId: step.id },
-          chain: this.approvalChain(actorRole, undefined, plan.riskLevel === 'high'),
-        });
-        step.status = 'PENDING';
-        plan.status = 'APPROVAL_REQUIRED';
-        plan.summary = `Awaiting approval: ${approval.summary}`;
+    plan.executionClaim = claim;
+    try {
+      let summary = '';
+      for (let i = plan.currentStep; i < plan.steps.length; i++) {
+        const step = plan.steps[i];
+        step.status = 'RUNNING';
+        plan.currentStep = i;
         await this.workflows.save(plan);
-        return { plan, approval };
-      }
-      const response = await this.agent.run(ownerId, `${step.description}\nWorkflow objective: ${plan.objective}`, [], 'quality');
-      step.result = { reply: response.reply, data: response.data, used: response.used };
-      summary = response.reply;
-      if (response.pendingAction) {
-        const actionAmount = Number(response.pendingAction.args?.amount || response.pendingAction.args?.total || 0) || undefined;
-        const approval = await this.createApproval(ownerId, {
-          workflowId: plan.id,
-          actionType: response.pendingAction.tool,
-          summary: response.pendingAction.summary,
-          payload: response.pendingAction,
-          amount: actionAmount,
-          currency: String(response.pendingAction.args?.currency || 'TZS'),
-          chain: this.approvalChain(actorRole, actionAmount, plan.riskLevel === 'high'),
-        });
+        if (step.type === 'APPROVAL') {
+          const approval = await this.createApproval(ownerId, {
+            workflowId: plan.id,
+            actionType: 'workflow_step',
+            summary: `Approve workflow “${plan.title}” to continue`,
+            payload: { workflowId: plan.id, stepId: step.id },
+            chain: this.approvalChain(actorRole, undefined, plan.riskLevel === 'high'),
+          });
+          step.status = 'PENDING';
+          plan.status = 'APPROVAL_REQUIRED';
+          plan.summary = `Awaiting approval: ${approval.summary}`;
+          await this.workflows.save(plan);
+          return { plan, approval };
+        }
+        const response = await this.agent.run(ownerId, `${step.description}\nWorkflow objective: ${plan.objective}`, [], 'quality', undefined, undefined, { role: actorRole });
+        step.result = { reply: response.reply, data: response.data, used: response.used };
+        summary = response.reply;
+        if (response.pendingAction) {
+          const actionAmount = Number(response.pendingAction.args?.amount || response.pendingAction.args?.total || 0) || undefined;
+          const approval = await this.createApproval(ownerId, {
+            workflowId: plan.id,
+            actionType: response.pendingAction.tool,
+            summary: response.pendingAction.summary,
+            payload: response.pendingAction,
+            amount: actionAmount,
+            currency: String(response.pendingAction.args?.currency || 'TZS'),
+            chain: this.approvalChain(actorRole, actionAmount, plan.riskLevel === 'high'),
+          });
+          step.status = 'DONE';
+          plan.status = 'APPROVAL_REQUIRED';
+          plan.summary = response.pendingAction.summary;
+          plan.currentStep = i + 1;
+          await this.workflows.save(plan);
+          return { plan, approval };
+        }
         step.status = 'DONE';
-        plan.status = 'APPROVAL_REQUIRED';
-        plan.summary = response.pendingAction.summary;
         plan.currentStep = i + 1;
         await this.workflows.save(plan);
-        return { plan, approval };
       }
-      step.status = 'DONE';
-      plan.currentStep = i + 1;
+      plan.status = 'COMPLETED';
+      plan.completedAt = new Date();
+      plan.summary = summary || 'Workflow completed.';
       await this.workflows.save(plan);
+      await this.audit(ownerId, actorId, actorRole, 'WORKFLOW_COMPLETED', 'workflow', plan.title, '', '', plan.confidence, [], { workflowId: plan.id });
+      return { plan };
+    } catch (error) {
+      await this.workflows.update({ id, ownerId, executionClaim: claim }, { status: 'FAILED' });
+      throw error;
+    } finally {
+      await this.workflows.update({ id, ownerId, executionClaim: claim }, { executionClaim: null });
+      plan.executionClaim = null;
     }
-    plan.status = 'COMPLETED';
-    plan.completedAt = new Date();
-    plan.summary = summary || 'Workflow completed.';
-    await this.workflows.save(plan);
-    await this.audit(ownerId, actorId, actorRole, 'WORKFLOW_COMPLETED', 'workflow', plan.title, '', '', plan.confidence, [], { workflowId: plan.id });
-    return { plan };
   }
 
   async createApproval(ownerId: string, input: {
@@ -384,8 +411,11 @@ export class AiOperatingService {
     chain?: Array<{ role: string; label: string; status?: 'PENDING' | 'APPROVED' | 'REJECTED' }>;
     amount?: number; currency?: string;
   }) {
-    const chain = (input.chain?.length ? input.chain : [{ role: 'admin', label: 'Owner approval', status: 'PENDING' }])
-      .map((step) => ({ ...step, status: step.status || 'PENDING' as const }));
+    if (input.workflowId && !await this.workflows.existsBy({ ownerId, id: input.workflowId })) throw new NotFoundException('Workflow not found');
+    const rawChain = input.chain?.length ? input.chain : [{ role: 'user', label: 'Owner approval' }];
+    if (rawChain.length > 8 || rawChain.some(step => !['user', 'admin'].includes(step.role))) throw new BadRequestException('Invalid approval roles');
+    // Clients cannot supply prior approvals, actors or timestamps.
+    const chain = rawChain.map(step => ({ role: step.role, label: step.label.slice(0, 160), status: 'PENDING' as const }));
     return this.approvals.save(this.approvals.create({
       ownerId,
       workflowId: input.workflowId || null,
@@ -405,43 +435,55 @@ export class AiOperatingService {
   }
 
   async decideApproval(ownerId: string, id: string, actorId: string, actorRole: string, decision: 'approve' | 'reject', note = '') {
-    const request = await this.approvals.findOne({ where: { ownerId, id } });
-    if (!request) throw new NotFoundException('Approval request not found');
-    if (request.status !== 'PENDING') throw new BadRequestException('Approval request is already decided');
-    const step = request.chain[request.currentStep];
-    if (!step) throw new BadRequestException('Approval chain is invalid');
-    if (actorRole !== 'admin' && step.role !== actorRole) throw new BadRequestException(`Current approval requires role: ${step.role}`);
-    step.status = decision === 'approve' ? 'APPROVED' : 'REJECTED';
-    step.actorId = actorId;
-    step.actedAt = new Date().toISOString();
-    step.note = note;
-    if (decision === 'reject') {
-      request.status = 'REJECTED';
-      request.decidedAt = new Date();
-    } else if (request.currentStep < request.chain.length - 1) {
-      request.currentStep += 1;
-    } else {
-      request.status = 'APPROVED';
-      request.decidedAt = new Date();
-    }
-    request.chain = [...request.chain];
-    await this.approvals.save(request);
-    let execution: unknown = null;
-    if (request.status === 'APPROVED' && request.payload?.tool) {
-      execution = await this.agent.execute(ownerId, {
-        tool: String(request.payload.tool),
-        args: (request.payload.args as Record<string, unknown>) || {},
+    assertOwnerAction(ownerId, actorId, actorRole);
+    if (!['approve', 'reject'].includes(decision)) throw new BadRequestException('Invalid approval decision');
+    // Claim the decision and execution before performing any external action.
+    // A crash after this commit remains RUNNING for human reconciliation; never retry automatically.
+    const request = await this.db.transaction(async tx => {
+      const repo = tx.getRepository(AiApprovalRequest);
+      const row = await repo.findOne({ where: { ownerId, id }, lock: { mode: 'pessimistic_write' } });
+      if (!row) throw new NotFoundException('Approval request not found');
+      if (row.status !== 'PENDING') throw new BadRequestException('Approval request is already decided');
+      const step = row.chain[row.currentStep];
+      if (!step || step.status !== 'PENDING') throw new BadRequestException('Approval chain is invalid');
+      if (actorRole !== 'admin' && step.role !== actorRole) throw new BadRequestException(`Current approval requires role: ${step.role}`);
+      Object.assign(step, { status: decision === 'approve' ? 'APPROVED' : 'REJECTED', actorId, actedAt: new Date().toISOString(), note: note.slice(0, 2000) });
+      if (decision === 'reject') row.status = 'REJECTED';
+      else if (row.currentStep < row.chain.length - 1) row.currentStep++;
+      else row.status = 'APPROVED';
+      if (row.status !== 'PENDING') row.decidedAt = new Date();
+      if (row.status === 'APPROVED' && row.payload?.tool) row.executionStatus = 'RUNNING';
+      row.chain = [...row.chain];
+      await repo.save(row);
+      await tx.getRepository(AiOperatingAudit).save({ ownerId, actorId, actorRole, eventType: `APPROVAL_${row.status}`, module: 'approval', action: row.actionType, metadata: { approvalId: row.id, step: row.currentStep } });
+      if (row.status !== 'PENDING') await this.events.recordInTransaction(tx, {
+        ownerId, eventName: 'ai.approval.decided', aggregateType: 'AiApprovalRequest', aggregateId: row.id,
+        idempotencyKey: `approval:${row.id}`, correlationId: row.id,
+        payload: { approvalId: row.id, status: row.status, actionType: row.actionType },
       });
+      return row;
+    });
+    let execution: { ok: boolean; message: string } | null = null;
+    if (request.executionStatus === 'RUNNING') {
+      try {
+        execution = await this.agent.execute(ownerId, { tool: String(request.payload.tool), args: (request.payload.args as Record<string, unknown>) || {} });
+        request.executionStatus = execution.ok ? 'COMPLETED' : 'FAILED';
+        request.executionResult = execution;
+        request.executionError = execution.ok ? null : 'Action reported failure. Review records before attempting a new action.';
+      } catch {
+        request.executionStatus = 'FAILED';
+        request.executionError = 'Action outcome is uncertain. Review records before attempting a new action.';
+      }
+      await this.approvals.save(request);
     }
-    if (request.status === 'APPROVED' && request.workflowId) {
+    if (request.workflowId && request.status !== 'PENDING') {
       const plan = await this.workflows.findOne({ where: { ownerId, id: request.workflowId } });
       if (plan && plan.status === 'APPROVAL_REQUIRED') {
-        plan.status = 'RUNNING';
-        plan.currentStep = Math.max(plan.currentStep, plan.steps.findIndex((item) => item.type === 'APPROVAL') + 1);
+        plan.status = request.status === 'REJECTED' || request.executionStatus === 'FAILED' ? 'FAILED' : 'RUNNING';
+        if (plan.status === 'RUNNING') plan.currentStep = Math.max(plan.currentStep, plan.steps.findIndex(item => item.type === 'APPROVAL') + 1);
         await this.workflows.save(plan);
       }
     }
-    await this.audit(ownerId, actorId, actorRole, `APPROVAL_${request.status}`, 'approval', request.summary, '', request.actionType, 1, [], { approvalId: request.id, execution });
     return { request, execution };
   }
 

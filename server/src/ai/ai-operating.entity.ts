@@ -50,6 +50,7 @@ export interface AiWorkflowStep {
 @Entity('ai_workflow_plans')
 @Index(['ownerId', 'status', 'createdAt'])
 export class AiWorkflowPlan extends OwnedEntity {
+  @Column({ type: 'uuid', nullable: true }) executionClaim?: string | null;
   @Column({ length: 160 }) title!: string;
   @Column({ type: 'text' }) objective!: string;
   @Column({ default: 'DRAFT' }) status!: AiWorkflowStatus;
@@ -75,6 +76,9 @@ export interface AiApprovalChainStep {
 @Entity('ai_approval_requests')
 @Index(['ownerId', 'status', 'createdAt'])
 export class AiApprovalRequest extends OwnedEntity {
+  @Column({ default: 'NOT_STARTED' }) executionStatus!: 'NOT_STARTED' | 'RUNNING' | 'COMPLETED' | 'FAILED';
+  @Column({ type: 'jsonb', nullable: true }) executionResult?: Record<string, unknown> | null;
+  @Column({ type: 'text', nullable: true }) executionError?: string | null;
   @Column({ type: 'uuid', nullable: true }) workflowId?: string | null;
   @Column({ length: 120 }) actionType!: string;
   @Column({ type: 'text' }) summary!: string;

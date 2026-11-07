@@ -1,3 +1,5 @@
+import { BusinessBriefingService } from '../business-foundations/business-briefing.service';
+import { PropertyInsightsService } from '../property/property-insights.service';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Between, ILike, In, MoreThanOrEqual, Not, Repository } from 'typeorm';
@@ -100,6 +102,7 @@ export class KobeAgentService {
 
   constructor(
     private readonly ai: AiService,
+    private readonly propertyInsights: PropertyInsightsService,
     @InjectRepository(PosOrder) private readonly orders: Repository<PosOrder>,
     @InjectRepository(PosProduct) private readonly products: Repository<PosProduct>,
     @InjectRepository(ProductReview) private readonly reviews: Repository<ProductReview>,
@@ -124,6 +127,7 @@ export class KobeAgentService {
     private readonly systemHealth: SystemHealthService,
     private readonly executions: AgentExecutionService,
     private readonly guardrails: GuardrailService,
+    private readonly businessBrain: BusinessBriefingService,
   ) {}
 
   /** Durable facts Kobe remembers about this business (empty if none/first run). */
@@ -332,30 +336,7 @@ export class KobeAgentService {
     }
 
     if (action.tool === 'record_rent_payment') {
-      const amount = Number(action.args.amount || 0);
-      if (amount <= 0) return { ok: false, message: 'Payment amount must be greater than 0.' };
-      let tenantId = (action.args.tenantId as string) || '';
-      if (!tenantId) {
-        const name = String(action.args.tenantName || '').trim();
-        if (!name) return { ok: false, message: 'Specify which tenant.' };
-        const t = await this.tenants.findOne({ where: { ownerId, name } });
-        if (!t) return { ok: false, message: `Tenant "${name}" not found.` };
-        tenantId = t.id;
-      }
-      const open = await this.charges.find({ where: { ownerId, tenantId, status: In(['open', 'partial', 'overdue']) }, order: { dueDate: 'ASC' }, take: 100 });
-      if (!open.length) return { ok: false, message: 'This tenant has no outstanding charges.' };
-      let remaining = amount;
-      for (const c of open) {
-        if (remaining <= 0) break;
-        const bal = Number(c.amount || 0) - Number(c.amountPaid || 0);
-        if (bal <= 0) continue;
-        const pay = Math.min(remaining, bal);
-        const newPaid = Number(c.amountPaid || 0) + pay;
-        await this.charges.update({ ownerId, id: c.id }, { amountPaid: newPaid, status: newPaid >= Number(c.amount || 0) ? 'paid' : 'partial' });
-        remaining -= pay;
-      }
-      const applied = amount - remaining;
-      return { ok: true, message: `Recorded TZS ${applied.toLocaleString()} against rent.${remaining > 0 ? ` TZS ${remaining.toLocaleString()} left as credit/unapplied.` : ''}` };
+      return { ok: false, message: 'Open Properties → Payments or Intelligence → Reconcile to review and record a payment against a charge. AI cannot mark rent paid without a payment record.' };
     }
 
     if (action.tool === 'configure_automation') {
@@ -390,44 +371,9 @@ export class KobeAgentService {
    * when Ollama is offline. Only mentions modules that actually have data.
    * GET /api/ai/briefing
    */
-  async briefing(ownerId: string): Promise<Briefing> {
-    const [sales, low, unpaid, expenses, occ, cargo] = await Promise.all([
-      this.runRead('sales_today', ownerId),
-      this.runRead('low_stock', ownerId),
-      this.runRead('unpaid_tenants', ownerId),
-      this.runRead('expenses_summary', ownerId),
-      this.runRead('hotel_occupancy', ownerId),
-      this.runRead('cargo_status', ownerId),
-    ]);
-
-    const s: string[] = [];
-    const alerts: BriefingAlert[] = [];
-
-    if (sales) s.push(`Today: ${sales.orders} sale(s), TZS ${Number(sales.total || 0).toLocaleString()}.`);
-    if (occ && occ.totalRooms > 0) s.push(`Hotel ${occ.occupancyRate}% full (${occ.occupied}/${occ.totalRooms}).`);
-    if (cargo && cargo.total > 0) {
-      const inTransit = Number(cargo.byStatus?.IN_TRANSIT || 0);
-      if (inTransit > 0) s.push(`${inTransit} parcel(s) in transit.`);
-    }
-    if (expenses && expenses.total > 0) s.push(`Spent TZS ${Number(expenses.total).toLocaleString()} this month.`);
-
-    if (low && low.count > 0) {
-      alerts.push({ severity: 'warning', text: `${low.count} product(s) at or below reorder level — consider restocking.` });
-    }
-    if (unpaid && unpaid.count > 0) {
-      alerts.push({
-        severity: 'warning',
-        text: `${unpaid.count} tenant(s) owe TZS ${Number(unpaid.totalOutstanding || 0).toLocaleString()} in rent.`,
-        action: {
-          tool: 'send_tenant_notification',
-          label: 'Send rent reminders',
-          args: { audience: 'unpaid', message: 'Reminder: your rent is due. Kindly pay at your earliest convenience. Asante.' },
-        },
-      });
-    }
-    if (sales && sales.orders === 0) {
-      alerts.push({ severity: 'info', text: 'No sales recorded yet today.' });
-    }
+  async briefing(ownerId: string, role = 'user', timezone = 'UTC'): Promise<Briefing> {
+    const result = await this.businessBrain.briefing(ownerId, role, timezone);
+    const alerts: BriefingAlert[] = [...result.alerts];
     // Month-end rent charges drafted by the automation job, awaiting approval.
     try {
       const autoRow = await this.appState.findOne({ where: { ownerId, key: 'automation' } });
@@ -441,49 +387,14 @@ export class KobeAgentService {
       }
     } catch { /* automation config optional */ }
 
-    const summary = s.length ? s.join(' ') : 'No activity recorded yet today.';
-    return { summary, alerts, data: { sales, low, unpaid, expenses, occ, cargo } };
+    return { summary: result.summary, alerts, data: result.data };
   }
 
   private tools: Tool[] = [
     {
       name: 'business_health',
       description: 'Cross-module business health snapshot combining today sales, current-month expenses, unpaid rent, hotel occupancy, low stock and cargo status. Use for owner overview, business health, "what needs attention", or cross-module reasoning.',
-      run: async (ownerId) => {
-        const now = new Date();
-        const dayStart = new Date(now); dayStart.setHours(0, 0, 0, 0);
-        const monthStart = new Date(now); monthStart.setDate(1); monthStart.setHours(0, 0, 0, 0);
-        const [orders, expenses, charges, rooms, stock, parcels] = await Promise.all([
-          this.orders.find({ where: { ownerId, createdAt: MoreThanOrEqual(dayStart), status: Not('CANCELLED') as unknown as PosOrder['status'] }, take: 10000 }),
-          this.expenses.find({ where: { ownerId, createdAt: MoreThanOrEqual(monthStart) }, take: 10000 }),
-          this.charges.find({ where: { ownerId, status: In(['open', 'partial', 'overdue']) }, take: 10000 }),
-          this.hotelRooms.find({ where: { ownerId }, take: 5000 }),
-          this.whItems.find({ where: { ownerId }, take: 10000 }),
-          this.parcels.find({ where: { ownerId }, take: 10000 }),
-        ]);
-        const sales = orders.reduce((sum, order) => sum + Number(order.total || 0), 0);
-        const expenseTotal = expenses.reduce((sum, row) => sum + Number(row.amount || 0), 0);
-        const outstandingRent = charges.reduce((sum, row) => sum + Math.max(0, Number(row.amount || 0) - Number(row.amountPaid || 0)), 0);
-        const occupied = rooms.filter((room) => room.status === 'occupied' || room.status === 'reserved').length;
-        const lowStock = stock.filter((item) => item.quantity <= item.reorderLevel).length;
-        const parcelByStatus: Record<string, number> = {};
-        for (const parcel of parcels) {
-          const status = parcel.lifecycleStatus || parcel.status || 'UNKNOWN';
-          parcelByStatus[status] = (parcelByStatus[status] || 0) + 1;
-        }
-        return {
-          data: {
-            generatedAt: now.toISOString(),
-            salesToday: Math.round(sales),
-            expensesMonth: Math.round(expenseTotal),
-            outstandingRent: Math.round(outstandingRent),
-            hotel: { totalRooms: rooms.length, occupiedOrReserved: occupied, occupancyRate: rooms.length ? Math.round((occupied / rooms.length) * 100) : 0 },
-            inventory: { items: stock.length, lowStock },
-            cargo: { total: parcels.length, byStatus: parcelByStatus },
-            currency: 'TZS',
-          },
-        };
-      },
+      run: async (ownerId) => ({ data: await this.businessBrain.snapshot(ownerId) }),
     },
     {
       name: 'sales_today',
@@ -563,11 +474,10 @@ export class KobeAgentService {
     },
     {
       name: 'rent_projection',
-      description: 'Projected monthly rent income = sum of all active charge amounts for the current period.',
+      description: 'Contracted rental-income forecast by month and currency, from live leases.',
       run: async (ownerId) => {
-        const rows = await this.charges.find({ where: { ownerId, status: Not('waived') as unknown as RentCharge['status'] }, take: 5000 });
-        const monthly = rows.reduce((s, c) => s + Number(c.amount || 0), 0);
-        return { data: { monthly: Math.round(monthly), annual: Math.round(monthly * 12), currency: 'TZS' } };
+        const data = await this.propertyInsights.snapshot(ownerId);
+        return { data: { forecast: data.forecast, financials: data.financials, assumptions: data.assumptions } };
       },
     },
     {
@@ -1417,14 +1327,14 @@ The verified KobeOS tool results below are the source of truth. Combine them int
       case 'low_stock': return `${data.count} product(s) at/below ${data.threshold} in stock.`;
       case 'top_rated_products': return data.items?.length ? `Top: ${data.items.map((i: any) => `${i.name} (${i.avgRating}★)`).join(', ')}.` : 'No reviews yet.';
       case 'unpaid_tenants': return `${data.count} tenant(s) owe TZS ${Number(data.totalOutstanding).toLocaleString()}.`;
-      case 'rent_projection': return `Projected rent: TZS ${Number(data.monthly).toLocaleString()}/mo (TZS ${Number(data.annual).toLocaleString()}/yr).`;
+      case 'rent_projection': return `Contracted rent forecast by month and currency: ${JSON.stringify(data.forecast)}. No renewal or vacancy income is assumed.`;
       case 'hotel_occupancy': return `${data.occupancyRate}% occupancy — ${data.occupied} occupied, ${data.reserved} reserved, ${data.available} free of ${data.totalRooms} rooms.`;
       case 'hotel_revenue': return `Hotel ${data.month}: revenue TZS ${Number(data.revenue).toLocaleString()}, expenses TZS ${Number(data.expense).toLocaleString()}, net TZS ${Number(data.net).toLocaleString()}.`;
       case 'warehouse_stock': return `${data.items} items, ${data.lowStock} at/below reorder level. Stock value TZS ${Number(data.stockValue).toLocaleString()}.`;
       case 'expenses_summary': return `${data.month} expenses: TZS ${Number(data.total).toLocaleString()} across ${data.count} entries.`;
       case 'cargo_status': return `${data.total} parcel(s): ${Object.entries(data.byStatus || {}).map(([s, n]) => `${n} ${s.toLowerCase()}`).join(', ') || 'none'}.`;
       case 'sales_forecast': return `Month-to-date TZS ${Number(data.monthToDate).toLocaleString()} (day ${data.dayOfMonth}/${data.daysInMonth}). Projected month-end: TZS ${Number(data.projectedMonthEnd).toLocaleString()}.`;
-      case 'business_health': return `Business health: today sales TZS ${Number(data.salesToday).toLocaleString()}, month expenses TZS ${Number(data.expensesMonth).toLocaleString()}, outstanding rent TZS ${Number(data.outstandingRent).toLocaleString()}, hotel occupancy ${data.hotel?.occupancyRate ?? 0}%, ${data.inventory?.lowStock ?? 0} low-stock item(s), ${data.cargo?.total ?? 0} cargo parcel(s).`;
+      case 'business_health': return `Business overview: ${data.completedOrdersToday?.totals?.map((group: { currency: string; total: string }) => `${group.currency} ${group.total} in completed orders`).join(', ') || 'no completed orders today'}; ${data.pendingApprovals ?? 0} pending approvals, ${data.inventory?.warehouseLow ?? 0} warehouse items at reorder level. Money totals are separated by currency.`;
       case 'semantic_search': return data.count ? `Found ${data.count} match(es): ${data.results.slice(0, 5).map((r: any) => r.text.slice(0, 40)).join('; ')}.` : (data.note || 'No matches found.');
       case 'remember': return data.saved ? `Got it — I'll remember that.` : (data.note || 'Nothing to remember.');
       case 'search_documents': return data.count ? `Found ${data.count} relevant passage(s) in your documents${data.passages?.[0]?.title ? ` (e.g. "${data.passages[0].title}")` : ''}.` : (data.note || 'Nothing found in your documents.');

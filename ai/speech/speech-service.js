@@ -79,6 +79,7 @@ class SpeechService {
    * @param {object} opts  — { model, language, translate, threads }
    */
   async transcribeFile(audioPath, opts = {}) {
+    if (process.env.KOBE_AI_EDITION === 'qwen3-only') throw new Error('Audio file transcription requires Whisper and is unavailable in the Qwen-only edition.');
     return this.whisper.transcribe(audioPath, opts);
   }
 
@@ -89,16 +90,19 @@ class SpeechService {
    * @param {object} opts
    */
   async transcribeBase64(base64Audio, opts = {}) {
+    if (process.env.KOBE_AI_EDITION === 'qwen3-only') throw new Error('Audio file transcription requires Whisper and is unavailable in the Qwen-only edition.');
     return this.whisper.transcribeBase64(base64Audio, opts);
   }
 
   // ── Model management ──────────────────────────────────────────────────────
 
   isModelReady(modelId) {
+    if (process.env.KOBE_AI_EDITION === 'qwen3-only') return false;
     return this.whisper.isModelDownloaded(modelId);
   }
 
   async downloadModel(modelId, onProgress) {
+    if (process.env.KOBE_AI_EDITION === 'qwen3-only') throw new Error('Additional speech models are unavailable in the Qwen-only edition.');
     return this.whisper.downloadModel(modelId, onProgress);
   }
 
