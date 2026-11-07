@@ -34,6 +34,39 @@ function run(command, args, options = {}) {
   }
 }
 
+/**
+ * CUDA runtime directories inside the Ollama bundle. On the Windows build these
+ * are 1738 MiB of the 1863 MiB archive — cuda_v12 alone is 1106 MiB — and they
+ * are dead weight on the CPU-only machines KobeOS ships to, while crowding the
+ * installer against GitHub's 2 GiB release asset limit.
+ *
+ * Vulkan (53 MiB) is deliberately KEPT: it still gives GPU acceleration on
+ * integrated Intel/AMD graphics for a fraction of the size. Only NVIDIA CUDA
+ * acceleration is given up, and OLLAMA_KEEP_GPU_LIBS=1 restores it.
+ */
+const GPU_LIB_DIRS = ['cuda_v11', 'cuda_v12', 'cuda_v13'];
+
+/** Drop the CUDA libraries from an extracted runtime. Returns bytes removed. */
+function pruneGpuLibraries(platformDir, env = process.env) {
+  if (env.OLLAMA_KEEP_GPU_LIBS === '1') {
+    console.log('  keep  CUDA libraries (OLLAMA_KEEP_GPU_LIBS=1)');
+    return 0;
+  }
+  const libRoot = path.join(platformDir, 'lib', 'ollama');
+  if (!fs.existsSync(libRoot)) return 0;
+
+  let removed = 0;
+  for (const name of GPU_LIB_DIRS) {
+    const dir = path.join(libRoot, name);
+    if (!fs.existsSync(dir)) continue;
+    const bytes = directorySize(dir);
+    fs.rmSync(dir, { recursive: true, force: true });
+    removed += bytes;
+    console.log(`  prune ${name} (${(bytes / 1024 / 1024).toFixed(1)} MB of CUDA libraries)`);
+  }
+  return removed;
+}
+
 function getPlatformTarget(platform = process.platform, arch = process.arch) {
   if (platform === 'win32' && arch === 'x64') {
     return { dir: 'win-x64', asset: 'ollama-windows-amd64.zip', bin: 'ollama.exe' };
@@ -107,8 +140,12 @@ function copyLocalRuntime(platformDir, target, env = process.env) {
     fs.cpSync(sourceLib, path.join(platformDir, 'lib'), { recursive: true, force: true });
   }
 
+  // A self-hosted runner's local Ollama carries the same CUDA payload, so it
+  // has to be pruned here too or that path silently ships the 1.7 GB back.
+  const freed = pruneGpuLibraries(platformDir, env);
   const bytes = directorySize(platformDir);
-  console.log(`  ok    local Ollama runtime (${(bytes / 1024 / 1024).toFixed(1)} MB)`);
+  const freedNote = freed ? `, ${(freed / 1024 / 1024).toFixed(1)} MB of CUDA libraries removed` : '';
+  console.log(`  ok    local Ollama runtime (${(bytes / 1024 / 1024).toFixed(1)} MB${freedNote})`);
   return true;
 }
 
@@ -222,8 +259,10 @@ async function main() {
   if (fs.existsSync(binPath) && process.platform !== 'win32') fs.chmodSync(binPath, 0o755);
   if (!fs.existsSync(binPath)) throw new Error(`expected binary missing after unpack: ${target.dir}/${target.bin}`);
 
+  const freed = pruneGpuLibraries(platformDir);
   const bytes = directorySize(platformDir);
-  console.log(`  ok    ${target.dir} (${(bytes / 1024 / 1024).toFixed(1)} MB)`);
+  const freedNote = freed ? `, ${(freed / 1024 / 1024).toFixed(1)} MB of CUDA libraries removed` : '';
+  console.log(`  ok    ${target.dir} (${(bytes / 1024 / 1024).toFixed(1)} MB${freedNote})`);
 }
 
 module.exports = {
@@ -231,6 +270,8 @@ module.exports = {
   findSystemOllamaDir,
   resolveVersion,
   directorySize,
+  pruneGpuLibraries,
+  GPU_LIB_DIRS,
 };
 
 if (require.main === module) {

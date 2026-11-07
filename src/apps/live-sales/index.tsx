@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import CameraBroadcast from './CameraBroadcast';
 import PhotoRepairReport from './PhotoRepairReport';
+import { LivePresenter } from './LivePresenter';
+import { StoreBroadcastStudio } from './StoreBroadcastStudio';
+import { SocialConnectDialog } from './SocialConnectDialog';
 import { api as localApi, apiBase, accountApiBase, cloudApi, hasCloudSession } from '@/lib/api';
 const api = <T,>(path: string, init: RequestInit = {}) => localApi<T>(path, { ...init, offlineFallback: false });
 const usesCloudAccounts = () => accountApiBase() !== apiBase() && hasCloudSession();
@@ -32,6 +35,8 @@ interface CommentConnection { connected: boolean; webhookSubscribed: boolean; ac
 const money = (n: number | string, c = 'TZS') => `${c === 'TZS' ? 'TSh ' : c === 'CNY' ? '¥' : c + ' '}${Number(n || 0).toLocaleString()}`;
 
 export default function LiveSales() {
+  const [studio, setStudio] = useState(false);
+  const [connectingSocial, setConnectingSocial] = useState<'instagram' | 'tiktok' | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [active, setActive] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -72,7 +77,7 @@ export default function LiveSales() {
     if (!result) return;
     if (result === 'connected') {
       setNotice(params.get('instagram_webhook') === 'not_subscribed'
-        ? 'Instagram connected, but Meta has not accepted the webhook subscription yet.'
+        ? 'Instagram connected. Live comments are awaiting Instagram approval.'
         : 'Instagram connected. Start an Instagram live and comments will appear here.');
       loadSessions();
     } else if (result === 'error') {
@@ -85,14 +90,8 @@ export default function LiveSales() {
     window.history.replaceState({}, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
   }, [loadSessions]);
 
-  const connectInstagram = async () => {
-    try {
-      const { url } = await accountApi<{ url: string }>('/live-sales/instagram/oauth/url');
-      window.location.assign(url);
-    } catch (e) {
-      setNotice((e as Error).message || 'Instagram connection is not configured.');
-    }
-  };
+  const connectInstagram = () => setConnectingSocial('instagram');
+  const connectTikTok = () => setConnectingSocial('tiktok');
 
   const disconnectInstagram = async () => {
     try {
@@ -108,10 +107,10 @@ export default function LiveSales() {
       const connection = await accountApi<InstagramConnection>('/live-sales/instagram/webhook/subscribe', { method: 'POST', body: '{}' });
       setInstagram(connection);
       setNotice(connection.connected && connection.webhookSubscribed
-        ? 'Instagram webhook is connected. Start an Instagram Live to receive comments.'
-        : 'Meta still has not accepted the webhook subscription. Check the Meta app configuration and try again.');
+        ? 'Live comments are ready. Start an Instagram LIVE to receive comments.'
+        : 'Instagram has not enabled live comments yet. Your account is saved; KobeOS support needs to finish platform approval.');
     } catch (e) {
-      setNotice((e as Error).message || 'Could not subscribe the Instagram webhook.');
+      setNotice((e as Error).message || 'Could not check live comments. Please try again.');
     } finally {
       setRetryingWebhook(false);
     }
@@ -144,6 +143,7 @@ export default function LiveSales() {
     await loadSessions(); setActive(s);
   };
 
+  if (studio) return <StoreBroadcastStudio onClose={() => { setStudio(false); void loadSessions(); }} />;
   if (active) return <SessionConsole session={active} context={context} accounts={accounts} onOpenKds={openKds} onBack={() => { setActive(null); loadSessions(); }} />;
 
   const lives = sessions.filter((s) => s.kind !== 'post');
@@ -151,17 +151,19 @@ export default function LiveSales() {
 
   return (
     <div className="h-full bg-slate-950 text-slate-100 overflow-auto">
+      {connectingSocial && <SocialConnectDialog platform={connectingSocial} onClose={() => setConnectingSocial(null)} onConnected={() => { void loadSessions(); }} />}
       <div className="flex flex-wrap gap-3 items-center justify-between px-5 py-4 border-b border-slate-800">
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-fuchsia-500 to-rose-600 grid place-items-center"><Radio className="w-4.5 h-4.5 text-white" /></div>
           <div><h1 className="text-sm font-bold">Live Sales</h1><p className="text-[10px] text-slate-500">Sell live · comment orders → real-time stock</p></div>
         </div>
         <div className="flex items-center gap-2">
+          <button onClick={() => setStudio(true)} className="h-9 rounded-lg bg-rose-600 px-4 text-sm font-bold text-white">Go live from store</button>
           <button onClick={openKds} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-sm font-bold"><MonitorPlay className="w-4 h-4" /> Open KDS</button>
           {instagram.connected ? (
-            <div className="inline-flex items-center gap-1.5 h-9 px-2.5 rounded-lg border border-pink-500/30 bg-pink-500/10 text-pink-300 text-xs font-bold" title={instagram.webhookSubscribed ? 'Instagram webhook connected' : 'Instagram connected; webhook needs Meta setup'}>
+            <div className="inline-flex items-center gap-1.5 h-9 px-2.5 rounded-lg border border-pink-500/30 bg-pink-500/10 text-pink-300 text-xs font-bold" title={instagram.webhookSubscribed ? 'Instagram live comments ready' : 'Instagram connected; live comments awaiting approval'}>
               <Instagram className="w-4 h-4" /> {instagram.accountHandle}
-              {!instagram.webhookSubscribed && <button onClick={retryInstagramWebhook} disabled={retryingWebhook} className="text-amber-300 underline underline-offset-2 disabled:opacity-50">{retryingWebhook ? 'retrying…' : 'retry webhook'}</button>}
+              {!instagram.webhookSubscribed && <button onClick={retryInstagramWebhook} disabled={retryingWebhook} className="text-amber-300 underline underline-offset-2 disabled:opacity-50">{retryingWebhook ? 'Checking…' : 'Check live comments'}</button>}
               <button onClick={disconnectInstagram} className="ml-1 text-slate-400 hover:text-white" title="Disconnect Instagram">×</button>
             </div>
           ) : (
@@ -169,6 +171,8 @@ export default function LiveSales() {
           )}
           {context.catalogUrl && <button onClick={() => navigator.clipboard?.writeText(context.catalogUrl)} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-slate-700 bg-slate-800 text-slate-200 text-sm font-bold"><Copy className="w-4 h-4" /> Copy live shop</button>}
           <button onClick={startPost} className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-bold"><MessageCircle className="w-4 h-4" /> Post campaign</button>
+          <button onClick={connectTikTok} className="h-9 px-3 rounded-lg border border-slate-600 text-sm font-bold">{accounts.some(a => a.platform === 'tiktok' && a.connected) ? 'Reconnect TikTok' : 'Connect TikTok'}</button>
+          <button onClick={() => void loadSessions()} className="h-9 px-3 rounded-lg border border-slate-600 text-sm">Refresh connections</button>
           <div className="relative">
             <button disabled={starting} onClick={() => setPlatformMenu((v) => !v)} className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-sm font-bold"><Play className="w-4 h-4" /> {starting ? 'Opening…' : 'Open live selling'}</button>
             {platformMenu && (
@@ -192,8 +196,8 @@ export default function LiveSales() {
         {notice && <div className="flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200"><span>{notice}</span><button onClick={() => setNotice(null)} className="text-amber-300 hover:text-white">×</button></div>}
         {instagram.connected && !instagram.webhookSubscribed && (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
-            <span>Instagram is authorized, but Meta has not connected the Live Comments webhook yet. Finish the Meta app setup, then retry.</span>
-            <button onClick={() => { navigator.clipboard?.writeText(instagram.webhookUrl); setNotice('Instagram webhook URL copied. Add it in Meta for Developers.'); }} className="font-bold underline underline-offset-2">Copy webhook URL</button>
+            <span>Your Instagram account is connected. Live comments are awaiting platform approval. You can continue setting up your shop.</span>
+            <button disabled={retryingWebhook} onClick={() => void retryInstagramWebhook()} className="font-bold underline underline-offset-2 disabled:opacity-50">{retryingWebhook ? 'Checking…' : 'Check again'}</button>
           </div>
         )}
         {loading ? <Center><Loader2 className="w-6 h-6 animate-spin text-slate-500" /></Center> : sessions.length === 0 ? (
@@ -250,6 +254,7 @@ function SessionConsole({ session, context, accounts, onOpenKds, onBack }: { ses
   const [busy, setBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [ended, setEnded] = useState(session.status === 'ENDED');
+  const [presenter, setPresenter] = useState(false);
   const [onShop, setOnShop] = useState(session.showOnStorefront !== false);
   const toggleShop = async () => {
     const next = !onShop; setOnShop(next);
@@ -286,13 +291,13 @@ function SessionConsole({ session, context, accounts, onOpenKds, onBack }: { ses
         api<Comment[]>(`/live-sales/${session.id}/comments`),
       ]);
       setStats(st); setComments(Array.isArray(cs) ? cs : []); setFeedError(null);
-      if (!cloudAccountId) {
+      if (session.platform !== 'instagram' || !cloudAccountId) {
         try { setConnection(await api<CommentConnection>(`/live-sales/${session.id}/connection`)); setConnectionError(null); }
         catch { setConnectionError('Comment connection could not be checked.'); }
       }
     } catch { setFeedError('Backend unreachable. Comments and orders may be delayed. Keep the computer online; retrying automatically.'); }
     finally { polling.current = false; }
-  }, [session.id, cloudAccountId]);
+  }, [session.id, session.platform, cloudAccountId]);
 
   useEffect(() => {
     refresh();
@@ -368,11 +373,13 @@ function SessionConsole({ session, context, accounts, onOpenKds, onBack }: { ses
       </div>
 
       {!ended && session.kind !== 'post' && <div className="mx-3 mt-3 rounded-lg border border-slate-700 bg-slate-900 p-3 text-xs space-y-1" role="status">
-        <p className="font-semibold">Live comments{(connection?.accountHandle || session.sourceHandle) ? ` for ${connection?.accountHandle || session.sourceHandle}` : ''}. Broadcast from your phone or use the camera controls below.</p>
-        <p className={feedError || connectionError ? 'text-amber-300' : 'text-slate-300'}>{feedError || connectionError || (session.platform === 'tiktok' ? connection?.bridge?.detail || 'Checking TikTok comments…' : session.platform === 'instagram' ? !connection ? 'Connecting phone comments…' : !connection.connected ? 'Account connection needs attention in Creator.' : !connection.webhookSubscribed ? 'Instagram is connected; Live Comments still needs Meta webhook setup.' : 'Instagram comments are subscribed. Waiting for comments from your phone live.' : 'Automatic phone comments need a configured bridge for this platform.')}</p>
+        <p className="font-semibold">Keep your phone streaming{(connection?.accountHandle || session.sourceHandle) ? ` as ${connection?.accountHandle || session.sourceHandle}` : ''}.</p>
+        <p className={feedError || connectionError ? 'text-amber-300' : 'text-slate-300'}>{feedError || connectionError || (session.platform === 'tiktok' ? connection?.bridge?.detail || 'Checking TikTok comments…' : session.platform === 'instagram' ? !connection ? 'Connecting phone comments…' : !connection.connected ? 'Account connection needs attention in Creator.' : !connection.webhookSubscribed ? 'Instagram is connected; live comments are awaiting platform approval.' : 'Instagram comments are subscribed. Waiting for comments from your phone live.' : 'Automatic phone comments need a configured bridge for this platform.')}</p>
         <p className="text-slate-400">Pin a product code such as A1. Buyers comment “A1 x2” to reserve, or buy through the live-shop link. Instagram can send a private checkout reply; TikTok buyers use the live shop. Ending selling here leaves your phone broadcast running.</p>
         {comments.some(c => c.source === session.platform) && <p className="text-emerald-300">Last received comment: {new Date(comments.filter(c => c.source === session.platform).sort((a,b) => b.createdAt.localeCompare(a.createdAt))[0].createdAt).toLocaleTimeString()}</p>}
       </div>}
+      {!ended && session.kind !== 'post' && <div className="px-3 pt-3"><button onClick={() => setPresenter(true)} className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-bold">Open avatar presenter</button></div>}
+      {presenter && <LivePresenter sessionId={session.id} catalogUrl={context.catalogUrl} onClose={() => setPresenter(false)} />}
       {!ended && session.kind !== 'post' && ['instagram', 'tiktok'].includes(session.platform) && <CameraBroadcast sessionId={session.id} platform={session.platform} />}
       {/* Stats */}
       <div className="grid grid-cols-4 gap-2 p-3 shrink-0">
@@ -436,7 +443,7 @@ function SessionConsole({ session, context, accounts, onOpenKds, onBack }: { ses
                         <div className="mt-1 flex items-center gap-2 text-[10px] text-amber-300">
                           <span>Reserved · code <b className="font-mono">{c.reservationCode}</b></span>
                           {c.checkoutToken && context.storefrontUrl && (
-                            <button onClick={() => { navigator.clipboard?.writeText(`${context.storefrontUrl}/live/pay/${c.checkoutToken}`); flash('Buyer checkout link copied'); }} className="underline underline-offset-2">Copy checkout</button>
+                            <button onClick={() => { const url = new URL(context.storefrontUrl); url.searchParams.set('live', c.checkoutToken!); navigator.clipboard?.writeText(url.toString()); flash('Buyer checkout link copied'); }} className="underline underline-offset-2">Copy checkout</button>
                           )}
                         </div>
                       )}

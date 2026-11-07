@@ -117,10 +117,13 @@ describe('Property marketplace auto-provisioning (e2e)', () => {
     expect(initialMarketplace.body.stats.availableSpaces).toBe(2);
     expect(initialMarketplace.body.shops.find((shop: { publicCode: string }) => shop.publicCode === originalCode).vacancy.rentAmount).toBe(1750000);
 
+    await request(app.getHttpServer()).post('/api/commerce-public/claims').send({ shopCode: originalCode, businessName: 'Intruder', merchantName: 'X', phone: '0712345678' }).expect(400);
+    const invite1 = await request(app.getHttpServer()).post(`/api/commerce/shops/${shop1.id}/invitation`).set(auth).expect(201);
+    const invite2 = await request(app.getHttpServer()).post(`/api/commerce/shops/${shop2.id}/invitation`).set(auth).expect(201);
     const claim1 = await request(app.getHttpServer())
       .post('/api/commerce-public/claims')
       .send({
-        shopCode: originalCode,
+        shopCode: originalCode, invitationToken: invite1.body.invitationToken,
         businessName: 'Asha Fashion',
         merchantName: 'Asha M',
         phone: '0712345678',
@@ -132,7 +135,7 @@ describe('Property marketplace auto-provisioning (e2e)', () => {
     const claim2 = await request(app.getHttpServer())
       .post('/api/commerce-public/claims')
       .send({
-        shopCode: shop2.publicCode,
+        shopCode: shop2.publicCode, invitationToken: invite2.body.invitationToken,
         businessName: 'Smart Tech',
         merchantName: 'Juma K',
         phone: '0755123456',

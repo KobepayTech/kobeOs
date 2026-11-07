@@ -1,6 +1,7 @@
+import { PropertyInsightsService } from '../property/property-insights.service';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, In, MoreThanOrEqual, Not, Repository } from 'typeorm';
+import { Between, ILike, In, MoreThanOrEqual, Not, Repository } from 'typeorm';
 import { AiService } from './ai.service';
 import { PosOrder, PosProduct } from '../pos/pos.entity';
 import { ProductReview } from '../store/product-review.entity';
@@ -15,6 +16,8 @@ import { AppState } from '../app-state/app-state.entity';
 import { SearchDoc } from '../search/search.entity';
 import { cosine, tokenize, keywordScore, rankByDesc } from '../search/search.service';
 import { AiMemory } from './ai-memory.entity';
+import { AgentExecutionService } from './agent-execution.service';
+import { GuardrailService } from './guardrail.service';
 import { AiDocsService } from './ai-docs.service';
 import { SystemHealthService } from '../system-health/system-health.service';
 import { BeemService } from '../notifications/beem.service';
@@ -98,6 +101,7 @@ export class KobeAgentService {
 
   constructor(
     private readonly ai: AiService,
+    private readonly propertyInsights: PropertyInsightsService,
     @InjectRepository(PosOrder) private readonly orders: Repository<PosOrder>,
     @InjectRepository(PosProduct) private readonly products: Repository<PosProduct>,
     @InjectRepository(ProductReview) private readonly reviews: Repository<ProductReview>,
@@ -120,6 +124,8 @@ export class KobeAgentService {
     private readonly beem: BeemService,
     private readonly aiDocs: AiDocsService,
     private readonly systemHealth: SystemHealthService,
+    private readonly executions: AgentExecutionService,
+    private readonly guardrails: GuardrailService,
   ) {}
 
   /** Durable facts Kobe remembers about this business (empty if none/first run). */
@@ -154,7 +160,7 @@ export class KobeAgentService {
     accountant: ['sales_today', 'expenses_summary', 'sales_forecast', 'record_expense', 'business_health'],
     'hotel-manager': ['hotel_occupancy', 'hotel_revenue', 'create_booking', 'set_room_status'],
     'property-manager': ['unpaid_tenants', 'rent_projection', 'set_rent', 'add_tenant', 'record_rent_payment', 'send_tenant_notification'],
-    'retail-manager': ['sales_today', 'low_stock', 'top_rated_products', 'warehouse_stock', 'adjust_stock', 'add_product'],
+    'retail-manager': ['sales_today', 'low_stock', 'product_pricing', 'top_rated_products', 'warehouse_stock', 'adjust_stock', 'add_product'],
     'cargo-manager': ['cargo_status'],
     'sacco-credit': ['semantic_search', 'search_documents'],
     recruitment: ['semantic_search', 'search_documents'],
@@ -328,30 +334,7 @@ export class KobeAgentService {
     }
 
     if (action.tool === 'record_rent_payment') {
-      const amount = Number(action.args.amount || 0);
-      if (amount <= 0) return { ok: false, message: 'Payment amount must be greater than 0.' };
-      let tenantId = (action.args.tenantId as string) || '';
-      if (!tenantId) {
-        const name = String(action.args.tenantName || '').trim();
-        if (!name) return { ok: false, message: 'Specify which tenant.' };
-        const t = await this.tenants.findOne({ where: { ownerId, name } });
-        if (!t) return { ok: false, message: `Tenant "${name}" not found.` };
-        tenantId = t.id;
-      }
-      const open = await this.charges.find({ where: { ownerId, tenantId, status: In(['open', 'partial', 'overdue']) }, order: { dueDate: 'ASC' }, take: 100 });
-      if (!open.length) return { ok: false, message: 'This tenant has no outstanding charges.' };
-      let remaining = amount;
-      for (const c of open) {
-        if (remaining <= 0) break;
-        const bal = Number(c.amount || 0) - Number(c.amountPaid || 0);
-        if (bal <= 0) continue;
-        const pay = Math.min(remaining, bal);
-        const newPaid = Number(c.amountPaid || 0) + pay;
-        await this.charges.update({ ownerId, id: c.id }, { amountPaid: newPaid, status: newPaid >= Number(c.amount || 0) ? 'paid' : 'partial' });
-        remaining -= pay;
-      }
-      const applied = amount - remaining;
-      return { ok: true, message: `Recorded TZS ${applied.toLocaleString()} against rent.${remaining > 0 ? ` TZS ${remaining.toLocaleString()} left as credit/unapplied.` : ''}` };
+      return { ok: false, message: 'Open Properties → Payments or Intelligence → Reconcile to review and record a payment against a charge. AI cannot mark rent paid without a payment record.' };
     }
 
     if (action.tool === 'configure_automation') {
@@ -493,6 +476,28 @@ export class KobeAgentService {
       },
     },
     {
+      name: 'product_pricing',
+      description: 'Look up current product price, optional staff discount reference and colour/size inventory by product name or SKU. The discount reference is for advice only. args: {query}',
+      run: async (ownerId, args) => {
+        const query = String(args.query ?? '').trim().slice(0, 120);
+        if (!query) return { data: { items: [] } };
+        const rows = await this.products.createQueryBuilder('p')
+          .addSelect('p.discountReferencePrice')
+          .where([
+            { ownerId, active: true, sku: query },
+            { ownerId, active: true, name: ILike(`%${query}%`) },
+          ])
+          .orderBy('p.name', 'ASC')
+          .take(10)
+          .getMany();
+        return { data: { items: rows.map(p => ({
+          name: p.name, sku: p.sku, currency: p.currency, price: Number(p.price),
+          discountReferencePrice: p.discountReferencePrice == null ? null : Number(p.discountReferencePrice),
+          stock: Number(p.stock), variants: p.variants,
+        })) } };
+      },
+    },
+    {
       name: 'low_stock',
       description: 'Products at or below a stock threshold (default 5). args: {threshold?}',
       run: async (ownerId, args) => {
@@ -537,11 +542,10 @@ export class KobeAgentService {
     },
     {
       name: 'rent_projection',
-      description: 'Projected monthly rent income = sum of all active charge amounts for the current period.',
+      description: 'Contracted rental-income forecast by month and currency, from live leases.',
       run: async (ownerId) => {
-        const rows = await this.charges.find({ where: { ownerId, status: Not('waived') as unknown as RentCharge['status'] }, take: 5000 });
-        const monthly = rows.reduce((s, c) => s + Number(c.amount || 0), 0);
-        return { data: { monthly: Math.round(monthly), annual: Math.round(monthly * 12), currency: 'TZS' } };
+        const data = await this.propertyInsights.snapshot(ownerId);
+        return { data: { forecast: data.forecast, financials: data.financials, assumptions: data.assumptions } };
       },
     },
     {
@@ -832,7 +836,7 @@ export class KobeAgentService {
     shop: {
       title: 'Retail & inventory specialist',
       persona: "You are Kobe's retail specialist — POS sales, pricing, stock and the product catalogue. Think like a shopkeeper watching sales and stock.",
-      tools: ['sales_today', 'low_stock', 'top_rated_products', 'sales_forecast', 'warehouse_stock', 'adjust_stock', 'add_product', 'seed_demo_products'],
+      tools: ['sales_today', 'low_stock', 'top_rated_products', 'sales_forecast', 'warehouse_stock', 'product_pricing', 'adjust_stock', 'add_product', 'seed_demo_products'],
     },
     cargo: {
       title: 'Cargo & logistics specialist',
@@ -955,12 +959,25 @@ export class KobeAgentService {
     return [...older, ...recent].slice(-max);
   }
 
+  /**
+   * Every tool call passes through here, so this is where they are recorded.
+   * Timing wraps only the call itself — a cache hit is recorded as such rather
+   * than being counted as a very fast run, which would flatter the numbers.
+   */
   private async runToolCached(ownerId: string, tool: Tool, args: Record<string, unknown>): Promise<ToolResult> {
-    if (!this.cacheableTools.has(tool.name) || tool.write) return tool.run(ownerId, args);
+    if (!this.cacheableTools.has(tool.name) || tool.write) {
+      return this.recorded(ownerId, tool, false, () => tool.run(ownerId, args));
+    }
     const key = `${ownerId}:${tool.name}:${JSON.stringify(args)}`;
     const hit = this.toolCache.get(key);
-    if (hit && hit.expiresAt > Date.now()) return hit.result;
-    const result = await tool.run(ownerId, args);
+    if (hit && hit.expiresAt > Date.now()) {
+      void this.executions.record({
+        ownerId, tool: tool.name, status: 'ok', startedAt: new Date(), durationMs: 0,
+        cached: true, write: !!tool.write,
+      });
+      return hit.result;
+    }
+    const result = await this.recorded(ownerId, tool, false, () => tool.run(ownerId, args));
     this.toolCache.set(key, { expiresAt: Date.now() + 20_000, result });
     if (this.toolCache.size > 500) {
       for (const [cacheKey, value] of this.toolCache) {
@@ -969,6 +986,35 @@ export class KobeAgentService {
       }
     }
     return result;
+  }
+
+  /** Time a tool call and record how it went, whether it succeeded or threw. */
+  private async recorded(
+    ownerId: string,
+    tool: Tool,
+    cached: boolean,
+    call: () => Promise<ToolResult>,
+  ): Promise<ToolResult> {
+    const startedAt = new Date();
+    const started = Date.now();
+    try {
+      // Checked here rather than at the call sites so no tool path can bypass
+      // it, and so a block is recorded like any other outcome.
+      await this.guardrails.assertToolAllowed(ownerId, tool.name, !!tool.write, startedAt);
+      const result = await call();
+      void this.executions.record({
+        ownerId, tool: tool.name, status: 'ok', startedAt,
+        durationMs: Date.now() - started, cached, write: !!tool.write,
+      });
+      return result;
+    } catch (cause) {
+      void this.executions.record({
+        ownerId, tool: tool.name, status: 'error', startedAt,
+        durationMs: Date.now() - started, cached, write: !!tool.write,
+        error: cause instanceof Error ? cause.message : String(cause),
+      });
+      throw cause;
+    }
   }
 
   private directToolSummary(tool: string, data: unknown): string | null {
@@ -1056,7 +1102,9 @@ export class KobeAgentService {
         : null;
     }
 
-    const intents: Array<{ pattern: RegExp; tool: string }> = [
+    const pricingQuery = message.match(/(?:discount price|regular price|price|pricing)\s+(?:for|of)\s+(.+?)[?.!]*$/i)?.[1];
+    const intents: Array<{ pattern: RegExp; tool: string; args?: Record<string, unknown> }> = [
+      ...(pricingQuery ? [{ pattern: /./, tool: 'product_pricing', args: { query: pricingQuery } }] : []),
       { pattern: /\b(today'?s sales|sales today|revenue today)\b/, tool: 'sales_today' },
       { pattern: /\b(low stock|out of stock|restock)\b/, tool: 'low_stock' },
       { pattern: /\b(top rated|best liked|customer favorites|customer favourites)\b/, tool: 'top_rated_products' },
@@ -1076,7 +1124,7 @@ export class KobeAgentService {
     const tool = this.tools.find((item) => item.name === intent.tool);
     if (!tool) return null;
     try {
-      const result = await this.runToolCached(ownerId, tool, {});
+      const result = await this.runToolCached(ownerId, tool, intent.args ?? {});
       if ('pendingAction' in result) {
         return {
           reply: `Ready to ${result.pendingAction.summary.toLowerCase()}. Confirm to proceed.`,
@@ -1334,10 +1382,20 @@ The verified KobeOS tool results below are the source of truth. Combine them int
   private fallbackSummary(tool: string, data: any): string {
     switch (tool) {
       case 'sales_today': return `Today: ${data.orders} orders, TZS ${Number(data.total).toLocaleString()}.`;
+      case 'product_pricing': {
+        const items = data.items as Array<{ name: string; sku: string; currency: string; price: number; discountReferencePrice: number | null; stock: number }>;
+        if (!items.length) return 'I couldn’t find a matching product. Try its exact name or SKU.';
+        return items.map(item => {
+          const regular = `${item.currency} ${item.price.toLocaleString()}`;
+          const discount = item.discountReferencePrice === null ? 'no discount reference saved'
+            : `discount reference ${item.currency} ${item.discountReferencePrice.toLocaleString()}`;
+          return `${item.name} (${item.sku}) costs ${regular}, with ${item.stock} in stock and ${discount}.`;
+        }).join('\n');
+      }
       case 'low_stock': return `${data.count} product(s) at/below ${data.threshold} in stock.`;
       case 'top_rated_products': return data.items?.length ? `Top: ${data.items.map((i: any) => `${i.name} (${i.avgRating}★)`).join(', ')}.` : 'No reviews yet.';
       case 'unpaid_tenants': return `${data.count} tenant(s) owe TZS ${Number(data.totalOutstanding).toLocaleString()}.`;
-      case 'rent_projection': return `Projected rent: TZS ${Number(data.monthly).toLocaleString()}/mo (TZS ${Number(data.annual).toLocaleString()}/yr).`;
+      case 'rent_projection': return `Contracted rent forecast by month and currency: ${JSON.stringify(data.forecast)}. No renewal or vacancy income is assumed.`;
       case 'hotel_occupancy': return `${data.occupancyRate}% occupancy — ${data.occupied} occupied, ${data.reserved} reserved, ${data.available} free of ${data.totalRooms} rooms.`;
       case 'hotel_revenue': return `Hotel ${data.month}: revenue TZS ${Number(data.revenue).toLocaleString()}, expenses TZS ${Number(data.expense).toLocaleString()}, net TZS ${Number(data.net).toLocaleString()}.`;
       case 'warehouse_stock': return `${data.items} items, ${data.lowStock} at/below reorder level. Stock value TZS ${Number(data.stockValue).toLocaleString()}.`;

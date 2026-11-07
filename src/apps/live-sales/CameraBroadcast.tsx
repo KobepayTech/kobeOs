@@ -11,7 +11,7 @@ export default function CameraBroadcast({ sessionId, platform }: { sessionId: st
   const media = useRef<MediaStream | null>(null);
   const recorder = useRef<MediaRecorder | null>(null);
   const generation = useRef(0);
-  const base = `/live-sales/${sessionId}/broadcast`;
+  const base = `/live-sales/${sessionId}/rtmp`;
   const request = <T,>(path: string, body?: unknown) => api<T>(base + path, { offlineFallback: false,
     signal: AbortSignal.timeout(15_000), ...(body ? { method: 'POST', body: JSON.stringify(body) } : {}) });
   const releaseCamera = () => {

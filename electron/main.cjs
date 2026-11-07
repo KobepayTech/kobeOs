@@ -934,6 +934,21 @@ function shellEscapeSingleQuote(str) {
   return "'" + String(str).replace(/'/g, "'\\''") + "'";
 }
 
+// The optional installation interview belongs to the newly installed machine.
+const INSTALLED_SETUP_DIR = '/userdata/.kobeos-setup';
+const INSTALLED_SETUP_FILE = `${INSTALLED_SETUP_DIR}/answers.json`;
+ipcMain.handle('read-install-setup', async () => {
+  try {
+    if (process.platform !== 'linux') return null;
+    const info = await fs.promises.lstat(INSTALLED_SETUP_FILE);
+    if (!info.isFile() || info.size > 4096) return null;
+    return JSON.parse(await fs.promises.readFile(INSTALLED_SETUP_FILE, 'utf8'));
+  } catch { return null; }
+});
+ipcMain.handle('clear-install-setup', async () => {
+  if (process.platform === 'linux') await fs.promises.unlink(INSTALLED_SETUP_FILE).catch(() => {});
+});
+
 ipcMain.handle('install-to-disk', async (event, diskPath, options = {}) => {
   if (typeof diskPath !== 'string' || !DISK_PATH_RE.test(diskPath)) {
     return { success: false, error: `Invalid disk path: ${diskPath}` };
@@ -946,6 +961,11 @@ ipcMain.handle('install-to-disk', async (event, diskPath, options = {}) => {
     return { success: false, error: 'LUKS passphrase must be between 8 and 512 characters.' };
   }
   const useLuks = luksPassphrase.length > 0;
+  const setupProfile = safeOptions.setupProfile;
+  const setupJson = setupProfile && typeof setupProfile === 'object' && !Array.isArray(setupProfile)
+    ? JSON.stringify(setupProfile)
+    : '';
+  if (Buffer.byteLength(setupJson, 'utf8') > 4096) return { success: false, error: 'Setup answers are too long' };
 
   const ok = await confirmDestructive({
     title: 'Install KobeOS to disk',
@@ -1147,6 +1167,14 @@ FSTABEOF
 # Create the kobeos user and enable services on the TARGET system, not the
 # live USB. chroot + systemctl --root keep both confined to /mnt/kobeos.
 chroot /mnt/kobeos useradd -m -s /bin/bash kobeos 2>/dev/null || true
+if [ -n "$KOBEOS_INSTALL_SETUP" ]; then
+  (
+    umask 077
+    mkdir -p /mnt/kobeos${INSTALLED_SETUP_DIR}
+    printf '%s' "$KOBEOS_INSTALL_SETUP" | base64 -d > /mnt/kobeos${INSTALLED_SETUP_FILE}
+    chroot /mnt/kobeos chown -R kobeos:kobeos ${INSTALLED_SETUP_DIR}
+  )
+fi
 systemctl --root=/mnt/kobeos enable kobeos-xorg.service kobeos-backend.service kobeos-kiosk.service || true
 
 
@@ -1185,7 +1213,7 @@ echo "INSTALL_COMPLETE"
   return new Promise((resolve) => {
     execFile('/bin/bash', ['-c', script], {
       timeout: 900_000,
-      env: { ...process.env, KOBEOS_LUKS_PASSPHRASE: luksPassphrase },
+      env: { ...process.env, KOBEOS_LUKS_PASSPHRASE: luksPassphrase, KOBEOS_INSTALL_SETUP: Buffer.from(setupJson).toString('base64') },
     }, (error, stdout, stderr) => {
       resolve({ success: !error, output: stdout, error: stderr });
     });

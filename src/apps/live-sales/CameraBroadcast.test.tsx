@@ -25,11 +25,11 @@ describe('camera broadcaster', () => {
     fireEvent.change(screen.getByLabelText('Stream URL'), { target: { value: 'rtmps://live-upload.instagram.com/rtmp/' } });
     fireEvent.change(screen.getByLabelText('Stream key'), { target: { value: 'test-key' } });
     fireEvent.click(screen.getByRole('button', { name: 'Start camera broadcast' }));
-    await waitFor(() => expect(mocks.api).toHaveBeenCalledWith('/live-sales/sale/broadcast/start', expect.objectContaining({ body: expect.stringContaining('test-key'), offlineFallback: false })));
+    await waitFor(() => expect(mocks.api).toHaveBeenCalledWith('/live-sales/sale/rtmp/start', expect.objectContaining({ body: expect.stringContaining('test-key'), offlineFallback: false })));
     expect(screen.getByLabelText('Stream key')).toHaveValue('');
     view.unmount();
     expect(mocks.stop).toHaveBeenCalled();
-    expect(mocks.api).toHaveBeenCalledWith('/live-sales/sale/broadcast/stop', expect.objectContaining({ method: 'POST', offlineFallback: false }));
+    expect(mocks.api).toHaveBeenCalledWith('/live-sales/sale/rtmp/stop', expect.objectContaining({ method: 'POST', offlineFallback: false }));
   });
   it('does not promise broadcasting when the runtime is unavailable', async () => {
     mocks.api.mockResolvedValue({ available: false });

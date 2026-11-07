@@ -1,7 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { HotelBooking, HotelFinancialRecord, HotelGuest, HotelRoom } from './hotel.entity';
+import { CloudRoomAllotment } from '../cloud-continuity/continuity.entity';
+import { blocksLocalSale, windowsOverlap } from '../cloud-continuity/continuity.rules';
 
 export interface CreateFrontDeskReservationInput {
   roomId: string;
@@ -34,6 +36,43 @@ export class HotelFrontDeskService {
     @InjectRepository(HotelBooking) private readonly bookings: Repository<HotelBooking>,
     @InjectRepository(HotelFinancialRecord) private readonly financials: Repository<HotelFinancialRecord>,
   ) {}
+
+  private async withRoom<T>(ownerId: string, roomId: string, action: (service: HotelFrontDeskService) => Promise<T>): Promise<T> {
+    return this.rooms.manager.transaction(async (tx) => {
+      const room = await tx.getRepository(HotelRoom).findOne({ where: { id: roomId, ownerId }, lock: { mode: 'pessimistic_write' } });
+      if (!room) throw new NotFoundException('Room not found.');
+      const service = new HotelFrontDeskService(tx.getRepository(HotelRoom), tx.getRepository(HotelGuest), tx.getRepository(HotelBooking), tx.getRepository(HotelFinancialRecord));
+      return action(service);
+    });
+  }
+
+  /**
+   * Refuse nights that belong to the online continuity layer.
+   *
+   * Queried through this.bookings.manager rather than an injected service
+   * because withRoom hand-constructs this class with exactly four
+   * repositories; a fifth constructor argument would break that silently. Via
+   * the manager the query also runs inside withRoom's room-row lock, which is
+   * what serialises it against an allotment being granted at the same moment —
+   * grantRoom locks the same row.
+   *
+   * Anything short of an acknowledged release blocks, an expired window
+   * included: the cloud may be holding a reservation for it and may not be
+   * reachable to ask.
+   */
+  private async ensureNotAllottedOnline(ownerId: string, roomId: string, checkIn: Date, checkOut: Date): Promise<void> {
+    const held = await this.bookings.manager.getRepository(CloudRoomAllotment).find({ where: { ownerId, roomId } });
+    for (const allotment of held) {
+      if (!blocksLocalSale(allotment.status, allotment.acknowledgedAt)) continue;
+      const from = new Date(`${String(allotment.fromDate).slice(0, 10)}T00:00:00Z`);
+      const to = new Date(`${String(allotment.toDate).slice(0, 10)}T00:00:00Z`);
+      if (windowsOverlap(checkIn, checkOut, from, to)) {
+        throw new ConflictException(
+          'Those nights are allotted to online booking. Reclaim the allotment and wait for it to be released before selling them here.',
+        );
+      }
+    }
+  }
 
   private parseStay(checkInValue: string, checkOutValue: string) {
     const checkIn = new Date(checkInValue);
@@ -73,10 +112,15 @@ export class HotelFrontDeskService {
   }
 
   async createReservation(ownerId: string, input: CreateFrontDeskReservationInput) {
+    return this.withRoom(ownerId, input.roomId, (service) => service.createReservationLocked(ownerId, input));
+  }
+
+  private async createReservationLocked(ownerId: string, input: CreateFrontDeskReservationInput) {
     const room = await this.roomForOwner(ownerId, input.roomId);
     if (room.status === 'maintenance') throw new BadRequestException('Room is under maintenance.');
     const { checkIn, checkOut } = this.parseStay(input.checkIn, input.checkOut);
     await this.ensureNoOverlap(ownerId, room.id, checkIn, checkOut);
+    await this.ensureNotAllottedOnline(ownerId, room.id, checkIn, checkOut);
 
     const hotelId = room.hotelId ?? null;
     let guest = await this.guests.findOne({
@@ -131,6 +175,11 @@ export class HotelFrontDeskService {
 
   async checkIn(ownerId: string, bookingId: string) {
     const booking = await this.bookingForOwner(ownerId, bookingId);
+    return this.withRoom(ownerId, booking.roomId, (service) => service.checkInLocked(ownerId, bookingId));
+  }
+
+  private async checkInLocked(ownerId: string, bookingId: string) {
+    const booking = await this.bookingForOwner(ownerId, bookingId);
     if (!['PENDING', 'CONFIRMED'].includes(booking.status)) {
       throw new BadRequestException(`Booking cannot be checked in from ${booking.status}.`);
     }
@@ -148,6 +197,11 @@ export class HotelFrontDeskService {
 
   async checkOut(ownerId: string, bookingId: string) {
     const booking = await this.bookingForOwner(ownerId, bookingId);
+    return this.withRoom(ownerId, booking.roomId, (service) => service.checkOutLocked(ownerId, bookingId));
+  }
+
+  private async checkOutLocked(ownerId: string, bookingId: string) {
+    const booking = await this.bookingForOwner(ownerId, bookingId);
     if (booking.status !== 'CHECKED_IN') {
       throw new BadRequestException(`Only a checked-in booking can be checked out. Current status: ${booking.status}.`);
     }
@@ -160,6 +214,11 @@ export class HotelFrontDeskService {
   }
 
   async cancel(ownerId: string, bookingId: string) {
+    const booking = await this.bookingForOwner(ownerId, bookingId);
+    return this.withRoom(ownerId, booking.roomId, (service) => service.cancelLocked(ownerId, bookingId));
+  }
+
+  private async cancelLocked(ownerId: string, bookingId: string) {
     const booking = await this.bookingForOwner(ownerId, bookingId);
     if (booking.status === 'CHECKED_IN') throw new BadRequestException('Check the guest out instead of cancelling an active stay.');
     if (['CHECKED_OUT', 'CANCELLED'].includes(booking.status)) {
@@ -193,6 +252,55 @@ export class HotelFrontDeskService {
       .andWhere('record.description LIKE :marker', { marker: `%${this.paymentMarker(booking.id)}%` })
       .orderBy('record.createdAt', 'ASC')
       .getMany();
+  }
+
+  /**
+   * The reception screen's view of current stays.
+   *
+   * HotelBooking stores roomId and guestId, so GET /hotel/bookings returns
+   * rows the front desk cannot render — no guest name, no room number. The
+   * reception UI consequently kept its own local state and check-ins vanished
+   * on reopen. This is the joined shape that screen actually needs, resolved
+   * server-side in three queries rather than a client-side join per row.
+   */
+  async reservations(ownerId: string, limit = 200) {
+    const bookings = await this.bookings.find({
+      where: { ownerId },
+      order: { checkIn: 'DESC' },
+      take: Math.min(500, Math.max(1, limit)),
+    });
+    if (!bookings.length) return [];
+
+    const roomIds = [...new Set(bookings.map((booking) => booking.roomId).filter(Boolean))];
+    const guestIds = [...new Set(bookings.map((booking) => booking.guestId).filter(Boolean))];
+    const [rooms, guests] = await Promise.all([
+      roomIds.length ? this.rooms.find({ where: { ownerId, id: In(roomIds) } }) : Promise.resolve([]),
+      guestIds.length ? this.guests.find({ where: { ownerId, id: In(guestIds) } }) : Promise.resolve([]),
+    ]);
+    const roomById = new Map(rooms.map((room) => [room.id, room]));
+    const guestById = new Map(guests.map((guest) => [guest.id, guest]));
+
+    return bookings.map((booking) => {
+      const room = roomById.get(booking.roomId);
+      const guest = guestById.get(booking.guestId);
+      return {
+        bookingId: booking.id,
+        status: booking.status,
+        roomId: booking.roomId,
+        roomNumber: room?.roomNumber ?? '',
+        roomType: room?.type ?? '',
+        guestName: guest?.name ?? '',
+        guestPhone: guest?.phone ?? '',
+        guestEmail: guest?.email ?? '',
+        guestNationality: guest?.nationality ?? '',
+        guestIdNumber: guest?.idNumber ?? '',
+        checkIn: dateOnly(new Date(booking.checkIn)),
+        checkOut: dateOnly(new Date(booking.checkOut)),
+        guestCount: booking.guestCount ?? 1,
+        totalAmount: Number(booking.totalAmount || 0),
+        currency: booking.currency,
+      };
+    });
   }
 
   async folio(ownerId: string, bookingId: string) {

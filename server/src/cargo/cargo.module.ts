@@ -18,6 +18,9 @@ import { CargoBookingController, CargoPreAlertsController, CargoPublicTrackingCo
 import { CargoGateway } from './cargo.gateway';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { AirCargoModule } from './air-cargo.module';
+import { PaymentsModule } from '../payments/payments.module';
+import { CargoKobePayService } from './cargo-kobepay.service';
+import { CargoKobePayController } from './cargo-kobepay.controller';
 
 @Module({
   imports: [
@@ -34,15 +37,18 @@ import { AirCargoModule } from './air-cargo.module';
     }),
     NotificationsModule,
     AirCargoModule,
+    PaymentsModule,
   ],
   providers: [
     ParcelsService, ShipmentsService, DriversService, FlightsService,
     CargoPaymentsService, CargoGateway, CargoConsolidationService,
     CargoTrackingService, CargoBookingService,
+    CargoKobePayService,
   ],
   controllers: [
     CargoController, CargoConsolidationController,
     CargoPublicTrackingController, CargoPreAlertsController, CargoBookingController,
+    CargoKobePayController,
   ],
   exports: [
     ParcelsService, ShipmentsService, DriversService, FlightsService, CargoPaymentsService,

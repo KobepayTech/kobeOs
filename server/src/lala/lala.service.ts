@@ -1,3 +1,4 @@
+import { LalaIdentityService } from './lala-identity.service';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes } from 'crypto';
@@ -30,6 +31,7 @@ export class LalaService {
     @InjectRepository(HotelGuest) private readonly guests: Repository<HotelGuest>,
     private readonly events: PlatformEventsService,
     private readonly notifications: PlatformNotificationService,
+    private readonly identity: LalaIdentityService,
   ) {}
 
   private repo<T extends object>(entity: new () => T): Repository<T> { return this.ds.getRepository(entity); }
@@ -151,11 +153,13 @@ export class LalaService {
     return rows.sort((a, b) => Number(b.profile.guestRating) - Number(a.profile.guestRating));
   }
 
-  async passport(input: { phone: string; name: string; email?: string; nationality?: string; preferences?: Record<string, unknown>; privacy?: Record<string, boolean> }) {
-    const phone = normalizePhone(input.phone);
+  async passport(input: { phoneToken?: string; phone: string; name: string; email?: string; nationality?: string; preferences?: Record<string, unknown>; privacy?: Record<string, boolean> }) {
+    const phone = await this.identity.authorize(input.phone, input.phoneToken);
     if (!phone || !input.name?.trim()) throw new BadRequestException('Name and phone are required');
     let row = await this.passports.findOne({ where: { phone } });
     row ??= this.passports.create({ passportNumber: code('LALA'), qrToken: randomBytes(24).toString('base64url'), phone, name: input.name.trim(), email: '', nationality: '', preferences: {}, privacy: { shareName: true, sharePhone: true, shareHistory: false }, active: true });
+    row.qrToken = randomBytes(24).toString('base64url');
+    row.active = true;
     row.name = input.name.trim(); row.email = input.email?.trim().toLowerCase() ?? row.email; row.nationality = input.nationality?.trim() ?? row.nationality;
     if (input.preferences) row.preferences = input.preferences; if (input.privacy) row.privacy = { ...row.privacy, ...input.privacy };
     row = await this.passports.save(row);

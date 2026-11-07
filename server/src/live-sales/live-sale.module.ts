@@ -10,20 +10,26 @@ import { PosOrder, PosProduct } from '../pos/pos.entity';
 import { StoreSettings } from '../store-settings/store-settings.entity';
 import { LiveSaleService } from './live-sale.service';
 import { LiveSaleController, LiveSaleIngestController, LiveSalePublicController, LiveSaleInstagramPublicController } from './live-sale.controller';
-import { PalmPesaService } from '../creators/palmpesa.service';
+import { PalmPesaModule } from '../creators/palmpesa.module';
 import { ApifyService } from './apify.service';
 import { PosModule } from '../pos/pos.module';
 import { SocialAccount } from '../social-scheduler/social-account.entity';
 import { InstagramService } from './instagram.service';
+import { AiModule } from '../ai/ai.module';
+import { LivePresenterService } from './live-presenter.service';
+import { LiveBroadcastSettings } from './live-broadcast.entity';
+import { LiveBroadcastService } from './live-broadcast.service';
 
 @Module({
   imports: [
     AuditModule,
-    TypeOrmModule.forFeature([LiveSession, LivePin, LiveComment, PosProduct, PosOrder, StoreSettings, SocialAccount]),
+    TypeOrmModule.forFeature([LiveSession, LivePin, LiveComment, PosProduct, PosOrder, StoreSettings, SocialAccount, LiveBroadcastSettings]),
     ConfigModule,
+    AiModule,
     PosModule, // provides OrdersService (atomic stock decrement)
+    PalmPesaModule,
   ],
-  providers: [BroadcastService, TikTokCommentsService, LiveSaleService, InstagramService, PalmPesaService, ApifyService],
+  providers: [BroadcastService, TikTokCommentsService, LiveSaleService, InstagramService, ApifyService, LivePresenterService, LiveBroadcastService],
   controllers: [BroadcastController, LiveSaleController, LiveSaleIngestController, LiveSalePublicController, LiveSaleInstagramPublicController],
   exports: [LiveSaleService],
 })

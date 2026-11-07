@@ -1,15 +1,17 @@
 import { plainToInstance } from 'class-transformer';
-import { IsString, IsNumber, IsEnum, IsOptional, validateSync, MinLength } from 'class-validator';
+import { IsString, IsNumber, IsEnum, IsOptional, ValidateIf, validateSync, MinLength } from 'class-validator';
 
 class EnvVars {
   @IsString() @MinLength(32) JWT_SECRET!: string;
   @IsNumber() PORT!: number;
   @IsEnum(['development', 'production', 'test']) NODE_ENV!: string;
-  @IsString() DB_HOST!: string;
-  @IsNumber() DB_PORT!: number;
-  @IsString() DB_USERNAME!: string;
-  @IsString() DB_PASSWORD!: string;
-  @IsString() DB_DATABASE!: string;
+  @IsOptional() @IsString() DATABASE_URL?: string;
+  @IsOptional() @IsString() DATABASE_URL_UNPOOLED?: string;
+  @ValidateIf(o => !o.DATABASE_URL) @IsString() DB_HOST!: string;
+  @ValidateIf(o => !o.DATABASE_URL) @IsNumber() DB_PORT!: number;
+  @ValidateIf(o => !o.DATABASE_URL) @IsString() DB_USERNAME!: string;
+  @ValidateIf(o => !o.DATABASE_URL) @IsString() DB_PASSWORD!: string;
+  @ValidateIf(o => !o.DATABASE_URL) @IsString() DB_DATABASE!: string;
   @IsOptional() @IsString() DB_SSL?: string;
   @IsOptional() @IsString() DB_SSL_REJECT_UNAUTHORIZED?: string;
   @IsOptional() @IsString() SENDGRID_API_KEY?: string;
@@ -19,6 +21,13 @@ class EnvVars {
   @IsOptional() @IsString() SMTP_PASS?: string;
   @IsOptional() @IsString() REDIS_URL?: string;
   @IsOptional() @IsString() WEBHOOK_SECRET?: string;
+  /**
+   * Online continuity sync. Both are needed before anything syncs: the peer's
+   * base URL, and a shared secret of at least 32 characters that both sides
+   * hold. Unset on desktop and single-shop installs, which have no cloud peer.
+   */
+  @IsOptional() @IsString() CONTINUITY_PEER_URL?: string;
+  @IsOptional() @IsString() @MinLength(32) CONTINUITY_SYNC_TOKEN?: string;
   @IsOptional() @IsString() OLLAMA_URL?: string;
   @IsOptional() @IsString() OLLAMA_MODEL?: string;
   @IsOptional() @IsString() FOOTBALL_DATA_API_KEY?: string;
@@ -30,6 +39,8 @@ class EnvVars {
   @IsOptional() @IsString() KOBE_MODELS_CDN_URL?: string;
   /** Cloudflare API token with Zone:DNS:Edit permission (required for store publishing) */
   @IsOptional() @IsString() CF_API_TOKEN?: string;
+  @IsOptional() @IsString() CF_STREAM_API_TOKEN?: string;
+  @IsOptional() @IsString() CF_STREAM_ACCOUNT_ID?: string;
   /** Cloudflare Zone ID for kobeapptz.com */
   @IsOptional() @IsString() CF_ZONE_ID?: string;
   /** Base domain for store subdomains, defaults to kobeapptz.com */
@@ -59,6 +70,8 @@ class EnvVars {
 
   /** Google Identity Services Web Client ID. Use the same value in VITE_GOOGLE_CLIENT_ID. */
   @IsOptional() @IsString() GOOGLE_CLIENT_ID?: string;
+  @IsOptional() @IsString() GOOGLE_CLIENT_SECRET?: string;
+  @IsOptional() @IsString() GOOGLE_REDIRECT_URI?: string;
 
   /** TikTok Login Kit credentials and registered callback URLs. */
   @IsOptional() @IsString() TIKTOK_CLIENT_KEY?: string;

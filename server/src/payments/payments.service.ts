@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { CreditLoan, PaymentTransaction, Wallet } from './payments.entity';
+import { InboundPayment } from '../mobile-money/mobile-money.entity';
 import { CreateLoanDto, CreateWalletDto, TransactionDto, TransferDto, UpdateLoanDto } from './dto/payments.dto';
 import { OwnedCrudService } from '../common/owned.service';
 
@@ -26,8 +27,73 @@ export class TransactionsService {
   constructor(
     @InjectRepository(Wallet) private readonly wallets: Repository<Wallet>,
     @InjectRepository(PaymentTransaction) private readonly txns: Repository<PaymentTransaction>,
+    @InjectRepository(InboundPayment) private readonly inbound: Repository<InboundPayment>,
     private readonly ds: DataSource,
   ) {}
+
+  /**
+   * A CREDIT adds spendable balance, so it must correspond to money that
+   * actually arrived. Until this check existed, any authenticated user could
+   * POST /payments/transactions with type CREDIT and mint themselves an
+   * arbitrary balance — the endpoint was guarded only by JwtAuthGuard.
+   *
+   * Two ways to satisfy it:
+   *  - an operator with the admin role recording a manual adjustment, or
+   *  - a reference naming a verified inbound mobile-money payment belonging
+   *    to this owner, for the same amount and currency.
+   *
+   * mm_inbound_payments rows are created from SMS delivered by a device
+   * holding a hashed gateway key, so they are evidence of a real payment
+   * rather than something the caller can assert.
+   */
+  private async assertCreditIsFunded(
+    uid: string,
+    role: string | undefined,
+    dto: TransactionDto,
+    txAmount: number,
+    walletCurrency: string,
+  ): Promise<void> {
+    if (role === 'admin') return;
+
+    const reference = dto.reference?.trim();
+    if (!reference) {
+      throw new ForbiddenException(
+        'A credit must reference a verified payment. Record the mobile-money reference, or ask an administrator to post a manual adjustment.',
+      );
+    }
+
+    const payment = await this.inbound.findOne({
+      where: { ownerId: uid, transactionId: reference },
+    });
+    if (!payment) {
+      throw new ForbiddenException(`No verified payment found for reference '${reference}'.`);
+    }
+    // A failed or ignored SMS is not money received.
+    if (!['RECEIVED', 'PROCESSED'].includes(payment.status)) {
+      throw new ForbiddenException(`Payment '${reference}' is not settled (status ${payment.status}).`);
+    }
+    // The balance is held in the wallet's currency, so that is what the
+    // payment has to be in — not whatever the request claimed.
+    if (payment.currency !== walletCurrency) {
+      throw new BadRequestException(
+        `Payment '${reference}' is in ${payment.currency}, but the wallet is in ${walletCurrency}.`,
+      );
+    }
+    // Crediting more than arrived is the same hole by a different route.
+    if (Number(payment.amount) < txAmount) {
+      throw new BadRequestException(
+        `Payment '${reference}' was ${payment.amount} ${payment.currency}; cannot credit ${txAmount}.`,
+      );
+    }
+    // One payment funds one credit. Without this, a single real payment could
+    // be re-credited indefinitely.
+    const alreadyUsed = await this.txns.findOne({
+      where: { ownerId: uid, reference, type: 'CREDIT' },
+    });
+    if (alreadyUsed) {
+      throw new ForbiddenException(`Payment '${reference}' has already been credited.`);
+    }
+  }
 
   list(uid: string, page = 1, limit = 50) {
     return this.txns.find({ where: { ownerId: uid }, order: { createdAt: 'DESC' }, skip: (page - 1) * limit, take: limit });
@@ -37,7 +103,7 @@ export class TransactionsService {
     return this.txns.find({ where: { ownerId: uid, walletId }, order: { createdAt: 'DESC' }, skip: (page - 1) * limit, take: limit });
   }
 
-  async post(uid: string, dto: TransactionDto) {
+  async post(uid: string, dto: TransactionDto, role?: string) {
     // Idempotency lookup is owner-scoped: keys from owner A must never
     // alias to owner B's transactions, and must never block them either.
     if (dto.idempotencyKey) {
@@ -47,6 +113,13 @@ export class TransactionsService {
       if (existing) return existing;
     }
     const txAmount = parseFloat(dto.amount as unknown as string);
+    if (!(txAmount > 0)) throw new BadRequestException('Amount must be greater than zero');
+    if (dto.type === 'CREDIT') {
+      const wallet = await this.wallets.findOne({ where: { id: dto.walletId, ownerId: uid } });
+      if (!wallet) throw new NotFoundException('Wallet not found');
+      await this.assertCreditIsFunded(uid, role, dto, txAmount, wallet.currency);
+    }
+
     return this.ds.transaction(async (tx) => {
       const wRepo = tx.getRepository(Wallet);
       const tRepo = tx.getRepository(PaymentTransaction);
@@ -100,14 +173,32 @@ export class TransactionsService {
     });
   }
 
+  /**
+   * Each leg of a transfer carries its own idempotency key, derived from the
+   * caller's. Both legs used to be saved with the SAME key, which the
+   * production migration's global unique index on idempotencyKey rejected —
+   * so the second insert failed and the whole transfer rolled back. It only
+   * worked on desktop and in CI, where the schema comes from synchronize and
+   * has the entity's composite index instead.
+   */
+  private static legKey(key: string | null | undefined, leg: 'out' | 'in'): string | null {
+    return key ? `${key}:${leg}` : null;
+  }
+
   async transfer(uid: string, dto: TransferDto) {
     if (dto.idempotencyKey) {
-      const existing = await this.txns.findOne({
-        where: { idempotencyKey: dto.idempotencyKey, ownerId: uid },
+      // A replay returns both legs, the same shape a fresh transfer returns.
+      const existing = await this.txns.find({
+        where: [
+          { idempotencyKey: TransactionsService.legKey(dto.idempotencyKey, 'out')!, ownerId: uid },
+          { idempotencyKey: TransactionsService.legKey(dto.idempotencyKey, 'in')!, ownerId: uid },
+        ],
+        order: { createdAt: 'ASC' },
       });
-      if (existing) return existing;
+      if (existing.length) return existing;
     }
     const txAmount = parseFloat(dto.amount as unknown as string);
+    if (!(txAmount > 0)) throw new BadRequestException('Amount must be greater than zero');
     return this.ds.transaction(async (tx) => {
       const wRepo = tx.getRepository(Wallet);
       const tRepo = tx.getRepository(PaymentTransaction);
@@ -143,13 +234,13 @@ export class TransactionsService {
         ownerId: uid, walletId: from.id, type: 'TRANSFER', amount: dto.amount,
         currency: from.currency, status: 'COMPLETED', counterparty: to.id,
         description: dto.description ?? 'Outgoing transfer',
-        idempotencyKey: dto.idempotencyKey ?? null,
+        idempotencyKey: TransactionsService.legKey(dto.idempotencyKey, 'out'),
       });
       const incoming = tRepo.create({
         ownerId: to.ownerId, walletId: to.id, type: 'TRANSFER', amount: dto.amount,
         currency: to.currency, status: 'COMPLETED', counterparty: from.id,
         description: dto.description ?? 'Incoming transfer',
-        idempotencyKey: dto.idempotencyKey ?? null,
+        idempotencyKey: TransactionsService.legKey(dto.idempotencyKey, 'in'),
       });
       return tRepo.save([outgoing, incoming]);
     });

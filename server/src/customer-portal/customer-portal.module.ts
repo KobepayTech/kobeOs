@@ -9,7 +9,6 @@ import { PosOrder, PosOrderItem } from '../pos/pos.entity';
 import { LoyaltyCustomer } from '../erp/erp.entity';
 import { MzigoParcel } from '../mzigo/mzigo.entity';
 import { NotificationsModule } from '../notifications/notifications.module';
-import { BeemService } from '../notifications/beem.service';
 
 @Module({
   imports: [
@@ -23,7 +22,7 @@ import { BeemService } from '../notifications/beem.service';
     }),
     NotificationsModule,
   ],
-  providers: [CustomerPortalService, BeemService],
+  providers: [CustomerPortalService],
   controllers: [CustomerPortalController],
 })
 export class CustomerPortalModule {}

@@ -54,13 +54,15 @@ jobs:
           INSTAGRAM_APP_SECRET: ${{ secrets.INSTAGRAM_APP_SECRET }}
           IG_WEBHOOK_VERIFY_TOKEN: ${{ secrets.IG_WEBHOOK_VERIFY_TOKEN }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REDIRECT_URI: ${{ secrets.GOOGLE_REDIRECT_URI }}
           BACKUP_API_HOST: ${{ vars.BACKUP_API_HOST }}
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          envs: TIKTOK_CLIENT_KEY,TIKTOK_CLIENT_SECRET,TIKTOK_REDIRECT_URI,TIKTOK_CREATOR_REDIRECT_URI,META_APP_ID,META_APP_SECRET,META_REDIRECT_URI,META_LOGIN_CONFIG_ID,INSTAGRAM_APP_ID,INSTAGRAM_APP_SECRET,IG_WEBHOOK_VERIFY_TOKEN,GOOGLE_CLIENT_ID,BACKUP_API_HOST
+          envs: TIKTOK_CLIENT_KEY,TIKTOK_CLIENT_SECRET,TIKTOK_REDIRECT_URI,TIKTOK_CREATOR_REDIRECT_URI,META_APP_ID,META_APP_SECRET,META_REDIRECT_URI,META_LOGIN_CONFIG_ID,INSTAGRAM_APP_ID,INSTAGRAM_APP_SECRET,IG_WEBHOOK_VERIFY_TOKEN,GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET,GOOGLE_REDIRECT_URI,BACKUP_API_HOST
           script: |
             set -e
             cd /opt/kobe-studio
@@ -128,6 +130,16 @@ jobs:
               printf '%s\n' \
                 "GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID" \
                 "VITE_GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID" >> "$tmp_env"
+              mv "$tmp_env" "$ENV_FILE"
+            fi
+
+            if [ -n "${GOOGLE_CLIENT_SECRET:-}" ]; then
+              touch "$ENV_FILE"
+              tmp_env="$(mktemp)"
+              grep -vE '^(GOOGLE_CLIENT_SECRET|GOOGLE_REDIRECT_URI)=' "$ENV_FILE" > "$tmp_env" || true
+              printf '%s\n' \
+                "GOOGLE_CLIENT_SECRET=$GOOGLE_CLIENT_SECRET" \
+                "GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI:-https://api.kobeapptz.com/api/auth/oauth/google/callback}" >> "$tmp_env"
               mv "$tmp_env" "$ENV_FILE"
             fi
 

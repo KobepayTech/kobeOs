@@ -23,6 +23,7 @@ class FloorDto {
 }
 class PropertyBuildDto { @IsArray() @ArrayMinSize(1) @ValidateNested({ each: true }) @Type(() => FloorDto) floors!: FloorDto[]; }
 class ClaimDto {
+  @IsString() @MaxLength(100) invitationToken!: string;
   @IsString() @MaxLength(30) shopCode!: string;
   @IsString() @MaxLength(160) businessName!: string;
   @IsString() @MaxLength(160) merchantName!: string;
@@ -127,8 +128,9 @@ export class CommerceController {
   @Post('businesses') business(@CurrentUser('id') uid: string, @Body() dto: BusinessDto) { return this.commerce.createBusiness(uid, dto); }
   @Post('businesses/:id/upgrade') upgrade(@CurrentUser('id') uid: string, @Param('id') id: string, @Body('managementToken') token?: string) { return this.commerce.upgradeBusiness(uid, id, token); }
   @Patch('businesses/:id/profile') profile(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() body: Record<string, unknown>) { return this.commerce.updateBusinessProfile(uid, id, body); }
-  @Post('businesses/:id/claim-shop') linkShop(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: { shopCode: string; categoryId?: string }) { return this.commerce.linkExistingBusiness(uid, id, dto); }
+  @Post('businesses/:id/claim-shop') linkShop(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: { shopCode: string; invitationToken?: string; categoryId?: string }) { return this.commerce.linkExistingBusiness(uid, id, dto); }
   @Post('properties/:id/build') build(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: PropertyBuildDto) { return this.commerce.buildProperty(uid, id, dto); }
+  @Post('shops/:id/invitation') invite(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.commerce.inviteShop(uid, id); }
   @Get('properties/:id/map') map(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.commerce.propertyMap(uid, id); }
   @Post('categories/seed') categories() { return this.commerce.seedCategories(); }
   @Post('products/quick-add') quickAdd(@CurrentUser('id') uid: string, @Body() dto: QuickAddDto) { return this.commerce.quickAdd(uid, dto); }
@@ -174,6 +176,11 @@ export class CommercePublicController {
   @Get('shop/:code') shop(@Param('code') code: string) { return this.commerce.publicProperty(code); }
   @Post('claims') claim(@Body() dto: ClaimDto) { return this.commerce.claimShop(dto); }
   @Post('nodes/:id/heartbeat') heartbeat(@Param('id') id: string, @Headers('x-kobe-node-key') key: string, @Body() body: { metadata?: Record<string, unknown> }) { return this.commerce.heartbeat(id, key, body?.metadata); }
+  /**
+   * Marketplace product search: full-text ranked, with a fuzzy fallback for
+   * misspellings. Takes q, category, businessId, minPrice, maxPrice, sort
+   * (relevance | newest | price_asc | price_desc), limit and offset.
+   */
   @Get('jumla/items') items(@Query() query: Record<string, string>) { return this.commerce.publicItems(query); }
   @Get('jumla/properties') properties(@Query() query: Record<string, string>) { return this.commerce.publicProperties(query); }
   @Post('jumla/interest') interest(@Body() dto: { productId: string; eventType: 'VIEW' | 'SWIPE_LEFT' | 'SWIPE_RIGHT' | 'CART' | 'BUY'; phone?: string; sessionId?: string; metadata?: Record<string, unknown> }) { return this.commerce.recordInterest(dto); }

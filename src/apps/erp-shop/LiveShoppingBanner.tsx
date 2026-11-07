@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Radio, Zap, X } from 'lucide-react';
+import { StoreLiveVideo } from './StoreLiveVideo';
 
 /**
  * LIVE shopping banner for the storefront. Polls the shop's public live
@@ -9,7 +10,7 @@ import { Radio, Zap, X } from 'lucide-react';
  * storefront's own cart at the live price.
  */
 interface LiveProduct { productId: string; code: string; name: string; livePrice: number; catalogPrice: number; stock: number; currency: string }
-interface LiveResp { live: boolean; title?: string; currency?: string; products?: LiveProduct[] }
+interface LiveResp { live: boolean; title?: string; currency?: string; products?: LiveProduct[]; playbackUrl?: string | null }
 
 export default function LiveShoppingBanner({ slug, onReserve }: { slug: string; onReserve: (p: LiveProduct) => Promise<void> }) {
   const [data, setData] = useState<LiveResp | null>(null);
@@ -31,7 +32,7 @@ export default function LiveShoppingBanner({ slug, onReserve }: { slug: string; 
     return () => { off = true; clearInterval(t); };
   }, [slug]);
 
-  if (!data?.live || !(data.products?.length) || !open) return null;
+  if (!data?.live || (!data.products?.length && !data.playbackUrl) || !open) return null;
   const cur = data.currency ?? 'TZS';
   const money = (n: number) => `${cur === 'TZS' ? 'TSh ' : cur === 'CNY' ? '¥' : cur + ' '}${Number(n || 0).toLocaleString()}`;
 
@@ -46,8 +47,9 @@ export default function LiveShoppingBanner({ slug, onReserve }: { slug: string; 
           </div>
           <button onClick={() => setOpen(false)} className="text-white/70 hover:text-white"><X className="w-4 h-4" /></button>
         </div>
+        {data.playbackUrl && <StoreLiveVideo playbackUrl={data.playbackUrl} />}
         <div className="flex gap-2 overflow-x-auto pb-1 mt-2 -mx-1 px-1">
-          {data.products!.map((p) => {
+          {(data.products || []).map((p) => {
             const soldOut = p.stock <= 0;
             const deal = p.livePrice < p.catalogPrice;
             return (

@@ -13,7 +13,7 @@ class ChunkDto {
   @IsString() @MaxLength(1_400_000) data!: string;
 }
 @UseGuards(JwtAuthGuard)
-@Controller('live-sales/:id/broadcast')
+@Controller('live-sales/:id/rtmp')
 export class BroadcastController {
   constructor(private readonly broadcast: BroadcastService) {}
   @Get() status(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.broadcast.status(uid, id); }

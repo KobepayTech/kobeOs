@@ -1,7 +1,7 @@
 import { TikTokCommentsService } from './tiktok-comments.service';
+import { Body, Controller, Delete, Get, Header, Headers, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { BroadcastService } from './broadcast.service';
 import { Throttle } from '@nestjs/throttler';
-import { Body, Controller, Delete, Get, Headers, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { IsBoolean, IsNumber, IsOptional, IsString, IsUUID, Matches, MaxLength, Min } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -9,6 +9,13 @@ import { Public } from '../common/public.decorator';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { LiveSaleService } from './live-sale.service';
 import { InstagramService } from './instagram.service';
+import { LivePresenterService } from './live-presenter.service';
+import { LiveBroadcastService } from './live-broadcast.service';
+
+class BroadcastSettingsDto {
+  @IsString() @MaxLength(600) publishUrl!: string;
+  @IsString() @MaxLength(600) playbackUrl!: string;
+}
 
 class StartSessionDto {
   @IsOptional() @IsBoolean() cloudAccount?: boolean;
@@ -55,10 +62,17 @@ export class LiveSaleController {
     private readonly svc: LiveSaleService,
     private readonly instagram: InstagramService,
     private readonly tiktok: TikTokCommentsService,
-    private readonly broadcast: BroadcastService,
+    private readonly presenter: LivePresenterService,
+    private readonly broadcast: LiveBroadcastService,
+    private readonly rtmpBroadcast: BroadcastService,
   ) {}
 
   @Get() list(@CurrentUser('id') uid: string) { return this.svc.listSessions(uid); }
+  @Get('broadcast/settings') @Header('Cache-Control', 'no-store') broadcastSettings(@CurrentUser('id') uid: string) { return this.broadcast.configuration(uid); }
+  @Post('broadcast/enable') @Header('Cache-Control', 'no-store') enableBroadcast(@CurrentUser('id') uid: string) { return this.broadcast.provision(uid); }
+  @Post('broadcast/settings') @Header('Cache-Control', 'no-store') configureBroadcast(@CurrentUser('id') uid: string, @Body() dto: BroadcastSettingsDto) { return this.broadcast.configure(uid, dto.publishUrl, dto.playbackUrl); }
+  @Post(':id/broadcast') @Header('Cache-Control', 'no-store') startBroadcast(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.broadcast.start(uid, id); }
+  @Post(':id/broadcast/stop') stopBroadcast(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.broadcast.stop(uid, id); }
   @Post() async start(@CurrentUser('id') uid: string, @Body() dto: StartSessionDto) {
     const socialAccountId = (dto.cloudAccount || (dto.kind === 'post' && dto.platform !== 'instagram')) ? undefined : await this.instagram.resolveSessionAccount(uid, dto.platform, dto.socialAccountId);
     const session = await this.svc.startSession(uid, { ...dto, socialAccountId });
@@ -66,6 +80,7 @@ export class LiveSaleController {
     return session;
   }
   @Get('connections') connections(@CurrentUser('id') uid: string) { return this.instagram.connections(uid); }
+  @Post(':id/presenter/script') presenterScript(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.presenter.script(uid, id); }
   @Post('instagram/relay') relay(@CurrentUser('id') uid: string, @Body() dto: RelayDto) { return this.instagram.registerRelay(uid, dto.accountId, dto.targetUrl); }
   @Get('operator/context') context(@CurrentUser('id') uid: string) { return this.svc.operatorContext(uid); }
 
@@ -89,7 +104,7 @@ export class LiveSaleController {
     return { ...(await this.instagram.sessionConnection(uid, id)), platform: session.platform, ...(session.platform === 'tiktok' ? { bridge: this.tiktok.status(id) } : {}) };
   }
   @Get(':id') get(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.svc.getSession(uid, id); }
-  @Post(':id/end') async end(@CurrentUser('id') uid: string, @Param('id') id: string) { await this.broadcast.stop(uid, id); const result = await this.svc.endSession(uid, id); await this.tiktok.stop(id); return result; }
+  @Post(':id/end') async end(@CurrentUser('id') uid: string, @Param('id') id: string) { await this.broadcast.stop(uid, id); await this.rtmpBroadcast.stop(uid, id); const result = await this.svc.endSession(uid, id); await this.tiktok.stop(id); return result; }
   @Post(':id/storefront') storefront(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: { show: boolean }) { return this.svc.setStorefront(uid, id, !!dto.show); }
   @Get(':id/stats') stats(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.svc.stats(uid, id); }
 

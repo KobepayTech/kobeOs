@@ -37,6 +37,7 @@ import { DiscountsModule } from './discounts/discount.module';
 import { PaymentsModule } from './payments/payments.module';
 import { CreditModule } from './credit/credit.module';
 import { HotelModule } from './hotel/hotel.module';
+import { ContinuityModule } from './cloud-continuity/continuity.module';
 import { HotelWalletModule } from './hotel/hotel-wallet.module';
 import { LiveSaleModule } from './live-sales/live-sale.module';
 import { CargoTzModule } from './cargotz/cargotz.module';
@@ -84,6 +85,8 @@ import { SearchModule } from './search/search.module';
 import { HotelPublicModule } from './hotel-public/hotel-public.module';
 import { HotelOperationsModule } from './hotel/hotel-operations.module';
 import { AppMarketplaceModule } from './app-marketplace/app-marketplace.module';
+import { OnboardingModule } from './onboarding/onboarding.module';
+import { WhatsAppModule } from './whatsapp/whatsapp.module';
 import { DeveloperPlatformModule } from './developer-platform/developer-platform.module';
 import { MobileMoneyModule } from './mobile-money/mobile-money.module';
 import { KobepayProModule } from './kobepay-pro/kobepay-pro.module';
@@ -94,14 +97,16 @@ import { CreatorCommerceModule } from './creator-commerce/creator-commerce.modul
 import { LiveAdsModule } from './live-ads/live-ads.module';
 import { ReceptionModule } from './reception/reception.module';
 import { LalaModule } from './lala/lala.module';
+import { IntakeModule } from './intake/intake.module';
 import { AccountantModule } from './accountant/accountant.module';
+import { envFiles } from './config/env-files';
 
 @Module({
   imports: [
     ScheduleModule.forRoot(),
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '.env',
+      envFilePath: envFiles,
       validate: validateEnv,
     }),
     TypeOrmModule.forRootAsync(databaseConfig),
@@ -156,6 +161,8 @@ import { AccountantModule } from './accountant/accountant.module';
     SearchModule,
     HotelPublicModule,
     AppMarketplaceModule,
+    OnboardingModule,
+    WhatsAppModule,
     DeveloperPlatformModule,
     MzigoModule,
     WarehouseModule,
@@ -163,6 +170,7 @@ import { AccountantModule } from './accountant/accountant.module';
     PaymentsModule,
     CreditModule,
     HotelModule,
+    ContinuityModule,
     HotelOperationsModule,
     HotelWalletModule,
     LiveSaleModule,
@@ -196,6 +204,7 @@ import { AccountantModule } from './accountant/accountant.module';
     TransitModule,
     PlatformModule,
     CommerceModule,
+    IntakeModule,
     CreatorCommerceModule,
     LiveAdsModule,
     ReceptionModule,

@@ -1,3 +1,4 @@
+import { PropertyInsightsService } from '../property/property-insights.service';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AiService } from './ai.service';
@@ -7,6 +8,12 @@ import { AiOperatingController } from './ai-operating.controller';
 import { KobeAgentService } from './agent.service';
 import { AiDocsService } from './ai-docs.service';
 import { AiMemory } from './ai-memory.entity';
+import { AiGuardrailConfig } from './guardrail.entity';
+import { GuardrailService } from './guardrail.service';
+import { AiAgentExecution } from './agent-execution.entity';
+import { AgentExecutionService } from './agent-execution.service';
+import { AiChatMessage, AiChatThread } from './ai-chat.entity';
+import { AiChatService } from './ai-chat.service';
 import { AiDocument, AiDocChunk } from './ai-document.entity';
 import { ScheduledAgentService } from './scheduled-agent.service';
 import { AiAgentRun, AiScheduledAgent } from './scheduled-agent.entity';
@@ -39,13 +46,14 @@ import { OcrModule } from '../ocr/ocr.module';
       ShopExpense, Parcel, Shop, AppState, SearchDoc, AiScheduledAgent, AiAgentRun, AiMemory,
       AiDocument, AiDocChunk, AiSkillInstall, AiMemoryNode, AiMemoryEdge,
       AiWorkflowPlan, AiApprovalRequest, AiOperatingAudit, AiDashboardSpec, AiInsight,
+      AiChatThread, AiChatMessage, AiAgentExecution, AiGuardrailConfig,
     ]),
     NotificationsModule,
     SystemHealthModule,
     OcrModule,
   ],
-  providers: [AiService, KobeAgentService, ScheduledAgentService, AiDocsService, AiOperatingService, PdfDocumentService],
+  providers: [PropertyInsightsService,AiService, KobeAgentService, ScheduledAgentService, AiDocsService, AiOperatingService, PdfDocumentService, AiChatService, AgentExecutionService, GuardrailService],
   controllers: [AiController, ScheduledAgentController, AiOperatingController],
-  exports: [AiService, KobeAgentService, ScheduledAgentService, AiDocsService, AiOperatingService, PdfDocumentService],
+  exports: [PropertyInsightsService,AiService, KobeAgentService, ScheduledAgentService, AiDocsService, AiOperatingService, PdfDocumentService, AiChatService, AgentExecutionService, GuardrailService],
 })
 export class AiModule {}

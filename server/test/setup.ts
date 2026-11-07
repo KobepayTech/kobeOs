@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { Test } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { SchedulerRegistry } from '@nestjs/schedule';
 import { json, urlencoded } from 'express';
 import { DataSource } from 'typeorm';
 import { AppModule } from '../src/app.module';
@@ -18,10 +19,14 @@ export async function bootTestApp(): Promise<INestApplication> {
   process.env.DB_PORT = process.env.DB_PORT ?? '5432';
   process.env.DB_USERNAME = process.env.DB_USERNAME ?? 'kobe';
   process.env.DB_PASSWORD = process.env.DB_PASSWORD ?? 'kobe';
-  // Use synchronize to materialise the schema in the e2e DB without depending
-  // on migration ordering. The prod path is exercised separately.
-  process.env.DB_SYNCHRONIZE = 'true';
-  process.env.DB_MIGRATIONS_RUN = 'false';
+  // Build the e2e schema the way production does: migrations, not
+  // synchronize. Overriding these here is what hid a production-only defect —
+  // a transfer wrote two rows under one idempotency key, which the migration's
+  // global unique index rejected and the entity-generated schema allowed, so
+  // the bug could not fail a test. Respect the environment so CI can choose,
+  // and default to the production path rather than the convenient one.
+  process.env.DB_SYNCHRONIZE = process.env.DB_SYNCHRONIZE ?? 'false';
+  process.env.DB_MIGRATIONS_RUN = process.env.DB_MIGRATIONS_RUN ?? 'true';
   process.env.DB_DATABASE = process.env.DB_DATABASE_E2E ?? 'kobeos_e2e';
   process.env.JWT_SECRET = process.env.JWT_SECRET ?? 'test-secret-32-chars-minimum-ok';
   process.env.JWT_EXPIRES_IN = '15m';
@@ -37,7 +42,38 @@ export async function bootTestApp(): Promise<INestApplication> {
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.useGlobalFilters(new HttpExceptionFilter());
   await app.init();
+  stopScheduledJobs(app);
   return app;
+}
+
+/**
+ * Stop every @Cron, @Interval and @Timeout the app registered.
+ *
+ * A scheduled job that fires during or after a spec queries a DataSource the
+ * teardown is closing, and TypeORM logs the failure. Jest turns a log after
+ * the test run into "Cannot log after tests are done" and exits 1 — so a run
+ * with 139 of 139 tests passing still fails, intermittently, depending on
+ * whether a minute boundary happened to fall inside the suite.
+ *
+ * The jobs also serve no purpose here: no spec asserts on them, and letting
+ * them race the tests they share a connection pool with only adds flake.
+ */
+function stopScheduledJobs(app: INestApplication): void {
+  let registry: SchedulerRegistry;
+  try {
+    registry = app.get(SchedulerRegistry, { strict: false });
+  } catch {
+    return; // ScheduleModule not loaded in this configuration
+  }
+  for (const job of registry.getCronJobs().values()) {
+    try { job.stop(); } catch { /* already stopped */ }
+  }
+  for (const name of registry.getIntervals()) {
+    try { registry.deleteInterval(name); } catch { /* already cleared */ }
+  }
+  for (const name of registry.getTimeouts()) {
+    try { registry.deleteTimeout(name); } catch { /* already cleared */ }
+  }
 }
 
 /** Wipe all per-user data between specs so suites can't interfere. */

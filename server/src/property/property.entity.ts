@@ -97,6 +97,9 @@ export class TenantScreeningReport extends OwnedEntity {
 
 @Entity('property_units')
 export class PropertyUnit extends OwnedEntity {
+  @Column({ default: false })
+  vacancyPublished!: boolean;
+
   @Index()
   @Column('uuid')
   propertyId!: string;
@@ -214,6 +217,9 @@ export class PropertyLease extends OwnedEntity {
   @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
   monthlyRent!: number;
 
+  @Column({ default: 1 })
+  billingMonths!: number;
+
   @Column({ type: 'decimal', precision: 18, scale: 4, default: 0 })
   deposit!: number;
 
@@ -266,7 +272,11 @@ export class RentCharge extends OwnedEntity {
 }
 
 @Entity('rent_payments')
+@Index('rent_payment_request_key', ['ownerId', 'idempotencyKey'], { unique: true, where: '"idempotencyKey" IS NOT NULL' })
 export class RentPayment extends OwnedEntity {
+  @Column({ type: 'uuid', nullable: true })
+  idempotencyKey?: string | null;
+
   @Index()
   @Column('uuid', { nullable: true })
   chargeId?: string | null;

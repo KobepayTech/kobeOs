@@ -1,0 +1,114 @@
+name: Reset Origin Database
+
+# DESTRUCTIVE. Drops and recreates the origin's kobeos database so the
+# installed bundle can migrate it from empty.
+#
+# This exists because a failed release rolls back to the previously installed
+# server, and that older bundle boots with migrations enabled and applies its
+# own migration set to whatever database it finds. The origin's database was
+# left with 67 migrations under names that are not in this repository, and a
+# table whose shape no current migration can extend — so the current bundle
+# cannot migrate it and never will.
+#
+# It requires typing the database name as confirmation, and it refuses to run
+# if the database holds any rows in the tables that would carry real work.
+# Being empty is not assumed; it is checked, here, immediately before the drop.
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type the database name exactly to confirm the drop'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-windows-origin-mvp
+  cancel-in-progress: false
+
+jobs:
+  reset:
+    name: Recreate the origin database
+    runs-on: [self-hosted, windows]
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell -ExecutionPolicy Bypass -NoProfile -Command "& '{0}'"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Refuse unless confirmed
+        run: |
+          if ('${{ inputs.confirm }}' -ne 'kobeos') {
+            throw 'Confirmation did not match the database name; nothing was changed.'
+          }
+          Write-Host 'confirmation=ok'
+
+      - name: Drop and recreate, only if empty
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $node = Join-Path $env:ProgramFiles 'nodejs\node.exe'
+          $script = Join-Path $env:RUNNER_TEMP 'kobeos-reset-db.cjs'
+          @'
+          const path = require('path');
+          const origin = 'C:\\KobeOS\\app';
+          const { Client } = require(path.join(origin, 'server', 'node_modules', 'pg'));
+          const cfg = (database) => ({ host: '127.0.0.1', port: 5433, user: 'kobeos',
+            password: 'kobeos_live', database, connectionTimeoutMillis: 10000 });
+
+          // Tables that would hold real work. Any row in any of them and this
+          // stops: an empty database is cheap to rebuild, a populated one is
+          // not, and the whole point of this workflow is that it is empty.
+          const GUARDED = ['users', 'hotel_bookings', 'payment_transactions',
+            'pos_orders', 'commerce_businesses', 'property_leases', 'rent_payments'];
+
+          (async () => {
+            const live = new Client(cfg('kobeos'));
+            await live.connect();
+            let total = 0;
+            for (const table of GUARDED) {
+              try {
+                const r = await live.query(`SELECT count(*)::int AS n FROM "${table}"`);
+                const n = r.rows[0].n;
+                console.log(`rows_${table}=${n}`);
+                total += n;
+              } catch (e) {
+                console.log(`rows_${table}=absent (${e.message.slice(0, 80)})`);
+              }
+            }
+            await live.end();
+            if (total > 0) {
+              console.log(`refusing_drop=true total_rows=${total}`);
+              process.exit(1);
+            }
+            console.log('database_is_empty=true');
+
+            const admin = new Client(cfg('postgres'));
+            await admin.connect();
+            await admin.query(
+              `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+               WHERE datname = 'kobeos' AND pid <> pg_backend_pid()`);
+            await admin.query('DROP DATABASE IF EXISTS "kobeos"');
+            await admin.query('CREATE DATABASE "kobeos" OWNER "kobeos"');
+            await admin.end();
+            console.log('database_recreated=true');
+          })().catch((e) => { console.log('reset_failed=' + e.message); process.exit(1); });
+          '@ | Set-Content -LiteralPath $script -Encoding UTF8
+          try {
+            & $node $script 2>&1 | ForEach-Object { Write-Host $_ }
+            if ($LASTEXITCODE -ne 0) { throw "Database reset refused or failed (exit $LASTEXITCODE)." }
+          } finally {
+            Remove-Item -LiteralPath $script -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Restart the origin so it migrates from empty
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & powershell.exe -ExecutionPolicy Bypass -NoProfile `
+            -File "$env:GITHUB_WORKSPACE\scripts\install-live-backend-autostart.ps1" `
+            -RepoRoot 'C:\KobeOS\app' -SkipHealthCheck
+          Write-Host 'origin_restart=requested'

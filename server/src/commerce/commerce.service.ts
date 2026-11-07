@@ -1,8 +1,8 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash, randomBytes, randomUUID } from 'crypto';
-import { DataSource, In, LessThanOrEqual, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, LessThanOrEqual, Repository } from 'typeorm';
 import sharp from 'sharp';
 import { AiService } from '../ai/ai.service';
 import { PosProduct } from '../pos/pos.entity';
@@ -14,6 +14,10 @@ import {
   KobeNode, MerchantClaim, MerchantOrder, MerchantQuota, NodeHeartbeat, ProductSnippet, PropertyFloor,
 } from './commerce.entity';
 import { LITE_FREE_ORDER_LIMIT, extractCaptionProductMetadata, groupByMerchant, isNodeOnline, marketplaceSlug, merchantOrderAccess, missingRequiredOptions, normalizePhone, panelCrops, propertyFloorCode, propertyUnitShopCode, shopCode, vehicleEconomics } from './commerce.rules';
+import {
+  SEARCH_VECTOR_SQL, TRIGRAM_THRESHOLD, clampLimit, clampOffset,
+  normalizeQuery, orderTerms, parsePriceRange, parseSort, shouldTryFuzzy,
+} from './marketplace-search';
 import { CreatorCommerceService } from '../creator-commerce/creator-commerce.service';
 import { LiveAdsService } from '../live-ads/live-ads.service';
 import { CommerceVehicle, VehicleAppointment, VehicleBuyerRequest, VehicleListingMetadata, VehicleMedia, VehicleReservation } from './cars.entity';
@@ -273,14 +277,17 @@ export class CommerceService implements OnModuleInit {
     const unitMap = new Map(units.map((unit) => [`${(unit.floor || 'Ground').trim().toLowerCase()}::${unit.unitNumber.toLowerCase()}`, unit]));
     const claimed = shops.filter((shop) => shop.status === 'CLAIMED' && shop.businessId);
     const businessIds = claimed.map((shop) => shop.businessId).filter((id): id is string => Boolean(id));
-    const businesses = businessIds.length ? await this.businesses.find({ where: { id: In(businessIds), status: 'ACTIVE' } }) : [];
+    const allBusinesses = businessIds.length ? await this.businesses.find({ where: { id: In(businessIds), status: 'ACTIVE' } }) : [];
+    const nodes = businessIds.length ? await this.nodes.find({ where: { businessId: In(businessIds) } }) : [];
+    const businesses = allBusinesses.filter((b) => b.tier !== 'FULL' || isNodeOnline(nodes.find((n) => n.businessId === b.id)?.lastSeenAt));
+    const visibleBusinessIds = businesses.map((b) => b.id);
     const businessMap = new Map(businesses.map((business) => [business.id, business]));
     const shopByBusiness = new Map(claimed.filter((shop) => businessMap.has(shop.businessId!)).map((shop) => [shop.businessId!, shop]));
 
     let rows: ProductSnippet[] = [];
-    if (businessIds.length) {
+    if (visibleBusinessIds.length) {
       const qb = this.snippets.createQueryBuilder('s')
-        .where('s.businessId IN (:...ids)', { ids: businessIds })
+        .where('s.businessId IN (:...ids)', { ids: visibleBusinessIds })
         .andWhere('s.active = true')
         .andWhere('s.stock > 0');
       if (query.q?.trim()) qb.andWhere('(LOWER(s.name) LIKE :q OR LOWER(s.description) LIKE :q)', { q: `%${query.q.toLowerCase().trim()}%` });
@@ -417,15 +424,36 @@ export class CommerceService implements OnModuleInit {
     return { property: property && { id: property.id, name: property.name, address: property.address, city: property.city }, floor, shop };
   }
 
-  async claimShop(input: { shopCode: string; businessName: string; merchantName: string; phone: string; categoryId?: string; whatsapp?: string; logoUrl?: string; subcategories?: string[] }) {
+  async inviteShop(ownerId: string, shopId: string) {
+    const token = randomBytes(32).toString('base64url');
+    const expiresAt = new Date(Date.now() + 7 * 86400000);
+    const result = await this.shops.update({ id: shopId, ownerId, status: 'AVAILABLE' }, { claimTokenHash: hash(token), claimTokenExpiresAt: expiresAt });
+    if (!result.affected) throw new NotFoundException('Available shop not found.');
+    const shop = await this.shops.findOneByOrFail({ id: shopId, ownerId });
+    return { shopCode: shop.publicCode, invitationToken: token, expiresAt };
+  }
+
+  private async invitedShop(tx: import('typeorm').EntityManager, publicCode: string, invitationToken?: string) {
+    if (!invitationToken) throw new ForbiddenException('Ask the landlord for a private shop invitation.');
+    const shop = await tx.getRepository(CommerceShopUnit).createQueryBuilder('shop')
+      .addSelect(['shop.claimTokenHash', 'shop.claimTokenExpiresAt'])
+      .where('shop.publicCode = :publicCode', { publicCode: publicCode.trim().toUpperCase() })
+      .setLock('pessimistic_write').getOne();
+    if (!shop || shop.status !== 'AVAILABLE' || shop.claimTokenHash !== hash(invitationToken) || !shop.claimTokenExpiresAt || shop.claimTokenExpiresAt <= new Date()) {
+      throw new ForbiddenException('Shop invitation is invalid, expired or already used.');
+    }
+    shop.claimTokenHash = null; shop.claimTokenExpiresAt = null;
+    return shop;
+  }
+
+  async claimShop(input: { invitationToken?: string; shopCode: string; businessName: string; merchantName: string; phone: string; categoryId?: string; whatsapp?: string; logoUrl?: string; subcategories?: string[] }) {
     const code = input.shopCode.trim().toUpperCase();
-    const shop = await this.shops.findOne({ where: { publicCode: code } });
-    if (!shop) throw new NotFoundException('Shop ID not found');
-    if (shop.status === 'CLAIMED') throw new ConflictException('This shop is already claimed');
+    let shop!: CommerceShopUnit;
     const token = randomBytes(24).toString('base64url');
     let publicSlug = slugify(input.businessName) || `shop-${randomBytes(3).toString('hex')}`;
     if (await this.businesses.findOne({ where: { publicSlug } })) publicSlug = `${publicSlug}-${randomBytes(2).toString('hex')}`;
     const result = await this.ds.transaction(async (tx) => {
+      shop = await this.invitedShop(tx, code, input.invitationToken);
       const businessRepo = tx.getRepository(CommerceBusiness);
       const businessDraft = businessRepo.create({
         businessId: humanCode('BUS'), publicSlug, ownerUserId: null, catalogOwnerId: randomUUID(),
@@ -453,14 +481,15 @@ export class CommerceService implements OnModuleInit {
     return { ...result, managementToken: token, shopCode: code, freeOrders: LITE_FREE_ORDER_LIMIT };
   }
 
-  async linkExistingBusiness(ownerUserId: string, businessId: string, input: { shopCode: string; categoryId?: string }) {
+  async linkExistingBusiness(ownerUserId: string, businessId: string, input: { shopCode: string; invitationToken?: string; categoryId?: string }) {
     const business = await this.businesses.findOne({ where: { id: businessId, ownerUserId } });
     if (!business) throw new NotFoundException('Business not found');
     const publicCode = input.shopCode?.trim().toUpperCase();
-    const shop = await this.shops.findOne({ where: { publicCode } });
+    let shop = await this.shops.findOne({ where: { publicCode } });
     if (!shop) throw new NotFoundException('Shop ID not found');
     if (shop.status === 'CLAIMED' && shop.businessId !== business.id) throw new ConflictException('This shop is already claimed');
     const result = await this.ds.transaction(async (tx) => {
+      shop = await this.invitedShop(tx, publicCode, input.invitationToken);
       shop.status = 'CLAIMED'; shop.businessId = business.id; shop.categoryId = input.categoryId?.trim() ?? shop.categoryId;
       await tx.getRepository(CommerceShopUnit).save(shop);
       let location = await tx.getRepository(BusinessLocation).findOne({ where: { businessId: business.id, shopUnitId: shop.id } });
@@ -784,24 +813,89 @@ export class CommerceService implements OnModuleInit {
     }
   }
 
-  async publicItems(query: { q?: string; category?: string; businessId?: string; limit?: string }) {
+  /**
+   * Rank the catalogue for a shopper's query.
+   *
+   * Full-text first, with weighted ranking so a word in the product name beats
+   * the same word buried in a description. If that finds nothing and trigram
+   * matching is available, try again fuzzily — a shopper who types "samsng"
+   * should still find the phone, and an empty results page is the one outcome
+   * worth a second query for.
+   *
+   * The fuzzy pass is skipped entirely when full-text found anything, because
+   * trigram similarity is loose enough to dilute good matches.
+   */
+  private async searchSnippets(
+    query: { q?: string; category?: string; businessId?: string; limit?: string; offset?: string; minPrice?: string; maxPrice?: string; sort?: string },
+    visibleIds: string[],
+  ): Promise<ProductSnippet[]> {
+    const text = normalizeQuery(query.q);
+    const limit = clampLimit(query.limit);
+    const offset = clampOffset(query.offset);
+    const { min, max } = parsePriceRange(query.minPrice, query.maxPrice);
+    const sort = parseSort(query.sort, Boolean(text));
+
+    const base = () => {
+      const qb = this.snippets.createQueryBuilder('s')
+        .where('s."businessId" IN (:...ids)', { ids: visibleIds })
+        .andWhere('s.active = true')
+        .andWhere('s.stock > 0');
+      if (query.category?.trim()) {
+        qb.andWhere('LOWER(s.category) = :category', { category: query.category.toLowerCase().trim() });
+      }
+      if (query.businessId) qb.andWhere('s."businessId" = :businessId', { businessId: query.businessId });
+      if (min !== null) qb.andWhere('s.price >= :min', { min });
+      if (max !== null) qb.andWhere('s.price <= :max', { max });
+      return qb;
+    };
+
+    const run = async (fuzzy: boolean): Promise<ProductSnippet[]> => {
+      const qb = base();
+      if (text && !fuzzy) {
+        qb.andWhere(`${SEARCH_VECTOR_SQL} @@ websearch_to_tsquery('english', :text)`, { text });
+        // ts_rank_cd weighs how close the matched terms are to each other, so
+        // "red running shoe" prefers a product with all three together.
+        qb.addSelect(`ts_rank_cd(${SEARCH_VECTOR_SQL}, websearch_to_tsquery('english', :text))`, 'rank');
+      } else if (text && fuzzy) {
+        // word_similarity, not similarity: the latter compares whole strings,
+        // so a short query scores low against a longer name however well it
+        // matches one word of it. This pass is a scan rather than an index
+        // lookup, which is acceptable because it only runs when the indexed
+        // search already returned nothing, under the same filters.
+        qb.andWhere('word_similarity(:text, s.name) > :threshold', { text, threshold: TRIGRAM_THRESHOLD });
+        qb.addSelect('word_similarity(:text, s.name)', 'rank');
+      } else {
+        qb.addSelect('0', 'rank');
+      }
+      const terms = orderTerms(text ? sort : parseSort(query.sort, false));
+      terms.forEach(([expression, direction], index) => {
+        if (index === 0) qb.orderBy(expression, direction);
+        else qb.addOrderBy(expression, direction);
+      });
+      return qb.limit(limit).offset(offset).getMany();
+    };
+
+    const exact = await run(false);
+    if (!shouldTryFuzzy(text, exact.length)) return exact;
+    try {
+      return await run(true);
+    } catch {
+      // similarity() needs pg_trgm, which the migration treats as optional.
+      // Without it an empty result is the honest answer, not an error page.
+      return exact;
+    }
+  }
+
+  async publicItems(query: { q?: string; category?: string; businessId?: string; limit?: string; offset?: string; minPrice?: string; maxPrice?: string; sort?: string }) {
     const businesses = await this.businesses.find({ where: { status: 'ACTIVE' } });
     const nodes = await this.nodes.find({ where: { businessId: In(businesses.map((b) => b.id)) } });
     const nodeMap = new Map(nodes.map((n) => [n.businessId, n]));
-    // Jumla is served from the cloud snippet mirror, so a shop stays visible and
-    // orderable even when its KobeOS desktop node is offline — the order is
-    // captured in the cloud and delivered when the node reconnects. We surface
-    // the live/offline state via nodeStatus rather than hiding the shop, so a
-    // merchant who closes their laptop never disappears from the marketplace.
-    const visible = businesses;
+    // Match checkout availability: full merchants require a live node; Lite shops stay cloud available.
+    const visible = businesses.filter((b) => b.tier !== 'FULL' || isNodeOnline(nodeMap.get(b.id)?.lastSeenAt));
     const visibleIds = visible.map((b) => b.id);
     if (!visibleIds.length) return [];
     const statusOf = (b?: CommerceBusiness) => !b ? 'CLOUD_OFFLINE' : b.tier === 'LITE' ? 'CLOUD_LITE' : isNodeOnline(nodeMap.get(b.id)?.lastSeenAt) ? 'ONLINE' : 'CLOUD_OFFLINE';
-    const qb = this.snippets.createQueryBuilder('s').where('s.businessId IN (:...ids)', { ids: visibleIds }).andWhere('s.active = true').andWhere('s.stock > 0');
-    if (query.q?.trim()) qb.andWhere('(LOWER(s.name) LIKE :q OR LOWER(s.description) LIKE :q)', { q: `%${query.q.toLowerCase().trim()}%` });
-    if (query.category?.trim()) qb.andWhere('LOWER(s.category) = :category', { category: query.category.toLowerCase().trim() });
-    if (query.businessId) qb.andWhere('s.businessId = :businessId', { businessId: query.businessId });
-    const rows = await qb.orderBy('s.indexedAt', 'DESC').take(Math.min(200, Math.max(1, Number(query.limit) || 60))).getMany();
+    const rows = await this.searchSnippets(query, visibleIds);
     const map = new Map(visible.map((b) => [b.id, b]));
     const [products, locations] = await Promise.all([
       rows.length ? this.products.find({ where: { id: In(rows.map((r) => r.productId)) } }) : [],
@@ -816,7 +910,10 @@ export class CommerceService implements OnModuleInit {
     return rows.map((r) => {
       const product = productMap.get(r.productId);
       const business = map.get(r.businessId); const businessLocation = location.get(r.businessId); const shop = shops.find((row) => row.id === businessLocation?.shopUnitId); const floor = floors.find((row) => row.id === shop?.floorId); const property = properties.find((row) => row.id === shop?.propertyId);
-      return { ...r, imageUrls: product?.imageUrls ?? (r.imageUrl ? [r.imageUrl] : []), variants: product?.variants ?? [], requiredOptions: Array.isArray(product?.customData?.requiredOptions) ? product.customData.requiredOptions : [], business: { id: r.businessId, businessId: business?.businessId, name: business?.name, publicSlug: business?.publicSlug, tier: business?.tier, phone: business?.phone, whatsapp: String(business?.profile?.whatsapp ?? business?.phone ?? '') }, location: businessLocation ? { property: property?.name ?? '', floor: floor?.name ?? '', shopCode: shop?.publicCode ?? businessLocation.name } : null, nodeStatus: statusOf(business) };
+      // catalogOwnerId is an internal identifier and nothing public needs it,
+      // so it is dropped rather than published to every shopper.
+      const { catalogOwnerId: _internal, ...snippet } = r;
+      return { ...snippet, imageUrls: product?.imageUrls ?? (r.imageUrl ? [r.imageUrl] : []), variants: product?.variants ?? [], requiredOptions: Array.isArray(product?.customData?.requiredOptions) ? product.customData.requiredOptions : [], business: { id: r.businessId, businessId: business?.businessId, name: business?.name, publicSlug: business?.publicSlug, tier: business?.tier, phone: business?.phone, whatsapp: String(business?.profile?.whatsapp ?? business?.phone ?? '') }, location: businessLocation ? { property: property?.name ?? '', floor: floor?.name ?? '', shopCode: shop?.publicCode ?? businessLocation.name } : null, nodeStatus: statusOf(business) };
     });
   }
 
@@ -829,7 +926,10 @@ export class CommerceService implements OnModuleInit {
       const shops = await this.shops.find({ where: { propertyId: property.id, status: 'CLAIMED' }, order: { publicCode: 'ASC' } });
       const filtered = query.category ? shops.filter((s) => s.categoryId.toLowerCase().includes(query.category!.toLowerCase())) : shops;
       const businessIds = filtered.map((s) => s.businessId).filter((id): id is string => Boolean(id));
-      const businesses = businessIds.length ? await this.businesses.find({ where: { id: In(businessIds), status: 'ACTIVE' } }) : [];
+      const allBusinesses = businessIds.length ? await this.businesses.find({ where: { id: In(businessIds), status: 'ACTIVE' } }) : [];
+    const nodes = businessIds.length ? await this.nodes.find({ where: { businessId: In(businessIds) } }) : [];
+    const businesses = allBusinesses.filter((b) => b.tier !== 'FULL' || isNodeOnline(nodes.find((n) => n.businessId === b.id)?.lastSeenAt));
+    const visibleBusinessIds = businesses.map((b) => b.id);
       return { id: property.id, name: property.name, address: property.address, city: property.city, imageUrl: property.imageUrl, publicSlug: property.publicSlug, marketplaceEnabled: property.marketplaceEnabled, marketplaceUrl: property.publicSlug ? `https://${property.publicSlug}.kobeapptz.com` : null, totalShops: property.totalUnits, claimedShops: filtered.map((shop) => ({ shopCode: shop.publicCode, categoryId: shop.categoryId, business: businesses.find((b) => b.id === shop.businessId) ? { id: shop.businessId, name: businesses.find((b) => b.id === shop.businessId)!.name, publicSlug: businesses.find((b) => b.id === shop.businessId)!.publicSlug, tier: businesses.find((b) => b.id === shop.businessId)!.tier } : null })) };
     }));
   }
@@ -988,10 +1088,15 @@ export class CommerceService implements OnModuleInit {
     return order;
   }
 
-  async createVehicle(ownerUserId: string, input: Partial<CommerceVehicle> & { mediaUrls?: string[]; listing?: Partial<VehicleListingMetadata> }) {
-    const business = await this.businessForOwner(ownerUserId);
+  async createVehicle(ownerUserId: string, input: Partial<CommerceVehicle> & { mediaUrls?: string[]; listing?: Partial<VehicleListingMetadata> }, manager?: EntityManager): Promise<CommerceVehicle & { media: VehicleMedia[]; listing: VehicleListingMetadata; economics: ReturnType<typeof vehicleEconomics> }> {
+    if (!manager) return this.ds.transaction(tx => this.createVehicle(ownerUserId, input, tx));
+    const business = await manager.getRepository(CommerceBusiness).findOneBy({ ownerUserId });
+    if (!business) throw new NotFoundException('Create or link a business first');
+    const vehicles = manager.getRepository(CommerceVehicle);
+    const mediaRepo = manager.getRepository(VehicleMedia);
+    const listingRepo = manager.getRepository(VehicleListingMetadata);
     if (!input.make || !input.model || !input.year || !input.price) throw new BadRequestException('Make, model, year and price are required');
-    const vehicle = await this.vehicles.save(this.vehicles.create({
+    const vehicle = await vehicles.save(vehicles.create({
       businessId: business.id, catalogOwnerId: business.catalogOwnerId, stockNumber: input.stockNumber || humanCode('CAR'),
       make: input.make, model: input.model, year: Number(input.year), trim: input.trim ?? '', price: num(input.price), currency: input.currency ?? 'TZS',
       mileage: Number(input.mileage) || 0, transmission: input.transmission ?? '', fuel: input.fuel ?? '', color: input.color ?? '',
@@ -999,11 +1104,11 @@ export class CommerceService implements OnModuleInit {
       vin: input.vin ?? '', registration: input.registration ?? '', dutyStatus: input.dutyStatus ?? '', source: input.source ?? 'LOCAL',
       financingAvailable: Boolean(input.financingAvailable), negotiable: Boolean(input.negotiable), features: input.features ?? [], location: input.location ?? '',
       condition: input.condition ?? 'USED', status: input.status ?? 'AVAILABLE', description: input.description ?? '',
-      aiSalesCopy: input.aiSalesCopy || `${input.year} ${input.make} ${input.model} available in ${input.location || 'Tanzania'}. Contact the verified dealer to reserve.`, metadata: input.metadata ?? {},
+      aiSalesCopy: input.aiSalesCopy ?? `${input.year} ${input.make} ${input.model} available in ${input.location || 'Tanzania'}. Contact the dealer for details.`, metadata: input.metadata ?? {},
     }));
-    const media = (input.mediaUrls ?? []).map((url, sortOrder) => this.repo(VehicleMedia).create({ vehicleId: vehicle.id, url, kind: /\.(mp4|webm|mov)(?:\?|$)/i.test(url) ? 'VIDEO' : 'IMAGE', sortOrder }));
-    if (media.length) await this.repo(VehicleMedia).save(media);
-    const listing = await this.repo(VehicleListingMetadata).save(this.repo(VehicleListingMetadata).create({
+    const media = (input.mediaUrls ?? []).map((url, sortOrder) => mediaRepo.create({ vehicleId: vehicle.id, url, kind: /\.(mp4|webm|mov)(?:\?|$)/i.test(url) ? 'VIDEO' : 'IMAGE', sortOrder }));
+    if (media.length) await mediaRepo.save(media);
+    const listing = await listingRepo.save(listingRepo.create({
       vehicleId: vehicle.id, highlights: input.listing?.highlights ?? [vehicle.condition, vehicle.transmission, vehicle.fuel].filter(Boolean),
       keywords: input.listing?.keywords ?? [vehicle.make, vehicle.model, String(vehicle.year)], socialCaption: input.listing?.socialCaption || vehicle.aiSalesCopy,
       verticalVideoUrl: input.listing?.verticalVideoUrl ?? media.find((row) => row.kind === 'VIDEO')?.url ?? '', purchaseCost: num(input.listing?.purchaseCost),

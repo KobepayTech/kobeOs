@@ -12,7 +12,7 @@ import { CampaignService } from './campaign.service';
 import { EscrowService } from './escrow.service';
 import { MetricsEngineService } from './metrics-engine.service';
 import { CreatorsCronService } from './creators-cron.service';
-import { PalmPesaService } from './palmpesa.service';
+import { PalmPesaModule } from './palmpesa.module';
 import { CreatorSubscriptionService } from './creator-subscription.service';
 import { SocialSchedulerModule } from '../social-scheduler/social-scheduler.module';
 import { PlatformModule } from '../platform/platform.module';
@@ -23,12 +23,12 @@ import { PlatformModule } from '../platform/platform.module';
       Creator, Campaign, CreatorEscrow, CreatorSubscription,
       Wallet, PaymentTransaction,
     ]),
+    PalmPesaModule,
     SocialSchedulerModule,
     PlatformModule,
   ],
   providers: [
     ScrapeCreatorsService,
-    PalmPesaService,
     MetricsEngineService,
     CreatorsService,
     CampaignService,
@@ -40,7 +40,7 @@ import { PlatformModule } from '../platform/platform.module';
   exports: [
     CreatorsService, CampaignService, EscrowService,
     MetricsEngineService, CreatorSubscriptionService,
-    PalmPesaService,
+    PalmPesaModule,
   ],
 })
 export class CreatorsModule {}

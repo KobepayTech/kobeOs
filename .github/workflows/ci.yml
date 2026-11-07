@@ -94,8 +94,11 @@ jobs:
           DB_USERNAME: kobe
           DB_PASSWORD: kobe_test
           DB_DATABASE: kobeos_test
-          DB_SYNCHRONIZE: "true"
-          DB_MIGRATIONS_RUN: "false"
+          # Exercise the production schema path. Building the e2e schema from
+          # the entities meant a migration-only defect could never fail a
+          # test — see FixPaymentIdempotencyIndex1786500000000.
+          DB_SYNCHRONIZE: "false"
+          DB_MIGRATIONS_RUN: "true"
 
   docker:
     name: Docker build

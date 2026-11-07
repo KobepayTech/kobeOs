@@ -216,6 +216,37 @@ jobs:
           } finally {
             Remove-Item -LiteralPath $lock -Force -ErrorAction SilentlyContinue
           }
+
+          # Rotate the error log before the new backend starts. It is appended
+          # to and never truncated, so both the failure classifier below and
+          # the tail it prints were matching entries from previous releases —
+          # a release in October was diagnosed from September's errors, about
+          # columns whose code no longer exists. Whatever is in this file after
+          # this point belongs to this release.
+          # Every log run-live-origin-supervisor.cjs writes, in the order that
+          # is useful when a release fails. The supervisor brings up embedded
+          # PostgreSQL first and only then the API, so a silent backend usually
+          # means the database never came up — which only the supervisor and
+          # postgres logs can show.
+          $originLogNames = @(
+            'live-origin-supervisor.log',
+            'kobe-backend-live.out.log',
+            'kobe-backend-live.err.log',
+            'kobe-postgres-live.err.log',
+            'kobe-postgres-live.out.log',
+            'live-origin-supervisor.stdout.log',
+            'live-origin-supervisor.stderr.log'
+          )
+          $rotateStamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+          foreach ($logName in $originLogNames) {
+            $logPath = Join-Path $logs $logName
+            if (Test-Path -LiteralPath $logPath -PathType Leaf) {
+              Move-Item -LiteralPath $logPath -Destination "$logPath.$rotateStamp.prev" -Force
+            }
+          }
+          Remove-Item -LiteralPath (Join-Path $logs 'live-origin-supervisor.state') `
+            -Force -ErrorAction SilentlyContinue
+
           Start-OriginRuntime
 
           function Test-Release {
@@ -270,10 +301,54 @@ jobs:
             Write-EndpointDiagnostic 'new_lala_health' 'http://127.0.0.1:3000/api/lala-public/health'
             Write-EndpointDiagnostic 'new_lala_search' 'http://127.0.0.1:3000/api/lala-public/search'
 
-            $backendError = Join-Path $logs 'kobe-backend-live.err.log'
+            # Read every log the supervisor actually writes. This used to look
+            # only at kobe-backend-live.err.log, which nothing has written
+            # since an older supervisor was replaced — so the classifier was
+            # reading a file frozen in September and reporting its contents as
+            # the current release's failure. Nest's Logger writes to stdout,
+            # so the stdout log is where a boot failure actually appears.
+            # The supervisor's one-word state is the most informative signal
+            # there is: it says whether the database or the backend is the
+            # thing that never came up. Report it first.
+            $stateFile = Join-Path $logs 'live-origin-supervisor.state'
+            if (Test-Path -LiteralPath $stateFile -PathType Leaf) {
+              Write-Host "origin_supervisor_state=$((Get-Content -LiteralPath $stateFile -Raw).Trim())"
+            } else {
+              Write-Host 'origin_supervisor_state=absent'
+            }
+
+            # The supervisor can report whether it can even find a PostgreSQL
+            # cluster and binaries, which is the usual reason it never reaches
+            # the backend. Read-only.
+            $nodeExe = Join-Path $env:ProgramFiles 'nodejs\node.exe'
+            $supervisorEntry = Join-Path $env:GITHUB_WORKSPACE 'scripts\run-live-origin-supervisor.cjs'
+            if ((Test-Path -LiteralPath $nodeExe -PathType Leaf) -and
+                (Test-Path -LiteralPath $supervisorEntry -PathType Leaf)) {
+              try {
+                & $nodeExe $supervisorEntry --repo-root $origin --diagnose 2>&1 |
+                  ForEach-Object { Write-Host $_ }
+              } catch {
+                Write-Host "origin_supervisor_diagnose=failed: $($_.Exception.Message)"
+              }
+            } else {
+              Write-Host 'origin_supervisor_diagnose=skipped (node or supervisor entry not found)'
+            }
+
+            $logCandidates = $originLogNames | ForEach-Object { Join-Path $logs $_ }
+            $parts = @()
+            foreach ($candidate in $logCandidates) {
+              if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) {
+                Write-Host "log_absent=$(Split-Path -Leaf $candidate)"
+                continue
+              }
+              $content = (Get-Content -LiteralPath $candidate -Tail 400 -ErrorAction SilentlyContinue) -join [Environment]::NewLine
+              Write-Host "log_present=$(Split-Path -Leaf $candidate) bytes=$((Get-Item -LiteralPath $candidate).Length)"
+              if ($content) { $parts += "----- $(Split-Path -Leaf $candidate) -----"; $parts += $content }
+            }
+            $tail = $parts -join [Environment]::NewLine
+
             $failureClass = 'unclassified'
-            if (Test-Path -LiteralPath $backendError -PathType Leaf) {
-              $tail = (Get-Content -LiteralPath $backendError -Tail 400 -ErrorAction SilentlyContinue) -join [Environment]::NewLine
+            if ($tail) {
               if ($tail -match 'Cannot find module') {
                 $failureClass = 'dependency_missing'
               } elseif ($tail -match 'relation .* does not exist') {
@@ -286,9 +361,35 @@ jobs:
                 $failureClass = 'port_in_use'
               } elseif ($tail -match 'Nest can.?t resolve dependencies') {
                 $failureClass = 'nest_dependency_resolution'
+              } elseif ($tail -match 'postgres_binary_selection=missing|could not find pg_ctl|initdb') {
+                $failureClass = 'postgres_binaries_missing'
+              } elseif ($tail -match 'database system is starting up|the database system is shutting down') {
+                $failureClass = 'postgres_not_ready'
+              } elseif ($tail -match 'state=database_') {
+                $failureClass = 'database_never_started'
               }
             }
             Write-Host "new_backend_failure_class=$failureClass"
+
+            # Print the error itself, not only its category. Without this a
+            # failed release says "migration_column_missing" and nothing more,
+            # and the only way to learn WHICH column is to ask someone to open
+            # a PowerShell prompt on the origin machine and read the log by
+            # hand. Secrets are stripped: the connection error TypeORM raises
+            # can carry the database password.
+            if ($tail) {
+              # Only an actual key=value / key: value pair. An earlier version
+              # allowed a bare space as the separator, so the phrase
+              # "creatorAttributionToken does not exist" came out as
+              # "...Token *** not exist" — redaction eating the diagnosis.
+              $redacted = $tail -replace '(?i)(password|secret|token|apikey|api_key)(\s*[:=]\s*)([^\s"'',;]+)', '$1$2***'
+              Write-Host '##[group]new_backend_error_tail'
+              ($redacted -split "`n" | Select-Object -Last 60) | ForEach-Object { Write-Host $_ }
+              Write-Host '##[endgroup]'
+            } else {
+              Write-Host 'new_backend_error_tail=empty_or_missing (no supervisor log had content; see log_absent/log_present above)'
+            }
+
             Write-Host 'New backend failed release health checks; restoring previous bundle.'
             Set-Content -LiteralPath $lock -Value 'rollback' -Encoding ASCII
             try {

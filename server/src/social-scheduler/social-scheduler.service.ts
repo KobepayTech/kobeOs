@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThanOrEqual, Repository } from 'typeorm';
 import { MediaAssetsService } from '../media/media.service';
+import { PosProduct } from '../pos/pos.entity';
 import { SocialPost } from './social-post.entity';
 import { SocialAccount } from './social-account.entity';
 import { TikTokService } from './tiktok.service';
@@ -25,6 +26,8 @@ export class SocialSchedulerService {
   constructor(
     @InjectRepository(SocialPost)
     private readonly postRepo: Repository<SocialPost>,
+    @InjectRepository(PosProduct)
+    private readonly productRepo: Repository<PosProduct>,
     @InjectRepository(SocialAccount)
     private readonly accountRepo: Repository<SocialAccount>,
     private readonly media: MediaAssetsService,
@@ -105,6 +108,33 @@ export class SocialSchedulerService {
     if (post.status === 'publishing') throw new BadRequestException('Wait until publishing finishes before deleting this post');
     await this.postRepo.remove(post);
     return { id };
+  }
+
+
+  /** Merchant-triggered cross-post draft. Product data is read from the authenticated tenant's inventory. */
+  async createFromShopProduct(ownerId: string, productId: string, platforms: string[], publishNow = false) {
+    const product = await this.productRepo.findOne({ where: { id: productId, ownerId, active: true } });
+    if (!product) throw new NotFoundException('Active shop product not found');
+    const requested = this.validatePlatforms(platforms);
+    if (!requested.length || requested.some((p) => p !== 'instagram' && p !== 'tiktok')) {
+      throw new BadRequestException('Choose Instagram and/or TikTok');
+    }
+    const images = [product.imageUrl, ...(product.imageUrls || [])].filter((u): u is string => !!u);
+    const mediaUrls = [...new Set([product.videoUrl, ...images].filter((u): u is string => !!u))];
+    if (!mediaUrls.length) throw new BadRequestException('Upload a product image or video before cross-posting');
+    if (requested.includes('tiktok') && !product.videoUrl) {
+      throw new BadRequestException('TikTok cross-posting requires a product video');
+    }
+    const caption = [product.name, product.description?.trim(), `Price: ${product.currency} ${product.price}`]
+      .filter(Boolean).join('\n\n').slice(0, 2000);
+    const post = await this.createPost(ownerId, {
+      content: caption,
+      platforms: requested,
+      mediaUrls: requested.includes('tiktok') ? [product.videoUrl!] : mediaUrls.slice(0, 10),
+      status: 'draft',
+    });
+    if (!publishNow) return { post, action: 'draft_created' };
+    return this.publishPost(post.id, ownerId);
   }
 
   /* ─────────────── Provider capabilities ─────────────── */

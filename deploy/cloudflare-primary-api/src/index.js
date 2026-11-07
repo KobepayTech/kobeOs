@@ -1,7 +1,8 @@
-import { Container, getContainer } from '@cloudflare/containers';
+import { DurableObject } from 'cloudflare:workers';
 
 const PRIMARY_INSTANCE = 'kobeos-primary';
 const OPTIONAL_CONTAINER_ENV = [
+  'APP_FRONTEND_URL',
   'SENDGRID_API_KEY',
   'SMTP_HOST',
   'SMTP_PORT',
@@ -13,6 +14,8 @@ const OPTIONAL_CONTAINER_ENV = [
   'FOOTBALL_DATA_API_KEY',
   'API_FOOTBALL_KEY',
   'CF_API_TOKEN',
+  'CF_STREAM_API_TOKEN',
+  'CF_STREAM_ACCOUNT_ID',
   'CF_ZONE_ID',
   'CF_DOMAIN',
   'REGISTRY_API_URL',
@@ -26,6 +29,8 @@ const OPTIONAL_CONTAINER_ENV = [
   'INSTAGRAM_OAUTH_SCOPES',
   'IG_WEBHOOK_VERIFY_TOKEN',
   'GOOGLE_CLIENT_ID',
+  'GOOGLE_CLIENT_SECRET',
+  'GOOGLE_REDIRECT_URI',
   'TIKTOK_CLIENT_KEY',
   'TIKTOK_CLIENT_SECRET',
   'TIKTOK_REDIRECT_URI',
@@ -65,11 +70,19 @@ function containerEnv(env) {
     DB_PORT: String(env.DB_PORT || '5432'),
     DB_USERNAME: required(env, 'DB_USERNAME'),
     DB_PASSWORD: required(env, 'DB_PASSWORD'),
-    DB_DATABASE: String(env.DB_DATABASE || 'kobeos'),
+    DB_DATABASE: String(env.DB_DATABASE || 'neondb'),
     DB_SSL: String(env.DB_SSL ?? 'true'),
     DB_SSL_REJECT_UNAUTHORIZED: String(env.DB_SSL_REJECT_UNAUTHORIZED ?? 'true'),
     DB_SYNCHRONIZE: 'false',
-    DB_MIGRATIONS_RUN: 'true',
+    // Off by default, and deliberately not 'true': the container is started on
+    // demand, so migrating here ran all 97 migrations on every cold start
+    // before the app began listening. That is what produced 25-second
+    // timeouts and 503s on the first request after an idle period.
+    //
+    // Migrations are applied by the deploy workflow instead, against the same
+    // database and before the container rolls, so the schema is still never
+    // behind the code — it just is not the request path's problem.
+    DB_MIGRATIONS_RUN: String(env.DB_MIGRATIONS_RUN ?? 'false'),
     JWT_SECRET: required(env, 'JWT_SECRET'),
     PROVIDER_ENCRYPTION_KEY: required(env, 'PROVIDER_ENCRYPTION_KEY'),
     TENANT_BASE_DOMAIN: String(env.TENANT_BASE_DOMAIN || 'kobeapptz.com'),
@@ -123,31 +136,71 @@ async function fetchLegacy(request, env) {
   return null;
 }
 
-export class KobeApiContainer extends Container {
-  defaultPort = 3000;
-  sleepAfter = '10m';
-
+export class KobeApiContainer extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
     this.envVars = containerEnv(env);
+    this.starting = null;
+    this.checkedImage = false;
   }
 
-  onStart() {
-    console.log('KobeOS primary API container started');
+  async ensureReady() {
+    if (this.starting) return this.starting;
+    this.starting = this.prepareContainer();
+    try {
+      await this.starting;
+    } finally {
+      this.starting = null;
+    }
   }
 
-  onStop(params) {
-    console.log('KobeOS primary API container stopped', params);
+  async prepareContainer() {
+    const container = this.ctx.container;
+    if (!container) throw new Error('Missing API container binding');
+    const image = container.images.api;
+    // A Worker update does not roll out durable_object images automatically.
+    // Replace an old image once, before forwarding any request to this version.
+    if (!this.checkedImage && container.running) {
+      const current = await container.inspect();
+      if (current && current.image !== image) await container.destroy();
+    }
+    this.checkedImage = true;
+    if (!container.running) {
+      container.start({ image, instance: 'standard-1', enableInternet: true, env: this.envVars });
+    }
+    await container.setInactivityTimeout(10 * 60 * 1000);
+    const port = container.getTcpPort(3000);
+    // Probe only a read: never retry a customer's POST while booting.
+    for (let attempt = 0; attempt < 30; attempt++) {
+      try {
+        const response = await port.fetch('http://container/api/health', {
+          signal: AbortSignal.timeout(2000),
+        });
+        await response.body?.cancel();
+        if (response.ok) return;
+      } catch {
+        // The process can be running before Nest has opened its HTTP port.
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    throw new Error('API container did not become ready');
   }
 
-  onError(error) {
-    console.error('KobeOS primary API container error', error);
+  async fetch(request) {
+    await this.ensureReady();
+    // The public request is HTTPS; the private container port speaks HTTP.
+    // Cloudflare encrypts this internal connection independently of URL scheme.
+    const target = new URL(request.url);
+    target.protocol = 'http:';
+    return this.ctx.container.getTcpPort(3000).fetch(new Request(target.toString(), request));
   }
 }
 
 async function primaryFetch(request, env) {
-  const container = getContainer(env.KOBE_API, PRIMARY_INSTANCE);
-  const response = await container.fetch(request);
+  const container = env.KOBE_API.getByName(PRIMARY_INSTANCE);
+  const target = new URL(request.url);
+  target.protocol = 'http:';
+  const response = await container.fetch(new Request(target.toString(), request));
   return withProductionMarker(response, 'cloudflare-container');
 }
 
@@ -165,7 +218,23 @@ async function maybeFallbackRead(request, env, reason) {
   }
 
   try {
-    return await fetchLegacy(request, env);
+    const response = await fetchLegacy(request, env);
+    if (!response) return null;
+
+    // A fallback that is itself failing is worse than no fallback. The legacy
+    // origin is a Cloudflare Tunnel, and when KobeOS is not running behind it
+    // the tunnel answers 502 — so replaying a cold-start 503 to it turned a
+    // slow-but-recoverable request into a hard error, and made a healthy
+    // cutover look broken. Discard it and let the caller answer 503 with
+    // Retry-After, which is both true and retryable.
+    if (response.status >= 500) {
+      console.warn('Legacy origin fallback was itself failing; ignoring it', {
+        reason,
+        legacyStatus: response.status,
+      });
+      return null;
+    }
+    return response;
   } catch (fallbackError) {
     console.error('Legacy API fallback failed', fallbackError);
     return null;

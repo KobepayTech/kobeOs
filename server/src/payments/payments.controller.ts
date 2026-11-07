@@ -21,7 +21,16 @@ export class PaymentsController {
   listTxns(@CurrentUser('id') uid: string, @Query('walletId') walletId?: string) {
     return walletId ? this.txns.byWallet(uid, walletId) : this.txns.list(uid);
   }
-  @Post('transactions') post(@CurrentUser('id') uid: string, @Body() dto: TransactionDto) { return this.txns.post(uid, dto); }
+  @Post('transactions')
+  post(
+    @CurrentUser('id') uid: string,
+    @CurrentUser('role') role: string,
+    @Body() dto: TransactionDto,
+  ) {
+    // Role reaches the service because a CREDIT is only allowed against a
+    // verified payment, or by an administrator recording an adjustment.
+    return this.txns.post(uid, dto, role);
+  }
   @Post('transfer') transfer(@CurrentUser('id') uid: string, @Body() dto: TransferDto) { return this.txns.transfer(uid, dto); }
 
   @Get('loans') listLoans(@CurrentUser('id') uid: string) { return this.loans.list(uid); }

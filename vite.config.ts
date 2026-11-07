@@ -59,7 +59,7 @@ export default defineConfig({
   // live-build/ contains a chroot with self-referential symlinks (e.g.
   // usr/bin/X11/X11/...) that crash chokidar with ELOOP if scanned.
   // release/ holds packaged Electron output, also outside the source set.
-  server: { watch: { ignored: ['**/live-build/**', '**/release/**', '**/dist/**', '**/node_modules/**'] } },
+  server: { allowedHosts: ['terminal.local'], watch: { ignored: ['**/live-build/**', '**/release/**', '**/dist/**', '**/node_modules/**'] } },
   // Lets `npm run preview` exercise the production bundle against the real
   // API without browser CORS errors. This affects local verification only;
   // deployed builds still use VITE_API_BASE.
@@ -80,6 +80,6 @@ export default defineConfig({
     // Jest runner; pulling server/node_modules into Vitest causes failures),
     // the live-build chroot (vendors a full node_modules copy whose internal
     // *.test.js files would otherwise get discovered), and dist/ output.
-    exclude: ['tests/**', 'node_modules/**', 'server/**', 'live-build/**', 'dist/**', 'release/**', 'electron/**'],
+    exclude: ['tests/**', '**/node_modules/**', 'server/**', 'live-build/**', 'dist/**', 'release/**', 'electron/**'],
   },
 });

@@ -1,5 +1,12 @@
 # Publishing with Cloudflare Pages (Option 2)
 
+> **Superseded for public custom domains:** Cloudflare Pages does not support
+> wildcard custom domains. Use [the always-on public frontend](public-frontend/README.md)
+> for Lala, Jumla and tenant storefronts. The sections below describe the old
+> Pages deployment; do not attempt to attach `*.kobeapptz.com` to Pages or point
+> public frontend traffic back at a local tunnel. The `kobeos-app.pages.dev`
+> address remains a separate deployed frontend.
+
 This is how KobeOS serves the app **and every tenant storefront** —
 `kobeapptz.com` plus every `{slug}.kobeapptz.com` — straight from
 Cloudflare's edge. One Pages project, a wildcard custom domain, and **no

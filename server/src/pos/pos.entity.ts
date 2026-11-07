@@ -67,6 +67,10 @@ export class PosProduct extends OwnedEntity {
   @Column({ type: 'decimal', precision: 18, scale: 4, nullable: true })
   compareAtPrice?: number | null;
 
+  /** Internal negotiated-price reference. Omit it from public catalogue reads. */
+  @Column({ type: 'decimal', precision: 18, scale: 4, nullable: true, select: false })
+  discountReferencePrice?: number | null;
+
   @Column({ type: 'decimal', precision: 18, scale: 4, nullable: true })
   cost?: number | null;
 

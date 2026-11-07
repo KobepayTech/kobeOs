@@ -11,21 +11,37 @@
  * Prefer every explicit production signal before considering localhost, and
  * only use localhost when nothing production-shaped is configured.
  */
-export function resolveFrontendUrl(get: (key: string) => string | undefined): string {
+/**
+ * Config lookups here are declared as returning strings, but a real caller may
+ * hand us Nest's ConfigService, whose `get` returns whatever the validated
+ * schema produced — PORT comes back as a number. Reading `.trim()` off that
+ * threw "get(...)?.trim is not a function" and 500'd the endpoint. Coerce
+ * once, here, so every caller is safe rather than every caller remembering.
+ */
+type ConfigLookup = (key: string) => unknown;
+
+function read(get: ConfigLookup, key: string): string | undefined {
+  const value = get(key);
+  if (value === undefined || value === null) return undefined;
+  const text = typeof value === 'string' ? value : String(value);
+  return text.trim() || undefined;
+}
+
+export function resolveFrontendUrl(get: ConfigLookup): string {
   const withSlash = (value: string) => `${value.replace(/\/+$/, '')}/`;
 
-  const direct = get('APP_FRONTEND_URL')?.trim() || get('FRONTEND_URL')?.trim();
+  const direct = read(get, 'APP_FRONTEND_URL') || read(get, 'FRONTEND_URL');
   if (direct) return withSlash(direct);
 
-  const publicUrl = get('APP_PUBLIC_URL')?.trim();
+  const publicUrl = read(get, 'APP_PUBLIC_URL');
   if (publicUrl) return withSlash(publicUrl);
 
-  const tenantDomain = get('TENANT_BASE_DOMAIN')?.trim().replace(/^\.+/, '');
+  const tenantDomain = read(get, 'TENANT_BASE_DOMAIN')?.replace(/^\.+/, '');
 
   // Concrete https origins from CORS_ORIGIN (wildcards can't be a redirect
   // target). Prefer one on the tenant domain over an incidental first entry
   // such as a *.pages.dev preview host.
-  const corsOrigins = (get('CORS_ORIGIN') ?? '')
+  const corsOrigins = (read(get, 'CORS_ORIGIN') ?? '')
     .split(',')
     .map((entry) => entry.trim())
     .filter((entry) => /^https:\/\/[^*\s]+$/.test(entry));
@@ -49,15 +65,15 @@ export function resolveFrontendUrl(get: (key: string) => string | undefined): st
  * when APP_PUBLIC_URL was unset, which is the case on the live origin) gives
  * the operator a URL Meta cannot accept.
  */
-export function resolvePublicApiUrl(get: (key: string) => string | undefined): string {
+export function resolvePublicApiUrl(get: ConfigLookup): string {
   const withSlash = (value: string) => `${value.replace(/\/+$/, '')}/`;
 
-  const direct = get('APP_PUBLIC_URL')?.trim();
+  const direct = read(get, 'APP_PUBLIC_URL');
   if (direct) return withSlash(direct);
 
   // The API is published at api.<tenant domain> in this deployment.
-  const tenantDomain = get('TENANT_BASE_DOMAIN')?.trim().replace(/^\.+/, '');
+  const tenantDomain = read(get, 'TENANT_BASE_DOMAIN')?.replace(/^\.+/, '');
   if (tenantDomain) return `https://api.${tenantDomain}/`;
 
-  return `http://localhost:${get('PORT')?.trim() || '3000'}/`;
+  return `http://localhost:${read(get, 'PORT') || '3000'}/`;
 }
