@@ -120,7 +120,9 @@ contextBridge.exposeInMainWorld('kobeOS', {
   system: {
     shutdown:         ()     => ipcRenderer.invoke('system-shutdown'),
     reboot:           ()     => ipcRenderer.invoke('system-reboot'),
-    installToDisk:    (disk) => ipcRenderer.invoke('install-to-disk', disk),
+    installToDisk:    (disk, setupProfile) => ipcRenderer.invoke('install-to-disk', disk, { setupProfile }),
+    readInstallSetup: () => ipcRenderer.invoke('read-install-setup'),
+    clearInstallSetup: () => ipcRenderer.invoke('clear-install-setup'),
     scanDisks:        ()     => ipcRenderer.invoke('scan-disks'),
     getSystemMode:    ()     => ipcRenderer.invoke('get-system-mode'),
     getBackendStatus: ()     => ipcRenderer.invoke('get-backend-status'),

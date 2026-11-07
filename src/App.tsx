@@ -1,3 +1,5 @@
+import GuidedBusinessSetup from '@/components/GuidedBusinessSetup';
+import { useSystemMode } from '@/hooks/useSystemMode';
 import { useEffect, useState } from 'react';
 import { BrowserRouter, HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 
@@ -79,6 +81,8 @@ const Router = isElectronShell()
  *     WindowManager / Taskbar.
  */
 export default function App() {
+  const systemMode = useSystemMode();
+  const [setupDeferred, setSetupDeferred] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(initialAccount);
   const [storeSetupComplete, setStoreSetupComplete] = useState(() =>
     (() => {
@@ -112,6 +116,7 @@ export default function App() {
     try {
       localStorage.setItem(ENTITLEMENT_OWNER_KEY, account.id);
     } catch { /* storage may be unavailable */ }
+    setSetupDeferred(false);
     setUser(account);
     setStoreSetupComplete(
       localStorage.getItem(`kobeos_store_onboarding_complete:${account.id}`) === 'true',
@@ -126,7 +131,9 @@ export default function App() {
   if (!user) {
     return (
       <Router>
+        {systemMode === 'live-usb' && <LiveModeBanner />}
         <Routes>
+          {systemMode === 'live-usb' && <Route path="/installer" element={<KobeOSInstaller />} />}
           <Route path="/install" element={<InstallLandingPage />} />
           <Route path="/install/:appId" element={<InstallLandingPage />} />
           <Route path="/m/:slug" element={<MobileShell />}>
@@ -149,32 +156,26 @@ export default function App() {
     );
   }
 
-  /* A newly installed KobeOS instance always opens the App Store after the
-   * online account step. This flag is device-local: signing into the same
-   * account on another fresh installation repeats app selection for that
-   * computer, while the cloud entitlement list restores paid/trial status. */
+  /* Prepare the business workspace before opening the desktop on first sign-in. */
   if (!storeSetupComplete) {
+    const finishSetup = () => {
+      localStorage.setItem(`kobeos_store_onboarding_complete:${user.id}`, 'true');
+      setStoreSetupComplete(true);
+      if (isElectronShell()) window.location.hash = '#/';
+      else window.location.assign('/');
+    };
     return (
       <Router>
+        {systemMode === 'live-usb' && <LiveModeBanner />}
         <Routes>
-          <Route
-            path="/store"
-            element={
-              <AppStore
-                onboarding
-                onComplete={() => {
-                  localStorage.setItem(`kobeos_store_onboarding_complete:${user.id}`, 'true');
-                  setStoreSetupComplete(true);
-                  if (isElectronShell()) {
-                    window.location.hash = '#/';
-                  } else {
-                    window.location.assign('/');
-                  }
-                }}
-              />
-            }
-          />
-          <Route path="*" element={<Navigate to="/store" replace />} />
+          {systemMode === 'live-usb' && <Route path="/installer" element={<KobeOSInstaller />} />}
+          <Route path="/setup" element={setupDeferred
+            ? <Navigate to="/store" replace />
+            : <GuidedBusinessSetup firstRun onComplete={finishSetup} onDefer={() => setSetupDeferred(true)} />} />
+          <Route path="/store" element={setupDeferred
+            ? <AppStore onboarding onComplete={finishSetup} />
+            : <Navigate to="/setup" replace />} />
+          <Route path="*" element={<Navigate to={setupDeferred ? '/store' : '/setup'} replace />} />
         </Routes>
       </Router>
     );

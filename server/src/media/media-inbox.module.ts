@@ -1,3 +1,4 @@
+import { CommerceModule } from '../commerce/commerce.module';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AiModule } from '../ai/ai.module';
@@ -12,6 +13,7 @@ import { MediaModule } from './media.module';
   imports: [
     TypeOrmModule.forFeature([MediaAsset, MediaInboxItem, PosProduct]),
     MediaModule,
+    CommerceModule,
     AiModule,
   ],
   controllers: [MediaInboxController],
