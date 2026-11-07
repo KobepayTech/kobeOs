@@ -36,6 +36,12 @@ export class Fr24Controller {
     return this.fr24.airportArrivals(code);
   }
 
+  @Get('tanzania/arrivals')
+  tanzaniaArrivals() { return this.fr24.tanzaniaFlights('arrivals'); }
+
+  @Get('tanzania/departures')
+  tanzaniaDepartures() { return this.fr24.tanzaniaFlights('departures'); }
+
   @Get(':flightNumber')
   byNumber(@Param('flightNumber') flightNumber: string) {
     return this.fr24.flightByNumber(flightNumber);
@@ -65,6 +71,9 @@ export class Fr24ShipmentController {
    * when the cashier wants the timeline refreshed without waiting for the
    * 5-minute cron.
    */
+  @Get(':id/fr24-live')
+  position(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.fr24.shipmentPosition(uid, id); }
+
   @Post(':id/fr24-refresh')
   refresh(@CurrentUser('id') uid: string, @Param('id') id: string) {
     return this.fr24.refreshShipment(uid, id);

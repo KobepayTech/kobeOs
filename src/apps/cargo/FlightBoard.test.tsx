@@ -34,6 +34,13 @@ describe('FlightRadar cargo board', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Assigned Flights' }));
     expect(await screen.findByText('AC-001')).toBeInTheDocument();
   });
+  it('loads Tanzania-wide arrivals rather than only Dar arrivals', async () => {
+    mockedApi.mockImplementation(async path => path.endsWith('/status') ? { configured: true } : []);
+    render(<FlightBoard />);
+    await screen.findByText('Provider configured');
+    fireEvent.click(screen.getByRole('button', {name:'Heading to Tanzania'}));
+    await waitFor(()=>expect(mockedApi).toHaveBeenCalledWith('/cargo/flights/fr24/tanzania/arrivals', {offlineFallback:false}));
+  });
   it('requires an explicit confirmation before assigning a real flight', async () => {
     mockedApi.mockImplementation(async (path) => path.endsWith('/status') ? { configured: true } : path.includes('assign-fr24-flight') ? {} : [{ fr24Id: 'f-1', callsign: 'ETH607', flightNumber: 'ET607', origin: 'CAN', destination: 'ADD', status: 'Airborne' }]);
     render(<FlightBoard />);
