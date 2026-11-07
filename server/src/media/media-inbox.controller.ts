@@ -1,3 +1,4 @@
+import { GuidedCatalogueDto } from './dto/guided-catalogue.dto';
 import {
   Body,
   Controller,
@@ -28,6 +29,17 @@ import type { MediaInboxStatus } from './media-inbox.entity';
 @Controller('media/inbox')
 export class MediaInboxController {
   constructor(private readonly service: MediaInboxService) {}
+
+  @Post('guided/upload')
+  @UseInterceptors(FilesInterceptor('files', 20, { limits: { fileSize: 20 * 1024 * 1024, files: 20 } }))
+  guidedUpload(@CurrentUser('id') ownerId: string, @UploadedFiles() files: Express.Multer.File[], @Query('businessType') businessType: string) {
+    return this.service.guidedUpload(ownerId, businessType, files ?? []);
+  }
+
+  @Post('guided/:id/confirm')
+  confirmGuided(@CurrentUser('id') ownerId: string, @Param('id') id: string, @Body() dto: GuidedCatalogueDto) {
+    return this.service.confirmGuided(ownerId, id, dto);
+  }
 
   @Post('upload')
   @UseInterceptors(FilesInterceptor('files', 100, {

@@ -38,6 +38,17 @@ type Mode = 'create' | 'signin';
 type ConnectionState = 'checking' | 'online' | 'offline' | 'server-down';
 type SocialProvider = 'google' | 'tiktok' | 'meta';
 
+/**
+ * Which sign-in methods the server can complete. Booleans only: every provider
+ * is a server redirect, so the browser needs no identifier to start one.
+ */
+type SignInMethods = {
+  password: boolean;
+  google: { enabled: boolean };
+  tiktok: { enabled: boolean };
+  meta: { enabled: boolean };
+};
+
 type DesktopOAuthMessage = {
   type?: string;
   provider?: SocialProvider;
@@ -53,6 +64,9 @@ export default function LoginScreen({
   const [mode, setMode] = useState<Mode>(() => pendingOAuth() || new URLSearchParams(window.location.search).get('signin') === '1' ? 'signin' : 'create');
   const [pendingProvider, setPendingProvider] = useState(pendingOAuth);
   const [connection, setConnection] = useState<ConnectionState>('checking');
+  // Null until the server answers. Buttons stay hidden rather than appearing
+  // and then vanishing, and rather than appearing and then failing.
+  const [methods, setMethods] = useState<SignInMethods | null>(null);
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState('');
   const [identifierKind, setIdentifierKind] = useState<'email' | 'phone'>('email');
@@ -67,6 +81,28 @@ export default function LoginScreen({
 
   // Back navigation from a provider can restore this page from the browser's
   // cache without remounting it. Show recovery instead of first-time setup.
+  // Ask the server which sign-in methods it can actually complete. Failing
+  // this call must not lock anyone out, so email and password are assumed
+  // available and only the social buttons depend on the answer.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${apiBase()}/auth/sign-in-methods`);
+        if (!res.ok) throw new Error(String(res.status));
+        const body = (await res.json()) as SignInMethods;
+        if (!cancelled) setMethods(body);
+      } catch {
+        // Leave it unknown rather than asserting the providers are off. TikTok
+        // and Meta are server redirect flows that already bounce back with a
+        // readable error when unconfigured, so hiding them because a status
+        // call failed would remove sign-in that actually works.
+        if (!cancelled) setMethods(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
   useEffect(() => {
     const returned = () => {
       const provider = pendingOAuth();
@@ -243,6 +279,13 @@ export default function LoginScreen({
       setLoading(false);
     }
   };
+
+  // Hide a provider the server says it cannot complete. All three are server
+  // redirects now, which bounce back with a readable error when unconfigured,
+  // so an unknown state shows them rather than hiding working sign-in.
+  const showGoogle = methods?.google?.enabled ?? true;
+  const showTikTok = methods?.tiktok?.enabled ?? true;
+  const showMeta = methods?.meta?.enabled ?? true;
 
   const openProviderAuth = (provider: SocialProvider) => {
     const url = providerSignInUrl(provider);
@@ -458,20 +501,28 @@ export default function LoginScreen({
                 <button type="button" onClick={() => { clearPendingOAuth(); setPendingProvider(null); setMode('signin'); }} className="mt-2 font-bold underline">Use email or phone instead</button>
               </div>}
 
-              <div className="mb-4 grid grid-cols-1 gap-2 sm:grid-cols-3">
+              {/* Only methods the server says it can complete. A button that
+                  cannot work is worse than no button: it reads as a broken
+                  product rather than an unconfigured one. */}
+              {(showGoogle || showTikTok || showMeta) &&
+              <div className={`mb-4 grid grid-cols-1 gap-2 ${
+                [showGoogle, showTikTok, showMeta].filter(Boolean).length > 1 ? 'sm:grid-cols-3' : ''}`}>
+                {showGoogle &&
                 <button type="button" onClick={signInWithGoogle} disabled={loading} className="flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white text-xs font-bold text-slate-700 hover:border-slate-400 disabled:opacity-50">
                   <span aria-hidden style={{ color: '#4285F4' }} className="text-base font-black">G</span>
                   {mode === 'create' ? 'Create with Google' : 'Sign in with Google'}
-                </button>
+                </button>}
+                {showTikTok &&
                 <button type="button" onClick={signInWithTikTok} disabled={loading} className="flex h-11 items-center justify-center gap-2 rounded-xl bg-black text-xs font-bold text-white hover:bg-slate-800 disabled:opacity-50">
                   <span aria-hidden className="text-base">♪</span>
                   {mode === 'create' ? 'Create with TikTok' : 'Sign in with TikTok'}
-                </button>
+                </button>}
+                {showMeta &&
                 <button type="button" onClick={signInWithMeta} disabled={loading} className="flex h-11 items-center justify-center gap-2 rounded-xl bg-[#0866ff] text-xs font-bold text-white hover:bg-[#075bd8] disabled:opacity-50">
                   <span aria-hidden className="text-base font-black">f</span>
                   {mode === 'create' ? 'Create with Facebook' : 'Sign in with Facebook'}
-                </button>
-              </div>
+                </button>}
+              </div>}
 
               <p className="mb-4 text-xs leading-5 text-slate-500">Use Google, Facebook or TikTok to create an account or return to an existing one. You can also use your email or phone number with a password.</p>
 

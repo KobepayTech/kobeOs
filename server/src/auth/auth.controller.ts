@@ -271,6 +271,19 @@ export class AuthController {
 
   // ── OAuth (sign in / sign up with Google, TikTok or Meta) ───────────────────
 
+  /**
+   * Which sign-in methods this deployment can complete, so the login screen
+   * can offer only what works instead of rendering a button that bounces the
+   * person out to a provider and back with an error.
+   *
+   * Booleans only — starting a redirect needs no identifier in the browser.
+   */
+  @Get('sign-in-methods')
+  @Throttle({ default: { limit: process.env.NODE_ENV === 'test' ? 10000 : 60, ttl: 60000 } })
+  signInMethods() {
+    return this.auth.signInMethods();
+  }
+
   private oauthCookie(provider: string) { return `kobeos_oauth_${provider}`; }
 
   private setOAuthCookie(provider: string, state: string, res: Response) {

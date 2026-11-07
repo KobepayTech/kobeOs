@@ -1,3 +1,5 @@
+import BusinessSetupInterview from './BusinessSetupInterview';
+import { DEFAULT_SETUP, type SetupProfile } from '@/lib/guided-setup';
 import { useState, useEffect } from 'react';
 import { Monitor, HardDrive, Download, CheckCircle, AlertCircle, ChevronRight, ChevronLeft, Power, RefreshCw, Shield } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -9,6 +11,8 @@ interface InstallResult { success?: boolean; output?: string; error?: string; }
 
 export default function KobeOSInstaller() {
   const [step, setStep] = useState(1);
+  const [setupProfile, setSetupProfile] = useState<SetupProfile>(DEFAULT_SETUP);
+  const [setupAnswered, setSetupAnswered] = useState(false);
   const [disks, setDisks] = useState<Disk[]>([]);
   const [selectedDisk, setSelectedDisk] = useState<string | null>(null);
   const [installProgress, setInstallProgress] = useState(0);
@@ -17,7 +21,7 @@ export default function KobeOSInstaller() {
   const [installError, setInstallError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (step === 3) window.kobeOS?.system?.scanDisks?.().then(setDisks);
+    if (step === 4) window.kobeOS?.system?.scanDisks?.().then(setDisks);
   }, [step]);
 
   const startInstall = async () => {
@@ -32,7 +36,7 @@ export default function KobeOSInstaller() {
     }, 700);
 
     try {
-      const result = await window.kobeOS?.system?.installToDisk?.(selectedDisk) as InstallResult | undefined;
+      const result = await window.kobeOS?.system?.installToDisk?.(selectedDisk, setupAnswered ? setupProfile : undefined) as InstallResult | undefined;
       clearInterval(interval);
 
       if (result?.success) {
@@ -55,7 +59,7 @@ export default function KobeOSInstaller() {
 
   const renderStepIndicator = () => (
     <div className="flex items-center justify-center gap-2 mb-8">
-      {Array.from({ length: 5 }, (_, i) => (
+      {Array.from({ length: 6 }, (_, i) => (
         <div key={i} className={`flex items-center ${i > 0 ? 'ml-2' : ''}`}>
           {i > 0 && <div className={`w-8 h-0.5 ${i < step ? 'bg-blue-500' : 'bg-gray-600'}`} />}
           <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${i + 1 === step ? 'bg-blue-500 text-white' : i + 1 < step ? 'bg-green-500 text-white' : 'bg-gray-700 text-gray-400'}`}>
@@ -102,6 +106,19 @@ export default function KobeOSInstaller() {
             </div>
           )}
           {step === 3 && (
+            <div className="space-y-4">
+              <BusinessSetupInterview
+                profile={setupProfile}
+                change={setSetupProfile}
+                finish={() => { setSetupAnswered(true); setStep(4); }}
+                finishLabel="Continue to installation"
+              />
+              <button type="button" className="text-sm text-gray-400" onClick={() => { setSetupAnswered(false); setStep(4); }}>
+                Set up my workspace after signing in
+              </button>
+            </div>
+          )}
+          {step === 4 && (
             <div className="space-y-6">
               <h2 className="text-2xl font-bold text-white text-center">Select Installation Drive</h2>
               <div className="space-y-3">
@@ -120,12 +137,12 @@ export default function KobeOSInstaller() {
                 )}
               </div>
               <div className="flex justify-between">
-                <Button variant="outline" onClick={() => setStep(2)} className="border-gray-600"><ChevronLeft size={18} /> Back</Button>
-                <Button onClick={() => setStep(4)} disabled={!selectedDisk} className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50">Next <ChevronRight size={18} /></Button>
+                <Button variant="outline" onClick={() => setStep(3)} className="border-gray-600"><ChevronLeft size={18} /> Back</Button>
+                <Button onClick={() => setStep(5)} disabled={!selectedDisk} className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50">Next <ChevronRight size={18} /></Button>
               </div>
             </div>
           )}
-          {step === 4 && (
+          {step === 5 && (
             <div className="space-y-6 text-center">
               <h2 className="text-2xl font-bold text-white">Ready to Install</h2>
               <div className="bg-gray-800/50 rounded-xl p-6 space-y-4">
@@ -137,12 +154,12 @@ export default function KobeOSInstaller() {
                 </div>
               </div>
               <div className="flex justify-between">
-                <Button variant="outline" onClick={() => setStep(3)} className="border-gray-600"><ChevronLeft size={18} /> Back</Button>
-                <Button onClick={() => { setStep(5); startInstall(); }} disabled={installing} className="bg-red-600 hover:bg-red-700 text-white disabled:opacity-50"><Download size={18} className="mr-2" /> Install Now</Button>
+                <Button variant="outline" onClick={() => setStep(4)} className="border-gray-600"><ChevronLeft size={18} /> Back</Button>
+                <Button onClick={() => { setStep(6); startInstall(); }} disabled={installing} className="bg-red-600 hover:bg-red-700 text-white disabled:opacity-50"><Download size={18} className="mr-2" /> Install Now</Button>
               </div>
             </div>
           )}
-          {step === 5 && (
+          {step === 6 && (
             <div className="space-y-8 text-center">
               {installError ? (
                 <>
@@ -151,7 +168,7 @@ export default function KobeOSInstaller() {
                   <pre className="max-h-48 overflow-auto text-left whitespace-pre-wrap rounded-xl bg-black/40 border border-red-500/30 p-4 text-xs text-red-200">{installError}</pre>
                   <div className="flex gap-4 justify-center">
                     <Button onClick={startInstall} disabled={installing} className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50"><RefreshCw size={18} className="mr-2" /> Try Again</Button>
-                    <Button variant="outline" onClick={() => setStep(3)} className="border-gray-600"><ChevronLeft size={18} className="mr-2" /> Choose Drive</Button>
+                    <Button variant="outline" onClick={() => setStep(4)} className="border-gray-600"><ChevronLeft size={18} className="mr-2" /> Choose Drive</Button>
                   </div>
                 </>
               ) : !installComplete ? (

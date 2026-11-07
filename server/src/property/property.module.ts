@@ -1,3 +1,11 @@
+import { PropertyIntelligenceService } from './property-intelligence.service';
+import { PropertyIntelligenceController, PropertySelfServiceController } from './property-intelligence.controller';
+import { PROPERTY_INTELLIGENCE_ENTITIES } from './property-intelligence.entity';
+import { AuditModule } from '../audit/audit.module';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { ErpModule } from '../erp/erp.module';
+import { PropertyListing } from './property-listing.entity';
+import { PropertyListingController, PublicPropertyListingController } from './property-listing.controller';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AiModule } from '../ai/ai.module';
@@ -51,9 +59,10 @@ import { PropertyExtraController } from './property-extra.controller';
 
 @Module({
   imports: [
-    AiModule,
+    AiModule, AuditModule, NotificationsModule, ErpModule,
     CommerceModule,
     TypeOrmModule.forFeature([
+      ...PROPERTY_INTELLIGENCE_ENTITIES,
       Property,
       PropertyUnit,
       PropertyUnitLayout,
@@ -73,9 +82,10 @@ import { PropertyExtraController } from './property-extra.controller';
       PropertyPaymentOrder,
       PropertyPaymentRedemption,
       PropertyDocument,
+      PropertyListing,
     ]),
   ],
-  providers: [
+  providers: [PropertyIntelligenceService,
     PropertiesService,
     UnitsService,
     PropertyOnboardingService,
@@ -95,8 +105,10 @@ import { PropertyExtraController } from './property-extra.controller';
     PropertyPaymentOrderService,
     PropertyDocumentsService,
   ],
-  controllers: [
+  controllers: [PropertyIntelligenceController, PropertySelfServiceController,
     PropertyController,
+    PropertyListingController,
+    PublicPropertyListingController,
     PropertyExtraController,
     PosysController,
     PosysTokensController,

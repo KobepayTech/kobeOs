@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { MediaModule } from '../media/media.module';
+import { PosProduct } from '../pos/pos.entity';
 import { SocialPost } from './social-post.entity';
 import { SocialAccount } from './social-account.entity';
 import { SocialSchedulerService } from './social-scheduler.service';
@@ -9,7 +10,7 @@ import { TikTokController, TikTokPublicController, TikTokIntegrationsController 
 import { TikTokService } from './tiktok.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([SocialPost, SocialAccount]), MediaModule],
+  imports: [TypeOrmModule.forFeature([SocialPost, SocialAccount, PosProduct]), MediaModule],
   providers: [SocialSchedulerService, TikTokService],
   controllers: [SocialSchedulerController, TikTokController, TikTokPublicController, TikTokIntegrationsController],
   exports: [SocialSchedulerService, TikTokService],

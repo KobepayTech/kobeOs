@@ -1,7 +1,9 @@
 export interface KobeOSSystemAPI {
   shutdown:         () => Promise<void>;
   reboot:           () => Promise<void>;
-  installToDisk:    (disk: string) => Promise<{ success: boolean; output: string; error: string }>;
+  readInstallSetup: () => Promise<import("@/lib/guided-setup").SetupProfile | null>;
+  clearInstallSetup: () => Promise<void>;
+  installToDisk:    (disk: string, setupProfile?: import("@/lib/guided-setup").SetupProfile) => Promise<{ success: boolean; output: string; error: string }>;
   scanDisks:        () => Promise<Array<{ name: string; size: string; model: string; path: string }>>;
   getSystemMode:    () => Promise<'live-usb' | 'installed'>;
   getBackendStatus: () => Promise<{ running: boolean; pid: number | null; embeddedPg: boolean }>;

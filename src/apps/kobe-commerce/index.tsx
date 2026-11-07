@@ -1,6 +1,7 @@
+import { LISTING_SAVED, openPhotoIntake } from '@/lib/guided-setup';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Building2, Car, CheckCircle2, ImagePlus, Loader2, PackageOpen, Plus, RefreshCw, Server, ShoppingBag, Sparkles, Store } from 'lucide-react';
-import { api, apiBase, getToken } from '@/lib/api';
+import { api, apiBase, getToken, listingApi, listingAssetUrl, usesCloudListings } from '@/lib/api';
 import CrmPanel from '../erp/CrmPanel';
 
 type Tab = 'business' | 'property' | 'claim' | 'posting' | 'media' | 'orders' | 'cars';
@@ -38,7 +39,10 @@ interface VehicleEngagement {
 }
 
 function CarsManager({ businesses }: { businesses: Business[] }) {
-  const primaryBusiness = businesses[0] ?? null;
+  const [online, setOnline] = useState(() => usesCloudListings() && !businesses.length);
+  const [onlineBusinesses, setOnlineBusinesses] = useState<Business[]>([]);
+  const primaryBusiness = (online ? onlineBusinesses : businesses)[0] ?? null;
+  const vehicleApi = online ? listingApi : api;
   const [car, setCar] = useState(emptyCar); const [files, setFiles] = useState<File[]>([]);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]); const [engagement, setEngagement] = useState<VehicleEngagement>({ requests: [], reservations: [], appointments: [] });
   const [loading, setLoading] = useState(true);
@@ -61,25 +65,45 @@ function CarsManager({ businesses }: { businesses: Business[] }) {
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
+      const accounts = online ? await listingApi<Business[]>('/commerce/businesses') : businesses;
+      if (online) setOnlineBusinesses(accounts);
+      if (!accounts.length) {
+        setVehicles([]);
+        setEngagement({ requests: [], reservations: [], appointments: [] });
+        return;
+      }
       const [inventory, activity] = await Promise.all([
-        api<Vehicle[]>('/commerce/cars', { offlineFallback: false }),
-        api<VehicleEngagement>('/commerce/cars/engagement', { offlineFallback: false }),
+        vehicleApi<Vehicle[]>('/commerce/cars', { offlineFallback: false }),
+        vehicleApi<VehicleEngagement>('/commerce/cars/engagement', { offlineFallback: false }),
       ]);
       setVehicles(inventory); setEngagement(activity);
     } catch (e) { setError((e as Error).message); }
     finally { setLoading(false); }
-  }, []);
-  useEffect(() => { void load(); }, [load]);
+  }, [businesses, online, vehicleApi]);
+  useEffect(() => {
+    void load();
+    const refresh = (event: Event) => {
+      if ((event as CustomEvent).detail !== 'dealership') return;
+      if (usesCloudListings() && !online) setOnline(true);
+      else void load();
+    };
+    window.addEventListener(LISTING_SAVED, refresh);
+    return () => window.removeEventListener(LISTING_SAVED, refresh);
+  }, [load, online]);
 
-  const authHeader = (): Record<string, string> => getToken() ? { Authorization: `Bearer ${getToken()}` } : {};
-  const uploadPhotos = async (vehicleId: string, chosen: File[]) => { if (!chosen.length) return; const body = new FormData(); chosen.forEach((f) => body.append('images', f)); const res = await fetch(`${apiBase()}/commerce/cars/${vehicleId}/media`, { method: 'POST', headers: authHeader(), body }); if (!res.ok) throw new Error(await res.text()); };
+  const uploadPhotos = async (vehicleId: string, chosen: File[]) => {
+    if (!chosen.length) return;
+    const body = new FormData();
+    chosen.forEach(file => body.append('images', file));
+    await vehicleApi(`/commerce/cars/${vehicleId}/media`, { method: 'POST', body });
+  };
   const create = async () => {
     if (!car.make || !car.model || !car.year || !car.price) { setError('Make, model, year and price are required.'); return; }
     setBusy(true); setError(''); setMessage('');
     try {
-      const vehicle = await api<Vehicle>('/commerce/cars', { method: 'POST', body: JSON.stringify({ ...car, year: Number(car.year), price: Number(car.price), mileage: Number(car.mileage) || 0, listing: { purchaseCost: Number(car.purchaseCost) || 0, dutyCost: Number(car.dutyCost) || 0, clearingCost: Number(car.clearingCost) || 0, transportCost: Number(car.transportCost) || 0, repairCost: Number(car.repairCost) || 0, advertisingCost: Number(car.advertisingCost) || 0 } }), offlineFallback: false });
+      const vehicle = await vehicleApi<Vehicle>('/commerce/cars', { method: 'POST', body: JSON.stringify({ ...car, year: Number(car.year), price: Number(car.price), mileage: Number(car.mileage) || 0, listing: { purchaseCost: Number(car.purchaseCost) || 0, dutyCost: Number(car.dutyCost) || 0, clearingCost: Number(car.clearingCost) || 0, transportCost: Number(car.transportCost) || 0, repairCost: Number(car.repairCost) || 0, advertisingCost: Number(car.advertisingCost) || 0 } }), offlineFallback: false });
       if (files.length) await uploadPhotos(vehicle.id, files);
-      if (primaryBusiness) await api(`/commerce/businesses/${primaryBusiness.id}/profile`, { method: 'PATCH', body: JSON.stringify({ businessType: 'DEALERSHIP' }), offlineFallback: false }).catch(() => undefined);
+      if (primaryBusiness) await vehicleApi(`/commerce/businesses/${primaryBusiness.id}/profile`, { method: 'PATCH', body: JSON.stringify({ businessType: 'DEALERSHIP' }), offlineFallback: false }).catch(() => undefined);
       setMessage(`${car.make} ${car.model} published to Jumla Cars${files.length ? ` with ${files.length} photo${files.length === 1 ? '' : 's'}` : ''}.`);
       setCar(emptyCar); setFiles([]); await load();
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
@@ -89,22 +113,26 @@ function CarsManager({ businesses }: { businesses: Business[] }) {
     if (!primaryBusiness) return;
     setBusy(true); setError(''); setMessage('');
     try {
-      await api(`/commerce/businesses/${primaryBusiness.id}/profile`, { method: 'PATCH', body: JSON.stringify({ businessType: 'DEALERSHIP', ...profile }), offlineFallback: false });
+      await vehicleApi(`/commerce/businesses/${primaryBusiness.id}/profile`, { method: 'PATCH', body: JSON.stringify({ businessType: 'DEALERSHIP', ...profile }), offlineFallback: false });
       setMessage('Dealership website updated.');
     } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   };
   const appointmentStatus = async (id: string, status: VehicleEngagement['appointments'][number]['status']) => {
     setRowBusy(id); setError('');
-    try { await api(`/commerce/cars/appointments/${id}`, { method: 'PATCH', body: JSON.stringify({ status }), offlineFallback: false }); await load(); }
+    try { await vehicleApi(`/commerce/cars/appointments/${id}`, { method: 'PATCH', body: JSON.stringify({ status }), offlineFallback: false }); await load(); }
     catch (e) { setError((e as Error).message); } finally { setRowBusy(''); }
   };
   const reservationStatus = async (code: string, status: 'CONFIRMED' | 'CANCELLED' | 'CONVERTED') => {
     setRowBusy(code); setError('');
-    try { await api(`/commerce/cars/reservations/${code}`, { method: 'PATCH', body: JSON.stringify({ status }), offlineFallback: false }); await load(); }
+    try { await vehicleApi(`/commerce/cars/reservations/${code}`, { method: 'PATCH', body: JSON.stringify({ status }), offlineFallback: false }); await load(); }
     catch (e) { setError((e as Error).message); } finally { setRowBusy(''); }
   };
 
   return <div className="space-y-5">
+    {usesCloudListings() && <div className="flex gap-2">
+      <button aria-pressed={online} onClick={() => setOnline(true)} className={`rounded-xl border px-3 py-2 text-xs font-bold ${online ? 'bg-emerald-800 text-white' : 'bg-white'}`}>Online inventory</button>
+      <button aria-pressed={!online} onClick={() => setOnline(false)} className={`rounded-xl border px-3 py-2 text-xs font-bold ${!online ? 'bg-emerald-800 text-white' : 'bg-white'}`}>On this computer</button>
+    </div>}
     {error && <Notice tone="error">{error}</Notice>}{message && <Notice tone="ok">{message}</Notice>}
 
     <Card title="Dealership website">
@@ -127,6 +155,7 @@ function CarsManager({ businesses }: { businesses: Business[] }) {
     </Card>
 
     <Card title="Add vehicle to Jumla Cars">
+      <button onClick={() => openPhotoIntake('dealership', primaryBusiness ?? businesses[0])} className="mb-3 inline-flex items-center gap-2 rounded-xl bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-800 disabled:opacity-40"><ImagePlus size={16} /> Add from photos</button>
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
         <Input label="Make" value={car.make} onChange={(v) => setCar({ ...car, make: v })} /><Input label="Model" value={car.model} onChange={(v) => setCar({ ...car, model: v })} /><Input label="Year" type="number" value={car.year} onChange={(v) => setCar({ ...car, year: v })} />
         <Input label="Price TZS" type="number" value={car.price} onChange={(v) => setCar({ ...car, price: v })} /><Input label="Mileage km" type="number" value={car.mileage} onChange={(v) => setCar({ ...car, mileage: v })} /><Input label="Transmission" value={car.transmission} onChange={(v) => setCar({ ...car, transmission: v })} />
@@ -140,7 +169,7 @@ function CarsManager({ businesses }: { businesses: Business[] }) {
     </Card>
 
     <Card title="Your vehicle inventory">
-      {loading ? <div className="h-32 grid place-items-center"><Loader2 className="animate-spin" /></div> : vehicles.length ? <div className="grid md:grid-cols-2 gap-4">{vehicles.map((v) => <VehicleRow key={v.id} v={v} busy={rowBusy === v.id} onStatus={(status) => void rowAction(v.id, () => api(`/commerce/cars/${v.id}`, { method: 'PATCH', body: JSON.stringify({ status }), offlineFallback: false }), `${v.make} ${v.model} marked ${status.replace(/_/g, ' ').toLowerCase()}.`)} onGenerate={() => void rowAction(v.id, () => api(`/commerce/cars/${v.id}/generate-marketing`, { method: 'POST', offlineFallback: false }), `Marketing copy + vertical video generated for ${v.make} ${v.model}.`)} onUpload={(chosen) => void rowAction(v.id, () => uploadPhotos(v.id, chosen), `${chosen.length} photo${chosen.length === 1 ? '' : 's'} added.`)} />)}</div> : <Empty text="No vehicles yet — add one above" />}
+      {loading ? <div className="h-32 grid place-items-center"><Loader2 className="animate-spin" /></div> : vehicles.length ? <div className="grid md:grid-cols-2 gap-4">{vehicles.map((v) => <VehicleRow key={v.id} v={v} imageUrl={online ? listingAssetUrl : assetUrl} busy={rowBusy === v.id} onStatus={(status) => void rowAction(v.id, () => vehicleApi(`/commerce/cars/${v.id}`, { method: 'PATCH', body: JSON.stringify({ status }), offlineFallback: false }), `${v.make} ${v.model} marked ${status.replace(/_/g, ' ').toLowerCase()}.`)} onGenerate={() => void rowAction(v.id, () => vehicleApi(`/commerce/cars/${v.id}/generate-marketing`, { method: 'POST', offlineFallback: false }), `Marketing copy + vertical video generated for ${v.make} ${v.model}.`)} onUpload={(chosen) => void rowAction(v.id, () => uploadPhotos(v.id, chosen), `${chosen.length} photo${chosen.length === 1 ? '' : 's'} added.`)} />)}</div> : <Empty text="No vehicles yet — add one above" />}
     </Card>
 
     <Card title="Showroom & test drives">
@@ -155,12 +184,12 @@ function CarsManager({ businesses }: { businesses: Business[] }) {
   </div>;
 }
 
-function VehicleRow({ v, busy, onStatus, onGenerate, onUpload }: { v: Vehicle; busy: boolean; onStatus: (status: CarStatus) => void; onGenerate: () => void; onUpload: (files: File[]) => void }) {
+function VehicleRow({ v, busy, onStatus, onGenerate, onUpload, imageUrl }: { v: Vehicle; imageUrl: (url?: string | null) => string; busy: boolean; onStatus: (status: CarStatus) => void; onGenerate: () => void; onUpload: (files: File[]) => void }) {
   const cover = v.media.find((m) => m.kind === 'IMAGE') ?? v.media[0];
   const tone = v.status === 'AVAILABLE' ? 'bg-emerald-50 text-emerald-700' : v.status === 'SOLD' ? 'bg-slate-200 text-slate-600' : v.status === 'RESERVED' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-500';
   return <div className="rounded-2xl border overflow-hidden">
     <div className="flex">
-      <div className="h-28 w-32 shrink-0 bg-slate-100 grid place-items-center overflow-hidden">{cover ? <img src={assetUrl(cover.url)} alt={`${v.make} ${v.model}`} className="h-full w-full object-cover" /> : <Car className="h-8 w-8 text-slate-300" />}</div>
+      <div className="h-28 w-32 shrink-0 bg-slate-100 grid place-items-center overflow-hidden">{cover ? <img src={imageUrl(cover.url)} alt={`${v.make} ${v.model}`} className="h-full w-full object-cover" /> : <Car className="h-8 w-8 text-slate-300" />}</div>
       <div className="flex-1 min-w-0 p-3">
         <div className="flex items-start justify-between gap-2"><div className="min-w-0"><b className="block truncate">{v.year} {v.make} {v.model}</b><span className="text-xs text-slate-500">{money(Number(v.price))}{v.location ? ` · ${v.location}` : ''}</span></div><span className={`shrink-0 h-6 px-2 rounded-lg text-[10px] font-black grid place-items-center ${tone}`}>{v.status.replace(/_/g, ' ')}</span></div>
         <div className="mt-1 text-[11px] text-slate-500">{v.media.length} photo{v.media.length === 1 ? '' : 's'} · {v.requests} buyer request{v.requests === 1 ? '' : 's'}{v.economics.landedCost > 0 ? ` · margin ${money(v.economics.projectedMargin)}` : ''}</div>

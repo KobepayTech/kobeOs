@@ -133,7 +133,7 @@ const MODULE_DEFINITIONS: Array<Omit<StoreModule, 'version'>> = [
     description: 'Documents, spreadsheets, presentations, notes, tasks, planning and everyday office work.',
     category: 'productivity',
     primaryAppId: 'spreadsheet',
-    appIds: ['calculator', 'text-editor', 'notepad', 'calendar', 'tasks', 'notes', 'spreadsheet', 'presentation', 'draw', 'kanban'],
+    appIds: ['calculator', 'text-editor', 'notepad', 'calendar', 'clock', 'tasks', 'notes', 'spreadsheet', 'presentation', 'draw', 'kanban'],
     features: ['Documents', 'Spreadsheets', 'Presentations', 'Notes', 'Tasks', 'Calendar', 'Kanban'],
   },
   {
@@ -179,6 +179,7 @@ const MODULE_DEFINITIONS: Array<Omit<StoreModule, 'version'>> = [
  * They are not part of any sellable module.
  */
 export const PLATFORM_SERVICE_APP_IDS = new Set([
+  'kobe-home',
   'app-store', 'file-manager', 'terminal', 'settings', 'system-settings',
   'task-manager', 'package-manager', 'backup-restore', 'password-manager',
   'browser', 'kobe-assistant', 'kobe-models', 'kobe-agents',

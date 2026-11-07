@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import CameraBroadcast from './CameraBroadcast';
+import PhotoRepairReport from './PhotoRepairReport';
 import { LivePresenter } from './LivePresenter';
 import { StoreBroadcastStudio } from './StoreBroadcastStudio';
 import { SocialConnectDialog } from './SocialConnectDialog';
@@ -123,7 +125,7 @@ export default function LiveSales() {
     setStarting(true);
     try {
       const existing = sessions.find(s => s.platform === platform && s.kind !== 'post' && s.status === 'LIVE' && (!account || s.socialAccountId === account.id || s.sourceHandle === account.accountHandle));
-      const session = existing || await api<Session>('/live-sales', { method: 'POST', body: JSON.stringify({ title: 'Phone live sale', platform, socialAccountId: account?.cloud ? undefined : account?.id, cloudAccount: !!account?.cloud, sourceHandle: account?.accountHandle || undefined }) });
+      const session = existing || await api<Session>('/live-sales', { method: 'POST', body: JSON.stringify({ title: 'Live sale', platform, socialAccountId: account?.cloud ? undefined : account?.id, cloudAccount: !!account?.cloud, sourceHandle: account?.accountHandle || undefined }) });
       setActive(session);
     } catch (e) { setNotice((e as Error).message || 'Could not open live selling.'); }
     finally { setStarting(false); }
@@ -172,7 +174,7 @@ export default function LiveSales() {
           <button onClick={connectTikTok} className="h-9 px-3 rounded-lg border border-slate-600 text-sm font-bold">{accounts.some(a => a.platform === 'tiktok' && a.connected) ? 'Reconnect TikTok' : 'Connect TikTok'}</button>
           <button onClick={() => void loadSessions()} className="h-9 px-3 rounded-lg border border-slate-600 text-sm">Refresh connections</button>
           <div className="relative">
-            <button disabled={starting} onClick={() => setPlatformMenu((v) => !v)} className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-sm font-bold"><Play className="w-4 h-4" /> {starting ? 'Opening…' : 'Continue phone live'}</button>
+            <button disabled={starting} onClick={() => setPlatformMenu((v) => !v)} className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-sm font-bold"><Play className="w-4 h-4" /> {starting ? 'Opening…' : 'Open live selling'}</button>
             {platformMenu && (
               <div className="absolute right-0 z-30 mt-1 w-48 rounded-lg border border-white/10 bg-slate-900 p-1 shadow-xl">
                 {LIVE_PLATFORMS.flatMap(([id, label]) => {
@@ -186,8 +188,9 @@ export default function LiveSales() {
       </div>
 
       <div className="p-5 space-y-6">
+        <PhotoRepairReport />
         <div className="rounded-xl border border-slate-800 p-4 text-sm text-slate-300">
-          <p>Keep streaming from Instagram or TikTok on your phone. Open live selling here, pin your products and share your live-shop link. Keep the store computer online for comments and checkout.</p>
+          <p>Stream from your phone, or open a selling session and choose “Broadcast from KobeOS” to use this computer’s camera with a platform-issued stream URL and key. Pin products and share your live-shop link. Keep the store computer online for comments and checkout.</p>
           <div className="mt-2 flex flex-wrap gap-2">{accounts.filter(a => a.connected && ['instagram', 'tiktok'].includes(a.platform)).map(a => <span key={`${a.cloud}-${a.id}`} className="rounded bg-slate-800 px-2 py-1 text-xs">{a.platform} · {a.accountHandle}</span>)}<button onClick={loadSessions} className="text-fuchsia-300 underline">Refresh accounts</button></div>
         </div>
         {notice && <div className="flex items-center justify-between rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200"><span>{notice}</span><button onClick={() => setNotice(null)} className="text-amber-300 hover:text-white">×</button></div>}
@@ -377,6 +380,7 @@ function SessionConsole({ session, context, accounts, onOpenKds, onBack }: { ses
       </div>}
       {!ended && session.kind !== 'post' && <div className="px-3 pt-3"><button onClick={() => setPresenter(true)} className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-bold">Open avatar presenter</button></div>}
       {presenter && <LivePresenter sessionId={session.id} catalogUrl={context.catalogUrl} onClose={() => setPresenter(false)} />}
+      {!ended && session.kind !== 'post' && ['instagram', 'tiktok'].includes(session.platform) && <CameraBroadcast sessionId={session.id} platform={session.platform} />}
       {/* Stats */}
       <div className="grid grid-cols-4 gap-2 p-3 shrink-0">
         <Stat label="Sales" value={money(stats?.totalSales ?? 0, session.currency)} Icon={TrendingUp} tone="text-emerald-400" />
