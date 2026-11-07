@@ -1,12 +1,24 @@
 import { useOSStore } from "@/os/store";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Sparkles, X, ArrowRight, Upload, Check, Loader2 } from "lucide-react";
-import { api, apiArray, apiObject, assetUrl, getToken } from "@/lib/api";
+import {
+  api,
+  apiArray,
+  apiObject,
+  assetUrl,
+  getToken,
+  listingApi,
+  listingAssetUrl,
+} from "@/lib/api";
 import { compressImage } from "@/lib/compress-image";
 import {
   BUSINESS_GUIDES,
   type SetupProfile,
   DEFAULT_SETUP,
+  LISTING_SAVED,
+  OPEN_PHOTO_INTAKE,
+  type BusinessType,
+  type PhotoIntakeRequest,
 } from "@/lib/guided-setup";
 import { installBundles } from "@/os/bundle-install";
 import { appCatalogue } from "@/os/registry";
@@ -15,6 +27,7 @@ import {
   listAppEntitlements,
 } from "@/lib/appMarketplace";
 import { installBundledModule } from "@/os/module-installer";
+import ListingInterview from "./ListingInterview";
 import BusinessSetupInterview from "./BusinessSetupInterview";
 import PhotoIntakeInterview, {
   EMPTY_PHOTO_ANSWERS,
@@ -27,6 +40,7 @@ interface Photo {
   originalName: string;
   createdAt?: string;
   status: string;
+  entityId?: string | null;
   metadata: Record<string, unknown>;
   aiSuggestions: Record<string, unknown>;
 }
@@ -60,13 +74,23 @@ export default function GuidedBusinessSetup({
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [index, setIndex] = useState(0);
   const [totalPhotos, setTotalPhotos] = useState(0);
+  const [standalone, setStandalone] = useState<PhotoIntakeRequest | null>(null);
+  const [previous, setPrevious] = useState<{ id: string; name: string } | null>(
+    null,
+  );
+  const [attach, setAttach] = useState(false);
   const [details, setDetails] = useState<PhotoAnswers>(EMPTY_PHOTO_ANSWERS);
   const [selectedAgents, setSelectedAgents] = useState([
     "operations",
     "summary",
   ]);
   const [time, setTime] = useState("18:00");
-  const guide = BUSINESS_GUIDES[profile.businessType];
+  const businessType = standalone?.type ?? profile.businessType;
+  const guide = BUSINESS_GUIDES[businessType];
+  const listingType =
+    businessType === "dealership" || businessType === "property"
+      ? businessType
+      : null;
   const photo = photos[index];
 
   useEffect(() => {
@@ -111,6 +135,7 @@ export default function GuidedBusinessSetup({
   }, [firstRun]);
 
   useEffect(() => {
+    setAttach(false);
     setDetails(
       photo
         ? {
@@ -130,11 +155,18 @@ export default function GuidedBusinessSetup({
   }, [photo]);
 
   useEffect(() => {
-    if (!open || step !== 1 || !photo || photo.aiSuggestions.name) return;
+    if (
+      !open ||
+      step !== 1 ||
+      !photo ||
+      listingType ||
+      photo.aiSuggestions.name
+    )
+      return;
     let active = true;
     request("/media/inbox/suggest", "POST", {
       itemIds: [photo.id],
-      moduleId: profile.businessType === "shop" ? "erp" : "hotel",
+      moduleId: businessType === "shop" ? "erp" : "hotel",
     })
       .then((r) => {
         if (!active) return;
@@ -157,9 +189,9 @@ export default function GuidedBusinessSetup({
     return () => {
       active = false;
     };
-  }, [open, step, photo, profile.businessType]);
+  }, [open, step, photo, businessType, listingType]);
 
-  const run = async (fn: () => Promise<void>) => {
+  const run = useCallback(async (fn: () => Promise<void>) => {
     setBusy(true);
     setError("");
     setNotice("");
@@ -170,20 +202,54 @@ export default function GuidedBusinessSetup({
     } finally {
       setBusy(false);
     }
-  };
-  const loadPhotos = async () => {
-    const all = apiArray<Photo>(await request("/media/inbox"));
+  }, []);
+  const loadPhotos = useCallback(async (type: BusinessType) => {
+    const online = type === "dealership" || type === "property";
+    const all = apiArray<Photo>(
+      await (online ? listingApi("/media/inbox") : request("/media/inbox")),
+    );
     const pending = all
       .filter(
         (p) =>
-          p.metadata.guidedBusinessType === profile.businessType &&
+          p.metadata.guidedBusinessType === type &&
           ["UNPROCESSED", "FAILED"].includes(p.status),
       )
       .sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));
     setPhotos(pending);
     setTotalPhotos(pending.length);
     setIndex(0);
-  };
+    const last = all.find(
+      (p) =>
+        p.status === "PROCESSED" &&
+        p.entityId &&
+        p.metadata.guidedBusinessType === type,
+    );
+    setPrevious(
+      last?.entityId
+        ? {
+            id: last.entityId,
+            name: String(last.metadata.name || last.originalName),
+          }
+        : null,
+    );
+  }, []);
+
+  useEffect(() => {
+    const openIntake = (event: Event) => {
+      const intake = (event as CustomEvent<PhotoIntakeRequest>).detail;
+      const type = intake?.type;
+      if (type !== "property" && type !== "dealership") return;
+      setStandalone(intake);
+      setPhotos([]);
+      setPrevious(null);
+      setOpen(true);
+      setStep(1);
+      void run(() => loadPhotos(type));
+    };
+    window.addEventListener(OPEN_PHOTO_INTAKE, openIntake);
+    return () => window.removeEventListener(OPEN_PHOTO_INTAKE, openIntake);
+  }, [loadPhotos, run]);
+
   const saveProfile = async () => {
     const services = profile.services ?? [guide.bundle];
     await request("/onboarding/guided", "PUT", {
@@ -249,7 +315,7 @@ export default function GuidedBusinessSetup({
     setHasInstallAnswers(false);
     setProfile((p) => ({ ...p, services }));
     useOSStore.getState().setAppEntitlements(await listAppEntitlements());
-    if (profile.businessType !== "other") await loadPhotos();
+    if (profile.businessType !== "other") await loadPhotos(businessType);
     setStep(profile.businessType === "other" ? 2 : 1);
     setNotice(
       profile.businessType === "other"
@@ -267,18 +333,22 @@ export default function GuidedBusinessSetup({
         const form = new FormData();
         for (const file of files.slice(offset, offset + 5))
           form.append("files", await compressImage(file));
-        await api(
-          `/media/inbox/guided/upload?businessType=${profile.businessType}`,
-          { method: "POST", body: form, offlineFallback: false },
-        );
+        const path = `/media/inbox/guided/upload?businessType=${businessType}`;
+        if (listingType) await listingApi(path, { method: "POST", body: form });
+        else
+          await api(path, {
+            method: "POST",
+            body: form,
+            offlineFallback: false,
+          });
         uploaded = Math.min(offset + 5, files.length);
         setNotice(`Uploaded ${uploaded} of ${files.length} photos`);
       }
     } catch (error) {
-      if (uploaded) await loadPhotos();
+      if (uploaded) await loadPhotos(businessType);
       throw error;
     }
-    await loadPhotos();
+    await loadPhotos(businessType);
     setNotice(
       `${profile.displayName ? `${profile.displayName}, your` : "Your"} ${uploaded} photos finished uploading. Let’s start with the first photo waiting for review.`,
     );
@@ -287,7 +357,7 @@ export default function GuidedBusinessSetup({
     const result = apiArray<{ suggestions: Record<string, unknown> }>(
       await request("/media/inbox/suggest", "POST", {
         itemIds: [photo.id],
-        moduleId: profile.businessType === "shop" ? "erp" : "hotel",
+        moduleId: businessType === "shop" ? "erp" : "hotel",
       }),
     );
     const suggestion = result[0]?.suggestions;
@@ -301,6 +371,92 @@ export default function GuidedBusinessSetup({
       "Check the suggested name and category. Please confirm the price and quantity yourself.",
     );
   };
+  const savePhoto = async (data: Record<string, unknown>, message?: string) => {
+    const path = `/media/inbox/guided/${photo.id}/confirm`;
+    const saved = apiObject<{ entityId: string; name?: string }>(
+      await (listingType
+        ? listingApi(path, {
+            method: "POST",
+            body: JSON.stringify({ ...data, currency: profile.currency }),
+          })
+        : request(path, "POST", data)),
+    );
+
+    if (saved?.entityId)
+      setPrevious({
+        id: saved.entityId,
+        name: saved.name || String(data.name),
+      });
+    if (listingType)
+      window.dispatchEvent(
+        new CustomEvent(LISTING_SAVED, { detail: listingType }),
+      );
+    setPhotos((p) => p.filter((x) => x.id !== photo.id));
+    setIndex(Math.max(0, Math.min(index, photos.length - 2)));
+    setNotice(
+      message ??
+        `Saved ${saved?.name || data.name}.${photos.length === 1 ? " All photos reviewed." : " Here’s the next photo."}`,
+    );
+  };
+
+  const saveListing = async (
+    data: Record<string, unknown>,
+    published: boolean,
+  ) => {
+    if (listingType === "dealership") {
+      const businesses = apiArray(await listingApi("/commerce/businesses"));
+      if (!businesses.length) {
+        const name = standalone?.business?.name || profile.businessName.trim();
+        if (!name)
+          throw new Error(
+            "Create a dealership in Commerce before publishing a vehicle.",
+          );
+        await listingApi("/commerce/businesses", {
+          method: "POST",
+          body: JSON.stringify({
+            name,
+            phone: standalone?.business?.phone || profile.phone,
+          }),
+        });
+      }
+    }
+    const name =
+      listingType === "dealership"
+        ? `${data.year} ${data.make} ${data.model}`
+        : String(data.title);
+    return savePhoto(
+      {
+        businessType,
+        name: name.slice(0, 120),
+        category: listingType === "dealership" ? "Vehicle" : String(data.kind),
+        price: data.price,
+        size: "",
+        stock: 0,
+        ...(listingType === "dealership"
+          ? { vehicle: data }
+          : { property: data }),
+      },
+      published ? `Published ${name}.` : `Saved ${name} as a draft.`,
+    );
+  };
+
+  const attachPhoto = () =>
+    savePhoto(
+      {
+        businessType,
+        relatedEntityId: previous?.id,
+        name: (previous?.name || "").slice(0, 120),
+        category: "",
+        price: 0,
+        stock: listingType ? 0 : Number(details.stock),
+        size: listingType ? "" : details.size,
+        color: listingType ? "" : details.color,
+      },
+      listingType
+        ? `Added a photo to ${previous?.name}.`
+        : `Added ${details.color} to ${previous?.name}.`,
+    );
+
   const confirm = async () => {
     const roomNumbers = details.roomNumbers
       .split(",")
@@ -318,8 +474,8 @@ export default function GuidedBusinessSetup({
         : variants.length
           ? variants.reduce((sum, v) => sum + v.stock, 0)
           : Number(details.stock);
-    await request(`/media/inbox/guided/${photo.id}/confirm`, "POST", {
-      businessType: profile.businessType,
+    await savePhoto({
+      businessType,
       name: details.name.trim(),
       category: details.category.trim(),
       size: details.size.trim(),
@@ -335,16 +491,10 @@ export default function GuidedBusinessSetup({
         : {}),
       variants,
     });
-    setPhotos((p) => p.filter((x) => x.id !== photo.id));
-    setIndex(Math.max(0, Math.min(index, photos.length - 2)));
-    setNotice(
-      photos.length === 1
-        ? `Saved ${details.name}. All photos reviewed.`
-        : `Saved ${details.name}. Here’s the next photo.`,
-    );
   };
   const skipPhoto = async () => {
-    await request(`/media/inbox/${photo.id}`, "PATCH", { metadata: details });
+    if (!listingType)
+      await request(`/media/inbox/${photo.id}`, "PATCH", { metadata: details });
     setPhotos((p) =>
       p.map((x) =>
         x.id === photo.id
@@ -383,6 +533,10 @@ export default function GuidedBusinessSetup({
   const close = (completed = false) => {
     sessionStorage.setItem("kobe-guided-later", "1");
     setOpen(false);
+    if (standalone) {
+      setStandalone(null);
+      setStep(0);
+    }
     if (completed) onComplete?.();
     else onDefer?.();
   };
@@ -411,14 +565,16 @@ export default function GuidedBusinessSetup({
                   Kobe AI · Your business starts here
                 </p>
                 <h2 id="guided-title" className="mt-1 text-2xl font-semibold">
-                  Let’s set up together
+                  {standalone
+                    ? `Add ${guide.noun}s from photos`
+                    : "Let’s set up together"}
                 </h2>
               </div>
               <button
                 aria-label="Continue setup later"
                 disabled={busy}
                 onClick={() => {
-                  if (step !== 1 || !photo) return close();
+                  if (step !== 1 || !photo || listingType) return close();
                   void run(async () => {
                     await request(`/media/inbox/${photo.id}`, "PATCH", {
                       metadata: details,
@@ -430,21 +586,25 @@ export default function GuidedBusinessSetup({
                 <X />
               </button>
             </header>
-            <div className="flex flex-wrap gap-3 border-b border-slate-700 px-5 py-3 text-sm">
-              {[
-                "Your business",
-                "Photos to inventory",
-                "Agents & automations",
-                "Ready",
-              ].map((label, i) => (
-                <span
-                  key={label}
-                  className={step === i ? "text-emerald-300" : "text-slate-400"}
-                >
-                  {i + 1}. {label}
-                </span>
-              ))}
-            </div>
+            {!standalone && (
+              <div className="flex flex-wrap gap-3 border-b border-slate-700 px-5 py-3 text-sm">
+                {[
+                  "Your business",
+                  "Photos to inventory",
+                  "Agents & automations",
+                  "Ready",
+                ].map((label, i) => (
+                  <span
+                    key={label}
+                    className={
+                      step === i ? "text-emerald-300" : "text-slate-400"
+                    }
+                  >
+                    {i + 1}. {label}
+                  </span>
+                ))}
+              </div>
+            )}
             <div className="space-y-5 p-5 sm:p-8">
               {step === 0 && (
                 <BusinessSetupInterview
@@ -466,6 +626,12 @@ export default function GuidedBusinessSetup({
                         Upload a batch. We’ll work through each photo together.
                         You can return later.
                       </p>
+                      {listingType && (
+                        <p className="mt-1 text-sm text-slate-400">
+                          Published listings are hosted on Kobe Cloud. Connect
+                          to the internet to upload and publish.
+                        </p>
+                      )}
                     </div>
                     <label className={`${button} cursor-pointer`}>
                       <Upload size={18} /> Add photos
@@ -488,7 +654,11 @@ export default function GuidedBusinessSetup({
                     <div className="grid gap-6 sm:grid-cols-2">
                       <div>
                         <img
-                          src={assetUrl(photo.url)}
+                          src={
+                            listingType
+                              ? listingAssetUrl(photo.url)
+                              : assetUrl(photo.url)
+                          }
                           alt={photo.originalName}
                           className="h-72 w-full rounded-2xl bg-slate-800 object-contain"
                         />
@@ -496,24 +666,137 @@ export default function GuidedBusinessSetup({
                           {totalPhotos - photos.length} of {totalPhotos} saved ·{" "}
                           {photos.length} waiting · {photo.originalName}
                         </p>
-                        <button
-                          disabled={busy}
-                          onClick={() => run(suggest)}
-                          className="mt-3 rounded-xl border border-emerald-400/50 px-4 py-2 text-emerald-300"
-                        >
-                          <Sparkles className="mr-2 inline" size={16} /> Suggest
-                          from photo
-                        </button>
+                        {!listingType && !attach && (
+                          <button
+                            disabled={busy}
+                            onClick={() => run(suggest)}
+                            className="mt-3 rounded-xl border border-emerald-400/50 px-4 py-2 text-emerald-300"
+                          >
+                            <Sparkles className="mr-2 inline" size={16} />{" "}
+                            Suggest from photo
+                          </button>
+                        )}
+                        {previous &&
+                          (listingType || businessType === "shop") &&
+                          !attach && (
+                            <button
+                              type="button"
+                              disabled={busy}
+                              className="mt-3 block rounded-xl border border-slate-600 px-4 py-2 text-left text-sm"
+                              onClick={() => setAttach(true)}
+                            >
+                              {listingType
+                                ? "Same listing, another photo"
+                                : "Same product, another colour"}
+                              <span className="block text-slate-400">
+                                {previous.name}
+                              </span>
+                            </button>
+                          )}
                       </div>
-                      <PhotoIntakeInterview
-                        key={photo.id}
-                        profile={profile}
-                        answers={details}
-                        change={setDetails}
-                        busy={busy}
-                        confirm={() => void run(confirm)}
-                        skip={() => void run(skipPhoto)}
-                      />
+                      {attach ? (
+                        <form
+                          className="space-y-4"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            void run(attachPhoto);
+                          }}
+                        >
+                          <h3 className="text-lg font-semibold">
+                            {previous?.name}
+                          </h3>
+                          <p className="text-sm text-slate-400">
+                            {listingType
+                              ? "Add this angle to the existing gallery."
+                              : "The product’s name, category and price carry over. Confirm the new colour and stock."}
+                          </p>
+                          {!listingType && (
+                            <div className="space-y-3">
+                              <label className="block">
+                                New colour
+                                <input
+                                  className={control}
+                                  maxLength={60}
+                                  value={details.color}
+                                  onChange={(e) =>
+                                    setDetails((d) => ({
+                                      ...d,
+                                      color: e.target.value,
+                                    }))
+                                  }
+                                  required
+                                />
+                              </label>
+                              <label className="block">
+                                Size (optional)
+                                <input
+                                  className={control}
+                                  maxLength={60}
+                                  value={details.size}
+                                  onChange={(e) =>
+                                    setDetails((d) => ({
+                                      ...d,
+                                      size: e.target.value,
+                                    }))
+                                  }
+                                />
+                              </label>
+                              <label className="block">
+                                Stock for this colour and size
+                                <input
+                                  className={control}
+                                  type="number"
+                                  min={0}
+                                  max={10000000}
+                                  value={details.stock}
+                                  onChange={(e) =>
+                                    setDetails((d) => ({
+                                      ...d,
+                                      stock: e.target.value,
+                                    }))
+                                  }
+                                  required
+                                />
+                              </label>
+                            </div>
+                          )}
+                          <div className="flex flex-wrap gap-3">
+                            <button disabled={busy} className={button}>
+                              {listingType
+                                ? "Add to gallery"
+                                : "Save colour & next photo"}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => setAttach(false)}
+                            >
+                              Back
+                            </button>
+                          </div>
+                        </form>
+                      ) : listingType ? (
+                        <ListingInterview
+                          key={photo.id}
+                          type={listingType}
+                          profile={profile}
+                          busy={busy}
+                          save={(data, published) =>
+                            void run(() => saveListing(data, published))
+                          }
+                          skip={() => void run(skipPhoto)}
+                        />
+                      ) : (
+                        <PhotoIntakeInterview
+                          key={photo.id}
+                          profile={profile}
+                          answers={details}
+                          change={setDetails}
+                          busy={busy}
+                          confirm={() => void run(confirm)}
+                          skip={() => void run(skipPhoto)}
+                        />
+                      )}
                     </div>
                   ) : (
                     <div className="rounded-2xl border border-dashed border-slate-600 p-12 text-center text-slate-300">
@@ -521,18 +804,28 @@ export default function GuidedBusinessSetup({
                       agents.
                     </div>
                   )}
-                  <div className="flex justify-between">
-                    <button disabled={busy} onClick={() => setStep(0)}>
-                      Back
-                    </button>
+                  {standalone ? (
                     <button
                       disabled={busy}
+                      onClick={() => close()}
                       className={button}
-                      onClick={() => setStep(2)}
                     >
-                      Set up my agents <ArrowRight size={18} />
+                      Done
                     </button>
-                  </div>
+                  ) : (
+                    <div className="flex justify-between">
+                      <button disabled={busy} onClick={() => setStep(0)}>
+                        Back
+                      </button>
+                      <button
+                        disabled={busy}
+                        className={button}
+                        onClick={() => setStep(2)}
+                      >
+                        Set up my agents <ArrowRight size={18} />
+                      </button>
+                    </div>
+                  )}
                 </>
               )}
               {step === 2 && (

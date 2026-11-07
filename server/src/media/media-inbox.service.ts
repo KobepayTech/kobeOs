@@ -1,3 +1,8 @@
+import { CommerceService } from '../commerce/commerce.service';
+import { CommerceBusiness } from '../commerce/commerce.entity';
+import { CommerceVehicle, VehicleMedia } from '../commerce/cars.entity';
+import { PropertyListing } from '../property/property-listing.entity';
+import { checkedListing } from '../property/dto/property-listing.dto';
 import { GuidedCatalogueDto } from './dto/guided-catalogue.dto';
 import { HotelRoom, HotelMenuItem } from '../hotel/hotel.entity';
 import { publicPhotoLinks } from './repair-catalog-images';
@@ -7,7 +12,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, In, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { createHash, randomBytes } from 'crypto';
 import { basename, extname } from 'path';
 import { lookup } from 'dns/promises';
@@ -15,7 +20,7 @@ import { isIP } from 'net';
 import { MediaAsset } from './media.entity';
 import { MediaInboxItem } from './media-inbox.entity';
 import { MediaAssetsService } from './media.service';
-import { PosProduct } from '../pos/pos.entity';
+import { PosProduct, ProductVariant } from '../pos/pos.entity';
 import { AiService } from '../ai/ai.service';
 import {
   ProcessMediaInboxDto,
@@ -179,6 +184,7 @@ export class MediaInboxService {
     private readonly media: MediaAssetsService,
     private readonly ai: AiService,
     private readonly dataSource: DataSource,
+    private readonly commerce: CommerceService,
   ) {}
 
   /** Shop bytes may only enter a shop-server database, never a hosted DB. */
@@ -191,7 +197,7 @@ export class MediaInboxService {
   }
 
   async guidedUpload(ownerId: string, businessType: string, files: Express.Multer.File[]) {
-    if (!['shop', 'hotel', 'restaurant'].includes(businessType)) throw new BadRequestException('Choose your business type');
+    if (!['shop', 'hotel', 'restaurant', 'dealership', 'property'].includes(businessType)) throw new BadRequestException('Choose your business type');
     if (businessType === 'shop') this.requireShopServer();
     if (files.some(file => !file.mimetype.startsWith('image/'))) throw new BadRequestException('Choose images only');
     const results = await this.upload(ownerId, files);
@@ -206,24 +212,116 @@ export class MediaInboxService {
     return results;
   }
 
+  private async attachGuidedPhoto(manager: EntityManager, ownerId: string, item: MediaInboxItem, dto: GuidedCatalogueDto, entityId: string) {
+    if (dto.businessType === 'shop') {
+      const products = manager.getRepository(PosProduct);
+      const product = await products.findOne({ where: { id: entityId, ownerId }, lock: { mode: 'pessimistic_write' } });
+      if (!product) throw new NotFoundException('Product not found');
+      const color = dto.color?.trim();
+      if (!color) throw new BadRequestException('Enter the new colour');
+      const size = dto.size.trim();
+      const variants: ProductVariant[] = [...(product.variants ?? [])];
+      if (!variants.length) {
+        const original = { color: String(product.customData?.color ?? ''), size: String(product.customData?.size ?? '') };
+        variants.push({
+          id: product.id, sku: product.sku, name: [original.color, original.size].filter(Boolean).join(' / ') || 'Original',
+          stock: Number(product.stock), price: Number(product.price), attributes: original, imageUrl: product.imageUrl ?? undefined,
+        });
+      }
+      const usesSizes = Boolean(size) || variants.some(v => Boolean(v.attributes?.size));
+      const sizeOption = usesSizes ? size || 'Standard' : '';
+      const option = (v: ProductVariant) => ({
+        ...v.attributes, color: v.attributes?.color || 'Original', size: usesSizes ? v.attributes?.size || 'Standard' : '',
+      });
+      if (variants.some(v => option(v).color.toLowerCase() === color.toLowerCase()
+        && option(v).size.toLowerCase() === sizeOption.toLowerCase())) {
+        throw new BadRequestException('This colour and size SKU already exists');
+      }
+      if (variants.length >= 50) throw new BadRequestException('A product can have up to 50 SKUs');
+      variants.push({
+        id: item.id, sku: `${product.sku}-${item.id.slice(0, 8)}`, name: [color, size].filter(Boolean).join(' / '),
+        price: Number(product.price), stock: dto.stock, attributes: { color, size: sizeOption }, imageUrl: item.url,
+      });
+      product.variants = variants.map(v => ({ ...v, attributes: option(v) }));
+      product.stock = Number(product.stock) + dto.stock;
+      product.imageUrls = [...new Set([product.imageUrl, ...(product.imageUrls ?? []), item.url].filter((url): url is string => Boolean(url)))];
+      const requiredOptions = ['color', ...(usesSizes ? ['size'] : [])];
+      product.customData = { ...product.customData, requiredOptions };
+      await products.save(product);
+      return { type: 'product', module: 'erp', name: product.name };
+    }
+    if (dto.businessType === 'dealership') {
+      const business = await manager.getRepository(CommerceBusiness).findOneBy({ ownerUserId: ownerId });
+      if (!business) throw new NotFoundException('Create or link a dealership first');
+      const vehicle = await manager.getRepository(CommerceVehicle).findOne({ where: { id: entityId, businessId: business.id }, lock: { mode: 'pessimistic_write' } });
+      if (!vehicle) throw new NotFoundException('Vehicle not found');
+      const media = manager.getRepository(VehicleMedia);
+      if (await media.countBy({ vehicleId: entityId }) >= 50) throw new BadRequestException('This vehicle gallery is full');
+      const last = await media.findOne({ where: { vehicleId: entityId }, order: { sortOrder: 'DESC' } });
+      await media.save(media.create({ vehicleId: entityId, url: item.url, kind: 'IMAGE', sortOrder: (last?.sortOrder ?? -1) + 1 }));
+      return { type: 'vehicle', module: 'commerce', name: `${vehicle.year} ${vehicle.make} ${vehicle.model}` };
+    }
+    if (dto.businessType === 'property') {
+      const listings = manager.getRepository(PropertyListing);
+      const listing = await listings.findOne({ where: { id: entityId, ownerId }, lock: { mode: 'pessimistic_write' } });
+      if (!listing) throw new NotFoundException('Property listing not found');
+      if (listing.imageUrls.length >= 50) throw new BadRequestException('This property gallery is full');
+      listing.imageUrls = [...new Set([...listing.imageUrls, item.url])];
+      await listings.save(listing);
+      return { type: 'property-listing', module: 'property', name: listing.title };
+    }
+    throw new BadRequestException('This setup does not support attaching photos');
+  }
+
   /** One photo is one atomic confirmation. Retrying after a lost reply reuses it. */
   async confirmGuided(ownerId: string, id: string, dto: GuidedCatalogueDto) {
     if (dto.businessType === 'shop') this.requireShopServer();
     if (dto.discountPrice != null && (dto.businessType !== 'shop' || dto.discountPrice >= dto.price)) {
       throw new BadRequestException('Enter a discount reference below the regular price');
     }
-    if (!dto.name.trim() || !dto.category.trim()) throw new BadRequestException('Confirm a name and category');
+    if (!dto.relatedEntityId && (!dto.name.trim() || !dto.category.trim())) throw new BadRequestException('Confirm a name and category');
     return this.dataSource.transaction(async manager => {
       const repo = manager.getRepository(MediaInboxItem);
       const item = await repo.findOne({ where: { ownerId, id }, lock: { mode: 'pessimistic_write' } });
       if (!item) throw new NotFoundException('Photo not found');
       if (item.metadata.guidedBusinessType !== dto.businessType) throw new BadRequestException('This photo belongs to a different setup');
-      if (item.status === 'PROCESSED') return { itemId: item.id, entityId: item.entityId, duplicate: true };
+      if (item.status === 'PROCESSED') return { itemId: item.id, entityId: item.entityId, ...(item.metadata.name ? { name: item.metadata.name } : {}), duplicate: true };
       if (item.status === 'PROCESSING') throw new BadRequestException('Photo is already processing');
       const setup = await manager.query('SELECT "guidedSetup" FROM user_onboarding WHERE "ownerId" = $1', [ownerId]);
-      const currency = setup[0]?.guidedSetup?.currency || 'TZS';
+      const currency = dto.currency ?? (setup[0]?.guidedSetup?.currency || 'TZS');
       let entityId: string;
-      if (dto.businessType === 'shop') {
+      let name = dto.name.trim();
+      if (dto.relatedEntityId) {
+        const target = await this.attachGuidedPhoto(manager, ownerId, item, dto, dto.relatedEntityId);
+        entityId = dto.relatedEntityId;
+        item.entityType = target.type;
+        item.moduleId = target.module;
+        name = target.name;
+      } else if (dto.businessType === 'dealership') {
+        if (!dto.vehicle || dto.price <= 0) throw new BadRequestException('Confirm vehicle details and asking price');
+        const { published, availability, ...details } = dto.vehicle;
+        if (![details.make, details.model, details.location, details.transmission, details.fuel, details.color].every(value => value.trim())) {
+          throw new BadRequestException('Confirm the make, model, location, transmission, fuel and colour');
+        }
+        const vehicle = await this.commerce.createVehicle(ownerId, {
+          ...details, make: details.make.trim(), model: details.model.trim(), currency, price: dto.price,
+          status: published ? availability : 'DRAFT', mediaUrls: [item.url], aiSalesCopy: details.description,
+        }, manager);
+        entityId = vehicle.id;
+        item.entityType = 'vehicle';
+        item.moduleId = 'commerce';
+        name = `${vehicle.year} ${vehicle.make} ${vehicle.model}`;
+      } else if (dto.businessType === 'property') {
+        if (!dto.property) throw new BadRequestException('Confirm the property listing details');
+        const listings = manager.getRepository(PropertyListing);
+        const listing = await listings.save(listings.create({
+          ...checkedListing(dto.property), ownerId, currency, imageUrls: [item.url],
+        }));
+        entityId = listing.id;
+        item.entityType = 'property-listing';
+        item.moduleId = 'property';
+        name = listing.title;
+      } else if (dto.businessType === 'shop') {
         const products = manager.getRepository(PosProduct);
         const sku = `PHOTO-${item.id}`;
         const variantKeys = new Set<string>();
@@ -269,11 +367,11 @@ export class MediaInboxService {
         item.entityType = 'menu-item'; item.moduleId = 'hotel';
       }
       item.entityId = entityId; item.status = 'PROCESSED'; item.processedAt = new Date();
-      item.metadata = { ...item.metadata, ...dto, guidedBusinessType: dto.businessType };
+      item.metadata = { ...item.metadata, ...dto, name, guidedBusinessType: dto.businessType };
       item.folder = `processed/${item.moduleId}/${item.entityType}`;
       item.error = '';
       await repo.save(item);
-      return { itemId: item.id, entityId, duplicate: false };
+      return { itemId: item.id, entityId, name, duplicate: false };
     });
   }
 

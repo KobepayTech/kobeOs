@@ -1,4 +1,5 @@
-export type BusinessType = "shop" | "hotel" | "restaurant" | "other";
+export type BusinessType =
+  "shop" | "hotel" | "restaurant" | "dealership" | "property" | "other";
 export interface SetupProfile {
   businessType: BusinessType;
   businessName: string;
@@ -24,7 +25,43 @@ export const DEFAULT_SETUP: SetupProfile = {
   timezone: "Africa/Dar_es_Salaam",
 };
 
+export type ListingType = "dealership" | "property";
+export const OPEN_PHOTO_INTAKE = "kobe:open-photo-intake";
+export const LISTING_SAVED = "kobe:listing-saved";
+
+export type PhotoIntakeRequest = {
+  type: ListingType;
+  business?: { name: string; phone?: string };
+};
+
+export function openPhotoIntake(
+  type: ListingType,
+  business?: PhotoIntakeRequest["business"],
+) {
+  window.dispatchEvent(
+    new CustomEvent<PhotoIntakeRequest>(OPEN_PHOTO_INTAKE, {
+      detail: { type, business },
+    }),
+  );
+}
+
 export const BUSINESS_GUIDES = {
+  dealership: {
+    label: "Car dealership",
+    bundle: "automotive",
+    noun: "vehicle",
+    objective:
+      "Summarise vehicle inventory and follow-up priorities from available business records.",
+    modules: ["erp", "reports"],
+  },
+  property: {
+    label: "Real estate",
+    bundle: "property",
+    noun: "property listing",
+    objective:
+      "Summarise the property portfolio, available units and follow-up priorities.",
+    modules: ["property", "reports"],
+  },
   other: {
     label: "Other business or personal",
     bundle: "office",

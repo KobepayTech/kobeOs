@@ -13,8 +13,8 @@ import {
 } from "class-validator";
 
 export class GuidedSetupDto {
-  @IsIn(["shop", "hotel", "restaurant", "other"]) businessType!:
-    "shop" | "hotel" | "restaurant" | "other";
+  @IsIn(["shop", "hotel", "restaurant", "dealership", "property", "other"]) businessType!:
+    "shop" | "hotel" | "restaurant" | "dealership" | "property" | "other";
   @IsString() @MaxLength(120) businessName!: string;
   @IsString() @MaxLength(160) location!: string;
   @IsString() @MaxLength(40) phone!: string;

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -7,7 +8,8 @@ import {
   waitFor,
 } from "@testing-library/react";
 import GuidedBusinessSetup from "./GuidedBusinessSetup";
-import { api } from "@/lib/api";
+import { api, listingApi } from "@/lib/api";
+import { openPhotoIntake } from "@/lib/guided-setup";
 vi.mock("@/os/registry", () => ({ appCatalogue: [] }));
 vi.mock("@/os/bundle-install", () => ({
   installBundles: vi.fn(async () => ({ failed: [], modules: [] })),
@@ -22,6 +24,8 @@ vi.mock("@/os/store", () => ({
 }));
 vi.mock("@/lib/api", () => ({
   api: vi.fn(),
+  listingApi: vi.fn(),
+  listingAssetUrl: (s: string) => s,
   getToken: () => "token",
   assetUrl: (s: string) => s,
   apiObject: (v: unknown) => v,
@@ -50,6 +54,7 @@ const photo = (id: string) => ({
 beforeEach(() => {
   sessionStorage.clear();
   vi.mocked(api).mockReset();
+  vi.mocked(listingApi).mockReset();
 });
 afterEach(cleanup);
 function setup(photos: unknown[] = []) {
@@ -57,6 +62,8 @@ function setup(photos: unknown[] = []) {
     if (path === "/onboarding/guided") return profile as never;
     if (path === "/media/inbox") return photos as never;
     if (path === "/ai/agents") return [] as never;
+    if (path.endsWith("/confirm"))
+      return { entityId: "saved-product", name: "Jeans" } as never;
     return {} as never;
   });
   render(<GuidedBusinessSetup />);
@@ -83,7 +90,8 @@ async function prepareWorkspace() {
   expect(screen.getByText(/Shop floor, stock/)).toBeTruthy();
   next();
   fireEvent.click(screen.getByRole("button", { name: /Prepare my workspace/ }));
-  await screen.findByLabelText("Bulk upload photos");
+  const upload = await screen.findByLabelText("Bulk upload photos");
+  await waitFor(() => expect(upload).toBeEnabled());
 }
 
 function answerPhotoWithVariant() {
@@ -95,7 +103,8 @@ function answerPhotoWithVariant() {
   next();
   fill(/asks for a discount/, "55000");
   next();
-  next(); // Keep the suggested category.
+  fill(/Which category/, "Clothes");
+  next();
   fireEvent.click(
     screen.getByRole("button", { name: /Add colour or size SKU/ }),
   );
@@ -142,6 +151,37 @@ describe("AI business setup", () => {
       discountPrice: 55000,
       stock: 7,
       variants: [{ color: "Blue", size: "32", price: 60000, stock: 7 }],
+    });
+  });
+
+  it("adds the next image as another colour without repeating the price questions", async () => {
+    setup([photo("shirt"), photo("trousers")]);
+    await prepareWorkspace();
+    answerPhotoWithVariant();
+    fireEvent.click(screen.getByRole("button", { name: /Save & next photo/ }));
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /Same product, another colour/,
+      }),
+    );
+    expect(screen.queryByLabelText(/regular price/)).toBeNull();
+    fill("New colour", "Black");
+    fill("Size (optional)", "32");
+    fill("Stock for this colour and size", "4");
+    fireEvent.click(
+      screen.getByRole("button", { name: /Save colour & next photo/ }),
+    );
+    expect(await screen.findByText("Added Black to Jeans.")).toBeTruthy();
+    const attach = vi
+      .mocked(api)
+      .mock.calls.find(
+        ([path]) => path === "/media/inbox/guided/trousers/confirm",
+      );
+    expect(JSON.parse(String(attach?.[1]?.body))).toMatchObject({
+      relatedEntityId: "saved-product",
+      color: "Black",
+      size: "32",
+      stock: 4,
     });
   });
 
@@ -193,6 +233,48 @@ describe("AI business setup", () => {
     expect(
       screen.getByText(/Steve, your 60 photos finished uploading/),
     ).toBeTruthy();
+  });
+
+  it("opens the online property interview from Properties and previews before publishing", async () => {
+    vi.mocked(listingApi).mockImplementation(async (path) =>
+      path === "/media/inbox"
+        ? ([
+            {
+              ...photo("apartment"),
+              metadata: { guidedBusinessType: "property" },
+            },
+          ] as never)
+        : ({ entityId: "listing", name: "Mbezi apartment" } as never),
+    );
+    setup();
+    await screen.findByRole("dialog");
+    act(() => openPhotoIntake("property"));
+    await screen.findByText("What space are you listing?");
+    fill("Property type", "Apartment");
+    fill("Listing title", "Mbezi apartment");
+    fill("Neighbourhood and city", "Mbezi Beach");
+    next();
+    fill(/Monthly rent/, "800000");
+    fill(/Bedrooms/, "2");
+    next();
+    next();
+    expect(screen.getByText("Preview before publishing")).toBeTruthy();
+    expect(
+      vi
+        .mocked(listingApi)
+        .mock.calls.some(([path]) => path.endsWith("/confirm")),
+    ).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Publish listing" }));
+    expect(await screen.findByText("Published Mbezi apartment.")).toBeTruthy();
+    const published = vi
+      .mocked(listingApi)
+      .mock.calls.find(
+        ([path]) => path === "/media/inbox/guided/apartment/confirm",
+      );
+    expect(JSON.parse(String(published?.[1]?.body))).toMatchObject({
+      currency: "TZS",
+      property: { offer: "RENT", bedrooms: 2, price: 800000, published: true },
+    });
   });
 
   it("creates only the selected agents on the chosen timezone", async () => {

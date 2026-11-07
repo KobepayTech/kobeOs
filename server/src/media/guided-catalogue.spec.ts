@@ -60,6 +60,7 @@ function fixture(itemOverride: Record<string, unknown> = {}) {
     null as any,
     null as any,
     db as any,
+    null as any,
   );
   return { service, db, item, inbox, products, rooms };
 }

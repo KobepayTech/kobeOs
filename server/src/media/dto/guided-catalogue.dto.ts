@@ -1,3 +1,5 @@
+import { GuidedVehicleDto } from './guided-vehicle.dto';
+import { PropertyListingDto } from '../../property/dto/property-listing.dto';
 import { Type } from "class-transformer";
 import {
   ArrayMaxSize,
@@ -8,6 +10,8 @@ import {
   IsNumber,
   IsOptional,
   IsString,
+  IsUUID,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -21,8 +25,12 @@ export class GuidedVariantDto {
   @IsInt() @Min(0) @Max(10000000) stock!: number;
 }
 export class GuidedCatalogueDto {
-  @IsIn(["shop", "hotel", "restaurant"]) businessType!:
-    "shop" | "hotel" | "restaurant";
+  @IsIn(["shop", "hotel", "restaurant", "dealership", "property"]) businessType!:
+    "shop" | "hotel" | "restaurant" | "dealership" | "property";
+  @IsOptional() @IsUUID() relatedEntityId?: string;
+  @IsOptional() @Matches(/^[A-Z]{3}$/) currency?: string;
+  @IsOptional() @ValidateNested() @Type(() => GuidedVehicleDto) vehicle?: GuidedVehicleDto;
+  @IsOptional() @ValidateNested() @Type(() => PropertyListingDto) property?: PropertyListingDto;
   @IsString() @MaxLength(120) name!: string;
   @IsOptional() @IsString() @MaxLength(60) color?: string;
   @IsOptional() @IsNumber() @Min(0) @Max(1e12) discountPrice?: number;
