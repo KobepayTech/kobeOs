@@ -11,12 +11,13 @@ import { CreditService } from '../credit/credit.service';
 import { JournalService } from '../erp/journal.service';
 import { PosGateway } from './pos.gateway';
 import { repairCatalogImages } from '../media/repair-catalog-images';
+import { AuditService } from '../audit/audit.service';
 import { ProductSnippet } from '../commerce/commerce.entity';
 import { CLOUD_COMMITTED_FOR_PRODUCT_SQL } from '../cloud-continuity/continuity.rules';
 
 @Injectable()
 export class ProductsService {
-  constructor(@InjectRepository(PosProduct) private readonly repo: Repository<PosProduct>) {}
+  constructor(@InjectRepository(PosProduct) private readonly repo: Repository<PosProduct>, private readonly audit: AuditService) {}
 
   async list(uid: string, page = 1, limit = 500) {
     const safeLimit = Math.min(1000, Math.max(1, limit));
@@ -30,17 +31,33 @@ export class ProductsService {
     return item;
   }
 
+  async photoIssues(uid: string) {
+    return this.repo.createQueryBuilder('product').select(['product.id', 'product.name', 'product.photoRepair'])
+      .where('product."ownerId" = :uid', { uid })
+      .andWhere('jsonb_array_length(product."photoRepair"->\'unresolved\') > 0').take(500).getMany();
+  }
+
+  async retryPhoto(uid: string, id: string) {
+    const row = await this.get(uid, id);
+    await repairCatalogImages(this.repo, uid, [row], true);
+    await this.audit.log({ action: 'UPDATE', entityType: 'product_photo_repair', entityId: id, userId: uid,
+      metadata: { unresolvedCount: row.photoRepair?.unresolved.length ?? 0 } });
+    return row;
+  }
+
   async create(uid: string, dto: CreateProductDto) {
     // Direct catalogue creation is deliberately treated as a Quick Add
     // import. PO-origin products must be created by the receiving workflow so
     // stock and costs remain linked to the purchase order.
     const sku = dto.sku?.trim() || (await this.generateSku(uid, dto.name));
-    return this.repo.save(this.repo.create({
+    const product = await this.repo.save(this.repo.create({
       ...dto,
       sku,
       ownerId: uid,
       sourceType: dto.sourceType ?? 'QUICK_ADD_IMPORT',
     }));
+    await repairCatalogImages(this.repo, uid, [product]);
+    return product;
   }
 
   /**
@@ -66,7 +83,7 @@ export class ProductsService {
    * atomic decrement and with an allotment being granted at the same time.
    */
   async update(uid: string, id: string, dto: UpdateProductDto) {
-    return this.repo.manager.transaction(async (tx) => {
+    const saved = await this.repo.manager.transaction(async (tx) => {
       const repo = tx.getRepository(PosProduct);
       const item = await repo.findOne({ where: { id, ownerId: uid }, lock: { mode: 'pessimistic_write' } });
       if (!item) throw new NotFoundException();
@@ -88,8 +105,11 @@ export class ProductsService {
       }
 
       Object.assign(item, dto);
+      if (dto.imageUrl !== undefined || dto.imageUrls !== undefined) item.photoRepair = null;
       return repo.save(item);
     });
+    if (dto.imageUrl !== undefined || dto.imageUrls !== undefined) await repairCatalogImages(this.repo, uid, [saved]);
+    return saved;
   }
 
   async remove(uid: string, id: string) {
