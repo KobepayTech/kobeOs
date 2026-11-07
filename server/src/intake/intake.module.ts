@@ -6,6 +6,7 @@ import { IntakeService } from './intake.service';
 import { CommerceProductMedia } from '../commerce/commerce.entity';
 import { CommerceModule } from '../commerce/commerce.module';
 import { HotelMenuItem, HotelRoom } from '../hotel/hotel.entity';
+import { PosProduct } from '../pos/pos.entity';
 import { AiModule } from '../ai/ai.module';
 
 /**
@@ -17,6 +18,7 @@ import { AiModule } from '../ai/ai.module';
   imports: [
     TypeOrmModule.forFeature([
       IntakeSession, IntakeItem, CommerceProductMedia, HotelRoom, HotelMenuItem,
+      PosProduct,
     ]),
     CommerceModule,
     AiModule,

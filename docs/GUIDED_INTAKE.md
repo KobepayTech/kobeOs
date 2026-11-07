@@ -67,6 +67,33 @@ With no model installed — the common case on a shop machine — the questions
 arrive empty and everything still works. A model that is missing or offline is
 recorded as attempted with nothing rather than retried.
 
+## The richer shop and hotel answers
+
+Ported from the parallel implementation in `media-inbox`, because these were
+the parts of it worth keeping:
+
+**Variants.** A shelf holds "Shirt, blue, M" and "Shirt, red, L" as separate
+things to sell, and one price and stock figure per photo cannot say that. One
+photo becomes one product with a variant per size and colour, each with its own
+SKU so the till knows what was bought. The product's stock becomes the sum of
+them, because a shelf holding four blue M and two red L has six. Two rows for
+the same size and colour are refused: that is not two things to sell, it is a
+mistake that leaves the till unable to say which was sold. When every variant
+carries both a size and a colour, both become required choices at checkout.
+
+**Discount reference.** An internal negotiated-price figure, which must sit
+below the price being charged — one at or above it is a typo or not a discount.
+The column is `select: false`, so it cannot leak into a catalogue response by
+accident; a test reads it explicitly and asserts an ordinary read does not
+carry it.
+
+**Room batches.** A photo is usually of a room *type*, and a hotel has several
+identical rooms, so one photo can become several numbered rooms. Numbers must
+be unique within the batch and must not already exist, checked under a
+per-owner advisory lock: a check followed by an insert is a race, and two rooms
+called 101 cannot both be booked. With no numbers given it makes a single room
+named by the answer.
+
 ## Durability
 
 The queue is a pair of tables, not memory. A merchant photographing eighty
@@ -156,3 +183,22 @@ again.
 Verified by `server/src/onboarding/setup-plan.spec.ts` (25 tests) and
 `server/test/setup-provisioning.e2e-spec.ts` (15 tests, including the
 read-only guarantee and partial failure).
+
+
+## Still duplicated, and what finishes it
+
+The `media-inbox` guided routes (`POST /media/inbox/guided/upload`,
+`POST /media/inbox/guided/:id/confirm`) remain, because
+`src/components/GuidedBusinessSetup.tsx` calls them. Their capabilities now
+exist here too, so the backends are equivalent rather than complementary.
+
+The difference is where the queue lives. Theirs holds the photo list and the
+position in client state, so a reload loses the batch; this one holds both on
+the server, which is the point for eighty photos answered over several
+sittings on a phone.
+
+Finishing the consolidation means pointing that component at `/api/intake/*`
+and deleting the `media-inbox` guided surface. It is left as its own step
+because that component is 986 lines with its own tests built around the
+client-side queue, and breaking a working screen to remove a duplicate backend
+is the wrong order.

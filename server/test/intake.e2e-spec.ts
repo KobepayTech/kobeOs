@@ -337,6 +337,169 @@ describe('Guided catalogue intake (e2e)', () => {
     });
   });
 
+  describe('the richer shop answer', () => {
+    it('creates one product with a sellable variant per size and colour', async () => {
+      // A shelf holds "Shirt blue M" and "Shirt red L" as separate things to
+      // sell; one price and one stock figure per photo cannot say that.
+      const me = await signUp('intake-variants@e2e.test');
+      const step = await startSession(me.token, 'SHOP_PRODUCT', 1);
+
+      const res = await request(http).post(`/api/intake/items/${step.item.id}/answer`)
+        .set(auth(me.token)).send({
+          answers: {
+            name: 'Shirt', price: 25000, stock: 0, category: 'Clothing',
+            variants: [
+              { size: 'M', color: 'Blue', price: 25000, stock: 4 },
+              { size: 'L', color: 'Red', price: 27000, stock: 2 },
+            ],
+          },
+        });
+
+      expect(res.body.problems).toEqual([]);
+      const [product] = await ds.getRepository(PosProduct).find({ where: { ownerId: me.id } });
+      expect(product.variants).toHaveLength(2);
+      expect(product.variants.map((v) => v.name)).toEqual(['Blue / M', 'Red / L']);
+      // Stock becomes the sum, because the shelf holds six, not the zero typed
+      // against the photo.
+      expect(product.stock).toBe(6);
+      // Each combination gets its own SKU, so the till knows what was bought.
+      expect(new Set(product.variants.map((v) => v.sku)).size).toBe(2);
+    });
+
+    it('requires size and colour choices when every variant has both', async () => {
+      const me = await signUp('intake-required@e2e.test');
+      const step = await startSession(me.token, 'SHOP_PRODUCT', 1);
+
+      await request(http).post(`/api/intake/items/${step.item.id}/answer`).set(auth(me.token))
+        .send({
+          answers: {
+            name: 'Shirt', price: 25000, stock: 0,
+            variants: [
+              { size: 'M', color: 'Blue', price: 25000, stock: 4 },
+              { size: 'L', color: 'Red', price: 27000, stock: 2 },
+            ],
+          },
+        });
+
+      const [product] = await ds.getRepository(PosProduct).find({ where: { ownerId: me.id } });
+      expect(product.customData.requiredOptions).toEqual(['size', 'color']);
+    });
+
+    it('refuses the same size and colour twice, and creates nothing', async () => {
+      const me = await signUp('intake-dupvariant@e2e.test');
+      const step = await startSession(me.token, 'SHOP_PRODUCT', 1);
+
+      const res = await request(http).post(`/api/intake/items/${step.item.id}/answer`)
+        .set(auth(me.token)).send({
+          answers: {
+            name: 'Shirt', price: 25000, stock: 1,
+            variants: [
+              { size: 'M', color: 'Blue', price: 1, stock: 1 },
+              { size: 'm', color: 'blue', price: 1, stock: 1 },
+            ],
+          },
+        });
+
+      expect(res.body.created).toBeNull();
+      expect(res.body.problems.map((p: { field: string }) => p.field)).toEqual(['variants[1]']);
+      expect(await ds.getRepository(PosProduct).count({ where: { ownerId: me.id } })).toBe(0);
+    });
+
+    it('stores a discount reference without exposing it in catalogue reads', async () => {
+      const me = await signUp('intake-discount@e2e.test');
+      const first = await startSession(me.token, 'SHOP_PRODUCT', 2);
+
+      const good = await request(http).post(`/api/intake/items/${first.item.id}/answer`)
+        .set(auth(me.token))
+        .send({ answers: { name: 'Shoes', price: 60000, stock: 3, discountPrice: 48000 } });
+      expect(good.body.problems).toEqual([]);
+      // Read explicitly: the column is select:false so a negotiated-price
+      // reference cannot leak into a catalogue response by accident.
+      const stored = await ds.getRepository(PosProduct).createQueryBuilder('p')
+        .addSelect('p.discountReferencePrice')
+        .where('p."ownerId" = :owner', { owner: me.id }).getOne();
+      expect(Number(stored?.discountReferencePrice)).toBe(48000);
+
+      // And an ordinary read does not carry it.
+      const [plain] = await ds.getRepository(PosProduct).find({ where: { ownerId: me.id } });
+      expect(plain.discountReferencePrice).toBeUndefined();
+
+      const bad = await request(http).post(`/api/intake/items/${good.body.item.id}/answer`)
+        .set(auth(me.token))
+        .send({ answers: { name: 'Hat', price: 10000, stock: 1, discountPrice: 12000 } });
+      expect(bad.body.problems.map((p: { field: string }) => p.field)).toEqual(['discountPrice']);
+    });
+  });
+
+  describe('a photo of a room type', () => {
+    it('creates one room per number behind a single photo', async () => {
+      // A hotel has several identical rooms and one photo of them.
+      const me = await signUp('intake-roombatch@e2e.test');
+      const step = await startSession(me.token, 'HOTEL_ROOM', 1);
+
+      const res = await request(http).post(`/api/intake/items/${step.item.id}/answer`)
+        .set(auth(me.token)).send({
+          answers: {
+            name: 'Standard twin', roomType: 'Twin', price: 45000, capacity: 2,
+            roomNumbers: ['201', '202', '203'],
+          },
+        });
+
+      expect(res.body.problems).toEqual([]);
+      expect(res.body.created.name).toMatch(/3 rooms/);
+      const rooms = await ds.getRepository(HotelRoom).find({ where: { ownerId: me.id } });
+      expect(rooms.map((r) => r.roomNumber).sort()).toEqual(['201', '202', '203']);
+      for (const room of rooms) {
+        expect(room).toMatchObject({ type: 'Twin', capacity: 2, status: 'available' });
+        expect(room.imageUrl).toBe(step.item.imageUrl);
+      }
+    });
+
+    it('refuses a number that already exists rather than making a twin of it', async () => {
+      // Two rooms called 201 cannot both be booked.
+      const me = await signUp('intake-roomclash@e2e.test');
+      const first = await startSession(me.token, 'HOTEL_ROOM', 2);
+      await request(http).post(`/api/intake/items/${first.item.id}/answer`).set(auth(me.token))
+        .send({ answers: { name: 'Twin', roomType: 'Twin', price: 45000, roomNumbers: ['201'] } });
+
+      const step = await request(http).get(`/api/intake/sessions/${first.sessionId}`).set(auth(me.token));
+      const res = await request(http).post(`/api/intake/items/${step.body.item.id}/answer`)
+        .set(auth(me.token))
+        .send({ answers: { name: 'Twin', roomType: 'Twin', price: 45000, roomNumbers: ['201', '202'] } });
+
+      expect(res.body.created).toBeNull();
+      // The photo is marked failed with the reason, and stays recoverable.
+      const items = await ds.getRepository(IntakeItem).find({ where: { ownerId: me.id } });
+      const failed = items.find((item) => item.status === 'FAILED');
+      expect(failed?.lastError).toMatch(/Room 201 already exists/i);
+      expect(await ds.getRepository(HotelRoom).count({ where: { ownerId: me.id } })).toBe(1);
+    });
+
+    it('still makes a single room when no numbers are given', async () => {
+      const me = await signUp('intake-oneroom@e2e.test');
+      const step = await startSession(me.token, 'HOTEL_ROOM', 1);
+
+      await request(http).post(`/api/intake/items/${step.item.id}/answer`).set(auth(me.token))
+        .send({ answers: { name: '301', roomType: 'Double', price: 50000 } });
+
+      const rooms = await ds.getRepository(HotelRoom).find({ where: { ownerId: me.id } });
+      expect(rooms.map((r) => r.roomNumber)).toEqual(['301']);
+    });
+
+    it('refuses two rooms sharing a number inside one batch', async () => {
+      const me = await signUp('intake-roomdup@e2e.test');
+      const step = await startSession(me.token, 'HOTEL_ROOM', 1);
+
+      const res = await request(http).post(`/api/intake/items/${step.item.id}/answer`)
+        .set(auth(me.token)).send({
+          answers: { name: 'Twin', roomType: 'Twin', price: 45000, roomNumbers: ['201', '201'] },
+        });
+
+      expect(res.body.problems.map((p: { field: string }) => p.field)).toEqual(['roomNumbers']);
+      expect(await ds.getRepository(HotelRoom).count({ where: { ownerId: me.id } })).toBe(0);
+    });
+  });
+
   describe('ownership', () => {
     it('keeps one merchant out of another batch', async () => {
       const mine = await signUp('intake-mine@e2e.test');
