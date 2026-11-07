@@ -21,7 +21,8 @@ function Photo({ src, alt, ...props }: { src?: string; alt: string; className?: 
   return <img {...props} src={src || lalaPhoto} alt={alt} onError={event => { if (event.currentTarget.src !== lalaPhoto) event.currentTarget.src = lalaPhoto; }} />;
 }
 function useDialogFocus(panel: RefObject<HTMLDivElement | null>, onClose: () => void, enabled = true) {
-  const closeRef = useRef(onClose); closeRef.current = onClose;
+  const closeRef = useRef(onClose);
+  useEffect(() => { closeRef.current = onClose; }, [onClose]);
   useEffect(() => {
     if (!enabled) return;
     const previous = document.activeElement as HTMLElement | null;

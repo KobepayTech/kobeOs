@@ -1,3 +1,5 @@
+import { PropertyListing } from './property-listing.entity';
+import { PropertyListingController, PublicPropertyListingController } from './property-listing.controller';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AiModule } from '../ai/ai.module';
@@ -73,6 +75,7 @@ import { PropertyExtraController } from './property-extra.controller';
       PropertyPaymentOrder,
       PropertyPaymentRedemption,
       PropertyDocument,
+      PropertyListing,
     ]),
   ],
   providers: [
@@ -97,6 +100,8 @@ import { PropertyExtraController } from './property-extra.controller';
   ],
   controllers: [
     PropertyController,
+    PropertyListingController,
+    PublicPropertyListingController,
     PropertyExtraController,
     PosysController,
     PosysTokensController,

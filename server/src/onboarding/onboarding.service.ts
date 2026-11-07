@@ -1,3 +1,4 @@
+import { GuidedSetupDto } from './guided-setup.dto';
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
@@ -15,6 +16,27 @@ export class OnboardingService {
     @InjectRepository(StoreSettings) private readonly settings: Repository<StoreSettings>,
     @InjectRepository(AppEntitlement) private readonly entitlements: Repository<AppEntitlement>,
   ) {}
+
+  async guided(ownerId: string) {
+    return (await this.repo.findOne({ where: { ownerId } }))?.guidedSetup ?? null;
+  }
+
+  async saveGuided(ownerId: string, dto: GuidedSetupDto) {
+    if (!dto.businessName.trim()) throw new BadRequestException('Enter your business name');
+    try { new Intl.DateTimeFormat('en', { timeZone: dto.timezone }); }
+    catch { throw new BadRequestException('Choose a valid timezone'); }
+    const setup = {
+      ...dto,
+      businessName: dto.businessName.trim(),
+      displayName: dto.displayName?.trim(),
+      documentName: dto.documentName?.trim(),
+    };
+    await this.repo.manager.transaction(async (manager) => {
+      await manager.getRepository(UserOnboarding).upsert({ ownerId, guidedSetup: setup }, ['ownerId']);
+      if (setup.displayName) await manager.getRepository(User).update(ownerId, { displayName: setup.displayName });
+    });
+    return setup;
+  }
 
   /** Read the live records and work out where this account is. */
   async status(ownerId: string): Promise<OnboardingState> {

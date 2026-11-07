@@ -8,6 +8,7 @@ export interface Receipt {
 }
 
 export interface ReceiptOptions {
+  documentName?: string;
   /**
    * BNPL instalment schedule. When present the receipt prints the
    * "Balance to pay later (red)" section with one row per instalment.
@@ -41,7 +42,7 @@ export class ReceiptService {
    */
   format(order: PosOrder, items: PosOrderItem[], opts: ReceiptOptions = {}): Receipt {
     const lines: string[] = [];
-    const title = 'KobeOS Point of Sale';
+    const title = opts.documentName?.replace(/\s+/g, ' ').trim() || 'KobeOS Point of Sale';
     lines.push(title.padStart((WIDTH + title.length) / 2));
     lines.push('='.repeat(WIDTH));
     lines.push(`Order:  ${order.orderNumber}`);
