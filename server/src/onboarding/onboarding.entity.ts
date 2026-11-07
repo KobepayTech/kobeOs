@@ -52,6 +52,9 @@ export class UserOnboarding extends BaseEntity {
   @Column({ type: 'jsonb', default: () => "'[]'::jsonb" })
   skippedSteps!: OnboardingStep[];
 
+  @Column({ type: 'jsonb', nullable: true })
+  guidedSetup?: import('./guided-setup.dto').GuidedSetupDto | null;
+
   @Column({ type: 'timestamptz', nullable: true })
   dismissedAt?: Date | null;
 }

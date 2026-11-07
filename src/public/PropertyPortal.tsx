@@ -1,3 +1,4 @@
+import PropertySelfService from './PropertySelfService';
 import { useEffect, useState } from 'react';
 import { publicApi } from './api';
 import { Home, Loader2, CheckCircle2, AlertCircle, Search, Phone, MessageCircle, Wrench, Building2, ShieldCheck } from 'lucide-react';
@@ -24,7 +25,12 @@ const ROLE_LABEL: Record<string, string> = {
   landscaping: 'Landscaping', hvac: 'HVAC / AC', general: 'Contact',
 };
 
-export default function PropertyPortal({ code: initialCode = '' }: { code?: string }) {
+export default function PropertyPortal(props: { code?: string }) {
+  const token = new URLSearchParams(location.hash.slice(1)).get('access');
+  return token ? <PropertySelfService token={token} /> : <LegacyPropertyPortal {...props} />;
+}
+
+function LegacyPropertyPortal({ code: initialCode = '' }: { code?: string }) {
   const [code, setCode] = useState(initialCode);
   const [portal, setPortal] = useState<Portal | null>(null);
   const [phase, setPhase] = useState<'idle' | 'loading' | 'shown'>('idle');

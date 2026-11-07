@@ -1,3 +1,4 @@
+import GuidedBusinessSetup from '@/components/GuidedBusinessSetup';
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { appRegistry } from './registry';
 import {
@@ -898,6 +899,7 @@ export function Desktop() {
       <GlobalAssistant />
 
       <ContextualInstallPrompt />
+      <GuidedBusinessSetup />
 
       {/* Context menu */}
       {contextMenu && (

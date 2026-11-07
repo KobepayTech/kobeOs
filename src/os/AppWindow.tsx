@@ -202,7 +202,7 @@ export const AppWindow = memo(function AppWindow({ window: win, children }: AppW
           shared footer (Contact us · © KobeOS <year>). The min-h-full column
           keeps the footer pinned to the bottom for short apps and pushes it
           below the fold for tall/full-height ones. */}
-      <div className="flex-1 overflow-auto" onMouseDown={(e) => e.stopPropagation()}>
+      <div data-window-content className="flex-1 overflow-auto" onMouseDown={(e) => e.stopPropagation()}>
         <div className="flex min-h-full flex-col">
           <div className="flex-1">{children}</div>
           <AppFooter />

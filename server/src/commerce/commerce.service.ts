@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash, randomBytes, randomUUID } from 'crypto';
-import { DataSource, In, LessThanOrEqual, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, LessThanOrEqual, Repository } from 'typeorm';
 import sharp from 'sharp';
 import { AiService } from '../ai/ai.service';
 import { PosProduct } from '../pos/pos.entity';
@@ -1088,10 +1088,15 @@ export class CommerceService implements OnModuleInit {
     return order;
   }
 
-  async createVehicle(ownerUserId: string, input: Partial<CommerceVehicle> & { mediaUrls?: string[]; listing?: Partial<VehicleListingMetadata> }) {
-    const business = await this.businessForOwner(ownerUserId);
+  async createVehicle(ownerUserId: string, input: Partial<CommerceVehicle> & { mediaUrls?: string[]; listing?: Partial<VehicleListingMetadata> }, manager?: EntityManager): Promise<CommerceVehicle & { media: VehicleMedia[]; listing: VehicleListingMetadata; economics: ReturnType<typeof vehicleEconomics> }> {
+    if (!manager) return this.ds.transaction(tx => this.createVehicle(ownerUserId, input, tx));
+    const business = await manager.getRepository(CommerceBusiness).findOneBy({ ownerUserId });
+    if (!business) throw new NotFoundException('Create or link a business first');
+    const vehicles = manager.getRepository(CommerceVehicle);
+    const mediaRepo = manager.getRepository(VehicleMedia);
+    const listingRepo = manager.getRepository(VehicleListingMetadata);
     if (!input.make || !input.model || !input.year || !input.price) throw new BadRequestException('Make, model, year and price are required');
-    const vehicle = await this.vehicles.save(this.vehicles.create({
+    const vehicle = await vehicles.save(vehicles.create({
       businessId: business.id, catalogOwnerId: business.catalogOwnerId, stockNumber: input.stockNumber || humanCode('CAR'),
       make: input.make, model: input.model, year: Number(input.year), trim: input.trim ?? '', price: num(input.price), currency: input.currency ?? 'TZS',
       mileage: Number(input.mileage) || 0, transmission: input.transmission ?? '', fuel: input.fuel ?? '', color: input.color ?? '',
@@ -1099,11 +1104,11 @@ export class CommerceService implements OnModuleInit {
       vin: input.vin ?? '', registration: input.registration ?? '', dutyStatus: input.dutyStatus ?? '', source: input.source ?? 'LOCAL',
       financingAvailable: Boolean(input.financingAvailable), negotiable: Boolean(input.negotiable), features: input.features ?? [], location: input.location ?? '',
       condition: input.condition ?? 'USED', status: input.status ?? 'AVAILABLE', description: input.description ?? '',
-      aiSalesCopy: input.aiSalesCopy || `${input.year} ${input.make} ${input.model} available in ${input.location || 'Tanzania'}. Contact the verified dealer to reserve.`, metadata: input.metadata ?? {},
+      aiSalesCopy: input.aiSalesCopy ?? `${input.year} ${input.make} ${input.model} available in ${input.location || 'Tanzania'}. Contact the dealer for details.`, metadata: input.metadata ?? {},
     }));
-    const media = (input.mediaUrls ?? []).map((url, sortOrder) => this.repo(VehicleMedia).create({ vehicleId: vehicle.id, url, kind: /\.(mp4|webm|mov)(?:\?|$)/i.test(url) ? 'VIDEO' : 'IMAGE', sortOrder }));
-    if (media.length) await this.repo(VehicleMedia).save(media);
-    const listing = await this.repo(VehicleListingMetadata).save(this.repo(VehicleListingMetadata).create({
+    const media = (input.mediaUrls ?? []).map((url, sortOrder) => mediaRepo.create({ vehicleId: vehicle.id, url, kind: /\.(mp4|webm|mov)(?:\?|$)/i.test(url) ? 'VIDEO' : 'IMAGE', sortOrder }));
+    if (media.length) await mediaRepo.save(media);
+    const listing = await listingRepo.save(listingRepo.create({
       vehicleId: vehicle.id, highlights: input.listing?.highlights ?? [vehicle.condition, vehicle.transmission, vehicle.fuel].filter(Boolean),
       keywords: input.listing?.keywords ?? [vehicle.make, vehicle.model, String(vehicle.year)], socialCaption: input.listing?.socialCaption || vehicle.aiSalesCopy,
       verticalVideoUrl: input.listing?.verticalVideoUrl ?? media.find((row) => row.kind === 'VIDEO')?.url ?? '', purchaseCost: num(input.listing?.purchaseCost),

@@ -1,3 +1,4 @@
+import { useNavigate } from 'react-router-dom';
 
 import { Usb, HardDrive, AlertTriangle } from 'lucide-react';
 import { useSystemMode } from '@/hooks/useSystemMode';
@@ -5,6 +6,7 @@ import { Button } from '@/components/ui/button';
 
 export default function LiveModeBanner() {
   const mode = useSystemMode();
+  const navigate = useNavigate();
   if (mode === 'development') return null;
   const configs = {
     'live-usb': { icon: <Usb size={18} className="text-yellow-400" />, bg: 'bg-yellow-500/10 border-yellow-500/30', text: 'text-yellow-400', label: 'LIVE USB MODE', message: 'Running from USB. Performance is limited. Install to hard drive for full speed.', action: 'Install to Disk', color: 'bg-yellow-600 hover:bg-yellow-700' },
@@ -23,7 +25,7 @@ export default function LiveModeBanner() {
           </div>
         </div>
         {c.action && (
-          <Button size="sm" className={`${c.color} text-white text-xs`} onClick={() => window.location.href = '/installer'}>
+          <Button size="sm" className={`${c.color} text-white text-xs`} onClick={() => navigate('/installer')}>
             {c.action}
           </Button>
         )}

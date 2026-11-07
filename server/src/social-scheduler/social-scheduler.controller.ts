@@ -9,6 +9,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+import { IsArray, IsBoolean, IsOptional, IsString, IsUUID } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { SocialSchedulerService } from './social-scheduler.service';
@@ -20,10 +21,21 @@ import {
   AnalyticsFiltersDto,
 } from './dto/social-post.dto';
 
+class ShopCrossPostDto {
+  @IsUUID() productId!: string;
+  @IsArray() @IsString({ each: true }) platforms!: string[];
+  @IsOptional() @IsBoolean() publishNow?: boolean;
+}
+
 @UseGuards(JwtAuthGuard)
 @Controller('social-scheduler')
 export class SocialSchedulerController {
   constructor(private readonly service: SocialSchedulerService) {}
+
+  @Post('shop-product')
+  crossPostProduct(@CurrentUser('id') uid: string, @Body() dto: ShopCrossPostDto) {
+    return this.service.createFromShopProduct(uid, dto.productId, dto.platforms, dto.publishNow ?? false);
+  }
 
   @Post('posts')
   createPost(@CurrentUser('id') uid: string, @Body() dto: CreateSocialPostDto) {

@@ -2,8 +2,12 @@ import { BadRequestException, Body, Controller, Get, Param, Post, UseGuards } fr
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Fr24Service } from './fr24.service';
+import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
 
-class AssignFr24FlightDto {
+export class AssignFr24FlightDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(16)
   flightNumber!: string;
 }
 
@@ -31,6 +35,12 @@ export class Fr24Controller {
   arrivals(@Param('code') code: string) {
     return this.fr24.airportArrivals(code);
   }
+
+  @Get('tanzania/arrivals')
+  tanzaniaArrivals() { return this.fr24.tanzaniaFlights('arrivals'); }
+
+  @Get('tanzania/departures')
+  tanzaniaDepartures() { return this.fr24.tanzaniaFlights('departures'); }
 
   @Get(':flightNumber')
   byNumber(@Param('flightNumber') flightNumber: string) {
@@ -61,6 +71,9 @@ export class Fr24ShipmentController {
    * when the cashier wants the timeline refreshed without waiting for the
    * 5-minute cron.
    */
+  @Get(':id/fr24-live')
+  position(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.fr24.shipmentPosition(uid, id); }
+
   @Post(':id/fr24-refresh')
   refresh(@CurrentUser('id') uid: string, @Param('id') id: string) {
     return this.fr24.refreshShipment(uid, id);
