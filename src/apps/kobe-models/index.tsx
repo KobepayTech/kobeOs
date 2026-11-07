@@ -163,6 +163,7 @@ export default function KobeModelManager() {
   const [catalogue, setCatalogue] = useState<CatalogueModel[]>([]);
   const [installed, setInstalled] = useState<InstalledModel[]>([]);
   const [activeModel, setActiveModel] = useState('');
+  const [qwenOnly, setQwenOnly] = useState(false);
   const [jobs, setJobs] = useState<DownloadJob[]>([]);
   const [category, setCategory] = useState<ModelCategory | 'all'>('all');
   const [search, setSearch] = useState('');
@@ -177,6 +178,7 @@ export default function KobeModelManager() {
     try {
       const cat = await catalogueApi.all();
       setCatalogue(apiArray<CatalogueModel>(cat, ['models']));
+      setQwenOnly(cat.edition === 'qwen3-only');
     } catch (reason) {
       setCatalogue([]);
       setError(reason instanceof Error ? reason.message : 'Model catalogue is unavailable.');
@@ -262,6 +264,7 @@ export default function KobeModelManager() {
   // ── Derived state ────────────────────────────────────────────────────────────
 
   const installedIds = new Set(installed.map((m) => m.name));
+  if (qwenOnly && ['kobe-qwen3-vl', 'kobe-qwen3-vl:latest'].some(id => installedIds.has(id))) installedIds.add('qwen3-vl:8b');
 
   const filtered = catalogue.filter((m) => {
     const matchCat = category === 'all' || m.category === category;
@@ -301,6 +304,7 @@ export default function KobeModelManager() {
         </div>
       </div>
 
+      {qwenOnly && <div className="shrink-0 border-b border-blue-800 bg-blue-950/40 px-4 py-3 text-sm text-blue-100"><strong>KobeOS Qwen 3 edition</strong><p className="mt-1 text-xs">One Qwen 3-VL 8B model handles text, business assistance, coding, translation and images. Existing compatible Ollama downloads are reused. If it is missing, install it here once (about 6.2 GB); it then works offline. Separate embedding models are unavailable in this edition.</p></div>}
       {/* Tabs */}
       <div className="flex gap-1 px-4 pt-2 bg-gray-900 border-b border-gray-800 shrink-0">
         {(['catalogue', 'installed'] as const).map((t) => (
@@ -330,7 +334,7 @@ export default function KobeModelManager() {
         {/* Sidebar — category filter */}
         {tab === 'catalogue' && (
           <div className="w-40 shrink-0 border-r border-gray-800 bg-gray-900 py-3 flex flex-col gap-0.5 overflow-y-auto">
-            {CATEGORIES.map((cat) => (
+            {CATEGORIES.filter(item => !qwenOnly || ['all', 'vision'].includes(item.id)).map((cat) => (
               <button
                 key={cat.id}
                 onClick={() => setCategory(cat.id as ModelCategory | 'all')}

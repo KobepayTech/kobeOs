@@ -1,6 +1,8 @@
 const { app, BrowserWindow, ipcMain, net, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
+const { editionEnvironment } = require('./ai-edition.cjs');
+Object.assign(process.env, editionEnvironment(require('../package.json').kobeEdition));
 const { exec, execFile, spawn } = require('child_process');
 const { setupAutoUpdater } = require('./update-manager.cjs');
 const localdb = require('./localdb');

@@ -29,6 +29,7 @@ export interface CatalogueModel {
 }
 
 export interface KobeCatalogue {
+  edition?: string;
   version: string;
   updatedAt: string;
   models: CatalogueModel[];

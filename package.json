@@ -43,7 +43,9 @@
     "studio:media:clone": "node scripts/install-kobe-studio-media-engine.cjs",
     "studio:media:docker": "docker compose -f vendor/moneyprinter/docker-compose.yml up -d",
     "studio:media:docker:offline-tts": "docker compose -f vendor/moneyprinter/docker-compose.yml --profile offline-tts up -d",
-    "studio:media:down": "docker compose -f vendor/moneyprinter/docker-compose.yml --profile offline-tts down"
+    "studio:media:down": "docker compose -f vendor/moneyprinter/docker-compose.yml --profile offline-tts down",
+    "edition:qwen3": "node scripts/prepare-qwen3-edition.cjs",
+    "electron:build:win:qwen3": "npm run build && npm run build:bundle && npm run prepare:postgres && npm run core:manifest && npm run download:cloudflared && npm run download:ollama && npm run edition:qwen3 && electron-builder --config build/edition-qwen3-only/electron-builder.json --win --publish never"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",

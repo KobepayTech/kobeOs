@@ -30,6 +30,7 @@ class EnvVars {
   @IsOptional() @IsString() @MinLength(32) CONTINUITY_SYNC_TOKEN?: string;
   @IsOptional() @IsString() OLLAMA_URL?: string;
   @IsOptional() @IsString() OLLAMA_MODEL?: string;
+  @IsOptional() @IsString() KOBE_AI_EDITION?: string;
   @IsOptional() @IsString() FOOTBALL_DATA_API_KEY?: string;
   @IsOptional() @IsString() API_FOOTBALL_KEY?: string;
   /** Dedicated, fixed key for encrypting provider (Meta) secrets at rest.
