@@ -1,3 +1,4 @@
+import PropertyVacancies from './PropertyVacancies';
 import JumlaRealEstate from './JumlaRealEstate';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
@@ -495,7 +496,7 @@ function VerticalPage({ vertical, query, setQuery, carFilters, setCarFilters, pr
   vertical: Vertical; query: string; setQuery: (value: string) => void; carFilters: CarFilters; setCarFilters: (filters: CarFilters) => void;
   properties: ReturnType<typeof useListings<PropertyCard>>; cars: ReturnType<typeof useListings<CarCard>>; journeys: ReturnType<typeof useListings<Journey>>;
 }) {
-  const [propertyView, setPropertyView] = useState<'real-estate' | 'centres'>('real-estate');
+  const [propertyView, setPropertyView] = useState<'real-estate' | 'centres' | 'vacancies'>('real-estate');
   const fields = {
     properties: { title: 'Explore properties', description: 'Find homes, land and commercial spaces for rent or sale.', placeholder: 'Property type, building or neighbourhood', empty: 'No properties found', detail: 'Commercial spaces and shop directories appear here when published.' },
     cars: { title: 'Find your next car', description: 'Browse dealer listings and arrange a showroom visit.', placeholder: 'Try Toyota Prado', empty: 'No matching vehicles', detail: 'Try another model or adjust the filters.' },
@@ -513,8 +514,10 @@ function VerticalPage({ vertical, query, setQuery, carFilters, setCarFilters, pr
     {vertical === 'properties' && <div className="mt-4 flex flex-wrap gap-2">
       <button aria-pressed={propertyView === 'real-estate'} onClick={() => setPropertyView('real-estate')} className="rounded-full border px-4 py-2 text-sm font-bold">Rent or buy</button>
       <button aria-pressed={propertyView === 'centres'} onClick={() => setPropertyView('centres')} className="rounded-full border px-4 py-2 text-sm font-bold">Shopping centres</button>
+      <button aria-pressed={propertyView === 'vacancies'} onClick={() => setPropertyView('vacancies')} className="rounded-full border px-4 py-2 text-sm font-bold">Managed rental vacancies</button>
     </div>}
     {vertical === 'properties' && propertyView === 'real-estate' ? <JumlaRealEstate query={query} /> :
+      vertical === 'properties' && propertyView === 'vacancies' ? <PropertyVacancies query={query} /> :
       request.rows.length ? vertical === 'properties' ? <Properties rows={properties.rows} /> : vertical === 'cars' ? <Cars rows={cars.rows} /> : <Transport rows={journeys.rows} />
       : <ListingStatus request={request} empty={<EmptyState icon={Icon} title={fields.empty} description={fields.detail} />} />}
   </div>;

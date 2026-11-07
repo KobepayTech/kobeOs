@@ -1,3 +1,4 @@
+import PropertyIntelligence from './PropertyIntelligence';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Building2, CheckCircle2, ExternalLink, FileText, Globe2, Home, Loader2, Plus, QrCode, Receipt, RefreshCw,
@@ -72,7 +73,7 @@ interface MarketplaceMap {
   businesses: Array<{ id: string; name: string; publicSlug: string; phone?: string; tier?: string }>;
 }
 
-type Tab = 'portfolio' | 'units' | 'tenants' | 'leases' | 'arrears' | 'screening' | 'payments' | 'marketplace';
+type Tab = 'intelligence' | 'portfolio' | 'units' | 'tenants' | 'leases' | 'arrears' | 'screening' | 'payments' | 'marketplace';
 const money = (n: number | string, c = 'TZS') => `${c === 'TZS' ? 'TSh ' : `${c} `}${Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 const shortDate = (v?: string) => v ? new Date(v).toLocaleDateString() : '—';
 
@@ -146,7 +147,7 @@ export default function PropEasyApp() {
           {properties.length > 0 && <select value={selectedPropertyId} onChange={(e) => setSelectedPropertyId(e.target.value)} className="ml-auto h-9 max-w-64 rounded-lg bg-white/10 border border-white/15 px-3 text-xs font-bold"><option value="">All properties</option>{properties.map((p) => <option key={p.id} value={p.id} className="text-black">{p.name}</option>)}</select>}
           <button onClick={() => void load()} disabled={loading} className={`${properties.length ? '' : 'ml-auto'} h-9 w-9 rounded-lg border border-white/15 grid place-items-center disabled:opacity-50`}><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button>
         </div>
-        <nav className="px-3 sm:px-5 flex overflow-x-auto">{([['portfolio', 'Portfolio', Building2], ['units', 'Units', Home], ['tenants', 'Tenants', Users], ['leases', 'Leases', FileText], ['arrears', 'Arrears', Receipt], ['screening', 'Screening', ShieldCheck], ['payments', 'Payments', Receipt], ['marketplace', 'Marketplace', Globe2]] as const).map(([id, label, Icon]) => <button key={id} onClick={() => setTab(id)} className={`h-11 px-3 inline-flex items-center gap-2 text-xs font-black border-b-2 ${tab === id ? 'text-blue-300 border-blue-300' : 'text-white/55 border-transparent'}`}><Icon className="h-4 w-4" />{label}</button>)}</nav>
+        <nav className="px-3 sm:px-5 flex overflow-x-auto">{([['intelligence', 'Intelligence', Wallet], ['portfolio', 'Portfolio', Building2], ['units', 'Units', Home], ['tenants', 'Tenants', Users], ['leases', 'Leases', FileText], ['arrears', 'Arrears', Receipt], ['screening', 'Screening', ShieldCheck], ['payments', 'Payments', Receipt], ['marketplace', 'Marketplace', Globe2]] as const).map(([id, label, Icon]) => <button key={id} onClick={() => setTab(id)} className={`h-11 px-3 inline-flex items-center gap-2 text-xs font-black border-b-2 ${tab === id ? 'text-blue-300 border-blue-300' : 'text-white/55 border-transparent'}`}><Icon className="h-4 w-4" />{label}</button>)}</nav>
       </header>
 
       <main className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 space-y-4">
@@ -165,6 +166,8 @@ export default function PropEasyApp() {
 
         {loading && !properties.length && !units.length && !tenants.length ? <div className="py-24 grid place-items-center text-slate-400"><Loader2 className="h-6 w-6 animate-spin" /></div> : tab === 'portfolio' ? (
           <Portfolio rows={properties.filter((p) => !q || `${p.name} ${p.address ?? ''} ${p.city ?? ''}`.toLowerCase().includes(q))} units={units} tenants={tenants} payments={payments} onSelect={(id) => { setSelectedPropertyId(id); setTab('units'); }} />
+        ) : tab === 'intelligence' ? (
+          <PropertyIntelligence propertyId={selectedPropertyId} onChanged={load} />
         ) : tab === 'units' ? (
           <Units rows={visibleUnits.filter((u) => !q || `${u.unitNumber} ${u.type ?? ''} ${u.floor ?? ''}`.toLowerCase().includes(q))} propertyById={propertyById} />
         ) : tab === 'tenants' ? (
