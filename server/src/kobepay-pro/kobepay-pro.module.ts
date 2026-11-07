@@ -18,6 +18,7 @@ import {
   KobepayProController, SupplierPortalController, StudentPortalController, ConnectController,
 } from './kobepay-pro.controller';
 import { MobileMoneyModule } from '../mobile-money/mobile-money.module';
+import { PlatformModule } from '../platform/platform.module';
 
 /**
  * Kobepay Pro — programmable school financial OS.
@@ -26,6 +27,7 @@ import { MobileMoneyModule } from '../mobile-money/mobile-money.module';
  */
 @Module({
   imports: [
+    PlatformModule,
     TypeOrmModule.forFeature([
       KpSchool, KpStudent, KpMerchant, KpMerchantApproval,
       KpAccount, KpTransaction, KpLedgerLine,

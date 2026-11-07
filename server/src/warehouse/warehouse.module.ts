@@ -7,9 +7,11 @@ import { WarehousesService } from './warehouses.service';
 import { PickTicketService } from './pick-ticket.service';
 import { WarehouseController } from './warehouse.controller';
 import { PickTicketController } from './pick-ticket.controller';
+import { PlatformModule } from '../platform/platform.module';
 
 @Module({
   imports: [
+    PlatformModule,
     TypeOrmModule.forFeature([
       Warehouse,
       WarehouseItem,

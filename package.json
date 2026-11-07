@@ -9,7 +9,7 @@
     "typecheck": "tsc -b",
     "build:frontend": "vite build",
     "build": "npm run typecheck && npm run build:frontend",
-    "test": "vitest run",
+    "test": "vitest run && node --test scripts/qwen3-edition.node-test.cjs",
     "test:watch": "vitest",
     "lint": "eslint .",
     "preview": "vite preview",

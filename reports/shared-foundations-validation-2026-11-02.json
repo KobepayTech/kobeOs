@@ -1,0 +1,51 @@
+{
+  "date": "2026-11-02",
+  "scope": "First shared Phase 1 foundation increment; not the complete roadmap",
+  "backend": {
+    "unitSuitesPassed": 35,
+    "testsPassed": 277,
+    "foundationTestsPassed": 21,
+    "foundationDatabase": "Isolated loopback PostgreSQL; application and production databases untouched",
+    "typescript": "passed",
+    "lint": "passed with warnings; new foundation files passed targeted lint without warnings"
+  },
+  "frontend": {
+    "suitesPassed": 36,
+    "suitesSkipped": 1,
+    "testsPassed": 224,
+    "testsSkipped": 4,
+    "qwenNodeTestsPassed": 3,
+    "typescript": "passed",
+    "lint": "passed with existing warnings",
+    "build": "passed",
+    "notes": [
+      "Initial test invocation failed before execution because Windows prevented temporary cache renames; rerun used a workspace-local temporary directory.",
+      "Qwen packaging tests were renamed to .node-test.cjs and run with node:test after Vitest, fixing incompatible discovery."
+    ]
+  },
+  "verified": [
+    "Migration up/down/up and idempotent up",
+    "Business record and event rollback together",
+    "Concurrent event idempotency, conflicting payload rejection and owner separation",
+    "Concurrent delivery, redelivery deduplication, bounded retry and recovery",
+    "Concurrent stock deductions and reorder threshold crossing",
+    "Balanced ledger posting, rollback and cross-currency rejection",
+    "Forged approval status removal and one execution under concurrent approval clicks",
+    "Owner/write-role checks and no automatic retry after an uncertain action failure",
+    "Concurrent workflow exclusion and forwarding the signed-in role",
+    "Exact decimal totals grouped by currency; pending orders and other owners excluded",
+    "Real JWT-authenticated Brain routes, anonymous rejection and cross-owner rejection",
+    "Accepted viewer workspace grants; owner/recipient revocation; no approval permission escalation",
+    "Exact integer line quantization and rejection of post-rounding imbalance",
+    "Concurrent bank source replay rejection including rollback of caller writes"
+  ],
+  "externalActions": "Mocked: no messages or real financial transfers sent",
+  "deployment": "Not deployed; database migration and new application builds required",
+  "limitations": [
+    "Workspace-wide read-only grants; no per-shop staff roles or team management screen",
+    "Legacy ledger is not a universal cross-currency accounting system",
+    "Only selected producers use the new transactional event path",
+    "Crash/uncertain external action outcomes require manual reconciliation",
+    "No full backend E2E run or production database migration performed"
+  ]
+}
