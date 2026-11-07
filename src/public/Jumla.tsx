@@ -1,127 +1,516 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Bookmark, Building2, BusFront, CalendarDays, Car, Check, ChevronLeft, ChevronRight, Heart, Loader2, MapPin, MessageCircle, Minus, PackageSearch, Phone, Plus, Search, Send, Share2, ShoppingBag, SlidersHorizontal, Store, X } from 'lucide-react';
+import type { FormEvent, ReactNode } from 'react';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bookmark, Building2, BusFront, CalendarDays, Car, Check, ChevronRight, Compass, Grid2X2, Heart, Loader2, MapPin, MessageCircle, Minus, PackageSearch, Phone, Plus, Search, Send, Share2, ShoppingBag, SlidersHorizontal, Sparkles, Store, X } from 'lucide-react';
 import { publicApi, publicAssetUrl } from './api';
 import { usePwaManifest } from '@/hooks/usePwaManifest';
+import { money, ProductArt, readLocal, samples, storePath, writeLocal } from './jumla-catalog';
+import type { Item } from './jumla-catalog';
+import './jumla.css';
 
-type Mode = 'items' | 'properties' | 'cars' | 'transport';
 type CarFilters = { make: string; model: string; minYear: string; maxPrice: string; maxMileage: string; location: string; transmission: string; fuel: string; bodyType: string; condition: string; financing: string; dealer: string; color: string };
-interface Item { id: string; productId: string; businessId: string; name: string; description: string; category: string; price: number | string; currency: string; imageUrl: string; imageUrls: string[]; stock: number; requiredOptions: string[]; variants: Array<{ id: string; name: string; attributes?: Record<string, string> }>; business: { id: string; name: string; publicSlug: string; tier: string; phone: string; whatsapp: string }; location: null | { property: string; floor: string; shopCode: string }; nodeStatus: string }
 interface CartLine { item: Item; quantity: number; selectedOptions: Record<string, string> }
 interface PropertyCard { id: string; name: string; address: string; city: string; imageUrl: string; totalShops: number; claimedShops: Array<{ shopCode: string; categoryId: string; business: { id: string; name: string; publicSlug: string; tier: string } | null }> }
 interface CarCard { id: string; make: string; model: string; trim: string; year: number; price: number | string; currency: string; mileage: number; transmission: string; fuel: string; color: string; engine: string; driveType: string; bodyType: string; location: string; condition: string; status: string; financingAvailable: boolean; negotiable: boolean; canBuy: boolean; canSchedule: boolean; modelGroupKey: string; features: string[]; aiSalesCopy: string; media: Array<{ url: string; kind?: string }>; listing?: { highlights: string[]; socialCaption: string; verticalVideoUrl: string }; dealer: { name: string; phone: string; whatsapp?: string; publicSlug?: string; dealerSiteUrl?: string } }
 interface Journey { trip: { id: string; origin: string; destination: string; scheduledDeparture: string; eta?: string; status: string }; operator: string; bus: string; availableSeats: number; canBuy: boolean }
-
-const money = (value: number | string, currency = 'TZS') => `${currency} ${Number(value).toLocaleString()}`;
 const fallback = 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&w=1200&q=80';
 
+const tabs = [
+  { id: 'discover', label: 'Discover', icon: Compass },
+  { id: 'search', label: 'Search', icon: Search },
+  { id: 'shops', label: 'Shops', icon: Store },
+  { id: 'saved', label: 'Saved', icon: Bookmark },
+  { id: 'bag', label: 'Bag', icon: ShoppingBag },
+] as const;
+const markets = [
+  { id: 'grid', label: 'Products', icon: Grid2X2, description: 'Browse by category', color: 'violet' },
+  { id: 'properties', label: 'Properties', icon: Building2, description: 'Malls and commercial spaces', color: 'mint' },
+  { id: 'cars', label: 'Cars', icon: Car, description: 'Dealer listings and test drives', color: 'peach' },
+  { id: 'transport', label: 'Transport', icon: BusFront, description: 'Routes, seats and tickets', color: 'blue' },
+] as const;
+type Page = typeof tabs[number]['id'] | typeof markets[number]['id'] | 'product' | 'checkout';
+type Vertical = 'properties' | 'cars' | 'transport';
+type CreatorPick = { creator: { handle: string; name: string; avatarUrl: string | null } | null; productId: string | null; promoCode: string | null };
+const categories = ['Electronics', 'Fashion', 'Home & Living', 'Beauty', 'Groceries'];
+const blankFilters: CarFilters = { make: '', model: '', minYear: '', maxPrice: '', maxMileage: '', location: '', transmission: '', fuel: '', bodyType: '', condition: '', financing: '', dealer: '', color: '' };
+
+function currentRoute(): { page: Page; itemId: string } {
+  const [path, itemId = ''] = window.location.hash.slice(1).split('/');
+  const page = [...tabs, ...markets].some(({ id }) => id === path) || path === 'product' || path === 'checkout' ? path as Page : 'discover';
+  return { page, itemId };
+}
+
+function useListings<T,>(path: string) {
+  const [result, setResult] = useState<{ path: string; rows: T[]; failed: boolean }>({ path: '', rows: [], failed: false });
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    if (!path) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      publicApi<T[]>(path, { signal: controller.signal })
+        .then((rows) => { if (!controller.signal.aborted) setResult({ path, rows, failed: false }); })
+        .catch(() => { if (!controller.signal.aborted) setResult({ path, rows: [], failed: true }); });
+    }, 220);
+    return () => { clearTimeout(timer); controller.abort(); };
+  }, [path, attempt]);
+  return {
+    rows: result.path === path ? result.rows : [],
+    failed: result.path === path && result.failed,
+    pending: Boolean(path) && result.path !== path,
+    retry: () => { setResult({ path: '', rows: [], failed: false }); setAttempt((n) => n + 1); },
+  };
+}
+
 export default function Jumla() {
-  const [mode, setMode] = useState<Mode>('items'); const [query, setQuery] = useState('');
-  const [items, setItems] = useState<Item[]>([]); const [properties, setProperties] = useState<PropertyCard[]>([]); const [cars, setCars] = useState<CarCard[]>([]); const [journeys, setJourneys] = useState<Journey[]>([]);
-  const [loading, setLoading] = useState(false); const [error, setError] = useState(''); const [index, setIndex] = useState(0);
-  const [carFilters, setCarFilters] = useState({ make: '', model: '', minYear: '', maxPrice: '', maxMileage: '', location: '', transmission: '', fuel: '', bodyType: '', condition: '', financing: '', dealer: '', color: '' });
-  const [cartOpen, setCartOpen] = useState(false); const [cart, setCart] = useState<CartLine[]>(() => { try { return JSON.parse(localStorage.getItem('jumla_cart') || '[]'); } catch { return []; } });
-  const [checkout, setCheckout] = useState({ name: '', phone: '', fulfillment: 'PICKUP' as 'PICKUP' | 'DELIVERY', address: '', note: '' });
-  const [sending, setSending] = useState(false); const [success, setSuccess] = useState('');
-  const [pick, setPick] = useState<{ creator: { handle: string; name: string; avatarUrl: string | null } | null; productId: string | null; promoCode: string | null } | null>(null);
-  const [promo, setPromo] = useState('');
-  usePwaManifest({ name: 'Jumla', shortName: 'Jumla', startUrl: '/jumla', iconBase: '/jumla', themeColor: '#071d18', enabled: true });
+  const [{ page, itemId }, setRoute] = useState(currentRoute);
+  const [practice, setPractice] = useState(() => {
+    const params = new URLSearchParams(location.search);
+    return !readLocal('jumla_intro_complete', false) && !readLocal<CartLine[]>('jumla_cart', []).length
+      && !params.has('kc') && !params.has('klv');
+  });
+  const [cart, setCart] = useState(() => readLocal<CartLine[]>('jumla_cart', []).filter(({ item }) => !item.sample && !item.productId.startsWith('demo-')));
+  const [practiceCart, setPracticeCart] = useState<CartLine[]>([]);
+  const [saved, setSaved] = useState(() => readLocal<Item[]>('jumla_saved_products', []));
+  const [practiceSaved, setPracticeSaved] = useState<Item[]>([]);
+  const [liked, setLiked] = useState(() => readLocal<string[]>('jumla_liked_products', []));
+  const [practiceLiked, setPracticeLiked] = useState<string[]>([]);
+  const [affinity, setAffinity] = useState(() => readLocal<Record<string, number>>('jumla_category_affinity', {}));
+  const [query, setQuery] = useState('');
+  const [category, setCategory] = useState('');
+  const [verticalQuery, setVerticalQuery] = useState('');
+  const [carFilters, setCarFilters] = useState(blankFilters);
+  const [focused, setFocused] = useState<Item | null>(null);
+  const [productBack, setProductBack] = useState<Page>('discover');
+  const [feedPosition, setFeedPosition] = useState(0);
+  const [pick, setPick] = useState<CreatorPick | null>(null);
+  const [confirmation, setConfirmation] = useState('');
+  const main = useRef<HTMLElement>(null);
+  const live = useListings<Item>('/commerce-public/jumla/items?limit=60');
+  const searchPath = page === 'search' && query.trim() && !practice ? `/commerce-public/jumla/items?q=${encodeURIComponent(query.trim())}` : '';
+  const search = useListings<Item>(searchPath);
+  const filteredCatalog = useListings<Item>(page === 'grid' && category && !practice ? `/commerce-public/jumla/items?category=${encodeURIComponent(category)}&limit=60` : '');
+  const encodedQuery = encodeURIComponent(verticalQuery);
+  const carParams = new URLSearchParams({ q: verticalQuery, ...Object.fromEntries(Object.entries(carFilters).filter(([, value]) => value)) });
+  const properties = useListings<PropertyCard>(page === 'properties' ? `/commerce-public/jumla/properties?q=${encodedQuery}` : '');
+  const cars = useListings<CarCard>(page === 'cars' ? `/commerce-public/cars?${carParams}` : '');
+  const journeys = useListings<Journey>(page === 'transport' ? `/transit-public/journeys/search?destination=${encodedQuery}` : '');
+  usePwaManifest({ name: 'Jumla', shortName: 'Jumla', startUrl: '/jumla', iconBase: '/icon', themeColor: '#171525', enabled: true });
 
-  useEffect(() => { localStorage.setItem('jumla_cart', JSON.stringify(cart)); }, [cart]);
-
-  // Creator attribution: a creator link (kobe.app/c/<code>) redirects here with
-  // ?kc=<code>&kcid=<clickId>. Persist them so the eventual order attributes the
-  // sale (and the creator's commission) back to that creator, even across a
-  // reload or a browse before checkout.
   useEffect(() => {
-    let code = '';
-    try {
-      const params = new URLSearchParams(window.location.search);
-      const kc = params.get('kc'); const kcid = params.get('kcid');
-      if (kc) { localStorage.setItem('jumla_attr_code', kc); if (kcid) localStorage.setItem('jumla_attr_click', kcid); }
-      // Live Ads: a sponsor click-through arrives with ?klv=<liveClickVisitId>.
-      const klv = params.get('klv');
-      if (klv) { try { localStorage.setItem('jumla_live_click', klv); } catch { /* ignore */ } }
-      code = kc || localStorage.getItem('jumla_attr_code') || '';
-    } catch { /* ignore */ }
-    if (code) publicApi<typeof pick>(`/c/${encodeURIComponent(code)}/info`).then((info) => { if (info?.creator) setPick(info); }).catch(() => undefined);
+    const onHash = () => { setRoute(currentRoute()); main.current?.scrollTo(0, 0); };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
   }, []);
+  useEffect(() => { writeLocal('jumla_cart', cart); }, [cart]);
+  useEffect(() => { writeLocal('jumla_saved_products', saved); }, [saved]);
+  useEffect(() => { writeLocal('jumla_liked_products', liked); }, [liked]);
+  useEffect(() => { writeLocal('jumla_category_affinity', affinity); }, [affinity]);
+
+  // Keep creator and livestream attribution across navigation and checkout.
   useEffect(() => {
-    const timer = window.setTimeout(async () => {
-      setLoading(true); setError(''); setIndex(0);
-      try {
-        if (mode === 'items') setItems(await publicApi(`/commerce-public/jumla/items?q=${encodeURIComponent(query)}`));
-        if (mode === 'properties') setProperties(await publicApi(`/commerce-public/jumla/properties?q=${encodeURIComponent(query)}`));
-        if (mode === 'cars') { const params = new URLSearchParams({ q: query }); Object.entries(carFilters).forEach(([key, value]) => { if (value) params.set(key, value); }); setCars(await publicApi(`/commerce-public/cars?${params.toString()}`)); }
-        if (mode === 'transport') setJourneys(await publicApi(`/transit-public/journeys/search?destination=${encodeURIComponent(query)}`));
-      } catch (e) { setError((e as Error).message); }
-      finally { setLoading(false); }
-    }, 250);
-    return () => window.clearTimeout(timer);
-  }, [mode, query, carFilters]);
-
-  const add = (item: Item) => {
-    setCart((current) => {
-      const found = current.find((line) => line.item.productId === item.productId);
-      if (found) return current.map((line) => line === found ? { ...line, quantity: Math.min(item.stock, line.quantity + 1) } : line);
-      return [...current, { item, quantity: 1, selectedOptions: Object.fromEntries(item.requiredOptions.map((key) => [key, ''])) }];
-    });
-    void publicApi('/commerce-public/jumla/interest', { method: 'POST', body: JSON.stringify({ productId: item.productId, eventType: 'CART' }) }).catch(() => undefined);
-  };
-  const updateLine = (productId: string, patch: Partial<CartLine>) => setCart((all) => all.map((line) => line.item.productId === productId ? { ...line, ...patch } : line));
-  const total = useMemo(() => cart.reduce((sum, line) => sum + Number(line.item.price) * line.quantity, 0), [cart]);
-  const submit = async () => {
-    setSending(true); setError(''); setSuccess('');
+    const params = new URLSearchParams(location.search);
+    let code = params.get('kc') || '';
     try {
-      const attrCode = (() => { try { return localStorage.getItem('jumla_attr_code') || ''; } catch { return ''; } })();
-      const attrClick = (() => { try { return localStorage.getItem('jumla_attr_click') || ''; } catch { return ''; } })();
-      const promoCode = promo.trim();
-      const liveClickVisitId = (() => { try { return localStorage.getItem('jumla_live_click') || ''; } catch { return ''; } })();
-      const attribution = (attrCode || promoCode || liveClickVisitId) ? { attribution: { code: attrCode, clickId: attrClick, promoCode, liveClickVisitId } } : {};
-      const response = await publicApi<{ orders: Array<{ orderNumber: string }> }>('/commerce-public/jumla/orders', { method: 'POST', body: JSON.stringify({ customer: { name: checkout.name, phone: checkout.phone }, fulfillment: checkout.fulfillment, deliveryAddress: checkout.address, note: checkout.note, lines: cart.map((line) => ({ productId: line.item.productId, quantity: line.quantity, selectedOptions: line.selectedOptions })), ...attribution }) });
-      setSuccess(`Order sent: ${response.orders.map((o) => o.orderNumber).join(', ')}`); setCart([]);
-    } catch (e) { setError((e as Error).message); }
-    finally { setSending(false); }
+      const click = params.get('kcid');
+      const liveClick = params.get('klv');
+      if (code) {
+        localStorage.setItem('jumla_attr_code', code);
+        if (click) localStorage.setItem('jumla_attr_click', click);
+        else localStorage.removeItem('jumla_attr_click');
+      }
+      if (liveClick) localStorage.setItem('jumla_live_click', liveClick);
+      code ||= localStorage.getItem('jumla_attr_code') || '';
+    } catch { /* Attribution storage may be disabled. */ }
+    if (code) void publicApi<CreatorPick>(`/c/${encodeURIComponent(code)}/info`).then((info) => {
+      if (info?.creator) setPick(info);
+    }).catch(() => undefined);
+  }, []);
+
+  const go = (next: Page, id = '') => {
+    if (next !== page) setVerticalQuery('');
+    const hash = `#${next}${id ? `/${id}` : ''}`;
+    if (location.hash !== hash) location.hash = hash;
+  };
+  const startPractice = () => {
+    setPractice(true); setFeedPosition(0); setCategory(''); setConfirmation(''); go('discover');
+  };
+  const finishPractice = () => {
+    writeLocal('jumla_intro_complete', true);
+    setPractice(false); setPracticeCart([]); setPracticeSaved([]); setPracticeLiked([]);
+    setFeedPosition(0); setCategory(''); setConfirmation(''); go('discover');
+    live.retry();
   };
 
-  return <div className="min-h-screen bg-[#f5f7f2] text-[#11261f]" data-surface="light">
-    <header className="sticky top-0 z-30 bg-[#071d18]/95 text-white backdrop-blur border-b border-white/10">
-      <div className="max-w-7xl mx-auto px-4 h-16 flex items-center gap-4"><div className="h-10 w-10 rounded-2xl bg-[#d5ff4f] text-[#071d18] grid place-items-center font-black text-xl">J</div><div className="min-w-0"><h1 className="font-black tracking-tight">Jumla</h1><p className="text-[10px] uppercase tracking-[.25em] text-white/50">Everything near you, live</p></div><div className="ml-auto relative flex-1 max-w-xl"><Search className="absolute left-3 top-2.5 h-4 w-4 text-white/40" /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={mode === 'transport' ? 'Where are you going?' : `Search ${mode}`} className="w-full h-9 rounded-xl bg-white/10 border border-white/15 pl-9 pr-3 text-sm text-white placeholder:text-white/40 outline-none focus:border-[#d5ff4f]" /></div><button onClick={() => setCartOpen(true)} className="relative h-10 px-3 rounded-xl bg-[#d5ff4f] text-[#071d18] inline-flex items-center gap-2 font-black text-sm"><ShoppingBag className="h-4 w-4" /><span className="hidden sm:inline">Cart</span>{cart.length > 0 && <span className="min-w-5 h-5 rounded-full bg-[#071d18] text-white text-[10px] grid place-items-center">{cart.length}</span>}</button></div>
-      <nav className="max-w-7xl mx-auto px-3 flex overflow-x-auto [scrollbar-width:none]">{([{ id: 'items', label: 'Items', icon: PackageSearch }, { id: 'properties', label: 'Properties', icon: Building2 }, { id: 'cars', label: 'Cars', icon: Car }, { id: 'transport', label: 'Transport', icon: BusFront }] as const).map(({ id, label, icon: Icon }) => <button key={id} onClick={() => setMode(id)} className={`h-11 px-4 shrink-0 inline-flex items-center gap-2 text-xs font-black border-b-2 ${mode === id ? 'text-[#d5ff4f] border-[#d5ff4f]' : 'text-white/55 border-transparent'}`}><Icon className="h-4 w-4" />{label}</button>)}</nav>
-    </header>
-    <main className="max-w-7xl mx-auto p-4 sm:p-6">
-      <section className="rounded-[2rem] bg-gradient-to-br from-[#0b3328] to-[#12674f] text-white p-6 sm:p-10 overflow-hidden relative"><div className="absolute right-0 top-0 h-full w-1/2 bg-[radial-gradient(circle_at_center,rgba(213,255,79,.18),transparent_65%)]" /><div className="relative max-w-2xl"><span className="inline-flex items-center gap-2 text-xs font-black text-[#d5ff4f]"><SlidersHorizontal className="h-4 w-4" /> LIVE KOBEOS NETWORK</span><h2 className="mt-4 text-3xl sm:text-5xl font-black leading-[.95]">Find it. Swipe it.<br />Order it.</h2><p className="mt-4 text-white/65 max-w-xl">Live stock from nearby merchants, commercial buildings, verified car dealers, hotels and transport operators—without copying their data into Jumla.</p></div></section>
-      {pick?.creator && <div className="mt-4 rounded-2xl bg-[#071d18] text-white p-3 sm:p-4 flex items-center gap-3">
-        {pick.creator.avatarUrl ? <img src={pick.creator.avatarUrl} alt={pick.creator.name} className="h-10 w-10 rounded-full object-cover" /> : <div className="h-10 w-10 rounded-full bg-[#d5ff4f] text-[#071d18] grid place-items-center font-black">{pick.creator.name.slice(0, 1).toUpperCase()}</div>}
-        <div className="min-w-0 flex-1"><p className="text-sm font-black truncate">You're shopping {pick.creator.name}'s pick</p><p className="text-[11px] text-white/60">{pick.creator.handle ? `@${pick.creator.handle}` : 'Creator'} earns when you buy through this link{pick.promoCode ? ` · code ${pick.promoCode}` : ''}.</p></div>
-        <button onClick={() => { setPick(null); try { localStorage.removeItem('jumla_attr_code'); localStorage.removeItem('jumla_attr_click'); } catch { /* ignore */ } }} aria-label="Dismiss" className="h-8 w-8 rounded-lg bg-white/10 grid place-items-center"><X className="h-4 w-4" /></button>
-      </div>}
-      {error && <div className="mt-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 p-3 text-sm">{error}</div>}
-      {mode === 'cars' && <CarFilterBar filters={carFilters} setFilters={setCarFilters} />}
-      {loading ? <div className="h-64 grid place-items-center"><Loader2 className="h-8 w-8 animate-spin text-emerald-700" /></div> : mode === 'items' ? <ItemsDeck items={items} index={index} setIndex={setIndex} add={add} /> : mode === 'properties' ? <Properties rows={properties} /> : mode === 'cars' ? <Cars rows={cars} /> : <Transport rows={journeys} />}
-    </main>
-    {cartOpen && <div className="fixed inset-0 z-50 bg-black/45 flex justify-end" onMouseDown={() => setCartOpen(false)}><aside className="w-full max-w-md h-full bg-white shadow-2xl overflow-y-auto" onMouseDown={(e) => e.stopPropagation()}><div className="sticky top-0 bg-white border-b p-4 flex items-center"><div><h2 className="font-black text-xl">Your Jumla order</h2><p className="text-xs text-slate-500">Orders split automatically by merchant</p></div><button className="ml-auto h-9 w-9 grid place-items-center rounded-xl bg-slate-100" onClick={() => setCartOpen(false)}><X className="h-4 w-4" /></button></div><div className="p-4 space-y-4">{cart.map((line) => <div key={line.item.productId} className="rounded-2xl border p-3"><div className="flex gap-3"><img src={publicAssetUrl(line.item.imageUrl) || fallback} className="h-20 w-20 rounded-xl object-cover" /><div className="flex-1 min-w-0"><b className="block truncate">{line.item.name}</b><span className="text-xs text-slate-500">{line.item.business.name}</span><div className="mt-2 flex items-center gap-2"><button onClick={() => line.quantity <= 1 ? setCart((all) => all.filter((x) => x !== line)) : updateLine(line.item.productId, { quantity: line.quantity - 1 })} className="h-7 w-7 rounded-lg bg-slate-100 grid place-items-center"><Minus className="h-3 w-3" /></button><b className="text-sm">{line.quantity}</b><button onClick={() => updateLine(line.item.productId, { quantity: Math.min(line.item.stock, line.quantity + 1) })} className="h-7 w-7 rounded-lg bg-slate-100 grid place-items-center"><Plus className="h-3 w-3" /></button><b className="ml-auto text-sm">{money(Number(line.item.price) * line.quantity)}</b></div></div></div>{line.item.requiredOptions.map((option) => { const values = [...new Set(line.item.variants.map((v) => v.attributes?.[option]).filter(Boolean) as string[])]; return <label key={option} className="block mt-3 text-xs font-bold capitalize">{option}<select value={line.selectedOptions[option] || ''} onChange={(e) => updateLine(line.item.productId, { selectedOptions: { ...line.selectedOptions, [option]: e.target.value } })} className="mt-1 w-full h-10 rounded-xl border px-3"><option value="">Select {option}</option>{values.map((v) => <option key={v}>{v}</option>)}</select></label>; })}</div>)}{!cart.length && <div className="py-20 text-center text-slate-400"><ShoppingBag className="h-10 w-10 mx-auto mb-3" />Your cart is empty</div>}{cart.length > 0 && <><div className="border-t pt-4"><div className="flex justify-between font-black text-lg"><span>Total</span><span>{money(total)}</span></div><p className="text-[11px] text-slate-500 mt-1">Merchant delivery charges, if any, are confirmed separately.</p></div><div className="grid grid-cols-2 gap-2"><button onClick={() => setCheckout({ ...checkout, fulfillment: 'PICKUP' })} className={`h-10 rounded-xl border font-bold text-sm ${checkout.fulfillment === 'PICKUP' ? 'bg-emerald-700 text-white' : ''}`}>Pickup</button><button onClick={() => setCheckout({ ...checkout, fulfillment: 'DELIVERY' })} className={`h-10 rounded-xl border font-bold text-sm ${checkout.fulfillment === 'DELIVERY' ? 'bg-emerald-700 text-white' : ''}`}>Delivery</button></div>{checkout.fulfillment === 'DELIVERY' && <input value={checkout.address} onChange={(e) => setCheckout({ ...checkout, address: e.target.value })} placeholder="Delivery address" className="w-full h-11 rounded-xl border px-3" />}<textarea value={checkout.note} onChange={(e) => setCheckout({ ...checkout, note: e.target.value })} placeholder="Order note (optional)" className="w-full min-h-20 rounded-xl border p-3" /><input value={promo} onChange={(e) => setPromo(e.target.value.toUpperCase())} placeholder="Creator discount code (optional)" className="w-full h-11 rounded-xl border px-3 uppercase" /><div className="rounded-2xl bg-slate-50 p-3"><p className="text-xs font-bold mb-2">Your contact details — entered only at the end</p><input value={checkout.name} onChange={(e) => setCheckout({ ...checkout, name: e.target.value })} placeholder="Full name" className="w-full h-11 rounded-xl border px-3 mb-2" /><input value={checkout.phone} onChange={(e) => setCheckout({ ...checkout, phone: e.target.value })} placeholder="Phone number" className="w-full h-11 rounded-xl border px-3" /></div>{success && <div className="rounded-xl bg-emerald-50 text-emerald-700 p-3 text-sm font-bold"><Check className="inline h-4 w-4 mr-2" />{success}</div>}<button disabled={sending || !checkout.name || !checkout.phone} onClick={() => void submit()} className="w-full h-12 rounded-xl bg-[#071d18] text-white font-black disabled:opacity-40 inline-flex items-center justify-center gap-2">{sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Send Order</button></>}</div></aside></div>}
+  const listed = practice ? samples : live.rows;
+  const bag = practice ? practiceCart : cart;
+  const savedItems = practice ? practiceSaved : saved;
+  const likes = practice ? practiceLiked : liked;
+  const item = [focused, ...listed, ...search.rows, ...filteredCatalog.rows, ...savedItems, ...bag.map((line) => line.item)]
+    .find((row) => row?.productId === itemId && Boolean(row.sample) === practice);
+  const bagCount = bag.reduce((count, line) => count + line.quantity, 0);
+  // Rank once when entering the feed so liking a listing never moves it under the shopper's finger.
+  const [feedAffinity, setFeedAffinity] = useState(affinity);
+  const feed = useMemo(() => practice ? samples : [...live.rows].sort((a, b) =>
+    Number(b.productId === pick?.productId) - Number(a.productId === pick?.productId)
+    || Number(b.stock > 0) - Number(a.stock > 0)
+    || (feedAffinity[b.category] || 0) - (feedAffinity[a.category] || 0)), [practice, live.rows, feedAffinity, pick?.productId]);
+  const merchants = [...new Map(feed.map((row) => [row.businessId, row])).values()];
+  const open = (row: Item) => { setFocused(row); setProductBack(page); go('product', row.productId); };
+  const learn = (row: Item, weight: number) => {
+    if (row.sample || !row.category) return;
+    setAffinity((current) => ({ ...current, [row.category]: Math.max(0, Math.min(30, (current[row.category] || 0) + weight)) }));
+  };
+  const toggleLike = (row: Item) => {
+    const active = likes.includes(row.productId);
+    (row.sample ? setPracticeLiked : setLiked)((all) => active ? all.filter((id) => id !== row.productId) : [...all, row.productId]);
+    learn(row, active ? -2 : 2);
+  };
+  const toggleSave = (row: Item) => {
+    const active = savedItems.some((entry) => entry.productId === row.productId);
+    (row.sample ? setPracticeSaved : setSaved)((all) => active ? all.filter((entry) => entry.productId !== row.productId) : [row, ...all]);
+    learn(row, active ? -3 : 3);
+  };
+  const add = (row: Item, selectedOptions: Record<string, string>) => {
+    if (row.stock < 1 || Boolean(row.sample) !== practice) return;
+    const key = lineKey({ item: row, selectedOptions, quantity: 1 });
+    (row.sample ? setPracticeCart : setCart)((all) => {
+      const existing = all.find((line) => lineKey(line) === key);
+      const quantity = all.filter((line) => line.item.productId === row.productId).reduce((sum, line) => sum + line.quantity, 0);
+      if (quantity >= row.stock) return all;
+      if (existing) return all.map((line) => line === existing ? { ...line, item: row, quantity: line.quantity + 1 } : line);
+      return [...all, { item: row, quantity: 1, selectedOptions }];
+    });
+    if (!row.sample) {
+      learn(row, 4);
+      void publicApi('/commerce-public/jumla/interest', { method: 'POST', body: JSON.stringify({ productId: row.productId, eventType: 'CART' }) }).catch(() => undefined);
+    }
+    setConfirmation(''); go('bag');
+  };
+  const vertical = markets.find((entry) => entry.id === page && entry.id !== 'grid');
+  const isSaved = (row: Item) => savedItems.some((entry) => entry.productId === row.productId);
+  const gridRows = category ? practice ? listed.filter((row) => row.category === category) : filteredCatalog.rows : listed;
+  const gridRequest = category && !practice ? filteredCatalog : live;
+
+  return <div className="jl-shell" data-surface="light">
+    <div className="jumla-frame">
+      <header className="jl-header">
+        <button className="jl-brand" onClick={() => { if (page !== 'discover') setFeedAffinity(affinity); go('discover'); }} aria-label="Jumla Discover">
+          <span className="jl-mark"><ShoppingBag size={18} /></span> jumla<span className="jl-dot">.</span>
+        </button>
+        <div className="jl-header-tools">
+          <span className="jl-location"><MapPin size={13} /> Tanzania</span>
+          <button className="jl-icon-btn" onClick={() => go('search')} aria-label="Search marketplace"><Search size={20} /></button>
+        </div>
+      </header>
+      {practice && <div className="jl-demo-bar"><span><Sparkles size={14} /> Practice mode</span><button onClick={finishPractice}>Go live <ArrowRight size={13} /></button></div>}
+      {!practice && pick?.creator && <div className="jl-demo-bar"><span>{pick.creator.name}’s picks {pick.promoCode && `· ${pick.promoCode}`}</span><button aria-label="Dismiss creator picks" onClick={() => {
+        setPick(null);
+        try { localStorage.removeItem('jumla_attr_code'); localStorage.removeItem('jumla_attr_click'); } catch { /* optional storage */ }
+      }}><X size={16} /></button></div>}
+
+      <main ref={main} className={`jl-main ${page === 'discover' ? 'jl-discover-main' : ''}`}>
+        {page === 'discover' && <>
+          <div className="jl-discover-bar">
+            <div><span className="jl-kicker">{practice ? 'THE JUMLA WALKTHROUGH' : 'JUMLA DISCOVERY'}</span><h1>For you</h1></div>
+            <button className="jl-quiet" onClick={() => go('grid')}><Grid2X2 size={16} /> Grid</button>
+          </div>
+          {feed.length ? <SwipeFeed key={practice ? 'practice' : 'live'} items={feed} position={feedPosition} onPosition={setFeedPosition} practice={practice}
+            open={open} isSaved={isSaved} isLiked={(row) => likes.includes(row.productId)} onSave={toggleSave} onLike={toggleLike} finish={finishPractice}
+            onRefresh={() => { setFeedPosition(0); setFeedAffinity(affinity); live.retry(); }} />
+            : live.failed ? <EmptyState icon={Compass} title="Live feed is temporarily unavailable" description="You can still try the practice feed while listings reconnect."
+              action={<><button className="jl-primary" onClick={startPractice}>Try the practice feed <ArrowRight size={16} /></button><button className="jl-quiet" onClick={live.retry}>Retry live feed</button></>} />
+              : <ListingStatus request={live} empty={<EmptyState icon={Compass} title="Your feed starts here" description="Published products from Jumla merchants will appear here as shops join." action={<button className="jl-primary" onClick={startPractice}>Try the practice feed <ArrowRight size={16} /></button>} />} />}
+        </>}
+
+        {page === 'grid' && <div className="jl-content">
+          <PageTitle kicker="MARKETPLACE / PRODUCTS" title="Browse the grid" description="Compare products side by side and filter by category." />
+          <div className="jl-chips" aria-label="Product categories">
+            {['', ...new Set([...categories, ...listed.map((row) => row.category).filter(Boolean)])].map((label) =>
+              <button key={label} aria-pressed={category === label} onClick={() => setCategory(label)}>{label || 'All products'}</button>)}
+          </div>
+          {gridRows.length ? <ProductGrid rows={gridRows} open={open} /> : <ListingStatus request={practice ? undefined : gridRequest} empty={<EmptyState icon={Grid2X2} title={category ? `No ${category.toLowerCase()} yet` : 'Products will appear here'} description="Check other categories or come back as merchants add products." />} />}
+        </div>}
+
+        {page === 'search' && <div className="jl-content">
+          <PageTitle kicker="MARKETPLACE / SEARCH" title="Find what you need" description="Look up a product or explore another part of the marketplace." />
+          <SearchBox label="Search products" value={query} onChange={setQuery} placeholder="Try headphones, fashion or a shop" />
+          {query.trim() ? (() => {
+            const term = query.trim().toLowerCase();
+            const rows = practice ? samples.filter((row) => `${row.name} ${row.category} ${row.business.name}`.toLowerCase().includes(term)) : search.rows;
+            return rows.length ? <ProductGrid rows={rows} open={open} /> : <ListingStatus request={practice ? undefined : search} empty={<EmptyState icon={Search} title="No matches found" description="Try a shorter keyword or another category." />} />;
+          })() : <>
+            <div className="jl-chips" aria-label="Suggested searches">{categories.map((label) => <button key={label} onClick={() => setQuery(label)}>{label}</button>)}</div>
+            <h2 className="jl-section-title">Explore Jumla</h2>
+            <div className="jl-market-links">{markets.map(({ id, icon: Icon, label, description, color }) => <button key={id} onClick={() => go(id)}>
+              <span className={`jl-tile-icon jl-${color}`}><Icon size={21} /></span><span><strong>{label}</strong><small>{description}</small></span><ChevronRight size={17} />
+            </button>)}</div>
+          </>}
+        </div>}
+
+        {page === 'shops' && <div className="jl-content">
+          <PageTitle kicker="MARKETPLACE / MERCHANTS" title="Explore shops" description={practice ? 'Meet the example shops behind the practice products.' : 'Discover merchants with products currently listed on Jumla.'} />
+          {merchants.length ? <div className="jl-market-links">{merchants.map((row) => {
+            const count = listed.filter((other) => other.businessId === row.businessId).length;
+            const body = <><span className="jl-tile-icon jl-mint"><Store size={22} /></span><span><strong>{row.business.name}</strong><small>{row.sample ? 'Demo merchant · ' : ''}{count} {count === 1 ? 'listing' : 'listings'}</small></span><ChevronRight size={17} /></>;
+            return row.sample ? <button key={row.businessId} onClick={() => open(row)}>{body}</button> : <a key={row.businessId} href={storePath(row)}>{body}</a>;
+          })}</div> : <ListingStatus request={live} empty={<EmptyState icon={Store} title="No shops listed yet" description="Merchants appear here when their products are published and available to browse." action={<button className="jl-quiet" onClick={startPractice}>See example shops</button>} />} />}
+        </div>}
+
+        {vertical && <VerticalPage vertical={vertical.id as Vertical} query={verticalQuery} setQuery={setVerticalQuery} carFilters={carFilters} setCarFilters={setCarFilters}
+          properties={properties} cars={cars} journeys={journeys} />}
+        {page === 'saved' && <div className="jl-content">
+          <PageTitle kicker="YOUR JUMLA / COLLECTION" title="Saved for later" description="Keep the products you want to come back to." />
+          {savedItems.length ? <ProductGrid rows={savedItems} open={open} remove={toggleSave} /> : <EmptyState icon={Bookmark} title="Your list is empty" description="Tap the bookmark on a product to keep it here." action={<button className="jl-primary" onClick={() => go('discover')}>Explore the feed <ArrowRight size={16} /></button>} />}
+        </div>}
+        {page === 'product' && <div className="jl-content">
+          <button className="jl-back" onClick={() => go(productBack)}><ArrowLeft size={17} /> Back</button>
+          {item ? <ProductDetail key={item.productId} item={item} saved={isSaved(item)} onSave={() => toggleSave(item)} onAdd={add} />
+            : <ListingStatus request={live} empty={<EmptyState icon={PackageSearch} title="Listing unavailable" description="This product may have been removed or its shop may be temporarily offline." />} />}
+        </div>}
+        {page === 'bag' && <div className="jl-content">
+          <PageTitle kicker="YOUR JUMLA / BAG" title={practice ? 'Practice bag' : 'Shopping bag'} description={practice ? 'Try changing quantities and selecting a product option.' : 'Review your products and their options before checkout.'} />
+          <Bag lines={bag} practice={practice} setLines={practice ? setPracticeCart : setCart} browse={() => go('discover')} checkout={() => { setConfirmation(''); go('checkout'); }} />
+        </div>}
+        {page === 'checkout' && <div className="jl-content">
+          <button className="jl-back" onClick={() => go('bag')}><ArrowLeft size={17} /> Back to bag</button>
+          <PageTitle kicker="YOUR JUMLA / CHECKOUT" title={practice ? 'Practice checkout' : 'Checkout'} description={practice ? 'Try the steps with a sample order.' : 'Choose pickup or delivery and tell the merchant how to reach you.'} />
+          {confirmation ? <EmptyState icon={Check} title={practice ? 'Practice complete' : 'Order sent'} description={confirmation}
+            action={<button className="jl-primary" onClick={practice ? finishPractice : () => go('discover')}>{practice ? 'Explore live Jumla' : 'Keep browsing'} <ArrowRight size={16} /></button>} />
+            : <Checkout lines={bag} practice={practice} promoHint={pick?.promoCode || ''} edit={() => go('bag')} complete={(message) => {
+              (practice ? setPracticeCart : setCart)([]); setConfirmation(message);
+            }} />}
+        </div>}
+      </main>
+
+      <nav className="jl-nav" aria-label="Main navigation">{tabs.map(({ id, label, icon: Icon }) =>
+        <button key={id} aria-current={page === id ? 'page' : undefined} onClick={() => { if (id === 'discover' && page !== 'discover') setFeedAffinity(affinity); go(id); }}>
+          <span><Icon size={21} />{id === 'bag' && bagCount > 0 && <b>{bagCount}</b>}</span>{label}
+        </button>)}
+      </nav>
+    </div>
   </div>;
 }
 
-function ItemsDeck({ items, index, setIndex, add }: { items: Item[]; index: number; setIndex: (n: number) => void; add: (item: Item) => void }) {
-  const [dx, setDx] = useState(0);
-  const [dragging, setDragging] = useState(false);
-  const drag = useRef<{ startX: number; active: boolean }>({ startX: 0, active: false });
-  const item = items[index]; if (!item) return <Empty title="No live products found" />;
-  const storePath = item.business.tier === 'LITE' ? `/lite-shop/${item.business.publicSlug}` : `/shop/${item.business.publicSlug}`;
-  const whatsapp = item.business.whatsapp?.replace(/\D/g, '');
-  const fireInterest = (eventType: 'SWIPE_LEFT' | 'SWIPE_RIGHT') => void publicApi('/commerce-public/jumla/interest', { method: 'POST', body: JSON.stringify({ productId: item.productId, eventType }) }).catch(() => undefined);
-  const advance = () => { setDx(0); setIndex(Math.min(items.length - 1, index + 1)); };
-  const skip = () => { fireInterest('SWIPE_LEFT'); advance(); };
-  const like = () => { add(item); fireInterest('SWIPE_RIGHT'); advance(); };
-  // Touch/mouse swipe: drag left to skip, right to add. A tap (tiny delta)
-  // snaps back so the Call/WhatsApp/View-Store links inside the card still work.
-  const onDown = (e: React.PointerEvent) => { drag.current = { startX: e.clientX, active: true }; setDragging(true); try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* unsupported */ } };
-  const onMove = (e: React.PointerEvent) => { if (drag.current.active) setDx(e.clientX - drag.current.startX); };
-  const onUp = () => { if (!drag.current.active) return; drag.current.active = false; setDragging(false); if (dx < -120) skip(); else if (dx > 120) like(); else setDx(0); };
-  return <section className="mt-6 max-w-xl mx-auto"><div className="text-xs font-bold text-slate-500 mb-2 flex justify-between"><span>{index + 1} of {items.length}</span><span>{item.nodeStatus === 'ONLINE' ? '● Live KobeOS stock' : item.nodeStatus === 'CLOUD_OFFLINE' ? '● Cloud stock · ships when shop reopens' : '● Kobe Lite cloud stock'}</span></div><article onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp} style={{ transform: `translateX(${dx}px) rotate(${dx / 28}deg)`, transition: dragging ? 'none' : 'transform .25s ease', touchAction: 'pan-y' }} className="relative select-none rounded-[2rem] bg-white border border-slate-200 shadow-xl overflow-hidden"><div className="absolute top-4 left-4 z-10 rounded-xl bg-rose-500 text-white text-sm font-black px-3 py-1 rotate-[-8deg] transition-opacity" style={{ opacity: dx < -40 ? Math.min(1, -dx / 120) : 0 }}>SKIP</div><div className="absolute top-4 right-4 z-10 rounded-xl bg-emerald-600 text-white text-sm font-black px-3 py-1 rotate-[8deg] transition-opacity" style={{ opacity: dx > 40 ? Math.min(1, dx / 120) : 0 }}>ADD</div><img draggable={false} src={publicAssetUrl(item.imageUrl) || fallback} className="w-full aspect-[4/3] object-cover pointer-events-none" /><div className="p-5"><div className="flex gap-3"><div className="flex-1"><p className="text-xs font-black text-emerald-700 uppercase tracking-wider">{item.category || 'Discover'}</p><h3 className="text-2xl font-black mt-1">{item.name}</h3><p className="text-sm text-slate-500 mt-1">{item.business.name}</p>{item.location && <p className="text-xs text-slate-400 mt-1"><MapPin className="inline h-3 w-3" /> {item.location.property} · {item.location.floor} · {item.location.shopCode}</p>}</div><div className="text-right"><b className="text-xl">{money(item.price, item.currency)}</b><p className="text-xs text-slate-400">{item.stock} available</p></div></div><p className="mt-3 text-sm text-slate-600 line-clamp-3">{item.description}</p><div className="mt-4 grid grid-cols-3 gap-2"><a href={`tel:${item.business.phone}`} className="h-9 rounded-xl bg-slate-100 text-xs font-black inline-flex items-center justify-center gap-1"><Phone className="h-3 w-3" /> Call</a><a href={whatsapp ? `https://wa.me/${whatsapp}?text=${encodeURIComponent(`I saw ${item.name} on Jumla`)}` : storePath} className="h-9 rounded-xl bg-emerald-50 text-emerald-700 text-xs font-black inline-flex items-center justify-center gap-1"><MessageCircle className="h-3 w-3" /> WhatsApp</a><a href={storePath} className="h-9 rounded-xl bg-slate-900 text-white text-xs font-black inline-flex items-center justify-center gap-1"><Store className="h-3 w-3" /> View Store</a></div></div></article><p className="text-center text-[11px] text-slate-400 mt-3">Swipe or use the buttons · left to skip, right to add</p><div className="flex items-center justify-center gap-4 mt-2"><button onClick={skip} className="h-14 w-14 rounded-full bg-white border shadow grid place-items-center"><X className="h-6 w-6 text-rose-500" /></button><button onClick={() => add(item)} className="h-14 px-8 rounded-full bg-[#071d18] text-white font-black inline-flex items-center gap-2"><ShoppingBag className="h-5 w-5" /> Buy</button><button onClick={like} className="h-14 w-14 rounded-full bg-[#d5ff4f] shadow grid place-items-center"><Heart className="h-6 w-6" /></button></div><div className="mt-4 flex justify-between"><button disabled={index === 0} onClick={() => { setDx(0); setIndex(Math.max(0, index - 1)); }} className="text-xs font-bold disabled:opacity-30 inline-flex items-center"><ChevronLeft className="h-4 w-4" /> Previous</button><button disabled={index >= items.length - 1} onClick={() => { setDx(0); setIndex(Math.min(items.length - 1, index + 1)); }} className="text-xs font-bold disabled:opacity-30 inline-flex items-center">Next <ChevronRight className="h-4 w-4" /></button></div></section>;
+function PageTitle({ kicker, title, description }: { kicker: string; title: string; description: string }) {
+  return <div className="jl-page-title"><span className="jl-kicker">{kicker}</span><h1>{title}</h1><p>{description}</p></div>;
 }
 
+function EmptyState({ icon: Icon, title, description, action }: { icon: typeof Compass; title: string; description: string; action?: ReactNode }) {
+  return <div className="jl-empty"><span className="jl-empty-icon"><Icon size={30} strokeWidth={1.65} /></span><h2>{title}</h2><p>{description}</p>{action}</div>;
+}
+
+function ListingStatus({ request, empty }: { request?: { pending: boolean; failed: boolean; retry: () => void }; empty: ReactNode }) {
+  if (request?.pending) return <div className="jl-loading" role="status"><Loader2 size={22} className="animate-spin" /> Loading listings…</div>;
+  if (request?.failed) return <EmptyState icon={PackageSearch} title="Listings are temporarily unavailable" description="Please try again in a moment." action={<button className="jl-quiet" onClick={request.retry}>Try again</button>} />;
+  return empty;
+}
+
+function SearchBox({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (text: string) => void; placeholder: string }) {
+  return <label className="jl-search"><Search size={20} /><input aria-label={label} type="search" value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} /></label>;
+}
+
+function SwipeFeed({ items, position, onPosition, practice, open, isSaved, isLiked, onSave, onLike, finish, onRefresh }: {
+  items: Item[]; position: number; onPosition: (position: number) => void; practice: boolean; open: (item: Item) => void;
+  isSaved: (item: Item) => boolean; isLiked: (item: Item) => boolean; onSave: (item: Item) => void; onLike: (item: Item) => void;
+  finish: () => void; onRefresh: () => void;
+}) {
+  const viewport = useRef<HTMLDivElement>(null);
+  const startPosition = useRef(position);
+  const last = items.length;
+  useEffect(() => {
+    const node = viewport.current;
+    if (node) node.scrollTop = node.clientHeight * Math.min(startPosition.current, last);
+  }, [last]);
+  const move = (next: number) => {
+    const node = viewport.current;
+    if (!node) return;
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    node.scrollTo({ top: node.clientHeight * Math.min(last, Math.max(0, next)), behavior: reduce ? 'instant' : 'smooth' });
+  };
+
+  return <div className="jl-feed-wrap">
+    <div ref={viewport} className="jl-feed" aria-label="Vertical product feed" tabIndex={0}
+      onScroll={(event) => { const node = event.currentTarget; if (node.clientHeight) onPosition(Math.round(node.scrollTop / node.clientHeight)); }}
+      onKeyDown={(event) => {
+        if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+        event.preventDefault(); move(position + (event.key === 'ArrowDown' ? 1 : -1));
+      }}>
+      {items.map((row, index) => <article className={`jl-slide jl-slide-${row.sample || 'live'}`} key={row.productId}>
+        <ProductArt item={row} />
+        <div className="jl-shade" />
+        <div className="jl-slide-top"><span>{row.sample ? 'DEMO PRODUCT' : 'JUMLA MARKET'}</span><span>{String(index + 1).padStart(2, '0')} / {String(items.length).padStart(2, '0')}</span></div>
+        <div className="jl-slide-actions">
+          <button aria-label={isLiked(row) ? 'Unlike product' : 'Like product'} aria-pressed={isLiked(row)} onClick={() => onLike(row)}><Heart size={23} fill={isLiked(row) ? 'currentColor' : 'none'} /><small>Like</small></button>
+          <button aria-label={isSaved(row) ? 'Remove saved product' : 'Save product'} aria-pressed={isSaved(row)} onClick={() => onSave(row)}><Bookmark size={22} fill={isSaved(row) ? 'currentColor' : 'none'} /><small>Save</small></button>
+          <button aria-label="Next product" onClick={() => move(index + 1)}><ArrowDown size={22} /><small>Next</small></button>
+        </div>
+        <div className="jl-slide-copy"><div className="jl-kicker">{row.category || 'PRODUCT'} · {row.business.name}</div><h2>{row.name}</h2><p>{money(row.price, row.currency)}</p>
+          <button onClick={() => open(row)} className="jl-lime">View product <ArrowRight size={16} /></button>
+        </div>
+      </article>)}
+      <div className="jl-slide jl-end"><Sparkles size={32} /><h2>{practice ? 'You’re ready to explore' : 'You’re all caught up'}</h2><p>{practice ? 'See products from real merchants in your live feed.' : 'Refresh your feed to check for new listings and updated recommendations.'}</p>
+        <button className="jl-lime" onClick={practice ? finish : onRefresh}>{practice ? 'Explore live Jumla' : 'Refresh feed'} <ArrowRight size={16} /></button>
+        <button className="jl-feed-back" onClick={() => move(0)}><ArrowUp size={16} /> Back to first product</button>
+      </div>
+    </div>
+    <div className="jl-feed-hint"><ArrowUp size={14} /> Swipe up for the next product {practice && <span>· Try liking or saving</span>}</div>
+  </div>;
+}
+
+function ProductGrid({ rows, open, remove }: { rows: Item[]; open: (item: Item) => void; remove?: (item: Item) => void }) {
+  return <div className="jl-product-grid">{rows.map((row) => <article key={row.productId}>
+    <button className="jl-grid-product" onClick={() => open(row)}>
+      <div className="jl-grid-art"><ProductArt item={row} />{row.sample && <span className="jl-art-badge">Demo</span>}</div>
+      <div className="jl-grid-copy"><small>{row.business.name}</small><strong>{row.name}</strong><b>{money(row.price, row.currency)}</b></div>
+    </button>
+    {remove && <button className="jl-remove" aria-label={`Remove ${row.name} from saved`} onClick={() => remove(row)}><Bookmark size={17} fill="currentColor" /></button>}
+  </article>)}</div>;
+}
+
+function ProductOptions({ item, selected, change }: { item: Item; selected: Record<string, string>; change: (options: Record<string, string>) => void }) {
+  return <>{item.requiredOptions.map((option) => {
+    const values = [...new Set(item.variants.map((variant) => variant.attributes?.[option]).filter((value): value is string => Boolean(value)))];
+    return <label key={option} className="jl-field"><span>{option}</span>{values.length
+      ? <select required value={selected[option] || ''} onChange={(event) => change({ ...selected, [option]: event.target.value })}><option value="">Select {option.toLowerCase()}</option>{values.map((value) => <option key={value}>{value}</option>)}</select>
+      : <input required value={selected[option] || ''} onChange={(event) => change({ ...selected, [option]: event.target.value })} placeholder={`Enter ${option.toLowerCase()}`} />}</label>;
+  })}</>;
+}
+
+function ProductDetail({ item, saved, onSave, onAdd }: { item: Item; saved: boolean; onSave: () => void; onAdd: (item: Item, options: Record<string, string>) => void }) {
+  const [options, setOptions] = useState<Record<string, string>>({});
+  const [photoIndex, setPhotoIndex] = useState(0);
+  const photos = [...new Set([item.imageUrl, ...(item.imageUrls || [])].filter(Boolean))];
+  const whatsapp = item.business.whatsapp?.replace(/\D/g, '');
+  return <>
+    <div className="jl-detail-art"><ProductArt key={photos[photoIndex]} item={item} photo={photos[photoIndex]} />{item.sample && <span className="jl-art-badge">Demo product</span>}
+      <button className="jl-remove" aria-label={saved ? 'Remove saved product' : 'Save product'} aria-pressed={saved} onClick={onSave}><Bookmark size={19} fill={saved ? 'currentColor' : 'none'} /></button>
+      {photos.length > 1 && <div className="jl-photo-nav" aria-label="Product photos">{photos.map((photo, index) =>
+        <button key={photo} aria-label={`Photo ${index + 1}`} aria-pressed={photoIndex === index} onClick={() => setPhotoIndex(index)} />)}</div>}
+    </div>
+    <div className="jl-detail-heading"><PageTitle kicker={item.category || 'PRODUCT'} title={item.name} description={item.description} /><strong>{money(item.price, item.currency)}</strong></div>
+    <div className="jl-merchant"><span className="jl-tile-icon jl-mint"><Store size={20} /></span><div><b>{item.business.name}</b><small>{item.sample ? 'Demo merchant' : item.location ? [item.location.property, item.location.floor, item.location.shopCode].filter(Boolean).join(' · ') : `${item.stock} available`}</small></div>
+      {!item.sample && item.business.publicSlug && <a href={storePath(item)}>Visit shop <ChevronRight size={15} /></a>}
+    </div>
+    {!item.sample && (item.business.phone || whatsapp) && <div className="jl-contact">{item.business.phone && <a className="jl-quiet" href={`tel:${item.business.phone}`}><Phone size={15} /> Call</a>}
+      {whatsapp && <a className="jl-quiet" href={`https://wa.me/${whatsapp}?text=${encodeURIComponent(`I saw ${item.name} on Jumla`)}`}><MessageCircle size={15} /> WhatsApp</a>}</div>}
+    <form className="jl-form" onSubmit={(event) => { event.preventDefault(); onAdd(item, options); }}>
+      <ProductOptions item={item} selected={options} change={setOptions} />
+      <button className="jl-primary jl-wide" type="submit" disabled={item.stock < 1}><ShoppingBag size={18} />{item.stock < 1 ? 'Out of stock' : item.sample ? 'Add to practice bag' : 'Add to bag'}</button>
+    </form>
+  </>;
+}
+
+const lineKey = (line: CartLine) => JSON.stringify([line.item.productId, Object.entries(line.selectedOptions).sort(([a], [b]) => a.localeCompare(b))]);
+const subtotal = (lines: CartLine[]) => [...new Set(lines.map(({ item }) => item.currency || 'TZS'))].map((currency) =>
+  money(lines.filter(({ item }) => (item.currency || 'TZS') === currency).reduce((sum, line) => sum + Number(line.item.price) * line.quantity, 0), currency)).join(' + ');
+const hasMissingOptions = (lines: CartLine[]) => lines.some(({ item, selectedOptions }) => item.requiredOptions.some((option) => !selectedOptions[option]?.trim()));
+
+function Bag({ lines, practice, setLines, browse, checkout }: { lines: CartLine[]; practice: boolean; setLines: React.Dispatch<React.SetStateAction<CartLine[]>>; browse: () => void; checkout: () => void }) {
+  if (!lines.length) return <EmptyState icon={ShoppingBag} title="Your bag is empty" description="Open a product to choose your options and add it to your bag." action={<button className="jl-primary" onClick={browse}>Find a product <ArrowRight size={16} /></button>} />;
+  const setQuantity = (target: CartLine, quantity: number) => setLines((all) => all.flatMap((line) => line !== target ? [line] : quantity < 1 ? [] : [{ ...line, quantity }]));
+  return <form className="jl-form" onSubmit={(event) => { event.preventDefault(); checkout(); }}>
+    {lines.map((line) => {
+      const { item, quantity } = line;
+      const count = lines.filter((entry) => entry.item.productId === item.productId).reduce((sum, entry) => sum + entry.quantity, 0);
+      return <article key={lineKey(line)} className="jl-bag-card">
+        <div className="jl-bag-row"><div className="jl-bag-art"><ProductArt item={item} /></div><div><small>{item.business.name}{practice && ' · Demo'}</small><h2>{item.name}</h2><b>{money(item.price, item.currency)}</b></div></div>
+        <div className="jl-bag-row jl-quantity-row"><div className="jl-quantity">
+          <button type="button" aria-label={quantity === 1 ? 'Remove item' : 'Reduce quantity'} onClick={() => setQuantity(line, quantity - 1)}><Minus size={15} /></button>
+          <b>{quantity}</b><button type="button" aria-label="Increase quantity" disabled={count >= item.stock} onClick={() => setQuantity(line, quantity + 1)}><Plus size={15} /></button>
+        </div><strong>{money(Number(item.price) * quantity, item.currency)}</strong></div>
+        <ProductOptions item={item} selected={line.selectedOptions} change={(selectedOptions) => setLines((all) => {
+          const updated = { ...line, selectedOptions };
+          const match = all.find((entry) => entry !== line && lineKey(entry) === lineKey(updated));
+          if (!match) return all.map((entry) => entry === line ? updated : entry);
+          return all.flatMap((entry) => entry === line ? [] : entry === match ? [{ ...match, quantity: match.quantity + line.quantity }] : [entry]);
+        })} />
+      </article>;
+    })}
+    <div className="jl-summary"><div><span>Subtotal</span><strong>{subtotal(lines)}</strong></div><p>{practice ? 'Sample prices for the walkthrough.' : 'Merchants confirm any delivery fees separately.'}</p></div>
+    <button type="submit" className="jl-primary jl-wide">Continue to checkout <ArrowRight size={18} /></button>
+  </form>;
+}
+
+function Checkout({ lines, practice, promoHint, edit, complete }: { lines: CartLine[]; practice: boolean; promoHint: string; edit: () => void; complete: (message: string) => void }) {
+  const [fulfillment, setFulfillment] = useState<'PICKUP' | 'DELIVERY'>('PICKUP');
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState('');
+  const inFlight = useRef(false);
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (inFlight.current || !lines.length || hasMissingOptions(lines)) return;
+    if (practice) { complete('You tried the order flow. Your practice bag has been cleared.'); return; }
+    if (lines.some(({ item }) => item.sample || item.productId.startsWith('demo-'))) return;
+    const fields = new FormData(event.currentTarget);
+    const name = String(fields.get('name') || '').trim();
+    const phone = String(fields.get('phone') || '').trim();
+    const address = String(fields.get('address') || '').trim();
+    if (!name || !phone || (fulfillment === 'DELIVERY' && !address)) {
+      setError('Enter your name, phone number and delivery address if needed.'); return;
+    }
+    inFlight.current = true; setSending(true); setError('');
+    try {
+      const local = (key: string) => { try { return localStorage.getItem(key) || ''; } catch { return ''; } };
+      const code = local('jumla_attr_code');
+      const clickId = local('jumla_attr_click');
+      const liveClickVisitId = local('jumla_live_click');
+      const promoCode = String(fields.get('promo') || '').trim().toUpperCase();
+      const attribution = code || promoCode || liveClickVisitId ? { attribution: { code, clickId, promoCode, liveClickVisitId } } : {};
+      const response = await publicApi<{ orders: Array<{ orderNumber: string }> }>('/commerce-public/jumla/orders', {
+        method: 'POST', body: JSON.stringify({
+          customer: { name, phone }, fulfillment, deliveryAddress: address, note: fields.get('note') || '',
+          lines: lines.map(({ item, quantity, selectedOptions }) => ({ productId: item.productId, quantity, selectedOptions })), ...attribution,
+        }),
+      });
+      complete(`Order reference ${response.orders.map((order) => order.orderNumber).join(', ')}`);
+    } catch (err) { setError((err as Error).message); }
+    finally { inFlight.current = false; setSending(false); }
+  };
+
+  if (!lines.length || hasMissingOptions(lines)) return <EmptyState icon={ShoppingBag} title={lines.length ? 'Choose your product options' : 'Your bag is empty'}
+    description="Review your bag before continuing." action={<button className="jl-primary" onClick={edit}>Review bag</button>} />;
+  return <form className="jl-form" onSubmit={submit}>
+    <div className="jl-summary"><div><span>{lines.reduce((sum, line) => sum + line.quantity, 0)} {lines.reduce((sum, line) => sum + line.quantity, 0) === 1 ? 'item' : 'items'}</span><strong>{subtotal(lines)}</strong></div>
+      <p>{practice ? 'This is a walkthrough. No payment or merchant notification.' : 'One order per merchant. Delivery charges may apply.'}</p></div>
+    <fieldset className="jl-fulfillment"><legend>How will you get it?</legend>
+      <label><input type="radio" name="fulfillment" checked={fulfillment === 'PICKUP'} onChange={() => setFulfillment('PICKUP')} /><Store size={19} /> Pickup</label>
+      <label><input type="radio" name="fulfillment" checked={fulfillment === 'DELIVERY'} onChange={() => setFulfillment('DELIVERY')} /><MapPin size={19} /> Delivery</label>
+    </fieldset>
+    <label className="jl-field"><span>Full name</span><input name="name" autoComplete={practice ? 'off' : 'name'} placeholder="Your name" defaultValue={practice ? 'Demo shopper' : ''} readOnly={practice} required /></label>
+    <label className="jl-field"><span>Phone number</span><input name="phone" type="tel" autoComplete={practice ? 'off' : 'tel'} placeholder="+255" defaultValue={practice ? '+255 ••• ••• •••' : ''} readOnly={practice} required /></label>
+    {fulfillment === 'DELIVERY' && <label className="jl-field"><span>Delivery address</span><input name="address" autoComplete={practice ? 'off' : 'street-address'} defaultValue={practice ? 'Sample address, Dar es Salaam' : ''} readOnly={practice} required /></label>}
+    {!practice && <>
+      <label className="jl-field"><span>Order note <small>Optional</small></span><textarea name="note" rows={2} /></label>
+      <label className="jl-field"><span>Creator code <small>Optional</small></span><input name="promo" placeholder={promoHint || 'Enter code'} /></label>
+    </>}
+    {error && <p className="jl-error" role="alert">{error}</p>}
+    <button className="jl-primary jl-wide" disabled={sending} type="submit">{sending ? <Loader2 size={18} className="animate-spin" /> : practice ? <Check size={18} /> : <Send size={18} />}
+      {practice ? 'Finish practice order' : 'Send order'}</button>
+  </form>;
+}
+
+function VerticalPage({ vertical, query, setQuery, carFilters, setCarFilters, properties, cars, journeys }: {
+  vertical: Vertical; query: string; setQuery: (value: string) => void; carFilters: CarFilters; setCarFilters: (filters: CarFilters) => void;
+  properties: ReturnType<typeof useListings<PropertyCard>>; cars: ReturnType<typeof useListings<CarCard>>; journeys: ReturnType<typeof useListings<Journey>>;
+}) {
+  const fields = {
+    properties: { title: 'Explore properties', description: 'Find shopping centres and the merchants inside them.', placeholder: 'Building, mall or neighbourhood', empty: 'No properties found', detail: 'Commercial spaces and shop directories appear here when published.' },
+    cars: { title: 'Find your next car', description: 'Browse dealer listings and arrange a showroom visit.', placeholder: 'Try Toyota Prado', empty: 'No matching vehicles', detail: 'Try another model or adjust the filters.' },
+    transport: { title: 'Find a journey', description: 'Search bus routes and check departure times and seats.', placeholder: 'Destination, e.g. Arusha', empty: 'No journeys found', detail: 'Search another destination or check back as operators publish trips.' },
+  }[vertical];
+  const market = markets.find(({ id }) => id === vertical)!;
+  const Icon = market.icon;
+  const request = vertical === 'properties' ? properties : vertical === 'cars' ? cars : journeys;
+  return <div className="jl-content">
+    <div className={`jl-vertical-hero jl-${market.color}`}>
+      <Icon size={27} /><PageTitle kicker={`MARKETPLACE / ${market.label.toUpperCase()}`} title={fields.title} description={fields.description} />
+    </div>
+    <SearchBox label={`Search ${vertical}`} value={query} onChange={setQuery} placeholder={fields.placeholder} />
+    {vertical === 'cars' && <CarFilterBar filters={carFilters} setFilters={setCarFilters} />}
+    {request.rows.length ? vertical === 'properties' ? <Properties rows={properties.rows} /> : vertical === 'cars' ? <Cars rows={cars.rows} /> : <Transport rows={journeys.rows} />
+      : <ListingStatus request={request} empty={<EmptyState icon={Icon} title={fields.empty} description={fields.detail} />} />}
+  </div>;
+}
 function Properties({ rows }: { rows: PropertyCard[] }) { return <div className="mt-6 grid md:grid-cols-2 xl:grid-cols-3 gap-5">{rows.map((p) => <article key={p.id} className="bg-white rounded-3xl overflow-hidden border"><img src={publicAssetUrl(p.imageUrl) || fallback} className="w-full h-44 object-cover" /><div className="p-5"><h3 className="text-xl font-black">{p.name}</h3><p className="text-sm text-slate-500 inline-flex items-center gap-1 mt-1"><MapPin className="h-4 w-4" />{p.address}, {p.city}</p><div className="mt-4 flex flex-wrap gap-2">{p.claimedShops.slice(0, 8).map((s) => <a key={s.shopCode} href={s.business ? `${s.business.tier === 'LITE' ? '/lite-shop' : '/shop'}/${s.business.publicSlug}` : '#'} className="rounded-xl bg-emerald-50 px-3 py-2 text-xs"><b>{s.shopCode}</b><span className="block text-slate-500">{s.business?.name || s.categoryId || 'Shop'}</span></a>)}</div><p className="mt-3 text-xs text-slate-400">{p.claimedShops.length} active merchants · {p.totalShops} shop units</p></div></article>)}{!rows.length && <Empty title="No commercial properties found" />}</div>; }
 
 function CarFilterBar({ filters, setFilters }: { filters: CarFilters; setFilters: (value: CarFilters) => void }) { const fields: Array<[keyof CarFilters, string]> = [['make', 'Make'], ['model', 'Model'], ['minYear', 'From year'], ['maxPrice', 'Max price'], ['maxMileage', 'Max mileage'], ['location', 'Location'], ['transmission', 'Transmission'], ['fuel', 'Fuel'], ['bodyType', 'Body'], ['condition', 'Condition'], ['dealer', 'Dealer'], ['color', 'Color']]; return <details className="mt-5 rounded-2xl bg-white border p-4"><summary className="cursor-pointer font-black inline-flex items-center gap-2"><SlidersHorizontal className="h-4 w-4" /> Car filters</summary><div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">{fields.map(([key, label]) => <input key={key} value={filters[key] || ''} onChange={(event) => setFilters({ ...filters, [key]: event.target.value })} placeholder={label} className="h-10 rounded-xl border px-3 text-sm" />)}<select value={filters.financing || ''} onChange={(event) => setFilters({ ...filters, financing: event.target.value })} className="h-10 rounded-xl border px-3 text-sm"><option value="">Any financing</option><option value="true">Financing available</option></select><button onClick={() => setFilters({ make: '', model: '', minYear: '', maxPrice: '', maxMileage: '', location: '', transmission: '', fuel: '', bodyType: '', condition: '', financing: '', dealer: '', color: '' })} className="h-10 rounded-xl bg-slate-100 text-sm font-bold">Clear</button></div></details>; }
