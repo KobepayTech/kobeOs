@@ -1,3 +1,4 @@
+import { AiMemoryNode } from '../ai/ai-operating.entity';
 import { Injectable, Logger } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { DataSource } from 'typeorm';
@@ -29,6 +30,13 @@ export class BusinessEventDeliveryService {
           ownerId: event.ownerId!, sourceEventId: event.id, eventName: event.eventName,
           category: signal.category, severity: signal.severity, summary: signal.summary, data: () => ':signalData',
         }).setParameter('signalData', JSON.stringify(signal.data)).orIgnore().execute();
+        // Reuse the existing owner-scoped memory graph. An event is evidence,
+        // never a new instruction or permission to take business action.
+        await tx.getRepository(AiMemoryNode).createQueryBuilder().insert().values({
+          ownerId: event.ownerId!, nodeType: 'business_event', externalKey: `event:${event.id}`,
+          label: `${event.eventName}: ${signal.summary}`.slice(0, 220),
+          attributes: () => ':memoryData', confidence: 1, source: 'verified_business_event', lastVerifiedAt: new Date(),
+        }).setParameter('memoryData', JSON.stringify({ eventId: event.id, eventName: event.eventName, occurredAt: event.occurredAt, ...signal.data })).orIgnore().execute();
         event.status = 'PUBLISHED'; event.publishedAt = new Date(); event.lastError = null; event.nextAttemptAt = null;
       } catch {
         await tx.query('ROLLBACK TO SAVEPOINT brain_projection');

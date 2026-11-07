@@ -1,0 +1,33 @@
+{
+  "date": "2026-11-02",
+  "scope": "Connected delivery across the four-phase roadmap; the complete roadmap is not finished",
+  "delivered": [
+    "Core Kobe Home application with six work areas and real backend briefing",
+    "Explicit workspace-wide viewer invitation and acceptance screen using existing account email addresses",
+    "Recorded email and WhatsApp previews restricted to the signed-in account",
+    "Recorded room and stock board with explicit resource limits and source labels",
+    "Atomic deduplicated inter-warehouse transfers reusing the existing movement service",
+    "Business event evidence projected atomically into existing owner-scoped memory"
+  ],
+  "backend": {
+    "regressionSuitesPassed": 35,
+    "regressionTestsPassed": 280,
+    "focusedFoundationAndLedgerTestsPassedAfterEmailInviteChange": 24,
+    "typescript": "passed",
+    "targetedLint": "passed"
+  },
+  "frontend": {
+    "regressionSuitesPassed": 37,
+    "regressionSuitesSkipped": 1,
+    "regressionTestsPassed": 227,
+    "regressionTestsSkipped": 4,
+    "homeTestsPassedAfterFinalInvitationChange": 4,
+    "targetedLint": "passed",
+    "build": "passed"
+  },
+  "database": "Disposable loopback PostgreSQL; application and production databases untouched",
+  "migration": "1793603000000-StockTransfers; apply after the earlier foundation migrations",
+  "externalMessagesAndPayments": "No real outbound messages or transfers performed",
+  "deployment": "Not deployed; Windows installers not rebuilt",
+  "remaining": "See docs/business-os-roadmap.md for outstanding acceptance requirements in every phase"
+}

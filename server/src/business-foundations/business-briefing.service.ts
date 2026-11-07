@@ -1,3 +1,5 @@
+import { EmailMessage } from '../email/email.entity';
+import { WhatsAppMessage } from '../whatsapp/whatsapp.entity';
 import { WorkspaceMember } from './workspace-member.entity';
 import { workspaceScope } from './workspace-access.service';
 import { BadRequestException, Injectable } from '@nestjs/common';
@@ -6,7 +8,7 @@ import { PosOrder, PosProduct } from '../pos/pos.entity';
 import { ShopExpense } from '../eod/eod.entity';
 import { RentCharge } from '../property/property.entity';
 import { HotelRoom } from '../hotel/hotel.entity';
-import { WarehouseItem } from '../warehouse/warehouse.entity';
+import { Warehouse, WarehouseItem } from '../warehouse/warehouse.entity';
 import { Parcel } from '../cargo/cargo.entity';
 import { CommerceBusiness } from '../commerce/commerce.entity';
 import { KpTransaction } from '../kobepay-pro/kobepay-pro.entity';
@@ -15,7 +17,7 @@ import { PlatformBusinessSignal, PlatformDomainEvent } from '../platform/platfor
 import { BUSINESS_EVENT_NAMES } from '../platform/business-events';
 import { ownerScope } from './business-scope';
 
-export const BRIEFING_ENTITIES = [WorkspaceMember, PosOrder, PosProduct, ShopExpense, RentCharge, HotelRoom, WarehouseItem, Parcel, CommerceBusiness, KpTransaction, AiApprovalRequest, PlatformBusinessSignal, PlatformDomainEvent];
+export const BRIEFING_ENTITIES = [Warehouse, EmailMessage, WhatsAppMessage, WorkspaceMember, PosOrder, PosProduct, ShopExpense, RentCharge, HotelRoom, WarehouseItem, Parcel, CommerceBusiness, KpTransaction, AiApprovalRequest, PlatformBusinessSignal, PlatformDomainEvent];
 export function checkedTimezone(timezone: string) {
   if (timezone.length > 80) throw new BadRequestException('Invalid business timezone.');
   try { new Intl.DateTimeFormat('en', { timeZone: timezone }).format(); }
@@ -69,6 +71,40 @@ export class BusinessBriefingService {
         activity: signals, eventDelivery: Object.fromEntries(eventQueue.map(q => [q.status, Number(q.count)])),
         automationPolicy: 'Read and explain authorized records. Business changes require explicit approval; events never execute transfers.',
       };
+    });
+  }
+  async conversations(actorId: string, role = 'user') {
+    ownerScope(actorId, role);
+    // Private communications do not inherit the briefing's viewer grants.
+    return this.db.transaction('REPEATABLE READ', async tx => {
+      await tx.query('SET TRANSACTION READ ONLY');
+      const email = await tx.find(EmailMessage, { where: [{ ownerId: actorId, folder: 'inbox' }, { ownerId: actorId, folder: 'sent' }],
+        select: { id: true, subject: true, folder: true, createdAt: true }, order: { createdAt: 'DESC', id: 'DESC' }, take: 50 });
+      const whatsapp = await tx.getRepository(WhatsAppMessage).createQueryBuilder('m')
+        .select('m.id', 'id').addSelect('m.direction', 'direction').addSelect('LEFT(m.body,240)', 'preview').addSelect('m.createdAt', 'createdAt')
+        .where('m.ownerId = :ownerId', { ownerId: actorId }).orderBy('m.createdAt', 'DESC').addOrderBy('m.id', 'DESC').take(50)
+        .getRawMany<{ id: string; direction: string; preview: string; createdAt: Date }>();
+      const messages = [
+        ...email.map(row => ({ id: `email:${row.id}`, sourceId: row.id, channel: 'email', direction: row.folder === 'sent' ? 'out' : 'in', preview: row.subject, createdAt: row.createdAt })),
+        ...whatsapp.map(row => ({ id: `whatsapp:${row.id}`, sourceId: row.id, channel: 'whatsapp', direction: row.direction, preview: row.preview, createdAt: row.createdAt })),
+      ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime() || a.id.localeCompare(b.id)).slice(0, 50);
+      return { messages, limit: 50, channels: ['email', 'whatsapp'],
+        note: 'Recent messages stored in KobeOS, not proof of current provider connectivity. Other channels are not included.' };
+    });
+  }
+  async physicalState(actorId: string, role = 'user', requestedOwnerId?: string) {
+    ownerScope(actorId, role);
+    return this.db.transaction('REPEATABLE READ', async tx => {
+      await tx.query('SET TRANSACTION READ ONLY');
+      const scope = await workspaceScope(tx, actorId, role, requestedOwnerId);
+      const rooms = await tx.find(HotelRoom, { where: { ownerId: scope.ownerId }, select: { id: true, roomNumber: true, status: true, type: true }, order: { roomNumber: 'ASC', id: 'ASC' }, take: 100 });
+      const stock = await tx.find(WarehouseItem, { where: { ownerId: scope.ownerId }, select: { id: true, name: true, sku: true, warehouseId: true, unit: true, quantity: true, reorderLevel: true }, order: { name: 'ASC', id: 'ASC' }, take: 100 });
+      const warehouses = await tx.find(Warehouse, { where: { ownerId: scope.ownerId }, select: { id: true, name: true } });
+      return { generatedAt: new Date().toISOString(), scope,
+        rooms, stock: stock.map(item => ({ ...item, warehouseName: warehouses.find(warehouse => warehouse.id === item.warehouseId)?.name || 'Unassigned warehouse' })), totalRooms: await tx.countBy(HotelRoom, { ownerId: scope.ownerId }),
+        totalStockItems: await tx.countBy(WarehouseItem, { ownerId: scope.ownerId }),
+        displayLimit: 100, source: 'recorded_business_state',
+        note: 'Recorded room and inventory state; not a sensor feed or a 3D building model.' };
     });
   }
   async briefing(actorId: string, role = 'user', timezone = 'UTC', requestedOwnerId?: string) {

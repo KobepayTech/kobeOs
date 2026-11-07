@@ -1,3 +1,9 @@
+import { StockTransfer } from '../warehouse/stock-transfer.entity';
+import { StockTransferService } from '../warehouse/stock-transfer.service';
+import { StockTransfers1793603000000 } from '../migrations/1793603000000-StockTransfers';
+import { EmailMessage } from '../email/email.entity';
+import { WhatsAppMessage } from '../whatsapp/whatsapp.entity';
+import { HotelRoom } from '../hotel/hotel.entity';
 import { LedgerSourceIdempotency1793601000000 } from '../migrations/1793601000000-LedgerSourceIdempotency';
 import { WorkspaceMemberships1793602000000 } from '../migrations/1793602000000-WorkspaceMemberships';
 import { WorkspaceAccessService } from './workspace-access.service';
@@ -16,7 +22,7 @@ import { WarehouseItem, WarehouseMovement } from '../warehouse/warehouse.entity'
 import { MovementsService } from '../warehouse/warehouse.service';
 import { KpAccount, KpLedgerLine, KpTransaction } from '../kobepay-pro/kobepay-pro.entity';
 import { LedgerService } from '../kobepay-pro/ledger.service';
-import { AiApprovalRequest, AiOperatingAudit, AiWorkflowPlan } from '../ai/ai-operating.entity';
+import { AiApprovalRequest, AiOperatingAudit, AiWorkflowPlan, AiMemoryNode } from '../ai/ai-operating.entity';
 import { AiOperatingService } from '../ai/ai-operating.service';
 import { PosOrder } from '../pos/pos.entity';
 import { SharedBusinessFoundations1793600000000 } from '../migrations/1793600000000-SharedBusinessFoundations';
@@ -69,7 +75,7 @@ integration('shared foundations against isolated PostgreSQL', () => {
     db = new DataSource({ type: 'postgres', host: '127.0.0.1', port, username: process.env.FOUNDATION_TEST_USER || 'postgres',
       password: process.env.FOUNDATION_TEST_PASSWORD,
       database: 'kobeos_foundations_test', entities: [...new Set([...BRIEFING_ENTITIES,
-        User, WarehouseMovement, KpAccount, KpLedgerLine, AiOperatingAudit, AiWorkflowPlan])],
+        User, StockTransfer, WarehouseMovement, KpAccount, KpLedgerLine, AiOperatingAudit, AiWorkflowPlan, AiMemoryNode])],
       synchronize: true, dropSchema: true });
     await db.initialize();
     events = new PlatformEventsService(db.getRepository(PlatformDomainEvent));
@@ -77,8 +83,8 @@ integration('shared foundations against isolated PostgreSQL', () => {
   });
   afterAll(async () => { if (db?.isInitialized) await db.destroy(); });
   beforeEach(async () => {
-    for (const entity of [WorkspaceMember, User, PlatformBusinessSignal, PlatformDomainEvent, WarehouseMovement, WarehouseItem,
-      AiApprovalRequest, AiOperatingAudit, AiWorkflowPlan, KpLedgerLine, KpTransaction, KpAccount, PosOrder]) {
+    for (const entity of [StockTransfer, EmailMessage, WhatsAppMessage, HotelRoom, AiMemoryNode, WorkspaceMember, User, PlatformBusinessSignal, PlatformDomainEvent, WarehouseMovement, WarehouseItem,
+      AiApprovalRequest, AiOperatingAudit, AiWorkflowPlan, AiMemoryNode, KpLedgerLine, KpTransaction, KpAccount, PosOrder]) {
       await db.getRepository(entity).clear();
     }
   });
@@ -91,7 +97,7 @@ integration('shared foundations against isolated PostgreSQL', () => {
       await migration.down(q);
       await migration.up(q);
       await migration.up(q);
-      for (const next of [new LedgerSourceIdempotency1793601000000(), new WorkspaceMemberships1793602000000()]) {
+      for (const next of [new LedgerSourceIdempotency1793601000000(), new WorkspaceMemberships1793602000000(), new StockTransfers1793603000000()]) {
         await next.down(q); await next.up(q); await next.up(q);
       }
       expect(await q.hasTable('platform_business_signals')).toBe(true);
@@ -123,9 +129,11 @@ integration('shared foundations against isolated PostgreSQL', () => {
     expect(await db.getRepository(PlatformBusinessSignal).count()).toBe(1);
     const event = await db.getRepository(PlatformDomainEvent).findOneByOrFail({ ownerId: owner });
     expect(event.status).toBe('PUBLISHED');
+    expect(await db.getRepository(AiMemoryNode).countBy({ ownerId: owner, source: 'verified_business_event' })).toBe(1);
     await db.getRepository(PlatformDomainEvent).update(event.id, { status: 'RECORDED' });
     await delivery.deliverOne();
     expect(await db.getRepository(PlatformBusinessSignal).count()).toBe(1);
+    expect(await db.getRepository(AiMemoryNode).countBy({ ownerId: owner })).toBe(1);
   });
   it('retains failed events with backoff, bounded attempts and recovery', async () => {
     const event = await db.transaction(tx => events.recordInTransaction(tx, input()));
@@ -253,7 +261,7 @@ integration('shared foundations against isolated PostgreSQL', () => {
     await db.getRepository(User).save({ id: other, email: 'viewer@test.invalid', passwordHash: 'unused-test-fixture' });
     const access = new WorkspaceAccessService(db);
     const brain = new BusinessBriefingService(db);
-    const invited = await access.invite(owner, 'user', other);
+    const invited = await access.invite(owner, 'user', 'viewer@test.invalid');
     await expect(brain.snapshot(other, 'admin', 'UTC', owner)).rejects.toThrow();
     await expect(access.decide(owner, 'user', invited.id, 'accept')).rejects.toThrow();
     await access.decide(other, 'user', invited.id, 'accept');
@@ -263,6 +271,51 @@ integration('shared foundations against isolated PostgreSQL', () => {
     await access.decide(owner, 'user', invited.id, 'revoke');
     await expect(brain.snapshot(other, 'admin', 'UTC', owner)).rejects.toThrow();
     await expect(access.decide(other, 'user', invited.id, 'accept')).rejects.toThrow();
+  });
+  it('transfers warehouse stock atomically and deduplicates concurrent retries', async () => {
+    const items = db.getRepository(WarehouseItem);
+    const from = await items.save({ ownerId: owner, sku: 'A1', name: 'Caps', quantity: 10, warehouseId: randomUUID() });
+    const to = await items.save({ ownerId: owner, sku: 'A1', name: 'Caps', quantity: 2, warehouseId: randomUUID() });
+    const movements = new MovementsService(items, db.getRepository(WarehouseMovement), db, events);
+    const service = new StockTransferService(db, movements);
+    const input = { fromItemId: from.id, toItemId: to.id, quantity: 3, requestKey: randomUUID() };
+    const results = await Promise.all([service.transfer(owner, 'user', input), service.transfer(owner, 'user', input)]);
+    expect(results[0].id).toBe(results[1].id);
+    expect((await items.findOneByOrFail({ id: from.id })).quantity).toBe(7);
+    expect((await items.findOneByOrFail({ id: to.id })).quantity).toBe(5);
+    expect(await db.getRepository(WarehouseMovement).count()).toBe(2);
+    await expect(service.transfer(owner, 'user', { ...input, quantity: 4 })).rejects.toThrow('another transfer');
+    await expect(service.transfer(owner, 'government_viewer', { ...input, requestKey: randomUUID() })).rejects.toThrow();
+    await expect(service.transfer(other, 'admin', { ...input, requestKey: randomUUID() })).rejects.toThrow('not found');
+    await expect(service.transfer(owner, 'user', { ...input, requestKey: randomUUID(), quantity: 100 })).rejects.toThrow('Insufficient');
+    expect(await db.getRepository(StockTransfer).count()).toBe(1);
+    expect(await db.getRepository(WarehouseMovement).count()).toBe(2);
+    expect((await items.findOneByOrFail({ id: to.id })).quantity).toBe(5);
+  });
+  it('combines recorded conversations without exposing another account or private drafts', async () => {
+    await db.getRepository(EmailMessage).save([
+      { ownerId: owner, fromAddress: 'customer@test.invalid', toAddresses: ['business@test.invalid'], subject: 'Order question', folder: 'inbox' },
+      { ownerId: owner, fromAddress: 'business@test.invalid', toAddresses: [], subject: 'Private draft', folder: 'drafts' },
+      { ownerId: other, fromAddress: 'private@test.invalid', toAddresses: [], subject: 'Private mail' },
+    ]);
+    await db.getRepository(WhatsAppMessage).save({ ownerId: owner, contactId: randomUUID(), direction: 'in', body: 'Where is my order?' });
+    const inbox = await new BusinessBriefingService(db).conversations(owner);
+    expect(inbox.messages).toHaveLength(2);
+    expect(inbox.messages.map(message => message.preview).sort()).toEqual(['Order question', 'Where is my order?']);
+  });
+  it('projects physical business records without crossing workspace boundaries', async () => {
+    await db.getRepository(HotelRoom).save([
+      { ownerId: owner, roomNumber: '101', type: 'double', status: 'occupied' },
+      { ownerId: other, roomNumber: 'private-room', type: 'double', status: 'available' },
+    ]);
+    await db.getRepository(WarehouseItem).save({ ownerId: owner, sku: 'A1', name: 'Caps', quantity: 2, reorderLevel: 5 });
+    const brain = new BusinessBriefingService(db);
+    const physical = await brain.physicalState(owner);
+    expect(physical.totalRooms).toBe(1);
+    expect(physical.rooms.map(room => room.roomNumber)).toEqual(['101']);
+    expect(physical.stock[0].quantity).toBe(2);
+    expect(physical.source).toBe('recorded_business_state');
+    await expect(brain.physicalState(other, 'admin', owner)).rejects.toThrow();
   });
   it('authenticates Brain routes and rejects cross-owner or invalid timezone requests', async () => {
     const secret = randomUUID() + randomUUID();

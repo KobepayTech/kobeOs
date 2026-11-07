@@ -1,3 +1,4 @@
+import { AiMemoryNode } from '../ai/ai-operating.entity';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { NotificationsModule } from '../notifications/notifications.module';
@@ -8,7 +9,7 @@ import { PlatformEventsService, PlatformNotificationService } from './platform.s
 import { BusinessEventDeliveryService } from './business-event-delivery.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([...PLATFORM_ENTITIES]), NotificationsModule, PushModule],
+  imports: [TypeOrmModule.forFeature([...PLATFORM_ENTITIES, AiMemoryNode]), NotificationsModule, PushModule],
   controllers: [PlatformController],
   providers: [PlatformEventsService, PlatformNotificationService, BusinessEventDeliveryService],
   exports: [PlatformEventsService, PlatformNotificationService, BusinessEventDeliveryService],

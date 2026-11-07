@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { WarehouseItem, WarehouseMovement } from './warehouse.entity';
 import { CreateItemDto, MovementDto, UpdateItemDto } from './dto/warehouse.dto';
 import { OwnedCrudService } from '../common/owned.service';
@@ -44,7 +44,12 @@ export class MovementsService {
   }
 
   async record(uid: string, dto: MovementDto) {
-    return this.ds.transaction(async (tx) => {
+    return this.ds.transaction(tx => this.recordInTransaction(tx, uid, dto));
+  }
+
+  async recordInTransaction(tx: EntityManager, uid: string, dto: MovementDto) {
+      if (!['IN', 'OUT', 'ADJUST'].includes(dto.type) || !Number.isInteger(dto.quantity) || dto.quantity < 0 || dto.quantity > 2147483647) throw new BadRequestException('Invalid stock movement quantity or type');
+      if (!tx.queryRunner?.isTransactionActive) throw new BadRequestException('Stock movements require an active transaction');
       const itemRepo = tx.getRepository(WarehouseItem);
       const movRepo = tx.getRepository(WarehouseMovement);
       const item = await itemRepo.findOne({ where: { id: dto.itemId, ownerId: uid }, lock: { mode: 'pessimistic_write' } });
@@ -67,7 +72,6 @@ export class MovementsService {
         await this.events.recordInTransaction(tx, { ownerId: uid, eventName: 'inventory.stock.low', aggregateType: 'WarehouseItem', aggregateId: item.id, idempotencyKey: `movement:${movement.id}`, correlationId: movement.id, payload });
       }
       return movement;
-    });
   }
 }
 
