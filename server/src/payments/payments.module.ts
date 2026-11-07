@@ -54,5 +54,6 @@ import { ErpModule } from '../erp/erp.module';
     KobePayReceiptsService,
   ],
   controllers: [PaymentsController, KobePayController, KobePayReceiptsController, PublicReceiptController],
+  exports: [KobePayRbacService],
 })
 export class PaymentsModule {}

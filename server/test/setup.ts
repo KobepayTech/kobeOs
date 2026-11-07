@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { Test } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { SchedulerRegistry } from '@nestjs/schedule';
 import { json, urlencoded } from 'express';
 import { DataSource } from 'typeorm';
 import { AppModule } from '../src/app.module';
@@ -41,7 +42,38 @@ export async function bootTestApp(): Promise<INestApplication> {
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.useGlobalFilters(new HttpExceptionFilter());
   await app.init();
+  stopScheduledJobs(app);
   return app;
+}
+
+/**
+ * Stop every @Cron, @Interval and @Timeout the app registered.
+ *
+ * A scheduled job that fires during or after a spec queries a DataSource the
+ * teardown is closing, and TypeORM logs the failure. Jest turns a log after
+ * the test run into "Cannot log after tests are done" and exits 1 — so a run
+ * with 139 of 139 tests passing still fails, intermittently, depending on
+ * whether a minute boundary happened to fall inside the suite.
+ *
+ * The jobs also serve no purpose here: no spec asserts on them, and letting
+ * them race the tests they share a connection pool with only adds flake.
+ */
+function stopScheduledJobs(app: INestApplication): void {
+  let registry: SchedulerRegistry;
+  try {
+    registry = app.get(SchedulerRegistry, { strict: false });
+  } catch {
+    return; // ScheduleModule not loaded in this configuration
+  }
+  for (const job of registry.getCronJobs().values()) {
+    try { job.stop(); } catch { /* already stopped */ }
+  }
+  for (const name of registry.getIntervals()) {
+    try { registry.deleteInterval(name); } catch { /* already cleared */ }
+  }
+  for (const name of registry.getTimeouts()) {
+    try { registry.deleteTimeout(name); } catch { /* already cleared */ }
+  }
 }
 
 /** Wipe all per-user data between specs so suites can't interfere. */

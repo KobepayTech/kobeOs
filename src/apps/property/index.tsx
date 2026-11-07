@@ -1,10 +1,11 @@
+import PropertyListings from './PropertyListings';
 import { useState } from 'react';
 import { Building2, CheckCircle2, Plus } from 'lucide-react';
 import PropEasy from './PropEasy';
 import PropertyOnboardingWizard from './PropertyOnboardingWizard';
 
 export default function PropertyApp() {
-  const [mode, setMode] = useState<'portfolio' | 'onboard'>('portfolio');
+  const [mode, setMode] = useState<'portfolio' | 'onboard' | 'listings'>('portfolio');
   const [created, setCreated] = useState<string | null>(null);
 
   if (mode === 'onboard') {
@@ -29,6 +30,9 @@ export default function PropertyApp() {
           <div className="text-sm font-extrabold text-slate-900">Property portfolio</div>
           <div className="text-[11px] text-slate-500">Buildings, corridors, rooms, tenants, rent, and payment tokens</div>
         </div>
+        <button type="button" aria-pressed={mode === 'listings'} onClick={() => setMode(mode === 'listings' ? 'portfolio' : 'listings')} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-800">
+          {mode === 'listings' ? 'Back to portfolio' : 'Online listings'}
+        </button>
         <button
           onClick={() => setMode('onboard')}
           className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-blue-600 px-4 text-xs font-extrabold text-white shadow-sm hover:bg-blue-500"
@@ -45,7 +49,7 @@ export default function PropertyApp() {
         </button>
       )}
       <div className="min-h-0 flex-1">
-        <PropEasy />
+        {mode === 'listings' ? <PropertyListings /> : <PropEasy />}
       </div>
     </div>
   );

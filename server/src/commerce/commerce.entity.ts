@@ -91,7 +91,11 @@ export class CommerceProductMedia extends BaseEntity {
   @Column({ default: 'IMAGE' }) kind!: 'IMAGE' | 'VIDEO';
   @Column({ type: 'int', default: 0 }) sortOrder!: number;
   @Column({ type: 'jsonb', default: {} }) crop!: Record<string, number>;
-  @Index({ unique: true }) @Column({ nullable: true, type: 'varchar' }) publicToken?: string | null;
+  // Partial, matching UQ_commerce_media_token in the migrations. Declared
+  // plain here, a synchronize-built desktop database got a different index
+  // from a migration-built one, and no single ON CONFLICT target matched both.
+  @Index({ unique: true, where: '"publicToken" IS NOT NULL' })
+  @Column({ nullable: true, type: 'varchar' }) publicToken?: string | null;
   @Column({ nullable: true, type: 'varchar' }) mimeType?: string | null;
   @Column({ type: 'bytea', nullable: true }) contentBinary?: Buffer | null;
 }
@@ -140,6 +144,21 @@ export class ProductSnippet extends BaseEntity {
   @Column({ default: '' }) locationLabel!: string;
   @Column({ type: 'timestamptz', nullable: true }) lastOnlineAt?: Date | null;
   @Column({ default: '' }) availabilityHint!: string;
+  /** Units handed to the online continuity layer. Set by an operator. */
+  @Column({ type: 'int', default: 0 }) allocatedQty!: number;
+  /**
+   * Units of that allotment the cloud has not sold yet, and so may still
+   * commit. Kept apart from `stock` on purpose: `stock` is the merchant's own
+   * count and a heartbeat overwrites it, which would otherwise replenish an
+   * allowance the cloud had already spent.
+   */
+  @Column({ type: 'int', default: 0 }) remainingQty!: number;
+  /**
+   * Sold online but not yet deducted from `stock`, because the order has not
+   * synced back. Held on the shelf alongside remainingQty so the till cannot
+   * sell a unit in the gap between an online sale and its sync.
+   */
+  @Column({ type: 'int', default: 0 }) committedQty!: number;
 }
 
 @Entity('commerce_customers')

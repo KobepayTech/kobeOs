@@ -2,7 +2,7 @@ import { BadRequestException, ConflictException, ForbiddenException, Injectable,
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash, randomBytes, randomUUID } from 'crypto';
-import { DataSource, In, LessThanOrEqual, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, LessThanOrEqual, Repository } from 'typeorm';
 import sharp from 'sharp';
 import { AiService } from '../ai/ai.service';
 import { PosProduct } from '../pos/pos.entity';
@@ -14,6 +14,10 @@ import {
   KobeNode, MerchantClaim, MerchantOrder, MerchantQuota, NodeHeartbeat, ProductSnippet, PropertyFloor,
 } from './commerce.entity';
 import { LITE_FREE_ORDER_LIMIT, extractCaptionProductMetadata, groupByMerchant, isNodeOnline, marketplaceSlug, merchantOrderAccess, missingRequiredOptions, normalizePhone, panelCrops, propertyFloorCode, propertyUnitShopCode, shopCode, vehicleEconomics } from './commerce.rules';
+import {
+  SEARCH_VECTOR_SQL, TRIGRAM_THRESHOLD, clampLimit, clampOffset,
+  normalizeQuery, orderTerms, parsePriceRange, parseSort, shouldTryFuzzy,
+} from './marketplace-search';
 import { CreatorCommerceService } from '../creator-commerce/creator-commerce.service';
 import { LiveAdsService } from '../live-ads/live-ads.service';
 import { CommerceVehicle, VehicleAppointment, VehicleBuyerRequest, VehicleListingMetadata, VehicleMedia, VehicleReservation } from './cars.entity';
@@ -809,7 +813,80 @@ export class CommerceService implements OnModuleInit {
     }
   }
 
-  async publicItems(query: { q?: string; category?: string; businessId?: string; limit?: string }) {
+  /**
+   * Rank the catalogue for a shopper's query.
+   *
+   * Full-text first, with weighted ranking so a word in the product name beats
+   * the same word buried in a description. If that finds nothing and trigram
+   * matching is available, try again fuzzily — a shopper who types "samsng"
+   * should still find the phone, and an empty results page is the one outcome
+   * worth a second query for.
+   *
+   * The fuzzy pass is skipped entirely when full-text found anything, because
+   * trigram similarity is loose enough to dilute good matches.
+   */
+  private async searchSnippets(
+    query: { q?: string; category?: string; businessId?: string; limit?: string; offset?: string; minPrice?: string; maxPrice?: string; sort?: string },
+    visibleIds: string[],
+  ): Promise<ProductSnippet[]> {
+    const text = normalizeQuery(query.q);
+    const limit = clampLimit(query.limit);
+    const offset = clampOffset(query.offset);
+    const { min, max } = parsePriceRange(query.minPrice, query.maxPrice);
+    const sort = parseSort(query.sort, Boolean(text));
+
+    const base = () => {
+      const qb = this.snippets.createQueryBuilder('s')
+        .where('s."businessId" IN (:...ids)', { ids: visibleIds })
+        .andWhere('s.active = true')
+        .andWhere('s.stock > 0');
+      if (query.category?.trim()) {
+        qb.andWhere('LOWER(s.category) = :category', { category: query.category.toLowerCase().trim() });
+      }
+      if (query.businessId) qb.andWhere('s."businessId" = :businessId', { businessId: query.businessId });
+      if (min !== null) qb.andWhere('s.price >= :min', { min });
+      if (max !== null) qb.andWhere('s.price <= :max', { max });
+      return qb;
+    };
+
+    const run = async (fuzzy: boolean): Promise<ProductSnippet[]> => {
+      const qb = base();
+      if (text && !fuzzy) {
+        qb.andWhere(`${SEARCH_VECTOR_SQL} @@ websearch_to_tsquery('english', :text)`, { text });
+        // ts_rank_cd weighs how close the matched terms are to each other, so
+        // "red running shoe" prefers a product with all three together.
+        qb.addSelect(`ts_rank_cd(${SEARCH_VECTOR_SQL}, websearch_to_tsquery('english', :text))`, 'rank');
+      } else if (text && fuzzy) {
+        // word_similarity, not similarity: the latter compares whole strings,
+        // so a short query scores low against a longer name however well it
+        // matches one word of it. This pass is a scan rather than an index
+        // lookup, which is acceptable because it only runs when the indexed
+        // search already returned nothing, under the same filters.
+        qb.andWhere('word_similarity(:text, s.name) > :threshold', { text, threshold: TRIGRAM_THRESHOLD });
+        qb.addSelect('word_similarity(:text, s.name)', 'rank');
+      } else {
+        qb.addSelect('0', 'rank');
+      }
+      const terms = orderTerms(text ? sort : parseSort(query.sort, false));
+      terms.forEach(([expression, direction], index) => {
+        if (index === 0) qb.orderBy(expression, direction);
+        else qb.addOrderBy(expression, direction);
+      });
+      return qb.limit(limit).offset(offset).getMany();
+    };
+
+    const exact = await run(false);
+    if (!shouldTryFuzzy(text, exact.length)) return exact;
+    try {
+      return await run(true);
+    } catch {
+      // similarity() needs pg_trgm, which the migration treats as optional.
+      // Without it an empty result is the honest answer, not an error page.
+      return exact;
+    }
+  }
+
+  async publicItems(query: { q?: string; category?: string; businessId?: string; limit?: string; offset?: string; minPrice?: string; maxPrice?: string; sort?: string }) {
     const businesses = await this.businesses.find({ where: { status: 'ACTIVE' } });
     const nodes = await this.nodes.find({ where: { businessId: In(businesses.map((b) => b.id)) } });
     const nodeMap = new Map(nodes.map((n) => [n.businessId, n]));
@@ -818,11 +895,7 @@ export class CommerceService implements OnModuleInit {
     const visibleIds = visible.map((b) => b.id);
     if (!visibleIds.length) return [];
     const statusOf = (b?: CommerceBusiness) => !b ? 'CLOUD_OFFLINE' : b.tier === 'LITE' ? 'CLOUD_LITE' : isNodeOnline(nodeMap.get(b.id)?.lastSeenAt) ? 'ONLINE' : 'CLOUD_OFFLINE';
-    const qb = this.snippets.createQueryBuilder('s').where('s.businessId IN (:...ids)', { ids: visibleIds }).andWhere('s.active = true').andWhere('s.stock > 0');
-    if (query.q?.trim()) qb.andWhere('(LOWER(s.name) LIKE :q OR LOWER(s.description) LIKE :q)', { q: `%${query.q.toLowerCase().trim()}%` });
-    if (query.category?.trim()) qb.andWhere('LOWER(s.category) = :category', { category: query.category.toLowerCase().trim() });
-    if (query.businessId) qb.andWhere('s.businessId = :businessId', { businessId: query.businessId });
-    const rows = await qb.orderBy('s.indexedAt', 'DESC').take(Math.min(200, Math.max(1, Number(query.limit) || 60))).getMany();
+    const rows = await this.searchSnippets(query, visibleIds);
     const map = new Map(visible.map((b) => [b.id, b]));
     const [products, locations] = await Promise.all([
       rows.length ? this.products.find({ where: { id: In(rows.map((r) => r.productId)) } }) : [],
@@ -837,7 +910,10 @@ export class CommerceService implements OnModuleInit {
     return rows.map((r) => {
       const product = productMap.get(r.productId);
       const business = map.get(r.businessId); const businessLocation = location.get(r.businessId); const shop = shops.find((row) => row.id === businessLocation?.shopUnitId); const floor = floors.find((row) => row.id === shop?.floorId); const property = properties.find((row) => row.id === shop?.propertyId);
-      return { ...r, imageUrls: product?.imageUrls ?? (r.imageUrl ? [r.imageUrl] : []), variants: product?.variants ?? [], requiredOptions: Array.isArray(product?.customData?.requiredOptions) ? product.customData.requiredOptions : [], business: { id: r.businessId, businessId: business?.businessId, name: business?.name, publicSlug: business?.publicSlug, tier: business?.tier, phone: business?.phone, whatsapp: String(business?.profile?.whatsapp ?? business?.phone ?? '') }, location: businessLocation ? { property: property?.name ?? '', floor: floor?.name ?? '', shopCode: shop?.publicCode ?? businessLocation.name } : null, nodeStatus: statusOf(business) };
+      // catalogOwnerId is an internal identifier and nothing public needs it,
+      // so it is dropped rather than published to every shopper.
+      const { catalogOwnerId: _internal, ...snippet } = r;
+      return { ...snippet, imageUrls: product?.imageUrls ?? (r.imageUrl ? [r.imageUrl] : []), variants: product?.variants ?? [], requiredOptions: Array.isArray(product?.customData?.requiredOptions) ? product.customData.requiredOptions : [], business: { id: r.businessId, businessId: business?.businessId, name: business?.name, publicSlug: business?.publicSlug, tier: business?.tier, phone: business?.phone, whatsapp: String(business?.profile?.whatsapp ?? business?.phone ?? '') }, location: businessLocation ? { property: property?.name ?? '', floor: floor?.name ?? '', shopCode: shop?.publicCode ?? businessLocation.name } : null, nodeStatus: statusOf(business) };
     });
   }
 
@@ -1012,10 +1088,15 @@ export class CommerceService implements OnModuleInit {
     return order;
   }
 
-  async createVehicle(ownerUserId: string, input: Partial<CommerceVehicle> & { mediaUrls?: string[]; listing?: Partial<VehicleListingMetadata> }) {
-    const business = await this.businessForOwner(ownerUserId);
+  async createVehicle(ownerUserId: string, input: Partial<CommerceVehicle> & { mediaUrls?: string[]; listing?: Partial<VehicleListingMetadata> }, manager?: EntityManager): Promise<CommerceVehicle & { media: VehicleMedia[]; listing: VehicleListingMetadata; economics: ReturnType<typeof vehicleEconomics> }> {
+    if (!manager) return this.ds.transaction(tx => this.createVehicle(ownerUserId, input, tx));
+    const business = await manager.getRepository(CommerceBusiness).findOneBy({ ownerUserId });
+    if (!business) throw new NotFoundException('Create or link a business first');
+    const vehicles = manager.getRepository(CommerceVehicle);
+    const mediaRepo = manager.getRepository(VehicleMedia);
+    const listingRepo = manager.getRepository(VehicleListingMetadata);
     if (!input.make || !input.model || !input.year || !input.price) throw new BadRequestException('Make, model, year and price are required');
-    const vehicle = await this.vehicles.save(this.vehicles.create({
+    const vehicle = await vehicles.save(vehicles.create({
       businessId: business.id, catalogOwnerId: business.catalogOwnerId, stockNumber: input.stockNumber || humanCode('CAR'),
       make: input.make, model: input.model, year: Number(input.year), trim: input.trim ?? '', price: num(input.price), currency: input.currency ?? 'TZS',
       mileage: Number(input.mileage) || 0, transmission: input.transmission ?? '', fuel: input.fuel ?? '', color: input.color ?? '',
@@ -1023,11 +1104,11 @@ export class CommerceService implements OnModuleInit {
       vin: input.vin ?? '', registration: input.registration ?? '', dutyStatus: input.dutyStatus ?? '', source: input.source ?? 'LOCAL',
       financingAvailable: Boolean(input.financingAvailable), negotiable: Boolean(input.negotiable), features: input.features ?? [], location: input.location ?? '',
       condition: input.condition ?? 'USED', status: input.status ?? 'AVAILABLE', description: input.description ?? '',
-      aiSalesCopy: input.aiSalesCopy || `${input.year} ${input.make} ${input.model} available in ${input.location || 'Tanzania'}. Contact the verified dealer to reserve.`, metadata: input.metadata ?? {},
+      aiSalesCopy: input.aiSalesCopy ?? `${input.year} ${input.make} ${input.model} available in ${input.location || 'Tanzania'}. Contact the dealer for details.`, metadata: input.metadata ?? {},
     }));
-    const media = (input.mediaUrls ?? []).map((url, sortOrder) => this.repo(VehicleMedia).create({ vehicleId: vehicle.id, url, kind: /\.(mp4|webm|mov)(?:\?|$)/i.test(url) ? 'VIDEO' : 'IMAGE', sortOrder }));
-    if (media.length) await this.repo(VehicleMedia).save(media);
-    const listing = await this.repo(VehicleListingMetadata).save(this.repo(VehicleListingMetadata).create({
+    const media = (input.mediaUrls ?? []).map((url, sortOrder) => mediaRepo.create({ vehicleId: vehicle.id, url, kind: /\.(mp4|webm|mov)(?:\?|$)/i.test(url) ? 'VIDEO' : 'IMAGE', sortOrder }));
+    if (media.length) await mediaRepo.save(media);
+    const listing = await listingRepo.save(listingRepo.create({
       vehicleId: vehicle.id, highlights: input.listing?.highlights ?? [vehicle.condition, vehicle.transmission, vehicle.fuel].filter(Boolean),
       keywords: input.listing?.keywords ?? [vehicle.make, vehicle.model, String(vehicle.year)], socialCaption: input.listing?.socialCaption || vehicle.aiSalesCopy,
       verticalVideoUrl: input.listing?.verticalVideoUrl ?? media.find((row) => row.kind === 'VIDEO')?.url ?? '', purchaseCost: num(input.listing?.purchaseCost),

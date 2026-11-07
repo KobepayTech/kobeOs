@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { LivePresenter } from './LivePresenter';
 import { api as localApi, apiBase, accountApiBase, cloudApi, hasCloudSession } from '@/lib/api';
 const api = <T,>(path: string, init: RequestInit = {}) => localApi<T>(path, { ...init, offlineFallback: false });
 const usesCloudAccounts = () => accountApiBase() !== apiBase() && hasCloudSession();
@@ -92,6 +93,13 @@ export default function LiveSales() {
     }
   };
 
+  const connectTikTok = async () => {
+    try {
+      const { url } = await accountApi<{ url: string }>('/social-scheduler/tiktok/oauth/url');
+      window.location.assign(url);
+    } catch (e) { setNotice((e as Error).message || 'TikTok connection is not configured.'); }
+  };
+
   const disconnectInstagram = async () => {
     try {
       await accountApi('/live-sales/instagram/connection', { method: 'DELETE' });
@@ -167,6 +175,8 @@ export default function LiveSales() {
           )}
           {context.catalogUrl && <button onClick={() => navigator.clipboard?.writeText(context.catalogUrl)} className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-slate-700 bg-slate-800 text-slate-200 text-sm font-bold"><Copy className="w-4 h-4" /> Copy live shop</button>}
           <button onClick={startPost} className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-sm font-bold"><MessageCircle className="w-4 h-4" /> Post campaign</button>
+          <button onClick={connectTikTok} className="h-9 px-3 rounded-lg border border-slate-600 text-sm font-bold">{accounts.some(a => a.platform === 'tiktok' && a.connected) ? 'Reconnect TikTok' : 'Connect TikTok'}</button>
+          <button onClick={() => void loadSessions()} className="h-9 px-3 rounded-lg border border-slate-600 text-sm">Refresh connections</button>
           <div className="relative">
             <button disabled={starting} onClick={() => setPlatformMenu((v) => !v)} className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-500 text-white text-sm font-bold"><Play className="w-4 h-4" /> {starting ? 'Opening…' : 'Continue phone live'}</button>
             {platformMenu && (
@@ -247,6 +257,7 @@ function SessionConsole({ session, context, accounts, onOpenKds, onBack }: { ses
   const [busy, setBusy] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [ended, setEnded] = useState(session.status === 'ENDED');
+  const [presenter, setPresenter] = useState(false);
   const [onShop, setOnShop] = useState(session.showOnStorefront !== false);
   const toggleShop = async () => {
     const next = !onShop; setOnShop(next);
@@ -283,13 +294,13 @@ function SessionConsole({ session, context, accounts, onOpenKds, onBack }: { ses
         api<Comment[]>(`/live-sales/${session.id}/comments`),
       ]);
       setStats(st); setComments(Array.isArray(cs) ? cs : []); setFeedError(null);
-      if (!cloudAccountId) {
+      if (session.platform !== 'instagram' || !cloudAccountId) {
         try { setConnection(await api<CommentConnection>(`/live-sales/${session.id}/connection`)); setConnectionError(null); }
         catch { setConnectionError('Comment connection could not be checked.'); }
       }
     } catch { setFeedError('Backend unreachable. Comments and orders may be delayed. Keep the computer online; retrying automatically.'); }
     finally { polling.current = false; }
-  }, [session.id, cloudAccountId]);
+  }, [session.id, session.platform, cloudAccountId]);
 
   useEffect(() => {
     refresh();
@@ -370,6 +381,8 @@ function SessionConsole({ session, context, accounts, onOpenKds, onBack }: { ses
         <p className="text-slate-400">Pin a product code such as A1. Buyers comment “A1 x2” to reserve, or buy through the live-shop link. Instagram can send a private checkout reply; TikTok buyers use the live shop. Ending selling here leaves your phone broadcast running.</p>
         {comments.some(c => c.source === session.platform) && <p className="text-emerald-300">Last received comment: {new Date(comments.filter(c => c.source === session.platform).sort((a,b) => b.createdAt.localeCompare(a.createdAt))[0].createdAt).toLocaleTimeString()}</p>}
       </div>}
+      {!ended && session.kind !== 'post' && <div className="px-3 pt-3"><button onClick={() => setPresenter(true)} className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-bold">Open avatar presenter</button></div>}
+      {presenter && <LivePresenter sessionId={session.id} catalogUrl={context.catalogUrl} onClose={() => setPresenter(false)} />}
       {/* Stats */}
       <div className="grid grid-cols-4 gap-2 p-3 shrink-0">
         <Stat label="Sales" value={money(stats?.totalSales ?? 0, session.currency)} Icon={TrendingUp} tone="text-emerald-400" />
@@ -432,7 +445,7 @@ function SessionConsole({ session, context, accounts, onOpenKds, onBack }: { ses
                         <div className="mt-1 flex items-center gap-2 text-[10px] text-amber-300">
                           <span>Reserved · code <b className="font-mono">{c.reservationCode}</b></span>
                           {c.checkoutToken && context.storefrontUrl && (
-                            <button onClick={() => { navigator.clipboard?.writeText(`${context.storefrontUrl}/live/pay/${c.checkoutToken}`); flash('Buyer checkout link copied'); }} className="underline underline-offset-2">Copy checkout</button>
+                            <button onClick={() => { const url = new URL(context.storefrontUrl); url.searchParams.set('live', c.checkoutToken!); navigator.clipboard?.writeText(url.toString()); flash('Buyer checkout link copied'); }} className="underline underline-offset-2">Copy checkout</button>
                           )}
                         </div>
                       )}

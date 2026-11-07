@@ -1,7 +1,7 @@
 import { PropertyInsightsService } from '../property/property-insights.service';
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, In, MoreThanOrEqual, Not, Repository } from 'typeorm';
+import { Between, ILike, In, MoreThanOrEqual, Not, Repository } from 'typeorm';
 import { AiService } from './ai.service';
 import { PosOrder, PosProduct } from '../pos/pos.entity';
 import { ProductReview } from '../store/product-review.entity';
@@ -160,7 +160,7 @@ export class KobeAgentService {
     accountant: ['sales_today', 'expenses_summary', 'sales_forecast', 'record_expense', 'business_health'],
     'hotel-manager': ['hotel_occupancy', 'hotel_revenue', 'create_booking', 'set_room_status'],
     'property-manager': ['unpaid_tenants', 'rent_projection', 'set_rent', 'add_tenant', 'record_rent_payment', 'send_tenant_notification'],
-    'retail-manager': ['sales_today', 'low_stock', 'top_rated_products', 'warehouse_stock', 'adjust_stock', 'add_product'],
+    'retail-manager': ['sales_today', 'low_stock', 'product_pricing', 'top_rated_products', 'warehouse_stock', 'adjust_stock', 'add_product'],
     'cargo-manager': ['cargo_status'],
     'sacco-credit': ['semantic_search', 'search_documents'],
     recruitment: ['semantic_search', 'search_documents'],
@@ -473,6 +473,28 @@ export class KobeAgentService {
         const rows = await this.orders.find({ where: { ownerId, createdAt: Between(start, end), status: Not('CANCELLED') as unknown as PosOrder['status'] } });
         const total = rows.reduce((s, o) => s + Number(o.total || 0), 0);
         return { data: { orders: rows.length, total, currency: 'TZS', date: start.toISOString().slice(0, 10) } };
+      },
+    },
+    {
+      name: 'product_pricing',
+      description: 'Look up current product price, optional staff discount reference and colour/size inventory by product name or SKU. The discount reference is for advice only. args: {query}',
+      run: async (ownerId, args) => {
+        const query = String(args.query ?? '').trim().slice(0, 120);
+        if (!query) return { data: { items: [] } };
+        const rows = await this.products.createQueryBuilder('p')
+          .addSelect('p.discountReferencePrice')
+          .where([
+            { ownerId, active: true, sku: query },
+            { ownerId, active: true, name: ILike(`%${query}%`) },
+          ])
+          .orderBy('p.name', 'ASC')
+          .take(10)
+          .getMany();
+        return { data: { items: rows.map(p => ({
+          name: p.name, sku: p.sku, currency: p.currency, price: Number(p.price),
+          discountReferencePrice: p.discountReferencePrice == null ? null : Number(p.discountReferencePrice),
+          stock: Number(p.stock), variants: p.variants,
+        })) } };
       },
     },
     {
@@ -814,7 +836,7 @@ export class KobeAgentService {
     shop: {
       title: 'Retail & inventory specialist',
       persona: "You are Kobe's retail specialist — POS sales, pricing, stock and the product catalogue. Think like a shopkeeper watching sales and stock.",
-      tools: ['sales_today', 'low_stock', 'top_rated_products', 'sales_forecast', 'warehouse_stock', 'adjust_stock', 'add_product', 'seed_demo_products'],
+      tools: ['sales_today', 'low_stock', 'top_rated_products', 'sales_forecast', 'warehouse_stock', 'product_pricing', 'adjust_stock', 'add_product', 'seed_demo_products'],
     },
     cargo: {
       title: 'Cargo & logistics specialist',
@@ -1080,7 +1102,9 @@ export class KobeAgentService {
         : null;
     }
 
-    const intents: Array<{ pattern: RegExp; tool: string }> = [
+    const pricingQuery = message.match(/(?:discount price|regular price|price|pricing)\s+(?:for|of)\s+(.+?)[?.!]*$/i)?.[1];
+    const intents: Array<{ pattern: RegExp; tool: string; args?: Record<string, unknown> }> = [
+      ...(pricingQuery ? [{ pattern: /./, tool: 'product_pricing', args: { query: pricingQuery } }] : []),
       { pattern: /\b(today'?s sales|sales today|revenue today)\b/, tool: 'sales_today' },
       { pattern: /\b(low stock|out of stock|restock)\b/, tool: 'low_stock' },
       { pattern: /\b(top rated|best liked|customer favorites|customer favourites)\b/, tool: 'top_rated_products' },
@@ -1100,7 +1124,7 @@ export class KobeAgentService {
     const tool = this.tools.find((item) => item.name === intent.tool);
     if (!tool) return null;
     try {
-      const result = await this.runToolCached(ownerId, tool, {});
+      const result = await this.runToolCached(ownerId, tool, intent.args ?? {});
       if ('pendingAction' in result) {
         return {
           reply: `Ready to ${result.pendingAction.summary.toLowerCase()}. Confirm to proceed.`,
@@ -1358,6 +1382,16 @@ The verified KobeOS tool results below are the source of truth. Combine them int
   private fallbackSummary(tool: string, data: any): string {
     switch (tool) {
       case 'sales_today': return `Today: ${data.orders} orders, TZS ${Number(data.total).toLocaleString()}.`;
+      case 'product_pricing': {
+        const items = data.items as Array<{ name: string; sku: string; currency: string; price: number; discountReferencePrice: number | null; stock: number }>;
+        if (!items.length) return 'I couldn’t find a matching product. Try its exact name or SKU.';
+        return items.map(item => {
+          const regular = `${item.currency} ${item.price.toLocaleString()}`;
+          const discount = item.discountReferencePrice === null ? 'no discount reference saved'
+            : `discount reference ${item.currency} ${item.discountReferencePrice.toLocaleString()}`;
+          return `${item.name} (${item.sku}) costs ${regular}, with ${item.stock} in stock and ${discount}.`;
+        }).join('\n');
+      }
       case 'low_stock': return `${data.count} product(s) at/below ${data.threshold} in stock.`;
       case 'top_rated_products': return data.items?.length ? `Top: ${data.items.map((i: any) => `${i.name} (${i.avgRating}★)`).join(', ')}.` : 'No reviews yet.';
       case 'unpaid_tenants': return `${data.count} tenant(s) owe TZS ${Number(data.totalOutstanding).toLocaleString()}.`;

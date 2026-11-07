@@ -47,8 +47,8 @@ const metaSetupToken = pathname === '/setup/meta' || pathname === '/setup/meta/'
 
 // OAuth redirect landing. The dedicated screen stores provider tokens, verifies
 // /users/me, and persists the user profile before opening the app.
-const oauthMatch = pathname.match(/^\/oauth\/(tiktok|meta)\/?$/);
-const oauthProvider = oauthMatch?.[1] as 'tiktok' | 'meta' | undefined;
+const oauthMatch = pathname.match(/^\/oauth\/(google|tiktok|meta)\/?$/);
+const oauthProvider = oauthMatch?.[1] as 'google' | 'tiktok' | 'meta' | undefined;
 
 const tenantSub = detectTenantSubdomain();
 const appSub = detectAppSubdomain();

@@ -1,7 +1,7 @@
 import { accountApiBase } from './api';
 
-export type OAuthProvider = 'meta' | 'tiktok';
-export const providerNames: Record<OAuthProvider, string> = { meta: 'Facebook', tiktok: 'TikTok' };
+export type OAuthProvider = 'google' | 'meta' | 'tiktok';
+export const providerNames: Record<OAuthProvider, string> = { google: 'Google', meta: 'Facebook', tiktok: 'TikTok' };
 const PENDING_KEY = 'kobeos_pending_signin';
 
 // Only navigation context belongs here; never store provider codes or tokens.
@@ -12,7 +12,7 @@ export function rememberOAuth(provider: OAuthProvider): void {
 export function pendingOAuth(): OAuthProvider | null {
   try {
     const value = sessionStorage.getItem(PENDING_KEY);
-    return value === 'meta' || value === 'tiktok' ? value : null;
+    return value === 'google' || value === 'meta' || value === 'tiktok' ? value : null;
   } catch { return null; }
 }
 

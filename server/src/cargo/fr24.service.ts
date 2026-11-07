@@ -66,6 +66,14 @@ export class Fr24Service {
     return Boolean(this.apiKey);
   }
 
+  private readonly trafficCache = new Map<string, { expires: number; value: Promise<Fr24Flight[]> }>();
+
+  /** Country filter includes all FR24-covered Tanzanian airports, not only DAR. */
+  async tanzaniaFlights(direction: Fr24Direction): Promise<Fr24Flight[]> {
+    if (!this.apiKey) throw new ServiceUnavailableException('FlightRadar24 API key is not configured');
+    return this.airportFlights('TZ', direction);
+  }
+
   /**
    * Live flights departing the given IATA/ICAO airport code.
    * Maps to FR24's flight-positions endpoint filtered by outbound airport.
@@ -88,7 +96,7 @@ export class Fr24Service {
     const cleaned = flightNumber.trim().toUpperCase();
     if (!cleaned) return null;
 
-    const url = `${this.apiBase}/live/flight-positions/light?flights=${encodeURIComponent(cleaned)}`;
+    const url = `${this.apiBase}/live/flight-positions/full?flights=${encodeURIComponent(cleaned)}`;
     const payload = await this.request<Fr24RawResponse>(url);
     const first = (payload.data ?? [])[0];
     return first ? this.normalise(first) : null;
@@ -205,6 +213,17 @@ export class Fr24Service {
     }
   }
 
+  async shipmentPosition(ownerId: string, shipmentId: string) {
+    const ship = await this.shipments.findOne({ where: { ownerId, id: shipmentId } });
+    if (!ship) throw new NotFoundException('Shipment not found');
+    if (!this.apiKey) throw new ServiceUnavailableException('FlightRadar24 API key is not configured');
+    const assignment = await this.events.findOne({ where: { ownerId, shipmentId, eventType: 'FLIGHT_ASSIGNED' }, order: { eventAt: 'DESC' } });
+    if (!ship.flightNumber || !assignment?.metadata?.fr24Id) return { available: false, reason: 'Assign a specific live flight first' };
+    const flight = await this.flightByNumber(ship.flightNumber);
+    if (!flight || flight.fr24Id !== assignment.metadata.fr24Id) return { available: false, reason: 'Assigned flight instance is outside live coverage' };
+    return { available: true, checkedAt: new Date().toISOString(), flight };
+  }
+
   /** Public entry-point so the controller can trigger a single shipment refresh on demand. */
   async refreshShipment(ownerId: string, shipmentId: string) {
     const ship = await this.shipments.findOne({ where: { ownerId, id: shipmentId } });
@@ -244,6 +263,10 @@ export class Fr24Service {
     if (!flight) return [];
 
     const existing = await this.events.find({ where: { ownerId: ship.ownerId, shipmentId: ship.id } });
+    // A repeating commercial flight number is not an individual flight instance.
+    const assignment = existing.filter(e => e.eventType === 'FLIGHT_ASSIGNED')
+      .sort((a, b) => new Date(b.eventAt).getTime() - new Date(a.eventAt).getTime())[0];
+    if (!flight.fr24Id || assignment?.metadata?.fr24Id !== flight.fr24Id) return [];
     const stamped: string[] = [];
 
     if (this.looksAirborne(flight) && !existing.some((e) => e.eventType === 'FLIGHT_DEPARTED')) {
@@ -319,16 +342,15 @@ export class Fr24Service {
 
   private looksAirborne(flight: Fr24Flight): boolean {
     const status = (flight.status ?? '').toLowerCase();
-    if (status && /live|airborne|en[- ]?route|departed/.test(status)) return true;
-    if ((flight.altitude ?? 0) > 1000) return true;
-    if ((flight.groundSpeed ?? 0) > 80) return true;
-    return false;
+    if (status && /airborne|en[- ]?route|departed/.test(status)) return true;
+    return (flight.altitude ?? 0) > 1000 && (flight.groundSpeed ?? 0) > 80;
   }
 
   private looksOnGround(flight: Fr24Flight): boolean {
     const status = (flight.status ?? '').toLowerCase();
-    if (status && /landed|arrived|on[- ]?ground|taxi/.test(status)) return true;
-    return (flight.altitude ?? 0) < 500 && (flight.groundSpeed ?? 0) < 60;
+    // Positions near ground level can be at origin, in taxi, or missing.
+    // Only an explicit landing report can support an arrival event.
+    return /landed|arrived/.test(status);
   }
 
   // ── internals ──────────────────────────────────────────────────────────────
@@ -339,13 +361,18 @@ export class Fr24Service {
     if (!cleaned) return [];
 
     const filter = direction === 'departures' ? `outbound:${cleaned}` : `inbound:${cleaned}`;
-    const url = `${this.apiBase}/live/flight-positions/light?airports=${encodeURIComponent(filter)}`;
-    const payload = await this.request<Fr24RawResponse>(url);
-    return (payload.data ?? []).map((row) => this.normalise(row));
+    const cached = this.trafficCache.get(filter);
+    if (cached && cached.expires > Date.now()) return cached.value;
+    const value = this.request<Fr24RawResponse>(`${this.apiBase}/live/flight-positions/full?airports=${encodeURIComponent(filter)}&limit=30000`)
+      .then(payload => (payload.data ?? []).map(row => this.normalise(row)))
+      .catch(error => { this.trafficCache.delete(filter); throw error; });
+    this.trafficCache.set(filter, { expires: Date.now() + 60000, value });
+    return value;
   }
 
   private async request<T>(url: string): Promise<T> {
     const res = await fetch(url, {
+      signal: AbortSignal.timeout(15000),
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
         'Accept-Version': this.apiVersion,

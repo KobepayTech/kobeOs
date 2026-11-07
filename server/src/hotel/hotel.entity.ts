@@ -56,6 +56,12 @@ export class HotelGuest extends OwnedEntity {
 }
 
 @Entity('hotel_bookings')
+// Replay safety for the online continuity layer: one cloud booking can only
+// ever become one reservation here, however many times the sync retries.
+@Index('hotel_bookings_cloud_origin_uk', ['ownerId', 'cloudOriginId'], {
+  unique: true,
+  where: '"cloudOriginId" IS NOT NULL',
+})
 export class HotelBooking extends OwnedEntity {
   @Index()
   @Column('uuid')
@@ -90,6 +96,17 @@ export class HotelBooking extends OwnedEntity {
   @Index()
   @Column({ type: 'varchar', nullable: true })
   palmPesaOrderId?: string | null;
+
+  /**
+   * The continuity layer's id for a booking it took while KobeOS was
+   * unreachable. The unique index is what makes absorbing the same cloud
+   * booking twice a no-op instead of a duplicate reservation, so it is
+   * declared here as well as in the migration: a desktop install builds its
+   * schema with synchronize and would otherwise have the column without the
+   * constraint, and replay protection would silently not work.
+   */
+  @Column({ type: 'varchar', nullable: true })
+  cloudOriginId?: string | null;
 }
 
 @Entity('hotel_tenants')
