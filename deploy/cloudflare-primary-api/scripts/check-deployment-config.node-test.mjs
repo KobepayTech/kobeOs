@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -12,7 +13,7 @@ const ready = {
 };
 
 test('missing credentials cause the actual preflight command to fail', () => {
-  const result = spawnSync(process.execPath, [new URL('./check-deployment-config.mjs', import.meta.url).pathname], { env: {}, encoding: 'utf8' });
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL('./check-deployment-config.mjs', import.meta.url))], { env: {}, encoding: 'utf8' });
   assert.equal(result.status, 1);
   assert.match(result.stderr, /CLOUDFLARE_API_TOKEN is missing/);
 });
@@ -40,7 +41,7 @@ test('optional JSON cannot replace required credentials or use nonstring values'
 });
 test('preflight diagnostics do not disclose invalid secret values', () => {
   const secret = 'private-short';
-  const result = spawnSync(process.execPath, [new URL('./check-deployment-config.mjs', import.meta.url).pathname], {
+  const result = spawnSync(process.execPath, [fileURLToPath(new URL('./check-deployment-config.mjs', import.meta.url))], {
     env: { ...ready, PRIMARY_API_JWT_SECRET: secret }, encoding: 'utf8',
   });
   assert.equal(result.status, 1);

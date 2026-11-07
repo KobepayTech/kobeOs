@@ -113,8 +113,10 @@ export class ProviderConfigService {
 
   private environmentConfig(): Partial<EffectiveMetaConfig> {
     return {
-      appId: this.env.get<string>('META_APP_ID') || this.env.get<string>('INSTAGRAM_APP_ID') || '',
-      appSecret: this.env.get<string>('META_APP_SECRET') || this.env.get<string>('INSTAGRAM_APP_SECRET') || '',
+      // Instagram Login uses a separate client. Its ID/secret cannot be used
+      // to create a Facebook account session.
+      appId: this.env.get<string>('META_APP_ID') || '',
+      appSecret: this.env.get<string>('META_APP_SECRET') || '',
       redirectUri: this.env.get<string>('META_REDIRECT_URI') || '',
       loginConfigId: this.env.get<string>('META_LOGIN_CONFIG_ID')?.trim() || '',
       graphVersion: this.env.get<string>('META_GRAPH_VERSION')?.trim() || 'v26.0',

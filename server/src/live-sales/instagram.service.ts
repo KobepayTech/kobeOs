@@ -56,7 +56,13 @@ export class InstagramService {
   }
 
   private async json<T>(response: Response): Promise<T> {
-    const body = (await response.json().catch(() => ({}))) as T & { error?: { message?: string }; error_message?: string };
+    // Meta may encode user_id as a JSON number larger than JS's safe integer
+    // range. Preserve its decimal digits before parsing the token response.
+    const raw = await response.text();
+    let parsed: unknown;
+    try { parsed = JSON.parse(raw.replace(/"user_id"\s*:\s*(\d+)(?=\s*[,}])/g, '"user_id":"$1"')); }
+    catch { parsed = {}; }
+    const body = parsed as T & { error?: { message?: string }; error_message?: string };
     if (!response.ok) {
       throw new BadRequestException(body.error?.message || body.error_message || `Instagram API returned HTTP ${response.status}`);
     }
@@ -72,14 +78,15 @@ export class InstagramService {
     const configured = this.value('INSTAGRAM_OAUTH_SCOPES')
       .split(',')
       .map((scope) => scope.trim())
-      .filter(Boolean);
+      // This is the Instagram Login flow. Insights require a different login
+      // setup and requesting that scope here can prevent authorization.
+      .filter(scope => !!scope && scope !== 'instagram_business_manage_insights');
     return [...new Set([
       ...configured,
       'instagram_business_basic',
       'instagram_business_content_publish',
       'instagram_business_manage_comments',
       'instagram_business_manage_messages',
-      'instagram_business_manage_insights',
     ])];
   }
 
@@ -151,7 +158,7 @@ export class InstagramService {
     const long = await this.json<InstagramToken>(longResponse);
     const token = long.access_token || short.access_token;
     const expiresIn = Number(long.expires_in || short.expires_in || 0);
-    return { token, userId: short.user_id, expiresAt: expiresIn ? new Date(Date.now() + expiresIn * 1000) : null };
+    return { token, userId: String(short.user_id), expiresAt: expiresIn ? new Date(Date.now() + expiresIn * 1000) : null };
   }
 
   private async profile(userId: string, token: string): Promise<InstagramProfile> {
@@ -261,6 +268,7 @@ export class InstagramService {
     const accounts = await this.accounts.find({ where: { ownerId }, order: { updatedAt: 'DESC' } });
     return accounts.map((account) => ({
       id: account.id, platform: account.platform, accountHandle: account.accountHandle,
+      connectedAt: account.metadata?.lastSyncedAt || null,
       connected: this.isUsable(account), webhookSubscribed: account.metadata?.webhookSubscribed === true,
     }));
   }
