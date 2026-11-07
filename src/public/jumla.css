@@ -1,0 +1,166 @@
+.jl-shell {
+  --jl-ink: #1c1930;
+  --jl-muted: #625d71;
+  --jl-violet: #5737ac;
+  --jl-paper: #fbf9f5;
+  --jl-line: #e8e2ee;
+  --jl-lime: #d9fa73;
+  min-height: 100dvh;
+  color: var(--jl-ink);
+  background: radial-gradient(ellipse at 50% 0%, #e9e2fb, #f0edf3 64%, #e9e5ed);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+}
+.jumla-frame {
+  display: flex;
+  flex-direction: column;
+  width: min(100%, 490px);
+  height: 100dvh;
+  margin: auto;
+  background: var(--jl-paper);
+  box-shadow: 0 0 65px #2d1e4120;
+}
+.jl-shell button, .jl-shell a, .jl-shell input, .jl-shell select, .jl-shell textarea { -webkit-tap-highlight-color: transparent; }
+.jl-shell :focus-visible { outline: 2px solid #6842ce; outline-offset: 3px; }
+.jl-shell button:disabled { opacity: .48; cursor: default; }
+.jl-header { display: flex; align-items: center; justify-content: space-between; padding: 12px 19px; min-height: 64px; border-bottom: 1px solid var(--jl-line); background: #fffdfa; }
+.jl-brand { display: inline-flex; gap: 8px; align-items: center; font-size: 28px; line-height: 1; font-weight: 900; letter-spacing: -.095em; }
+.jl-mark { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 11px; background: var(--jl-ink); color: var(--jl-lime); }
+.jl-dot { color: #7251d7; margin-left: -7px; }
+.jl-header-tools { display: flex; align-items: center; gap: 11px; }
+.jl-location { display: flex; gap: 4px; align-items: center; font-size: 11px; font-weight: 800; color: var(--jl-muted); }
+.jl-icon-btn { display: grid; place-items: center; width: 37px; height: 37px; border-radius: 11px; background: #f1ecf8; color: var(--jl-violet); }
+.jl-demo-bar { display: flex; min-height: 35px; align-items: center; justify-content: space-between; padding: 4px 19px; background: #ebe3ff; color: #4b2c8f; font-size: 11px; font-weight: 800; }
+.jl-demo-bar span, .jl-demo-bar button { display: inline-flex; align-items: center; gap: 6px; }
+.jl-demo-bar button { min-height: 28px; }
+.jl-main { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior-y: contain; }
+.jl-content { padding: 22px 19px 28px; }
+.jl-kicker { display: block; color: var(--jl-violet); font-size: 10px; font-weight: 850; letter-spacing: .145em; text-transform: uppercase; }
+.jl-page-title { margin-bottom: 17px; }
+.jl-page-title h1, .jl-discover-bar h1 { margin: 3px 0 5px; font-size: clamp(25px, 7vw, 36px); line-height: 1.05; font-weight: 900; letter-spacing: -.052em; }
+.jl-page-title p { color: var(--jl-muted); font-size: 13px; line-height: 1.55; margin: 6px 0 0; }
+.jl-nav { display: grid; grid-template-columns: repeat(5, 1fr); padding: 6px 5px max(7px, env(safe-area-inset-bottom)); border-top: 1px solid var(--jl-line); background: #fffdfa; }
+.jl-nav button { display: flex; min-height: 49px; flex-direction: column; justify-content: center; align-items: center; gap: 3px; color: var(--jl-muted); font-size: 10px; font-weight: 750; }
+.jl-nav button > span { position: relative; width: 41px; height: 28px; display: grid; place-items: center; border-radius: 10px; }
+.jl-nav button[aria-current] { color: #44269b; }
+.jl-nav button[aria-current] > span { background: #ede5ff; }
+.jl-nav button b { position: absolute; top: -4px; right: -2px; min-width: 16px; height: 16px; padding-inline: 3px; display: grid; place-items: center; border-radius: 12px; background: var(--jl-lime); color: var(--jl-ink); }
+.jl-primary, .jl-quiet, .jl-lime { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 42px; padding: 8px 13px; border-radius: 12px; font-size: 13px; font-weight: 850; }
+.jl-primary { background: var(--jl-ink); color: white; }
+.jl-quiet { background: white; border: 1px solid var(--jl-line); color: var(--jl-violet); }
+.jl-lime { background: var(--jl-lime); color: #232618; }
+.jl-wide { width: 100%; min-height: 46px; }
+.jl-back { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; margin-bottom: 9px; color: var(--jl-violet); font-size: 12px; font-weight: 800; }
+.jl-discover-main { display: flex; flex-direction: column; overflow: hidden; }
+.jl-discover-bar { display: flex; justify-content: space-between; align-items: flex-end; padding: 12px 19px 9px; }
+.jl-discover-bar h1 { margin-bottom: 0; }
+.jl-discover-main > .jl-empty { margin: 12px 19px; overflow-y: auto; }
+.jl-feed-wrap { display: flex; flex-direction: column; min-height: 0; flex: 1; padding: 0 12px; }
+.jl-feed { min-height: 0; flex: 1; overflow: auto; border-radius: 23px; scroll-snap-type: y mandatory; overscroll-behavior: contain; scrollbar-width: none; background: #262037; }
+.jl-slide { position: relative; height: 100%; overflow: hidden; isolation: isolate; scroll-snap-align: start; scroll-snap-stop: always; color: white; }
+.jl-product-art { position: relative; overflow: hidden; display: grid; place-items: center; width: 100%; height: 100%; background: #eeeaf5; color: #615773; }
+.jl-product-art img { position: absolute; z-index: 1; width: 100%; height: 100%; object-fit: cover; }
+.jl-product-art img[hidden] { display: none; }
+.jl-product-art span { display: grid; place-items: center; gap: 6px; font-size: 10px; font-weight: 700; }
+.jl-product-art svg { width: 100%; height: 100%; }
+.jl-product-art span svg { width: 24px; height: 24px; }
+.jl-art-headphones { background: radial-gradient(ellipse at 50% 36%, #ded0ff, #aa92e2 77%); }
+.jl-art-bag { background: radial-gradient(ellipse at 50% 36%, #ffe3af, #dba571 82%); }
+.jl-art-lamp { background: radial-gradient(ellipse at 50% 36%, #fce3b6, #de8c6d 82%); }
+.jl-slide > .jl-product-art { position: absolute; inset: 0; z-index: -2; }
+.jl-slide > .jl-product-art > svg { position: absolute; top: -4%; height: 88%; }
+.jl-shade { position: absolute; inset: 0; z-index: -1; background: linear-gradient(180deg, #14101e42, transparent 19%, transparent 37%, #1812264d 55%, #191324 99%); }
+.jl-slide-top { position: absolute; top: 14px; left: 14px; right: 14px; display: flex; justify-content: space-between; }
+.jl-slide-top span { padding: 5px 8px; border-radius: 8px; background: #242037d9; color: white; font-size: 9px; letter-spacing: .095em; font-weight: 850; }
+.jl-slide-top span:first-child { background: #fff5; color: #1d1831; }
+.jl-slide-live .jl-slide-top span:first-child { background: #242037d9; color: white; }
+.jl-slide-copy { position: absolute; bottom: 14px; left: 16px; right: 69px; }
+.jl-slide-copy .jl-kicker { color: #eadffd; font-size: 9px; }
+.jl-slide-copy h2 { font-size: clamp(19px, 6.8vw, 34px); line-height: 1.02; font-weight: 900; letter-spacing: -.042em; margin: 4px 0 6px; }
+.jl-slide-copy p { font-size: 15px; font-weight: 800; margin-bottom: 10px; }
+.jl-slide-actions { position: absolute; display: grid; gap: 9px; right: 11px; bottom: 15px; }
+.jl-slide-actions button { display: grid; justify-items: center; gap: 2px; width: 44px; min-height: 44px; border-radius: 12px; background: #2a213fc4; padding: 4px 0; }
+.jl-slide-actions button[aria-pressed=true] { color: var(--jl-lime); }
+.jl-slide-actions small { font-size: 9px; font-weight: 750; }
+.jl-feed-hint { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px; color: var(--jl-muted); min-height: 27px; font-size: 10px; font-weight: 750; }
+.jl-end { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 10px; padding: 20px; background: radial-gradient(circle at 50% 12%, #50407d, #252036 72%); }
+.jl-end > svg { color: var(--jl-lime); }
+.jl-end h2 { font-size: 25px; line-height: 1.1; font-weight: 850; }
+.jl-end p { max-width: 30ch; color: #eee4fd; font-size: 13px; }
+.jl-feed-back { display: inline-flex; align-items: center; gap: 5px; min-height: 36px; color: #eee4fd; font-size: 12px; font-weight: 750; }
+.jl-empty { display: grid; justify-items: center; align-content: center; gap: 9px; padding: 27px 17px; min-height: 187px; text-align: center; border: 1px solid var(--jl-line); border-radius: 19px; background: #fffdfa; }
+.jl-empty-icon, .jl-tile-icon { display: grid; place-items: center; flex-shrink: 0; background: #eee6fd; color: var(--jl-violet); border-radius: 14px; }
+.jl-empty-icon { width: 56px; height: 56px; }
+.jl-empty h2 { font-size: 18px; font-weight: 850; }
+.jl-empty p { font-size: 12px; color: var(--jl-muted); max-width: 32ch; }
+.jl-empty button { margin-top: 3px; }
+.jl-loading { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 35px 15px; color: var(--jl-violet); font-size: 13px; font-weight: 750; }
+.jl-search { display: flex; align-items: center; gap: 9px; margin-bottom: 13px; padding: 0 11px; border: 1px solid var(--jl-line); border-radius: 13px; background: white; color: var(--jl-violet); }
+.jl-search input { flex: 1; min-width: 0; height: 46px; background: transparent; color: var(--jl-ink); font-size: 14px; }
+.jl-chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 3px 2px 7px; margin: 0 -2px 10px; }
+.jl-chips button { padding: 6px 9px; min-height: 33px; white-space: nowrap; border-radius: 20px; border: 1px solid var(--jl-line); background: white; font-size: 11px; font-weight: 750; }
+.jl-chips button[aria-pressed=true] { border-color: #b29fe2; background: #eee4ff; color: #482593; }
+.jl-section-title { font-size: 16px; font-weight: 850; margin: 8px 0 9px; }
+.jl-market-links { display: grid; gap: 8px; }
+.jl-market-links > :is(a, button) { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; text-align: left; min-height: 61px; padding: 8px 10px; border: 1px solid var(--jl-line); border-radius: 14px; background: #fffdfa; }
+.jl-market-links strong, .jl-merchant b { display: block; font-size: 14px; font-weight: 850; }
+.jl-market-links small, .jl-merchant small { display: block; margin-top: 2px; color: var(--jl-muted); font-size: 11px; }
+.jl-tile-icon { width: 39px; height: 39px; border-radius: 11px; }
+.jl-violet { background: #eee6fd; color: #502b9b; }
+.jl-mint { background: #dcefe3; color: #205340; }
+.jl-peach { background: #f7e7db; color: #8a4431; }
+.jl-blue { background: #e2ecfc; color: #244983; }
+.jl-vertical-hero { padding: 14px; border-radius: 16px; margin-bottom: 13px; }
+.jl-vertical-hero .jl-page-title { margin: 7px 0 0; }
+.jl-vertical-hero .jl-kicker { color: inherit; }
+.jl-product-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.jl-product-grid article { position: relative; overflow: hidden; background: white; border: 1px solid var(--jl-line); border-radius: 14px; }
+.jl-grid-product { display: flex; flex-direction: column; width: 100%; height: 100%; text-align: left; }
+.jl-grid-art { position: relative; width: 100%; aspect-ratio: 1.3; }
+.jl-grid-copy { display: grid; flex: 1; gap: 3px; padding: 9px; font-size: 12px; }
+.jl-grid-copy small { color: var(--jl-muted); font-size: 10px; }
+.jl-grid-copy strong { font-weight: 800; line-height: 1.2; }
+.jl-grid-copy b { color: var(--jl-violet); margin-top: auto; }
+.jl-art-badge { position: absolute; top: 7px; left: 7px; border-radius: 6px; background: #fff9; padding: 3px 6px; font-size: 9px; font-weight: 850; }
+.jl-remove { position: absolute; top: 7px; right: 7px; display: grid; width: 34px; height: 34px; place-items: center; border-radius: 9px; background: #fff; color: var(--jl-violet); }
+.jl-detail-art { position: relative; height: clamp(130px, 27dvh, 275px); overflow: hidden; border-radius: 17px; }
+.jl-photo-nav { position: absolute; display: flex; gap: 4px; left: 50%; bottom: 7px; transform: translateX(-50%); padding: 4px; background: #fff9; border-radius: 12px; }
+.jl-photo-nav button { width: 13px; height: 13px; border-radius: 9px; background: #ae9ccd; }
+.jl-photo-nav button[aria-pressed=true] { background: #482593; }
+.jl-detail-heading { margin: 13px 0; }
+.jl-detail-heading .jl-page-title { margin-bottom: 6px; }
+.jl-detail-heading h1 { font-size: clamp(22px, 6.7vw, 31px); }
+.jl-detail-heading > strong { color: var(--jl-violet); font-size: 17px; font-weight: 900; }
+.jl-merchant { display: flex; align-items: center; gap: 8px; padding: 8px; margin-bottom: 12px; border: 1px solid var(--jl-line); border-radius: 13px; background: white; }
+.jl-merchant a { display: inline-flex; align-items: center; margin-left: auto; color: var(--jl-violet); font-size: 11px; font-weight: 800; }
+.jl-contact { display: flex; gap: 6px; margin-bottom: 10px; }
+.jl-form { display: grid; gap: 10px; }
+.jl-field { display: grid; gap: 4px; }
+.jl-field span, .jl-fulfillment legend { color: var(--jl-ink); font-size: 12px; font-weight: 800; }
+.jl-field small { margin-left: 5px; color: var(--jl-muted); font-weight: 500; }
+.jl-field :is(input, select, textarea) { width: 100%; min-height: 40px; border: 1px solid var(--jl-line); border-radius: 10px; background: white; color: var(--jl-ink); font-size: 14px; padding: 6px 9px; }
+.jl-field input[readonly] { background: #f6f3f9; }
+.jl-bag-card { padding: 10px; border: 1px solid var(--jl-line); border-radius: 14px; background: white; }
+.jl-bag-row { display: flex; align-items: center; gap: 9px; }
+.jl-bag-art { width: 72px; height: 68px; overflow: hidden; border-radius: 10px; flex-shrink: 0; }
+.jl-bag-row h2 { font-size: 14px; font-weight: 850; line-height: 1.1; }
+.jl-bag-row small, .jl-bag-row b { font-size: 11px; }
+.jl-bag-row small { color: var(--jl-muted); }
+.jl-bag-row b { color: var(--jl-violet); }
+.jl-quantity-row { justify-content: space-between; margin: 9px 0; font-size: 13px; }
+.jl-quantity { display: flex; align-items: center; gap: 8px; }
+.jl-quantity button { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 9px; background: #f0ebf7; }
+.jl-summary { border-radius: 14px; padding: 10px 11px; background: #eee6fd; color: #44257e; }
+.jl-summary div { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 14px; font-weight: 800; }
+.jl-summary p { font-size: 11px; margin-top: 4px; }
+.jl-fulfillment { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.jl-fulfillment legend { margin-bottom: 4px; }
+.jl-fulfillment label { display: flex; align-items: center; gap: 5px; padding: 8px 6px; min-height: 42px; border: 1px solid var(--jl-line); border-radius: 10px; background: white; font-size: 12px; font-weight: 800; }
+.jl-fulfillment label:has(:checked) { background: #eee6fd; border-color: #bca9e5; color: var(--jl-violet); }
+.jl-fulfillment input { accent-color: var(--jl-violet); }
+.jl-error { padding: 8px 10px; background: #fbe9e9; color: #912a34; border-radius: 10px; font-size: 12px; }
+@media (max-height: 560px) {
+  .jl-header { min-height: 49px; padding-block: 6px; }
+  .jl-discover-bar { padding-block: 5px; }
+  .jl-slide-copy h2 { font-size: 19px; }
+  .jl-slide-actions { gap: 4px; }
+}

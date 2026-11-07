@@ -1,68 +1,195 @@
-import { useEffect, useState } from 'react';
-import { QRCodeSVG } from 'qrcode.react';
-import { BedDouble, CalendarDays, Gift, Hotel, Loader2, MapPin, Minus, Plus, Search, ShieldCheck, ShoppingBag, Sparkles, Star, Truck, UserRound, Utensils, X } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { ArrowDownUp, ArrowLeft, ArrowRight, BedDouble, CalendarDays, Check, ChevronRight, Compass, Gift, Heart, Loader2, MapPin, Minus, MoonStar, Phone, Plus, QrCode, Search, ShieldCheck, Sparkles, Ticket, Truck, UserRound, Utensils, Waves, X } from 'lucide-react';
 import { publicApi, publicAssetUrl } from './api';
 import { usePwaManifest } from '@/hooks/usePwaManifest';
+import LalaAccount from './LalaAccount';
+import { lalaDate, lalaMoney, lalaPhoto, type LalaHotel, type LalaRoom } from './lala-shared';
+import './lala.css';
 
-interface Room { id: string; roomNumber: string; type: string; rate: number; currency: string; capacity: number; imageUrl: string }
-interface HotelResult { hotel: { id: string; slug: string; name: string; location: string; phone: string; currency: string; logoUrl?: string }; profile: { description: string; amenities: string[]; images: string[]; guestRating: number; verifiedReviewCount: number; lastMinuteEnabled: boolean }; availableRooms: Room[]; foodAvailable?: boolean; verifiedAvailabilityAt: string }
+type Tab = 'discover' | 'saved' | 'trips' | 'passport';
+type SearchInput = { destination: string; checkIn: string; checkOut: string; guests: string };
+interface SavedHotel { id: string; name: string; location: string; image: string }
+interface Offer { id: string; totalPrice: number; currency: string; message: string; expiresAt: string; hotel: { name: string; location: string } | null; room: { type: string } | null }
 interface MenuItem { id: string; name: string; category: string; price: number; currency: string; station: 'kitchen' | 'bar' | 'other'; imageUrl?: string | null }
-interface LalaOffer { id: string; totalPrice: number; currency: string; message: string; expiresAt: string; hotel: { id: string; name: string; location: string } | null; room: { id: string; roomNumber: string; type: string; rate: number; currency: string } | null }
-const fallback = 'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1400&q=85';
-const money = (n: number, c = 'TZS') => `${c} ${Number(n).toLocaleString()}`;
-const today = new Date().toISOString().slice(0, 10);
-const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+const today = new Date().toLocaleDateString('en-CA');
+const tomorrowDate = new Date(); tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+const tomorrow = tomorrowDate.toLocaleDateString('en-CA');
+const imageFor = (hotel: LalaHotel) => publicAssetUrl(hotel.profile.images[0]) || publicAssetUrl(hotel.availableRooms[0]?.imageUrl) || lalaPhoto;
+const initialTab = (): Tab => ['saved', 'trips', 'passport'].includes(location.hash.slice(1)) ? location.hash.slice(1) as Tab : 'discover';
+const readSaved = (): SavedHotel[] => { try { const value = JSON.parse(localStorage.getItem('lala_saved_hotels_v1') || '[]'); return Array.isArray(value) ? value.filter(h => h && typeof h.id === 'string' && typeof h.name === 'string') : []; } catch { return []; } };
+function Photo({ src, alt, ...props }: { src?: string; alt: string; className?: string; loading?: 'lazy' | 'eager' }) {
+  return <img {...props} src={src || lalaPhoto} alt={alt} onError={event => { if (event.currentTarget.src !== lalaPhoto) event.currentTarget.src = lalaPhoto; }} />;
+}
+function useDialogFocus(panel: RefObject<HTMLDivElement | null>, onClose: () => void, enabled = true) {
+  const closeRef = useRef(onClose); closeRef.current = onClose;
+  useEffect(() => {
+    if (!enabled) return;
+    const previous = document.activeElement as HTMLElement | null;
+    panel.current?.focus();
+    const key = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeRef.current();
+      if (event.key === 'Tab') {
+        const controls = panel.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]');
+        if (!controls?.length) { event.preventDefault(); return; }
+        const first = controls[0], last = controls[controls.length - 1];
+        if (event.shiftKey && (document.activeElement === first || document.activeElement === panel.current)) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && (document.activeElement === last || document.activeElement === panel.current)) { event.preventDefault(); first.focus(); }
+      }
+    };
+    document.addEventListener('keydown', key);
+    return () => { document.removeEventListener('keydown', key); previous?.focus(); };
+  }, [enabled, panel]);
+}
+function Sheet({ title, children, onClose }: { title: string; children: ReactNode; onClose: () => void }) {
+  const panel = useRef<HTMLDivElement>(null);
+  useDialogFocus(panel, onClose);
+  return <div className="lala-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose(); }}><div className="lala-sheet" role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} ref={panel}><div className="lala-sheet-handle" /><div className="lala-sheet-heading"><h2>{title}</h2><button className="lala-icon-button" aria-label="Close" onClick={onClose}><X size={20} /></button></div>{children}</div></div>;
+}
 
 export default function Lala() {
-  const [search, setSearch] = useState({ destination: '', checkIn: today, checkOut: tomorrow, guests: '1' }); const [rows, setRows] = useState<HotelResult[]>([]);
-  const [loading, setLoading] = useState(false); const [error, setError] = useState(''); const [selected, setSelected] = useState<{ hotel: HotelResult; room: Room } | null>(null);
-  const [guest, setGuest] = useState({ name: '', phone: '', email: '', nationality: '' }); const [passportToken, setPassportToken] = useState(() => localStorage.getItem('lala_passport_token_v2') || '');
+  const frame = useRef<HTMLDivElement>(null);
+  const results = useRef<HTMLElement>(null);
+  const [tab, setTab] = useState<Tab>(initialTab);
+  const [search, setSearch] = useState<SearchInput>({ destination: '', checkIn: today, checkOut: tomorrow, guests: '1' });
+  const [staySearch, setStaySearch] = useState<SearchInput>(search);
+  const [rows, setRows] = useState<LalaHotel[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [saved, setSaved] = useState<SavedHotel[]>(readSaved);
+  const [filter, setFilter] = useState('All stays');
+  const [hotel, setHotel] = useState<LalaHotel | null>(null);
+  const [selected, setSelected] = useState<{ hotel: LalaHotel; room: LalaRoom } | null>(null);
+  const [guest, setGuest] = useState({ name: '', phone: '', email: '', nationality: '' });
+  const [passportToken, setPassportToken] = useState(() => localStorage.getItem('lala_passport_token_v2') || '');
   const [phoneCode, setPhoneCode] = useState('');
   const [phoneToken, setPhoneToken] = useState('');
   const [verificationMessage, setVerificationMessage] = useState('');
   const [verifying, setVerifying] = useState(false);
-  const [booking, setBooking] = useState(''); const [reverseOpen, setReverseOpen] = useState(false); const [budget, setBudget] = useState('');
-  const [reverseRequestId, setReverseRequestId] = useState(() => localStorage.getItem('lala_reverse_request_id') || ''); const [offers, setOffers] = useState<LalaOffer[]>([]); const [offersLoading, setOffersLoading] = useState(false);
-  const [foodHotel, setFoodHotel] = useState<HotelResult | null>(null);
-  usePwaManifest({ name: 'Lala by KobeOS', shortName: 'Lala', startUrl: '/lala', iconBase: '/lala', themeColor: '#28134f', enabled: true });
-  const runSearch = async () => { setLoading(true); setError(''); try { setRows(await publicApi(`/lala-public/search?destination=${encodeURIComponent(search.destination)}&checkIn=${search.checkIn}&checkOut=${search.checkOut}&guests=${search.guests}`)); } catch (e) { setError((e as Error).message); } finally { setLoading(false); } };
+  const [identityOpen, setIdentityOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [reverseOpen, setReverseOpen] = useState(false);
+  const [budget, setBudget] = useState('');
+  const [requestId, setRequestId] = useState(() => localStorage.getItem('lala_reverse_request_id') || '');
+  const [offers, setOffers] = useState<Offer[]>([]);
+  const [offersLoading, setOffersLoading] = useState(false);
+  const [foodHotel, setFoodHotel] = useState<LalaHotel | null>(null);
+  const detailPanel = useRef<HTMLDivElement>(null);
+  useDialogFocus(detailPanel, () => setHotel(null), !!hotel && !selected && !foodHotel);
+  const searchSequence = useRef(0);
+  useEffect(() => { const title = document.title; document.title = 'Lala — Hotels, rooms & rewards'; return () => { document.title = title; }; }, []);
+  const nights = Math.max(1, Math.round((Date.parse(staySearch.checkOut) - Date.parse(staySearch.checkIn)) / 86400000) || 1);
+  usePwaManifest({ name: 'Lala — Hotels, rooms & rewards', shortName: 'Lala', startUrl: location.hostname.startsWith('lala.') ? '/' : '/lala', iconBase: '/lala', themeColor: '#0066f5', backgroundColor: '#f5f7fa' });
+  const changeTab = (next: Tab) => { setTab(next); setHotel(null); setError(''); history.replaceState(null, '', (location.hostname.startsWith('lala.') ? '/' : '/lala') + '#' + next); frame.current?.scrollTo?.({ top: 0 }); };
+  useEffect(() => { const onHash = () => { setTab(initialTab()); setHotel(null); }; window.addEventListener('hashchange', onHash); return () => window.removeEventListener('hashchange', onHash); }, []);
+  const runSearch = async (input = search, scroll = false) => {
+    if (!input.checkIn || !input.checkOut || input.checkOut <= input.checkIn || input.checkIn < today) { setError('Choose a check-out date after your check-in date.'); return; }
+    const sequence = ++searchSequence.current;
+    setLoading(true); setError('');
+    try { const data = await publicApi<LalaHotel[]>('/lala-public/search?' + new URLSearchParams(input)); if (sequence === searchSequence.current) { setRows(data); setStaySearch(input); } }
+    catch (reason) { if (sequence === searchSequence.current) setError((reason as Error).message); }
+    finally { if (sequence === searchSequence.current) { setLoading(false); if (scroll) results.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' }); } }
+  };
   useEffect(() => { void runSearch(); }, []);
+  const toggleSaved = (item: LalaHotel) => {
+    const next = saved.some(h => h.id === item.hotel.id) ? saved.filter(h => h.id !== item.hotel.id) : [...saved, { id: item.hotel.id, name: item.hotel.name, location: item.hotel.location, image: imageFor(item) }];
+    setSaved(next); localStorage.setItem('lala_saved_hotels_v1', JSON.stringify(next));
+  };
+  const openSaved = async (item: SavedHotel) => {
+    setLoading(true); setError('');
+    try {
+      const data = await publicApi<LalaHotel[]>('/lala-public/search?' + new URLSearchParams({ ...search, destination: item.name }));
+      const current = data.find(h => h.hotel.id === item.id);
+      if (current) { setStaySearch(search); setHotel(current); } else setError('This saved hotel has no available rooms for your selected dates. Try different dates in Discover.');
+    } catch (reason) { setError((reason as Error).message); } finally { setLoading(false); }
+  };
   const verifyPhone = async (send: boolean) => {
     setVerifying(true); setError('');
     try {
-      if (send) {
-        await publicApi('/lala-public/phone/request', { method: 'POST', body: JSON.stringify({ phone: guest.phone }) });
-        setVerificationMessage('Code sent. Check your SMS.');
-      } else {
-        const result = await publicApi<{ phoneToken: string }>('/lala-public/phone/verify', { method: 'POST', body: JSON.stringify({ phone: guest.phone, code: phoneCode }) });
-        setPhoneToken(result.phoneToken); setVerificationMessage('Phone verified. You can book now.');
-      }
-    } catch (e) { setError((e as Error).message); }
-    finally { setVerifying(false); }
+      if (send) { await publicApi('/lala-public/phone/request', { method: 'POST', body: JSON.stringify({ phone: guest.phone }) }); setVerificationMessage('Your code is on its way by SMS.'); }
+      else { const result = await publicApi<{ phoneToken: string }>('/lala-public/phone/verify', { method: 'POST', body: JSON.stringify({ phone: guest.phone, code: phoneCode }) }); setPhoneToken(result.phoneToken); setVerificationMessage('Phone verified. You’re ready to go.'); }
+    } catch (reason) { setError((reason as Error).message); } finally { setVerifying(false); }
   };
-  const phoneVerification = !passportToken && <section className="my-3 rounded-xl border p-3 space-y-2"><b className="text-sm">Verify your phone to book or recover your passport</b><input aria-label="Verification phone" value={guest.phone} onChange={(e) => { setGuest({ ...guest, phone: e.target.value }); setPhoneToken(''); }} placeholder="Phone number" className="w-full border rounded-lg p-2" /><div className="flex gap-2"><button disabled={verifying || !guest.phone} onClick={() => void verifyPhone(true)} className="border rounded-lg p-2">Send SMS code</button><input aria-label="SMS code" value={phoneCode} onChange={(e) => setPhoneCode(e.target.value)} placeholder="6-digit code" inputMode="numeric" className="min-w-0 flex-1 border rounded-lg p-2" /><button disabled={verifying || !phoneCode} onClick={() => void verifyPhone(false)} className="border rounded-lg p-2">Verify</button></div><p className="text-xs">{verificationMessage}</p>{error && <p className="text-xs text-red-700">{error}</p>}</section>;
-  const ensurePassport = async () => { if (passportToken) return passportToken; const result = await publicApi<{ passport: { qrToken: string } }>('/lala-public/passports', { method: 'POST', body: JSON.stringify({ ...guest, phoneToken }) }); localStorage.setItem('lala_passport_token_v2', result.passport.qrToken); setPassportToken(result.passport.qrToken); return result.passport.qrToken; };
-  const book = async () => { if (!selected) return; setLoading(true); setError(''); try { const token = await ensurePassport(); const result = await publicApi<{ booking: { id: string }; hotel: string; room: string; nights: number }>('/lala-public/bookings', { method: 'POST', body: JSON.stringify({ hotelId: selected.hotel.hotel.id, roomId: selected.room.id, passportToken: token, checkIn: search.checkIn, checkOut: search.checkOut, guests: Number(search.guests) }) }); setBooking(`Booking ${result.booking.id.slice(0, 8)} received at ${result.hotel}, room ${result.room}. Payment is arranged with the hotel; no online charge has been made.`); setSelected(null); } catch (e) { setError((e as Error).message); } finally { setLoading(false); } };
-  const loadOffers = async (requestId = reverseRequestId, token = passportToken) => { if (!requestId || !token) return; setOffersLoading(true); setError(''); try { setOffers(await publicApi<LalaOffer[]>(`/lala-public/reverse-requests/${requestId}/offers?passportToken=${encodeURIComponent(token)}`)); } catch (e) { setError((e as Error).message); } finally { setOffersLoading(false); } };
-  const reverse = async () => { setLoading(true); setError(''); try { const token = await ensurePassport(); const result = await publicApi<{ id: string }>('/lala-public/reverse-requests', { method: 'POST', body: JSON.stringify({ passportToken: token, destination: search.destination, checkIn: search.checkIn, checkOut: search.checkOut, guests: Number(search.guests), budget: Number(budget), currency: 'TZS' }) }); localStorage.setItem('lala_reverse_request_id', result.id); setReverseRequestId(result.id); setOffers([]); setBooking(`Request ${result.id.slice(0, 8)} sent. Hotels can now offer you a room here.`); setReverseOpen(false); void loadOffers(result.id, token); } catch (e) { setError((e as Error).message); } finally { setLoading(false); } };
-  const acceptOffer = async (offer: LalaOffer) => { if (!reverseRequestId || !passportToken) return; setOffersLoading(true); setError(''); try { const result = await publicApi<{ booking: { id: string }; hotel: string; room: string }>(`/lala-public/reverse-requests/${reverseRequestId}/offers/${offer.id}/accept`, { method: 'POST', body: JSON.stringify({ passportToken }) }); setBooking(`Booking ${result.booking.id.slice(0, 8)} confirmed from the offer at ${result.hotel}, room ${result.room}.`); localStorage.removeItem('lala_reverse_request_id'); setReverseRequestId(''); setOffers([]); } catch (e) { setError((e as Error).message); } finally { setOffersLoading(false); } };
-  useEffect(() => { if (reverseRequestId && passportToken) void loadOffers(reverseRequestId, passportToken); }, [reverseRequestId, passportToken]);
-  return <div className="min-h-screen bg-[#f8f5ff] text-[#241638]" data-surface="light"><header className="bg-[#24103f] text-white"><div className="max-w-7xl mx-auto h-16 px-4 flex items-center"><div className="h-10 w-10 rounded-2xl bg-[#ffcb69] text-[#24103f] grid place-items-center"><Hotel className="h-5 w-5" /></div><div className="ml-3"><h1 className="font-black text-xl">Lala</h1><p className="text-[10px] tracking-[.25em] text-white/50">LIVE HOTEL NETWORK</p></div><div className="ml-auto inline-flex gap-2"><span className="hidden sm:inline-flex items-center gap-1 text-xs text-white/60"><ShieldCheck className="h-4 w-4" /> Verified availability</span><button onClick={() => setReverseOpen(true)} className="h-9 px-3 rounded-xl bg-white/10 text-xs font-black">Let hotels offer</button></div></div></header>
-  <section className="bg-gradient-to-br from-[#321456] via-[#552282] to-[#8a3b82] text-white"><div className="max-w-7xl mx-auto px-4 py-12 sm:py-20"><span className="text-[#ffcb69] text-xs font-black tracking-[.2em] inline-flex items-center gap-2"><Sparkles className="h-4 w-4" /> SLEEP BETTER, REWARDED EVERYWHERE</span><h2 className="mt-4 text-4xl sm:text-6xl font-black tracking-tight max-w-3xl">Real rooms. Live prices.<br />One Lala Passport.</h2><p className="mt-4 max-w-2xl text-white/65">Search live KobeOS hotel inventory, earn each hotel’s loyalty points and separate Lala Rewards, and review only stays you completed.</p><div className="mt-8 rounded-3xl bg-white p-3 grid md:grid-cols-[1.3fr_1fr_1fr_.6fr_auto] gap-2 shadow-2xl"><label className="relative"><MapPin className="absolute left-3 top-3 h-4 w-4 text-slate-400" /><input value={search.destination} onChange={(e) => setSearch({ ...search, destination: e.target.value })} placeholder="City or hotel" className="h-11 w-full rounded-xl bg-slate-50 pl-9 pr-3 text-sm" /></label><label className="relative"><CalendarDays className="absolute left-3 top-3 h-4 w-4 text-slate-400" /><input type="date" min={today} value={search.checkIn} onChange={(e) => setSearch({ ...search, checkIn: e.target.value, checkOut: e.target.value >= search.checkOut ? '' : search.checkOut })} className="h-11 w-full rounded-xl bg-slate-50 pl-9 pr-2 text-sm" /></label><label className="relative"><CalendarDays className="absolute left-3 top-3 h-4 w-4 text-slate-400" /><input type="date" min={search.checkIn || today} value={search.checkOut} onChange={(e) => setSearch({ ...search, checkOut: e.target.value })} className="h-11 w-full rounded-xl bg-slate-50 pl-9 pr-2 text-sm" /></label><label className="relative"><UserRound className="absolute left-3 top-3 h-4 w-4 text-slate-400" /><input type="number" min="1" value={search.guests} onChange={(e) => setSearch({ ...search, guests: e.target.value })} className="h-11 w-full rounded-xl bg-slate-50 pl-9 pr-2 text-sm" /></label><button onClick={() => void runSearch()} className="h-11 px-6 rounded-xl bg-[#24103f] text-white font-black inline-flex items-center justify-center gap-2"><Search className="h-4 w-4" /> Search</button></div></div></section>
-  <main className="max-w-7xl mx-auto p-4 sm:p-6">{phoneVerification}{error && <div className="rounded-xl bg-rose-50 border border-rose-200 text-rose-700 p-3 mb-4 text-sm">{error}</div>}{booking && <div className="rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 p-3 mb-4 text-sm font-bold">{booking}</div>}{reverseRequestId && <section className="rounded-[2rem] bg-white border p-5 sm:p-6 mb-6 shadow-sm"><div className="flex flex-col sm:flex-row sm:items-center gap-3"><div className="flex-1"><p className="text-xs font-black text-violet-700">HOTELS ARE COMPETING FOR YOU</p><h3 className="text-xl font-black">Your room offers</h3><p className="text-sm text-slate-500">Request {reverseRequestId.slice(0, 8)} · accept one offer to create the booking immediately.</p></div><button disabled={offersLoading} onClick={() => void loadOffers()} className="h-10 px-4 rounded-xl border font-black text-sm">{offersLoading ? 'Checking…' : 'Refresh offers'}</button></div><div className="mt-4 grid md:grid-cols-2 gap-3">{offers.map((offer) => <article key={offer.id} className="rounded-2xl border p-4"><div className="flex gap-3"><div className="flex-1"><b className="text-lg">{offer.hotel?.name ?? 'Hotel offer'}</b><p className="text-xs text-slate-500">{offer.hotel?.location ?? ''} · {offer.room?.type ?? 'Room'} {offer.room?.roomNumber ? `#${offer.room.roomNumber}` : ''}</p></div><strong className="text-violet-800">{money(Number(offer.totalPrice), offer.currency)}</strong></div>{offer.message && <p className="mt-3 text-sm text-slate-600">{offer.message}</p>}<p className="mt-2 text-[10px] text-slate-400">Expires {new Date(offer.expiresAt).toLocaleString()}</p><button onClick={() => void acceptOffer(offer)} disabled={offersLoading} className="mt-3 w-full h-10 rounded-xl bg-violet-800 text-white font-black disabled:opacity-40">Accept & book</button></article>)}{!offers.length && !offersLoading && <div className="md:col-span-2 rounded-2xl bg-violet-50 p-5 text-sm text-violet-700">No hotel offers yet. Keep this request open and refresh when hotels respond.</div>}</div></section>}{loading && !rows.length ? <div className="h-64 grid place-items-center"><Loader2 className="animate-spin" /></div> : <div className="space-y-6">{rows.map((row) => <article key={row.hotel.id} className="bg-white rounded-[2rem] border overflow-hidden shadow-sm"><div className="grid lg:grid-cols-[.8fr_1.2fr]"><img src={publicAssetUrl(row.profile.images[0]) || publicAssetUrl(row.availableRooms[0]?.imageUrl) || fallback} className="w-full h-64 lg:h-full object-cover" /><div className="p-5 sm:p-7"><div className="flex gap-3"><div className="flex-1"><h3 className="text-2xl font-black">{row.hotel.name}</h3><p className="text-sm text-slate-500 inline-flex items-center gap-1 mt-1"><MapPin className="h-4 w-4" />{row.hotel.location}</p></div><div className="text-right"><b className="inline-flex items-center gap-1 text-amber-600"><Star className="h-4 w-4 fill-current" />{row.profile.guestRating.toFixed(1)}</b><p className="text-[10px] text-slate-400">{row.profile.verifiedReviewCount} verified stays</p></div></div><p className="mt-3 text-sm text-slate-600">{row.profile.description}</p><div className="mt-3 flex flex-wrap gap-2">{row.profile.amenities.map((a) => <span key={a} className="px-2 py-1 rounded-lg bg-violet-50 text-violet-700 text-[11px] font-bold">{a}</span>)}</div><div className="mt-5 grid sm:grid-cols-2 gap-3">{row.availableRooms.slice(0, 6).map((room) => <button key={room.id} onClick={() => setSelected({ hotel: row, room })} className="text-left rounded-2xl border p-3 hover:border-violet-400 hover:bg-violet-50 transition"><div className="flex gap-3"><img src={publicAssetUrl(room.imageUrl) || fallback} className="h-16 w-20 rounded-xl object-cover" /><div><b className="block">{room.type}</b><span className="text-xs text-slate-500">Up to {room.capacity} guests</span><strong className="block text-violet-800 mt-1">{money(room.rate, room.currency)} <small className="font-normal">/ night</small></strong></div></div></button>)}</div>{row.foodAvailable && <button onClick={() => setFoodHotel(row)} className="mt-3 w-full h-11 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-black inline-flex items-center justify-center gap-2 text-sm"><Utensils className="h-4 w-4" /> Order food from this hotel</button>}<p className="mt-3 text-[10px] text-emerald-700 font-bold"><ShieldCheck className="inline h-3 w-3 mr-1" />Availability verified {new Date(row.verifiedAvailabilityAt).toLocaleTimeString()}</p></div></div></article>)}{!rows.length && !loading && <div className="py-24 text-center text-slate-400"><BedDouble className="h-12 w-12 mx-auto mb-3" /><b>No available rooms for this search</b></div>}</div>}</main>
-  {selected && <div className="fixed inset-0 z-50 bg-black/50 grid place-items-center p-4"><div className="w-full max-w-lg max-h-[95vh] overflow-y-auto bg-white rounded-[2rem] p-5"><button onClick={() => setSelected(null)} className="float-right h-9 w-9 rounded-xl bg-slate-100 grid place-items-center"><X className="h-4 w-4" /></button><p className="text-xs font-black text-violet-700">BOOK THIS ROOM</p><h3 className="text-2xl font-black mt-1">{selected.room.type} · {selected.hotel.hotel.name}</h3><img src={publicAssetUrl(selected.room.imageUrl) || fallback} className="mt-4 w-full h-48 rounded-2xl object-cover" /><div className="mt-4 rounded-2xl bg-violet-50 p-4 flex justify-between"><span>{search.checkIn} → {search.checkOut}</span><b>{money(selected.room.rate, selected.room.currency)} / night</b></div>{!passportToken && <div className="mt-5"><div className="flex items-center gap-2"><Gift className="h-5 w-5 text-violet-700" /><div><b>Get your free Lala Passport</b><p className="text-xs text-slate-500">Your contact details are requested only now, at the end.</p></div></div><div className="grid sm:grid-cols-2 gap-2 mt-3"><input placeholder="Full name" value={guest.name} onChange={(e) => setGuest({ ...guest, name: e.target.value })} className="h-11 rounded-xl border px-3" /><input placeholder="Phone number" value={guest.phone} onChange={(e) => setGuest({ ...guest, phone: e.target.value })} className="h-11 rounded-xl border px-3" /><input placeholder="Email (optional)" value={guest.email} onChange={(e) => setGuest({ ...guest, email: e.target.value })} className="h-11 rounded-xl border px-3" /><input placeholder="Nationality (optional)" value={guest.nationality} onChange={(e) => setGuest({ ...guest, nationality: e.target.value })} className="h-11 rounded-xl border px-3" /></div></div>}{passportToken && <a href={`/lala/passport/${passportToken}`} className="mt-4 rounded-xl bg-emerald-50 text-emerald-700 p-3 text-sm font-bold flex items-center gap-3"><span className="bg-white p-1 rounded-lg"><QRCodeSVG value={`${location.origin}/lala/passport/${passportToken}`} size={48} /></span><span><ShieldCheck className="inline h-4 w-4 mr-1" />Lala Passport ready<small className="block font-normal">Open QR and separate reward balances</small></span></a>}<button disabled={loading || (!passportToken && (!guest.name || !guest.phone))} onClick={() => void book()} className="mt-5 w-full h-12 rounded-xl bg-[#24103f] text-white font-black disabled:opacity-40">{loading ? 'Booking…' : 'Book now'}</button></div></div>}
-  {reverseOpen && <div className="fixed inset-0 z-50 bg-black/50 grid place-items-center p-4"><div className="w-full max-w-md bg-white rounded-3xl p-5"><button onClick={() => setReverseOpen(false)} className="float-right"><X /></button><h3 className="text-xl font-black">Let hotels compete for you</h3><p className="text-sm text-slate-500 mt-1">Share destination, dates and budget. Hotels with verified rooms can send an offer.</p><input value={budget} onChange={(e) => setBudget(e.target.value)} type="number" placeholder="Total budget TZS" className="mt-4 w-full h-11 rounded-xl border px-3" />{!passportToken && <><input value={guest.name} onChange={(e) => setGuest({ ...guest, name: e.target.value })} placeholder="Name" className="mt-2 w-full h-11 rounded-xl border px-3" /><input value={guest.phone} onChange={(e) => setGuest({ ...guest, phone: e.target.value })} placeholder="Phone" className="mt-2 w-full h-11 rounded-xl border px-3" /></>}{phoneVerification}<button onClick={() => void reverse()} disabled={!search.destination || !budget || (!passportToken && (!guest.name || !guest.phone))} className="mt-4 w-full h-11 rounded-xl bg-violet-800 text-white font-black disabled:opacity-40">Send request</button></div></div>}
-  {foodHotel && <FoodOrderModal hotel={foodHotel} onClose={() => setFoodHotel(null)} />}
+  const ensurePassport = async () => {
+    if (passportToken) return passportToken;
+    if (!phoneToken || !guest.name.trim()) throw new Error('Add your name and verify your phone to continue.');
+    const result = await publicApi<{ passport: { qrToken: string } }>('/lala-public/passports', { method: 'POST', body: JSON.stringify({ ...guest, phoneToken }) });
+    localStorage.setItem('lala_passport_token_v2', result.passport.qrToken); setPassportToken(result.passport.qrToken); return result.passport.qrToken;
+  };
+  const book = async () => {
+    if (!selected || busy) return; setBusy(true); setError('');
+    try {
+      const token = await ensurePassport();
+      const result = await publicApi<{ booking: { id: string }; hotel: string }>('/lala-public/bookings', { method: 'POST', body: JSON.stringify({ hotelId: selected.hotel.hotel.id, roomId: selected.room.id, passportToken: token, checkIn: staySearch.checkIn, checkOut: staySearch.checkOut, guests: Number(staySearch.guests) }) });
+      setNotice('Reservation ' + result.booking.id.slice(0, 8) + ' received by ' + result.hotel + '. Arrange payment with the hotel.'); setSelected(null); changeTab('trips');
+    } catch (reason) { setError((reason as Error).message); } finally { setBusy(false); }
+  };
+  const loadOffers = async (id = requestId, token = passportToken) => {
+    if (!id || !token) return; setOffersLoading(true); setError('');
+    try { setOffers(await publicApi<Offer[]>('/lala-public/reverse-requests/' + id + '/offers?passportToken=' + encodeURIComponent(token))); }
+    catch (reason) { setError((reason as Error).message); } finally { setOffersLoading(false); }
+  };
+  useEffect(() => { if (requestId && passportToken) void loadOffers(); }, [requestId, passportToken]);
+  const sendRequest = async () => {
+    if (busy) return; setBusy(true); setError('');
+    try {
+      const token = await ensurePassport();
+      const result = await publicApi<{ id: string }>('/lala-public/reverse-requests', { method: 'POST', body: JSON.stringify({ passportToken: token, ...search, guests: Number(search.guests), budget: Number(budget), currency: 'TZS' }) });
+      localStorage.setItem('lala_reverse_request_id', result.id); setRequestId(result.id); setOffers([]); setReverseOpen(false); setNotice('Your request is with the hotels. Check your offers below.'); void loadOffers(result.id, token);
+    } catch (reason) { setError((reason as Error).message); } finally { setBusy(false); }
+  };
+  const acceptOffer = async (offer: Offer) => {
+    if (offersLoading) return; setOffersLoading(true); setError('');
+    try {
+      const result = await publicApi<{ booking: { id: string }; hotel: string }>('/lala-public/reverse-requests/' + requestId + '/offers/' + offer.id + '/accept', { method: 'POST', body: JSON.stringify({ passportToken }) });
+      localStorage.removeItem('lala_reverse_request_id'); setRequestId(''); setOffers([]); setNotice('Reservation ' + result.booking.id.slice(0, 8) + ' received by ' + result.hotel + '. Arrange payment with the hotel.'); changeTab('trips');
+    } catch (reason) { setError((reason as Error).message); } finally { setOffersLoading(false); }
+  };
+  const identityFields = <div className="lala-identity">
+    <label>Your name<input autoComplete="name" value={guest.name} onChange={e => setGuest({ ...guest, name: e.target.value })} placeholder="Full name" /></label>
+    <label>Phone number<div className="lala-phone-line"><input type="tel" autoComplete="tel" value={guest.phone} placeholder="+255 7XX XXX XXX" onChange={e => { setGuest({ ...guest, phone: e.target.value }); setPhoneToken(''); setVerificationMessage(''); }} /><button type="button" className="lala-small-button" disabled={verifying || !guest.phone || !!phoneToken} onClick={() => void verifyPhone(true)}>{phoneToken ? <Check size={16} /> : 'Send code'}</button></div></label>
+    {!phoneToken && <label>SMS verification code<div className="lala-phone-line"><input aria-label="SMS code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={phoneCode} onChange={e => setPhoneCode(e.target.value)} placeholder="6-digit code" /><button type="button" className="lala-small-button" disabled={verifying || phoneCode.length !== 6} onClick={() => void verifyPhone(false)}>{verifying ? <Loader2 size={16} className="lala-spin" /> : 'Verify'}</button></div></label>}
+    {verificationMessage && <p className="lala-verified" role="status"><ShieldCheck size={14} />{verificationMessage}</p>}
   </div>;
+  const visible = filter === 'Under TZS 100k' ? rows.filter(h => h.availableRooms.some(r => r.currency === 'TZS' && r.rate < 100000)) : filter === 'Top rated' ? [...rows].sort((a, b) => b.profile.guestRating - a.profile.guestRating) : rows;
+  const formError = error && <div className="lala-alert" role="alert">{error}</div>;
+  return <div className="lala-world" data-surface="lala"><div className="lala-frame" ref={frame}>
+    <header className="lala-header"><button className="lala-wordmark" aria-label="Lala home" onClick={() => changeTab('discover')}><BedDouble size={25} /> Lala<span>.</span></button><span className="lala-header-note">TZS · EN</span><button className="lala-icon-button lala-avatar" aria-label="Open Passport" onClick={() => changeTab('passport')}><UserRound size={19} /></button></header>
+    {!selected && !reverseOpen && !identityOpen && formError}
+    {notice && <div className="lala-notice" role="status"><Check size={18} /><span>{notice}</span><button aria-label="Dismiss message" onClick={() => setNotice('')}><X size={16} /></button></div>}
+    {tab === 'discover' && <>
+      <section className="lala-hero"><Photo src="https://images.unsplash.com/photo-1514282401047-d79a71a590e8?auto=format&fit=crop&w=1000&q=85" alt="Turquoise water and a peaceful island escape" loading="eager" /><div className="lala-hero-shade" /><div className="lala-hero-copy"><span className="lala-hero-eyebrow"><span /> HOTELS & STAYS</span><h1>Great stays.<br /><em>Better trips.</em></h1><p>Find your next hotel with Lala.</p></div><span className="lala-hero-stamp"><Waves size={15} /> Explore Tanzania</span></section>
+      <form className="lala-search-card" aria-label="Find a stay" onSubmit={e => { e.preventDefault(); void runSearch(search, true); }}>
+        <div className="lala-search-tabs"><span><BedDouble size={18} /> Hotels</span><button type="button" onClick={() => { setError(''); setReverseOpen(true); }}><Sparkles size={16} /> Hotel offers <ChevronRight size={14} /></button></div><label className="lala-destination"><MapPin size={20} /><span><small>Destination</small><input aria-label="City or hotel" placeholder="City, area or hotel name" value={search.destination} onChange={e => setSearch({ ...search, destination: e.target.value })} /></span></label>
+        <div className="lala-search-dates"><label><span>CHECK-IN</span><input aria-label="Check-in" type="date" min={today} value={search.checkIn} onChange={e => { const checkIn = e.target.value; const next = new Date(checkIn + 'T12:00:00'); next.setDate(next.getDate() + 1); setSearch({ ...search, checkIn, checkOut: checkIn >= search.checkOut ? next.toLocaleDateString('en-CA') : search.checkOut }); }} required /></label><span className="lala-date-divider" /><label><span>CHECK-OUT</span><input aria-label="Check-out" type="date" min={search.checkIn} value={search.checkOut} onChange={e => setSearch({ ...search, checkOut: e.target.value })} required /></label><label className="lala-guests"><span>Guests per room</span><select aria-label="Guests" value={search.guests} onChange={e => setSearch({ ...search, guests: e.target.value })}>{[1, 2, 3, 4, 5, 6, 8, 10].map(n => <option key={n} value={n}>{n} {n === 1 ? 'guest' : 'guests'}</option>)}</select></label></div>
+        <button className="lala-primary" type="submit" disabled={loading}>{loading ? <Loader2 size={18} className="lala-spin" /> : <Search size={18} />} Search hotels <ArrowRight size={18} /></button>
+      </form>
+      <main className="lala-discover"><div className="lala-shortcuts"><button onClick={() => results.current?.scrollIntoView?.({ behavior: 'smooth' })}><span><BedDouble size={24} /></span>Hotels</button><button onClick={() => { setError(''); setReverseOpen(true); }}><span><Sparkles size={24} /></span>Hotel offers</button><button onClick={() => changeTab('saved')}><span><Heart size={24} /></span>Saved hotels</button><button onClick={() => changeTab('passport')}><span><Gift size={24} /></span>Rewards</button></div><button className="lala-member-banner" onClick={() => changeTab('passport')}><span className="lala-member-icon"><Gift size={24} /></span><span><b>Your next stay, more rewarding</b><small>View your Lala Passport and hotel rewards</small></span><ChevronRight size={18} /></button><div className="lala-trust-line"><ShieldCheck size={14} /> {loading ? 'Checking room availability…' : error ? 'Live availability temporarily unavailable' : 'Room availability checked with the hotel'} <span>✦</span></div>
+        <section className="lala-destinations"><div className="lala-section-title"><div><p className="lala-eyebrow">EXPLORE TANZANIA</p><h2>Popular destinations</h2></div><Compass size={21} /></div><div className="lala-destination-pills">{['Anywhere', 'Dar es Salaam', 'Zanzibar', 'Arusha'].map(city => <button key={city} className={search.destination === (city === 'Anywhere' ? '' : city) ? 'is-active' : ''} onClick={() => { const next = { ...search, destination: city === 'Anywhere' ? '' : city }; setSearch(next); void runSearch(next, true); }}>{city === 'Anywhere' && <Compass size={14} />}{city}</button>)}</div></section>
+        <section ref={results} className="lala-results"><div className="lala-section-title"><div><p className="lala-eyebrow">FIND YOUR NEXT STAY</p><h2>{search.destination ? 'Stays in ' + search.destination : 'Hotels you might like'}</h2></div><span className="lala-result-count">{visible.length}</span></div><div className="lala-filter-bar">{['All stays', 'Under TZS 100k', 'Top rated'].map(value => <button key={value} onClick={() => setFilter(value)} className={filter === value ? 'is-active' : ''}>{value === 'Top rated' && <ArrowDownUp size={13} />}{value}</button>)}</div>
+        {loading && <div className="lala-loading" role="status"><Loader2 size={18} className="lala-spin" /> Checking live rooms…</div>}
+        {!loading && !visible.length && <div className="lala-empty"><BedDouble /><h3>Find a hotel for your dates</h3><p>{error ? 'We couldn’t load rooms. Please try again.' : 'No rooms match this search. Try another destination, date or filter.'}</p><button className="lala-secondary" onClick={() => { setFilter('All stays'); const next = { ...search, destination: '' }; setSearch(next); void runSearch(next); }}>Show all stays <ArrowRight size={16} /></button></div>}
+        {visible.map(item => { const lowest = [...item.availableRooms].sort((a, b) => a.rate - b.rate)[0]; const isSaved = saved.some(h => h.id === item.hotel.id); return <article className="lala-hotel-card" key={item.hotel.id}><div className="lala-hotel-image"><button className="lala-photo-button" aria-label={'View ' + item.hotel.name} onClick={() => setHotel(item)}><Photo src={imageFor(item)} alt={item.hotel.name} loading="lazy" /></button><span className="lala-photo-badge"><ShieldCheck size={12} /> Rooms available</span><button className={'lala-save-button ' + (isSaved ? 'is-saved' : '')} aria-label={(isSaved ? 'Unsave ' : 'Save ') + item.hotel.name} aria-pressed={isSaved} onClick={() => toggleSaved(item)}><Heart size={19} fill={isSaved ? 'currentColor' : 'none'} /></button></div><button className="lala-hotel-info" onClick={() => setHotel(item)}><div className="lala-hotel-title"><h3>{item.hotel.name}</h3>{item.profile.verifiedReviewCount > 0 ? <span><StarIcon />{item.profile.guestRating.toFixed(1)}</span> : <span className="lala-new-stay">New stay</span>}</div><p><MapPin size={13} />{item.hotel.location}</p><div className="lala-hotel-bottom"><span>{lowest && <><b>{lalaMoney(lowest.rate, lowest.currency)}</b><small> / night</small></>}</span><span className="lala-view-stay">Explore stay <ArrowRight size={14} /></span></div></button></article>; })}
+        </section>
+        <section className="lala-offer-banner"><span className="lala-offer-spark"><Sparkles size={24} /></span><p className="lala-eyebrow">PERSONAL HOTEL OFFERS</p><h2>Set your budget.<br /><em>Let hotels make an offer.</em></h2><p>Tell hotels what you have in mind.<br />Let the right stay come to you.</p><button onClick={() => { setError(''); setReverseOpen(true); }}>Let hotels offer <ArrowRight size={16} /></button><span className="lala-banner-orbit" /></section>
+        {requestId && <section className="lala-offers"><div className="lala-section-title"><h2>Your hotel offers</h2><button className="lala-text-button" disabled={offersLoading} onClick={() => void loadOffers()}>{offersLoading ? 'Checking…' : 'Refresh'}</button></div>{!offers.length && <p className="lala-soft-note">Hotels haven’t responded yet. Check back here for offers.</p>}{offers.map(offer => <article className="lala-offer-card" key={offer.id}><span className="lala-eyebrow">AN OFFER FOR YOU</span><h3>{offer.hotel?.name || 'Hotel offer'}</h3><p>{offer.hotel?.location} · {offer.room?.type || 'Room'}</p><strong>{lalaMoney(offer.totalPrice, offer.currency)} <small>total stay</small></strong>{offer.message && <p>{offer.message}</p>}<p className="lala-caption">Expires {new Date(offer.expiresAt).toLocaleString()}</p><button className="lala-primary" disabled={offersLoading || Date.parse(offer.expiresAt) <= Date.now()} onClick={() => void acceptOffer(offer)}>Accept & reserve <ArrowRight size={16} /></button></article>)}</section>}
+        <footer className="lala-footer"><MoonStar size={18} /><span>Hotels. Bookings. Rewards. All in Lala.</span><small>Lala · by KobeOS</small></footer>
+      </main>
+    </>}
+    {tab === 'saved' && <main className="lala-account-content"><div className="lala-section-title"><div><p className="lala-eyebrow">YOUR SAVED HOTELS</p><h1>Saved hotels</h1></div><Heart size={23} /></div><p className="lala-muted">Your favorite hotels, ready when you are.</p>{loading && <div className="lala-loading" role="status"><Loader2 size={18} className="lala-spin" /> Checking current availability…</div>}{saved.length ? saved.map(item => <article className="lala-saved-card" key={item.id}><button onClick={() => void openSaved(item)}><Photo src={item.image} alt={item.name} loading="lazy" /><span><h2>{item.name}</h2><p><MapPin size={13} />{item.location}</p><small>Check current rooms <ArrowRight size={13} /></small></span></button><button className="lala-icon-button" aria-label={'Unsave ' + item.name} onClick={() => { const next = saved.filter(h => h.id !== item.id); setSaved(next); localStorage.setItem('lala_saved_hotels_v1', JSON.stringify(next)); }}><Heart size={18} fill="currentColor" /></button></article>) : <div className="lala-empty"><Heart /><h2>Love it? Save it.</h2><p>Tap the heart on a hotel to keep it here for another day.</p><button className="lala-primary" onClick={() => changeTab('discover')}>Find your next stay <ArrowRight size={17} /></button></div>}</main>}
+    {(tab === 'trips' || tab === 'passport') && <LalaAccount token={passportToken} view={tab} onConnect={() => { setError(''); setPassportToken(''); localStorage.removeItem('lala_passport_token_v2'); setIdentityOpen(true); }} />}
+    <nav className="lala-bottom-nav" aria-label="Lala navigation">{([{ id: 'discover', label: 'Discover', icon: Compass }, { id: 'saved', label: 'Saved', icon: Heart }, { id: 'trips', label: 'Trips', icon: Ticket }, { id: 'passport', label: 'Passport', icon: QrCode }] as const).map(item => <button key={item.id} className={tab === item.id ? 'is-active' : ''} aria-current={tab === item.id ? 'page' : undefined} onClick={() => changeTab(item.id)}><item.icon size={21} strokeWidth={tab === item.id ? 2 : 1.6} /><span>{item.label}</span>{tab === item.id && <i />}</button>)}</nav>
+    {hotel && !selected && <div className="lala-detail" ref={detailPanel} tabIndex={-1} role="dialog" aria-modal="true" aria-label={hotel.hotel.name}><div className="lala-detail-image"><Photo src={imageFor(hotel)} alt={hotel.hotel.name} /><button className="lala-detail-back" aria-label="Back to stays" onClick={() => setHotel(null)}><ArrowLeft size={20} /></button><button className="lala-detail-heart" aria-label="Save hotel" aria-pressed={saved.some(h => h.id === hotel.hotel.id)} onClick={() => toggleSaved(hotel)}><Heart size={20} fill={saved.some(h => h.id === hotel.hotel.id) ? 'currentColor' : 'none'} /></button><span className="lala-detail-stamp">HOTEL OVERVIEW</span></div><div className="lala-detail-body"><p className="lala-eyebrow">{hotel.hotel.location}</p><h1>{hotel.hotel.name}</h1><div className="lala-detail-rating">{hotel.profile.verifiedReviewCount > 0 ? <><StarIcon /> {hotel.profile.guestRating.toFixed(1)} <span>· {hotel.profile.verifiedReviewCount} verified reviews</span></> : <><ShieldCheck size={15} /><span>Available for your selected dates</span></>}</div><p className="lala-detail-description">{hotel.profile.description || 'Find your room, settle in and make yourself at home. Contact the hotel for more details about your stay.'}</p><div className="lala-amenities">{hotel.profile.amenities.map(a => <span key={a}><Check size={13} />{a}</span>)}</div><div className="lala-date-summary"><CalendarDays size={18} /><div><b>{lalaDate(staySearch.checkIn)} — {lalaDate(staySearch.checkOut)}</b><span>{nights} {nights === 1 ? 'night' : 'nights'} · {staySearch.guests} {staySearch.guests === '1' ? 'guest' : 'guests'}</span></div><button onClick={() => { setHotel(null); changeTab('discover'); frame.current?.scrollTo?.({ top: 200, behavior: 'smooth' }); }}>Edit</button></div><div className="lala-section-title"><h2>Choose your room</h2><BedDouble size={20} /></div><p className="lala-muted">Available rooms for your selected dates.</p>{hotel.availableRooms.map(room => <article className="lala-room-card" key={room.id}><Photo src={publicAssetUrl(room.imageUrl) || imageFor(hotel)} alt={room.type} /><div><h3>{room.type}</h3><p><UserRound size={13} /> Up to {room.capacity} guests</p><strong>{lalaMoney(room.rate, room.currency)}<small> / night</small></strong><button className="lala-small-button" onClick={() => { setError(''); setSelected({ hotel, room }); }}>Choose room <ArrowRight size={14} /></button></div></article>)}{hotel.foodAvailable && <button className="lala-secondary" onClick={() => setFoodHotel(hotel)}><Utensils size={18} /> Something delicious? View the menu <ChevronRight size={16} /></button>}<div className="lala-hotel-contact">{hotel.hotel.phone && <a className="lala-secondary" href={'tel:' + hotel.hotel.phone}><Phone size={16} /> Call the hotel <ArrowRight size={16} /></a>}</div><p className="lala-caption lala-detail-caption"><ShieldCheck size={14} /> Final availability is checked when you reserve.</p></div></div>}
+    {selected && <Sheet title="Review your reservation" onClose={() => !busy && setSelected(null)}><div className="lala-booking-hotel"><Photo src={publicAssetUrl(selected.room.imageUrl) || imageFor(selected.hotel)} alt={selected.room.type} /><div><p className="lala-eyebrow">YOUR STAY</p><h3>{selected.hotel.hotel.name}</h3><span>{selected.room.type} · {staySearch.guests} guest{staySearch.guests === '1' ? '' : 's'}</span></div></div><div className="lala-booking-dates"><CalendarDays size={18} /><b>{lalaDate(staySearch.checkIn)} — {lalaDate(staySearch.checkOut)}</b><span>{nights} night{nights === 1 ? '' : 's'}</span></div><div className="lala-price-lines"><p><span>{lalaMoney(selected.room.rate, selected.room.currency)} × {nights} night{nights === 1 ? '' : 's'}</span><b>{lalaMoney(selected.room.rate * nights, selected.room.currency)}</b></p><p className="lala-total"><span>Room total</span><b>{lalaMoney(selected.room.rate * nights, selected.room.currency)}</b></p></div>{!passportToken ? <><div className="lala-inline-heading"><Gift size={19} /><div><h3>Guest details & Lala Passport</h3><p>Free to join. Yours to keep.</p></div></div>{identityFields}</> : <div className="lala-verified"><ShieldCheck size={17} /> Your Lala Passport is ready.</div>}{formError}<div className="lala-payment-note"><ShieldCheck size={18} /><p><b>Reserve now. Pay the hotel.</b><span>No online payment is collected here. The hotel confirms payment separately.</span></p></div><button className="lala-primary" onClick={() => void book()} disabled={busy || (!passportToken && (!phoneToken || !guest.name.trim()))}>{busy ? <Loader2 className="lala-spin" size={18} /> : 'Request reservation'}<ArrowRight size={17} /></button></Sheet>}
+    {reverseOpen && <Sheet title="Request a hotel offer" onClose={() => !busy && setReverseOpen(false)}><p className="lala-muted">Choose your dates and total budget. Hotels can send you a personal room offer.</p><div className="lala-identity"><label>Destination<input placeholder="City or destination" value={search.destination} onChange={e => setSearch({ ...search, destination: e.target.value })} /></label><div className="lala-two-fields"><label>Check-in<input type="date" min={today} value={search.checkIn} onChange={e => setSearch({ ...search, checkIn: e.target.value })} /></label><label>Check-out<input type="date" min={search.checkIn} value={search.checkOut} onChange={e => setSearch({ ...search, checkOut: e.target.value })} /></label></div><label>Total budget · TZS<input type="number" min="1" placeholder="What would you like to spend?" value={budget} onChange={e => setBudget(e.target.value)} /></label></div>{!passportToken && identityFields}{formError}<button className="lala-primary" disabled={busy || !search.destination.trim() || Number(budget) <= 0 || !search.checkIn || search.checkOut <= search.checkIn || (!passportToken && (!phoneToken || !guest.name.trim()))} onClick={() => void sendRequest()}>{busy ? <Loader2 className="lala-spin" size={18} /> : 'Find my offer'}<Sparkles size={17} /></button><p className="lala-caption">A request is not a booking. Choose an offer before reserving.</p></Sheet>}
+    {identityOpen && <Sheet title="Your free Lala Passport." onClose={() => !busy && setIdentityOpen(false)}><p className="lala-muted">One familiar face at every check-in. Verify your phone to create or recover your Passport.</p>{identityFields}{formError}<button className="lala-primary" disabled={busy || !phoneToken || !guest.name.trim()} onClick={() => { setBusy(true); setError(''); void ensurePassport().then(() => setIdentityOpen(false)).catch(reason => setError((reason as Error).message)).finally(() => setBusy(false)); }}>{busy ? <Loader2 size={18} className="lala-spin" /> : 'Open my Passport'}<ArrowRight size={17} /></button></Sheet>}
+    {foodHotel && <FoodOrder hotel={foodHotel} onClose={() => setFoodHotel(null)} />}
+  </div></div>;
 }
 
-/**
- * Standalone food ordering for a Lala-listed hotel — no room booking needed.
- * Pulls the hotel's public menu and places a pickup/delivery order straight
- * onto the hotel's kitchen board via the unauthenticated /public/hotel API.
- */
-function FoodOrderModal({ hotel, onClose }: { hotel: HotelResult; onClose: () => void }) {
-  const slug = hotel.hotel.slug;
+function StarIcon() { return <span className="lala-star" aria-label="rating">★</span>; }
+
+function FoodOrder({ hotel, onClose }: { hotel: LalaHotel; onClose: () => void }) {
   const [menu, setMenu] = useState<MenuItem[]>([]);
   const [cart, setCart] = useState<Record<string, number>>({});
   const [mode, setMode] = useState<'pickup' | 'delivery'>('pickup');
@@ -72,110 +199,18 @@ function FoodOrderModal({ hotel, onClose }: { hotel: HotelResult; onClose: () =>
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [placed, setPlaced] = useState('');
-
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      try { const rows = await publicApi<MenuItem[]>(`/public/hotel/${slug}/menu-items`); if (alive) setMenu(rows.filter((m) => (m as MenuItem & { available?: boolean }).available !== false)); }
-      catch (e) { if (alive) setError((e as Error).message); }
-      finally { if (alive) setLoading(false); }
-    })();
-    return () => { alive = false; };
-  }, [slug]);
-
-  const setQty = (id: string, delta: number) => setCart((c) => { const q = Math.max(0, (c[id] || 0) + delta); const next = { ...c }; if (q) next[id] = q; else delete next[id]; return next; });
-  const lines = menu.filter((m) => cart[m.id]);
-  const currency = menu[0]?.currency || hotel.hotel.currency || 'TZS';
+  useEffect(() => { let alive = true; publicApi<MenuItem[]>('/public/hotel/' + hotel.hotel.slug + '/menu-items').then(rows => { if (alive) setMenu(rows.filter(m => (m as MenuItem & { available?: boolean }).available !== false)); }).catch(reason => { if (alive) setError((reason as Error).message); }).finally(() => { if (alive) setLoading(false); }); return () => { alive = false; }; }, [hotel.hotel.slug]);
+  const lines = menu.filter(m => cart[m.id]);
   const total = lines.reduce((sum, m) => sum + Number(m.price) * cart[m.id], 0);
-  const categories = Array.from(new Set(menu.map((m) => m.category || 'Menu')));
-
+  const currency = menu[0]?.currency || hotel.hotel.currency || 'TZS';
+  const qty = (id: string, delta: number) => setCart(previous => ({ ...previous, [id]: Math.max(0, (previous[id] || 0) + delta) }));
   const submit = async () => {
-    if (!lines.length) { setError('Add at least one item to your order.'); return; }
-    if (!contact.name.trim() || !contact.phone.trim()) { setError('Enter your name and phone number.'); return; }
-    if (mode === 'delivery' && !address.trim()) { setError('Enter a delivery address.'); return; }
+    if (busy || !lines.length || !contact.name.trim() || !contact.phone.trim() || (mode === 'delivery' && !address.trim())) return;
     setBusy(true); setError('');
     try {
-      const res = await publicApi<{ id: string }>(`/public/hotel/${slug}/orders`, {
-        method: 'POST',
-        body: JSON.stringify({
-          roomNumber: mode === 'delivery' ? 'Delivery' : 'Pickup',
-          locationType: mode,
-          guestName: contact.name.trim(),
-          guestPhone: contact.phone.trim(),
-          items: lines.map((m) => ({ menuItemId: m.id, name: m.name, qty: cart[m.id], price: Number(m.price), station: m.station })),
-          currency,
-          note: mode === 'delivery' ? `Deliver to: ${address.trim()}` : 'Pickup order via Lala',
-        }),
-      });
-      setPlaced(`Order ${res.id.slice(0, 8)} sent to ${hotel.hotel.name}. They'll call ${contact.phone.trim()} to confirm.`);
-    } catch (e) { setError((e as Error).message); }
-    finally { setBusy(false); }
+      const result = await publicApi<{ id: string }>('/public/hotel/' + hotel.hotel.slug + '/orders', { method: 'POST', body: JSON.stringify({ roomNumber: mode === 'delivery' ? 'Delivery' : 'Pickup', locationType: mode, guestName: contact.name.trim(), guestPhone: contact.phone.trim(), items: lines.map(m => ({ menuItemId: m.id, name: m.name, qty: cart[m.id], price: Number(m.price), station: m.station })), currency, note: mode === 'delivery' ? 'Deliver to: ' + address.trim() : 'Pickup order via Lala' }) });
+      setPlaced('Order ' + result.id.slice(0, 8) + ' sent. The hotel will call you to confirm.');
+    } catch (reason) { setError((reason as Error).message); } finally { setBusy(false); }
   };
-
-  return (
-    <div className="fixed inset-0 z-50 bg-black/50 grid place-items-center p-4">
-      <div className="w-full max-w-lg max-h-[95vh] overflow-y-auto bg-white rounded-[2rem] p-5">
-        <button onClick={onClose} className="float-right h-9 w-9 rounded-xl bg-slate-100 grid place-items-center"><X className="h-4 w-4" /></button>
-        <p className="text-xs font-black text-amber-600 inline-flex items-center gap-1"><Utensils className="h-3.5 w-3.5" /> ORDER FOOD</p>
-        <h3 className="text-2xl font-black mt-1">{hotel.hotel.name}</h3>
-        <p className="text-sm text-slate-500">{hotel.hotel.location}</p>
-
-        {placed ? (
-          <div className="mt-5 rounded-2xl border border-emerald-500/40 bg-emerald-50 p-5 text-center">
-            <div className="text-2xl">✅</div>
-            <p className="mt-1 text-sm font-black text-emerald-700">{placed}</p>
-            <button onClick={onClose} className="mt-4 h-11 px-6 rounded-xl bg-[#24103f] text-white font-black">Done</button>
-          </div>
-        ) : loading ? (
-          <div className="h-40 grid place-items-center"><Loader2 className="animate-spin text-slate-400" /></div>
-        ) : !menu.length ? (
-          <div className="py-16 text-center text-slate-400"><Utensils className="h-10 w-10 mx-auto mb-2" /><b>No menu items available right now</b></div>
-        ) : (
-          <>
-            <div className="mt-4 space-y-4">
-              {categories.map((cat) => (
-                <div key={cat}>
-                  <p className="text-[11px] font-black uppercase tracking-wide text-slate-400 mb-2">{cat}</p>
-                  <div className="space-y-2">
-                    {menu.filter((m) => (m.category || 'Menu') === cat).map((m) => (
-                      <div key={m.id} className="flex items-center gap-3 rounded-2xl border p-2.5">
-                        <img src={publicAssetUrl(m.imageUrl) || fallback} alt={m.name} className="h-12 w-12 rounded-xl object-cover" />
-                        <div className="flex-1 min-w-0"><b className="block truncate">{m.name}</b><span className="text-xs text-violet-800 font-bold">{money(Number(m.price), m.currency)}</span></div>
-                        {cart[m.id] ? (
-                          <div className="inline-flex items-center gap-2">
-                            <button onClick={() => setQty(m.id, -1)} className="h-8 w-8 rounded-lg bg-slate-100 grid place-items-center"><Minus className="h-4 w-4" /></button>
-                            <b className="w-5 text-center">{cart[m.id]}</b>
-                            <button onClick={() => setQty(m.id, 1)} className="h-8 w-8 rounded-lg bg-amber-500 text-white grid place-items-center"><Plus className="h-4 w-4" /></button>
-                          </div>
-                        ) : (
-                          <button onClick={() => setQty(m.id, 1)} className="h-8 px-3 rounded-lg bg-amber-500 text-white text-xs font-black inline-flex items-center gap-1"><Plus className="h-3.5 w-3.5" /> Add</button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="mt-5 grid grid-cols-2 gap-2">
-              <button onClick={() => setMode('pickup')} className={`h-11 rounded-xl font-black inline-flex items-center justify-center gap-2 text-sm ${mode === 'pickup' ? 'bg-[#24103f] text-white' : 'bg-slate-100 text-slate-600'}`}><ShoppingBag className="h-4 w-4" /> Pickup</button>
-              <button onClick={() => setMode('delivery')} className={`h-11 rounded-xl font-black inline-flex items-center justify-center gap-2 text-sm ${mode === 'delivery' ? 'bg-[#24103f] text-white' : 'bg-slate-100 text-slate-600'}`}><Truck className="h-4 w-4" /> Delivery</button>
-            </div>
-
-            <div className="mt-3 grid sm:grid-cols-2 gap-2">
-              <input placeholder="Your name" value={contact.name} onChange={(e) => setContact({ ...contact, name: e.target.value })} className="h-11 rounded-xl border px-3" />
-              <input placeholder="Phone number" value={contact.phone} onChange={(e) => setContact({ ...contact, phone: e.target.value })} inputMode="tel" className="h-11 rounded-xl border px-3" />
-            </div>
-            {mode === 'delivery' && <input placeholder="Delivery address" value={address} onChange={(e) => setAddress(e.target.value)} className="mt-2 w-full h-11 rounded-xl border px-3" />}
-
-            {error && <p className="mt-3 text-xs text-rose-600 font-bold text-center">{error}</p>}
-
-            <button onClick={() => void submit()} disabled={busy || !lines.length} className="mt-4 w-full h-12 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-black disabled:opacity-40 inline-flex items-center justify-center gap-2">
-              {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <>Place order · {money(total, currency)}</>}
-            </button>
-          </>
-        )}
-      </div>
-    </div>
-  );
+  return <Sheet title={'A taste of ' + hotel.hotel.name} onClose={() => !busy && onClose()}>{placed ? <div className="lala-empty"><Check /><h3>Something good is cooking.</h3><p role="status">{placed}</p><button className="lala-primary" onClick={onClose}>Lovely, thank you <Check size={16} /></button></div> : <>{loading && <div className="lala-loading"><Loader2 className="lala-spin" size={18} /> Opening the menu…</div>}{!loading && !menu.length && <div className="lala-empty"><Utensils /><p>No menu items available right now.</p></div>}{menu.map(item => <article className="lala-menu-row" key={item.id}><Photo src={publicAssetUrl(item.imageUrl)} alt={item.name} /><div><h3>{item.name}</h3><p>{lalaMoney(Number(item.price), item.currency)}</p></div><div className="lala-quantity">{!!cart[item.id] && <><button aria-label={'Remove ' + item.name} onClick={() => qty(item.id, -1)}><Minus size={14} /></button><b>{cart[item.id]}</b></>}<button aria-label={'Add ' + item.name} onClick={() => qty(item.id, 1)}><Plus size={14} /></button></div></article>)}{menu.length > 0 && <><div className="lala-mode-buttons"><button className={mode === 'pickup' ? 'is-active' : ''} onClick={() => setMode('pickup')}><Utensils size={16} /> Pickup</button><button className={mode === 'delivery' ? 'is-active' : ''} onClick={() => setMode('delivery')}><Truck size={16} /> Delivery</button></div><div className="lala-identity"><label>Your name<input autoComplete="name" value={contact.name} onChange={e => setContact({ ...contact, name: e.target.value })} /></label><label>Phone number<input type="tel" autoComplete="tel" value={contact.phone} onChange={e => setContact({ ...contact, phone: e.target.value })} /></label>{mode === 'delivery' && <label>Delivery address<input value={address} onChange={e => setAddress(e.target.value)} /></label>}</div><button className="lala-primary" disabled={busy || !lines.length || !contact.name.trim() || !contact.phone.trim() || (mode === 'delivery' && !address.trim())} onClick={() => void submit()}>{busy ? <Loader2 className="lala-spin" size={18} /> : 'Place order · ' + lalaMoney(total, currency)}<ArrowRight size={17} /></button></>}{error && <div className="lala-alert" role="alert">{error}</div>}</>}</Sheet>;
 }

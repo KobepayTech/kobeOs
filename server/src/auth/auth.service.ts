@@ -155,6 +155,57 @@ export class AuthService {
     return redirect.toString();
   }
 
+  /**
+   * Which sign-in methods this deployment can actually complete.
+   *
+   * Every provider is a server redirect, so the server is the only side that
+   * knows whether one can complete. Without this the login screen renders a
+   * button for each, and clicking an unconfigured one bounces the person out
+   * to the provider and back with an error — a worse way to learn that it was
+   * never set up.
+   *
+   * Booleans only. No identifier or secret is returned, because nothing in the
+   * browser needs one to start a redirect.
+   */
+  async signInMethods(): Promise<{
+    password: boolean;
+    google: { enabled: boolean };
+    tiktok: { enabled: boolean };
+    meta: { enabled: boolean };
+  }> {
+    // Google is a server redirect, so it needs all three values googleAuthUrl
+    // checks — not just the client id. Reporting on the client id alone would
+    // offer a button that fails at the redirect.
+    const google = Boolean(
+      this.config.get<string>('GOOGLE_CLIENT_ID')?.trim()
+      && this.config.get<string>('GOOGLE_CLIENT_SECRET')?.trim()
+      && this.config.get<string>('GOOGLE_REDIRECT_URI')?.trim(),
+    );
+    const tiktok = Boolean(
+      this.config.get<string>('TIKTOK_CLIENT_KEY')?.trim()
+      && this.config.get<string>('TIKTOK_REDIRECT_URI')?.trim(),
+    );
+
+    // Meta configuration can come from stored provider settings rather than
+    // the environment, so ask the same source the sign-in path uses. A failure
+    // here means "not configured", which is exactly what to report.
+    let meta = false;
+    try {
+      const config = await this.providerConfig.assertConfigured();
+      meta = Boolean(config.appId && config.redirectUri);
+    } catch {
+      meta = false;
+    }
+
+    return {
+      // Email and password need nothing configured, so they always work.
+      password: true,
+      google: { enabled: google },
+      tiktok: { enabled: tiktok },
+      meta: { enabled: meta },
+    };
+  }
+
   /** Verify a Google ID token (GIS credential) and sign the user in. */
   googleAuthUrl(state: string): string {
     const clientId = this.config.get<string>('GOOGLE_CLIENT_ID');

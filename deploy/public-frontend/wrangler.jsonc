@@ -1,0 +1,20 @@
+{
+  "$schema": "../cloudflare-primary-api/node_modules/wrangler/config-schema.json",
+  "name": "kobeos-public-frontend",
+  "main": "src/index.mjs",
+  "compatibility_date": "2026-11-05",
+  "workers_dev": true,
+  "routes": [
+    { "pattern": "kobeapptz.com/*", "zone_name": "kobeapptz.com" },
+    { "pattern": "*.kobeapptz.com/*", "zone_name": "kobeapptz.com" }
+  ],
+  "assets": {
+    "directory": "../../dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": true
+  },
+  "services": [{ "binding": "API", "service": "kobeos-primary-api" }],
+  "vars": { "TENANT_BASE_DOMAIN": "kobeapptz.com" },
+  "observability": { "enabled": true }
+}

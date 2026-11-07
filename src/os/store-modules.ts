@@ -133,7 +133,7 @@ const MODULE_DEFINITIONS: Array<Omit<StoreModule, 'version'>> = [
     description: 'Documents, spreadsheets, presentations, notes, tasks, planning and everyday office work.',
     category: 'productivity',
     primaryAppId: 'spreadsheet',
-    appIds: ['calculator', 'text-editor', 'notepad', 'calendar', 'tasks', 'notes', 'spreadsheet', 'presentation', 'draw', 'kanban'],
+    appIds: ['calculator', 'text-editor', 'notepad', 'calendar', 'clock', 'tasks', 'notes', 'spreadsheet', 'presentation', 'draw', 'kanban'],
     features: ['Documents', 'Spreadsheets', 'Presentations', 'Notes', 'Tasks', 'Calendar', 'Kanban'],
   },
   {
