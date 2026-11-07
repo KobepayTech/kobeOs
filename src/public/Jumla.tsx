@@ -1,6 +1,6 @@
 import PropertyVacancies from './PropertyVacancies';
 import JumlaRealEstate from './JumlaRealEstate';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bookmark, Building2, BusFront, CalendarDays, Car, Check, ChevronRight, Compass, Grid2X2, Heart, Loader2, MapPin, MessageCircle, Minus, PackageSearch, Phone, Plus, Search, Send, Share2, ShoppingBag, SlidersHorizontal, Sparkles, Store, X } from 'lucide-react';
 import { publicApi, publicAssetUrl } from './api';
@@ -35,6 +35,14 @@ type CreatorPick = { creator: { handle: string; name: string; avatarUrl: string 
 const categories = ['Electronics', 'Fashion', 'Home & Living', 'Beauty', 'Groceries'];
 const blankFilters: CarFilters = { make: '', model: '', minYear: '', maxPrice: '', maxMileage: '', location: '', transmission: '', fuel: '', bodyType: '', condition: '', financing: '', dealer: '', color: '' };
 
+const categoryKey = (category: string) => category.trim().toLowerCase();
+
+function updateAffinity(scores: Record<string, number>, category: string, weight: number) {
+  const key = categoryKey(category);
+  if (!key || !weight) return scores;
+  return { ...scores, [key]: Math.max(0, Math.min(30, (scores[key] || 0) + weight)) };
+}
+
 function currentRoute(): { page: Page; itemId: string } {
   const [path, itemId = ''] = window.location.hash.slice(1).split('/');
   if (!path && new URLSearchParams(window.location.search).has('listing')) return { page: 'properties', itemId };
@@ -55,11 +63,15 @@ function useListings<T,>(path: string) {
     }, 220);
     return () => { clearTimeout(timer); controller.abort(); };
   }, [path, attempt]);
+  const retry = useCallback(() => {
+    setResult({ path: '', rows: [], failed: false });
+    setAttempt((n) => n + 1);
+  }, []);
   return {
     rows: result.path === path ? result.rows : [],
     failed: result.path === path && result.failed,
     pending: Boolean(path) && result.path !== path,
-    retry: () => { setResult({ path: '', rows: [], failed: false }); setAttempt((n) => n + 1); },
+    retry,
   };
 }
 
@@ -76,7 +88,11 @@ export default function Jumla() {
   const [practiceSaved, setPracticeSaved] = useState<Item[]>([]);
   const [liked, setLiked] = useState(() => readLocal<string[]>('jumla_liked_products', []));
   const [practiceLiked, setPracticeLiked] = useState<string[]>([]);
-  const [affinity, setAffinity] = useState(() => readLocal<Record<string, number>>('jumla_category_affinity', {}));
+  const [affinity, setAffinity] = useState(() =>
+    Object.entries(readLocal<Record<string, number>>('jumla_category_affinity', {}))
+      .reduce((scores, [name, weight]) => updateAffinity(scores, name, weight), {} as Record<string, number>));
+  // Keep the order fixed while shoppers swipe. Use new preferences when they return to Discover.
+  const [feedAffinity, setFeedAffinity] = useState(affinity);
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('');
   const [verticalQuery, setVerticalQuery] = useState('');
@@ -88,6 +104,8 @@ export default function Jumla() {
   const [confirmation, setConfirmation] = useState('');
   const main = useRef<HTMLElement>(null);
   const live = useListings<Item>('/commerce-public/jumla/items?limit=60');
+  const { pending: livePending, retry: refreshLive } = live;
+  const hasLiveProducts = live.rows.length > 0;
   const searchPath = page === 'search' && query.trim() && !practice ? `/commerce-public/jumla/items?q=${encodeURIComponent(query.trim())}` : '';
   const search = useListings<Item>(searchPath);
   const filteredCatalog = useListings<Item>(page === 'grid' && category && !practice ? `/commerce-public/jumla/items?category=${encodeURIComponent(category)}&limit=60` : '');
@@ -128,20 +146,27 @@ export default function Jumla() {
     }).catch(() => undefined);
   }, []);
 
-  const go = (next: Page, id = '') => {
+  const go = useCallback((next: Page, id = '') => {
     if (next !== page) setVerticalQuery('');
     const hash = `#${next}${id ? `/${id}` : ''}`;
     if (location.hash !== hash) location.hash = hash;
-  };
+  }, [page]);
   const startPractice = () => {
     setPractice(true); setFeedPosition(0); setCategory(''); setConfirmation(''); go('discover');
   };
-  const finishPractice = () => {
+  const finishPractice = useCallback(() => {
+    const interests = readLocal('jumla_intro_complete', false) ? affinity : samples.reduce((scores, row) => {
+      const weight = (practiceLiked.includes(row.productId) ? 2 : 0)
+        + (practiceSaved.some((savedRow) => savedRow.productId === row.productId) ? 3 : 0);
+      return updateAffinity(scores, row.category, weight);
+    }, affinity);
+    setAffinity(interests);
+    setFeedAffinity(interests);
     writeLocal('jumla_intro_complete', true);
     setPractice(false); setPracticeCart([]); setPracticeSaved([]); setPracticeLiked([]);
     setFeedPosition(0); setCategory(''); setConfirmation(''); go('discover');
-    live.retry();
-  };
+    if (!hasLiveProducts && !livePending) refreshLive();
+  }, [affinity, go, hasLiveProducts, livePending, practiceLiked, practiceSaved, refreshLive]);
 
   const listed = practice ? samples : live.rows;
   const bag = practice ? practiceCart : cart;
@@ -150,17 +175,15 @@ export default function Jumla() {
   const item = [focused, ...listed, ...search.rows, ...filteredCatalog.rows, ...savedItems, ...bag.map((line) => line.item)]
     .find((row) => row?.productId === itemId && Boolean(row.sample) === practice);
   const bagCount = bag.reduce((count, line) => count + line.quantity, 0);
-  // Rank once when entering the feed so liking a listing never moves it under the shopper's finger.
-  const [feedAffinity, setFeedAffinity] = useState(affinity);
   const feed = useMemo(() => practice ? samples : [...live.rows].sort((a, b) =>
     Number(b.productId === pick?.productId) - Number(a.productId === pick?.productId)
     || Number(b.stock > 0) - Number(a.stock > 0)
-    || (feedAffinity[b.category] || 0) - (feedAffinity[a.category] || 0)), [practice, live.rows, feedAffinity, pick?.productId]);
+    || (feedAffinity[categoryKey(b.category)] || 0) - (feedAffinity[categoryKey(a.category)] || 0)), [practice, live.rows, feedAffinity, pick?.productId]);
   const merchants = [...new Map(feed.map((row) => [row.businessId, row])).values()];
   const open = (row: Item) => { setFocused(row); setProductBack(page); go('product', row.productId); };
   const learn = (row: Item, weight: number) => {
     if (row.sample || !row.category) return;
-    setAffinity((current) => ({ ...current, [row.category]: Math.max(0, Math.min(30, (current[row.category] || 0) + weight)) }));
+    setAffinity((current) => updateAffinity(current, row.category, weight));
   };
   const toggleLike = (row: Item) => {
     const active = likes.includes(row.productId);
@@ -218,10 +241,12 @@ export default function Jumla() {
           </div>
           {feed.length ? <SwipeFeed key={practice ? 'practice' : 'live'} items={feed} position={feedPosition} onPosition={setFeedPosition} practice={practice}
             open={open} isSaved={isSaved} isLiked={(row) => likes.includes(row.productId)} onSave={toggleSave} onLike={toggleLike} finish={finishPractice}
+            onPracticeEnd={practice && hasLiveProducts && !practiceCart.length ? finishPractice : undefined}
             onRefresh={() => { setFeedPosition(0); setFeedAffinity(affinity); live.retry(); }} />
             : live.failed ? <EmptyState icon={Compass} title="Live feed is temporarily unavailable" description="You can still try the practice feed while listings reconnect."
               action={<><button className="jl-primary" onClick={startPractice}>Try the practice feed <ArrowRight size={16} /></button><button className="jl-quiet" onClick={live.retry}>Retry live feed</button></>} />
-              : <ListingStatus request={live} empty={<EmptyState icon={Compass} title="Your feed starts here" description="Published products from Jumla merchants will appear here as shops join." action={<button className="jl-primary" onClick={startPractice}>Try the practice feed <ArrowRight size={16} /></button>} />} />}
+              : <ListingStatus request={live} empty={<EmptyState icon={Compass} title="Your feed starts here" description="Published products from Jumla merchants will appear here as shops join."
+                action={<><button className="jl-primary" onClick={startPractice}>Try the practice feed <ArrowRight size={16} /></button><button className="jl-quiet" onClick={refreshLive}>Check for new listings</button></>} />} />}
         </>}
 
         {page === 'grid' && <div className="jl-content">
@@ -311,12 +336,24 @@ function SearchBox({ label, value, onChange, placeholder }: { label: string; val
   return <label className="jl-search"><Search size={20} /><input aria-label={label} type="search" value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} /></label>;
 }
 
-function SwipeFeed({ items, position, onPosition, practice, open, isSaved, isLiked, onSave, onLike, finish, onRefresh }: {
+function SwipeFeed({ items, position, onPosition, practice, open, isSaved, isLiked, onSave, onLike, finish, onPracticeEnd, onRefresh }: {
   items: Item[]; position: number; onPosition: (position: number) => void; practice: boolean; open: (item: Item) => void;
   isSaved: (item: Item) => boolean; isLiked: (item: Item) => boolean; onSave: (item: Item) => void; onLike: (item: Item) => void;
-  finish: () => void; onRefresh: () => void;
+  finish: () => void; onPracticeEnd?: () => void; onRefresh: () => void;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
+  const endCard = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!onPracticeEnd || !viewport.current || !endCard.current || typeof IntersectionObserver !== 'function') return;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry && entry.intersectionRatio >= 0.99) {
+        observer.disconnect();
+        onPracticeEnd();
+      }
+    }, { root: viewport.current, threshold: 0.99 });
+    observer.observe(endCard.current);
+    return () => observer.disconnect();
+  }, [onPracticeEnd]);
   const startPosition = useRef(position);
   const last = items.length;
   useEffect(() => {
@@ -350,7 +387,7 @@ function SwipeFeed({ items, position, onPosition, practice, open, isSaved, isLik
           <button onClick={() => open(row)} className="jl-lime">View product <ArrowRight size={16} /></button>
         </div>
       </article>)}
-      <div className="jl-slide jl-end"><Sparkles size={32} /><h2>{practice ? 'You’re ready to explore' : 'You’re all caught up'}</h2><p>{practice ? 'See products from real merchants in your live feed.' : 'Refresh your feed to check for new listings and updated recommendations.'}</p>
+      <div ref={endCard} className="jl-slide jl-end"><Sparkles size={32} /><h2>{practice ? 'You’re ready to explore' : 'You’re all caught up'}</h2><p>{practice ? 'See products from real merchants in your live feed.' : 'Refresh your feed to check for new listings and updated recommendations.'}</p>
         <button className="jl-lime" onClick={practice ? finish : onRefresh}>{practice ? 'Explore live Jumla' : 'Refresh feed'} <ArrowRight size={16} /></button>
         <button className="jl-feed-back" onClick={() => move(0)}><ArrowUp size={16} /> Back to first product</button>
       </div>
