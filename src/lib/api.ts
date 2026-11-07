@@ -818,3 +818,49 @@ export function apiObject<T>(value: unknown): T | null {
   }
   return value as T;
 }
+
+/** Public vehicle and property listings live on the same server as Jumla. */
+export function usesCloudListings(): boolean {
+  return isElectronRenderer();
+}
+
+const CLOUD_REFRESH_KEY = 'kobe_cloud_refresh_token';
+let listingRefresh: Promise<boolean> | null = null;
+
+function refreshListingSession(): Promise<boolean> {
+  if (listingRefresh) return listingRefresh;
+  const refreshToken = localStorage.getItem(CLOUD_REFRESH_KEY);
+  if (!refreshToken) return Promise.resolve(false);
+  listingRefresh = cloudApi<{ accessToken?: string; refreshToken?: string }>('/auth/refresh', {
+    method: 'POST', body: JSON.stringify({ refreshToken }),
+  }).then(session => {
+    if (!session.accessToken || !session.refreshToken || localStorage.getItem(CLOUD_REFRESH_KEY) !== refreshToken) return false;
+    localStorage.setItem(CLOUD_ACCESS_KEY, session.accessToken);
+    localStorage.setItem(CLOUD_REFRESH_KEY, session.refreshToken);
+    return true;
+  }).catch(error => {
+    if (error instanceof ApiError && [400, 401, 403].includes(error.status)) return false;
+    throw error;
+  }).finally(() => { listingRefresh = null; });
+  return listingRefresh;
+}
+
+export async function listingApi<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
+  if (!usesCloudListings()) return api<T>(path, { ...init, offlineFallback: false });
+  const signIn = () => new Error('Sign in to Kobe Cloud to manage online listings.');
+  if (!hasCloudSession() && !await refreshListingSession()) throw signIn();
+  try {
+    return await cloudApi<T>(path, init);
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 401) throw error;
+    if (!await refreshListingSession()) throw signIn();
+    return cloudApi<T>(path, init);
+  }
+}
+
+export function listingAssetUrl(value?: string | null): string {
+  if (!usesCloudListings()) return assetUrl(value);
+  if (!value) return '';
+  if (/^(https?:|data:|blob:)/i.test(value)) return value;
+  return `${accountApiBase()}${value.startsWith('/api') ? value.slice(4) : value}`;
+}

@@ -1,3 +1,4 @@
+import JumlaRealEstate from './JumlaRealEstate';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bookmark, Building2, BusFront, CalendarDays, Car, Check, ChevronRight, Compass, Grid2X2, Heart, Loader2, MapPin, MessageCircle, Minus, PackageSearch, Phone, Plus, Search, Send, Share2, ShoppingBag, SlidersHorizontal, Sparkles, Store, X } from 'lucide-react';
@@ -23,7 +24,7 @@ const tabs = [
 ] as const;
 const markets = [
   { id: 'grid', label: 'Products', icon: Grid2X2, description: 'Browse by category', color: 'violet' },
-  { id: 'properties', label: 'Properties', icon: Building2, description: 'Malls and commercial spaces', color: 'mint' },
+  { id: 'properties', label: 'Properties', icon: Building2, description: 'Rent, buy and explore shopping centres', color: 'mint' },
   { id: 'cars', label: 'Cars', icon: Car, description: 'Dealer listings and test drives', color: 'peach' },
   { id: 'transport', label: 'Transport', icon: BusFront, description: 'Routes, seats and tickets', color: 'blue' },
 ] as const;
@@ -35,6 +36,7 @@ const blankFilters: CarFilters = { make: '', model: '', minYear: '', maxPrice: '
 
 function currentRoute(): { page: Page; itemId: string } {
   const [path, itemId = ''] = window.location.hash.slice(1).split('/');
+  if (!path && new URLSearchParams(window.location.search).has('listing')) return { page: 'properties', itemId };
   const page = [...tabs, ...markets].some(({ id }) => id === path) || path === 'product' || path === 'checkout' ? path as Page : 'discover';
   return { page, itemId };
 }
@@ -65,7 +67,7 @@ export default function Jumla() {
   const [practice, setPractice] = useState(() => {
     const params = new URLSearchParams(location.search);
     return !readLocal('jumla_intro_complete', false) && !readLocal<CartLine[]>('jumla_cart', []).length
-      && !params.has('kc') && !params.has('klv');
+      && !params.has('kc') && !params.has('klv') && !params.has('listing');
   });
   const [cart, setCart] = useState(() => readLocal<CartLine[]>('jumla_cart', []).filter(({ item }) => !item.sample && !item.productId.startsWith('demo-')));
   const [practiceCart, setPracticeCart] = useState<CartLine[]>([]);
@@ -493,8 +495,9 @@ function VerticalPage({ vertical, query, setQuery, carFilters, setCarFilters, pr
   vertical: Vertical; query: string; setQuery: (value: string) => void; carFilters: CarFilters; setCarFilters: (filters: CarFilters) => void;
   properties: ReturnType<typeof useListings<PropertyCard>>; cars: ReturnType<typeof useListings<CarCard>>; journeys: ReturnType<typeof useListings<Journey>>;
 }) {
+  const [propertyView, setPropertyView] = useState<'real-estate' | 'centres'>('real-estate');
   const fields = {
-    properties: { title: 'Explore properties', description: 'Find shopping centres and the merchants inside them.', placeholder: 'Building, mall or neighbourhood', empty: 'No properties found', detail: 'Commercial spaces and shop directories appear here when published.' },
+    properties: { title: 'Explore properties', description: 'Find homes, land and commercial spaces for rent or sale.', placeholder: 'Property type, building or neighbourhood', empty: 'No properties found', detail: 'Commercial spaces and shop directories appear here when published.' },
     cars: { title: 'Find your next car', description: 'Browse dealer listings and arrange a showroom visit.', placeholder: 'Try Toyota Prado', empty: 'No matching vehicles', detail: 'Try another model or adjust the filters.' },
     transport: { title: 'Find a journey', description: 'Search bus routes and check departure times and seats.', placeholder: 'Destination, e.g. Arusha', empty: 'No journeys found', detail: 'Search another destination or check back as operators publish trips.' },
   }[vertical];
@@ -507,7 +510,12 @@ function VerticalPage({ vertical, query, setQuery, carFilters, setCarFilters, pr
     </div>
     <SearchBox label={`Search ${vertical}`} value={query} onChange={setQuery} placeholder={fields.placeholder} />
     {vertical === 'cars' && <CarFilterBar filters={carFilters} setFilters={setCarFilters} />}
-    {request.rows.length ? vertical === 'properties' ? <Properties rows={properties.rows} /> : vertical === 'cars' ? <Cars rows={cars.rows} /> : <Transport rows={journeys.rows} />
+    {vertical === 'properties' && <div className="mt-4 flex flex-wrap gap-2">
+      <button aria-pressed={propertyView === 'real-estate'} onClick={() => setPropertyView('real-estate')} className="rounded-full border px-4 py-2 text-sm font-bold">Rent or buy</button>
+      <button aria-pressed={propertyView === 'centres'} onClick={() => setPropertyView('centres')} className="rounded-full border px-4 py-2 text-sm font-bold">Shopping centres</button>
+    </div>}
+    {vertical === 'properties' && propertyView === 'real-estate' ? <JumlaRealEstate query={query} /> :
+      request.rows.length ? vertical === 'properties' ? <Properties rows={properties.rows} /> : vertical === 'cars' ? <Cars rows={cars.rows} /> : <Transport rows={journeys.rows} />
       : <ListingStatus request={request} empty={<EmptyState icon={Icon} title={fields.empty} description={fields.detail} />} />}
   </div>;
 }

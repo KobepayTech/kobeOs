@@ -1,4 +1,5 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { GuidedSetupDto } from './guided-setup.dto';
+import { Body, Controller, Get, Post, Put, UseGuards } from '@nestjs/common';
 import { IsEnum } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -36,6 +37,10 @@ export class OnboardingController {
       automationKeys: dto.automationKeys,
     });
   }
+
+  @Get('guided') guided(@CurrentUser('id') uid: string) { return this.svc.guided(uid); }
+
+  @Put('guided') saveGuided(@CurrentUser('id') uid: string, @Body() dto: GuidedSetupDto) { return this.svc.saveGuided(uid, dto); }
 
   @Get() status(@CurrentUser('id') uid: string) { return this.svc.status(uid); }
 
