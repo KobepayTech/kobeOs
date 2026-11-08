@@ -4,7 +4,8 @@ import { api, ApiError, getRefreshToken, getToken } from '@/lib/api';
 import LoginScreen from '@/components/LoginScreen';
 import { usePwaManifest } from '@/hooks/usePwaManifest';
 import { InstallPwaButton } from '@/mobile/InstallPwaButton';
-import { LabelPrintStyles, ParcelLabel, type ParcelLabelData } from './parcel-label';
+import { QRCodeSVG } from 'qrcode.react';
+import { handoffLink, LabelPrintStyles, ParcelLabel, type ParcelLabelData } from './parcel-label';
 
 type Company = { id: string; companyName: string; agentName: string; agentPhone: string };
 const input = 'mt-1 block w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-base';
@@ -111,8 +112,21 @@ export default function CargoTzCollector({ startUrl }: { startUrl: string }) {
         {loading ? <p role="status">Loading your cargo companies…</p> : labels.length ? (
           <>
             <div className={card}>
-              <h2 className="text-lg font-bold">Shipment sent to intake</h2>
-              <p className="text-sm text-slate-600">Print a separate label for each sealed carton.</p>
+              <div className="rounded-xl bg-emerald-50 p-4 text-center">
+                <h2 className="text-lg font-bold">Shipment saved</h2>
+                <p className="mt-1 text-sm text-slate-700">Show this handoff QR to cargo intake to open the whole shipment.</p>
+                <div className="mx-auto mt-3 w-fit rounded-xl bg-white p-2">
+                  <QRCodeSVG
+                    value={handoffLink(labels[0].trackingNumber)}
+                    size={186}
+                    marginSize={4}
+                    title="Shipment handoff QR"
+                  />
+                </div>
+                <p className="mt-2 break-all font-mono text-xs text-slate-700">{labels[0].trackingNumber}</p>
+                <p className="mt-1 text-xs text-slate-600">{labels.length} {labels.length === 1 ? 'carton' : 'cartons'} · {labels[0].destination}</p>
+              </div>
+              <p className="text-sm text-slate-600">Print a separate tracking label for each sealed carton.</p>
               <div className="flex flex-wrap gap-2">
                 <button className="inline-flex items-center gap-2 rounded-xl bg-emerald-800 px-4 py-2.5 font-semibold text-white" onClick={() => window.print()}><Printer size={16} /> Print labels</button>
                 <button className="rounded-xl border px-4 py-2.5 font-semibold" onClick={() => setLabels([])}>New collection</button>
@@ -143,7 +157,9 @@ export default function CargoTzCollector({ startUrl }: { startUrl: string }) {
                 {company && <p className="text-sm text-slate-600">Collector on record · {company.agentName} · {company.agentPhone}</p>}
                 <div className="grid gap-3 sm:grid-cols-2">
                   <label className="text-sm font-medium">Goods owner<input name="ownerName" required maxLength={120} className={input} /></label>
-                  <label className="text-sm font-medium">Owner phone<input name="ownerPhone" type="tel" required maxLength={25} className={input} /></label>
+                  <label className="text-sm font-medium">Owner phone<input name="ownerPhone" type="tel" required maxLength={25} className={input} aria-describedby="cargo-owner-phone-help" />
+                    <span id="cargo-owner-phone-help" className="mt-1 block text-xs text-slate-600">Contact number for shipment notifications.</span>
+                  </label>
                   <label className="text-sm font-medium">Origin city<input name="origin" required maxLength={80} placeholder="Dar es Salaam" className={input} /></label>
                   <label className="text-sm font-medium">Destination branch<input name="destination" required maxLength={80} placeholder="Mbeya" className={input} /></label>
                 </div>
@@ -164,7 +180,7 @@ export default function CargoTzCollector({ startUrl }: { startUrl: string }) {
                   </label>
                 </div>
                 <label className="block text-sm font-medium">Pickup address or drop-off office<input name="handoffLocation" required maxLength={500} className={input} /></label>
-                <button disabled={busy || !selected} className="w-full rounded-xl bg-emerald-800 px-4 py-3 font-semibold text-white disabled:opacity-50">{busy ? 'Sending…' : 'Send to cargo intake'}</button>
+                <button disabled={busy || !selected} className="w-full rounded-xl bg-emerald-800 px-4 py-3 font-semibold text-white disabled:opacity-50">{busy ? 'Saving…' : 'Save & show handoff QR'}</button>
               </form>
             )}
           </>

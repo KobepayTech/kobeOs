@@ -35,9 +35,10 @@ const ROLE_META: Record<'intake' | 'warehouse' | 'dashboard', { slug: string; na
   dashboard: { slug: 'owner', name: 'Cargo TZ · Owner', short: 'CTZ Owner', icon: '/ctz-owner', theme: '#d97706' },
 };
 
-export default function CargoTzOps({ role, standaloneBase }: {
+export default function CargoTzOps({ role, standaloneBase, handoffReference }: {
   role?: 'intake' | 'warehouse' | 'dashboard';
   standaloneBase?: string;
+  handoffReference?: string;
 } = {}) {
   const [signedIn, setSignedIn] = useState(() => Boolean(getToken() || getRefreshToken()));
   const [tab, setTab] = useState<'intake' | 'warehouse' | 'dashboard'>(role ?? 'intake');
@@ -92,7 +93,7 @@ export default function CargoTzOps({ role, standaloneBase }: {
       <div className="flex-1 overflow-auto">
         {tab === 'intake' && (
           <>
-            <div className="mx-auto max-w-3xl px-4 pt-4"><PendingHandoffs api={apiPin} Scanner={Scanner} /></div>
+            <div className="mx-auto max-w-3xl px-4 pt-4"><PendingHandoffs api={apiPin} Scanner={Scanner} initialReference={handoffReference} /></div>
             <details className="mx-auto max-w-3xl p-4">
               <summary className="cursor-pointer rounded-xl border bg-white p-3 text-sm font-semibold">Manual intake for walk-in parcels</summary>
               <IntakeTab apiPin={apiPin} />

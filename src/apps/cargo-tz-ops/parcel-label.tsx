@@ -18,6 +18,10 @@ export function trackingFromScan(value: string) {
   return value.match(/\bCTZ-\d{8}-(?:[A-F0-9]{20}|\d{6,})\b/i)?.[0].toUpperCase() ?? '';
 }
 
+export function handoffLink(trackingNumber: string) {
+  return cargoTzLink(`/cargotz/receive?handoff=${encodeURIComponent(trackingNumber)}`);
+}
+
 export type ParcelLabelData = {
   trackingNumber: string;
   origin: string;

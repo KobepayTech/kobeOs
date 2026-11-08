@@ -10,7 +10,8 @@ type Parcel = ParcelLabelData & {
   id: string; senderName: string; senderPhone: string; receiverName: string; receiverPhone: string;
   description: string; status: string; notes: string;
 };
-type Handoff = { parcel: Parcel; collector: Agent | null };
+type HandoffCarton = { trackingNumber: string; cartonNumber: number; status: string };
+type Handoff = { parcel: Parcel; collector: Agent | null; cartons?: HandoffCarton[] };
 const card = 'space-y-3 rounded-2xl border border-slate-200 bg-white p-4';
 const input = 'mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
 const action = 'inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50';
@@ -112,8 +113,9 @@ function HostedCollectorInvites({ api }: { api: CargoTzApi }) {
   );
 }
 
-export function PendingHandoffs({ api, Scanner }: {
+export function PendingHandoffs({ api, Scanner, initialReference }: {
   api: CargoTzApi;
+  initialReference?: string;
   Scanner: React.ComponentType<{ onClose: () => void; onResult: (value: string) => void }>;
 }) {
   const [queue, setQueue] = useState<Parcel[]>([]);
@@ -139,7 +141,7 @@ export function PendingHandoffs({ api, Scanner }: {
     return () => controller.abort();
   }, [refresh]);
 
-  async function open(raw: string) {
+  const open = useCallback(async (raw: string, signal?: AbortSignal) => {
     setScanning(false);
     setActive(null);
     setNotice('');
@@ -151,10 +153,22 @@ export function PendingHandoffs({ api, Scanner }: {
     setReference(tracking);
     setBusy(true);
     setError('');
-    try { setActive(await api<Handoff>(`/cargotz/handoffs/${encodeURIComponent(tracking)}`)); }
-    catch (cause) { setError((cause as Error).message); }
-    finally { setBusy(false); }
-  }
+    try {
+      const data = await api<Handoff>(`/cargotz/handoffs/${encodeURIComponent(tracking)}`, { signal });
+      if (!signal?.aborted) setActive(data);
+    } catch (cause) {
+      if (!signal?.aborted) setError((cause as Error).message);
+    } finally {
+      if (!signal?.aborted) setBusy(false);
+    }
+  }, [api]);
+
+  useEffect(() => {
+    if (!initialReference) return;
+    const controller = new AbortController();
+    void open(initialReference, controller.signal);
+    return () => controller.abort();
+  }, [initialReference, open]);
 
   async function confirm(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -167,12 +181,20 @@ export function PendingHandoffs({ api, Scanner }: {
     setError('');
     try {
       const tracking = active.parcel.trackingNumber;
-      await api(`/cargotz/handoffs/${encodeURIComponent(tracking)}/confirm`, {
+      const saved = await api<Parcel>(`/cargotz/handoffs/${encodeURIComponent(tracking)}/confirm`, {
         method: 'POST', body: JSON.stringify({ ...measurements, note: form.get('note') || undefined }),
       });
+      const next = active.cartons?.find((carton) => carton.trackingNumber !== tracking && carton.status === 'AWAITING_HANDOFF');
+      if (next) {
+        await open(next.trackingNumber);
+      } else {
+        setActive({
+          ...active,
+          parcel: saved,
+          cartons: active.cartons?.map((carton) => carton.trackingNumber === tracking ? { ...carton, status: saved.status } : carton),
+        });
+      }
       setNotice(`Custody accepted for ${tracking}.`);
-      setActive(null);
-      setReference('');
       await refresh();
     } catch (cause) {
       setError((cause as Error).message);
@@ -187,7 +209,7 @@ export function PendingHandoffs({ api, Scanner }: {
         <div><p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Cargo intake</p><h2 className="mt-1 text-xl font-bold">Collector handoffs</h2></div>
         <button type="button" aria-label="Refresh handoffs" disabled={loading || busy} className="rounded-lg border p-2 disabled:opacity-50" onClick={() => void refresh()}><RefreshCw size={16} /></button>
       </div>
-      <button disabled={busy} type="button" className={`${action} w-full`} onClick={() => setScanning(true)}><Camera size={19} /> Scan parcel label</button>
+      <button disabled={busy} type="button" className={`${action} w-full`} onClick={() => setScanning(true)}><Camera size={19} /> Scan handoff QR or carton label</button>
       <form className="flex items-end gap-2" onSubmit={(event) => { event.preventDefault(); void open(reference); }}>
         <label className="min-w-0 flex-1 text-sm font-medium">Tracking number<input className={input} value={reference} onChange={(event) => setReference(event.target.value)} placeholder="CTZ-…" /></label>
         <button className="rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-50" disabled={busy || !reference.trim()}>Open</button>
@@ -202,6 +224,24 @@ export function PendingHandoffs({ api, Scanner }: {
           <p>Recipient · {active.parcel.receiverName} · {active.parcel.receiverPhone}</p>
           {active.collector && <p>Collector · {active.collector.agentName} · {active.collector.agentPhone}</p>}
           <p>{active.parcel.description}</p><p>{active.parcel.notes}</p>
+          {active.cartons && active.cartons.length > 1 && (
+            <div className="space-y-1.5">
+              <h3 className="font-semibold">Shipment cartons</h3>
+              {active.cartons.map((carton) => (
+                <button
+                  key={carton.trackingNumber}
+                  type="button"
+                  aria-pressed={carton.trackingNumber === active.parcel.trackingNumber}
+                  disabled={busy}
+                  onClick={() => void open(carton.trackingNumber)}
+                  className="flex w-full items-center justify-between gap-2 rounded-lg border bg-white px-3 py-2 text-left aria-pressed:border-emerald-700 aria-pressed:bg-emerald-50"
+                >
+                  <span>Carton {carton.cartonNumber}</span>{' '}
+                  <span className="text-xs text-slate-600">{carton.status === 'AWAITING_HANDOFF' ? 'Awaiting custody' : carton.status === 'CANCELLED' ? 'Cancelled' : 'Accepted'}</span>
+                </button>
+              ))}
+            </div>
+          )}
           {active.parcel.status === 'AWAITING_HANDOFF' ? (
             <form key={active.parcel.id} className="space-y-3" onSubmit={(event) => void confirm(event)}>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">

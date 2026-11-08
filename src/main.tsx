@@ -250,11 +250,12 @@ if (metaSetupToken) {
       mount(<CargoTzCollector startUrl={`${base}/collect`} />));
   } else {
     const role = roleSeg === 'warehouse' ? 'warehouse' : roleSeg === 'owner' ? 'dashboard' : 'intake';
+    const handoffReference = role === 'intake' ? new URLSearchParams(window.location.search).get('handoff') ?? undefined : undefined;
     Promise.all([
       import('./apps/cargo-tz-ops/index'),
       import('./components/KobeWebAppAssistant'),
     ]).then(([{ default: CargoTzOps }, { default: KobeWebAppAssistant }]) => mount(<>
-      <div className="h-[100dvh] w-screen overflow-hidden"><CargoTzOps role={role} standaloneBase={base} /></div>
+      <div className="h-[100dvh] w-screen overflow-hidden"><CargoTzOps role={role} standaloneBase={base} handoffReference={handoffReference} /></div>
       <KobeWebAppAssistant appId="cargo" contextLabel="CargoTZ Operations" />
     </>));
   }

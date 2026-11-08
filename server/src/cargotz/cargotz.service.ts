@@ -186,8 +186,19 @@ export class CargoTzService {
       where: { ownerId: uid, trackingNumber: tracking.trim().toUpperCase() },
     });
     if (!parcel?.collectorAccessId) throw new NotFoundException('Collector parcel not found');
-    const access = await this.collectors.findOne({ where: { id: parcel.collectorAccessId, ownerId: uid } });
-    return { parcel, collector: access ? collectorCompany(access) : null };
+    const [access, cartons] = await Promise.all([
+      this.collectors.findOne({ where: { id: parcel.collectorAccessId, ownerId: uid } }),
+      parcel.collectionId ? this.parcels.find({
+        where: { ownerId: uid, collectorAccessId: parcel.collectorAccessId, collectionId: parcel.collectionId },
+        select: { trackingNumber: true, cartonNumber: true, status: true },
+        order: { cartonNumber: 'ASC' },
+      }) : [parcel],
+    ]);
+    return {
+      parcel,
+      collector: access ? collectorCompany(access) : null,
+      cartons: cartons.map(({ trackingNumber, cartonNumber, status }) => ({ trackingNumber, cartonNumber, status })),
+    };
   }
 
   async confirmHandoff(uid: string, pin: string | undefined, tracking: string, measurements: {
