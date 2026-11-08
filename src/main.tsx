@@ -243,19 +243,23 @@ if (metaSetupToken) {
   ]).then(([{ default: Posys }, { default: KobeWebAppAssistant }]) =>
     mount(<><Posys /><KobeWebAppAssistant appId="posys" contextLabel="POSys" /></>));
 } else if (isCargoTz) {
-  // Cargo TZ — the domestic bus-cargo operations module (3 roles: receive,
-  // warehouse, owner), runnable standalone via cargotz.kobeapptz.com /
-  // /cargotz. Full-height shell so its `h-full` layout fills the viewport.
-  import('./apps/cargo-tz-ops/index').then(({ default: CargoTzOps }) => {
-    // /cargotz/{receive|warehouse|owner} deep-links (and installs) a role.
-    const roleSeg = pathname.replace(/^\/cargotz\/?/, '').split('/')[0];
-    const role = roleSeg === 'warehouse' ? 'warehouse' : roleSeg === 'owner' ? 'dashboard' : roleSeg === 'receive' ? 'intake' : undefined;
-    import('./components/KobeWebAppAssistant').then(({ default: KobeWebAppAssistant }) =>
-      mount(<>
-        <div className="h-screen w-screen overflow-hidden"><CargoTzOps role={role as 'intake' | 'warehouse' | 'dashboard' | undefined} /></div>
-        <KobeWebAppAssistant appId="cargo" contextLabel="CargoTZ Operations" />
-      </>));
-  });
+  const base = `${publicPathPrefix}/cargotz`;
+  const roleSeg = pathname.replace(/^\/cargotz(?=\/|$)/, '').split('/').filter(Boolean)[0];
+  if (roleSeg === 'collect') {
+    import('./apps/cargo-tz-ops/collector').then(({ default: CargoTzCollector }) =>
+      mount(<CargoTzCollector startUrl={`${base}/collect`} />));
+  } else {
+    const roles = { receive: 'intake', dispatch: 'dispatch', load: 'loading', destination: 'destination', warehouse: 'warehouse', owner: 'dashboard' } as const;
+    const role = roles[roleSeg as keyof typeof roles] ?? 'intake';
+    const handoffReference = role === 'intake' ? new URLSearchParams(window.location.search).get('handoff') ?? undefined : undefined;
+    Promise.all([
+      import('./apps/cargo-tz-ops/index'),
+      import('./components/KobeWebAppAssistant'),
+    ]).then(([{ default: CargoTzOps }, { default: KobeWebAppAssistant }]) => mount(<>
+      <div className="h-[100dvh] w-screen overflow-hidden"><CargoTzOps role={role} standaloneBase={base} handoffReference={handoffReference} /></div>
+      <KobeWebAppAssistant appId="cargo" contextLabel="CargoTZ Operations" />
+    </>));
+  }
 } else if (isCoach) {
   // Kobe Coach — installable coach/team-admin PWA (standalone at /coach).
   Promise.all([

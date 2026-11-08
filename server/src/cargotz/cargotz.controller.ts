@@ -1,5 +1,7 @@
-import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
-import { IsBoolean, IsIn, IsNumber, IsOptional, IsString, MaxLength, Min } from 'class-validator';
+import { Body, Controller, Delete, Get, Header, Headers, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from 'class-validator';
+import { Throttle } from '@nestjs/throttler';
+import { CargoTzTrackingAccessService } from './cargotz-tracking-access.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Public } from '../common/public.decorator';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -27,6 +29,39 @@ class CreateParcelDto {
   @IsOptional() @IsString() photoUrl?: string;
 }
 
+class CollectorInviteDto {
+  @IsString() @Matches(/\S/) @MaxLength(120) companyName!: string;
+  @IsString() @Matches(/\S/) @MaxLength(120) agentName!: string;
+  @Matches(/^(?=(?:\D*\d){7,15}\D*$)\+?[0-9 ()-]{7,25}$/) agentPhone!: string;
+}
+
+class AcceptCollectorInviteDto {
+  @Matches(/^[a-f0-9]{64}$/) token!: string;
+}
+
+class SubmitCollectionDto {
+  @IsUUID() accessId!: string;
+  @IsUUID() requestId!: string;
+  @IsString() @Matches(/\S/) @MaxLength(120) ownerName!: string;
+  @Matches(/^(?=(?:\D*\d){7,15}\D*$)\+?[0-9 ()-]{7,25}$/) ownerPhone!: string;
+  @IsOptional() @IsString() @Matches(/\S/) @MaxLength(120) receiverName?: string;
+  @IsOptional() @Matches(/^(?=(?:\D*\d){7,15}\D*$)\+?[0-9 ()-]{7,25}$/) receiverPhone?: string;
+  @IsString() @Matches(/\S/) @MaxLength(80) origin!: string;
+  @IsString() @Matches(/\S/) @MaxLength(80) destination!: string;
+  @IsString() @Matches(/\S/) @MaxLength(500) description!: string;
+  @IsInt() @Min(1) @Max(100) cartonCount!: number;
+  @IsIn(['PICKUP', 'DROPOFF']) handoff!: 'PICKUP' | 'DROPOFF';
+  @IsString() @Matches(/\S/) @MaxLength(500) handoffLocation!: string;
+}
+
+export class ConfirmHandoffDto {
+  @IsOptional() @IsNumber() @Min(0.01) @Max(100000) weight?: number;
+  @IsOptional() @IsNumber() @Min(0.01) @Max(100000) lengthCm?: number;
+  @IsOptional() @IsNumber() @Min(0.01) @Max(100000) widthCm?: number;
+  @IsOptional() @IsNumber() @Min(0.01) @Max(100000) heightCm?: number;
+  @IsOptional() @IsString() @MaxLength(500) note?: string;
+}
+
 class PackDto {
   @IsOptional() @IsString() warehouseLocation?: string;
   @IsOptional() @IsString() shelfNumber?: string;
@@ -47,9 +82,18 @@ class AdvanceDto {
 class StaffDto {
   @IsString() @MaxLength(120) name!: string;
   @IsIn(['Owner', 'Agent', 'Warehouse']) role!: CtzRole;
-  @IsString() pin!: string;
+  @Matches(/^\d{4}$/) pin!: string;
   @IsOptional() @IsString() phone?: string;
   @IsOptional() @IsString() warehouse?: string;
+}
+
+class UpdateStaffDto {
+  @IsOptional() @IsString() @MaxLength(120) name?: string;
+  @IsOptional() @IsIn(['Owner', 'Agent', 'Warehouse']) role?: CtzRole;
+  @IsOptional() @Matches(/^\d{4}$/) pin?: string;
+  @IsOptional() @IsString() phone?: string;
+  @IsOptional() @IsString() warehouse?: string;
+  @IsOptional() @IsBoolean() active?: boolean;
 }
 
 @UseGuards(JwtAuthGuard)
@@ -65,8 +109,49 @@ export class CargoTzController {
   /* Staff / roles */
   @Get('staff') listStaff(@CurrentUser('id') uid: string) { return this.svc.listStaff(uid); }
   @Post('staff') createStaff(@CurrentUser('id') uid: string, @Body() dto: StaffDto) { return this.svc.createStaff(uid, dto); }
-  @Patch('staff/:id') updateStaff(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: Partial<StaffDto>) { return this.svc.updateStaff(uid, id, dto as never); }
+  @Patch('staff/:id') updateStaff(@CurrentUser('id') uid: string, @Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateStaffDto) { return this.svc.updateStaff(uid, id, dto); }
   @Delete('staff/:id') removeStaff(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.svc.removeStaff(uid, id); }
+
+  @Get('collector-invites')
+  listInvites(@CurrentUser('id') uid: string) { return this.svc.listCollectorInvites(uid); }
+
+  @Post('collector-invites')
+  invite(@CurrentUser('id') uid: string, @Body() dto: CollectorInviteDto) {
+    return this.svc.inviteCollector(uid, dto);
+  }
+
+  @Delete('collector-invites/:id')
+  revoke(@CurrentUser('id') uid: string, @Param('id', ParseUUIDPipe) id: string) {
+    return this.svc.revokeCollector(uid, id);
+  }
+
+  @Post('collector/accept')
+  accept(@CurrentUser('id') uid: string, @Body() dto: AcceptCollectorInviteDto) {
+    return this.svc.acceptCollectorInvite(uid, dto.token);
+  }
+
+  @Get('collector/companies')
+  companies(@CurrentUser('id') uid: string) { return this.svc.collectorCompanies(uid); }
+
+  @Post('collector/collections')
+  submitCollection(@CurrentUser('id') uid: string, @Body() dto: SubmitCollectionDto) {
+    return this.svc.submitCollection(uid, dto);
+  }
+
+  @Get('handoffs')
+  handoffs(@CurrentUser('id') uid: string, @Headers('x-ctz-pin') pin?: string) {
+    return this.svc.pendingHandoffs(uid, pin);
+  }
+
+  @Get('handoffs/:tracking')
+  handoff(@CurrentUser('id') uid: string, @Headers('x-ctz-pin') pin: string, @Param('tracking') tracking: string) {
+    return this.svc.handoff(uid, pin, tracking);
+  }
+
+  @Post('handoffs/:tracking/confirm')
+  confirm(@CurrentUser('id') uid: string, @Headers('x-ctz-pin') pin: string, @Param('tracking') tracking: string, @Body() dto: ConfirmHandoffDto) {
+    return this.svc.confirmHandoff(uid, pin, tracking, dto);
+  }
 
   /* Parcels */
   @Get('parcels') list(@CurrentUser('id') uid: string, @Query('status') status?: string, @Query('q') q?: string) { return this.svc.list(uid, { status, q }); }
@@ -93,11 +178,32 @@ export class CargoTzController {
   }
 }
 
-/** Public tracking — the QR / tracking-number lookup, no auth. */
+class TrackingPhoneDto {
+  @Matches(/^(?=(?:\D*\d){7,15}\D*$)\+?[0-9 ()-]{7,25}$/) phone!: string;
+}
+class TrackingCodeDto extends TrackingPhoneDto {
+  @Matches(/^\d{6}$/) code!: string;
+}
+
+/** Public tracking keeps customer details behind phone verification. */
 @Public()
 @Controller('cargotz-track')
 export class CargoTzTrackController {
-  constructor(private readonly svc: CargoTzService) {}
+  constructor(private readonly svc: CargoTzService, private readonly access: CargoTzTrackingAccessService) {}
 
   @Get(':tracking') track(@Param('tracking') tracking: string) { return this.svc.track(tracking); }
+
+  @Post(':tracking/owner-code')
+  @Header('Cache-Control', 'no-store')
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  requestCode(@Param('tracking') tracking: string, @Body() dto: TrackingPhoneDto) {
+    return this.access.request(tracking, dto.phone);
+  }
+
+  @Post(':tracking/owner-details')
+  @Header('Cache-Control', 'no-store')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  ownerDetails(@Param('tracking') tracking: string, @Body() dto: TrackingCodeDto) {
+    return this.access.verify(tracking, dto.phone, dto.code);
+  }
 }

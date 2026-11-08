@@ -3,6 +3,7 @@ import request from 'supertest';
 import { DataSource } from 'typeorm';
 import { bootTestApp, resetDb } from './setup';
 import { AppEntitlement } from '../src/app-marketplace/app-entitlement.entity';
+import { PRODUCT_MODULE_IDS } from '../src/app-marketplace/module-catalogue.generated';
 import { appsForModule } from '../src/app-marketplace/module-entitlements.service';
 
 /**
@@ -144,7 +145,9 @@ describe('Module and bundle entitlements (e2e)', () => {
       const res = await request(http).get('/api/app-marketplace/modules').set(auth(me.token));
 
       expect(res.status).toBe(200);
-      expect(res.body.length).toBe(16);
+      const moduleIds = res.body.map((module: { moduleId: string }) => module.moduleId);
+      expect(moduleIds).toEqual([...PRODUCT_MODULE_IDS]);
+      expect(moduleIds).toContain('kobe-cargotz');
       expect(res.body.every((m: { access: string }) => m.access === 'none')).toBe(true);
     });
 
