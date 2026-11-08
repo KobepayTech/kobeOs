@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, Loader2, Package, Plus, RefreshCw, Search, Truck, X } from 'lucide-react';
 import { api } from '@/lib/api';
 
-type CtzStatus = 'RECEIVED_AT_SHOP' | 'AT_WAREHOUSE' | 'PACKED' | 'LOADED' | 'IN_TRANSIT' | 'ARRIVED' | 'READY_FOR_PICKUP' | 'DELIVERED' | 'CANCELLED';
+type CtzStatus = 'AWAITING_HANDOFF' | 'RECEIVED_AT_SHOP' | 'AT_WAREHOUSE' | 'PACKED' | 'LOADED' | 'IN_TRANSIT' | 'ARRIVED' | 'READY_FOR_PICKUP' | 'DELIVERED' | 'CANCELLED';
 type Parcel = { id:string; trackingNumber:string; senderName:string; senderPhone:string; receiverName:string; receiverPhone:string; parcelType:string; description:string; quantity:number; weight:number; value:number|string; origin:string; destination:string; transportFee:number|string; paymentStatus:'PAID'|'UNPAID'; status:CtzStatus; currentLocation:string; fragile:boolean; cashOnDelivery:boolean; notes:string; receivedByName:string; createdAt:string };
 type Dashboard = { cards:{ receivedToday:number; inWarehouse:number; dispatched:number; delivered:number; cashCollected:number; outstanding:number; totalParcels:number }; byStatus:Array<{status:CtzStatus;count:number}>; trend:Array<{date:string;parcels:number;revenue:number}> };
 type FullParcel = { parcel:Parcel; warehouse:null|{ warehouseLocation:string; shelfNumber:string; bagNumber:string; busNumber:string; driverName:string; driverPhone:string; departureTime?:string|null; expectedArrival?:string|null }; timeline:Array<{id:string;status:CtzStatus;updatedByName:string;location:string;note:string;createdAt:string}> };

@@ -4,6 +4,7 @@ const { editionConfig } = require('./prepare-qwen3-edition.cjs');
 const { editionEnvironment, profile } = require('../electron/ai-edition.cjs');
 const fs = require('node:fs');
 const path = require('node:path');
+const { tmpdir } = require('node:os');
 const { exportPack } = require('./export-qwen3-model-pack.cjs');
 test('edition isolates its identity, update feed and packaged model resources', () => {
   const config = editionConfig();
@@ -24,7 +25,7 @@ test('one model handles every AI role and standard edition keeps its configurati
   assert.equal(env.OLLAMA_MAX_CONCURRENT, '1');
 });
 test('offline export includes only the selected model, excluding full-precision conversion inputs', () => {
-  const parent = path.resolve('node_modules/.cache');
+  const parent = tmpdir();
   const fixture = fs.mkdtempSync(path.join(parent, 'qwen-pack-test-'));
   try {
     const cache = path.join(fixture, 'cache');

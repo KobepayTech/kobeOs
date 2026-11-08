@@ -6,7 +6,7 @@ import { useOSStore } from '@/os/store';
 
 const areas = [
   { name: 'Kobe Home', description: 'Ask, find and decide.', apps: [['kobe-assistant', 'Ask Kobe'], ['tasks', 'Tasks'], ['notes', 'Notes']] },
-  { name: 'Kobe Business', description: 'Your everyday operations.', apps: [['erp-shop', 'Shops'], ['kobe-hotel', 'Hotels'], ['property', 'Properties'], ['cargo', 'Cargo'], ['live-sales', 'Live sales']] },
+  { name: 'Kobe Business', description: 'Your everyday operations.', apps: [['erp-shop', 'Shops'], ['kobe-hotel', 'Hotels'], ['property', 'Properties'], ['cargo-tz-ops', 'CargoTZ'], ['cargo', 'Cargo'], ['live-sales', 'Live sales']] },
   { name: 'Kobe Money', description: 'Payments and financial records.', apps: [['kobe-pay', 'KobePay'], ['kobe-accountant', 'Accountant'], ['erp-reports', 'Reports']] },
   { name: 'Kobe People', description: 'People and conversations.', apps: [['contacts', 'Contacts'], ['erp-messaging', 'Messaging'], ['email', 'Email'], ['chat', 'Team chat']] },
   { name: 'Kobe Intelligence', description: 'Agents, memory and approved workflows.', apps: [['kobe-agents', 'Digital employees & workflows'], ['kobe-models', 'AI models'], ['kobe-studio', 'Studio']] },

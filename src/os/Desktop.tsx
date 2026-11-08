@@ -22,7 +22,7 @@ import {
   BarChart3,
   Building2,
   Zap,
-  Plane, Printer, Users, Wallet, Shield, Code2, Clapperboard, Sparkles,
+  Plane, Truck, Printer, Users, Wallet, Shield, Code2, Clapperboard, Sparkles,
   Sun,
   StickyNote as NotepadIcon,
   MessageCircle,
@@ -361,6 +361,7 @@ interface Task {
 /* ------------------------------------------------------------------ */
 const appShortcuts = [
   { id: 'package-manager', label: 'App Store', icon: StoreIcon, appId: 'package-manager', iconBg: 'linear-gradient(135deg, rgba(255,118,22,0.28), rgba(251,146,60,0.18))' },
+  { id: 'cargo-tz-ops', label: 'CargoTZ', icon: Truck, appId: 'cargo-tz-ops', iconBg: 'linear-gradient(135deg, rgba(16,185,129,0.36), rgba(5,150,105,0.22))' },
   { id: 'kobe-assistant', label: 'Ask Kobe', icon: Sparkles, appId: 'kobe-assistant', iconBg: 'linear-gradient(135deg, rgba(99,102,241,0.30), rgba(147,51,234,0.22))' },
   { id: 'chat', label: 'Messages', icon: MessageSquare, appId: 'chat', iconBg: 'linear-gradient(135deg, rgba(123,140,222,0.25), rgba(167,139,250,0.20))' },
   { id: 'calendar', label: 'Calendar', icon: Calendar, appId: 'calendar', iconBg: 'linear-gradient(135deg, rgba(96,165,250,0.25), rgba(123,140,222,0.20))' },
