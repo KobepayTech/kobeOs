@@ -103,6 +103,11 @@ function answerPhotoWithVariant() {
   next();
   fill(/asks for a discount/, "55000");
   next();
+  fill("Buying currency", "CNY");
+  fill("Buying price per unit", "30");
+  fill("TZS per 1 CNY", "360");
+  fill("Transport per unit (TZS)", "1200");
+  next();
   fill(/Which category/, "Clothes");
   next();
   fireEvent.click(
@@ -148,6 +153,7 @@ describe("AI business setup", () => {
       );
     expect(JSON.parse(String(call?.[1]?.body))).toMatchObject({
       price: 60000,
+      purchaseCost: { unitPrice: 30, currency: "CNY", exchangeRate: 360, transportPerUnit: 1200 },
       discountPrice: 55000,
       stock: 7,
       variants: [{ color: "Blue", size: "32", price: 60000, stock: 7 }],

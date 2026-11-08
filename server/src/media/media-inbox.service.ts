@@ -322,6 +322,12 @@ export class MediaInboxService {
         item.moduleId = 'property';
         name = listing.title;
       } else if (dto.businessType === 'shop') {
+        const purchase = dto.purchaseCost;
+        if (purchase && (purchase.currency === currency ? purchase.exchangeRate !== 1 : purchase.currency !== 'CNY')) {
+          throw new BadRequestException('Use the shop currency or enter a CNY exchange rate');
+        }
+        const cost = purchase ? purchase.unitPrice * purchase.exchangeRate + purchase.transportPerUnit : null;
+        if (cost != null && cost >= 1e14) throw new BadRequestException('Landed unit cost is too large');
         const products = manager.getRepository(PosProduct);
         const sku = `PHOTO-${item.id}`;
         const variantKeys = new Set<string>();
@@ -340,7 +346,7 @@ export class MediaInboxService {
         const requiredOptions = ['size', 'color'].filter(key => variants.length > 1 && variants.every(v => v.attributes[key]));
         const product = await products.save(products.create({
           ownerId, sku, name: dto.name.trim(), category: dto.category.trim(),
-          currency, price: dto.price, discountReferencePrice: dto.discountPrice ?? null,
+          currency, price: dto.price, cost, discountReferencePrice: dto.discountPrice ?? null,
           stock: variants.length ? variants.reduce((n, v) => n + v.stock, 0) : dto.stock,
           unit: 'pcs', imageUrl: item.url, imageUrls: [item.url], variants,
           customData: { size: dto.size, color: dto.color ?? '', requiredOptions, sourceMediaInboxId: item.id },

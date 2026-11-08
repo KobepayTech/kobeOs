@@ -15,6 +15,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { UniversalProductForm, blankProduct, type UniversalProduct } from './UniversalProductForm';
 import MediaInboxApp from '@/apps/media-inbox';
+import { openPhotoIntake, SHOP_PRODUCT_SAVED } from '@/lib/guided-setup';
 
 const tzs = (n: number) => `TZS ${n.toLocaleString()}`;
 
@@ -97,6 +98,12 @@ export default function ERPStore() {
       try { await ensureSession(); } catch { /* offline */ }
       await reload();
     })();
+  }, [reload]);
+
+  useEffect(() => {
+    const refresh = () => void reload();
+    window.addEventListener(SHOP_PRODUCT_SAVED, refresh);
+    return () => window.removeEventListener(SHOP_PRODUCT_SAVED, refresh);
   }, [reload]);
 
   const categoriesOnDisk = useMemo(() => {
@@ -216,6 +223,7 @@ export default function ERPStore() {
                 </TabsTrigger>
               </TabsList>
             </Tabs>
+            <Button size="sm" onClick={() => openPhotoIntake('shop')}>Add from photos</Button>
             <Button size="sm" variant="ghost" onClick={reload} disabled={loading}>
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </Button>

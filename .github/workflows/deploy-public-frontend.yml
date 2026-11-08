@@ -82,11 +82,21 @@ jobs:
             curl -fsS --connect-timeout 10 --max-time 20 "https://$host/" | grep -q 'id="root"'
             echo "Verified cloud-hosted frontend: https://$host" >> "$GITHUB_STEP_SUMMARY"
           done
+          # Exercise direct entry into signed-in ERP modules on the cloud host.
+          for path in pos inventory po orders discounts hotel/kitchen dispatch; do
+            curl -fsS --connect-timeout 10 --max-time 20 -D "$RUNNER_TEMP/public-headers" \
+              "https://kobeapptz.com/m/public-hosting-check/$path" -o "$RUNNER_TEMP/mobile-app.html"
+            grep -qi '^x-kobe-public-hosting: cloudflare-assets' "$RUNNER_TEMP/public-headers"
+            grep -q 'id="root"' "$RUNNER_TEMP/mobile-app.html"
+          done
+          echo 'Verified cloud-hosted ERP mobile routes, including discount approvals.' >> "$GITHUB_STEP_SUMMARY"
           # Backend health is a separate result: a database outage must never
           # be confused with failure to publish the public site's static UI.
-          if curl -fsS --connect-timeout 10 --max-time 25 https://api.kobeapptz.com/api/health -o "$RUNNER_TEMP/api-health.json" \
+          if curl -fsS --connect-timeout 10 --max-time 25 -D "$RUNNER_TEMP/api-headers" \
+              https://api.kobeapptz.com/api/health -o "$RUNNER_TEMP/api-health.json" \
+            && grep -qi '^x-kobe-production-path: cloudflare-container[[:space:]]*$' "$RUNNER_TEMP/api-headers" \
             && jq -e '.status == "ok" and .db == "connected"' "$RUNNER_TEMP/api-health.json" >/dev/null; then
-            echo 'Online API and database: healthy.' >> "$GITHUB_STEP_SUMMARY"
+            echo 'Cloud API and database: healthy.' >> "$GITHUB_STEP_SUMMARY"
           else
             echo '::warning::Public pages are deployed; live API/database is unavailable. Transactions are not verified.'
             echo 'Online API/database unavailable; frontend deployment succeeded independently.' >> "$GITHUB_STEP_SUMMARY"

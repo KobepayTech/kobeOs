@@ -44,6 +44,8 @@ function normalizePoItems(value: unknown): ErpPurchaseOrderItem[] {
       name,
       qty,
       price: Math.max(0, n(row.price)),
+      ...(row.buyingPriceCny != null && n(row.tzsPerCny) > 0
+        ? { buyingPriceCny: n(row.buyingPriceCny), tzsPerCny: n(row.tzsPerCny) } : {}),
       ...(n(row.sellPrice) > 0 ? { sellPrice: n(row.sellPrice) } : {}),
       ...(String(row.sku ?? '').trim() ? { sku: String(row.sku).trim() } : {}),
       ...(String(row.category ?? '').trim() ? { category: String(row.category).trim() } : {}),
@@ -139,23 +141,46 @@ export class SupplierCapitalService {
 
   async createPurchaseOrder(ownerId: string, dto: CreatePurchaseOrderDto) {
     const legacyMeta = parsePoMeta(dto.notes);
+    if (dto.items?.some(item => !item.name.trim() || (item.buyingPriceCny == null) !== (item.tzsPerCny == null))) {
+      throw new BadRequestException('Enter an item name and supply both the CNY buying price and exchange rate when converting.');
+    }
     const items = normalizePoItems(dto.items?.length ? dto.items : legacyMeta.items);
-    const po = this.poRepo.create({
-      ownerId,
-      poNumber: dto.poNumber,
-      supplierId: dto.supplierId,
-      totalCny: dto.totalCny,
-      paidCny: 0,
-      remainingCny: dto.totalCny,
-      status: 'open',
-      expectedDate: dto.expectedDate ? new Date(dto.expectedDate) : null,
-      notes: dto.notes ?? '',
-      items,
-      transportCost: dto.transportCost ?? legacyMeta.transportCost ?? 0,
-      inventoryStatus: 'PENDING',
-      receivedAt: null,
+    const imported = items.filter(item => item.buyingPriceCny != null);
+    if (imported.length && (imported.length !== items.length || imported.some(item => item.currency !== 'TZS'))) {
+      throw new BadRequestException('Use the same buying currency for the whole order and TZS for selling.');
+    }
+    for (const item of imported) {
+      item.price = item.buyingPriceCny! * item.tzsPerCny!;
+    }
+    const totalCny = imported.length
+      ? imported.reduce((sum, item) => sum + item.buyingPriceCny! * item.qty, 0) : dto.totalCny;
+    const transportCost = dto.transportCost ?? legacyMeta.transportCost ?? 0;
+    if (totalCny >= 1e14 || transportCost >= 1e14 || items.some(item => item.price >= 1e14)) {
+      throw new BadRequestException('Purchase cost is too large');
+    }
+    return this.dataSource.transaction(async manager => {
+      const orders = manager.getRepository(ErpPurchaseOrder);
+      await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`incoming-order:${ownerId}:${dto.poNumber}`]);
+      const existing = await orders.findOne({ where: { ownerId, poNumber: dto.poNumber } });
+      if (existing) return existing;
+      const supplier = await manager.getRepository(ErpSupplier).findOne({ where: { id: dto.supplierId, ownerId } });
+      if (!supplier) throw new NotFoundException('Supplier not found for this ERP user');
+      return orders.save(orders.create({
+        ownerId,
+        poNumber: dto.poNumber,
+        supplierId: dto.supplierId,
+        totalCny,
+        paidCny: 0,
+        remainingCny: totalCny,
+        status: 'open',
+        expectedDate: dto.expectedDate ? new Date(dto.expectedDate) : null,
+        notes: dto.notes ?? '',
+        items,
+        transportCost,
+        inventoryStatus: 'PENDING',
+        receivedAt: null,
+      }));
     });
-    return this.poRepo.save(po);
   }
 
   /**
@@ -167,6 +192,7 @@ export class SupplierCapitalService {
   async receivePurchaseOrder(ownerId: string, poId: string, dto: ReceivePurchaseOrderDto) {
     if (!isUuid(poId)) throw new NotFoundException('Purchase order not found for this ERP user');
     return this.dataSource.transaction(async (manager) => {
+      await manager.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`receive-orders:${ownerId}`]);
       const poRepository = manager.getRepository(ErpPurchaseOrder);
       const productRepository = manager.getRepository(PosProduct);
       const supplierRepository = manager.getRepository(ErpSupplier);
@@ -176,7 +202,7 @@ export class SupplierCapitalService {
         .where('po.id = :poId AND po.ownerId = :ownerId', { poId, ownerId })
         .getOne();
       if (!po) throw new NotFoundException('Purchase order not found for this ERP user');
-      if (po.status === 'cancelled') throw new ConflictException('Cancelled purchase orders cannot be received');
+      if (String(po.status).toLowerCase() === 'cancelled') throw new ConflictException('Cancelled purchase orders cannot be received');
 
       const items = poItems(po);
       if (items.length === 0) {
@@ -187,12 +213,23 @@ export class SupplierCapitalService {
         ? await supplierRepository.findOne({ where: { ownerId, id: po.supplierId } })
         : null;
       const transportCost = dto.transportCost !== undefined ? n(dto.transportCost) : poTransportCost(po);
+      if (po.inventoryStatus === 'RECEIVED') {
+        return { po, received: [], alreadyReceived: true };
+      }
+      if (items.some(item => n(item.receivedQty) > 0 || n(item.damagedQty) > 0) && transportCost !== poTransportCost(po)) {
+        throw new ConflictException('Transport cost is fixed after the first receipt.');
+      }
       const totalOrderedQty = items.reduce((sum, item) => sum + n(item.qty), 0);
       const freightPerUnit = totalOrderedQty > 0 ? transportCost / totalOrderedQty : 0;
       const requested = new Map<number, { quantityReceived: number; damagedQuantity: number }>();
       for (const line of dto.lines ?? []) {
         if (!Number.isInteger(line.lineIndex) || line.lineIndex < 0 || line.lineIndex >= items.length) {
           throw new BadRequestException(`Invalid PO line index: ${line.lineIndex}`);
+        }
+        const item = items[line.lineIndex];
+        if (line.expectedProcessed != null &&
+            Math.abs(n(item.receivedQty) + n(item.damagedQty) - line.expectedProcessed) > 0.0001) {
+          throw new ConflictException('This order was already updated. Reopen it before receiving more.');
         }
         const prior = requested.get(line.lineIndex) ?? { quantityReceived: 0, damagedQuantity: 0 };
         requested.set(line.lineIndex, {
@@ -227,30 +264,56 @@ export class SupplierCapitalService {
         }
         if (quantityReceived <= epsilon && damagedQuantity <= epsilon) continue;
 
+        if (quantityReceived <= epsilon) {
+          item.damagedQty = alreadyDamaged + damagedQuantity;
+          continue;
+        }
+
         const unitCost = n(item.price) + freightPerUnit;
+        if (unitCost >= 1e14) throw new BadRequestException('Landed unit cost is too large');
         const sku = String(item.sku ?? '').trim() || `PO-${po.poNumber}-${lineIndex + 1}`;
         let product: PosProduct | null = null;
         if (isUuid(item.productId)) {
-          product = await productRepository.findOne({ where: { ownerId, id: item.productId } });
+          product = await productRepository.findOne({
+            where: { ownerId, id: item.productId }, lock: { mode: 'pessimistic_write' },
+          });
         }
         if (!product) {
-          product = await productRepository.findOne({ where: { ownerId, sku } });
+          product = await productRepository.findOne({
+            where: { ownerId, sku }, lock: { mode: 'pessimistic_write' },
+          });
+        }
+        if (!product && item.sku) {
+          product = await productRepository.createQueryBuilder('product')
+            .where('product.ownerId = :ownerId', { ownerId })
+            .andWhere('product.variants @> CAST(:variant AS jsonb)', { variant: JSON.stringify([{ sku }]) })
+            .setLock('pessimistic_write').getOne();
         }
         // When the operator did not provide a SKU, an exact name match is a
         // useful replenishment path for a product that entered through Quick
         // Add. A supplied SKU remains authoritative, so distinct SKUs with
         // the same display name are never merged accidentally.
         if (!product && !String(item.sku ?? '').trim()) {
-          product = await productRepository.findOne({ where: { ownerId, name: item.name } });
+          const matches = await productRepository.find({ where: { ownerId, name: item.name }, take: 2 });
+          if (matches.length === 1 && !matches[0].variants?.length) {
+            product = await productRepository.findOne({
+              where: { ownerId, id: matches[0].id }, lock: { mode: 'pessimistic_write' },
+            });
+          }
         }
 
         const salesCurrency = item.currency || 'TZS';
-        const purchaseCurrency = supplier?.currency || salesCurrency;
+        const purchaseCurrency = item.buyingPriceCny != null ? 'CNY' : item.currency || supplier?.currency || salesCurrency;
         if (product) {
           const customData = product.customData && typeof product.customData === 'object' ? product.customData : {};
           const previousPoIds = Array.isArray(customData.purchaseOrderIds)
             ? customData.purchaseOrderIds.filter((id): id is string => typeof id === 'string')
             : [];
+          if (product.variants?.length) {
+            const variant = product.variants.find(v => v.sku === sku);
+            if (!variant) throw new BadRequestException(`${item.name}: enter the specific colour or size SKU.`);
+            variant.stock = n(variant.stock) + quantityReceived;
+          }
           product.stock = n(product.stock) + quantityReceived;
           product.cost = unitCost;
           if (!product.supplier && supplier) product.supplier = supplier.name;
@@ -301,7 +364,7 @@ export class SupplierCapitalService {
         item.receivedQty = alreadyReceived + quantityReceived;
         item.damagedQty = alreadyDamaged + damagedQuantity;
         item.productId = savedProduct.id;
-        item.sku = savedProduct.sku;
+        item.sku = item.sku || savedProduct.sku;
         received.push({
           lineIndex,
           productId: savedProduct.id,

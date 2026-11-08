@@ -27,15 +27,16 @@ export const DEFAULT_SETUP: SetupProfile = {
 
 export type ListingType = "dealership" | "property";
 export const OPEN_PHOTO_INTAKE = "kobe:open-photo-intake";
+export const SHOP_PRODUCT_SAVED = "kobe:shop-product-saved";
 export const LISTING_SAVED = "kobe:listing-saved";
 
 export type PhotoIntakeRequest = {
-  type: ListingType;
+  type: ListingType | "shop";
   business?: { name: string; phone?: string };
 };
 
 export function openPhotoIntake(
-  type: ListingType,
+  type: PhotoIntakeRequest["type"],
   business?: PhotoIntakeRequest["business"],
 ) {
   window.dispatchEvent(
