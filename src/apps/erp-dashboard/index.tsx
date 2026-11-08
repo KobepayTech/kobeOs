@@ -8,7 +8,7 @@ import {
   ChevronRight, Boxes, CircleDollarSign,
   Globe, LayoutDashboard, CreditCard, Percent,
   NotebookPen, Calculator, Smartphone, ExternalLink, Images,
-  Radio,
+  Radio, Bot,
 } from 'lucide-react';
 import { useOSStore } from '@/os/store';
 import {
@@ -361,6 +361,7 @@ function DashboardOverview({ launchApp }: { launchApp: (appId: string) => void }
             { appId: 'live-sales', label: 'Start Live Sales', desc: 'Comments → web checkout → KDS', icon: Radio, color: 'bg-fuchsia-500/15 text-fuchsia-400 hover:bg-fuchsia-500/25', border: 'border-fuchsia-500/20 hover:border-fuchsia-500/40' },
             { appId: 'erp-warehouse', label: 'Warehouse', desc: 'Stock management', icon: Warehouse, color: 'bg-orange-500/15 text-orange-400 hover:bg-orange-500/25', border: 'border-orange-500/20 hover:border-orange-500/40' },
             { appId: 'erp-accounting', label: 'Accounting', desc: 'Financial records', icon: CircleDollarSign, color: 'bg-green-500/15 text-green-400 hover:bg-green-500/25', border: 'border-green-500/20 hover:border-green-500/40' },
+            { appId: 'kobe-agents', label: 'Shop Owner Reports', desc: 'Cash, stock, margins and incoming orders', icon: Bot, color: 'bg-violet-500/15 text-violet-400 hover:bg-violet-500/25', border: 'border-violet-500/20 hover:border-violet-500/40' },
             { appId: 'erp-reports', label: 'Reports', desc: 'Analytics & insights', icon: FileText, color: 'bg-indigo-500/15 text-indigo-400 hover:bg-indigo-500/25', border: 'border-indigo-500/20 hover:border-indigo-500/40' },
             { appId: 'erp-admin', label: 'Admin Panel', desc: 'System settings', icon: ShieldCheck, color: 'bg-red-500/15 text-red-400 hover:bg-red-500/25', border: 'border-red-500/20 hover:border-red-500/40' },
             { appId: 'erp-store-editor', label: 'Store Editor', desc: 'Customize storefront', icon: Palette, color: 'bg-violet-500/15 text-violet-400 hover:bg-violet-500/25', border: 'border-violet-500/20 hover:border-violet-500/40' },

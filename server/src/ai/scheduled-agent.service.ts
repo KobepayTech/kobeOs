@@ -11,6 +11,9 @@ import { KobeAgentService } from './agent.service';
 import { AiAgentRun, AiScheduledAgent } from './scheduled-agent.entity';
 import { CreateScheduledAgentDto, UpdateScheduledAgentDto } from './dto/scheduled-agent.dto';
 
+import { OwnerReportService } from './owner-report.service';
+import { OWNER_REPORT_KEYS, OWNER_REPORTS } from './owner-report.types';
+
 const WRITE_TOOLS = [
   'set_rent',
   'send_tenant_notification',
@@ -88,11 +91,13 @@ export class ScheduledAgentService {
     @InjectRepository(AiAgentRun)
     private readonly runs: Repository<AiAgentRun>,
     private readonly businessAgent: KobeAgentService,
+    private readonly ownerReports: OwnerReportService,
   ) {}
 
   metadata() {
     return {
       modules: MODULES,
+      ownerReports: OWNER_REPORT_KEYS.map(key => ({ key, ...OWNER_REPORTS[key] })),
       writeTools: WRITE_TOOLS,
       approvalModes: ['AUTOMATIC', 'APPROVAL_REQUIRED', 'DRAFT_ONLY'],
       frequencies: ['HOURLY', 'DAILY', 'WEEKLY'],
@@ -123,12 +128,14 @@ export class ScheduledAgentService {
     if (dto.frequency === 'WEEKLY' && !dto.daysOfWeek?.length) {
       throw new BadRequestException('Select at least one weekday');
     }
+    const report = dto.reportKey ? OWNER_REPORTS[dto.reportKey] : null;
     const agent = this.agents.create({
       ownerId,
       name: dto.name.trim(),
-      objective: dto.objective.trim(),
+      objective: report?.objective ?? dto.objective.trim(),
+      reportKey: dto.reportKey ?? null,
       frequency: dto.frequency,
-      timeOfDay: dto.timeOfDay || '08:00',
+      timeOfDay: dto.timeOfDay || report?.timeOfDay || '08:00',
       intervalHours: dto.intervalHours || 24,
       daysOfWeek: [...new Set(dto.daysOfWeek || [])],
       timezone,
@@ -142,8 +149,11 @@ export class ScheduledAgentService {
       consecutiveFailures: 0,
       lastError: '',
     });
+    this.applyReportScope(agent);
     agent.nextRunAt = nextScheduledAt(agent);
-    return this.agents.save(agent);
+    if (!agent.reportKey) return this.agents.save(agent);
+    await this.agents.createQueryBuilder().insert().values(agent).orIgnore().execute();
+    return this.agents.findOneByOrFail({ ownerId, reportKey: agent.reportKey });
   }
 
   async update(ownerId: string, id: string, dto: UpdateScheduledAgentDto) {
@@ -162,9 +172,21 @@ export class ScheduledAgentService {
     if (dto.outputDestination !== undefined) agent.outputDestination = dto.outputDestination;
     if (dto.enabled !== undefined) agent.status = dto.enabled ? 'ACTIVE' : 'PAUSED';
     if (agent.frequency === 'WEEKLY' && !agent.daysOfWeek.length) throw new BadRequestException('Select at least one weekday');
+    this.applyReportScope(agent);
     agent.nextRunAt = nextScheduledAt(agent);
     agent.lastError = '';
     return this.agents.save(agent);
+  }
+
+  private applyReportScope(agent: AiScheduledAgent) {
+    if (!agent.reportKey) return;
+    const report = OWNER_REPORTS[agent.reportKey];
+    agent.objective = report.objective;
+    agent.allowedModules = [...report.modules];
+    agent.inputSources = [...report.modules];
+    agent.allowedTools = [];
+    agent.approvalMode = 'DRAFT_ONLY';
+    agent.outputDestination = 'KOBEOS_INBOX';
   }
 
   async remove(ownerId: string, id: string) {
@@ -278,7 +300,9 @@ export class ScheduledAgentService {
         `Output destination: ${agent.outputDestination}.`,
         'Return a concise result. Never claim an action was completed unless the tool execution result confirms it.',
       ].join('\n');
-      const response = await this.businessAgent.run(agent.ownerId, instruction, []);
+      const response = agent.reportKey
+        ? { ...await this.ownerReports.run(agent.ownerId, agent.reportKey, agent.timezone, startedAt), used: agent.reportKey, pendingAction: null }
+        : await this.businessAgent.run(agent.ownerId, instruction, []);
       run.result = { reply: response.reply, used: response.used, data: response.data };
       run.summary = response.reply;
 

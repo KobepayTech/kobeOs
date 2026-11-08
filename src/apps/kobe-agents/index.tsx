@@ -17,6 +17,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import OperatingControl from './OperatingControl';
 
 type Frequency = 'HOURLY' | 'DAILY' | 'WEEKLY';
@@ -28,6 +29,7 @@ interface ScheduledAgent {
   id: string;
   name: string;
   objective: string;
+  reportKey?: string | null;
   frequency: Frequency;
   timeOfDay: string;
   intervalHours: number;
@@ -59,7 +61,16 @@ interface AgentRun {
   wasAutomaticAction: boolean;
 }
 
+interface OwnerReportPreset {
+  key: string;
+  name: string;
+  objective: string;
+  timeOfDay: string;
+  modules: string[];
+}
+
 interface Metadata {
+  ownerReports?: OwnerReportPreset[];
   modules: string[];
   writeTools: string[];
   approvalModes: ApprovalMode[];
@@ -96,11 +107,12 @@ export default function KobeAgentsApp() {
   const [health, setHealth] = useState<AiHealth | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
+  const [ownerPreset, setOwnerPreset] = useState<OwnerReportPreset | null>(null);
   const [template, setTemplate] = useState<(typeof templates)[number] | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<'agents' | 'runs' | 'operating'>('operating');
+  const [view, setView] = useState<'agents' | 'runs' | 'operating' | 'owner'>('operating');
 
   const load = useCallback(async () => {
     setLoading(true); setError(null);
@@ -109,7 +121,7 @@ export default function KobeAgentsApp() {
         api<ScheduledAgent[]>('/ai/agents'),
         api<AgentRun[]>('/ai/agents/runs'),
         api<Metadata>('/ai/agents/metadata'),
-        api<AiHealth>('/ai/health'),
+        api<AiHealth>('/ai/health', { offlineFallback: false }).catch(() => null),
       ]);
       setAgents(Array.isArray(agentRows) ? agentRows : []);
       setRuns(Array.isArray(runRows) ? runRows : []);
@@ -131,8 +143,9 @@ export default function KobeAgentsApp() {
         if (!window.confirm(`Delete agent “${agent.name}” and keep its audit history?`)) return;
         await api(`/ai/agents/${agent.id}`, { method: 'DELETE' });
       } else {
-        await api(`/ai/agents/${agent.id}/${kind}`, { method: 'POST', body: kind === 'test' ? JSON.stringify({ executeAutomaticAction: false }) : undefined });
+        await api(`/ai/agents/${agent.id}/${kind}`, { method: 'POST', offlineFallback: false, body: kind === 'test' ? JSON.stringify({ executeAutomaticAction: false }) : undefined });
       }
+      if (kind === 'test' && agent.reportKey) { setSelectedId(agent.id); setView('agents'); }
       await load();
     } catch (reason) { setError(reason instanceof Error ? reason.message : `Could not ${kind} agent.`); }
     finally { setBusyId(null); }
@@ -148,7 +161,13 @@ export default function KobeAgentsApp() {
   const create = async (payload: Record<string, unknown>) => {
     setBusyId('create'); setError(null);
     try {
-      const created = await api<ScheduledAgent>('/ai/agents', { method: 'POST', body: JSON.stringify(payload) });
+      const existingReport = ownerPreset && agents.find(agent => agent.reportKey === ownerPreset.key);
+      const created = existingReport
+        ? await api<ScheduledAgent>(`/ai/agents/${existingReport.id}`, { method: 'PATCH', offlineFallback: false,
+          body: JSON.stringify({ timeOfDay: payload.timeOfDay, timezone: payload.timezone }) })
+        : await api<ScheduledAgent>('/ai/agents', { method: 'POST', offlineFallback: false, body: JSON.stringify(payload) });
+      if (ownerPreset) setView('agents');
+      setOwnerPreset(null);
       setShowCreate(false); setTemplate(null); setSelectedId(created.id); await load();
     } catch (reason) { setError(reason instanceof Error ? reason.message : 'Could not create agent.'); }
     finally { setBusyId(null); }
@@ -164,14 +183,51 @@ export default function KobeAgentsApp() {
           <button onClick={() => void load()} className="grid h-9 w-9 place-items-center rounded-xl border border-slate-200 text-slate-500"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /></button>
           <button onClick={() => { setTemplate(null); setShowCreate(true); }} className="inline-flex h-9 items-center gap-1.5 rounded-xl bg-violet-600 px-4 text-xs font-extrabold text-white hover:bg-violet-500"><Plus className="h-3.5 w-3.5" />Create agent</button>
         </div>
-        <div className="mt-3 flex items-center gap-1"><button onClick={() => setView('operating')} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${view === 'operating' ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>AI Operating Layer</button><button onClick={() => setView('agents')} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${view === 'agents' ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>Scheduled Agents</button><button onClick={() => setView('runs')} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${view === 'runs' ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>Run history {awaiting > 0 && <span className="ml-1 rounded-full bg-amber-400 px-1.5 text-slate-900">{awaiting}</span>}</button></div>
+        <div className="mt-3 flex flex-wrap items-center gap-1"><button onClick={() => setView('owner')} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${view === 'owner' ? 'bg-slate-900 text-white' : 'bg-violet-50 text-violet-700'}`}>Shop owner reports</button><button onClick={() => setView('operating')} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${view === 'operating' ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>AI Operating Layer</button><button onClick={() => setView('agents')} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${view === 'agents' ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>Scheduled Agents</button><button onClick={() => setView('runs')} className={`rounded-lg px-3 py-1.5 text-xs font-bold ${view === 'runs' ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>Run history {awaiting > 0 && <span className="ml-1 rounded-full bg-amber-400 px-1.5 text-slate-900">{awaiting}</span>}</button></div>
       </header>
 
       <main className="min-h-0 flex-1 overflow-auto p-5">
         {error && <div className="mb-4 flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-700"><AlertCircle className="h-4 w-4" />{error}</div>}
-        {!health?.running && !loading && <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4"><div className="flex items-center gap-2 font-extrabold text-amber-800"><AlertCircle className="h-4 w-4" />Kobe AI runtime needs attention</div><p className="mt-1 text-xs text-amber-700">Start Ollama and install a recommended chat model. Scheduled agents retain their next-run state and retry safely after the runtime returns.</p>{health?.lastError && <div className="mt-2 font-mono text-[10px] text-amber-600">{health.lastError}</div>}</div>}
+        {!health?.running && !loading && <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4"><div className="flex items-center gap-2 font-extrabold text-amber-800"><AlertCircle className="h-4 w-4" />Kobe AI runtime needs attention</div><p className="mt-1 text-xs text-amber-700">Owner reports use recorded ERP data and can run while the AI model is offline. For conversational agents, start Ollama and install a recommended chat model. Scheduled agents retain their next-run state and retry safely after the runtime returns.</p>{health?.lastError && <div className="mt-2 font-mono text-[10px] text-amber-600">{health.lastError}</div>}</div>}
 
         {view === 'operating' && <OperatingControl />}
+        {view === 'owner' && (
+          <section className="space-y-4">
+            <div>
+              <h2 className="text-lg font-extrabold">Shop owner reports</h2>
+              <p className="text-sm text-slate-500">Schedule a report or test it immediately. Reports use the records on this KobeOS server and appear in Run history.</p>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              {(metadata?.ownerReports ?? []).map(report => {
+                const agent = agents.find(item => item.reportKey === report.key);
+                return (
+                  <article key={report.key} className="flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <h3 className="font-extrabold">{report.name}</h3>
+                      {agent && <AgentStatusPill status={agent.status} />}
+                    </div>
+                    <p className="flex-1 text-sm text-slate-600">{report.objective}</p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs text-slate-500">{agent ? scheduleText(agent) : `Suggested daily time ${report.timeOfDay}`}</p>
+                      <div className="flex flex-wrap justify-end gap-2">
+                      {agent && <button disabled={!!busyId} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold"
+                        onClick={() => setOwnerPreset(report)}>Edit schedule</button>}
+                      <button disabled={!!busyId} className="rounded-xl bg-violet-600 px-4 py-2 text-xs font-bold text-white disabled:opacity-50"
+                        onClick={() => {
+                          if (agent) { setSelectedId(agent.id); setView('agents'); }
+                          else setOwnerPreset(report);
+                        }}>
+                        {agent ? 'Open agent' : 'Set up report'}
+                      </button>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+            {!loading && !metadata?.ownerReports?.length && <p className="text-sm text-slate-500">Owner reports are unavailable on this server.</p>}
+          </section>
+        )}
 
         {view === 'agents' && (
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
@@ -186,8 +242,49 @@ export default function KobeAgentsApp() {
         {view === 'runs' && <RunTable runs={runs} busyId={busyId} onDecide={decide} agents={agents} />}
       </main>
 
+      {ownerPreset && <OwnerReportForm preset={ownerPreset} agent={agents.find(agent => agent.reportKey === ownerPreset.key)} busy={busyId === 'create'} error={error}
+        onClose={() => { setOwnerPreset(null); setError(null); }} onSave={create} />}
       {showCreate && metadata && <AgentForm metadata={metadata} template={template} saving={busyId === 'create'} onClose={() => { setShowCreate(false); setTemplate(null); }} onSave={create} />}
     </div>
+  );
+}
+
+function OwnerReportForm({ preset, agent, busy, error, onClose, onSave }: {
+  preset: OwnerReportPreset;
+  agent?: ScheduledAgent;
+  busy: boolean;
+  error: string | null;
+  onClose: () => void;
+  onSave: (payload: Record<string, unknown>) => Promise<void>;
+}) {
+  const [timeOfDay, setTimeOfDay] = useState(agent?.timeOfDay ?? preset.timeOfDay);
+  const [timezone, setTimezone] = useState(agent?.timezone ?? 'Africa/Dar_es_Salaam');
+  return (
+    <Dialog open onOpenChange={open => { if (!open && !busy) onClose(); }}>
+      <DialogContent className="max-w-md rounded-3xl bg-white text-slate-900" showCloseButton={false}>
+      <form className="space-y-4"
+        onSubmit={event => {
+          event.preventDefault();
+          void onSave({ reportKey: preset.key, name: preset.name, objective: preset.objective,
+            frequency: 'DAILY', timeOfDay, timezone, allowedModules: preset.modules,
+            allowedTools: [], approvalMode: 'DRAFT_ONLY', outputDestination: 'KOBEOS_INBOX', enabled: true });
+        }}>
+        <DialogTitle>{preset.name}</DialogTitle>
+        <DialogDescription className="text-slate-600">{preset.objective}</DialogDescription>
+        <label className="block"><span className={label}>Run every day at</span>
+          <input required type="time" className={field} value={timeOfDay} onChange={event => setTimeOfDay(event.target.value)} />
+        </label>
+        <label className="block"><span className={label}>Shop timezone</span>
+          <input required className={field} value={timezone} onChange={event => setTimezone(event.target.value)} />
+        </label>
+        {error && <p role="alert" className="text-sm text-rose-700">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <button type="button" disabled={busy} onClick={onClose} className="rounded-xl border px-3 py-2 text-sm">Cancel</button>
+          <button disabled={busy} className="rounded-xl bg-violet-600 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">{busy ? 'Saving…' : agent ? 'Save schedule' : 'Schedule report'}</button>
+        </div>
+      </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -208,8 +305,8 @@ function AgentForm({ metadata, template, saving, onClose, onSave }: { metadata: 
 }
 
 function Selector({ title, values, selected, onChange }: { title: string; values: string[]; selected: string[]; onChange: (values: string[]) => void }) { return <div><span className={label}>{title}</span><div className="flex flex-wrap gap-2">{values.map((value) => { const active = selected.includes(value); return <button type="button" key={value} onClick={() => onChange(active ? selected.filter((item) => item !== value) : [...selected, value])} className={`rounded-xl border px-3 py-1.5 text-[10px] font-bold ${active ? 'border-violet-500 bg-violet-50 text-violet-700' : 'border-slate-200 text-slate-500'}`}>{value.replaceAll('_', ' ')}</button>; })}</div></div>; }
-function AgentDetail({ agent, runs, busyId, onAction }: { agent: ScheduledAgent | null; runs: AgentRun[]; busyId: string | null; onAction: (agent: ScheduledAgent, action: 'pause' | 'resume' | 'test' | 'delete') => Promise<void> }) { if (!agent) return <aside className="grid min-h-72 place-items-center rounded-2xl border border-dashed border-slate-300 bg-white p-5 text-center text-sm text-slate-400">Select an agent to see permissions, schedule, and recent runs.</aside>; const busy = busyId === agent.id; return <aside className="h-fit rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-start gap-3"><div className="grid h-11 w-11 place-items-center rounded-xl bg-violet-50 text-violet-600"><Bot className="h-5 w-5" /></div><div className="min-w-0 flex-1"><div className="font-extrabold">{agent.name}</div><div className="text-[10px] text-slate-500">{scheduleText(agent)}</div></div><AgentStatusPill status={agent.status} /></div><p className="mt-4 text-xs leading-relaxed text-slate-600">{agent.objective}</p><div className="mt-4 grid grid-cols-2 gap-2"><Mini label="Next run" value={new Date(agent.nextRunAt).toLocaleString()} /><Mini label="Last success" value={agent.lastSuccessAt ? new Date(agent.lastSuccessAt).toLocaleString() : 'Never'} /><Mini label="Approval" value={agent.approvalMode.replaceAll('_', ' ')} /><Mini label="Failures" value={String(agent.consecutiveFailures)} /></div><div className="mt-3"><div className="text-[9px] font-bold uppercase text-slate-400">Allowed tools</div><div className="mt-1 text-xs text-slate-600">{agent.allowedTools.length ? agent.allowedTools.join(', ') : 'Read-only'}</div></div>{agent.lastError && <div className="mt-3 rounded-xl bg-rose-50 p-2 text-[10px] text-rose-700">{agent.lastError}</div>}<div className="mt-4 grid grid-cols-2 gap-2"><button onClick={() => void onAction(agent, 'test')} disabled={busy} className="inline-flex h-9 items-center justify-center gap-1 rounded-xl bg-violet-600 text-xs font-bold text-white"><Zap className="h-3.5 w-3.5" />Test run</button><button onClick={() => void onAction(agent, agent.status === 'PAUSED' || agent.status === 'ERROR' ? 'resume' : 'pause')} disabled={busy} className="inline-flex h-9 items-center justify-center gap-1 rounded-xl border border-slate-300 text-xs font-bold">{agent.status === 'PAUSED' || agent.status === 'ERROR' ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}{agent.status === 'PAUSED' || agent.status === 'ERROR' ? 'Resume' : 'Pause'}</button></div><button onClick={() => void onAction(agent, 'delete')} disabled={busy} className="mt-2 inline-flex h-9 w-full items-center justify-center gap-1 rounded-xl bg-rose-50 text-xs font-bold text-rose-700"><Trash2 className="h-3.5 w-3.5" />Delete agent</button><div className="mt-4 border-t border-slate-100 pt-3"><div className="mb-2 flex items-center gap-1 text-[10px] font-bold uppercase text-slate-400"><History className="h-3 w-3" />Recent runs</div>{runs.slice(0, 5).map((run) => <div key={run.id} className="mb-2 rounded-xl bg-slate-50 p-2"><div className="flex items-center justify-between gap-2"><RunStatusPill status={run.status} /><span className="text-[9px] text-slate-400">{new Date(run.startedAt).toLocaleString()}</span></div><div className="mt-1 line-clamp-2 text-[10px] text-slate-600">{run.summary || run.error}</div></div>)}{!runs.length && <div className="text-xs text-slate-400">No runs yet.</div>}</div></aside>; }
-function RunTable({ runs, agents, busyId, onDecide }: { runs: AgentRun[]; agents: ScheduledAgent[]; busyId: string | null; onDecide: (run: AgentRun, decision: 'approve' | 'reject') => Promise<void> }) { const names = new Map(agents.map((agent) => [agent.id, agent.name])); return <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><div className="overflow-x-auto"><table className="w-full min-w-[900px] text-xs"><thead className="bg-slate-50 text-left text-slate-500"><tr><th className="p-3">Started</th><th className="p-3">Agent</th><th className="p-3">Status</th><th className="p-3">Result</th><th className="p-3">Action</th><th className="p-3"></th></tr></thead><tbody>{runs.map((run) => <tr key={run.id} className="border-t border-slate-100 align-top"><td className="p-3 whitespace-nowrap">{new Date(run.startedAt).toLocaleString()}</td><td className="p-3 font-bold">{names.get(run.agentId) || 'Deleted agent'}</td><td className="p-3"><RunStatusPill status={run.status} /></td><td className="max-w-md p-3 text-slate-600">{run.summary || run.error || '—'}</td><td className="p-3">{run.pendingAction ? <div><div className="font-mono text-[10px] font-bold text-violet-700">{run.pendingAction.tool}</div><div className="mt-1 max-w-xs text-[10px] text-slate-500">{run.pendingAction.summary}</div></div> : run.wasAutomaticAction ? <span className="text-[10px] font-bold text-rose-600">Automatic action recorded</span> : '—'}</td><td className="p-3">{run.status === 'AWAITING_APPROVAL' && <div className="flex gap-1"><button onClick={() => void onDecide(run, 'approve')} disabled={busyId === run.id} className="inline-flex h-8 items-center gap-1 rounded-lg bg-emerald-600 px-2 text-[10px] font-bold text-white"><CheckCircle2 className="h-3 w-3" />Approve</button><button onClick={() => void onDecide(run, 'reject')} disabled={busyId === run.id} className="inline-flex h-8 items-center gap-1 rounded-lg bg-rose-50 px-2 text-[10px] font-bold text-rose-700"><XCircle className="h-3 w-3" />Reject</button></div>}</td></tr>)}</tbody></table></div>{!runs.length && <div className="p-10 text-center text-sm text-slate-400">No agent runs yet.</div>}</section>; }
+function AgentDetail({ agent, runs, busyId, onAction }: { agent: ScheduledAgent | null; runs: AgentRun[]; busyId: string | null; onAction: (agent: ScheduledAgent, action: 'pause' | 'resume' | 'test' | 'delete') => Promise<void> }) { if (!agent) return <aside className="grid min-h-72 place-items-center rounded-2xl border border-dashed border-slate-300 bg-white p-5 text-center text-sm text-slate-400">Select an agent to see permissions, schedule, and recent runs.</aside>; const busy = busyId === agent.id; return <aside className="h-fit rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"><div className="flex items-start gap-3"><div className="grid h-11 w-11 place-items-center rounded-xl bg-violet-50 text-violet-600"><Bot className="h-5 w-5" /></div><div className="min-w-0 flex-1"><div className="font-extrabold">{agent.name}</div><div className="text-[10px] text-slate-500">{scheduleText(agent)}</div></div><AgentStatusPill status={agent.status} /></div><p className="mt-4 text-xs leading-relaxed text-slate-600">{agent.objective}</p><div className="mt-4 grid grid-cols-2 gap-2"><Mini label="Next run" value={new Date(agent.nextRunAt).toLocaleString()} /><Mini label="Last success" value={agent.lastSuccessAt ? new Date(agent.lastSuccessAt).toLocaleString() : 'Never'} /><Mini label="Approval" value={agent.approvalMode.replaceAll('_', ' ')} /><Mini label="Failures" value={String(agent.consecutiveFailures)} /></div><div className="mt-3"><div className="text-[9px] font-bold uppercase text-slate-400">Allowed tools</div><div className="mt-1 text-xs text-slate-600">{agent.allowedTools.length ? agent.allowedTools.join(', ') : 'Read-only'}</div></div>{agent.lastError && <div className="mt-3 rounded-xl bg-rose-50 p-2 text-[10px] text-rose-700">{agent.lastError}</div>}<div className="mt-4 grid grid-cols-2 gap-2"><button onClick={() => void onAction(agent, 'test')} disabled={busy} className="inline-flex h-9 items-center justify-center gap-1 rounded-xl bg-violet-600 text-xs font-bold text-white"><Zap className="h-3.5 w-3.5" />Test run</button><button onClick={() => void onAction(agent, agent.status === 'PAUSED' || agent.status === 'ERROR' ? 'resume' : 'pause')} disabled={busy} className="inline-flex h-9 items-center justify-center gap-1 rounded-xl border border-slate-300 text-xs font-bold">{agent.status === 'PAUSED' || agent.status === 'ERROR' ? <Play className="h-3.5 w-3.5" /> : <Pause className="h-3.5 w-3.5" />}{agent.status === 'PAUSED' || agent.status === 'ERROR' ? 'Resume' : 'Pause'}</button></div><button onClick={() => void onAction(agent, 'delete')} disabled={busy} className="mt-2 inline-flex h-9 w-full items-center justify-center gap-1 rounded-xl bg-rose-50 text-xs font-bold text-rose-700"><Trash2 className="h-3.5 w-3.5" />Delete agent</button><div className="mt-4 border-t border-slate-100 pt-3"><div className="mb-2 flex items-center gap-1 text-[10px] font-bold uppercase text-slate-400"><History className="h-3 w-3" />Recent runs</div>{runs.slice(0, 5).map((run) => <div key={run.id} className="mb-2 rounded-xl bg-slate-50 p-2"><div className="flex items-center justify-between gap-2"><RunStatusPill status={run.status} /><span className="text-[9px] text-slate-400">{new Date(run.startedAt).toLocaleString()}</span></div><details className="mt-2 text-xs text-slate-600"><summary className="cursor-pointer font-semibold">Read report</summary><p className="mt-2 whitespace-pre-wrap">{run.summary || run.error || 'Report pending.'}</p></details></div>)}{!runs.length && <div className="text-xs text-slate-400">No runs yet.</div>}</div></aside>; }
+function RunTable({ runs, agents, busyId, onDecide }: { runs: AgentRun[]; agents: ScheduledAgent[]; busyId: string | null; onDecide: (run: AgentRun, decision: 'approve' | 'reject') => Promise<void> }) { const names = new Map(agents.map((agent) => [agent.id, agent.name])); return <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"><div className="overflow-x-auto"><table className="w-full min-w-[900px] text-xs"><thead className="bg-slate-50 text-left text-slate-500"><tr><th className="p-3">Started</th><th className="p-3">Agent</th><th className="p-3">Status</th><th className="p-3">Result</th><th className="p-3">Action</th><th className="p-3"></th></tr></thead><tbody>{runs.map((run) => <tr key={run.id} className="border-t border-slate-100 align-top"><td className="p-3 whitespace-nowrap">{new Date(run.startedAt).toLocaleString()}</td><td className="p-3 font-bold">{names.get(run.agentId) || 'Deleted agent'}</td><td className="p-3"><RunStatusPill status={run.status} /></td><td className="max-w-md p-3 text-slate-600"><details><summary className="cursor-pointer">Read result</summary><p className="mt-2 whitespace-pre-wrap">{run.summary || run.error || '—'}</p></details></td><td className="p-3">{run.pendingAction ? <div><div className="font-mono text-[10px] font-bold text-violet-700">{run.pendingAction.tool}</div><div className="mt-1 max-w-xs text-[10px] text-slate-500">{run.pendingAction.summary}</div></div> : run.wasAutomaticAction ? <span className="text-[10px] font-bold text-rose-600">Automatic action recorded</span> : '—'}</td><td className="p-3">{run.status === 'AWAITING_APPROVAL' && <div className="flex gap-1"><button onClick={() => void onDecide(run, 'approve')} disabled={busyId === run.id} className="inline-flex h-8 items-center gap-1 rounded-lg bg-emerald-600 px-2 text-[10px] font-bold text-white"><CheckCircle2 className="h-3 w-3" />Approve</button><button onClick={() => void onDecide(run, 'reject')} disabled={busyId === run.id} className="inline-flex h-8 items-center gap-1 rounded-lg bg-rose-50 px-2 text-[10px] font-bold text-rose-700"><XCircle className="h-3 w-3" />Reject</button></div>}</td></tr>)}</tbody></table></div>{!runs.length && <div className="p-10 text-center text-sm text-slate-400">No agent runs yet.</div>}</section>; }
 function Mini({ label, value }: { label: string; value: string }) { return <div className="rounded-xl bg-slate-50 p-2.5"><div className="text-[9px] font-bold uppercase text-slate-400">{label}</div><div className="mt-0.5 text-[10px] font-extrabold text-slate-700">{value}</div></div>; }
 function AgentStatusPill({ status }: { status: AgentStatus }) { const cls = status === 'ACTIVE' ? 'bg-emerald-50 text-emerald-700' : status === 'ERROR' ? 'bg-rose-50 text-rose-700' : status === 'RUNNING' ? 'bg-violet-50 text-violet-700' : 'bg-slate-100 text-slate-600'; return <span className={`rounded-full px-2 py-1 text-[9px] font-extrabold ${cls}`}>{status}</span>; }
 function RunStatusPill({ status }: { status: RunStatus }) { const cls = status === 'SUCCEEDED' ? 'bg-emerald-50 text-emerald-700' : status === 'AWAITING_APPROVAL' ? 'bg-amber-50 text-amber-700' : status === 'FAILED' ? 'bg-rose-50 text-rose-700' : status === 'RUNNING' ? 'bg-violet-50 text-violet-700' : 'bg-slate-100 text-slate-600'; return <span className={`rounded-full px-2 py-1 text-[9px] font-extrabold ${cls}`}>{status.replaceAll('_', ' ')}</span>; }

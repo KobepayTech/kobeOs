@@ -17,6 +17,7 @@ import { AgentExecutionService } from './agent-execution.service';
 import { AiChatMessage, AiChatThread } from './ai-chat.entity';
 import { AiChatService } from './ai-chat.service';
 import { AiDocument, AiDocChunk } from './ai-document.entity';
+import { OwnerReportService } from './owner-report.service';
 import { ScheduledAgentService } from './scheduled-agent.service';
 import { AiAgentRun, AiScheduledAgent } from './scheduled-agent.entity';
 import {
@@ -54,7 +55,7 @@ import { OcrModule } from '../ocr/ocr.module';
     SystemHealthModule,
     OcrModule,
   ],
-  providers: [PropertyInsightsService,AiService, KobeAgentService, ScheduledAgentService, AiDocsService, AiOperatingService, PdfDocumentService, AiChatService, AgentExecutionService, GuardrailService],
+  providers: [PropertyInsightsService,AiService, KobeAgentService, ScheduledAgentService, OwnerReportService, AiDocsService, AiOperatingService, PdfDocumentService, AiChatService, AgentExecutionService, GuardrailService],
   controllers: [AiController, ScheduledAgentController, AiOperatingController],
   exports: [PropertyInsightsService,AiService, KobeAgentService, ScheduledAgentService, AiDocsService, AiOperatingService, PdfDocumentService, AiChatService, AgentExecutionService, GuardrailService],
 })
