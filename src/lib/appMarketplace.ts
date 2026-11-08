@@ -34,6 +34,7 @@ export const CORE_APP_IDS = [
   'package-manager',
   'settings',
   'file-manager',
+  'cargo-tz-ops',
 ] as const;
 
 const ENTITLEMENT_CACHE_KEY = 'kobeos.app.entitlements.v1';

@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api } from '@/lib/api';
+import { api, ApiError, getRefreshToken, getToken } from '@/lib/api';
+import LoginScreen from '@/components/LoginScreen';
 import { useQRScanner } from '@/hooks/useQRScanner';
 import { usePwaManifest } from '@/hooks/usePwaManifest';
 import { InstallPwaButton } from '@/mobile/InstallPwaButton';
-import { QRCodeSVG } from 'qrcode.react';
+import { LabelPrintStyles, ParcelLabel, trackingFromScan } from './parcel-label';
+import { CollectorInvites, PendingHandoffs } from './handoffs';
 import {
   PackagePlus, Warehouse, LayoutDashboard, Camera, Loader2, CheckCircle2, Printer, Plus,
   Truck, MapPin, Clock, Wallet, PackageCheck, X, Search, ArrowRight, AlertCircle,
@@ -23,7 +25,7 @@ interface Full { parcel: Parcel; warehouse: Warehouse2 | null; timeline: Timelin
 interface Dash { cards: { receivedToday: number; inWarehouse: number; dispatched: number; delivered: number; cashCollected: number; outstanding: number; totalParcels: number }; byStatus: { status: string; count: number }[]; trend: { date: string; parcels: number; revenue: number }[] }
 
 const ADVANCE = ['AT_WAREHOUSE', 'PACKED', 'LOADED', 'IN_TRANSIT', 'ARRIVED', 'READY_FOR_PICKUP', 'DELIVERED'];
-const LABEL: Record<string, string> = { RECEIVED_AT_SHOP: 'Received', AT_WAREHOUSE: 'At warehouse', PACKED: 'Packed', LOADED: 'Loaded', IN_TRANSIT: 'In transit', ARRIVED: 'Arrived', READY_FOR_PICKUP: 'Ready for pickup', DELIVERED: 'Delivered', CANCELLED: 'Cancelled' };
+const LABEL: Record<string, string> = { AWAITING_HANDOFF: 'Awaiting handoff', RECEIVED_AT_SHOP: 'Received', AT_WAREHOUSE: 'At warehouse', PACKED: 'Packed', LOADED: 'Loaded', IN_TRANSIT: 'In transit', ARRIVED: 'Arrived', READY_FOR_PICKUP: 'Ready for pickup', DELIVERED: 'Delivered', CANCELLED: 'Cancelled' };
 const tsh = (n: number | string) => `TSh ${Number(n || 0).toLocaleString()}`;
 const CHART = ['#10b981', '#6366f1', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#14b8a6'];
 
@@ -33,26 +35,36 @@ const ROLE_META: Record<'intake' | 'warehouse' | 'dashboard', { slug: string; na
   dashboard: { slug: 'owner', name: 'Cargo TZ · Owner', short: 'CTZ Owner', icon: '/ctz-owner', theme: '#d97706' },
 };
 
-export default function CargoTzOps({ role }: { role?: 'intake' | 'warehouse' | 'dashboard' }) {
+export default function CargoTzOps({ role, standaloneBase }: {
+  role?: 'intake' | 'warehouse' | 'dashboard';
+  standaloneBase?: string;
+} = {}) {
+  const [signedIn, setSignedIn] = useState(() => Boolean(getToken() || getRefreshToken()));
   const [tab, setTab] = useState<'intake' | 'warehouse' | 'dashboard'>(role ?? 'intake');
   const [pin, setPin] = useState('');
 
   // Route-scoped installable PWA: installing while on a tab adds a home-screen
   // app for THAT role (e.g. "Cargo TZ · Warehouse" opening at /cargotz/warehouse),
   // so each staffer gets their own app. Only meaningful on the standalone URL.
-  const standalone = typeof window !== 'undefined' && /^\/cargotz(\/|$)/.test(window.location.pathname);
+  const standalone = Boolean(standaloneBase);
   const meta = ROLE_META[tab];
-  usePwaManifest({ name: meta.name, shortName: meta.short, startUrl: `/cargotz/${meta.slug}`, iconBase: meta.icon, themeColor: meta.theme, enabled: standalone });
+  usePwaManifest({ name: meta.name, shortName: meta.short, startUrl: `${standaloneBase ?? '/cargotz'}/${meta.slug}`, iconBase: meta.icon, themeColor: meta.theme, enabled: standalone });
   useEffect(() => {
-    if (standalone && window.location.pathname !== `/cargotz/${meta.slug}`) {
-      window.history.replaceState(null, '', `/cargotz/${meta.slug}`);
+    const route = `${standaloneBase}/${meta.slug}`;
+    if (standaloneBase && window.location.pathname !== route) {
+      window.history.replaceState(null, '', route + window.location.search);
     }
-  }, [standalone, meta.slug]);
+  }, [standaloneBase, meta.slug]);
   const apiPin = useCallback(<T,>(path: string, init: RequestInit = {}) => {
     const headers = new Headers(init.headers);
     if (pin.trim()) headers.set('x-ctz-pin', pin.trim());
-    return api<T>(path, { ...init, headers });
-  }, [pin]);
+    return api<T>(path, { ...init, headers, offlineFallback: false }).catch((cause: unknown) => {
+      if (standalone && cause instanceof ApiError && cause.status === 401) setSignedIn(false);
+      throw cause;
+    });
+  }, [pin, standalone]);
+
+  if (standalone && !signedIn) return <LoginScreen onLogin={() => setSignedIn(true)} />;
 
   const tabs = [
     { key: 'intake', label: 'Receive', Icon: PackagePlus },
@@ -63,7 +75,7 @@ export default function CargoTzOps({ role }: { role?: 'intake' | 'warehouse' | '
   return (
     <div className="h-full flex flex-col bg-[#f6f8fc] text-slate-900 overflow-hidden" data-surface="light" data-module="cargo-tz-ops">
       <div className="flex items-center justify-between px-4 py-3 bg-white text-slate-900 border-b border-slate-200 shrink-0">
-        <div className="flex items-center gap-2"><div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center"><PackageCheck className="w-4 h-4 text-white" /></div><div><span className="font-extrabold">Cargo TZ</span><span className="block text-[10px] text-slate-500">Domestic operations</span></div></div>
+        <div className="flex items-center gap-2"><div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center"><PackageCheck className="w-4 h-4 text-white" /></div><div><span className="font-extrabold">CargoTZ</span><span className="block text-[10px] text-slate-500">Domestic operations</span></div></div>
         <div className="flex items-center gap-2">
           {standalone && <InstallPwaButton />}
           <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))} placeholder="Staff PIN" inputMode="numeric"
@@ -78,9 +90,22 @@ export default function CargoTzOps({ role }: { role?: 'intake' | 'warehouse' | '
         ))}
       </div>
       <div className="flex-1 overflow-auto">
-        {tab === 'intake' && <IntakeTab apiPin={apiPin} />}
+        {tab === 'intake' && (
+          <>
+            <div className="mx-auto max-w-3xl px-4 pt-4"><PendingHandoffs api={apiPin} Scanner={Scanner} /></div>
+            <details className="mx-auto max-w-3xl p-4">
+              <summary className="cursor-pointer rounded-xl border bg-white p-3 text-sm font-semibold">Manual intake for walk-in parcels</summary>
+              <IntakeTab apiPin={apiPin} />
+            </details>
+          </>
+        )}
         {tab === 'warehouse' && <WarehouseTab apiPin={apiPin} />}
-        {tab === 'dashboard' && <DashboardTab apiPin={apiPin} />}
+        {tab === 'dashboard' && (
+          <>
+            {!pin && <div className="mx-auto max-w-5xl px-4 pt-4"><CollectorInvites api={apiPin} /></div>}
+            <DashboardTab apiPin={apiPin} />
+          </>
+        )}
       </div>
     </div>
   );
@@ -107,21 +132,17 @@ function IntakeTab({ apiPin }: { apiPin: <T,>(p: string, i?: RequestInit) => Pro
   };
 
   if (done) {
-    const url = `${window.location.origin}/ctz/${done.trackingNumber}`;
     return (
       <div className="p-4 max-w-md mx-auto text-center space-y-4">
         <CheckCircle2 className="w-14 h-14 text-emerald-500 mx-auto" />
         <div><div className="text-sm text-slate-500">Parcel received</div><div className="text-2xl font-extrabold font-mono">{done.trackingNumber}</div></div>
-        <div className="bg-white rounded-2xl border border-slate-200 p-5 inline-block">
-          <QRCodeSVG value={done.trackingNumber} size={180} />
-          <div className="text-[11px] text-slate-400 mt-2">Scan at the warehouse or to track</div>
-        </div>
+        <LabelPrintStyles />
+        <div className="ctz-print-labels"><ParcelLabel parcel={done} /></div>
         <div className="text-sm text-slate-600">{done.origin} → {done.destination} · {done.receiverName}</div>
         <div className="flex gap-2">
           <button onClick={() => window.print()} className="flex-1 h-11 rounded-xl bg-slate-800 text-white font-bold inline-flex items-center justify-center gap-2"><Printer className="w-4 h-4" /> Print</button>
           <button onClick={() => { setDone(null); setF(empty); }} className="flex-1 h-11 rounded-xl bg-emerald-600 text-white font-bold inline-flex items-center justify-center gap-2"><Plus className="w-4 h-4" /> New parcel</button>
         </div>
-        <a href={url} target="_blank" rel="noreferrer" className="text-xs text-emerald-600 underline inline-flex items-center gap-1">Open tracking page <ArrowRight className="w-3 h-3" /></a>
       </div>
     );
   }
@@ -182,14 +203,15 @@ function WarehouseTab({ apiPin }: { apiPin: <T,>(p: string, i?: RequestInit) => 
   const [busy, setBusy] = useState(false);
 
   const load = useCallback(async (key: string) => {
-    if (!key.trim()) return;
+    const tracking = trackingFromScan(key) || key.trim().toUpperCase();
+    if (!tracking) return;
     setLoading(true); setError(null);
-    try { const f = await apiPin<Full>(`/cargotz/parcels/${encodeURIComponent(key.trim().toUpperCase())}`); setFull(f); setPack((p) => ({ ...p, ...(f.warehouse || {}) })); }
+    try { const f = await apiPin<Full>(`/cargotz/parcels/${encodeURIComponent(tracking)}`); setFull(f); setPack((p) => ({ ...p, ...(f.warehouse || {}) })); }
     catch (e) { setError((e as Error).message || 'Not found'); setFull(null); }
     finally { setLoading(false); }
   }, [apiPin]);
 
-  const onScan = (raw: string) => { setScanning(false); const m = raw.match(/CTZ-\d{8}-\d{6}/i); const t = m ? m[0] : raw.trim(); setTn(t.toUpperCase()); load(t); };
+  const onScan = (raw: string) => { setScanning(false); const t = trackingFromScan(raw) || raw.trim(); setTn(t.toUpperCase()); load(t); };
 
   const doPack = async () => {
     if (!full) return;
@@ -224,6 +246,7 @@ function WarehouseTab({ apiPin }: { apiPin: <T,>(p: string, i?: RequestInit) => 
             <div className="text-sm"><MapPin className="w-3.5 h-3.5 inline text-slate-400" /> {full.parcel.origin} → {full.parcel.destination}
               {full.parcel.fragile && <span className="ml-2 text-[10px] font-bold text-rose-600 bg-rose-50 rounded px-1.5 py-0.5">FRAGILE</span>}</div>
             <div className="text-xs text-slate-500">{full.parcel.receiverName} · {full.parcel.receiverPhone} · {full.parcel.description}</div>
+            {full.parcel.status === 'AWAITING_HANDOFF' ? <p className="text-sm text-amber-800">Cargo intake must accept custody first.</p> : <>
             <div className="flex items-center justify-between text-sm">
               <span className="font-bold">{tsh(full.parcel.transportFee)}</span>
               {full.parcel.paymentStatus === 'PAID' ? <span className="text-emerald-600 text-xs font-bold">PAID</span> : <button onClick={markPaid} className="text-xs font-bold text-white bg-emerald-600 rounded-lg px-2 py-1 inline-flex items-center gap-1"><Wallet className="w-3 h-3" /> Mark paid</button>}
@@ -250,6 +273,7 @@ function WarehouseTab({ apiPin }: { apiPin: <T,>(p: string, i?: RequestInit) => 
                 ))}
               </div>
             </div>
+            </>}
           </div>
         </div>
       )}

@@ -105,7 +105,7 @@ export const BUNDLES: Bundle[] = [
     id: 'logistics',
     name: 'Cargo & Logistics',
     description: 'Shipments, consolidation, drivers and payments.',
-    modules: ['kobe-cargo', 'kobe-pay', 'kobe-accountant', 'kobe-connect'],
+    modules: ['kobe-cargotz', 'kobe-cargo', 'kobe-pay', 'kobe-accountant', 'kobe-connect'],
   },
   {
     id: 'finance',

@@ -1,11 +1,11 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { CtzParcel, CtzWarehouse, CtzStatusEvent, CtzStaff } from './cargotz.entity';
+import { CtzParcel, CtzWarehouse, CtzStatusEvent, CtzStaff, CtzCollectorAccess } from './cargotz.entity';
 import { CargoTzService } from './cargotz.service';
 import { CargoTzController, CargoTzTrackController } from './cargotz.controller';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([CtzParcel, CtzWarehouse, CtzStatusEvent, CtzStaff])],
+  imports: [TypeOrmModule.forFeature([CtzParcel, CtzWarehouse, CtzStatusEvent, CtzStaff, CtzCollectorAccess])],
   providers: [CargoTzService],
   controllers: [CargoTzController, CargoTzTrackController],
   exports: [CargoTzService],
