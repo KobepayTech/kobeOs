@@ -29,16 +29,17 @@ export default function MobileDiscountApprovals() {
   const [counterPrice, setCounterPrice] = useState('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+  const [loadError, setLoadError] = useState('');
 
   const load = useCallback(async () => {
-    setError('');
     try {
       const response = await api<unknown>('/discounts/requests/pending', {
         offlineFallback: false,
       });
       setRequests(apiArray<DiscountRequest>(response, ['requests']));
+      setLoadError('');
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Could not load discount requests.');
+      setLoadError(reason instanceof Error ? reason.message : 'Could not load discount requests.');
     } finally {
       setLoading(false);
     }
@@ -101,7 +102,7 @@ export default function MobileDiscountApprovals() {
         <div className="min-w-0 flex-1">
           <h2 className="text-lg font-extrabold text-slate-900">Discount approvals</h2>
           <p className="text-[11px] text-slate-500">
-            {requests.length} waiting · {money(pendingValue)} requested savings
+            {loadError ? 'Approval queue unavailable' : `${requests.length} waiting · ${money(pendingValue)} requested savings`}
           </p>
         </div>
         <button
@@ -120,6 +121,10 @@ export default function MobileDiscountApprovals() {
         <div className="grid h-52 place-items-center text-slate-400">
           <Loader2 className="h-6 w-6 animate-spin" />
         </div>
+      ) : loadError ? (
+        <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-bold text-rose-700">
+          Could not reach the approvals service. {loadError}
+        </p>
       ) : requests.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center">
           <Check className="mx-auto h-8 w-8 text-emerald-500" />

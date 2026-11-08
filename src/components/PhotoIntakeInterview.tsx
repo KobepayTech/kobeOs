@@ -13,6 +13,10 @@ export interface PhotoAnswers {
   category: string;
   price: string;
   discountPrice: string;
+  buyingPrice: string;
+  buyingCurrency: "local" | "CNY";
+  exchangeRate: string;
+  transportPerUnit: string;
   color: string;
   stock: string;
   size: string;
@@ -25,6 +29,10 @@ export const EMPTY_PHOTO_ANSWERS: PhotoAnswers = {
   category: "",
   price: "",
   discountPrice: "",
+  buyingPrice: "",
+  buyingCurrency: "local",
+  exchangeRate: "",
+  transportPerUnit: "",
   color: "",
   stock: "",
   size: "",
@@ -59,7 +67,7 @@ export default function PhotoIntakeInterview({
   const hotel = profile.businessType === "hotel";
   const variants = answers.variants;
   const fields: Array<{
-    key: Field | "variants";
+    key: Field | "variants" | "cost";
     label: string;
     optional?: boolean;
     number?: boolean;
@@ -87,6 +95,7 @@ export default function PhotoIntakeInterview({
           },
         ]
       : []),
+    ...(shop ? [{ key: "cost" as const, label: "What did each unit cost you?" }] : []),
     { key: "category", label: "Which category should I put it in?" },
     ...(hotel
       ? [
@@ -146,6 +155,9 @@ export default function PhotoIntakeInterview({
     change({ ...answers, ...patch });
   const money = (value: string) =>
     `${profile.currency} ${Number(value).toLocaleString()}`;
+  const imported = answers.buyingCurrency === "CNY";
+  const landedCost = answers.buyingPrice === "" ? null :
+    Number(answers.buyingPrice) * (imported ? Number(answers.exchangeRate) : 1) + Number(answers.transportPerUnit);
   const stock = variants.length
     ? variants.reduce((sum, row) => sum + Number(row.stock), 0)
     : Number(answers.stock);
@@ -166,7 +178,33 @@ export default function PhotoIntakeInterview({
           ? "Review this entry"
           : `Question ${question + 1} of ${fields.length}`}
       </p>
-      {field?.key === "variants" ? (
+      {field?.key === "cost" ? (
+        <fieldset disabled={busy} className="grid gap-3 sm:grid-cols-2">
+          <legend className="mb-2 text-lg font-semibold">{field.label}</legend>
+          <p className="text-sm text-slate-400 sm:col-span-2">Optional. Cost is for your team and applies to each SKU in this entry.</p>
+          <label className="text-sm">Buying currency
+            <select className={input} value={answers.buyingCurrency}
+              onChange={(event) => update({ buyingCurrency: event.target.value === "CNY" ? "CNY" : "local" })}>
+              <option value="local">{profile.currency}</option>
+              {profile.currency !== "CNY" && <option value="CNY">CNY (Chinese yuan)</option>}
+            </select>
+          </label>
+          <label className="text-sm">Buying price per unit
+            <input className={input} type="number" min={0} step="any" max={1e12}
+              value={answers.buyingPrice} onChange={(event) => update({ buyingPrice: event.target.value })} />
+          </label>
+          {imported && <label className="text-sm">{profile.currency} per 1 CNY
+            <input className={input} type="number" min={0.000001} step="any" max={1e9}
+              required={answers.buyingPrice !== ""} value={answers.exchangeRate}
+              onChange={(event) => update({ exchangeRate: event.target.value })} />
+          </label>}
+          <label className="text-sm">Transport per unit ({profile.currency})
+            <input className={input} type="number" min={0} step="any" max={1e12}
+              disabled={answers.buyingPrice === ""} value={answers.transportPerUnit}
+              onChange={(event) => update({ transportPerUnit: event.target.value })} />
+          </label>
+        </fieldset>
+      ) : field?.key === "variants" ? (
         <fieldset disabled={busy} className="space-y-3">
           <legend className="mb-2 text-lg font-semibold">{field.label}</legend>
           <p className="text-sm text-slate-400">
@@ -281,6 +319,12 @@ export default function PhotoIntakeInterview({
             {answers.discountPrice &&
               ` · Discount reference ${money(answers.discountPrice)}`}
           </p>
+          {shop && landedCost !== null && (
+            <p className="text-sm text-slate-300">
+              Landed cost {money(String(landedCost))} / unit
+              {variants.length === 0 && ` · Estimated gross profit ${money(String(Number(answers.price) - landedCost))} / unit`}
+            </p>
+          )}
           {hotel ? (
             <p className="text-sm text-slate-300">
               Rooms {answers.roomNumbers} · {answers.capacity} guests per room
@@ -295,6 +339,7 @@ export default function PhotoIntakeInterview({
             <p className="text-sm text-slate-300" key={i}>
               {[v.color, v.size].filter(Boolean).join(" / ")} · {money(v.price)}{" "}
               · {v.stock} in stock
+              {landedCost !== null && ` · Estimated gross profit ${money(String(Number(v.price) - landedCost))} / unit`}
             </p>
           ))}
         </div>

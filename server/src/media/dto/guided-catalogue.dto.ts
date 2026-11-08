@@ -24,7 +24,15 @@ export class GuidedVariantDto {
   @IsNumber() @Min(0) @Max(1e12) price!: number;
   @IsInt() @Min(0) @Max(10000000) stock!: number;
 }
+class GuidedPurchaseCostDto {
+  @IsNumber() @Min(0) @Max(1e12) unitPrice!: number;
+  @Matches(/^[A-Z]{3}$/) currency!: string;
+  @IsNumber() @Min(0.000001) @Max(1e9) exchangeRate!: number;
+  @IsNumber() @Min(0) @Max(1e12) transportPerUnit!: number;
+}
+
 export class GuidedCatalogueDto {
+  @IsOptional() @ValidateNested() @Type(() => GuidedPurchaseCostDto) purchaseCost?: GuidedPurchaseCostDto;
   @IsIn(["shop", "hotel", "restaurant", "dealership", "property"]) businessType!:
     "shop" | "hotel" | "restaurant" | "dealership" | "property";
   @IsOptional() @IsUUID() relatedEntityId?: string;

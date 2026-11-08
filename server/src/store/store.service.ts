@@ -6,6 +6,7 @@ import { randomBytes } from 'crypto';
 import { StoreSettings } from '../store-settings/store-settings.entity';
 import { PosOrder, PosOrderItem, PosProduct } from '../pos/pos.entity';
 import { WarehousePickTicket } from '../warehouse/pick-ticket.entity';
+import { publicCatalogueProduct } from './public-catalogue-product';
 import { ProductReview } from './product-review.entity';
 import { OrdersService } from '../pos/pos.service';
 import { CreateOrderDto } from '../pos/dto/pos.dto';
@@ -528,11 +529,12 @@ export class StoreService {
       const variantPrices = (p.variants ?? [])
         .map((v) => (typeof v.price === 'number' ? Number(v.price) : null))
         .filter((n): n is number => n !== null && Number.isFinite(n) && n > 0);
+      const listing = publicCatalogueProduct(p);
       if (variantPrices.length === 0) {
-        return { ...p, priceMin: null, priceMax: null };
+        return { ...listing, priceMin: null, priceMax: null };
       }
       return {
-        ...p,
+        ...listing,
         priceMin: Math.min(Number(p.price), ...variantPrices),
         priceMax: Math.max(Number(p.price), ...variantPrices),
       };

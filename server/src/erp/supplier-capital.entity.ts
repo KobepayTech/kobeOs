@@ -96,6 +96,8 @@ export interface ErpPurchaseOrderItem {
   qty: number;
   price: number;
   sellPrice?: number;
+  buyingPriceCny?: number;
+  tzsPerCny?: number;
   sku?: string;
   category?: string;
   currency?: string;

@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import ERPSourcing from '@/apps/erp-sourcing';
 import { useCargoShipments, type ApiShipment } from './useCargoShipments';
 
 const STATUS_LABEL: Record<string, string> = {
@@ -53,6 +54,21 @@ const statusIcon = (group: string) => {
 const fmtDate = (d?: string | null) => (d ? new Date(d).toISOString().split('T')[0] : '—');
 
 export default function ERPShipments() {
+  const [view, setView] = useState<'cargo' | 'incoming'>('cargo');
+  return (
+    <div className="flex h-full flex-col bg-slate-950 text-slate-100">
+      <div className="flex gap-2 border-b border-slate-800 px-4 py-2">
+        <Button size="sm" variant={view === 'cargo' ? 'default' : 'outline'} onClick={() => setView('cargo')}>Cargo tracking</Button>
+        <Button size="sm" variant={view === 'incoming' ? 'default' : 'outline'} onClick={() => setView('incoming')}>Incoming stock</Button>
+      </div>
+      <div className="min-h-0 flex-1">
+        {view === 'incoming' ? <ERPSourcing incomingOnly /> : <CargoTracking />}
+      </div>
+    </div>
+  );
+}
+
+function CargoTracking() {
   const { shipments, loading, connected, createShipment, advanceStatus } = useCargoShipments();
   const [search, setSearch] = useState('');
   const [detailOpen, setDetailOpen] = useState(false);

@@ -1,18 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, apiArray, apiObject } from '@/lib/api';
+import { newIncomingOrderNumber } from '@/lib/incoming-order';
 import { Plus, Trash2, Loader2, CheckCircle2, X, ClipboardList, TrendingUp, UserPlus } from 'lucide-react';
 
 /**
- * Phone-first Purchase Order creation. Admin scans the QR code with
- * their phone when goods arrive at the warehouse, picks the supplier,
- * lists the items + qty + cost + intended sell price, types the
- * transport / freight cost once, and the screen shows live cost,
- * revenue, profit, and margin. POSTs to /erp/supplier-capital/
- * purchase-orders with structured line items. The notes metadata remains as
- * a backwards-compatible fallback for older server versions.
+ * Phone-first purchase order entry for expected stock. The supplier bill
+ * stays in its buying currency and the landed cost preview is shown in TZS.
  */
 
-interface Supplier { id: string; name: string }
+interface Supplier { id: string; name: string; country?: string }
 interface POLine { name: string; qty: number; price: number; sellPrice: number }
 
 const fmt = (n: number) => `TZS ${Math.round(n).toLocaleString()}`;
@@ -22,6 +18,10 @@ const fmtPct = (n: number) =>
 export default function MobilePO() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [supplierId, setSupplierId] = useState('');
+  const [currency, setCurrency] = useState('TZS');
+  const [exchangeRate, setExchangeRate] = useState('');
+  const [expectedDate, setExpectedDate] = useState('');
+  const orderNumber = useRef('');
   const [lines, setLines] = useState<POLine[]>([{ name: '', qty: 1, price: 0, sellPrice: 0 }]);
   const [transportCost, setTransportCost] = useState<number>(0);
   const [notes, setNotes] = useState('');
@@ -44,6 +44,7 @@ export default function MobilePO() {
     try {
       const response = await api<unknown>('/erp/sourcing/suppliers', {
         method: 'POST',
+        offlineFallback: false,
         body: JSON.stringify({
           name: supplierForm.name.trim(),
           country: supplierForm.country.trim() || undefined,
@@ -57,6 +58,7 @@ export default function MobilePO() {
       // straight to line items.
       setSuppliers((prev) => [...prev, created]);
       setSupplierId(created.id);
+      setCurrency(/^(china|cn)$/i.test(supplierForm.country.trim()) ? 'CNY' : 'TZS');
       setCreatingSupplier(false);
       setSupplierForm({ name: '', country: '', contact: '', phone: '' });
     } catch (e) {
@@ -70,7 +72,7 @@ export default function MobilePO() {
     let cancelled = false;
     (async () => {
       try {
-        const response = await api<unknown>('/erp/sourcing/suppliers');
+        const response = await api<unknown>('/erp/sourcing/suppliers', { offlineFallback: false });
         if (!cancelled) setSuppliers(apiArray<Supplier>(response, ['suppliers']));
       } catch (e) {
         if (!cancelled) setErr((e as Error).message);
@@ -79,45 +81,38 @@ export default function MobilePO() {
     return () => { cancelled = true; };
   }, []);
 
-  // Per-line + roll-up calculations. Transport is allocated to each
-  // line by unit share — the per-unit cost the operator cares about
-  // is "buying price + freight share", so a line's profit reflects
-  // its real margin after freight (the simple wholesale spread is
-  // misleading when shipping ate half the gross margin).
-  //
-  // Allocation: freightPerUnit = transport / totalQty. Per-unit cost
-  // = price + freightPerUnit. Net profit across the whole PO is the
-  // same as before (revenue − goods − transport) since per-line
-  // contributions sum to the total.
+  const rate = currency === 'CNY' ? Number(exchangeRate) : 1;
+  const rateValid = Number.isFinite(rate) && rate >= 0.000001 && rate <= 1e9;
+  const hasSellingPrices = lines.every(line => line.sellPrice > 0);
   const calc = useMemo(() => {
     const transport = Number(transportCost) || 0;
     const totalQty = lines.reduce((s, l) => s + (Number(l.qty) || 0), 0);
     const freightPerUnit = totalQty > 0 ? transport / totalQty : 0;
     const enriched = lines.map((l) => {
       const qty = Number(l.qty) || 0;
-      const price = Number(l.price) || 0;
+      const priceTzs = l.price * (rateValid ? rate : 0);
       const sellPrice = Number(l.sellPrice) || 0;
       const freight = qty * freightPerUnit;
-      const landedUnit = price + freightPerUnit;
+      const landedUnit = priceTzs + freightPerUnit;
       const cost = qty * landedUnit; // goods + freight share
       const revenue = qty * sellPrice;
       const profit = revenue - cost;
       const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
-      return { ...l, freight, landedUnit, cost, revenue, profit, margin };
+      return { ...l, priceTzs, freight, landedUnit, cost, revenue, profit, margin };
     });
-    const goodsTotal   = enriched.reduce((s, l) => s + l.qty * l.price, 0);
+    const goodsTotal   = enriched.reduce((s, l) => s + l.qty * l.priceTzs, 0);
     const costTotal    = enriched.reduce((s, l) => s + l.cost, 0); // includes transport
     const revenueTotal = enriched.reduce((s, l) => s + l.revenue, 0);
     const netProfit    = revenueTotal - costTotal;
     const netMargin    = revenueTotal > 0 ? (netProfit / revenueTotal) * 100 : 0;
     return { enriched, goodsTotal, costTotal, revenueTotal, transport, freightPerUnit, totalQty, netProfit, netMargin };
-  }, [lines, transportCost]);
+  }, [lines, transportCost, rate, rateValid]);
 
   const supplier = suppliers.find((s) => s.id === supplierId);
   const canSubmit =
     !!supplier &&
-    lines.every((l) => l.name.trim() && l.qty > 0 && l.price > 0) &&
-    calc.costTotal > 0;
+    rateValid && transportCost >= 0 &&
+    lines.every(line => line.name.trim() && Number.isSafeInteger(line.qty) && line.qty > 0 && line.price >= 0 && line.sellPrice >= 0);
 
   const updateLine = (i: number, patch: Partial<POLine>) =>
     setLines((prev) => prev.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
@@ -127,44 +122,35 @@ export default function MobilePO() {
     setLines((prev) => [...prev, { name: '', qty: 1, price: 0, sellPrice: 0 }]);
 
   const submit = async () => {
-    if (!canSubmit || !supplier) return;
+    if (!canSubmit || !supplier || submitting) return;
     setErr(null);
     setSubmitting(true);
     try {
-      const poNumber = `PO-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
-      // Keep the metadata line for older server versions while sending the
-      // structured fields to current KobeOS receiving.
-      const meta = {
-        transportCost: calc.transport,
-        revenueTotal: calc.revenueTotal,
-        netProfit: calc.netProfit,
-        lines: lines.map((l) => ({ name: l.name, qty: l.qty, price: l.price, sellPrice: l.sellPrice })),
-      };
-      const notesPayload = [
-        `kobeos-po-meta:${JSON.stringify(meta)}`,
-        notes.trim(),
-      ].filter(Boolean).join('\n').slice(0, 2000);
-
+      const poNumber = orderNumber.current ||= newIncomingOrderNumber();
       await api('/erp/supplier-capital/purchase-orders', {
-        method: 'POST',
+        method: 'POST', offlineFallback: false,
         body: JSON.stringify({
           poNumber,
           supplierId: supplier.id,
-          // totalCny = supplier-side cost (goods + transport). Keeps
-          // landed-cost accounting consistent even though the backend
-          // column is still called totalCny.
-          totalCny: calc.costTotal,
+          totalCny: currency === 'CNY' ? lines.reduce((total, line) => total + line.qty * line.price, 0) : 0,
+          expectedDate: expectedDate || undefined,
           transportCost: calc.transport,
-          items: lines.map((l) => ({
-            name: l.name,
-            qty: l.qty,
-            price: l.price,
-            sellPrice: l.sellPrice || undefined,
+          items: calc.enriched.map(line => ({
+            name: line.name.trim(),
+            qty: line.qty,
+            price: line.priceTzs,
+            sellPrice: line.sellPrice || undefined,
+            currency: 'TZS',
+            ...(currency === 'CNY' ? { buyingPriceCny: line.price, tzsPerCny: rate } : {}),
           })),
-          notes: notesPayload,
+          notes: notes.trim().slice(0, 2000),
         }),
       });
       setDone(poNumber);
+      orderNumber.current = '';
+      setCurrency('TZS');
+      setExchangeRate('');
+      setExpectedDate('');
       setLines([{ name: '', qty: 1, price: 0, sellPrice: 0 }]);
       setTransportCost(0);
       setNotes('');
@@ -183,8 +169,8 @@ export default function MobilePO() {
           <ClipboardList className="w-5 h-5" />
         </div>
         <div>
-          <h2 className="text-lg font-extrabold text-slate-900 leading-tight">New Purchase Order</h2>
-          <p className="text-[11px] text-slate-500">Record stock you're buying and see profit live</p>
+          <h2 className="text-lg font-extrabold text-slate-900 leading-tight">Add incoming stock</h2>
+          <p className="text-[11px] text-slate-500">Save goods you expect. Stock increases when receipt is confirmed.</p>
         </div>
       </div>
 
@@ -219,7 +205,10 @@ export default function MobilePO() {
             </div>
             <select
               value={supplierId}
-              onChange={(e) => setSupplierId(e.target.value)}
+              onChange={event => {
+                setSupplierId(event.target.value);
+                setCurrency(/^(china|cn)$/i.test(suppliers.find(row => row.id === event.target.value)?.country?.trim() ?? '') ? 'CNY' : 'TZS');
+              }}
               className="w-full h-11 px-3 rounded-lg border border-slate-200 bg-white text-sm font-semibold text-slate-900 focus:outline-none focus:border-indigo-400"
             >
               <option value="">{suppliers.length === 0 ? 'No suppliers yet — tap New →' : 'Pick a supplier…'}</option>
@@ -292,6 +281,18 @@ export default function MobilePO() {
         )}
       </div>
 
+      <div className="grid grid-cols-2 gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-xs text-slate-700">
+        <label>Buying currency
+          <select value={currency} onChange={event => setCurrency(event.target.value)} className="mt-1 block h-10 w-full rounded-lg border border-slate-200 px-2">
+            <option value="TZS">TZS</option><option value="CNY">CNY (Chinese yuan)</option>
+          </select>
+        </label>
+        <label>Expected arrival
+          <input type="date" value={expectedDate} onChange={event => setExpectedDate(event.target.value)} className="mt-1 block h-10 w-full rounded-lg border border-slate-200 px-2" />
+        </label>
+        {currency === 'CNY' && <NumberCell label="TZS per 1 CNY" value={exchangeRate} onChange={setExchangeRate} className="col-span-2" />}
+      </div>
+
       <div className="bg-white border border-slate-200 rounded-2xl p-4 space-y-3">
         <div className="flex items-center justify-between">
           <span className="text-[10px] uppercase font-bold text-slate-500 tracking-wide">Line items</span>
@@ -314,17 +315,17 @@ export default function MobilePO() {
                   className="col-span-3"
                 />
                 <NumberCell
-                  label="Unit cost"
+                  label={`Buy / unit (${currency})`}
                   value={l.price || ''}
                   onChange={(v) => updateLine(i, { price: Number(v) || 0 })}
                   className="col-span-4"
                 />
                 <NumberCell
-                  label="Sell @"
+                  label="Sell (TZS)"
                   value={l.sellPrice || ''}
                   onChange={(v) => updateLine(i, { sellPrice: Number(v) || 0 })}
                   className="col-span-3"
-                  highlight={l.sellPrice > 0 && l.sellPrice >= l.price ? 'emerald' : l.sellPrice > 0 && l.sellPrice < l.price ? 'rose' : undefined}
+                  highlight={l.sellPrice > 0 && l.sellPrice >= l.landedUnit ? 'emerald' : l.sellPrice > 0 && l.sellPrice < l.landedUnit ? 'rose' : undefined}
                 />
                 <button
                   onClick={() => removeLine(i)}
@@ -349,7 +350,7 @@ export default function MobilePO() {
                   }`}
                   title={`Cost ${fmt(l.cost)} (goods + ${fmt(l.freight)} freight) · revenue ${fmt(l.revenue)}`}
                 >
-                  {l.profit >= 0 ? '+' : ''}{fmt(l.profit)} ({fmtPct(l.margin)})
+                  {rateValid && l.sellPrice > 0 ? `${l.profit >= 0 ? "+" : ""}${fmt(l.profit)} (${fmtPct(l.margin)})` : "—"}
                 </span>
               </div>
             </div>
@@ -407,9 +408,9 @@ export default function MobilePO() {
           <SummaryCell label="Cost" value={fmt(calc.costTotal)} sub={calc.transport > 0 ? `goods ${fmt(calc.goodsTotal)} + ${fmt(calc.transport)} freight` : 'goods only'} />
           <SummaryCell label="Revenue" value={fmt(calc.revenueTotal)} sub="if all sold" tone="indigo" />
           <SummaryCell
-            label="Profit"
-            value={fmt(calc.netProfit)}
-            sub={fmtPct(calc.netMargin)}
+            label="Est. gross profit"
+            value={rateValid && hasSellingPrices ? fmt(calc.netProfit) : "—"}
+            sub={rateValid && hasSellingPrices ? fmtPct(calc.netMargin) : undefined}
             tone={calc.netProfit > 0 ? 'emerald' : calc.netProfit < 0 ? 'rose' : 'slate'}
             icon={<TrendingUp className="w-3 h-3" />}
           />
@@ -420,7 +421,7 @@ export default function MobilePO() {
           className="w-full h-12 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white font-extrabold text-sm inline-flex items-center justify-center gap-2"
         >
           {submitting && <Loader2 className="w-4 h-4 animate-spin" />}
-          {submitting ? 'Saving…' : `Create PO · ${fmt(calc.costTotal)}`}
+          {submitting ? 'Saving…' : 'Save incoming order'}
         </button>
       </div>
     </div>
