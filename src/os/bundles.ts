@@ -21,8 +21,8 @@
 import { PLATFORM_SERVICE_APP_IDS, storeModules } from './store-modules';
 
 /**
- * The sixteen product modules, as src/os/store-modules.ts already defines
- * them. That file is the source of truth for which apps a module contains —
+ * The product modules defined by src/os/store-modules.ts.
+ * That file is the source of truth for which apps a module contains —
  * restating the mapping here produced two catalogues that disagreed about one
  * app, which is how a module gets sold and a different set installed.
  */
