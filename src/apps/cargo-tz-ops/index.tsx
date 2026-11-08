@@ -9,7 +9,7 @@ import { CollectorInvites, PendingHandoffs } from './handoffs';
 import { CargoStaff, TripOperations, type StaffRole, type Workspace } from './trips';
 import {
   PackagePlus, Warehouse, LayoutDashboard, Camera, Loader2, CheckCircle2, Printer, Plus,
-  Truck, MapPin, Clock, Wallet, PackageCheck, X, Search, ArrowRight, AlertCircle, ClipboardList, ScanLine,
+  Truck, MapPin, Clock, Wallet, PackageCheck, X, Search, AlertCircle, ClipboardList, ScanLine,
 } from 'lucide-react';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, BarChart, Bar, Cell } from 'recharts';
 
@@ -48,7 +48,7 @@ export default function CargoTzOps({ role, standaloneBase, handoffReference }: {
   handoffReference?: string;
 } = {}) {
   const [signedIn, setSignedIn] = useState(() => Boolean(getToken() || getRefreshToken()));
-  const [tab, setTab] = useState<CargoOpsTab>(role ?? 'intake');
+  const [selectedTab, setTab] = useState<CargoOpsTab>(role ?? 'intake');
   const [pin, setPin] = useState('');
   const [grants, setGrants] = useState<Workspace[]>([]);
   const [workspaceChoice, setWorkspaceChoice] = useState('');
@@ -57,6 +57,9 @@ export default function CargoTzOps({ role, standaloneBase, handoffReference }: {
   const preferred = grants.find((item) => item.role === ROLE_BY_TAB[role ?? 'intake']) ?? grants[0];
   const workspaceId = workspaceChoice || (preferred ? workspaceKey(preferred) : 'mine');
   const workspaceGrants = grants.filter((item) => workspaceKey(item) === workspaceId);
+  const firstTab = (Object.keys(ROLE_BY_TAB) as CargoOpsTab[]).find((key) => ROLE_BY_TAB[key] === workspaceGrants[0]?.role);
+  const tab = workspaceId === 'mine' || workspaceGrants.some((item) => item.role === ROLE_BY_TAB[selectedTab])
+    ? selectedTab : firstTab ?? selectedTab;
   const workspace = workspaceGrants.find((item) => item.role === ROLE_BY_TAB[tab]);
   const availableWorkspaces = [...new Map(grants.map((item) => [workspaceKey(item), item])).values()];
 
@@ -96,19 +99,6 @@ export default function CargoTzOps({ role, standaloneBase, handoffReference }: {
       .finally(() => { if (!controller.signal.aborted) setWorkspaceLoading(false); });
     return () => controller.abort();
   }, [operationsApi, signedIn, standalone]);
-
-  useEffect(() => {
-    if (workspaceId === 'mine' || workspace) return;
-    const next = workspaceGrants[0]?.role;
-    const firstTab = (Object.keys(ROLE_BY_TAB) as CargoOpsTab[]).find((key) => ROLE_BY_TAB[key] === next);
-    if (firstTab) setTab(firstTab);
-  }, [workspace, workspaceGrants, workspaceId]);
-
-  const intakeApi = useCallback(<T,>(path: string, init?: RequestInit) => {
-    if (!workspace) return apiPin<T>(path, init);
-    const suffix = path.slice('/cargotz/handoffs'.length);
-    return operationsApi<T>(`/cargotz/operations/${workspace.ownerId}/intake${suffix}?branch=${encodeURIComponent(workspace.branch)}`, init);
-  }, [apiPin, operationsApi, workspace]);
 
   if (standalone && !signedIn) return <LoginScreen onLogin={() => { setWorkspaceLoading(true); setSignedIn(true); }} />;
 
@@ -150,7 +140,14 @@ export default function CargoTzOps({ role, standaloneBase, handoffReference }: {
         {workspaceLoading ? <p className="p-4 text-sm" role="status">Loading CargoTZ workspace…</p> : (workspaceId === 'mine' || workspace) && <>
         {tab === 'intake' && (
           <>
-            <div className="mx-auto max-w-3xl px-4 pt-4"><PendingHandoffs key={workspaceId} api={intakeApi} Scanner={Scanner} initialReference={handoffReference} /></div>
+            <div className="mx-auto max-w-3xl px-4 pt-4"><PendingHandoffs
+              key={workspaceId}
+              api={workspace ? operationsApi : apiPin}
+              basePath={workspace ? `/cargotz/operations/${workspace.ownerId}/intake` : undefined}
+              branch={workspace?.branch}
+              Scanner={Scanner}
+              initialReference={handoffReference}
+            /></div>
             {!workspace && <details className="mx-auto max-w-3xl p-4">
               <summary className="cursor-pointer rounded-xl border bg-white p-3 text-sm font-semibold">Manual intake for walk-in parcels</summary>
               <IntakeTab apiPin={apiPin} />

@@ -82,9 +82,18 @@ class AdvanceDto {
 class StaffDto {
   @IsString() @MaxLength(120) name!: string;
   @IsIn(['Owner', 'Agent', 'Warehouse']) role!: CtzRole;
-  @IsString() pin!: string;
+  @Matches(/^\d{4}$/) pin!: string;
   @IsOptional() @IsString() phone?: string;
   @IsOptional() @IsString() warehouse?: string;
+}
+
+class UpdateStaffDto {
+  @IsOptional() @IsString() @MaxLength(120) name?: string;
+  @IsOptional() @IsIn(['Owner', 'Agent', 'Warehouse']) role?: CtzRole;
+  @IsOptional() @Matches(/^\d{4}$/) pin?: string;
+  @IsOptional() @IsString() phone?: string;
+  @IsOptional() @IsString() warehouse?: string;
+  @IsOptional() @IsBoolean() active?: boolean;
 }
 
 @UseGuards(JwtAuthGuard)
@@ -100,7 +109,7 @@ export class CargoTzController {
   /* Staff / roles */
   @Get('staff') listStaff(@CurrentUser('id') uid: string) { return this.svc.listStaff(uid); }
   @Post('staff') createStaff(@CurrentUser('id') uid: string, @Body() dto: StaffDto) { return this.svc.createStaff(uid, dto); }
-  @Patch('staff/:id') updateStaff(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: Partial<StaffDto>) { return this.svc.updateStaff(uid, id, dto as never); }
+  @Patch('staff/:id') updateStaff(@CurrentUser('id') uid: string, @Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateStaffDto) { return this.svc.updateStaff(uid, id, dto); }
   @Delete('staff/:id') removeStaff(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.svc.removeStaff(uid, id); }
 
   @Get('collector-invites')

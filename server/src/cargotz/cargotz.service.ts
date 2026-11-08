@@ -38,11 +38,19 @@ export class CargoTzService {
     if (await this.staff.findOne({ where: { ownerId: uid, pin: dto.pin } })) throw new BadRequestException('Pin already in use');
     return this.staff.save(this.staff.create({ ownerId: uid, name: dto.name, role: dto.role, pin: dto.pin, phone: dto.phone ?? '', warehouse: dto.warehouse ?? '', active: true }));
   }
-  async updateStaff(uid: string, id: string, dto: Partial<CtzStaff>) {
-    const s = await this.staff.findOne({ where: { ownerId: uid, id } });
-    if (!s) throw new NotFoundException();
-    Object.assign(s, dto);
-    return this.staff.save(s);
+  async updateStaff(uid: string, id: string, dto: Partial<Pick<CtzStaff, 'name' | 'role' | 'pin' | 'phone' | 'warehouse' | 'active'>>) {
+    const staff = await this.staff.findOneBy({ ownerId: uid, id });
+    if (!staff) throw new NotFoundException();
+    if (dto.pin && dto.pin !== staff.pin && await this.staff.existsBy({ ownerId: uid, pin: dto.pin })) {
+      throw new BadRequestException('Pin already in use');
+    }
+    staff.name = dto.name ?? staff.name;
+    staff.role = dto.role ?? staff.role;
+    staff.pin = dto.pin ?? staff.pin;
+    staff.phone = dto.phone ?? staff.phone;
+    staff.warehouse = dto.warehouse ?? staff.warehouse;
+    staff.active = dto.active ?? staff.active;
+    return this.staff.save(staff);
   }
   async removeStaff(uid: string, id: string) {
     const s = await this.staff.findOne({ where: { ownerId: uid, id } });
@@ -53,7 +61,8 @@ export class CargoTzService {
   async actor(uid: string, pin?: string): Promise<ActorCtx> {
     if (!pin) return { name: 'Owner', role: 'Owner' };
     const s = await this.staff.findOne({ where: { ownerId: uid, pin, active: true } });
-    return s ? { name: s.name, role: s.role } : { name: 'Owner', role: 'Owner' };
+    if (!s) throw new ForbiddenException('Enter a valid CargoTZ staff PIN');
+    return { name: s.name, role: s.role };
   }
 
   async listCollectorInvites(uid: string) {

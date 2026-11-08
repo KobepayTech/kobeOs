@@ -113,8 +113,10 @@ function HostedCollectorInvites({ api }: { api: CargoTzApi }) {
   );
 }
 
-export function PendingHandoffs({ api, Scanner, initialReference }: {
+export function PendingHandoffs({ api, Scanner, initialReference, basePath = '/cargotz/handoffs', branch }: {
   api: CargoTzApi;
+  basePath?: string;
+  branch?: string;
   initialReference?: string;
   Scanner: React.ComponentType<{ onClose: () => void; onResult: (value: string) => void }>;
 }) {
@@ -127,14 +129,15 @@ export function PendingHandoffs({ api, Scanner, initialReference }: {
   const [error, setError] = useState('');
   const [queueError, setQueueError] = useState('');
   const [notice, setNotice] = useState('');
+  const query = branch ? `?branch=${encodeURIComponent(branch)}` : '';
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     setQueueError('');
-    try { setQueue(await api<Parcel[]>('/cargotz/handoffs', { signal })); }
+    try { setQueue(await api<Parcel[]>(basePath + query, { signal })); }
     catch (cause) { if (!signal?.aborted) { setQueue([]); setQueueError((cause as Error).message); } }
     finally { if (!signal?.aborted) setLoading(false); }
-  }, [api]);
+  }, [api, basePath, query]);
   useEffect(() => {
     const controller = new AbortController();
     void refresh(controller.signal);
@@ -154,14 +157,14 @@ export function PendingHandoffs({ api, Scanner, initialReference }: {
     setBusy(true);
     setError('');
     try {
-      const data = await api<Handoff>(`/cargotz/handoffs/${encodeURIComponent(tracking)}`, { signal });
+      const data = await api<Handoff>(`${basePath}/${encodeURIComponent(tracking)}${query}`, { signal });
       if (!signal?.aborted) setActive(data);
     } catch (cause) {
       if (!signal?.aborted) setError((cause as Error).message);
     } finally {
       if (!signal?.aborted) setBusy(false);
     }
-  }, [api]);
+  }, [api, basePath, query]);
 
   useEffect(() => {
     if (!initialReference) return;
@@ -181,7 +184,7 @@ export function PendingHandoffs({ api, Scanner, initialReference }: {
     setError('');
     try {
       const tracking = active.parcel.trackingNumber;
-      const saved = await api<Parcel>(`/cargotz/handoffs/${encodeURIComponent(tracking)}/confirm`, {
+      const saved = await api<Parcel>(`${basePath}/${encodeURIComponent(tracking)}/confirm${query}`, {
         method: 'POST', body: JSON.stringify({ ...measurements, note: form.get('note') || undefined }),
       });
       const next = active.cartons?.find((carton) => carton.trackingNumber !== tracking && carton.status === 'AWAITING_HANDOFF');

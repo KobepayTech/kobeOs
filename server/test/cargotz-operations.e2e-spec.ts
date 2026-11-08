@@ -27,11 +27,17 @@ describe('CargoTZ operational handoff', () => {
     const [owner, agent, intake, loading, mbeya, outsider] = await Promise.all(
       ['owner', 'collector', 'intake', 'loading', 'mbeya', 'outsider'].map(signup),
     );
-    const as = (user: typeof owner, method: 'get' | 'post' | 'delete', path: string) =>
+    const as = (user: typeof owner, method: 'get' | 'post' | 'patch' | 'delete', path: string) =>
       request(http)[method](`/api/${path}`).set('Authorization', `Bearer ${user.token}`);
     const mine = 'cargotz/operations/mine';
     const shared = `cargotz/operations/${owner.id}`;
     const origin = 'Dar es Salaam';
+    const legacyStaff = await as(owner, 'post', 'cargotz/staff').send({ name: 'Legacy intake', role: 'Agent', pin: '4118' }).expect(201);
+    const staffUpdate = await as(owner, 'patch', `cargotz/staff/${legacyStaff.body.id}`).send({ active: false, ownerId: outsider.id }).expect(200);
+    expect(staffUpdate.body.ownerId).toBe(owner.id);
+    await as(owner, 'post', 'cargotz/parcels').set('x-ctz-pin', '4118').send({
+      senderName: 'A', senderPhone: '0755555555', receiverName: 'B', receiverPhone: '0755555555', origin, destination: 'Mbeya',
+    }).expect(403);
     for (const [user, role, branch] of [[intake, 'Intake', origin], [loading, 'Loading', origin], [mbeya, 'Destination', 'Mbeya']] as const) {
       await as(owner, 'post', 'cargotz/operations/staff').send({ email: user.email, role, branch }).expect(201);
     }
