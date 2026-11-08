@@ -3,7 +3,7 @@ import type { AppManifest } from '@/os/types';
 export const manifest: AppManifest = {
   id: 'cargo-tz-ops',
   name: 'CargoTZ',
-  description: 'Domestic cargo intake, collector handoffs, warehouse operations and public parcel tracking.',
+  description: 'Domestic cargo collection, intake, dispatch, loading manifests, destination pickup and parcel tracking.',
   icon: 'PackageCheck',
   category: 'erp',
   version: '1.0.0',

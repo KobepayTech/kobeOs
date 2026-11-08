@@ -1,8 +1,12 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { EntityManager, IsNull, Repository } from 'typeorm';
 import { CtzParcel, CtzWarehouse, CtzStatusEvent, CtzStaff, CtzStatus, CTZ_STATUSES, CtzRole, CtzCollectorAccess } from './cargotz.entity';
+
+import { cargoBranchKey } from './cargotz-trip.entity';
+
+type IntakeScope = { name: string; branch?: string };
 
 const inviteHash = (token: string) => createHash('sha256').update(token).digest('hex');
 const collectorCompany = ({ id, companyName, agentName, agentPhone }: CtzCollectorAccess) =>
@@ -171,21 +175,23 @@ export class CargoTzService {
     return staff.name;
   }
 
-  async pendingHandoffs(uid: string, pin?: string) {
-    await this.intakeActor(uid, pin);
-    return this.parcels.find({
-      where: { ownerId: uid, status: 'AWAITING_HANDOFF' },
-      order: { createdAt: 'ASC', cartonNumber: 'ASC' },
-      take: 100,
-    });
+  async pendingHandoffs(uid: string, pin?: string, scope?: IntakeScope) {
+    if (!scope) await this.intakeActor(uid, pin);
+    const query = this.parcels.createQueryBuilder('p')
+      .where("p.ownerId = :uid AND p.status = 'AWAITING_HANDOFF'", { uid })
+      .orderBy('p.createdAt', 'ASC').addOrderBy('p.cartonNumber', 'ASC').take(100);
+    if (scope?.branch) query.andWhere("LOWER(REGEXP_REPLACE(TRIM(p.origin), '[[:space:]]+', ' ', 'g')) = :branch", { branch: cargoBranchKey(scope.branch) });
+    return query.getMany();
   }
 
-  async handoff(uid: string, pin: string | undefined, tracking: string) {
-    await this.intakeActor(uid, pin);
+  async handoff(uid: string, pin: string | undefined, tracking: string, scope?: IntakeScope) {
+    if (!scope) await this.intakeActor(uid, pin);
     const parcel = await this.parcels.findOne({
       where: { ownerId: uid, trackingNumber: tracking.trim().toUpperCase() },
     });
-    if (!parcel?.collectorAccessId) throw new NotFoundException('Collector parcel not found');
+    if (!parcel?.collectorAccessId || (scope?.branch && cargoBranchKey(parcel.origin) !== cargoBranchKey(scope.branch))) {
+      throw new NotFoundException('Collector parcel not found at this branch');
+    }
     const [access, cartons] = await Promise.all([
       this.collectors.findOne({ where: { id: parcel.collectorAccessId, ownerId: uid } }),
       parcel.collectionId ? this.parcels.find({
@@ -203,8 +209,8 @@ export class CargoTzService {
 
   async confirmHandoff(uid: string, pin: string | undefined, tracking: string, measurements: {
     weight?: number; lengthCm?: number; widthCm?: number; heightCm?: number; note?: string;
-  }) {
-    const receivedByName = await this.intakeActor(uid, pin);
+  }, scope?: IntakeScope) {
+    const receivedByName = scope?.name ?? await this.intakeActor(uid, pin);
     return this.parcels.manager.transaction(async (manager) => {
       const parcels = manager.getRepository(CtzParcel);
       const events = manager.getRepository(CtzStatusEvent);
@@ -212,7 +218,9 @@ export class CargoTzService {
         where: { ownerId: uid, trackingNumber: tracking.trim().toUpperCase() },
         lock: { mode: 'pessimistic_write' },
       });
-      if (!parcel?.collectorAccessId) throw new NotFoundException('Collector parcel not found');
+      if (!parcel?.collectorAccessId || (scope?.branch && cargoBranchKey(parcel.origin) !== cargoBranchKey(scope.branch))) {
+        throw new NotFoundException('Collector parcel not found at this branch');
+      }
       if (parcel.status === 'RECEIVED_AT_SHOP') return parcel;
       if (parcel.status !== 'AWAITING_HANDOFF') {
         throw new BadRequestException('This parcel is no longer awaiting handoff');
@@ -323,6 +331,17 @@ export class CargoTzService {
     return { parcel, warehouse: wh ?? null, timeline };
   }
 
+  private async lockLegacyParcel(tx: EntityManager, uid: string, idOrTracking: string) {
+    const isUuid = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(idOrTracking);
+    const parcel = await tx.getRepository(CtzParcel).findOne({
+      where: isUuid ? { ownerId: uid, id: idOrTracking } : { ownerId: uid, trackingNumber: idOrTracking.toUpperCase() },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (!parcel) throw new NotFoundException('Parcel not found');
+    if (parcel.status === 'AWAITING_HANDOFF') throw new BadRequestException('Intake must accept custody first');
+    return parcel;
+  }
+
   /* ── Warehouse packing (scan QR → auto-load → fill warehouse fields) ── */
 
   async pack(uid: string, ctx: ActorCtx, idOrTracking: string, dto: {
@@ -330,31 +349,38 @@ export class CargoTzService {
     busNumber?: string; driverName?: string; driverPhone?: string;
     departureTime?: string; expectedArrival?: string;
   }) {
-    const { parcel } = await this.getOne(uid, idOrTracking);
-    if (parcel.status === 'AWAITING_HANDOFF') throw new BadRequestException('Intake must accept custody first');
-    let wh = await this.warehouse.findOne({ where: { ownerId: uid, parcelId: parcel.id } });
-    if (!wh) wh = this.warehouse.create({ ownerId: uid, parcelId: parcel.id });
-    Object.assign(wh, {
-      warehouseLocation: dto.warehouseLocation ?? wh.warehouseLocation ?? '',
-      shelfNumber: dto.shelfNumber ?? wh.shelfNumber ?? '',
-      bagNumber: dto.bagNumber ?? wh.bagNumber ?? '',
-      busNumber: dto.busNumber ?? wh.busNumber ?? '',
-      driverName: dto.driverName ?? wh.driverName ?? '',
-      driverPhone: dto.driverPhone ?? wh.driverPhone ?? '',
-      departureTime: dto.departureTime ? new Date(dto.departureTime) : wh.departureTime ?? null,
-      expectedArrival: dto.expectedArrival ? new Date(dto.expectedArrival) : wh.expectedArrival ?? null,
-      packedBy: ctx.name,
-      packedAt: new Date(),
+    const id = await this.parcels.manager.transaction(async (tx) => {
+      const parcel = await this.lockLegacyParcel(tx, uid, idOrTracking);
+      if (parcel.tripId) throw new BadRequestException('This carton is managed by its trip manifest');
+      const warehouse = tx.getRepository(CtzWarehouse);
+      let wh = await warehouse.findOne({ where: { ownerId: uid, parcelId: parcel.id } });
+      if (!wh) wh = warehouse.create({ ownerId: uid, parcelId: parcel.id });
+      Object.assign(wh, {
+        warehouseLocation: dto.warehouseLocation ?? wh.warehouseLocation ?? '',
+        shelfNumber: dto.shelfNumber ?? wh.shelfNumber ?? '',
+        bagNumber: dto.bagNumber ?? wh.bagNumber ?? '',
+        busNumber: dto.busNumber ?? wh.busNumber ?? '',
+        driverName: dto.driverName ?? wh.driverName ?? '',
+        driverPhone: dto.driverPhone ?? wh.driverPhone ?? '',
+        departureTime: dto.departureTime ? new Date(dto.departureTime) : wh.departureTime ?? null,
+        expectedArrival: dto.expectedArrival ? new Date(dto.expectedArrival) : wh.expectedArrival ?? null,
+        packedBy: ctx.name,
+        packedAt: new Date(),
+      });
+      await warehouse.save(wh);
+      // Packing implies at least PACKED. Don't regress a further-along parcel.
+      if (this.rank(parcel.status) < this.rank('PACKED')) {
+        parcel.status = 'PACKED';
+        parcel.currentLocation = dto.warehouseLocation || parcel.currentLocation;
+        await tx.getRepository(CtzParcel).save(parcel);
+        await tx.getRepository(CtzStatusEvent).insert({
+          ownerId: uid, parcelId: parcel.id, status: 'PACKED', updatedByName: ctx.name,
+          location: wh.warehouseLocation, note: `Shelf ${wh.shelfNumber || '—'} · Bag ${wh.bagNumber || '—'}`,
+        });
+      }
+      return parcel.id;
     });
-    await this.warehouse.save(wh);
-    // Packing implies at least PACKED. Don't regress a further-along parcel.
-    if (this.rank(parcel.status) < this.rank('PACKED')) {
-      parcel.status = 'PACKED';
-      parcel.currentLocation = dto.warehouseLocation || parcel.currentLocation;
-      await this.parcels.save(parcel);
-      await this.addEvent(uid, parcel.id, 'PACKED', ctx.name, wh.warehouseLocation, `Shelf ${wh.shelfNumber || '—'} · Bag ${wh.bagNumber || '—'}`);
-    }
-    return this.getOne(uid, parcel.id);
+    return this.getOne(uid, id);
   }
 
   private rank(s: string) { return CTZ_STATUSES.indexOf(s as CtzStatus); }
@@ -363,22 +389,32 @@ export class CargoTzService {
 
   async advance(uid: string, ctx: ActorCtx, idOrTracking: string, dto: { status: CtzStatus; location?: string; note?: string }) {
     if (dto.status === 'AWAITING_HANDOFF' || !CTZ_STATUSES.includes(dto.status)) throw new BadRequestException('Invalid status');
-    const { parcel } = await this.getOne(uid, idOrTracking);
-    if (parcel.status === 'AWAITING_HANDOFF') throw new BadRequestException('Intake must accept custody first');
-    parcel.status = dto.status;
-    if (dto.location) parcel.currentLocation = dto.location;
-    await this.parcels.save(parcel);
-    await this.addEvent(uid, parcel.id, dto.status, ctx.name, dto.location ?? parcel.currentLocation, dto.note ?? '');
-    return this.getOne(uid, parcel.id);
+    const id = await this.parcels.manager.transaction(async (tx) => {
+      const parcel = await this.lockLegacyParcel(tx, uid, idOrTracking);
+      if (parcel.tripId) throw new BadRequestException('This carton is managed by its trip manifest');
+      parcel.status = dto.status;
+      if (dto.location) parcel.currentLocation = dto.location;
+      await tx.getRepository(CtzParcel).save(parcel);
+      await tx.getRepository(CtzStatusEvent).insert({
+        ownerId: uid, parcelId: parcel.id, status: dto.status, updatedByName: ctx.name,
+        location: parcel.currentLocation, note: dto.note ?? '',
+      });
+      return parcel.id;
+    });
+    return this.getOne(uid, id);
   }
 
-  async setPayment(uid: string, ctx: ActorCtx, idOrTracking: string, paid: boolean) {
-    const { parcel } = await this.getOne(uid, idOrTracking);
-    if (parcel.status === 'AWAITING_HANDOFF') throw new BadRequestException('Intake must accept custody first');
-    parcel.paymentStatus = paid ? 'PAID' : 'UNPAID';
-    await this.parcels.save(parcel);
-    await this.addEvent(uid, parcel.id, parcel.status, ctx.name, parcel.currentLocation, paid ? 'Payment collected' : 'Marked unpaid');
-    return parcel;
+  setPayment(uid: string, ctx: ActorCtx, idOrTracking: string, paid: boolean) {
+    return this.parcels.manager.transaction(async (tx) => {
+      const parcel = await this.lockLegacyParcel(tx, uid, idOrTracking);
+      parcel.paymentStatus = paid ? 'PAID' : 'UNPAID';
+      await tx.getRepository(CtzParcel).update(parcel.id, { paymentStatus: parcel.paymentStatus });
+      await tx.getRepository(CtzStatusEvent).insert({
+        ownerId: uid, parcelId: parcel.id, status: parcel.status, updatedByName: ctx.name,
+        location: parcel.currentLocation, note: paid ? 'Payment collected' : 'Marked unpaid',
+      });
+      return parcel;
+    });
   }
 
   /* ── Owner dashboard ── */

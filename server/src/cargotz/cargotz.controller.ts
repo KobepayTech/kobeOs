@@ -1,5 +1,7 @@
-import { Body, Controller, Delete, Get, Headers, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, Headers, Param, ParseUUIDPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { IsBoolean, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from 'class-validator';
+import { Throttle } from '@nestjs/throttler';
+import { CargoTzTrackingAccessService } from './cargotz-tracking-access.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Public } from '../common/public.decorator';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -52,7 +54,7 @@ class SubmitCollectionDto {
   @IsString() @Matches(/\S/) @MaxLength(500) handoffLocation!: string;
 }
 
-class ConfirmHandoffDto {
+export class ConfirmHandoffDto {
   @IsOptional() @IsNumber() @Min(0.01) @Max(100000) weight?: number;
   @IsOptional() @IsNumber() @Min(0.01) @Max(100000) lengthCm?: number;
   @IsOptional() @IsNumber() @Min(0.01) @Max(100000) widthCm?: number;
@@ -167,11 +169,32 @@ export class CargoTzController {
   }
 }
 
-/** Public tracking — the QR / tracking-number lookup, no auth. */
+class TrackingPhoneDto {
+  @Matches(/^(?=(?:\D*\d){7,15}\D*$)\+?[0-9 ()-]{7,25}$/) phone!: string;
+}
+class TrackingCodeDto extends TrackingPhoneDto {
+  @Matches(/^\d{6}$/) code!: string;
+}
+
+/** Public tracking keeps customer details behind phone verification. */
 @Public()
 @Controller('cargotz-track')
 export class CargoTzTrackController {
-  constructor(private readonly svc: CargoTzService) {}
+  constructor(private readonly svc: CargoTzService, private readonly access: CargoTzTrackingAccessService) {}
 
   @Get(':tracking') track(@Param('tracking') tracking: string) { return this.svc.track(tracking); }
+
+  @Post(':tracking/owner-code')
+  @Header('Cache-Control', 'no-store')
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  requestCode(@Param('tracking') tracking: string, @Body() dto: TrackingPhoneDto) {
+    return this.access.request(tracking, dto.phone);
+  }
+
+  @Post(':tracking/owner-details')
+  @Header('Cache-Control', 'no-store')
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
+  ownerDetails(@Param('tracking') tracking: string, @Body() dto: TrackingCodeDto) {
+    return this.access.verify(tracking, dto.phone, dto.code);
+  }
 }

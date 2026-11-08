@@ -107,6 +107,19 @@ export class CtzParcel extends OwnedEntity {
   @Column('float', { nullable: true })
   heightCm!: number | null;
 
+  @Index('IDX_ctz_parcel_trip')
+  @Column('uuid', { nullable: true })
+  tripId!: string | null;
+
+  @Column('timestamptz', { nullable: true })
+  loadedAt!: Date | null;
+
+  @Column('timestamptz', { nullable: true })
+  unloadedAt!: Date | null;
+
+  @Column({ default: '' })
+  arrivalIssue!: string;
+
   /* ── Sender ── */
   @Column()
   senderName!: string;

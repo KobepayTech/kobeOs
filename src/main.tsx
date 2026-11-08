@@ -249,7 +249,8 @@ if (metaSetupToken) {
     import('./apps/cargo-tz-ops/collector').then(({ default: CargoTzCollector }) =>
       mount(<CargoTzCollector startUrl={`${base}/collect`} />));
   } else {
-    const role = roleSeg === 'warehouse' ? 'warehouse' : roleSeg === 'owner' ? 'dashboard' : 'intake';
+    const roles = { receive: 'intake', dispatch: 'dispatch', load: 'loading', destination: 'destination', warehouse: 'warehouse', owner: 'dashboard' } as const;
+    const role = roles[roleSeg as keyof typeof roles] ?? 'intake';
     const handoffReference = role === 'intake' ? new URLSearchParams(window.location.search).get('handoff') ?? undefined : undefined;
     Promise.all([
       import('./apps/cargo-tz-ops/index'),

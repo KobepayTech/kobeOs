@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { publicApi } from './api';
-import { MapPin, Truck, CheckCircle2, Loader2, Search, PackageCheck } from 'lucide-react';
+import { MapPin, Truck, CheckCircle2, Loader2, Search, PackageCheck, LockKeyhole } from 'lucide-react';
 
 /** Public parcel status from a label URL or a typed tracking reference. */
 interface Track {
@@ -73,6 +73,8 @@ export default function CargoTzTrack({ tracking }: { tracking?: string }) {
               {data.cartonCount > 1 && <p className="mt-1 text-xs text-slate-500">Carton {data.cartonNumber} of {data.cartonCount}</p>}
             </div>
 
+            <OwnerTracking tracking={data.trackingNumber} key={data.trackingNumber} />
+
             {/* Timeline */}
             <div className="bg-white rounded-2xl border border-slate-200 p-4">
               <div className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-3">Journey</div>
@@ -101,4 +103,65 @@ export default function CargoTzTrack({ tracking }: { tracking?: string }) {
       </div>
     </div>
   );
+}
+
+type OwnerDetails = {
+  ownerName: string; ownerPhone: string; recipientName: string; recipientPhone: string;
+  description: string; quantity: number; cartonCount: number;
+};
+
+function OwnerTracking({ tracking }: { tracking: string }) {
+  const [phone, setPhone] = useState('');
+  const [code, setCode] = useState('');
+  const [requested, setRequested] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [details, setDetails] = useState<OwnerDetails | null>(null);
+  const path = `/cargotz-track/${encodeURIComponent(tracking)}`;
+  const field = 'mt-1 w-full rounded-lg border border-slate-300 px-3 py-2';
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    const init = {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      cache: 'no-store' as const,
+    };
+    try {
+      if (requested) {
+        setDetails(await publicApi<OwnerDetails>(`${path}/owner-details`, { ...init, body: JSON.stringify({ phone: phone.trim(), code }) }));
+        setCode('');
+      } else {
+        await publicApi(`${path}/owner-code`, { ...init, body: JSON.stringify({ phone: phone.trim() }) });
+        setRequested(true);
+      }
+    } catch (cause) {
+      setError((cause as Error).message);
+    } finally { setBusy(false); }
+  }
+
+  return <details className="rounded-2xl border border-slate-200 bg-white p-4">
+    <summary className="cursor-pointer font-semibold text-emerald-900">View private shipment details</summary>
+    {details ? <dl className="mt-3 space-y-2 text-sm">
+      <div><dt className="text-slate-600">Goods owner</dt><dd>{details.ownerName} · {details.ownerPhone}</dd></div>
+      <div><dt className="text-slate-600">Recipient</dt><dd>{details.recipientName} · {details.recipientPhone}</dd></div>
+      <div><dt className="text-slate-600">Contents</dt><dd>{details.description || 'No description recorded'}</dd></div>
+      <div><dt className="text-slate-600">Cartons</dt><dd>{details.cartonCount}</dd></div>
+      <button type="button" className="font-semibold text-emerald-800 underline" onClick={() => { setDetails(null); setRequested(false); setPhone(''); }}>Hide private details</button>
+    </dl> : <form className="mt-3 space-y-3 text-sm" onSubmit={(event) => void submit(event)}>
+      <p className="text-slate-600">Verify the goods owner’s saved phone number to view names and contents.</p>
+      <label className="block">Owner phone<input className={field} value={phone} onChange={(event) => setPhone(event.target.value)} type="tel" maxLength={25} autoComplete="tel" required readOnly={requested} /></label>
+      {requested && <>
+        <p className="text-slate-600">If the number matches the shipment, a verification code will arrive by SMS.</p>
+        <label className="block">Verification code<input className={field} value={code} onChange={(event) => setCode(event.target.value)} inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} required /></label>
+      </>}
+      {error && <p role="alert" className="text-rose-800">{error}</p>}
+      <div className="flex flex-wrap items-center gap-3">
+        <button className="inline-flex items-center gap-2 rounded-xl bg-emerald-800 px-3 py-2 font-semibold text-white disabled:opacity-50" disabled={busy}><LockKeyhole size={15} />{requested ? 'Verify & view details' : 'Send verification code'}</button>
+        {requested && <button type="button" className="text-emerald-800 underline" disabled={busy} onClick={() => { setRequested(false); setCode(''); setError(''); }}>Start over</button>}
+      </div>
+    </form>}
+  </details>;
 }

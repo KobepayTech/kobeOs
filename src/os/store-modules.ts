@@ -58,11 +58,11 @@ const MODULE_DEFINITIONS: Array<Omit<StoreModule, 'version'>> = [
   {
     id: 'kobe-cargotz',
     name: 'CargoTZ · Domestic Cargo',
-    description: 'Tanzanian domestic parcel collection, cargo intake, warehouse operations and QR tracking.',
+    description: 'Tanzanian domestic parcel collection, cargo intake, loading manifests, destination pickup and QR tracking.',
     category: 'erp',
     primaryAppId: 'cargo-tz-ops',
     appIds: ['cargo-tz-ops', 'cargo-tz'],
-    features: ['Collecting agent', 'Cargo intake', 'Carton labels', 'Warehouse', 'Parcel tracking'],
+    features: ['Collecting agent', 'Cargo intake', 'Dispatch and manifests', 'Destination pickup', 'SMS and parcel tracking'],
   },
   {
     id: 'kobe-creators',

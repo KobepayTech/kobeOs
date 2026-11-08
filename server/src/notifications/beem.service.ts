@@ -72,7 +72,7 @@ export class BeemService {
     return `Basic ${Buffer.from(`${this.apiKey}:${this.secretKey}`).toString('base64')}`;
   }
 
-  async sendSms(to: string, message: string): Promise<BeemSendResult> {
+  async sendSms(to: string, message: string, signal?: AbortSignal): Promise<BeemSendResult> {
     if (!this.isConfigured()) {
       this.logger.debug('Beem credentials not set; skipping SMS');
       return { ok: false, error: 'Beem credentials not configured' };
@@ -81,7 +81,7 @@ export class BeemService {
     if (!dest) {
       return { ok: false, error: `Invalid phone '${to}'` };
     }
-    return this.sendSmsBatch([{ phone: dest }], message);
+    return this.sendSmsBatch([{ phone: dest }], message, signal);
   }
 
   /** Bulk SMS — single Beem call for up to a few hundred recipients.
@@ -89,6 +89,7 @@ export class BeemService {
   async sendSmsBatch(
     targets: Array<{ phone: string }>,
     message: string,
+    signal?: AbortSignal,
   ): Promise<BeemSendResult> {
     if (!this.isConfigured()) {
       return { ok: false, error: 'Beem credentials not configured' };
@@ -112,6 +113,7 @@ export class BeemService {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: this.authHeader() },
         body: JSON.stringify(body),
+        signal,
       });
       if (!res.ok) {
         const text = await res.text().catch(() => '');
