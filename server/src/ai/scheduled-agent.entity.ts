@@ -1,5 +1,6 @@
 import { Column, Entity, Index } from 'typeorm';
 import { OwnedEntity } from '../common/owned.entity';
+import type { OwnerReportKey } from './owner-report.types';
 
 export type AgentFrequency = 'HOURLY' | 'DAILY' | 'WEEKLY';
 export type AgentApprovalMode = 'AUTOMATIC' | 'APPROVAL_REQUIRED' | 'DRAFT_ONLY';
@@ -8,12 +9,16 @@ export type AgentRunStatus = 'RUNNING' | 'SUCCEEDED' | 'AWAITING_APPROVAL' | 'FA
 
 @Entity('ai_scheduled_agents')
 @Index(['ownerId', 'status', 'nextRunAt'])
+@Index('UQ_ai_scheduled_agents_owner_report', ['ownerId', 'reportKey'], { unique: true })
 export class AiScheduledAgent extends OwnedEntity {
   @Column({ length: 120 })
   name!: string;
 
   @Column({ type: 'text' })
   objective!: string;
+
+  @Column({ type: 'varchar', nullable: true })
+  reportKey?: OwnerReportKey | null;
 
   @Column({ default: 'DAILY' })
   frequency!: AgentFrequency;

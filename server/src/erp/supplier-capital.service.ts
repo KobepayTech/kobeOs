@@ -69,7 +69,7 @@ function parsePoMeta(notes?: string): { items: ErpPurchaseOrderItem[]; transport
   }
 }
 
-function poItems(po: ErpPurchaseOrder): ErpPurchaseOrderItem[] {
+export function poItems(po: ErpPurchaseOrder): ErpPurchaseOrderItem[] {
   const stored = normalizePoItems(po.items);
   return stored.length > 0 ? stored : parsePoMeta(po.notes).items;
 }

@@ -14,11 +14,14 @@ import {
 } from 'class-validator';
 import type { AgentApprovalMode, AgentFrequency } from '../scheduled-agent.entity';
 
+import { OWNER_REPORT_KEYS, type OwnerReportKey } from '../owner-report.types';
+
 const FREQUENCIES: AgentFrequency[] = ['HOURLY', 'DAILY', 'WEEKLY'];
 const APPROVAL_MODES: AgentApprovalMode[] = ['AUTOMATIC', 'APPROVAL_REQUIRED', 'DRAFT_ONLY'];
 const OUTPUTS = ['KOBEOS_INBOX', 'SMS_OWNER', 'DRAFT_ONLY'] as const;
 
 export class CreateScheduledAgentDto {
+  @IsOptional() @IsIn(OWNER_REPORT_KEYS) reportKey?: OwnerReportKey;
   @IsString() @MaxLength(120) name!: string;
   @IsString() @MaxLength(3000) objective!: string;
   @IsEnum(FREQUENCIES) frequency!: AgentFrequency;
