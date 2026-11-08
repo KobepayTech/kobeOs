@@ -41,9 +41,10 @@ describe('Account onboarding (e2e)', () => {
       .attach('files', image, 'jeans.png');
     expect(upload.status).toBe(201);
     const photoId = upload.body[0].item.id;
+    const purchaseCost = { unitPrice: 30, currency: 'CNY', exchangeRate: 360, transportPerUnit: 1200 };
     const confirm = () => request(http).post(`/api/media/inbox/guided/${photoId}/confirm`).set(headers).send({
       businessType: 'shop', name: 'Jeans', category: 'Clothing', price: 60000, discountPrice: 55000, stock: 7, size: '',
-      variants: [{ color: 'Blue', size: '32', price: 60000, stock: 7 }],
+      purchaseCost, variants: [{ color: 'Blue', size: '32', price: 60000, stock: 7 }],
     });
     const replies = await Promise.all([confirm(), confirm()]);
     expect(replies.map(r => r.status)).toEqual([201, 201]);
@@ -53,6 +54,7 @@ describe('Account onboarding (e2e)', () => {
     const productId = replies[0].body.entityId;
     const product = await request(http).get(`/api/pos/products/${productId}`).set(headers);
     expect(Number(product.body.price)).toBe(60000);
+    expect(Number(product.body.cost)).toBe(12000);
     expect(product.body).not.toHaveProperty('discountReferencePrice');
     expect(product.body.variants[0]).toMatchObject({ stock: 7, attributes: { size: '32', color: 'Blue' } });
     const ownerId = product.body.ownerId;

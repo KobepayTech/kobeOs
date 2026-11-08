@@ -3,7 +3,7 @@ import type { AppManifest } from '@/os/types';
 
 export const manifest: AppManifest = {
   id: 'cargo-tz',
-  name: 'Cargo TZ',
+  name: 'CargoTZ Parcel Records',
   description: 'Tanzania domestic ground transport — trucks, routes, local delivery',
   icon: 'Truck',
   category: 'erp',

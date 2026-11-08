@@ -1,7 +1,16 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { createHash, randomBytes } from 'node:crypto';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { CtzParcel, CtzWarehouse, CtzStatusEvent, CtzStaff, CtzStatus, CTZ_STATUSES, CtzRole } from './cargotz.entity';
+import { EntityManager, IsNull, Repository } from 'typeorm';
+import { CtzParcel, CtzWarehouse, CtzStatusEvent, CtzStaff, CtzStatus, CTZ_STATUSES, CtzRole, CtzCollectorAccess } from './cargotz.entity';
+
+import { cargoBranchKey } from './cargotz-trip.entity';
+
+type IntakeScope = { name: string; branch?: string };
+
+const inviteHash = (token: string) => createHash('sha256').update(token).digest('hex');
+const collectorCompany = ({ id, companyName, agentName, agentPhone }: CtzCollectorAccess) =>
+  ({ id, companyName, agentName, agentPhone });
 
 const num = (v: unknown) => Number(v) || 0;
 const pad = (n: number, w = 6) => String(n).padStart(w, '0');
@@ -16,6 +25,7 @@ export class CargoTzService {
     @InjectRepository(CtzWarehouse) private readonly warehouse: Repository<CtzWarehouse>,
     @InjectRepository(CtzStatusEvent) private readonly events: Repository<CtzStatusEvent>,
     @InjectRepository(CtzStaff) private readonly staff: Repository<CtzStaff>,
+    @InjectRepository(CtzCollectorAccess) private readonly collectors: Repository<CtzCollectorAccess>,
   ) {}
 
   /* ── Staff / roles ── */
@@ -28,11 +38,19 @@ export class CargoTzService {
     if (await this.staff.findOne({ where: { ownerId: uid, pin: dto.pin } })) throw new BadRequestException('Pin already in use');
     return this.staff.save(this.staff.create({ ownerId: uid, name: dto.name, role: dto.role, pin: dto.pin, phone: dto.phone ?? '', warehouse: dto.warehouse ?? '', active: true }));
   }
-  async updateStaff(uid: string, id: string, dto: Partial<CtzStaff>) {
-    const s = await this.staff.findOne({ where: { ownerId: uid, id } });
-    if (!s) throw new NotFoundException();
-    Object.assign(s, dto);
-    return this.staff.save(s);
+  async updateStaff(uid: string, id: string, dto: Partial<Pick<CtzStaff, 'name' | 'role' | 'pin' | 'phone' | 'warehouse' | 'active'>>) {
+    const staff = await this.staff.findOneBy({ ownerId: uid, id });
+    if (!staff) throw new NotFoundException();
+    if (dto.pin && dto.pin !== staff.pin && await this.staff.existsBy({ ownerId: uid, pin: dto.pin })) {
+      throw new BadRequestException('Pin already in use');
+    }
+    staff.name = dto.name ?? staff.name;
+    staff.role = dto.role ?? staff.role;
+    staff.pin = dto.pin ?? staff.pin;
+    staff.phone = dto.phone ?? staff.phone;
+    staff.warehouse = dto.warehouse ?? staff.warehouse;
+    staff.active = dto.active ?? staff.active;
+    return this.staff.save(staff);
   }
   async removeStaff(uid: string, id: string) {
     const s = await this.staff.findOne({ where: { ownerId: uid, id } });
@@ -43,7 +61,197 @@ export class CargoTzService {
   async actor(uid: string, pin?: string): Promise<ActorCtx> {
     if (!pin) return { name: 'Owner', role: 'Owner' };
     const s = await this.staff.findOne({ where: { ownerId: uid, pin, active: true } });
-    return s ? { name: s.name, role: s.role } : { name: 'Owner', role: 'Owner' };
+    if (!s) throw new ForbiddenException('Enter a valid CargoTZ staff PIN');
+    return { name: s.name, role: s.role };
+  }
+
+  async listCollectorInvites(uid: string) {
+    const rows = await this.collectors.find({
+      where: { ownerId: uid, revokedAt: IsNull() },
+      order: { createdAt: 'DESC' },
+    });
+    return rows.map((row) => ({
+      ...collectorCompany(row),
+      accepted: !!row.collectorId,
+      expiresAt: row.expiresAt,
+    }));
+  }
+
+  async inviteCollector(uid: string, dto: { companyName: string; agentName: string; agentPhone: string }) {
+    if (process.env.KOBEOS_DESKTOP === 'true') {
+      throw new BadRequestException('Open hosted CargoTZ to invite agents outside this device');
+    }
+    const token = randomBytes(32).toString('hex');
+    const row = await this.collectors.save(this.collectors.create({
+      ownerId: uid,
+      companyName: dto.companyName.trim(),
+      agentName: dto.agentName.trim(),
+      agentPhone: dto.agentPhone.trim(),
+      tokenHash: inviteHash(token),
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    }));
+    return { id: row.id, token, expiresAt: row.expiresAt };
+  }
+
+  async revokeCollector(uid: string, id: string) {
+    const result = await this.collectors.update({ ownerId: uid, id, revokedAt: IsNull() }, { revokedAt: new Date() });
+    if (!result.affected) throw new NotFoundException('Collector access not found');
+    return { revoked: true };
+  }
+
+  async acceptCollectorInvite(uid: string, token: string) {
+    return this.collectors.manager.transaction(async (manager) => {
+      const repo = manager.getRepository(CtzCollectorAccess);
+      const row = await repo.findOne({
+        where: { tokenHash: inviteHash(token), revokedAt: IsNull() },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!row || (row.collectorId ? row.collectorId !== uid : row.expiresAt.getTime() <= Date.now())) {
+        throw new NotFoundException('This invitation is unavailable or expired');
+      }
+      if (!row.collectorId) await repo.update(row.id, { collectorId: uid });
+      return collectorCompany(row);
+    });
+  }
+
+  async collectorCompanies(uid: string) {
+    const rows = await this.collectors.find({
+      where: { collectorId: uid, revokedAt: IsNull() },
+      order: { companyName: 'ASC' },
+    });
+    return rows.map(collectorCompany);
+  }
+
+  async submitCollection(uid: string, dto: {
+    accessId: string; requestId: string; ownerName: string; ownerPhone: string;
+    receiverName?: string; receiverPhone?: string; origin: string; destination: string;
+    description: string; cartonCount: number; handoff: 'PICKUP' | 'DROPOFF'; handoffLocation: string;
+  }) {
+    if (!!dto.receiverName !== !!dto.receiverPhone) {
+      throw new BadRequestException('Enter both the recipient name and phone, or leave both blank');
+    }
+    return this.collectors.manager.transaction(async (manager) => {
+      const access = await manager.getRepository(CtzCollectorAccess).findOne({
+        where: { id: dto.accessId, collectorId: uid, revokedAt: IsNull() },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!access) throw new ForbiddenException('You do not have access to this cargo company');
+      const parcels = manager.getRepository(CtzParcel);
+      const events = manager.getRepository(CtzStatusEvent);
+      const where = { ownerId: access.ownerId, collectorAccessId: access.id, collectionId: dto.requestId };
+      let rows = await parcels.find({ where, order: { cartonNumber: 'ASC' } });
+      if (!rows.length) {
+        const origin = dto.origin.trim();
+        const destination = dto.destination.trim();
+        const senderName = dto.ownerName.trim();
+        const senderPhone = dto.ownerPhone.trim();
+        const notes = `${dto.handoff === 'PICKUP' ? 'Pickup requested' : 'Agent drop-off'} · ${dto.handoffLocation.trim()}`;
+        rows = await parcels.save(Array.from({ length: dto.cartonCount }, (_, index) => parcels.create({
+          ...where,
+          trackingNumber: `CTZ-${ymd(new Date())}-${randomBytes(10).toString('hex').toUpperCase()}`,
+          cartonNumber: index + 1,
+          cartonCount: dto.cartonCount,
+          senderName,
+          senderPhone,
+          receiverName: dto.receiverName?.trim() || senderName,
+          receiverPhone: dto.receiverPhone?.trim() || senderPhone,
+          description: dto.description.trim(),
+          origin,
+          destination,
+          currentLocation: origin,
+          status: 'AWAITING_HANDOFF',
+          notes,
+        })));
+        await events.save(rows.map((parcel) => events.create({
+          ownerId: access.ownerId,
+          parcelId: parcel.id,
+          status: 'AWAITING_HANDOFF',
+          updatedByName: access.agentName,
+          location: origin,
+        })));
+      }
+      return rows.map(({ trackingNumber, origin, destination, cartonNumber, cartonCount }) =>
+        ({ trackingNumber, origin, destination, cartonNumber, cartonCount }));
+    });
+  }
+
+  private async intakeActor(uid: string, pin?: string) {
+    if (!pin) return 'Owner';
+    const staff = await this.staff.findOne({ where: { ownerId: uid, pin, active: true } });
+    if (!staff || !['Owner', 'Agent'].includes(staff.role)) {
+      throw new ForbiddenException('Enter a valid CargoTZ intake staff PIN');
+    }
+    return staff.name;
+  }
+
+  async pendingHandoffs(uid: string, pin?: string, scope?: IntakeScope) {
+    if (!scope) await this.intakeActor(uid, pin);
+    const query = this.parcels.createQueryBuilder('p')
+      .where("p.ownerId = :uid AND p.status = 'AWAITING_HANDOFF'", { uid })
+      .orderBy('p.createdAt', 'ASC').addOrderBy('p.cartonNumber', 'ASC').take(100);
+    if (scope?.branch) query.andWhere("LOWER(REGEXP_REPLACE(TRIM(p.origin), '[[:space:]]+', ' ', 'g')) = :branch", { branch: cargoBranchKey(scope.branch) });
+    return query.getMany();
+  }
+
+  async handoff(uid: string, pin: string | undefined, tracking: string, scope?: IntakeScope) {
+    if (!scope) await this.intakeActor(uid, pin);
+    const parcel = await this.parcels.findOne({
+      where: { ownerId: uid, trackingNumber: tracking.trim().toUpperCase() },
+    });
+    if (!parcel?.collectorAccessId || (scope?.branch && cargoBranchKey(parcel.origin) !== cargoBranchKey(scope.branch))) {
+      throw new NotFoundException('Collector parcel not found at this branch');
+    }
+    const [access, cartons] = await Promise.all([
+      this.collectors.findOne({ where: { id: parcel.collectorAccessId, ownerId: uid } }),
+      parcel.collectionId ? this.parcels.find({
+        where: { ownerId: uid, collectorAccessId: parcel.collectorAccessId, collectionId: parcel.collectionId },
+        select: { trackingNumber: true, cartonNumber: true, status: true },
+        order: { cartonNumber: 'ASC' },
+      }) : [parcel],
+    ]);
+    return {
+      parcel,
+      collector: access ? collectorCompany(access) : null,
+      cartons: cartons.map(({ trackingNumber, cartonNumber, status }) => ({ trackingNumber, cartonNumber, status })),
+    };
+  }
+
+  async confirmHandoff(uid: string, pin: string | undefined, tracking: string, measurements: {
+    weight?: number; lengthCm?: number; widthCm?: number; heightCm?: number; note?: string;
+  }, scope?: IntakeScope) {
+    const receivedByName = scope?.name ?? await this.intakeActor(uid, pin);
+    return this.parcels.manager.transaction(async (manager) => {
+      const parcels = manager.getRepository(CtzParcel);
+      const events = manager.getRepository(CtzStatusEvent);
+      const parcel = await parcels.findOne({
+        where: { ownerId: uid, trackingNumber: tracking.trim().toUpperCase() },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!parcel?.collectorAccessId || (scope?.branch && cargoBranchKey(parcel.origin) !== cargoBranchKey(scope.branch))) {
+        throw new NotFoundException('Collector parcel not found at this branch');
+      }
+      if (parcel.status === 'RECEIVED_AT_SHOP') return parcel;
+      if (parcel.status !== 'AWAITING_HANDOFF') {
+        throw new BadRequestException('This parcel is no longer awaiting handoff');
+      }
+      const { note, weight, lengthCm, widthCm, heightCm } = measurements;
+      parcel.weight = weight ?? parcel.weight;
+      parcel.lengthCm = lengthCm ?? parcel.lengthCm;
+      parcel.widthCm = widthCm ?? parcel.widthCm;
+      parcel.heightCm = heightCm ?? parcel.heightCm;
+      parcel.receivedByName = receivedByName;
+      parcel.status = 'RECEIVED_AT_SHOP';
+      await parcels.save(parcel);
+      await events.save(events.create({
+        ownerId: uid,
+        parcelId: parcel.id,
+        status: 'RECEIVED_AT_SHOP',
+        updatedByName: receivedByName,
+        location: parcel.origin,
+        note: note?.trim() || 'Custody accepted by cargo intake',
+      }));
+      return parcel;
+    });
   }
 
   /* ── Tracking number ── */
@@ -132,6 +340,17 @@ export class CargoTzService {
     return { parcel, warehouse: wh ?? null, timeline };
   }
 
+  private async lockLegacyParcel(tx: EntityManager, uid: string, idOrTracking: string) {
+    const isUuid = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(idOrTracking);
+    const parcel = await tx.getRepository(CtzParcel).findOne({
+      where: isUuid ? { ownerId: uid, id: idOrTracking } : { ownerId: uid, trackingNumber: idOrTracking.toUpperCase() },
+      lock: { mode: 'pessimistic_write' },
+    });
+    if (!parcel) throw new NotFoundException('Parcel not found');
+    if (parcel.status === 'AWAITING_HANDOFF') throw new BadRequestException('Intake must accept custody first');
+    return parcel;
+  }
+
   /* ── Warehouse packing (scan QR → auto-load → fill warehouse fields) ── */
 
   async pack(uid: string, ctx: ActorCtx, idOrTracking: string, dto: {
@@ -139,30 +358,38 @@ export class CargoTzService {
     busNumber?: string; driverName?: string; driverPhone?: string;
     departureTime?: string; expectedArrival?: string;
   }) {
-    const { parcel } = await this.getOne(uid, idOrTracking);
-    let wh = await this.warehouse.findOne({ where: { ownerId: uid, parcelId: parcel.id } });
-    if (!wh) wh = this.warehouse.create({ ownerId: uid, parcelId: parcel.id });
-    Object.assign(wh, {
-      warehouseLocation: dto.warehouseLocation ?? wh.warehouseLocation ?? '',
-      shelfNumber: dto.shelfNumber ?? wh.shelfNumber ?? '',
-      bagNumber: dto.bagNumber ?? wh.bagNumber ?? '',
-      busNumber: dto.busNumber ?? wh.busNumber ?? '',
-      driverName: dto.driverName ?? wh.driverName ?? '',
-      driverPhone: dto.driverPhone ?? wh.driverPhone ?? '',
-      departureTime: dto.departureTime ? new Date(dto.departureTime) : wh.departureTime ?? null,
-      expectedArrival: dto.expectedArrival ? new Date(dto.expectedArrival) : wh.expectedArrival ?? null,
-      packedBy: ctx.name,
-      packedAt: new Date(),
+    const id = await this.parcels.manager.transaction(async (tx) => {
+      const parcel = await this.lockLegacyParcel(tx, uid, idOrTracking);
+      if (parcel.tripId) throw new BadRequestException('This carton is managed by its trip manifest');
+      const warehouse = tx.getRepository(CtzWarehouse);
+      let wh = await warehouse.findOne({ where: { ownerId: uid, parcelId: parcel.id } });
+      if (!wh) wh = warehouse.create({ ownerId: uid, parcelId: parcel.id });
+      Object.assign(wh, {
+        warehouseLocation: dto.warehouseLocation ?? wh.warehouseLocation ?? '',
+        shelfNumber: dto.shelfNumber ?? wh.shelfNumber ?? '',
+        bagNumber: dto.bagNumber ?? wh.bagNumber ?? '',
+        busNumber: dto.busNumber ?? wh.busNumber ?? '',
+        driverName: dto.driverName ?? wh.driverName ?? '',
+        driverPhone: dto.driverPhone ?? wh.driverPhone ?? '',
+        departureTime: dto.departureTime ? new Date(dto.departureTime) : wh.departureTime ?? null,
+        expectedArrival: dto.expectedArrival ? new Date(dto.expectedArrival) : wh.expectedArrival ?? null,
+        packedBy: ctx.name,
+        packedAt: new Date(),
+      });
+      await warehouse.save(wh);
+      // Packing implies at least PACKED. Don't regress a further-along parcel.
+      if (this.rank(parcel.status) < this.rank('PACKED')) {
+        parcel.status = 'PACKED';
+        parcel.currentLocation = dto.warehouseLocation || parcel.currentLocation;
+        await tx.getRepository(CtzParcel).save(parcel);
+        await tx.getRepository(CtzStatusEvent).insert({
+          ownerId: uid, parcelId: parcel.id, status: 'PACKED', updatedByName: ctx.name,
+          location: wh.warehouseLocation, note: `Shelf ${wh.shelfNumber || '—'} · Bag ${wh.bagNumber || '—'}`,
+        });
+      }
+      return parcel.id;
     });
-    await this.warehouse.save(wh);
-    // Packing implies at least PACKED. Don't regress a further-along parcel.
-    if (this.rank(parcel.status) < this.rank('PACKED')) {
-      parcel.status = 'PACKED';
-      parcel.currentLocation = dto.warehouseLocation || parcel.currentLocation;
-      await this.parcels.save(parcel);
-      await this.addEvent(uid, parcel.id, 'PACKED', ctx.name, wh.warehouseLocation, `Shelf ${wh.shelfNumber || '—'} · Bag ${wh.bagNumber || '—'}`);
-    }
-    return this.getOne(uid, parcel.id);
+    return this.getOne(uid, id);
   }
 
   private rank(s: string) { return CTZ_STATUSES.indexOf(s as CtzStatus); }
@@ -170,21 +397,33 @@ export class CargoTzService {
   /* ── Advance status (any stage; appends to timeline) ── */
 
   async advance(uid: string, ctx: ActorCtx, idOrTracking: string, dto: { status: CtzStatus; location?: string; note?: string }) {
-    if (!CTZ_STATUSES.includes(dto.status)) throw new BadRequestException('Invalid status');
-    const { parcel } = await this.getOne(uid, idOrTracking);
-    parcel.status = dto.status;
-    if (dto.location) parcel.currentLocation = dto.location;
-    await this.parcels.save(parcel);
-    await this.addEvent(uid, parcel.id, dto.status, ctx.name, dto.location ?? parcel.currentLocation, dto.note ?? '');
-    return this.getOne(uid, parcel.id);
+    if (dto.status === 'AWAITING_HANDOFF' || !CTZ_STATUSES.includes(dto.status)) throw new BadRequestException('Invalid status');
+    const id = await this.parcels.manager.transaction(async (tx) => {
+      const parcel = await this.lockLegacyParcel(tx, uid, idOrTracking);
+      if (parcel.tripId) throw new BadRequestException('This carton is managed by its trip manifest');
+      parcel.status = dto.status;
+      if (dto.location) parcel.currentLocation = dto.location;
+      await tx.getRepository(CtzParcel).save(parcel);
+      await tx.getRepository(CtzStatusEvent).insert({
+        ownerId: uid, parcelId: parcel.id, status: dto.status, updatedByName: ctx.name,
+        location: parcel.currentLocation, note: dto.note ?? '',
+      });
+      return parcel.id;
+    });
+    return this.getOne(uid, id);
   }
 
-  async setPayment(uid: string, ctx: ActorCtx, idOrTracking: string, paid: boolean) {
-    const { parcel } = await this.getOne(uid, idOrTracking);
-    parcel.paymentStatus = paid ? 'PAID' : 'UNPAID';
-    await this.parcels.save(parcel);
-    await this.addEvent(uid, parcel.id, parcel.status, ctx.name, parcel.currentLocation, paid ? 'Payment collected' : 'Marked unpaid');
-    return parcel;
+  setPayment(uid: string, ctx: ActorCtx, idOrTracking: string, paid: boolean) {
+    return this.parcels.manager.transaction(async (tx) => {
+      const parcel = await this.lockLegacyParcel(tx, uid, idOrTracking);
+      parcel.paymentStatus = paid ? 'PAID' : 'UNPAID';
+      await tx.getRepository(CtzParcel).update(parcel.id, { paymentStatus: parcel.paymentStatus });
+      await tx.getRepository(CtzStatusEvent).insert({
+        ownerId: uid, parcelId: parcel.id, status: parcel.status, updatedByName: ctx.name,
+        location: parcel.currentLocation, note: paid ? 'Payment collected' : 'Marked unpaid',
+      });
+      return parcel;
+    });
   }
 
   /* ── Owner dashboard ── */
@@ -196,7 +435,13 @@ export class CargoTzService {
     const inState = (s: CtzStatus[]) => all.filter((p) => s.includes(p.status));
     const sumFee = (rows: CtzParcel[]) => rows.reduce((a, p) => a + num(p.transportFee), 0);
 
-    const receivedToday = all.filter((p) => new Date(p.createdAt) >= dayStart).length;
+    const receivedToday = await this.events.createQueryBuilder('event')
+      .select('COUNT(DISTINCT event.parcelId)', 'count')
+      .where('event.ownerId = :uid AND event.status = :status AND event.createdAt >= :dayStart', {
+        uid, status: 'RECEIVED_AT_SHOP', dayStart,
+      })
+      .getRawOne<{ count: string }>()
+      .then((result) => Number(result?.count ?? 0));
     const dispatched = inState(['LOADED', 'IN_TRANSIT']);
     const delivered = inState(['DELIVERED']);
     const paid = all.filter((p) => p.paymentStatus === 'PAID');
@@ -234,20 +479,18 @@ export class CargoTzService {
   async track(trackingNumber: string) {
     const parcel = await this.parcels.findOne({ where: { trackingNumber: trackingNumber.toUpperCase() } });
     if (!parcel) throw new NotFoundException('Tracking number not found');
-    const [wh, timeline] = await Promise.all([
-      this.warehouse.findOne({ where: { parcelId: parcel.id } }),
-      this.events.find({ where: { parcelId: parcel.id }, order: { createdAt: 'ASC' } }),
-    ]);
+    const timeline = await this.events.find({
+      where: { ownerId: parcel.ownerId, parcelId: parcel.id },
+      order: { createdAt: 'ASC' },
+    });
     return {
       trackingNumber: parcel.trackingNumber,
       status: parcel.status,
-      currentLocation: parcel.currentLocation,
-      origin: parcel.origin, destination: parcel.destination,
-      senderName: parcel.senderName, receiverName: parcel.receiverName,
-      description: parcel.description, quantity: parcel.quantity,
-      paymentStatus: parcel.paymentStatus,
-      bus: wh ? { busNumber: wh.busNumber, driverName: wh.driverName, departureTime: wh.departureTime, expectedArrival: wh.expectedArrival } : null,
-      timeline: timeline.map((e) => ({ status: e.status, location: e.location, note: e.note, at: e.createdAt })),
+      origin: parcel.origin,
+      destination: parcel.destination,
+      cartonNumber: parcel.cartonNumber,
+      cartonCount: parcel.cartonCount,
+      timeline: timeline.map(({ status, createdAt }) => ({ status, at: createdAt })),
       createdAt: parcel.createdAt,
     };
   }

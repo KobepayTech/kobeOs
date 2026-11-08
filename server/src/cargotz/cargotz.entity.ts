@@ -12,6 +12,7 @@ import { OwnedEntity } from '../common/owned.entity';
  * sub-users with a role, mirroring the KobePay cashier model.
  */
 export const CTZ_STATUSES = [
+  'AWAITING_HANDOFF',  // collector sealed the parcel; carrier has not accepted custody
   'RECEIVED_AT_SHOP',   // agent took it from the customer
   'AT_WAREHOUSE',       // arrived at the origin warehouse
   'PACKED',             // shelved/bagged, ready to load
@@ -50,15 +51,74 @@ export class CtzStaff extends OwnedEntity {
   warehouse!: string;
 }
 
+@Entity('ctz_collector_access')
+export class CtzCollectorAccess extends OwnedEntity {
+  @Column()
+  companyName!: string;
+
+  @Column()
+  agentName!: string;
+
+  @Column()
+  agentPhone!: string;
+
+  @Index('IDX_ctz_collector_token', { unique: true })
+  @Column({ select: false })
+  tokenHash!: string;
+
+  @Index('IDX_ctz_collector_account')
+  @Column('uuid', { nullable: true })
+  collectorId!: string | null;
+
+  @Column('timestamptz')
+  expiresAt!: Date;
+
+  @Column('timestamptz', { nullable: true })
+  revokedAt!: Date | null;
+}
+
 @Entity('ctz_parcels')
 @Index(['ownerId', 'status'])
 export class CtzParcel extends OwnedEntity {
-  /** Customer-facing tracking number, e.g. CTZ-20260711-000234. The QR
-   *  encodes exactly this string. Globally unique so public tracking by
-   *  number alone is unambiguous across companies. */
+  /** Globally unique parcel reference used by printed tracking links and legacy labels. */
   @Index({ unique: true })
   @Column()
   trackingNumber!: string;
+
+  @Index('IDX_ctz_parcel_collection')
+  @Column('uuid', { nullable: true })
+  collectionId!: string | null;
+
+  @Column('uuid', { nullable: true })
+  collectorAccessId!: string | null;
+
+  @Column('int', { default: 1 })
+  cartonNumber!: number;
+
+  @Column('int', { default: 1 })
+  cartonCount!: number;
+
+  @Column('float', { nullable: true })
+  lengthCm!: number | null;
+
+  @Column('float', { nullable: true })
+  widthCm!: number | null;
+
+  @Column('float', { nullable: true })
+  heightCm!: number | null;
+
+  @Index('IDX_ctz_parcel_trip')
+  @Column('uuid', { nullable: true })
+  tripId!: string | null;
+
+  @Column('timestamptz', { nullable: true })
+  loadedAt!: Date | null;
+
+  @Column('timestamptz', { nullable: true })
+  unloadedAt!: Date | null;
+
+  @Column({ default: '' })
+  arrivalIssue!: string;
 
   /* ── Sender ── */
   @Column()

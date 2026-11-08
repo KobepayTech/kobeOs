@@ -8,6 +8,7 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -33,7 +34,7 @@ export class CreateSupplierDto {
 export class CreatePurchaseOrderDto {
   @IsString() poNumber!: string;
   @IsUUID() supplierId!: string;
-  @IsNumber() totalCny!: number;
+  @IsNumber() @Min(0) totalCny!: number;
   @IsOptional() @IsDateString() expectedDate?: string;
   @IsOptional() @IsString() notes?: string;
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => PurchaseOrderLineDto)
@@ -47,6 +48,8 @@ export class PurchaseOrderLineDto {
   @IsNumber() @Min(0.0001) qty!: number;
   @IsNumber() @Min(0) price!: number;
   @IsOptional() @IsNumber() @Min(0) sellPrice?: number;
+  @IsOptional() @IsNumber() @Min(0) @Max(1e12) buyingPriceCny?: number;
+  @IsOptional() @IsNumber() @Min(0.000001) @Max(1e9) tzsPerCny?: number;
   @IsOptional() @IsString() sku?: string;
   @IsOptional() @IsString() category?: string;
   @IsOptional() @IsString() currency?: string;
@@ -54,6 +57,7 @@ export class PurchaseOrderLineDto {
 
 export class ReceivePurchaseOrderLineDto {
   @IsInt() @Min(0) lineIndex!: number;
+  @IsOptional() @IsNumber() @Min(0) expectedProcessed?: number;
   @IsNumber() @Min(0) quantityReceived!: number;
   @IsNumber() @Min(0) damagedQuantity!: number;
 }

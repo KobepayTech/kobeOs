@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { handleRequest } from './src/index.mjs';
 
 const unreachable = () => { throw new Error('Local server is offline'); };
@@ -62,4 +63,48 @@ test('hotel media uses cloud API and API host never receives a frontend', async 
 test('non-API writes cannot be mistaken for a successful SPA response', async () => {
   const response = await handleRequest(new Request('https://lala.kobeapptz.com/book', { method: 'POST' }), { ASSETS: { fetch: unreachable } }, unreachable);
   assert.equal(response.status, 405);
+});
+
+test('every ERP mobile module deep link is served by the cloud with the local server down', async () => {
+  const router = readFileSync(new URL('../../src/mobile/MobileRoot.tsx', import.meta.url), 'utf8');
+  const modules = Array.from(router.matchAll(/<Route path="([^/"][^"]*)"/g), ([, route]) => route);
+  assert.ok(modules.includes('discounts') && modules.includes('pos') && modules.includes('inventory'));
+  for (const host of ['kobeapptz.com', 'shop-example.kobeapptz.com']) {
+    for (const suffix of ['', ...modules]) {
+      const url = `https://${host}/m/shop-example${suffix ? '/' + suffix : ''}`;
+      const response = await handleRequest(new Request(url), {
+        API: { fetch: unreachable },
+        ASSETS: { fetch: async request => {
+          assert.equal(request.url, url);
+          return new Response('<div id="root"></div>', { headers: { 'Content-Type': 'text/html' } });
+        } },
+      }, unreachable);
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('X-Kobe-Public-Hosting'), 'cloudflare-assets');
+    }
+  }
+});
+
+test('discount approval reads and writes reach the authenticated cloud API while the shop origin is down', async () => {
+  for (const host of ['api.kobeapptz.com', 'shop-example.kobeapptz.com']) {
+    for (const [method, path] of [['GET', 'pending'], ['POST', 'request-one/approve']]) {
+      const body = method === 'POST' ? '{"approvedPrice":25000}' : undefined;
+      const request = new Request(`https://${host}/api/discounts/requests/${path}`, {
+        method, body, headers: { Authorization: 'Bearer session-token' },
+      });
+      let calls = 0;
+      const response = await handleRequest(request, {
+        ASSETS: { fetch: unreachable },
+        API: { fetch: async incoming => {
+          calls++;
+          assert.equal(incoming.method, method);
+          assert.equal(incoming.headers.get('Authorization'), 'Bearer session-token');
+          assert.equal(await incoming.text(), body ?? '');
+          return Response.json({ fromCloud: true });
+        } },
+      }, unreachable);
+      assert.equal(calls, 1);
+      assert.deepEqual(await response.json(), { fromCloud: true });
+    }
+  }
 });

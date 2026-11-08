@@ -16,6 +16,7 @@ import {
   type SetupProfile,
   DEFAULT_SETUP,
   LISTING_SAVED,
+  SHOP_PRODUCT_SAVED,
   OPEN_PHOTO_INTAKE,
   type BusinessType,
   type PhotoIntakeRequest,
@@ -238,7 +239,7 @@ export default function GuidedBusinessSetup({
     const openIntake = (event: Event) => {
       const intake = (event as CustomEvent<PhotoIntakeRequest>).detail;
       const type = intake?.type;
-      if (type !== "property" && type !== "dealership") return;
+      if (type !== "property" && type !== "dealership" && type !== "shop") return;
       setStandalone(intake);
       setPhotos([]);
       setPrevious(null);
@@ -391,6 +392,7 @@ export default function GuidedBusinessSetup({
       window.dispatchEvent(
         new CustomEvent(LISTING_SAVED, { detail: listingType }),
       );
+    if (businessType === "shop") window.dispatchEvent(new Event(SHOP_PRODUCT_SAVED));
     setPhotos((p) => p.filter((x) => x.id !== photo.id));
     setIndex(Math.max(0, Math.min(index, photos.length - 2)));
     setNotice(
@@ -469,7 +471,7 @@ export default function GuidedBusinessSetup({
       stock: Number(v.stock),
     }));
     const stock =
-      profile.businessType === "hotel"
+      businessType === "hotel"
         ? roomNumbers.length
         : variants.length
           ? variants.reduce((sum, v) => sum + v.stock, 0)
@@ -486,7 +488,15 @@ export default function GuidedBusinessSetup({
           ? undefined
           : Number(details.discountPrice),
       stock,
-      ...(profile.businessType === "hotel"
+      ...(businessType === "shop" && details.buyingPrice !== "" ? {
+        purchaseCost: {
+          unitPrice: Number(details.buyingPrice),
+          currency: details.buyingCurrency === "CNY" ? "CNY" : profile.currency,
+          exchangeRate: details.buyingCurrency === "CNY" ? Number(details.exchangeRate) : 1,
+          transportPerUnit: Number(details.transportPerUnit),
+        },
+      } : {}),
+      ...(businessType === "hotel"
         ? { roomNumbers, capacity: Number(details.capacity) }
         : {}),
       variants,
@@ -626,6 +636,9 @@ export default function GuidedBusinessSetup({
                         Upload a batch. We’ll work through each photo together.
                         You can return later.
                       </p>
+                      {businessType === "shop" && (
+                        <p className="mt-1 text-sm text-slate-400">Shop photos are saved on your shop’s KobeOS server. Use KobeOS on that server to upload and review them.</p>
+                      )}
                       {listingType && (
                         <p className="mt-1 text-sm text-slate-400">
                           Published listings are hosted on Kobe Cloud. Connect
@@ -789,7 +802,7 @@ export default function GuidedBusinessSetup({
                       ) : (
                         <PhotoIntakeInterview
                           key={photo.id}
-                          profile={profile}
+                          profile={{ ...profile, businessType }}
                           answers={details}
                           change={setDetails}
                           busy={busy}

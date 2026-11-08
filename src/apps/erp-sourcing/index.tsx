@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '@/lib/api';
+import { newIncomingOrderNumber } from '@/lib/incoming-order';
 import {
   Globe, Truck, Plus, Search, Eye, Trash2, FileText,
-  Star, Wallet, ArrowRight, Loader2, CheckCircle2, Package,
+  Wallet, ArrowRight, Loader2, CheckCircle2, Package,
 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -15,14 +16,16 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const tzs = (n: number) => `TZS ${n.toLocaleString()}`;
 
-const initialSuppliers = [
-  { id: 1, name: 'China Electronics Ltd', contact: 'Liu Wei', phone: '+86 138 0013 8000', country: 'China', rating: 4.5, status: 'Active' },
-  { id: 2, name: 'Mumbai Textiles Co', contact: 'Rajesh Patel', phone: '+91 22 2456 7890', country: 'India', rating: 4.0, status: 'Active' },
-  { id: 3, name: 'Nairobi Grain Millers', contact: 'James Oduor', phone: '+254 722 123456', country: 'Kenya', rating: 4.8, status: 'Active' },
-  { id: 4, name: 'Dar Hardware Suppliers', contact: 'Amina Hassan', phone: '+255 713 456789', country: 'Tanzania', rating: 3.5, status: 'Inactive' },
-  { id: 5, name: 'Dubai Trade Hub', contact: 'Faisal Al-Rashid', phone: '+971 4 555 0123', country: 'UAE', rating: 4.2, status: 'Active' },
-  { id: 6, name: 'Kampala Packaging', contact: 'Grace Namuli', phone: '+256 772 987654', country: 'Uganda', rating: 3.8, status: 'Active' },
-];
+type Supplier = { id: string; name: string; contactPerson?: string; phone?: string; country?: string; currency?: string };
+
+const emptyOrder = () => ({
+  supplier: '',
+  transport: 0,
+  currency: 'TZS',
+  rate: '',
+  expectedDate: '',
+  items: [{ name: '', qty: 1, price: 0, sellPrice: 0, sku: '' }],
+});
 
 type SourcingPOItem = {
   name: string;
@@ -35,6 +38,8 @@ type SourcingPOItem = {
   category?: string;
   currency?: string;
   productId?: string;
+  buyingPriceCny?: number;
+  tzsPerCny?: number;
 };
 
 type SourcingPO = {
@@ -43,7 +48,6 @@ type SourcingPO = {
   supplier: string;
   total: number;
   status: string;
-  date: string;
   items: SourcingPOItem[];
   deliveryDate: string;
   transportCost?: number;
@@ -64,25 +68,32 @@ function readPoItems(value: unknown): SourcingPOItem[] {
   return [];
 }
 
-const initialPOs: SourcingPO[] = [
-  { id: 'PO-2026-0101', supplier: 'China Electronics Ltd', total: 2800000, status: 'Delivered', date: '2026-04-15', items: [{ name: 'Samsung Galaxy A14', qty: 20, price: 280000 }, { name: 'Earbuds Wireless', qty: 50, price: 15000 }], deliveryDate: '2026-05-02' },
-  { id: 'PO-2026-0102', supplier: 'Mumbai Textiles Co', total: 950000, status: 'In Transit', date: '2026-04-22', items: [{ name: "Men's Cotton T-Shirt", qty: 100, price: 4500 }, { name: 'Kitenge Dress', qty: 40, price: 12500 }], deliveryDate: '2026-05-15' },
-  { id: 'PO-2026-0103', supplier: 'Nairobi Grain Millers', total: 620000, status: 'Delivered', date: '2026-04-10', items: [{ name: 'Rice 25kg Bulk', qty: 30, price: 14000 }, { name: 'Wheat Flour 25kg', qty: 20, price: 11000 }], deliveryDate: '2026-04-20' },
-  { id: 'PO-2026-0104', supplier: 'Dubai Trade Hub', total: 1200000, status: 'Pending', date: '2026-05-05', items: [{ name: 'Solar Panel 250W', qty: 10, price: 120000 }], deliveryDate: '2026-06-01' },
-  { id: 'PO-2026-0105', supplier: 'Kampala Packaging', total: 340000, status: 'In Transit', date: '2026-05-01', items: [{ name: 'Carton Boxes (100)', qty: 50, price: 6800 }], deliveryDate: '2026-05-20' },
-  { id: 'PO-2026-0106', supplier: 'China Electronics Ltd', total: 450000, status: 'Pending', date: '2026-05-06', items: [{ name: 'PowerBank 20k mAh', qty: 30, price: 15000 }], deliveryDate: '2026-05-25' },
-  { id: 'PO-2026-0107', supplier: 'Dar Hardware Suppliers', total: 850000, status: 'Cancelled', date: '2026-04-28', items: [{ name: 'Borehole Pump 2HP', qty: 5, price: 170000 }], deliveryDate: '2026-05-10' },
-  { id: 'PO-2026-0108', supplier: 'Nairobi Grain Millers', total: 480000, status: 'Pending', date: '2026-05-07', items: [{ name: 'Sunflower Oil 20L', qty: 30, price: 16000 }], deliveryDate: '2026-05-28' },
-  { id: 'PO-2026-0109', supplier: 'Mumbai Textiles Co', total: 720000, status: 'Delivered', date: '2026-03-20', items: [{ name: 'School Uniform Set', qty: 60, price: 12000 }], deliveryDate: '2026-04-05' },
-  { id: 'PO-2026-0110', supplier: 'Dubai Trade Hub', total: 950000, status: 'In Transit', date: '2026-05-03', items: [{ name: 'LED Floodlight 100W', qty: 25, price: 38000 }], deliveryDate: '2026-05-18' },
-];
+const remainingUnits = (po: SourcingPO) => po.items.reduce((total, item) =>
+  total + Math.max(0, Number(item.qty) - Number(item.receivedQty ?? 0) - Number(item.damagedQty ?? 0)), 0);
+
+function readOrder(row: Record<string, unknown>, fallbackSupplier = ''): SourcingPO {
+  const items = readPoItems(row.items);
+  const transportCost = Number(row.transportCost ?? 0);
+  const inventoryStatus = row.inventoryStatus === 'RECEIVED' ? 'RECEIVED' : 'PENDING';
+  const status = String(row.status).toLowerCase() === 'cancelled' ? 'Cancelled' : inventoryStatus === 'RECEIVED' ? 'Received' :
+    items.some(item => Number(item.receivedQty) > 0 || Number(item.damagedQty) > 0) ? 'Partially Received' : 'Awaiting Receipt';
+  return {
+    id: String(row.poNumber ?? row.id),
+    backendId: String(row.id),
+    supplier: String(row.supplierName || fallbackSupplier || row.supplierId || 'Supplier'),
+    total: items.length ? items.reduce((total, item) => total + Number(item.price) * Number(item.qty), transportCost) : Number(row.totalCny ?? 0),
+    status, inventoryStatus, items, transportCost,
+    deliveryDate: String(row.expectedDate ?? row.deliveryDate ?? '').slice(0, 10),
+    receivedAt: row.receivedAt ? String(row.receivedAt) : null,
+  };
+}
 
 const statusBadge = (status: string) => {
   const map: Record<string, string> = {
     Delivered: 'bg-green-500/10 text-green-400 border-green-500/20',
     Received: 'bg-green-500/10 text-green-400 border-green-500/20',
     'Partially Received': 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-    'In Transit': 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+    'Awaiting Receipt': 'bg-blue-500/10 text-blue-400 border-blue-500/20',
     Pending: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
     Cancelled: 'bg-red-500/10 text-red-400 border-red-500/20',
     Active: 'bg-green-500/10 text-green-400 border-green-500/20',
@@ -91,45 +102,45 @@ const statusBadge = (status: string) => {
   return map[status] || 'bg-slate-500/10 text-slate-400';
 };
 
-export default function ERPSourcing() {
-  const [tab, setTab] = useState('suppliers');
-  const [suppliers, setSuppliers] = useState(initialSuppliers);
-  const [pos, setPos] = useState<SourcingPO[]>(initialPOs);
+export default function ERPSourcing({ incomingOnly = false }: { incomingOnly?: boolean } = {}) {
+  const [tab, setTab] = useState(incomingOnly ? 'po' : 'suppliers');
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [pos, setPos] = useState<SourcingPO[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [saveError, setSaveError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [poSearch, setPoSearch] = useState('');
+  const [incomingFilter, setIncomingFilter] = useState(incomingOnly);
+  const orderNumber = useRef('');
   const [liveSummary, setLiveSummary] = useState<{ suppliers: number; totalItems: number; lowStock: number; totalValue: number } | null>(null);
   const [lowStockItems, setLowStockItems] = useState<{ id: string; name: string; sku: string; quantity: number; reorderLevel: number }[]>([]);
-
-  useEffect(() => {
-    api<{ summary: typeof liveSummary; suppliers: typeof initialSuppliers; lowStockItems: typeof lowStockItems }>('/erp/sourcing')
-      .then(d => {
-        if (d.suppliers?.length) setSuppliers(d.suppliers as typeof initialSuppliers);
-        if (d.summary) setLiveSummary(d.summary);
-        if (d.lowStockItems) setLowStockItems(d.lowStockItems);
-      })
-      .catch(() => {});
-    api<unknown>('/erp/supplier-capital/purchase-orders')
-      .then((data) => {
-        if (!Array.isArray(data) || data.length === 0) return;
-        const rows: SourcingPO[] = data.map((value) => {
-          const row = value as Record<string, unknown>;
-          const inventoryStatus = row.inventoryStatus === 'RECEIVED' ? 'RECEIVED' : 'PENDING';
-          return {
-            id: String(row.poNumber ?? row.id),
-            backendId: String(row.id),
-            supplier: String(row.supplierName || row.supplierId || 'Supplier'),
-            total: Number(row.totalCny ?? 0),
-            status: inventoryStatus === 'RECEIVED' ? 'Received' : row.status === 'cancelled' ? 'Cancelled' : 'Pending',
-            date: String(row.createdAt ?? '').slice(0, 10),
-            items: readPoItems(row.items),
-            deliveryDate: String(row.expectedDate ?? '').slice(0, 10),
-            transportCost: Number(row.transportCost ?? 0),
-            inventoryStatus,
-            receivedAt: row.receivedAt ? String(row.receivedAt) : null,
-          };
-        });
-        setPos(rows);
-      })
-      .catch(() => {});
+  const loadOrders = useCallback(async () => {
+    setOrdersLoading(true);
+    setLoadError('');
+    try {
+      const [orders, savedSuppliers] = await Promise.all([
+        api<Record<string, unknown>[]>('/erp/supplier-capital/purchase-orders', { offlineFallback: false }),
+        api<Supplier[]>('/erp/supplier-capital/suppliers', { offlineFallback: false }),
+      ]);
+      setPos(orders.map(row => readOrder(row)));
+      setSuppliers(savedSuppliers);
+    } catch (error) {
+      setLoadError((error as Error).message);
+    } finally {
+      setOrdersLoading(false);
+    }
   }, []);
+  useEffect(() => { void loadOrders(); }, [loadOrders]);
+  useEffect(() => {
+    if (incomingOnly) return;
+    api<{ summary: typeof liveSummary; lowStockItems: typeof lowStockItems }>('/erp/sourcing')
+      .then(data => {
+        if (data.summary) setLiveSummary(data.summary);
+        if (data.lowStockItems) setLowStockItems(data.lowStockItems);
+      })
+      .catch(() => {});
+  }, [incomingOnly]);
   const [search, setSearch] = useState('');
   const [supplierModalOpen, setSupplierModalOpen] = useState(false);
   const [poModalOpen, setPoModalOpen] = useState(false);
@@ -140,43 +151,38 @@ export default function ERPSourcing() {
   const [receiveNotice, setReceiveNotice] = useState<string | null>(null);
   const [receiveTransport, setReceiveTransport] = useState('');
   const [receiveQuantities, setReceiveQuantities] = useState<Record<number, { received: string; damaged: string }>>({});
-  const [supplierForm, setSupplierForm] = useState({ name: '', contact: '', phone: '', country: '', rating: 4 });
-  const [poForm, setPoForm] = useState<{
-    supplier: string;
-    transport: number;
-    items: Array<{ name: string; qty: number; price: number; sellPrice: number }>;
-  }>({
-    supplier: '',
-    transport: 0,
-    items: [{ name: '', qty: 1, price: 0, sellPrice: 0 }],
-  });
-
+  const [supplierForm, setSupplierForm] = useState({ name: '', contact: '', phone: '', country: '' });
+  const [supplierFromOrder, setSupplierFromOrder] = useState(false);
+  const [poForm, setPoForm] = useState(emptyOrder);
   const filteredSuppliers = suppliers.filter((s) => s.name.toLowerCase().includes(search.toLowerCase()));
 
   const addSupplier = async () => {
-    if (!supplierForm.name.trim()) return;
+    if (!supplierForm.name.trim() || saving) return;
+    setSaveError('');
+    setSaving(true);
     try {
-      // Persist via the real backend so the supplier survives a reload.
-      // Backend POST /erp/sourcing/suppliers already existed (see
-      // erp.controller.ts) — this UI just wasn't calling it.
-      await api('/erp/sourcing/suppliers', {
-        method: 'POST',
+      const supplier = await api<Supplier>('/erp/supplier-capital/suppliers', {
+        method: 'POST', offlineFallback: false,
         body: JSON.stringify({
           name: supplierForm.name.trim(),
-          contact: supplierForm.contact,
-          phone: supplierForm.phone,
-          country: supplierForm.country,
+          contactPerson: supplierForm.contact.trim(),
+          phone: supplierForm.phone.trim(),
+          country: supplierForm.country.trim(),
+          currency: /^(china|cn)$/i.test(supplierForm.country.trim()) ? 'CNY' : 'TZS',
         }),
       });
-    } catch (err) {
-      // Network/offline — fall back to local insert so the form doesn't
-      // dead-end. The list will reconcile on the next /erp/sourcing fetch.
-      console.warn('[sourcing] supplier persist failed, keeping local entry only:', (err as Error).message);
+      setSuppliers(previous => [...previous, supplier]);
+      setSupplierModalOpen(false);
+      setSupplierForm({ name: '', contact: '', phone: '', country: '' });
+      if (supplierFromOrder) {
+        setPoForm(form => ({ ...form, supplier: supplier.id, currency: supplier.currency === 'CNY' ? 'CNY' : 'TZS' }));
+        setPoModalOpen(true);
+      }
+    } catch (error) {
+      setSaveError((error as Error).message);
+    } finally {
+      setSaving(false);
     }
-    const newId = Math.max(...suppliers.map((s) => s.id), 0) + 1;
-    setSuppliers((prev) => [...prev, { id: newId, ...supplierForm, status: 'Active' }]);
-    setSupplierModalOpen(false);
-    setSupplierForm({ name: '', contact: '', phone: '', country: '', rating: 4 });
   };
 
   // Roll-up for the PO form: transport is allocated per-unit so a
@@ -185,13 +191,17 @@ export default function ERPSourcing() {
   // across the whole PO comes out the same as if we just subtracted
   // transport at the end; doing it per-unit makes per-line profit
   // honest, which is what the operator cares about while editing.
+  const rate = poForm.currency === 'CNY' ? Number(poForm.rate) : 1;
+  const rateValid = Number.isFinite(rate) && rate >= 0.000001 && rate <= 1e9;
+  const canCreate = !saving && !!poForm.supplier && rateValid && poForm.transport >= 0 &&
+    poForm.items.length > 0 && poForm.items.every(item => item.name.trim() && Number.isSafeInteger(item.qty) && item.qty > 0 && item.price >= 0 && item.sellPrice >= 0);
   const poCalc = (() => {
     const transport = Number(poForm.transport) || 0;
     const totalQty = poForm.items.reduce((s, it) => s + (Number(it.qty) || 0), 0);
     const freightPerUnit = totalQty > 0 ? transport / totalQty : 0;
     const lines = poForm.items.map((it) => {
       const qty = Number(it.qty) || 0;
-      const price = Number(it.price) || 0;
+      const price = it.price * (rateValid ? rate : 0);
       const sellPrice = Number(it.sellPrice) || 0;
       const landedUnit = price + freightPerUnit;
       const freight = qty * freightPerUnit;
@@ -199,9 +209,9 @@ export default function ERPSourcing() {
       const revenue = qty * sellPrice;
       const profit = revenue - cost;
       const margin = revenue > 0 ? (profit / revenue) * 100 : 0;
-      return { ...it, landedUnit, freight, cost, revenue, profit, margin };
+      return { ...it, convertedPrice: price, landedUnit, freight, cost, revenue, profit, margin };
     });
-    const goodsTotal   = lines.reduce((s, l) => s + l.qty * l.price, 0);
+    const goodsTotal   = lines.reduce((s, l) => s + l.qty * l.convertedPrice, 0);
     const costTotal    = lines.reduce((s, l) => s + l.cost, 0); // includes transport
     const revenueTotal = lines.reduce((s, l) => s + l.revenue, 0);
     const netProfit    = revenueTotal - costTotal;
@@ -235,7 +245,8 @@ export default function ERPSourcing() {
     setReceiveError(null);
     setReceiveNotice(null);
     try {
-      const lines = poDetail.items.map((_, lineIndex) => ({
+      const lines = poDetail.items.map((item, lineIndex) => ({
+        expectedProcessed: Number(item.receivedQty ?? 0) + Number(item.damagedQty ?? 0),
         lineIndex,
         quantityReceived: Math.max(0, Number(receiveQuantities[lineIndex]?.received ?? 0)),
         damagedQuantity: Math.max(0, Number(receiveQuantities[lineIndex]?.damaged ?? 0)),
@@ -243,23 +254,14 @@ export default function ERPSourcing() {
       const result = await api<{ po: Record<string, unknown>; received: Array<{ stockAdded: number }>; alreadyReceived: boolean }>(
         `/erp/supplier-capital/purchase-orders/${poDetail.backendId}/receive`,
         {
-          method: 'POST',
+          method: 'POST', offlineFallback: false,
           body: JSON.stringify({
             transportCost: Math.max(0, Number(receiveTransport) || 0),
             lines,
           }),
         },
       );
-      const backendPo = result.po;
-      const next: SourcingPO = {
-        ...poDetail,
-        items: readPoItems(backendPo.items).length > 0 ? readPoItems(backendPo.items) : poDetail.items,
-        total: Number(backendPo.totalCny ?? poDetail.total),
-        transportCost: Number(backendPo.transportCost ?? receiveTransport ?? 0),
-        inventoryStatus: backendPo.inventoryStatus === 'RECEIVED' ? 'RECEIVED' : 'PENDING',
-        status: backendPo.inventoryStatus === 'RECEIVED' ? 'Received' : 'Partially Received',
-        receivedAt: backendPo.receivedAt ? String(backendPo.receivedAt) : null,
-      };
+      const next = readOrder(result.po, poDetail.supplier);
       setPoDetail(next);
       setPos((previous) => previous.map((po) => po.backendId === next.backendId ? next : po));
       setReceiving(false);
@@ -267,75 +269,59 @@ export default function ERPSourcing() {
       setReceiveNotice(result.alreadyReceived ? 'This PO was already received. No stock was added again.' : `${added} unit${added === 1 ? '' : 's'} added to inventory.`);
     } catch (err) {
       setReceiveError((err as Error).message);
+      void loadOrders();
     } finally {
       setReceiveBusy(false);
     }
   };
 
-  // Persist a purchase order via /erp/supplier-capital/purchase-orders.
-  // Previously the "Create PO" button only closed the modal — the form
-  // looked functional but nothing was ever saved. Falls back to a local
-  // insert when offline so the operator's keystrokes aren't lost.
   const createPO = async () => {
-    if (!poForm.supplier || poForm.items.length === 0 || poCalc.costTotal <= 0) return;
-    const supplierMatch = suppliers.find((s) => s.name === poForm.supplier);
-    const poNumber = `PO-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
-    const isUuid = supplierMatch && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(supplierMatch.id));
-    let backendId: string | undefined;
-    if (isUuid) {
-      try {
-        const meta = {
-          transportCost: poCalc.transport,
-          revenueTotal: poCalc.revenueTotal,
-          netProfit: poCalc.netProfit,
-          lines: poForm.items.map((l) => ({ name: l.name, qty: l.qty, price: l.price, sellPrice: l.sellPrice })),
-        };
-        const summary = `${poForm.items.length} line${poForm.items.length === 1 ? '' : 's'}: ${poForm.items.map((i) => `${i.name} x${i.qty}`).join(', ')}`;
-        const notes = `kobeos-po-meta:${JSON.stringify(meta)}\n${summary}`.slice(0, 2000);
-        const created = await api<{ id?: string }>('/erp/supplier-capital/purchase-orders', {
-          method: 'POST',
-          body: JSON.stringify({
-            poNumber,
-            supplierId: String(supplierMatch.id),
-            totalCny: poCalc.landedCost,
-            transportCost: poCalc.transport,
-            items: poForm.items.map((l) => ({
-              name: l.name,
-              qty: l.qty,
-              price: l.price,
-              sellPrice: l.sellPrice || undefined,
-            })),
-            notes,
-          }),
-        });
-        backendId = created.id;
-      } catch (err) {
-        console.warn('[sourcing] PO persist failed, keeping local entry only:', (err as Error).message);
-      }
+    if (!canCreate) return;
+    const supplier = suppliers.find(s => s.id === poForm.supplier);
+    if (!supplier) return;
+    orderNumber.current ||= newIncomingOrderNumber();
+    setSaving(true);
+    setSaveError('');
+    try {
+      const created = await api<Record<string, unknown>>('/erp/supplier-capital/purchase-orders', {
+        method: 'POST', offlineFallback: false,
+        body: JSON.stringify({
+          poNumber: orderNumber.current,
+          supplierId: supplier.id,
+          totalCny: poForm.currency === 'CNY' ? poForm.items.reduce((total, item) => total + item.qty * item.price, 0) : 0,
+          expectedDate: poForm.expectedDate || undefined,
+          transportCost: poForm.transport,
+          items: poCalc.lines.map(line => ({
+            name: line.name.trim(),
+            qty: line.qty,
+            price: line.convertedPrice,
+            sellPrice: line.sellPrice || undefined,
+            sku: line.sku.trim() || undefined,
+            currency: 'TZS',
+            ...(poForm.currency === 'CNY' ? { buyingPriceCny: line.price, tzsPerCny: rate } : {}),
+          })),
+        }),
+      });
+      const order = readOrder(created, supplier.name);
+      setPos(previous => [order, ...previous.filter(po => po.backendId !== order.backendId)]);
+      setPoModalOpen(false);
+      setPoForm(emptyOrder());
+      orderNumber.current = '';
+    } catch (error) {
+      setSaveError((error as Error).message);
+    } finally {
+      setSaving(false);
     }
-    setPos((prev) => [
-      {
-        id: poNumber,
-        backendId,
-        supplier: poForm.supplier,
-        total: poCalc.landedCost,
-        status: 'Pending',
-        date: new Date().toISOString().slice(0, 10),
-        items: poForm.items,
-        deliveryDate: '',
-        transportCost: poCalc.transport,
-        inventoryStatus: 'PENDING',
-      },
-      ...prev,
-    ]);
-    setPoModalOpen(false);
-    setPoForm({ supplier: '', transport: 0, items: [{ name: '', qty: 1, price: 0, sellPrice: 0 }] });
   };
+
+  const incoming = pos.filter(po => po.inventoryStatus !== 'RECEIVED' && po.status !== 'Cancelled' && remainingUnits(po) > 0);
+  const visibleOrders = (incomingFilter ? incoming : pos).filter(po =>
+    [po.id, po.supplier, ...po.items.map(item => item.name)].some(value => value.toLowerCase().includes(poSearch.trim().toLowerCase())));
 
   return (
     <div className="h-full bg-slate-950 text-slate-100 overflow-auto">
       <div className="p-4 space-y-4">
-        <div className="flex items-center justify-between">
+        {!incomingOnly && <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Globe className="w-5 h-5 text-blue-400" />
             <h1 className="text-lg font-semibold">Sourcing</h1>
@@ -356,7 +342,11 @@ export default function ERPSourcing() {
               </TabsTrigger>
             </TabsList>
           </Tabs>
-        </div>
+        </div>}
+        {loadError && <div role="alert" className="flex items-center justify-between gap-2 text-sm text-rose-300">
+          <span>Could not load purchasing records. {loadError}</span>
+          <Button variant="outline" onClick={() => void loadOrders()}>Retry</Button>
+        </div>}
 
         {/* Live summary */}
         {liveSummary && (
@@ -384,7 +374,7 @@ export default function ERPSourcing() {
                 <Search className="w-4 h-4 absolute left-2 top-1/2 -translate-y-1/2 text-slate-500" />
                 <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search suppliers..." className="pl-8 h-8 bg-slate-900 border-slate-700 text-xs" />
               </div>
-              <Button size="sm" onClick={() => setSupplierModalOpen(true)} className="h-8 bg-blue-600 hover:bg-blue-500 text-white text-xs">
+              <Button size="sm" onClick={() => { setSupplierFromOrder(false); setSaveError(''); setSupplierModalOpen(true); }} className="h-8 bg-blue-600 hover:bg-blue-500 text-white text-xs">
                 <Plus className="w-3 h-3 mr-1" /> Add Supplier
               </Button>
             </div>
@@ -398,28 +388,17 @@ export default function ERPSourcing() {
                         <TableHead className="text-slate-400 text-xs">Contact</TableHead>
                         <TableHead className="text-slate-400 text-xs">Phone</TableHead>
                         <TableHead className="text-slate-400 text-xs">Country</TableHead>
-                        <TableHead className="text-slate-400 text-xs">Rating</TableHead>
-                        <TableHead className="text-slate-400 text-xs">Status</TableHead>
+                        <TableHead className="text-slate-400 text-xs">Currency</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
                       {filteredSuppliers.map((s) => (
                         <TableRow key={s.id} className="border-slate-800 hover:bg-slate-800/40">
                           <TableCell className="text-xs font-medium text-slate-200">{s.name}</TableCell>
-                          <TableCell className="text-xs text-slate-300">{s.contact}</TableCell>
+                          <TableCell className="text-xs text-slate-300">{s.contactPerson}</TableCell>
                           <TableCell className="text-xs text-slate-400">{s.phone}</TableCell>
                           <TableCell className="text-xs text-slate-300">{s.country}</TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-1">
-                              <Star className="w-3 h-3 text-yellow-400" />
-                              <span className="text-xs text-slate-300">{s.rating}</span>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant="outline" className={statusBadge(s.status)}>
-                              {s.status}
-                            </Badge>
-                          </TableCell>
+                          <TableCell className="text-xs text-slate-300">{s.currency || '—'}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -432,13 +411,18 @@ export default function ERPSourcing() {
 
         {tab === 'po' && (
           <>
-            <div className="flex items-center justify-between">
-              <div className="relative flex-1 max-w-xs">
+            <div className="space-y-1">
+              <h2 className="text-lg font-semibold">Incoming stock</h2>
+              <p className="text-sm text-slate-400">{incoming.length} open orders · {incoming.reduce((sum, po) => sum + remainingUnits(po), 0).toLocaleString()} units still expected</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative flex-1 min-w-40">
                 <Search className="w-4 h-4 absolute left-2 top-1/2 -translate-y-1/2 text-slate-500" />
-                <Input placeholder="Search POs..." className="pl-8 h-8 bg-slate-900 border-slate-700 text-xs" />
+                <Input aria-label="Search incoming stock" value={poSearch} onChange={event => setPoSearch(event.target.value)} placeholder="Search orders, suppliers or items..." className="pl-8 h-8 bg-slate-900 border-slate-700 text-xs" />
               </div>
-              <Button size="sm" onClick={() => { setPoDetail(null); setPoModalOpen(true); }} className="h-8 bg-blue-600 hover:bg-blue-500 text-white text-xs">
-                <Plus className="w-3 h-3 mr-1" /> Create PO
+              <Button size="sm" variant="outline" onClick={() => setIncomingFilter(!incomingFilter)}>{incomingFilter ? 'Show all orders' : 'Show incoming only'}</Button>
+              <Button size="sm" onClick={() => { setPoDetail(null); setSaveError(''); setPoModalOpen(true); }} className="h-8 bg-blue-600 hover:bg-blue-500 text-white text-xs">
+                <Plus className="w-3 h-3 mr-1" /> Add incoming order
               </Button>
             </div>
             <Card className="bg-slate-900/60 border-slate-800">
@@ -449,28 +433,31 @@ export default function ERPSourcing() {
                       <TableRow className="border-slate-800 hover:bg-transparent">
                         <TableHead className="text-slate-400 text-xs">PO Number</TableHead>
                         <TableHead className="text-slate-400 text-xs">Supplier</TableHead>
-                        <TableHead className="text-slate-400 text-xs">Total</TableHead>
+                        <TableHead className="text-slate-400 text-xs">Landed total</TableHead>
                         <TableHead className="text-slate-400 text-xs">Status</TableHead>
-                        <TableHead className="text-slate-400 text-xs">Date</TableHead>
+                        <TableHead className="text-slate-400 text-xs">Units expected</TableHead>
                         <TableHead className="text-slate-400 text-xs">Delivery</TableHead>
                         <TableHead className="text-slate-400 text-xs text-right">Action</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {pos.map((po) => (
+                      {!visibleOrders.length && <TableRow><TableCell colSpan={7} className="p-8 text-center text-slate-400">
+                        {ordersLoading ? 'Loading orders…' : loadError ? 'Orders are unavailable.' : 'No matching orders.'}
+                      </TableCell></TableRow>}
+                      {visibleOrders.map((po) => (
                         <TableRow key={po.id} className="border-slate-800 hover:bg-slate-800/40">
                           <TableCell className="text-xs font-mono text-slate-300">{po.id}</TableCell>
                           <TableCell className="text-xs text-slate-300">{po.supplier}</TableCell>
-                          <TableCell className="text-xs font-medium">{tzs(po.total)}</TableCell>
+                          <TableCell className="text-xs font-medium">{po.items.length ? tzs(po.total) : `CNY ${po.total.toLocaleString()}`}</TableCell>
                           <TableCell>
                             <Badge variant="outline" className={statusBadge(po.status)}>
                               {po.status}
                             </Badge>
                           </TableCell>
-                          <TableCell className="text-xs text-slate-400">{po.date}</TableCell>
+                          <TableCell className="text-xs text-slate-400">{po.status === 'Cancelled' ? 0 : remainingUnits(po)}</TableCell>
                           <TableCell className="text-xs text-slate-400">{po.deliveryDate}</TableCell>
                           <TableCell className="text-right">
-                            <button onClick={() => openPoDetail(po)} className="text-slate-400 hover:text-blue-400">
+                            <button aria-label={`Open order ${po.id}`} onClick={() => openPoDetail(po)} className="text-slate-400 hover:text-blue-400">
                               <Eye className="w-4 h-4" />
                             </button>
                           </TableCell>
@@ -490,7 +477,7 @@ export default function ERPSourcing() {
         {tab === 'reorder' && <ReorderTab />}
       </div>
 
-      <Dialog open={supplierModalOpen} onOpenChange={setSupplierModalOpen}>
+      <Dialog open={supplierModalOpen} onOpenChange={open => { if (!saving) { setSupplierModalOpen(open); if (!open && supplierFromOrder) { setSaveError(''); setPoModalOpen(true); } } }}>
         <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 max-w-sm">
           <DialogHeader>
             <DialogTitle className="text-sm">Add Supplier</DialogTitle>
@@ -500,18 +487,19 @@ export default function ERPSourcing() {
             <Input placeholder="Contact person" value={supplierForm.contact} onChange={(e) => setSupplierForm((f) => ({ ...f, contact: e.target.value }))} className="bg-slate-800 border-slate-700 text-slate-100" />
             <Input placeholder="Phone" value={supplierForm.phone} onChange={(e) => setSupplierForm((f) => ({ ...f, phone: e.target.value }))} className="bg-slate-800 border-slate-700 text-slate-100" />
             <Input placeholder="Country" value={supplierForm.country} onChange={(e) => setSupplierForm((f) => ({ ...f, country: e.target.value }))} className="bg-slate-800 border-slate-700 text-slate-100" />
+            {saveError && <p role="alert" className="text-sm text-rose-300">{saveError}</p>}
             <div className="flex gap-2 pt-2">
-              <Button variant="outline" onClick={() => setSupplierModalOpen(false)} className="flex-1 border-slate-700 text-slate-300 hover:bg-slate-800">Cancel</Button>
-              <Button onClick={addSupplier} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white">Save</Button>
+              <Button variant="outline" disabled={saving} onClick={() => { setSupplierModalOpen(false); if (supplierFromOrder) { setSaveError(''); setPoModalOpen(true); } }} className="flex-1 border-slate-700 text-slate-300 hover:bg-slate-800">Cancel</Button>
+              <Button onClick={addSupplier} disabled={saving || !supplierForm.name.trim()} className="flex-1 bg-blue-600 hover:bg-blue-500 text-white">Save</Button>
             </div>
           </div>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={poModalOpen} onOpenChange={setPoModalOpen}>
-        <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 max-w-md">
+      <Dialog open={poModalOpen} onOpenChange={open => { if (!saving && !receiveBusy) setPoModalOpen(open); }}>
+        <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 max-w-xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-sm">{poDetail ? 'Purchase Order Details' : 'Create Purchase Order'}</DialogTitle>
+            <DialogTitle className="text-sm">{poDetail ? 'Purchase Order Details' : 'Add incoming order'}</DialogTitle>
           </DialogHeader>
           {poDetail ? (
             <div className="space-y-3">
@@ -543,21 +531,20 @@ export default function ERPSourcing() {
                             <span className="text-slate-200">{item.name} × {item.qty}</span>
                             <span className="text-slate-300">{tzs(item.price * item.qty)}</span>
                           </div>
+                          {item.buyingPriceCny != null && <div className="text-xs text-slate-400">CNY {item.buyingPriceCny} / unit · TZS {item.tzsPerCny} per CNY</div>}
                           <div className="mt-1 text-[10px] text-slate-500">Received {received} · Damaged/missing {damaged} · Remaining {Math.max(0, item.qty - received - damaged)}</div>
                         </div>
                       );
                     })}
                   </div>
                   <div className="border-t border-slate-800 pt-2 flex justify-between text-sm font-bold">
-                    <span className="text-slate-200">Total</span>
-                    <span className="text-blue-400">{tzs(poDetail.total)}</span>
+                    <span className="text-slate-200">{poDetail.items.length ? 'Landed total' : 'Supplier total'}</span>
+                    <span className="text-blue-400">{poDetail.items.length ? tzs(poDetail.total) : `CNY ${poDetail.total.toLocaleString()}`}</span>
                   </div>
-                  {poDetail.backendId && poDetail.inventoryStatus !== 'RECEIVED' ? (
+                  {poDetail.status !== 'Cancelled' && remainingUnits(poDetail) > 0 ? (
                     <Button onClick={startReceiving} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white">
                       <Package className="w-4 h-4 mr-1.5" /> Receive Goods into Inventory
                     </Button>
-                  ) : !poDetail.backendId ? (
-                    <div className="rounded-md bg-slate-800/60 p-2 text-[10px] text-slate-500">This demo PO is local-only. Create a PO with a saved supplier to enable receiving.</div>
                   ) : null}
                   <Button onClick={() => setPoModalOpen(false)} className="w-full bg-blue-600 hover:bg-blue-500 text-white">Close</Button>
                 </>
@@ -567,10 +554,11 @@ export default function ERPSourcing() {
                     Confirm what physically arrived. Accepted quantity becomes stock; damaged/missing quantity is recorded but not added to stock.
                   </div>
                   <label className="block text-xs text-slate-400">
-                    Actual transport / freight cost
+                    Actual transport / freight cost (TZS)
                     <Input
                       type="number"
                       min="0"
+                      disabled={poDetail.status === 'Partially Received'}
                       value={receiveTransport}
                       onChange={(e) => setReceiveTransport(e.target.value)}
                       className="h-8 bg-slate-800 border-slate-700 text-xs text-right mt-1"
@@ -608,23 +596,25 @@ export default function ERPSourcing() {
             </div>
           ) : (
             <div className="space-y-3">
+              <p className="text-sm text-slate-400">Enter the goods you expect. Add photos later if you have them. Stock updates when you confirm receipt.</p>
+              {saveError && <p role="alert" className="text-sm text-rose-300">{saveError}</p>}
               <div className="flex items-center gap-2">
-                <select
+                <select aria-label="Supplier"
                   value={poForm.supplier}
-                  onChange={(e) => setPoForm((f) => ({ ...f, supplier: e.target.value }))}
+                  onChange={event => {
+                    const id = event.target.value;
+                    setPoForm(form => ({ ...form, supplier: id, currency: suppliers.find(s => s.id === id)?.currency === 'CNY' ? 'CNY' : 'TZS' }));
+                  }}
                   className="flex-1 h-9 px-2 rounded-md bg-slate-800 border border-slate-700 text-xs text-slate-300"
                 >
                   <option value="">{suppliers.length === 0 ? 'No suppliers — click + to add' : 'Select supplier'}</option>
-                  {suppliers.filter((s) => s.status === 'Active').map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
+                  {suppliers.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
                 <button
                   type="button"
                   onClick={() => {
-                    // Close the PO modal and open the supplier-add modal.
-                    // The supplier modal already POSTs to the backend and
-                    // updates the suppliers list — when the operator
-                    // returns to the PO modal the new supplier is
-                    // selectable in the dropdown.
+                    setSupplierFromOrder(true);
+                    setSaveError('');
                     setPoModalOpen(false);
                     setSupplierModalOpen(true);
                   }}
@@ -634,34 +624,48 @@ export default function ERPSourcing() {
                   <Plus className="w-3 h-3" /> New
                 </button>
               </div>
+              <div className="grid grid-cols-2 gap-2 text-xs text-slate-400">
+                <label>Buying currency
+                  <select value={poForm.currency} onChange={event => setPoForm(form => ({ ...form, currency: event.target.value }))} className="block h-8 w-full rounded bg-slate-800 px-2">
+                    <option value="TZS">TZS</option><option value="CNY">CNY (Chinese yuan)</option>
+                  </select>
+                </label>
+                <label>Expected arrival
+                  <Input type="date" value={poForm.expectedDate} onChange={event => setPoForm(form => ({ ...form, expectedDate: event.target.value }))} className="h-8 bg-slate-800 border-slate-700 text-xs" />
+                </label>
+                {poForm.currency === 'CNY' && <label>TZS per 1 CNY
+                  <Input type="number" min={0.000001} step="any" value={poForm.rate} onChange={event => setPoForm(form => ({ ...form, rate: event.target.value }))} className="h-8 bg-slate-800 border-slate-700 text-xs" />
+                </label>}
+              </div>
               <div className="space-y-1.5">
                 <div className="grid grid-cols-12 gap-2 text-[9px] uppercase font-bold text-slate-500 tracking-wide px-1">
                   <div className="col-span-4">Item</div>
                   <div className="col-span-2 text-right">Qty</div>
-                  <div className="col-span-2 text-right">Unit cost</div>
-                  <div className="col-span-3 text-right">Sell @</div>
+                  <div className="col-span-2 text-right">Buy / unit ({poForm.currency})</div>
+                  <div className="col-span-3 text-right">Sell / unit (TZS)</div>
                   <div className="col-span-1" />
                 </div>
                 {poCalc.lines.map((item, idx) => (
                   <div key={idx} className="space-y-1">
                     <div className="grid grid-cols-12 gap-2">
                       <div className="col-span-4">
-                        <Input placeholder="Item name" value={item.name} onChange={(e) => { const items = [...poForm.items]; items[idx].name = e.target.value; setPoForm((f) => ({ ...f, items })); }} className="h-8 bg-slate-800 border-slate-700 text-xs" />
+                        <Input aria-label={`Item ${idx + 1} name`} placeholder="Item name" value={item.name} onChange={(e) => { const items = [...poForm.items]; items[idx].name = e.target.value; setPoForm((f) => ({ ...f, items })); }} className="h-8 bg-slate-800 border-slate-700 text-xs" />
                       </div>
                       <div className="col-span-2">
-                        <Input type="number" placeholder="0" value={item.qty || ''} onChange={(e) => { const items = [...poForm.items]; items[idx].qty = Number(e.target.value); setPoForm((f) => ({ ...f, items })); }} className="h-8 bg-slate-800 border-slate-700 text-xs text-right" />
+                        <Input aria-label={`Item ${idx + 1} quantity`} type="number" min={1} step={1} placeholder="0" value={item.qty || ''} onChange={(e) => { const items = [...poForm.items]; items[idx].qty = Number(e.target.value); setPoForm((f) => ({ ...f, items })); }} className="h-8 bg-slate-800 border-slate-700 text-xs text-right" />
                       </div>
                       <div className="col-span-2">
-                        <Input type="number" placeholder="0" value={item.price || ''} onChange={(e) => { const items = [...poForm.items]; items[idx].price = Number(e.target.value); setPoForm((f) => ({ ...f, items })); }} className="h-8 bg-slate-800 border-slate-700 text-xs text-right" />
+                        <Input aria-label={`Item ${idx + 1} buying price`} type="number" min={0} step="any" placeholder="0" value={item.price || ''} onChange={(e) => { const items = [...poForm.items]; items[idx].price = Number(e.target.value); setPoForm((f) => ({ ...f, items })); }} className="h-8 bg-slate-800 border-slate-700 text-xs text-right" />
                       </div>
                       <div className="col-span-3">
                         <Input
-                          type="number"
+                          aria-label={`Item ${idx + 1} selling price`}
+                          type="number" min={0} step="any"
                           placeholder="0"
                           value={item.sellPrice || ''}
                           onChange={(e) => { const items = [...poForm.items]; items[idx].sellPrice = Number(e.target.value); setPoForm((f) => ({ ...f, items })); }}
                           className={`h-8 bg-slate-800 text-xs text-right ${
-                            item.sellPrice > 0 && item.sellPrice < item.price ? 'border-rose-500/50'
+                            item.sellPrice > 0 && item.sellPrice < item.landedUnit ? 'border-rose-500/50'
                             : item.sellPrice > 0 ? 'border-emerald-500/40'
                             : 'border-slate-700'
                           }`}
@@ -673,7 +677,10 @@ export default function ERPSourcing() {
                         </button>
                       </div>
                     </div>
-                    {item.qty > 0 && (item.price > 0 || item.sellPrice > 0) && (
+                    <Input aria-label={`Item ${idx + 1} SKU`} placeholder="Existing SKU or colour/size SKU (optional)" value={item.sku}
+                      onChange={event => setPoForm(form => ({ ...form, items: form.items.map((line, i) => i === idx ? { ...line, sku: event.target.value } : line) }))}
+                      className="h-7 bg-slate-800 border-slate-700 text-xs" />
+                    {rateValid && item.qty > 0 && (item.price > 0 || item.sellPrice > 0) && (
                       <div
                         className="flex items-center justify-between text-[10px] px-1"
                         title={`Cost ${tzs(item.cost)} (goods + ${tzs(item.freight)} freight) · revenue ${tzs(item.revenue)}`}
@@ -686,14 +693,14 @@ export default function ERPSourcing() {
                           : item.profit < 0 ? 'bg-rose-500/15 text-rose-300'
                           : 'bg-slate-700/40 text-slate-400'
                         }`}>
-                          {item.profit >= 0 ? '+' : ''}{tzs(item.profit)}
+                          {item.sellPrice > 0 ? `${item.profit >= 0 ? '+' : ''}${tzs(item.profit)}` : 'Add a selling price to estimate profit'}
                           {item.revenue > 0 && ` (${((item.profit / item.revenue) * 100).toFixed(1)}%)`}
                         </span>
                       </div>
                     )}
                   </div>
                 ))}
-                <Button variant="outline" onClick={() => setPoForm((f) => ({ ...f, items: [...f.items, { name: '', qty: 1, price: 0, sellPrice: 0 }] }))} className="w-full border-slate-700 text-slate-300 hover:bg-slate-800 text-xs">
+                <Button variant="outline" onClick={() => setPoForm((f) => ({ ...f, items: [...f.items, { name: '', qty: 1, price: 0, sellPrice: 0, sku: '' }] }))} className="w-full border-slate-700 text-slate-300 hover:bg-slate-800 text-xs">
                   <Plus className="w-3 h-3 mr-1" /> Add Item
                 </Button>
               </div>
@@ -701,7 +708,7 @@ export default function ERPSourcing() {
               {/* Transport / freight — one entry per PO, allocated per unit. */}
               <div className="grid grid-cols-2 gap-2 items-end pt-2 border-t border-slate-800">
                 <label className="text-xs text-slate-400">
-                  Transport / freight
+                  Transport / freight (TZS)
                   <Input
                     type="number"
                     placeholder="0"
@@ -737,26 +744,26 @@ export default function ERPSourcing() {
                     poCalc.netProfit > 0 ? 'text-emerald-400'
                     : poCalc.netProfit < 0 ? 'text-rose-400'
                     : 'text-slate-500'
-                  }`}>Profit</div>
+                  }`}>Estimated gross profit</div>
                   <div className={`text-sm font-extrabold ${
                     poCalc.netProfit > 0 ? 'text-emerald-300'
                     : poCalc.netProfit < 0 ? 'text-rose-300'
                     : 'text-slate-300'
                   }`}>
-                    {tzs(poCalc.netProfit)}
-                    {poCalc.revenueTotal > 0 && <span className="text-[10px] ml-1">({poCalc.netMargin.toFixed(1)}%)</span>}
+                    {rateValid && poForm.items.every(item => item.sellPrice > 0) ? tzs(poCalc.netProfit) : '—'}
+                    {rateValid && poForm.items.every(item => item.sellPrice > 0) && poCalc.revenueTotal > 0 && <span className="text-[10px] ml-1">({poCalc.netMargin.toFixed(1)}%)</span>}
                   </div>
                 </div>
               </div>
 
               <div className="flex gap-2">
-                <Button variant="outline" onClick={() => setPoModalOpen(false)} className="flex-1 border-slate-700 text-slate-300 hover:bg-slate-800">Cancel</Button>
+                <Button variant="outline" disabled={saving} onClick={() => setPoModalOpen(false)} className="flex-1 border-slate-700 text-slate-300 hover:bg-slate-800">Close</Button>
                 <Button
                   onClick={createPO}
-                  disabled={!poForm.supplier || poCalc.costTotal <= 0 || poForm.items.some((i) => !i.name.trim())}
+                  disabled={!canCreate}
                   className="flex-1 bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-40"
                 >
-                  Create PO · {tzs(poCalc.landedCost)}
+                  {saving ? 'Saving…' : 'Save incoming order'}
                 </Button>
               </div>
             </div>

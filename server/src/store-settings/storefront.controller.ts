@@ -1,3 +1,4 @@
+import { publicCatalogueProduct } from '../store/public-catalogue-product';
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { IsArray, IsBoolean, IsNumber, IsObject, IsOptional, IsString } from 'class-validator';
 import { CurrentUser } from '../auth/current-user.decorator';
@@ -140,9 +141,10 @@ export class StorefrontPublicController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.resolve(slug).then((uid) =>
-      this.svc.resolveProducts(uid, collectionSlug, Number(page ?? 1), Number(limit ?? 24)),
-    );
+    return this.resolve(slug).then(async uid => {
+      const result = await this.svc.resolveProducts(uid, collectionSlug, Number(page ?? 1), Number(limit ?? 24));
+      return { ...result, products: result.products.map(publicCatalogueProduct) };
+    });
   }
 
   @Get(':slug/brands') publicBrands(@Param('slug') slug: string) {

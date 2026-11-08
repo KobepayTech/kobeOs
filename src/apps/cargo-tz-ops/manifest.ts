@@ -2,8 +2,8 @@ import { lazy } from 'react';
 import type { AppManifest } from '@/os/types';
 export const manifest: AppManifest = {
   id: 'cargo-tz-ops',
-  name: 'Cargo TZ',
-  description: 'Domestic bus-cargo operations — receiving agent intake (auto tracking + QR), warehouse scan-and-pack, owner dashboard. Public parcel tracking by QR.',
+  name: 'CargoTZ',
+  description: 'Domestic cargo collection, intake, dispatch, loading manifests, destination pickup and parcel tracking.',
   icon: 'PackageCheck',
   category: 'erp',
   version: '1.0.0',
@@ -14,6 +14,6 @@ export const manifest: AppManifest = {
   singleton: true,
   requiresAuth: true,
   permissions: [],
-  subscriptionTier: 'pro',
+  subscriptionTier: 'free',
   component: lazy(() => import('./index')),
 };
