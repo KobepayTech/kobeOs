@@ -53,6 +53,7 @@ class EnvVars {
 
   /** PalmPesa payment gateway (https://documentation.palmpesa.co.tz) */
   @IsOptional() @IsString() PALMPESA_API_TOKEN?: string;
+  @IsOptional() @IsString() PALMPESA_CHECKOUT_EMAIL?: string;
   @IsOptional() @IsNumber() PALMPESA_USER_ID?: number;
   /** Public base URL of this server — used as PalmPesa callback base */
   @IsOptional() @IsString() APP_PUBLIC_URL?: string;

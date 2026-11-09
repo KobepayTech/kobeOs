@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { publicApi } from './api';
+import { socialPaymentMessage, type SocialCheckoutPayment } from './social-checkout-payment';
 
 interface Checkout {
   token: string; status: string; expired: boolean; reservedUntil: string | null;
@@ -7,6 +8,7 @@ interface Checkout {
   product: { id: string; sku: string; name: string; imageUrl: string | null } | null;
   unitPrice: number; currency: string; sessionTitle: string; platform: string;
   storefrontPath: string;
+  payment?: SocialCheckoutPayment | null;
 }
 
 const money = (n: number, ccy: string) => `${ccy} ${Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
@@ -21,14 +23,19 @@ export default function LivePay({ token }: { token: string }) {
   const [error, setError] = useState<string | null>(null);
   const [phone, setPhone] = useState('');
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState(false);
   const [left, setLeft] = useState<number>(0);
 
   const load = useCallback(async () => {
     try { setData(await publicApi<Checkout>(`/live-sales/public/checkout/${token}`)); setError(null); }
     catch (e) { setError((e as Error).message); }
   }, [token]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { void load(); }, [load]);
+  const payment = data?.payment;
+  useEffect(() => {
+    if (payment?.paymentState !== 'PENDING' && payment?.paymentState !== 'EXPIRED') return;
+    const timer = setInterval(() => void load(), 7000);
+    return () => clearInterval(timer);
+  }, [payment?.paymentState, load]);
 
   // Countdown to the reservation expiry.
   useEffect(() => {
@@ -42,7 +49,7 @@ export default function LivePay({ token }: { token: string }) {
     setBusy(true); setError(null);
     try {
       await publicApi(`/live-sales/public/checkout/${token}/pay`, { method: 'POST', body: JSON.stringify({ buyerContact: phone.trim() }) });
-      setDone(true);
+      await load();
     } catch (e) { setError((e as Error).message); }
     finally { setBusy(false); }
   };
@@ -53,18 +60,18 @@ export default function LivePay({ token }: { token: string }) {
   const total = data.unitPrice * data.qty;
   // Compute expiry straight from reservedUntil so a still-valid reservation
   // doesn't flash "expired" on the first render (before the countdown ticks).
-  const expired = data.expired || (!!data.reservedUntil && new Date(data.reservedUntil).getTime() <= Date.now() && !done);
+  const expired = data.expired || (!!data.reservedUntil && new Date(data.reservedUntil).getTime() <= Date.now());
 
   return (
     <div className="min-h-screen bg-[#0b0b16] text-white/90 grid place-items-center px-4 py-8">
       <div className="w-full max-w-sm space-y-4">
         <div className="text-center text-xs text-white/40 uppercase tracking-wider">{data.sessionTitle}</div>
 
-        {done ? (
-          <div className="rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-5 text-center space-y-1">
-            <div className="text-2xl">✅</div>
-            <div className="text-sm font-semibold text-emerald-200">Order confirmed</div>
-            <div className="text-xs text-white/60">We’ve reserved {data.qty} × {data.product?.name}. The seller will contact you on {phone} to complete delivery/payment.</div>
+        {payment || data.status === 'CONVERTED' ? (
+          <div className="rounded-2xl border border-indigo-500/40 bg-indigo-500/10 p-5 text-center space-y-2">
+            <div className="text-sm font-semibold">{payment ? payment.orderNumber : 'Order already recorded'}</div>
+            <div className="text-xs text-white/70">{payment ? socialPaymentMessage[payment.paymentState]
+              : 'Contact the seller for payment and delivery details.'}</div>
           </div>
         ) : (
           <div className="rounded-2xl border border-white/10 bg-white/[0.04] overflow-hidden">
@@ -79,9 +86,9 @@ export default function LivePay({ token }: { token: string }) {
                 <div className="text-sm text-white/50">{data.qty} × {money(data.unitPrice, data.currency)} = <b className="text-white/90">{money(total, data.currency)}</b></div>
               </div>
 
-              {expired ? (
+              {expired || data.status === 'FAILED' ? (
                 <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-2.5 text-sm text-amber-200 text-center">
-                  This reservation expired. Comment <b>BUY</b> again in the live to get a fresh link.
+                  This reservation is no longer available. Comment <b>BUY</b> again in the live to get a fresh link.
                 </div>
               ) : (
                 <>
@@ -93,7 +100,7 @@ export default function LivePay({ token }: { token: string }) {
                     Add more products from the store
                   </a>
                   <button onClick={pay} disabled={busy || !phone.trim()} className="w-full h-11 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 font-semibold">
-                    {busy ? 'Confirming…' : `Confirm order · ${money(total, data.currency)}`}
+                    {busy ? 'Requesting payment…' : `Pay with mobile money · ${money(total, data.currency)}`}
                   </button>
                   {error && <p className="text-[11px] text-red-300 text-center">{error}</p>}
                 </>

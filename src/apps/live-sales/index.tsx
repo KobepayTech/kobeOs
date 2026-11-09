@@ -21,7 +21,7 @@ const LIVE_PLATFORMS = [['tiktok', 'TikTok'], ['instagram', 'Instagram'], ['face
 
 interface Session { id: string; title: string; platform: string; status: 'LIVE' | 'ENDED'; kind?: 'live' | 'post'; postUrl?: string; ingestToken: string; currency: string; totalSales: number | string; orderCount: number; createdAt: string; showOnStorefront?: boolean; socialAccountId?: string | null; sourceHandle?: string }
 interface PinRow { id: string; code: string; productId: string; name: string; livePrice: number; catalogPrice: number; stock: number; soldQty: number; isFeatured: boolean }
-interface Comment { id: string; source: string; buyerHandle: string; buyerContact: string; text: string; matchedCode: string; qty: number; status: string; createdAt: string; reservationCode?: string; checkoutToken?: string; publicReplyText?: string; orderId?: string }
+interface Comment { id: string; source: string; buyerHandle: string; buyerContact: string; text: string; matchedCode: string; qty: number; status: string; createdAt: string; reservationCode?: string; checkoutToken?: string; publicReplyText?: string; paymentState?: string | null; orderId?: string }
 interface Product { id: string; name: string; price: number | string; stock: number }
 interface Stats { totalSales: number; orderCount: number; pendingComments: number; convertedComments: number; pins: PinRow[] }
 interface OperatorContext { storefrontSlug: string; storefrontUrl: string; catalogUrl: string }
@@ -497,7 +497,9 @@ function SessionConsole({ session, context, accounts, onOpenKds, onBack }: { ses
                       )}
                     </div>
                     <div className="shrink-0">
-                      {c.status === 'CONVERTED' ? <span className="text-[10px] font-bold text-emerald-400 inline-flex items-center gap-0.5"><CheckCircle2 className="w-3 h-3" /> SOLD</span>
+                      {c.paymentState === 'PENDING' ? <span className="text-[10px] font-bold text-amber-300">AWAITING PAYMENT</span>
+                        : c.paymentState === 'REVIEW' ? <span className="text-[10px] font-bold text-rose-300">LATE PAYMENT · REVIEW</span>
+                        : c.status === 'CONVERTED' ? <span className="text-[10px] font-bold text-emerald-400 inline-flex items-center gap-0.5"><CheckCircle2 className="w-3 h-3" /> SOLD</span>
                         : c.status === 'IGNORED' ? <span className="text-[10px] text-slate-500">ignored</span>
                         : c.status === 'FAILED' ? <span className="text-[10px] text-rose-400">failed</span>
                         : !ended && (

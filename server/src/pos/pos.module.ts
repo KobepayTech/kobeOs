@@ -13,11 +13,15 @@ import { DiscountsModule } from '../discounts/discount.module';
 import { CreditModule } from '../credit/credit.module';
 import { ErpModule } from '../erp/erp.module';
 import { AuthModule } from '../auth/auth.module';
+import { PalmPesaModule } from '../creators/palmpesa.module';
+import { SocialCheckoutPaymentsController } from './social-checkout-payments.controller';
+import { SocialCheckoutPaymentsService } from './social-checkout-payments.service';
 import { AuditModule } from '../audit/audit.module';
 
 @Module({
   imports: [
     AuditModule,
+    PalmPesaModule,
     TypeOrmModule.forFeature([PosProduct, PosOrder, PosOrderItem]),
     // Gateway uses JwtModule for socket authentication (same secret
     // as the HTTP JwtAuthGuard).
@@ -36,8 +40,8 @@ import { AuditModule } from '../audit/audit.module';
     // AuthService.verifyManager to bcrypt-compare without issuing JWTs.
     AuthModule,
   ],
-  providers: [ProductsService, OrdersService, ReceiptService, PosGateway, ReorderService],
-  controllers: [PosController],
-  exports: [OrdersService],
+  providers: [ProductsService, OrdersService, ReceiptService, PosGateway, ReorderService, SocialCheckoutPaymentsService],
+  controllers: [PosController, SocialCheckoutPaymentsController],
+  exports: [OrdersService, SocialCheckoutPaymentsService],
 })
 export class PosModule {}

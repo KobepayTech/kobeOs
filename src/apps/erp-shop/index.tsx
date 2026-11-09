@@ -1,3 +1,4 @@
+import { socialPaymentMessage, type SocialCheckoutPayment } from '../../public/social-checkout-payment';
 import { assetUrl } from '@/lib/api';
 import { useState, useMemo, useEffect } from 'react';
 import {
@@ -115,6 +116,7 @@ interface BnplEligibility {
 }
 
 interface LiveReservationCheckout {
+  payment?: SocialCheckoutPayment | null;
   token: string;
   status: string;
   expired: boolean;
@@ -155,6 +157,7 @@ interface TrackedOrder {
   total: string | number;
   currency: string;
   paymentMethod: string;
+  paymentState?: SocialCheckoutPayment['paymentState'] | null;
   customerName?: string | null;
   placedAt: string;
   items: Array<{ productName: string; quantity: number; unitPrice: string | number; lineTotal: string | number }>;
@@ -405,6 +408,7 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
   const [customerProfile, setCustomerProfile] = useState<StoreCustomerProfile | null>(null);
   const [redeemFreeJerseyProductId, setRedeemFreeJerseyProductId] = useState('');
   const [loyaltyMessage, setLoyaltyMessage] = useState<string | null>(null);
+  const [checkoutPayment, setCheckoutPayment] = useState<SocialCheckoutPayment | null>(null);
   const [orderConfirmed, setOrderConfirmed] = useState(false);
   const [orderNumber, setOrderNumber] = useState('');
   const [orderReceipt, setOrderReceipt] = useState<string | null>(null);
@@ -512,11 +516,18 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
   // Validate it with the backend, preload the held item at its Live price, and
   // leave the buyer on the full catalogue to add anything else they want.
   useEffect(() => {
-    if (!slug || !liveCheckoutToken || products.length === 0 || liveReservationApplied) return;
+    if (!slug || !liveCheckoutToken || liveReservationApplied || loading) return;
     let cancelled = false;
     api<LiveReservationCheckout>(`/live-sales/public/checkout/${encodeURIComponent(liveCheckoutToken)}`, { auth: false })
       .then((reservation) => {
         if (cancelled) return;
+        if (reservation.payment) {
+          setCheckoutPayment(reservation.payment);
+          setOrderNumber(reservation.payment.orderNumber);
+          setOrderConfirmed(true);
+          setLiveReservationApplied(true);
+          return;
+        }
         if (reservation.expired || reservation.status !== 'RESERVED') {
           setLiveReservationError('This Live reservation has expired. Return to the Live and reserve again.');
           setLiveReservationApplied(true);
@@ -526,6 +537,7 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
           ? products.find((candidate) => candidate.id === reservation.product!.id)
           : null;
         if (!product) {
+          if (products.length === 0) return;
           setLiveReservationError('The reserved Live product is no longer available in this store.');
           setLiveReservationApplied(true);
           return;
@@ -554,7 +566,20 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
         }
       });
     return () => { cancelled = true; };
-  }, [slug, products, liveCheckoutToken, liveReservationApplied]);
+  }, [slug, products, liveCheckoutToken, liveReservationApplied, loading]);
+
+  useEffect(() => {
+    if (!liveCheckoutToken || (checkoutPayment?.paymentState !== 'PENDING' && checkoutPayment?.paymentState !== 'EXPIRED')) return;
+    let active = true;
+    const refresh = async () => {
+      const reservation = await api<LiveReservationCheckout>(
+        `/live-sales/public/checkout/${encodeURIComponent(liveCheckoutToken)}`, { auth: false },
+      ).catch(() => null);
+      if (active && reservation?.payment) setCheckoutPayment(reservation.payment);
+    };
+    const timer = setInterval(() => void refresh(), 7000);
+    return () => { active = false; clearInterval(timer); };
+  }, [liveCheckoutToken, checkoutPayment?.paymentState]);
 
   // If a returning buyer types their registered phone during checkout, fill
   // their name and coupon automatically after a short debounce.
@@ -809,6 +834,9 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
     try {
       const sale = await api<{
         orderNumber: string;
+        paymentState?: SocialCheckoutPayment['paymentState'];
+        amount?: number;
+        currency?: string;
         receipt?: { text: string };
         pickTicket?: { ticketNumber: string };
         discount?: { discountAmount: number; breakdown: Array<{ source: string; label: string; amount: number }> };
@@ -821,6 +849,14 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
       });
       setOrderNumber(sale.orderNumber ?? orderDto.orderNumber);
       setOrderReceipt(sale.receipt?.text ?? null);
+      if (sale.paymentState) {
+        setCheckoutPayment({ orderNumber: sale.orderNumber, paymentState: sale.paymentState, amount: sale.amount ?? cartTotal, currency: sale.currency ?? 'TZS' });
+        setIsCheckout(false);
+        setOrderConfirmed(true);
+        clearCart();
+        return;
+      }
+      setCheckoutPayment(null);
       setOrderDiscount(sale.discount ?? null);
       if (sale.loyalty) {
         const previousCredits = customerProfile?.freeJerseyCredits ?? 0;
@@ -1273,7 +1309,7 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
                   { id: 'mobile', label: 'Mobile Money', icon: Smartphone },
                   { id: 'bank', label: 'Bank Transfer', icon: Building2 },
                   { id: 'bnpl', label: 'Buy Now Pay Later', icon: CreditCard },
-                ].map((m) => (
+                ].filter((m) => !liveCheckoutToken || m.id !== 'bank').map((m) => (
                   <Button
                     key={m.id}
                     variant={checkoutForm.paymentMethod === m.id ? 'default' : 'outline'}
@@ -1339,12 +1375,23 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
         </DialogContent>
       </Dialog>
 
-      {/* Success Dialog */}
+      {checkoutPayment && !orderConfirmed && (
+        <button className="fixed bottom-4 right-4 z-30 rounded-lg bg-indigo-700 px-4 py-2 text-sm text-white" onClick={() => setOrderConfirmed(true)}>
+          View payment for {checkoutPayment.orderNumber}
+        </button>
+      )}
+
+      {/* Order and payment status */}
+
       <Dialog open={orderConfirmed} onOpenChange={setOrderConfirmed}>
         <DialogContent className={`${modernStore ? 'sf-dialog ' : ''}bg-slate-900 border-slate-700 text-white max-w-md`}>
           <div className="text-center py-6">
-            <CheckCircle2 className="w-16 h-16 text-green-400 mx-auto mb-4" />
-            <h2 className="text-xl font-bold mb-2">Order Confirmed!</h2>
+            {(!checkoutPayment || checkoutPayment.paymentState === 'PAID') && <CheckCircle2 className="w-16 h-16 text-green-400 mx-auto mb-4" />}
+            <h2 className="text-xl font-bold mb-2">
+              {checkoutPayment?.paymentState === 'PENDING' ? 'Awaiting payment'
+                : checkoutPayment?.paymentState === 'PAID' ? 'Payment verified'
+                  : checkoutPayment ? 'Payment update' : 'Order Confirmed!'}
+            </h2>
             <p className="text-slate-400 mb-2">Your order number is</p>
             <p className="text-2xl font-mono font-bold text-blue-400 mb-4">{orderNumber}</p>
             {orderReceipt && (
@@ -1356,7 +1403,8 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
                 <span>{loyaltyMessage}</span>
               </div>
             )}
-            <p className="text-sm text-slate-500">The store will contact you to confirm your pickup or delivery details.</p>
+            <p className="text-sm text-slate-300">{checkoutPayment ? socialPaymentMessage[checkoutPayment.paymentState]
+              : 'The store will contact you to confirm your pickup or delivery details.'}</p>
           </div>
         </DialogContent>
       </Dialog>

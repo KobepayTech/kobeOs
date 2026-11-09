@@ -1,8 +1,8 @@
 import { UserOnboarding } from '../onboarding/onboarding.entity';
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
-import { PosOrder, PosOrderItem, PosProduct } from './pos.entity';
+import { DataSource, EntityManager, IsNull, Not, Repository } from 'typeorm';
+import { CheckoutPaymentDetails, PosOrder, PosOrderItem, PosProduct } from './pos.entity';
 import { CreateOrderDto, CreateProductDto, UpdateOrderDto, UpdateProductDto } from './dto/pos.dto';
 import { ReceiptService } from './receipt.service';
 import { PickTicketService } from '../warehouse/pick-ticket.service';
@@ -13,6 +13,10 @@ import { PosGateway } from './pos.gateway';
 import { repairCatalogImages } from '../media/repair-catalog-images';
 import { AuditService } from '../audit/audit.service';
 import { ProductSnippet } from '../commerce/commerce.entity';
+import { LiveComment, LivePin, LiveSession } from '../live-sales/live-sale.entity';
+import { LoyaltyCustomer, LoyaltyPointsEntry } from '../erp/erp.entity';
+import { Coupon } from '../discounts/discount.entity';
+import type { PalmPesaCheckoutPayment } from '../creators/palmpesa.service';
 import { CLOUD_COMMITTED_FOR_PRODUCT_SQL } from '../cloud-continuity/continuity.rules';
 
 @Injectable()
@@ -145,7 +149,7 @@ export class OrdersService {
     return { ...order, items };
   }
 
-  async create(uid: string, dto: CreateOrderDto) {
+  async create(uid: string, dto: CreateOrderDto, checkout?: CheckoutPaymentDetails) {
     if (!dto.lines.length) throw new BadRequestException('Order has no lines');
     const result = await this.ds.transaction(async (tx) => {
       const productRepo = tx.getRepository(PosProduct);
@@ -154,9 +158,22 @@ export class OrdersService {
 
       if (dto.liveCommentId) {
         await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`live-order:${dto.liveCommentId}`]);
-        if (await orderRepo.existsBy({ ownerId: uid, liveCommentId: dto.liveCommentId })) {
+        const existing = await orderRepo.findOneBy({ ownerId: uid, liveCommentId: dto.liveCommentId });
+        if (existing) {
+          if (checkout && existing.checkoutPaymentState && existing.customerPhone === dto.customerPhone) {
+            const items = await itemRepo.findBy({ ownerId: uid, orderId: existing.id });
+            return { ...existing, items, discount: null, receipt: null, pickTicket: null, receivable: null, journal: [] };
+          }
           throw new BadRequestException('This reservation already has an order');
         }
+      }
+
+      if (checkout?.rewardCustomerId) {
+        const claim = await tx.getRepository(LoyaltyCustomer).createQueryBuilder().update()
+          .set({ freeJerseyCredits: () => '"freeJerseyCredits" - 1' })
+          .where('id = :id AND "ownerId" = :uid AND "freeJerseyCredits" > 0', { id: checkout.rewardCustomerId, uid })
+          .execute();
+        if (!claim.affected) throw new BadRequestException('No free-jersey reward is available');
       }
 
       let subtotal = 0;
@@ -173,6 +190,9 @@ export class OrdersService {
       for (const line of dto.lines) {
         const product = await productRepo.findOne({ where: { id: line.productId, ownerId: uid } });
         if (!product) throw new NotFoundException(`Product ${line.productId} not found`);
+        if (checkout && (!product.active || product.currency !== 'TZS')) {
+          throw new BadRequestException('Mobile money requires an active product priced in TZS.');
+        }
         // TypeORM returns decimal columns as strings — parse before use.
         const productPrice = parseFloat(product.price as unknown as string);
 
@@ -290,6 +310,9 @@ export class OrdersService {
       const discount = parseFloat(Math.min(rawDiscount, subtotal + tax).toFixed(4));
 
       const total = parseFloat(Math.max(0, subtotal + tax - discount).toFixed(4));
+      if (checkout && (!Number.isInteger(total) || total < 100 || total > 100_000_000)) {
+        throw new BadRequestException('Mobile-money totals must be 100 to 100,000,000 whole TZS.');
+      }
       const paymentMethod = dto.paymentMethod ?? 'CASH';
       const isBnpl = paymentMethod === 'BNPL';
 
@@ -311,7 +334,9 @@ export class OrdersService {
           liveCommentId: dto.liveCommentId ?? null,
           attributionCode: dto.attributionCode ?? '',
           isBnpl,
-          status: 'COMPLETED',
+          status: checkout ? 'PENDING' : 'COMPLETED',
+          checkoutPaymentState: checkout ? 'PENDING' : null,
+          checkoutPaymentDetails: checkout ? { ...checkout, couponId: discountResult.appliedCouponId } : null,
         }),
       );
 
@@ -320,6 +345,15 @@ export class OrdersService {
 
       if (discountResult.appliedCouponId) {
         await this.discountEngine.consumeCoupon(tx, discountResult.appliedCouponId);
+      }
+
+      if (checkout) {
+        if (dto.liveCommentId) {
+          await tx.getRepository(LiveComment).update({ id: dto.liveCommentId, ownerId: uid }, {
+            orderId: order.id, buyerContact: order.customerPhone || '', status: 'MATCHED',
+          });
+        }
+        return { ...order, items: itemsToInsert, discount: discountResult, receipt: null, pickTicket: null, receivable: null, journal: [] };
       }
 
       let receivable: unknown = null;
@@ -372,7 +406,7 @@ export class OrdersService {
     // AFTER the transaction commits so a rollback never fires a
     // phantom "new order" event.
     try {
-      this.gateway.emitOrder(uid, result as PosOrder, result.items, 'created');
+      if (!checkout) this.gateway.emitOrder(uid, result as PosOrder, result.items, 'created');
     } catch (err) {
       // Never let a socket failure poison a real sale.
       // (gateway logs its own errors; we just swallow here.)
@@ -382,9 +416,111 @@ export class OrdersService {
     return result;
   }
 
+  /** Apply only a server-verified result. All paid-sale effects share the order row lock. */
+  async applyCheckoutPayment(orderId: string, payment: PalmPesaCheckoutPayment) {
+    const completed = await this.ds.transaction(async (tx) => {
+      const orders = tx.getRepository(PosOrder);
+      const order = await orders.findOne({ where: { id: orderId }, lock: { mode: 'pessimistic_write' } });
+      const details = order?.checkoutPaymentDetails;
+      if (!order || !details || !['PENDING', 'EXPIRED'].includes(order.checkoutPaymentState || '')) return;
+      if (payment.transaction_id !== `SOCIAL-${order.id}` || !/^[a-zA-Z0-9_-]{1,191}$/.test(payment.order_id) ||
+        (details.providerOrderId && details.providerOrderId !== payment.order_id) ||
+        payment.currency !== order.currency || payment.amount !== Number(order.total)) {
+        throw new BadRequestException('PalmPesa payment did not match the checkout order.');
+      }
+      order.checkoutPaymentDetails = { ...details, providerOrderId: payment.order_id, providerReference: payment.reference };
+      const items = await tx.getRepository(PosOrderItem).find({ where: { orderId, ownerId: order.ownerId } });
+      const comment = order.liveCommentId ? { id: order.liveCommentId, ownerId: order.ownerId } : null;
+
+      if (order.checkoutPaymentState === 'EXPIRED') {
+        if (payment.status === 'COMPLETED') {
+          order.checkoutPaymentState = 'REVIEW';
+          order.checkoutPaidAt = new Date();
+          await orders.save(order);
+        }
+        return;
+      }
+
+      if (['CANCELLED', 'REJECTED', 'INITIATION_FAILED', 'EXPIRED'].includes(payment.status)) {
+        for (const item of items) {
+          await tx.getRepository(PosProduct).increment({ id: item.productId, ownerId: order.ownerId }, 'stock', item.quantity);
+        }
+        if (details.couponId) await tx.getRepository(Coupon).decrement({ id: details.couponId, ownerId: order.ownerId }, 'usageCount', 1);
+        if (details.rewardCustomerId) await tx.getRepository(LoyaltyCustomer).increment({ id: details.rewardCustomerId, ownerId: order.ownerId }, 'freeJerseyCredits', 1);
+        if (comment) await tx.getRepository(LiveComment).update(comment, { status: 'FAILED', note: 'Mobile-money payment did not complete' });
+        order.status = 'CANCELLED';
+        order.checkoutPaymentState = payment.status === 'EXPIRED' ? 'EXPIRED' : 'FAILED';
+        await orders.save(order);
+        return;
+      }
+      if (payment.status !== 'COMPLETED') {
+        await orders.save(order);
+        return;
+      }
+
+      order.status = 'COMPLETED';
+      order.checkoutPaymentState = 'PAID';
+      order.checkoutPaidAt = new Date();
+      await orders.save(order);
+      const products = tx.getRepository(PosProduct);
+      const pickLines: Array<{ sku: string; name: string; quantity: number }> = [];
+      for (const item of items) {
+        const product = await products.findOneOrFail({ where: { id: item.productId, ownerId: order.ownerId } });
+        pickLines.push({ sku: product.sku, name: item.productName, quantity: item.quantity });
+      }
+      await this.pickTickets.createInTransaction(tx, order.ownerId, {
+        ticketNumber: `PT-${order.orderNumber}`, orderId, customerName: order.customerName, lines: pickLines,
+      });
+      await this.journal.postPosSaleInTransaction(tx, order.ownerId, order, items, { isBnpl: false });
+
+      if (comment && order.liveSessionId) {
+        const comments = tx.getRepository(LiveComment);
+        const reservation = await comments.findOneBy(comment);
+        const quantity = items.filter(item => item.productId === reservation?.matchedProductId)
+          .reduce((total, item) => total + Number(item.quantity), 0);
+        await comments.update(comment, { status: 'CONVERTED', qty: quantity || reservation?.qty || 1 });
+        if (reservation?.matchedProductId && quantity) {
+          await tx.getRepository(LivePin).increment({ ownerId: order.ownerId, sessionId: order.liveSessionId, productId: reservation.matchedProductId }, 'soldQty', quantity);
+        }
+        const sessions = tx.getRepository(LiveSession);
+        await sessions.increment({ id: order.liveSessionId, ownerId: order.ownerId }, 'totalSales', Number(order.total));
+        await sessions.increment({ id: order.liveSessionId, ownerId: order.ownerId }, 'orderCount', 1);
+      }
+      if (details.loyaltyCustomerId) await this.creditSettledStorePurchase(tx, order, details.loyaltyCustomerId);
+      return { order, items };
+    });
+    if (completed) {
+      try { this.gateway.emitOrder(completed.order.ownerId, completed.order, completed.items, 'created'); }
+      catch { /* The paid order is already committed and available to the fulfillment queue. */ }
+    }
+  }
+
+  private async creditSettledStorePurchase(tx: EntityManager, order: PosOrder, customerId: string) {
+    const customers = tx.getRepository(LoyaltyCustomer);
+    const customer = await customers.findOne({ where: { id: customerId, ownerId: order.ownerId }, lock: { mode: 'pessimistic_write' } });
+    if (!customer) return;
+    const earned = Math.max(0, Math.floor(Number(order.total) / 1000));
+    customer.visits += 1;
+    customer.purchaseCount += 1;
+    customer.lastOrderId = order.id;
+    customer.points += earned;
+    if (!customer.freeJerseyAwarded) {
+      customer.freeJerseyAwarded = true;
+      customer.freeJerseyCredits += 1;
+    }
+    if (order.fulfillmentMethod === 'DELIVERY' && order.fulfillmentLocation) customer.address = order.fulfillmentLocation;
+    await customers.save(customer);
+    if (earned > 0) await tx.getRepository(LoyaltyPointsEntry).save({
+      ownerId: order.ownerId, customer: customer.name, type: 'Earned', points: earned,
+      description: `Purchase ${order.orderNumber}`, date: new Date().toISOString().slice(0, 10),
+    });
+  }
+
   async update(uid: string, id: string, dto: UpdateOrderDto) {
     const order = await this.orders.findOne({ where: { id, ownerId: uid } });
     if (!order) throw new NotFoundException();
+
+    if (order.checkoutPaymentState) throw new BadRequestException('Mobile-money orders are updated by settlement verification.');
 
     if (dto.status === 'CANCELLED' && order.status !== 'CANCELLED') {
       await this.ds.transaction(async (tx) => {
@@ -412,11 +548,14 @@ export class OrdersService {
    *  the screen on their next status broadcast. */
   async listForKds(uid: string): Promise<Array<PosOrder & { items: PosOrderItem[] }>> {
     const orders = await this.orders.find({
-      where: { ownerId: uid },
+      where: [
+        { ownerId: uid, fulfillmentStatus: Not('COLLECTED'), checkoutPaymentState: IsNull() },
+        { ownerId: uid, fulfillmentStatus: Not('COLLECTED'), checkoutPaymentState: 'PAID' },
+      ],
       order: { createdAt: 'DESC' },
       take: 100,
     });
-    const active = orders.filter((o) => o.fulfillmentStatus !== 'COLLECTED');
+    const active = orders;
     if (active.length === 0) return [];
     const items = await this.items.find({ where: { ownerId: uid } });
     const byOrder = new Map<string, PosOrderItem[]>();
@@ -450,6 +589,7 @@ export class OrdersService {
   ): Promise<PosOrder & { items: PosOrderItem[] }> {
     const order = await this.orders.findOne({ where: { id, ownerId: uid } });
     if (!order) throw new NotFoundException();
+    if (order.checkoutPaymentState && order.checkoutPaymentState !== 'PAID') throw new BadRequestException('Payment has not cleared.');
     const items = await this.items.find({ where: { orderId: id, ownerId: uid } });
     const previous = order.fulfillmentStatus;
     const rank: Record<PosOrder['fulfillmentStatus'], number> = {

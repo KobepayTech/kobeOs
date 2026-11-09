@@ -128,7 +128,7 @@ export class JournalService {
     const tax = Number(order.taxAmount);
     const discount = Number(order.discountAmount);
     const total = Number(order.total);
-    const date = (order.createdAt ?? new Date()).toISOString().slice(0, 10);
+    const date = (order.checkoutPaidAt ?? order.createdAt ?? new Date()).toISOString().slice(0, 10);
     const ref = `POS ${order.orderNumber}`;
 
     const lines: JournalLine[] = [];

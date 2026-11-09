@@ -44,11 +44,11 @@ export class PosController {
   @Delete('products/:id') removeProduct(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.products.remove(uid, id); }
 
   @Get('orders') listOrders(@CurrentUser('id') uid: string) { return this.orders.list(uid); }
+  @Get('orders/kds') listForKds(@CurrentUser('id') uid: string) { return this.orders.listForKds(uid); }
   @Get('orders/:id') getOrder(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.orders.get(uid, id); }
   @Post('orders') createOrder(@CurrentUser('id') uid: string, @Body() dto: CreateOrderDto) { return this.orders.create(uid, dto); }
   @Patch('orders/:id') updateOrder(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: UpdateOrderDto) { return this.orders.update(uid, id, dto); }
 
-  @Get('orders/kds') listForKds(@CurrentUser('id') uid: string) { return this.orders.listForKds(uid); }
   @Post('orders/:id/start') start(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.orders.markPreparing(uid, id); }
   @Post('orders/:id/ready') ready(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.orders.markReady(uid, id); }
   @Post('orders/:id/collected') collected(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.orders.markCollected(uid, id); }

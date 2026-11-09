@@ -16,7 +16,7 @@ import { LiveSession, LivePin, LiveComment } from './live-sale.entity';
 import { PosOrder, PosProduct } from '../pos/pos.entity';
 import { StoreSettings } from '../store-settings/store-settings.entity';
 import { OrdersService } from '../pos/pos.service';
-import { PalmPesaService } from '../creators/palmpesa.service';
+import { SocialCheckoutPaymentsService } from '../pos/social-checkout-payments.service';
 import { ApifyService } from './apify.service';
 import { liveShopLinks } from './live-shop-links';
 import { socialPostKey, socialSaleIntent } from './social-sale-comment';
@@ -82,7 +82,7 @@ export class LiveSaleService {
     @InjectRepository(PosOrder) private readonly posOrders: Repository<PosOrder>,
     @InjectRepository(StoreSettings) private readonly settings: Repository<StoreSettings>,
     private readonly orders: OrdersService,
-    private readonly palmpesa: PalmPesaService,
+    private readonly socialPayments: SocialCheckoutPaymentsService,
     private readonly apify: ApifyService,
   ) {}
 
@@ -456,7 +456,8 @@ export class LiveSaleService {
   async checkoutByToken(token: string) {
     const c = await this.comments.findOne({ where: { checkoutToken: token } });
     if (!c || !token) throw new NotFoundException('Reservation not found');
-    const session = await this.sessions.findOne({ where: { id: c.sessionId } });
+    const order = await this.posOrders.findOneBy({ ownerId: c.ownerId, liveCommentId: c.id });
+    const session = await this.sessions.findOne({ where: { id: c.sessionId, ownerId: c.ownerId } });
     const pin = c.matchedProductId
       ? await this.pins.findOne({ where: { ownerId: c.ownerId, sessionId: c.sessionId, productId: c.matchedProductId } })
       : null;
@@ -465,6 +466,7 @@ export class LiveSaleService {
     return {
       token,
       status: c.status,
+      payment: order?.checkoutPaymentState ? this.socialPayments.publicState(order) : null,
       expired: c.status !== 'CONVERTED' && expired,
       reservedUntil: c.reservedUntil,
       qty: c.qty,
@@ -491,11 +493,16 @@ export class LiveSaleService {
   async payByToken(token: string, dto: { buyerContact?: string }) {
     const c = await this.comments.findOne({ where: { checkoutToken: token } });
     if (!c || !token) throw new NotFoundException('Reservation not found');
-    if (c.status === 'CONVERTED') return { ok: true, alreadyPaid: true };
-    if (c.status === 'EXPIRED' || (c.reservedUntil ? c.reservedUntil.getTime() <= Date.now() : true)) {
+    const order = await this.posOrders.findOneBy({ ownerId: c.ownerId, liveCommentId: c.id });
+    if (order?.checkoutPaymentState) return { ok: true, payment: this.socialPayments.publicState(order) };
+    if (c.status === 'CONVERTED' || order) return { ok: true, payment: { paymentState: null } };
+    if (!dto.buyerContact?.trim()) throw new BadRequestException('Enter a mobile-money phone number.');
+    if (c.status !== 'RESERVED' || (c.reservedUntil ? c.reservedUntil.getTime() <= Date.now() : true)) {
       throw new BadRequestException('This reservation has expired — comment BUY again to get a new link.');
     }
-    return this.convert(c.ownerId, c.id, { buyerContact: dto.buyerContact });
+    await this.convert(c.ownerId, c.id, { buyerContact: dto.buyerContact });
+    const pending = await this.posOrders.findOneByOrFail({ ownerId: c.ownerId, liveCommentId: c.id });
+    return { ok: true, payment: this.socialPayments.publicState(pending) };
   }
 
   /** Release soft reservations that were never paid, so stock frees up. */
@@ -508,8 +515,13 @@ export class LiveSaleService {
     if (res.affected) this.logger.log(`released ${res.affected} expired live reservation(s)`);
   }
 
-  listComments(uid: string, sessionId: string) {
-    return this.comments.find({ where: { ownerId: uid, sessionId }, order: { createdAt: 'DESC' }, take: 300 });
+  async listComments(uid: string, sessionId: string) {
+    const comments = await this.comments.find({ where: { ownerId: uid, sessionId }, order: { createdAt: 'DESC' }, take: 300 });
+    const orderIds = comments.flatMap(comment => comment.orderId ? [comment.orderId] : []);
+    if (!orderIds.length) return comments;
+    const orders = await this.posOrders.find({ where: { ownerId: uid, id: In(orderIds) }, select: { id: true, checkoutPaymentState: true } });
+    const byId = new Map(orders.map(order => [order.id, order.checkoutPaymentState]));
+    return comments.map(comment => ({ ...comment, paymentState: comment.orderId ? byId.get(comment.orderId) : null }));
   }
 
   async ignoreComment(uid: string, commentId: string) {
@@ -542,6 +554,20 @@ export class LiveSaleService {
     const negotiatedPrice = live > 0 && live <= catalog ? live : undefined;
     const contact = (dto.buyerContact || c.buyerContact || '').trim();
     const session = await this.getSession(uid, c.sessionId);
+
+    if (contact) {
+      const setup = await this.socialPayments.prepare(uid, contact);
+      const pending = await this.orders.create(uid, {
+        orderNumber: `LIVE-${c.id}`, lines: [{ productId: pin.productId, quantity: qty, negotiatedPrice }],
+        paymentMethod: 'MOBILE', customerName: c.buyerHandle || 'Live buyer', customerPhone: contact,
+        salesChannel: `${session.platform}-${session.kind}`, liveSessionId: session.id, liveCommentId: c.id,
+        attributionCode: c.reservationCode,
+      }, setup);
+      const order = await this.socialPayments.reconcile(pending);
+      return { ok: true, lineTotal: Number(order.total), remainingStock: Number(product.stock) - qty,
+        payment: { ...this.socialPayments.publicState(order), message: order.checkoutPaymentState === 'PAID'
+          ? 'Payment verified.' : 'Check the order for mobile-money settlement status.' } };
+    }
 
     // Atomically claim this comment so a concurrent pay (buyer double-tap /
     // auto+manual) can't create two orders + two payment requests. Only the
@@ -586,25 +612,12 @@ export class LiveSaleService {
     session.orderCount += 1;
     await this.sessions.save(session);
 
-    // Best-effort PalmPesa payment request to the buyer's phone.
-    let payment: { requested: boolean; message: string } = { requested: false, message: 'Sale recorded. Collect payment manually.' };
-    if (contact) {
-      try {
-        await this.palmpesa.initiatePayment({
-          name: c.buyerHandle || 'Live buyer', email: '', phone: contact,
-          amountTzs: lineTotal, transactionId: `LIVE-${c.id}`,
-          description: `${pin.name} x${qty} (live sale)`,
-        });
-        payment = { requested: true, message: 'Payment request sent to the buyer’s phone.' };
-      } catch { /* gateway down — manual collection */ }
-    }
-
     return {
       ok: true,
       order,
       lineTotal,
       remainingStock: product ? Number(product.stock) - qty : null,
-      payment,
+      payment: { requested: false, message: 'Sale recorded for manual collection.' },
     };
   }
 
