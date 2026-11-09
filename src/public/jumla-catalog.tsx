@@ -12,9 +12,11 @@ export interface Item {
   currency: string;
   imageUrl: string;
   imageUrls: string[];
+  videoUrl?: string | null;
+  locationLabel?: string;
   stock: number;
   requiredOptions: string[];
-  variants: Array<{ id: string; name: string; attributes?: Record<string, string> }>;
+  variants: Array<{ id: string; name: string; attributes?: Record<string, string>; stock?: number }>;
   business: { id: string; name: string; publicSlug: string; tier: string; phone: string; whatsapp: string };
   location: null | { property: string; floor: string; shopCode: string };
   nodeStatus: string;
@@ -51,10 +53,49 @@ export function writeLocal(key: string, value: unknown) {
   catch { /* Browsing still works with storage disabled. */ }
 }
 
-export function ProductArt({ item, photo }: { item: Item; photo?: string }) {
+export const categoryKey = (value: string) => value.trim().toLowerCase();
+
+export function productPhotos(item: Item) {
+  return [...new Set([item.imageUrl, ...(item.imageUrls || [])].filter(Boolean))];
+}
+
+export function merchantClip(item: Item) {
+  try {
+    const url = new URL(item.videoUrl?.trim() || '');
+    return url.protocol === 'https:' && !url.username && !url.password && /\.(mp4|webm)$/i.test(url.pathname) ? url.href : '';
+  } catch {
+    return '';
+  }
+}
+
+export function rankSimilar(source: Item, rows: Item[]) {
+  const attributes = (row: Item, names: string[]) => new Set(row.variants
+    .filter((variant) => variant.stock == null || variant.stock > 0)
+    .flatMap((variant) => Object.entries(variant.attributes ?? {}))
+    .filter(([name]) => names.includes(categoryKey(name))).map(([, value]) => categoryKey(value)).filter(Boolean));
+  const sizes = ['size', 'uk size', 'eu size', 'saizi'];
+  const colours = ['color', 'colour', 'rangi'];
+  const shares = (a: Set<string>, b: Set<string>) => [...a].some((value) => b.has(value));
+  const pickup = (row: Item) => categoryKey(row.location?.property || row.locationLabel || '');
+  const sourcePickup = pickup(source);
+  const sourcePrice = Number(source.price);
+  return rows.filter((row) => row.productId !== source.productId && row.stock > 0
+      && categoryKey(row.category) === categoryKey(source.category) && Boolean(row.sample) === Boolean(source.sample))
+    .map((row) => {
+      const priceGap = row.currency === source.currency ? Math.abs(Number(row.price) - sourcePrice) / Math.max(sourcePrice, 1) : Infinity;
+      const score = 3 * Number(shares(attributes(source, sizes), attributes(row, sizes)))
+        + 2 * Number(shares(attributes(source, colours), attributes(row, colours)))
+        + Number(Boolean(sourcePickup && sourcePickup === pickup(row)));
+      return { row, score, priceGap };
+    })
+    .sort((a, b) => b.score - a.score || a.priceGap - b.priceGap)
+    .slice(0, 8).map(({ row }) => row);
+}
+
+export function ProductArt({ item, photo, eager = false }: { item: Item; photo?: string; eager?: boolean }) {
   const url = publicAssetUrl(photo || item.imageUrl || item.imageUrls?.[0]);
   if (!item.sample) return <div className="jl-product-art">
-    {url ? <img src={url} alt={item.name} loading="lazy" onError={(event) => { event.currentTarget.hidden = true; }} /> : null}
+    {url ? <img key={url} src={url} alt={item.name} loading={eager ? 'eager' : 'lazy'} decoding="async" onError={(event) => { event.currentTarget.hidden = true; }} /> : null}
     <span aria-hidden="true"><ImageIcon /> Photo unavailable</span>
   </div>;
 
