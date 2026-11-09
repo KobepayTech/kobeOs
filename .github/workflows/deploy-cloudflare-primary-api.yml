@@ -154,7 +154,8 @@ jobs:
           DB_SSL: 'true'
         run: |
           set -euo pipefail
-          npm ci --legacy-peer-deps
+          # The migration CLI only needs JavaScript packages, not media binaries.
+          npm ci --legacy-peer-deps --ignore-scripts
           npm run migration:run
 
       - name: Deploy workers.dev preview
