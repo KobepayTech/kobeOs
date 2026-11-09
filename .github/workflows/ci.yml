@@ -71,6 +71,14 @@ jobs:
           cache: npm
           cache-dependency-path: server/package-lock.json
 
+      - name: Use the runner FFmpeg for backend tests
+        run: |
+          if ! command -v ffmpeg >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg
+          fi
+          echo "FFMPEG_BIN=$(command -v ffmpeg)" >> "$GITHUB_ENV"
+
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
