@@ -43,6 +43,8 @@ jobs:
   backend:
     name: Backend (lint + test)
     runs-on: ubuntu-latest
+    env:
+      ONNXRUNTIME_NODE_INSTALL_CUDA: skip
     services:
       postgres:
         image: postgres:16-alpine
