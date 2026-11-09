@@ -21,7 +21,7 @@ const tzs = (n: number) => `TZS ${n.toLocaleString()}`;
 
 /* Shape of /api/pos/products rows — the same catalogue the storefront
  * and the cashier consume, so editing here propagates everywhere. */
-interface PosProductRow {
+interface PosProductRow extends Partial<Omit<UniversalProduct, 'imageUrl' | 'videoUrl' | 'price'>> {
   id: string;
   sku: string;
   name: string;
@@ -30,6 +30,7 @@ interface PosProductRow {
   currency: string;
   stock: number;
   imageUrl?: string | null;
+  videoUrl?: string | null;
   active: boolean;
   sourceType?: string;
 }
@@ -149,12 +150,14 @@ export default function ERPStore() {
     setEditingProduct(product);
     setForm({
       ...blankProduct,
-      name: product.name,
-      sku: product.sku,
+      ...product,
       price: Number(product.price),
+      compareAtPrice: product.compareAtPrice == null ? undefined : Number(product.compareAtPrice),
+      cost: product.cost == null ? undefined : Number(product.cost),
       stock: Number(product.stock),
       category: product.category || 'Electronics',
       imageUrl: product.imageUrl ?? undefined,
+      videoUrl: product.videoUrl ?? undefined,
       active: product.active,
     });
     setProductModalOpen(true);
@@ -184,7 +187,7 @@ export default function ERPStore() {
         warehouseId: form.warehouseId,
         imageUrl: form.imageUrl || undefined,
         imageUrls: form.imageUrls,
-        videoUrl: form.videoUrl,
+        videoUrl: form.videoUrl?.trim() || null,
         variants: form.variants,
         tags: form.tags,
         active: form.active,

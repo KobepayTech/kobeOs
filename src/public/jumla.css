@@ -164,3 +164,28 @@
   .jl-slide-copy h2 { font-size: 19px; }
   .jl-slide-actions { gap: 4px; }
 }
+
+.jl-view-switch { display: inline-flex; flex-shrink: 0; gap: 3px; padding: 3px; border: 1px solid var(--jl-line); border-radius: 13px; background: white; }
+.jl-view-switch button { display: inline-flex; align-items: center; gap: 4px; min-height: 40px; padding: 0 8px; border-radius: 9px; color: var(--jl-muted); font-size: 11px; font-weight: 800; }
+.jl-view-switch button[aria-pressed=true] { background: #ede5ff; color: #44269b; }
+.jl-browse-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.jl-discover-filters { padding-inline: 19px; }
+.jl-discover-filters .jl-chips { margin-bottom: 1px; }
+.jl-discover-main > .jl-chips, .jl-discover-main > .jl-discover-filters { flex-shrink: 0; }
+.jl-slide-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+.jl-slide-buttons .jl-lime { min-height: 42px; }
+.jl-slide-secondary { display: inline-flex; align-items: center; gap: 5px; min-height: 42px; padding: 6px 8px; border: 1px solid #fff6; border-radius: 10px; background: #221a36; color: white; font-size: 11px; font-weight: 800; }
+.jl-grid-photos { position: absolute; top: 0; right: 0; display: inline-flex; align-items: center; min-width: 44px; min-height: 44px; justify-content: center; border-radius: 0 0 0 12px; background: #fff; color: var(--jl-violet); font-size: 11px; font-weight: 800; }
+.jl-grid-photos + .jl-remove { top: 48px; }
+.jl-panel { position: fixed; inset: auto 0 0; width: min(100%, 490px); max-width: none; max-height: 90dvh; overflow: auto; padding: 18px 19px max(18px, env(safe-area-inset-bottom)); border: 1px solid var(--jl-line); border-radius: 20px 20px 0 0; color: var(--jl-ink); background: var(--jl-paper); }
+.jl-panel::backdrop { background: #171228ae; }
+.jl-panel header { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.jl-panel header h2 { font-size: clamp(19px, 5vw, 27px); font-weight: 900; }
+.jl-panel header .jl-icon-btn { width: 44px; height: 44px; flex-shrink: 0; }
+.jl-panel p { margin: 0 0 10px; color: var(--jl-muted); font-size: 13px; }
+.jl-panel .jl-panel-price { color: var(--jl-violet); font-size: 17px; font-weight: 900; }
+.jl-panel video { width: 100%; max-height: 46dvh; margin-bottom: 10px; border-radius: 12px; background: var(--jl-ink); }
+.jl-panel .jl-quiet, .jl-detail-similar { margin-top: 8px; }
+@media (max-width: 360px) {
+  .jl-browse-heading { flex-wrap: wrap-reverse; }
+}
