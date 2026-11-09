@@ -258,6 +258,10 @@ export class StoreService {
    */
   async placeOrder(slugOrDomain: string, dto: CreateOrderDto) {
     const ownerId = await this.resolveOwner(slugOrDomain);
+    const fulfillmentLocation = dto.fulfillmentLocation?.trim();
+    if (dto.fulfillmentMethod && !fulfillmentLocation) {
+      throw new BadRequestException('Enter a pickup location or delivery address.');
+    }
     const customer = dto.customerPhone
       ? await this.findCustomerByPhone(ownerId, dto.customerPhone)
       : null;
@@ -361,6 +365,8 @@ export class StoreService {
       couponCode: dto.couponCode?.trim().toUpperCase() || undefined,
       customerName: dto.customerName,
       customerPhone: dto.customerPhone,
+      fulfillmentMethod: dto.fulfillmentMethod,
+      fulfillmentLocation,
       salesChannel: liveAttribution
         ? `${liveAttribution.session.platform}-${liveAttribution.session.kind}`
         : 'storefront',

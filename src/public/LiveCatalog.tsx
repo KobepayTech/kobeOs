@@ -21,18 +21,20 @@ const money = (n: number, ccy: string) => `${ccy} ${Number(n).toLocaleString(und
  * or WhatsApp handoff.
  */
 export default function LiveCatalog({ slug, whatsapp }: { slug: string; whatsapp?: string }) {
+  const [campaign] = useState(() => new URLSearchParams(window.location.search).get('campaign') || '');
+  const [item] = useState(() => new URLSearchParams(window.location.search).get('item') || '');
   const [cat, setCat] = useState<Catalog | null>(null);
   const [picked, setPicked] = useState<CatalogProduct | null>(null);
-  const [qty, setQty] = useState(1);
+  const [qty, setQty] = useState(() => Math.max(1, Math.min(99, Math.trunc(Number(new URLSearchParams(window.location.search).get('qty')) || 1))));
   const [handle, setHandle] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [codeInput, setCodeInput] = useState('');
 
   const load = useCallback(async () => {
-    try { setCat(await publicApi<Catalog>(`/live-sales/public/${encodeURIComponent(slug)}`)); }
+    try { setCat(await publicApi<Catalog>(`/live-sales/public/${encodeURIComponent(slug)}${campaign ? `?campaign=${encodeURIComponent(campaign)}` : ''}`)); }
     catch { setCat({ live: false }); }
-  }, [slug]);
+  }, [slug, campaign]);
   // Poll so the "NOW SHOWING" product + stock update without a refresh.
   useEffect(() => { load(); const t = setInterval(load, 4000); return () => clearInterval(t); }, [load]);
 
@@ -40,7 +42,7 @@ export default function LiveCatalog({ slug, whatsapp }: { slug: string; whatsapp
     setBusy(true); setError(null);
     try {
       const r = await publicApi<{ checkoutToken: string; storefrontPath: string; storefrontUrl: string }>(`/live-sales/public/${encodeURIComponent(slug)}/reserve`, {
-        method: 'POST', body: JSON.stringify({ code: p.code, qty, buyerHandle: handle.trim() }),
+        method: 'POST', body: JSON.stringify({ code: p.code, qty: Math.min(qty, p.stock), buyerHandle: handle.trim(), campaign: campaign || undefined }),
       });
       // Keep the reserved Live item, then open the complete shop so the buyer
       // can add more products. The token attributes the whole final basket.
@@ -60,17 +62,17 @@ export default function LiveCatalog({ slug, whatsapp }: { slug: string; whatsapp
 
   if (!cat) return <Center><div className="text-white/60">Loading…</div></Center>;
   if (!cat.live) {
-    return <Center><div className="space-y-2"><div className="text-3xl">🛍️</div><div className="text-white/70">No live sale is running right now.</div><div className="text-white/40 text-sm">Check back when the seller goes live.</div></div></Center>;
+    return <Center><div className="space-y-2"><div className="text-3xl">🛍️</div><div className="text-white/70">{campaign ? 'This social sale has ended.' : 'No live sale is running right now.'}</div><div className="text-white/40 text-sm">Check back when the seller goes live.</div></div></Center>;
   }
 
-  const featured = cat.featured;
+  const featured = cat.products?.find((product) => product.code === item) || cat.featured;
   const priceOf = (p: CatalogProduct) => (p.livePrice > 0 ? p.livePrice : p.catalogPrice);
 
   return (
     <div className="min-h-screen bg-[#0b0b16] text-white/90 px-4 py-5">
       <div className="max-w-md mx-auto space-y-4">
         <div className="text-center">
-          <div className="inline-flex items-center gap-1.5 text-[11px] font-bold text-red-400"><span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" /> LIVE NOW</div>
+          <div className="inline-flex items-center gap-1.5 text-[11px] font-bold text-red-400"><span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" /> {cat.kind === 'post' ? 'SHOP THIS POST' : 'LIVE NOW'}</div>
           <h1 className="text-lg font-extrabold">{cat.title || 'KOBE LIVE SALE'}</h1>
         </div>
 
@@ -96,7 +98,7 @@ export default function LiveCatalog({ slug, whatsapp }: { slug: string; whatsapp
 
         {/* All products in this live */}
         <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
-          <div className="text-xs font-semibold text-white/60 mb-2">All items in this live</div>
+          <div className="text-xs font-semibold text-white/60 mb-2">All items in this sale</div>
           <div className="space-y-1.5">
             {(cat.products ?? []).map((p) => (
               <button key={p.productId} onClick={() => { setPicked(p); setQty(1); }} className={`w-full flex items-center gap-3 rounded-lg px-2.5 py-2 text-left ${picked?.productId === p.productId ? 'bg-indigo-500/15 border border-indigo-500/40' : 'hover:bg-white/[0.04] border border-transparent'}`}>

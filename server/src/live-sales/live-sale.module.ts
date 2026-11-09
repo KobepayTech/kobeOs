@@ -1,3 +1,4 @@
+import { TikTokPostCommentsService } from './tiktok-post-comments.service';
 import { TikTokCommentsService } from './tiktok-comments.service';
 import { BroadcastController } from './broadcast.controller';
 import { BroadcastService } from './broadcast.service';
@@ -29,7 +30,7 @@ import { LiveBroadcastService } from './live-broadcast.service';
     PosModule, // provides OrdersService (atomic stock decrement)
     PalmPesaModule,
   ],
-  providers: [BroadcastService, TikTokCommentsService, LiveSaleService, InstagramService, ApifyService, LivePresenterService, LiveBroadcastService],
+  providers: [BroadcastService, TikTokCommentsService, TikTokPostCommentsService, LiveSaleService, InstagramService, ApifyService, LivePresenterService, LiveBroadcastService],
   controllers: [BroadcastController, LiveSaleController, LiveSaleIngestController, LiveSalePublicController, LiveSaleInstagramPublicController],
   exports: [LiveSaleService],
 })

@@ -197,6 +197,12 @@ export class PosOrder extends OwnedEntity {
   @Column({ default: 'NEW' })
   fulfillmentStatus!: 'NEW' | 'PREPARING' | 'READY' | 'COLLECTED';
 
+  @Column({ type: 'varchar', length: 8, nullable: true })
+  fulfillmentMethod?: 'PICKUP' | 'DELIVERY' | null;
+
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  fulfillmentLocation?: string | null;
+
   @Column({ type: 'timestamptz', nullable: true })
   preparingAt?: Date | null;
 

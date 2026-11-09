@@ -1,5 +1,6 @@
+import { TikTokPostCommentsService } from './tiktok-post-comments.service';
 import { TikTokCommentsService } from './tiktok-comments.service';
-import { Body, Controller, Delete, Get, Header, Headers, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Header, Headers, Param, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { BroadcastService } from './broadcast.service';
 import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
@@ -29,6 +30,20 @@ class StartSessionDto {
   @IsOptional() @IsString() @MaxLength(500) postUrl?: string;
   @IsOptional() @IsUUID() socialAccountId?: string;
 }
+class TikTokPostConnectionDto {
+  @IsString() @Matches(/^[A-Za-z0-9_+=/-]{1,150}$/) businessId!: string;
+  @IsString() @Matches(/^\S+$/) @MaxLength(2048) accessToken!: string;
+  @IsString() @MaxLength(500) postUrl!: string;
+}
+
+function campaignId(value?: string) {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string' || !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value)) {
+    throw new BadRequestException('Invalid comment campaign.');
+  }
+  return value;
+}
+
 class PinDto {
   @IsUUID() productId!: string;
   @IsString() @MaxLength(24) code!: string;
@@ -62,6 +77,7 @@ export class LiveSaleController {
     private readonly svc: LiveSaleService,
     private readonly instagram: InstagramService,
     private readonly tiktok: TikTokCommentsService,
+    private readonly tiktokPosts: TikTokPostCommentsService,
     private readonly presenter: LivePresenterService,
     private readonly broadcast: LiveBroadcastService,
     private readonly rtmpBroadcast: BroadcastService,
@@ -74,11 +90,22 @@ export class LiveSaleController {
   @Post(':id/broadcast') @Header('Cache-Control', 'no-store') startBroadcast(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.broadcast.start(uid, id); }
   @Post(':id/broadcast/stop') stopBroadcast(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.broadcast.stop(uid, id); }
   @Post() async start(@CurrentUser('id') uid: string, @Body() dto: StartSessionDto) {
-    const socialAccountId = (dto.cloudAccount || (dto.kind === 'post' && dto.platform !== 'instagram')) ? undefined : await this.instagram.resolveSessionAccount(uid, dto.platform, dto.socialAccountId);
+    const socialAccountId = dto.kind === 'post' && dto.platform === 'tiktok'
+      ? await this.tiktokPosts.accountForCampaign(uid, dto.postUrl || '')
+      : dto.cloudAccount ? undefined : await this.instagram.resolveSessionAccount(uid, dto.platform, dto.socialAccountId);
     const session = await this.svc.startSession(uid, { ...dto, socialAccountId });
     void this.tiktok.start(session).catch(() => undefined);
     return session;
   }
+  @Get('tiktok/post-connection') @Header('Cache-Control', 'no-store')
+  tiktokPostConnection(@CurrentUser('id') uid: string) { return this.tiktokPosts.status(uid); }
+  @Post('tiktok/post-connection') @Header('Cache-Control', 'no-store')
+  connectTikTokPosts(@CurrentUser('id') uid: string, @Body() dto: TikTokPostConnectionDto) {
+    return this.tiktokPosts.configure(uid, dto.businessId, dto.accessToken, dto.postUrl);
+  }
+  @Delete('tiktok/post-connection') @Header('Cache-Control', 'no-store')
+  disconnectTikTokPosts(@CurrentUser('id') uid: string) { return this.tiktokPosts.disconnect(uid); }
+
   @Get('connections') connections(@CurrentUser('id') uid: string) { return this.instagram.connections(uid); }
   @Post(':id/presenter/script') presenterScript(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.presenter.script(uid, id); }
   @Post('instagram/relay') relay(@CurrentUser('id') uid: string, @Body() dto: RelayDto) { return this.instagram.registerRelay(uid, dto.accountId, dto.targetUrl); }
@@ -150,7 +177,7 @@ export class LiveSalePublicController {
   ) {}
 
   @Get(':slug')
-  live(@Param('slug') slug: string) { return this.svc.publicLive(slug); }
+  live(@Param('slug') slug: string, @Query('campaign') campaign?: string) { return this.svc.publicLive(slug, campaignId(campaign)); }
 
   /** Buyer's checkout page for a live reservation (opened from the DM link). */
   @Get('checkout/:token')
@@ -164,8 +191,8 @@ export class LiveSalePublicController {
 
   /** Reserve a product straight from the live catalog (method 1). */
   @Post(':slug/reserve')
-  reserve(@Param('slug') slug: string, @Body() dto: { code: string; qty?: number; buyerHandle?: string; variation?: string }) {
-    return this.svc.reserveFromCatalog(slug, dto);
+  reserve(@Param('slug') slug: string, @Body() dto: { code: string; qty?: number; buyerHandle?: string; variation?: string; campaign?: string }) {
+    return this.svc.reserveFromCatalog(slug, { ...dto, campaign: campaignId(dto.campaign) });
   }
 
   /** Pull up a reservation by its short code (method 2 — moderator's K7Q4). */

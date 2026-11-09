@@ -169,7 +169,7 @@ const livePayMatch = pathname.match(/^\/live\/pay\/([A-Za-z0-9_-]{16,})\/?$/);
 const livePayToken = livePayMatch?.[1] ?? '';
 
 // Permanent Kobe Live Catalog: /live (uses the store subdomain) or /@seller
-const liveHandleMatch = pathname.match(/^\/@([a-z0-9_.-]{2,40})\/?$/i);
+const liveHandleMatch = pathname.match(/^\/@([a-z0-9_.-]{1,63})\/?$/i);
 const isLiveCatalog = !livePayToken && (pathname.replace(/\/$/, '') === '/live' || !!liveHandleMatch);
 const liveCatalogSlug = liveHandleMatch?.[1] ?? (tenantSub ?? '');
 

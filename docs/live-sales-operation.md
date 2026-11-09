@@ -11,6 +11,14 @@
 
 Hosted Instagram connections relay comments to the published storefront backend. TikTok chat runs on the store backend, including when OAuth happened on the hosted account server. Connection status and last-received comments are shown in the selling console.
 
+## Regular posts and comment checkout
+
+1. Publish the storefront. In Live Sales choose **Post campaign**, paste the full link to the merchant’s own Instagram post/Reel or TikTok video/photo, and pin the product. For a single-product post, buyers can ask “Bei gani?” or say “Nataka mbili” without a buy code. With several pinned products, buyers can include the product code.
+2. Instagram needs its existing professional-account connection and the `comments` webhook. Price and checkout questions on regular posts get a public reply. A purchase comment that produces a reservation gets a private reply. Live comments use the private-reply channel.
+3. For TikTok regular posts, use **TikTok post replies → Set up** with the Business Accounts access token and its account open ID. Use a token authorized for comment read and reply. Verify using an owned post, then create or reopen the campaign. KobeOS polls eligible posts every two minutes and responds publicly. Rotate the token through **Update access**. The regular TikTok publishing connection is separate.
+4. Public replies contain a shop link scoped to the exact campaign and product. The viewer opens the link and starts their own checkout. The buyer chooses a payment method and enters pickup or delivery details at checkout. Staff can see the method and location in Mobile Prepare.
+5. Use a separate viewer account to verify each real platform path before enabling it for customers. On TikTok LIVE, moderators can copy the public reply from the comment feed. The optional live connector can attempt a public reply when configured with the platform session it requires. Verify the reply appears for a viewer before relying on it.
+
 ## Animated presenter
 
 Open a live session, pin stocked products, and select **Open avatar presenter**. Prepare and review a script, then start the voice. A configured Kobe AI model supplies a brief introduction; unavailable models fall back to a standard introduction. Product names, prices, stock, and buy codes come directly from the catalogue. The current presenter speaks English with the computer's installed browser voice and uses a simple animated virtual host.

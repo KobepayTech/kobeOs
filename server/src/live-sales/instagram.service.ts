@@ -6,6 +6,7 @@ import { Repository } from 'typeorm';
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { SocialAccount } from '../social-scheduler/social-account.entity';
 import { LiveSession } from './live-sale.entity';
+import { socialPostKey } from './social-sale-comment';
 import { LiveSaleService } from './live-sale.service';
 import { resolveFrontendUrl, resolvePublicApiUrl } from '../common/frontend-url';
 
@@ -251,11 +252,14 @@ export class InstagramService {
     const socialAccountId = await this.resolveSessionAccount(ownerId, 'instagram', accountId);
     const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(10000) });
     if (!response.ok) throw new BadRequestException('Your store computer is unreachable. Keep KobeOS online and retry.');
-    const info = await response.json() as { status?: string; platform?: string };
-    if (info.status !== 'LIVE' || info.platform !== 'instagram') throw new BadRequestException('Open an Instagram Live Sales session on your store computer first.');
-    const session = await this.liveSales.startSession(ownerId, { platform: 'instagram', socialAccountId, title: 'Phone live sales' });
+    const info = await response.json() as { status?: string; platform?: string; kind?: string; postUrl?: string };
+    if (info.status !== 'LIVE' || info.platform !== 'instagram') throw new BadRequestException('Open an Instagram sales session on your store computer first.');
+    const session = await this.liveSales.startSession(ownerId, {
+      platform: 'instagram', socialAccountId, kind: info.kind, postUrl: info.postUrl, title: 'Instagram comment relay',
+    });
+    session.socialAccountId = socialAccountId;
     session.relayTargetUrl = url;
-    session.relayExpiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    session.relayExpiresAt = new Date(Date.now() + (session.kind === 'post' ? 7 : 1) * 24 * 60 * 60 * 1000);
     await this.sessions.save(session);
     return { id: session.id, expiresAt: session.relayExpiresAt, ...(await this.sessionConnection(ownerId, session.id)) };
   }
@@ -361,6 +365,26 @@ export class InstagramService {
     await this.json(response);
   }
 
+  private async postForMedia(account: SocialAccount, mediaId: string, sessions: LiveSession[]) {
+    const posts = sessions.filter((session) => session.kind === 'post' && session.postUrl);
+    if (!posts.length || !/^\d+$/.test(mediaId)) return undefined;
+    const url = new URL(this.graph(mediaId));
+    url.searchParams.set('fields', 'permalink');
+    const media = await this.json<{ permalink?: string }>(await fetch(url, {
+      headers: { Authorization: `Bearer ${account.accessToken}` }, signal: AbortSignal.timeout(5000),
+    }));
+    const key = socialPostKey('instagram', media.permalink || '');
+    return key ? posts.find((post) => socialPostKey('instagram', post.postUrl) === key) : undefined;
+  }
+
+  private async replyPublicly(account: SocialAccount, commentId: string, message: string) {
+    await this.json(await fetch(this.graph(`${encodeURIComponent(commentId)}/replies`), {
+      method: 'POST', signal: AbortSignal.timeout(10000),
+      headers: { Authorization: `Bearer ${account.accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message }),
+    }));
+  }
+
   async handleWebhook(body: unknown, rawBody?: Buffer, signature?: string): Promise<{ ok: true; ingested: number }> {
     if (!this.verifyWebhookSignature(rawBody, signature)) {
       throw new BadRequestException('Invalid Instagram webhook signature');
@@ -376,31 +400,38 @@ export class InstagramService {
         where: { ownerId: account.ownerId, socialAccountId: account.id, status: 'LIVE' },
         order: { createdAt: 'DESC' },
       });
+      const postByMedia = new Map<string, Promise<LiveSession | undefined>>();
       for (const rawChange of entry.changes || []) {
-        const change = rawChange as { field?: string; value?: { id?: string; text?: string; message?: string; from?: { username?: string; id?: string } } };
+        const change = rawChange as { field?: string; value?: { id?: string; text?: string; message?: string; media?: { id?: string }; from?: { username?: string; id?: string } } };
         if (change.field !== 'comments' && change.field !== 'live_comments') continue;
-        const session = change.field === 'live_comments'
-          ? sessions.find((item) => item.kind === 'live')
-          : sessions.find((item) => item.kind === 'post');
-        if (!session) continue;
         const value = change.value || {};
-        const text = String(value.text || value.message || '').trim();
-        if (!text) continue;
-        const input = { source: 'instagram', buyerHandle: value.from?.username || value.from?.id || '', text, externalId: value.id || '' };
-        let result: { reply?: string };
+        const text = String(value.text || value.message || '').trim().slice(0, 1000);
+        const username = value.from?.username || '';
+        if (!text || !value.id || !value.from || value.from.id === entry.id ||
+          (username && username.toLowerCase() === account.accountHandle?.replace(/^@/, '').toLowerCase())) continue;
+        const live = change.field === 'live_comments';
+        const mediaId = String(value.media?.id || '');
+        if (!live && !postByMedia.has(mediaId)) postByMedia.set(mediaId, this.postForMedia(account, mediaId, sessions));
+        const session = live ? sessions.find((item) => item.kind === 'live') : await postByMedia.get(mediaId);
+        if (!session) continue;
+        const input = { source: 'instagram', buyerHandle: (username || value.from.id || '').slice(0, 80), text, externalId: String(value.id) };
+        let result: { reply?: string; publicReply?: string; status?: string };
         if (session.relayTargetUrl) {
           if (!session.relayExpiresAt || session.relayExpiresAt.getTime() <= Date.now()) continue;
           const response = await fetch(relayTarget(session.relayTargetUrl, this.value('TENANT_BASE_DOMAIN') || 'kobeapptz.com'), {
             method: 'POST', redirect: 'error', signal: AbortSignal.timeout(10000),
             headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
           });
-          if (!response.ok) throw new BadRequestException('Store computer did not accept the live comment; delivery can be retried.');
-          result = await response.json() as { reply?: string };
+          if (!response.ok) throw new BadRequestException('Store computer did not accept the Instagram comment; delivery can be retried.');
+          result = await response.json() as typeof result;
         } else {
-          result = await this.liveSales.ingestComment(account.ownerId, session.id, input) as { reply?: string };
+          result = await this.liveSales.ingestComment(account.ownerId, session.id, input);
         }
-        if (value.id && (result as { reply?: string })?.reply) {
-          await this.replyToComment(account, value.id, (result as unknown as { reply: string }).reply).catch((e) => this.logger.warn(`Instagram reply failed: ${(e as Error).message}`));
+        if (result.reply) {
+          const send = live || result.status === 'RESERVED'
+            ? this.replyToComment(account, input.externalId, result.reply)
+            : this.replyPublicly(account, input.externalId, result.publicReply || result.reply);
+          await send.catch(() => this.logger.warn(`Instagram reply failed for comment ${input.externalId}`));
         }
         if (change.field === 'live_comments') {
           account.metadata = { ...account.metadata, lastLiveCommentAt: new Date().toISOString() };

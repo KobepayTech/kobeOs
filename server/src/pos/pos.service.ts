@@ -152,6 +152,13 @@ export class OrdersService {
       const orderRepo = tx.getRepository(PosOrder);
       const itemRepo = tx.getRepository(PosOrderItem);
 
+      if (dto.liveCommentId) {
+        await tx.query('SELECT pg_advisory_xact_lock(hashtextextended($1, 0))', [`live-order:${dto.liveCommentId}`]);
+        if (await orderRepo.existsBy({ ownerId: uid, liveCommentId: dto.liveCommentId })) {
+          throw new BadRequestException('This reservation already has an order');
+        }
+      }
+
       let subtotal = 0;
       const itemsToInsert: PosOrderItem[] = [];
       const pickLines: { sku: string; name: string; quantity: number }[] = [];
@@ -297,6 +304,8 @@ export class OrdersService {
           paymentMethod,
           customerName: dto.customerName ?? null,
           customerPhone: dto.customerPhone ?? null,
+          fulfillmentMethod: dto.fulfillmentMethod ?? null,
+          fulfillmentLocation: dto.fulfillmentLocation?.trim() || null,
           salesChannel: dto.salesChannel ?? 'pos',
           liveSessionId: dto.liveSessionId ?? null,
           liveCommentId: dto.liveCommentId ?? null,
