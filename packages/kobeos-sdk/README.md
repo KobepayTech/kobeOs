@@ -1,6 +1,7 @@
 # @kobeos/sdk
 
-The official TypeScript SDK for building third-party apps that run inside KobeOS.
+React helpers for apps compiled into KobeOS. For independently submitted apps,
+use the working browser SDK and packaging workflow in `sdk/browser/README.md`.
 
 A KobeOS app is a React component + a manifest. The host loads it into a
 window, gates it on subscription tier and permissions, and feeds it a
@@ -90,9 +91,8 @@ component.
 
 ## Publishing
 
-Submit your app for the in-OS App Store via the publisher dashboard
-at `/api/appstore/submit` (auth required). The OS team reviews
-permissions + manifest + entry-point bundle, then lists it.
-
-For private deployments you can side-load by dropping the built bundle
-into `~/.kobeos/sideloaded-apps/<your-app-id>/manifest.js`.
+Independent apps use **App Store → Developer apps → Publish an app**, backed by
+`POST /api/app-distribution/releases`. They run in isolated frames and receive
+only the browser SDK's explicitly granted capabilities. The submission endpoint
+and sideload directory previously described here were not implemented.
+See `sdk/browser/README.md` for the package format, review and update flow.
