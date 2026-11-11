@@ -1,3 +1,4 @@
+import { socialPaymentMessage, type SocialCheckoutPayment } from '../../public/social-checkout-payment';
 import { assetUrl } from '@/lib/api';
 import { useState, useMemo, useEffect } from 'react';
 import {
@@ -115,6 +116,7 @@ interface BnplEligibility {
 }
 
 interface LiveReservationCheckout {
+  payment?: SocialCheckoutPayment | null;
   token: string;
   status: string;
   expired: boolean;
@@ -155,6 +157,7 @@ interface TrackedOrder {
   total: string | number;
   currency: string;
   paymentMethod: string;
+  paymentState?: SocialCheckoutPayment['paymentState'] | null;
   customerName?: string | null;
   placedAt: string;
   items: Array<{ productName: string; quantity: number; unitPrice: string | number; lineTotal: string | number }>;
@@ -405,6 +408,7 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
   const [customerProfile, setCustomerProfile] = useState<StoreCustomerProfile | null>(null);
   const [redeemFreeJerseyProductId, setRedeemFreeJerseyProductId] = useState('');
   const [loyaltyMessage, setLoyaltyMessage] = useState<string | null>(null);
+  const [checkoutPayment, setCheckoutPayment] = useState<SocialCheckoutPayment | null>(null);
   const [orderConfirmed, setOrderConfirmed] = useState(false);
   const [orderNumber, setOrderNumber] = useState('');
   const [orderReceipt, setOrderReceipt] = useState<string | null>(null);
@@ -415,6 +419,8 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
   const [checkoutForm, setCheckoutForm] = useState<CheckoutForm>({
     name: '', phone: '', address: '', paymentMethod: 'cod',
   });
+  const [fulfillmentMethod, setFulfillmentMethod] = useState<'PICKUP' | 'DELIVERY'>('DELIVERY');
+  const [pickupLocation, setPickupLocation] = useState('');
   const [liveCheckoutToken, setLiveCheckoutToken] = useState(() => {
     try { return new URLSearchParams(window.location.search).get('live')?.trim() || ''; }
     catch { return ''; }
@@ -510,11 +516,18 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
   // Validate it with the backend, preload the held item at its Live price, and
   // leave the buyer on the full catalogue to add anything else they want.
   useEffect(() => {
-    if (!slug || !liveCheckoutToken || products.length === 0 || liveReservationApplied) return;
+    if (!slug || !liveCheckoutToken || liveReservationApplied || loading) return;
     let cancelled = false;
     api<LiveReservationCheckout>(`/live-sales/public/checkout/${encodeURIComponent(liveCheckoutToken)}`, { auth: false })
       .then((reservation) => {
         if (cancelled) return;
+        if (reservation.payment) {
+          setCheckoutPayment(reservation.payment);
+          setOrderNumber(reservation.payment.orderNumber);
+          setOrderConfirmed(true);
+          setLiveReservationApplied(true);
+          return;
+        }
         if (reservation.expired || reservation.status !== 'RESERVED') {
           setLiveReservationError('This Live reservation has expired. Return to the Live and reserve again.');
           setLiveReservationApplied(true);
@@ -524,6 +537,7 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
           ? products.find((candidate) => candidate.id === reservation.product!.id)
           : null;
         if (!product) {
+          if (products.length === 0) return;
           setLiveReservationError('The reserved Live product is no longer available in this store.');
           setLiveReservationApplied(true);
           return;
@@ -552,7 +566,20 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
         }
       });
     return () => { cancelled = true; };
-  }, [slug, products, liveCheckoutToken, liveReservationApplied]);
+  }, [slug, products, liveCheckoutToken, liveReservationApplied, loading]);
+
+  useEffect(() => {
+    if (!liveCheckoutToken || (checkoutPayment?.paymentState !== 'PENDING' && checkoutPayment?.paymentState !== 'EXPIRED')) return;
+    let active = true;
+    const refresh = async () => {
+      const reservation = await api<LiveReservationCheckout>(
+        `/live-sales/public/checkout/${encodeURIComponent(liveCheckoutToken)}`, { auth: false },
+      ).catch(() => null);
+      if (active && reservation?.payment) setCheckoutPayment(reservation.payment);
+    };
+    const timer = setInterval(() => void refresh(), 7000);
+    return () => { active = false; clearInterval(timer); };
+  }, [liveCheckoutToken, checkoutPayment?.paymentState]);
 
   // If a returning buyer types their registered phone during checkout, fill
   // their name and coupon automatically after a short debounce.
@@ -775,8 +802,9 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
     }
   };
 
+  const fulfillmentLocation = (fulfillmentMethod === 'PICKUP' ? pickupLocation : checkoutForm.address).trim();
   const handlePlaceOrder = async () => {
-    if (!checkoutForm.name || !checkoutForm.phone || !checkoutForm.address) return;
+    if (!checkoutForm.name || !checkoutForm.phone || !fulfillmentLocation) return;
     if (!slug || cart.length === 0) return;
     setOrderError(null);
     setLoyaltyMessage(null);
@@ -795,7 +823,9 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
       couponCode: couponCode.trim() || undefined,
       customerName: checkoutForm.name,
       customerPhone: checkoutForm.phone,
-      customerAddress: checkoutForm.address,
+      customerAddress: fulfillmentMethod === 'DELIVERY' ? fulfillmentLocation : undefined,
+      fulfillmentMethod,
+      fulfillmentLocation,
       loyaltyCode: customerProfile?.loyaltyCode,
       redeemFreeJerseyProductId: redeemFreeJerseyProductId || undefined,
       liveCheckoutToken: liveCheckoutToken || undefined,
@@ -804,6 +834,9 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
     try {
       const sale = await api<{
         orderNumber: string;
+        paymentState?: SocialCheckoutPayment['paymentState'];
+        amount?: number;
+        currency?: string;
         receipt?: { text: string };
         pickTicket?: { ticketNumber: string };
         discount?: { discountAmount: number; breakdown: Array<{ source: string; label: string; amount: number }> };
@@ -816,6 +849,14 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
       });
       setOrderNumber(sale.orderNumber ?? orderDto.orderNumber);
       setOrderReceipt(sale.receipt?.text ?? null);
+      if (sale.paymentState) {
+        setCheckoutPayment({ orderNumber: sale.orderNumber, paymentState: sale.paymentState, amount: sale.amount ?? cartTotal, currency: sale.currency ?? 'TZS' });
+        setIsCheckout(false);
+        setOrderConfirmed(true);
+        clearCart();
+        return;
+      }
+      setCheckoutPayment(null);
       setOrderDiscount(sale.discount ?? null);
       if (sale.loyalty) {
         const previousCredits = customerProfile?.freeJerseyCredits ?? 0;
@@ -1214,7 +1255,16 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
             )}
             <Input placeholder="Full Name" value={checkoutForm.name} onChange={(e) => setCheckoutForm({ ...checkoutForm, name: e.target.value })} className="bg-white/10 border-white/20 text-white" />
             <Input placeholder="Phone Number" value={checkoutForm.phone} onChange={(e) => setCheckoutForm({ ...checkoutForm, phone: e.target.value })} className="bg-white/10 border-white/20 text-white" />
-            <Input placeholder="Delivery Address" value={checkoutForm.address} onChange={(e) => setCheckoutForm({ ...checkoutForm, address: e.target.value })} className="bg-white/10 border-white/20 text-white" />
+            <fieldset className="space-y-2 text-sm">
+              <legend className="text-slate-400 mb-1">Pickup or delivery</legend>
+              <div className="flex gap-4">
+                <label className="flex gap-2"><input type="radio" name="fulfillment" checked={fulfillmentMethod === 'DELIVERY'} onChange={() => setFulfillmentMethod('DELIVERY')} /> Delivery</label>
+                <label className="flex gap-2"><input type="radio" name="fulfillment" checked={fulfillmentMethod === 'PICKUP'} onChange={() => setFulfillmentMethod('PICKUP')} /> Pickup</label>
+              </div>
+              {fulfillmentMethod === 'PICKUP'
+                ? <Input aria-label="Preferred pickup location" placeholder="Preferred pickup location" maxLength={500} value={pickupLocation} onChange={(e) => setPickupLocation(e.target.value)} className="bg-white/10 border-white/20 text-white" />
+                : <Input aria-label="Delivery address" placeholder="Delivery address" maxLength={500} value={checkoutForm.address} onChange={(e) => setCheckoutForm({ ...checkoutForm, address: e.target.value })} className="bg-white/10 border-white/20 text-white" />}
+            </fieldset>
             <Input placeholder="Coupon code (optional)" value={couponCode} onChange={(e) => setCouponCode(e.target.value)} className="bg-white/10 border-white/20 text-white" />
             {customerProfile?.couponCode && couponCode === customerProfile.couponCode && (
               <div className="flex items-center gap-2 text-xs text-emerald-300 rounded-lg border border-emerald-500/25 bg-emerald-500/10 p-2">
@@ -1255,11 +1305,11 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
               <p className="text-sm text-slate-400 mb-2">Payment Method</p>
               <div className="grid grid-cols-2 gap-2">
                 {[
-                  { id: 'cod', label: 'Cash on Delivery', icon: Banknote },
+                  { id: 'cod', label: fulfillmentMethod === 'PICKUP' ? 'Cash at Pickup' : 'Cash on Delivery', icon: Banknote },
                   { id: 'mobile', label: 'Mobile Money', icon: Smartphone },
                   { id: 'bank', label: 'Bank Transfer', icon: Building2 },
                   { id: 'bnpl', label: 'Buy Now Pay Later', icon: CreditCard },
-                ].map((m) => (
+                ].filter((m) => !liveCheckoutToken || m.id !== 'bank').map((m) => (
                   <Button
                     key={m.id}
                     variant={checkoutForm.paymentMethod === m.id ? 'default' : 'outline'}
@@ -1307,7 +1357,7 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
 
             <div className="border-t border-white/10 pt-3">
               <div className="flex justify-between font-bold"><span>Items total</span><span>{formatPrice(cartTotal, products[0]?.currency ?? 'TZS')}</span></div>
-              <p className="text-xs text-slate-400 mt-2">Delivery is arranged with the store. Eligible discounts are applied when the order is confirmed.</p>
+              <p className="text-xs text-slate-400 mt-2">The store will confirm your pickup or delivery details. Eligible discounts are applied when the order is confirmed.</p>
               {orderDiscount && orderDiscount.discountAmount > 0 && (
                 <div className="text-xs text-emerald-300 mt-1">Discount applied: {formatPrice(orderDiscount.discountAmount, products[0]?.currency ?? 'TZS')}</div>
               )}
@@ -1315,7 +1365,7 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
             </div>
             <Button
               onClick={handlePlaceOrder}
-              disabled={!checkoutForm.name || !checkoutForm.phone || !checkoutForm.address || placingOrder || (checkoutForm.paymentMethod === 'bnpl' && bnplEligibility?.eligible === false)}
+              disabled={!checkoutForm.name || !checkoutForm.phone || !fulfillmentLocation || placingOrder || (checkoutForm.paymentMethod === 'bnpl' && bnplEligibility?.eligible === false)}
               className="w-full bg-green-600 hover:bg-green-700 disabled:opacity-50"
             >
               {placingOrder && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
@@ -1325,12 +1375,23 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
         </DialogContent>
       </Dialog>
 
-      {/* Success Dialog */}
+      {checkoutPayment && !orderConfirmed && (
+        <button className="fixed bottom-4 right-4 z-30 rounded-lg bg-indigo-700 px-4 py-2 text-sm text-white" onClick={() => setOrderConfirmed(true)}>
+          View payment for {checkoutPayment.orderNumber}
+        </button>
+      )}
+
+      {/* Order and payment status */}
+
       <Dialog open={orderConfirmed} onOpenChange={setOrderConfirmed}>
         <DialogContent className={`${modernStore ? 'sf-dialog ' : ''}bg-slate-900 border-slate-700 text-white max-w-md`}>
           <div className="text-center py-6">
-            <CheckCircle2 className="w-16 h-16 text-green-400 mx-auto mb-4" />
-            <h2 className="text-xl font-bold mb-2">Order Confirmed!</h2>
+            {(!checkoutPayment || checkoutPayment.paymentState === 'PAID') && <CheckCircle2 className="w-16 h-16 text-green-400 mx-auto mb-4" />}
+            <h2 className="text-xl font-bold mb-2">
+              {checkoutPayment?.paymentState === 'PENDING' ? 'Awaiting payment'
+                : checkoutPayment?.paymentState === 'PAID' ? 'Payment verified'
+                  : checkoutPayment ? 'Payment update' : 'Order Confirmed!'}
+            </h2>
             <p className="text-slate-400 mb-2">Your order number is</p>
             <p className="text-2xl font-mono font-bold text-blue-400 mb-4">{orderNumber}</p>
             {orderReceipt && (
@@ -1342,7 +1403,8 @@ export default function ErpShop({ data }: { data?: Record<string, unknown> }) {
                 <span>{loyaltyMessage}</span>
               </div>
             )}
-            <p className="text-sm text-slate-500">We will contact you shortly to confirm delivery.</p>
+            <p className="text-sm text-slate-300">{checkoutPayment ? socialPaymentMessage[checkoutPayment.paymentState]
+              : 'The store will contact you to confirm your pickup or delivery details.'}</p>
           </div>
         </DialogContent>
       </Dialog>

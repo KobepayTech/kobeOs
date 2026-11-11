@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Cron } from '@nestjs/schedule';
-import { In, LessThan, Repository } from 'typeorm';
+import { In, LessThan, MoreThan, Repository } from 'typeorm';
 import { randomBytes } from 'crypto';
 
 const RESERVE_MINUTES = 5;
@@ -16,17 +16,21 @@ import { LiveSession, LivePin, LiveComment } from './live-sale.entity';
 import { PosOrder, PosProduct } from '../pos/pos.entity';
 import { StoreSettings } from '../store-settings/store-settings.entity';
 import { OrdersService } from '../pos/pos.service';
-import { PalmPesaService } from '../creators/palmpesa.service';
+import { SocialCheckoutPaymentsService } from '../pos/social-checkout-payments.service';
 import { ApifyService } from './apify.service';
 import { liveShopLinks } from './live-shop-links';
+import { socialPostKey, socialSaleIntent } from './social-sale-comment';
 
 const num = (v: unknown) => Number(v) || 0;
+
+export type SocialCommentResult = LiveComment & { reply?: string; publicReply?: string };
 
 export interface IngestInput {
   source?: string;
   buyerHandle?: string;
   buyerContact?: string;
   text: string;
+  externalId?: string;
 }
 
 @Injectable()
@@ -78,19 +82,16 @@ export class LiveSaleService {
     @InjectRepository(PosOrder) private readonly posOrders: Repository<PosOrder>,
     @InjectRepository(StoreSettings) private readonly settings: Repository<StoreSettings>,
     private readonly orders: OrdersService,
-    private readonly palmpesa: PalmPesaService,
+    private readonly socialPayments: SocialCheckoutPaymentsService,
     private readonly apify: ApifyService,
   ) {}
 
   /** Absolute tracked storefront URL used in comment replies and private DMs.
    * The reservation token is the proof later used to attribute the full cart. */
-  private async storefrontCheckoutUrl(ownerId: string, session: LiveSession, checkoutToken: string): Promise<string> {
-    const store = await this.settings.findOne({ where: { ownerId } });
-    const configured = store?.publishedUrl?.trim() || store?.customDomain?.trim() || '';
-    const base = configured
-      ? (/^https?:\/\//i.test(configured) ? configured : `https://${configured}`)
-      : `https://${store?.domainSlug || 'shop'}.${process.env.TENANT_BASE_DOMAIN || process.env.CF_DOMAIN || 'kobeapptz.com'}`;
-    const url = new URL(base.replace(/\/$/, '') + '/');
+  private async storefrontCheckoutUrl(ownerId: string, session: LiveSession, checkoutToken: string, settings = this.settings): Promise<string> {
+    const store = await settings.findOne({ where: { ownerId } });
+    const { storefrontUrl } = liveShopLinks(store || { domainSlug: 'shop' });
+    const url = new URL(storefrontUrl);
     url.searchParams.set('live', checkoutToken);
     url.searchParams.set('utm_source', session.platform);
     url.searchParams.set('utm_medium', session.kind === 'post' ? 'social-post' : 'social-live');
@@ -102,6 +103,20 @@ export class LiveSaleService {
 
   async startSession(uid: string, dto: { title?: string; platform?: string; currency?: string; kind?: string; postUrl?: string; socialAccountId?: string; sourceHandle?: string }) {
     const kind: LiveSession['kind'] = dto.kind === 'post' ? 'post' : 'live';
+    if (kind === 'post') {
+      const platform = dto.platform || '';
+      const key = socialPostKey(platform, dto.postUrl || '');
+      if (!key) throw new BadRequestException('Paste the full Instagram post/Reel or TikTok video/photo URL.');
+      const active = await this.sessions.find({ where: { ownerId: uid, kind, platform: platform as LiveSession['platform'], status: 'LIVE' } });
+      const existing = active.find((session) => socialPostKey(platform, session.postUrl) === key);
+      if (existing) {
+        if (dto.socialAccountId && existing.socialAccountId !== dto.socialAccountId) {
+          existing.socialAccountId = dto.socialAccountId;
+          return this.sessions.save(existing);
+        }
+        return existing;
+      }
+    }
     if (kind === 'live') {
       const existing = await this.sessions.findOne({ where: { ownerId: uid, platform: (dto.platform as LiveSession['platform']) || 'other', status: 'LIVE', kind: 'live', ...(dto.socialAccountId ? { socialAccountId: dto.socialAccountId } : dto.sourceHandle ? { sourceHandle: dto.sourceHandle } : {}) }, order: { createdAt: 'DESC' } });
       if (existing) return existing;
@@ -131,7 +146,9 @@ export class LiveSaleService {
     if (!this.apify.isConfigured()) return;
     const campaigns = await this.sessions.find({ where: { status: 'LIVE', kind: 'post' } });
     for (const c of campaigns) {
-      if (!c.postUrl) continue;
+      // Official Instagram events handle new connected campaigns. TikTok
+      // Business campaigns use a separate authenticated poller.
+      if (!c.postUrl || c.socialAccountId) continue;
       try {
         const comments = await this.apify.fetchPostComments(c.postUrl, c.platform);
         for (const cm of comments) {
@@ -184,26 +201,26 @@ export class LiveSaleService {
    * on the online storefront so web shoppers can buy the live too. Returns
    * { live: false } when nothing is running.
    */
-  async publicLive(slug: string) {
+  async publicLive(slug: string, campaign?: string) {
     const s =
       (await this.settings.findOne({ where: { domainSlug: slug } })) ??
       (await this.settings.findOne({ where: { customDomain: slug } }));
-    if (!s) return { live: false as const };
+    if (!s || (campaign && !s.isPublished)) return { live: false as const };
     const session = await this.sessions.findOne({
-      where: { ownerId: s.ownerId, status: 'LIVE', showOnStorefront: true },
+      where: { ownerId: s.ownerId, status: 'LIVE', ...(campaign ? { id: campaign } : { showOnStorefront: true }) },
       order: { createdAt: 'DESC' },
     });
     if (!session) return { live: false as const };
     const pins = await this.pins.find({ where: { ownerId: s.ownerId, sessionId: session.id }, order: { code: 'ASC' } });
     const products: Array<{ productId: string; code: string; name: string; livePrice: number; catalogPrice: number; stock: number; currency: string; imageUrl: string | null; isFeatured: boolean }> = [];
     for (const p of pins) {
-      const prod = await this.products.findOne({ where: { ownerId: s.ownerId, id: p.productId } });
+      const prod = await this.products.findOne({ where: { ownerId: s.ownerId, id: p.productId, active: true } });
       if (!prod) continue;
       products.push({
         productId: p.productId, code: p.code, name: p.name,
-        livePrice: num(p.livePrice) > 0 ? num(p.livePrice) : num(prod.price),
+        livePrice: num(p.livePrice) > 0 ? Math.min(num(p.livePrice), num(prod.price)) : num(prod.price),
         catalogPrice: num(prod.price),
-        stock: Number(prod.stock), currency: session.currency,
+        stock: Math.max(0, num(prod.stock) - num(prod.reservedStock)), currency: prod.currency || session.currency,
         imageUrl: (prod as { imageUrl?: string }).imageUrl ?? null,
         isFeatured: !!p.isFeatured,
       });
@@ -239,16 +256,17 @@ export class LiveSaleService {
    * the active session by storefront slug, holds stock softly for RESERVE_MINUTES,
    * and returns a short reservation code + the checkout token/link.
    */
-  async reserveFromCatalog(slug: string, dto: { code: string; qty?: number; buyerHandle?: string; variation?: string }) {
-    const live = await this.publicLive(slug);
+  async reserveFromCatalog(slug: string, dto: { code: string; qty?: number; buyerHandle?: string; variation?: string; campaign?: string }) {
+    const live = await this.publicLive(slug, dto.campaign);
     if (!live.live) throw new BadRequestException('No live sale is running right now');
     const code = (dto.code || '').toUpperCase();
     const pin = await this.pins.findOne({ where: { sessionId: live.sessionId, code } });
     if (!pin) throw new NotFoundException('That product code is not in this live');
-    const product = await this.products.findOne({ where: { id: pin.productId } });
+    const product = await this.products.findOne({ where: { id: pin.productId, ownerId: pin.ownerId, active: true } });
     if (!product) throw new NotFoundException('Product no longer exists');
-    const qty = Math.max(1, Math.min(Number(dto.qty) || 1, 99));
-    if (Number(product.stock) < qty) throw new BadRequestException(`Only ${Number(product.stock)} left`);
+    const qty = Math.max(1, Math.min(Math.trunc(Number(dto.qty) || 1), 99));
+    const stock = Math.max(0, num(product.stock) - num(product.reservedStock));
+    if (stock < qty) throw new BadRequestException(`Only ${stock} left`);
 
     const reservationCode = genReservationCode();
     const checkoutToken = randomBytes(16).toString('base64url');
@@ -325,103 +343,121 @@ export class LiveSaleService {
 
   /* ── Comment ingest + parsing ── */
 
-  /** Parse a comment against the session's pins. Finds the first pin whose
-   *  code appears as a token, and a quantity if one sits next to it. */
-  private async parse(uid: string, sessionId: string, text: string) {
-    const pins = await this.pins.find({ where: { ownerId: uid, sessionId } });
-    const upper = ` ${text.toUpperCase().replace(/[^A-Z0-9 ]/g, ' ')} `;
-    for (const p of pins) {
-      const idx = upper.indexOf(` ${p.code} `);
-      if (idx >= 0) {
-        // Quantity: a number immediately after the code, else 1.
-        const after = upper.slice(idx + p.code.length + 2);
-        const m = after.match(/^\s*(?:X\s*)?(\d{1,3})\b/);
-        const qty = m ? Math.max(1, parseInt(m[1], 10)) : 1;
-        return { code: p.code, productId: p.productId, qty };
-      }
-    }
-    return null;
+  /** Serialize platform retries for the same campaign before writing a comment. */
+  async ingestComment(uid: string, sessionId: string, dto: IngestInput): Promise<SocialCommentResult> {
+    if (!dto.externalId) return this.recordComment(await this.getSession(uid, sessionId), dto, this.comments, this.pins, this.products, this.settings);
+    return this.sessions.manager.transaction(async (manager) => {
+      const session = await manager.getRepository(LiveSession).findOne({
+        where: { id: sessionId, ownerId: uid }, lock: { mode: 'pessimistic_write' },
+      });
+      if (!session) throw new NotFoundException('Session not found');
+      return this.recordComment(session, dto, manager.getRepository(LiveComment), manager.getRepository(LivePin), manager.getRepository(PosProduct), manager.getRepository(StoreSettings));
+    });
   }
 
-  async ingestComment(uid: string, sessionId: string, dto: IngestInput & { externalId?: string }) {
-    const session = await this.getSession(uid, sessionId);
-    // Live sessions are gated by LIVE status; post/ad campaigns stay open.
-    if (session.kind !== 'post' && session.status !== 'LIVE') throw new BadRequestException('Session has ended');
-    // De-dupe polled (Apify) comments by their platform comment id.
+  private async recordComment(session: LiveSession, dto: IngestInput, comments: Repository<LiveComment>, pinRepo: Repository<LivePin>, products: Repository<PosProduct>, settings: Repository<StoreSettings>): Promise<SocialCommentResult> {
+    if (session.status !== 'LIVE') throw new BadRequestException('Session has ended');
+    const uid = session.ownerId;
+    const sessionId = session.id;
     if (dto.externalId) {
-      const seen = await this.comments.findOne({ where: { ownerId: uid, sessionId, externalId: dto.externalId } });
+      const seen = await comments.findOne({ where: { ownerId: uid, sessionId, externalId: dto.externalId } });
       if (seen) return seen;
     }
-    const match = await this.parse(uid, sessionId, dto.text || '');
+
+    const pins = await pinRepo.find({ where: { ownerId: uid, sessionId } });
+    const upper = ` ${dto.text.toUpperCase().replace(/[^A-Z0-9 ]/g, ' ')} `;
+    const coded = pins.filter((pin) => upper.includes(` ${pin.code} `));
+    const intent = socialSaleIntent(dto.text);
+    const social = session.platform === 'instagram' || session.platform === 'tiktok';
+    const relevant = social && (intent.price || intent.checkout || intent.buy);
+    const explicit = coded[0];
+    const pin = explicit || (relevant && pins.length === 1 ? pins[0] : undefined);
+    const afterCode = explicit ? upper.slice(upper.indexOf(` ${explicit.code} `) + explicit.code.length + 2) : '';
+    const count = afterCode.match(/^\s*(?:X\s*)?(\d{1,3})\b/)?.[1];
+    const qty = Math.max(1, Number(count) || intent.quantity);
+    // A price/payment question with a code is still a question.
+    const codeOnly = explicit && upper.trimStart().startsWith(`${explicit.code} `) && /^(?:\s*X?\s*\d{1,3})?\s*$/.test(afterCode);
+    const wantsBuy = social ? !intent.declined && !intent.price && !intent.checkout && (codeOnly || intent.buy) : !!explicit;
     const handle = dto.buyerHandle?.trim() || '';
-
-    // Moderation: drop spam/flood/blocked comments (store as IGNORED so the
-    // console shows they were filtered) — but never filter a genuine BUY match,
-    // so a fast repeat buyer is still served (BUY dedupe handles that below).
-    if (!match) {
-      const mod = this.moderate(handle, dto.text || '');
-      if (mod.blocked) {
-        return this.comments.save(this.comments.create({
-          ownerId: uid, sessionId, source: dto.source || 'manual', buyerHandle: handle,
-          text: dto.text || '', status: 'IGNORED', note: `filtered: ${mod.reason}`,
-          externalId: dto.externalId || '',
-        }));
-      }
+    const row = {
+      ownerId: uid, sessionId, source: dto.source || 'manual', buyerHandle: handle,
+      buyerContact: dto.buyerContact?.trim() || '', text: dto.text, externalId: dto.externalId || '',
+    };
+    if (!wantsBuy || !pin) {
+      const mod = this.moderate(`${uid}|${sessionId}|${handle}`, dto.text);
+      if (mod.blocked) return comments.save(comments.create({ ...row, status: 'IGNORED', note: `filtered: ${mod.reason}` }));
     }
 
-    // A BUY that matches a pinned product is auto-RESERVED: the buyer gets a
-    // checkout link and stock is held (softly) for RESERVE_MINUTES. Duplicate
-    // BUYs from the same handle for the same product reuse the live reservation
-    // instead of stacking orders.
-    let status: LiveComment['status'] = match ? 'MATCHED' : 'NEW';
-    let checkoutToken = '';
-    let reservationCode = '';
-    let reservedUntil: Date | null = null;
-    if (match && handle) {
-      const existing = await this.comments.findOne({
-        where: { ownerId: uid, sessionId, buyerHandle: handle, matchedProductId: match.productId, status: 'RESERVED' },
+    const product = pin && social ? await products.findOne({ where: { ownerId: uid, id: pin.productId, active: true } }) : null;
+    const available = !social || (product && Number(product.stock) - num(product.reservedStock) >= qty);
+    const ambiguous = social && coded.length > 1;
+    const canMatch = wantsBuy && pin && available && !ambiguous;
+    // TikTok posts send a public cart link. The viewer creates their own
+    // reservation at the store, keeping checkout tokens out of public threads.
+    const publicPurchase = social && session.platform === 'tiktok' && session.kind === 'post';
+    if (canMatch && handle && !publicPurchase) {
+      const existing = await comments.findOne({
+        where: { ownerId: uid, sessionId, buyerHandle: handle, matchedProductId: pin.productId, status: 'RESERVED', reservedUntil: MoreThan(new Date()) },
       });
-      if (existing && existing.reservedUntil && existing.reservedUntil.getTime() > Date.now()) {
-        return existing; // idempotent: same buyer already holds this product
-      }
-      status = 'RESERVED';
-      checkoutToken = randomBytes(16).toString('base64url');
-      reservationCode = genReservationCode();
-      reservedUntil = new Date(Date.now() + RESERVE_MINUTES * 60_000);
+      if (existing) return existing;
     }
-
-    const saved = await this.comments.save(this.comments.create({
-      ownerId: uid, sessionId,
-      source: dto.source || 'manual',
-      buyerHandle: handle,
-      buyerContact: dto.buyerContact?.trim() || '',
-      text: dto.text || '',
-      matchedCode: match?.code || '',
-      matchedProductId: match?.productId || null,
-      qty: match?.qty || 1,
-      status,
-      checkoutToken,
-      reservationCode,
-      reservedUntil,
-      externalId: dto.externalId || '',
-    }));
-
-    // Auto-reply text the connector/moderator posts back into the live chat
-    // (or the IG private reply) so the buyer knows how to complete the order.
-    let reply: string | undefined;
-    if (status === 'RESERVED') {
-      const who = handle ? `@${handle.replace(/^@/, '')} ` : '';
-      const shopUrl = await this.storefrontCheckoutUrl(uid, session, checkoutToken);
-      reply = `${who}${match!.code} reserved${saved.qty > 1 ? ` x${saved.qty}` : ''} for ${RESERVE_MINUTES} min. Add anything else you want and checkout here: ${shopUrl}`;
+    const reserved = !!(canMatch && handle && !publicPurchase);
+    const checkoutToken = reserved ? randomBytes(16).toString('base64url') : '';
+    const status = reserved ? 'RESERVED' : canMatch ? 'MATCHED' : 'NEW';
+    const comment = comments.create({
+      ...row, matchedCode: canMatch ? pin.code : '', matchedProductId: canMatch ? pin.productId : null,
+      qty, status, checkoutToken, reservationCode: reserved ? genReservationCode() : '',
+      reservedUntil: reserved ? new Date(Date.now() + RESERVE_MINUTES * 60_000) : null,
+    });
+    const save = async (reply?: string, publicReply?: string) => {
+      comment.publicReplyText = publicReply || '';
+      return { ...await comments.save(comment), reply, publicReply };
+    };
+    if (!social) {
+      if (!reserved) return save();
+      const shopUrl = await this.storefrontCheckoutUrl(uid, session, checkoutToken, settings);
+      return save(`@${handle.replace(/^@/, '')} ${pin?.code} reserved${qty > 1 ? ` x${qty}` : ''} for ${RESERVE_MINUTES} min. Add anything else you want and checkout here: ${shopUrl}`);
     }
-    return { ...saved, reply } as LiveComment & { reply?: string };
+    if (!relevant && !codeOnly) return save();
+    const store = await settings.findOne({ where: { ownerId: uid } });
+    const sw = intent.swahili;
+    if (!pin || ambiguous) {
+      if (!pins.length) return save();
+      const message = sw ? 'Unamaanisha bidhaa gani? Tafadhali andika kodi ya bidhaa.' : 'Which item do you mean? Please reply with its product code.';
+      return save(message, message);
+    }
+    if (!product) return save();
+    const catalogPrice = num(product.price);
+    const offerPrice = num(pin.livePrice);
+    const price = new Intl.NumberFormat('en-TZ', { maximumFractionDigits: 2 }).format(offerPrice > 0 && offerPrice <= catalogPrice ? offerPrice : catalogPrice);
+    const quote = `${product.name} · ${product.currency || session.currency} ${price}${sw ? ' kwa moja' : ' each'}.`;
+    if (!available) {
+      const message = `${quote} ${sw ? 'Idadi uliyoomba haipatikani kwa sasa.' : 'The requested quantity is currently unavailable.'}`;
+      return save(message, message);
+    }
+    if (!store?.isPublished) return save(quote, quote);
+    const { storefrontUrl } = liveShopLinks(store);
+    const link = new URL(storefrontUrl);
+    link.pathname = `/@${encodeURIComponent(store.domainSlug)}`;
+    link.searchParams.set('campaign', session.id);
+    link.searchParams.set('item', pin.code);
+    link.searchParams.set('qty', String(qty));
+    const instructions = sw
+      ? 'Chagua pesa kwa simu au njia nyingine iliyo kwenye duka, kisha weka sehemu ya kuchukua au anwani ya kuletewa.'
+      : 'Choose mobile money or another checkout option, then enter your pickup point or delivery address.';
+    const publicReply = `${quote} ${instructions} ${link}`;
+    const reply = reserved
+      ? `${quote} ${sw ? `Tumehifadhi ${qty} kwa dakika ${RESERVE_MINUTES}.` : `Reserved ${qty} for ${RESERVE_MINUTES} minutes.`} ${instructions} ${await this.storefrontCheckoutUrl(uid, session, checkoutToken, settings)}`
+      : publicReply;
+    return save(reply, publicReply);
   }
 
   /** Public checkout page data for a reservation token (buyer opens /live/pay/{token}). */
   async checkoutByToken(token: string) {
     const c = await this.comments.findOne({ where: { checkoutToken: token } });
     if (!c || !token) throw new NotFoundException('Reservation not found');
-    const session = await this.sessions.findOne({ where: { id: c.sessionId } });
+    const order = await this.posOrders.findOneBy({ ownerId: c.ownerId, liveCommentId: c.id });
+    const session = await this.sessions.findOne({ where: { id: c.sessionId, ownerId: c.ownerId } });
     const pin = c.matchedProductId
       ? await this.pins.findOne({ where: { ownerId: c.ownerId, sessionId: c.sessionId, productId: c.matchedProductId } })
       : null;
@@ -430,6 +466,7 @@ export class LiveSaleService {
     return {
       token,
       status: c.status,
+      payment: order?.checkoutPaymentState ? this.socialPayments.publicState(order) : null,
       expired: c.status !== 'CONVERTED' && expired,
       reservedUntil: c.reservedUntil,
       qty: c.qty,
@@ -440,8 +477,8 @@ export class LiveSaleService {
         name: product.name,
         imageUrl: (product as { imageUrl?: string }).imageUrl ?? null,
       } : null,
-      unitPrice: num(pin?.livePrice) || num(product?.price),
-      currency: session?.currency || 'TZS',
+      unitPrice: num(pin?.livePrice) > 0 ? Math.min(num(pin?.livePrice), num(product?.price)) : num(product?.price),
+      currency: product?.currency || session?.currency || 'TZS',
       sessionTitle: session?.title || 'Live Sale',
       sessionId: session?.id || c.sessionId,
       platform: session?.platform || c.source || 'other',
@@ -456,11 +493,16 @@ export class LiveSaleService {
   async payByToken(token: string, dto: { buyerContact?: string }) {
     const c = await this.comments.findOne({ where: { checkoutToken: token } });
     if (!c || !token) throw new NotFoundException('Reservation not found');
-    if (c.status === 'CONVERTED') return { ok: true, alreadyPaid: true };
-    if (c.status === 'EXPIRED' || (c.reservedUntil ? c.reservedUntil.getTime() <= Date.now() : true)) {
+    const order = await this.posOrders.findOneBy({ ownerId: c.ownerId, liveCommentId: c.id });
+    if (order?.checkoutPaymentState) return { ok: true, payment: this.socialPayments.publicState(order) };
+    if (c.status === 'CONVERTED' || order) return { ok: true, payment: { paymentState: null } };
+    if (!dto.buyerContact?.trim()) throw new BadRequestException('Enter a mobile-money phone number.');
+    if (c.status !== 'RESERVED' || (c.reservedUntil ? c.reservedUntil.getTime() <= Date.now() : true)) {
       throw new BadRequestException('This reservation has expired — comment BUY again to get a new link.');
     }
-    return this.convert(c.ownerId, c.id, { buyerContact: dto.buyerContact });
+    await this.convert(c.ownerId, c.id, { buyerContact: dto.buyerContact });
+    const pending = await this.posOrders.findOneByOrFail({ ownerId: c.ownerId, liveCommentId: c.id });
+    return { ok: true, payment: this.socialPayments.publicState(pending) };
   }
 
   /** Release soft reservations that were never paid, so stock frees up. */
@@ -473,8 +515,13 @@ export class LiveSaleService {
     if (res.affected) this.logger.log(`released ${res.affected} expired live reservation(s)`);
   }
 
-  listComments(uid: string, sessionId: string) {
-    return this.comments.find({ where: { ownerId: uid, sessionId }, order: { createdAt: 'DESC' }, take: 300 });
+  async listComments(uid: string, sessionId: string) {
+    const comments = await this.comments.find({ where: { ownerId: uid, sessionId }, order: { createdAt: 'DESC' }, take: 300 });
+    const orderIds = comments.flatMap(comment => comment.orderId ? [comment.orderId] : []);
+    if (!orderIds.length) return comments;
+    const orders = await this.posOrders.find({ where: { ownerId: uid, id: In(orderIds) }, select: { id: true, checkoutPaymentState: true } });
+    const byId = new Map(orders.map(order => [order.id, order.checkoutPaymentState]));
+    return comments.map(comment => ({ ...comment, paymentState: comment.orderId ? byId.get(comment.orderId) : null }));
   }
 
   async ignoreComment(uid: string, commentId: string) {
@@ -508,6 +555,20 @@ export class LiveSaleService {
     const contact = (dto.buyerContact || c.buyerContact || '').trim();
     const session = await this.getSession(uid, c.sessionId);
 
+    if (contact) {
+      const setup = await this.socialPayments.prepare(uid, contact);
+      const pending = await this.orders.create(uid, {
+        orderNumber: `LIVE-${c.id}`, lines: [{ productId: pin.productId, quantity: qty, negotiatedPrice }],
+        paymentMethod: 'MOBILE', customerName: c.buyerHandle || 'Live buyer', customerPhone: contact,
+        salesChannel: `${session.platform}-${session.kind}`, liveSessionId: session.id, liveCommentId: c.id,
+        attributionCode: c.reservationCode,
+      }, setup);
+      const order = await this.socialPayments.reconcile(pending);
+      return { ok: true, lineTotal: Number(order.total), remainingStock: Number(product.stock) - qty,
+        payment: { ...this.socialPayments.publicState(order), message: order.checkoutPaymentState === 'PAID'
+          ? 'Payment verified.' : 'Check the order for mobile-money settlement status.' } };
+    }
+
     // Atomically claim this comment so a concurrent pay (buyer double-tap /
     // auto+manual) can't create two orders + two payment requests. Only the
     // request that flips the status proceeds; a failed order reverts it below.
@@ -533,7 +594,7 @@ export class LiveSaleService {
     } catch (e) {
       c.status = 'FAILED';
       c.note = (e as Error).message;
-      await this.comments.save(c);
+      if (!await this.posOrders.existsBy({ ownerId: uid, liveCommentId: c.id })) await this.comments.save(c);
       throw new BadRequestException((e as Error).message || 'Could not create the sale');
     }
 
@@ -551,25 +612,12 @@ export class LiveSaleService {
     session.orderCount += 1;
     await this.sessions.save(session);
 
-    // Best-effort PalmPesa payment request to the buyer's phone.
-    let payment: { requested: boolean; message: string } = { requested: false, message: 'Sale recorded. Collect payment manually.' };
-    if (contact) {
-      try {
-        await this.palmpesa.initiatePayment({
-          name: c.buyerHandle || 'Live buyer', email: '', phone: contact,
-          amountTzs: lineTotal, transactionId: `LIVE-${c.id}`,
-          description: `${pin.name} x${qty} (live sale)`,
-        });
-        payment = { requested: true, message: 'Payment request sent to the buyer’s phone.' };
-      } catch { /* gateway down — manual collection */ }
-    }
-
     return {
       ok: true,
       order,
       lineTotal,
       remainingStock: product ? Number(product.stock) - qty : null,
-      payment,
+      payment: { requested: false, message: 'Sale recorded for manual collection.' },
     };
   }
 
@@ -649,7 +697,7 @@ export class LiveSaleService {
   async ingestInfo(token: string) {
     const session = await this.sessions.findOne({ where: { ingestToken: token } });
     if (!session) throw new NotFoundException('Invalid ingest token');
-    return { status: session.status, platform: session.platform };
+    return { status: session.status, platform: session.platform, kind: session.kind, postUrl: session.postUrl };
   }
 
   async ingestByToken(token: string, dto: IngestInput & { externalId?: string }) {

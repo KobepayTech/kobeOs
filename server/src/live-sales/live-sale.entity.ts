@@ -166,4 +166,7 @@ export class LiveComment extends OwnedEntity {
 
   @Column({ type: 'text', default: '' })
   note!: string;
+
+  @Column({ type: 'text', default: '' })
+  publicReplyText!: string;
 }

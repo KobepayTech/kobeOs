@@ -31,6 +31,8 @@ interface Order {
   orderNumber: string;
   customerName?: string | null;
   customerPhone?: string | null;
+  fulfillmentMethod?: 'PICKUP' | 'DELIVERY' | null;
+  fulfillmentLocation?: string | null;
   total: number;
   currency: string;
   createdAt: string;
@@ -197,6 +199,9 @@ function OrderRow({
           <> · {[order.customerName, order.customerPhone].filter(Boolean).join(' · ')}</>
         )}
       </div>
+      {order.fulfillmentMethod && <div className="text-xs text-slate-700 mb-2">
+        {order.fulfillmentMethod === 'PICKUP' ? 'Pickup' : 'Delivery'} · {order.fulfillmentLocation}
+      </div>}
       <ul className="space-y-0.5 mb-3">
         {order.items.map((it) => (
           <li key={it.id} className="flex items-baseline gap-2 text-sm text-slate-800">

@@ -161,6 +161,17 @@ export class PosProduct extends OwnedEntity {
   unitsSold!: number;
 }
 
+export type CheckoutPaymentState = 'PENDING' | 'PAID' | 'FAILED' | 'EXPIRED' | 'REVIEW';
+export interface CheckoutPaymentDetails {
+  email: string;
+  callbackUrl: string;
+  couponId?: string;
+  loyaltyCustomerId?: string;
+  rewardCustomerId?: string;
+  providerOrderId?: string;
+  providerReference?: string | null;
+}
+
 @Entity('pos_orders')
 export class PosOrder extends OwnedEntity {
   @Index()
@@ -197,6 +208,12 @@ export class PosOrder extends OwnedEntity {
   @Column({ default: 'NEW' })
   fulfillmentStatus!: 'NEW' | 'PREPARING' | 'READY' | 'COLLECTED';
 
+  @Column({ type: 'varchar', length: 8, nullable: true })
+  fulfillmentMethod?: 'PICKUP' | 'DELIVERY' | null;
+
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  fulfillmentLocation?: string | null;
+
   @Column({ type: 'timestamptz', nullable: true })
   preparingAt?: Date | null;
 
@@ -208,6 +225,18 @@ export class PosOrder extends OwnedEntity {
 
   @Column({ default: 'CASH' })
   paymentMethod!: string;
+
+  @Column({ type: 'varchar', nullable: true })
+  checkoutPaymentState?: CheckoutPaymentState | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  checkoutPaymentDetails?: CheckoutPaymentDetails | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  checkoutPaymentCheckedAt?: Date | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  checkoutPaidAt?: Date | null;
 
   @Column({ default: false })
   bnplApproved!: boolean;

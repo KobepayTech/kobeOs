@@ -1,4 +1,4 @@
-import { IsArray, IsBoolean, IsEnum, IsInt, IsNumber, IsObject, IsOptional, IsString, IsUUID, MaxLength, Min, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsEnum, IsIn, IsInt, IsNumber, IsObject, IsOptional, IsString, IsUUID, MaxLength, Min, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import type { ProductSourceType, ProductVariant } from '../pos.entity';
 
@@ -115,6 +115,8 @@ export class CreateOrderDto {
   @IsOptional() @IsString() bnplPlan?: string;
   @IsOptional() @IsString() customerName?: string;
   @IsOptional() @IsString() customerPhone?: string;
+  @IsOptional() @IsIn(['PICKUP', 'DELIVERY']) fulfillmentMethod?: 'PICKUP' | 'DELIVERY';
+  @IsOptional() @IsString() @MaxLength(500) fulfillmentLocation?: string;
   /** Storefront-only delivery address, saved to the customer's lightweight profile. */
   @IsOptional() @IsString() @MaxLength(500) customerAddress?: string;
   /** Storefront loyalty member number used to authorize a reward redemption. */

@@ -53,4 +53,34 @@ describe('phone live comments', () => {
     expect(fetcher.mock.calls[0][0]).toMatch(/ig-id\/messages$/);
     expect(JSON.parse(fetcher.mock.calls[0][1]?.body as string)).toEqual({ recipient: { comment_id: 'live-comment' }, message: { text: 'Private checkout URL' } });
   });
+  it('routes each regular post by its own media permalink and sends the correct reply type', async () => {
+    const account = { id: 'account', ownerId: 'owner', accountHandle: '@shop', platform: 'instagram', status: 'connected', accessToken: 'token', metadata: { instagramUserId: 'ig-id' } };
+    const accounts = { find: jest.fn().mockResolvedValue([account]) };
+    const sessions = { find: jest.fn().mockResolvedValue([
+      { id: 'newest', kind: 'post', postUrl: 'https://www.instagram.com/p/NEW/' },
+      { id: 'shirts', kind: 'post', postUrl: 'https://www.instagram.com/p/SHIRTS/?igsh=tracking' },
+    ]) };
+    const sales = { ingestComment: jest.fn().mockResolvedValueOnce({ status: 'NEW', reply: 'public quote', publicReply: 'public quote' })
+      .mockResolvedValueOnce({ status: 'RESERVED', reply: 'private checkout', publicReply: 'public shop' }) };
+    const service = new InstagramService(new ConfigService({ INSTAGRAM_APP_SECRET: 'test-secret' }), accounts as unknown as Repository<SocialAccount>, sessions as unknown as Repository<LiveSession>, sales as unknown as LiveSaleService);
+    const fetcher = jest.spyOn(global, 'fetch')
+      .mockResolvedValueOnce(new Response('{"permalink":"https://instagram.com/p/SHIRTS/"}'))
+      .mockResolvedValueOnce(new Response('{}')).mockResolvedValueOnce(new Response('{}'))
+      .mockResolvedValueOnce(new Response('{"permalink":"https://instagram.com/p/UNKNOWN/"}'));
+    const comment = (id: string, media: string, username: string, text: string) => ({
+      field: 'comments', value: { id, text, media: { id: media }, from: { id: username, username } },
+    });
+    const body = { entry: [{ id: 'ig-id', changes: [
+      comment('price', '1234', 'buyer', 'Bei gani?'), comment('buy', '1234', 'buyer', 'Nataka moja'),
+      comment('own', '1234', 'shop', 'How much?'), comment('other-post', '9999', 'buyer', 'How much?'),
+    ] }] };
+    const raw = Buffer.from(JSON.stringify(body));
+    expect(await service.handleWebhook(body, raw, 'sha256=' + createHmac('sha256', 'test-secret').update(raw).digest('hex'))).toEqual({ ok: true, ingested: 2 });
+    expect(sales.ingestComment.mock.calls.map(args => args[1])).toEqual(['shirts', 'shirts']);
+    expect(String(fetcher.mock.calls[1][0])).toMatch(/price\/replies$/);
+    expect(JSON.parse(String(fetcher.mock.calls[1][1]?.body))).toEqual({ message: 'public quote' });
+    expect(String(fetcher.mock.calls[2][0])).toMatch(/ig-id\/messages$/);
+    expect(JSON.parse(String(fetcher.mock.calls[2][1]?.body))).toEqual({ recipient: { comment_id: 'buy' }, message: { text: 'private checkout' } });
+  });
+
 });

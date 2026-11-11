@@ -65,9 +65,9 @@ function forward(source, buyerHandle, text) {
       // Auto-reply: KobeOS returns a ready-to-post reply when it reserves a BUY.
       try {
         const r = JSON.parse(buf);
-        if (r && r.reply) {
-          console.log(`   ↳ REPLY: ${r.reply}`);
-          onReply(source, r.reply); // post it back where the platform allows
+        if (r && r.publicReply) {
+          console.log(`   ↳ REPLY: ${r.publicReply}`);
+          onReply(source, r.publicReply); // post it back where the platform allows
         }
       } catch { /* non-JSON */ }
     });

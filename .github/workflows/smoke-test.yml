@@ -47,8 +47,18 @@ jobs:
           cache: npm
           cache-dependency-path: server/package-lock.json
 
+      - name: Use the runner FFmpeg for the backend build
+        run: |
+          if ! command -v ffmpeg >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg
+          fi
+          echo "FFMPEG_BIN=$(command -v ffmpeg)" >> "$GITHUB_ENV"
+
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
 
       - name: Build backend
         run: npm run build

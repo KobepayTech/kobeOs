@@ -21,7 +21,7 @@ const LIVE_PLATFORMS = [['tiktok', 'TikTok'], ['instagram', 'Instagram'], ['face
 
 interface Session { id: string; title: string; platform: string; status: 'LIVE' | 'ENDED'; kind?: 'live' | 'post'; postUrl?: string; ingestToken: string; currency: string; totalSales: number | string; orderCount: number; createdAt: string; showOnStorefront?: boolean; socialAccountId?: string | null; sourceHandle?: string }
 interface PinRow { id: string; code: string; productId: string; name: string; livePrice: number; catalogPrice: number; stock: number; soldQty: number; isFeatured: boolean }
-interface Comment { id: string; source: string; buyerHandle: string; buyerContact: string; text: string; matchedCode: string; qty: number; status: string; createdAt: string; reservationCode?: string; checkoutToken?: string; orderId?: string }
+interface Comment { id: string; source: string; buyerHandle: string; buyerContact: string; text: string; matchedCode: string; qty: number; status: string; createdAt: string; reservationCode?: string; checkoutToken?: string; publicReplyText?: string; paymentState?: string | null; orderId?: string }
 interface Product { id: string; name: string; price: number | string; stock: number }
 interface Stats { totalSales: number; orderCount: number; pendingComments: number; convertedComments: number; pins: PinRow[] }
 interface OperatorContext { storefrontSlug: string; storefrontUrl: string; catalogUrl: string }
@@ -43,6 +43,8 @@ export default function LiveSales() {
   const [context, setContext] = useState<OperatorContext>({ storefrontSlug: '', storefrontUrl: '', catalogUrl: '' });
   const [instagram, setInstagram] = useState<InstagramConnection>({ connected: false });
   const [accounts, setAccounts] = useState<ConnectedAccount[]>([]);
+  const [tiktokPosts, setTikTokPosts] = useState(false);
+  const [showTikTokSetup, setShowTikTokSetup] = useState(false);
   const [starting, setStarting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [platformMenu, setPlatformMenu] = useState(false);
@@ -58,6 +60,8 @@ export default function LiveSales() {
       ]);
       setSessions(Array.isArray(s) ? s : []);
       setContext(ctx);
+      const postConnection = await api<{ connected: boolean }>('/live-sales/tiktok/post-connection').catch(() => ({ connected: false }));
+      setTikTokPosts(postConnection.connected);
       const localAccounts = await api<ConnectedAccount[]>('/live-sales/connections');
       let allAccounts = localAccounts;
       if (usesCloudAccounts()) {
@@ -131,16 +135,44 @@ export default function LiveSales() {
     finally { setStarting(false); }
   };
 
-  // Non-live: an ad/post campaign whose comments are polled (Apify) and land
-  // in the same reserve→checkout flow, but tracked separately from lives.
   const startPost = async () => {
-    const postUrl = prompt('Paste the post or ad URL to watch for BUY comments')?.trim();
+    const postUrl = prompt('Paste the full Instagram post/Reel or TikTok video/photo URL')?.trim();
     if (!postUrl) return;
-    const platform = /tiktok/i.test(postUrl) ? 'tiktok' : 'instagram';
     const title = prompt('Name this campaign', 'Post campaign')?.trim();
     if (title === undefined) return;
-    const s = await api<Session>('/live-sales', { method: 'POST', body: JSON.stringify({ title: title || 'Post campaign', platform, kind: 'post', postUrl }) });
-    await loadSessions(); setActive(s);
+    const platform = /tiktok\.com/i.test(postUrl) ? 'tiktok' : 'instagram';
+    const account = accounts.find(a => a.platform === platform && a.connected);
+    try {
+      const session = await api<Session>('/live-sales', { method: 'POST', body: JSON.stringify({
+        title: title || 'Post campaign', platform, kind: 'post', postUrl,
+        ...(platform === 'instagram' && account ? { socialAccountId: account.cloud ? undefined : account.id,
+          cloudAccount: !!account.cloud, sourceHandle: account.accountHandle } : {}),
+      }) });
+      await loadSessions();
+      setActive(session);
+    } catch (error) {
+      setNotice((error as Error).message || 'Could not open the post campaign.');
+    }
+  };
+
+  const connectTikTokPosts = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const values = Object.fromEntries(new FormData(form));
+    form.reset();
+    try {
+      await api('/live-sales/tiktok/post-connection', { method: 'POST', body: JSON.stringify(values) });
+      setTikTokPosts(true);
+      setShowTikTokSetup(false);
+      setNotice('TikTok post comment access verified. Open a post campaign and pin the product.');
+    } catch (error) { setNotice((error as Error).message); }
+  };
+
+  const disconnectTikTokPosts = async () => {
+    try {
+      await api('/live-sales/tiktok/post-connection', { method: 'DELETE' });
+      setTikTokPosts(false);
+    } catch (error) { setNotice((error as Error).message); }
   };
 
   if (studio) return <StoreBroadcastStudio onClose={() => { setStudio(false); void loadSessions(); }} />;
@@ -189,6 +221,20 @@ export default function LiveSales() {
 
       <div className="p-5 space-y-6">
         <PhotoRepairReport />
+        <div className="rounded-xl border border-slate-800 p-4 text-sm text-slate-300 space-y-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="font-bold">TikTok post replies</span>
+            <span className="text-xs text-slate-400">{tiktokPosts ? 'Business access connected' : 'Business access required for automatic public replies'}</span>
+            <button onClick={() => setShowTikTokSetup(value => !value)} className="text-fuchsia-300 underline">{tiktokPosts ? 'Update access' : 'Set up'}</button>
+            {tiktokPosts && <button onClick={() => void disconnectTikTokPosts()} className="text-slate-400 underline">Disconnect</button>}
+          </div>
+          {showTikTokSetup && <form onSubmit={connectTikTokPosts} className="grid gap-2 sm:grid-cols-3">
+            <input required name="businessId" aria-label="TikTok Business open ID" placeholder="TikTok Business open ID" className="rounded border border-slate-700 bg-slate-950 p-2" />
+            <input required name="accessToken" type="password" autoComplete="off" aria-label="TikTok Business access token" placeholder="Business access token" className="rounded border border-slate-700 bg-slate-950 p-2" />
+            <input required name="postUrl" type="url" aria-label="TikTok post URL" placeholder="URL of a post you own" className="rounded border border-slate-700 bg-slate-950 p-2" />
+            <button className="rounded bg-fuchsia-600 px-3 py-2 font-bold text-white">Verify and save</button>
+          </form>}
+        </div>
         <div className="rounded-xl border border-slate-800 p-4 text-sm text-slate-300">
           <p>Stream from your phone, or open a selling session and choose “Broadcast from KobeOS” to use this computer’s camera with a platform-issued stream URL and key. Pin products and share your live-shop link. Keep the store computer online for comments and checkout.</p>
           <div className="mt-2 flex flex-wrap gap-2">{accounts.filter(a => a.connected && ['instagram', 'tiktok'].includes(a.platform)).map(a => <span key={`${a.cloud}-${a.id}`} className="rounded bg-slate-800 px-2 py-1 text-xs">{a.platform} · {a.accountHandle}</span>)}<button onClick={loadSessions} className="text-fuchsia-300 underline">Refresh accounts</button></div>
@@ -205,7 +251,7 @@ export default function LiveSales() {
         ) : (
           <>
             <SessionGroup label="Live sessions" hint="Realtime stream comments" items={lives} onOpen={setActive} />
-            <SessionGroup label="Post & ad campaigns" hint="Non-live · comments polled from the post" items={posts} onOpen={setActive} />
+            <SessionGroup label="Post & ad campaigns" hint="Product questions and checkout from regular posts" items={posts} onOpen={setActive} />
           </>
         )}
       </div>
@@ -268,7 +314,7 @@ function SessionConsole({ session, context, accounts, onOpenKds, onBack }: { ses
   const cloudAccount = accounts.find(a => a.cloud && a.connected && a.platform === session.platform && a.accountHandle === session.sourceHandle);
   const cloudAccountId = cloudAccount?.id;
   useEffect(() => {
-    if (ended || session.kind === 'post' || session.platform !== 'instagram' || !cloudAccountId) return;
+    if (ended || session.platform !== 'instagram' || !cloudAccountId) return;
     let disposed = false;
     const connect = async () => {
       try {
@@ -439,6 +485,8 @@ function SessionConsole({ session, context, accounts, onOpenKds, onBack }: { ses
                       {c.matchedCode && <span className="ml-1.5 font-mono text-[10px] text-fuchsia-400">{c.matchedCode}×{c.qty}</span>}
                       <span className="ml-1.5 text-[9px] text-slate-600 uppercase">{c.source}</span>
                       <div className="text-sm text-slate-400 truncate">{c.text}</div>
+                      {c.publicReplyText && <button onClick={() => { void navigator.clipboard?.writeText(c.publicReplyText!); flash('Public reply copied'); }}
+                        className="text-xs text-fuchsia-300 underline" title={c.publicReplyText}>Copy public reply</button>}
                       {c.status === 'RESERVED' && (
                         <div className="mt-1 flex items-center gap-2 text-[10px] text-amber-300">
                           <span>Reserved · code <b className="font-mono">{c.reservationCode}</b></span>
@@ -449,7 +497,9 @@ function SessionConsole({ session, context, accounts, onOpenKds, onBack }: { ses
                       )}
                     </div>
                     <div className="shrink-0">
-                      {c.status === 'CONVERTED' ? <span className="text-[10px] font-bold text-emerald-400 inline-flex items-center gap-0.5"><CheckCircle2 className="w-3 h-3" /> SOLD</span>
+                      {c.paymentState === 'PENDING' ? <span className="text-[10px] font-bold text-amber-300">AWAITING PAYMENT</span>
+                        : c.paymentState === 'REVIEW' ? <span className="text-[10px] font-bold text-rose-300">LATE PAYMENT · REVIEW</span>
+                        : c.status === 'CONVERTED' ? <span className="text-[10px] font-bold text-emerald-400 inline-flex items-center gap-0.5"><CheckCircle2 className="w-3 h-3" /> SOLD</span>
                         : c.status === 'IGNORED' ? <span className="text-[10px] text-slate-500">ignored</span>
                         : c.status === 'FAILED' ? <span className="text-[10px] text-rose-400">failed</span>
                         : !ended && (

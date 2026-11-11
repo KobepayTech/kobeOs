@@ -38,6 +38,15 @@ export interface PalmPesaCallback {
   data?: PalmPesaOrderData[];
 }
 
+export interface PalmPesaCheckoutPayment {
+  order_id: string;
+  transaction_id: string;
+  status: string;
+  amount: number;
+  currency: string;
+  reference?: string | null;
+}
+
 @Injectable()
 export class PalmPesaService {
   private readonly logger = new Logger(PalmPesaService.name);
@@ -68,6 +77,43 @@ export class PalmPesaService {
 
   get callbackBase(): string {
     return this.config.get<string>('APP_PUBLIC_URL', 'https://api.kobeapptz.com');
+  }
+
+  async requestCheckoutPayment(input: {
+    transactionId: string; amount: number; phone: string; name: string; email: string; callbackUrl: string;
+  }) {
+    return this.checkoutRequest('', {
+      transaction_id: input.transactionId,
+      amount: input.amount,
+      currency: 'TZS',
+      phone: this.normalisePhone(input.phone),
+      name: input.name,
+      email: input.email,
+      callback_url: input.callbackUrl,
+    });
+  }
+
+  checkoutPaymentStatus(orderId: string) {
+    return this.checkoutRequest('/' + encodeURIComponent(orderId));
+  }
+
+  private async checkoutRequest(path: string, body?: Record<string, unknown>): Promise<PalmPesaCheckoutPayment> {
+    if (!this.isConfigured()) throw new ServiceUnavailableException('Mobile money is unavailable.');
+    const response = await fetch(`https://palmpesa.co.tz/api/v2/async/payments${path}`, {
+      method: body ? 'POST' : 'GET',
+      headers: {
+        Authorization: `Bearer ${this.apiToken}`,
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: body && JSON.stringify(body),
+      redirect: 'error',
+      signal: AbortSignal.timeout(4500),
+    });
+    if (!response.ok) throw new ServiceUnavailableException(`PalmPesa checkout returned HTTP ${response.status}`);
+    const result = await response.json() as { success?: boolean; data?: PalmPesaCheckoutPayment };
+    if (!result.success || !result.data?.order_id) throw new ServiceUnavailableException('PalmPesa checkout returned an invalid response.');
+    return result.data;
   }
 
   // ── Initiate USSD push payment ────────────────────────────────────────────

@@ -1,3 +1,4 @@
+import { TikTokPostCommentsService } from './tiktok-post-comments.service';
 import { TikTokCommentsService } from './tiktok-comments.service';
 import { BroadcastController } from './broadcast.controller';
 import { BroadcastService } from './broadcast.service';
@@ -10,7 +11,6 @@ import { PosOrder, PosProduct } from '../pos/pos.entity';
 import { StoreSettings } from '../store-settings/store-settings.entity';
 import { LiveSaleService } from './live-sale.service';
 import { LiveSaleController, LiveSaleIngestController, LiveSalePublicController, LiveSaleInstagramPublicController } from './live-sale.controller';
-import { PalmPesaModule } from '../creators/palmpesa.module';
 import { ApifyService } from './apify.service';
 import { PosModule } from '../pos/pos.module';
 import { SocialAccount } from '../social-scheduler/social-account.entity';
@@ -27,9 +27,8 @@ import { LiveBroadcastService } from './live-broadcast.service';
     ConfigModule,
     AiModule,
     PosModule, // provides OrdersService (atomic stock decrement)
-    PalmPesaModule,
   ],
-  providers: [BroadcastService, TikTokCommentsService, LiveSaleService, InstagramService, ApifyService, LivePresenterService, LiveBroadcastService],
+  providers: [BroadcastService, TikTokCommentsService, TikTokPostCommentsService, LiveSaleService, InstagramService, ApifyService, LivePresenterService, LiveBroadcastService],
   controllers: [BroadcastController, LiveSaleController, LiveSaleIngestController, LiveSalePublicController, LiveSaleInstagramPublicController],
   exports: [LiveSaleService],
 })
