@@ -21,8 +21,18 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y grub-pc-bin grub-efi-amd64-bin xorriso mtools squashfs-tools fakeroot debootstrap
       - run: npm ci --legacy-peer-deps
+      - name: Use the runner FFmpeg for the backend build
+        run: |
+          if ! command -v ffmpeg >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg
+          fi
+          echo "FFMPEG_BIN=$(command -v ffmpeg)" >> "$GITHUB_ENV"
+
       - name: Install server dependencies
         run: npm ci --legacy-peer-deps
+        env:
+          ONNXRUNTIME_NODE_INSTALL_CUDA: skip
         working-directory: server
       - run: npm run build
       - name: Regenerate core integrity manifest

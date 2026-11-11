@@ -1,5 +1,5 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
-export class DeveloperAppDistribution1793600000000 implements MigrationInterface {
+export class DeveloperAppDistribution1794173200000 implements MigrationInterface {
   async up(q: QueryRunner) {
     await q.query(`CREATE TABLE "developer_app_listings" ("appId" varchar(80) PRIMARY KEY, "publisherId" uuid NOT NULL)`);
     await q.query(`CREATE TABLE "developer_app_releases" (
