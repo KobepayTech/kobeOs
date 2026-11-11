@@ -97,13 +97,6 @@ export default function LiveSales() {
   const connectInstagram = () => setConnectingSocial('instagram');
   const connectTikTok = () => setConnectingSocial('tiktok');
 
-  const connectTikTok = async () => {
-    try {
-      const { url } = await accountApi<{ url: string }>('/social-scheduler/tiktok/oauth/url');
-      window.location.assign(url);
-    } catch (e) { setNotice((e as Error).message || 'TikTok connection is not configured.'); }
-  };
-
   const disconnectInstagram = async () => {
     try {
       await accountApi('/live-sales/instagram/connection', { method: 'DELETE' });
