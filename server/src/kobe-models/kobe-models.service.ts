@@ -22,15 +22,15 @@ export class KobeModelsService {
    * Falls back to the embedded catalogue on any network error.
    */
   async getCatalogue(): Promise<KobeCatalogue> {
-    if (this.config.get('KOBE_AI_EDITION') === QWEN_EDITION) return {
-      version: '1', updatedAt: '2026-11-01', edition: QWEN_EDITION,
-      models: [{ id: QWEN_MODEL, name: 'Qwen 3-VL 8B', category: 'vision',
+    const qwen: KobeModelEntry = { id: QWEN_MODEL, name: 'Qwen 3-VL 8B', category: 'vision',
         description: 'One local model for business, coding, translation and image understanding. Install once, then work offline.',
         sizeBytes: 6200000000, sizeLabel: 'about 6.2 GB', minVramGb: 0, kobeOptimised: false,
         downloadUrl: '', checksum: '', ollamaFallback: QWEN_MODEL, license: 'apache-2.0',
         upstreamUrl: 'https://ollama.com/library/qwen3-vl:8b', version: 'Q4_K_M',
-        recommended: true, tags: ['text', 'vision', 'business', 'coding', 'reasoning', 'offline'] }],
-    };
+        recommended: true, tags: ['text', 'vision', 'business', 'coding', 'reasoning', 'offline'] };
+    if (this.config.get('KOBE_AI_EDITION') === QWEN_EDITION) {
+      return { version: '1', updatedAt: '2026-11-01', edition: QWEN_EDITION, models: [qwen] };
+    }
     const cdnUrl = this.config.get<string>('KOBE_MODELS_CDN_URL');
     if (cdnUrl) {
       try {
@@ -46,7 +46,7 @@ export class KobeModelsService {
       // MVP exposes only models with a real installer. Custom .kobemodel
       // bundle installation is not production-ready yet; Ollama-backed models
       // are installed through Ollama's verified registry pull API.
-      models: this.catalogue.models.filter((model) => Boolean(model.ollamaFallback)),
+      models: [qwen, ...this.catalogue.models.filter((model) => model.id !== QWEN_MODEL && Boolean(model.ollamaFallback))],
     };
   }
 

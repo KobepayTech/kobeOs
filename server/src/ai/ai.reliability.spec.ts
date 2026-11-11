@@ -13,12 +13,10 @@ describe('AI routing and request lifetime', () => {
     expect(detectTask('Write a Python script')).toBe('code');
     expect(detectTask('Read this receipt', true)).toBe('vision');
   });
-  it('picks the everyday model the installer actually registers', () => {
-    // models/bundled/models.json registers "kobechat"; the routing config used
-    // to ask for "kobechat-fast", which match() could never resolve.
-    const installed = ['kobechat:latest'];
-    expect(selectInstalledModel(installed, undefined, 'general', DEFAULT_MODEL_ROUTING, 'kobechat'))
-      .toBe('kobechat:latest');
+  it.each(['general', 'vision', 'route'] as const)('prefers Qwen 3-VL for %s', (task) => {
+    const installed = ['kobechat:latest', 'qwen3-vl:8b'];
+    expect(selectInstalledModel(installed, undefined, task, DEFAULT_MODEL_ROUTING, 'kobechat'))
+      .toBe('qwen3-vl:8b');
   });
   it('says the assistant has no model rather than asking Ollama for undefined', () => {
     expect(() => selectInstalledModel([], undefined, 'general', DEFAULT_MODEL_ROUTING, 'kobechat'))
