@@ -2,10 +2,10 @@ import PropertyVacancies from './PropertyVacancies';
 import JumlaRealEstate from './JumlaRealEstate';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bookmark, Building2, BusFront, CalendarDays, Car, Check, ChevronRight, Compass, Grid2X2, Heart, Loader2, MapPin, MessageCircle, Minus, PackageSearch, Phone, Plus, Search, Send, Share2, ShoppingBag, SlidersHorizontal, Sparkles, Store, X } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Bookmark, Building2, BusFront, CalendarDays, Car, Check, ChevronRight, Compass, Grid2X2, Heart, Loader2, MapPin, MessageCircle, Minus, PackageSearch, Phone, Play, Plus, Search, Send, Share2, ShoppingBag, SlidersHorizontal, Sparkles, Store, X } from 'lucide-react';
 import { publicApi, publicAssetUrl } from './api';
 import { usePwaManifest } from '@/hooks/usePwaManifest';
-import { money, ProductArt, readLocal, samples, storePath, writeLocal } from './jumla-catalog';
+import { categoryKey, merchantClip, money, ProductArt, productPhotos, rankSimilar, readLocal, samples, storePath, writeLocal } from './jumla-catalog';
 import type { Item } from './jumla-catalog';
 import './jumla.css';
 
@@ -35,7 +35,36 @@ type CreatorPick = { creator: { handle: string; name: string; avatarUrl: string 
 const categories = ['Electronics', 'Fashion', 'Home & Living', 'Beauty', 'Groceries'];
 const blankFilters: CarFilters = { make: '', model: '', minYear: '', maxPrice: '', maxMileage: '', location: '', transmission: '', fuel: '', bodyType: '', condition: '', financing: '', dealer: '', color: '' };
 
-const categoryKey = (category: string) => category.trim().toLowerCase();
+type BrowseMode = 'discover' | 'grid';
+type ProductSource = BrowseMode | 'clip' | 'similar';
+type ProductPanel = { kind: 'shop' | 'clip' | 'similar'; item: Item };
+
+function initialBrowseMode(): BrowseMode {
+  const requested = new URLSearchParams(location.search).get('browse');
+  if (requested === 'grid' || requested === 'discover') return requested;
+  return readLocal<BrowseMode>('jumla_browse_mode', 'discover') === 'grid' ? 'grid' : 'discover';
+}
+
+function merchantClipsEnabled() {
+  return new URLSearchParams(location.search).get('clips') !== 'off';
+}
+
+function browseEvent(row: Item, eventType: 'VIEW' | 'CART', source: ProductSource, entryView: BrowseMode, interaction?: string) {
+  if (row.sample) return;
+  let sessionId: string | undefined;
+  try {
+    sessionId = sessionStorage.getItem('jumla_browse_session') || crypto.randomUUID();
+    sessionStorage.setItem('jumla_browse_session', sessionId);
+  } catch { /* Browsing does not depend on analytics storage. */ }
+  void publicApi('/commerce-public/jumla/interest', { method: 'POST', body: JSON.stringify({
+    productId: row.productId, eventType, sessionId,
+    metadata: {
+      source, entryView, clipsEnabled: merchantClipsEnabled(),
+      hasClip: Boolean(merchantClip(row)), hasSimilarOption: Boolean(row.category.trim()),
+      ...(interaction ? { interaction } : {}),
+    },
+  }) }).catch(() => undefined);
+}
 
 function updateAffinity(scores: Record<string, number>, category: string, weight: number) {
   const key = categoryKey(category);
@@ -46,7 +75,7 @@ function updateAffinity(scores: Record<string, number>, category: string, weight
 function currentRoute(): { page: Page; itemId: string } {
   const [path, itemId = ''] = window.location.hash.slice(1).split('/');
   if (!path && new URLSearchParams(window.location.search).has('listing')) return { page: 'properties', itemId };
-  const page = [...tabs, ...markets].some(({ id }) => id === path) || path === 'product' || path === 'checkout' ? path as Page : 'discover';
+  const page = [...tabs, ...markets].some(({ id }) => id === path) || path === 'product' || path === 'checkout' ? path as Page : initialBrowseMode();
   return { page, itemId };
 }
 
@@ -77,6 +106,14 @@ function useListings<T,>(path: string) {
 
 export default function Jumla() {
   const [{ page, itemId }, setRoute] = useState(currentRoute);
+  const [entryView] = useState(() => {
+    const { page: entry } = currentRoute();
+    return entry === 'grid' || entry === 'discover' ? entry : initialBrowseMode();
+  });
+  const [browseMode, setBrowseMode] = useState<BrowseMode>(entryView);
+  const [panel, setPanel] = useState<ProductPanel | null>(null);
+  const [productSource, setProductSource] = useState<ProductSource | undefined>();
+  const seen = useRef(new Set<string>());
   const [practice, setPractice] = useState(() => {
     const params = new URLSearchParams(location.search);
     return !readLocal('jumla_intro_complete', false) && !readLocal<CartLine[]>('jumla_cart', []).length
@@ -108,7 +145,9 @@ export default function Jumla() {
   const hasLiveProducts = live.rows.length > 0;
   const searchPath = page === 'search' && query.trim() && !practice ? `/commerce-public/jumla/items?q=${encodeURIComponent(query.trim())}` : '';
   const search = useListings<Item>(searchPath);
-  const filteredCatalog = useListings<Item>(page === 'grid' && category && !practice ? `/commerce-public/jumla/items?category=${encodeURIComponent(category)}&limit=60` : '');
+  const filteredCatalog = useListings<Item>((page === 'grid' || page === 'discover') && category && !practice ? `/commerce-public/jumla/items?category=${encodeURIComponent(category)}&limit=60` : '');
+  const similarCatalog = useListings<Item>(panel?.kind === 'similar' && !practice && panel.item.category.trim()
+    ? `/commerce-public/jumla/items?category=${encodeURIComponent(panel.item.category.trim())}&limit=60` : '');
   const encodedQuery = encodeURIComponent(verticalQuery);
   const carParams = new URLSearchParams({ q: verticalQuery, ...Object.fromEntries(Object.entries(carFilters).filter(([, value]) => value)) });
   const properties = useListings<PropertyCard>(page === 'properties' ? `/commerce-public/jumla/properties?q=${encodedQuery}` : '');
@@ -117,7 +156,12 @@ export default function Jumla() {
   usePwaManifest({ name: 'Jumla', shortName: 'Jumla', startUrl: '/jumla', iconBase: '/icon', themeColor: '#171525', enabled: true });
 
   useEffect(() => {
-    const onHash = () => { setRoute(currentRoute()); main.current?.scrollTo(0, 0); };
+    const onHash = () => {
+      const route = currentRoute();
+      setRoute(route); setPanel(null);
+      if (main.current) main.current.scrollTop = 0;
+      if (route.page === 'discover' || route.page === 'grid') setBrowseMode(route.page);
+    };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
@@ -152,7 +196,7 @@ export default function Jumla() {
     if (location.hash !== hash) location.hash = hash;
   }, [page]);
   const startPractice = () => {
-    setPractice(true); setFeedPosition(0); setCategory(''); setConfirmation(''); go('discover');
+    setPanel(null); setPractice(true); setFeedPosition(0); setCategory(''); setConfirmation(''); go('discover');
   };
   const finishPractice = useCallback(() => {
     const interests = readLocal('jumla_intro_complete', false) ? affinity : samples.reduce((scores, row) => {
@@ -164,9 +208,9 @@ export default function Jumla() {
     setFeedAffinity(interests);
     writeLocal('jumla_intro_complete', true);
     setPractice(false); setPracticeCart([]); setPracticeSaved([]); setPracticeLiked([]);
-    setFeedPosition(0); setCategory(''); setConfirmation(''); go('discover');
+    setFeedPosition(0); setCategory(''); setConfirmation(''); go(browseMode);
     if (!hasLiveProducts && !livePending) refreshLive();
-  }, [affinity, go, hasLiveProducts, livePending, practiceLiked, practiceSaved, refreshLive]);
+  }, [affinity, browseMode, go, hasLiveProducts, livePending, practiceLiked, practiceSaved, refreshLive]);
 
   const listed = practice ? samples : live.rows;
   const bag = practice ? practiceCart : cart;
@@ -180,7 +224,26 @@ export default function Jumla() {
     || Number(b.stock > 0) - Number(a.stock > 0)
     || (feedAffinity[categoryKey(b.category)] || 0) - (feedAffinity[categoryKey(a.category)] || 0)), [practice, live.rows, feedAffinity, pick?.productId]);
   const merchants = [...new Map(feed.map((row) => [row.businessId, row])).values()];
-  const open = (row: Item) => { setFocused(row); setProductBack(page); go('product', row.productId); };
+  const open = (row: Item, source?: ProductSource) => {
+    setPanel(null); setFocused(row);
+    if (page !== 'product') setProductBack(page);
+    setProductSource(source ?? (page === 'grid' || page === 'discover' ? page : undefined));
+    go('product', row.productId);
+  };
+  const impression = useCallback((row: Item, source: ProductSource, interaction = 'impression') => {
+    if (row.sample) return;
+    const key = JSON.stringify([source, interaction, row.productId]);
+    if (seen.current.has(key)) return;
+    seen.current.add(key);
+    browseEvent(row, 'VIEW', source, entryView, interaction);
+  }, [entryView]);
+  const switchMode = (mode: BrowseMode) => {
+    setBrowseMode(mode); writeLocal('jumla_browse_mode', mode); go(mode);
+  };
+  const showPanel = (row: Item, kind: ProductPanel['kind']) => {
+    setPanel({ item: row, kind });
+    if (kind !== 'shop') impression(row, kind, kind === 'clip' ? 'play_requested' : 'opened');
+  };
   const learn = (row: Item, weight: number) => {
     if (row.sample || !row.category) return;
     setAffinity((current) => updateAffinity(current, row.category, weight));
@@ -195,8 +258,11 @@ export default function Jumla() {
     (row.sample ? setPracticeSaved : setSaved)((all) => active ? all.filter((entry) => entry.productId !== row.productId) : [row, ...all]);
     learn(row, active ? -3 : 3);
   };
-  const add = (row: Item, selectedOptions: Record<string, string>) => {
+  const add = (row: Item, selectedOptions: Record<string, string>, source?: ProductSource) => {
     if (row.stock < 1 || Boolean(row.sample) !== practice) return;
+    if (bag.filter((line) => line.item.productId === row.productId).reduce((sum, line) => sum + line.quantity, 0) >= row.stock) {
+      setPanel(null); go('bag'); return;
+    }
     const key = lineKey({ item: row, selectedOptions, quantity: 1 });
     (row.sample ? setPracticeCart : setCart)((all) => {
       const existing = all.find((line) => lineKey(line) === key);
@@ -207,19 +273,29 @@ export default function Jumla() {
     });
     if (!row.sample) {
       learn(row, 4);
-      void publicApi('/commerce-public/jumla/interest', { method: 'POST', body: JSON.stringify({ productId: row.productId, eventType: 'CART' }) }).catch(() => undefined);
+      browseEvent(row, 'CART', source ?? productSource ?? browseMode, entryView);
     }
-    setConfirmation(''); go('bag');
+    setPanel(null); setConfirmation(''); go('bag');
   };
   const vertical = markets.find((entry) => entry.id === page && entry.id !== 'grid');
   const isSaved = (row: Item) => savedItems.some((entry) => entry.productId === row.productId);
-  const gridRows = category ? practice ? listed.filter((row) => row.category === category) : filteredCatalog.rows : listed;
-  const gridRequest = category && !practice ? filteredCatalog : live;
+  const categoryRows = practice ? listed : filteredCatalog.rows;
+  const gridRows = category ? categoryRows.filter((row) => categoryKey(row.category) === categoryKey(category)) : listed;
+  const discoverRows = category ? gridRows : feed;
+  const browseRequest = category && !practice ? filteredCatalog : live;
+  const categoryChoices = [...new Map([...categories, ...listed.map((row) => row.category).filter(Boolean)]
+    .map((label) => [categoryKey(label), label.trim()])).values()];
+  const categoryPicker = <div className="jl-chips" aria-label="Product categories">
+    {['', ...categoryChoices].map((label) => <button key={label} aria-pressed={categoryKey(category) === categoryKey(label)}
+      onClick={() => { if (category !== label) { setCategory(label); setFeedPosition(0); } }}>{label || 'All products'}</button>)}
+  </div>;
+  const similarRows = panel?.kind === 'similar' ? rankSimilar(panel.item, practice ? samples : similarCatalog.rows) : [];
+  const swahili = navigator.language.toLowerCase().startsWith('sw');
 
   return <div className="jl-shell" data-surface="light">
     <div className="jumla-frame">
       <header className="jl-header">
-        <button className="jl-brand" onClick={() => { if (page !== 'discover') setFeedAffinity(affinity); go('discover'); }} aria-label="Jumla Discover">
+        <button className="jl-brand" onClick={() => { if (page !== 'discover') setFeedAffinity(affinity); go(browseMode); }} aria-label="Jumla marketplace">
           <span className="jl-mark"><ShoppingBag size={18} /></span> jumla<span className="jl-dot">.</span>
         </button>
         <div className="jl-header-tools">
@@ -237,12 +313,15 @@ export default function Jumla() {
         {page === 'discover' && <>
           <div className="jl-discover-bar">
             <div><span className="jl-kicker">{practice ? 'THE JUMLA WALKTHROUGH' : 'JUMLA DISCOVERY'}</span><h1>For you</h1></div>
-            <button className="jl-quiet" onClick={() => go('grid')}><Grid2X2 size={16} /> Grid</button>
+            <BrowseSwitch mode="discover" onChange={switchMode} />
           </div>
-          {feed.length ? <SwipeFeed key={practice ? 'practice' : 'live'} items={feed} position={feedPosition} onPosition={setFeedPosition} practice={practice}
-            open={open} isSaved={isSaved} isLiked={(row) => likes.includes(row.productId)} onSave={toggleSave} onLike={toggleLike} finish={finishPractice}
-            onPracticeEnd={practice && hasLiveProducts && !practiceCart.length ? finishPractice : undefined}
-            onRefresh={() => { setFeedPosition(0); setFeedAffinity(affinity); live.retry(); }} />
+          <div className="jl-discover-filters">{categoryPicker}</div>
+          {discoverRows.length ? <SwipeFeed key={`${practice ? 'practice' : 'live'}:${category}`} items={discoverRows} position={feedPosition} onPosition={setFeedPosition} practice={practice}
+            showPanel={showPanel} impression={impression} swahili={swahili} isSaved={isSaved} isLiked={(row) => likes.includes(row.productId)} onSave={toggleSave} onLike={toggleLike} finish={finishPractice}
+            onPracticeEnd={practice && !category && hasLiveProducts && !practiceCart.length ? finishPractice : undefined}
+            onRefresh={() => { setFeedPosition(0); setFeedAffinity(affinity); browseRequest.retry(); }} />
+            : category ? <ListingStatus request={practice ? undefined : browseRequest} empty={<EmptyState icon={Compass}
+                title={`No ${category.toLowerCase()} yet`} description="Choose another category to keep exploring." />} />
             : live.failed ? <EmptyState icon={Compass} title="Live feed is temporarily unavailable" description="You can still try the practice feed while listings reconnect."
               action={<><button className="jl-primary" onClick={startPractice}>Try the practice feed <ArrowRight size={16} /></button><button className="jl-quiet" onClick={live.retry}>Retry live feed</button></>} />
               : <ListingStatus request={live} empty={<EmptyState icon={Compass} title="Your feed starts here" description="Published products from Jumla merchants will appear here as shops join."
@@ -250,12 +329,10 @@ export default function Jumla() {
         </>}
 
         {page === 'grid' && <div className="jl-content">
-          <PageTitle kicker="MARKETPLACE / PRODUCTS" title="Browse the grid" description="Compare products side by side and filter by category." />
-          <div className="jl-chips" aria-label="Product categories">
-            {['', ...new Set([...categories, ...listed.map((row) => row.category).filter(Boolean)])].map((label) =>
-              <button key={label} aria-pressed={category === label} onClick={() => setCategory(label)}>{label || 'All products'}</button>)}
-          </div>
-          {gridRows.length ? <ProductGrid rows={gridRows} open={open} /> : <ListingStatus request={practice ? undefined : gridRequest} empty={<EmptyState icon={Grid2X2} title={category ? `No ${category.toLowerCase()} yet` : 'Products will appear here'} description="Check other categories or come back as merchants add products." />} />}
+          <div className="jl-browse-heading"><PageTitle kicker="MARKETPLACE / PRODUCTS" title="Browse the grid" description="Compare products side by side and filter by category." />
+            <BrowseSwitch mode="grid" onChange={switchMode} /></div>
+          {categoryPicker}
+          {gridRows.length ? <ProductGrid rows={gridRows} open={open} onImpression={impression} /> : <ListingStatus request={practice ? undefined : browseRequest} empty={<EmptyState icon={Grid2X2} title={category ? `No ${category.toLowerCase()} yet` : 'Products will appear here'} description="Check other categories or come back as merchants add products." />} />}
         </div>}
 
         {page === 'search' && <div className="jl-content">
@@ -291,7 +368,7 @@ export default function Jumla() {
         </div>}
         {page === 'product' && <div className="jl-content">
           <button className="jl-back" onClick={() => go(productBack)}><ArrowLeft size={17} /> Back</button>
-          {item ? <ProductDetail key={item.productId} item={item} saved={isSaved(item)} onSave={() => toggleSave(item)} onAdd={add} />
+          {item ? <ProductDetail key={item.productId} item={item} saved={isSaved(item)} onSave={() => toggleSave(item)} onAdd={add} onSimilar={() => showPanel(item, 'similar')} swahili={swahili} />
             : <ListingStatus request={live} empty={<EmptyState icon={PackageSearch} title="Listing unavailable" description="This product may have been removed or its shop may be temporarily offline." />} />}
         </div>}
         {page === 'bag' && <div className="jl-content">
@@ -309,12 +386,22 @@ export default function Jumla() {
         </div>}
       </main>
 
+      {panel && <BrowsePanel key={`${panel.kind}:${panel.item.productId}`} panel={panel} close={() => setPanel(null)} swahili={swahili}
+        open={open} add={add} similarRows={similarRows} similarRequest={practice ? undefined : similarCatalog} />}
       <nav className="jl-nav" aria-label="Main navigation">{tabs.map(({ id, label, icon: Icon }) =>
-        <button key={id} aria-current={page === id ? 'page' : undefined} onClick={() => { if (id === 'discover' && page !== 'discover') setFeedAffinity(affinity); go(id); }}>
+        <button key={id} aria-current={page === id || (id === 'discover' && page === 'grid') ? 'page' : undefined}
+          onClick={() => { if (id === 'discover') { if (page !== browseMode) setFeedAffinity(affinity); go(browseMode); } else go(id); }}>
           <span><Icon size={21} />{id === 'bag' && bagCount > 0 && <b>{bagCount}</b>}</span>{label}
         </button>)}
       </nav>
     </div>
+  </div>;
+}
+
+function BrowseSwitch({ mode, onChange }: { mode: BrowseMode; onChange: (mode: BrowseMode) => void }) {
+  return <div className="jl-view-switch" role="group" aria-label="Shopping view">
+    <button aria-pressed={mode === 'discover'} onClick={() => onChange('discover')}><Compass size={15} /> Discover</button>
+    <button aria-pressed={mode === 'grid'} onClick={() => onChange('grid')}><Grid2X2 size={15} /> Grid</button>
   </div>;
 }
 
@@ -336,8 +423,9 @@ function SearchBox({ label, value, onChange, placeholder }: { label: string; val
   return <label className="jl-search"><Search size={20} /><input aria-label={label} type="search" value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} /></label>;
 }
 
-function SwipeFeed({ items, position, onPosition, practice, open, isSaved, isLiked, onSave, onLike, finish, onPracticeEnd, onRefresh }: {
-  items: Item[]; position: number; onPosition: (position: number) => void; practice: boolean; open: (item: Item) => void;
+function SwipeFeed({ items, position, onPosition, practice, showPanel, impression, swahili, isSaved, isLiked, onSave, onLike, finish, onPracticeEnd, onRefresh }: {
+  items: Item[]; position: number; onPosition: (position: number) => void; practice: boolean; swahili: boolean;
+  showPanel: (item: Item, kind: ProductPanel['kind']) => void; impression: (row: Item, source: ProductSource) => void;
   isSaved: (item: Item) => boolean; isLiked: (item: Item) => boolean; onSave: (item: Item) => void; onLike: (item: Item) => void;
   finish: () => void; onPracticeEnd?: () => void; onRefresh: () => void;
 }) {
@@ -354,6 +442,9 @@ function SwipeFeed({ items, position, onPosition, practice, open, isSaved, isLik
     observer.observe(endCard.current);
     return () => observer.disconnect();
   }, [onPracticeEnd]);
+  const active = items[position];
+  const clipsEnabled = merchantClipsEnabled();
+  useEffect(() => { if (active) impression(active, 'discover'); }, [active, impression]);
   const startPosition = useRef(position);
   const last = items.length;
   useEffect(() => {
@@ -363,7 +454,7 @@ function SwipeFeed({ items, position, onPosition, practice, open, isSaved, isLik
   const move = (next: number) => {
     const node = viewport.current;
     if (!node) return;
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
     node.scrollTo({ top: node.clientHeight * Math.min(last, Math.max(0, next)), behavior: reduce ? 'instant' : 'smooth' });
   };
 
@@ -371,20 +462,27 @@ function SwipeFeed({ items, position, onPosition, practice, open, isSaved, isLik
     <div ref={viewport} className="jl-feed" aria-label="Vertical product feed" tabIndex={0}
       onScroll={(event) => { const node = event.currentTarget; if (node.clientHeight) onPosition(Math.round(node.scrollTop / node.clientHeight)); }}
       onKeyDown={(event) => {
-        if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+        if (event.target !== event.currentTarget || (event.key !== 'ArrowDown' && event.key !== 'ArrowUp')) return;
         event.preventDefault(); move(position + (event.key === 'ArrowDown' ? 1 : -1));
       }}>
       {items.map((row, index) => <article className={`jl-slide jl-slide-${row.sample || 'live'}`} key={row.productId}>
-        <ProductArt item={row} />
+        <ProductArt item={row} eager={index === position} />
         <div className="jl-shade" />
         <div className="jl-slide-top"><span>{row.sample ? 'DEMO PRODUCT' : 'JUMLA MARKET'}</span><span>{String(index + 1).padStart(2, '0')} / {String(items.length).padStart(2, '0')}</span></div>
         <div className="jl-slide-actions">
           <button aria-label={isLiked(row) ? 'Unlike product' : 'Like product'} aria-pressed={isLiked(row)} onClick={() => onLike(row)}><Heart size={23} fill={isLiked(row) ? 'currentColor' : 'none'} /><small>Like</small></button>
           <button aria-label={isSaved(row) ? 'Remove saved product' : 'Save product'} aria-pressed={isSaved(row)} onClick={() => onSave(row)}><Bookmark size={22} fill={isSaved(row) ? 'currentColor' : 'none'} /><small>Save</small></button>
+          <button aria-label="Previous product" disabled={index === 0} onClick={() => move(index - 1)}><ArrowUp size={19} /><small>Previous</small></button>
           <button aria-label="Next product" onClick={() => move(index + 1)}><ArrowDown size={22} /><small>Next</small></button>
         </div>
-        <div className="jl-slide-copy"><div className="jl-kicker">{row.category || 'PRODUCT'} · {row.business.name}</div><h2>{row.name}</h2><p>{money(row.price, row.currency)}</p>
-          <button onClick={() => open(row)} className="jl-lime">View product <ArrowRight size={16} /></button>
+        <div className="jl-slide-copy">
+          <div className="jl-kicker">{row.category || 'PRODUCT'} · {row.business.name}</div>
+          <h2>{row.name}</h2><p>{money(row.price, row.currency)}</p>
+          <div className="jl-slide-buttons">
+            <button onClick={() => showPanel(row, 'shop')} className="jl-lime">{swahili ? 'Nunua bidhaa' : 'Shop this look'} <ArrowRight size={16} /></button>
+            {clipsEnabled && merchantClip(row) && <button className="jl-slide-secondary" onClick={() => showPanel(row, 'clip')}><Play size={15} /> {swahili ? 'Tazama' : 'Watch'}</button>}
+            {row.category.trim() && <button className="jl-slide-secondary" onClick={() => showPanel(row, 'similar')}>{swahili ? 'Bidhaa zinazofanana' : 'Find similar'}</button>}
+          </div>
         </div>
       </article>)}
       <div ref={endCard} className="jl-slide jl-end"><Sparkles size={32} /><h2>{practice ? 'You’re ready to explore' : 'You’re all caught up'}</h2><p>{practice ? 'See products from real merchants in your live feed.' : 'Refresh your feed to check for new listings and updated recommendations.'}</p>
@@ -396,14 +494,86 @@ function SwipeFeed({ items, position, onPosition, practice, open, isSaved, isLik
   </div>;
 }
 
-function ProductGrid({ rows, open, remove }: { rows: Item[]; open: (item: Item) => void; remove?: (item: Item) => void }) {
-  return <div className="jl-product-grid">{rows.map((row) => <article key={row.productId}>
+function ProductGrid({ rows, open, remove, onImpression }: {
+  rows: Item[]; open: (item: Item) => void; remove?: (item: Item) => void; onImpression?: (item: Item, source: ProductSource) => void;
+}) {
+  const grid = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!onImpression || !grid.current || !rows.some((row) => !row.sample) || typeof IntersectionObserver !== 'function') return;
+    const byId = new Map(rows.filter((row) => !row.sample).map((row) => [row.productId, row]));
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(({ target, isIntersecting, intersectionRatio }) => {
+        if (!isIntersecting || intersectionRatio < 0.5) return;
+        const row = byId.get((target as HTMLElement).dataset.productId || '');
+        if (row) onImpression(row, 'grid');
+        observer.unobserve(target);
+      });
+    }, { threshold: 0.5 });
+    grid.current.querySelectorAll('[data-product-id]').forEach((element) => observer.observe(element));
+    return () => observer.disconnect();
+  }, [onImpression, rows]);
+
+  return <div className="jl-product-grid" ref={grid}>{rows.map((row) =>
+    <GridProduct key={row.productId} row={row} open={open} remove={remove} />)}</div>;
+}
+
+function GridProduct({ row, open, remove }: { row: Item; open: (item: Item) => void; remove?: (item: Item) => void }) {
+  const [selectedPhoto, setSelectedPhoto] = useState(0);
+  const photos = productPhotos(row);
+  const photoIndex = selectedPhoto % Math.max(photos.length, 1);
+  return <article data-product-id={row.productId}>
     <button className="jl-grid-product" onClick={() => open(row)}>
-      <div className="jl-grid-art"><ProductArt item={row} />{row.sample && <span className="jl-art-badge">Demo</span>}</div>
+      <div className="jl-grid-art"><ProductArt item={row} photo={photos[photoIndex]} />{row.sample && <span className="jl-art-badge">Demo</span>}</div>
       <div className="jl-grid-copy"><small>{row.business.name}</small><strong>{row.name}</strong><b>{money(row.price, row.currency)}</b></div>
     </button>
+    {photos.length > 1 && <button className="jl-grid-photos" aria-label={`Next photo for ${row.name} (photo ${photoIndex + 1} of ${photos.length})`}
+      onClick={() => setSelectedPhoto((photoIndex + 1) % photos.length)}>{photoIndex + 1}/{photos.length} <ChevronRight size={15} /></button>}
     {remove && <button className="jl-remove" aria-label={`Remove ${row.name} from saved`} onClick={() => remove(row)}><Bookmark size={17} fill="currentColor" /></button>}
-  </article>)}</div>;
+  </article>;
+}
+
+function BrowsePanel({ panel, close, open, add, similarRows, similarRequest, swahili }: {
+  panel: ProductPanel; close: () => void; open: (row: Item, source?: ProductSource) => void;
+  add: (row: Item, options: Record<string, string>, source?: ProductSource) => void; swahili: boolean;
+  similarRows: Item[]; similarRequest?: { pending: boolean; failed: boolean; retry: () => void };
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [options, setOptions] = useState<Record<string, string>>({});
+  const [clipFailed, setClipFailed] = useState(false);
+  const { item, kind } = panel;
+  const clip = kind === 'clip' ? merchantClip(item) : '';
+  const pickup = [item.location?.property, item.location?.floor, item.location?.shopCode].filter(Boolean).join(' · ') || item.locationLabel;
+  useEffect(() => {
+    const node = dialog.current;
+    const trigger = document.activeElement;
+    node?.showModal();
+    return () => {
+      node?.close();
+      if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus({ preventScroll: true });
+    };
+  }, []);
+  return <dialog className="jl-panel" ref={dialog} aria-labelledby="jl-panel-title" onCancel={(event) => { event.preventDefault(); close(); }}>
+    <header><div><span className="jl-kicker">{kind === 'similar' ? item.name : item.business.name}</span>
+      <h2 id="jl-panel-title">{kind === 'similar' ? swahili ? 'Bidhaa zinazofanana' : 'Find similar' : item.name}</h2></div>
+      <button className="jl-icon-btn" aria-label={swahili ? 'Funga' : 'Close'} onClick={close}><X size={19} /></button>
+    </header>
+    {kind === 'similar' ? similarRows.length ? <ProductGrid rows={similarRows} open={(row) => open(row, 'similar')} />
+      : <ListingStatus request={similarRequest} empty={<p role="status">{swahili ? 'Hakuna bidhaa zinazofanana kwa sasa.' : 'No similar products available right now.'}</p>} />
+      : <>
+        <p className="jl-panel-price">{money(item.price, item.currency)}</p>
+        <p>{pickup ? `${swahili ? 'Mahali pa kuchukua' : 'Pickup'}: ${pickup}` : swahili ? 'Chagua kuchukua au kuletewa unapolipa.' : 'Choose pickup or delivery at checkout.'}</p>
+        {clip && (clipFailed ? <p role="status">{swahili ? 'Video haipatikani kwa sasa.' : 'This video is temporarily unavailable.'}</p>
+          : <video controls playsInline preload="none" src={clip} poster={publicAssetUrl(productPhotos(item)[0]) || undefined}
+              aria-label={`${item.name} video`} onError={() => setClipFailed(true)} />)}
+        {item.description && <p>{item.description}</p>}
+        <form className="jl-form" onSubmit={(event) => { event.preventDefault(); add(item, options, kind === 'clip' ? 'clip' : 'discover'); }}>
+          <ProductOptions item={item} selected={options} change={setOptions} />
+          <button className="jl-primary jl-wide" type="submit" disabled={item.stock < 1}><ShoppingBag size={17} />
+            {item.stock < 1 ? 'Out of stock' : item.sample ? 'Add to practice bag' : swahili ? 'Weka kwenye kikapu' : 'Add to bag'}</button>
+        </form>
+        <button className="jl-quiet jl-wide" onClick={() => open(item, kind === 'clip' ? 'clip' : 'discover')}>{swahili ? 'Maelezo zaidi' : 'Full product details'} <ArrowRight size={15} /></button>
+      </>}
+  </dialog>;
 }
 
 function ProductOptions({ item, selected, change }: { item: Item; selected: Record<string, string>; change: (options: Record<string, string>) => void }) {
@@ -415,10 +585,10 @@ function ProductOptions({ item, selected, change }: { item: Item; selected: Reco
   })}</>;
 }
 
-function ProductDetail({ item, saved, onSave, onAdd }: { item: Item; saved: boolean; onSave: () => void; onAdd: (item: Item, options: Record<string, string>) => void }) {
+function ProductDetail({ item, saved, onSave, onAdd, onSimilar, swahili }: { item: Item; saved: boolean; onSave: () => void; onAdd: (item: Item, options: Record<string, string>) => void; onSimilar: () => void; swahili: boolean }) {
   const [options, setOptions] = useState<Record<string, string>>({});
   const [photoIndex, setPhotoIndex] = useState(0);
-  const photos = [...new Set([item.imageUrl, ...(item.imageUrls || [])].filter(Boolean))];
+  const photos = productPhotos(item);
   const whatsapp = item.business.whatsapp?.replace(/\D/g, '');
   return <>
     <div className="jl-detail-art"><ProductArt key={photos[photoIndex]} item={item} photo={photos[photoIndex]} />{item.sample && <span className="jl-art-badge">Demo product</span>}
@@ -436,6 +606,7 @@ function ProductDetail({ item, saved, onSave, onAdd }: { item: Item; saved: bool
       <ProductOptions item={item} selected={options} change={setOptions} />
       <button className="jl-primary jl-wide" type="submit" disabled={item.stock < 1}><ShoppingBag size={18} />{item.stock < 1 ? 'Out of stock' : item.sample ? 'Add to practice bag' : 'Add to bag'}</button>
     </form>
+    {item.category.trim() && <button className="jl-quiet jl-wide jl-detail-similar" onClick={onSimilar}>{swahili ? 'Bidhaa zinazofanana' : 'Find similar'}</button>}
   </>;
 }
 

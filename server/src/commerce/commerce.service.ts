@@ -913,7 +913,7 @@ export class CommerceService implements OnModuleInit {
       // catalogOwnerId is an internal identifier and nothing public needs it,
       // so it is dropped rather than published to every shopper.
       const { catalogOwnerId: _internal, ...snippet } = r;
-      return { ...snippet, imageUrls: product?.imageUrls ?? (r.imageUrl ? [r.imageUrl] : []), variants: product?.variants ?? [], requiredOptions: Array.isArray(product?.customData?.requiredOptions) ? product.customData.requiredOptions : [], business: { id: r.businessId, businessId: business?.businessId, name: business?.name, publicSlug: business?.publicSlug, tier: business?.tier, phone: business?.phone, whatsapp: String(business?.profile?.whatsapp ?? business?.phone ?? '') }, location: businessLocation ? { property: property?.name ?? '', floor: floor?.name ?? '', shopCode: shop?.publicCode ?? businessLocation.name } : null, nodeStatus: statusOf(business) };
+      return { ...snippet, imageUrls: product?.imageUrls ?? (r.imageUrl ? [r.imageUrl] : []), videoUrl: product?.videoUrl ?? null, variants: product?.variants ?? [], requiredOptions: Array.isArray(product?.customData?.requiredOptions) ? product.customData.requiredOptions : [], business: { id: r.businessId, businessId: business?.businessId, name: business?.name, publicSlug: business?.publicSlug, tier: business?.tier, phone: business?.phone, whatsapp: String(business?.profile?.whatsapp ?? business?.phone ?? '') }, location: businessLocation ? { property: property?.name ?? '', floor: floor?.name ?? '', shopCode: shop?.publicCode ?? businessLocation.name } : null, nodeStatus: statusOf(business) };
     });
   }
 

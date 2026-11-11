@@ -31,6 +31,7 @@ export class CreateProductDto {
   @IsOptional() @IsString() @MaxLength(80) warehouseId?: string;
   @IsOptional() @IsString() imageUrl?: string;
   @IsOptional() @IsArray() @IsString({ each: true }) imageUrls?: string[];
+  @IsOptional() @IsString() @MaxLength(2048) videoUrl?: string | null;
   @IsOptional() @IsArray() @IsString({ each: true }) tags?: string[];
   @IsOptional() @IsArray() variants?: ProductVariant[];
   @IsOptional() @IsBoolean() active?: boolean;
@@ -68,6 +69,7 @@ export class UpdateProductDto {
   @IsOptional() @IsString() @MaxLength(80) warehouseId?: string;
   @IsOptional() @IsString() imageUrl?: string;
   @IsOptional() @IsArray() @IsString({ each: true }) imageUrls?: string[];
+  @IsOptional() @IsString() @MaxLength(2048) videoUrl?: string | null;
   @IsOptional() @IsArray() @IsString({ each: true }) tags?: string[];
   @IsOptional() @IsArray() variants?: ProductVariant[];
   @IsOptional() @IsBoolean() active?: boolean;

@@ -43,6 +43,8 @@ jobs:
   backend:
     name: Backend (lint + test)
     runs-on: ubuntu-latest
+    env:
+      ONNXRUNTIME_NODE_INSTALL_CUDA: skip
     services:
       postgres:
         image: postgres:16-alpine
@@ -70,6 +72,14 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: server/package-lock.json
+
+      - name: Use the runner FFmpeg for backend tests
+        run: |
+          if ! command -v ffmpeg >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg
+          fi
+          echo "FFMPEG_BIN=$(command -v ffmpeg)" >> "$GITHUB_ENV"
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps

@@ -1,5 +1,16 @@
+# Install FFmpeg from the image distribution so npm does not fetch a GitHub release asset.
+FROM node:22-alpine AS media-base
+RUN apk add --no-cache ffmpeg
+ENV FFMPEG_BIN=/usr/bin/ffmpeg
+# This image runs on CPU. Keep the bundled CPU runtime and skip the CUDA download.
+ENV ONNXRUNTIME_NODE_INSTALL_CUDA=skip
+RUN ffmpeg -hide_banner -encoders > /tmp/encoders \
+    && grep -qw libx264 /tmp/encoders \
+    && grep -qw aac /tmp/encoders \
+    && rm /tmp/encoders
+
 # ── Stage 1: build ────────────────────────────────────────────────────────────
-FROM node:22-alpine AS builder
+FROM media-base AS builder
 WORKDIR /app
 
 COPY package*.json ./
@@ -12,7 +23,7 @@ RUN npm run build
 RUN npm prune --omit=dev --legacy-peer-deps
 
 # ── Stage 2: runtime ──────────────────────────────────────────────────────────
-FROM node:22-alpine AS runtime
+FROM media-base AS runtime
 WORKDIR /app
 
 # Native PDF text extraction + page rasterization for scanned-PDF OCR.

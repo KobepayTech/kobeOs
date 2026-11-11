@@ -498,9 +498,10 @@ export function UniversalProductForm({
             <Input
               value={value.videoUrl ?? ''}
               onChange={(e) => patch({ videoUrl: e.target.value })}
-              placeholder="YouTube/Vimeo/MP4"
+              placeholder="https://your-shop.example/product.mp4"
               className={inputCls}
             />
+            <p className="text-xs text-slate-400">For Jumla, link directly to an HTTPS MP4 or WebM from your shop. Include on-screen captions if the clip has speech.</p>
           </Field>
         </TabsContent>
 
