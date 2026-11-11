@@ -18,6 +18,7 @@ build/cloudflared/
 .runtime-update/
 build/ollama/*
 !build/ollama/.gitkeep
+build/.ollama-downloads/
 tmp-screenshots/
 logs/
 
