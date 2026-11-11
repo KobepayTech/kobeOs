@@ -1,3 +1,5 @@
+import { QWEN_MODEL } from './qwen-edition';
+
 export type AiTask = 'route' | 'general' | 'reasoning' | 'code' | 'vision' | 'retrieval';
 
 export type AssistantDomain = 'kobepay' | 'properties' | 'hotels' | 'shop' | 'cargo' | 'finance' | 'general';
@@ -19,18 +21,11 @@ export interface ModelRoutingConfig {
 }
 
 export const DEFAULT_MODEL_ROUTING: ModelRoutingConfig = {
-  // Must match the model name the installer actually registers — see the
-  // "name" field in models/bundled/models.json, which electron/main.cjs feeds
-  // to `ollama create` on first boot. This asked for "kobechat-fast" while the
-  // manifest created "kobechat"; match() compares the segment before ":", so
-  // those never matched and the everyday model was only ever chosen by falling
-  // through to installed[0].
-  everyday: 'kobechat',
+  everyday: QWEN_MODEL,
   reasoning: 'deepseek-r1:8b',
   coder: 'deepseek-coder:6.7b',
-  vision: 'qwen2.5vl:7b',
-  // Reuse the warm everyday model for routing to avoid a second model load.
-  router: 'kobechat',
+  vision: QWEN_MODEL,
+  router: QWEN_MODEL,
 };
 
 export function detectTask(message: string, hasImages = false): AiTask {
@@ -100,9 +95,7 @@ export function selectInstalledModel(
     return exact;
   }
 
-  // No models at all is the common first-run state, because the installer only
-  // bakes in a model when BUNDLE_AI_MODELS is set. Returning installed[0] here
-  // handed undefined to the Ollama call and surfaced as a confusing 404.
+  // A fresh install may still need the separate Qwen model download.
   if (!installed.length) {
     throw new Error('No AI model is installed yet. Open Kobe Models and install one to start using the assistant.');
   }
@@ -110,11 +103,11 @@ export function selectInstalledModel(
   const priorities: Record<AiTask, string[]> = {
     // Prefer the already-warm everyday/active model before any tiny fallback.
     // A second model load costs more latency than the tiny router saves.
-    route: [config.router, config.everyday, activeModel, 'qwen2.5:3b', 'phi3:mini'],
-    general: [config.everyday, 'qwen2.5:7b', activeModel, 'llama3:8b', 'mistral:7b'],
+    route: [config.router, config.everyday, activeModel, 'phi3:mini'],
+    general: [config.everyday, activeModel, 'llama3:8b', 'mistral:7b'],
     reasoning: [config.reasoning, 'deepseek-r1:8b', config.everyday, activeModel, 'llama3:8b'],
     code: [config.coder, 'deepseek-coder:6.7b', config.everyday, activeModel],
-    vision: [config.vision, 'qwen2.5vl:7b', 'llava:7b', 'moondream:1.8b'],
+    vision: [config.vision, 'llava:7b', 'moondream:1.8b'],
     retrieval: ['nomic-embed-text'],
   };
 

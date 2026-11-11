@@ -24,7 +24,7 @@ class AIService extends BaseService {
     this._available  = false;
     this._models     = [];
     this._qwenOnly = process.env.KOBE_AI_EDITION === qwenProfile.id;
-    this._defaultModel = this._qwenOnly ? qwenProfile.model : process.env.OLLAMA_MODEL || 'qwen2.5:7b';
+    this._defaultModel = this._qwenOnly ? qwenProfile.model : process.env.OLLAMA_MODEL || qwenProfile.model;
   }
 
   async _start() {

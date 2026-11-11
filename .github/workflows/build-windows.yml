@@ -167,24 +167,6 @@ jobs:
       - name: Download Ollama (local AI runtime)
         run: npm run download:ollama
 
-      # Bundle the offline AI model into the installer. This used to require the
-      # BUNDLE_AI_MODELS repo variable to be 'true'; it never was, so every
-      # release shipped the Ollama runtime with nothing to run and the assistant
-      # was dead on arrival. Bundling is now the default and opting OUT is the
-      # explicit act (set BUNDLE_AI_MODELS to 'false').
-      #
-      # Sources (see scripts/fetch-bundled-models.cjs): KOBE_MODELS_DIR for a
-      # self-hosted runner with the GGUFs on local disk, otherwise the per-model
-      # `url` in models/bundled/models.json. Required, not fail-soft: shipping an
-      # installer with no model is the defect this replaces.
-      - name: Fetch bundled AI models
-        if: vars.BUNDLE_AI_MODELS != 'false' && env.KOBE_BUILD_EDITION != 'qwen3-only'
-        run: npm run fetch:models
-        env:
-          KOBE_MODELS_DIR: ${{ vars.KOBE_MODELS_DIR }}
-          KOBE_MODELS_AUTH: ${{ secrets.KOBE_MODELS_AUTH }}
-          KOBE_MODELS_REQUIRED: '1'
-
       # ── Build installer ─────────────────────────────────────────────────────
       # PUBLISH the update feed to the GitHub Release (installer + latest.yml +
       # .blockmap for delta updates) either on a version tag OR when the
@@ -236,10 +218,6 @@ jobs:
       # asset ceiling. Crossing it does not fail the build — it fails the upload,
       # so auto-update quietly stops receiving new versions. Catch it here, where
       # the message can say what to do, instead of in a publish run.
-      # v1.11.1 shipped at 1.43 GiB with Ollama's CUDA libraries included.
-      # download-ollama.cjs now drops those (1738 MiB of its 1863 MiB bundle),
-      # which is what makes room for the 1065 MiB qwen2.5-1.5b model.
-      # OLLAMA_KEEP_GPU_LIBS=1 puts CUDA back and will trip this guard.
       - name: 'Smoke test: installer fits the release asset limit'
         run: |
           $limit = 2GB
@@ -259,18 +237,14 @@ jobs:
           if ($failed) { exit 1 }
         shell: pwsh
 
-      - name: 'Smoke test: verify the AI model is bundled'
-        if: vars.BUNDLE_AI_MODELS != 'false' && env.KOBE_BUILD_EDITION != 'qwen3-only'
+      - name: 'Smoke test: verify the standard model configuration'
+        if: env.KOBE_BUILD_EDITION != 'qwen3-only'
         run: |
-          # electron/main.cjs registers these with `ollama create` on first boot;
-          # no gguf here means a fresh install has an AI engine and nothing to run.
           $dir = "release\win-unpacked\resources\models"
-          $ggufs = @(Get-ChildItem "$dir\*.gguf" -ErrorAction SilentlyContinue)
-          if ($ggufs.Count -eq 0) {
-            Write-Error "No .gguf bundled in $dir — the assistant would have no model on a fresh install."
-            exit 1
+          $manifest = Get-Content "$dir\models.json" -Raw | ConvertFrom-Json
+          if ($manifest.default -ne 'qwen3-vl:8b' -or @(Get-ChildItem "$dir\*.gguf").Count -ne 0) {
+            throw 'Expected Qwen 3-VL 8B as the separately installed default model.'
           }
-          foreach ($g in $ggufs) { Write-Host "bundled model: $($g.Name) ($([math]::Round($g.Length/1MB, 1)) MB)" }
         shell: pwsh
 
       - name: 'Smoke test: verify vc_redist.x64.exe is bundled'
