@@ -78,7 +78,8 @@ jobs:
   build-windows-selfhosted:
     if: ${{ !inputs.recover_existing_installers }}
     runs-on: [self-hosted, windows]
-    timeout-minutes: 120
+    # Allow the public Ollama archive to resume on a slow runner and leave time to package.
+    timeout-minutes: 210
     permissions:
       contents: write
     env:

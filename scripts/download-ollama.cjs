@@ -10,8 +10,10 @@
 const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const { setTimeout: delay } = require('node:timers/promises');
 
 const OUT_DIR = path.join(__dirname, '..', 'build', 'ollama');
+const DOWNLOAD_DIR = path.join(OUT_DIR, '..', '.ollama-downloads');
 const REPO = 'ollama/ollama';
 const REQUIRED = process.env.OLLAMA_REQUIRED === '1';
 
@@ -30,7 +32,7 @@ function run(command, args, options = {}) {
     return str;
   } catch (error) {
     const errorMsg = error.stderr ? error.stderr.toString() : error.message;
-    throw new Error(`Command failed: ${command} ${args.join(' ')}: ${errorMsg}`);
+    throw new Error(`Command failed: ${command}: ${errorMsg}`, { cause: error });
   }
 }
 
@@ -215,6 +217,25 @@ function extractArchive(archivePath, platformDir, asset) {
   run('tar', ['-xzf', archivePath, '-C', platformDir], { stdio: 'inherit' });
 }
 
+async function downloadArchive(url, archivePath) {
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    const offset = fs.existsSync(archivePath) ? fs.statSync(archivePath).size : 0;
+    if (offset > 0) console.log(`  resume at ${offset} bytes`);
+    try {
+      run('curl', [
+        '-L', '-f', '-s', '-S',
+        '--connect-timeout', '30', '--max-time', '1800',
+        '--continue-at', '-', '-o', archivePath, url,
+      ], { stdio: 'inherit' });
+      return;
+    } catch (error) {
+      const status = error.cause?.status;
+      if (attempt === 5 || ![6, 7, 18, 22, 28, 35, 52, 55, 56, 92].includes(status)) throw error;
+      await delay(3000);
+    }
+  }
+}
+
 async function main() {
   if (process.env.OLLAMA_SKIP_DOWNLOAD === '1') {
     console.log('OLLAMA_SKIP_DOWNLOAD=1 — skipping Ollama bundling.');
@@ -242,18 +263,17 @@ async function main() {
   const version = resolveVersion();
   const base = `https://github.com/${REPO}/releases/download/${version}`;
   fs.mkdirSync(platformDir, { recursive: true });
-  const archivePath = path.join(platformDir, target.asset);
+  fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
+  const archivePath = path.join(DOWNLOAD_DIR, `${encodeURIComponent(version)}-${target.asset}.partial`);
 
   console.log(`Downloading Ollama ${version} for ${target.dir}...`);
-  run('curl', [
-    '-L', '-f', '-s', '-S',
-    '--retry', '4', '--retry-delay', '3', '--retry-all-errors',
-    '--connect-timeout', '30', '--max-time', '1800',
-    '-o', archivePath,
-    `${base}/${target.asset}`,
-  ], { stdio: 'inherit' });
-
-  extractArchive(archivePath, platformDir, target.asset);
+  await downloadArchive(`${base}/${target.asset}`, archivePath);
+  try {
+    extractArchive(archivePath, platformDir, target.asset);
+  } catch (error) {
+    fs.rmSync(archivePath, { force: true });
+    throw error;
+  }
   fs.rmSync(archivePath, { force: true });
 
   if (fs.existsSync(binPath) && process.platform !== 'win32') fs.chmodSync(binPath, 0o755);
@@ -270,6 +290,7 @@ module.exports = {
   findSystemOllamaDir,
   resolveVersion,
   directorySize,
+  downloadArchive,
   pruneGpuLibraries,
   GPU_LIB_DIRS,
 };
