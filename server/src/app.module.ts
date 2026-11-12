@@ -74,6 +74,7 @@ import { KobeSecurityModule } from './kobe-security/kobe-security.module';
 import { HotelSecurityModule } from './hotel-security/hotel-security.module';
 import { StudioMediaModule } from './studio-media/studio-media.module';
 import { ShopStockModule } from './shop-stock/shop-stock.module';
+import { RetailWorkspaceModule } from './erp/retail-workspace.module';
 import { DiscountApprovalModule } from './discount-approval/discount-approval.module';
 import { SystemHealthModule } from './system-health/system-health.module';
 import { LanModule } from './lan/lan.module';
@@ -198,6 +199,7 @@ import { envFiles } from './config/env-files';
     AccountModule,
     ShopStockModule,
     DiscountApprovalModule,
+    RetailWorkspaceModule,
     SystemHealthModule,
     LanModule,
     RemittanceModule,

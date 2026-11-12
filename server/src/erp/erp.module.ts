@@ -1,4 +1,3 @@
-import { RetailMember } from './retail-member.entity';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { PaymentTransaction } from '../payments/payments.entity';
@@ -38,7 +37,7 @@ import { ErpCrmController } from './crm.controller';
       PurchaseOrder, Supplier, SupplierPayment, LoyaltyCustomer,
       ErpKobepayProvider, ErpKobepayInbox,
       ErpKobePayLink, ErpKobePaySupplierReceipt, ErpPurchaseOrder, ErpSupplier, ErpSupplierCapitalLedger,
-      ErpSummaryEntry, RetailMember,
+      ErpSummaryEntry,
       ...ERP_CRM_ENTITIES,
     ]),
   ],
