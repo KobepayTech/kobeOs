@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { io, type Socket } from 'socket.io-client';
-import { api, getToken } from '@/lib/api';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { api, ApiError } from '@/lib/api';
+import { useOrderQueue } from '@/apps/pos-kds/useOrderQueue';
 import { ChefHat, Check, Package, Loader2, Wifi, WifiOff } from 'lucide-react';
 
 /**
@@ -42,82 +42,36 @@ interface Order {
   items: OrderItem[];
 }
 
-interface KdsEvent {
-  kind: 'created' | 'status';
-  order: Order;
-  items: OrderItem[];
-}
-
-const WS_URL = (import.meta.env.VITE_API_BASE as string | undefined)?.replace('/api', '') ?? 'http://localhost:3000';
-
 export default function MobilePrepare() {
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [connected, setConnected] = useState(false);
+  const load = useCallback((signal: AbortSignal) => api<Order[]>('/pos/orders/kds', {
+    signal, offlineFallback: false, cache: 'no-store',
+  }), []);
+  const onCreated = useCallback(() => { navigator.vibrate?.(50); }, []);
+  const { rows, error, lastSynced, refresh } = useOrderQueue(load, { live: true, onCreated });
   const [pending, setPending] = useState<Record<string, boolean>>({});
+  const [actionError, setActionError] = useState('');
   const [now, setNow] = useState(() => Date.now());
-  const socketRef = useRef<Socket | null>(null);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 5000);
     return () => clearInterval(id);
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const list = await api<Order[]>('/pos/orders/kds');
-        if (!cancelled && Array.isArray(list)) setOrders(list);
-      } catch { /* network — socket will catch us up */ }
-      if (!cancelled) setLoading(false);
-    })();
-    return () => { cancelled = true; };
-  }, []);
-
-  useEffect(() => {
-    const token = getToken();
-    const sock = io(`${WS_URL}/pos`, { auth: { token }, transports: ['websocket'] });
-    socketRef.current = sock;
-    sock.on('connect', () => setConnected(true));
-    sock.on('disconnect', () => setConnected(false));
-    sock.on('kds:order', (evt: KdsEvent) => {
-      setOrders((prev) => {
-        const incoming = { ...evt.order, items: evt.items };
-        const idx = prev.findIndex((o) => o.id === incoming.id);
-        if (idx === -1) return [incoming, ...prev];
-        const next = prev.slice();
-        next[idx] = incoming;
-        return next;
-      });
-      if (evt.kind === 'created' && navigator.vibrate) {
-        try { navigator.vibrate(50); } catch { /* unsupported */ }
-      }
-    });
-    return () => { sock.disconnect(); socketRef.current = null; };
-  }, []);
-
   const active = useMemo(
-    () => orders.filter((o) => o.fulfillmentStatus !== 'COLLECTED'),
-    [orders],
+    () => (rows ?? []).filter((o) => o.fulfillmentStatus !== 'COLLECTED'),
+    [rows],
   );
 
   const transition = async (order: Order, target: 'start' | 'ready' | 'collected') => {
     setPending((p) => ({ ...p, [order.id]: true }));
+    setActionError('');
     try {
-      const updated = await api<Order>(`/pos/orders/${order.id}/${target}`, { method: 'POST' });
-      setOrders((prev) => {
-        const idx = prev.findIndex((o) => o.id === updated.id);
-        if (idx === -1) return prev;
-        const next = prev.slice();
-        next[idx] = { ...updated, items: prev[idx].items };
-        return next;
-      });
-    } catch (err) {
-      // Idempotency is server-side; this catches genuine 5xx / network failures.
-      void err;
+      await api<Order>(`/pos/orders/${order.id}/${target}`, { method: 'POST', offlineFallback: false });
+    } catch (reason) {
+      setActionError(reason instanceof ApiError ? reason.message : 'Order update could not be confirmed. Check the queue and try again.');
     } finally {
       setPending((p) => ({ ...p, [order.id]: false }));
+      refresh();
     }
   };
 
@@ -130,21 +84,23 @@ export default function MobilePrepare() {
         <div className="flex-1">
           <h2 className="text-lg font-extrabold text-slate-900 leading-tight">Orders to prepare</h2>
           <p className="text-[11px] text-slate-500">
-            {active.length} active · {connected ? (
-              <span className="text-emerald-600 inline-flex items-center gap-1"><Wifi className="w-3 h-3" /> live</span>
+            {active.length} active · {!error && lastSynced ? (
+              <span className="text-emerald-600 inline-flex items-center gap-1"><Wifi className="w-3 h-3" /> up to date</span>
             ) : (
-              <span className="text-rose-600 inline-flex items-center gap-1"><WifiOff className="w-3 h-3" /> reconnecting</span>
+              <span className="text-rose-600 inline-flex items-center gap-1"><WifiOff className="w-3 h-3" /> syncing</span>
             )}
           </p>
         </div>
       </div>
 
-      {loading ? (
+      {error && <p role="status" className="text-sm text-amber-700">{error}</p>}
+      {actionError && <p role="alert" className="text-sm text-rose-700">{actionError}</p>}
+      {!rows && !error ? (
         <div className="text-center py-12 text-slate-400 text-sm">
           <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />
           Loading active orders…
         </div>
-      ) : active.length === 0 ? (
+      ) : !rows ? null : active.length === 0 ? (
         <div className="text-center py-16 text-slate-400">
           <Package className="w-10 h-10 mx-auto mb-3 opacity-60" />
           <div className="text-sm font-bold">No active orders</div>
@@ -152,7 +108,7 @@ export default function MobilePrepare() {
         </div>
       ) : (
         active.map((o) => (
-          <OrderRow key={o.id} order={o} now={now} pending={!!pending[o.id]} onAction={transition} />
+          <OrderRow key={o.id} order={o} now={now} pending={!!pending[o.id] || !!error} onAction={transition} />
         ))
       )}
     </div>

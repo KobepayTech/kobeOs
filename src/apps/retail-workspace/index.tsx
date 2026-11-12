@@ -1,10 +1,11 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
-import { ArrowUpRight, BarChart3, Boxes, Camera, ClipboardCheck, Globe, LayoutDashboard, LogOut, Receipt, ShoppingCart, Sparkles, Truck, Users } from 'lucide-react';
+import { ArrowUpRight, BarChart3, Boxes, Camera, ChefHat, ClipboardCheck, Globe, LayoutDashboard, LogOut, Receipt, ShoppingCart, Sparkles, Truck, Users } from 'lucide-react';
 import LoginScreen from '@/components/LoginScreen';
 import { ApiError, getRefreshToken, getToken } from '@/lib/api';
 import { logout } from '@/lib/auth';
 import { action, field, retailApi, tile, RetailDiscounts, RetailOrders, RetailStock, RetailTeam } from './ShopPanels';
 
+const RetailFulfillment = lazy(() => import('./RetailFulfillment'));
 const Catalog = lazy(() => import('@/apps/erp-store'));
 const PhotoIntake = lazy(() => import('@/apps/media-inbox'));
 const Purchasing = lazy(() => import('@/apps/erp-sourcing'));
@@ -19,6 +20,7 @@ interface Overview {
   role: 'owner' | 'manager' | 'staff';
   published: boolean;
   canManageTeam: boolean;
+  canFulfill: boolean;
   inventory: { skus: number; units: number; low: number };
   pendingOrders: number;
   pendingApprovals: number;
@@ -30,6 +32,7 @@ const NAV = [
   { id: 'overview', label: 'Overview', Icon: LayoutDashboard },
   { id: 'stock', label: 'Stock', Icon: Boxes },
   { id: 'orders', label: 'Orders', Icon: Receipt },
+  { id: 'fulfillment', label: 'Fulfillment', Icon: ChefHat, fulfillment: true },
   { id: 'discounts', label: 'Discounts', Icon: ClipboardCheck },
   { id: 'upload', label: 'Guided photo upload', Icon: Camera, owner: true },
   { id: 'catalog', label: 'Catalog', Icon: Boxes, owner: true },
@@ -90,7 +93,7 @@ export default function RetailWorkspace({ slug, basePath }: { slug: string; base
   const localStatus = !localSeen ? 'Local heartbeat unavailable'
     : overview.localServer?.status === 'active' && Date.now() - Date.parse(localSeen) < 600_000
       ? 'Local server online' : 'Local server offline';
-  const visible = NAV.filter(item => !item.owner || isOwner);
+  const visible = NAV.filter(item => (!item.owner || isOwner) && (!item.fulfillment || overview.canFulfill));
   const panel = visible.find(item => item.id === requested);
   const storeUrl = overview.slug && overview.published ? `/shop/${encodeURIComponent(overview.slug)}` : '';
   const body = (() => {
@@ -119,6 +122,7 @@ export default function RetailWorkspace({ slug, basePath }: { slug: string; base
         </div>;
       case 'stock': return <RetailStock slug={slug} />;
       case 'orders': return <RetailOrders slug={slug} canPrepare={overview.role !== 'staff'} />;
+      case 'fulfillment': return <RetailFulfillment key={slug} slug={slug} canPair={overview.role !== 'staff'} />;
       case 'discounts': return <RetailDiscounts slug={slug} owner={isOwner} />;
       case 'team': return overview.canManageTeam ? <RetailTeam slug={slug} /> : <div className={tile}>Set your store address in <a className="font-semibold text-indigo-700 underline" href={panelHref('channels')}>Storefront & webapps</a> to add your team.</div>;
       case 'upload': return window.kobeOS ? <div className="h-[75dvh]"><PhotoIntake productMode /></div> : <div className={tile}>

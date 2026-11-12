@@ -1,5 +1,6 @@
 import { DataSource } from 'typeorm';
 import { RetailWorkspaceController } from './retail-workspace.controller';
+import { KdsDisplayTokens } from './kds-display.controller';
 import { RetailMember } from './retail-member.entity';
 import { PosOrder, PosProduct } from '../pos/pos.entity';
 import { StoreSettings } from '../store-settings/store-settings.entity';
@@ -15,7 +16,7 @@ describe('RetailWorkspaceController', () => {
   let memberships: { findOneBy: jest.Mock };
   let products: { find: jest.Mock };
   let orders: { findOneBy: jest.Mock };
-  let pos: { markPreparing: jest.Mock };
+  let pos: { markPreparing: jest.Mock; markReady: jest.Mock; listKdsTickets: jest.Mock };
   let controller: RetailWorkspaceController;
 
   beforeEach(() => {
@@ -23,9 +24,13 @@ describe('RetailWorkspaceController', () => {
     memberships = { findOneBy: jest.fn().mockImplementation(async ({ userId }) => userId === staff.id ? { role: 'staff' } : null) };
     products = { find: jest.fn().mockResolvedValue([{ sku: 'S1', stock: 5, reservedStock: 2 }]) };
     orders = { findOneBy: jest.fn().mockResolvedValue({ status: 'COMPLETED' }) };
-    pos = { markPreparing: jest.fn().mockResolvedValue({ fulfillmentStatus: 'PREPARING' }) };
+    pos = {
+      markPreparing: jest.fn().mockResolvedValue({ fulfillmentStatus: 'PREPARING' }),
+      markReady: jest.fn().mockResolvedValue({ fulfillmentStatus: 'READY' }),
+      listKdsTickets: jest.fn().mockResolvedValue([]),
+    };
     const repos = new Map<unknown, unknown>([[StoreSettings, stores], [RetailMember, memberships], [PosProduct, products], [PosOrder, orders]]);
-    controller = new RetailWorkspaceController({ getRepository: (target: unknown) => repos.get(target) } as DataSource, {} as DiscountApprovalService, pos as unknown as OrdersService);
+    controller = new RetailWorkspaceController({ getRepository: (target: unknown) => repos.get(target) } as DataSource, {} as DiscountApprovalService, pos as unknown as OrdersService, {} as KdsDisplayTokens);
   });
 
   it('scopes staff reads to the selected shop and omits private product costs', async () => {
@@ -38,6 +43,19 @@ describe('RetailWorkspaceController', () => {
   it('blocks a platform admin from another shop without a membership', async () => {
     await expect(controller.stock(outsider, 'shop')).rejects.toThrow('no access');
     expect(products.find).not.toHaveBeenCalled();
+  });
+
+  it('limits fulfillment to designated members of the selected shop', async () => {
+    await expect(controller.fulfillmentQueue(staff, 'shop')).rejects.toThrow('cannot fulfill');
+    await expect(controller.fulfillOrder(outsider, 'order', 'ready', 'shop')).rejects.toThrow('no access');
+    expect(pos.markReady).not.toHaveBeenCalled();
+
+    memberships.findOneBy.mockResolvedValue({ role: 'staff', canFulfill: true });
+    await expect(controller.fulfillmentQueue(staff, 'shop')).resolves.toEqual([]);
+    await expect(controller.fulfillOrder(staff, 'order', 'ready', 'shop')).resolves.toEqual({ fulfillmentStatus: 'READY' });
+    expect(pos.listKdsTickets).toHaveBeenCalledWith(owner.id);
+    expect(pos.markReady).toHaveBeenCalledWith(owner.id, 'order');
+    await expect(controller.pairDisplay(staff, 'shop')).rejects.toThrow('Only shop owners and managers');
   });
 
   it('refuses ambiguous shop slugs', async () => {

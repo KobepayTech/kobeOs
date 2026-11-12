@@ -11,4 +11,5 @@ export class RetailMember extends BaseEntity {
   @Column('uuid') shopId!: string;
   @Column('uuid') userId!: string;
   @Column({ type: 'varchar' }) role!: RetailRole;
+  @Column({ default: false }) canFulfill!: boolean;
 }

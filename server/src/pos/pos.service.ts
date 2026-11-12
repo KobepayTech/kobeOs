@@ -1,7 +1,7 @@
 import { UserOnboarding } from '../onboarding/onboarding.entity';
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, EntityManager, IsNull, Not, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, IsNull, Not, Repository } from 'typeorm';
 import { CheckoutPaymentDetails, PosOrder, PosOrderItem, PosProduct } from './pos.entity';
 import { CreateOrderDto, CreateProductDto, UpdateOrderDto, UpdateProductDto } from './dto/pos.dto';
 import { ReceiptService } from './receipt.service';
@@ -517,28 +517,23 @@ export class OrdersService {
   }
 
   async update(uid: string, id: string, dto: UpdateOrderDto) {
-    const order = await this.orders.findOne({ where: { id, ownerId: uid } });
-    if (!order) throw new NotFoundException();
+    return this.ds.transaction(async tx => {
+      const orders = tx.getRepository(PosOrder);
+      const order = await orders.findOne({ where: { id, ownerId: uid }, lock: { mode: 'pessimistic_write' } });
+      if (!order) throw new NotFoundException();
+      if (order.checkoutPaymentState) throw new BadRequestException('Mobile-money orders are updated by settlement verification.');
 
-    if (order.checkoutPaymentState) throw new BadRequestException('Mobile-money orders are updated by settlement verification.');
-
-    if (dto.status === 'CANCELLED' && order.status !== 'CANCELLED') {
-      await this.ds.transaction(async (tx) => {
-        const productRepo = tx.getRepository(PosProduct);
-        const itemRepo = tx.getRepository(PosOrderItem);
-        const orderItems = await itemRepo.find({ where: { orderId: id, ownerId: uid } });
-        for (const item of orderItems) {
-          const product = await productRepo.findOne({ where: { id: item.productId, ownerId: uid } });
-          if (product) {
-            product.stock += item.quantity;
-            await productRepo.save(product);
-          }
+      if (dto.status === 'CANCELLED' && order.status !== 'CANCELLED') {
+        const products = tx.getRepository(PosProduct);
+        const items = await tx.getRepository(PosOrderItem).find({
+          where: { orderId: id, ownerId: uid }, order: { productId: 'ASC' },
+        });
+        for (const item of items) {
+          await products.increment({ id: item.productId, ownerId: uid }, 'stock', Number(item.quantity));
         }
-      });
-    }
-
-    Object.assign(order, dto);
-    return this.orders.save(order);
+      }
+      return orders.save(Object.assign(order, dto));
+    });
   }
 
   // ── Fulfillment workflow (Kitchen Display System) ───────────────────────
@@ -549,22 +544,58 @@ export class OrdersService {
   async listForKds(uid: string): Promise<Array<PosOrder & { items: PosOrderItem[] }>> {
     const orders = await this.orders.find({
       where: [
-        { ownerId: uid, fulfillmentStatus: Not('COLLECTED'), checkoutPaymentState: IsNull() },
-        { ownerId: uid, fulfillmentStatus: Not('COLLECTED'), checkoutPaymentState: 'PAID' },
+        { ownerId: uid, status: 'COMPLETED', fulfillmentStatus: Not('COLLECTED'), checkoutPaymentState: IsNull() },
+        { ownerId: uid, status: 'COMPLETED', fulfillmentStatus: Not('COLLECTED'), checkoutPaymentState: 'PAID' },
       ],
-      order: { createdAt: 'DESC' },
-      take: 100,
+      order: { createdAt: 'ASC', id: 'ASC' },
     });
-    const active = orders;
-    if (active.length === 0) return [];
-    const items = await this.items.find({ where: { ownerId: uid } });
+    if (orders.length === 0) return [];
+    const items = await this.items.find({ where: { ownerId: uid, orderId: In(orders.map(order => order.id)) } });
     const byOrder = new Map<string, PosOrderItem[]>();
-    for (const it of items) {
-      const arr = byOrder.get(it.orderId) ?? [];
-      arr.push(it);
-      byOrder.set(it.orderId, arr);
+    for (const item of items) {
+      const lines = byOrder.get(item.orderId) ?? [];
+      lines.push(item);
+      byOrder.set(item.orderId, lines);
     }
-    return active.map((o) => Object.assign(o, { items: byOrder.get(o.id) ?? [] }));
+    return orders.map(order => Object.assign(order, { items: byOrder.get(order.id) ?? [] }));
+  }
+
+  async listKdsTickets(uid: string) {
+    const orders = await this.listForKds(uid);
+    const ids = [...new Set(orders.flatMap(order => order.items.map(item => item.productId)))];
+    const products = ids.length ? await this.ds.getRepository(PosProduct).find({
+      where: { ownerId: uid, id: In(ids) },
+      select: ['id', 'sku', 'shelf', 'customData', 'jerseyDetails', 'variants'],
+    }) : [];
+    const catalog = new Map(products.map(product => [product.id, product]));
+    return orders.map(order => ({
+      id: order.id,
+      orderNumber: order.orderNumber,
+      createdAt: order.createdAt,
+      preparingAt: order.preparingAt,
+      readyAt: order.readyAt,
+      fulfillmentStatus: order.fulfillmentStatus,
+      fulfillmentMethod: order.fulfillmentMethod,
+      items: order.items.map(item => {
+        const product = catalog.get(item.productId);
+        // POS order lines store the product ID, so a parent with variants
+        // cannot identify the size or color that was actually sold.
+        const variantUnspecified = !!product?.variants?.length;
+        const color = variantUnspecified ? undefined : product?.customData?.color ?? product?.customData?.colour;
+        const size = variantUnspecified ? undefined : product?.jerseyDetails?.size ?? product?.customData?.size;
+        return {
+          id: item.id,
+          productName: item.productName,
+          quantity: item.quantity,
+          unit: item.unit,
+          sku: product?.sku,
+          variantUnspecified,
+          shelf: item.shelf ?? product?.shelf,
+          color: typeof color === 'string' ? color : undefined,
+          size: typeof size === 'string' ? size : undefined,
+        };
+      }),
+    }));
   }
 
   /** State-machine transitions. Idempotent (option (a) from the design
@@ -587,26 +618,33 @@ export class OrdersService {
     id: string,
     target: PosOrder['fulfillmentStatus'],
   ): Promise<PosOrder & { items: PosOrderItem[] }> {
-    const order = await this.orders.findOne({ where: { id, ownerId: uid } });
-    if (!order) throw new NotFoundException();
-    if (order.checkoutPaymentState && order.checkoutPaymentState !== 'PAID') throw new BadRequestException('Payment has not cleared.');
-    const items = await this.items.find({ where: { orderId: id, ownerId: uid } });
-    const previous = order.fulfillmentStatus;
-    const rank: Record<PosOrder['fulfillmentStatus'], number> = {
-      NEW: 0, PREPARING: 1, READY: 2, COLLECTED: 3,
-    };
-    if (rank[previous] >= rank[target]) {
-      // Idempotent: silently succeed without re-emitting.
-      return Object.assign(order, { items });
+    const result = await this.ds.transaction(async tx => {
+      const orders = tx.getRepository(PosOrder);
+      const order = await orders.findOne({ where: { id, ownerId: uid }, lock: { mode: 'pessimistic_write' } });
+      if (!order) throw new NotFoundException();
+      if (order.status !== 'COMPLETED' || (order.checkoutPaymentState && order.checkoutPaymentState !== 'PAID')) {
+        throw new BadRequestException('Only completed sales can be fulfilled.');
+      }
+
+      const items = await tx.getRepository(PosOrderItem).find({ where: { orderId: id, ownerId: uid } });
+      const previous = order.fulfillmentStatus;
+      const rank: Record<PosOrder['fulfillmentStatus'], number> = {
+        NEW: 0, PREPARING: 1, READY: 2, COLLECTED: 3,
+      };
+      if (rank[previous] >= rank[target]) return { order, items, previous, changed: false };
+
+      order.fulfillmentStatus = target;
+      if (target === 'PREPARING') order.preparingAt ??= new Date();
+      if (target === 'READY') order.readyAt ??= new Date();
+      if (target === 'COLLECTED') order.collectedAt ??= new Date();
+      await orders.save(order);
+      return { order, items, previous, changed: true };
+    });
+    if (result.changed) {
+      try {
+        this.gateway.emitOrder(uid, result.order, result.items, 'status', result.previous);
+      } catch { /* Clients refresh their queue if the live event is missed. */ }
     }
-    order.fulfillmentStatus = target;
-    if (target === 'PREPARING' && !order.preparingAt) order.preparingAt = new Date();
-    if (target === 'READY'     && !order.readyAt)     order.readyAt     = new Date();
-    if (target === 'COLLECTED' && !order.collectedAt) order.collectedAt = new Date();
-    await this.orders.save(order);
-    try {
-      this.gateway.emitOrder(uid, order, items, 'status', previous);
-    } catch (err) { void err; }
-    return Object.assign(order, { items });
+    return Object.assign(result.order, { items: result.items });
   }
 }

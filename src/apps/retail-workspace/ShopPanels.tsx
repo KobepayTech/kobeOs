@@ -36,6 +36,7 @@ interface TeamMember {
   email: string;
   displayName: string;
   role: string;
+  canFulfill: boolean;
 }
 interface DiscountRow {
   id: string;
@@ -141,23 +142,24 @@ export function RetailTeam({ slug }: { slug: string }) {
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    void update('/team', { method: 'POST', body: JSON.stringify({ email: data.get('email'), role: data.get('role') }) });
+    void update('/team', { method: 'POST', body: JSON.stringify({ email: data.get('email'), role: data.get('role'), canFulfill: data.has('canFulfill') }) });
   };
   return <div className="space-y-4">
     <form className={`${tile} space-y-3`} onSubmit={submit}>
       <h2 className="font-bold">Grant shop access</h2>
-      <p className="text-sm text-slate-600">Use an existing KobeOS account. Shop staff can view stock and orders, request discounts and record cash received for their approved requests. Managers can also start preparing paid orders.</p>
+      <p className="text-sm text-slate-600">Use an existing KobeOS account. Shop staff can view stock and orders, request discounts and record cash received for their approved requests. Managers can fulfill orders. Enable fulfillment below for staff who prepare or hand over orders.</p>
       <div className="grid gap-3 sm:grid-cols-[2fr_1fr_auto] sm:items-end">
         <label className="text-sm font-semibold">KobeOS email<input className={field} type="email" name="email" required maxLength={254} /></label>
         <label className="text-sm font-semibold">Shop role<select className={field} name="role"><option value="staff">Staff</option><option value="manager">Manager</option></select></label>
         <button className={action} disabled={saving}>Save access</button>
       </div>
+      <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" name="canFulfill" /> Allow order fulfillment</label>
     </form>
     <section className={tile}><h2 className="font-bold">Shop team</h2>
       {message && <p className="mt-2 text-sm text-rose-700" role="alert">{message}</p>}
       {rows?.length ? <ul className="divide-y divide-slate-100">{rows.map(row => <li className="flex flex-wrap items-center gap-3 py-3 text-sm" key={row.id}>
         <div className="mr-auto"><div className="font-semibold">{row.displayName || row.email}</div><div className="text-xs text-slate-600">{row.email}</div></div>
-        <span className="capitalize">{row.role}</span>
+        <span className="capitalize">{row.role}{row.canFulfill && row.role === 'staff' ? ' · Fulfillment' : ''}</span>
         <button className="font-semibold text-rose-700 disabled:opacity-50" disabled={saving} onClick={() => {
           if (window.confirm(`Revoke shop access for ${row.email}?`)) void update(`/team/${row.id}`, { method: 'DELETE' });
         }}>Revoke</button>
