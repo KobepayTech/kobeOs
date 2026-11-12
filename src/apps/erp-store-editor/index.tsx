@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 22745)
-Total output lines: 2016
-
 import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   Palette, Image, RotateCcw, Save, Download,
@@ -783,7 +780,568 @@ function GenericStorefrontPreview({ settings, products }: { settings: StoreSetti
                 </div>
               ))}
             </div>
-            <div className="border-t border-white/10 p-3 space-…6745 tokens truncated…   );
+            <div className="border-t border-white/10 p-3 space-y-2">
+              <div className="flex justify-between text-sm text-white/90 font-bold"><span>Total</span><span>{tzs(cartTotal)}</span></div>
+              <button className="w-full h-9 rounded-lg text-white font-bold text-xs" style={{ backgroundColor: settings.primaryColor }}>Checkout</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════
+   MAIN COMPONENT
+   ═══════════════════════════════════════════════════════════ */
+
+export default function StoreEditor({ referenceOnly = false }: { referenceOnly?: boolean } = {}) {
+  const [broadcastStudio, setBroadcastStudio] = useState(false);
+  const [settings, setSettings] = useState<StoreSettings>(defaultSettings);
+  const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [publishing, setPublishing] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
+  // On phones the editor + preview can't sit side-by-side — toggle between them.
+  const [mobileView, setMobileView] = useState<'edit' | 'preview'>('edit');
+  // Preview device — 'mobile' shrinks the iframe to a phone width so the
+  // storefront's real responsive breakpoints kick in (WYSIWYG at 390px).
+  const [previewDevice, setPreviewDevice] = useState<'desktop' | 'mobile'>('desktop');
+  const [catalogProducts, setCatalogProducts] = useState<PreviewProduct[]>([]);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [productDialogOpen, setProductDialogOpen] = useState(false);
+  const [productForm, setProductForm] = useState<UniversalProduct>(() => freshProduct());
+  const [productSaving, setProductSaving] = useState(false);
+
+  const loadProducts = useCallback(async () => {
+    try {
+      const rows = await api<PosProductRow[]>('/pos/products');
+      setCatalogProducts(
+        (Array.isArray(rows) ? rows : [])
+          .filter((row) => row.active !== false)
+          .map((row, index) => ({
+            id: row.id,
+            sku: row.sku,
+            name: row.name,
+            price: Number(row.price),
+            currency: row.currency || 'TZS',
+            stock: Number(row.stock),
+            category: row.category || 'Other',
+            description: row.description ?? undefined,
+            imageUrl: row.imageUrl || (row as PosProductRow & { imageUrls?: string[] }).imageUrls?.[0] || undefined,
+            gradient: productGradients[index % productGradients.length],
+          })),
+      );
+      setCatalogError(null);
+    } catch (error) {
+      setCatalogError(error instanceof Error ? error.message : 'Could not load products');
+    }
+  }, []);
+
+  useEffect(() => { void loadProducts(); }, [loadProducts]);
+
+  const saveProduct = useCallback(async () => {
+    if (!productForm.name.trim()) {
+      setCatalogError('Product name is required.');
+      return;
+    }
+    setProductSaving(true);
+    setCatalogError(null);
+    try {
+      await api('/pos/products', {
+        method: 'POST',
+        body: JSON.stringify({
+          ...productForm,
+          name: productForm.name.trim(),
+          sku: productForm.sku.trim() || undefined,
+          imageUrl: productForm.imageUrl || undefined,
+        }),
+      });
+      setProductDialogOpen(false);
+      setProductForm(freshProduct());
+      await loadProducts();
+    } catch (error) {
+      setCatalogError(error instanceof Error ? error.message : 'Could not save product');
+    } finally {
+      setProductSaving(false);
+    }
+  }, [loadProducts, productForm]);
+
+  const [readiness, setReadiness] = useState<{
+    ready: boolean;
+    deploymentMode: 'hosted' | 'self-hosted';
+    domain: string;
+    checks: Array<{ id: string; label: string; ok: boolean; detail: string }>;
+  } | null>(null);
+
+  // Mount-only async work uses this flag (the install handler also flips it)
+  // so we don't setState after the editor closes mid-request.
+  const mountedRef = useRef(true);
+  useEffect(() => { mountedRef.current = true; return () => { mountedRef.current = false; }; }, []);
+
+  // Publish-readiness preflight — one checklist of what's configured vs
+  // missing for go-live, so the operator isn't guessing.
+  const refreshReadiness = useCallback(async () => {
+    try {
+      const r = await api<{
+        ready: boolean;
+        deploymentMode: 'hosted' | 'self-hosted';
+        domain: string;
+        checks: Array<{ id: string; label: string; ok: boolean; detail: string }>;
+      }>('/store-settings/publish-readiness');
+      if (mountedRef.current) setReadiness(r);
+    } catch { /* leave null — panel hidden when unknown */ }
+  }, []);
+
+  useEffect(() => { void refreshReadiness(); }, [refreshReadiness]);
+
+  const [mobileQrOpen, setMobileQrOpen] = useState(false);
+  const [qrCopied, setQrCopied] = useState(false);
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  // Load persisted settings on mount
+  useEffect(() => {
+    api<StoreSettings>('/store-settings')
+      .then((data) => setSettings({ ...defaultSettings, ...data }))
+      .catch((e) => setLoadError((e as Error).message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const update = useCallback(<K extends keyof StoreSettings>(key: K, value: StoreSettings[K]) => {
+    setSettings((prev) => ({ ...prev, [key]: value }));
+    setSaved(false);
+    setSaveError(null);
+  }, []);
+
+  // Latest settings snapshot — read inside async handlers to avoid the
+  // stale-closure bug when the user clicks Save twice quickly (the second
+  // request used to send the pre-update form state).
+  const settingsRef = useRef(settings);
+  useEffect(() => { settingsRef.current = settings; }, [settings]);
+
+  const handleSave = useCallback(async () => {
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const updated = await api<StoreSettings>('/store-settings', {
+        method: 'PUT',
+        body: JSON.stringify(editableSettings(settingsRef.current)),
+      });
+      // The backend auto-publishes on save when the slug changed / was
+      // never published, so the response can include publish fields too.
+      // Merge the full payload so the UI flips to "Published" without a
+      // separate refresh.
+      setSettings((prev) => ({ ...prev, ...updated }));
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (e) {
+      setSaveError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  }, []);
+
+  const handleReset = useCallback(() => {
+    setSettings(defaultSettings);
+    setSaved(false);
+    setSaveError(null);
+  }, []);
+
+  const handlePublish = useCallback(async () => {
+    setPublishing(true);
+    setPublishError(null);
+    try {
+      // Save first so the backend has the latest store name / slug. The
+      // PUT may already publish (backend auto-publishes on save) — if so
+      // we skip the redundant POST below to avoid double-publishing and
+      // the slug-check race that would happen between them.
+      const saved = await api<StoreSettings>('/store-settings', {
+        method: 'PUT',
+        body: JSON.stringify(editableSettings(settingsRef.current)),
+      });
+      setSettings((prev) => ({ ...prev, ...saved }));
+
+      // Check slug availability — only relevant when the backend's
+      // auto-publish didn't already take it.
+      if (!saved.isPublished && saved.domainSlug) {
+        const check = await api<{ available: boolean; reason?: string }>(
+          `/store-settings/check-slug?slug=${encodeURIComponent(saved.domainSlug)}`,
+        );
+        if (!check.available) {
+          // "taken" by the same owner is fine — they're re-publishing
+          setPublishError(
+            check.reason === 'reserved'
+              ? `"${saved.domainSlug}" is a reserved name. Choose a different store name.`
+              : 'That store name is already taken. Choose a different name.',
+          );
+          return;
+        }
+      }
+
+      // Provision = publish + (self-hosted) mint this shop's OWN tunnel token.
+      const prov = await api<{
+        subdomain: string | null;
+        publishedUrl: string | null;
+        tunnelToken: string | null;
+        mode: 'hosted' | 'self-hosted';
+        ingressPort: number;
+      }>('/store-settings/provision', { method: 'POST' });
+      setSettings((prev) => ({
+        ...prev,
+        isPublished: true,
+        publishedUrl: prov.publishedUrl ?? prev.publishedUrl,
+        publishedAt: new Date().toISOString(),
+      }));
+      // Desktop self-hosted install: hand the per-shop run token to Electron so
+      // it persists it and starts cloudflared automatically — the shop owner
+      // never touches Cloudflare. No-op in the hosted/web build.
+      const bridge = (window as unknown as { kobeOS?: { cloudflared?: { persistToken?: (t: string) => Promise<unknown> } } }).kobeOS;
+      if (prov.mode === 'self-hosted' && prov.tunnelToken && bridge?.cloudflared?.persistToken) {
+        await bridge.cloudflared.persistToken(prov.tunnelToken);
+      }
+    } catch (e) {
+      setPublishError((e as Error).message ?? 'Publish failed');
+    } finally {
+      setPublishing(false);
+    }
+  }, []);
+
+  const handleUnpublish = useCallback(async () => {
+    setPublishing(true);
+    setPublishError(null);
+    try {
+      const updated = await api<StoreSettings>('/store-settings/publish', { method: 'DELETE' });
+      setSettings((prev) => ({
+        ...prev,
+        isPublished: updated.isPublished,
+        publishedUrl: updated.publishedUrl,
+        publishedAt: updated.publishedAt,
+      }));
+    } catch (e) {
+      setPublishError((e as Error).message);
+    } finally {
+      setPublishing(false);
+    }
+  }, []);
+
+  const handleExport = useCallback(() => {
+    const css = `/* KOBESTORE Theme CSS */
+:root {
+  --primary-color: ${settings.primaryColor};
+  --accent-color: ${settings.accentColor};
+  --bg-color: ${bgStyleMap[settings.bgStyle]};
+  --banner-bg: ${settings.bannerBg};
+}
+.store-name { font-size: ${settings.headingSize === 'large' ? '1.5rem' : settings.headingSize === 'medium' ? '1.25rem' : '1rem'}; }
+.body-text { font-size: ${settings.bodySize === 'large' ? '1rem' : settings.bodySize === 'medium' ? '0.875rem' : '0.75rem'}; }
+.product-grid { grid-template-columns: repeat(${settings.gridColumns}, 1fr); }
+.banner { background-color: ${settings.bannerBg}; display: ${settings.bannerVisible ? 'block' : 'none'}; }
+.card-style { /* ${settings.cardStyle} */ }
+`;
+    const blob = new Blob([css], { type: 'text/css' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'kobestore-theme.css';
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [settings]);
+
+  /* ═════════════════════════════════════════════════════════
+     RENDER
+     ═════════════════════════════════════════════════════════ */
+  return (
+    <div className="relative flex h-full bg-[#0d0d1a] text-white/90 overflow-hidden">
+      {broadcastStudio && <StoreBroadcastStudio onClose={() => setBroadcastStudio(false)} />}
+      {/* Mobile Edit ⇄ Preview toggle (phones only) */}
+      <div className="md:hidden absolute bottom-4 left-1/2 -translate-x-1/2 z-30 flex rounded-full bg-[#111118] border border-white/15 shadow-xl overflow-hidden">
+        {(['edit', 'preview'] as const).map((v) => (
+          <button key={v} onClick={() => setMobileView(v)}
+            className={`px-5 h-9 text-xs font-bold capitalize ${mobileView === v ? 'bg-violet-600 text-white' : 'text-white/60'}`}>
+            {v === 'edit' ? '✏️ Edit' : '👁 Preview'}
+          </button>
+        ))}
+      </div>
+      {/* LEFT SIDEBAR — Editor Controls (full-width on phones, toggled) */}
+      <aside className={`w-full md:w-72 shrink-0 bg-[#111118] border-r border-white/[0.06] flex-col ${mobileView === 'edit' ? 'flex' : 'hidden'} md:flex`}>
+        {/* Sidebar Header */}
+        <div className="flex items-center gap-2.5 px-4 py-3 border-b border-white/[0.06]">
+          <div className="w-8 h-8 rounded-lg bg-violet-500 flex items-center justify-center">
+            <Palette className="w-4 h-4 text-white" />
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold text-white/90 leading-tight">Store Editor</h2>
+            <p className="text-[10px] text-white/40">Customize your storefront</p>
+          </div>
+        </div>
+
+        {/* Sections */}
+        <ScrollArea className="flex-1 min-h-0">
+          {/* Products are shared with Inventory, desktop POS, mobile POS, and
+              the published storefront. Creating here writes to that one
+              catalogue instead of keeping builder-only demo cards. */}
+          <Section title="Products" icon={ShoppingBag} defaultOpen>
+            <div className="space-y-3">
+              <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+                <div className="text-xs font-semibold text-emerald-300">
+                  {catalogProducts.length} active product{catalogProducts.length === 1 ? '' : 's'} synced
+                </div>
+                <p className="mt-1 text-[10px] leading-relaxed text-white/45">
+                  Products added here or in Inventory automatically appear in the store and both POS apps.
+                </p>
+              </div>
+              {catalogError && <p className="text-[10px] text-rose-300">{catalogError}</p>}
+              <Button
+                size="sm"
+                onClick={() => { setProductForm(freshProduct()); setProductDialogOpen(true); }}
+                className="w-full h-8 bg-emerald-600 hover:bg-emerald-500 text-white text-xs"
+              >
+                <Plus className="w-3.5 h-3.5 mr-1.5" /> Add product
+              </Button>
+            </div>
+          </Section>
+
+          {/* ─── Preview Template ─── */}
+          <Section title="Preview Template" icon={LayoutGrid} defaultOpen>
+            <div className="space-y-2">
+              <p className="text-[10px] text-white/50">
+                Pick the storefront layout used by the live preview on the right.
+              </p>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { id: 'generic', label: 'Generic', sub: 'Hero + product grid' },
+                  { id: 'jerseys', label: 'Jersey Shop', sub: 'projerseyshop.es style' },
+                  { id: 'site', label: 'Website', sub: 'Simple 1-page site, no cart' },
+                ].map((opt) => {
+                  const active = (settings.template ?? 'generic') === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => update('template', opt.id as 'generic' | 'jerseys' | 'site')}
+                      className={`text-left p-2.5 rounded-lg border transition-all ${
+                        active
+                          ? 'border-amber-500/60 bg-amber-500/10'
+                          : 'border-white/[0.08] bg-white/[0.03] hover:border-white/20'
+                      }`}
+                    >
+                      <div className={`text-xs font-bold ${active ? 'text-amber-300' : 'text-white/80'}`}>{opt.label}</div>
+                      <div className="text-[10px] text-white/50 mt-0.5">{opt.sub}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </Section>
+
+          {/* ─── Website content (simple one-page site) ─── */}
+          {settings.template === 'site' && (
+            <Section title="Website Content" icon={LayoutGrid} defaultOpen>
+              <SiteContentEditor
+                value={settings.siteConfig ?? {}}
+                onChange={(next) => update('siteConfig', next)}
+              />
+            </Section>
+          )}
+
+          {/* ─── Industry Template ─── */}
+          <Section title="Industry Template" icon={LayoutGrid}>
+            <IndustryTemplatePicker />
+          </Section>
+
+          {/* ─── Homepage Section Builder ─── */}
+          <Section title="Homepage Sections" icon={Layers}>
+            <HomepageSectionBuilder />
+          </Section>
+
+          {/* ─── Jersey Storefront Design (projerseyshop.es-style) ─── */}
+          <Section title="Storefront Design" icon={LayoutGrid}>
+            <JerseyDesignEditor />
+          </Section>
+
+          {/* ─── Store Identity ─── */}
+          <Section title="Store Identity" icon={Store} defaultOpen>
+            <div className="space-y-3">
+              <div>
+                <label htmlFor="store-name-input" className="text-xs font-medium text-white/50 mb-1.5 block">Store Name</label>
+                <Input
+                  id="store-name-input"
+                  value={settings.storeName}
+                  onChange={(e) => update('storeName', e.target.value)}
+                  className="h-8 bg-white/[0.04] border-white/[0.08] text-sm text-white/90 placeholder:text-white/30"
+                  placeholder="Your store name"
+                />
+                {/* Dedicated Save-name action: persists the store name so the
+                    backend generates the {slug}.kobeapptz.com subdomain used by
+                    the Domain section below. Reuses handleSave (which PUTs the
+                    whole settings object). */}
+                <div className="mt-2 flex items-center gap-2 flex-wrap">
+                  <Button
+                    size="sm"
+                    className="h-7 text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-medium"
+                    onClick={handleSave}
+                    disabled={saving || !settings.storeName.trim()}
+                  >
+                    {saving
+                      ? <><Loader2 className="w-3 h-3 mr-1.5 animate-spin" /> Saving…</>
+                      : saved
+                        ? <><Check className="w-3 h-3 mr-1.5 text-emerald-300" /> Saved</>
+                        : <><Save className="w-3 h-3 mr-1.5" /> Save name</>}
+                  </Button>
+                  {settings.domainSlug && (
+                    <span className="text-[10px] text-emerald-400/80 font-mono truncate">
+                      {settings.domainSlug}.kobeapptz.com
+                    </span>
+                  )}
+                </div>
+                {saveError && (
+                  <p className="mt-1 text-[10px] text-rose-300">{saveError}</p>
+                )}
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label htmlFor="store-tagline-input" className="text-xs font-medium text-white/50">Tagline</label>
+                  <TranslateButton text={settings.tagline} onTranslated={(t) => update('tagline', t)} />
+                </div>
+                <Input
+                  id="store-tagline-input"
+                  value={settings.tagline}
+                  onChange={(e) => update('tagline', e.target.value)}
+                  className="h-8 bg-white/[0.04] border-white/[0.08] text-sm text-white/90 placeholder:text-white/30"
+                  placeholder="Your tagline"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-white/50 mb-1.5 block">Logo</label>
+                {/* Real upload — was a dead <div> before. PhotoUpload handles
+                    drag-drop, click-to-pick, paste-URL, error state, and
+                    persists via /api/media/upload. */}
+                {referenceOnly ? <Input aria-label="Shop logo URL" value={settings.logoUrl} onChange={event => update('logoUrl', event.target.value)} placeholder="https://your-shop.example/logo.png" /> : <PhotoUpload
+                  value={settings.logoUrl}
+                  onChange={(url) => update('logoUrl', url ?? '')}
+                  aspect="square"
+                />}
+              </div>
+              <div>
+                <label htmlFor="store-favicon-input" className="text-xs font-medium text-white/50 mb-1.5 block">Favicon</label>
+                <div className="flex items-center gap-2">
+                  <div
+                    aria-hidden="true"
+                    className="w-8 h-8 rounded bg-[#1a1a2e] border border-white/[0.08] flex items-center justify-center text-xs font-bold text-white/60"
+                  >
+                    {settings.storeName.charAt(0)}
+                  </div>
+                  <Input
+                    id="store-favicon-input"
+                    value={settings.faviconUrl}
+                    onChange={(e) => update('faviconUrl', e.target.value)}
+                    className="flex-1 h-8 bg-white/[0.04] border-white/[0.08] text-xs text-white/70 placeholder:text-white/30"
+                    placeholder="Favicon URL"
+                  />
+                </div>
+              </div>
+            </div>
+          </Section>
+
+          {/* ─── Domain & Publish ─── */}
+          <Section title="Domain & Publish" icon={Globe} defaultOpen>
+            <div className="space-y-3">
+              {/* Default subdomain (read-only) */}
+              <div>
+                <label className="text-xs font-medium text-white/50 mb-1.5 block">Your subdomain</label>
+                <div className="flex items-center gap-1.5 h-8 px-3 rounded-md bg-white/[0.02] border border-white/[0.06] text-xs text-white/40 font-mono select-all">
+                  {settings.domainSlug
+                    ? `${settings.domainSlug}.kobeapptz.com`
+                    : <span className="italic">save store name first…</span>}
+                </div>
+                <p className="text-[10px] text-white/30 mt-1">Auto-generated from your store name</p>
+              </div>
+
+              {/* Custom domain */}
+              <div>
+                <label htmlFor="store-custom-domain-input" className="text-xs font-medium text-white/50 mb-1.5 block">Custom Domain (optional)</label>
+                <Input
+                  id="store-custom-domain-input"
+                  value={settings.customDomain}
+                  onChange={(e) => update('customDomain', e.target.value)}
+                  className="h-8 bg-white/[0.04] border-white/[0.08] text-sm text-white/90 placeholder:text-white/30 font-mono"
+                  placeholder="shop.mycompany.com"
+                />
+                <p className="text-[10px] text-white/30 mt-1">
+                  Point a CNAME to <span className="text-white/50 font-mono">kobeapptz.com</span> then enter it here
+                </p>
+              </div>
+
+              {/* Publish status */}
+              {settings.isPublished ? (
+                <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3 space-y-2">
+                  {/* Live indicator — under Cloudflare Pages the store is served
+                      from the edge the moment it's published; no tunnel to
+                      reconnect, so "published" == "live". */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full shrink-0 bg-emerald-400 animate-pulse" />
+                      <span className="text-xs font-medium text-emerald-300">Live</span>
+                    </div>
+                    <Wifi className="w-3.5 h-3.5 text-emerald-400" />
+                  </div>
+
+                  <a
+                    href={settings.publishedUrl ?? '#'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1 text-[11px] text-emerald-300/80 font-mono truncate hover:text-emerald-200 underline underline-offset-2"
+                  >
+                    {settings.publishedUrl}
+                    <ExternalLink className="w-3 h-3 shrink-0" />
+                  </a>
+
+                  {settings.publishedAt && (
+                    <p className="text-[10px] text-white/30">
+                      Published {new Date(settings.publishedAt).toLocaleDateString()}
+                    </p>
+                  )}
+
+                  {/* Direct (path-based) link — works the moment the apex
+                      serves the app, with no wildcard DNS or tunnel. Give
+                      merchants a reliable share link even while the
+                      subdomain above is still coming up. */}
+                  {settings.domainSlug && (() => {
+                    const pathUrl = `https://kobeapptz.com/shop/${settings.domainSlug}`;
+                    return (
+                      <div className="rounded-md border border-white/10 bg-white/[0.02] p-2 space-y-1">
+                        <div className="text-[10px] font-bold text-white/50 uppercase tracking-wide">
+                          Direct link — always works
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <a
+                            href={pathUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex-1 text-[11px] text-indigo-300/80 font-mono truncate hover:text-indigo-200 underline underline-offset-2"
+                          >
+                            kobeapptz.com/shop/{settings.domainSlug}
+                          </a>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard?.writeText(pathUrl).catch(() => {});
+                              setLinkCopied(true);
+                              setTimeout(() => setLinkCopied(false), 1500);
+                            }}
+                            className="shrink-0 text-white/50 hover:text-white/80"
+                            title="Copy direct link"
+                          >
+                            {linkCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
+                        <p className="text-[9px] text-white/30 leading-snug">
+                          No wildcard/tunnel needed — share this while the subdomain finishes setup.
+                        </p>
+                      </div>
+                    );
                   })()}
 
                   <div className="grid grid-cols-2 gap-2">
