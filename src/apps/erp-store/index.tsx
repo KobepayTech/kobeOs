@@ -63,7 +63,7 @@ const statusBadge = (status: string) => {
 
 const blankForm: UniversalProduct = { ...blankProduct, category: 'Electronics' };
 
-export default function ERPStore() {
+export default function ERPStore({ referenceOnly = false }: { referenceOnly?: boolean } = {}) {
   const [tab, setTab] = useState('products');
   const [products, setProducts] = useState<PosProductRow[]>([]);
   const [orders, setOrders] = useState<PosOrderRow[]>([]);
@@ -143,7 +143,13 @@ export default function ERPStore() {
   };
 
   const openAdd = () => {
-    setTab('quick-add');
+    if (!referenceOnly) {
+      setTab('quick-add');
+      return;
+    }
+    setEditingProduct(null);
+    setForm({ ...blankForm, active: false });
+    setProductModalOpen(true);
   };
 
   const openEdit = (product: PosProductRow) => {
@@ -164,7 +170,18 @@ export default function ERPStore() {
   };
 
   const saveProduct = async () => {
-    if (!form.name.trim() || !form.sku.trim()) return;
+    if (!form.name.trim() || !form.sku.trim()) {
+      setError('Enter a product name and SKU.');
+      return;
+    }
+    if (referenceOnly) {
+      const originalMedia = new Set([editingProduct?.imageUrl, editingProduct?.videoUrl, ...(editingProduct?.imageUrls ?? [])]);
+      const media = [form.imageUrl, form.videoUrl, ...form.imageUrls];
+      if (media.some(url => url && !originalMedia.has(url) && !/^https:\/\/[^\s]+$/i.test(url))) {
+        setError('Use HTTPS links to media hosted by your shop server.');
+        return;
+      }
+    }
     try {
       // Universal product payload — backend accepts every field; older rows
       // without these columns simply ignore the extras.
@@ -221,12 +238,13 @@ export default function ERPStore() {
                 <TabsTrigger value="orders" className="text-xs data-[state=active]:bg-blue-600 data-[state=active]:text-white">
                   <ShoppingBag className="w-3 h-3 mr-1" /> Orders ({orders.length})
                 </TabsTrigger>
-                <TabsTrigger value="quick-add" className="text-xs data-[state=active]:bg-blue-600 data-[state=active]:text-white">
+                {!referenceOnly && <TabsTrigger value="quick-add" className="text-xs data-[state=active]:bg-blue-600 data-[state=active]:text-white">
                   <Plus className="w-3 h-3 mr-1" /> Quick Add Products
-                </TabsTrigger>
+                </TabsTrigger>}
               </TabsList>
             </Tabs>
-            <Button size="sm" onClick={() => openPhotoIntake('shop')}>Add from photos</Button>
+            {!referenceOnly && <a href="https://kobeapptz.com/erp" target="_blank" rel="noopener noreferrer" className="whitespace-nowrap text-xs font-semibold text-blue-300 hover:underline">Online workspace</a>}
+            {!referenceOnly && <Button size="sm" onClick={() => openPhotoIntake('shop')}>Add from photos</Button>}
             <Button size="sm" variant="ghost" onClick={reload} disabled={loading}>
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </Button>
@@ -296,7 +314,7 @@ export default function ERPStore() {
                       </Button>
                     )}
                     <Button size="sm" onClick={openAdd} className="h-8 bg-blue-600 hover:bg-blue-500 text-white">
-                      <Plus className="w-3 h-3 mr-1" /> Quick Add Products
+                      <Plus className="w-3 h-3 mr-1" /> {referenceOnly ? 'New product draft' : 'Quick Add Products'}
                     </Button>
                   </div>
                 </div>
@@ -326,7 +344,7 @@ export default function ERPStore() {
                     <TableBody>
                       {!loading && filteredProducts.length === 0 && (
                         <TableRow className="border-slate-800"><TableCell colSpan={9} className="text-center text-xs text-slate-500 py-8">
-                          {products.length === 0 ? 'No products yet — click Quick Add Products to create the first one.' : 'No products match the current filter.'}
+                          {products.length === 0 ? 'No products yet. Add your first product above.' : 'No products match the current filter.'}
                         </TableCell></TableRow>
                       )}
                       {filteredProducts.map((p) => (
@@ -416,7 +434,7 @@ export default function ERPStore() {
           </Card>
         )}
 
-        {tab === 'quick-add' && (
+        {!referenceOnly && tab === 'quick-add' && (
           <Card className="bg-slate-900/60 border-slate-800 overflow-hidden" style={{ height: '78vh' }}>
             <MediaInboxApp productMode />
           </Card>
@@ -434,6 +452,7 @@ export default function ERPStore() {
             onSave={saveProduct}
             onCancel={() => setProductModalOpen(false)}
             categories={CATEGORY_OPTIONS}
+            referenceOnly={referenceOnly}
           />
         </DialogContent>
       </Dialog>

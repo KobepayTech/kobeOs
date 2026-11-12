@@ -7,7 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, LessThan, Repository } from 'typeorm';
+import { DataSource, In, LessThan, Repository } from 'typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { randomUUID } from 'crypto';
 import {
@@ -107,83 +107,78 @@ export class DiscountApprovalService {
 
   // ── Create request (seller) ────────────────────────────────────────────────
 
-  async createRequest(ownerId: string, sellerId: string, dto: CreateDiscountRequestDto): Promise<DiscountRequest> {
-    // Validate product belongs to this owner
-    const product = await this.products.findOne({ where: { id: dto.productId, ownerId } });
-    if (!product) throw new NotFoundException('Product not found');
-    if (!product.active) throw new BadRequestException('Product is not active');
+  async createRequest(ownerId: string, sellerId: string, dto: CreateDiscountRequestDto, ownerReview = false): Promise<DiscountRequest> {
+    const saved = await this.ds.transaction(async (tx) => {
+      const product = await tx.findOne(PosProduct, {
+        where: { id: dto.productId, ownerId }, lock: { mode: 'pessimistic_write' },
+      });
+      if (!product) throw new NotFoundException('Product not found');
+      if (!product.active) throw new BadRequestException('Product is not active');
 
-    // Validate price
-    if (dto.requestedPrice > dto.standardPrice) {
-      throw new BadRequestException('Requested price cannot exceed standard price');
-    }
-    if (dto.requestedPrice <= 0) {
-      throw new BadRequestException('Requested price must be greater than zero');
-    }
+      // For delegated sales, price, cost and currency always come from the shop catalogue.
+      const standardPrice = ownerReview ? this.n(product.price) : dto.standardPrice;
+      const unitCost = this.n(ownerReview ? product.cost : dto.unitCost);
+      if (dto.requestedPrice > standardPrice || dto.requestedPrice <= 0) {
+        throw new BadRequestException('Requested price must be positive and cannot exceed standard price');
+      }
+      const available = this.n(product.stock) - this.n(product.reservedStock);
+      if (dto.quantity > available) {
+        throw new BadRequestException(`Insufficient stock. Available: ${available}, requested: ${dto.quantity}`);
+      }
 
-    // Validate stock (available = stock - reservedStock)
-    const available = this.n(product.stock) - this.n(product.reservedStock);
-    if (dto.quantity > available) {
-      throw new BadRequestException(
-        `Insufficient stock. Available: ${available}, requested: ${dto.quantity}`,
-      );
-    }
-
-    const unitCost = this.n(dto.unitCost ?? 0);
-    const calcs = computeDiscountCalcs(dto.standardPrice, dto.requestedPrice, unitCost, dto.quantity);
-
-    // Check auto-approval rules
-    const autoApprove = await this.checkAutoApproval(
-      ownerId,
-      calcs.discountPercent,
-      calcs.newMarginPercent,
-      dto.quantity,
-    );
-
-    const expiryMinutes = DEFAULT_EXPIRY_MINUTES;
-    const status: DiscountRequestStatus = autoApprove ? 'APPROVED' : 'PENDING';
-
-    // Reserve stock
-    product.reservedStock = this.n(product.reservedStock) + dto.quantity;
-    await this.products.save(product);
-
-    const req = this.requests.create({
-      ownerId,
-      sellerId,
-      sellerName: dto.sellerName ?? null,
-      productId: dto.productId,
-      productName: dto.productName ?? product.name,
-      variantId: dto.variantId ?? null,
-      customerId: dto.customerId ?? null,
-      customerName: dto.customerName ?? null,
-      quantity: dto.quantity,
-      standardPrice: dto.standardPrice,
-      unitCost,
-      requestedPrice: dto.requestedPrice,
-      approvedPrice: autoApprove ? dto.requestedPrice : null,
-      currency: dto.currency ?? 'TZS',
-      reason: dto.reason ?? null,
-      photoUrl: dto.photoUrl ?? null,
-      status,
-      expiresAt: autoApprove ? null : this.expiryDate(expiryMinutes),
-      idempotencyKey: randomUUID(),
+      const calcs = computeDiscountCalcs(standardPrice, dto.requestedPrice, unitCost, dto.quantity);
+      const autoApprove = !ownerReview && await this.checkAutoApproval(ownerId, calcs.discountPercent, calcs.newMarginPercent, dto.quantity);
+      product.reservedStock = this.n(product.reservedStock) + dto.quantity;
+      await tx.save(product);
+      return tx.save(tx.create(DiscountRequest, {
+        ownerId,
+        sellerId,
+        sellerName: dto.sellerName ?? null,
+        productId: dto.productId,
+        productName: dto.productName ?? product.name,
+        variantId: dto.variantId ?? null,
+        customerId: dto.customerId ?? null,
+        customerName: dto.customerName ?? null,
+        quantity: dto.quantity,
+        standardPrice,
+        unitCost,
+        requestedPrice: dto.requestedPrice,
+        approvedPrice: autoApprove ? dto.requestedPrice : null,
+        currency: ownerReview ? product.currency : dto.currency ?? 'TZS',
+        reason: dto.reason ?? null,
+        photoUrl: dto.photoUrl ?? null,
+        status: autoApprove ? 'APPROVED' : 'PENDING',
+        expiresAt: autoApprove ? null : this.expiryDate(DEFAULT_EXPIRY_MINUTES),
+        idempotencyKey: randomUUID(),
+      }));
     });
-
-    const saved = await this.requests.save(req);
-
     await this.audit.log({
-      action: 'CREATE',
-      entityType: 'DiscountRequest',
-      entityId: saved.id,
-      userId: sellerId,
-      newValue: { status, autoApprove, discountPercent: calcs.discountPercent } as any,
+      action: 'CREATE', entityType: 'DiscountRequest', entityId: saved.id, userId: sellerId,
+      newValue: { status: saved.status, autoApprove: saved.status === 'APPROVED',
+        discountPercent: computeDiscountCalcs(this.n(saved.standardPrice), this.n(saved.requestedPrice), this.n(saved.unitCost), saved.quantity).discountPercent },
     });
-
-    if (status === 'PENDING') {
-      await this.notifyOwner(ownerId, saved);
-    }
-
+    if (saved.status === 'PENDING') await this.notifyOwner(ownerId, saved);
     return saved;
+  }
+
+  async approveForCheckout(ownerId: string, approverId: string, id: string) {
+    const request = await this.ds.transaction(async tx => {
+      const request = await tx.findOne(DiscountRequest, { where: { id, ownerId }, lock: { mode: 'pessimistic_write' } });
+      if (!request) throw new NotFoundException('Discount request not found');
+      this.assertStatus(request, 'PENDING');
+      if (request.sellerId === approverId) throw new ForbiddenException('Seller cannot approve their own discount request');
+      if (request.expiresAt && request.expiresAt <= new Date()) throw new BadRequestException('This request has expired');
+      request.status = 'APPROVED';
+      request.approvedPrice = request.requestedPrice;
+      request.approverId = approverId;
+      request.respondedAt = new Date();
+      request.expiresAt = this.expiryDate(DEFAULT_EXPIRY_MINUTES);
+      return tx.save(request);
+    });
+    await this.audit.log({ action: 'UPDATE', entityType: 'DiscountRequest', entityId: id, userId: approverId,
+      newValue: { status: request.status, approvedPrice: request.approvedPrice } });
+    await this.notifySeller(request, 'approved');
+    return request;
   }
 
   // ── Approve (owner) ────────────────────────────────────────────────────────
@@ -214,6 +209,8 @@ export class DiscountApprovalService {
       if (!['PENDING', 'COUNTERED'].includes(locked.status)) {
         throw new ConflictException('Request status changed — please refresh');
       }
+
+      if (locked.expiresAt && locked.expiresAt <= new Date()) throw new BadRequestException('This request has expired');
 
       // Lock and verify stock
       const product = await productRepo.findOne({
@@ -293,20 +290,24 @@ export class DiscountApprovalService {
     id: string,
     dto: RejectDiscountRequestDto,
   ): Promise<DiscountRequest> {
-    const req = await this.getRequest(ownerId, id);
-    this.assertStatus(req, 'PENDING', 'COUNTERED');
-
-    if (req.sellerId === approverId) {
-      throw new ForbiddenException('Seller cannot reject their own request');
-    }
-
-    req.status       = 'REJECTED';
-    req.approverId   = approverId;
-    req.approverNote = dto.note ?? null;
-    req.respondedAt  = new Date();
-
-    await this.releaseStockReservation(ownerId, req.productId, req.quantity);
-    const saved = await this.requests.save(req);
+    const saved = await this.ds.transaction(async tx => {
+      const req = await tx.findOne(DiscountRequest, { where: { id, ownerId }, lock: { mode: 'pessimistic_write' } });
+      if (!req) throw new NotFoundException('Discount request not found');
+      this.assertStatus(req, 'PENDING', 'COUNTERED');
+      if (req.sellerId === approverId) throw new ForbiddenException('Seller cannot reject their own request');
+      const product = await tx.findOne(PosProduct, {
+        where: { id: req.productId, ownerId }, lock: { mode: 'pessimistic_write' },
+      });
+      if (product) {
+        product.reservedStock = Math.max(0, this.n(product.reservedStock) - req.quantity);
+        await tx.save(product);
+      }
+      req.status = 'REJECTED';
+      req.approverId = approverId;
+      req.approverNote = dto.note ?? null;
+      req.respondedAt = new Date();
+      return tx.save(req);
+    });
 
     await this.audit.log({
       action: 'UPDATE',
@@ -410,6 +411,8 @@ export class DiscountApprovalService {
       if (!locked || locked.status !== 'APPROVED') {
         throw new ConflictException('Request status changed — please refresh');
       }
+
+      if (locked.expiresAt && locked.expiresAt <= new Date()) throw new BadRequestException('This approval has expired');
 
       return this.completeSaleInTransaction(
         tx, ownerId, locked, this.n(locked.approvedPrice), locked.approverId,
@@ -539,23 +542,24 @@ export class DiscountApprovalService {
   @Cron(CronExpression.EVERY_MINUTE)
   async expirePendingRequests(): Promise<void> {
     const now = new Date();
-    const stale = await this.requests.find({
-      where: [
-        { status: 'PENDING',   expiresAt: LessThan(now) },
-        { status: 'COUNTERED', expiresAt: LessThan(now) },
-      ],
-    });
-
-    if (stale.length === 0) return;
-
-    for (const req of stale) {
-      req.status = 'EXPIRED';
-      await this.releaseStockReservation(req.ownerId, req.productId, req.quantity);
-      await this.notifySeller(req, 'expired');
+    const stale = { status: In<DiscountRequestStatus>(['PENDING', 'COUNTERED', 'APPROVED']), expiresAt: LessThan(now) };
+    const candidates = await this.requests.find({ where: stale, select: ['id'] });
+    for (const { id } of candidates) {
+      const expired = await this.ds.transaction(async tx => {
+        const request = await tx.findOne(DiscountRequest, { where: { ...stale, id }, lock: { mode: 'pessimistic_write' } });
+        if (!request) return null;
+        const product = await tx.findOne(PosProduct, {
+          where: { id: request.productId, ownerId: request.ownerId }, lock: { mode: 'pessimistic_write' },
+        });
+        if (product) {
+          product.reservedStock = Math.max(0, this.n(product.reservedStock) - request.quantity);
+          await tx.save(product);
+        }
+        request.status = 'EXPIRED';
+        return tx.save(request);
+      });
+      if (expired) await this.notifySeller(expired, 'expired');
     }
-
-    await this.requests.save(stale);
-    this.logger.log(`Expired ${stale.length} discount request(s)`);
   }
 
   // ── Notifications ──────────────────────────────────────────────────────────

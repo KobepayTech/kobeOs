@@ -57,11 +57,12 @@ type DesktopOAuthMessage = {
 };
 
 export default function LoginScreen({
-  onLogin,
+  onLogin, initialMode,
 }: {
   onLogin: (user: AuthUser, created: boolean) => void;
+  initialMode?: Mode;
 }) {
-  const [mode, setMode] = useState<Mode>(() => pendingOAuth() || new URLSearchParams(window.location.search).get('signin') === '1' ? 'signin' : 'create');
+  const [mode, setMode] = useState<Mode>(() => pendingOAuth() || new URLSearchParams(window.location.search).get('signin') === '1' ? 'signin' : initialMode ?? 'create');
   const [pendingProvider, setPendingProvider] = useState(pendingOAuth);
   const [connection, setConnection] = useState<ConnectionState>('checking');
   // Null until the server answers. Buttons stay hidden rather than appearing

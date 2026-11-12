@@ -96,12 +96,14 @@ export function UniversalProductForm({
   onSave,
   onCancel,
   categories,
+  referenceOnly = false,
 }: {
   value: UniversalProduct;
   onChange: (next: UniversalProduct) => void;
   onSave: () => void;
   onCancel: () => void;
   categories: string[];
+  referenceOnly?: boolean;
 }) {
   const [tab, setTab] = useState('basic');
   // Listing a product needs a photo, a name, sizes, colours and a price. The
@@ -135,7 +137,9 @@ export function UniversalProductForm({
   if (!showAll) {
     return (
       <div className="space-y-4">
-        <PhotoUpload label="Photo" value={value.imageUrl} onChange={(url) => patch({ imageUrl: url ?? undefined })} />
+        {referenceOnly ? <Field label="Shop image URL">
+          <Input value={value.imageUrl ?? ''} onChange={event => patch({ imageUrl: event.target.value })} placeholder="https://your-shop.example/image.jpg" className={inputCls} />
+        </Field> : <PhotoUpload label="Photo" value={value.imageUrl} onChange={(url) => patch({ imageUrl: url ?? undefined })} />}
         <Field label="Product name">
           <Input value={value.name} onChange={(e) => patch({ name: e.target.value })} placeholder="e.g. Spain Home Jersey" className={inputCls} />
         </Field>
@@ -481,7 +485,7 @@ export function UniversalProductForm({
               placeholder="https://…"
               className={inputCls}
             />
-            <RemoveBackgroundButton imageUrl={value.imageUrl ?? ''} onResult={(blobUrl) => patch({ imageUrl: blobUrl })} />
+            {!referenceOnly && <RemoveBackgroundButton imageUrl={value.imageUrl ?? ''} onResult={(blobUrl) => patch({ imageUrl: blobUrl })} />}
           </Field>
           <Field label="Additional images">
             <Textarea
