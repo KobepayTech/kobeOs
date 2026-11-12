@@ -11,6 +11,8 @@ import { PosGateway } from './pos.gateway';
 import { WarehouseModule } from '../warehouse/warehouse.module';
 import { DiscountsModule } from '../discounts/discount.module';
 import { CreditModule } from '../credit/credit.module';
+import { DiscountApprovalModule } from '../discount-approval/discount-approval.module';
+import { RetailWorkspaceController } from '../erp/retail-workspace.controller';
 import { ErpModule } from '../erp/erp.module';
 import { AuthModule } from '../auth/auth.module';
 import { PalmPesaModule } from '../creators/palmpesa.module';
@@ -21,6 +23,7 @@ import { AuditModule } from '../audit/audit.module';
 @Module({
   imports: [
     AuditModule,
+    DiscountApprovalModule,
     PalmPesaModule,
     TypeOrmModule.forFeature([PosProduct, PosOrder, PosOrderItem]),
     // Gateway uses JwtModule for socket authentication (same secret
@@ -41,7 +44,7 @@ import { AuditModule } from '../audit/audit.module';
     AuthModule,
   ],
   providers: [ProductsService, OrdersService, ReceiptService, PosGateway, ReorderService, SocialCheckoutPaymentsService],
-  controllers: [PosController, SocialCheckoutPaymentsController],
+  controllers: [PosController, RetailWorkspaceController, SocialCheckoutPaymentsController],
   exports: [OrdersService, SocialCheckoutPaymentsService],
 })
 export class PosModule {}

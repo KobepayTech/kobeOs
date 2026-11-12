@@ -795,7 +795,7 @@ function GenericStorefrontPreview({ settings, products }: { settings: StoreSetti
    MAIN COMPONENT
    ═══════════════════════════════════════════════════════════ */
 
-export default function StoreEditor() {
+export default function StoreEditor({ referenceOnly = false }: { referenceOnly?: boolean } = {}) {
   const [broadcastStudio, setBroadcastStudio] = useState(false);
   const [settings, setSettings] = useState<StoreSettings>(defaultSettings);
   const [saved, setSaved] = useState(false);
@@ -1219,11 +1219,11 @@ export default function StoreEditor() {
                 {/* Real upload — was a dead <div> before. PhotoUpload handles
                     drag-drop, click-to-pick, paste-URL, error state, and
                     persists via /api/media/upload. */}
-                <PhotoUpload
+                {referenceOnly ? <Input aria-label="Shop logo URL" value={settings.logoUrl} onChange={event => update('logoUrl', event.target.value)} placeholder="https://your-shop.example/logo.png" /> : <PhotoUpload
                   value={settings.logoUrl}
                   onChange={(url) => update('logoUrl', url ?? '')}
                   aspect="square"
-                />
+                />}
               </div>
               <div>
                 <label htmlFor="store-favicon-input" className="text-xs font-medium text-white/50 mb-1.5 block">Favicon</label>

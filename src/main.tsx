@@ -78,6 +78,7 @@ const isPrintCargoReceipt = pathname.startsWith('/print/cargo-receipt');
 const isPublicGuest =
   pathname.startsWith('/p/') ||
   (tenantSub !== null && /^\/(room|table)\//i.test(pathname));
+const retailRoute = pathname.match(/^\/erp(?:\/([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))?\/?$/i);
 const isMobileWebapp    = pathname.startsWith('/m/');
 const isKdsDisplay      = pathname.startsWith('/display/orders');
 // Mzigo subdomain hosts both the public Mzigo console AND the waybill
@@ -220,6 +221,9 @@ if (metaSetupToken) {
   import('./public/CargoReceipts').then(({ default: CargoReceipts }) => mount(<CargoReceipts />));
 } else if (isPublicGuest) {
   import('./public/GuestPortal').then(({ default: GuestPortal }) => mount(<GuestPortal />));
+} else if (retailRoute) {
+  import('./apps/retail-workspace').then(({ default: RetailWorkspace }) =>
+    mount(<RetailWorkspace slug={retailRoute[1]?.toLowerCase() ?? tenantSub ?? ''} basePath={browserPathname} />));
 } else if (isMobileWebapp) {
   import('./mobile/MobileRoot').then(({ default: MobileRoot }) => mount(<MobileRoot />));
 } else if (isKdsDisplay) {
