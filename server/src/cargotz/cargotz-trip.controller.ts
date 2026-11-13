@@ -7,7 +7,7 @@ import { CargoTzService } from './cargotz.service';
 import { CTZ_OPERATION_ROLES, CtzOperationRole } from './cargotz-trip.entity';
 import { CargoTzTripService } from './cargotz-trip.service';
 
-const TRACKING = /^CTZ-\d{8}-(?:[A-F0-9]{20}|\d{6,12})$/i;
+const TRACKING = /^(?:\d{11}|CTZ-\d{8}-(?:[A-F0-9]{20}|\d{6,12}))$/i;
 const TRIP_ROLES = { Dispatch: 'Dispatch', Loading: 'Loading', Destination: 'Destination' } as const;
 type TripRole = keyof typeof TRIP_ROLES;
 

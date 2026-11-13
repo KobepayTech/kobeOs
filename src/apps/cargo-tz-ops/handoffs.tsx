@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { ArrowUpRight, Camera, CheckCircle2, RefreshCw } from 'lucide-react';
 import { cargoTzLink, isLocalCargoTz, trackingFromScan, type ParcelLabelData } from './parcel-label';
 
 export type CargoTzApi = <T>(path: string, init?: RequestInit) => Promise<T>;
 
 type Agent = { id: string; companyName: string; agentName: string; agentPhone: string };
-type Invite = Agent & { accepted: boolean; expiresAt: string };
+type Invite = Agent & { accepted: boolean; pendingApproval: boolean; expiresAt: string };
 type Parcel = ParcelLabelData & {
   id: string; senderName: string; senderPhone: string; receiverName: string; receiverPhone: string;
   description: string; status: string; notes: string;
@@ -16,7 +17,7 @@ const card = 'space-y-3 rounded-2xl border border-slate-200 bg-white p-4';
 const input = 'mt-1 block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm';
 const action = 'inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50';
 
-export function CollectorInvites({ api }: { api: CargoTzApi }) {
+export function CollectorInvites({ api, review, onPending }: { api: CargoTzApi; review?: boolean; onPending?: (count: number) => void }) {
   if (isLocalCargoTz()) {
     return (
       <section className={card}>
@@ -26,20 +27,30 @@ export function CollectorInvites({ api }: { api: CargoTzApi }) {
       </section>
     );
   }
-  return <HostedCollectorInvites api={api} />;
+  return <HostedCollectorInvites api={api} review={review} onPending={onPending} />;
 }
 
-function HostedCollectorInvites({ api }: { api: CargoTzApi }) {
+function HostedCollectorInvites({ api, review, onPending }: { api: CargoTzApi; review?: boolean; onPending?: (count: number) => void }) {
   const [rows, setRows] = useState<Invite[]>([]);
   const [link, setLink] = useState<{ id: string; url: string } | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
+  const approvalArea = useRef<HTMLDivElement>(null);
   const refresh = useCallback(async () => {
-    try { setRows(await api<Invite[]>('/cargotz/collector-invites')); }
+    try {
+      const invites = await api<Invite[]>('/cargotz/collector-invites');
+      setRows(invites);
+      onPending?.(invites.filter(invite => invite.pendingApproval).length);
+    }
     catch (cause) { setError((cause as Error).message); }
-  }, [api]);
-  useEffect(() => { void refresh(); }, [refresh]);
+  }, [api, onPending]);
+  useEffect(() => {
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 5000);
+    return () => window.clearInterval(timer);
+  }, [refresh]);
+  useEffect(() => { if (review !== undefined) approvalArea.current?.focus(); }, [review]);
 
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -59,6 +70,18 @@ function HostedCollectorInvites({ api }: { api: CargoTzApi }) {
     } finally {
       setBusy(false);
     }
+  }
+
+  async function approve(id: string) {
+    setBusy(true); setError(''); setNotice('');
+    try {
+      await api('/cargotz/collector-invites/' + id + '/approve', { method: 'POST' });
+      if (link?.id === id) setLink(null);
+      setNotice('Agent approved.');
+      await refresh();
+    } catch (cause) {
+      setError((cause as Error).message);
+    } finally { setBusy(false); }
   }
 
   async function revoke(id: string) {
@@ -82,6 +105,17 @@ function HostedCollectorInvites({ api }: { api: CargoTzApi }) {
         <div><h2 className="font-bold">Collecting agents</h2><p className="mt-1 text-sm text-slate-600">Give an agent access to send sealed parcels to this cargo company.</p></div>
         <a className="inline-flex items-center gap-1 text-sm font-semibold text-emerald-800" href={cargoTzLink('/cargotz/collect')} target="_blank" rel="noreferrer">Open agent web app <ArrowUpRight size={15} /></a>
       </div>
+      <div ref={approvalArea} tabIndex={-1} className="rounded-lg border border-slate-200 p-3">
+        <h3 className="font-bold">Access approvals</h3>
+        {rows.filter(row => row.pendingApproval).map(row => <div key={row.id} className="flex flex-wrap items-center justify-between gap-2 border-b py-2 text-sm">
+          <span>{row.agentName} · {row.agentPhone}</span>
+          <div className="flex gap-2">
+            <button type="button" disabled={busy} className={action} onClick={() => void approve(row.id)}>Approve</button>
+            <button type="button" disabled={busy} className="rounded border px-2" onClick={() => void revoke(row.id)}>Decline</button>
+          </div>
+        </div>)}
+        {!rows.some(row => row.pendingApproval) && <p className="text-sm text-slate-600">No requests awaiting approval.</p>}
+      </div>
       <form onSubmit={(event) => void create(event)} className="grid gap-3 sm:grid-cols-3">
         <label className="text-sm font-medium">Cargo company name<input name="companyName" maxLength={120} required className={input} /></label>
         <label className="text-sm font-medium">Agent name<input name="agentName" maxLength={120} required className={input} /></label>
@@ -90,6 +124,7 @@ function HostedCollectorInvites({ api }: { api: CargoTzApi }) {
       </form>
       {link && (
         <div className="rounded-xl bg-emerald-50 p-3">
+          <div className="mb-3 flex items-center justify-between gap-3"><QRCodeSVG value={link.url} size={124} marginSize={4} title="Scan private collector invitation" /><button type="button" className="rounded border px-2 py-1 text-sm" onClick={() => setLink(null)}>Close invitation</button></div>
           <label className="block text-sm font-medium">Private invitation link
             <input className={input} value={link.url} readOnly onFocus={(event) => event.currentTarget.select()} />
           </label>
@@ -102,7 +137,7 @@ function HostedCollectorInvites({ api }: { api: CargoTzApi }) {
       {notice && <p role="status" className="text-sm">{notice}</p>}
       {error && <p role="alert" className="text-sm text-rose-700">{error}</p>}
       <ul className="divide-y">
-        {rows.map((row) => (
+        {rows.filter(row => !row.pendingApproval).map((row) => (
           <li key={row.id} className="flex items-center justify-between gap-2 py-2 text-sm">
             <div><b>{row.agentName}</b><p className="text-slate-600">{row.companyName} · {row.accepted ? 'Active' : new Date(row.expiresAt).getTime() < Date.now() ? 'Expired' : 'Invitation pending'}</p></div>
             <button disabled={busy} className="rounded border px-2 py-1 text-rose-800 disabled:opacity-50" onClick={() => void revoke(row.id)}>Revoke access</button>
@@ -212,9 +247,9 @@ export function PendingHandoffs({ api, Scanner, initialReference, basePath = '/c
         <div><p className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Cargo intake</p><h2 className="mt-1 text-xl font-bold">Collector handoffs</h2></div>
         <button type="button" aria-label="Refresh handoffs" disabled={loading || busy} className="rounded-lg border p-2 disabled:opacity-50" onClick={() => void refresh()}><RefreshCw size={16} /></button>
       </div>
-      <button disabled={busy} type="button" className={`${action} w-full`} onClick={() => setScanning(true)}><Camera size={19} /> Scan handoff QR or carton label</button>
+      <button disabled={busy} type="button" className={`${action} w-full`} onClick={() => setScanning(true)}><Camera size={19} /> Scan QR or written carton code</button>
       <form className="flex items-end gap-2" onSubmit={(event) => { event.preventDefault(); void open(reference); }}>
-        <label className="min-w-0 flex-1 text-sm font-medium">Tracking number<input className={input} value={reference} onChange={(event) => setReference(event.target.value)} placeholder="CTZ-…" /></label>
+        <label className="min-w-0 flex-1 text-sm font-medium">Tracking number<input className={input} value={reference} onChange={(event) => setReference(event.target.value)} placeholder="Carton code" /></label>
         <button className="rounded-lg border px-3 py-2 text-sm font-semibold disabled:opacity-50" disabled={busy || !reference.trim()}>Open</button>
       </form>
       {scanning && <Scanner onClose={() => setScanning(false)} onResult={(raw) => void open(raw)} />}

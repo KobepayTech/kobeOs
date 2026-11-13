@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { PackagePlus, Printer, Truck } from 'lucide-react';
 import { api, ApiError, getRefreshToken, getToken } from '@/lib/api';
 import LoginScreen from '@/components/LoginScreen';
@@ -14,6 +14,8 @@ const card = 'space-y-4 rounded-2xl border border-slate-200 bg-white p-4';
 export default function CargoTzCollector({ startUrl }: { startUrl: string }) {
   const [signedIn, setSignedIn] = useState(() => Boolean(getToken() || getRefreshToken()));
   const [invite, setInvite] = useState(() => new URLSearchParams(window.location.hash.slice(1)).get('invite'));
+  const approvalId = useRef('');
+  const [approval, setApproval] = useState('');
   const [companies, setCompanies] = useState<Company[]>([]);
   const [selected, setSelected] = useState('');
   const [loading, setLoading] = useState(true);
@@ -43,15 +45,22 @@ export default function CargoTzCollector({ startUrl }: { startUrl: string }) {
     return () => { active = false; };
   }, [signedIn]);
 
-  async function acceptInvite() {
+  const acceptInvite = useCallback(async () => {
     setBusy(true);
     setError('');
     try {
-      const joined = await api<Company>('/cargotz/collector/accept', {
+      const joined = await api<Company & { approved: boolean }>('/cargotz/collector/accept', {
         method: 'POST', body: JSON.stringify({ token: invite }), offlineFallback: false,
       });
-      setCompanies((rows) => [...rows.filter((row) => row.id !== joined.id), joined]);
-      setSelected(joined.id);
+      if (joined.approved) {
+        setCompanies(rows => [...rows.filter(row => row.id !== joined.id), joined]);
+        setSelected(joined.id);
+        setApproval('');
+      } else {
+        approvalId.current = joined.id;
+        setApproval('Request sent to ' + joined.companyName + '. You can start collecting once the owner approves.');
+        return;
+      }
       setInvite(null);
       window.history.replaceState(null, '', window.location.pathname + window.location.search);
     } catch (cause) {
@@ -59,7 +68,25 @@ export default function CargoTzCollector({ startUrl }: { startUrl: string }) {
     } finally {
       setBusy(false);
     }
-  }
+  }, [invite]);
+
+  useEffect(() => {
+    if (signedIn && invite) void acceptInvite();
+  }, [acceptInvite, invite, signedIn]);
+
+  useEffect(() => {
+    if (!approval || !signedIn) return;
+    const controller = new AbortController();
+    const timer = window.setInterval(() => {
+      void api<Company[]>('/cargotz/collector/companies', { signal: controller.signal, offlineFallback: false })
+        .then(rows => {
+          if (controller.signal.aborted || !rows.some(row => row.id === approvalId.current)) return;
+          setCompanies(rows); setSelected(approvalId.current); setApproval(''); setInvite(null);
+          window.history.replaceState(null, '', window.location.pathname + window.location.search);
+        }).catch(() => {});
+    }, 5000);
+    return () => { controller.abort(); window.clearInterval(timer); };
+  }, [approval, signedIn]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -126,7 +153,7 @@ export default function CargoTzCollector({ startUrl }: { startUrl: string }) {
                 <p className="mt-2 break-all font-mono text-xs text-slate-700">{labels[0].trackingNumber}</p>
                 <p className="mt-1 text-xs text-slate-600">{labels.length} {labels.length === 1 ? 'carton' : 'cartons'} · {labels[0].destination}</p>
               </div>
-              <p className="text-sm text-slate-600">Print a separate tracking label for each sealed carton.</p>
+              <p className="text-sm text-slate-600">Write the code shown for each carton in large digits on the goods. You can also print the QR labels.</p>
               <div className="flex flex-wrap gap-2">
                 <button className="inline-flex items-center gap-2 rounded-xl bg-emerald-800 px-4 py-2.5 font-semibold text-white" onClick={() => window.print()}><Printer size={16} /> Print labels</button>
                 <button className="rounded-xl border px-4 py-2.5 font-semibold" onClick={() => setLabels([])}>New collection</button>
@@ -139,11 +166,12 @@ export default function CargoTzCollector({ startUrl }: { startUrl: string }) {
           </>
         ) : (
           <>
-            {invite && (
+            {approval && <p role="status" className={card}>{approval}</p>}
+            {invite && !approval && (
               <section className={card}>
                 <h2 className="font-bold">Cargo company invitation</h2>
-                <p className="text-sm text-slate-600">Accept this invitation to submit shipments to that company from this account.</p>
-                <button className="rounded-xl bg-emerald-800 px-4 py-2.5 font-semibold text-white disabled:opacity-50" disabled={busy} onClick={() => void acceptInvite()}>Accept invitation</button>
+                <p className="text-sm text-slate-600">Your signed-in account will request access to this cargo company.</p>
+                <button className="rounded-xl bg-emerald-800 px-4 py-2.5 font-semibold text-white disabled:opacity-50" disabled={busy} onClick={() => void acceptInvite()}>{busy ? 'Requesting access…' : 'Request access'}</button>
               </section>
             )}
             {!companies.length ? <p className={card}>Open a collector invitation from your cargo company to start.</p> : (

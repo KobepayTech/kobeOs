@@ -128,6 +128,11 @@ export class CargoTzController {
     return this.svc.inviteCollector(uid, dto);
   }
 
+  @Post('collector-invites/:id/approve')
+  approve(@CurrentUser('id') uid: string, @Param('id', ParseUUIDPipe) id: string) {
+    return this.svc.approveCollector(uid, id);
+  }
+
   @Delete('collector-invites/:id')
   revoke(@CurrentUser('id') uid: string, @Param('id', ParseUUIDPipe) id: string) {
     return this.svc.revokeCollector(uid, id);

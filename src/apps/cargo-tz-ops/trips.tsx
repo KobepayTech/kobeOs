@@ -364,7 +364,7 @@ function ScanForm({ Scanner, open, setOpen, onScan, reference, setReference, bus
   reference: string; setReference: (value: string) => void; busy: boolean;
 }) {
   return <div className="space-y-2">
-    <button className={secondary} disabled={busy} onClick={() => setOpen(true)}><ScanLine size={17} /> Scan carton QR</button>
+    <button className={secondary} disabled={busy} onClick={() => setOpen(true)}><ScanLine size={17} /> Scan QR or written code</button>
     <form className="flex items-end gap-2" onSubmit={(e) => { e.preventDefault(); onScan(reference); }}>
       <label className="min-w-0 flex-1 text-sm">Tracking reference<input className={field} value={reference} onChange={(e) => setReference(e.target.value)} required /></label>
       <button className={secondary} disabled={busy}>Record carton</button>

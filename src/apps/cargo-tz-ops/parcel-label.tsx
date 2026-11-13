@@ -15,7 +15,15 @@ export function cargoTzLink(path: string) {
 }
 
 export function trackingFromScan(value: string) {
-  return value.match(/\bCTZ-\d{8}-(?:[A-F0-9]{20}|\d{6,})\b/i)?.[0].toUpperCase() ?? '';
+  const legacy = value.match(/\bCTZ-\d{8}-(?:[A-F0-9]{20}|\d{6,})\b/i)?.[0];
+  if (legacy) return legacy.toUpperCase();
+  const codes = new Set<string>();
+  for (const match of value.matchAll(/(?<!\d)(?:\d[ \t-]*){10}\d(?!\d)/g)) {
+    const code = match[0].replace(/[^0-9]/g, '');
+    const sum = [...code].reduce((total, digit, index) => total + Number(digit) * (index % 2 ? 3 : 1), 0);
+    if (sum % 10 === 0) codes.add(code);
+  }
+  return codes.size === 1 ? [...codes][0] : '';
 }
 
 export function handoffLink(trackingNumber: string) {
