@@ -200,6 +200,7 @@ export class MerchantOrder extends BaseEntity {
   @Column({ default: 'SUBMITTED' }) status!: 'DRAFT' | 'SUBMITTED' | 'VIEWED' | 'ACCEPTED' | 'RESERVED' | 'PAYMENT_PENDING' | 'PAID' | 'PREPARING' | 'READY' | 'COMPLETED' | 'CANCELLED' | 'UNAVAILABLE' | 'WAITING_ACTIVATION';
   @Column({ default: 'PICKUP' }) fulfillment!: 'PICKUP' | 'DELIVERY';
   @Column({ default: '' }) deliveryAddress!: string;
+  @Column('jsonb', { nullable: true }) deliveryPoint!: { latitude: number; longitude: number } | null;
   @Column({ default: '' }) customerNote!: string;
   @Column({ type: 'decimal', precision: 18, scale: 4 }) total!: number;
   @Column({ default: 'TZS' }) currency!: string;

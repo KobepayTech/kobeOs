@@ -6,6 +6,7 @@ import { ArrayMinSize, IsArray, IsBoolean, IsEmail, IsIn, IsInt, IsNumber, IsObj
 import { CurrentUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Public } from '../common/public.decorator';
+import { DeliveryPointDto } from '../common/delivery-point.dto';
 import { CommerceService } from './commerce.service';
 
 class BusinessDto {
@@ -62,6 +63,7 @@ class CartDto {
   @ValidateNested() @Type(() => CustomerDto) customer!: CustomerDto;
   @IsIn(['PICKUP', 'DELIVERY']) fulfillment!: 'PICKUP' | 'DELIVERY';
   @IsOptional() @IsString() @MaxLength(500) deliveryAddress?: string;
+  @IsOptional() @ValidateNested() @Type(() => DeliveryPointDto) deliveryPoint?: DeliveryPointDto;
   @IsOptional() @IsString() @MaxLength(2000) note?: string;
   @IsArray() @ArrayMinSize(1) @ValidateNested({ each: true }) @Type(() => CartLineDto) lines!: CartLineDto[];
   @IsOptional() @ValidateNested() @Type(() => CartAttributionDto) attribution?: CartAttributionDto;

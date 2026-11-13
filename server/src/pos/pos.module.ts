@@ -16,13 +16,15 @@ import { AuthModule } from '../auth/auth.module';
 import { PalmPesaModule } from '../creators/palmpesa.module';
 import { SocialCheckoutPaymentsController } from './social-checkout-payments.controller';
 import { SocialCheckoutPaymentsService } from './social-checkout-payments.service';
+import { BodaRider } from './boda-rider.entity';
+import { BodaRiderController } from './boda-rider.controller';
 import { AuditModule } from '../audit/audit.module';
 
 @Module({
   imports: [
     AuditModule,
     PalmPesaModule,
-    TypeOrmModule.forFeature([PosProduct, PosOrder, PosOrderItem]),
+    TypeOrmModule.forFeature([PosProduct, PosOrder, PosOrderItem, BodaRider]),
     // Gateway uses JwtModule for socket authentication (same secret
     // as the HTTP JwtAuthGuard).
     JwtModule.registerAsync({
@@ -41,7 +43,7 @@ import { AuditModule } from '../audit/audit.module';
     AuthModule,
   ],
   providers: [ProductsService, OrdersService, ReceiptService, PosGateway, ReorderService, SocialCheckoutPaymentsService],
-  controllers: [PosController, SocialCheckoutPaymentsController],
+  controllers: [BodaRiderController, PosController, SocialCheckoutPaymentsController],
   exports: [OrdersService, SocialCheckoutPaymentsService],
 })
 export class PosModule {}

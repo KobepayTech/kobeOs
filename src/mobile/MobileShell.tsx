@@ -346,7 +346,7 @@ function InlineModuleInstall({
   );
 }
 
-function MobileSignIn({ slug, onSignedIn }: { slug: string; onSignedIn: () => void }) {
+export function MobileSignIn({ slug, onSignedIn }: { slug: string; onSignedIn: () => void }) {
   const [email, setEmail] = useState(() => localStorage.getItem('kobe_session_email') || '');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);

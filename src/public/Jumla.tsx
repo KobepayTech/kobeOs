@@ -1,3 +1,4 @@
+import { currentDeliveryPoint, deliveryMapLink, type DeliveryPoint } from '@/lib/delivery-location';
 import PropertyVacancies from './PropertyVacancies';
 import JumlaRealEstate from './JumlaRealEstate';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -646,18 +647,29 @@ function Checkout({ lines, practice, promoHint, edit, complete }: { lines: CartL
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const inFlight = useRef(false);
+  const [deliveryPoint, setDeliveryPoint] = useState<DeliveryPoint>();
+  const [locating, setLocating] = useState(false);
+  const [locationError, setLocationError] = useState('');
+
+  const useMyLocation = async () => {
+    setLocating(true);
+    setLocationError('');
+    try { setDeliveryPoint(await currentDeliveryPoint()); }
+    catch (err) { setLocationError((err as Error).message); }
+    finally { setLocating(false); }
+  };
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (inFlight.current || !lines.length || hasMissingOptions(lines)) return;
+    if (inFlight.current || locating || !lines.length || hasMissingOptions(lines)) return;
     if (practice) { complete('You tried the order flow. Your practice bag has been cleared.'); return; }
     if (lines.some(({ item }) => item.sample || item.productId.startsWith('demo-'))) return;
     const fields = new FormData(event.currentTarget);
     const name = String(fields.get('name') || '').trim();
     const phone = String(fields.get('phone') || '').trim();
     const address = String(fields.get('address') || '').trim();
-    if (!name || !phone || (fulfillment === 'DELIVERY' && !address)) {
-      setError('Enter your name, phone number and delivery address if needed.'); return;
+    if (!name || !phone || (fulfillment === 'DELIVERY' && !address && !deliveryPoint)) {
+      setError('Enter your name and phone number. For delivery, add an address or GPS pin.'); return;
     }
     inFlight.current = true; setSending(true); setError('');
     try {
@@ -669,7 +681,7 @@ function Checkout({ lines, practice, promoHint, edit, complete }: { lines: CartL
       const attribution = code || promoCode || liveClickVisitId ? { attribution: { code, clickId, promoCode, liveClickVisitId } } : {};
       const response = await publicApi<{ orders: Array<{ orderNumber: string }> }>('/commerce-public/jumla/orders', {
         method: 'POST', body: JSON.stringify({
-          customer: { name, phone }, fulfillment, deliveryAddress: address, note: fields.get('note') || '',
+          customer: { name, phone }, fulfillment, deliveryAddress: address, deliveryPoint: fulfillment === 'DELIVERY' ? deliveryPoint : undefined, note: fields.get('note') || '',
           lines: lines.map(({ item, quantity, selectedOptions }) => ({ productId: item.productId, quantity, selectedOptions })), ...attribution,
         }),
       });
@@ -689,13 +701,25 @@ function Checkout({ lines, practice, promoHint, edit, complete }: { lines: CartL
     </fieldset>
     <label className="jl-field"><span>Full name</span><input name="name" autoComplete={practice ? 'off' : 'name'} placeholder="Your name" defaultValue={practice ? 'Demo shopper' : ''} readOnly={practice} required /></label>
     <label className="jl-field"><span>Phone number</span><input name="phone" type="tel" autoComplete={practice ? 'off' : 'tel'} placeholder="+255" defaultValue={practice ? '+255 ••• ••• •••' : ''} readOnly={practice} required /></label>
-    {fulfillment === 'DELIVERY' && <label className="jl-field"><span>Delivery address</span><input name="address" autoComplete={practice ? 'off' : 'street-address'} defaultValue={practice ? 'Sample address, Dar es Salaam' : ''} readOnly={practice} required /></label>}
+    {fulfillment === 'DELIVERY' && <label className="jl-field"><span>Delivery address or landmark</span><input name="address" autoComplete={practice ? 'off' : 'street-address'} defaultValue={practice ? 'Sample address, Dar es Salaam' : ''} readOnly={practice} required={!deliveryPoint} /></label>}
+    {fulfillment === 'DELIVERY' && !practice && <div className="jl-field">
+      <div className="flex flex-wrap items-center gap-3">
+        <button type="button" className="jl-secondary" disabled={locating || sending} onClick={() => void useMyLocation()}>
+          <MapPin size={16} /> {locating ? 'Getting location…' : 'Use my current location'}
+        </button>
+        {deliveryPoint && <>
+          <a href={deliveryMapLink(deliveryPoint)} target="_blank" rel="noreferrer">Check drop-off pin</a>
+          <button type="button" onClick={() => setDeliveryPoint(undefined)}>Remove pin</button>
+        </>}
+      </div>
+      {locationError && <small role="status">{locationError} You can still enter an address or landmark.</small>}
+    </div>}
     {!practice && <>
       <label className="jl-field"><span>Order note <small>Optional</small></span><textarea name="note" rows={2} /></label>
       <label className="jl-field"><span>Creator code <small>Optional</small></span><input name="promo" placeholder={promoHint || 'Enter code'} /></label>
     </>}
     {error && <p className="jl-error" role="alert">{error}</p>}
-    <button className="jl-primary jl-wide" disabled={sending} type="submit">{sending ? <Loader2 size={18} className="animate-spin" /> : practice ? <Check size={18} /> : <Send size={18} />}
+    <button className="jl-primary jl-wide" disabled={sending || locating} type="submit">{sending ? <Loader2 size={18} className="animate-spin" /> : practice ? <Check size={18} /> : <Send size={18} />}
       {practice ? 'Finish practice order' : 'Send order'}</button>
   </form>;
 }

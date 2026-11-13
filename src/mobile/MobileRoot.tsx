@@ -10,6 +10,7 @@ import MobileOrders from './MobileOrders';
 import MobilePrepare from './MobilePrepare';
 import MobileCargo from './MobileCargo';
 import MobileCargoPack from './MobileCargoPack';
+import MobileBodaRider from './MobileBodaRider';
 import MobileDispatch from './MobileDispatch';
 import MobileHotel from './MobileHotel';
 import MobileLipa from './MobileLipa';
@@ -27,6 +28,7 @@ export default function MobileRoot() {
   return (
     <BrowserRouter>
       <Routes>
+        <Route path="/m/:slug/rider" element={<MobileBodaRider />} />
         <Route path="/m/:slug" element={<MobileShell />}>
           <Route index element={<MobileHome />} />
           <Route path="modules" element={<MobileModules />} />

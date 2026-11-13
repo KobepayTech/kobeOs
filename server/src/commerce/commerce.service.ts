@@ -957,7 +957,7 @@ export class CommerceService implements OnModuleInit {
   }
 
   async submitCart(input: {
-    customer: { phone: string; name: string; email?: string }; fulfillment: 'PICKUP' | 'DELIVERY'; deliveryAddress?: string; note?: string;
+    customer: { phone: string; name: string; email?: string }; fulfillment: 'PICKUP' | 'DELIVERY'; deliveryAddress?: string; deliveryPoint?: MerchantOrder['deliveryPoint']; note?: string;
     lines: Array<{ productId: string; quantity: number; selectedOptions?: Record<string, string> }>;
     attribution?: { code?: string; clickId?: string; promoCode?: string; liveClickVisitId?: string };
   }) {
@@ -972,7 +972,9 @@ export class CommerceService implements OnModuleInit {
       if (promoLink) attributionCode = promoLink.code;
     }
     if (!input.lines?.length) throw new BadRequestException('Cart is empty');
-    if (input.fulfillment === 'DELIVERY' && !input.deliveryAddress?.trim()) throw new BadRequestException('Delivery address is required');
+    if (input.fulfillment === 'DELIVERY' && !input.deliveryAddress?.trim() && !input.deliveryPoint) {
+      throw new BadRequestException('Add a delivery address or GPS pin.');
+    }
     const ids = [...new Set(input.lines.map((l) => l.productId))];
     const snippets = await this.snippets.find({ where: { productId: In(ids), active: true } });
     if (snippets.length !== ids.length) throw new BadRequestException('One or more products are unavailable');
@@ -1010,6 +1012,7 @@ export class CommerceService implements OnModuleInit {
         const order = await tx.getRepository(MerchantOrder).save(tx.getRepository(MerchantOrder).create({
           orderNumber: humanCode('JML'), businessId, customerId: customer.id, cartId: cart.id, status: access.status,
           fulfillment: input.fulfillment, deliveryAddress: input.deliveryAddress?.trim() ?? '', customerNote: input.note?.trim() ?? '', total, currency: 'TZS', merchantLocked: access.locked, channel: 'jumla',
+          deliveryPoint: input.fulfillment === 'DELIVERY' ? input.deliveryPoint ?? null : null,
           attributionCode, clickId,
         }));
         await tx.getRepository(CommerceOrderLine).save(lines.map((line) => {
