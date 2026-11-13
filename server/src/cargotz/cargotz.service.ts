@@ -413,20 +413,68 @@ export class CargoTzService {
     return this.getOne(uid, id);
   }
 
-  setPayment(uid: string, ctx: ActorCtx, idOrTracking: string, paid: boolean) {
+  setPayment(uid: string, ctx: ActorCtx, idOrTracking: string, dto: { paid: boolean; transportFee?: number }) {
     return this.parcels.manager.transaction(async (tx) => {
       const parcel = await this.lockLegacyParcel(tx, uid, idOrTracking);
-      parcel.paymentStatus = paid ? 'PAID' : 'UNPAID';
-      await tx.getRepository(CtzParcel).update(parcel.id, { paymentStatus: parcel.paymentStatus });
+      if (parcel.status === 'CANCELLED') throw new BadRequestException('This parcel was cancelled');
+      const paymentStatus = dto.paid ? 'PAID' : 'UNPAID';
+      if (parcel.paymentStatus === paymentStatus) return parcel;
+      const existingFee = num(parcel.transportFee);
+      if (dto.transportFee != null && (!dto.paid || existingFee > 0)) {
+        throw new BadRequestException('Enter an amount only when recording a payment for a carton without a fee');
+      }
+      const transportFee = dto.transportFee ?? existingFee;
+      if (dto.paid && transportFee <= 0) throw new BadRequestException('Enter the freight amount received');
+      const updated = await tx.getRepository(CtzParcel).save({ ...parcel, paymentStatus, transportFee });
       await tx.getRepository(CtzStatusEvent).insert({
         ownerId: uid, parcelId: parcel.id, status: parcel.status, updatedByName: ctx.name,
-        location: parcel.currentLocation, note: paid ? 'Payment collected' : 'Marked unpaid',
+        location: parcel.currentLocation,
+        note: dto.paid ? `Freight payment recorded manually: TSh ${transportFee}` : 'Freight payment marked unpaid',
       });
-      return parcel;
+      return updated;
     });
   }
 
   /* ── Owner dashboard ── */
+
+  async freightVolume(ownerId: string) {
+    // East Africa Time has a fixed UTC+3 offset. Compare the same elapsed hours.
+    const hour = 3_600_000;
+    const day = 24 * hour;
+    const now = Date.now();
+    const today = Math.floor((now + 3 * hour) / day) * day - 3 * hour;
+    const yesterday = today - day;
+    const cutoff = now - day;
+    const localTime = "p.createdAt AT TIME ZONE 'Africa/Dar_es_Salaam'";
+    const rows = await this.parcels.createQueryBuilder('p')
+      .leftJoin(CtzCollectorAccess, 'agent', 'agent.id = p.collectorAccessId AND agent.ownerId = p.ownerId')
+      .select('p.collectorAccessId', 'agentId')
+      .addSelect('agent.agentName', 'name')
+      .addSelect('p.createdAt >= :today', 'today')
+      .addSelect(`EXTRACT(HOUR FROM ${localTime})::int`, 'hour')
+      .addSelect('COUNT(*)::int', 'count')
+      .where('p.ownerId = :ownerId AND p.status <> :cancelled', { ownerId, cancelled: 'CANCELLED' })
+      .andWhere('((p.createdAt >= :today AND p.createdAt <= :now) OR (p.createdAt >= :yesterday AND p.createdAt <= :cutoff))', {
+        today: new Date(today), now: new Date(now), yesterday: new Date(yesterday), cutoff: new Date(cutoff),
+      })
+      .groupBy('1, 2, 3, 4')
+      .getRawMany<{ agentId: string | null; name: string | null; today: boolean; hour: number; count: number }>();
+    const agents = await this.collectors.find({ where: { ownerId, revokedAt: IsNull() } });
+    const totals = new Map(agents.map(agent => [agent.id, { id: agent.id, name: agent.agentName, today: 0, yesterday: 0 }]));
+    const hours = Array.from({ length: Math.floor((now - today) / hour) + 1 }, (_, index) => ({
+      hour: index, today: 0, yesterday: 0,
+    }));
+    for (const row of rows) {
+      const period = row.today ? 'today' : 'yesterday';
+      hours[row.hour][period] += row.count;
+      if (row.agentId) {
+        const agent = totals.get(row.agentId) ?? { id: row.agentId, name: row.name || 'Former agent', today: 0, yesterday: 0 };
+        agent[period] += row.count;
+        totals.set(row.agentId, agent);
+      }
+    }
+    return { hours, agents: [...totals.values()] };
+  }
 
   async dashboard(uid: string) {
     const all = await this.parcels.find({ where: { ownerId: uid }, take: 10000 });

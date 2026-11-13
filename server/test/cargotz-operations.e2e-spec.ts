@@ -58,6 +58,14 @@ describe('CargoTZ operational handoff', () => {
       receiverPhone: '0755444333', origin, destination: 'Iringa', description: 'One carton',
     }).expect(201);
     const third = walkIn.body.trackingNumber;
+    const paymentPath = `cargotz/parcels/${first}/payment`;
+    await as(owner, 'post', paymentPath).send({ paid: true, transportFee: 12500 }).expect(400);
+    const volume = await as(owner, 'get', 'cargotz/freight-volume').expect(200);
+    expect(volume.body.hours.reduce((count: number, point: { today: number }) => count + point.today, 0)).toBeGreaterThanOrEqual(3);
+    expect(volume.body.agents).toEqual(expect.arrayContaining([expect.objectContaining({ today: 2, yesterday: 0 })]));
+    const isolated = await as(outsider, 'get', 'cargotz/freight-volume').expect(200);
+    expect(isolated.body.agents).toEqual([]);
+    expect(isolated.body.hours.every((point: { today: number; yesterday: number }) => point.today === 0 && point.yesterday === 0)).toBe(true);
     const intakePath = `${shared}/intake/${first}`;
     const handoff = await as(intake, 'get', `${intakePath}?branch=${encodeURIComponent(origin)}`).expect(200);
     expect(handoff.body.parcel.senderPhone).toBe('0755555555');
@@ -74,6 +82,19 @@ describe('CargoTZ operational handoff', () => {
     await as(loading, 'post', `${shared}/trips`).send(payload).expect(403);
     await Promise.all([as(owner, 'post', `${mine}/trips`).send(payload).expect(201), as(owner, 'post', `${mine}/trips`).send(payload).expect(201)]);
     await as(owner, 'post', `cargotz/parcels/${first}/status`).send({ status: 'DELIVERED' }).expect(400);
+    await as(outsider, 'post', paymentPath).send({ paid: true, transportFee: 12500 }).expect(404);
+    await as(owner, 'post', paymentPath).send({ paid: 'false' }).expect(400);
+    await as(owner, 'post', paymentPath).send({ paid: true }).expect(400);
+    const receipts = await Promise.all([
+      as(owner, 'post', paymentPath).send({ paid: true, transportFee: 12500 }).expect(201),
+      as(owner, 'post', paymentPath).send({ paid: true, transportFee: 12500 }).expect(201),
+    ]);
+    for (const receipt of receipts) {
+      expect(receipt.body.paymentStatus).toBe('PAID');
+      expect(Number(receipt.body.transportFee)).toBe(12500);
+    }
+    const paymentDetails = await as(owner, 'get', `cargotz/parcels/${first}`).expect(200);
+    expect(paymentDetails.body.timeline.filter((entry: { note: string }) => entry.note.includes('Freight payment recorded'))).toHaveLength(1);
     await as(loading, 'post', `${loadPath}/seal?${originQuery}`).send({}).expect(409);
     await as(loading, 'post', `${loadPath}/scan?${originQuery}`).send({ tracking: first }).expect(201);
     await as(loading, 'post', `${loadPath}/scan?${originQuery}`).send({ tracking: first }).expect(201);

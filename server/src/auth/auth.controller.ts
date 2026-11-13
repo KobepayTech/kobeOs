@@ -306,18 +306,18 @@ export class AuthController {
     if (!expected.length || expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
       throw new UnauthorizedException('This sign-in attempt expired or belongs to another browser. Start sign-in again.');
     }
-    this.auth.verifyOAuthState(state, provider);
+    return this.auth.verifyOAuthState(state, provider);
   }
 
   @Get('oauth/google')
-  googleStart(@Res() res: Response) {
+  googleStart(@Res() res: Response, @Query('cargoReturn') cargoReturn?: string) {
     try {
-      const state = this.auth.createOAuthState('google');
+      const state = this.auth.createOAuthState('google', cargoReturn);
       const url = this.auth.googleAuthUrl(state);
       this.setOAuthCookie('google', state, res);
       res.redirect(url);
     } catch (error) {
-      res.redirect(this.auth.oauthFrontendRedirect('google', error as Error));
+      res.redirect(this.auth.oauthFrontendRedirect('google', error as Error, cargoReturn));
     }
   }
 
@@ -329,12 +329,13 @@ export class AuthController {
     @Req() req: Request,
     @Res() res: Response,
   ) {
+    let cargoReturn: string | undefined;
     try {
-      this.verifyBrowserState('google', state, req, res);
+      cargoReturn = this.verifyBrowserState('google', state, req, res).cargoReturn;
       if (providerError) throw new Error(providerError);
-      res.redirect(this.auth.oauthFrontendRedirect('google', await this.auth.googleCodeSignIn(code)));
+      res.redirect(this.auth.oauthFrontendRedirect('google', await this.auth.googleCodeSignIn(code), cargoReturn));
     } catch (error) {
-      res.redirect(this.auth.oauthFrontendRedirect('google', error as Error));
+      res.redirect(this.auth.oauthFrontendRedirect('google', error as Error, cargoReturn));
     }
   }
 

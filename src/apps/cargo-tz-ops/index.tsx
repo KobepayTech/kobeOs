@@ -4,7 +4,8 @@ import LoginScreen from '@/components/LoginScreen';
 import { useQRScanner } from '@/hooks/useQRScanner';
 import { usePwaManifest } from '@/hooks/usePwaManifest';
 import { InstallPwaButton } from '@/mobile/InstallPwaButton';
-import { LabelPrintStyles, ParcelLabel, trackingFromScan } from './parcel-label';
+import { QRCodeSVG } from 'qrcode.react';
+import { cargoTzLink, LabelPrintStyles, ParcelLabel, trackingFromScan } from './parcel-label';
 import { CollectorInvites, PendingHandoffs } from './handoffs';
 import { CargoStaff, TripOperations, type StaffRole, type Workspace } from './trips';
 import {
@@ -19,7 +20,7 @@ interface Parcel {
   receiverName: string; receiverPhone: string; description: string; quantity: number;
   origin: string; destination: string; transportFee: number | string; paymentStatus: 'PAID' | 'UNPAID';
   status: string; currentLocation: string; fragile: boolean; cashOnDelivery: boolean; tripId?: string | null;
-  collectorAccessId?: string | null; receivedByName?: string;
+  collectorAccessId?: string | null; receivedByName?: string; updatedAt?: string;
 }
 interface Warehouse2 { warehouseLocation: string; shelfNumber: string; bagNumber: string; busNumber: string; driverName: string; packedBy: string }
 interface Timeline { status: string; location: string; note: string; at: string }
@@ -51,6 +52,8 @@ export default function CargoTzOps({ role, standaloneBase, handoffReference }: {
 } = {}) {
   const [signedIn, setSignedIn] = useState(() => Boolean(getToken() || getRefreshToken()));
   const [selectedTab, setTab] = useState<CargoOpsTab>(role ?? 'intake');
+  const [links, setLinks] = useState(false);
+  const [tracking, setTracking] = useState('');
   const [pin, setPin] = useState('');
   const [grants, setGrants] = useState<Workspace[]>([]);
   const [workspaceChoice, setWorkspaceChoice] = useState('');
@@ -121,6 +124,7 @@ export default function CargoTzOps({ role, standaloneBase, handoffReference }: {
         <div className="flex items-center gap-2"><div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center"><PackageCheck className="w-4 h-4 text-white" /></div><div><span className="font-extrabold">CargoTZ</span><span className="block text-[10px] text-slate-500">Domestic operations</span></div></div>
         <div className="flex items-center gap-2">
           {standalone && <InstallPwaButton />}
+          {workspaceId === 'mine' && <button type="button" aria-expanded={links} className="rounded-lg border px-3 py-1.5 text-xs font-bold" onClick={() => setLinks(value => !value)}>Mobile links</button>}
           {workspaceId === 'mine' && ['intake', 'warehouse', 'dashboard'].includes(tab) && <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))} placeholder="Staff PIN" inputMode="numeric"
             className="w-24 h-8 px-2 rounded-md text-slate-900 text-xs text-center tracking-widest" title="Optional — your 4-digit staff PIN attributes the action" />}
         </div>
@@ -140,6 +144,7 @@ export default function CargoTzOps({ role, standaloneBase, handoffReference }: {
         ))}
       </div>
       <div className="flex-1 overflow-auto">
+        {links && workspaceId === 'mine' && <MobileLinks />}
         {workspaceLoading ? <p className="p-4 text-sm" role="status">Loading CargoTZ workspace…</p> : (workspaceId === 'mine' || workspace) && <>
         {tab === 'intake' && (
           <>
@@ -159,8 +164,8 @@ export default function CargoTzOps({ role, standaloneBase, handoffReference }: {
         )}
         {(tab === 'dispatch' || tab === 'loading' || tab === 'destination') &&
           <TripOperations key={`${tab}:${workspaceId}`} api={operationsApi} role={ROLE_BY_TAB[tab] as 'Dispatch' | 'Loading' | 'Destination'} workspace={workspace} Scanner={Scanner} />}
-        {tab === 'warehouse' && <WarehouseTab apiPin={apiPin} />}
-        {tab === 'board' && <FreightBoard />}
+        {tab === 'warehouse' && <WarehouseTab apiPin={apiPin} tracking={tracking} />}
+        {tab === 'board' && <FreightBoard openParcel={number => { setTracking(number); setTab('warehouse'); }} />}
         {tab === 'dashboard' && (
           <>
             {!pin && <div className="mx-auto max-w-5xl px-4 pt-4"><CollectorInvites api={apiPin} /></div>}
@@ -175,13 +180,106 @@ export default function CargoTzOps({ role, standaloneBase, handoffReference }: {
 }
 
 const freightLanes = [
-  { label: 'To pack', statuses: ['AWAITING_HANDOFF', 'RECEIVED_AT_SHOP', 'AT_WAREHOUSE'], tone: 'border-t-amber-500' },
-  { label: 'To dispatch', statuses: ['PACKED', 'LOADED'], tone: 'border-t-indigo-500' },
-  { label: 'On the road', statuses: ['IN_TRANSIT'], tone: 'border-t-sky-500' },
-  { label: 'At destination', statuses: ['ARRIVED', 'READY_FOR_PICKUP'], tone: 'border-t-emerald-500' },
+  { label: 'Awaiting custody', statuses: ['AWAITING_HANDOFF'], tone: 'border-amber-400' },
+  { label: 'At origin', statuses: ['RECEIVED_AT_SHOP', 'AT_WAREHOUSE'], tone: 'border-blue-400' },
+  { label: 'To dispatch', statuses: ['PACKED', 'LOADED'], tone: 'border-violet-400' },
+  { label: 'In transit', statuses: ['IN_TRANSIT'], tone: 'border-cyan-400' },
+  { label: 'At destination', statuses: ['ARRIVED', 'READY_FOR_PICKUP'], tone: 'border-emerald-400' },
+  { label: 'Delivered', statuses: ['DELIVERED'], tone: 'border-slate-400' },
 ];
 
-function FreightBoard() {
+function MobileLinks() {
+  const [role, setRole] = useState('collect');
+  const [notice, setNotice] = useState('');
+  const url = cargoTzLink('/cargotz/' + role);
+  return <section className="border-b bg-white p-4">
+    <h2 className="font-bold">CargoTZ mobile links</h2>
+    <p className="text-sm text-slate-600">Assign staff access in Owner. Send each collection agent their personal invitation from Owner.</p>
+    <div className="mt-3 flex flex-wrap items-center gap-4">
+      <QRCodeSVG value={url} size={104} title="Scan to open CargoTZ on your phone" />
+      <div className="min-w-0 flex-1 space-y-2">
+        <select aria-label="Mobile workspace" value={role} onChange={event => { setRole(event.target.value); setNotice(''); }} className="rounded-lg border p-2 text-sm">
+          <option value="collect">Collection agent</option>
+          {Object.values(ROLE_META).map(item => <option key={item.slug} value={item.slug}>{item.name}</option>)}
+        </select>
+        <input aria-label="Mobile workspace link" readOnly value={url} onFocus={event => event.target.select()} className="block w-full max-w-lg rounded-lg border p-2 text-sm" />
+        <button type="button" className="rounded-lg border px-3 py-1.5 text-sm font-bold" onClick={() => {
+          void (navigator.clipboard?.writeText(url) ?? Promise.reject()).then(() => setNotice('Link copied.'), () => setNotice('Select and copy the address above.'));
+        }}>Copy link</button>
+        <span role="status" className="ml-2 text-sm">{notice}</span>
+      </div>
+    </div>
+  </section>;
+}
+
+interface FreightVolume {
+  hours: { hour: number; today: number; yesterday: number }[];
+  agents: { id: string; name: string; today: number; yesterday: number }[];
+}
+
+function volumeChange(today: number, yesterday: number) {
+  const delta = today - yesterday;
+  if (!delta) return '—  No change';
+  const sign = delta > 0 ? '+' : '−';
+  return (delta > 0 ? '▲ ' : '▼ ') + sign + Math.abs(delta)
+    + (yesterday ? ' (' + sign + Math.round(Math.abs(delta) / yesterday * 100) + '%)' : ' from 0');
+}
+
+function VolumePanel({ volume, failed, display }: { volume: FreightVolume | null; failed: boolean; display: boolean }) {
+  const totals = { today: 0, yesterday: 0 };
+  const trend = volume?.hours.map(point => {
+    totals.today += point.today;
+    totals.yesterday += point.yesterday;
+    return { hour: String(point.hour).padStart(2, '0') + ':00', ...totals };
+  }) ?? [];
+  const agents = [...(volume?.agents ?? [])].sort((a, b) => b.today - a.today || b.yesterday - a.yesterday || a.name.localeCompare(b.name));
+  const color = (today: number, yesterday: number) => today > yesterday ? '#6ee7b7' : today < yesterday ? '#fda4af' : '#cbd5e1';
+  return <div className={display ? '' : 'grid gap-3 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]'}>
+    <section className="min-w-0 rounded-xl border border-slate-700 p-4" style={{ background: '#19263c' }}>
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <div><h3 className="text-sm font-bold" style={{ color: '#f1f5f9' }}>Cartons registered today</h3>
+          <p className="text-xs" style={{ color: '#cbd5e1' }}>Compared with the same time yesterday · EAT</p></div>
+        {volume && <div className="flex items-baseline gap-2"><strong className="text-3xl tabular-nums">{totals.today}</strong>
+          <span className="text-sm font-bold" style={{ color: color(totals.today, totals.yesterday) }}>{volumeChange(totals.today, totals.yesterday)}</span></div>}
+      </div>
+      {failed && <p role="status" className="mt-2 text-xs" style={{ color: '#fda4af' }}>{volume ? 'Showing the last volume update.' : 'Volume comparison unavailable.'}</p>}
+      {volume ? <>
+        <div role="img" aria-label={'Cumulative cartons: ' + totals.today + ' today, ' + totals.yesterday + ' yesterday at the same time'}>
+          <ResponsiveContainer width="100%" height={160}>
+            <LineChart data={trend} margin={{ top: 12, right: 8, left: 0, bottom: 0 }}>
+              <CartesianGrid stroke="#334155" vertical={false} />
+              <XAxis dataKey="hour" tick={{ fill: '#cbd5e1', fontSize: 10 }} minTickGap={28} />
+              <YAxis allowDecimals={false} width={30} tick={{ fill: '#cbd5e1', fontSize: 10 }} domain={[0, 'auto']} />
+              <Tooltip contentStyle={{ background: '#0f172a', borderColor: '#475569', color: '#fff' }} />
+              <Line name="Yesterday" dataKey="yesterday" stroke="#94a3b8" strokeDasharray="5 4" strokeWidth={2} dot={trend.length === 1} isAnimationActive={false} />
+              <Line name="Today" dataKey="today" stroke="#38bdf8" strokeWidth={3} dot={trend.length === 1} isAnimationActive={false} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+        <p className="text-xs font-semibold"><span style={{ color: '#7dd3fc' }}>Today {totals.today}</span><span className="ml-4" style={{ color: '#cbd5e1' }}>Yesterday {totals.yesterday}</span></p>
+      </> : !failed && <p className="mt-3 text-sm">Loading volume…</p>}
+    </section>
+    {!display && <section className="min-w-0 rounded-xl border border-slate-700 p-4" style={{ background: '#19263c' }}>
+      <h3 className="text-sm font-bold" style={{ color: '#f1f5f9' }}>Collection agent performance</h3>
+      <p className="mb-2 text-xs" style={{ color: '#cbd5e1' }}>Cartons registered by each agent</p>
+      <div className="max-h-44 overflow-auto">
+        <table className="w-full text-left text-xs tabular-nums" style={{ color: '#f1f5f9' }}>
+          <thead><tr>{['Agent', 'Today', 'Yesterday', 'Change'].map(label => <th key={label} scope="col" className="px-1 py-1">{label}</th>)}</tr></thead>
+          <tbody>{agents.map(agent => <tr key={agent.id} className="border-t border-slate-700">
+            <th scope="row" className="px-1 py-2">{agent.name}</th><td className="px-1">{agent.today}</td><td className="px-1">{agent.yesterday}</td>
+            <td className="whitespace-nowrap px-1 font-bold" style={{ color: color(agent.today, agent.yesterday) }}>{volumeChange(agent.today, agent.yesterday)}</td>
+          </tr>)}</tbody>
+        </table>
+        {volume && !agents.length && <p className="mt-2 text-xs" style={{ color: '#cbd5e1' }}>Add collection agents in Owner to see their performance.</p>}
+      </div>
+    </section>}
+  </div>;
+}
+
+function FreightBoard({ openParcel }: { openParcel: (tracking: string) => void }) {
+  const [lane, setLane] = useState('');
+  const [volume, setVolume] = useState<FreightVolume | null>(null);
+  const [volumeFailed, setVolumeFailed] = useState(false);
   const [parcels, setParcels] = useState<Parcel[]>([]);
   const [agents, setAgents] = useState<Record<string, string>>({});
   const [lastSync, setLastSync] = useState<Date | null>(null);
@@ -201,16 +299,20 @@ function FreightBoard() {
           offlineFallback: false, cache: 'no-store',
           signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]),
         } as const;
-        const [rows, invites] = await Promise.all([
+        const [rows, invites, volumeResult] = await Promise.all([
           api<Parcel[]>('/cargotz/parcels', options),
           api<{ id: string; agentName: string }[]>('/cargotz/collector-invites', options).catch(() => null),
+          api<FreightVolume>('/cargotz/freight-volume', options).catch(() => null),
         ]);
         if (!Array.isArray(rows)) throw new Error('Invalid parcel response');
         if (controller.signal.aborted) return;
+        if (Array.isArray(volumeResult?.hours) && Array.isArray(volumeResult.agents)) {
+          setVolume(volumeResult); setVolumeFailed(false);
+        } else setVolumeFailed(true);
         setParcels(rows); setLastSync(new Date()); setFailed(false);
         if (Array.isArray(invites)) setAgents(previous => ({ ...previous, ...Object.fromEntries(invites.map(agent => [agent.id, agent.agentName])) }));
       } catch {
-        if (!controller.signal.aborted) setFailed(true);
+        if (!controller.signal.aborted) { setFailed(true); setVolumeFailed(true); }
       } finally { busy = false; }
     };
     void load();
@@ -218,50 +320,71 @@ function FreightBoard() {
     return () => { controller.abort(); window.clearInterval(timer); };
   }, [refresh]);
 
-  const active = parcels.filter(parcel => freightLanes.some(lane => lane.statuses.includes(parcel.status)));
-  const destinations = [...new Set(active.map(parcel => parcel.destination).filter(Boolean))].sort();
-  const term = query.trim().toLowerCase();
+  const visible = parcels.filter(parcel => parcel.status !== 'CANCELLED');
+  const destinations = [...new Set(visible.map(parcel => parcel.destination).filter(Boolean))].sort();
+  const term = display ? '' : query.trim().toLowerCase();
   const collector = (parcel: Parcel) => parcel.collectorAccessId ? agents[parcel.collectorAccessId] : parcel.receivedByName;
-  const filtered = active.filter(parcel => (!destination || parcel.destination === destination)
+  const filtered = visible.filter(parcel => (display || !destination || parcel.destination === destination)
     && (!term || [parcel.trackingNumber, parcel.origin, parcel.destination, parcel.description, collector(parcel)]
       .some(value => value?.toLowerCase().includes(term))));
-  return <div className={`min-h-full space-y-4 p-4 ${display ? 'bg-slate-950 text-white' : 'bg-slate-100'}`}>
+  const paymentDue = (parcel: Parcel) => parcel.status !== 'AWAITING_HANDOFF' && parcel.paymentStatus === 'UNPAID';
+  const metrics = [
+    ...freightLanes.map(item => ({ ...item, matches: (parcel: Parcel) => item.statuses.includes(parcel.status) })),
+    { label: 'Payment due', tone: 'border-rose-400', matches: paymentDue },
+  ];
+  const filter = display ? undefined : metrics.find(item => item.label === lane);
+  const rows = filtered.filter(filter?.matches ?? (parcel => parcel.status !== 'DELIVERED'));
+  return <section className="min-h-full space-y-4 p-4" style={{ background: '#101a2d', color: '#f1f5f9' }}>
     <header className="flex flex-wrap items-center justify-between gap-3">
-      <div><h2 className="text-xl font-black" style={display ? { color: '#fff' } : undefined}>Freight Board</h2>
-        <p role="status" className={failed ? 'text-sm font-semibold text-rose-500' : display ? 'text-sm text-slate-300' : 'text-sm text-slate-600'}>
-          {failed ? lastSync ? 'Connection lost · showing last received parcels' : 'Could not load parcels' : lastSync ? `Updated ${lastSync.toLocaleTimeString()}` : 'Loading parcels…'}
+      <div><h2 className="text-2xl font-black" style={{ color: '#fff' }}>Freight control board</h2>
+        <p role="status" className="mt-1 text-sm" style={{ color: failed ? '#fda4af' : '#cbd5e1' }}>
+          {failed ? lastSync ? 'Connection lost. Showing last received parcels.' : 'Could not load parcels' : lastSync ? 'Updated ' + lastSync.toLocaleTimeString() : 'Loading parcels…'}
+          {parcels.length >= 500 && ' · Latest 500 parcels'}
         </p>
       </div>
-      <div className="flex gap-2 text-slate-900">
-        <button onClick={() => setRefresh(attempt => attempt + 1)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold">Refresh</button>
-        <button aria-pressed={display} onClick={() => setDisplay(value => !value)} className="rounded-lg bg-indigo-700 px-3 py-2 text-sm font-bold text-white">{display ? 'Exit display mode' : 'Display mode'}</button>
+      <div className="flex gap-2">
+        <button onClick={() => setRefresh(attempt => attempt + 1)} className="rounded-lg border border-slate-500 px-3 py-2 text-sm font-bold" style={{ color: '#f1f5f9' }}>Refresh</button>
+        <button aria-pressed={display} onClick={() => setDisplay(value => !value)} className="rounded-lg bg-sky-300 px-3 py-2 text-sm font-bold" style={{ color: '#0f172a' }}>{display ? 'Exit display mode' : 'Display mode'}</button>
       </div>
     </header>
-    {!display && <div className="flex flex-wrap gap-2">
-      <input aria-label="Search freight board" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search tracking, route, goods or agent" className="min-w-56 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" />
-      <select aria-label="Filter by destination" value={destination} onChange={event => setDestination(event.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+    <VolumePanel volume={volume} failed={volumeFailed} display={display} />
+    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 xl:grid-cols-7">
+      {metrics.map(item => {
+        const label = <><span className="block text-xs font-semibold">{item.label}</span><span className="mt-1 block text-2xl font-black tabular-nums">{lastSync ? filtered.filter(item.matches).length : '–'}</span></>;
+        const style = { color: '#f1f5f9', background: filter === item ? '#334865' : '#1c2b43' };
+        const className = 'rounded-lg border-t-2 p-3 text-left ' + item.tone;
+        return display ? <div key={item.label} className={className} style={style}>{label}</div> :
+          <button key={item.label} className={className} style={style} aria-pressed={filter === item} onClick={() => setLane(value => value === item.label ? '' : item.label)}>{label}</button>;
+      })}
+    </div>
+    {!display && <div className="flex flex-wrap gap-2 text-slate-900">
+      <input aria-label="Search freight board" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search tracking, route, goods or agent" className="min-w-48 flex-1 rounded-lg border bg-white px-3 py-2 text-sm" />
+      <select aria-label="Filter by destination" value={destination} onChange={event => setDestination(event.target.value)} className="rounded-lg border bg-white px-3 py-2 text-sm">
         <option value="">All destinations</option>
         {destination && !destinations.includes(destination) && <option>{destination}</option>}
         {destinations.map(place => <option key={place}>{place}</option>)}
       </select>
     </div>}
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-      {freightLanes.map(lane => {
-        const rows = filtered.filter(parcel => lane.statuses.includes(parcel.status));
-        return <section key={lane.label} className={`min-w-0 space-y-2 rounded-xl border-t-4 bg-slate-200 p-3 text-slate-900 ${lane.tone}`}>
-          <h3 className="flex items-center justify-between gap-2 font-extrabold">{lane.label}<span className="rounded bg-white px-2 text-sm">{lastSync ? rows.length : '–'}</span></h3>
-          {lastSync && !rows.length && <p className="py-3 text-sm text-slate-600">No matching parcels</p>}
-          {rows.map(parcel => <article key={parcel.id} className={`block w-full space-y-1 break-words rounded-lg bg-white p-3 text-left shadow-sm ${display ? 'text-lg' : 'text-sm'}`}>
-            <span className="block font-mono text-xs font-bold">{parcel.trackingNumber}</span>
-            <span className="block font-bold">{parcel.origin} → {parcel.destination}</span>
-            <span className="block text-xs text-slate-600">{parcel.quantity} × {parcel.description || 'Parcel'} · {LABEL[parcel.status]}</span>
-            <span className="block text-xs font-semibold">{parcel.collectorAccessId ? 'Collector' : 'Received by'} · {collector(parcel) || 'Unavailable'}</span>
-            <span className="block text-xs font-semibold text-slate-700">{[parcel.fragile && 'Fragile', parcel.cashOnDelivery && 'Collect on delivery', parcel.paymentStatus === 'UNPAID' && 'Unpaid'].filter(Boolean).join(' · ')}</span>
-          </article>)}
-        </section>;
-      })}
+    <div className="overflow-x-auto rounded-xl border border-slate-700" style={{ background: '#19263c' }}>
+      <table className="w-full min-w-[650px] text-left" style={{ color: '#f1f5f9' }}>
+        <caption className="px-3 py-2 text-left text-sm font-bold">{filter?.label ?? 'Active freight'}{lastSync && ' · ' + rows.length}</caption>
+        <thead style={{ background: '#23344e', color: '#cbd5e1' }}><tr>
+          {['Tracking', 'Route & location', 'Custody', ...(!display ? ['Collection agent', 'Payment'] : []), 'Last activity'].map(label => <th scope="col" key={label} className="px-3 py-2 text-xs font-bold">{label}</th>)}
+        </tr></thead>
+        <tbody>{rows.map(parcel => <tr key={parcel.id} className="border-t border-slate-700">
+          <td className="px-3 py-3 font-mono text-xs font-bold">{display ? parcel.trackingNumber : <button type="button" style={{ color: '#7dd3fc' }} className="text-left underline underline-offset-2" onClick={() => openParcel(parcel.trackingNumber)}>{parcel.trackingNumber}</button>}
+            {parcel.fragile && <span className="mt-1 block" style={{ color: '#fbbf24' }}>Fragile</span>}</td>
+          <td className="px-3 py-3 text-sm font-bold">{parcel.origin} → {parcel.destination}<span className="block text-xs font-normal" style={{ color: '#cbd5e1' }}>{parcel.currentLocation || 'Location unavailable'}</span></td>
+          <td className="px-3 py-3 text-sm font-bold" style={{ color: parcel.status === 'AWAITING_HANDOFF' ? '#fbbf24' : '#7dd3fc' }}>{LABEL[parcel.status] ?? parcel.status}</td>
+          {!display && <><td className="px-3 py-3 text-sm">{collector(parcel) || '—'}</td><td className="px-3 py-3 text-sm font-bold" style={{ color: paymentDue(parcel) ? '#fda4af' : '#a7f3d0' }}>
+            {parcel.status === 'AWAITING_HANDOFF' ? 'At intake' : parcel.paymentStatus === 'PAID' ? 'Recorded' : Number(parcel.transportFee) > 0 ? tsh(parcel.transportFee) + ' due' : 'Fee needed'}
+          </td></>}
+          <td className="px-3 py-3 text-xs tabular-nums">{parcel.updatedAt ? new Date(parcel.updatedAt).toLocaleString() : '—'}</td>
+        </tr>)}</tbody>
+      </table>
+      {lastSync && rows.length === 0 && <p className="p-4 text-sm">No parcels match this view.</p>}
     </div>
-  </div>;
+  </section>;
 }
 
 /* ─────────── Receiving Agent — intake ─────────── */
@@ -346,8 +469,10 @@ function IntakeTab({ apiPin }: { apiPin: <T,>(p: string, i?: RequestInit) => Pro
 }
 
 /* ─────────── Warehouse — scan + pack + advance ─────────── */
-function WarehouseTab({ apiPin }: { apiPin: <T,>(p: string, i?: RequestInit) => Promise<T> }) {
-  const [tn, setTn] = useState('');
+function WarehouseTab({ apiPin, tracking }: { tracking: string; apiPin: <T,>(p: string, i?: RequestInit) => Promise<T> }) {
+  const [tn, setTn] = useState(tracking);
+  const [fee, setFee] = useState('');
+  const [recording, setRecording] = useState(false);
   const [full, setFull] = useState<Full | null>(null);
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
@@ -358,11 +483,13 @@ function WarehouseTab({ apiPin }: { apiPin: <T,>(p: string, i?: RequestInit) => 
   const load = useCallback(async (key: string) => {
     const tracking = trackingFromScan(key) || key.trim().toUpperCase();
     if (!tracking) return;
-    setLoading(true); setError(null);
+    setLoading(true); setError(null); setRecording(false); setFee('');
     try { const f = await apiPin<Full>(`/cargotz/parcels/${encodeURIComponent(tracking)}`); setFull(f); setPack((p) => ({ ...p, ...(f.warehouse || {}) })); }
     catch (e) { setError((e as Error).message || 'Not found'); setFull(null); }
     finally { setLoading(false); }
   }, [apiPin]);
+
+  useEffect(() => { if (tracking) void load(tracking); }, [tracking, load]);
 
   const onScan = (raw: string) => { setScanning(false); const t = trackingFromScan(raw) || raw.trim(); setTn(t.toUpperCase()); load(t); };
 
@@ -378,14 +505,29 @@ function WarehouseTab({ apiPin }: { apiPin: <T,>(p: string, i?: RequestInit) => 
     try { const f = await apiPin<Full>(`/cargotz/parcels/${full.parcel.trackingNumber}/status`, { method: 'POST', body: JSON.stringify({ status }) }); setFull(f); }
     catch (e) { setError((e as Error).message); } finally { setBusy(false); }
   };
-  const markPaid = async () => { if (!full) return; await apiPin(`/cargotz/parcels/${full.parcel.trackingNumber}/payment`, { method: 'POST', body: JSON.stringify({ paid: true }) }); load(full.parcel.trackingNumber); };
+  const markPaid = async () => {
+    if (!full || busy) return;
+    setBusy(true); setError(null);
+    try {
+      const parcel = await apiPin<Parcel>('/cargotz/parcels/' + full.parcel.trackingNumber + '/payment', {
+        method: 'POST',
+        body: JSON.stringify({ paid: true, ...(Number(full.parcel.transportFee) <= 0 ? { transportFee: Number(fee) } : {}) }),
+      });
+      setFull(current => current?.parcel.id === parcel.id ? { ...current, parcel } : current);
+      setRecording(false);
+    } catch (cause) {
+      setError((cause as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div className="p-4 max-w-md mx-auto space-y-4">
-      <button onClick={() => setScanning(true)} className="w-full h-16 rounded-2xl bg-emerald-600 text-white font-extrabold text-lg inline-flex items-center justify-center gap-2"><Camera className="w-6 h-6" /> Scan parcel QR</button>
+      <button disabled={busy || loading} onClick={() => setScanning(true)} className="w-full h-16 rounded-2xl bg-emerald-600 text-white font-extrabold text-lg inline-flex items-center justify-center gap-2"><Camera className="w-6 h-6" /> Scan parcel QR</button>
       <div className="flex gap-2">
-        <div className="relative flex-1"><Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={tn} onChange={(e) => setTn(e.target.value.toUpperCase())} onKeyDown={(e) => { if (e.key === 'Enter') load(tn); }} placeholder="or type CTZ-..." className="w-full h-11 pl-9 pr-3 rounded-xl border border-slate-200 text-sm font-mono" /></div>
-        <button onClick={() => load(tn)} disabled={loading} className="h-11 px-4 rounded-xl bg-slate-800 text-white text-sm font-bold">{loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Load'}</button>
+        <div className="relative flex-1"><Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={tn} onChange={(e) => setTn(e.target.value.toUpperCase())} onKeyDown={(e) => { if (e.key === 'Enter' && !busy && !loading) load(tn); }} placeholder="or type CTZ-..." className="w-full h-11 pl-9 pr-3 rounded-xl border border-slate-200 text-sm font-mono" /></div>
+        <button onClick={() => load(tn)} disabled={loading || busy} className="h-11 px-4 rounded-xl bg-slate-800 text-white text-sm font-bold">{loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Load'}</button>
       </div>
       {error && <div className="text-sm text-rose-600 inline-flex items-center gap-1"><AlertCircle className="w-4 h-4" />{error}</div>}
 
@@ -399,12 +541,25 @@ function WarehouseTab({ apiPin }: { apiPin: <T,>(p: string, i?: RequestInit) => 
             <div className="text-sm"><MapPin className="w-3.5 h-3.5 inline text-slate-400" /> {full.parcel.origin} → {full.parcel.destination}
               {full.parcel.fragile && <span className="ml-2 text-[10px] font-bold text-rose-600 bg-rose-50 rounded px-1.5 py-0.5">FRAGILE</span>}</div>
             <div className="text-xs text-slate-500">{full.parcel.receiverName} · {full.parcel.receiverPhone} · {full.parcel.description}</div>
+            <section className="space-y-2 rounded-lg border border-slate-200 p-3">
+              <div className="flex justify-between gap-2 text-sm font-bold">
+                <span>Freight payment · {Number(full.parcel.transportFee) > 0 ? tsh(full.parcel.transportFee) : 'Fee unset'}</span>
+                <span className={full.parcel.paymentStatus === 'PAID' ? 'text-emerald-700' : 'text-amber-800'}>{full.parcel.paymentStatus === 'PAID' ? 'Recorded' : 'Unpaid'}</span>
+              </div>
+              {full.parcel.cashOnDelivery && <p className="text-xs text-slate-600">Cash on delivery requested</p>}
+              {full.parcel.paymentStatus === 'UNPAID' && !['AWAITING_HANDOFF', 'CANCELLED'].includes(full.parcel.status) &&
+                (recording ? <form className="space-y-2" onSubmit={event => { event.preventDefault(); void markPaid(); }}>
+                  {Number(full.parcel.transportFee) <= 0 && <label className="block text-sm">Amount received for this carton (TSh)
+                    <input value={fee} onChange={event => setFee(event.target.value)} className="mt-1 block w-full rounded-lg border p-2" type="number" min="0.01" step="0.01" max="9999999999.99" required />
+                  </label>}
+                  <p className="text-xs text-slate-600">Confirm after receiving the freight fee. CargoTZ records the payment.</p>
+                  <div className="flex gap-2">
+                    <button type="submit" disabled={busy || loading} className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-bold text-white">Confirm received</button>
+                    <button type="button" disabled={busy} onClick={() => setRecording(false)} className="rounded-lg border px-3 py-2 text-xs font-bold">Cancel</button>
+                  </div>
+                </form> : <button type="button" disabled={busy || loading} onClick={() => setRecording(true)} className="inline-flex items-center gap-1 rounded-lg border border-emerald-700 px-3 py-2 text-xs font-bold text-emerald-800"><Wallet className="h-3 w-3" /> Record received payment</button>)}
+            </section>
             {full.parcel.tripId ? <p className="text-sm text-emerald-900">This carton is managed by its trip manifest.</p> : full.parcel.status === 'AWAITING_HANDOFF' ? <p className="text-sm text-amber-800">Cargo intake must accept custody first.</p> : <>
-            <div className="flex items-center justify-between text-sm">
-              <span className="font-bold">{tsh(full.parcel.transportFee)}</span>
-              {full.parcel.paymentStatus === 'PAID' ? <span className="text-emerald-600 text-xs font-bold">PAID</span> : <button onClick={markPaid} className="text-xs font-bold text-white bg-emerald-600 rounded-lg px-2 py-1 inline-flex items-center gap-1"><Wallet className="w-3 h-3" /> Mark paid</button>}
-            </div>
-
             <div className="border-t border-slate-100 pt-3">
               <div className="text-xs font-bold text-slate-500 uppercase mb-2">Warehouse packing</div>
               <div className="grid grid-cols-2 gap-2">

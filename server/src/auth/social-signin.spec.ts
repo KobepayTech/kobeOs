@@ -67,6 +67,19 @@ describe('social account login', () => {
     expect(response.redirect).toHaveBeenCalledWith(expect.stringContaining('/oauth/google#access_token='));
   });
 
+  it('returns Google sign-in to the signed CargoTZ role on its own origin', async () => {
+    const state = service.createOAuthState('google', '/cargotz/collect');
+    jest.spyOn(service, 'googleCodeSignIn').mockResolvedValue({ accessToken: 'access', refreshToken: 'refresh' } as never);
+    const response = { setHeader: jest.fn(), clearCookie: jest.fn(), redirect: jest.fn() };
+    await new AuthController(service, {} as never).googleCallback('code', state, '',
+      { headers: { cookie: `kobeos_oauth_google=${state}` } } as never, response as never);
+    const url = new URL(response.redirect.mock.calls[0][0]);
+    expect(url.origin).toBe('https://cargotz.kobeapptz.com');
+    expect(url.searchParams.get('next')).toBe('/cargotz/collect');
+    expect(url.hash).toContain('access_token=access');
+    expect(service.verifyOAuthState(service.createOAuthState('google', '//evil.example/cargotz/collect'), 'google').cargoReturn).toBeUndefined();
+  });
+
   it('prevents password signup from claiming a social provider identity', async () => {
     await expect(service.register({ email: 'meta_123@users.kobeos.local', password: 'long-password' }))
       .rejects.toThrow('Use your own email');
