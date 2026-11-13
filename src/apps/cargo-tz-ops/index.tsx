@@ -19,6 +19,7 @@ interface Parcel {
   receiverName: string; receiverPhone: string; description: string; quantity: number;
   origin: string; destination: string; transportFee: number | string; paymentStatus: 'PAID' | 'UNPAID';
   status: string; currentLocation: string; fragile: boolean; cashOnDelivery: boolean; tripId?: string | null;
+  collectorAccessId?: string | null; receivedByName?: string;
 }
 interface Warehouse2 { warehouseLocation: string; shelfNumber: string; bagNumber: string; busNumber: string; driverName: string; packedBy: string }
 interface Timeline { status: string; location: string; note: string; at: string }
@@ -30,7 +31,7 @@ const LABEL: Record<string, string> = { AWAITING_HANDOFF: 'Awaiting handoff', RE
 const tsh = (n: number | string) => `TSh ${Number(n || 0).toLocaleString()}`;
 const CHART = ['#10b981', '#6366f1', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#ec4899', '#14b8a6'];
 
-export type CargoOpsTab = 'intake' | 'dispatch' | 'loading' | 'destination' | 'warehouse' | 'dashboard';
+export type CargoOpsTab = 'intake' | 'dispatch' | 'loading' | 'destination' | 'warehouse' | 'dashboard' | 'board';
 const ROLE_BY_TAB: Partial<Record<CargoOpsTab, StaffRole>> = { intake: 'Intake', dispatch: 'Dispatch', loading: 'Loading', destination: 'Destination' };
 const workspaceKey = (workspace: Workspace) => `${workspace.ownerId}:${workspace.branch.toLowerCase()}`;
 const ROLE_META: Record<CargoOpsTab, { slug: string; name: string; short: string; icon: string; theme: string }> = {
@@ -40,6 +41,7 @@ const ROLE_META: Record<CargoOpsTab, { slug: string; name: string; short: string
   destination: { slug: 'destination', name: 'CargoTZ · Destination Office', short: 'CTZ Destination', icon: '/ctz-receive', theme: '#059669' },
   warehouse: { slug: 'warehouse', name: 'Cargo TZ · Warehouse', short: 'CTZ Warehouse', icon: '/ctz-warehouse', theme: '#4f46e5' },
   dashboard: { slug: 'owner', name: 'Cargo TZ · Owner', short: 'CTZ Owner', icon: '/ctz-owner', theme: '#d97706' },
+  board: { slug: 'board', name: 'CargoTZ · Freight Board', short: 'CTZ Board', icon: '/ctz-owner', theme: '#0f172a' },
 };
 
 export default function CargoTzOps({ role, standaloneBase, handoffReference }: {
@@ -103,6 +105,7 @@ export default function CargoTzOps({ role, standaloneBase, handoffReference }: {
   if (standalone && !signedIn) return <LoginScreen onLogin={() => { setWorkspaceLoading(true); setSignedIn(true); }} />;
 
   const tabs = [
+    { key: 'board', label: 'Freight Board', Icon: LayoutDashboard },
     { key: 'intake', label: 'Receive', Icon: PackagePlus },
     { key: 'dispatch', label: 'Dispatch', Icon: ClipboardList },
     { key: 'loading', label: 'Loading', Icon: ScanLine },
@@ -157,6 +160,7 @@ export default function CargoTzOps({ role, standaloneBase, handoffReference }: {
         {(tab === 'dispatch' || tab === 'loading' || tab === 'destination') &&
           <TripOperations key={`${tab}:${workspaceId}`} api={operationsApi} role={ROLE_BY_TAB[tab] as 'Dispatch' | 'Loading' | 'Destination'} workspace={workspace} Scanner={Scanner} />}
         {tab === 'warehouse' && <WarehouseTab apiPin={apiPin} />}
+        {tab === 'board' && <FreightBoard />}
         {tab === 'dashboard' && (
           <>
             {!pin && <div className="mx-auto max-w-5xl px-4 pt-4"><CollectorInvites api={apiPin} /></div>}
@@ -168,6 +172,96 @@ export default function CargoTzOps({ role, standaloneBase, handoffReference }: {
       </div>
     </div>
   );
+}
+
+const freightLanes = [
+  { label: 'To pack', statuses: ['AWAITING_HANDOFF', 'RECEIVED_AT_SHOP', 'AT_WAREHOUSE'], tone: 'border-t-amber-500' },
+  { label: 'To dispatch', statuses: ['PACKED', 'LOADED'], tone: 'border-t-indigo-500' },
+  { label: 'On the road', statuses: ['IN_TRANSIT'], tone: 'border-t-sky-500' },
+  { label: 'At destination', statuses: ['ARRIVED', 'READY_FOR_PICKUP'], tone: 'border-t-emerald-500' },
+];
+
+function FreightBoard() {
+  const [parcels, setParcels] = useState<Parcel[]>([]);
+  const [agents, setAgents] = useState<Record<string, string>>({});
+  const [lastSync, setLastSync] = useState<Date | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [destination, setDestination] = useState('');
+  const [query, setQuery] = useState('');
+  const [refresh, setRefresh] = useState(0);
+  const [display, setDisplay] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    let busy = false;
+    const load = async () => {
+      if (busy) return;
+      busy = true;
+      try {
+        const options = {
+          offlineFallback: false, cache: 'no-store',
+          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(10000)]),
+        } as const;
+        const [rows, invites] = await Promise.all([
+          api<Parcel[]>('/cargotz/parcels', options),
+          api<{ id: string; agentName: string }[]>('/cargotz/collector-invites', options).catch(() => null),
+        ]);
+        if (!Array.isArray(rows)) throw new Error('Invalid parcel response');
+        if (controller.signal.aborted) return;
+        setParcels(rows); setLastSync(new Date()); setFailed(false);
+        if (Array.isArray(invites)) setAgents(previous => ({ ...previous, ...Object.fromEntries(invites.map(agent => [agent.id, agent.agentName])) }));
+      } catch {
+        if (!controller.signal.aborted) setFailed(true);
+      } finally { busy = false; }
+    };
+    void load();
+    const timer = window.setInterval(() => void load(), 12000);
+    return () => { controller.abort(); window.clearInterval(timer); };
+  }, [refresh]);
+
+  const active = parcels.filter(parcel => freightLanes.some(lane => lane.statuses.includes(parcel.status)));
+  const destinations = [...new Set(active.map(parcel => parcel.destination).filter(Boolean))].sort();
+  const term = query.trim().toLowerCase();
+  const collector = (parcel: Parcel) => parcel.collectorAccessId ? agents[parcel.collectorAccessId] : parcel.receivedByName;
+  const filtered = active.filter(parcel => (!destination || parcel.destination === destination)
+    && (!term || [parcel.trackingNumber, parcel.origin, parcel.destination, parcel.description, collector(parcel)]
+      .some(value => value?.toLowerCase().includes(term))));
+  return <div className={`min-h-full space-y-4 p-4 ${display ? 'bg-slate-950 text-white' : 'bg-slate-100'}`}>
+    <header className="flex flex-wrap items-center justify-between gap-3">
+      <div><h2 className="text-xl font-black" style={display ? { color: '#fff' } : undefined}>Freight Board</h2>
+        <p role="status" className={failed ? 'text-sm font-semibold text-rose-500' : display ? 'text-sm text-slate-300' : 'text-sm text-slate-600'}>
+          {failed ? lastSync ? 'Connection lost · showing last received parcels' : 'Could not load parcels' : lastSync ? `Updated ${lastSync.toLocaleTimeString()}` : 'Loading parcels…'}
+        </p>
+      </div>
+      <div className="flex gap-2 text-slate-900">
+        <button onClick={() => setRefresh(attempt => attempt + 1)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold">Refresh</button>
+        <button aria-pressed={display} onClick={() => setDisplay(value => !value)} className="rounded-lg bg-indigo-700 px-3 py-2 text-sm font-bold text-white">{display ? 'Exit display mode' : 'Display mode'}</button>
+      </div>
+    </header>
+    {!display && <div className="flex flex-wrap gap-2">
+      <input aria-label="Search freight board" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search tracking, route, goods or agent" className="min-w-56 flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" />
+      <select aria-label="Filter by destination" value={destination} onChange={event => setDestination(event.target.value)} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm">
+        <option value="">All destinations</option>
+        {destination && !destinations.includes(destination) && <option>{destination}</option>}
+        {destinations.map(place => <option key={place}>{place}</option>)}
+      </select>
+    </div>}
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {freightLanes.map(lane => {
+        const rows = filtered.filter(parcel => lane.statuses.includes(parcel.status));
+        return <section key={lane.label} className={`min-w-0 space-y-2 rounded-xl border-t-4 bg-slate-200 p-3 text-slate-900 ${lane.tone}`}>
+          <h3 className="flex items-center justify-between gap-2 font-extrabold">{lane.label}<span className="rounded bg-white px-2 text-sm">{lastSync ? rows.length : '–'}</span></h3>
+          {lastSync && !rows.length && <p className="py-3 text-sm text-slate-600">No matching parcels</p>}
+          {rows.map(parcel => <article key={parcel.id} className={`block w-full space-y-1 break-words rounded-lg bg-white p-3 text-left shadow-sm ${display ? 'text-lg' : 'text-sm'}`}>
+            <span className="block font-mono text-xs font-bold">{parcel.trackingNumber}</span>
+            <span className="block font-bold">{parcel.origin} → {parcel.destination}</span>
+            <span className="block text-xs text-slate-600">{parcel.quantity} × {parcel.description || 'Parcel'} · {LABEL[parcel.status]}</span>
+            <span className="block text-xs font-semibold">{parcel.collectorAccessId ? 'Collector' : 'Received by'} · {collector(parcel) || 'Unavailable'}</span>
+            <span className="block text-xs font-semibold text-slate-700">{[parcel.fragile && 'Fragile', parcel.cashOnDelivery && 'Collect on delivery', parcel.paymentStatus === 'UNPAID' && 'Unpaid'].filter(Boolean).join(' · ')}</span>
+          </article>)}
+        </section>;
+      })}
+    </div>
+  </div>;
 }
 
 /* ─────────── Receiving Agent — intake ─────────── */
