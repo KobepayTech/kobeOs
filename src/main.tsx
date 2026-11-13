@@ -224,6 +224,8 @@ if (metaSetupToken) {
 } else if (retailRoute) {
   import('./apps/retail-workspace').then(({ default: RetailWorkspace }) =>
     mount(<RetailWorkspace slug={retailRoute[1]?.toLowerCase() ?? tenantSub ?? ''} basePath={browserPathname} />));
+} else if (pathname === '/apps' || pathname === '/apps/') {
+  import('./public/OnlineApps').then(({ default: OnlineApps }) => mount(<OnlineApps store={tenantSub} />));
 } else if (isMobileWebapp) {
   import('./mobile/MobileRoot').then(({ default: MobileRoot }) => mount(<MobileRoot />));
 } else if (isKdsDisplay) {

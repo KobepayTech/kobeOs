@@ -215,21 +215,16 @@ const MOBILE_PWA_APPS: { path: string; label: string; icon: typeof Receipt }[] =
 
 function MobilePwaApps({ launchApp }: { launchApp: (appId: string) => void }) {
   const [slug, setSlug] = useState<string | null>(null);
-  const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    api<{ domainSlug?: string; publishedUrl?: string }>('/store-settings')
-      .then((d) => { setSlug(d?.domainSlug || null); setPublishedUrl(d?.publishedUrl || null); })
-      .catch(() => { /* leave null — panel shows the setup hint */ })
+    api<{ domainSlug?: string }>('/store-settings')
+      .then(data => setSlug(data?.domainSlug || null))
+      .catch(() => { /* Show the setup prompt when no store could be loaded. */ })
       .finally(() => setLoaded(true));
   }, []);
 
-  // Prefer the published HTTPS subdomain; fall back to the current origin so
-  // links still work for an operator testing before publishing.
-  const base = publishedUrl
-    ? publishedUrl.replace(/\/+$/, '')
-    : (typeof window !== 'undefined' ? window.location.origin : '');
+  const base = 'https://kobeapptz.com';
   const homeUrl = slug ? `${base}/m/${slug}` : '';
   const urlFor = (p: string) => `${base}/m/${slug}${p ? `/${p}` : ''}`;
 
@@ -240,6 +235,7 @@ function MobilePwaApps({ launchApp }: { launchApp: (appId: string) => void }) {
       <div className="flex items-center gap-2 mb-3">
         <Smartphone className="w-3.5 h-3.5 text-slate-400" />
         <span className="text-[10px] font-medium text-slate-400 uppercase tracking-wider">Mobile Apps (PWA)</span>
+        <a href={base + '/apps'} target="_blank" rel="noopener noreferrer" className="ml-auto text-xs text-indigo-300 underline">All online apps</a>
       </div>
 
       {!slug ? (

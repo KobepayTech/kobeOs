@@ -82,6 +82,14 @@ jobs:
             curl -fsS --connect-timeout 10 --max-time 20 "https://$host/" | grep -q 'id="root"'
             echo "Verified cloud-hosted frontend: https://$host" >> "$GITHUB_STEP_SUMMARY"
           done
+          for url in https://kobeapptz.com/apps https://kobeapptz.com/shop/public-hosting-check \
+            https://{tuma,mzigo,me,track,posys,property,estate,pay,contract}.kobeapptz.com/ \
+            https://cargotz.kobeapptz.com/cargotz/{collect,board,receive,dispatch,load,destination,warehouse,owner}; do
+            curl -fsS --connect-timeout 10 --max-time 20 -D "$RUNNER_TEMP/public-headers" "$url" -o "$RUNNER_TEMP/mobile-app.html"
+            grep -qi '^x-kobe-public-hosting: cloudflare-assets' "$RUNNER_TEMP/public-headers"
+            grep -qi "^x-kobe-public-revision: $GITHUB_SHA" "$RUNNER_TEMP/public-headers"
+            grep -q 'id="root"' "$RUNNER_TEMP/mobile-app.html"
+          done
           # Exercise direct entry into signed-in ERP modules on the cloud host.
           for path in pos inventory po orders discounts hotel/kitchen dispatch; do
             curl -fsS --connect-timeout 10 --max-time 20 -D "$RUNNER_TEMP/public-headers" \

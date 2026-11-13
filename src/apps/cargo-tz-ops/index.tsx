@@ -189,26 +189,29 @@ const freightLanes = [
 ];
 
 function MobileLinks() {
-  const [role, setRole] = useState('collect');
+  const [qr, setQr] = useState('');
   const [notice, setNotice] = useState('');
-  const url = cargoTzLink('/cargotz/' + role);
+  const links = [{ slug: 'collect', name: 'Collection agent' }, ...Object.values(ROLE_META)];
   return <section className="border-b bg-white p-4">
     <h2 className="font-bold">CargoTZ mobile links</h2>
-    <p className="text-sm text-slate-600">Assign staff access in Owner. Send each collection agent their personal invitation from Owner.</p>
-    <div className="mt-3 flex flex-wrap items-center gap-4">
-      <QRCodeSVG value={url} size={104} title="Scan to open CargoTZ on your phone" />
-      <div className="min-w-0 flex-1 space-y-2">
-        <select aria-label="Mobile workspace" value={role} onChange={event => { setRole(event.target.value); setNotice(''); }} className="rounded-lg border p-2 text-sm">
-          <option value="collect">Collection agent</option>
-          {Object.values(ROLE_META).map(item => <option key={item.slug} value={item.slug}>{item.name}</option>)}
-        </select>
-        <input aria-label="Mobile workspace link" readOnly value={url} onFocus={event => event.target.select()} className="block w-full max-w-lg rounded-lg border p-2 text-sm" />
-        <button type="button" className="rounded-lg border px-3 py-1.5 text-sm font-bold" onClick={() => {
-          void (navigator.clipboard?.writeText(url) ?? Promise.reject()).then(() => setNotice('Link copied.'), () => setNotice('Select and copy the address above.'));
-        }}>Copy link</button>
-        <span role="status" className="ml-2 text-sm">{notice}</span>
-      </div>
-    </div>
+    <p className="mb-3 text-sm text-slate-600">Assign staff access in Owner. Send each collection agent their personal invitation from Owner.</p>
+    <ul className="grid gap-2 sm:grid-cols-2">
+      {links.map(({ slug, name }) => {
+        const url = cargoTzLink('/cargotz/' + slug);
+        return <li key={slug} className="min-w-0 rounded-lg border border-slate-200 p-3">
+          <a href={url} target="_blank" rel="noopener noreferrer" className="block text-sm font-bold text-blue-700 underline">{name}</a>
+          <p className="break-all text-xs text-slate-600">{url}</p>
+          <div className="mt-2 flex gap-3 text-xs font-bold">
+            <button type="button" onClick={() => {
+              void (navigator.clipboard?.writeText(url) ?? Promise.reject()).then(() => setNotice(name + ' link copied.'), () => setNotice('Select and copy the address below ' + name + '.'));
+            }}>Copy link</button>
+            <button type="button" aria-expanded={qr === slug} onClick={() => setQr(value => value === slug ? '' : slug)}>Phone QR</button>
+          </div>
+          {qr === slug && <QRCodeSVG className="mt-3" value={url} size={104} marginSize={4} title={'Open ' + name + ' on a phone'} />}
+        </li>;
+      })}
+    </ul>
+    <p role="status" className="mt-2 text-sm">{notice}</p>
   </section>;
 }
 
