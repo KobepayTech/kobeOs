@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '@/lib/api';
+import { BodaRoster, BodaSearch, JumlaDispatchOrders } from './BodaDispatch';
 import { useQRScanner } from '@/hooks/useQRScanner';
 import {
   Loader2, QrCode, PackageCheck, Truck,
@@ -42,6 +43,8 @@ interface DispatchOrder {
   status: DispatchStatus;
   customerName?: string | null;
   deliveryAddress?: string | null;
+  fulfillmentLocation?: string | null;
+  fulfillmentMethod?: 'PICKUP' | 'DELIVERY' | null;
   phone?: string | null;
   total: number | string;
   paymentMethod?: string;
@@ -252,6 +255,10 @@ export default function MobileDispatch() {
 
         {/* Order list */}
         <div className="flex-1 overflow-y-auto px-4 pb-24">
+          {slug && <details className="mb-3 rounded-xl border border-slate-200 bg-white p-3">
+            <summary className="cursor-pointer text-sm font-bold text-slate-900">Boda boda pickup</summary>
+            <div className="mt-3 space-y-3"><BodaSearch key={slug} slug={slug} /><BodaRoster key={slug} slug={slug} /><JumlaDispatchOrders key={slug} slug={slug} /></div>
+          </details>}
           {loading ? (
             <div className="grid place-items-center py-16"><Loader2 className="w-5 h-5 animate-spin text-slate-400" /></div>
           ) : err ? (
@@ -476,10 +483,12 @@ export default function MobileDispatch() {
           <h3 className="text-xs font-extrabold uppercase text-slate-500 tracking-wide">Customer</h3>
           <div className="text-sm font-bold text-slate-900">{order.customerName || 'Walk-in customer'}</div>
           {order.phone && <div className="text-xs text-slate-500">{order.phone}</div>}
-          {order.deliveryAddress && (
-            <div className="text-xs text-slate-500 bg-slate-50 rounded-lg p-2 mt-1">{order.deliveryAddress}</div>
+          {(order.fulfillmentLocation || order.deliveryAddress) && (
+            <div className="text-xs text-slate-500 bg-slate-50 rounded-lg p-2 mt-1">{order.fulfillmentLocation || order.deliveryAddress}</div>
           )}
         </div>
+
+        {slug && order.status === 'PACKED' && order.fulfillmentMethod === 'DELIVERY' && <BodaSearch key={order.id} slug={slug} />}
 
         {/* Items */}
         <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
