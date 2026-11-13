@@ -45,6 +45,7 @@ export class PosController {
 
   @Get('orders') listOrders(@CurrentUser('id') uid: string) { return this.orders.list(uid); }
   @Get('orders/kds') listForKds(@CurrentUser('id') uid: string) { return this.orders.listForKds(uid); }
+  @Get('orders/kds/tickets') listKdsTickets(@CurrentUser('id') uid: string) { return this.orders.listKdsTickets(uid); }
   @Get('orders/:id') getOrder(@CurrentUser('id') uid: string, @Param('id') id: string) { return this.orders.get(uid, id); }
   @Post('orders') createOrder(@CurrentUser('id') uid: string, @Body() dto: CreateOrderDto) { return this.orders.create(uid, dto); }
   @Patch('orders/:id') updateOrder(@CurrentUser('id') uid: string, @Param('id') id: string, @Body() dto: UpdateOrderDto) { return this.orders.update(uid, id, dto); }

@@ -1,10 +1,11 @@
 import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, NotFoundException, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
-import { IsEmail, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsEmail, IsIn, IsInt, IsNumber, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
 import { DataSource, In } from 'typeorm';
 import { CurrentUser, AuthUser } from '../auth/current-user.decorator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { DiscountApprovalService } from '../discount-approval/discount-approval.service';
 import { DiscountRequest } from '../discount-approval/discount-approval.entity';
+import { KdsDisplayTokens } from './kds-display.controller';
 import { OrdersService } from '../pos/pos.service';
 import { PosOrder, PosProduct } from '../pos/pos.entity';
 import { StoreRegistration } from '../store-registry/store-registry.entity';
@@ -15,6 +16,7 @@ import { RETAIL_ROLES, RetailMember, RetailRole } from './retail-member.entity';
 class RetailMemberDto {
   @IsEmail() @MaxLength(254) email!: string;
   @IsIn(RETAIL_ROLES) role!: RetailRole;
+  @IsOptional() @IsBoolean() canFulfill?: boolean;
 }
 
 class RetailDiscountDto {
@@ -27,14 +29,14 @@ class RetailDiscountDto {
 @Controller('retail-workspace')
 @UseGuards(JwtAuthGuard)
 export class RetailWorkspaceController {
-  constructor(private readonly db: DataSource, private readonly discounts: DiscountApprovalService, private readonly pos: OrdersService) {}
+  constructor(private readonly db: DataSource, private readonly discounts: DiscountApprovalService, private readonly pos: OrdersService, private readonly displayTokens: KdsDisplayTokens) {}
 
   private async scope(actor: AuthUser, slug?: string) {
     if (!actor.id || !['user', 'admin'].includes(actor.role ?? '')) throw new ForbiddenException();
     const stores = this.db.getRepository(StoreSettings);
     if (!slug) {
       const shop = await stores.findOneBy({ ownerId: actor.id });
-      return { ownerId: actor.id, shop, role: 'owner' as const };
+      return { ownerId: actor.id, shop, role: 'owner' as const, canFulfill: true };
     }
     if (typeof slug !== 'string') throw new BadRequestException('Choose one shop.');
     const normalized = slug.trim().toLowerCase();
@@ -42,10 +44,10 @@ export class RetailWorkspaceController {
     const matching = await stores.find({ where: { domainSlug: normalized }, take: 2 });
     if (matching.length !== 1) throw new NotFoundException('Shop workspace is unavailable.');
     const shop = matching[0];
-    if (shop.ownerId === actor.id) return { ownerId: shop.ownerId, shop, role: 'owner' as const };
+    if (shop.ownerId === actor.id) return { ownerId: shop.ownerId, shop, role: 'owner' as const, canFulfill: true };
     const member = await this.db.getRepository(RetailMember).findOneBy({ shopId: shop.id, userId: actor.id });
     if (!member || !RETAIL_ROLES.includes(member.role)) throw new ForbiddenException('Your KobeOS account has no access to this shop.');
-    return { ownerId: shop.ownerId, shop, role: member.role };
+    return { ownerId: shop.ownerId, shop, role: member.role, canFulfill: member.role === 'manager' || member.canFulfill === true };
   }
 
   private async ownedShop(actor: AuthUser, slug?: string) {
@@ -57,7 +59,7 @@ export class RetailWorkspaceController {
 
   @Get()
   async overview(@CurrentUser() actor: AuthUser, @Query('slug') slug?: string) {
-    const { shop, ownerId, role } = await this.scope(actor, slug);
+    const { shop, ownerId, role, canFulfill } = await this.scope(actor, slug);
     const products = this.db.getRepository(PosProduct);
     const orders = this.db.getRepository(PosOrder);
     const requests = this.db.getRepository(DiscountRequest);
@@ -79,6 +81,7 @@ export class RetailWorkspaceController {
     }) : [];
     return {
       name: shop?.storeName || 'My shop', slug: shop?.domainSlug || '', role, published: shop?.isPublished ?? false,
+      canFulfill,
       canManageTeam: role === 'owner' && !!shop?.domainSlug,
       inventory: { skus: Number(inventory?.skus ?? 0), units: Number(inventory?.units ?? 0), low: Number(inventory?.low ?? 0) },
       pendingOrders, pendingApprovals, linked: linked.filter(shop => !!shop.domainSlug),
@@ -115,6 +118,37 @@ export class RetailWorkspaceController {
     return { fulfillmentStatus: result.fulfillmentStatus };
   }
 
+  @Get('fulfillment')
+  async fulfillmentQueue(@CurrentUser() actor: AuthUser, @Query('slug') slug?: string) {
+    const { ownerId, canFulfill } = await this.scope(actor, slug);
+    if (!canFulfill) throw new ForbiddenException('Your account cannot fulfill orders for this shop.');
+    return this.pos.listKdsTickets(ownerId);
+  }
+
+  @Post('fulfillment/display')
+  async pairDisplay(@CurrentUser() actor: AuthUser, @Query('slug') slug?: string) {
+    const { shop, role } = await this.scope(actor, slug);
+    if (!shop || role === 'staff') throw new ForbiddenException('Only shop owners and managers can pair a display.');
+    return this.displayTokens.issue(shop, actor.id);
+  }
+
+  @Post('fulfillment/:id/:action')
+  async fulfillOrder(
+    @CurrentUser() actor: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('action') action: string,
+    @Query('slug') slug?: string,
+  ) {
+    const { ownerId, canFulfill } = await this.scope(actor, slug);
+    if (!canFulfill) throw new ForbiddenException('Your account cannot fulfill orders for this shop.');
+    switch (action) {
+      case 'start': return { fulfillmentStatus: (await this.pos.markPreparing(ownerId, id)).fulfillmentStatus };
+      case 'ready': return { fulfillmentStatus: (await this.pos.markReady(ownerId, id)).fulfillmentStatus };
+      case 'collected': return { fulfillmentStatus: (await this.pos.markCollected(ownerId, id)).fulfillmentStatus };
+      default: throw new BadRequestException('Unknown fulfillment action.');
+    }
+  }
+
   @Get('team')
   async team(@CurrentUser() actor: AuthUser, @Query('slug') slug?: string) {
     const shop = await this.ownedShop(actor, slug);
@@ -123,7 +157,10 @@ export class RetailWorkspaceController {
     const users = await this.db.getRepository(User).find({
       where: { id: In(members.map(member => member.userId)) }, select: ['id', 'email', 'displayName'],
     });
-    return users.map(user => ({ ...user, role: members.find(member => member.userId === user.id)!.role }));
+    return users.map(user => {
+      const member = members.find(member => member.userId === user.id)!;
+      return { ...user, role: member.role, canFulfill: member.canFulfill };
+    });
   }
 
   @Post('team')
@@ -132,7 +169,7 @@ export class RetailWorkspaceController {
     const user = await this.db.getRepository(User).findOneBy({ email: dto.email.trim().toLowerCase() });
     if (!user || !['user', 'admin'].includes(user.role)) throw new NotFoundException('KobeOS shop account not found.');
     if (user.id === actor.id) throw new BadRequestException('The shop owner already has access.');
-    await this.db.getRepository(RetailMember).upsert({ shopId: shop.id, userId: user.id, role: dto.role }, ['shopId', 'userId']);
+    await this.db.getRepository(RetailMember).upsert({ shopId: shop.id, userId: user.id, role: dto.role, ...(dto.canFulfill == null ? {} : { canFulfill: dto.canFulfill }) }, ['shopId', 'userId']);
     return { id: user.id, role: dto.role };
   }
 
