@@ -2,12 +2,22 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertCircle, ArrowLeft, CheckCircle2, Loader2, RefreshCw } from 'lucide-react';
 import { verifyOAuthSession } from '@/lib/auth';
 import { ApiError } from '@/lib/api';
-import { clearPendingOAuth, rememberOAuth, providerNames, providerSignInUrl, oauthErrorMessage, type OAuthProvider } from '@/lib/oauth-flow';
+import { cargoOAuthReturn, clearPendingOAuth, rememberOAuth, providerNames, providerSignInUrl, oauthErrorMessage, type OAuthProvider } from '@/lib/oauth-flow';
 
 /** Completes a provider redirect, persists both tokens and the verified user,
  * then either opens the normal web KobeOS shell or hands the cloud credentials
  * back to a desktop OAuth popup's opener for local-session exchange. */
 export default function OAuthCallback({ provider }: { provider: OAuthProvider }) {
+  const [returnPath] = useState(() => cargoOAuthReturn(new URLSearchParams(window.location.search).get('next')));
+  const cargoDestination = useCallback(() => {
+    if (returnPath !== '/cargotz/collect') return returnPath;
+    try {
+      const invite = sessionStorage.getItem('cargotz_oauth_invite');
+      sessionStorage.removeItem('cargotz_oauth_invite');
+      if (invite) return returnPath + '#' + new URLSearchParams({ invite });
+    } catch { /* storage unavailable */ }
+    return returnPath;
+  }, [returnPath]);
   const credentials = useRef<{ access: string; refresh: string } | null>(null);
   const cancelled = useRef(false);
   const inFlight = useRef(false);
@@ -46,7 +56,7 @@ export default function OAuthCallback({ provider }: { provider: OAuthProvider })
       if (cancelled.current) return;
       clearPendingOAuth();
 
-      if (window.opener && !window.opener.closed) {
+      if (!returnPath && window.opener && !window.opener.closed) {
         // SECURITY: only the desktop (Electron) opener is file:// (opaque
         // origin) and needs a wildcard targetOrigin — and that receiver
         // additionally validates the sender origin + IS_DESKTOP. On a normal
@@ -67,7 +77,7 @@ export default function OAuthCallback({ provider }: { provider: OAuthProvider })
         return;
       }
 
-      window.location.replace('/');
+      window.location.replace(cargoDestination() ?? '/');
     } catch (err) {
       if (cancelled.current) return;
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
@@ -81,7 +91,7 @@ export default function OAuthCallback({ provider }: { provider: OAuthProvider })
     } finally {
       inFlight.current = false;
     }
-  }, [name, provider]);
+  }, [cargoDestination, name, provider, returnPath]);
 
   useEffect(() => { void complete(); }, [complete]);
 
@@ -90,11 +100,11 @@ export default function OAuthCallback({ provider }: { provider: OAuthProvider })
     request.current?.abort();
     credentials.current = null;
     clearPendingOAuth();
-    if (window.opener && !window.opener.closed) {
+    if (!returnPath && window.opener && !window.opener.closed) {
       window.close();
       return;
     }
-    window.location.replace('/?signin=1');
+    window.location.replace(cargoDestination() ?? '/?signin=1');
   };
 
   return (
@@ -131,7 +141,7 @@ export default function OAuthCallback({ provider }: { provider: OAuthProvider })
             >
               <RefreshCw className="h-4 w-4" /> Retry verification
             </button> : <a
-              href={providerSignInUrl(provider)}
+              href={providerSignInUrl(provider, returnPath)}
               onClick={() => rememberOAuth(provider)}
               className="mt-6 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#ff7616] text-sm font-black text-white"
             >

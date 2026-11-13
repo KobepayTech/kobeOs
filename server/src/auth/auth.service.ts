@@ -37,7 +37,7 @@ export interface IssuedTokens {
 }
 
 type OAuthProvider = 'google' | 'tiktok' | 'meta';
-type OAuthState = { provider: OAuthProvider; nonce: string; exp: number };
+type OAuthState = { provider: OAuthProvider; nonce: string; exp: number; cargoReturn?: string };
 
 @Injectable()
 export class AuthService {
@@ -107,9 +107,10 @@ export class AuthService {
   }
 
   /** Create a short-lived, tamper-proof OAuth state shared by web callbacks. */
-  createOAuthState(provider: OAuthProvider): string {
+  createOAuthState(provider: OAuthProvider, cargoReturn?: string): string {
     const payload: OAuthState = {
       provider,
+      cargoReturn: provider === 'google' ? this.cargoReturnPath(cargoReturn) : undefined,
       nonce: randomBytes(24).toString('base64url'),
       exp: Date.now() + 10 * 60_000,
     };
@@ -121,7 +122,7 @@ export class AuthService {
   }
 
   /** Reject callbacks whose state was altered, expired, or issued for another provider. */
-  verifyOAuthState(raw: string, provider: OAuthProvider): void {
+  verifyOAuthState(raw: string, provider: OAuthProvider): OAuthState {
     const [encoded, signature] = String(raw || '').split('.');
     if (!encoded || !signature) throw new UnauthorizedException('Invalid OAuth state');
     const expected = createHmac('sha256', this.config.getOrThrow<string>('JWT_SECRET'))
@@ -141,16 +142,26 @@ export class AuthService {
     if (state.provider !== provider || !state.nonce || !Number.isFinite(state.exp) || state.exp < Date.now()) {
       throw new UnauthorizedException('Expired or mismatched OAuth state');
     }
+    return state;
+  }
+
+  private cargoReturnPath(path?: string): string | undefined {
+    if (typeof path !== 'string') return undefined;
+    const url = new URL('https://cargotz.kobeapptz.com' + (path.startsWith('/') ? path : '/'));
+    if (url.origin !== 'https://cargotz.kobeapptz.com' || !/^\/cargotz\/(collect|board|receive|dispatch|load|destination|warehouse|owner)\/?$/.test(url.pathname)) return undefined;
+    return url.pathname;
   }
 
   /** Build the SPA landing URL. Tokens stay in the fragment and are not sent in HTTP requests. */
-  oauthFrontendRedirect(provider: OAuthProvider, result: IssuedTokens | Error): string {
-    const frontend = resolveFrontendUrl((key) => this.config.get<string>(key));
+  oauthFrontendRedirect(provider: OAuthProvider, result: IssuedTokens | Error, cargoReturn?: string): string {
+    const returnPath = provider === 'google' ? this.cargoReturnPath(cargoReturn) : undefined;
+    const frontend = returnPath ? 'https://cargotz.kobeapptz.com' : resolveFrontendUrl((key) => this.config.get<string>(key));
     const base = frontend.endsWith('/') ? frontend : `${frontend}/`;
     const redirect = new URL(`oauth/${provider}`, base);
     const fragment = result instanceof Error
       ? new URLSearchParams({ error: result.message || `${provider} sign-in failed` })
       : new URLSearchParams({ access_token: result.accessToken, refresh_token: result.refreshToken });
+    if (returnPath) redirect.searchParams.set('next', returnPath);
     redirect.hash = fragment.toString();
     return redirect.toString();
   }

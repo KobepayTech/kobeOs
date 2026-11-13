@@ -29,7 +29,25 @@ export function clearPendingOAuth(): void {
   try { sessionStorage.removeItem(PENDING_KEY); } catch { /* storage unavailable */ }
 }
 
-export function providerSignInUrl(provider: OAuthProvider): string {
+export function cargoOAuthReturn(path: string | null): string | undefined {
+  if (window.location.origin !== 'https://cargotz.kobeapptz.com' || !path?.startsWith('/')) return undefined;
+  const url = new URL(path, window.location.origin);
+  if (url.origin !== window.location.origin || !/^\/cargotz\/(collect|board|receive|dispatch|load|destination|warehouse|owner)\/?$/.test(url.pathname)) return undefined;
+  return url.pathname;
+}
+
+export function providerSignInUrl(provider: OAuthProvider, cargoReturn = window.location.pathname + window.location.search): string {
+  const path = provider === 'google' ? cargoOAuthReturn(cargoReturn) : undefined;
+  if (path) {
+    if (window.location.pathname === path) {
+      const invite = new URLSearchParams(window.location.hash.slice(1)).get('invite');
+      try {
+        if (invite) sessionStorage.setItem('cargotz_oauth_invite', invite);
+        else sessionStorage.removeItem('cargotz_oauth_invite');
+      } catch { /* storage unavailable */ }
+    }
+    return 'https://api.kobeapptz.com/api/auth/oauth/google?' + new URLSearchParams({ cargoReturn: path });
+  }
   return `${accountApiBase()}/auth/oauth/${provider}`;
 }
 

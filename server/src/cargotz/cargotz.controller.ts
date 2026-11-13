@@ -79,6 +79,11 @@ class AdvanceDto {
   @IsOptional() @IsString() note?: string;
 }
 
+class FreightPaymentDto {
+  @IsBoolean() paid!: boolean;
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0.01) @Max(9999999999.99) transportFee?: number;
+}
+
 class StaffDto {
   @IsString() @MaxLength(120) name!: string;
   @IsIn(['Owner', 'Agent', 'Warehouse']) role!: CtzRole;
@@ -102,6 +107,9 @@ export class CargoTzController {
   constructor(private readonly svc: CargoTzService) {}
 
   private ctx(uid: string, pin?: string) { return this.svc.actor(uid, pin); }
+
+  @Get('freight-volume')
+  freightVolume(@CurrentUser('id') uid: string) { return this.svc.freightVolume(uid); }
 
   /* Owner dashboard */
   @Get('dashboard') dashboard(@CurrentUser('id') uid: string) { return this.svc.dashboard(uid); }
@@ -173,8 +181,8 @@ export class CargoTzController {
   }
 
   @Post('parcels/:idOrTracking/payment')
-  async pay(@CurrentUser('id') uid: string, @Headers('x-ctz-pin') pin: string, @Param('idOrTracking') k: string, @Body() dto: { paid: boolean }) {
-    return this.svc.setPayment(uid, await this.ctx(uid, pin), k, !!dto.paid);
+  async pay(@CurrentUser('id') uid: string, @Headers('x-ctz-pin') pin: string, @Param('idOrTracking') k: string, @Body() dto: FreightPaymentDto) {
+    return this.svc.setPayment(uid, await this.ctx(uid, pin), k, dto);
   }
 }
 
