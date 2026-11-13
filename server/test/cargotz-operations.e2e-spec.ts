@@ -47,12 +47,25 @@ describe('CargoTZ operational handoff', () => {
       companyName: 'Cargo fixture', agentName: 'Collector', agentPhone: '0711222333',
     }).expect(201);
     const accepted = await as(agent, 'post', 'cargotz/collector/accept').send({ token: invite.body.token }).expect(201);
+    expect(accepted.body.approved).toBe(false);
+    const approvals = await as(owner, 'get', 'cargotz/collector-invites').expect(200);
+    expect(approvals.body).toEqual(expect.arrayContaining([expect.objectContaining({ id: invite.body.id, pendingApproval: true, accepted: false })]));
+    expect((await as(agent, 'get', 'cargotz/collector/companies').expect(200)).body).toEqual([]);
+    const approvalPath = `cargotz/collector-invites/${invite.body.id}/approve`;
+    await as(outsider, 'post', approvalPath).expect(404);
+    await as(owner, 'post', approvalPath).expect(201);
+    expect((await as(agent, 'get', 'cargotz/collector/companies').expect(200)).body).toEqual(expect.arrayContaining([expect.objectContaining({ id: invite.body.id })]));
+
     const collection = await as(agent, 'post', 'cargotz/collector/collections').send({
       accessId: accepted.body.id, requestId: randomUUID(), ownerName: 'Goods owner', ownerPhone: '0755555555',
       receiverName: 'Other recipient', receiverPhone: '0766666666', origin, destination: 'Mbeya',
       description: 'Two shop orders', cartonCount: 2, handoff: 'DROPOFF', handoffLocation: origin,
     }).expect(201);
     const [first, second] = collection.body.map((row: { trackingNumber: string }) => row.trackingNumber);
+    expect(first).toMatch(/^\d{11}$/);
+    expect(second).toMatch(/^\d{11}$/);
+    expect(first).not.toBe(second);
+
     const walkIn = await as(owner, 'post', 'cargotz/parcels').send({
       senderName: 'Second owner', senderPhone: '0755444333', receiverName: 'Second owner',
       receiverPhone: '0755444333', origin, destination: 'Iringa', description: 'One carton',

@@ -12,6 +12,11 @@ const label = {
 
 afterEach(cleanup);
 
+test('recognizes a handwritten carton code with spaces and rejects an incorrect check digit', () => {
+  expect(trackingFromScan('Carton: 123 456 789 05')).toBe('12345678905');
+  expect(trackingFromScan('12345678906')).toBe('');
+});
+
 test('new labels open public tracking and intake accepts both new and legacy references', () => {
   render(<ParcelLabel parcel={label} />);
   const href = screen.getByRole('link', { name: 'Open tracking page' }).getAttribute('href');

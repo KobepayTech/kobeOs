@@ -1,7 +1,7 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomInt } from 'node:crypto';
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, IsNull, Repository } from 'typeorm';
+import { EntityManager, IsNull, Not, QueryFailedError, Repository } from 'typeorm';
 import { CtzParcel, CtzWarehouse, CtzStatusEvent, CtzStaff, CtzStatus, CTZ_STATUSES, CtzRole, CtzCollectorAccess } from './cargotz.entity';
 
 import { cargoBranchKey } from './cargotz-trip.entity';
@@ -9,6 +9,12 @@ import { cargoBranchKey } from './cargotz-trip.entity';
 type IntakeScope = { name: string; branch?: string };
 
 const inviteHash = (token: string) => createHash('sha256').update(token).digest('hex');
+function shortCartonCode() {
+  const digits = String(randomInt(10_000_000_000)).padStart(10, '0');
+  const sum = [...digits].reduce((total, digit, index) => total + Number(digit) * (index % 2 ? 3 : 1), 0);
+  return digits + (10 - sum % 10) % 10;
+}
+
 const collectorCompany = ({ id, companyName, agentName, agentPhone }: CtzCollectorAccess) =>
   ({ id, companyName, agentName, agentPhone });
 
@@ -72,7 +78,8 @@ export class CargoTzService {
     });
     return rows.map((row) => ({
       ...collectorCompany(row),
-      accepted: !!row.collectorId,
+      accepted: !!row.approvedAt,
+      pendingApproval: !!row.collectorId && !row.approvedAt,
       expiresAt: row.expiresAt,
     }));
   }
@@ -110,13 +117,22 @@ export class CargoTzService {
         throw new NotFoundException('This invitation is unavailable or expired');
       }
       if (!row.collectorId) await repo.update(row.id, { collectorId: uid });
-      return collectorCompany(row);
+      return { ...collectorCompany(row), approved: !!row.approvedAt };
     });
+  }
+
+  async approveCollector(ownerId: string, id: string) {
+    const result = await this.collectors.createQueryBuilder().update(CtzCollectorAccess)
+      .set({ approvedAt: () => 'COALESCE("approvedAt", CURRENT_TIMESTAMP)' })
+      .where('"ownerId" = :ownerId AND id = :id AND "collectorId" IS NOT NULL AND "revokedAt" IS NULL', { ownerId, id })
+      .execute();
+    if (!result.affected) throw new NotFoundException('No collector request to approve');
+    return { approved: true };
   }
 
   async collectorCompanies(uid: string) {
     const rows = await this.collectors.find({
-      where: { collectorId: uid, revokedAt: IsNull() },
+      where: { collectorId: uid, approvedAt: Not(IsNull()), revokedAt: IsNull() },
       order: { companyName: 'ASC' },
     });
     return rows.map(collectorCompany);
@@ -130,49 +146,55 @@ export class CargoTzService {
     if (!!dto.receiverName !== !!dto.receiverPhone) {
       throw new BadRequestException('Enter both the recipient name and phone, or leave both blank');
     }
-    return this.collectors.manager.transaction(async (manager) => {
-      const access = await manager.getRepository(CtzCollectorAccess).findOne({
-        where: { id: dto.accessId, collectorId: uid, revokedAt: IsNull() },
-        lock: { mode: 'pessimistic_write' },
-      });
-      if (!access) throw new ForbiddenException('You do not have access to this cargo company');
-      const parcels = manager.getRepository(CtzParcel);
-      const events = manager.getRepository(CtzStatusEvent);
-      const where = { ownerId: access.ownerId, collectorAccessId: access.id, collectionId: dto.requestId };
-      let rows = await parcels.find({ where, order: { cartonNumber: 'ASC' } });
-      if (!rows.length) {
-        const origin = dto.origin.trim();
-        const destination = dto.destination.trim();
-        const senderName = dto.ownerName.trim();
-        const senderPhone = dto.ownerPhone.trim();
-        const notes = `${dto.handoff === 'PICKUP' ? 'Pickup requested' : 'Agent drop-off'} · ${dto.handoffLocation.trim()}`;
-        rows = await parcels.save(Array.from({ length: dto.cartonCount }, (_, index) => parcels.create({
-          ...where,
-          trackingNumber: `CTZ-${ymd(new Date())}-${randomBytes(10).toString('hex').toUpperCase()}`,
-          cartonNumber: index + 1,
-          cartonCount: dto.cartonCount,
-          senderName,
-          senderPhone,
-          receiverName: dto.receiverName?.trim() || senderName,
-          receiverPhone: dto.receiverPhone?.trim() || senderPhone,
-          description: dto.description.trim(),
-          origin,
-          destination,
-          currentLocation: origin,
-          status: 'AWAITING_HANDOFF',
-          notes,
-        })));
-        await events.save(rows.map((parcel) => events.create({
-          ownerId: access.ownerId,
-          parcelId: parcel.id,
-          status: 'AWAITING_HANDOFF',
-          updatedByName: access.agentName,
-          location: origin,
-        })));
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await this.collectors.manager.transaction(async (manager) => {
+          const access = await manager.getRepository(CtzCollectorAccess).findOne({
+            where: { id: dto.accessId, collectorId: uid, approvedAt: Not(IsNull()), revokedAt: IsNull() },
+            lock: { mode: 'pessimistic_write' },
+          });
+          if (!access) throw new ForbiddenException('You do not have access to this cargo company');
+          const parcels = manager.getRepository(CtzParcel);
+          const events = manager.getRepository(CtzStatusEvent);
+          const where = { ownerId: access.ownerId, collectorAccessId: access.id, collectionId: dto.requestId };
+          let rows = await parcels.find({ where, order: { cartonNumber: 'ASC' } });
+          if (!rows.length) {
+            const origin = dto.origin.trim();
+            const destination = dto.destination.trim();
+            const senderName = dto.ownerName.trim();
+            const senderPhone = dto.ownerPhone.trim();
+            const notes = `${dto.handoff === 'PICKUP' ? 'Pickup requested' : 'Agent drop-off'} · ${dto.handoffLocation.trim()}`;
+            rows = await parcels.save(Array.from({ length: dto.cartonCount }, (_, index) => parcels.create({
+              ...where,
+              trackingNumber: shortCartonCode(),
+              cartonNumber: index + 1,
+              cartonCount: dto.cartonCount,
+              senderName,
+              senderPhone,
+              receiverName: dto.receiverName?.trim() || senderName,
+              receiverPhone: dto.receiverPhone?.trim() || senderPhone,
+              description: dto.description.trim(),
+              origin,
+              destination,
+              currentLocation: origin,
+              status: 'AWAITING_HANDOFF',
+              notes,
+            })));
+            await events.save(rows.map((parcel) => events.create({
+              ownerId: access.ownerId,
+              parcelId: parcel.id,
+              status: 'AWAITING_HANDOFF',
+              updatedByName: access.agentName,
+              location: origin,
+            })));
+          }
+          return rows.map(({ trackingNumber, origin, destination, cartonNumber, cartonCount }) =>
+            ({ trackingNumber, origin, destination, cartonNumber, cartonCount }));
+        });
+      } catch (cause) {
+        if (attempt >= 4 || !(cause instanceof QueryFailedError) || cause.driverError?.code !== '23505') throw cause;
       }
-      return rows.map(({ trackingNumber, origin, destination, cartonNumber, cartonCount }) =>
-        ({ trackingNumber, origin, destination, cartonNumber, cartonCount }));
-    });
+    }
   }
 
   private async intakeActor(uid: string, pin?: string) {

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, ApiError, getRefreshToken, getToken } from '@/lib/api';
+import { api, ApiError, getRefreshToken, getToken, uploadFile } from '@/lib/api';
 import LoginScreen from '@/components/LoginScreen';
 import { useQRScanner } from '@/hooks/useQRScanner';
 import { usePwaManifest } from '@/hooks/usePwaManifest';
 import { InstallPwaButton } from '@/mobile/InstallPwaButton';
 import { QRCodeSVG } from 'qrcode.react';
-import { cargoTzLink, LabelPrintStyles, ParcelLabel, trackingFromScan } from './parcel-label';
+import { cargoTzLink, isLocalCargoTz, LabelPrintStyles, ParcelLabel, trackingFromScan } from './parcel-label';
 import { CollectorInvites, PendingHandoffs } from './handoffs';
 import { CargoStaff, TripOperations, type StaffRole, type Workspace } from './trips';
 import {
@@ -53,6 +53,8 @@ export default function CargoTzOps({ role, standaloneBase, handoffReference }: {
   const [signedIn, setSignedIn] = useState(() => Boolean(getToken() || getRefreshToken()));
   const [selectedTab, setTab] = useState<CargoOpsTab>(role ?? 'intake');
   const [links, setLinks] = useState(false);
+  const [pendingApprovals, setPendingApprovals] = useState(0);
+  const [reviewAccess, setReviewAccess] = useState(false);
   const [tracking, setTracking] = useState('');
   const [pin, setPin] = useState('');
   const [grants, setGrants] = useState<Workspace[]>([]);
@@ -96,6 +98,19 @@ export default function CargoTzOps({ role, standaloneBase, handoffReference }: {
     }), [standalone]);
 
   useEffect(() => {
+    if (!signedIn || workspaceId !== 'mine' || isLocalCargoTz()) return;
+    const controller = new AbortController();
+    const refresh = () => {
+      void operationsApi<{ pendingApproval?: boolean }[]>('/cargotz/collector-invites', { signal: controller.signal })
+        .then(rows => { if (!controller.signal.aborted) setPendingApprovals(rows.filter(row => row.pendingApproval).length); })
+        .catch(() => {});
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 5000);
+    return () => { controller.abort(); window.clearInterval(timer); };
+  }, [operationsApi, signedIn, workspaceId]);
+
+  useEffect(() => {
     if (standalone && !signedIn) return;
     const controller = new AbortController();
     operationsApi<Workspace[]>('/cargotz/operations/workspaces', { signal: controller.signal })
@@ -123,29 +138,31 @@ export default function CargoTzOps({ role, standaloneBase, handoffReference }: {
       <div className="flex items-center justify-between px-4 py-3 bg-white text-slate-900 border-b border-slate-200 shrink-0">
         <div className="flex items-center gap-2"><div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center"><PackageCheck className="w-4 h-4 text-white" /></div><div><span className="font-extrabold">CargoTZ</span><span className="block text-[10px] text-slate-500">Domestic operations</span></div></div>
         <div className="flex items-center gap-2">
-          {standalone && <InstallPwaButton />}
-          {workspaceId === 'mine' && <button type="button" aria-expanded={links} className="rounded-lg border px-3 py-1.5 text-xs font-bold" onClick={() => setLinks(value => !value)}>Mobile links</button>}
+          {standalone && !links && <InstallPwaButton />}
+          {workspaceId === 'mine' && pendingApprovals > 0 && <button type="button" className="rounded-lg border border-amber-500 bg-amber-100 px-3 py-1.5 text-xs font-bold text-amber-900" onClick={() => { setLinks(false); setReviewAccess(value => !value); setPin(''); setTab('dashboard'); }}>
+            {pendingApprovals} {pendingApprovals === 1 ? 'access request' : 'access requests'}
+          </button>}
+          {workspaceId === 'mine' && <button type="button" aria-expanded={links} className="rounded-lg border px-3 py-1.5 text-xs font-bold" onClick={() => setLinks(value => !value)}>{links ? 'Back to CargoTZ' : 'Mobile links'}</button>}
           {workspaceId === 'mine' && ['intake', 'warehouse', 'dashboard'].includes(tab) && <input value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))} placeholder="Staff PIN" inputMode="numeric"
             className="w-24 h-8 px-2 rounded-md text-slate-900 text-xs text-center tracking-widest" title="Optional — your 4-digit staff PIN attributes the action" />}
         </div>
       </div>
       {availableWorkspaces.length > 0 && <label className="flex items-center gap-2 border-b bg-white px-4 py-2 text-sm">
-        Cargo workspace<select className="min-w-0 rounded-lg border p-1.5" value={workspaceId} onChange={(event) => setWorkspaceChoice(event.target.value)}>
+        Cargo workspace<select className="min-w-0 rounded-lg border p-1.5" value={workspaceId} onChange={(event) => { setLinks(false); setWorkspaceChoice(event.target.value); }}>
           <option value="mine">My company</option>
           {availableWorkspaces.map((item) => <option key={workspaceKey(item)} value={workspaceKey(item)}>{item.branch} · Company {item.ownerId.slice(0, 8)}</option>)}
         </select>
       </label>}
       {workspaceError && <p role="alert" className="bg-amber-50 px-4 py-2 text-sm text-amber-900">Could not load assigned workspaces. {workspaceError}</p>}
-      <div className="flex shrink-0 overflow-x-auto border-b border-slate-200 bg-white px-2">
+      {!links && <div className="flex shrink-0 overflow-x-auto border-b border-slate-200 bg-white px-2">
         {visibleTabs.map((t) => (
           <button key={t.key} onClick={() => setTab(t.key)} className={`flex-1 shrink-0 px-2 py-2.5 inline-flex items-center justify-center gap-1.5 text-xs font-bold ${tab === t.key ? 'text-emerald-700 border-b-2 border-emerald-600' : 'text-slate-500'}`}>
             <t.Icon className="w-4 h-4" /> {t.label}
           </button>
         ))}
-      </div>
-      <div className="flex-1 overflow-auto">
-        {links && workspaceId === 'mine' && <MobileLinks />}
-        {workspaceLoading ? <p className="p-4 text-sm" role="status">Loading CargoTZ workspace…</p> : (workspaceId === 'mine' || workspace) && <>
+      </div>}
+      <div key={links ? 'links' : 'operations'} className="flex-1 overflow-auto">
+        {links && workspaceId === 'mine' ? <MobileLinks /> : workspaceLoading ? <p className="p-4 text-sm" role="status">Loading CargoTZ workspace…</p> : (workspaceId === 'mine' || workspace) && <>
         {tab === 'intake' && (
           <>
             <div className="mx-auto max-w-3xl px-4 pt-4"><PendingHandoffs
@@ -168,7 +185,7 @@ export default function CargoTzOps({ role, standaloneBase, handoffReference }: {
         {tab === 'board' && <FreightBoard openParcel={number => { setTracking(number); setTab('warehouse'); }} />}
         {tab === 'dashboard' && (
           <>
-            {!pin && <div className="mx-auto max-w-5xl px-4 pt-4"><CollectorInvites api={apiPin} /></div>}
+            {!pin && <div className="mx-auto max-w-5xl px-4 pt-4"><CollectorInvites api={apiPin} review={reviewAccess} onPending={setPendingApprovals} /></div>}
             {!pin && <div className="mx-auto max-w-5xl px-4 pt-4"><CargoStaff api={operationsApi} /></div>}
             <DashboardTab apiPin={apiPin} />
           </>
@@ -527,9 +544,9 @@ function WarehouseTab({ apiPin, tracking }: { tracking: string; apiPin: <T,>(p: 
 
   return (
     <div className="p-4 max-w-md mx-auto space-y-4">
-      <button disabled={busy || loading} onClick={() => setScanning(true)} className="w-full h-16 rounded-2xl bg-emerald-600 text-white font-extrabold text-lg inline-flex items-center justify-center gap-2"><Camera className="w-6 h-6" /> Scan parcel QR</button>
+      <button disabled={busy || loading} onClick={() => setScanning(true)} className="w-full h-16 rounded-2xl bg-emerald-600 text-white font-extrabold text-lg inline-flex items-center justify-center gap-2"><Camera className="w-6 h-6" /> Scan QR or carton code</button>
       <div className="flex gap-2">
-        <div className="relative flex-1"><Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={tn} onChange={(e) => setTn(e.target.value.toUpperCase())} onKeyDown={(e) => { if (e.key === 'Enter' && !busy && !loading) load(tn); }} placeholder="or type CTZ-..." className="w-full h-11 pl-9 pr-3 rounded-xl border border-slate-200 text-sm font-mono" /></div>
+        <div className="relative flex-1"><Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" /><input value={tn} onChange={(e) => setTn(e.target.value.toUpperCase())} onKeyDown={(e) => { if (e.key === 'Enter' && !busy && !loading) load(tn); }} placeholder="Type carton code" className="w-full h-11 pl-9 pr-3 rounded-xl border border-slate-200 text-sm font-mono" /></div>
         <button onClick={() => load(tn)} disabled={loading || busy} className="h-11 px-4 rounded-xl bg-slate-800 text-white text-sm font-bold">{loading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Load'}</button>
       </div>
       {error && <div className="text-sm text-rose-600 inline-flex items-center gap-1"><AlertCircle className="w-4 h-4" />{error}</div>}
@@ -636,14 +653,50 @@ function DashboardTab({ apiPin }: { apiPin: <T,>(p: string, i?: RequestInit) => 
 /* ── bits ── */
 function Scanner({ onClose, onResult }: { onClose: () => void; onResult: (raw: string) => void }) {
   const { videoRef, result, error, start, stop } = useQRScanner({ qrFallback: true });
+  const [photoMode, setPhotoMode] = useState(false);
+  const [code, setCode] = useState('');
+  const [photoError, setPhotoError] = useState('');
+  const [reading, setReading] = useState(false);
+  async function readCode(file?: File) {
+    if (!file) return;
+    setReading(true); setPhotoError(''); setCode('');
+    try {
+      const response = await uploadFile<{ text: string }>('/ocr/extract', file, { fieldName: 'image', extraFields: { lang: 'eng' } });
+      const found = trackingFromScan(response.text);
+      if (!found) setPhotoError('Could not read one valid carton code. Photograph one code in good light or type it below.');
+      setCode(found);
+    } catch {
+      setPhotoError('Could not read the photo. Try again or type the carton code below.');
+    } finally { setReading(false); }
+  }
   const fired = useRef(false);
-  useEffect(() => { start(); return () => stop(); }, [start, stop]);
-  useEffect(() => { if (result && !fired.current) { fired.current = true; onResult(result.rawValue); } }, [result, onResult]);
+  useEffect(() => { if (!photoMode) void start(); return () => stop(); }, [photoMode, start, stop]);
+  useEffect(() => { if (!photoMode && result && !fired.current) { fired.current = true; onResult(result.rawValue); } }, [photoMode, result, onResult]);
   return (
     <div className="fixed inset-0 z-50 bg-black flex flex-col">
-      <div className="flex items-center justify-between px-4 h-14 text-white"><span className="font-bold">Scan parcel QR</span><button onClick={onClose}><X className="w-6 h-6" /></button></div>
-      <div className="relative flex-1"><video ref={videoRef} className="w-full h-full object-cover" muted playsInline /><div className="absolute inset-x-10 top-1/2 -translate-y-1/2 aspect-square border-2 border-emerald-400/80 rounded-2xl pointer-events-none" /></div>
-      {error && <div className="p-3 text-xs text-rose-300 bg-black">{error} — type the tracking number instead.</div>}
+      <div className="flex items-center justify-between px-4 h-14 text-white"><span className="font-bold">Scan QR or carton code</span><button onClick={onClose}><X className="w-6 h-6" /></button></div>
+      <div className="flex gap-3 bg-white p-3 text-slate-900">
+        <button type="button" aria-pressed={!photoMode} className="rounded border px-3 py-2" onClick={() => setPhotoMode(false)}>Scan QR</button>
+        <button type="button" aria-pressed={photoMode} className="rounded border px-3 py-2" onClick={() => setPhotoMode(true)}>Read written code</button>
+      </div>
+      {photoMode ? <form className="space-y-3 bg-white p-4 text-slate-900" onSubmit={event => {
+        event.preventDefault();
+        const found = trackingFromScan(code);
+        if (found) onResult(found);
+        else setPhotoError('Check the carton code and try again.');
+      }}>
+        <label className="block font-bold">Photograph one carton code
+          <input type="file" accept="image/*" capture="environment" className="mt-2 block w-full text-sm" disabled={reading} onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; void readCode(file); }} />
+        </label>
+        <label className="block text-sm">Check the code against the carton
+          <input className="mt-1 block w-full rounded border p-2 font-mono" value={code} onChange={event => setCode(event.target.value)} />
+        </label>
+        {photoError && <p role="alert" className="text-sm text-rose-700">{photoError}</p>}
+        <button type="submit" disabled={reading || !code.trim()} className="rounded border px-3 py-2 font-bold">{reading ? 'Reading photo…' : 'Use carton code'}</button>
+      </form> : <>
+        <div className="relative flex-1"><video ref={videoRef} className="h-full w-full object-cover" muted playsInline /><div className="absolute inset-x-10 top-1/2 -translate-y-1/2 aspect-square rounded-2xl border-2 border-emerald-400/80 pointer-events-none" /></div>
+        {error && <p className="p-3 text-xs text-rose-300">{error}</p>}
+      </>}
     </div>
   );
 }

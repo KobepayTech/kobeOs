@@ -70,6 +70,9 @@ export class CtzCollectorAccess extends OwnedEntity {
   @Column('uuid', { nullable: true })
   collectorId!: string | null;
 
+  @Column('timestamptz', { nullable: true })
+  approvedAt!: Date | null;
+
   @Column('timestamptz')
   expiresAt!: Date;
 
