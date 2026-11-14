@@ -17,7 +17,7 @@ export default defineConfig({
         // "Failed to fetch https://<slug>.kobeapptz.com/". API calls are excluded
         // so they still hit the network (and fall back via the app's offline queue).
         navigateFallback: 'index.html',
-        navigateFallbackDenylist: [/^\/api\//],
+        navigateFallbackDenylist: [/^\/(?:api|oauth)\//],
         cleanupOutdatedCaches: true,
         runtimeCaching: [{ urlPattern: /\/api\/(?:health|system\/health)(?:[/?]|$)/, handler: 'NetworkOnly' }, { urlPattern: /^https:\/\/api\./, handler: 'NetworkFirst', options: { cacheName: 'api-cache' } }]
       },

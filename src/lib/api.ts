@@ -197,6 +197,9 @@ function migrateLegacyRefreshToken(): string | null {
 
 function isElectronRenderer(): boolean {
   if (typeof window === 'undefined') return false;
+  // Hosted OAuth callbacks run in an Electron child window, but must use
+  // the hosted API. The user agent and preload can both be shared with it.
+  if (window.location.protocol === 'https:') return false;
   // The preload bridge is the preferred signal, but a packaged Electron
   // window can briefly render before the bridge has finished exposing
   // `kobeOS`.  `file:` and Electron's user agent are stable fallbacks; without

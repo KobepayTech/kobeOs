@@ -47,6 +47,7 @@ jobs:
         env:
           VITE_API_BASE: https://api.kobeapptz.com/api
           VITE_ACCOUNT_API_BASE: https://api.kobeapptz.com/api
+          VITE_PUBLIC_ASSET_BASE: /
           VITE_TENANT_BASE_DOMAIN: kobeapptz.com
         run: |
           npm run build
